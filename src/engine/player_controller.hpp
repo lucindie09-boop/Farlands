@@ -32,7 +32,7 @@ public:
     static constexpr float VERTICAL_DRAG = 0.98f;
     static constexpr float AIR_FRICTION = 0.91f;
     static constexpr float DEFAULT_SLIPPERINESS = 0.6f;
-    static constexpr float GROUND_ACCEL = 0.1f;
+    static constexpr float GROUND_ACCEL = 0.098f;
     static constexpr float AIR_ACCEL = 0.02f;
     static constexpr float JUMP_VELOCITY = 0.42f;
     static constexpr float SPRINT_JUMP_BOOST = 0.2f;

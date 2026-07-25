@@ -164,4 +164,9 @@ bool CollisionResolver::is_aabb_solid(const AABB& aabb) const {
     return is_aabb_solid_fast(aabb);
 }
 
+bool CollisionResolver::is_solid_at(int32_t wx, int32_t wy, int32_t wz) const {
+    if (!chunk_map_) return false;
+    return chunk_map_->is_block_solid(wx, wy, wz);
+}
+
 } // namespace VoxelEngine

@@ -27,6 +27,7 @@ public:
                             float step_height = 0.0f) const;
     bool is_aabb_solid(const godot::AABB& aabb) const;
     bool is_aabb_solid_fast(const godot::AABB& aabb) const;
+    bool is_solid_at(int32_t wx, int32_t wy, int32_t wz) const;
 
 private:
     ChunkMap* chunk_map_;

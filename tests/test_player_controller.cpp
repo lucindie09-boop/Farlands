@@ -99,6 +99,47 @@ TEST_CASE("Player sneak steady state") {
     CHECK(speed < 0.068f);
 }
 
+TEST_CASE("Player sneak edge-guard prevents falling off") {
+    ChunkMap cm;
+    BlockRegistry::get_instance().initialize_default_blocks();
+    // Create floor only in chunks cx=-1 and cx=0 (NOT cx=1).
+    // Chunk cx=0 covers world x=0..31. No chunk at cx=1 means cliff at x=32.
+    for (int cx = -1; cx <= 0; ++cx) {
+        for (int cz = -1; cz <= 1; ++cz) {
+            auto d = std::make_unique<ChunkData>();
+            for (int x = 0; x < 32; ++x)
+                for (int z = 0; z < 32; ++z)
+                    d->set_block(x, 0, z, BlockIDs::STONE);
+            cm.insert(cm.get_chunk_key(cx, 0, cz), make_test_chunk(std::move(d)));
+        }
+    }
+    CollisionResolver cr(&cm);
+
+    // Place player near the cliff edge (chunk boundary at world x=32)
+    PlayerSim pc;
+    pc.reset(Vector3(30.5f, 1.0f, 0.5f));
+
+    // Settle on floor
+    PlayerInput idle;
+    for (int i = 0; i < 5; ++i) {
+        pc.accumulate_and_tick(1.0 / 20.0, idle, cr);
+    }
+    CHECK(pc.is_on_floor());
+
+    // Sneak toward the +X cliff — edge-guard should stop us before x=32
+    PlayerInput sneak_forward;
+    sneak_forward.wish_direction = Vector3(1.0f, 0.0f, 0.0f);
+    sneak_forward.sneak_held = true;
+
+    for (int i = 0; i < 100; ++i) {
+        pc.accumulate_and_tick(1.0 / 20.0, sneak_forward, cr);
+    }
+
+    // Player should NOT have walked off the cliff
+    CHECK(pc.get_position().x < 32.0f);
+    CHECK(pc.is_on_floor());
+}
+
 TEST_CASE("Player jump height") {
     ChunkMap cm;
     fill_flat_floor(cm);

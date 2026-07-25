@@ -65,7 +65,12 @@ CollisionResolver::CollisionResult CollisionResolver::resolve(
     const Vector3& size,
     float step_height
 ) const {
-    Vector3 result = position;
+    // `position` is Minecraft-style: X/Z at the CENTER of the footprint,
+    // Y at the feet (min corner). Godot's AABB(origin, size) wants a min-corner
+    // origin, so shift into "corner space" for the sweep/step math below,
+    // then shift back out before returning.
+    const Vector3 half_xz(size.x * 0.5f, 0.0f, size.z * 0.5f);
+    Vector3 result = position - half_xz;
     CollisionResult out;
 
     auto lock = chunk_map_->lock_all();
@@ -126,7 +131,7 @@ CollisionResolver::CollisionResult CollisionResolver::resolve(
                     resolve_axis(stepped_result, Vector3(0.0f, -step_height, 0.0f), size, 1,
                                  settle_result, settled, is_solid);
 
-                    out.position = settle_result;
+                    out.position = settle_result + half_xz;
                     out.collided_x = sx;
                     out.collided_z = sz;
                     out.stepped_up = true;
@@ -139,7 +144,7 @@ CollisionResolver::CollisionResult CollisionResolver::resolve(
         }
     }
 
-    out.position = result;
+    out.position = result + half_xz;
     return out;
 }
 

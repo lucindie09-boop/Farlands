@@ -148,7 +148,17 @@ void PlayerSim::tick(const PlayerInput& input, CollisionResolver& cr, float step
     // --- Collision resolution ---
     Vector3 size = (state_ == MoveState::SNEAKING) ? SNEAKING_SIZE : STANDING_SIZE;
     // velocity_ IS the per-tick motion vector — no TICK_DT multiplication
-    auto result = cr.resolve(position_, velocity_, size, step_height);
+
+    // Step-up must never engage while airborne. Gate on "grounded before this
+    // tick's motion" AND "not currently launching upward" (a jump above sets
+    // velocity_.y = JUMP_VELOCITY > 0). Passing 0.0f here disables the whole
+    // step-up branch for this tick — we don't rely on resolve()'s post-move
+    // on_floor probe to reject it after the fact, since that only works today
+    // because every block is a uniform full cube.
+    bool step_up_eligible = on_floor_ && velocity_.y <= 0.0f;
+    float effective_step_height = step_up_eligible ? step_height : 0.0f;
+
+    auto result = cr.resolve(position_, velocity_, size, effective_step_height);
     position_ = result.position;
 
     if (result.collided_x) velocity_.x = 0.0f;

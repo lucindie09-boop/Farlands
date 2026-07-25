@@ -72,15 +72,16 @@ int AmbientOcclusion::vertex_level(const ChunkNeighborAccessor& accessor,
 void AmbientOcclusion::compute_face(const ChunkNeighborAccessor& accessor,
                                     int32_t x, int32_t y, int32_t z,
                                     FaceDirection direction,
-                                    float ao_out[4]) const {
+                                    float ao_out[4],
+                                    int32_t stride) const {
     BlockID current_block = accessor.center->get_block(x, y, z);
     const BlockType& current_type = BlockRegistry::get_instance().get_block(current_block);
     bool is_lowered = current_type.top_face_offset > 0.0f;
 
     switch (direction) {
         case FaceDirection::Top: {
-            static constexpr int dx[4] = {-1,  1,  1, -1};
-            static constexpr int dz[4] = {-1, -1,  1,  1};
+            const int dx[4] = {-stride,  stride,  stride, -stride};
+            const int dz[4] = {-stride, -stride,  stride,  stride};
             for (int i = 0; i < 4; i++) {
                 ao_out[i] = level_to_brightness(vertex_level(
                     accessor,
@@ -91,8 +92,8 @@ void AmbientOcclusion::compute_face(const ChunkNeighborAccessor& accessor,
             break;
         }
         case FaceDirection::Bottom: {
-            static constexpr int dx[4] = {-1,  1,  1, -1};
-            static constexpr int dz[4] = {-1, -1,  1,  1};
+            const int dx[4] = {-stride,  stride,  stride, -stride};
+            const int dz[4] = {-stride, -stride,  stride,  stride};
             for (int i = 0; i < 4; i++) {
                 ao_out[i] = level_to_brightness(vertex_level(
                     accessor,
@@ -103,10 +104,10 @@ void AmbientOcclusion::compute_face(const ChunkNeighborAccessor& accessor,
             break;
         }
         case FaceDirection::Right: {
-            static constexpr int dy[4] = {-1, -1,  1,  1};
-            static constexpr int dz[4] = {-1,  1,  1, -1};
+            const int dy[4] = {-stride, -stride,  stride,  stride};
+            const int dz[4] = {-stride,  stride,  stride, -stride};
             for (int i = 0; i < 4; i++) {
-                if (is_lowered && dy[i] == 1) {
+                if (is_lowered && dy[i] > 0) {
                     int ao_y   = vertex_level(accessor, x + 1, y + dy[i],     z,   x + 1, y,         z + dz[i], x + 1, y + dy[i],     z + dz[i]);
                     int ao_yp1 = vertex_level(accessor, x + 1, y + dy[i] + 1, z,   x + 1, y + 1,     z + dz[i], x + 1, y + dy[i] + 1, z + dz[i]);
                     ao_out[i] = level_to_brightness(std::max(ao_y, ao_yp1));
@@ -118,10 +119,10 @@ void AmbientOcclusion::compute_face(const ChunkNeighborAccessor& accessor,
             break;
         }
         case FaceDirection::Left: {
-            static constexpr int dy[4] = {-1, -1,  1,  1};
-            static constexpr int dz[4] = { 1, -1, -1,  1};
+            const int dy[4] = {-stride, -stride,  stride,  stride};
+            const int dz[4] = { stride, -stride, -stride,  stride};
             for (int i = 0; i < 4; i++) {
-                if (is_lowered && dy[i] == 1) {
+                if (is_lowered && dy[i] > 0) {
                     int ao_y   = vertex_level(accessor, x - 1, y + dy[i],     z,   x - 1, y,         z + dz[i], x - 1, y + dy[i],     z + dz[i]);
                     int ao_yp1 = vertex_level(accessor, x - 1, y + dy[i] + 1, z,   x - 1, y + 1,     z + dz[i], x - 1, y + dy[i] + 1, z + dz[i]);
                     ao_out[i] = level_to_brightness(std::max(ao_y, ao_yp1));
@@ -133,10 +134,10 @@ void AmbientOcclusion::compute_face(const ChunkNeighborAccessor& accessor,
             break;
         }
         case FaceDirection::Front: {
-            static constexpr int dx[4] = { 1, -1, -1,  1};
-            static constexpr int dy[4] = {-1, -1,  1,  1};
+            const int dx[4] = { stride, -stride, -stride,  stride};
+            const int dy[4] = {-stride, -stride,  stride,  stride};
             for (int i = 0; i < 4; i++) {
-                if (is_lowered && dy[i] == 1) {
+                if (is_lowered && dy[i] > 0) {
                     int ao_y   = vertex_level(accessor, x + dx[i], y,         z + 1, x,         y + dy[i],     z + 1, x + dx[i], y + dy[i],     z + 1);
                     int ao_yp1 = vertex_level(accessor, x + dx[i], y + 1,     z + 1, x,         y + dy[i] + 1, z + 1, x + dx[i], y + dy[i] + 1, z + 1);
                     ao_out[i] = level_to_brightness(std::max(ao_y, ao_yp1));
@@ -148,10 +149,10 @@ void AmbientOcclusion::compute_face(const ChunkNeighborAccessor& accessor,
             break;
         }
         case FaceDirection::Back: {
-            static constexpr int dx[4] = {-1,  1,  1, -1};
-            static constexpr int dy[4] = {-1, -1,  1,  1};
+            const int dx[4] = {-stride,  stride,  stride, -stride};
+            const int dy[4] = {-stride, -stride,  stride,  stride};
             for (int i = 0; i < 4; i++) {
-                if (is_lowered && dy[i] == 1) {
+                if (is_lowered && dy[i] > 0) {
                     int ao_y   = vertex_level(accessor, x + dx[i], y,         z - 1, x,         y + dy[i],     z - 1, x + dx[i], y + dy[i],     z - 1);
                     int ao_yp1 = vertex_level(accessor, x + dx[i], y + 1,     z - 1, x,         y + dy[i] + 1, z - 1, x + dx[i], y + dy[i] + 1, z - 1);
                     ao_out[i] = level_to_brightness(std::max(ao_y, ao_yp1));
@@ -174,8 +175,9 @@ void AmbientOcclusion::compute_face(const ChunkNeighborAccessor& accessor,
 // -------------------------------------------------------------------------
 void AmbientOcclusion::compute_greedy_face(const ChunkNeighborAccessor& accessor,
                                              const Face& face,
-                                             float ao_out[4]) const {
-    compute_face(accessor, face.x, face.y, face.z, face.direction, ao_out);
+                                             float ao_out[4],
+                                             int32_t stride) const {
+    compute_face(accessor, face.x, face.y, face.z, face.direction, ao_out, stride);
 }
 
 // -------------------------------------------------------------------------

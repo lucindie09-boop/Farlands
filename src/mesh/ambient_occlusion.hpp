@@ -36,7 +36,8 @@ public:
     void compute_face(const ChunkNeighborAccessor& accessor,
                       int32_t x, int32_t y, int32_t z,
                       FaceDirection direction,
-                      float ao_out[4]) const;
+                      float ao_out[4],
+                      int32_t stride = 1) const;
 
     // -----------------------------------------------------------------
     // Greedy-merged face AO
@@ -47,7 +48,8 @@ public:
     // -----------------------------------------------------------------
     void compute_greedy_face(const ChunkNeighborAccessor& accessor,
                              const Face& face,
-                             float ao_out[4]) const;
+                             float ao_out[4],
+                             int32_t stride = 1) const;
 
     // -----------------------------------------------------------------
     // Combined helper: AO * face_shade * 255  (ready for Vertex::ao)

@@ -30,7 +30,7 @@ void MeshBuilder::add_face(const ChunkData& chunk, const ChunkNeighborAccessor& 
 
     float ao[4];
     if (!HasProperty(block_type.properties, BlockProperty::Liquid)) {
-        this->ao.compute_face(accessor, x, y, z, direction, ao);
+        this->ao.compute_face(accessor, x, y, z, direction, ao, stride_xz_);
     } else {
         ao[0] = ao[1] = ao[2] = ao[3] = 1.0f;
     }

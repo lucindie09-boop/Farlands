@@ -39,7 +39,6 @@ float PlayerSim::get_eye_height() const {
 
 void PlayerSim::accumulate_and_tick(double frame_delta, const PlayerInput& input,
                                            CollisionResolver& cr, float step_height) {
-    prev_position_ = position_;
     accumulator_ += static_cast<float>(frame_delta);
 
     // Safety cap: never run more than 4 ticks per frame to avoid spiral of death
@@ -55,6 +54,8 @@ void PlayerSim::accumulate_and_tick(double frame_delta, const PlayerInput& input
 }
 
 void PlayerSim::tick(const PlayerInput& input, CollisionResolver& cr, float step_height) {
+    prev_position_ = position_;   // snapshot for interpolation — once per tick, not per frame
+
     // --- Determine state and move multiplier ---
     bool sneaking = input.sneak_held && on_floor_;
     bool sprinting = input.sprint_held && on_floor_ && !sneaking;

@@ -61,10 +61,10 @@ void PlayerController::_process(double delta) {
         Vector3 input_dir;
         if (input) {
             Basis basis = get_basis();
-            if (input->is_action_pressed("move_forward")) input_dir -= basis[2];
-            if (input->is_action_pressed("move_back"))    input_dir += basis[2];
-            if (input->is_action_pressed("move_left"))    input_dir -= basis[0];
-            if (input->is_action_pressed("move_right"))   input_dir += basis[0];
+            if (input->is_action_pressed("move_forward")) input_dir -= basis.get_column(2);
+            if (input->is_action_pressed("move_back"))    input_dir += basis.get_column(2);
+            if (input->is_action_pressed("move_left"))    input_dir -= basis.get_column(0);
+            if (input->is_action_pressed("move_right"))   input_dir += basis.get_column(0);
             if (input->is_action_pressed("jump"))         input_dir += Vector3(0, 1, 0);
             if (input->is_action_pressed("sneak"))        input_dir += Vector3(0, -1, 0);
         }
@@ -81,10 +81,10 @@ void PlayerController::_process(double delta) {
     Input* input = Input::get_singleton();
     if (input) {
         Basis basis = get_basis();
-        if (input->is_action_pressed("move_forward")) pi.wish_direction -= basis[2];
-        if (input->is_action_pressed("move_back"))    pi.wish_direction += basis[2];
-        if (input->is_action_pressed("move_left"))    pi.wish_direction -= basis[0];
-        if (input->is_action_pressed("move_right"))   pi.wish_direction += basis[0];
+        if (input->is_action_pressed("move_forward")) pi.wish_direction -= basis.get_column(2);
+        if (input->is_action_pressed("move_back"))    pi.wish_direction += basis.get_column(2);
+        if (input->is_action_pressed("move_left"))    pi.wish_direction -= basis.get_column(0);
+        if (input->is_action_pressed("move_right"))   pi.wish_direction += basis.get_column(0);
         pi.wish_direction.y = 0.0f;
         if (pi.wish_direction.length_squared() > 0.001f) {
             pi.wish_direction = pi.wish_direction.normalized();

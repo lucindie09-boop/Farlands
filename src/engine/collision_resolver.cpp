@@ -95,22 +95,16 @@ CollisionResolver::CollisionResult CollisionResolver::resolve(
     floor_aabb.position.y -= 0.05f;
     out.on_floor = is_solid(floor_aabb);
 
-    // Step-up assist: if grounded and collided horizontally, try raising position
+    // Step-up assist: if grounded and collided horizontally, try raising position.
+    // Only accept the step if it actually lets the player travel further horizontally
+    // than not stepping — this correctly rejects full-block walls (step doesn't help)
+    // while allowing slabs, snow layers, etc. (step clears the obstruction).
     if (step_height > 0.0f && out.on_floor && (out.collided_x || out.collided_z)) {
-        // Sweep vertical gap: ensure no solid block between current Y and stepped Y
-        bool vertical_clear = true;
-        float step_top = result_after_y.y + step_height;
-        for (float check_y = result_after_y.y; check_y < step_top; check_y += 1.0f) {
-            AABB vert_check(result_after_y, size);
-            vert_check.position.y = check_y;
-            vert_check.size.y = 1.0f;
-            if (is_solid(vert_check)) {
-                vertical_clear = false;
-                break;
-            }
-        }
+        AABB headroom_check(result_after_y, size);
+        headroom_check.size.y = step_height;
+        bool headroom_clear = !is_solid(headroom_check);
 
-        if (vertical_clear) {
+        if (headroom_clear) {
             Vector3 stepped_pos = result_after_y;
             stepped_pos.y += step_height;
             Vector3 stepped_result = stepped_pos;
@@ -118,18 +112,29 @@ CollisionResolver::CollisionResult CollisionResolver::resolve(
             resolve_axis(result_after_y, motion, size, 0, stepped_result, sx, is_solid);
             resolve_axis(result_after_y, motion, size, 2, stepped_result, sz, is_solid);
 
-            // Ceiling check: does the player fit at the stepped position?
-            AABB player_at_stepped(stepped_result, size);
-            if (!is_solid(player_at_stepped)) {
-                out.position = stepped_result;
-                out.collided_x = sx;
-                out.collided_z = sz;
-                out.stepped_up = true;
-                // Re-check floor at stepped position
-                AABB stepped_floor(stepped_result, size);
-                stepped_floor.position.y -= 0.05f;
-                out.on_floor = is_solid(stepped_floor);
-                return out;
+            float unstepped_d2 = (result.x - result_after_y.x) * (result.x - result_after_y.x)
+                                + (result.z - result_after_y.z) * (result.z - result_after_y.z);
+            float stepped_d2 = (stepped_result.x - result_after_y.x) * (stepped_result.x - result_after_y.x)
+                              + (stepped_result.z - result_after_y.z) * (stepped_result.z - result_after_y.z);
+            bool made_progress = stepped_d2 > unstepped_d2 + 0.0001f;
+
+            if (made_progress) {
+                AABB player_at_stepped(stepped_result, size);
+                if (!is_solid(player_at_stepped)) {
+                    Vector3 settle_result = stepped_result;
+                    bool settled = false;
+                    resolve_axis(stepped_result, Vector3(0.0f, -step_height, 0.0f), size, 1,
+                                 settle_result, settled, is_solid);
+
+                    out.position = settle_result;
+                    out.collided_x = sx;
+                    out.collided_z = sz;
+                    out.stepped_up = true;
+                    AABB stepped_floor(settle_result, size);
+                    stepped_floor.position.y -= 0.05f;
+                    out.on_floor = is_solid(stepped_floor);
+                    return out;
+                }
             }
         }
     }

@@ -74,6 +74,7 @@ void PlayerSim::tick(const PlayerInput& input, CollisionResolver& cr, float step
     if (sneaking) move_multiplier = SNEAK_MULT;
     else if (sprinting) move_multiplier = SPRINT_MULT;
     else if (on_floor_) move_multiplier = WALK_MULT;
+    else move_multiplier = input.sprint_held ? SPRINT_MULT : WALK_MULT; // airborne air control
 
     // --- Drag (applied FIRST — velocity from previous tick is damped before new accel) ---
     // Vanilla order: Entity.move() applies ground friction to motionX/Z at the END of each tick,

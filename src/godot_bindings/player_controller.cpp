@@ -89,8 +89,8 @@ void PlayerController::_process(double delta) {
         if (pi.wish_direction.length_squared() > 0.001f) {
             pi.wish_direction = pi.wish_direction.normalized();
         }
-        pi.jump_pressed = input->is_action_just_pressed("jump");
-        if (pi.jump_pressed) sim_.queue_jump();
+        if (input->is_action_just_pressed("jump")) sim_.queue_jump();
+        pi.jump_pressed = input->is_action_pressed("jump");
         pi.sprint_held = input->is_action_pressed("sprint");
         pi.sneak_held = input->is_action_pressed("sneak");
         pi.yaw = get_rotation().y;

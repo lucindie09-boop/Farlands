@@ -54,9 +54,9 @@ TEST_CASE("Player walk steady state") {
 
     float speed = std::sqrt(pc.get_velocity().x * pc.get_velocity().x
                           + pc.get_velocity().z * pc.get_velocity().z);
-    // Walk steady-state: accel / (1 - friction) = 0.1 / 0.454 ≈ 0.2203 blocks/tick (4.4 blocks/s)
-    CHECK(speed > 0.20f);
-    CHECK(speed < 0.24f);
+    // Walk steady-state: 0.098 / 0.454 ≈ 0.2159 blocks/tick (4.317 blocks/s)
+    CHECK(speed > 0.213f);
+    CHECK(speed < 0.219f);
 }
 
 TEST_CASE("Player sprint steady state") {
@@ -74,9 +74,9 @@ TEST_CASE("Player sprint steady state") {
 
     float speed = std::sqrt(pc.get_velocity().x * pc.get_velocity().x
                           + pc.get_velocity().z * pc.get_velocity().z);
-    // Sprint steady-state: 0.13 / 0.454 ≈ 0.2863 blocks/tick (5.73 blocks/s)
-    CHECK(speed > 0.26f);
-    CHECK(speed < 0.31f);
+    // Sprint steady-state: 0.098 * 1.3 / 0.454 ≈ 0.2806 blocks/tick (5.612 blocks/s)
+    CHECK(speed > 0.278f);
+    CHECK(speed < 0.284f);
 }
 
 TEST_CASE("Player sneak steady state") {
@@ -94,9 +94,9 @@ TEST_CASE("Player sneak steady state") {
 
     float speed = std::sqrt(pc.get_velocity().x * pc.get_velocity().x
                           + pc.get_velocity().z * pc.get_velocity().z);
-    // Sneak steady-state: 0.03 / 0.454 ≈ 0.0661 blocks/tick (1.32 blocks/s)
-    CHECK(speed > 0.055f);
-    CHECK(speed < 0.075f);
+    // Sneak steady-state: 0.098 * 0.3 / 0.454 ≈ 0.0648 blocks/tick (1.295 blocks/s)
+    CHECK(speed > 0.062f);
+    CHECK(speed < 0.068f);
 }
 
 TEST_CASE("Player jump height") {

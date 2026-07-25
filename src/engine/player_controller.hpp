@@ -60,6 +60,8 @@ public:
     godot::Vector3 get_velocity() const { return velocity_; }
     godot::Vector3 get_position() const { return position_; }
 
+    void queue_jump() { jump_queued_ = true; }
+
 private:
     void tick(const PlayerInput& input, CollisionResolver& cr, float step_height);
 
@@ -68,6 +70,7 @@ private:
     godot::Vector3 velocity_;
     MoveState state_ = MoveState::AIRBORNE;
     bool on_floor_ = false;
+    bool jump_queued_ = false;
     float accumulator_ = 0.0f;
 };
 

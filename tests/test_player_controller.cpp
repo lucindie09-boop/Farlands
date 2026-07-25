@@ -282,3 +282,55 @@ TEST_CASE("Player reset teleport") {
     CHECK(render_pos.y == doctest::Approx(200.0f));
     CHECK(render_pos.z == doctest::Approx(300.0f));
 }
+
+TEST_CASE("Player jump latches across non-tick frames at 60fps") {
+    ChunkMap cm;
+    fill_flat_floor(cm);
+    CollisionResolver cr(&cm);
+
+    PlayerSim pc;
+    pc.reset(Vector3(0.5f, 1.0f, 0.5f));
+
+    // Settle on floor
+    PlayerInput idle;
+    for (int i = 0; i < 10; ++i) {
+        pc.accumulate_and_tick(1.0 / 20.0, idle, cr);
+    }
+    CHECK(pc.is_on_floor());
+
+    // Reset to a known accumulator state
+    pc.reset(Vector3(0.5f, 1.0f, 0.5f));
+    for (int i = 0; i < 10; ++i) {
+        pc.accumulate_and_tick(1.0 / 20.0, idle, cr);
+    }
+    CHECK(pc.is_on_floor());
+
+    // Simulate a 60fps frame where the jump arrives on a frame that does NOT
+    // cross a tick boundary. At 60fps each frame is ~16.67ms = 0.01667s.
+    // If the accumulator starts near 0, the first frame (0.01667) doesn't
+    // reach the 0.05 tick threshold — no tick fires.
+    //
+    // With the old code, is_action_just_pressed returns true for only that
+    // frame, so the tick that eventually fires never sees it. With the latch,
+    // queue_jump() persists until a tick consumes it.
+
+    // Feed a no-tick frame (accumulator starts near 0, 0.01667 < 0.05)
+    float leftover = pc.get_accumulator_fraction() * (1.0f / 20.0f);
+    // leftover should be small (< 0.05), so this frame won't tick
+    CHECK(leftover < 0.05f);
+
+    // Simulate the "jump frame" — queue jump but frame doesn't tick
+    PlayerInput jump_frame;
+    jump_frame.jump_pressed = true;
+    pc.queue_jump();  // latch it
+    pc.accumulate_and_tick(1.0 / 60.0, jump_frame, cr);
+
+    // Jump was queued but possibly not consumed yet — feed more frames until tick fires
+    PlayerInput no_input;
+    for (int i = 0; i < 5; ++i) {
+        pc.accumulate_and_tick(1.0 / 60.0, no_input, cr);
+    }
+
+    // Player should now be airborne — the jump was consumed by a tick
+    CHECK(pc.get_position().y > 1.0f);
+}

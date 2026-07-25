@@ -50,6 +50,8 @@ shared_sources = [
     "src/mesh/ambient_occlusion.cpp",
     "src/mesh/smooth_lighting.cpp",
     "src/lighting/block_light_region.cpp",
+    "src/engine/collision_resolver.cpp",
+    "src/engine/player_controller.cpp",
 ]
 shared_objects = env.Object(shared_sources)
 

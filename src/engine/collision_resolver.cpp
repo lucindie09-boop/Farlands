@@ -24,15 +24,13 @@ static void resolve_axis(const godot::Vector3& position,
 
     while (remaining > 0.001f) {
 
-float leading_edge = result[axis] + (direction > 0.0f ? size[axis] : 0.0f);
-float next_boundary = (direction > 0.0f) ? (std::floor(leading_edge) + 1.0f) : std::ceil(leading_edge);
-float dist = std::abs(next_boundary - leading_edge);
-if (dist < 0.001f) {
-dist = 1.0f;
-}
-float current_step
-=
-std::min(dist, remaining);
+        float leading_edge = result[axis] + (direction > 0.0f ? size[axis] : 0.0f);
+        float next_boundary = (direction > 0.0f) ? (std::floor(leading_edge) + 1.0f) : std::ceil(leading_edge);
+        float dist = std::abs(next_boundary - leading_edge);
+        if (dist < 0.001f) {
+            dist = 1.0f;
+        }
+        float current_step = std::min(dist, remaining);
         Vector3 test_pos = result;
         test_pos[axis] += direction * current_step;
         AABB test_aabb(test_pos, size);
@@ -64,28 +62,79 @@ std::min(dist, remaining);
 CollisionResolver::CollisionResult CollisionResolver::resolve(
     const Vector3& position,
     const Vector3& motion,
-    const Vector3& size
+    const Vector3& size,
+    float step_height
 ) const {
     Vector3 result = position;
     CollisionResult out;
 
     auto lock = chunk_map_->lock_all();
 
-    for (int axis = 0; axis < 3; ++axis) {
+    auto is_solid = [this](const AABB& aabb) { return is_aabb_solid_fast(aabb); };
+
+    // Vanilla axis order: Y first, then X, then Z
+    int axis_order[3] = {1, 0, 2};
+    Vector3 result_after_y;
+
+    for (int i = 0; i < 3; ++i) {
+        int axis = axis_order[i];
         bool collided = false;
-        resolve_axis(position, motion, size, axis, result, collided,
-            [this](const AABB& aabb) { return is_aabb_solid_fast(aabb); });
-        if (axis == 0) out.collided_x = collided;
-        else if (axis == 1) out.collided_y = collided;
-        else out.collided_z = collided;
+        resolve_axis(position, motion, size, axis, result, collided, is_solid);
+        if (axis == 1) {
+            out.collided_y = collided;
+            result_after_y = result;
+        } else if (axis == 0) {
+            out.collided_x = collided;
+        } else {
+            out.collided_z = collided;
+        }
+    }
+
+    // Floor probe: check a thin AABB just below the resolved position
+    AABB floor_aabb(result, size);
+    floor_aabb.position.y -= 0.05f;
+    out.on_floor = is_solid(floor_aabb);
+
+    // Step-up assist: if grounded and collided horizontally, try raising position
+    if (step_height > 0.0f && out.on_floor && (out.collided_x || out.collided_z)) {
+        // Sweep vertical gap: ensure no solid block between current Y and stepped Y
+        bool vertical_clear = true;
+        float step_top = result_after_y.y + step_height;
+        for (float check_y = result_after_y.y; check_y < step_top; check_y += 1.0f) {
+            AABB vert_check(result_after_y, size);
+            vert_check.position.y = check_y;
+            vert_check.size.y = 1.0f;
+            if (is_solid(vert_check)) {
+                vertical_clear = false;
+                break;
+            }
+        }
+
+        if (vertical_clear) {
+            Vector3 stepped_pos = result_after_y;
+            stepped_pos.y += step_height;
+            Vector3 stepped_result = stepped_pos;
+            bool sx = false, sz = false;
+            resolve_axis(result_after_y, motion, size, 0, stepped_result, sx, is_solid);
+            resolve_axis(result_after_y, motion, size, 2, stepped_result, sz, is_solid);
+
+            // Ceiling check: does the player fit at the stepped position?
+            AABB player_at_stepped(stepped_result, size);
+            if (!is_solid(player_at_stepped)) {
+                out.position = stepped_result;
+                out.collided_x = sx;
+                out.collided_z = sz;
+                out.stepped_up = true;
+                // Re-check floor at stepped position
+                AABB stepped_floor(stepped_result, size);
+                stepped_floor.position.y -= 0.05f;
+                out.on_floor = is_solid(stepped_floor);
+                return out;
+            }
+        }
     }
 
     out.position = result;
-
-    AABB floor_aabb(result, size);
-    floor_aabb.position.y -= 0.05f;
-    out.on_floor = is_aabb_solid_fast(floor_aabb);
-
     return out;
 }
 

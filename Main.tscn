@@ -1,11 +1,8 @@
 [gd_scene format=3 uid="uid://d0f2kff4camjn"]
 
-[ext_resource type="Script" uid="uid://njnux4jnnpxf" path="res://player.gd" id="1_glv2v"]
 [ext_resource type="Script" uid="uid://dgq4fssxi3fg3" path="res://fps_counter.gd" id="2_uu6xs"]
 [ext_resource type="Sky" uid="uid://dphoxdyf7wmx0" path="res://materials/sky.tres" id="3_sky"]
 [ext_resource type="Script" uid="uid://rqwoe0qfwptc" path="res://godrays_overlay.gd" id="4_godrays"]
-
-[sub_resource type="BoxShape3D" id="BoxShape3D_glv2v"]
 
 [sub_resource type="Environment" id="Environment_uu6xs"]
 background_mode = 2
@@ -31,12 +28,8 @@ fog_depth_end = 1024.0
 
 [node name="Main" type="Node3D" unique_id=294280302]
 
-[node name="Player" type="CharacterBody3D" parent="." unique_id=584275560]
+[node name="Player" type="PlayerController" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 280, 0)
-script = ExtResource("1_glv2v")
-
-[node name="CollisionShape3D" type="CollisionShape3D" parent="Player" unique_id=623630723]
-shape = SubResource("BoxShape3D_glv2v")
 
 [node name="Camera3D" type="Camera3D" parent="Player" unique_id=539519829]
 
@@ -66,3 +59,4 @@ smooth_lighting = true
 lod_distance = 6
 day_sky_color = Color(0.9999997, 0.8811681, 0.7633133, 1)
 fog_density = 0.1
+vegetation_enabled = false

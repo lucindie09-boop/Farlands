@@ -1,5 +1,6 @@
 #include "godot_bindings/register_types.hpp"
 #include "godot_bindings/chunk_manager.hpp"
+#include "godot_bindings/player_controller.hpp"
 #include "worldgen/texture_array_generator.hpp"
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/core/defs.hpp>
@@ -13,7 +14,8 @@ void initialize_chunk_module(ModuleInitializationLevel p_level) {
         return;
     }
     
-    ClassDB::register_class<ChunkManager>();
+    ClassDB::register_class<VoxelEngine::ChunkManager>();
+    ClassDB::register_class<::PlayerController>();
 }
 
 void terminate_chunk_module(ModuleInitializationLevel p_level) {

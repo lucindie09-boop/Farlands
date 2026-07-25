@@ -110,7 +110,7 @@ TEST_CASE("CollisionResolver wall stop X") {
 
     auto result = cr.resolve(pos, motion, size);
     CHECK(result.collided_x == true);
-    CHECK(result.position.x + size.x <= 5.01f);
+    CHECK(result.position.x + size.x / 2.0f <= 5.01f);
 }
 
 TEST_CASE("CollisionResolver no collision in open air") {

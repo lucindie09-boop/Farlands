@@ -102,24 +102,37 @@ void PlayerSim::tick(const PlayerInput& input, CollisionResolver& cr, float step
     velocity_.z += input.wish_direction.z * accel;
 
     // --- Sneak edge-guard: prevent walking off ledges ---
-    // Project the player center 0.2 blocks forward in the wish direction. Check if
-    // the single block directly below the projected feet position is solid.
-    // This avoids AABB false positives where the probe touches a solid block behind the edge.
+    // Each axis checked independently — only the component heading over the edge
+    // is zeroed, allowing sideways-along-cliff movement.
     if (sneaking && move_multiplier > 0.0f) {
-        float proj_x = position_.x + input.wish_direction.x * 0.2f;
-        float proj_z = position_.z + input.wish_direction.z * 0.2f;
-        int32_t block_x = static_cast<int32_t>(std::floor(proj_x));
-        int32_t block_y = static_cast<int32_t>(std::floor(position_.y)) - 1;
-        int32_t block_z = static_cast<int32_t>(std::floor(proj_z));
-        if (!cr.is_solid_at(block_x, block_y, block_z)) {
-            velocity_.x = 0.0f;
-            velocity_.z = 0.0f;
+        int32_t floor_y = static_cast<int32_t>(std::floor(position_.y)) - 1;
+
+        // Check X axis
+        if (std::abs(input.wish_direction.x) > 0.001f) {
+            float proj_x = position_.x + (input.wish_direction.x > 0 ? 0.2f : -0.2f);
+            int32_t bx = static_cast<int32_t>(std::floor(proj_x));
+            int32_t bz = static_cast<int32_t>(std::floor(position_.z));
+            if (!cr.is_solid_at(bx, floor_y, bz)) {
+                velocity_.x = 0.0f;
+            }
+        }
+
+        // Check Z axis
+        if (std::abs(input.wish_direction.z) > 0.001f) {
+            float proj_z = position_.z + (input.wish_direction.z > 0 ? 0.2f : -0.2f);
+            int32_t bz = static_cast<int32_t>(std::floor(proj_z));
+            int32_t bx = static_cast<int32_t>(std::floor(position_.x));
+            if (!cr.is_solid_at(bx, floor_y, bz)) {
+                velocity_.z = 0.0f;
+            }
         }
     }
 
     // --- Jump ---
-    if (input.jump_pressed && on_floor_) {
+    bool want_jump = jump_queued_ || input.jump_pressed;
+    if (want_jump && on_floor_) {
         velocity_.y = JUMP_VELOCITY;
+        jump_queued_ = false;
         // Sprint-jump horizontal boost
         if (sprinting) {
             float boost_x = -std::sin(input.yaw) * SPRINT_JUMP_BOOST;
@@ -127,6 +140,8 @@ void PlayerSim::tick(const PlayerInput& input, CollisionResolver& cr, float step
             velocity_.x += boost_x;
             velocity_.z += boost_z;
         }
+    } else {
+        jump_queued_ = false;  // consumed while not on floor — discard
     }
 
     // --- Collision resolution ---

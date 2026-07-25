@@ -14,6 +14,7 @@
 #include <mutex>
 #include <queue>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace VoxelEngine {
@@ -128,6 +129,7 @@ private:
     int32_t lod_distance = 0;
     float lod_detail_level = 0.5f;
     std::unordered_map<uint64_t, FarRegionRenderData> far_regions;
+    std::unordered_set<uint64_t> active_full_detail_chunks_;
     std::queue<CompletedRegionMesh> completed_far_region_meshes;
     mutable std::mutex completed_far_region_meshes_mutex;
     std::atomic<int32_t> completed_far_region_mesh_count{0};

@@ -949,6 +949,19 @@ void MeshManager::rebuild_rendering_server_mesh(int32_t chunk_x, int32_t chunk_y
     const float detail = compute_chunk_detail_level(chunk_x, chunk_y, chunk_z);
     render_data->last_built_detail_level = detail;
     uint64_t key = chunk_map->get_chunk_key(chunk_x, chunk_y, chunk_z);
+    if (detail >= 1.0f) {
+        if (lod_distance > 0 && last_player_chunk_x != INT32_MIN) {
+            int32_t dx = chunk_x - last_player_chunk_x;
+            int32_t dy = chunk_y - last_player_chunk_y;
+            int32_t dz = chunk_z - last_player_chunk_z;
+            int32_t dist = std::max({std::abs(dx), std::abs(dy), std::abs(dz)});
+            if (dist <= lod_distance + 2) {
+                active_full_detail_chunks_.insert(key);
+            }
+        }
+    } else {
+        active_full_detail_chunks_.erase(key);
+    }
     const bool high_priority = mesh_queue.erase_urgent(key);
 
     // Update last built versions
@@ -1100,6 +1113,27 @@ void MeshManager::reprioritize(int32_t player_cx, int32_t player_cy, int32_t pla
                 }
             }
         }
+    }
+
+    // Downgrade chunks that were built at full detail but are now beyond LOD threshold.
+    for (auto it = active_full_detail_chunks_.begin(); it != active_full_detail_chunks_.end() && queued < kMaxLodRemeshPerFrame;) {
+        uint64_t chunk_key = *it;
+        int32_t cx, cy, cz;
+        ChunkMap::decode_chunk_key(chunk_key, cx, cy, cz);
+        float target = compute_chunk_detail_level(cx, cy, cz);
+        if (target >= 1.0f) {
+            ++it;
+            continue;
+        }
+        ChunkRenderData* render_data = chunk_map->get_chunk_render_data(cx, cy, cz);
+        if (render_data && !render_data->is_mesh_dirty) {
+            render_data->is_mesh_dirty = true;
+            render_data->mesh_version++;
+            mark_far_region_dirty_for_chunk(cx, cy, cz);
+            queue_dirty_chunk(cx, cy, cz);
+            ++queued;
+        }
+        it = active_full_detail_chunks_.erase(it);
     }
 
     refresh_far_region_visibility();
@@ -1306,6 +1340,7 @@ void MeshManager::clear() {
         }
     }
     completed_far_region_mesh_count.store(0, std::memory_order_relaxed);
+    active_full_detail_chunks_.clear();
     far_regions_partial_missing_cache_last = 0;
     last_player_chunk_x = INT32_MIN;
     last_player_chunk_y = INT32_MIN;

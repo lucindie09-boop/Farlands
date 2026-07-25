@@ -96,7 +96,7 @@ float top_content_h = std::max(height_range.max_h, height_range.max_water_h);
     );
 }
 
-int32_t ChunkWorld::process_completed_chunks(uint64_t epoch, double budget_ms, int32_t max_installs, int32_t max_lighting, int32_t max_dirties, int32_t player_cx, int32_t player_cy, int32_t player_cz) {
+int32_t ChunkWorld::process_completed_chunks(uint64_t epoch, double budget_ms, int32_t max_installs, int32_t max_lighting, int32_t max_dirties, int32_t player_cx, int32_t player_cy, int32_t player_cz, int32_t render_distance) {
     // Fast path: skip the loop entirely if nothing is pending and the scheduler is empty.
     if (pending_chunk_lighting.empty() && pending_chunk_dirty_mesh.empty() && pending_chunk_installs.empty() &&
         chunk_scheduler.completed_chunk_count() == 0) {
@@ -394,6 +394,27 @@ light_propagator->try_fixup_chunk(key, completed.chunk_x, completed.chunk_y, com
             }
             if (mesh_manager) {
                 mesh_manager->queue_dirty_chunk(pos.x, pos.y, pos.z);
+            }
+        }
+    }
+
+    // Prune pending_block_placements for chunks beyond render distance.
+    // Cross-chunk vegetation writes to never-generated neighbor chunks
+    // would otherwise accumulate forever.
+    if (player_cx != INT32_MIN && player_cy != INT32_MIN && player_cz != INT32_MIN) {
+        const int32_t hrd_sq = (render_distance + 1) * (render_distance + 1);
+        const int32_t vertical_limit = 128;
+        std::lock_guard<std::mutex> lock(pending_placement_mutex);
+        for (auto it = pending_block_placements.begin(); it != pending_block_placements.end(); ) {
+            int32_t cx = 0, cy = 0, cz = 0;
+            ChunkMap::decode_chunk_key(it->first, cx, cy, cz);
+            const int32_t dx = cx - player_cx;
+            const int32_t dy = cy - player_cy;
+            const int32_t dz = cz - player_cz;
+            if (dx * dx + dz * dz > hrd_sq || std::abs(dy) > vertical_limit) {
+                it = pending_block_placements.erase(it);
+            } else {
+                ++it;
             }
         }
     }
@@ -763,6 +784,10 @@ save_chunk_to_disk(cx, cy, cz, render_data->data.get());
         }
     }
     light_propagated_chunks.erase(key);
+    {
+        std::lock_guard<std::mutex> lock(pending_placement_mutex);
+        pending_block_placements.erase(key);
+    }
     RenderingServer* rs = RenderingServer::get_singleton();
     if (render_data->instance_rid.is_valid()) {
         rs->free_rid(render_data->instance_rid);

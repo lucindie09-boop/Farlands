@@ -297,7 +297,8 @@ void WorldUpdater::process_mesh_budgets(bool is_editor, uint64_t epoch, uint64_t
             scaled_completion_budget,
             last_player_chunk_x,
             last_player_chunk_y,
-            last_player_chunk_z
+            last_player_chunk_z,
+            active_render_distance
         );
         chunks_processed_total += installed;
     }

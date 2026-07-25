@@ -128,3 +128,50 @@ TEST_CASE("CollisionResolver no collision in open air") {
     CHECK(result.position.z == doctest::Approx(pos.z + motion.z).epsilon(0.01f));
     CHECK(result.on_floor == false);
 }
+
+TEST_CASE("CollisionResolver step too tall") {
+    BlockRegistry::get_instance().initialize_default_blocks();
+    ChunkMap cm;
+    {
+        auto d = std::make_unique<ChunkData>();
+        // Create a 1-block step: solid at y=0, empty at y=1
+        d->set_block(0, 0, 0, BlockIDs::STONE);
+        cm.insert(cm.get_chunk_key(0, 0, 0), make_test_chunk(std::move(d)));
+    }
+    CollisionResolver cr(&cm);
+
+    // Approach from below with step_height=0 (disabled)
+    Vector3 pos(0.5f, 0.5f, 0.5f);
+    Vector3 motion(0.0f, 0.6f, 0.0f);  // Try to step up 0.6 blocks
+    Vector3 size(0.6f, 1.8f, 0.6f);
+
+    auto result = cr.resolve(pos, motion, size, 0.0f);
+    // With step_height=0, player should stop at the block edge
+    CHECK(result.on_floor == true);
+    CHECK(result.stepped_up == false);
+    CHECK(result.position.y <= 1.01f);  // Should not climb onto the block
+}
+
+TEST_CASE("CollisionResolver step within height") {
+    BlockRegistry::get_instance().initialize_default_blocks();
+    ChunkMap cm;
+    {
+        auto d = std::make_unique<ChunkData>();
+        // Synthetic fixture: no block in the current game produces a 0.6-tall obstruction
+        // (all blocks are full 1×1×1 cubes). Manually set a block at y=0, leave y=1 empty,
+        // and approach from a position where the horizontal AABB clips the block edge.
+        d->set_block(0, 0, 0, BlockIDs::STONE);
+        cm.insert(cm.get_chunk_key(0, 0, 0), make_test_chunk(std::move(d)));
+    }
+    CollisionResolver cr(&cm);
+
+    // Approach from a fractional Y that clips the block edge
+    Vector3 pos(0.5f, 0.4f, 0.5f);  // Feet at y=0.4, so horizontal motion clips the block at y=0
+    Vector3 motion(0.5f, 0.0f, 0.0f);  // Move horizontally into the block
+    Vector3 size(0.6f, 1.8f, 0.6f);
+
+    auto result = cr.resolve(pos, motion, size, 0.6f);
+    // With step_height=0.6, player should step up onto the block
+    CHECK(result.stepped_up == true);
+    CHECK(result.position.y >= 0.99f);  // Should be raised to top of block (y=1.0)
+}

@@ -213,6 +213,10 @@ Dictionary ChunkManager::resolve_voxel_collision(const godot::Vector3& position,
     return dict;
 }
 
+VoxelEngine::CollisionResolver* ChunkManager::get_collision_resolver() {
+    return &controller->get_collision_resolver();
+}
+
 void ChunkManager::set_smooth_lighting(bool enabled) { controller->set_smooth_lighting(enabled); }
 bool ChunkManager::get_smooth_lighting() const { return controller->get_smooth_lighting(); }
 

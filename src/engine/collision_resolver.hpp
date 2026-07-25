@@ -16,13 +16,15 @@ public:
         bool collided_y = false;
         bool collided_z = false;
         bool on_floor = false;
+        bool stepped_up = false;
     };
 
     explicit CollisionResolver(ChunkMap* cm) : chunk_map_(cm) {}
 
     CollisionResult resolve(const godot::Vector3& position,
                             const godot::Vector3& motion,
-                            const godot::Vector3& size) const;
+                            const godot::Vector3& size,
+                            float step_height = 0.0f) const;
     bool is_aabb_solid(const godot::AABB& aabb) const;
     bool is_aabb_solid_fast(const godot::AABB& aabb) const;
 

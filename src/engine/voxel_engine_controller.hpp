@@ -134,6 +134,7 @@ void toggle_day_night_cycle();
     const WorldUpdater& get_world_updater() const { return world_updater; }
     EnvironmentController& get_environment_controller() { return environment_controller; }
     BlockEditor& get_block_editor() { return block_editor; }
+    CollisionResolver& get_collision_resolver() { return collision_resolver; }
 
     static PerformanceTimer& get_perf_timer();
 

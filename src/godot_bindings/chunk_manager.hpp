@@ -21,6 +21,7 @@ class Node3D;
 
 namespace VoxelEngine {
 class VoxelEngineController;
+class CollisionResolver;
 }
 
 namespace VoxelEngine {
@@ -91,6 +92,8 @@ public:
     godot::String get_block_name(int block_id);
 
     godot::Dictionary resolve_voxel_collision(const godot::Vector3& position, const godot::Vector3& motion, const godot::Vector3& size);
+
+    VoxelEngine::CollisionResolver* get_collision_resolver();
 
 void set_smooth_lighting(bool enabled);
 bool get_smooth_lighting() const;

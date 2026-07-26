@@ -37,6 +37,7 @@ void PlayerController::set_fly_speed(float s) { fly_speed_ = s; }
 float PlayerController::get_fly_speed() const { return fly_speed_; }
 
 void PlayerController::_ready() {
+    g_engine_running = true;
     camera_ = get_node<Camera3D>("Camera3D");
     if (camera_) {
         camera_->set_position(Vector3(0, 1.62f, 0));

@@ -78,10 +78,9 @@ CollisionResolver::CollisionResult CollisionResolver::resolve(
 
     auto is_solid = [this](const AABB& aabb) { return is_aabb_solid_fast(aabb); };
 
-    // Vanilla axis order: Y first, then resolve whichever horizontal axis
-    // has the smaller motion magnitude first (matching vanilla's dynamic order).
+    // Vanilla: Y first, then whichever horizontal axis has the LARGER motion magnitude.
     int axis_order[3] = {1, 0, 2};
-    if (std::abs(motion.x) >= std::abs(motion.z)) {
+    if (std::abs(motion.x) < std::abs(motion.z)) {
         axis_order[1] = 2;
         axis_order[2] = 0;
     }

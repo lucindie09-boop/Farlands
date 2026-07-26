@@ -76,7 +76,15 @@ void PlayerSim::tick(const PlayerInput& input, CollisionResolver& cr, float step
     else if (on_floor_) move_multiplier = WALK_MULT;
     else move_multiplier = input.sprint_held ? SPRINT_MULT : WALK_MULT; // airborne air control
 
-    bool was_on_floor = on_floor_;
+    // --- Horizontal friction (applied to last tick's velocity, before this tick's accel) ---
+    if (on_floor_) {
+        float ground_friction = DEFAULT_SLIPPERINESS * 0.91f;
+        velocity_.x *= ground_friction;
+        velocity_.z *= ground_friction;
+    } else {
+        velocity_.x *= AIR_FRICTION;
+        velocity_.z *= AIR_FRICTION;
+    }
 
     // --- Horizontal acceleration ---
     // wish_direction is already camera-relative and XZ-normalized from the caller
@@ -172,15 +180,7 @@ void PlayerSim::tick(const PlayerInput& input, CollisionResolver& cr, float step
 
     on_floor_ = result.on_floor;
 
-    // --- Friction + gravity (applied AFTER move, matching vanilla tick order) ---
-    if (was_on_floor) {
-        float ground_friction = DEFAULT_SLIPPERINESS * 0.91f;
-        velocity_.x *= ground_friction;
-        velocity_.z *= ground_friction;
-    } else {
-        velocity_.x *= AIR_FRICTION;
-        velocity_.z *= AIR_FRICTION;
-    }
+    // --- Gravity + vertical drag (applied AFTER move, matching vanilla tick order) ---
     velocity_.y -= GRAVITY;
     velocity_.y *= VERTICAL_DRAG;
 }

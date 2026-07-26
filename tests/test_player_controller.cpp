@@ -55,9 +55,9 @@ TEST_CASE("Player walk steady state") {
 
     float speed = std::sqrt(pc.get_velocity().x * pc.get_velocity().x
                           + pc.get_velocity().z * pc.get_velocity().z);
-    // Walk steady-state: 0.1 * 1.0 * 0.546 / 0.454 ≈ 0.1203 blocks/tick
-    CHECK(speed > 0.118f);
-    CHECK(speed < 0.123f);
+    // Walk steady-state: 0.1 / 0.454 ≈ 0.2203 blocks/tick
+    CHECK(speed > 0.213f);
+    CHECK(speed < 0.225f);
 }
 
 TEST_CASE("Player sprint steady state") {
@@ -75,9 +75,9 @@ TEST_CASE("Player sprint steady state") {
 
     float speed = std::sqrt(pc.get_velocity().x * pc.get_velocity().x
                           + pc.get_velocity().z * pc.get_velocity().z);
-    // Sprint steady-state: 0.1 * 1.3 * 0.546 / 0.454 ≈ 0.1563 blocks/tick
-    CHECK(speed > 0.154f);
-    CHECK(speed < 0.159f);
+    // Sprint steady-state: 0.1 * 1.3 / 0.454 ≈ 0.2864 blocks/tick
+    CHECK(speed > 0.278f);
+    CHECK(speed < 0.294f);
 }
 
 TEST_CASE("Player sneak steady state") {
@@ -95,9 +95,9 @@ TEST_CASE("Player sneak steady state") {
 
     float speed = std::sqrt(pc.get_velocity().x * pc.get_velocity().x
                           + pc.get_velocity().z * pc.get_velocity().z);
-    // Sneak steady-state: 0.1 * 0.3 * 0.546 / 0.454 ≈ 0.0361 blocks/tick
-    CHECK(speed > 0.034f);
-    CHECK(speed < 0.038f);
+    // Sneak steady-state: 0.1 * 0.3 / 0.454 ≈ 0.0661 blocks/tick
+    CHECK(speed > 0.062f);
+    CHECK(speed < 0.070f);
 }
 
 TEST_CASE("Player sneak edge-guard prevents falling off") {
@@ -209,9 +209,9 @@ TEST_CASE("Player sprint-jump horizontal boost") {
     float pre_vx = pc.get_velocity().x;
     pc.accumulate_and_tick(1.0 / 20.0, sprint_jump, cr);
 
-    // Boost (+0.2) applied pre-friction, then ground friction (0.546) hits it once
-    // Post-friction velocity.z ≈ -(0.13 + 0.2) * 0.546 ≈ -0.18
-    CHECK(pc.get_velocity().z < -0.15f);
+    // Boost (+0.2) applied after friction and accel on the jump tick, no extra friction hit
+    // Post-jump velocity.z ≈ -(sprint_steady * friction + accel + boost) ≈ -0.486
+    CHECK(pc.get_velocity().z < -0.3f);
 }
 
 TEST_CASE("Player gravity application order") {

@@ -16,6 +16,8 @@ void PlayerSim::reset(const Vector3& initial_pos) {
     velocity_ = Vector3();
     state_ = MoveState::AIRBORNE;
     on_floor_ = false;
+    sprint_active_ = false;
+    prev_sprint_active_ = false;
     accumulator_ = 0.0f;
 }
 
@@ -56,13 +58,22 @@ void PlayerSim::accumulate_and_tick(double frame_delta, const PlayerInput& input
 void PlayerSim::tick(const PlayerInput& input, CollisionResolver& cr, float step_height) {
     prev_position_ = position_;   // snapshot for interpolation — once per tick, not per frame
 
-    // --- Determine state and move multiplier ---
+    // --- Sprint state machine (vanilla: sticky flag, one-tick stale for airborne) ---
+    prev_sprint_active_ = sprint_active_;
     bool sneaking = input.sneak_held && on_floor_;
-    bool sprinting = input.sprint_held && input.move_forward_held && on_floor_ && !sneaking;
+    if (sneaking) {
+        sprint_active_ = false;
+    } else if (input.sprint_held && input.move_forward_held && on_floor_) {
+        sprint_active_ = true;
+    } else if (!input.move_forward_held || !input.sprint_held) {
+        sprint_active_ = false;
+    }
 
+    // State and multiplier: airborne uses prev_sprint_active_ (one-tick stale)
+    bool effective_sprint = on_floor_ ? sprint_active_ : prev_sprint_active_;
     if (sneaking) {
         state_ = MoveState::SNEAKING;
-    } else if (sprinting) {
+    } else if (effective_sprint) {
         state_ = MoveState::SPRINTING;
     } else if (on_floor_) {
         state_ = MoveState::WALKING;
@@ -72,9 +83,9 @@ void PlayerSim::tick(const PlayerInput& input, CollisionResolver& cr, float step
 
     float move_multiplier = 0.0f;
     if (sneaking) move_multiplier = SNEAK_MULT;
-    else if (sprinting) move_multiplier = SPRINT_MULT;
+    else if (effective_sprint) move_multiplier = SPRINT_MULT;
     else if (on_floor_) move_multiplier = WALK_MULT;
-    else move_multiplier = input.sprint_held ? SPRINT_MULT : WALK_MULT; // airborne air control
+    else move_multiplier = prev_sprint_active_ ? SPRINT_MULT : WALK_MULT;
 
     // --- Slipperiness lookup ---
     float slipperiness = DEFAULT_SLIPPERINESS;
@@ -156,8 +167,8 @@ void PlayerSim::tick(const PlayerInput& input, CollisionResolver& cr, float step
     if (want_jump && on_floor_) {
         velocity_.y = JUMP_VELOCITY;
         jump_queued_ = false;
-        // Sprint-jump horizontal boost
-        if (sprinting) {
+        // Sprint-jump horizontal boost (uses current tick's sprint status)
+        if (sprint_active_) {
             float boost_x = -std::sin(input.yaw) * SPRINT_JUMP_BOOST;
             float boost_z = -std::cos(input.yaw) * SPRINT_JUMP_BOOST;
             velocity_.x += boost_x;
@@ -186,6 +197,9 @@ void PlayerSim::tick(const PlayerInput& input, CollisionResolver& cr, float step
     if (result.collided_x) velocity_.x = 0.0f;
     if (result.collided_y) velocity_.y = 0.0f;
     if (result.collided_z) velocity_.z = 0.0f;
+
+    // Sprint cancels on horizontal wall collision
+    if (result.collided_x || result.collided_z) sprint_active_ = false;
 
     on_floor_ = result.on_floor;
 

@@ -72,6 +72,8 @@ private:
     MoveState state_ = MoveState::AIRBORNE;
     bool on_floor_ = false;
     bool jump_queued_ = false;
+    bool sprint_active_ = false;
+    bool prev_sprint_active_ = false;
     float accumulator_ = 0.0f;
 };
 

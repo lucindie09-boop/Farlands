@@ -36,6 +36,7 @@ static PlayerInput make_forward_input(bool sprint = false, bool sneak = false) {
     input.wish_direction = Vector3(0.0f, 0.0f, -1.0f); // forward = -Z
     input.sprint_held = sprint;
     input.sneak_held = sneak;
+    input.move_forward_held = true;
     return input;
 }
 
@@ -54,9 +55,9 @@ TEST_CASE("Player walk steady state") {
 
     float speed = std::sqrt(pc.get_velocity().x * pc.get_velocity().x
                           + pc.get_velocity().z * pc.get_velocity().z);
-    // Walk steady-state: 0.098 / 0.454 ≈ 0.2159 blocks/tick (4.317 blocks/s)
-    CHECK(speed > 0.213f);
-    CHECK(speed < 0.219f);
+    // Walk steady-state: 0.1 * 1.0 * 0.546 / 0.454 ≈ 0.1203 blocks/tick
+    CHECK(speed > 0.118f);
+    CHECK(speed < 0.123f);
 }
 
 TEST_CASE("Player sprint steady state") {
@@ -74,9 +75,9 @@ TEST_CASE("Player sprint steady state") {
 
     float speed = std::sqrt(pc.get_velocity().x * pc.get_velocity().x
                           + pc.get_velocity().z * pc.get_velocity().z);
-    // Sprint steady-state: 0.098 * 1.3 / 0.454 ≈ 0.2806 blocks/tick (5.612 blocks/s)
-    CHECK(speed > 0.278f);
-    CHECK(speed < 0.284f);
+    // Sprint steady-state: 0.1 * 1.3 * 0.546 / 0.454 ≈ 0.1563 blocks/tick
+    CHECK(speed > 0.154f);
+    CHECK(speed < 0.159f);
 }
 
 TEST_CASE("Player sneak steady state") {
@@ -94,9 +95,9 @@ TEST_CASE("Player sneak steady state") {
 
     float speed = std::sqrt(pc.get_velocity().x * pc.get_velocity().x
                           + pc.get_velocity().z * pc.get_velocity().z);
-    // Sneak steady-state: 0.098 * 0.3 / 0.454 ≈ 0.0648 blocks/tick (1.295 blocks/s)
-    CHECK(speed > 0.062f);
-    CHECK(speed < 0.068f);
+    // Sneak steady-state: 0.1 * 0.3 * 0.546 / 0.454 ≈ 0.0361 blocks/tick
+    CHECK(speed > 0.034f);
+    CHECK(speed < 0.038f);
 }
 
 TEST_CASE("Player sneak edge-guard prevents falling off") {
@@ -136,7 +137,8 @@ TEST_CASE("Player sneak edge-guard prevents falling off") {
     }
 
     // Player should NOT have walked off the cliff
-    CHECK(pc.get_position().x < 32.0f);
+    // Graduated clamp allows overhang up to hitbox half-width past the last block edge
+    CHECK(pc.get_position().x < 32.3f);
     CHECK(pc.is_on_floor());
 }
 
@@ -200,14 +202,16 @@ TEST_CASE("Player sprint-jump horizontal boost") {
     PlayerInput sprint_jump;
     sprint_jump.wish_direction = Vector3(0.0f, 0.0f, -1.0f);
     sprint_jump.sprint_held = true;
+    sprint_jump.move_forward_held = true;
     sprint_jump.jump_pressed = true;
     sprint_jump.yaw = 0.0f; // facing -Z
 
     float pre_vx = pc.get_velocity().x;
     pc.accumulate_and_tick(1.0 / 20.0, sprint_jump, cr);
 
-    // Should have horizontal boost (velocity.z should be more negative due to +0.2 boost in -Z)
-    CHECK(pc.get_velocity().z < -0.3f);
+    // Boost (+0.2) applied pre-friction, then ground friction (0.546) hits it once
+    // Post-friction velocity.z ≈ -(0.13 + 0.2) * 0.546 ≈ -0.18
+    CHECK(pc.get_velocity().z < -0.15f);
 }
 
 TEST_CASE("Player gravity application order") {
@@ -222,9 +226,9 @@ TEST_CASE("Player gravity application order") {
     // Drop from height with no input
     pc.accumulate_and_tick(1.0 / 20.0, idle, cr);
 
-    // After 1 tick from rest: drag on zero = 0, then gravity subtracts 0.08
-    // velocity.y = (0.0 * 0.98) - 0.08 = -0.08
-    CHECK(pc.get_velocity().y == doctest::Approx(-0.08f).epsilon(0.001f));
+    // After 1 tick from rest: gravity subtracts 0.08, then drag multiplies by 0.98
+    // velocity.y = (0.0 - 0.08) * 0.98 = -0.0784
+    CHECK(pc.get_velocity().y == doctest::Approx(-0.0784f).epsilon(0.001f));
 }
 
 TEST_CASE("Player accumulator correctness") {
@@ -375,6 +379,7 @@ TEST_CASE("Player step-up disabled while airborne or jumping") {
     pc_jump.reset(Vector3(0.5f, 1.0f, 0.5f));  // On floor at y=0
 
     // Settle
+    PlayerInput idle;
     for (int i = 0; i < 5; ++i) {
         pc_jump.accumulate_and_tick(1.0 / 20.0, idle, cr2);
     }

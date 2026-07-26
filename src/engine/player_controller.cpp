@@ -2,7 +2,6 @@
 #include "engine/collision_resolver.hpp"
 #include <cmath>
 #include <algorithm>
-#include <godot_cpp/variant/utility_functions.hpp>
 
 namespace VoxelEngine {
 
@@ -60,13 +59,6 @@ void PlayerSim::tick(const PlayerInput& input, CollisionResolver& cr, float step
     // --- Determine state and move multiplier ---
     bool sneaking = input.sneak_held && on_floor_;
     bool sprinting = input.sprint_held && input.move_forward_held && on_floor_ && !sneaking;
-
-    godot::UtilityFunctions::print(
-        godot::vformat("pos=(%.2f,%.2f,%.2f) vel=(%.3f,%.3f,%.3f) floor=%d sprint=%d yaw=%.2f wish=(%.3f,%.3f)",
-           position_.x, position_.y, position_.z,
-           velocity_.x, velocity_.y, velocity_.z,
-           (int)on_floor_, (int)sprinting, input.yaw,
-           input.wish_direction.x, input.wish_direction.z));
 
     if (sneaking) {
         state_ = MoveState::SNEAKING;
@@ -189,8 +181,8 @@ void PlayerSim::tick(const PlayerInput& input, CollisionResolver& cr, float step
         velocity_.x *= AIR_FRICTION;
         velocity_.z *= AIR_FRICTION;
     }
-    velocity_.y *= VERTICAL_DRAG;
     velocity_.y -= GRAVITY;
+    velocity_.y *= VERTICAL_DRAG;
 }
 
 } // namespace VoxelEngine

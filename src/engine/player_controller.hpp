@@ -6,6 +6,8 @@
 
 namespace VoxelEngine {
 
+extern bool g_engine_running;
+
 class CollisionResolver;
 
 enum class MoveState : uint8_t {

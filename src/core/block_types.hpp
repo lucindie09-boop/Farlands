@@ -62,6 +62,8 @@ struct BlockType {
     float top_face_offset = 0.0f;
     // If false, side faces are rendered even against same-type neighbours.
     bool cull_against_same = true;
+    // Vanilla slipperiness (0.6 = stone, 0.6 = dirt, 0.98 = ice, 0.98 = packed_ice, etc.)
+    float slipperiness = 0.6f;
 
     // Texture filename per face (populated by load_from_json, used by TextureArrayGenerator).
     // Placed last so existing aggregate initializers are unaffected.

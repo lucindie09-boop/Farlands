@@ -6,7 +6,8 @@
     "textures": ["", "", "", "", "", ""],
     "emissive_textures": ["", "", "", "", "", ""],
     "light": [0, 0, 0],
-    "top_face_offset": 0.0
+    "top_face_offset": 0.0,
+    "slipperiness": 0.6
   },
   {
     "name": "stone",
@@ -15,7 +16,8 @@
     "textures": ["stone", "stone", "stone", "stone", "stone", "stone"],
     "emissive_textures": ["", "", "", "", "", ""],
     "light": [0, 0, 0],
-    "top_face_offset": 0.0
+    "top_face_offset": 0.0,
+    "slipperiness": 0.6
   },
   {
     "name": "dirt",
@@ -24,7 +26,8 @@
     "textures": ["dirt", "dirt", "dirt", "dirt", "dirt", "dirt"],
     "emissive_textures": ["", "", "", "", "", ""],
     "light": [0, 0, 0],
-    "top_face_offset": 0.0
+    "top_face_offset": 0.0,
+    "slipperiness": 0.6
   },
   {
     "name": "grass",
@@ -33,7 +36,8 @@
     "textures": ["grass_side", "grass_side", "grass_top", "dirt", "grass_side", "grass_side"],
     "emissive_textures": ["", "", "", "", "", ""],
     "light": [0, 0, 0],
-    "top_face_offset": 0.0
+    "top_face_offset": 0.0,
+    "slipperiness": 0.6
   },
   {
     "name": "sand",
@@ -42,7 +46,8 @@
     "textures": ["sand", "sand", "sand", "sand", "sand", "sand"],
     "emissive_textures": ["", "", "", "", "", ""],
     "light": [0, 0, 0],
-    "top_face_offset": 0.0
+    "top_face_offset": 0.0,
+    "slipperiness": 0.6
   },
   {
     "name": "surface_water",
@@ -51,7 +56,8 @@
     "textures": ["water", "water", "water", "water", "water", "water"],
     "emissive_textures": ["", "", "", "", "", ""],
     "light": [0, 0, 0],
-    "top_face_offset": 0.12
+    "top_face_offset": 0.12,
+    "slipperiness": 0.6
   },
   {
     "name": "water",
@@ -60,7 +66,8 @@
     "textures": ["water", "water", "water", "water", "water", "water"],
     "emissive_textures": ["", "", "", "", "", ""],
     "light": [0, 0, 0],
-    "top_face_offset": 0.12
+    "top_face_offset": 0.12,
+    "slipperiness": 0.6
   },
   {
     "name": "wood",
@@ -69,7 +76,8 @@
     "textures": ["wood_side", "wood_side", "wood_top", "wood_top", "wood_side", "wood_side"],
     "emissive_textures": ["", "", "", "", "", ""],
     "light": [0, 0, 0],
-    "top_face_offset": 0.0
+    "top_face_offset": 0.0,
+    "slipperiness": 0.6
   },
   {
     "name": "leaves",
@@ -78,7 +86,8 @@
     "textures": ["leaves", "leaves", "leaves", "leaves", "leaves", "leaves"],
     "emissive_textures": ["", "", "", "", "", ""],
     "light": [0, 0, 0],
-    "top_face_offset": 0.0
+    "top_face_offset": 0.0,
+    "slipperiness": 0.6
   },
   {
     "name": "bedrock",
@@ -87,7 +96,8 @@
     "textures": ["bedrock", "bedrock", "bedrock", "bedrock", "bedrock", "bedrock"],
     "emissive_textures": ["", "", "", "", "", ""],
     "light": [0, 0, 0],
-    "top_face_offset": 0.0
+    "top_face_offset": 0.0,
+    "slipperiness": 0.6
   },
   {
     "name": "mud",
@@ -96,7 +106,8 @@
     "textures": ["mud", "mud", "mud", "mud", "mud", "mud"],
     "emissive_textures": ["", "", "", "", "", ""],
     "light": [0, 0, 0],
-    "top_face_offset": 0.0625
+    "top_face_offset": 0.0625,
+    "slipperiness": 0.6
   },
   {
     "name": "wet_sand",
@@ -105,7 +116,8 @@
     "textures": ["wet_sand", "wet_sand", "wet_sand", "wet_sand", "wet_sand", "wet_sand"],
     "emissive_textures": ["", "", "", "", "", ""],
     "light": [0, 0, 0],
-    "top_face_offset": 0.0625
+    "top_face_offset": 0.0625,
+    "slipperiness": 0.6
   },
   {
     "name": "mud_full",
@@ -114,7 +126,8 @@
     "textures": ["mud", "mud", "mud", "mud", "mud", "mud"],
     "emissive_textures": ["", "", "", "", "", ""],
     "light": [0, 0, 0],
-    "top_face_offset": 0.0
+    "top_face_offset": 0.0,
+    "slipperiness": 0.6
   },
   {
     "name": "wet_sand_full",
@@ -123,7 +136,8 @@
     "textures": ["wet_sand", "wet_sand", "wet_sand", "wet_sand", "wet_sand", "wet_sand"],
     "emissive_textures": ["", "", "", "", "", ""],
     "light": [0, 0, 0],
-    "top_face_offset": 0.0
+    "top_face_offset": 0.0,
+    "slipperiness": 0.6
   },
   {
     "name": "light_block",
@@ -132,7 +146,8 @@
     "textures": ["light_block", "light_block", "light_block", "light_block", "light_block", "light_block"],
     "emissive_textures": ["light_block_emit", "light_block_emit", "light_block_emit", "light_block_emit", "light_block_emit", "light_block_emit"],
     "light": [15, 15, 15],
-    "top_face_offset": 0.0
+    "top_face_offset": 0.0,
+    "slipperiness": 0.6
   },
   {
     "name": "light_red",
@@ -141,7 +156,8 @@
     "textures": ["light_red", "light_red", "light_red", "light_red", "light_red", "light_red"],
     "emissive_textures": ["light_red_emit", "light_red_emit", "light_red_emit", "light_red_emit", "light_red_emit", "light_red_emit"],
     "light": [15, 0, 0],
-    "top_face_offset": 0.0
+    "top_face_offset": 0.0,
+    "slipperiness": 0.6
   },
   {
     "name": "light_green",
@@ -150,7 +166,8 @@
     "textures": ["light_green", "light_green", "light_green", "light_green", "light_green", "light_green"],
     "emissive_textures": ["light_green_emit", "light_green_emit", "light_green_emit", "light_green_emit", "light_green_emit", "light_green_emit"],
     "light": [0, 15, 0],
-    "top_face_offset": 0.0
+    "top_face_offset": 0.0,
+    "slipperiness": 0.6
   },
   {
     "name": "light_blue",
@@ -159,7 +176,8 @@
     "textures": ["light_blue", "light_blue", "light_blue", "light_blue", "light_blue", "light_blue"],
     "emissive_textures": ["light_blue_emit", "light_blue_emit", "light_blue_emit", "light_blue_emit", "light_blue_emit", "light_blue_emit"],
     "light": [0, 0, 15],
-    "top_face_offset": 0.0
+    "top_face_offset": 0.0,
+    "slipperiness": 0.6
   },
   {
     "name": "snow",
@@ -168,7 +186,8 @@
     "textures": ["snow", "snow", "snow", "snow", "snow", "snow"],
     "emissive_textures": ["", "", "", "", "", ""],
     "light": [0, 0, 0],
-    "top_face_offset": 0.0
+    "top_face_offset": 0.0,
+    "slipperiness": 0.6
   },
   {
     "name": "gravel",
@@ -177,7 +196,8 @@
     "textures": ["gravel", "gravel", "gravel", "gravel", "gravel", "gravel"],
     "emissive_textures": ["", "", "", "", "", ""],
     "light": [0, 0, 0],
-    "top_face_offset": 0.0
+    "top_face_offset": 0.0,
+    "slipperiness": 0.6
   },
   {
     "name": "cactus",
@@ -186,6 +206,7 @@
     "textures": ["cactus", "cactus", "cactus", "cactus", "cactus", "cactus"],
     "emissive_textures": ["", "", "", "", "", ""],
     "light": [0, 0, 0],
-    "top_face_offset": 0.0
+    "top_face_offset": 0.0,
+    "slipperiness": 0.6
   }
 ]

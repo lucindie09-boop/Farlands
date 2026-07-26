@@ -94,6 +94,11 @@ bool BlockRegistry::load_from_json(const godot::String& json_path) noexcept {
             bt.top_face_offset = static_cast<float>(static_cast<double>(d["top_face_offset"]));
         }
 
+        // slipperiness
+        if (d.has("slipperiness")) {
+            bt.slipperiness = static_cast<float>(static_cast<double>(d["slipperiness"]));
+        }
+
         register_block(bt);
     }
 

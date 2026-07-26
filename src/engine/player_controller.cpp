@@ -58,7 +58,7 @@ void PlayerSim::tick(const PlayerInput& input, CollisionResolver& cr, float step
 
     // --- Determine state and move multiplier ---
     bool sneaking = input.sneak_held && on_floor_;
-    bool sprinting = input.sprint_held && on_floor_ && !sneaking;
+    bool sprinting = input.sprint_held && input.move_forward_held && on_floor_ && !sneaking;
 
     if (sneaking) {
         state_ = MoveState::SNEAKING;
@@ -102,30 +102,46 @@ void PlayerSim::tick(const PlayerInput& input, CollisionResolver& cr, float step
     velocity_.x += input.wish_direction.x * accel;
     velocity_.z += input.wish_direction.z * accel;
 
-    // --- Sneak edge-guard: prevent walking off ledges ---
-    // Each axis checked independently — only the component heading over the edge
-    // is zeroed, allowing sideways-along-cliff movement.
+    // --- Sneak edge-guard: vanilla-style graduated clamp ---
+    // Instead of an all-or-nothing zero, shrink the intended step in small
+    // increments until the leading edge of the footprint still has floor
+    // beneath it, or we've reduced the step to zero. Independent per axis so
+    // sliding sideways along a cliff still works.
     if (sneaking && move_multiplier > 0.0f) {
         int32_t floor_y = static_cast<int32_t>(std::floor(position_.y)) - 1;
+        const float half_w = STANDING_SIZE.x * 0.5f;
+        const float epsilon = 0.001f;
+        const float step = 0.05f;
 
-        // Check X axis
-        if (std::abs(input.wish_direction.x) > 0.001f) {
-            float proj_x = position_.x + (input.wish_direction.x > 0 ? 0.2f : -0.2f);
-            int32_t bx = static_cast<int32_t>(std::floor(proj_x));
-            int32_t bz = static_cast<int32_t>(std::floor(position_.z));
-            if (!cr.is_solid_at(bx, floor_y, bz)) {
-                velocity_.x = 0.0f;
+        auto footing_ok = [&](float center_x, float center_z) {
+            int32_t bx_min = static_cast<int32_t>(std::floor(center_x - half_w + epsilon));
+            int32_t bx_max = static_cast<int32_t>(std::floor(center_x + half_w - epsilon));
+            int32_t bz_min = static_cast<int32_t>(std::floor(center_z - half_w + epsilon));
+            int32_t bz_max = static_cast<int32_t>(std::floor(center_z + half_w - epsilon));
+            for (int32_t bx = bx_min; bx <= bx_max; ++bx)
+                for (int32_t bz = bz_min; bz <= bz_max; ++bz)
+                    if (cr.is_solid_at(bx, floor_y, bz)) return true;
+            return false;
+        };
+
+        if (std::abs(velocity_.x) > epsilon) {
+            float remaining = velocity_.x;
+            while (std::abs(remaining) > epsilon &&
+                   !footing_ok(position_.x + remaining, position_.z)) {
+                remaining -= (remaining > 0.0f ? step : -step);
+                if ((remaining > 0.0f) != (velocity_.x > 0.0f)) { remaining = 0.0f; break; }
             }
+            velocity_.x = remaining;
         }
 
-        // Check Z axis
-        if (std::abs(input.wish_direction.z) > 0.001f) {
-            float proj_z = position_.z + (input.wish_direction.z > 0 ? 0.2f : -0.2f);
-            int32_t bz = static_cast<int32_t>(std::floor(proj_z));
-            int32_t bx = static_cast<int32_t>(std::floor(position_.x));
-            if (!cr.is_solid_at(bx, floor_y, bz)) {
-                velocity_.z = 0.0f;
+        if (std::abs(velocity_.z) > epsilon) {
+            float remaining = velocity_.z;
+            while (std::abs(remaining) > epsilon &&
+                   !footing_ok(position_.x, position_.z + remaining)) {
+                remaining -= (remaining > 0.0f ? step : -step);
+                if ((remaining > 0.0f) != (velocity_.z > 0.0f)) { remaining = 0.0f; break; }
             }
+            velocity_.z = remaining;
         }
     }
 

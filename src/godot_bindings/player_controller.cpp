@@ -81,6 +81,7 @@ void PlayerController::_process(double delta) {
     Input* input = Input::get_singleton();
     if (input) {
         Basis basis = get_basis();
+        pi.move_forward_held = input->is_action_pressed("move_forward");
         if (input->is_action_pressed("move_forward")) pi.wish_direction -= basis.get_column(2);
         if (input->is_action_pressed("move_back"))    pi.wish_direction += basis.get_column(2);
         if (input->is_action_pressed("move_left"))    pi.wish_direction -= basis.get_column(0);

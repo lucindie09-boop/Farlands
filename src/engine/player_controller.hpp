@@ -20,6 +20,7 @@ struct PlayerInput {
     bool jump_pressed = false;
     bool sprint_held = false;
     bool sneak_held = false;
+    bool move_forward_held = false;
     float yaw = 0.0f;  // facing angle for sprint-jump boost
 };
 

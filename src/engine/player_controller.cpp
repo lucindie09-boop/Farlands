@@ -100,7 +100,7 @@ void PlayerSim::tick(const PlayerInput& input, CollisionResolver& cr, float step
     float accel;
     if (on_floor_) {
         accel = GROUND_ACCEL * move_multiplier
-              * std::pow(slipperiness / DEFAULT_SLIPPERINESS, 3.0f);
+              * std::pow(DEFAULT_SLIPPERINESS / slipperiness, 3.0f);
     } else {
         accel = AIR_ACCEL * move_multiplier;
     }

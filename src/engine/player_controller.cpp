@@ -2,6 +2,7 @@
 #include "engine/collision_resolver.hpp"
 #include <cmath>
 #include <algorithm>
+#include <godot_cpp/variant/utility_functions.hpp>
 
 namespace VoxelEngine {
 
@@ -60,6 +61,13 @@ void PlayerSim::tick(const PlayerInput& input, CollisionResolver& cr, float step
     bool sneaking = input.sneak_held && on_floor_;
     bool sprinting = input.sprint_held && input.move_forward_held && on_floor_ && !sneaking;
 
+    godot::UtilityFunctions::print(
+        godot::vformat("pos=(%.2f,%.2f,%.2f) vel=(%.3f,%.3f,%.3f) floor=%d sprint=%d yaw=%.2f wish=(%.3f,%.3f)",
+           position_.x, position_.y, position_.z,
+           velocity_.x, velocity_.y, velocity_.z,
+           (int)on_floor_, (int)sprinting, input.yaw,
+           input.wish_direction.x, input.wish_direction.z));
+
     if (sneaking) {
         state_ = MoveState::SNEAKING;
     } else if (sprinting) {
@@ -76,18 +84,7 @@ void PlayerSim::tick(const PlayerInput& input, CollisionResolver& cr, float step
     else if (on_floor_) move_multiplier = WALK_MULT;
     else move_multiplier = input.sprint_held ? SPRINT_MULT : WALK_MULT; // airborne air control
 
-    // --- Drag (applied FIRST — velocity from previous tick is damped before new accel) ---
-    // Vanilla order: Entity.move() applies ground friction to motionX/Z at the END of each tick,
-    // so entering the next tick the velocity is already damped. We replicate this by dragging first.
-    velocity_.y *= VERTICAL_DRAG;
-    if (on_floor_) {
-        float ground_friction = DEFAULT_SLIPPERINESS * 0.91f;
-        velocity_.x *= ground_friction;
-        velocity_.z *= ground_friction;
-    } else {
-        velocity_.x *= AIR_FRICTION;
-        velocity_.z *= AIR_FRICTION;
-    }
+    bool was_on_floor = on_floor_;
 
     // --- Horizontal acceleration ---
     // wish_direction is already camera-relative and XZ-normalized from the caller
@@ -183,7 +180,16 @@ void PlayerSim::tick(const PlayerInput& input, CollisionResolver& cr, float step
 
     on_floor_ = result.on_floor;
 
-    // --- Gravity (applied AFTER move, like vanilla) ---
+    // --- Friction + gravity (applied AFTER move, matching vanilla tick order) ---
+    if (was_on_floor) {
+        float ground_friction = DEFAULT_SLIPPERINESS * 0.91f;
+        velocity_.x *= ground_friction;
+        velocity_.z *= ground_friction;
+    } else {
+        velocity_.x *= AIR_FRICTION;
+        velocity_.z *= AIR_FRICTION;
+    }
+    velocity_.y *= VERTICAL_DRAG;
     velocity_.y -= GRAVITY;
 }
 

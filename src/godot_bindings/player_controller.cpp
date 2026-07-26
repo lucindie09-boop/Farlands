@@ -88,7 +88,10 @@ void PlayerController::_process(double delta) {
         if (input->is_action_pressed("move_right"))   pi.wish_direction += basis.get_column(0);
         pi.wish_direction.y = 0.0f;
         if (pi.wish_direction.length_squared() > 0.001f) {
-            pi.wish_direction = pi.wish_direction.normalized();
+            pi.wish_direction *= 0.98f;
+            if (pi.wish_direction.length_squared() > 1.0f) {
+                pi.wish_direction = pi.wish_direction.normalized();
+            }
         }
         if (input->is_action_just_pressed("jump")) sim_.queue_jump();
         pi.jump_pressed = input->is_action_pressed("jump");

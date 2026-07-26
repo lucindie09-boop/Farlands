@@ -76,9 +76,18 @@ void PlayerSim::tick(const PlayerInput& input, CollisionResolver& cr, float step
     else if (on_floor_) move_multiplier = WALK_MULT;
     else move_multiplier = input.sprint_held ? SPRINT_MULT : WALK_MULT; // airborne air control
 
+    // --- Slipperiness lookup ---
+    float slipperiness = DEFAULT_SLIPPERINESS;
+    if (on_floor_) {
+        int32_t fx = static_cast<int32_t>(std::floor(position_.x));
+        int32_t fy = static_cast<int32_t>(std::floor(position_.y)) - 1;
+        int32_t fz = static_cast<int32_t>(std::floor(position_.z));
+        slipperiness = cr.get_slipperiness_at(fx, fy, fz);
+    }
+
     // --- Horizontal friction (applied to last tick's velocity, before this tick's accel) ---
     if (on_floor_) {
-        float ground_friction = DEFAULT_SLIPPERINESS * 0.91f;
+        float ground_friction = slipperiness * 0.91f;
         velocity_.x *= ground_friction;
         velocity_.z *= ground_friction;
     } else {
@@ -91,7 +100,7 @@ void PlayerSim::tick(const PlayerInput& input, CollisionResolver& cr, float step
     float accel;
     if (on_floor_) {
         accel = GROUND_ACCEL * move_multiplier
-              * std::pow(DEFAULT_SLIPPERINESS / DEFAULT_SLIPPERINESS, 3.0f); // slipperiness lookup deferred
+              * std::pow(slipperiness / DEFAULT_SLIPPERINESS, 3.0f);
     } else {
         accel = AIR_ACCEL * move_multiplier;
     }

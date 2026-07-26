@@ -1,5 +1,6 @@
 #include "engine/collision_resolver.hpp"
 #include "core/chunk_map.hpp"
+#include "core/block_types.hpp"
 #include <cmath>
 #include <algorithm>
 
@@ -77,8 +78,13 @@ CollisionResolver::CollisionResult CollisionResolver::resolve(
 
     auto is_solid = [this](const AABB& aabb) { return is_aabb_solid_fast(aabb); };
 
-    // Vanilla axis order: Y first, then X, then Z
+    // Vanilla axis order: Y first, then resolve whichever horizontal axis
+    // has the smaller motion magnitude first (matching vanilla's dynamic order).
     int axis_order[3] = {1, 0, 2};
+    if (std::abs(motion.x) >= std::abs(motion.z)) {
+        axis_order[1] = 2;
+        axis_order[2] = 0;
+    }
     Vector3 result_after_y;
 
     for (int i = 0; i < 3; ++i) {
@@ -177,6 +183,12 @@ bool CollisionResolver::is_aabb_solid(const AABB& aabb) const {
 bool CollisionResolver::is_solid_at(int32_t wx, int32_t wy, int32_t wz) const {
     if (!chunk_map_) return false;
     return chunk_map_->is_block_solid(wx, wy, wz);
+}
+
+float CollisionResolver::get_slipperiness_at(int32_t wx, int32_t wy, int32_t wz) const {
+    if (!chunk_map_) return 0.6f;
+    BlockID block = static_cast<BlockID>(chunk_map_->get_block_world(wx, wy, wz));
+    return BlockRegistry::get_instance().get_block(block).slipperiness;
 }
 
 } // namespace VoxelEngine

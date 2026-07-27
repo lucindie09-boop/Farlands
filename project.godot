@@ -16,6 +16,7 @@ compatibility/default_parent_skeleton_in_mesh_instance_3d=true
 
 config/name="fuk minecraft"
 run/main_scene="uid://d0f2kff4camjn"
+run/max_fps=60
 config/features=PackedStringArray("4.7", "Forward Plus")
 config/icon="res://icon.svg"
 
@@ -87,4 +88,3 @@ anti_aliasing/screen_space_roughness_limiter/enabled=false
 textures/default_filters/texture_mipmap_bias=0.5
 global_illumination/sdfgi/probe_ray_count=0
 global_illumination/sdfgi/frames_to_converge=0
-occlusion_culling/use_occlusion_culling=true

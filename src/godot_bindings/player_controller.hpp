@@ -48,6 +48,7 @@ private:
     float fly_speed_ = 10.0f;
     bool fly_mode_ = false;
     int selected_block_type_ = 3; // GRASS
+    float rendered_eye_height_ = 1.62f;
 };
 
 #endif // FUK_MINECRAFT_PLAYER_CONTROLLER_NODE_HPP

@@ -99,7 +99,22 @@ void PlayerSim::tick(const PlayerInput& input, CollisionResolver& cr, float step
         slipperiness = cr.get_slipperiness_at(fx, fy, fz);
     }
 
-    // --- Horizontal friction (applied to last tick's velocity, before this tick's accel) ---
+    // --- Jump (applied BEFORE friction, matching vanilla tickMovement() order) ---
+    bool want_jump = jump_queued_ || input.jump_pressed;
+    if (want_jump && on_floor_) {
+        velocity_.y = JUMP_VELOCITY;
+        jump_queued_ = false;
+        if (sprint_active_) {
+            float boost_x = -std::sin(input.yaw) * SPRINT_JUMP_BOOST;
+            float boost_z = -std::cos(input.yaw) * SPRINT_JUMP_BOOST;
+            velocity_.x += boost_x;
+            velocity_.z += boost_z;
+        }
+    } else {
+        jump_queued_ = false;  // consumed while not on floor — discard
+    }
+
+    // --- Horizontal friction (applied AFTER jump, matching vanilla travel() order) ---
     if (on_floor_) {
         float ground_friction = slipperiness * 0.91f;
         velocity_.x *= ground_friction;
@@ -163,22 +178,6 @@ void PlayerSim::tick(const PlayerInput& input, CollisionResolver& cr, float step
             }
             velocity_.z = remaining;
         }
-    }
-
-    // --- Jump ---
-    bool want_jump = jump_queued_ || input.jump_pressed;
-    if (want_jump && on_floor_) {
-        velocity_.y = JUMP_VELOCITY;
-        jump_queued_ = false;
-        // Sprint-jump horizontal boost (uses current tick's sprint status)
-        if (sprint_active_) {
-            float boost_x = -std::sin(input.yaw) * SPRINT_JUMP_BOOST;
-            float boost_z = -std::cos(input.yaw) * SPRINT_JUMP_BOOST;
-            velocity_.x += boost_x;
-            velocity_.z += boost_z;
-        }
-    } else {
-        jump_queued_ = false;  // consumed while not on floor — discard
     }
 
     // --- Collision resolution ---

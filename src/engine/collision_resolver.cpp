@@ -15,7 +15,8 @@ static void resolve_axis(const godot::Vector3& position,
                          int axis,
                          godot::Vector3& result,
                          bool& collided,
-                         Pred is_solid) {
+                         Pred is_solid,
+                         bool* swept_floor = nullptr) {
     if (motion[axis] == 0.0f) {
         collided = false;
         return;
@@ -34,6 +35,14 @@ static void resolve_axis(const godot::Vector3& position,
         float current_step = std::min(dist, remaining);
         Vector3 test_pos = result;
         test_pos[axis] += direction * current_step;
+
+        // Swept floor probe: at each intermediate position, check if we're above ground
+        if (swept_floor) {
+            AABB floor_probe(test_pos, size);
+            floor_probe.position.y -= 0.05f;
+            if (is_solid(floor_probe)) *swept_floor = true;
+        }
+
         AABB test_aabb(test_pos, size);
         if (is_solid(test_aabb)) {
             collided = true;
@@ -86,10 +95,13 @@ CollisionResolver::CollisionResult CollisionResolver::resolve(
     }
     Vector3 result_after_y;
 
+    bool swept_floor = false;
+
     for (int i = 0; i < 3; ++i) {
         int axis = axis_order[i];
         bool collided = false;
-        resolve_axis(position, motion, size, axis, result, collided, is_solid);
+        bool* floor_ptr = (axis == 1) ? &swept_floor : nullptr;
+        resolve_axis(position, motion, size, axis, result, collided, is_solid, floor_ptr);
         if (axis == 1) {
             out.collided_y = collided;
             result_after_y = result;
@@ -100,10 +112,10 @@ CollisionResolver::CollisionResult CollisionResolver::resolve(
         }
     }
 
-    // Floor probe: check a thin AABB just below the resolved position
+    // Floor probe: swept during Y-axis sub-steps, plus final position check
     AABB floor_aabb(result, size);
     floor_aabb.position.y -= 0.05f;
-    out.on_floor = is_solid(floor_aabb);
+    out.on_floor = swept_floor || is_solid(floor_aabb);
 
     // Step-up assist: if grounded and collided horizontally, try raising position.
     // Only accept the step if it actually lets the player travel further horizontally

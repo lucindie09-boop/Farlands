@@ -7,6 +7,7 @@
 #include <godot_cpp/classes/input_event_key.hpp>
 #include <godot_cpp/classes/input_event_mouse_motion.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
+#include <cmath>
 
 using namespace godot;
 using namespace VoxelEngine;
@@ -74,6 +75,7 @@ void PlayerController::_process(double delta) {
         pos += input_dir * fly_speed_ * static_cast<float>(delta);
         set_global_position(pos);
         sim_.reset(pos);
+        rendered_eye_height_ = 1.62f;
         if (camera_) camera_->set_position(Vector3(0, 1.62f, 0));
         return;
     }
@@ -103,8 +105,10 @@ void PlayerController::_process(double delta) {
     float partial = sim_.get_accumulator_fraction();
     set_global_position(sim_.get_render_position(partial));
     if (camera_) {
+        float target_eye = sim_.get_eye_height();
+        rendered_eye_height_ += (target_eye - rendered_eye_height_) * static_cast<float>(1.0 - std::pow(0.0001, delta));
         Vector3 cam_pos = camera_->get_position();
-        cam_pos.y = sim_.get_eye_height();
+        cam_pos.y = rendered_eye_height_;
         camera_->set_position(cam_pos);
     }
 }
@@ -165,6 +169,7 @@ void PlayerController::_input(const Ref<InputEvent>& p_event) {
 void PlayerController::toggle_fly_mode() {
     fly_mode_ = !fly_mode_;
     sim_.reset(get_global_position());
+    rendered_eye_height_ = 1.62f;
 }
 
 void PlayerController::break_block() {

@@ -85,10 +85,13 @@ void PlayerSim::tick(const PlayerInput& input, CollisionResolver& cr, float step
     }
 
     float move_multiplier = 0.0f;
-    if (sneaking) move_multiplier = SNEAK_MULT;
-    else if (effective_sprint) move_multiplier = SPRINT_MULT;
-    else if (on_floor_) move_multiplier = WALK_MULT;
-    else move_multiplier = prev_sprint_active_ ? SPRINT_MULT : WALK_MULT;
+    if (on_floor_) {
+        if (sneaking) move_multiplier = SNEAK_MULT;
+        else if (effective_sprint) move_multiplier = SPRINT_MULT;
+        else move_multiplier = WALK_MULT;
+    } else {
+        move_multiplier = prev_sprint_active_ ? SPRINT_MULT : WALK_MULT;
+    }
 
     // --- Slipperiness lookup ---
     float slipperiness = DEFAULT_SLIPPERINESS;

@@ -169,9 +169,15 @@ private:
         float terrain_control = terrain_noise.fbm(x + 7000.0f, z + 7000.0f, 3, 0.50f, 0.0015f);
         float terrain_amplitude = lerp(8.0f, 32.0f, smoothstep(-0.3f, 0.5f, terrain_control));
 
-        // Anisotropic domain warp — subtle directional flow so contours aren't perfectly isotropic
-        float warp_x = terrain_noise.noise_2d(x * 0.002f, z * 0.002f) * 18.0f;
-        float warp_z = terrain_noise.noise_2d((x + 5000.0f) * 0.002f, (z + 5000.0f) * 0.002f) * 30.0f;
+        // Anisotropic domain warp — recursive warping for flowing ridges
+        float wx1 = terrain_noise.noise_2d(x * 0.002f, z * 0.002f) * 18.0f;
+        float wz1 = terrain_noise.noise_2d((x + 5000.0f) * 0.002f, (z + 5000.0f) * 0.002f) * 30.0f;
+
+        float wx2 = terrain_noise.noise_2d((x + wx1) * 0.0018f, (z + wz1) * 0.0018f) * 10.0f;
+        float wz2 = terrain_noise.noise_2d((x + wx1 + 5000.0f) * 0.0018f, (z + wz1 + 5000.0f) * 0.0018f) * 16.0f;
+
+        float warp_x = wx1 + wx2;
+        float warp_z = wz1 + wz2;
 
         // Broad low-frequency terrain with light ridged detail
         float per_noise_val = terrain_noise.fbm(x + warp_x, z + warp_z, 4, 0.52f, 0.0064f) * 0.85f

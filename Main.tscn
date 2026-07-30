@@ -61,3 +61,4 @@ smooth_lighting = true
 lod_distance = 6
 day_sky_color = Color(0.9999997, 0.8811681, 0.7633133, 1)
 fog_density = 0.1
+vegetation_enabled = false

@@ -177,7 +177,10 @@ private:
         float per_noise_val = terrain_noise.fbm(x + warp_x, z + warp_z, 4, 0.52f, 0.0064f) * 0.85f
                             + terrain_noise.ridged_noise(x + 4000.0f + warp_x, z + 4000.0f + warp_z, 3, 0.55f, 0.016f) * 0.15f;
 
-        return base + per_noise_val * terrain_amplitude;
+        // NEW: fixed-amplitude local detail, independent of the macro shape/amplitude
+        float detail = terrain_noise.fbm(x * 1.6f + warp_x * 0.4f, z * 1.6f + warp_z * 0.4f, 3, 0.5f, 0.018f) * 5.0f;
+
+        return base + per_noise_val * terrain_amplitude + detail;
     }
 
     // -------------------------------------------------------------------------

@@ -84,7 +84,6 @@ ChunkGenerator::HeightRange ChunkGenerator::get_chunk_height_range(int32_t chunk
     float min_h = 10000.0f;
     float max_h = -10000.0f;
     float max_water_h = -1.0f;
-    float max_weirdness = 0.0f;
     // Sample corners and center for a good estimate
     for (int32_t x : {0, CHUNK_WIDTH - 1}) {
         for (int32_t z : {0, CHUNK_DEPTH - 1}) {
@@ -92,8 +91,6 @@ ChunkGenerator::HeightRange ChunkGenerator::get_chunk_height_range(int32_t chunk
             min_h = std::min(min_h, col.height);
             max_h = std::max(max_h, col.height);
             if (col.water_level > max_water_h) max_water_h = col.water_level;
-            max_weirdness = std::max(max_weirdness,
-                sample_weirdness(static_cast<float>(wx_start + x), static_cast<float>(wz_start + z)));
         }
     }
     // Center sample
@@ -101,16 +98,10 @@ ChunkGenerator::HeightRange ChunkGenerator::get_chunk_height_range(int32_t chunk
     min_h = std::min(min_h, center.height);
     max_h = std::max(max_h, center.height);
     if (center.water_level > max_water_h) max_water_h = center.water_level;
-    max_weirdness = std::max(max_weirdness,
-        sample_weirdness(static_cast<float>(wx_start + CHUNK_WIDTH / 2), static_cast<float>(wz_start + CHUNK_DEPTH / 2)));
 
-    // 3D density shaping can push the real surface by up to the local shape
-    // strength; pad the range by that amount (weirdness changes very slowly,
-    // so corner/center sampling is adequate). Regions with no deformation get
-    // no extra padding at all.
-    const float local_strength = lerp(SHAPE_STRENGTH_MIN, SHAPE_STRENGTH_MAX, max_weirdness);
-    const float margin = local_strength > 0.0f ? std::ceil(local_strength + 1.0f) : 0.0f;
-    return HeightRange{min_h - margin, max_h + margin, max_water_h};
+    // 3D density shaping can push the real surface up to DENSITY_MARGIN above
+    // or below the macro heightmap, so pad the range conservatively.
+    return HeightRange{min_h - DENSITY_MARGIN, max_h + DENSITY_MARGIN, max_water_h};
 }
 
 // Real topmost air-to-solid transition for a column, scanning down from above
@@ -119,14 +110,13 @@ int32_t ChunkGenerator::find_surface_y(int32_t world_x, int32_t world_z) const {
     ColumnSample column = sample_column(world_x, world_z);
     const float weirdness = sample_weirdness(
         static_cast<float>(world_x), static_cast<float>(world_z));
-    const float strength = lerp(SHAPE_STRENGTH_MIN, SHAPE_STRENGTH_MAX, weirdness);
 
     const int32_t start_y =
-        static_cast<int32_t>(std::ceil(column.height + strength + 2.0f));
-    const int32_t end_y =
-        static_cast<int32_t>(std::floor(column.height - strength - 4.0f));
+        static_cast<int32_t>(std::ceil(column.height + 14.0f));
 
-    for (int32_t y = start_y; y >= end_y; --y) {
+    for (int32_t y = start_y;
+         y >= static_cast<int32_t>(column.height - 32.0f);
+         --y) {
         const float here = sample_terrain_density(world_x, y, world_z, column, weirdness);
         const float above = sample_terrain_density(world_x, y + 1, world_z, column, weirdness);
         if (here > 0.0f && above <= 0.0f) {
@@ -220,51 +210,29 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
         return density_buf[(static_cast<size_t>(x) * DENSITY_STRIDE_Y + ly) * CHUNK_DEPTH + z];
     };
 
-    // Chunk-level fast path: unless some column here has non-zero shape
-    // strength AND this chunk's Y range overlaps its deformation band, the
-    // whole chunk is pure macro-height terrain. Sky chunks, underground
-    // chunks, and most flat-region chunks take the cheap subtraction path and
-    // skip all 3D noise.
-    bool chunk_needs_3d_density = false;
-    for (int32_t x = 0; x < CHUNK_WIDTH && !chunk_needs_3d_density; x++) {
-        for (int32_t z = 0; z < CHUNK_DEPTH; z++) {
-            const ChunkColumn& col = columns[x][z];
-            const float strength =
-                lerp(SHAPE_STRENGTH_MIN, SHAPE_STRENGTH_MAX, col.weirdness);
-            if (strength <= 0.001f) {
-                continue;
-            }
-            const float min_deformed_y = col.sample.height - strength - 1.0f;
-            const float max_deformed_y = col.sample.height + strength + 1.0f;
-            if (static_cast<float>(world_y_end) >= min_deformed_y &&
-                static_cast<float>(world_y_start) <= max_deformed_y) {
-                chunk_needs_3d_density = true;
-                break;
-            }
-        }
-    }
+    // ---- Shape noise lattice ----
+    // The 3D shape field is sampled once per world-aligned 4x4x4 lattice node
+    // (CHUNK_WIDTH is a multiple of SPACING, so nodes land on identical world
+    // coordinates across chunk boundaries) and trilinearly interpolated per
+    // voxel below. This is bit-identical to sample_shape_3d_interp(), keeping
+    // the chunk grid and any single-point density query in exact agreement.
+    constexpr int32_t SPACING = SHAPE_LATTICE_SPACING;
+    constexpr int32_t LATTICE_X = CHUNK_WIDTH / SPACING + 1;
+    constexpr int32_t LATTICE_Y = DENSITY_STRIDE_Y / SPACING + 1;
+    constexpr int32_t LATTICE_Z = CHUNK_DEPTH / SPACING + 1;
+    std::vector<float> shape_lattice(
+        static_cast<size_t>(LATTICE_X) * LATTICE_Y * LATTICE_Z);
+    auto lat = [&](int32_t gx, int32_t gy, int32_t gz) -> float& {
+        return shape_lattice[(static_cast<size_t>(gx) * LATTICE_Y + gy) * LATTICE_Z + gz];
+    };
 
-    // World-aligned shape lattice, sampled every SHAPE_LATTICE_SPACING blocks
-    // and trilinearly interpolated per voxel. Lattice nodes sit on world
-    // multiples of 4 and chunks start at multiples of 32, so adjacent chunks
-    // share the same boundary nodes (no seams) and the extra top density row
-    // lands exactly on a node.
-    constexpr int32_t LAT = SHAPE_LATTICE_SPACING;
-    constexpr int32_t LATTICE_X = CHUNK_WIDTH / LAT + 1;        // 9
-    constexpr int32_t LATTICE_Y = (CHUNK_HEIGHT + 1) / LAT + 1; // 9
-    constexpr int32_t LATTICE_Z = CHUNK_DEPTH / LAT + 1;        // 9
-    std::vector<float> shape_lattice;
-    if (chunk_needs_3d_density) {
-        shape_lattice.resize(static_cast<size_t>(LATTICE_X) * LATTICE_Y * LATTICE_Z);
-        for (int32_t gz = 0; gz < LATTICE_Z; gz++) {
-            for (int32_t gy = 0; gy < LATTICE_Y; gy++) {
-                for (int32_t gx = 0; gx < LATTICE_X; gx++) {
-                    shape_lattice[(static_cast<size_t>(gy) * LATTICE_Z + gz) * LATTICE_X + gx] =
-                        sample_shape_3d(
-                            static_cast<float>(world_x_start + gx * LAT),
-                            static_cast<float>(world_y_start + gy * LAT),
-                            static_cast<float>(world_z_start + gz * LAT));
-                }
+    for (int32_t gx = 0; gx < LATTICE_X; gx++) {
+        for (int32_t gy = 0; gy < LATTICE_Y; gy++) {
+            for (int32_t gz = 0; gz < LATTICE_Z; gz++) {
+                lat(gx, gy, gz) = sample_shape_3d(
+                    static_cast<float>(world_x_start + gx * SPACING),
+                    static_cast<float>(world_y_start + gy * SPACING),
+                    static_cast<float>(world_z_start + gz * SPACING));
             }
         }
     }
@@ -272,48 +240,33 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
     for (int32_t x = 0; x < CHUNK_WIDTH; x++) {
         for (int32_t z = 0; z < CHUNK_DEPTH; z++) {
             const ChunkColumn& col = columns[x][z];
-            const float strength =
+            const float shape_strength =
                 lerp(SHAPE_STRENGTH_MIN, SHAPE_STRENGTH_MAX, col.weirdness);
-            const int32_t cx = std::min(x / LAT, LATTICE_X - 2);
-            const int32_t cz = std::min(z / LAT, LATTICE_Z - 2);
-            const float fx = static_cast<float>(x - cx * LAT) * (1.0f / static_cast<float>(LAT));
-            const float fz = static_cast<float>(z - cz * LAT) * (1.0f / static_cast<float>(LAT));
-            const size_t bx = static_cast<size_t>(cx);
-            const size_t bz = static_cast<size_t>(cz);
+
+            // Local lattice cell for this voxel. world_x_start is a multiple of
+            // SPACING, so the fractional coordinates derived from local (x, ly,
+            // z) are exactly the world ones used by sample_shape_3d_interp().
+            const int32_t ix = x / SPACING;
+            const int32_t iz = z / SPACING;
+            const float fx = static_cast<float>(x - ix * SPACING) / static_cast<float>(SPACING);
+            const float fz = static_cast<float>(z - iz * SPACING) / static_cast<float>(SPACING);
+
             for (int32_t ly = 0; ly < DENSITY_STRIDE_Y; ly++) {
-                const float delta =
-                    col.sample.height - static_cast<float>(world_y_start + ly);
-                const float distance = std::abs(delta);
-                if (!chunk_needs_3d_density || distance >= SURFACE_BAND_OUTER ||
-                    strength <= 0.001f ||
-                    distance > strength * SHAPE_BOUND_SAFETY + 0.5f) {
-                    dens(x, ly, z) = delta;
-                    continue;
-                }
+                // Clamp the top cell so the extra density row (ly == CHUNK_HEIGHT)
+                // interpolates exactly onto the top lattice node (fy == 1.0).
+                const int32_t iy = std::min(ly / SPACING, LATTICE_Y - 2);
+                const float fy = static_cast<float>(ly - iy * SPACING) / static_cast<float>(SPACING);
 
-                const int32_t cy = std::min(ly / LAT, LATTICE_Y - 2);
-                const float fy = static_cast<float>(ly - cy * LAT) * (1.0f / static_cast<float>(LAT));
-                const size_t by = static_cast<size_t>(cy);
-                const size_t step_xz = static_cast<size_t>(LATTICE_Z) * LATTICE_X;
-                const size_t i000 = (by * static_cast<size_t>(LATTICE_Z) + bz) * LATTICE_X + bx;
-                const float v000 = shape_lattice[i000];
-                const float v100 = shape_lattice[i000 + 1];
-                const float v010 = shape_lattice[i000 + step_xz];
-                const float v110 = shape_lattice[i000 + step_xz + 1];
-                const float v001 = shape_lattice[i000 + LATTICE_X];
-                const float v101 = shape_lattice[i000 + LATTICE_X + 1];
-                const float v011 = shape_lattice[i000 + LATTICE_X + step_xz];
-                const float v111 = shape_lattice[i000 + LATTICE_X + step_xz + 1];
+                const float shape = trilinear_interp(
+                    lat(ix,     iy,     iz),     lat(ix + 1, iy,     iz),
+                    lat(ix,     iy + 1, iz),     lat(ix + 1, iy + 1, iz),
+                    lat(ix,     iy,     iz + 1), lat(ix + 1, iy,     iz + 1),
+                    lat(ix,     iy + 1, iz + 1), lat(ix + 1, iy + 1, iz + 1),
+                    fx, fy, fz);
 
-                const float c00 = lerp(v000, v100, fx);
-                const float c10 = lerp(v010, v110, fx);
-                const float c01 = lerp(v001, v101, fx);
-                const float c11 = lerp(v011, v111, fx);
-                const float c0 = lerp(c00, c10, fy);
-                const float c1 = lerp(c01, c11, fy);
-                const float shape = lerp(c0, c1, fz);
-
-                dens(x, ly, z) = apply_shape_to_delta(delta, strength, shape);
+                dens(x, ly, z) = density_from_shape(
+                    col.sample.height - static_cast<float>(world_y_start + ly),
+                    shape_strength, shape);
             }
         }
     }

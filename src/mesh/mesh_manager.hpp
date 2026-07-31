@@ -9,6 +9,7 @@
 #include "core/thread_pool.hpp"
 #include "core/performance_timer.hpp"
 #include <godot_cpp/classes/shader_material.hpp>
+#include <chrono>
 #include <memory>
 #include <cstdint>
 #include <mutex>
@@ -74,6 +75,12 @@ public:
     int32_t get_lod_distance() const { return lod_distance; }
     void set_lod_detail_level(float l) { lod_detail_level = l; }
     float get_lod_detail_level() const { return lod_detail_level; }
+    // Third LOD tier: beyond lod_far_distance, chunks are built as far-mode
+    // heightmap-only meshes (see MeshBuilder::set_far_mode). 0 disables.
+    void set_lod_far_distance(int32_t d) { lod_far_distance = d; }
+    int32_t get_lod_far_distance() const { return lod_far_distance; }
+    void set_far_detail_level(float l) { far_detail_level = l; }
+    float get_far_detail_level() const { return far_detail_level; }
 
 private:
     struct CompletedRegionMesh {
@@ -93,6 +100,7 @@ private:
         std::atomic<int> pending_builds{0};
         uint64_t revision = 0;
         std::vector<uint64_t> active_chunk_keys;
+        std::chrono::steady_clock::time_point last_dirty_at{};
     };
 
     void hide_chunk_instance(ChunkRenderData* render_data);
@@ -105,6 +113,7 @@ private:
     void refresh_far_region_visibility();
     bool should_use_far_region_for_chunk(int32_t cx, int32_t cy, int32_t cz) const;
     bool is_chunk_within_render_distance(int32_t cx, int32_t cy, int32_t cz) const;
+    bool is_chunk_far_mode(int32_t cx, int32_t cy, int32_t cz) const;
     uint64_t get_far_region_key(int32_t cx, int32_t cy, int32_t cz) const;
     bool is_far_region_active_for_chunk(int32_t cx, int32_t cy, int32_t cz) const;
     void sync_far_region_members_visibility(FarRegionRenderData& region);
@@ -128,6 +137,8 @@ private:
     bool smooth_lighting_enabled = false;
     int32_t lod_distance = 0;
     float lod_detail_level = 0.5f;
+    int32_t lod_far_distance = 0;
+    float far_detail_level = 0.25f;
     std::unordered_map<uint64_t, FarRegionRenderData> far_regions;
     std::unordered_set<uint64_t> active_full_detail_chunks_;
     std::queue<CompletedRegionMesh> completed_far_region_meshes;

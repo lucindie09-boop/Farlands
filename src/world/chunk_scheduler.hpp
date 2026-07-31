@@ -4,6 +4,7 @@
 #include "core/thread_pool.hpp"
 #include <atomic>
 #include <cstdint>
+#include <deque>
 #include <mutex>
 #include <queue>
 #include <unordered_set>
@@ -20,8 +21,8 @@ public:
         std::scoped_lock lock(generating_mutex, completed_mutex, completed_mesh_mutex, completed_light_mutex);
         generating_chunks.clear();
         while (!completed_chunks.empty()) completed_chunks.pop();
-        while (!completed_meshes.empty()) completed_meshes.pop();
-        while (!completed_meshes_high_priority.empty()) completed_meshes_high_priority.pop();
+        while (!completed_meshes.empty()) completed_meshes.pop_front();
+        while (!completed_meshes_high_priority.empty()) completed_meshes_high_priority.pop_front();
         while (!completed_light_propagations.empty()) completed_light_propagations.pop();
         chunk_count_a.store(0, std::memory_order_relaxed);
         mesh_count_a.store(0, std::memory_order_relaxed);
@@ -100,16 +101,66 @@ public:
         std::lock_guard<std::mutex> lock(completed_mesh_mutex);
         if (!completed_meshes_high_priority.empty()) {
             out = std::move(completed_meshes_high_priority.front());
-            completed_meshes_high_priority.pop();
+            completed_meshes_high_priority.pop_front();
             high_priority = true;
             mesh_count_a.fetch_sub(1, std::memory_order_relaxed);
             return true;
         }
         if (!completed_meshes.empty()) {
             out = std::move(completed_meshes.front());
-            completed_meshes.pop();
+            completed_meshes.pop_front();
             high_priority = false;
             mesh_count_a.fetch_sub(1, std::memory_order_relaxed);
+            return true;
+        }
+        return false;
+    }
+
+    // Poll the completed mesh nearest to the player. Scans both queues for the
+    // closest (by chunk distance) eligible completion and pops it, so a frame
+    // budget that only allows a few uploads still spends them on the most
+    // visible chunks. Entries whose epoch no longer matches are dropped while
+    // scanning (they are stale — the chunk was regenerated or the world reset).
+    bool poll_completed_mesh_nearest(int32_t pcx, int32_t pcy, int32_t pcz,
+                                     uint64_t epoch, CompletedMesh& out, bool& high_priority) {
+        std::lock_guard<std::mutex> lock(completed_mesh_mutex);
+
+        auto scan_and_pop = [&](std::deque<CompletedMesh>& queue, bool is_high) -> bool {
+            // Drop stale entries (wrong epoch) first so they cannot accumulate
+            // and so mesh_count_a mirrors the queue depth.
+            for (size_t i = queue.size(); i-- > 0;) {
+                if (queue[i].epoch != epoch) {
+                    queue.erase(queue.begin() + static_cast<std::ptrdiff_t>(i));
+                    mesh_count_a.fetch_sub(1, std::memory_order_relaxed);
+                }
+            }
+            int64_t best_dist = INT64_MAX;
+            int best_idx = -1;
+            for (size_t i = 0; i < queue.size(); i++) {
+                const CompletedMesh& m = queue[i];
+                int64_t dx = m.chunk_x - pcx;
+                int64_t dy = m.chunk_y - pcy;
+                int64_t dz = m.chunk_z - pcz;
+                const int64_t dist = dx * dx + dy * dy + dz * dz;
+                if (dist < best_dist) {
+                    best_dist = dist;
+                    best_idx = static_cast<int>(i);
+                }
+            }
+            if (best_idx < 0) {
+                return false;
+            }
+            out = std::move(queue[static_cast<size_t>(best_idx)]);
+            queue.erase(queue.begin() + static_cast<std::ptrdiff_t>(best_idx));
+            high_priority = is_high;
+            mesh_count_a.fetch_sub(1, std::memory_order_relaxed);
+            return true;
+        };
+
+        if (scan_and_pop(completed_meshes_high_priority, true)) {
+            return true;
+        }
+        if (scan_and_pop(completed_meshes, false)) {
             return true;
         }
         return false;
@@ -118,9 +169,9 @@ public:
     void push_completed_mesh(CompletedMesh&& mesh, bool high_priority) {
         std::lock_guard<std::mutex> lock(completed_mesh_mutex);
         if (high_priority) {
-            completed_meshes_high_priority.push(std::move(mesh));
+            completed_meshes_high_priority.push_back(std::move(mesh));
         } else {
-            completed_meshes.push(std::move(mesh));
+            completed_meshes.push_back(std::move(mesh));
         }
         mesh_count_a.fetch_add(1, std::memory_order_relaxed);
     }
@@ -162,8 +213,8 @@ public:
 private:
     std::unordered_set<uint64_t> generating_chunks;
     std::queue<CompletedChunk> completed_chunks;
-    std::queue<CompletedMesh> completed_meshes;
-    std::queue<CompletedMesh> completed_meshes_high_priority;
+    std::deque<CompletedMesh> completed_meshes;
+    std::deque<CompletedMesh> completed_meshes_high_priority;
     mutable std::mutex generating_mutex;
     mutable std::mutex completed_mutex;
     mutable std::mutex completed_mesh_mutex;

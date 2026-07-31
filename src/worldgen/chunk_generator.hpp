@@ -83,16 +83,23 @@ private:
     // "weirdness" mask (very low frequency 2D) decides where the deformation
     // is strong enough to produce overhangs/shelves vs. mostly-plain terrain.
     // -------------------------------------------------------------------------
-    static constexpr float DENSITY_MARGIN      = 12.0f; // max 3D displacement + headroom
-    static constexpr float SURFACE_BAND_INNER  = 9.0f;
-    static constexpr float SURFACE_BAND_OUTER  = 28.0f;
-    static constexpr float SHAPE_STRENGTH_MIN  = 1.5f;
-    static constexpr float SHAPE_STRENGTH_MAX  = 10.0f;
-    static constexpr float SHAPE_FREQUENCY     = 0.026f; // ~38-block horizontal feature scale
-    static constexpr float SHAPE_Y_ANISOTROPY  = 1.35f;  // ~0.035 effective vertical scale
+    static constexpr float DENSITY_MARGIN      = 10.0f; // max 3D displacement + headroom
+    static constexpr float SURFACE_BAND_INNER  = 5.0f;
+    static constexpr float SURFACE_BAND_OUTER  = 14.0f;
+    static constexpr float SHAPE_STRENGTH_MIN  = 0.0f;
+    static constexpr float SHAPE_STRENGTH_MAX  = 8.0f;
+    static constexpr float SHAPE_FREQUENCY     = 0.018f; // ~55-block horizontal feature scale
+    static constexpr float SHAPE_Y_ANISOTROPY  = 0.85f;  // ~0.015 effective vertical scale
+    static constexpr int   SHAPE_OCTAVES       = 2;
     static constexpr float WEIRDNESS_SCALE     = 0.0012f;
-    static constexpr float WEIRDNESS_LOW       = -0.20f;
-    static constexpr float WEIRDNESS_HIGH      = 0.55f;
+    static constexpr float WEIRDNESS_LOW       = 0.18f;
+    static constexpr float WEIRDNESS_HIGH      = 0.48f;
+    // Shape noise is normalized to [-1,1] by fbm_3d; noise can never flip the
+    // sign of density beyond its maximum displacement (see early-out below).
+    static constexpr float SHAPE_BOUND_SAFETY  = 1.10f;
+    // Shape-noise lattice spacing for generate_chunk (world-aligned, must
+    // divide CHUNK_WIDTH/HEIGHT/DEPTH so adjacent chunks share boundary nodes).
+    static constexpr int32_t SHAPE_LATTICE_SPACING = 4;
 
     // -------------------------------------------------------------------------
     // Noise sampling
@@ -213,45 +220,122 @@ private:
 
     // Large-region mask deciding where terrain becomes volumetric/unusual.
     // Changes over hundreds of blocks, so the transition feels geological.
+    // Hard-gated: raw values below WEIRDNESS_LOW produce no deformation at all,
+    // so ordinary regions stay pure heightmap terrain (and skip all 3D noise).
     float sample_weirdness(float x, float z) const {
-        float raw = weirdness_noise.fbm(
+        const float raw = weirdness_noise.fbm(
             x + 12000.0f, z - 12000.0f, 3, 0.5f, WEIRDNESS_SCALE);
+        if (raw <= WEIRDNESS_LOW) {
+            return 0.0f;
+        }
         return smoothstep(WEIRDNESS_LOW, WEIRDNESS_HIGH, raw);
     }
 
     // Signed, normalized 3D fBm (FastNoise::fbm_3d already normalizes by the
     // amplitude sum so octave-count changes do not shift overall height).
-    // Anisotropic: vertical frequency is higher so the field produces shelves
-    // without making the horizontal terrain too busy.
+    // Low octave count + low frequency keep the field broad and arch-like;
+    // high-frequency detail only adds tiny shelves that greedy meshing cannot
+    // merge and the visual target is "few large surfaces".
     float sample_shape_3d(float x, float y, float z) const {
         return density_noise.fbm_3d(
-            x, y * SHAPE_Y_ANISOTROPY, z, 3, 0.5f, SHAPE_FREQUENCY);
+            x, y * SHAPE_Y_ANISOTROPY, z, SHAPE_OCTAVES, 0.5f, SHAPE_FREQUENCY);
+    }
+
+    // Largest lattice node at or below the given world coordinate (floor to a
+    // multiple of SHAPE_LATTICE_SPACING, correct for negative coordinates).
+    static int32_t lattice_node(int32_t v) {
+        const int32_t m = v % SHAPE_LATTICE_SPACING;
+        return (m < 0) ? (v - m - SHAPE_LATTICE_SPACING) : (v - m);
+    }
+
+    // Trilinearly interpolated shape noise at a world point, using the same
+    // world-aligned 4-block lattice that generate_chunk samples. Single-point
+    // queries pay for 8 lattice corners; the chunk path reuses a cached lattice
+    // so both paths agree exactly.
+    float sample_shape_3d_interp(int32_t world_x, int32_t world_y, int32_t world_z) const {
+        constexpr float INV = 1.0f / static_cast<float>(SHAPE_LATTICE_SPACING);
+        const int32_t gx = lattice_node(world_x);
+        const int32_t gy = lattice_node(world_y);
+        const int32_t gz = lattice_node(world_z);
+        const float fx = static_cast<float>(world_x - gx) * INV;
+        const float fy = static_cast<float>(world_y - gy) * INV;
+        const float fz = static_cast<float>(world_z - gz) * INV;
+
+        const float c000 = sample_shape_3d(static_cast<float>(gx),     static_cast<float>(gy),     static_cast<float>(gz));
+        const float c100 = sample_shape_3d(static_cast<float>(gx + SHAPE_LATTICE_SPACING), static_cast<float>(gy),     static_cast<float>(gz));
+        const float c010 = sample_shape_3d(static_cast<float>(gx),     static_cast<float>(gy + SHAPE_LATTICE_SPACING), static_cast<float>(gz));
+        const float c110 = sample_shape_3d(static_cast<float>(gx + SHAPE_LATTICE_SPACING), static_cast<float>(gy + SHAPE_LATTICE_SPACING), static_cast<float>(gz));
+        const float c001 = sample_shape_3d(static_cast<float>(gx),     static_cast<float>(gy),     static_cast<float>(gz + SHAPE_LATTICE_SPACING));
+        const float c101 = sample_shape_3d(static_cast<float>(gx + SHAPE_LATTICE_SPACING), static_cast<float>(gy),     static_cast<float>(gz + SHAPE_LATTICE_SPACING));
+        const float c011 = sample_shape_3d(static_cast<float>(gx),     static_cast<float>(gy + SHAPE_LATTICE_SPACING), static_cast<float>(gz + SHAPE_LATTICE_SPACING));
+        const float c111 = sample_shape_3d(static_cast<float>(gx + SHAPE_LATTICE_SPACING), static_cast<float>(gy + SHAPE_LATTICE_SPACING), static_cast<float>(gz + SHAPE_LATTICE_SPACING));
+
+        const float c00 = lerp(c000, c100, fx);
+        const float c10 = lerp(c010, c110, fx);
+        const float c01 = lerp(c001, c101, fx);
+        const float c11 = lerp(c011, c111, fx);
+        const float c0 = lerp(c00, c10, fy);
+        const float c1 = lerp(c01, c11, fy);
+        return lerp(c0, c1, fz);
     }
 
     // Signed density at a world point. >0 solid, <=0 air. `weirdness` is
     // cached per column by the chunk generator (see generate_chunk).
     float sample_terrain_density(int32_t world_x, int32_t world_y, int32_t world_z,
                                  const ColumnSample& column, float weirdness) const {
-        const float x = static_cast<float>(world_x);
         const float y = static_cast<float>(world_y);
-        const float z = static_cast<float>(world_z);
 
         // Existing terrain remains the macro surface.
         const float surface_y = column.height;
         const float delta = surface_y - y;
+        const float distance = std::abs(delta);
+
+        // Outside the deformation band the field must equal the macro surface.
+        if (distance >= SURFACE_BAND_OUTER) {
+            return delta;
+        }
+
+        const float shape_strength =
+            lerp(SHAPE_STRENGTH_MIN, SHAPE_STRENGTH_MAX, weirdness);
+        if (shape_strength <= 0.001f) {
+            return delta;
+        }
+
+        // Noise is normalized to [-1,1]; beyond its maximum displacement it
+        // cannot possibly flip the sign of the density. Skipping the noise
+        // evaluation here is the main underground/sky fast path.
+        if (distance > shape_strength * SHAPE_BOUND_SAFETY + 0.5f) {
+            return delta;
+        }
 
         // Restrict volumetric deformation to a band around the surface so we
         // don't get noise deep underground or floating terrain in the sky.
-        const float surface_distance = std::abs(delta);
         const float surface_band =
-            1.0f - smoothstep(SURFACE_BAND_INNER, SURFACE_BAND_OUTER, surface_distance);
+            1.0f - smoothstep(SURFACE_BAND_INNER, SURFACE_BAND_OUTER, distance);
 
         // Centred (signed) 3D shape noise — NOT a ridged/absolute field, which
         // would shift the average height instead of displacing the boundary.
-        const float shape_strength =
-            lerp(SHAPE_STRENGTH_MIN, SHAPE_STRENGTH_MAX, weirdness);
-        const float shape = sample_shape_3d(x, y, z);
+        const float shape = sample_shape_3d_interp(world_x, world_y, world_z);
 
+        return delta + shape * shape_strength * surface_band;
+    }
+
+    // Early-out + band application for a precomputed shape value (used by
+    // generate_chunk where the shape lattice is already available). Identical
+    // math to the tail of sample_terrain_density so both paths stay consistent.
+    static float apply_shape_to_delta(float delta, float shape_strength, float shape) {
+        const float distance = std::abs(delta);
+        if (distance >= SURFACE_BAND_OUTER) {
+            return delta;
+        }
+        if (shape_strength <= 0.001f) {
+            return delta;
+        }
+        if (distance > shape_strength * SHAPE_BOUND_SAFETY + 0.5f) {
+            return delta;
+        }
+        const float surface_band =
+            1.0f - smoothstep(SURFACE_BAND_INNER, SURFACE_BAND_OUTER, distance);
         return delta + shape * shape_strength * surface_band;
     }
 

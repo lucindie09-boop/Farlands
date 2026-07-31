@@ -109,6 +109,25 @@ Ongoing: a Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked
 - Verified by rendering vertical PGM density slices (temp tool, removed after inspection) and a 3D flood-fill connectivity check (temp tool, removed): surface stays within the band, no floating solids, ocean coastlines preserved.
 - Added `tests/test_density_field.cpp` (4 tests: density/find_surface_y sanitation, generate_chunk↔density agreement, material validity, isolated-singleton removal). Suite is now 153 tests.
 
+**Density-field generation fast paths (3D-noise cost reduction):**
+- Skipping 3D noise where it cannot affect terrain: `sample_terrain_density`/`apply_shape_to_delta` early-out in this order — (a) `distance >= SURFACE_BAND_OUTER` → return macro `delta`; (b) `shape_strength <= 0.001` → return `delta`; (c) `distance > strength * SHAPE_BOUND_SAFETY + 0.5` → return `delta` (normalized noise bound ≈ `strength * 1.10`).
+- Hard-gated weirdness mask: `sample_weirdness` returns `0.0` for raw values ≤ `WEIRDNESS_LOW` — ordinary terrain regions skip 3D noise entirely.
+- Chunk-level fast path in `generate_chunk`: unless some column has non-zero strength AND the chunk's Y range overlaps its deformation band, the whole chunk fills with pure `delta = height - y` (sky/underground/most flat chunks skip all 3D noise).
+- **World-aligned shape lattice**: chunk path samples shape noise on a 4-block lattice (9×9×9 over the 32³ chunk + extra top row) and trilinearly interpolates per voxel; single-point queries (`sample_terrain_density` via `find_surface_y`) use `sample_shape_3d_interp` on the same lattice so both paths agree exactly. Chunks start on multiples of 32 (divisible by 4), so adjacent chunks share boundary nodes (no seams).
+- Retuned constants: `DENSITY_MARGIN=10`, `SURFACE_BAND_INNER=5`, `SURFACE_BAND_OUTER=14`, `SHAPE_STRENGTH_MIN=0`/`MAX=8`, `SHAPE_FREQUENCY=0.018`, `SHAPE_Y_ANISOTROPY=0.85`, `SHAPE_OCTAVES=2`, `WEIRDNESS_LOW=0.18`/`HIGH=0.48`, `SHAPE_LATTICE_SPACING=4`, `SHAPE_BOUND_SAFETY=1.10`.
+- `find_surface_y` scan range is strength-bounded (`ceil(height + strength + 2)` → `floor(height - strength - 4)`); `get_chunk_height_range` pads by local strength (`ceil(strength + 1)`), not a constant margin.
+- Measured: `generate_chunk` avg **5.45ms → 1.83–2.09ms** (bench `--check` baseline updated to `generate_chunk_avg_ms 3.9`, build_mesh 4.8, palette_write 0.25, light_propagation 1.3).
+
+**Capped main-thread mesh completion + nearest-first uploads:**
+- `process_completed_meshes` previously ignored `budget_ms` and drained the whole backlog in one frame. Now uses a strict wall-clock budget (`FrameBudgets::mesh_completion_budget_ms = 0.75` → `MESH_COMPLETION_BUDGET_MS`) plus the per-frame completion cap, following the `ChunkWorld::process_completed_chunks` time-loop pattern (`elapsed_ms >= budget_ms → break`).
+- Nearest-first scheduling: `ChunkScheduler::poll_completed_mesh_nearest()` scans both completion queues (backed by `std::deque` now) for the chunk closest to the player, so the frame's few uploads go to the most visible chunks. Stale completions (epoch mismatch) are dropped during the scan and their `mesh_count_a` decremented. High-priority queue is always drained first.
+
+**Third LOD tier — far-mode heightmap-only meshes:**
+- New `lod_far_distance` (0 disables; default 0) + `far_detail_level` (default 0.25) inspector properties on `ChunkManager`, bridging `ChunkManager → VoxelEngineController → WorldUpdater → MeshManager`.
+- `MeshBuilder::set_far_mode(true)` + `build_far_mesh()`: one merged top quad per macro column (stride_xz_² footprint), runs of equal block/height merge along z, flat-light AO, no side/underside faces, no caves, no water columns — a silhouette mesh feeding the existing far-region merge pipeline (`far_mesh_cache`/`CachedFarChunkMesh`).
+- `compute_chunk_detail_level` is now three tiers: `dist <= lod_distance+1` → full, `dist > lod_far_distance` (and `lod_far_distance > lod_distance+1`) → `far_detail_level`, else `lod_detail_level`. `is_chunk_far_mode()` is a pure distance test; `ChunkRenderData::last_built_far_mode` records the emitter used so the reprioritize far-shell ring (dist ∈ `[lod_far_distance, lod_far_distance+1]`) can trigger mode switches even when `far_detail_level == lod_detail_level`.
+- Far-region rebuild debounce: `FarRegionRenderData::last_dirty_at` timestamps dirty marks; `process_far_region_queue` skips regions marked within `kFarRegionDebounceMs = 250ms`, coalescing a burst of child-cache arrivals into one rebuild instead of one per child.
+
 ### In Progress
 - (none)
 
@@ -123,14 +142,16 @@ Ongoing: a Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked
 - Palette sections are 16³ (8 per chunk), matching `dirty_subchunks`; block and light storage share the same generic `PalSection`/`section_get`/`section_set` machinery.
 - Greedy mesher reads through `get_block_unsafe()`/`get_light_packed_word_unsafe()` rather than raw pointers or thread-local shared buffers.
 - Thread pool stays a single shared pool (not split into separate gen/mesh pools) — a split was tried and reverted after it starved generation throughput ~7×; a high-priority queue path handles contention instead.
-- **LOD approach**: after removing the group-merge system, the project settled on per-chunk distance-based stride/detail reduction (`lod_distance`/`lod_detail_level`) rather than re-introducing chunk merging — simpler to reason about and to keep correct at boundaries, at the cost of not reducing draw-call count the way merged groups did.
+- **LOD approach**: after removing the group-merge system, the project settled on per-chunk distance-based stride/detail reduction (`lod_distance`/`lod_detail_level`) rather than re-introducing chunk merging — simpler to reason about and to keep correct at boundaries, at the cost of not reducing draw-call count the way merged groups did. A third tier (`lod_far_distance`/`far_detail_level`) drops chunks beyond the mid tier to a far-mode heightmap-only silhouette mesh that feeds the far-region merge pipeline.
 - **Block definitions are data, not code**: `data/block_definitions.json` is the only place block properties/textures/emissive maps are defined; C++ and the texture-array generator both read from it.
 - Solid-block fast paths in the mesher require zeroing `solid_cache` at the start of every build — stale `BlockID`s from a reused thread-local builder previously caused wrong registry lookups in all-air sections.
 - **Locking hierarchy for ChunkData writes**: all ChunkData reads/writes must hold `lock_all_exclusive()` or `lock_keys_exclusive()` for targeted shards. Public `_locked` BFS methods use `_fast` accessors under that lock. Auto-locking accessors (`get_chunk_data`, `get_chunk_render_data`, `mark_chunks_dirty_for_light`, `queue_dirty_chunk`) acquire their own shared locks — they MUST NOT be called under an exclusive lock. Public wrappers: acquire exclusive lock → call `_locked` → release lock → call auto-locking accessors for dirty-marking.
-- **Terrain is a signed 3D density field, not a heightmap**: the macro heightmap sets `surface_y`, then a normalized 3D fBm (no ridged/absolute noise) deforms a band around it. Vegetation and culling must use the density surface, not the macro height. A post-pass removes isolated singleton voxels (rare 3D-noise artifacts) using only in-chunk neighbors so boundary blocks are never wrongly cleared.
+- **Terrain is a signed 3D density field, not a heightmap**: the macro heightmap sets `surface_y`, then a normalized 3D fBm (no ridged/absolute noise) deforms a band around it. Vegetation and culling must use the density surface, not the macro height. A post-pass removes isolated singleton voxels (rare 3D-noise artifacts) using only in-chunk neighbors so boundary blocks are never wrongly cleared. 3D noise is only evaluated where it can flip the sign (band + strength early-outs, hard-gated weirdness, a world-aligned 4-block lattice in `generate_chunk` shared exactly with single-point queries).
+- **Main-thread mesh completion is budget-capped**: `process_completed_meshes` spends at most `mesh_completion_budget_ms` (0.75) and one completion slot per frame per upload budget, choosing the nearest-to-player completion first (deque scan) so the visible world converges fastest; stale completions are dropped from the queue during the scan.
 
 ## Next Steps
 - Expand automated test coverage further: the `tests/` suite now has 153 test cases covering palette storage, mesh culling, greedy mesher, LOD, neighbor accessor, face emission, density field, concurrency (shard locking, exclusive serialization, PaletteStorage R/W, cross-chunk writer races, light removal), but edge cases in light propagation BFS paths across chunk boundaries still lack regression tests.
+- Play-test the far-mode tier (`lod_far_distance`/`far_detail_level`) and the nearest-first completion scheduling; tune defaults (debounce window, `lod_far_distance` vs render distance).
 - No gameplay layer exists yet beyond block break/place (no inventory, crafting, mobs, multiplayer); `player.gd` remains an explicit temporary placeholder pending a C++ player controller.
 - Expand fuzz coverage: harness for `propagate_chunk_block_light_additive`, harness for `build_mesh` with random block layouts.
 
@@ -140,7 +161,7 @@ Ongoing: a Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked
 - Generator `insert` locks only one shard — doesn't block readers on other shards.
 - Block + light memory per chunk: dense layout was ~130KB; paletted layout is ~1–20KB on typical (uniform-heavy) terrain.
 - `data/block_definitions.json` is the single source of truth for block properties, per-face textures, and emissive maps — do not hardcode block properties in C++.
-- The old merged-mesh LOD system is gone; the current LOD system is stride/detail-based inside the greedy mesher, controlled by `lod_distance`/`lod_detail_level`.
+- The old merged-mesh LOD system is gone; the current LOD system is stride/detail-based inside the greedy mesher, controlled by `lod_distance`/`lod_detail_level`, with a third far-mode tier (`lod_far_distance`/`far_detail_level`) producing heightmap-only silhouette meshes for the far-region merge pipeline.
 - CI runs on GitHub Actions (`.github/workflows/build.yml`): 4 legs — ubuntu TSan, ubuntu ASan+UBSan, ubuntu plain, macos plain, windows plain. Benchmark with `--check` on non-sanitizer legs.
 - Light propagation: `propagate_chunk_block_light_additive` is additive-only (single-chunk, no ChunkMap needed). Multi-chunk BFS requires `LightPropagator` + ChunkMap. To simulate removal, call `clear_light()` before re-propagating.
 - BFS bounded reach: max light level 15 < chunk size 32, so `lock_keys_exclusive` with 3×3×3 neighborhoods (27 keys) covers all BFS paths from a single seed chunk.
@@ -158,7 +179,7 @@ Ongoing: a Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked
 - `src/mesh/mesh_manager.hpp/cpp`: Per-chunk mesh builds, upload, instance management, `lod_distance`/`lod_detail_level` stride logic
 - `src/mesh/mesh_builder.cpp` / `mesh_builder_greedy.cpp` / `mesh_builder_faces.cpp`: Greedy meshing, solid-cache fast paths, water/emissive face routing
 - `src/mesh/chunk_neighbor_accessor.hpp/cpp`: 26 neighbor pointers for mesh building
-- `src/worldgen/chunk_generator.hpp/cpp`: Biome/terrain generation — signed 3D density field (`density_noise`/`weirdness_noise`, `sample_terrain_density`, `find_surface_y`), `generate_chunk` with singleton-removal pass, `get_chunk_height_range` padded by `DENSITY_MARGIN`
+- `src/worldgen/chunk_generator.hpp/cpp`: Biome/terrain generation — signed 3D density field (`density_noise`/`weirdness_noise`, `sample_terrain_density`, `find_surface_y`), `generate_chunk` with singleton-removal pass, world-aligned 4-block shape lattice + strength-banded fast paths, `get_chunk_height_range` padded by local strength
 - `src/worldgen/vegetation_generator.hpp/cpp`: Tree placement, cross-chunk deferred writes
 - `src/worldgen/texture_array_generator.hpp`: Diffuse + emissive `Texture2DArray` generation from block definitions
 - `src/world/world_updater.hpp/cpp`: `set_frustum()`, budgets, frustum pass
@@ -169,9 +190,12 @@ Ongoing: a Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked
 - `src/lighting/block_light_region.hpp/cpp`: `propagate_chunk_block_light_additive()` — single-chunk additive-only
 - `src/render/environment_controller.cpp`: `update_player_light` passes `ChunkMap&`, binds `_locked` BFS methods
 - `src/engine/collision_resolver.hpp/cpp`: Binary-search collision
-- `src/core/frame_budgets.hpp`: Budget constants
-- `src/godot_bindings/chunk_manager.cpp`: All inspector-exposed properties, block ID constants, camera/frustum entry point
+- `src/core/frame_budgets.hpp`: Budget constants (incl. `mesh_completion_budget_ms` = 0.75, `max_mesh_completions_per_frame`)
+- `src/godot_bindings/chunk_manager.cpp`: All inspector-exposed properties (incl. `lod_far_distance`, `far_detail_level`), block ID constants, camera/frustum entry point
 - `src/engine/voxel_engine_controller.hpp/cpp`: Bridges frustum and other state from `ChunkManager` to `WorldUpdater`
+- `src/mesh/mesh_manager.cpp`: `process_completed_meshes` strict wall-clock budget + nearest-first completion scan; `compute_chunk_detail_level` three-tier; far-region debounce (`kFarRegionDebounceMs`)
+- `src/world/chunk_scheduler.hpp`: `poll_completed_mesh_nearest` (deque-based completion queues, stale-epoch sweep)
+- `src/mesh/mesh_builder.cpp`: `build_far_mesh` (far-mode heightmap-only emitter), `set_far_mode`
 - `shaders/voxel_shader_water.gdshader`, `materials/voxel_material_water.tres`: Water rendering
 - `src/render/material_manager.hpp/cpp`: `get_water_material()`, per-frame parameter push to terrain + water
 - `.github/workflows/build.yml`: CI — 4-leg matrix (ubuntu TSan, ubuntu ASan+UBSan, ubuntu plain, macos plain, windows plain), benchmark with `--check`

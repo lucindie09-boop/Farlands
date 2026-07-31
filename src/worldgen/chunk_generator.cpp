@@ -149,6 +149,8 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
     ChunkColumn columns[CHUNK_WIDTH][CHUNK_DEPTH];
 
     // ---- Geometry pass (1/3): macro columns + cached weirdness mask ----
+    float min_height = 1e9f;
+    float max_height = -1e9f;
     for (int32_t x = 0; x < CHUNK_WIDTH; x++) {
         for (int32_t z = 0; z < CHUNK_DEPTH; z++) {
             int32_t wx = world_x_start + x;
@@ -163,7 +165,59 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
             columns[x][z].temperature  = col.temperature;
             columns[x][z].humidity     = col.humidity;
             columns[x][z].weirdness    = sample_weirdness(static_cast<float>(wx), static_cast<float>(wz));
+            min_height = std::min(min_height, col.height);
+            max_height = std::max(max_height, col.height);
         }
+    }
+
+    // ---- Chunk-level fast path ----
+    // The 3D density surface can only exist within DENSITY_MARGIN of the macro
+    // heightmap (max displacement is SHAPE_STRENGTH_MAX < DENSITY_MARGIN).
+    // Chunks entirely outside that band need no lattice, density buffer, or
+    // material pass.
+    const bool above_terrain = static_cast<float>(world_y_start) >= max_height + DENSITY_MARGIN;
+    const bool below_terrain = static_cast<float>(world_y_end) <= min_height - DENSITY_MARGIN;
+
+    if (above_terrain) {
+        // No solids possible. Shallow-ocean chunks still carry the sea surface
+        // (water tops out at sea_level, well above the sea floor), so fill
+        // per-column water; land-only chunks end up all-air.
+        for (int32_t x = 0; x < CHUNK_WIDTH; x++) {
+            for (int32_t z = 0; z < CHUNK_DEPTH; z++) {
+                const int32_t water_top = columns[x][z].water_level;
+                if (water_top < 0 || water_top < world_y_start) continue;
+                const int32_t end = std::min(world_y_end - 1, water_top);
+                for (int32_t wy = world_y_start; wy <= end; wy++) {
+                    chunk.set_block(x, wy - world_y_start, z,
+                                    (wy == water_top) ? BlockIDs::SURFACE_WATER : BlockIDs::WATER);
+                }
+            }
+        }
+        return;
+    }
+
+    if (below_terrain && !kCavesEnabled) {
+        // All density is solid: plain stone over the bedrock base. Skipping the
+        // material pass must NOT be done while cave carving is enabled — deep
+        // chunks lie inside the cave band.
+        const int32_t bed = params.bedrock_height;
+        for (int32_t x = 0; x < CHUNK_WIDTH; x++) {
+            for (int32_t z = 0; z < CHUNK_DEPTH; z++) {
+                int32_t bedrock_overlap_start = std::max(0, world_y_start);
+                int32_t bedrock_overlap_end   = std::min(bed, world_y_end);
+                if (bedrock_overlap_start < bedrock_overlap_end) {
+                    for (int32_t ly = bedrock_overlap_start - world_y_start;
+                         ly < bedrock_overlap_end - world_y_start; ly++) {
+                        chunk.set_block(x, ly, z, BlockIDs::BEDROCK);
+                    }
+                }
+                const int32_t stone_start = std::max(bed, world_y_start) - world_y_start;
+                for (int32_t ly = stone_start; ly < CHUNK_HEIGHT; ly++) {
+                    chunk.set_block(x, ly, z, BlockIDs::STONE);
+                }
+            }
+        }
+        return;
     }
 
     // 2-pass scanline Manhattan distance transform for near_water detection.

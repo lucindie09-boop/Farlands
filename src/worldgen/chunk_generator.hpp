@@ -36,6 +36,9 @@ private:
     FastNoise continental_noise;
     FastNoise temp_noise;
     FastNoise humidity_noise;
+    FastNoise density_noise;
+    FastNoise density_warp_noise;
+    FastNoise weirdness_noise;
 
     TerrainParams params;
     std::mt19937 rng;
@@ -71,6 +74,25 @@ private:
     static float lerp(float a, float b, float t) {
         return a + (b - a) * t;
     }
+
+    // -------------------------------------------------------------------------
+    // Signed 3D density field
+    //
+    // The macro heightmap stays the base surface (density = surface_y - y);
+    // a normalized 3D fBm field deforms only a band around that surface. The
+    // "weirdness" mask (very low frequency 2D) decides where the deformation
+    // is strong enough to produce overhangs/shelves vs. mostly-plain terrain.
+    // -------------------------------------------------------------------------
+    static constexpr float DENSITY_MARGIN      = 12.0f; // max 3D displacement + headroom
+    static constexpr float SURFACE_BAND_INNER  = 9.0f;
+    static constexpr float SURFACE_BAND_OUTER  = 28.0f;
+    static constexpr float SHAPE_STRENGTH_MIN  = 1.5f;
+    static constexpr float SHAPE_STRENGTH_MAX  = 10.0f;
+    static constexpr float SHAPE_FREQUENCY     = 0.026f; // ~38-block horizontal feature scale
+    static constexpr float SHAPE_Y_ANISOTROPY  = 1.35f;  // ~0.035 effective vertical scale
+    static constexpr float WEIRDNESS_SCALE     = 0.0012f;
+    static constexpr float WEIRDNESS_LOW       = -0.20f;
+    static constexpr float WEIRDNESS_HIGH      = 0.55f;
 
     // -------------------------------------------------------------------------
     // Noise sampling
@@ -189,6 +211,50 @@ private:
         return base + per_noise_val * terrain_amplitude + detail;
     }
 
+    // Large-region mask deciding where terrain becomes volumetric/unusual.
+    // Changes over hundreds of blocks, so the transition feels geological.
+    float sample_weirdness(float x, float z) const {
+        float raw = weirdness_noise.fbm(
+            x + 12000.0f, z - 12000.0f, 3, 0.5f, WEIRDNESS_SCALE);
+        return smoothstep(WEIRDNESS_LOW, WEIRDNESS_HIGH, raw);
+    }
+
+    // Signed, normalized 3D fBm (FastNoise::fbm_3d already normalizes by the
+    // amplitude sum so octave-count changes do not shift overall height).
+    // Anisotropic: vertical frequency is higher so the field produces shelves
+    // without making the horizontal terrain too busy.
+    float sample_shape_3d(float x, float y, float z) const {
+        return density_noise.fbm_3d(
+            x, y * SHAPE_Y_ANISOTROPY, z, 3, 0.5f, SHAPE_FREQUENCY);
+    }
+
+    // Signed density at a world point. >0 solid, <=0 air. `weirdness` is
+    // cached per column by the chunk generator (see generate_chunk).
+    float sample_terrain_density(int32_t world_x, int32_t world_y, int32_t world_z,
+                                 const ColumnSample& column, float weirdness) const {
+        const float x = static_cast<float>(world_x);
+        const float y = static_cast<float>(world_y);
+        const float z = static_cast<float>(world_z);
+
+        // Existing terrain remains the macro surface.
+        const float surface_y = column.height;
+        const float delta = surface_y - y;
+
+        // Restrict volumetric deformation to a band around the surface so we
+        // don't get noise deep underground or floating terrain in the sky.
+        const float surface_distance = std::abs(delta);
+        const float surface_band =
+            1.0f - smoothstep(SURFACE_BAND_INNER, SURFACE_BAND_OUTER, surface_distance);
+
+        // Centred (signed) 3D shape noise — NOT a ridged/absolute field, which
+        // would shift the average height instead of displacing the boundary.
+        const float shape_strength =
+            lerp(SHAPE_STRENGTH_MIN, SHAPE_STRENGTH_MAX, weirdness);
+        const float shape = sample_shape_3d(x, y, z);
+
+        return delta + shape * shape_strength * surface_band;
+    }
+
     // -------------------------------------------------------------------------
     // Per-column terrain evaluation 
     // -------------------------------------------------------------------------
@@ -226,6 +292,9 @@ float max_water_h = -1.0f;
         , continental_noise(p.seed + 6000)
         , temp_noise(p.seed + 4000)
         , humidity_noise(p.seed + 5000)
+        , density_noise(p.seed + 7000)
+        , density_warp_noise(p.seed + 8000)
+        , weirdness_noise(p.seed + 9000)
         , params(p)
         , rng(p.seed)
     {
@@ -239,6 +308,21 @@ float max_water_h = -1.0f;
         return sample_column(world_x, world_z).height;
     }
 
+    // Signed density at a world point (macro surface + 3D deformation).
+    // >0 solid, <=0 air. Unlike the cached-weirdness overload used by the
+    // chunk generator, this recomputes the weirdness mask per call.
+    float sample_terrain_density(int32_t world_x, int32_t world_y, int32_t world_z,
+                                 const ColumnSample& column) const {
+        return sample_terrain_density(
+            world_x, world_y, world_z, column,
+            sample_weirdness(static_cast<float>(world_x), static_cast<float>(world_z)));
+    }
+
+    // Real topmost air-to-solid transition for a column. The macro heightmap
+    // surface is not the actual surface once 3D shaping can push terrain above
+    // or below it — used for player spawning and structure placement.
+    int32_t find_surface_y(int32_t world_x, int32_t world_z) const;
+
     // Cheaper than sample_column: only land shape, no biome/lake evaluation.
     float quick_height_estimate(int32_t world_x, int32_t world_z) const {
         float x = static_cast<float>(world_x);
@@ -248,7 +332,7 @@ float max_water_h = -1.0f;
         return sample_land_shape(x, z, t, h);
     }
 
-    bool is_cave(int32_t x, int32_t y, int32_t z) {
+    bool is_cave(int32_t x, int32_t y, int32_t z) const {
         if (y < params.bedrock_height + 3 || static_cast<float>(y) > params.sea_level + 10.0f) {
             return false;
         }
@@ -262,12 +346,15 @@ float max_water_h = -1.0f;
     // Per-column data used during chunk generation (replaces 7 separate arrays)
     // -------------------------------------------------------------------------
     struct ChunkColumn {
+        ColumnSample sample{};   // full macro column sample (height/water/temp/...)
         int32_t height = 0;
         BiomeType biome = BiomeType::Plains;
         int32_t water_level = -1;
         bool near_water = false;
         float temperature = 0.0f;
         float humidity = 0.0f;
+        float weirdness = 0.0f;  // cached 3D-shaping mask for this column
+        int32_t surface_y = -1;  // topmost density surface inside this chunk, -1 if none
     };
 
     // Cross-chunk block writer callback type
@@ -302,6 +389,9 @@ float max_water_h = -1.0f;
             continental_noise = FastNoise(p.seed + 6000);
             temp_noise        = FastNoise(p.seed + 4000);
             humidity_noise    = FastNoise(p.seed + 5000);
+            density_noise     = FastNoise(p.seed + 7000);
+            density_warp_noise = FastNoise(p.seed + 8000);
+            weirdness_noise   = FastNoise(p.seed + 9000);
 
             rng.seed(p.seed);
         }

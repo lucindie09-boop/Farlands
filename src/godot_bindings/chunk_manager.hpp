@@ -102,6 +102,10 @@ bool get_smooth_lighting() const;
     int32_t get_lod_distance() const;
     void set_lod_detail_level(float level);
     float get_lod_detail_level() const;
+    void set_lod_far_distance(int32_t distance);
+    int32_t get_lod_far_distance() const;
+    void set_far_detail_level(float level);
+    float get_far_detail_level() const;
 
     void set_player_light_enabled(bool enabled);
     bool get_player_light_enabled() const;

@@ -51,6 +51,10 @@ public:
     int32_t get_lod_distance() const { return lod_distance; }
     void set_lod_detail_level(float l) { lod_detail_level = l; }
     float get_lod_detail_level() const { return lod_detail_level; }
+    void set_lod_far_distance(int32_t d) { lod_far_distance = d; }
+    int32_t get_lod_far_distance() const { return lod_far_distance; }
+    void set_far_detail_level(float l) { far_detail_level = l; }
+    float get_far_detail_level() const { return far_detail_level; }
     void set_vegetation_enabled(bool enabled);
     bool is_vegetation_enabled() const { return vegetation_enabled; }
     const TerrainParams& get_terrain_params() const { return terrain_params; }
@@ -88,6 +92,8 @@ private:
     int32_t editor_render_distance = 4;
     int32_t lod_distance = 0;
     float lod_detail_level = 0.5f;
+    int32_t lod_far_distance = 0;
+    float far_detail_level = 0.25f;
     bool vegetation_enabled = true;
 
     FrameBudgets budgets;

@@ -44,6 +44,8 @@ void WorldUpdater::update(bool is_editor, uint64_t epoch, uint64_t& chunks_proce
         mesh_manager->set_mesh_render_distance(active_render_distance);
         mesh_manager->set_lod_distance(lod_distance);
         mesh_manager->set_lod_detail_level(lod_detail_level);
+        mesh_manager->set_lod_far_distance(lod_far_distance);
+        mesh_manager->set_far_detail_level(far_detail_level);
     }
     mesh_manager->set_frustum(frustum.is_initialized() ? &frustum : nullptr);
 
@@ -306,7 +308,7 @@ void WorldUpdater::process_mesh_budgets(bool is_editor, uint64_t epoch, uint64_t
         ScopedTimer t(*perf_timer, TimerID::ProcessCompletedMeshes);
         mesh_manager->process_completed_meshes(
             epoch,
-            budgets.processing_budget_ms,
+            budgets.mesh_completion_budget_ms,
             upload_budget,
             material_manager->get_material(),
             material_manager->get_water_material()

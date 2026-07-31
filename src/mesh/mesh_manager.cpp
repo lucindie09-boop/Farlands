@@ -27,6 +27,9 @@ namespace {
 constexpr int32_t kGreedyDisableBlockRadius = 16;
 constexpr int32_t kFarRegionUploadDivisor = 4;
 constexpr int32_t kFarRegionBuildDivisor = 4;
+// Coalescing window for far-region rebuilds: cache arrivals within this window
+// are batched into a single rebuild instead of one rebuild per arrival.
+constexpr double kFarRegionDebounceMs = 250.0;
 
 static int32_t floor_div(int32_t value, int32_t divisor) {
     int32_t q = value / divisor;
@@ -138,12 +141,14 @@ struct MeshBuildTask : Task {
     int32_t player_bx, player_by, player_bz;
     bool smooth_lighting;
     float detail_level = 1.0f;
+    bool far_mode = false;
     uint8_t dirty_subchunks = 0xFF;
 
     void execute() override {
         thread_local MeshBuilder builder;
         builder.set_smooth_lighting(smooth_lighting);
         builder.set_detail_level(detail_level);
+        builder.set_far_mode(far_mode);
 
         // Narrow work to only dirty sub-chunks
         if (dirty_subchunks != 0xFF) {
@@ -490,7 +495,12 @@ void MeshManager::refresh_far_region_visibility() {
 }
 
 void MeshManager::mark_far_region_dirty_for_chunk(int32_t cx, int32_t cy, int32_t cz) {
+    // Debounce: record when the region became dirty and bump the revision.
+    // process_far_region_queue skips regions marked recently so a burst of
+    // child-cache arrivals (initial streaming) coalesces into one rebuild
+    // instead of one rebuild per child.
     FarRegionRenderData& region = far_regions[get_far_region_key(cx, cy, cz)];
+    region.last_dirty_at = std::chrono::steady_clock::now();
     region.dirty = true;
     ++region.revision;
 }
@@ -499,7 +509,6 @@ void MeshManager::process_completed_meshes(uint64_t epoch, double budget_ms, int
                                            const Ref<ShaderMaterial>& material,
                                            const Ref<ShaderMaterial>& water_material) {
     if (!chunk_scheduler || !chunk_map) return;
-    (void)budget_ms;
 
     int32_t dynamic_max_uploads = max_uploads;
     int32_t uploads_this_frame = 0;
@@ -513,17 +522,36 @@ void MeshManager::process_completed_meshes(uint64_t epoch, double budget_ms, int
     Array arrays;
     arrays.resize(Mesh::ARRAY_MAX);
 
-    if (chunk_scheduler->completed_mesh_count() > 0) {
+    if (chunk_scheduler->completed_mesh_count() <= 0) {
+        process_completed_region_meshes(epoch, region_upload_budget, material, water_material);
+        return;
+    }
+
     RenderingServer* rs = RenderingServer::get_singleton();
+    const auto start_time = std::chrono::high_resolution_clock::now();
 
     while (uploads_this_frame < chunk_upload_budget) {
+        // Strict frame budget: stop once the allowed wall time is exceeded so a
+        // large completion backlog cannot stall the main thread.
+        const auto current_time = std::chrono::high_resolution_clock::now();
+        const double elapsed_ms = std::chrono::duration<double, std::milli>(current_time - start_time).count();
+        if (elapsed_ms >= budget_ms) break;
+
         bool high_priority = false;
         CompletedMesh completed;
-        if (!chunk_scheduler->poll_completed_mesh(completed, high_priority)) {
-            break;
+        bool got_completion;
+        if (last_player_chunk_x == INT32_MIN) {
+            got_completion = chunk_scheduler->poll_completed_mesh(completed, high_priority);
+        } else {
+            // Nearest-first: spend the frame's few uploads on the most visible
+            // chunks. Stale entries (wrong epoch) are dropped during the scan.
+            got_completion = chunk_scheduler->poll_completed_mesh_nearest(
+                last_player_chunk_x, last_player_chunk_y, last_player_chunk_z, epoch, completed, high_priority);
         }
+        if (!got_completion) break;
 
         if (completed.epoch != epoch || !completed.source_chunk) {
+            uploads_this_frame++;
             continue;
         }
 
@@ -674,7 +702,6 @@ void MeshManager::process_completed_meshes(uint64_t epoch, double budget_ms, int
         }
 
         uploads_this_frame++;
-    }
     }
 
     process_completed_region_meshes(epoch, region_upload_budget, material, water_material);
@@ -994,6 +1021,8 @@ void MeshManager::rebuild_rendering_server_mesh(int32_t chunk_x, int32_t chunk_y
     mesh_task->high_priority = high_priority;
     mesh_task->smooth_lighting = smooth_lighting_enabled;
     mesh_task->detail_level = detail;
+    mesh_task->far_mode = detail < 1.0f && is_chunk_far_mode(chunk_x, chunk_y, chunk_z);
+    render_data->last_built_far_mode = mesh_task->far_mode;
     mesh_task->dirty_subchunks = render_data->dirty_subchunks;
     render_data->dirty_subchunks = 0;
 
@@ -1115,6 +1144,42 @@ void MeshManager::reprioritize(int32_t player_cx, int32_t player_cy, int32_t pla
         }
     }
 
+    // Far shell: chunks crossing the third-tier boundary (dist ==
+    // lod_far_distance..lod_far_distance+1) must switch between the mid-LOD
+    // mesh and the far-mode heightmap-only mesh. The distance classifier only
+    // crosses a shell ring when the player moves one chunk, so scanning these
+    // two rings keeps the far tier in sync without a full-world sweep.
+    if (lod_far_distance > lod + 1) {
+        const int32_t far_shell_min = lod_far_distance;
+        const int32_t far_shell_max = lod_far_distance + 1;
+        for (int32_t dx = -far_shell_max; dx <= far_shell_max && queued < kMaxLodRemeshPerFrame; ++dx) {
+            for (int32_t dz = -far_shell_max; dz <= far_shell_max && queued < kMaxLodRemeshPerFrame; ++dz) {
+                for (int32_t dy = -vert_range; dy <= vert_range && queued < kMaxLodRemeshPerFrame; ++dy) {
+                    const int32_t dist = std::max({std::abs(dx), std::abs(dy), std::abs(dz)});
+                    if (dist < far_shell_min || dist > far_shell_max) continue;
+
+                    const int32_t cx = player_cx + dx;
+                    const int32_t cy = player_cy + dy;
+                    const int32_t cz = player_cz + dz;
+
+                    ChunkRenderData* render_data = chunk_map->get_chunk_render_data(cx, cy, cz);
+                    if (!render_data) continue;
+
+                    const float target = compute_chunk_detail_level(cx, cy, cz);
+                    const bool target_far_mode = is_chunk_far_mode(cx, cy, cz);
+                    if ((target != render_data->last_built_detail_level || target_far_mode != render_data->last_built_far_mode) &&
+                        !render_data->is_mesh_dirty) {
+                        render_data->is_mesh_dirty = true;
+                        render_data->mesh_version++;
+                        mark_far_region_dirty_for_chunk(cx, cy, cz);
+                        queue_dirty_chunk(cx, cy, cz);
+                        ++queued;
+                    }
+                }
+            }
+        }
+    }
+
     // Downgrade chunks that were built at full detail but are now beyond LOD threshold.
     for (auto it = active_full_detail_chunks_.begin(); it != active_full_detail_chunks_.end() && queued < kMaxLodRemeshPerFrame;) {
         uint64_t chunk_key = *it;
@@ -1165,10 +1230,17 @@ void MeshManager::process_far_region_queue(int32_t max_rebuilds) {
     }
 
     int32_t partial_missing_cache = 0;
+    const auto now = std::chrono::steady_clock::now();
     std::vector<std::pair<int32_t, uint64_t>> candidates;
     candidates.reserve(far_regions.size());
     for (const auto& [region_key, region] : far_regions) {
         if (!region.dirty || region.pending_builds.load(std::memory_order_relaxed) > 0) {
+            continue;
+        }
+        // Debounce: give a burst of cache arrivals time to settle before
+        // rebuilding, so streaming a region does not schedule N rebuilds.
+        const double elapsed_ms = std::chrono::duration<double, std::milli>(now - region.last_dirty_at).count();
+        if (elapsed_ms < kFarRegionDebounceMs) {
             continue;
         }
         int32_t rx, ry, rz;
@@ -1466,7 +1538,24 @@ float MeshManager::compute_chunk_detail_level(int32_t cx, int32_t cy, int32_t cz
     // neighbor's actual resolved stride instead of recomputing from distance).
     if (dist <= lod_distance + 1) return 1.0f;
 
+    // Third tier: beyond lod_far_distance, chunks drop to the far-mode
+    // heightmap-only mesh (see is_chunk_far_mode / MeshBuilder::set_far_mode).
+    if (lod_far_distance > lod_distance + 1 && dist > lod_far_distance) {
+        return far_detail_level;
+    }
+
     return lod_detail_level;
+}
+
+bool MeshManager::is_chunk_far_mode(int32_t cx, int32_t cy, int32_t cz) const {
+    if (lod_far_distance <= 0 || lod_distance <= 0 || last_player_chunk_x == INT32_MIN) {
+        return false;
+    }
+    int32_t dx = cx - last_player_chunk_x;
+    int32_t dy = cy - last_player_chunk_y;
+    int32_t dz = cz - last_player_chunk_z;
+    int32_t dist = std::max({std::abs(dx), std::abs(dy), std::abs(dz)});
+    return dist > lod_far_distance;
 }
 
 } // namespace VoxelEngine

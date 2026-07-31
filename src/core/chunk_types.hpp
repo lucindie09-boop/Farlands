@@ -43,6 +43,9 @@ struct ChunkRenderData {
     // Track the last built detail level for LOD transitions
     float last_built_detail_level = 1.0f;
 
+    // Whether the last build used the far-mode heightmap-only emitter
+    bool last_built_far_mode = false;
+
     // Cached packed mesh for merged far-field region rendering.
     std::shared_ptr<CachedFarChunkMesh> far_mesh_cache;
 };

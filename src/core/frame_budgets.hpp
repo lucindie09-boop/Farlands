@@ -25,6 +25,8 @@ struct FrameBudgets {
     int32_t max_loaded_chunks = 50000;
 
     double processing_budget_ms = 2.5;
+    double mesh_completion_budget_ms = 0.75;
+    int32_t max_mesh_completions_per_frame = 16;
     int32_t loading_threshold = 500;
     double loading_duration = 3.0;
 

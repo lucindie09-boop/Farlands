@@ -99,6 +99,16 @@ Ongoing: a Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked
 - **Night Sky & Starfield**: Added dynamic procedural twinkling starfield to sky atmosphere rendering triggered during night sun elevations (`voxel_shader.gdshader`).
 - **Soft Curved AO & Surface Detail**: Applied non-linear power-curve smoothing (`pow(raw_ao, 1.35)`) to eliminate diagonal triangulation seams.
 
+**Signed 3D density field terrain (overhangs/shelves/arches):**
+- Migrated terrain from a pure macro heightmap to a signed 3D density field: `density = (surface_y - y) + shape_noise * strength * surface_band` (positive = solid). The macro heightmap stays as the base surface; a normalized 3D fBm deforms only a band around it.
+- `density_noise(seed+7000)` / `density_warp_noise(seed+8000)` (allocated, unused — 3D domain warp deferred) / `weirdness_noise(seed+9000)` — the last is a very-low-frequency 2D mask deciding where deformation is strong (`WEIRDNESS_SCALE=0.0012`), producing a geological feel.
+- Band-limited shaping: `DENSITY_MARGIN=12`, `SURFACE_BAND_INNER=9`, `SURFACE_BAND_OUTER=28`, `SHAPE_STRENGTH_MIN=1.5`/`MAX=10`, `SHAPE_FREQUENCY=0.026` (~38-block scale), `SHAPE_Y_ANISOTROPY=1.35`. No ridged/absolute noise — it would shift average height.
+- `generate_chunk` rewritten as: macro column pass (with cached weirdness) → `near_water` distance transform → full-chunk density buffer (+1 row for top-voxel decision) → per-column density surface (`columns[].surface_y`) → material pass (surface = `density > 0 && above <= 0`, `near_macro_surface` guard) → cave carve → water rule (fill only `!solid && wy > macro height && wy <= water_level`, preserving arches/avoiding flooded new caves) → **isolated-singleton removal** (any interior non-air voxel with all 6 orthogonal neighbors air is cleared — the density field occasionally produced lone floating cubes, e.g. 1 per ~360 chunks, confirmed via 3D flood fill).
+- `get_chunk_height_range` padded by `DENSITY_MARGIN`; `chunk_world.cpp` gained a `may_contain_caves` guard so below-surface chunks overlapping the cave band aren't fast-pathed as fully solid.
+- Vegetation now uses the real density surface (`columns[].surface_y`) with an underwater rejection guard instead of the macro heightmap.
+- Verified by rendering vertical PGM density slices (temp tool, removed after inspection) and a 3D flood-fill connectivity check (temp tool, removed): surface stays within the band, no floating solids, ocean coastlines preserved.
+- Added `tests/test_density_field.cpp` (4 tests: density/find_surface_y sanitation, generate_chunk↔density agreement, material validity, isolated-singleton removal). Suite is now 153 tests.
+
 ### In Progress
 - (none)
 
@@ -117,9 +127,10 @@ Ongoing: a Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked
 - **Block definitions are data, not code**: `data/block_definitions.json` is the only place block properties/textures/emissive maps are defined; C++ and the texture-array generator both read from it.
 - Solid-block fast paths in the mesher require zeroing `solid_cache` at the start of every build — stale `BlockID`s from a reused thread-local builder previously caused wrong registry lookups in all-air sections.
 - **Locking hierarchy for ChunkData writes**: all ChunkData reads/writes must hold `lock_all_exclusive()` or `lock_keys_exclusive()` for targeted shards. Public `_locked` BFS methods use `_fast` accessors under that lock. Auto-locking accessors (`get_chunk_data`, `get_chunk_render_data`, `mark_chunks_dirty_for_light`, `queue_dirty_chunk`) acquire their own shared locks — they MUST NOT be called under an exclusive lock. Public wrappers: acquire exclusive lock → call `_locked` → release lock → call auto-locking accessors for dirty-marking.
+- **Terrain is a signed 3D density field, not a heightmap**: the macro heightmap sets `surface_y`, then a normalized 3D fBm (no ridged/absolute noise) deforms a band around it. Vegetation and culling must use the density surface, not the macro height. A post-pass removes isolated singleton voxels (rare 3D-noise artifacts) using only in-chunk neighbors so boundary blocks are never wrongly cleared.
 
 ## Next Steps
-- Expand automated test coverage further: the `tests/` suite now has 102 test cases / 525 assertions covering palette storage, mesh culling, greedy mesher, LOD, neighbor accessor, face emission, concurrency (shard locking, exclusive serialization, PaletteStorage R/W, cross-chunk writer races, light removal), but edge cases in light propagation BFS paths across chunk boundaries still lack regression tests.
+- Expand automated test coverage further: the `tests/` suite now has 153 test cases covering palette storage, mesh culling, greedy mesher, LOD, neighbor accessor, face emission, density field, concurrency (shard locking, exclusive serialization, PaletteStorage R/W, cross-chunk writer races, light removal), but edge cases in light propagation BFS paths across chunk boundaries still lack regression tests.
 - No gameplay layer exists yet beyond block break/place (no inventory, crafting, mobs, multiplayer); `player.gd` remains an explicit temporary placeholder pending a C++ player controller.
 - Expand fuzz coverage: harness for `propagate_chunk_block_light_additive`, harness for `build_mesh` with random block layouts.
 
@@ -147,7 +158,7 @@ Ongoing: a Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked
 - `src/mesh/mesh_manager.hpp/cpp`: Per-chunk mesh builds, upload, instance management, `lod_distance`/`lod_detail_level` stride logic
 - `src/mesh/mesh_builder.cpp` / `mesh_builder_greedy.cpp` / `mesh_builder_faces.cpp`: Greedy meshing, solid-cache fast paths, water/emissive face routing
 - `src/mesh/chunk_neighbor_accessor.hpp/cpp`: 26 neighbor pointers for mesh building
-- `src/worldgen/chunk_generator.hpp/cpp`: Biome/terrain generation
+- `src/worldgen/chunk_generator.hpp/cpp`: Biome/terrain generation — signed 3D density field (`density_noise`/`weirdness_noise`, `sample_terrain_density`, `find_surface_y`), `generate_chunk` with singleton-removal pass, `get_chunk_height_range` padded by `DENSITY_MARGIN`
 - `src/worldgen/vegetation_generator.hpp/cpp`: Tree placement, cross-chunk deferred writes
 - `src/worldgen/texture_array_generator.hpp`: Diffuse + emissive `Texture2DArray` generation from block definitions
 - `src/world/world_updater.hpp/cpp`: `set_frustum()`, budgets, frustum pass
@@ -174,4 +185,5 @@ Ongoing: a Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked
 - `tests/test_main.cpp`: `DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN`
 - `tests/test_concurrency.cpp`: 16 tests — TestShardMap, shard lock concurrency, ascending-order deadlock prevention, exclusive serialization, PaletteStorage R/W, pending_removals pattern, RAII correctness, OrderedExclusiveShardLock, light removal tests, cross-chunk writer race tests, pending_removals stress, serialization verification
 - `tests/test_mesh_builder.cpp`: 7 tests — 2x2x2 cube, empty chunk, fully solid, LOD stride computation, LOD vertex reduction, LOD all levels valid
+- `tests/test_density_field.cpp`: 4 tests — density/find_surface_y sanitation, generate_chunk↔density agreement, material validity, isolated-singleton removal
 - `tests/test_palette_storage.cpp`, `test_mesh_culling.cpp`, `test_mesh_greedy.cpp`, `test_chunk_neighbor_accessor.cpp`, `test_mesh_face_emission.cpp`, `test_chunk_data.cpp`, `test_chunk_map.cpp`, `test_noise.cpp`, `test_light_propagation.cpp`

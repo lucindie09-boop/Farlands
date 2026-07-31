@@ -58,8 +58,16 @@ float top_content_h = std::max(height_range.max_h, height_range.max_water_h);
                     return chunk_data;
                 }
 
-                // Entirely below surface but above bedrock: all solid subsurface block
-                if (world_y_end < static_cast<int32_t>(height_range.min_h - margin)) {
+                // Caves only form inside [bedrock_height+3, sea_level+10]
+                // (see ChunkGenerator::is_cave). A chunk overlapping that range is
+                // not automatically solid even when it sits below the surface.
+                const int32_t cave_min_y = params.bedrock_height + 3;
+                const int32_t cave_max_y = static_cast<int32_t>(params.sea_level) + 10;
+                const bool may_contain_caves =
+                    world_y_end > cave_min_y && world_y_start < cave_max_y;
+
+                // Entirely below surface but above bedrock: all solid subsurface block.
+                if (!may_contain_caves && world_y_end < static_cast<int32_t>(height_range.min_h - margin)) {
                     BlockID solid_block = generator.get_chunk_subsurface_block(cx, cz);
                     chunk_data->fill_blocks(solid_block);
                     chunk_data->propagate_sky_light(nullptr); // first block is opaque → all light = 0

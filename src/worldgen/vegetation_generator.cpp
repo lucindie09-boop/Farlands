@@ -37,12 +37,20 @@ void VegetationGenerator::generate_vegetation(
     for (int32_t idx = 0; idx < CHUNK_WIDTH * CHUNK_DEPTH; idx++) {
         int32_t x = cells[idx].x;
         int32_t z = cells[idx].z;
-            int32_t surface_y = columns[x][z].height;
-            BiomeType biome = columns[x][z].biome;
+            // Density-based surface (topmost air→solid transition), NOT the macro
+            // heightmap — the real surface can sit above or below it now.
+            int32_t surface_y = columns[x][z].surface_y;
+            if (surface_y < 0)
+                continue;
+            // Reject submerged surfaces (e.g. dips carved below the water level).
+            if (surface_y <= columns[x][z].water_level)
+                continue;
 
             // Surface must be inside this chunk for us to place vegetation on it
             if (surface_y < world_y_start || surface_y >= world_y_end)
                 continue;
+
+            BiomeType biome = columns[x][z].biome;
 
             int32_t wx = chunk_x * CHUNK_WIDTH + x;
             int32_t wz = chunk_z * CHUNK_DEPTH + z;
@@ -100,7 +108,7 @@ void VegetationGenerator::generate_vegetation(
                         // Pick a random column within the chunk for the single tree
                         int32_t tx = static_cast<int32_t>(ch >> 8) % CHUNK_WIDTH;
                         int32_t tz = static_cast<int32_t>(ch >> 16) % CHUNK_DEPTH;
-                        int32_t ts = columns[tx][tz].height;
+                        int32_t ts = columns[tx][tz].surface_y;
                         if (ts >= world_y_start && ts < world_y_end) {
                             place_tree(chunk, tx, tz, ts, world_y_start, world_y_end, ch, chunk_x, chunk_z, cross_writer);
                         }

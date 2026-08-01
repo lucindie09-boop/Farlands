@@ -1,7 +1,9 @@
 #ifndef FUK_MINECRAFT_MESH_TYPES_HPP
 #define FUK_MINECRAFT_MESH_TYPES_HPP
 #include <cstdint>
+#include <array>
 #include <vector>
+#include "core/chunk_coords.hpp"
 #ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
 #include <godot_cpp/variant/packed_vector3_array.hpp>
 #include <godot_cpp/variant/packed_vector2_array.hpp>
@@ -43,6 +45,33 @@ struct BuiltMeshData {
     std::vector<Vertex> water_vertices;
     std::vector<uint32_t> water_indices;
     bool empty = true;
+};
+
+// One emitted quad (a greedy merge run or a single face) with its final
+// vertex/indices data. Used for partial remeshing: a rebuild carries forward
+// every cached quad outside the dirty region (memcpy, no AO/light recompute)
+// and only re-runs the greedy/fallback passes over the dirty region.
+struct CachedQuad {
+    // Emitting block origin (Face anchor) — used for region-intersection tests.
+    int32_t x = 0;
+    int32_t y = 0;
+    int32_t z = 0;
+    FaceDirection direction = FaceDirection::Top;
+    bool water = false;
+    // Footprint extents in block units ([x, x+ex) × [y, y+ey) × [z, z+ez)).
+    // For greedy merged runs the extent covers the whole run; single faces are 1×1×1.
+    int32_t ex = 1;
+    int32_t ey = 1;
+    int32_t ez = 1;
+    std::array<Vertex, 4> verts;
+    std::array<uint32_t, 6> idx;  // 0-relative local indices (either the normal or flipped winding)
+};
+
+// Per-column checksums of a chunk's light grid. A partial rebuild diffs these
+// against the previous build's values to find every column whose light changed
+// since then, so light-only changes are re-emitted too (not just block edits).
+struct MeshLightChecksums {
+    std::array<uint32_t, CHUNK_WIDTH * CHUNK_DEPTH> columns{};
 };
 
 #ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION

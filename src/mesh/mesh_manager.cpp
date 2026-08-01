@@ -143,15 +143,33 @@ struct MeshBuildTask : Task {
     float detail_level = 1.0f;
     bool far_mode = false;
     uint8_t dirty_subchunks = 0xFF;
+    // Partial remeshing: only re-emit the dirty region, carry everything else.
+    bool partial = false;
+    bool record_quads = false;
+    bool greedy_enabled = true;
+    // Raw block-level dirty bbox snapshot (inclusive block coords) taken at
+    // enqueue. build_mesh_incremental expands it by the AO/light ring itself.
+    MeshBuilder::SubChunkBounds dirty_bounds{0, 0, 0, 0, 0, 0};
+    bool have_dirty_bounds = false;
+    std::vector<CachedQuad> prev_quads;
+    MeshLightChecksums prev_light_checksums;
 
     void execute() override {
         thread_local MeshBuilder builder;
         builder.set_smooth_lighting(smooth_lighting);
         builder.set_detail_level(detail_level);
         builder.set_far_mode(far_mode);
+        builder.set_greedy_enabled(greedy_enabled);
+        builder.set_quad_recording(record_quads);
 
         // Narrow work to only dirty sub-chunks
-        if (dirty_subchunks != 0xFF) {
+        MeshBuilder::SubChunkBounds bounds;
+        bool have_bounds = false;
+        if (partial && have_dirty_bounds) {
+            // Block-level bbox: a single-block edit remeshes only a ~3³ region.
+            bounds = dirty_bounds;
+            have_bounds = true;
+        } else if (dirty_subchunks != 0xFF) {
             int32_t x_min = CHUNK_WIDTH, x_max = 0;
             int32_t y_min = CHUNK_HEIGHT, y_max = 0;
             int32_t z_min = CHUNK_DEPTH, z_max = 0;
@@ -171,15 +189,15 @@ struct MeshBuildTask : Task {
                 }
             }
             if (x_min < x_max && y_min < y_max && z_min < z_max) {
-                MeshBuilder::SubChunkBounds bounds;
                 bounds.x_min = x_min; bounds.x_max = x_max;
                 bounds.y_min = y_min; bounds.y_max = y_max;
                 bounds.z_min = z_min; bounds.z_max = z_max;
-                builder.set_subchunk_bounds(bounds);
+                have_bounds = true;
             }
         } else {
-            builder.set_subchunk_bounds({0, CHUNK_WIDTH, 0, CHUNK_HEIGHT, 0, CHUNK_DEPTH});
+            bounds = {0, CHUNK_WIDTH, 0, CHUNK_HEIGHT, 0, CHUNK_DEPTH};
         }
+        builder.set_subchunk_bounds(bounds);
 
         constexpr int32_t CW = CHUNK_WIDTH;
         constexpr int32_t CH = CHUNK_HEIGHT;
@@ -196,12 +214,6 @@ struct MeshBuildTask : Task {
                      player_by > chunk_max_y ? player_by - chunk_max_y : 0;
         int32_t dz = player_bz < chunk_min_z ? chunk_min_z - player_bz :
                      player_bz > chunk_max_z ? player_bz - chunk_max_z : 0;
-        if (player_bx != INT32_MIN && player_by != INT32_MIN && player_bz != INT32_MIN &&
-            std::max(dx, std::max(dy, dz)) <= kGreedyDisableBlockRadius) {
-            builder.set_greedy_enabled(false);
-        } else {
-            builder.set_greedy_enabled(true);
-        }
 
         ChunkRenderData* all_neighbors[26] = {};
         static constexpr int32_t kNeighborOffsets[26][3] = {
@@ -245,35 +257,67 @@ struct MeshBuildTask : Task {
             return (rd && rd->data) ? rd->data.get() : nullptr;
         };
 
-        builder.build_mesh(
-            *render_data->data,
-            data_or_null(all_neighbors[0]),  // neg_x
-            data_or_null(all_neighbors[1]),  // pos_x
-            data_or_null(all_neighbors[2]),  // neg_y
-            data_or_null(all_neighbors[3]),  // pos_y
-            data_or_null(all_neighbors[4]),  // neg_z
-            data_or_null(all_neighbors[5]),  // pos_z
-            data_or_null(all_neighbors[6]),  // neg_x_neg_z
-            data_or_null(all_neighbors[7]),  // neg_x_pos_z
-            data_or_null(all_neighbors[8]),  // pos_x_neg_z
-            data_or_null(all_neighbors[9]),  // pos_x_pos_z
-            data_or_null(all_neighbors[10]), // neg_x_neg_y
-            data_or_null(all_neighbors[11]), // pos_x_neg_y
-            data_or_null(all_neighbors[12]), // neg_x_pos_y
-            data_or_null(all_neighbors[13]), // pos_x_pos_y
-            data_or_null(all_neighbors[14]), // neg_y_neg_z
-            data_or_null(all_neighbors[15]), // neg_y_pos_z
-            data_or_null(all_neighbors[16]), // pos_y_neg_z
-            data_or_null(all_neighbors[17]), // pos_y_pos_z
-            data_or_null(all_neighbors[18]), // neg_x_neg_y_neg_z
-            data_or_null(all_neighbors[19]), // pos_x_neg_y_neg_z
-            data_or_null(all_neighbors[20]), // neg_x_pos_y_neg_z
-            data_or_null(all_neighbors[21]), // pos_x_pos_y_neg_z
-            data_or_null(all_neighbors[22]), // neg_x_neg_y_pos_z
-            data_or_null(all_neighbors[23]), // pos_x_neg_y_pos_z
-            data_or_null(all_neighbors[24]), // neg_x_pos_y_pos_z
-            data_or_null(all_neighbors[25])  // pos_x_pos_y_pos_z
-        );
+        if (partial && have_bounds && !prev_quads.empty()) {
+            MeshBuilder::NeighborPtrs n;
+            n.neg_x = data_or_null(all_neighbors[0]);
+            n.pos_x = data_or_null(all_neighbors[1]);
+            n.neg_y = data_or_null(all_neighbors[2]);
+            n.pos_y = data_or_null(all_neighbors[3]);
+            n.neg_z = data_or_null(all_neighbors[4]);
+            n.pos_z = data_or_null(all_neighbors[5]);
+            n.neg_x_neg_z = data_or_null(all_neighbors[6]);
+            n.neg_x_pos_z = data_or_null(all_neighbors[7]);
+            n.pos_x_neg_z = data_or_null(all_neighbors[8]);
+            n.pos_x_pos_z = data_or_null(all_neighbors[9]);
+            n.neg_x_neg_y = data_or_null(all_neighbors[10]);
+            n.pos_x_neg_y = data_or_null(all_neighbors[11]);
+            n.neg_x_pos_y = data_or_null(all_neighbors[12]);
+            n.pos_x_pos_y = data_or_null(all_neighbors[13]);
+            n.neg_y_neg_z = data_or_null(all_neighbors[14]);
+            n.neg_y_pos_z = data_or_null(all_neighbors[15]);
+            n.pos_y_neg_z = data_or_null(all_neighbors[16]);
+            n.pos_y_pos_z = data_or_null(all_neighbors[17]);
+            n.neg_x_neg_y_neg_z = data_or_null(all_neighbors[18]);
+            n.pos_x_neg_y_neg_z = data_or_null(all_neighbors[19]);
+            n.neg_x_pos_y_neg_z = data_or_null(all_neighbors[20]);
+            n.pos_x_pos_y_neg_z = data_or_null(all_neighbors[21]);
+            n.neg_x_neg_y_pos_z = data_or_null(all_neighbors[22]);
+            n.pos_x_neg_y_pos_z = data_or_null(all_neighbors[23]);
+            n.neg_x_pos_y_pos_z = data_or_null(all_neighbors[24]);
+            n.pos_x_pos_y_pos_z = data_or_null(all_neighbors[25]);
+            builder.build_mesh_incremental(
+                *render_data->data, prev_quads, prev_light_checksums, bounds, n);
+        } else {
+            builder.build_mesh(
+                *render_data->data,
+                data_or_null(all_neighbors[0]),  // neg_x
+                data_or_null(all_neighbors[1]),  // pos_x
+                data_or_null(all_neighbors[2]),  // neg_y
+                data_or_null(all_neighbors[3]),  // pos_y
+                data_or_null(all_neighbors[4]),  // neg_z
+                data_or_null(all_neighbors[5]),  // pos_z
+                data_or_null(all_neighbors[6]),  // neg_x_neg_z
+                data_or_null(all_neighbors[7]),  // neg_x_pos_z
+                data_or_null(all_neighbors[8]),  // pos_x_neg_z
+                data_or_null(all_neighbors[9]),  // pos_x_pos_z
+                data_or_null(all_neighbors[10]), // neg_x_neg_y
+                data_or_null(all_neighbors[11]), // pos_x_neg_y
+                data_or_null(all_neighbors[12]), // neg_x_pos_y
+                data_or_null(all_neighbors[13]), // pos_x_pos_y
+                data_or_null(all_neighbors[14]), // neg_y_neg_z
+                data_or_null(all_neighbors[15]), // neg_y_pos_z
+                data_or_null(all_neighbors[16]), // pos_y_neg_z
+                data_or_null(all_neighbors[17]), // pos_y_pos_z
+                data_or_null(all_neighbors[18]), // neg_x_neg_y_neg_z
+                data_or_null(all_neighbors[19]), // pos_x_neg_y_neg_z
+                data_or_null(all_neighbors[20]), // neg_x_pos_y_neg_z
+                data_or_null(all_neighbors[21]), // pos_x_pos_y_neg_z
+                data_or_null(all_neighbors[22]), // neg_x_neg_y_pos_z
+                data_or_null(all_neighbors[23]), // pos_x_neg_y_pos_z
+                data_or_null(all_neighbors[24]), // neg_x_pos_y_pos_z
+                data_or_null(all_neighbors[25])  // pos_x_pos_y_pos_z
+            );
+        }
 
         PackedBuiltMeshData packed_mesh = pack_vertex_array(builder.get_vertices(), builder.get_indices());
         PackedBuiltMeshData water_mesh = pack_vertex_array(builder.get_water_vertices(), builder.get_water_indices());
@@ -305,6 +349,10 @@ struct MeshBuildTask : Task {
         completed.water_mesh_data = std::move(water_mesh);
         completed.mesh_content_hash = content_hash;
         completed.detail_level = detail_level;
+        completed.quads = builder.get_quads();
+        completed.light_checksums = builder.get_light_checksums();
+        completed.greedy_mode = greedy_enabled;
+        completed.dirty_subchunks = dirty_subchunks;
 
         chunk_scheduler->push_completed_mesh(std::move(completed), high_priority);
 
@@ -560,6 +608,14 @@ void MeshManager::process_completed_meshes(uint64_t epoch, double budget_ms, int
         if (render_data->mesh_job_serial.load(std::memory_order_acquire) != completed.mesh_job_serial) {
             continue;
         }
+
+        // Partial-remesh bookkeeping: adopt the new quad cache + light checksums,
+        // and clear only the dirty sub-chunks covered by this build's snapshot.
+        // Edits that landed while the build was in flight remain marked.
+        render_data->cached_quads = std::move(completed.quads);
+        render_data->light_checksums = completed.light_checksums;
+        render_data->last_built_greedy_mode = completed.greedy_mode;
+        render_data->dirty_subchunks &= ~completed.dirty_subchunks;
 
         if (completed.mesh_data.empty && completed.water_mesh_data.empty) {
             if (render_data->mesh_rid.is_valid()) {
@@ -882,20 +938,25 @@ void MeshManager::rebuild_rendering_server_mesh(int32_t chunk_x, int32_t chunk_y
         if (dx*dx + dz*dz > (mesh_render_distance + 2) * (mesh_render_distance + 2) || dy > 10) {
             render_data->is_mesh_dirty = false;
             render_data->dirty_subchunks = 0;
+            render_data->reset_dirty_bbox();
             return;
         }
     }
 
     // 1.5 Version check: skip enqueuing if versions match
     bool needs_enqueue = false;
+    bool own_version_changed = false;
+    bool neighbor_version_changed = false;
     if (render_data->mesh_version != render_data->last_built_version) {
         needs_enqueue = true;
+        own_version_changed = true;
     } else {
         ChunkRenderData* neighbors[6] = { d_x_neg, d_x_pos, d_y_neg, d_y_pos, d_z_neg, d_z_pos };
         for (int i = 0; i < 6; ++i) {
             uint32_t n_ver = neighbors[i] ? neighbors[i]->mesh_version : 0;
             if (n_ver != render_data->last_built_neighbor_versions[i]) {
                 needs_enqueue = true;
+                neighbor_version_changed = true;
                 break;
             }
         }
@@ -904,6 +965,7 @@ void MeshManager::rebuild_rendering_server_mesh(int32_t chunk_x, int32_t chunk_y
     if (!needs_enqueue) {
         render_data->is_mesh_dirty = false;
         render_data->dirty_subchunks = 0;
+        render_data->reset_dirty_bbox();
         return;
     }
 
@@ -922,6 +984,9 @@ void MeshManager::rebuild_rendering_server_mesh(int32_t chunk_x, int32_t chunk_y
         }
         render_data->is_mesh_dirty = false;
         render_data->dirty_subchunks = 0;
+        render_data->reset_dirty_bbox();
+        render_data->cached_quads.clear();
+        render_data->light_checksums = {};
 
         render_data->last_built_version = render_data->mesh_version;
         ChunkRenderData* neighbors[6] = { d_x_neg, d_x_pos, d_y_neg, d_y_pos, d_z_neg, d_z_pos };
@@ -955,6 +1020,9 @@ void MeshManager::rebuild_rendering_server_mesh(int32_t chunk_x, int32_t chunk_y
             }
             render_data->is_mesh_dirty = false;
             render_data->dirty_subchunks = 0;
+            render_data->reset_dirty_bbox();
+            render_data->cached_quads.clear();
+            render_data->light_checksums = {};
 
             render_data->last_built_version = render_data->mesh_version;
             ChunkRenderData* neighbors[6] = { d_x_neg, d_x_pos, d_y_neg, d_y_pos, d_z_neg, d_z_pos };
@@ -1002,6 +1070,45 @@ void MeshManager::rebuild_rendering_server_mesh(int32_t chunk_x, int32_t chunk_y
     const int32_t player_by = last_player_block_y;
     const int32_t player_bz = last_player_block_z;
 
+    const bool far_mode = detail < 1.0f && is_chunk_far_mode(chunk_x, chunk_y, chunk_z);
+    render_data->last_built_far_mode = far_mode;
+
+    // Greedy vs per-face fallback (mirrors the worker's old decision).
+    const bool player_known = player_bx != INT32_MIN && player_by != INT32_MIN && player_bz != INT32_MIN;
+    int32_t pdx = 0, pdy = 0, pdz = 0;
+    if (player_known) {
+        int32_t cmin_x = chunk_x * CHUNK_WIDTH;
+        int32_t cmax_x = cmin_x + CHUNK_WIDTH - 1;
+        int32_t cmin_y = chunk_y * CHUNK_HEIGHT;
+        int32_t cmax_y = cmin_y + CHUNK_HEIGHT - 1;
+        int32_t cmin_z = chunk_z * CHUNK_DEPTH;
+        int32_t cmax_z = cmin_z + CHUNK_DEPTH - 1;
+        pdx = player_bx < cmin_x ? cmin_x - player_bx : player_bx > cmax_x ? player_bx - cmax_x : 0;
+        pdy = player_by < cmin_y ? cmin_y - player_by : player_by > cmax_y ? player_by - cmax_y : 0;
+        pdz = player_bz < cmin_z ? cmin_z - player_bz : player_bz > cmax_z ? player_bz - cmax_z : 0;
+    }
+    const bool greedy_enabled = !(player_known && std::max(pdx, std::max(pdy, pdz)) <= kGreedyDisableBlockRadius);
+
+    // Only near-player chunks record quad caches (they are the only ones edited).
+    const bool record_quads =
+        player_known &&
+        std::max(std::abs(chunk_x - last_player_chunk_x),
+                 std::max(std::abs(chunk_y - last_player_chunk_y),
+                          std::abs(chunk_z - last_player_chunk_z))) <= 2;
+
+    // Partial remesh eligibility: own edits only (no neighbor edits), a partial
+    // dirty mask, an existing quad cache, and unchanged mode/detail from the
+    // build that produced that cache.
+    const bool partial =
+        record_quads && own_version_changed && !neighbor_version_changed &&
+        render_data->dirty_subchunks != 0 && render_data->dirty_subchunks != 0xFF &&
+        render_data->has_dirty_bbox() &&
+        !render_data->cached_quads.empty() &&
+        detail >= 1.0f && !far_mode &&
+        render_data->last_built_detail_level == detail &&
+        render_data->last_built_far_mode == far_mode &&
+        render_data->last_built_greedy_mode == greedy_enabled;
+
     // Do NOT capture raw neighbor pointers. The worker looks up neighbors by coordinate
     // at build time. If a neighbor was unloaded, the mesh builder sees nullptr (air).
     // Only the center chunk is pinned via pending_mesh_builds.
@@ -1021,10 +1128,32 @@ void MeshManager::rebuild_rendering_server_mesh(int32_t chunk_x, int32_t chunk_y
     mesh_task->high_priority = high_priority;
     mesh_task->smooth_lighting = smooth_lighting_enabled;
     mesh_task->detail_level = detail;
-    mesh_task->far_mode = detail < 1.0f && is_chunk_far_mode(chunk_x, chunk_y, chunk_z);
-    render_data->last_built_far_mode = mesh_task->far_mode;
+    mesh_task->far_mode = far_mode;
+    mesh_task->greedy_enabled = greedy_enabled;
+    mesh_task->record_quads = record_quads;
+    mesh_task->partial = partial;
+    mesh_task->prev_quads = render_data->cached_quads;
+    mesh_task->prev_light_checksums = render_data->light_checksums;
     mesh_task->dirty_subchunks = render_data->dirty_subchunks;
-    render_data->dirty_subchunks = 0;
+    // NOTE: render_data->dirty_subchunks is NOT cleared here. It is cleared at
+    // apply time (process_completed_meshes) with the snapshot mask, so edits that
+    // land while the build is in flight stay marked for the next build.
+
+    // Block-level dirty bbox: snapshot into the task, then clear it so later
+    // edits accumulate their own bbox. The bitmask + mesh_version deferral above
+    // still catches edits that land mid-build (they re-open their own bbox and
+    // force a rebuild via the version mismatch).
+    mesh_task->have_dirty_bounds = render_data->has_dirty_bbox();
+    if (mesh_task->have_dirty_bounds) {
+        mesh_task->dirty_bounds = {
+            render_data->dirty_min_x,
+            render_data->dirty_max_x + 1,
+            render_data->dirty_min_y,
+            render_data->dirty_max_y + 1,
+            render_data->dirty_min_z,
+            render_data->dirty_max_z + 1};
+    }
+    render_data->reset_dirty_bbox();
 
     thread_pool->enqueue_task(std::move(mesh_task), high_priority);
 }

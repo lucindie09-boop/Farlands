@@ -22,8 +22,10 @@ func _input(event):
 		is_open = !is_open
 		if is_open:
 			show()
+			player_controller.set_inventory_open(true)
 		else:
 			hide()
+			player_controller.set_inventory_open(false)
 
 func _process(_delta):
 	if is_open:
@@ -37,7 +39,7 @@ func _draw():
 	if inventory_texture:
 		var texture_width = inventory_texture.get_width()
 		var texture_height = inventory_texture.get_height()
-		var scale = 2.0
+		var scale = 3.0  # Match hotbar scaling
 		var scaled_width = texture_width * scale
 		var scaled_height = texture_height * scale
 		var texture_x = (size.x - scaled_width) / 2.0
@@ -186,7 +188,7 @@ func _select_slot_at_position(pos: Vector2):
 	if inventory_texture:
 		var texture_width = inventory_texture.get_width()
 		var texture_height = inventory_texture.get_height()
-		var scale = 2.0
+		var scale = 3.0  # Match hotbar scaling
 		var scaled_width = texture_width * scale
 		var scaled_height = texture_height * scale
 		var start_x = (size.x - scaled_width) / 2.0

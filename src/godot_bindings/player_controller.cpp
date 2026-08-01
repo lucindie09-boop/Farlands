@@ -38,6 +38,8 @@ void PlayerController::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_inventory_slot", "slot", "block_id", "count"), &PlayerController::set_inventory_slot);
     ClassDB::bind_method(D_METHOD("save_inventory"), &PlayerController::save_inventory);
     ClassDB::bind_method(D_METHOD("load_inventory"), &PlayerController::load_inventory);
+    ClassDB::bind_method(D_METHOD("set_inventory_open", "open"), &PlayerController::set_inventory_open);
+    ClassDB::bind_method(D_METHOD("is_inventory_open"), &PlayerController::is_inventory_open);
     
     ClassDB::bind_method(D_METHOD("set_sensitivity", "s"), &PlayerController::set_sensitivity);
     ClassDB::bind_method(D_METHOD("get_sensitivity"), &PlayerController::get_sensitivity);
@@ -150,6 +152,11 @@ void PlayerController::_input(const Ref<InputEvent>& p_event) {
             input->set_mouse_mode(Input::MOUSE_MODE_CAPTURED);
             return;
         }
+        return;
+    }
+    
+    // Skip mouse look when inventory is open
+    if (inventory_open_) {
         return;
     }
 
@@ -308,6 +315,22 @@ int PlayerController::get_inventory_slot_block_id(int slot) const {
 
 void PlayerController::set_inventory_slot(int slot, int block_id, int count) {
     inventory_.set_inventory_slot(slot, block_id, count);
+}
+
+void PlayerController::set_inventory_open(bool open) {
+    inventory_open_ = open;
+    Input* input = Input::get_singleton();
+    if (input) {
+        if (open) {
+            input->set_mouse_mode(Input::MOUSE_MODE_VISIBLE);
+        } else {
+            input->set_mouse_mode(Input::MOUSE_MODE_CAPTURED);
+        }
+    }
+}
+
+bool PlayerController::is_inventory_open() const {
+    return inventory_open_;
 }
 
 void PlayerController::save_inventory() {

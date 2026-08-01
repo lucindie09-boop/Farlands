@@ -7,6 +7,8 @@
 #include <godot_cpp/core/class_db.hpp>
 
 #include "engine/player_controller.hpp"
+#include "core/inventory.hpp"
+#include "engine/voxel_engine_controller.hpp"
 
 namespace VoxelEngine {
 class CollisionResolver;
@@ -32,7 +34,14 @@ public:
     void place_block();
     int get_selected_block() const;
     void set_selected_block(int block_id);
-
+    
+    // Inventory API
+    int get_hotbar_slot_count(int slot) const;
+    int get_hotbar_slot_block_id(int slot) const;
+    int get_selected_hotbar_slot() const;
+    void select_hotbar_slot(int slot);
+    void set_hotbar_slot(int slot, int block_id, int count);
+    
     void set_sensitivity(float s);
     float get_sensitivity() const;
     void set_fly_speed(float s);
@@ -46,12 +55,12 @@ private:
     godot::Camera3D* camera_ = nullptr;
     VoxelEngine::CollisionResolver* collision_resolver_ = nullptr;
     VoxelEngine::ChunkManager* chunk_manager_ = nullptr;
+    VoxelEngine::Inventory inventory_;
 
     float pitch_ = 0.0f;
     float sensitivity_ = 0.003f;
     float fly_speed_ = 10.0f;
     bool fly_mode_ = false;
-    int selected_block_type_ = 3; // GRASS
     float rendered_eye_height_ = 1.62f;
 };
 

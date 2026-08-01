@@ -3,6 +3,7 @@
 [ext_resource type="Script" uid="uid://dgq4fssxi3fg3" path="res://fps_counter.gd" id="2_uu6xs"]
 [ext_resource type="Sky" uid="uid://dphoxdyf7wmx0" path="res://materials/sky.tres" id="3_sky"]
 [ext_resource type="Script" uid="uid://rqwoe0qfwptc" path="res://godrays_overlay.gd" id="4_godrays"]
+[ext_resource type="Script" path="res://hotbar.gd" id="5_hotbar"]
 
 [sub_resource type="Environment" id="Environment_uu6xs"]
 background_mode = 2
@@ -49,6 +50,28 @@ offset_right = 40.0
 offset_bottom = 23.0
 theme_override_font_sizes/font_size = 24
 script = ExtResource("2_uu6xs")
+
+[node name="Hotbar" type="Control" parent="HUD"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("5_hotbar")
+
+[node name="HotbarTexture" type="TextureRect" parent="Hotbar"]
+layout_mode = 3
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -128.0
+offset_top = -64.0
+offset_right = 128.0
+offset_bottom = 0.0
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=1600923077]
 environment = SubResource("Environment_uu6xs")

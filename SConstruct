@@ -43,6 +43,7 @@ shared_sources = [
     "src/worldgen/vegetation_generator.cpp",
     "src/core/chunk_data.cpp",
     "src/core/block_types.cpp",
+    "src/core/inventory.cpp",
     "src/mesh/mesh_builder.cpp",
     "src/mesh/mesh_builder_faces.cpp",
     "src/mesh/mesh_builder_greedy.cpp",
@@ -87,7 +88,7 @@ if sys.platform != "win32":
     fuzz_env.Append(CCFLAGS=["-std=c++17", "-fsanitize=fuzzer,address,undefined", "-fno-omit-frame-pointer", "-g", "-O1"])
     fuzz_env.Append(LINKFLAGS=["-fsanitize=fuzzer,address,undefined"])
     # Reference source files directly to avoid VariantDir file locking
-    fuzz_sources_common = ["src/core/chunk_data.cpp", "src/core/block_types.cpp", "src/lighting/block_light_region.cpp"]
+    fuzz_sources_common = ["src/core/chunk_data.cpp", "src/core/block_types.cpp", "src/core/inventory.cpp", "src/lighting/block_light_region.cpp"]
     fuzz_palette = fuzz_env.Program("bin/fuzz_palette", ["tools/fuzz_palette.cpp"] + fuzz_sources_common)
     fuzz_chunk = fuzz_env.Program("bin/fuzz_chunk_load", ["tools/fuzz_chunk_load.cpp"] + fuzz_sources_common)
     fuzz_light = fuzz_env.Program("bin/fuzz_light_propagation", ["tools/fuzz_light_propagation.cpp"] + fuzz_sources_common)

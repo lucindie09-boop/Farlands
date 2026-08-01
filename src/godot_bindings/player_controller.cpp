@@ -1,6 +1,7 @@
 #include "godot_bindings/player_controller.hpp"
 #include "godot_bindings/chunk_manager.hpp"
 #include "engine/collision_resolver.hpp"
+#include "world/chunk_world.hpp"
 
 #include <godot_cpp/classes/input.hpp>
 #include <godot_cpp/classes/engine.hpp>
@@ -21,6 +22,14 @@ void PlayerController::_bind_methods() {
     ClassDB::bind_method(D_METHOD("place_block"), &PlayerController::place_block);
     ClassDB::bind_method(D_METHOD("get_selected_block"), &PlayerController::get_selected_block);
     ClassDB::bind_method(D_METHOD("set_selected_block", "block_id"), &PlayerController::set_selected_block);
+    
+    // Inventory API
+    ClassDB::bind_method(D_METHOD("get_hotbar_slot_count", "slot"), &PlayerController::get_hotbar_slot_count);
+    ClassDB::bind_method(D_METHOD("get_hotbar_slot_block_id", "slot"), &PlayerController::get_hotbar_slot_block_id);
+    ClassDB::bind_method(D_METHOD("get_selected_hotbar_slot"), &PlayerController::get_selected_hotbar_slot);
+    ClassDB::bind_method(D_METHOD("select_hotbar_slot", "slot"), &PlayerController::select_hotbar_slot);
+    ClassDB::bind_method(D_METHOD("set_hotbar_slot", "slot", "block_id", "count"), &PlayerController::set_hotbar_slot);
+    
     ClassDB::bind_method(D_METHOD("set_sensitivity", "s"), &PlayerController::set_sensitivity);
     ClassDB::bind_method(D_METHOD("get_sensitivity"), &PlayerController::get_sensitivity);
     ClassDB::bind_method(D_METHOD("set_fly_speed", "s"), &PlayerController::set_fly_speed);
@@ -53,6 +62,13 @@ void PlayerController::_ready() {
     }
 
     sim_.reset(get_global_position());
+    
+    // Initialize inventory with some starting blocks
+    // Give the player 64 of each basic block type
+    inventory_.add_block(1, 64); // Stone
+    inventory_.add_block(2, 64); // Dirt
+    inventory_.add_block(3, 64); // Grass
+    inventory_.add_block(4, 64); // Sand
 }
 
 void PlayerController::_process(double delta) {
@@ -164,9 +180,19 @@ void PlayerController::_input(const Ref<InputEvent>& p_event) {
     Ref<InputEventKey> ke = p_event;
     if (ke.is_valid() && ke->is_pressed() && !ke->is_echo()) {
         int pk = ke->get_physical_keycode();
-        if (pk >= KEY_1 && pk <= KEY_9) selected_block_type_ = pk - KEY_1 + 1;
-        else if (pk == KEY_0) selected_block_type_ = 0;
+        if (pk >= KEY_1 && pk <= KEY_9) inventory_.select_slot(pk - KEY_1);
     }
+    
+    // Also check for hotbar input actions
+    if (p_event->is_action_pressed("hotbar_1")) inventory_.select_slot(0);
+    if (p_event->is_action_pressed("hotbar_2")) inventory_.select_slot(1);
+    if (p_event->is_action_pressed("hotbar_3")) inventory_.select_slot(2);
+    if (p_event->is_action_pressed("hotbar_4")) inventory_.select_slot(3);
+    if (p_event->is_action_pressed("hotbar_5")) inventory_.select_slot(4);
+    if (p_event->is_action_pressed("hotbar_6")) inventory_.select_slot(5);
+    if (p_event->is_action_pressed("hotbar_7")) inventory_.select_slot(6);
+    if (p_event->is_action_pressed("hotbar_8")) inventory_.select_slot(7);
+    if (p_event->is_action_pressed("hotbar_9")) inventory_.select_slot(8);
 }
 
 void PlayerController::toggle_fly_mode() {
@@ -184,10 +210,20 @@ void PlayerController::break_block() {
     Dictionary result = cm->raycast_from_camera(10.0);
     if (result.get("success", false)) {
         Vector3 pos = result["position"];
-        cm->set_block(static_cast<int>(std::floor(pos.x)),
-                      static_cast<int>(std::floor(pos.y)),
-                      static_cast<int>(std::floor(pos.z)),
-                      0);
+        int bx = static_cast<int>(std::floor(pos.x));
+        int by = static_cast<int>(std::floor(pos.y));
+        int bz = static_cast<int>(std::floor(pos.z));
+        
+        // Get the block type before breaking
+        int block_type = cm->get_block(bx, by, bz);
+        
+        // Break the block
+        cm->set_block(bx, by, bz, 0);
+        
+        // Add to inventory (if it's not air)
+        if (block_type != 0) {
+            inventory_.add_block(block_type, 1);
+        }
     }
 }
 
@@ -196,6 +232,13 @@ void PlayerController::place_block() {
     if (!cm_node) return;
     ChunkManager* cm = Object::cast_to<ChunkManager>(cm_node);
     if (!cm) return;
+
+    // Get the block type from inventory
+    BlockID block_to_place = inventory_.get_selected_block();
+    if (block_to_place == 0) return; // No block selected
+    
+    // Check if we have enough blocks
+    if (inventory_.get_selected_count() <= 0) return;
 
     Dictionary result = cm->raycast_from_camera(10.0);
     if (result.get("success", false)) {
@@ -210,9 +253,53 @@ void PlayerController::place_block() {
         int pz = static_cast<int>(std::floor(ppos.z));
         if (bx == px && bz == pz && (by == py || by == py + 1)) return;
 
-        cm->set_block(bx, by, bz, selected_block_type_);
+        // Place the block
+        cm->set_block(bx, by, bz, block_to_place);
+        
+        // Consume from inventory
+        inventory_.consume_block(block_to_place, 1);
     }
 }
 
-int PlayerController::get_selected_block() const { return selected_block_type_; }
-void PlayerController::set_selected_block(int block_id) { selected_block_type_ = block_id; }
+int PlayerController::get_selected_block() const { return inventory_.get_selected_block(); }
+void PlayerController::set_selected_block(int block_id) { 
+    // Legacy method - set the selected hotbar slot to this block type
+    // This is for backwards compatibility
+    for (int i = 0; i < VoxelEngine::Inventory::HOTBAR_SIZE; i++) {
+        const auto& slot = inventory_.get_hotbar_slot(i);
+        if (slot.block_id == block_id) {
+            inventory_.select_slot(i);
+            return;
+        }
+    }
+    // If not found in hotbar, set the first empty slot
+    for (int i = 0; i < VoxelEngine::Inventory::HOTBAR_SIZE; i++) {
+        const auto& slot = inventory_.get_hotbar_slot(i);
+        if (slot.count == 0) {
+            inventory_.set_hotbar_slot(i, block_id, 64); // Give 64 blocks
+            inventory_.select_slot(i);
+            break;
+        }
+    }
+}
+
+// Inventory API
+int PlayerController::get_hotbar_slot_count(int slot) const {
+    return inventory_.get_hotbar_slot(slot).count;
+}
+
+int PlayerController::get_hotbar_slot_block_id(int slot) const {
+    return inventory_.get_hotbar_slot(slot).block_id;
+}
+
+int PlayerController::get_selected_hotbar_slot() const {
+    return inventory_.get_selected_slot();
+}
+
+void PlayerController::select_hotbar_slot(int slot) {
+    inventory_.select_slot(slot);
+}
+
+void PlayerController::set_hotbar_slot(int slot, int block_id, int count) {
+    inventory_.set_hotbar_slot(slot, block_id, count);
+}

@@ -742,6 +742,99 @@ bool ChunkWorld::load_world_metadata(TerrainParams& out_params, int32_t& out_ver
     return true;
 }
 
+void ChunkWorld::save_inventory(const Inventory& inventory) {
+    String filename = "user://chunks/inventory.bin";
+    
+    std::lock_guard<std::mutex> lock(file_access_mutex);
+    
+    Ref<DirAccess> dir = DirAccess::open("user://");
+    if (dir.is_valid()) {
+        dir->make_dir_recursive("chunks");
+    }
+    
+    Ref<FileAccess> file = FileAccess::open(filename, FileAccess::WRITE);
+    if (!file.is_valid()) return;
+    
+    // Header: magic + version
+    file->store_32(0x494E5645); // "INVE" magic
+    file->store_32(1);           // inventory version
+    
+    // Save hotbar
+    for (int i = 0; i < Inventory::HOTBAR_SIZE; i++) {
+        const auto& slot = inventory.get_hotbar_slot(i);
+        file->store_32(slot.block_id);
+        file->store_32(slot.count);
+    }
+    
+    // Save main inventory
+    for (int i = 0; i < Inventory::INVENTORY_SIZE; i++) {
+        const auto& slot = inventory.get_inventory_slot(i);
+        file->store_32(slot.block_id);
+        file->store_32(slot.count);
+    }
+    
+    // Save selected slot
+    file->store_32(inventory.get_selected_slot());
+    
+    file->close();
+}
+
+bool ChunkWorld::load_inventory(Inventory& inventory) {
+    String filename = "user://chunks/inventory.bin";
+    
+    std::lock_guard<std::mutex> lock(file_access_mutex);
+    
+    if (!FileAccess::file_exists(filename)) return false;
+    
+    Ref<FileAccess> file = FileAccess::open(filename, FileAccess::READ);
+    if (!file.is_valid()) return false;
+    
+    // Header: magic + version
+    uint32_t magic = file->get_32();
+    if (magic != 0x494E5645) { // "INVE"
+        file->close();
+        return false;
+    }
+    
+    int32_t inv_version = file->get_32();
+    if (inv_version != 1) {
+        file->close();
+        return false;
+    }
+    
+    // Clear existing inventory
+    inventory.clear();
+    
+    // Load hotbar
+    for (int i = 0; i < Inventory::HOTBAR_SIZE; i++) {
+        BlockID block_id = file->get_32();
+        int count = file->get_32();
+        // Note: Inventory doesn't have a direct set method, so we need to add blocks
+        // For now, we'll skip slots with 0 count
+        if (block_id > 0 && count > 0) {
+            // Temporarily add to inventory, then select the slot
+            // This is a limitation of the current API
+            inventory.add_block(block_id, count);
+        }
+    }
+    
+    // Load main inventory
+    for (int i = 0; i < Inventory::INVENTORY_SIZE; i++) {
+        BlockID block_id = file->get_32();
+        int count = file->get_32();
+        if (block_id > 0 && count > 0) {
+            inventory.add_block(block_id, count);
+        }
+    }
+    
+    // Load selected slot
+    int selected_slot = file->get_32();
+    inventory.select_slot(selected_slot);
+    
+    file->close();
+    return true;
+}
+
 bool ChunkWorld::world_metadata_exists() const {
     String filename = "user://chunks/world.meta";
     return FileAccess::file_exists(filename);

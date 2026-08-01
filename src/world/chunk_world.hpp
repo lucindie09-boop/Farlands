@@ -3,6 +3,7 @@
 #include "core/chunk_map.hpp"
 #include "core/terrain_params.hpp"
 #include "core/chunk_types.hpp"
+#include "core/inventory.hpp"
 #include "world/chunk_scheduler.hpp"
 #include "core/thread_pool.hpp"
 #include "worldgen/chunk_generator.hpp"
@@ -50,6 +51,10 @@ public:
     // World metadata (seed, terrain params, version)
     void save_world_metadata(const TerrainParams& params);
     bool load_world_metadata(TerrainParams& out_params, int32_t& out_version);
+    
+    // Inventory persistence
+    void save_inventory(const Inventory& inventory);
+    bool load_inventory(Inventory& inventory);
     bool world_metadata_exists() const;
 
     void set_vegetation_enabled(bool enabled) { vegetation_enabled = enabled; }

@@ -150,6 +150,9 @@ void toggle_day_night_cycle();
     void save_world_metadata();
     bool load_world_metadata();
     bool world_metadata_exists() const;
+    
+    VoxelEngineController* get_controller() { return controller.get(); }
+    const VoxelEngineController* get_controller() const { return controller.get(); }
 
     static PerformanceTimer& get_perf_timer();
 

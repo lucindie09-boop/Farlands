@@ -12,6 +12,7 @@
 #include <godot_cpp/variant/node_path.hpp>
 
 #include "core/chunk_types.hpp"
+#include "core/inventory.hpp"
 #include "core/frustum.hpp"
 #include "core/performance_timer.hpp"
 #include "world/world_updater.hpp"

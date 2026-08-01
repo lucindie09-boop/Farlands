@@ -262,9 +262,13 @@ godot::Color ChunkManager::get_night_sky_color() const { return controller->get_
 
 void ChunkManager::set_fog_density(double density) { controller->set_fog_density(density); }
 double ChunkManager::get_fog_density() const { return controller->get_fog_density(); }
-
 void ChunkManager::set_vegetation_enabled(bool enabled) { controller->set_vegetation_enabled(enabled); }
+
 bool ChunkManager::get_vegetation_enabled() const { return controller->is_vegetation_enabled(); }
+
+void ChunkManager::set_move_speed_multiplier(float multiplier) { move_speed_multiplier_ = multiplier; }
+
+float ChunkManager::get_move_speed_multiplier() const { return move_speed_multiplier_; }
 
 void ChunkManager::save_world_metadata() { controller->save_world_metadata(); }
 bool ChunkManager::load_world_metadata() { return controller->load_world_metadata(); }
@@ -362,5 +366,8 @@ BIND_PROP(Variant::FLOAT, day_time, "time");
     BIND_PROP(Variant::COLOR,   night_sky_color,           "color");
     BIND_PROP(Variant::FLOAT,   fog_density,               "density");
     BIND_PROP(Variant::BOOL,    vegetation_enabled,         "enabled");
+    ClassDB::bind_method(D_METHOD("set_move_speed_multiplier", "multiplier"), &ChunkManager::set_move_speed_multiplier);
+    ClassDB::bind_method(D_METHOD("get_move_speed_multiplier"), &ChunkManager::get_move_speed_multiplier);
+    ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "move_speed_multiplier", PROPERTY_HINT_RANGE, "0.1,16.0,0.1"), "set_move_speed_multiplier", "get_move_speed_multiplier");
 #undef BIND_PROP
 }

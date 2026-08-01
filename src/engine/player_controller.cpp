@@ -43,13 +43,14 @@ float PlayerSim::get_eye_height() const {
 }
 
 void PlayerSim::accumulate_and_tick(double frame_delta, const PlayerInput& input,
-                                           CollisionResolver& cr, float step_height) {
+                                           CollisionResolver& cr, float step_height,
+                                           float speed_multiplier) {
     accumulator_ += static_cast<float>(frame_delta);
 
     // Safety cap: never run more than 4 ticks per frame to avoid spiral of death
     int max_ticks = 4;
     while (accumulator_ >= TICK_DT && max_ticks > 0) {
-        tick(input, cr, step_height);
+        tick(input, cr, step_height, speed_multiplier);
         accumulator_ -= TICK_DT;
         --max_ticks;
     }
@@ -58,7 +59,7 @@ void PlayerSim::accumulate_and_tick(double frame_delta, const PlayerInput& input
     }
 }
 
-void PlayerSim::tick(const PlayerInput& input, CollisionResolver& cr, float step_height) {
+void PlayerSim::tick(const PlayerInput& input, CollisionResolver& cr, float step_height, float speed_multiplier) {
     prev_position_ = position_;   // snapshot for interpolation — once per tick, not per frame
 
     // --- Sprint state machine (vanilla: sticky flag, one-tick stale for airborne) ---
@@ -92,6 +93,7 @@ void PlayerSim::tick(const PlayerInput& input, CollisionResolver& cr, float step
     } else {
         move_multiplier = prev_sprint_active_ ? SPRINT_MULT : WALK_MULT;
     }
+    move_multiplier *= speed_multiplier;
 
     // --- Slipperiness lookup ---
     float slipperiness = DEFAULT_SLIPPERINESS;

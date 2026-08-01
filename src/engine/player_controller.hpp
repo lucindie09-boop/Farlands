@@ -52,7 +52,8 @@ public:
 
     void reset(const godot::Vector3& initial_pos);
     void accumulate_and_tick(double frame_delta, const PlayerInput& input,
-                             CollisionResolver& cr, float step_height = STEP_HEIGHT);
+                             CollisionResolver& cr, float step_height = STEP_HEIGHT,
+                             float speed_multiplier = 1.0f);
 
     float get_accumulator_fraction() const;
     godot::Vector3 get_render_position(float partial_tick) const;
@@ -66,7 +67,7 @@ public:
     void queue_jump() { jump_queued_ = true; }
 
 private:
-    void tick(const PlayerInput& input, CollisionResolver& cr, float step_height);
+    void tick(const PlayerInput& input, CollisionResolver& cr, float step_height, float speed_multiplier);
 
     godot::Vector3 position_;
     godot::Vector3 prev_position_;

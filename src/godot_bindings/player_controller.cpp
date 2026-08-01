@@ -46,9 +46,9 @@ void PlayerController::_ready() {
 
     Node* cm_node = get_node_or_null(NodePath("/root/Main/ChunkManager"));
     if (cm_node) {
-        ChunkManager* cm = Object::cast_to<ChunkManager>(cm_node);
-        if (cm) {
-            collision_resolver_ = cm->get_collision_resolver();
+        chunk_manager_ = Object::cast_to<ChunkManager>(cm_node);
+        if (chunk_manager_) {
+            collision_resolver_ = chunk_manager_->get_collision_resolver();
         }
     }
 
@@ -57,6 +57,9 @@ void PlayerController::_ready() {
 
 void PlayerController::_process(double delta) {
     if (!collision_resolver_) return;
+
+    float speed_multiplier = 1.0f;
+    if (chunk_manager_) speed_multiplier = chunk_manager_->get_move_speed_multiplier();
 
     if (fly_mode_) {
         Input* input = Input::get_singleton();
@@ -72,7 +75,7 @@ void PlayerController::_process(double delta) {
         }
         input_dir = input_dir.normalized();
         Vector3 pos = get_global_position();
-        pos += input_dir * fly_speed_ * static_cast<float>(delta);
+        pos += input_dir * fly_speed_ * speed_multiplier * static_cast<float>(delta);
         set_global_position(pos);
         sim_.reset(pos);
         rendered_eye_height_ = 1.62f;
@@ -100,7 +103,7 @@ void PlayerController::_process(double delta) {
         pi.yaw = get_rotation().y;
     }
 
-    sim_.accumulate_and_tick(delta, pi, *collision_resolver_);
+    sim_.accumulate_and_tick(delta, pi, *collision_resolver_, PlayerSim::STEP_HEIGHT, speed_multiplier);
 
     float partial = sim_.get_accumulator_fraction();
     set_global_position(sim_.get_render_position(partial));

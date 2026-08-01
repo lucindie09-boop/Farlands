@@ -199,22 +199,6 @@ struct MeshBuildTask : Task {
         }
         builder.set_subchunk_bounds(bounds);
 
-        constexpr int32_t CW = CHUNK_WIDTH;
-        constexpr int32_t CH = CHUNK_HEIGHT;
-        constexpr int32_t CD = CHUNK_DEPTH;
-        int32_t chunk_min_x = chunk_x * CW;
-        int32_t chunk_max_x = chunk_x * CW + CW - 1;
-        int32_t chunk_min_y = chunk_y * CH;
-        int32_t chunk_max_y = chunk_y * CH + CH - 1;
-        int32_t chunk_min_z = chunk_z * CD;
-        int32_t chunk_max_z = chunk_z * CD + CD - 1;
-        int32_t dx = player_bx < chunk_min_x ? chunk_min_x - player_bx :
-                     player_bx > chunk_max_x ? player_bx - chunk_max_x : 0;
-        int32_t dy = player_by < chunk_min_y ? chunk_min_y - player_by :
-                     player_by > chunk_max_y ? player_by - chunk_max_y : 0;
-        int32_t dz = player_bz < chunk_min_z ? chunk_min_z - player_bz :
-                     player_bz > chunk_max_z ? player_bz - chunk_max_z : 0;
-
         ChunkRenderData* all_neighbors[26] = {};
         static constexpr int32_t kNeighborOffsets[26][3] = {
             {-1,0,0},{1,0,0},{0,-1,0},{0,1,0},{0,0,-1},{0,0,1},

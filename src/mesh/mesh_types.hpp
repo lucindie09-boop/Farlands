@@ -1,6 +1,7 @@
 #ifndef FUK_MINECRAFT_MESH_TYPES_HPP
 #define FUK_MINECRAFT_MESH_TYPES_HPP
 #include <cstdint>
+#include <cstddef>
 #include <array>
 #include <vector>
 #include "core/chunk_coords.hpp"
@@ -71,7 +72,9 @@ struct CachedQuad {
 // against the previous build's values to find every column whose light changed
 // since then, so light-only changes are re-emitted too (not just block edits).
 struct MeshLightChecksums {
-    std::array<uint32_t, CHUNK_WIDTH * CHUNK_DEPTH> columns{};
+    std::array<uint32_t,
+               static_cast<std::size_t>(CHUNK_WIDTH) * static_cast<std::size_t>(CHUNK_DEPTH)>
+        columns{};
 };
 
 #ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION

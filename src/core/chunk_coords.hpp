@@ -67,21 +67,21 @@ inline constexpr void world_to_chunk_local(int32_t world_x, int32_t world_y, int
         local_x = world_x & 31;
     } else {
         chunk_x = -((-world_x + 31) >> 5);
-        local_x = world_x - (chunk_x << 5);
+        local_x = world_x - chunk_x * CHUNK_WIDTH;
     }
     if (world_y >= 0) {
         chunk_y = world_y >> 5;
         local_y = world_y & 31;
     } else {
         chunk_y = -((-world_y + 31) >> 5);
-        local_y = world_y - (chunk_y << 5);
+        local_y = world_y - chunk_y * CHUNK_HEIGHT;
     }
     if (world_z >= 0) {
         chunk_z = world_z >> 5;
         local_z = world_z & 31;
     } else {
         chunk_z = -((-world_z + 31) >> 5);
-        local_z = world_z - (chunk_z << 5);
+        local_z = world_z - chunk_z * CHUNK_DEPTH;
     }
 }
 

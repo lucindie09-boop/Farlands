@@ -14,7 +14,9 @@ class ChunkManager;
 }
 
 class PlayerController : public godot::Node3D {
+    // NOLINTBEGIN(bugprone-unhandled-self-assignment) — GDCLASS macro generates operator=
     GDCLASS(PlayerController, godot::Node3D)
+    // NOLINTEND(bugprone-unhandled-self-assignment)
 
 public:
     PlayerController();

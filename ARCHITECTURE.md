@@ -61,10 +61,11 @@ This document describes the current, stable architecture of the voxel engine. Fo
 5. Queues for mesh build via `ChunkScheduler`
 
 ### Mesh Building
-1. `MeshBuilder::build_mesh()` creates mesh data from `ChunkData`
+1. `MeshBuilder::build_mesh()` creates mesh data from `ChunkData`; `build_far_mesh()` emits heightmap-only silhouette meshes for far-mode chunks
 2. Uses `ChunkNeighborAccessor` for 26 neighbor chunks
-3. Greedy meshing with stride/detail reduction for LOD (controlled by `lod_distance`/`lod_detail_level`)
+3. Greedy meshing with stride/detail reduction for LOD (controlled by `lod_distance`/`lod_detail_level`/`lod_far_distance`/`far_detail_level`)
 4. Neighbor chunks are pinned via `pending_mesh_builds` atomic during build to prevent unload
+5. Block edits take the incremental path (`build_mesh_incremental()`): a tight dirty-AABB re-emit merged with the previously emitted mesh, with fallback to a full rebuild when the bounds grow beyond a threshold
 
 ### Unloading
 1. `try_unload_chunk()` checks if chunk can be unloaded (no pending mesh builds, not in frustum)
@@ -92,6 +93,13 @@ This document describes the current, stable architecture of the voxel engine. Fo
 - Texture/emissive arrays generated from same file
 - Do not hardcode block properties in C++
 
+## Terrain Generation
+
+- **Signed 3D density field** over a macro heightmap: `density = (surface_y - y) + shape_noise * strength * surface_band` (positive = solid). The 3D fBm deforms only a band around the macro surface, producing overhangs, shelves, and arches.
+- **4×4×4 world-aligned shape lattice**: the 3D shape noise is sampled once per lattice node and trilinearly interpolated per voxel, so chunk grids and single-point field queries stay bit-identical and lattice nodes land on shared world coordinates across chunk boundaries (no seams).
+- **Chunk-level fast paths**: after the exact macro column pass, chunks entirely above/below the per-chunk height band fill plain water/air or stone over bedrock and skip all lattice/density/material work (~7× on deep-chunk generation).
+- Vegetation uses the real density surface with an underwater rejection guard; an isolated-singleton removal pass clears lone floating voxels the density field occasionally produces.
+
 ## Rendering
 
 ### Frustum-Prioritized Loading
@@ -101,21 +109,38 @@ This document describes the current, stable architecture of the voxel engine. Fo
 - Dynamic mesh budget: visible-chunk ratio scales budget from 0.5× (sparse) to 1.0× (full)
 
 ### LOD System
-- Per-chunk distance-based stride/detail reduction (not chunk merging)
-- Controlled by `lod_distance`/`lod_detail_level` properties
-- Stride-1 "skirt" ring at LOD transition prevents T-junction cracks
-- Cap of 128 LOD remeshes/frame
+- Per-chunk distance-based reduction (not chunk merging), in three tiers:
+  1. **Full detail** within `lod_distance` (+1)
+  2. **Mid tier**: stride/detail reduction controlled by `lod_detail_level` inside the greedy mesher
+  3. **Far tier**: heightmap-only silhouette meshes controlled by `lod_far_distance`/`far_detail_level`, fed into the far-region merge pipeline
+- Stride-1 "skirt" ring at the mid-tier transition prevents T-junction cracks
+- Cap of 128 LOD remeshes/frame; far-region rebuilds debounced (250 ms)
+
+### Mesh Completion
+- `process_completed_meshes` is wall-clock-budgeted (`mesh_completion_budget_ms` = 0.75) plus a per-frame completion cap, so a backlog can never stall one frame
+- Nearest-first scheduling: `ChunkScheduler::poll_completed_mesh_nearest()` scans both completion queues (backed by `std::deque`) for the chunk closest to the player; stale completions (epoch mismatch) are dropped during the scan and the frame's uploads go to the most visible chunks
 
 ### Mesh Surfaces
 - Primary surface: opaque terrain with greedy meshing
 - Secondary surface: translucent water with edge fade, tint, shimmer, Beer-Lambert depth absorption
 - Emissive textures: second `Texture2DArray` for per-face glow maps
+- Far tier: heightmap-only silhouette meshes merged into far regions (`far_regions`, `far_mesh_cache` in `mesh_manager.*`/`chunk_types.hpp`)
 
 ## Collision
 
 - Binary-search AABB approach (3D DDA variant was tried and reverted)
 - Custom voxel collision queries chunk map directly instead of Godot physics nodes
 - Player collision via `ChunkManager::resolve_voxel_collision()`
+- **Step-up**: tests the player's full body AABB raised by `step_height`, then re-resolves horizontally and only accepts the step if it travels further than not stepping. (The old `[feet, feet+step_height)` headroom probe always contained the obstruction being stepped onto and could never succeed.)
+
+## Player Controller
+
+Two layers mirroring the ChunkManager/VoxelEngineController pattern:
+
+- **`VoxelEngine::PlayerSim`** (`src/engine/player_controller.*`) — pure, deterministic fixed-timestep simulation (20 ticks/s, velocities in blocks/tick). Vanilla-accurate ordering (jump + sprint boost applied before friction, matching `tickMovement()` → `travel()`), sticky sprint with a one-tick airborne staleness, sneak multiplier on ground only, and `on_floor` derived from the final resolved position (no swept floor probe). Standing/sneaking/landing eye-height transitions are smoothed at render time from the accumulator's partial-tick fraction.
+- **`PlayerController`** (`src/godot_bindings/player_controller.*`) — Godot `Node3D` scene node registered via ClassDB (used directly by `Main.tscn`). Polls input, drives the tick accumulator from `_process(delta)`, handles mouse look, fly mode (`fly_speed`), camera eye-height smoothing, raycast-based break/place, and block selection (keys 1–0).
+
+No `CharacterBody3D`, `move_and_slide`, or `CollisionShape3D` — all collision goes through `CollisionResolver` against the chunk map.
 
 ## Key Files
 
@@ -129,15 +154,32 @@ This document describes the current, stable architecture of the voxel engine. Fo
 - `src/core/thread_pool.hpp` — Shared worker pool, high-priority queue
 
 ### Mesh
-- `src/mesh/mesh_manager.hpp/cpp` — Per-chunk mesh builds, upload, instance management
-- `src/mesh/mesh_builder.cpp` / `mesh_builder_greedy.cpp` / `mesh_builder_faces.cpp` — Greedy meshing
+- `src/mesh/mesh_manager.hpp/cpp` — Per-chunk mesh builds, upload, instance management, multi-tier LOD, far-region merging, nearest-first completion
+- `src/mesh/mesh_builder.cpp` / `mesh_builder_greedy.cpp` / `mesh_builder_faces.cpp` — Greedy meshing, incremental partial remeshes, `build_far_mesh`
 - `src/mesh/chunk_neighbor_accessor.hpp/cpp` — 26 neighbor pointers for mesh building
+- `src/mesh/mesh_types.hpp` — Mesh types, light checksum grid for incremental rebuilds
 
 ### World
 - `src/world/chunk_world.cpp` — Save/load, all hot paths use `lock_keys_exclusive()`
 - `src/world/block_editor.cpp` — `place_block` with targeted locking
 - `src/world/player_light.hpp` — Player light with targeted locking
 - `src/world/world_updater.hpp/cpp` — Frustum integration, budgets
+- `src/world/chunk_scheduler.hpp` — Completion queues, `poll_completed_mesh_nearest`
+- `src/world/day_night_cycle.hpp` — Sky-light cycle
+
+### Engine
+- `src/engine/collision_resolver.hpp/cpp` — Binary-search collision, step-up
+- `src/engine/player_controller.hpp/cpp` — `PlayerSim` (fixed-timestep simulation)
+- `src/engine/voxel_engine_controller.hpp/cpp` — Bridges `ChunkManager` state to the world
+
+### Rendering
+- `src/render/environment_controller.cpp` — Sky/fog/player-light parameter pushes
+- `src/render/material_manager.hpp/cpp` — Terrain + water materials, texture arrays
+- `src/worldgen/texture_array_generator.hpp` — Diffuse + emissive `Texture2DArray` generation
+
+### Godot bindings
+- `src/godot_bindings/chunk_manager.cpp` — Inspector properties, camera/frustum entry point, block API
+- `src/godot_bindings/player_controller.cpp` — `PlayerController` node: input, mouse look, fly mode, break/place
 
 ### Lighting
 - `src/lighting/light_propagator.hpp/cpp` — Public wrappers + `_locked` variants
@@ -147,7 +189,11 @@ This document describes the current, stable architecture of the voxel engine. Fo
 - `data/block_definitions.json` — Single source of truth for block properties
 
 ### Testing
+- `tests/` — 17 doctest files, 162 test cases / 91k+ assertions, auto-discovered via `Glob("tests/*.cpp")`
 - `tests/test_concurrency.cpp` — 16 tests for shard locking, deadlock prevention, PaletteStorage
 - `tests/test_light_propagation.cpp` — Cross-chunk BFS edge case tests
-- `tools/fuzz_light_propagation.cpp` — Fuzz harness for light propagation
-- `tools/fuzz_mesh_builder.cpp` — Fuzz harness for mesh building
+- `tests/test_player_controller.cpp` — PlayerSim movement/sprint/sneak/collision tests
+- `tests/test_soak.cpp` — Multi-threaded fly-through-the-world stress test
+- `tests/test_persistence.cpp`, `tests/test_collision_resolver.cpp`, `tests/test_density_field.cpp` — format, collision, and terrain tests
+- `tools/benchmark.cpp` — 5 hot paths + memory, with `--check <baseline>` regression mode
+- `tools/fuzz_*.cpp` — libFuzzer harnesses (`fuzz_palette`, `fuzz_chunk_load`, `fuzz_light_propagation`, `fuzz_mesh_builder`)

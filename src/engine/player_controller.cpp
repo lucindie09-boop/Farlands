@@ -65,12 +65,10 @@ void PlayerSim::tick(const PlayerInput& input, CollisionResolver& cr, float step
     // --- Sprint state machine (vanilla: sticky flag, one-tick stale for airborne) ---
     prev_sprint_active_ = sprint_active_;
     bool sneaking = input.sneak_held && on_floor_;
-    if (sneaking) {
+    if (sneaking || !input.sprint_held || !input.move_forward_held) {
         sprint_active_ = false;
     } else if (input.sprint_held && input.move_forward_held && on_floor_) {
         sprint_active_ = true;
-    } else if (!input.move_forward_held || !input.sprint_held) {
-        sprint_active_ = false;
     }
 
     // State and multiplier: airborne uses prev_sprint_active_ (one-tick stale)

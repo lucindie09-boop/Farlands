@@ -143,6 +143,11 @@ void PlayerController::_input(const Ref<InputEvent>& p_event) {
     Input* input = Input::get_singleton();
     if (!input) return;
 
+    // Skip mouse mode switching when inventory is open
+    if (inventory_open_) {
+        return;
+    }
+
     if (input->get_mouse_mode() != Input::MOUSE_MODE_CAPTURED) {
         if (p_event->is_action_pressed("ui_cancel")) {
             input->set_mouse_mode(Input::MOUSE_MODE_VISIBLE);

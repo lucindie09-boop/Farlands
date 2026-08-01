@@ -46,6 +46,8 @@ public:
     void set_inventory_slot(int slot, int block_id, int count);
     void save_inventory();
     bool load_inventory();
+    void set_inventory_open(bool open);
+    bool is_inventory_open() const;
     
     void set_sensitivity(float s);
     float get_sensitivity() const;
@@ -66,6 +68,7 @@ private:
     float sensitivity_ = 0.003f;
     float fly_speed_ = 10.0f;
     bool fly_mode_ = false;
+    bool inventory_open_ = false;
     float rendered_eye_height_ = 1.62f;
 };
 

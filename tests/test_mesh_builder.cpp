@@ -513,3 +513,43 @@ TEST_CASE("partial rebuild tight bbox pulls distant light change into region (gr
     CHECK(mb_inc.get_index_count() == mb_full.get_index_count());
     CHECK(meshes_identical(mb_inc, mb_full));
 }
+
+TEST_CASE("partial rebuild re-emit region stays tight when no light changes (greedy)") {
+    BlockRegistry::get_instance().initialize_default_blocks();
+    ChunkData chunk;
+    make_test_terrain(chunk);  // no light source anywhere in this chunk
+    chunk.compute_section_flags();
+
+    MeshBuilder mb0;
+    mb0.set_greedy_enabled(true);
+    mb0.build_mesh(chunk);
+    CHECK(mb0.get_quads().size() > 0);
+
+    // Mid-chunk edit with NO light side-effect. The zero-box light_bounds must
+    // NOT be unioned in, or the region would be pulled down to (0,0,0) on every
+    // axis (the pre-fix behavior re-emitted x:[0,22) y:[0,17) z:[0,10)).
+    chunk.set_block(20, 15, 8, BlockIDs::AIR);
+    chunk.compute_section_flags();
+
+    MeshBuilder mb_inc;
+    mb_inc.set_greedy_enabled(true);
+    mb_inc.build_mesh_incremental(chunk, mb0.get_quads(), mb0.get_light_checksums(),
+                                  block_bbox_for(20, 15, 8));
+
+    // expand_bounds(bbox) = bbox expanded by 1, clamped to the chunk.
+    const MeshBuilder::SubChunkBounds& actual = mb_inc.get_last_partial_bounds();
+    CHECK(actual.x_min == 19);
+    CHECK(actual.x_max == 22);
+    CHECK(actual.y_min == 14);
+    CHECK(actual.y_max == 17);
+    CHECK(actual.z_min == 7);
+    CHECK(actual.z_max == 10);
+
+    // Correctness unchanged: the partial mesh must still match a full rebuild.
+    MeshBuilder mb_full;
+    mb_full.set_greedy_enabled(true);
+    mb_full.build_mesh(chunk);
+    CHECK(mb_inc.get_vertex_count() == mb_full.get_vertex_count());
+    CHECK(mb_inc.get_index_count() == mb_full.get_index_count());
+    CHECK(meshes_identical(mb_inc, mb_full));
+}

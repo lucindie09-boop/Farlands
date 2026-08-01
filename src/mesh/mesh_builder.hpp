@@ -254,6 +254,12 @@ bool is_smooth_lighting_enabled() const { return smooth_lighting_enabled; }
     // the dirty bbox, NOT a region pulled down toward the chunk origin.
     const SubChunkBounds& get_last_partial_bounds() const { return last_partial_bounds_; }
 
+    // Test-only: fill solid_cache with an invalid sentinel before the next
+    // partial build so any read of an unpopulated cell (a bug in the tight
+    // populate box or a solid_cache read not routed through solid_at()) shows up
+    // as garbage instead of a stale-but-plausible block ID.
+    void debug_poison_solid_cache() { debug_poison_solid_cache_ = true; }
+
     // When disabled, emitted faces are not recorded into the quad cache.
     // MeshManager disables this for chunks far from the player (which can never
     // be edited) to keep the cache memory bounded.
@@ -383,6 +389,13 @@ GreedyVerticalStatsSnapshot greedy_v_stats_local{};
     // (which resets partial_bounds_), for tests/debugging.
     SubChunkBounds last_partial_bounds_;
 
+    // Solid_cache populate box (world coords, clamped to the chunk). In partial
+    // mode only this tight box is populated; solid_at() live-reads everything
+    // outside it. Empty {} degrades to all-live reads (correct, just slow).
+    SubChunkBounds solid_bounds_;
+    // Test-only poison-sentinel flag (see debug_poison_solid_cache()).
+    bool debug_poison_solid_cache_ = false;
+
     // Quad list emitted by the last build (carried forward + newly emitted).
     std::vector<CachedQuad> quads;
     bool record_quads_ = true;
@@ -482,6 +495,13 @@ const BlockRegistry& registry) const;
 
     void init_accessor(const ChunkData& chunk, const NeighborPtrs& neighbors);
     void populate_solid_cache(const ChunkData& chunk, const BlockRegistry& registry);
+
+    // Reads a solid_cache cell by its raw indices (y, z-index, x-index; world
+    // x/z = index - 1). In partial mode cells outside solid_bounds_ are read live
+    // from the chunk/neighbor data instead — this keeps the merge passes' full-
+    // axis run-boundary scans exact while solid_cache is only populated for the
+    // tight box around the dirty region.
+    BlockID solid_at(int32_t y, int32_t zi, int32_t xi) const;
     void emit_faces(const ChunkData& chunk, const BlockRegistry& registry);
     void accumulate_greedy_stats();
 

@@ -119,6 +119,7 @@ void MeshBuilder::clear() {
     partial_mode_ = false;
     partial_bounds_ = {};
     last_partial_bounds_ = {};
+    solid_bounds_ = {};
 }
 
 void MeshBuilder::init_accessor(const ChunkData& chunk, const NeighborPtrs& neighbors) {
@@ -152,6 +153,25 @@ void MeshBuilder::init_accessor(const ChunkData& chunk, const NeighborPtrs& neig
 }
 
 void MeshBuilder::populate_solid_cache(const ChunkData& chunk, const BlockRegistry& registry) {
+    if (partial_mode_) {
+        // Tight-populate only the box around the re-emit region. Everything
+        // outside solid_bounds_ is read live via solid_at(), so it must never be
+        // populated (and stale values there are never read).
+        if (debug_poison_solid_cache_) {
+            for (auto& plane : solid_cache)
+                for (auto& row : plane)
+                    row.fill(0xFFFFu);
+        }
+        for (int32_t y = solid_bounds_.y_min; y < solid_bounds_.y_max; ++y) {
+            for (int32_t z = solid_bounds_.z_min; z < solid_bounds_.z_max; ++z) {
+                const int32_t zi = z + 1;
+                for (int32_t x = solid_bounds_.x_min; x < solid_bounds_.x_max; ++x) {
+                    solid_cache[y][zi][x + 1] = chunk.get_block_unsafe(x, y, z);
+                }
+            }
+        }
+        return;
+    }
     for (auto& plane : solid_cache)
         for (auto& row : plane)
             row.fill(0);
@@ -231,6 +251,19 @@ void MeshBuilder::populate_solid_cache(const ChunkData& chunk, const BlockRegist
     }
 }
 
+BlockID MeshBuilder::solid_at(int32_t y, int32_t zi, int32_t xi) const {
+    if (partial_mode_) {
+        const int32_t x = xi - 1;
+        const int32_t z = zi - 1;
+        if (x < solid_bounds_.x_min || x >= solid_bounds_.x_max ||
+            y < solid_bounds_.y_min || y >= solid_bounds_.y_max ||
+            z < solid_bounds_.z_min || z >= solid_bounds_.z_max) {
+            return accessor.get_block(x, y, z);
+        }
+    }
+    return solid_cache[y][zi][xi];
+}
+
 void MeshBuilder::emit_faces(const ChunkData& chunk, const BlockRegistry& registry) {
     if (passive_greedy_enabled) {
         {
@@ -258,7 +291,7 @@ void MeshBuilder::emit_faces(const ChunkData& chunk, const BlockRegistry& regist
                               z < partial_bounds_.z_max && z + stride_xz_ > partial_bounds_.z_min)) {
                             continue;
                         }
-                        const BlockID block_id = solid_cache[y][z + 1][x + 1];
+                        const BlockID block_id = solid_at(y, z + 1, x + 1);
                         if (block_id == BlockIDs::AIR) continue;
                         if (stride_xz_ == 1) {
                             bool all_surrounded = true;
@@ -272,7 +305,7 @@ void MeshBuilder::emit_faces(const ChunkData& chunk, const BlockRegistry& regist
                                     all_surrounded = false;
                                     break;
                                 }
-                                BlockID neighbor = solid_cache[ny][nz + 1][nx + 1];
+                                BlockID neighbor = solid_at(ny, nz + 1, nx + 1);
                                 if (!should_cull_against_neighbor(chunk, block_id, neighbor, kAllDirections[i], x, y, z, registry)) {
                                     all_surrounded = false;
                                     break;
@@ -513,6 +546,10 @@ void MeshBuilder::build_mesh_incremental(const ChunkData& chunk,
         partial_bounds_.z_max = std::max(partial_bounds_.z_max, light_bounds.z_max);
     }
 
+    // Solid_cache populate box = re-emit region + 1 ring (the passes read up to
+    // one cell past their iterate range for culling/above-neighbor checks).
+    solid_bounds_ = expand_bounds(partial_bounds_);
+
     populate_solid_cache(chunk, registry);
     emit_faces(chunk, registry);
 
@@ -526,6 +563,7 @@ void MeshBuilder::build_mesh_incremental(const ChunkData& chunk,
     last_partial_bounds_ = partial_bounds_;
     partial_mode_ = false;
     partial_bounds_ = {};
+    solid_bounds_ = {};
 
     if (record_quads_) {
         // light_checksums_ already computed above; keep for the next build.

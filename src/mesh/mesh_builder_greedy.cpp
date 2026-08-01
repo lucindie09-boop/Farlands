@@ -85,7 +85,7 @@ void MeshBuilder::passive_greedy_mesh_horizontal(const ChunkData& chunk, const C
                 float current_ao[4]{};
 
                 for (int32_t z = 0; z < CHUNK_DEPTH; z += stride_xz_) {
-                    BlockID block_id = solid_cache[y][z + 1][x + 1];
+                    BlockID block_id = solid_at(y, z + 1, x + 1);
 
                     if (block_id == BlockIDs::AIR) {
                         flush_horizontal_merge(chunk, accessor, merge_start, z, y, x, direction,
@@ -95,8 +95,8 @@ void MeshBuilder::passive_greedy_mesh_horizontal(const ChunkData& chunk, const C
                     }
 
                     if (direction == FaceDirection::Top && y < CHUNK_HEIGHT - 1
-                        && solid_cache[y + 1][z + 1][x + 1] != BlockIDs::AIR) {
-                        const BlockType& nbt = registry.get_block(solid_cache[y + 1][z + 1][x + 1]);
+                        && solid_at(y + 1, z + 1, x + 1) != BlockIDs::AIR) {
+                        const BlockType& nbt = registry.get_block(solid_at(y + 1, z + 1, x + 1));
                         const BlockType& bt = registry.get_block(block_id);
                         if (HasProperty(bt.properties, BlockProperty::Solid)
                             && bt.top_face_offset == 0.0f
@@ -259,7 +259,7 @@ void MeshBuilder::passive_greedy_mesh_vertical(const ChunkData& chunk, const Chu
                 }
 
                 for (int32_t y = y0; y < y1; y++) {
-                    BlockID block_id = solid_cache[y][z + 1][x + 1];
+                    BlockID block_id = solid_at(y, z + 1, x + 1);
 
                     if (stride_xz_ > 1) {
                         greedy_v_stats_local.lod_cells_visited++;
@@ -281,18 +281,18 @@ void MeshBuilder::passive_greedy_mesh_vertical(const ChunkData& chunk, const Chu
                     if (stride_xz_ == 1) {
                     const int sx0 = x + 1 - 1, sx1 = x + 1 + 1;
                     const int sz0 = z + 1 - 1, sz1 = z + 1 + 1;
-                    if ((solid_cache[y][z + 1][sx0] != BlockIDs::AIR)
-                        & (solid_cache[y][z + 1][sx1] != BlockIDs::AIR)
-                        & (solid_cache[y][sz0][x + 1] != BlockIDs::AIR)
-                        & (solid_cache[y][sz1][x + 1] != BlockIDs::AIR)
+                    if ((solid_at(y, z + 1, sx0) != BlockIDs::AIR)
+                        & (solid_at(y, z + 1, sx1) != BlockIDs::AIR)
+                        & (solid_at(y, sz0, x + 1) != BlockIDs::AIR)
+                        & (solid_at(y, sz1, x + 1) != BlockIDs::AIR)
                         && !boundary[0] && !boundary[1] && !boundary[2] && !boundary[3]) {
                         const BlockType& bt = registry.get_block(block_id);
                         if (HasProperty(bt.properties, BlockProperty::Solid)
                             && bt.top_face_offset == 0.0f) {
-                            const BlockType& n_xneg = registry.get_block_fast(solid_cache[y][z + 1][sx0]);
-                            const BlockType& n_xpos = registry.get_block_fast(solid_cache[y][z + 1][sx1]);
-                            const BlockType& n_zneg = registry.get_block_fast(solid_cache[y][sz0][x + 1]);
-                            const BlockType& n_zpos = registry.get_block_fast(solid_cache[y][sz1][x + 1]);
+                            const BlockType& n_xneg = registry.get_block_fast(solid_at(y, z + 1, sx0));
+                            const BlockType& n_xpos = registry.get_block_fast(solid_at(y, z + 1, sx1));
+                            const BlockType& n_zneg = registry.get_block_fast(solid_at(y, sz0, x + 1));
+                            const BlockType& n_zpos = registry.get_block_fast(solid_at(y, sz1, x + 1));
                             if (n_xneg.top_face_offset == 0.0f
                                 & n_xpos.top_face_offset == 0.0f
                                 & n_zneg.top_face_offset == 0.0f
@@ -325,7 +325,7 @@ void MeshBuilder::passive_greedy_mesh_vertical(const ChunkData& chunk, const Chu
                         } else {
                             const int sx = x + 1 + kNxOff[d] * stride_xz_;
                             const int sz = z + 1 + kNzOff[d] * stride_xz_;
-                            BlockID neighbor = solid_cache[y][sz][sx];
+                            BlockID neighbor = solid_at(y, sz, sx);
                             cull = should_cull_against_neighbor(chunk, block_id, neighbor, kDirs[d], x, y, z, registry);
                         }
                         if (stride_xz_ > 1) {

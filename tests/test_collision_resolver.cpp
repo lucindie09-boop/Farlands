@@ -129,49 +129,59 @@ TEST_CASE("CollisionResolver no collision in open air") {
     CHECK(result.on_floor == false);
 }
 
+// Shared fixture: a flat floor (y=0 across the chunk) plus a one-block step wall
+// at x=2 (occupying y=1, top at y=2.0). The player starts standing on the floor
+// with feet at y=1.0 (body y in [1.0, 2.8)) and walks in +X toward the wall.
+static void make_step_fixture(ChunkMap& cm) {
+    auto d = std::make_unique<ChunkData>();
+    for (int x = 0; x < 8; ++x)
+        for (int z = 0; z < 4; ++z) {
+            d->set_block(x, 0, z, BlockIDs::STONE);           // floor, top at y=1.0
+            d->set_block(x, 1, z, BlockIDs::STONE);           // fill wall column
+        }
+    // Hollow out the floor at y=1 everywhere except the step wall at x=2.
+    for (int x = 0; x < 8; ++x)
+        for (int z = 0; z < 4; ++z)
+            if (x != 2) d->set_block(x, 1, z, BlockIDs::AIR);
+    cm.insert(cm.get_chunk_key(0, 0, 0), make_test_chunk(std::move(d)));
+}
+
 TEST_CASE("CollisionResolver step too tall") {
     BlockRegistry::get_instance().initialize_default_blocks();
     ChunkMap cm;
-    {
-        auto d = std::make_unique<ChunkData>();
-        // Create a 1-block step: solid at y=0, empty at y=1
-        d->set_block(0, 0, 0, BlockIDs::STONE);
-        cm.insert(cm.get_chunk_key(0, 0, 0), make_test_chunk(std::move(d)));
-    }
+    make_step_fixture(cm);
     CollisionResolver cr(&cm);
 
-    // Approach from below with step_height=0 (disabled)
-    Vector3 pos(0.5f, 0.5f, 0.5f);
-    Vector3 motion(0.0f, 0.6f, 0.0f);  // Try to step up 0.6 blocks
+    // 1-block step with step_height=0.6 (vanilla max): the raised body still
+    // overlaps the wall, so stepping must be rejected and the player blocked.
+    Vector3 pos(0.5f, 1.0f, 0.5f);
+    Vector3 motion(2.0f, 0.0f, 0.0f);
     Vector3 size(0.6f, 1.8f, 0.6f);
 
-    auto result = cr.resolve(pos, motion, size, 0.0f);
-    // With step_height=0, player should stop at the block edge
-    CHECK(result.on_floor == true);
+    auto result = cr.resolve(pos, motion, size, 0.6f);
     CHECK(result.stepped_up == false);
-    CHECK(result.position.y <= 1.01f);  // Should not climb onto the block
+    CHECK(result.collided_x == true);
+    CHECK(result.on_floor == true);
+    CHECK(result.position.x + size.x / 2.0f <= 2.01f);  // stopped at the wall face
 }
 
 TEST_CASE("CollisionResolver step within height") {
     BlockRegistry::get_instance().initialize_default_blocks();
     ChunkMap cm;
-    {
-        auto d = std::make_unique<ChunkData>();
-        // Synthetic fixture: no block in the current game produces a 0.6-tall obstruction
-        // (all blocks are full 1×1×1 cubes). Manually set a block at y=0, leave y=1 empty,
-        // and approach from a position where the horizontal AABB clips the block edge.
-        d->set_block(0, 0, 0, BlockIDs::STONE);
-        cm.insert(cm.get_chunk_key(0, 0, 0), make_test_chunk(std::move(d)));
-    }
+    make_step_fixture(cm);
     CollisionResolver cr(&cm);
 
-    // Approach from a fractional Y that clips the block edge
-    Vector3 pos(0.5f, 0.4f, 0.5f);  // Feet at y=0.4, so horizontal motion clips the block at y=0
-    Vector3 motion(0.5f, 0.0f, 0.0f);  // Move horizontally into the block
+    // Same 1-block step but step_height=1.0 (synthetic: no block in the game is
+    // <1 tall, so proving the mechanism needs a step_height >= the full cube).
+    // The raised body clears the wall, horizontal travel succeeds, and the
+    // player settles on top of the step (feet at y=2.0).
+    Vector3 pos(0.5f, 1.0f, 0.5f);
+    Vector3 motion(2.0f, 0.0f, 0.0f);
     Vector3 size(0.6f, 1.8f, 0.6f);
 
-    auto result = cr.resolve(pos, motion, size, 0.6f);
-    // With step_height=0.6, player should step up onto the block
+    auto result = cr.resolve(pos, motion, size, 1.0f);
     CHECK(result.stepped_up == true);
-    CHECK(result.position.y >= 0.99f);  // Should be raised to top of block (y=1.0)
+    CHECK(result.on_floor == true);
+    CHECK(result.position.x > 2.0f);          // cleared the wall
+    CHECK(result.position.y >= 1.99f);        // settled on the step top (y=2.0)
 }

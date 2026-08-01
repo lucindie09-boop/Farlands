@@ -41,6 +41,10 @@ Ongoing: a Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked
 - Added a `LICENSE` file (GPL-3.0) — the repo had none before, meaning it was technically all-rights-reserved despite being public.
 - Added CI (`.github/workflows/build.yml`): cross-platform matrix (ubuntu-latest, macos-latest, windows-latest), SCons build + test on every push/PR, TSan on Linux via `TSAN=1` flag, `tsan_suppressions.txt` for doctest/godot-cpp noise, timeouts on all steps. Added ASan+UBSan leg on ubuntu.
 
+**CI fixes (Clang NSDMI + collision step-up):**
+- Fixed a Clang compile error (`default member initializer for 'neg_x' needed within definition of enclosing class 'MeshBuilder'`): the `const NeighborPtrs& neighbors = NeighborPtrs()` default argument in `build_mesh_incremental` forces the nested struct's implicit default ctor, whose NSDMIs aren't available until the enclosing class is complete. `NeighborPtrs` now has a user-declared default ctor defined out-of-line (`MeshBuilder::NeighborPtrs::NeighborPtrs() = default;`) so the NSDMIs are only instantiated after `MeshBuilder` is complete. Verified clean with clang 22 on the previously-failing TUs (`ambient_occlusion`, `perf_report`, `fuzz_mesh_builder`).
+- Fixed the step-up headroom gate in `CollisionResolver::resolve`: it probed a box `[feet, feet+step_height)` at the collision point, which always contained the obstruction being stepped onto (plus the floor), so step-up could never succeed. Now it tests the player's FULL body AABB raised by `step_height`. Rewrote the two pre-existing failing collision tests (`step too tall`, `step within height`) with a proper floor+step-wall fixture; the whole suite is now 162/162 (was 160/162).
+
 **Light-propagation lock fixes (7 deadlock classes, all resolved):**
 - Discovered that `lock_all()` returns `ShardLock` (shared_lock) but write paths in light propagation assumed mutual exclusion. Identified 5 deadlock classes (A–E) in the locking hierarchy.
 - **Deadlock A**: `process_completed_chunks:142` held `lock_all()` shared → else-branch called `propagate_block_light_region` → tried `lock_all_exclusive()` → shared→exclusive upgrade fails.
@@ -68,8 +72,7 @@ Ongoing: a Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked
 
 **Concurrency tests and cross-platform CI:**
 - 16 concurrency regression tests in `tests/test_concurrency.cpp` using `TestShardMap` (mirrors ChunkMap's 64-shard architecture without needing `godot::RID`). Covers: shard lock concurrency, ascending-order deadlock prevention, exclusive serialization, PaletteStorage R/W, `pending_light_removals_` pattern, RAII lock correctness, `OrderedExclusiveShardLock` target verification, light removal tests, cross-chunk writer race tests, and `pending_light_removals_` stress test.
-- 102 tests / 525 assertions total across 11 test files.
-- CI: cross-platform matrix with 4 legs — ubuntu TSan, ubuntu ASan+UBSan, ubuntu plain, macos plain, windows plain. Benchmark runs on non-sanitizer legs with `--check` regression detection.
+- 102 tests / 525 assertions total across 11 test files.- CI: cross-platform matrix with 4 legs — ubuntu TSan, ubuntu ASan+UBSan, ubuntu plain, macos plain, windows plain. Benchmark runs on non-sanitizer legs with `--check` regression detection.
 
 **Expanded benchmark tool:**
 - `tools/benchmark.cpp` benchmarks four hot paths: `generate_chunk` (1,000 iters), `build_mesh` (1,000 iters), `palette_write` (100 full-chunk fills), and `light_propagation` (1,000 iters on 3×3×3 grid with emissive source).
@@ -107,7 +110,7 @@ Ongoing: a Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked
 - `get_chunk_height_range` padded by `DENSITY_MARGIN`; `chunk_world.cpp` gained a `may_contain_caves` guard so below-surface chunks overlapping the cave band aren't fast-pathed as fully solid.
 - Vegetation now uses the real density surface (`columns[].surface_y`) with an underwater rejection guard instead of the macro heightmap.
 - Verified by rendering vertical PGM density slices (temp tool, removed after inspection) and a 3D flood-fill connectivity check (temp tool, removed): surface stays within the band, no floating solids, ocean coastlines preserved.
-- Added `tests/test_density_field.cpp` (4 tests: density/find_surface_y sanitation, generate_chunk↔density agreement, material validity, isolated-singleton removal). Suite is now 153 tests.
+- Added `tests/test_density_field.cpp` (4 tests: density/find_surface_y sanitation, generate_chunk↔density agreement, material validity, isolated-singleton removal).
 - **4×4×4 world-aligned shape lattice**: the 3D shape noise (`sample_shape_3d`) is sampled once per 4-block lattice node and trilinearly interpolated per voxel (`trilinear_interp`). `sample_shape_3d_interp()` is the canonical single-point field query (used by `sample_terrain_density`), and `generate_chunk` precomputes the same 9×9×9 lattice per chunk, so chunk grids and point queries stay bit-identical (proven by the density-agreement test). `SHAPE_LATTICE_SPACING=4` divides the chunk size, so nodes land on the same world coordinates across chunk boundaries — no seams. Only the noise sampling is coarse; the density field and block grid stay full resolution. All terrain parameters are unchanged. Cave carving remains disabled (`kCavesEnabled=false`). The lattice alone barely moved `generate_chunk` (~5 ms) because the 3D shape sampling was not the dominant cost.
 - **Chunk-level generation fast path**: after the exact macro column pass, `generate_chunk` computes the per-chunk `min_height`/`max_height` and branches before any lattice/density/material work. Chunks entirely above `max_height + DENSITY_MARGIN` fill only per-column water (shallow-ocean chunks carry the sea surface above the sea floor — verified empirically, 1024/1024 columns correct) and otherwise return all-air; chunks entirely below `min_height - DENSITY_MARGIN` (and `!kCavesEnabled`, since deep chunks lie inside the cave band) fill plain stone over bedrock and return. This cut deep-chunk generation ~7× on the benchmark (`generate_chunk` avg 4.94 → 0.68 ms); the `--check` baseline was tightened to 1.4 ms to protect the fast path. The fast path uses exact per-column heights from the macro pass (not the 5-sample `get_chunk_height_range` estimate, which is too coarse for a correctness-critical gate).
 
@@ -135,7 +138,7 @@ Ongoing: a Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked
 ## Key Decisions
 - Use `Camera3D::get_frustum()` for direct 6-plane extraction in world space; frustum recalculated every frame.
 - Two-phase generation: dedicated frustum-priority pass first, then distance-sorted sweep.
-- Collision uses the original binary-search approach (a DDA approach was tried and reverted).
+- Collision uses the original binary-search approach (a DDA approach was tried and reverted). Step-up (only used with `STEP_HEIGHT` 0.6, which no full-cube block can trigger today) tests the player's FULL body AABB raised by `step_height`, then re-resolves horizontally and only accepts the step if it travels further than not stepping — the old `[feet, feet+step_height)` headroom probe always contained the obstruction being stepped onto and could never succeed.
 - Sharded locking: 64 shards, per-shard `unordered_map` + `shared_mutex`, hash is `key % 64`. Hot paths doing many sequential reads (light propagation, dirty-neighbor checks) batch-lock instead of locking per call.
 - Palette sections are 16³ (8 per chunk), matching `dirty_subchunks`; block and light storage share the same generic `PalSection`/`section_get`/`section_set` machinery.
 - Greedy mesher reads through `get_block_unsafe()`/`get_light_packed_word_unsafe()` rather than raw pointers or thread-local shared buffers.
@@ -189,7 +192,7 @@ Ongoing: a Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked
 - `src/lighting/light_propagator.hpp/cpp`: Public wrappers + public `_locked` variants, all 4 use `lock_keys_exclusive()`
 - `src/lighting/block_light_region.hpp/cpp`: `propagate_chunk_block_light_additive()` — single-chunk additive-only
 - `src/render/environment_controller.cpp`: `update_player_light` passes `ChunkMap&`, binds `_locked` BFS methods
-- `src/engine/collision_resolver.hpp/cpp`: Binary-search collision
+- `src/engine/collision_resolver.hpp/cpp`: Binary-search collision, step-up (raised full-body check)
 - `src/core/frame_budgets.hpp`: Budget constants (incl. `mesh_completion_budget_ms` = 0.75, `max_mesh_completions_per_frame`)
 - `src/godot_bindings/chunk_manager.cpp`: All inspector-exposed properties (incl. `lod_far_distance`, `far_detail_level`), block ID constants, camera/frustum entry point
 - `src/engine/voxel_engine_controller.hpp/cpp`: Bridges frustum and other state from `ChunkManager` to `WorldUpdater`

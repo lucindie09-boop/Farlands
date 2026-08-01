@@ -2,6 +2,10 @@
 
 namespace VoxelEngine {
 
+// Defined out-of-line so the NSDMIs of this nested struct are only instantiated
+// after MeshBuilder is complete (see the header for the Clang rationale).
+MeshBuilder::NeighborPtrs::NeighborPtrs() = default;
+
 // bru bru bru
 
 PerformanceTimer MeshBuilder::perf_timer;

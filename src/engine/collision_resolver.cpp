@@ -110,13 +110,15 @@ CollisionResolver::CollisionResult CollisionResolver::resolve(
     // than not stepping — this correctly rejects full-block walls (step doesn't help)
     // while allowing slabs, snow layers, etc. (step clears the obstruction).
     if (step_height > 0.0f && out.on_floor && (out.collided_x || out.collided_z)) {
-        AABB headroom_check(result_after_y, size);
-        headroom_check.size.y = step_height;
-        bool headroom_clear = !is_solid(headroom_check);
+        // Raised-body check: the player's FULL AABB moved up by step_height must be
+        // clear. (The old probe of just [feet, feet+step_height) always contained the
+        // obstruction being stepped onto — and the floor beneath — so step-up could
+        // never succeed; the raised body clears both once the feet pass the top.)
+        Vector3 stepped_pos = result_after_y;
+        stepped_pos.y += step_height;
+        AABB raised(stepped_pos, size);
 
-        if (headroom_clear) {
-            Vector3 stepped_pos = result_after_y;
-            stepped_pos.y += step_height;
+        if (!is_solid(raised)) {
             Vector3 stepped_result = stepped_pos;
             bool sx = false, sz = false;
             resolve_axis(result_after_y, motion, size, 0, stepped_result, sx, is_solid);

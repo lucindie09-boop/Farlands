@@ -71,7 +71,12 @@ struct SubChunkBounds {
 
 // Bundle of the 26 neighboring ChunkData pointers used by mesh building.
 // Used by build_mesh_incremental to keep its signature manageable.
+// The default ctor is user-declared (defined out-of-line as `= default`) so
+// that Clang accepts the `const NeighborPtrs& neighbors = NeighborPtrs()`
+// default argument below: the implicit ctor's NSDMIs are not available until
+// the enclosing class is complete, which rejects the default argument.
 struct NeighborPtrs {
+    NeighborPtrs();
     const ChunkData* neg_x = nullptr;
     const ChunkData* pos_x = nullptr;
     const ChunkData* neg_y = nullptr;

@@ -138,11 +138,11 @@ bool Inventory::consume_block(BlockID block_id, int count) {
     }
     
     if (remaining > 0) {
-        remaining -= consume_from_slots(hotbar_, block_id, remaining);
+        consume_from_slots(hotbar_, block_id, remaining);
     }
     
     if (remaining > 0) {
-        remaining -= consume_from_slots(inventory_, block_id, remaining);
+        consume_from_slots(inventory_, block_id, remaining);
     }
     
     return true;

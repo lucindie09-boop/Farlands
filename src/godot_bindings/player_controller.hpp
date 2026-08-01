@@ -41,6 +41,8 @@ public:
     int get_selected_hotbar_slot() const;
     void select_hotbar_slot(int slot);
     void set_hotbar_slot(int slot, int block_id, int count);
+    void save_inventory();
+    bool load_inventory();
     
     void set_sensitivity(float s);
     float get_sensitivity() const;

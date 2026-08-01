@@ -317,6 +317,14 @@ bool VoxelEngineController::world_metadata_exists() const {
     return chunk_world.world_metadata_exists();
 }
 
+void VoxelEngineController::save_inventory(const Inventory& inventory) {
+    chunk_world.save_inventory(inventory);
+}
+
+bool VoxelEngineController::load_inventory(Inventory& inventory) {
+    return chunk_world.load_inventory(inventory);
+}
+
 void VoxelEngineController::set_auto_update(bool enabled) { auto_update = enabled; }
 bool VoxelEngineController::get_auto_update() const { return auto_update; }
 

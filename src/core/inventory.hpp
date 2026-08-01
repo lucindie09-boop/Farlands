@@ -24,6 +24,9 @@ public:
     // Add blocks to inventory (prefer hotbar, then main inventory)
     bool add_block(BlockID block_id, int count = 1);
     
+    // Check if inventory can accept blocks
+    bool can_add_block(BlockID block_id, int count = 1) const;
+    
     // Consume blocks from inventory (prefer selected slot, then hotbar, then main inventory)
     bool consume_block(BlockID block_id, int count = 1);
     
@@ -40,6 +43,7 @@ public:
     
     // Inventory operations
     const InventorySlot& get_inventory_slot(int slot) const;
+    void set_inventory_slot(int slot, BlockID block_id, int count);
     
     // Clear all slots
     void clear();

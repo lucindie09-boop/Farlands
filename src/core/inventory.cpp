@@ -71,6 +71,58 @@ bool Inventory::add_block(BlockID block_id, int count) {
     return remaining == 0; // Return true if all blocks were added
 }
 
+bool Inventory::can_add_block(BlockID block_id, int count) const {
+    if (block_id == 0 || count <= 0) return false;
+    
+    int remaining = count;
+    
+    // First check existing stacks in hotbar
+    for (const auto& slot : hotbar_) {
+        if (slot.block_id == block_id && slot.count < 64) {
+            int can_add = 64 - slot.count;
+            int to_add = std::min(can_add, remaining);
+            remaining -= to_add;
+            if (remaining <= 0) return true;
+        }
+    }
+    
+    // Check empty slots in hotbar
+    if (remaining > 0) {
+        for (const auto& slot : hotbar_) {
+            if (slot.is_empty()) {
+                int to_add = std::min(64, remaining);
+                remaining -= to_add;
+                if (remaining <= 0) return true;
+            }
+        }
+    }
+    
+    // Check existing stacks in main inventory
+    if (remaining > 0) {
+        for (const auto& slot : inventory_) {
+            if (slot.block_id == block_id && slot.count < 64) {
+                int can_add = 64 - slot.count;
+                int to_add = std::min(can_add, remaining);
+                remaining -= to_add;
+                if (remaining <= 0) return true;
+            }
+        }
+    }
+    
+    // Check empty slots in main inventory
+    if (remaining > 0) {
+        for (const auto& slot : inventory_) {
+            if (slot.is_empty()) {
+                int to_add = std::min(64, remaining);
+                remaining -= to_add;
+                if (remaining <= 0) return true;
+            }
+        }
+    }
+    
+    return remaining == 0; // Return true if all blocks could be added
+}
+
 bool Inventory::consume_block(BlockID block_id, int count) {
     if (block_id == 0 || count <= 0) return false;
     
@@ -189,6 +241,13 @@ const InventorySlot& Inventory::get_inventory_slot(int slot) const {
     }
     static InventorySlot empty_slot;
     return empty_slot;
+}
+
+void Inventory::set_inventory_slot(int slot, BlockID block_id, int count) {
+    if (slot >= 0 && slot < INVENTORY_SIZE) {
+        inventory_[slot].block_id = block_id;
+        inventory_[slot].count = count;
+    }
 }
 
 void Inventory::clear() {

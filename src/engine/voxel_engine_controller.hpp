@@ -132,6 +132,9 @@ void toggle_day_night_cycle();
     void save_world_metadata();
     bool load_world_metadata();
     bool world_metadata_exists() const;
+    
+    void save_inventory(const Inventory& inventory);
+    bool load_inventory(Inventory& inventory);
 
     ChunkWorld& get_chunk_world() { return chunk_world; }
     MeshManager& get_mesh_manager() { return mesh_manager; }

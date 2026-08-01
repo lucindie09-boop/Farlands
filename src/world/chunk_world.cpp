@@ -805,26 +805,18 @@ bool ChunkWorld::load_inventory(Inventory& inventory) {
     // Clear existing inventory
     inventory.clear();
     
-    // Load hotbar
+    // Load hotbar (restore exact slot positions)
     for (int i = 0; i < Inventory::HOTBAR_SIZE; i++) {
         BlockID block_id = file->get_32();
         int count = file->get_32();
-        // Note: Inventory doesn't have a direct set method, so we need to add blocks
-        // For now, we'll skip slots with 0 count
-        if (block_id > 0 && count > 0) {
-            // Temporarily add to inventory, then select the slot
-            // This is a limitation of the current API
-            inventory.add_block(block_id, count);
-        }
+        inventory.set_hotbar_slot(i, block_id, count);
     }
     
-    // Load main inventory
+    // Load main inventory (restore exact slot positions)
     for (int i = 0; i < Inventory::INVENTORY_SIZE; i++) {
         BlockID block_id = file->get_32();
         int count = file->get_32();
-        if (block_id > 0 && count > 0) {
-            inventory.add_block(block_id, count);
-        }
+        inventory.set_inventory_slot(i, block_id, count);
     }
     
     // Load selected slot

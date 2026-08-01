@@ -2,6 +2,7 @@
 #include "godot_bindings/chunk_manager.hpp"
 #include "engine/collision_resolver.hpp"
 #include "world/chunk_world.hpp"
+#include "engine/voxel_engine_controller.hpp"
 
 #include <godot_cpp/classes/input.hpp>
 #include <godot_cpp/classes/engine.hpp>
@@ -14,7 +15,10 @@ using namespace godot;
 using namespace VoxelEngine;
 
 PlayerController::PlayerController() = default;
-PlayerController::~PlayerController() = default;
+PlayerController::~PlayerController() {
+    // Auto-save inventory on destruction
+    save_inventory();
+}
 
 void PlayerController::_bind_methods() {
     ClassDB::bind_method(D_METHOD("toggle_fly_mode"), &PlayerController::toggle_fly_mode);
@@ -29,6 +33,8 @@ void PlayerController::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_selected_hotbar_slot"), &PlayerController::get_selected_hotbar_slot);
     ClassDB::bind_method(D_METHOD("select_hotbar_slot", "slot"), &PlayerController::select_hotbar_slot);
     ClassDB::bind_method(D_METHOD("set_hotbar_slot", "slot", "block_id", "count"), &PlayerController::set_hotbar_slot);
+    ClassDB::bind_method(D_METHOD("save_inventory"), &PlayerController::save_inventory);
+    ClassDB::bind_method(D_METHOD("load_inventory"), &PlayerController::load_inventory);
     
     ClassDB::bind_method(D_METHOD("set_sensitivity", "s"), &PlayerController::set_sensitivity);
     ClassDB::bind_method(D_METHOD("get_sensitivity"), &PlayerController::get_sensitivity);
@@ -63,12 +69,8 @@ void PlayerController::_ready() {
 
     sim_.reset(get_global_position());
     
-    // Initialize inventory with some starting blocks
-    // Give the player 64 of each basic block type
-    inventory_.add_block(1, 64); // Stone
-    inventory_.add_block(2, 64); // Dirt
-    inventory_.add_block(3, 64); // Grass
-    inventory_.add_block(4, 64); // Sand
+    // Load inventory from saved data
+    load_inventory();
 }
 
 void PlayerController::_process(double delta) {
@@ -182,17 +184,6 @@ void PlayerController::_input(const Ref<InputEvent>& p_event) {
         int pk = ke->get_physical_keycode();
         if (pk >= KEY_1 && pk <= KEY_9) inventory_.select_slot(pk - KEY_1);
     }
-    
-    // Also check for hotbar input actions
-    if (p_event->is_action_pressed("hotbar_1")) inventory_.select_slot(0);
-    if (p_event->is_action_pressed("hotbar_2")) inventory_.select_slot(1);
-    if (p_event->is_action_pressed("hotbar_3")) inventory_.select_slot(2);
-    if (p_event->is_action_pressed("hotbar_4")) inventory_.select_slot(3);
-    if (p_event->is_action_pressed("hotbar_5")) inventory_.select_slot(4);
-    if (p_event->is_action_pressed("hotbar_6")) inventory_.select_slot(5);
-    if (p_event->is_action_pressed("hotbar_7")) inventory_.select_slot(6);
-    if (p_event->is_action_pressed("hotbar_8")) inventory_.select_slot(7);
-    if (p_event->is_action_pressed("hotbar_9")) inventory_.select_slot(8);
 }
 
 void PlayerController::toggle_fly_mode() {
@@ -217,11 +208,12 @@ void PlayerController::break_block() {
         // Get the block type before breaking
         int block_type = cm->get_block(bx, by, bz);
         
-        // Break the block
-        cm->set_block(bx, by, bz, 0);
-        
-        // Add to inventory (if it's not air)
-        if (block_type != 0) {
+        // Only break if we can add it to inventory (and it's not air)
+        if (block_type != 0 && inventory_.can_add_block(block_type, 1)) {
+            // Break the block
+            cm->set_block(bx, by, bz, 0);
+            
+            // Add to inventory
             inventory_.add_block(block_type, 1);
         }
     }
@@ -264,7 +256,7 @@ void PlayerController::place_block() {
 int PlayerController::get_selected_block() const { return inventory_.get_selected_block(); }
 void PlayerController::set_selected_block(int block_id) { 
     // Legacy method - set the selected hotbar slot to this block type
-    // This is for backwards compatibility
+    // This is for backwards compatibility, but does NOT grant free blocks
     for (int i = 0; i < VoxelEngine::Inventory::HOTBAR_SIZE; i++) {
         const auto& slot = inventory_.get_hotbar_slot(i);
         if (slot.block_id == block_id) {
@@ -272,11 +264,10 @@ void PlayerController::set_selected_block(int block_id) {
             return;
         }
     }
-    // If not found in hotbar, set the first empty slot
+    // If not found in hotbar, select the first empty slot (without granting blocks)
     for (int i = 0; i < VoxelEngine::Inventory::HOTBAR_SIZE; i++) {
         const auto& slot = inventory_.get_hotbar_slot(i);
         if (slot.count == 0) {
-            inventory_.set_hotbar_slot(i, block_id, 64); // Give 64 blocks
             inventory_.select_slot(i);
             break;
         }
@@ -302,4 +293,24 @@ void PlayerController::select_hotbar_slot(int slot) {
 
 void PlayerController::set_hotbar_slot(int slot, int block_id, int count) {
     inventory_.set_hotbar_slot(slot, block_id, count);
+}
+
+void PlayerController::save_inventory() {
+    Node* cm_node = get_node_or_null(NodePath("/root/Main/ChunkManager"));
+    if (!cm_node) return;
+    ChunkManager* cm = Object::cast_to<ChunkManager>(cm_node);
+    if (!cm) return;
+    auto* controller = cm->get_controller();
+    if (!controller) return;
+    controller->save_inventory(inventory_);
+}
+
+bool PlayerController::load_inventory() {
+    Node* cm_node = get_node_or_null(NodePath("/root/Main/ChunkManager"));
+    if (!cm_node) return false;
+    ChunkManager* cm = Object::cast_to<ChunkManager>(cm_node);
+    if (!cm) return false;
+    auto* controller = cm->get_controller();
+    if (!controller) return false;
+    return controller->load_inventory(inventory_);
 }

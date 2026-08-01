@@ -22,6 +22,7 @@ class Node3D;
 namespace VoxelEngine {
 class VoxelEngineController;
 class CollisionResolver;
+class Inventory;
 }
 
 namespace VoxelEngine {

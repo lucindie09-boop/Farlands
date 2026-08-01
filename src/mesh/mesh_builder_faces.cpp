@@ -157,6 +157,23 @@ light_keys[0] = light_keys[1] = light_keys[2] = light_keys[3] = light_key;
         dest_indices.push_back(vertex_count + 3);
         dest_indices.push_back(vertex_count + 0);
     }
+
+    if (record_quads_) {
+        CachedQuad q;
+        q.x = x;
+        q.y = y;
+        q.z = z;
+        q.direction = direction;
+        q.water = is_water;
+        q.verts = { dest_vertices[vertex_count + 0], dest_vertices[vertex_count + 1],
+                    dest_vertices[vertex_count + 2], dest_vertices[vertex_count + 3] };
+        if (!flip) {
+            q.idx = {0, 1, 2, 0, 2, 3};
+        } else {
+            q.idx = {1, 2, 3, 1, 3, 0};
+        }
+        quads.push_back(q);
+    }
 }
 
 void MeshBuilder::add_greedy_face(const ChunkData& chunk, const ChunkNeighborAccessor& accessor,
@@ -267,6 +284,45 @@ dest_indices.push_back(vertex_count + 3);
 dest_indices.push_back(vertex_count + 1);
 dest_indices.push_back(vertex_count + 3);
 dest_indices.push_back(vertex_count + 0);
+    }
+
+    if (record_quads_) {
+        CachedQuad q;
+        q.x = face.x;
+        q.y = face.y;
+        q.z = face.z;
+        q.direction = face.direction;
+        q.water = is_water;
+        q.verts = { dest_vertices[vertex_count + 0], dest_vertices[vertex_count + 1],
+                    dest_vertices[vertex_count + 2], dest_vertices[vertex_count + 3] };
+        if (!flip) {
+            q.idx = {0, 1, 2, 0, 2, 3};
+        } else {
+            q.idx = {1, 2, 3, 1, 3, 0};
+        }
+        // Footprint extents (partial rebuilds only run at stride 1).
+        const int32_t u_size = face.u_max + 1;
+        const int32_t v_size = face.v_max + 1;
+        switch (face.direction) {
+            case FaceDirection::Top:
+            case FaceDirection::Bottom:
+                q.ex = u_size;  // x-run
+                q.ey = 1;
+                q.ez = v_size;  // z-run
+                break;
+            case FaceDirection::Right:
+            case FaceDirection::Left:
+                q.ex = 1;
+                q.ey = v_size;  // y-run
+                q.ez = u_size;  // z-run
+                break;
+            default:  // Front / Back
+                q.ex = u_size;  // x-run
+                q.ey = v_size;  // y-run
+                q.ez = 1;
+                break;
+        }
+        quads.push_back(q);
     }
 }
 

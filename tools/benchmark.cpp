@@ -64,6 +64,64 @@ static BenchResult bench_meshing(int n) {
     return {"build_mesh_avg_ms", avg, "ms"};
 }
 
+static BenchResult bench_incremental_meshing(int n) {
+    VoxelEngine::BlockRegistry::get_instance().initialize_default_blocks();
+    VoxelEngine::ChunkData chunk;
+    chunk.fill_blocks(VoxelEngine::BlockIDs::AIR);
+    for (int y = 0; y <= 16; y++)
+        for (int z = 0; z < VoxelEngine::CHUNK_DEPTH; z++)
+            for (int x = 0; x < VoxelEngine::CHUNK_WIDTH; x++)
+                chunk.set_block(x, y, z, VoxelEngine::BlockIDs::STONE);
+    for (int y = 17; y < 24; y++) {
+        chunk.set_block(6, y, 6, VoxelEngine::BlockIDs::STONE);
+        chunk.set_block(24, y, 24, VoxelEngine::BlockIDs::STONE);
+    }
+    chunk.set_block(16, 20, 16, VoxelEngine::BlockIDs::STONE);
+    chunk.set_light_rgb(16, 21, 16, 10, 10, 10);
+    chunk.compute_section_flags();
+    chunk.compute_fully_solid();
+
+    VoxelEngine::MeshBuilder mb;
+    mb.set_greedy_enabled(true);
+    mb.build_mesh(chunk);
+
+    // Dirty bbox = the single edited block (16,20,16), [min,max]+1 exclusive —
+    // what the manager now snapshots for a block edit. build_mesh_incremental
+    // expands it by the AO/light ring.
+    const VoxelEngine::MeshBuilder::SubChunkBounds bounds{16, 17, 20, 21, 16, 17};
+
+    // Warmup (the incremental build feeds its own output back as the next
+    // iteration's previous-quad cache, mirroring the live edit loop).
+    for (int i = 0; i < 50; i++) {
+        chunk.set_block(16, 20, 16, (i % 2) ? VoxelEngine::BlockIDs::STONE : VoxelEngine::BlockIDs::AIR);
+        chunk.compute_section_flags();
+        mb.build_mesh_incremental(chunk, mb.get_quads(), mb.get_light_checksums(), bounds);
+    }
+
+    VoxelEngine::PerformanceTimer perf;
+    VoxelEngine::MeshBuilder::get_perf_timer().reset_all();
+    for (int i = 0; i < n; i++) {
+        chunk.set_block(16, 20, 16, (i % 2) ? VoxelEngine::BlockIDs::STONE : VoxelEngine::BlockIDs::AIR);
+        chunk.compute_section_flags();
+        VoxelEngine::ScopedTimer timer(perf, VoxelEngine::TimerID::BuildMesh);
+        mb.build_mesh_incremental(chunk, mb.get_quads(), mb.get_light_checksums(), bounds);
+    }
+
+    auto& pt = VoxelEngine::MeshBuilder::get_perf_timer();
+    printf("  [incr] solid_cache=%.3f h=%.3f v=%.3f build_total=%.3f n=%llu\n",
+           pt.get_avg(VoxelEngine::TimerID::SolidCachePopulation),
+           pt.get_avg(VoxelEngine::TimerID::GreedyMeshHorizontal),
+           pt.get_avg(VoxelEngine::TimerID::GreedyMeshVertical),
+           pt.get_avg(VoxelEngine::TimerID::BuildMesh),
+           pt.get_count(VoxelEngine::TimerID::BuildMesh));
+
+    double avg = perf.get_avg(VoxelEngine::TimerID::BuildMesh);
+    printf("  incremental:    avg=%.3f ms  min=%.3f ms  max=%.3f ms  (n=%d, 1-block edit)\n",
+           avg, perf.get_min(VoxelEngine::TimerID::BuildMesh),
+           perf.get_max(VoxelEngine::TimerID::BuildMesh), n);
+    return {"incremental_mesh_avg_ms", avg, "ms"};
+}
+
 static BenchResult bench_palette_ops(int n) {
     VoxelEngine::ChunkData chunk;
     chunk.clear();
@@ -187,6 +245,7 @@ int main(int argc, char** argv) {
     std::vector<BenchResult> results;
     results.push_back(bench_generation(1000));
     results.push_back(bench_meshing(1000));
+    results.push_back(bench_incremental_meshing(1000));
     results.push_back(bench_palette_ops(100));
     results.push_back(bench_light_propagation(1000));
     results.push_back(bench_memory_usage());

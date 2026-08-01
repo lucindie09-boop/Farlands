@@ -69,6 +69,37 @@ struct SubChunkBounds {
     int32_t z_max = CHUNK_DEPTH;
 };
 
+// Bundle of the 26 neighboring ChunkData pointers used by mesh building.
+// Used by build_mesh_incremental to keep its signature manageable.
+struct NeighborPtrs {
+    const ChunkData* neg_x = nullptr;
+    const ChunkData* pos_x = nullptr;
+    const ChunkData* neg_y = nullptr;
+    const ChunkData* pos_y = nullptr;
+    const ChunkData* neg_z = nullptr;
+    const ChunkData* pos_z = nullptr;
+    const ChunkData* neg_x_neg_z = nullptr;
+    const ChunkData* neg_x_pos_z = nullptr;
+    const ChunkData* pos_x_neg_z = nullptr;
+    const ChunkData* pos_x_pos_z = nullptr;
+    const ChunkData* neg_x_neg_y = nullptr;
+    const ChunkData* pos_x_neg_y = nullptr;
+    const ChunkData* neg_x_pos_y = nullptr;
+    const ChunkData* pos_x_pos_y = nullptr;
+    const ChunkData* neg_y_neg_z = nullptr;
+    const ChunkData* neg_y_pos_z = nullptr;
+    const ChunkData* pos_y_neg_z = nullptr;
+    const ChunkData* pos_y_pos_z = nullptr;
+    const ChunkData* neg_x_neg_y_neg_z = nullptr;
+    const ChunkData* pos_x_neg_y_neg_z = nullptr;
+    const ChunkData* neg_x_pos_y_neg_z = nullptr;
+    const ChunkData* pos_x_pos_y_neg_z = nullptr;
+    const ChunkData* neg_x_neg_y_pos_z = nullptr;
+    const ChunkData* pos_x_neg_y_pos_z = nullptr;
+    const ChunkData* neg_x_pos_y_pos_z = nullptr;
+    const ChunkData* pos_x_pos_y_pos_z = nullptr;
+};
+
 struct GreedyVerticalStatsSnapshot {
 uint64_t merge_attempts = 0;
 uint64_t merge_successes = 0;
@@ -196,6 +227,32 @@ bool is_smooth_lighting_enabled() const { return smooth_lighting_enabled; }
     void set_subchunk_bounds(const SubChunkBounds& bounds) { active_bounds = bounds; }
     const SubChunkBounds& get_subchunk_bounds() const { return active_bounds; }
 
+    // Partial remesh: rebuilds the mesh for only the dirty region (given by
+    // dirty_bounds, expanded by 1 for the AO/light/culling neighborhood) plus
+    // any columns whose light changed since the previous build (prev_light).
+    // Everything else is carried forward from prev_quads, so the output is
+    // bit-identical to a full build of the same chunk. The previous build's
+    // quad list + light checksums must be passed in (see get_quads() /
+    // get_light_checksums()).
+    void build_mesh_incremental(const ChunkData& chunk,
+                                const std::vector<CachedQuad>& prev_quads,
+                                const MeshLightChecksums& prev_light,
+                                const SubChunkBounds& dirty_bounds,
+                                const NeighborPtrs& neighbors = NeighborPtrs());
+
+    // Quad list emitted by the last build (full builds: the entire chunk;
+    // incremental builds: carried + re-emitted). Feed this into the next
+    // build_mesh_incremental call to enable partial remeshing.
+    const std::vector<CachedQuad>& get_quads() const { return quads; }
+
+    // Per-column light-grid checksums of the last build.
+    const MeshLightChecksums& get_light_checksums() const { return light_checksums_; }
+
+    // When disabled, emitted faces are not recorded into the quad cache.
+    // MeshManager disables this for chunks far from the player (which can never
+    // be edited) to keep the cache memory bounded.
+    void set_quad_recording(bool enabled) { record_quads_ = enabled; }
+
 private:
     // -------------------------------------------------------------------------
     // Constants
@@ -312,6 +369,16 @@ GreedyVerticalStatsSnapshot greedy_v_stats_local{};
 
     SubChunkBounds active_bounds;
 
+    // Partial-remesh state. When partial_mode_ is true the greedy/fallback
+    // passes only iterate the expanded dirty region (partial_bounds_).
+    bool partial_mode_ = false;
+    SubChunkBounds partial_bounds_;
+
+    // Quad list emitted by the last build (carried forward + newly emitted).
+    std::vector<CachedQuad> quads;
+    bool record_quads_ = true;
+    MeshLightChecksums light_checksums_;
+
     const BlockRegistry* registry_ = nullptr;
 
     // -------------------------------------------------------------------------
@@ -388,6 +455,26 @@ const BlockRegistry& registry) const;
     void add_greedy_face(const ChunkData& chunk, const ChunkNeighborAccessor& accessor,
                          const Face& face, uint16_t face_light_key, int rotation,
                          const float ao[4], const BlockRegistry& registry);
+
+    // -------------------------------------------------------------------------
+    // Partial-remesh and shared build helpers (defined in .cpp)
+    // -------------------------------------------------------------------------
+    // Copy a carried quad into the output buffers and quad list (no AO/light
+    // recompute — the final vertices are already baked).
+    void append_quad(const CachedQuad& q);
+
+    // Drop test: does a cached quad fall inside the region the current build
+    // will re-emit? Depends on the active emitter mode (greedy vs fallback).
+    bool should_drop_quad(const CachedQuad& q) const;
+
+    static SubChunkBounds expand_bounds(const SubChunkBounds& b);
+
+    void compute_light_checksums(const ChunkData& chunk);
+
+    void init_accessor(const ChunkData& chunk, const NeighborPtrs& neighbors);
+    void populate_solid_cache(const ChunkData& chunk, const BlockRegistry& registry);
+    void emit_faces(const ChunkData& chunk, const BlockRegistry& registry);
+    void accumulate_greedy_stats();
 
     // Far-mode heightmap-only mesh emitter (see set_far_mode).
     void build_far_mesh(const ChunkData& chunk, const BlockRegistry& registry);

@@ -24,6 +24,9 @@ void MeshBuilder::flush_horizontal_merge(const ChunkData& chunk, const ChunkNeig
                                           const float ao[4], const BlockRegistry& registry) {
     if (z_start < 0 || z_end <= z_start) return;
 
+    // Partial rebuilds: only flush runs that intersect the dirty region.
+    if (partial_mode_ && !(z_start < partial_bounds_.z_max && z_end > partial_bounds_.z_min)) return;
+
     if (z_end - z_start > 1) {
         bool has_occlusion = (ao[0] < 1.0f || ao[1] < 1.0f || ao[2] < 1.0f || ao[3] < 1.0f);
         if (!has_occlusion) {
@@ -41,6 +44,12 @@ void MeshBuilder::flush_horizontal_merge(const ChunkData& chunk, const ChunkNeig
     }
 
     for (int32_t cz = z_start; cz < z_end; cz += stride_xz_) {
+        // Partial rebuilds: a run crossing the region boundary must not re-emit
+        // the cells outside it — those are carried forward from the cache.
+        if (partial_mode_ &&
+            !(cz < partial_bounds_.z_max && cz + stride_xz_ > partial_bounds_.z_min)) {
+            continue;
+        }
         add_face(chunk, accessor, x, y, cz, direction, block_id, registry);
     }
 }
@@ -63,6 +72,12 @@ void MeshBuilder::passive_greedy_mesh_horizontal(const ChunkData& chunk, const C
         for (int32_t y = y0; y < y1; y++) {
             const int32_t nybase = y + dy;
             for (int32_t x = 0; x < CHUNK_WIDTH; x += stride_xz_) {
+                // Partial rebuilds: skip rows whose faces cannot intersect the region.
+                if (partial_mode_ &&
+                    !(y >= partial_bounds_.y_min && y < partial_bounds_.y_max &&
+                      x < partial_bounds_.x_max && x + stride_xz_ > partial_bounds_.x_min)) {
+                    continue;
+                }
                 int32_t merge_start = -1;
                 BlockID current_block = BlockIDs::AIR;
                 uint16_t current_light_key = 0;
@@ -158,6 +173,9 @@ void MeshBuilder::flush_vertical_merge(const ChunkData& chunk, const ChunkNeighb
                                           const float ao[4], const BlockRegistry& registry) {
     if (y_start < 0 || y_end <= y_start) return;
 
+    // Partial rebuilds: only flush runs that intersect the dirty region.
+    if (partial_mode_ && !(y_start < partial_bounds_.y_max && y_end > partial_bounds_.y_min)) return;
+
     if (y_end - y_start > 1) {
         ++greedy_v_stats_local.merge_attempts;
         ++greedy_v_stats_local.merge_successes;
@@ -210,6 +228,12 @@ void MeshBuilder::passive_greedy_mesh_vertical(const ChunkData& chunk, const Chu
 
     for (int32_t x = 0; x < CHUNK_WIDTH; x += stride_xz_) {
         for (int32_t z = 0; z < CHUNK_DEPTH; z += stride_xz_) {
+            // Partial rebuilds: skip columns whose faces cannot intersect the region.
+            if (partial_mode_ &&
+                !(x < partial_bounds_.x_max && x + stride_xz_ > partial_bounds_.x_min &&
+                  z < partial_bounds_.z_max && z + stride_xz_ > partial_bounds_.z_min)) {
+                continue;
+            }
             DirMergeState dirs[kDirCount];
 
             const bool boundary[kDirCount] = {

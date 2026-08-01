@@ -115,86 +115,45 @@ void MeshBuilder::clear() {
     water_indices.reserve(kIndexReserve);
     greedy_v_stats_local = {};
     active_bounds = {};
+    quads.clear();
+    partial_mode_ = false;
+    partial_bounds_ = {};
 }
 
-void MeshBuilder::build_mesh(const ChunkData& chunk,
-                             const ChunkData* neighbor_x_neg,
-                             const ChunkData* neighbor_x_pos,
-                             const ChunkData* neighbor_y_neg,
-                             const ChunkData* neighbor_y_pos,
-                             const ChunkData* neighbor_z_neg,
-                             const ChunkData* neighbor_z_pos,
-                             const ChunkData* neg_x_neg_z,
-                             const ChunkData* neg_x_pos_z,
-                             const ChunkData* pos_x_neg_z,
-                             const ChunkData* pos_x_pos_z,
-                             const ChunkData* neg_x_neg_y,
-                             const ChunkData* pos_x_neg_y,
-                             const ChunkData* neg_x_pos_y,
-                             const ChunkData* pos_x_pos_y,
-                             const ChunkData* neg_y_neg_z,
-                             const ChunkData* neg_y_pos_z,
-                             const ChunkData* pos_y_neg_z,
-                             const ChunkData* pos_y_pos_z,
-                             const ChunkData* neg_x_neg_y_neg_z,
-                             const ChunkData* pos_x_neg_y_neg_z,
-                             const ChunkData* neg_x_pos_y_neg_z,
-                             const ChunkData* pos_x_pos_y_neg_z,
-                             const ChunkData* neg_x_neg_y_pos_z,
-                             const ChunkData* pos_x_neg_y_pos_z,
-                             const ChunkData* neg_x_pos_y_pos_z,
-                             const ChunkData* pos_x_pos_y_pos_z) {
-ScopedTimer build_timer(perf_timer, TimerID::BuildMesh);
+void MeshBuilder::init_accessor(const ChunkData& chunk, const NeighborPtrs& neighbors) {
+    accessor.center = &chunk;
+    accessor.neg_x = neighbors.neg_x;
+    accessor.pos_x = neighbors.pos_x;
+    accessor.neg_y = neighbors.neg_y;
+    accessor.pos_y = neighbors.pos_y;
+    accessor.neg_z = neighbors.neg_z;
+    accessor.pos_z = neighbors.pos_z;
+    accessor.neg_x_neg_z = neighbors.neg_x_neg_z;
+    accessor.neg_x_pos_z = neighbors.neg_x_pos_z;
+    accessor.pos_x_neg_z = neighbors.pos_x_neg_z;
+    accessor.pos_x_pos_z = neighbors.pos_x_pos_z;
+    accessor.neg_x_neg_y = neighbors.neg_x_neg_y;
+    accessor.pos_x_neg_y = neighbors.pos_x_neg_y;
+    accessor.neg_x_pos_y = neighbors.neg_x_pos_y;
+    accessor.pos_x_pos_y = neighbors.pos_x_pos_y;
+    accessor.neg_y_neg_z = neighbors.neg_y_neg_z;
+    accessor.neg_y_pos_z = neighbors.neg_y_pos_z;
+    accessor.pos_y_neg_z = neighbors.pos_y_neg_z;
+    accessor.pos_y_pos_z = neighbors.pos_y_pos_z;
+    accessor.neg_x_neg_y_neg_z = neighbors.neg_x_neg_y_neg_z;
+    accessor.pos_x_neg_y_neg_z = neighbors.pos_x_neg_y_neg_z;
+    accessor.neg_x_pos_y_neg_z = neighbors.neg_x_pos_y_neg_z;
+    accessor.pos_x_pos_y_neg_z = neighbors.pos_x_pos_y_neg_z;
+    accessor.neg_x_neg_y_pos_z = neighbors.neg_x_neg_y_pos_z;
+    accessor.pos_x_neg_y_pos_z = neighbors.pos_x_neg_y_pos_z;
+    accessor.neg_x_pos_y_pos_z = neighbors.neg_x_pos_y_pos_z;
+    accessor.pos_x_pos_y_pos_z = neighbors.pos_x_pos_y_pos_z;
+}
 
-    clear();
+void MeshBuilder::populate_solid_cache(const ChunkData& chunk, const BlockRegistry& registry) {
     for (auto& plane : solid_cache)
         for (auto& row : plane)
             row.fill(0);
-
-    // Initialize the neighbor accessor
-    accessor.center = &chunk;
-    accessor.neg_x = neighbor_x_neg;
-    accessor.pos_x = neighbor_x_pos;
-    accessor.neg_y = neighbor_y_neg;
-    accessor.pos_y = neighbor_y_pos;
-    accessor.neg_z = neighbor_z_neg;
-    accessor.pos_z = neighbor_z_pos;
-    accessor.neg_x_neg_z = neg_x_neg_z;
-    accessor.neg_x_pos_z = neg_x_pos_z;
-    accessor.pos_x_neg_z = pos_x_neg_z;
-    accessor.pos_x_pos_z = pos_x_pos_z;
-    accessor.neg_x_neg_y = neg_x_neg_y;
-    accessor.pos_x_neg_y = pos_x_neg_y;
-    accessor.neg_x_pos_y = neg_x_pos_y;
-    accessor.pos_x_pos_y = pos_x_pos_y;
-    accessor.neg_y_neg_z = neg_y_neg_z;
-    accessor.neg_y_pos_z = neg_y_pos_z;
-    accessor.pos_y_neg_z = pos_y_neg_z;
-    accessor.pos_y_pos_z = pos_y_pos_z;
-    accessor.neg_x_neg_y_neg_z = neg_x_neg_y_neg_z;
-    accessor.pos_x_neg_y_neg_z = pos_x_neg_y_neg_z;
-    accessor.neg_x_pos_y_neg_z = neg_x_pos_y_neg_z;
-    accessor.pos_x_pos_y_neg_z = pos_x_pos_y_neg_z;
-    accessor.neg_x_neg_y_pos_z = neg_x_neg_y_pos_z;
-    accessor.pos_x_neg_y_pos_z = pos_x_neg_y_pos_z;
-    accessor.neg_x_pos_y_pos_z = neg_x_pos_y_pos_z;
-    accessor.pos_x_pos_y_pos_z = pos_x_pos_y_pos_z;
-
-    if (chunk.is_all_air()) {
-        return;
-    }
-
-    total_chunks.fetch_add(1, std::memory_order_relaxed);
-
-
-    if (!registry_) { registry_ = &BlockRegistry::get_instance(); }
-    const BlockRegistry& registry = *registry_;
-
-    // Far-mode: heightmap-only mesh. No solid_cache, no AO, no side faces.
-    if (far_mode_) {
-        build_far_mesh(chunk, registry);
-        return;
-    }
 
     // solid_cache is laid out [y][z][x] (see header) so this population pass
     // walks it with x as the fastest-varying index.
@@ -231,11 +190,11 @@ ScopedTimer build_timer(perf_timer, TimerID::BuildMesh);
         for (int32_t y = 0; y < CHUNK_HEIGHT; y++) {
             for (int32_t z = 1; z <= CHUNK_DEPTH; z++) {
                 int32_t z_src = ((z - 1) / stride_xz_) * stride_xz_;
-                solid_cache[y][z][0] = neighbor_x_neg
-                    ? neighbor_x_neg->get_block_unsafe(CHUNK_WIDTH - 1, y, z_src)
+                solid_cache[y][z][0] = accessor.neg_x
+                    ? accessor.neg_x->get_block_unsafe(CHUNK_WIDTH - 1, y, z_src)
                     : BlockIDs::AIR;
-                solid_cache[y][z][SC_W - 1] = neighbor_x_pos
-                    ? neighbor_x_pos->get_block_unsafe(0, y, z_src)
+                solid_cache[y][z][SC_W - 1] = accessor.pos_x
+                    ? accessor.pos_x->get_block_unsafe(0, y, z_src)
                     : BlockIDs::AIR;
             }
         }
@@ -244,32 +203,34 @@ ScopedTimer build_timer(perf_timer, TimerID::BuildMesh);
         for (int32_t y = 0; y < CHUNK_HEIGHT; y++) {
             for (int32_t x = 1; x <= CHUNK_WIDTH; x++) {
                 int32_t x_src = ((x - 1) / stride_xz_) * stride_xz_;
-                solid_cache[y][0][x] = neighbor_z_neg
-                    ? neighbor_z_neg->get_block_unsafe(x_src, y, CHUNK_DEPTH - 1)
+                solid_cache[y][0][x] = accessor.neg_z
+                    ? accessor.neg_z->get_block_unsafe(x_src, y, CHUNK_DEPTH - 1)
                     : BlockIDs::AIR;
-                solid_cache[y][SC_D - 1][x] = neighbor_z_pos
-                    ? neighbor_z_pos->get_block_unsafe(x_src, y, 0)
+                solid_cache[y][SC_D - 1][x] = accessor.pos_z
+                    ? accessor.pos_z->get_block_unsafe(x_src, y, 0)
                     : BlockIDs::AIR;
             }
         }
 
         // Four corner columns (x=0 or SC_W-1, z=0 or SC_D-1)
         for (int32_t y = 0; y < CHUNK_HEIGHT; y++) {
-            solid_cache[y][0][0] = neg_x_neg_z
-                ? neg_x_neg_z->get_block_unsafe(CHUNK_WIDTH - 1, y, CHUNK_DEPTH - 1)
+            solid_cache[y][0][0] = accessor.neg_x_neg_z
+                ? accessor.neg_x_neg_z->get_block_unsafe(CHUNK_WIDTH - 1, y, CHUNK_DEPTH - 1)
                 : BlockIDs::AIR;
-            solid_cache[y][0][SC_W - 1] = pos_x_neg_z
-                ? pos_x_neg_z->get_block_unsafe(0, y, CHUNK_DEPTH - 1)
+            solid_cache[y][0][SC_W - 1] = accessor.pos_x_neg_z
+                ? accessor.pos_x_neg_z->get_block_unsafe(0, y, CHUNK_DEPTH - 1)
                 : BlockIDs::AIR;
-            solid_cache[y][SC_D - 1][0] = neg_x_pos_z
-                ? neg_x_pos_z->get_block_unsafe(CHUNK_WIDTH - 1, y, 0)
+            solid_cache[y][SC_D - 1][0] = accessor.neg_x_pos_z
+                ? accessor.neg_x_pos_z->get_block_unsafe(CHUNK_WIDTH - 1, y, 0)
                 : BlockIDs::AIR;
-            solid_cache[y][SC_D - 1][SC_W - 1] = pos_x_pos_z
-                ? pos_x_pos_z->get_block_unsafe(0, y, 0)
+            solid_cache[y][SC_D - 1][SC_W - 1] = accessor.pos_x_pos_z
+                ? accessor.pos_x_pos_z->get_block_unsafe(0, y, 0)
                 : BlockIDs::AIR;
         }
     }
+}
 
+void MeshBuilder::emit_faces(const ChunkData& chunk, const BlockRegistry& registry) {
     if (passive_greedy_enabled) {
         {
             ScopedTimer greedy_h_timer(perf_timer, TimerID::GreedyMeshHorizontal);
@@ -290,6 +251,12 @@ ScopedTimer build_timer(perf_timer, TimerID::BuildMesh);
             for (int32_t y = y0; y < y1; y++) {
                 for (int32_t z = 0; z < CHUNK_DEPTH; z += stride_xz_) {
                     for (int32_t x = 0; x < CHUNK_WIDTH; x += stride_xz_) {
+                        if (partial_mode_ &&
+                            !(x < partial_bounds_.x_max && x + stride_xz_ > partial_bounds_.x_min &&
+                              y >= partial_bounds_.y_min && y < partial_bounds_.y_max &&
+                              z < partial_bounds_.z_max && z + stride_xz_ > partial_bounds_.z_min)) {
+                            continue;
+                        }
                         const BlockID block_id = solid_cache[y][z + 1][x + 1];
                         if (block_id == BlockIDs::AIR) continue;
                         if (stride_xz_ == 1) {
@@ -330,7 +297,9 @@ ScopedTimer build_timer(perf_timer, TimerID::BuildMesh);
             }
         }
     }
+}
 
+void MeshBuilder::accumulate_greedy_stats() {
     total_vertices.fetch_add(vertices.size(), std::memory_order_relaxed);
 
     greedy_v_merge_attempts.fetch_add(greedy_v_stats_local.merge_attempts, std::memory_order_relaxed);
@@ -346,6 +315,214 @@ ScopedTimer build_timer(perf_timer, TimerID::BuildMesh);
     greedy_v_lod_faces_culled.fetch_add(greedy_v_stats_local.lod_faces_culled, std::memory_order_relaxed);
     greedy_v_lod_faces_emitted.fetch_add(greedy_v_stats_local.lod_faces_emitted, std::memory_order_relaxed);
 }
+
+void MeshBuilder::build_mesh(const ChunkData& chunk,
+                             const ChunkData* neighbor_x_neg,
+                             const ChunkData* neighbor_x_pos,
+                             const ChunkData* neighbor_y_neg,
+                             const ChunkData* neighbor_y_pos,
+                             const ChunkData* neighbor_z_neg,
+                             const ChunkData* neighbor_z_pos,
+                             const ChunkData* neg_x_neg_z,
+                             const ChunkData* neg_x_pos_z,
+                             const ChunkData* pos_x_neg_z,
+                             const ChunkData* pos_x_pos_z,
+                             const ChunkData* neg_x_neg_y,
+                             const ChunkData* pos_x_neg_y,
+                             const ChunkData* neg_x_pos_y,
+                             const ChunkData* pos_x_pos_y,
+                             const ChunkData* neg_y_neg_z,
+                             const ChunkData* neg_y_pos_z,
+                             const ChunkData* pos_y_neg_z,
+                             const ChunkData* pos_y_pos_z,
+                             const ChunkData* neg_x_neg_y_neg_z,
+                             const ChunkData* pos_x_neg_y_neg_z,
+                             const ChunkData* neg_x_pos_y_neg_z,
+                             const ChunkData* pos_x_pos_y_neg_z,
+                             const ChunkData* neg_x_neg_y_pos_z,
+                             const ChunkData* pos_x_neg_y_pos_z,
+                             const ChunkData* neg_x_pos_y_pos_z,
+                             const ChunkData* pos_x_pos_y_pos_z) {
+    ScopedTimer build_timer(perf_timer, TimerID::BuildMesh);
+
+    clear();
+    if (!registry_) { registry_ = &BlockRegistry::get_instance(); }
+    const BlockRegistry& registry = *registry_;
+
+    NeighborPtrs n;
+    n.neg_x = neighbor_x_neg;
+    n.pos_x = neighbor_x_pos;
+    n.neg_y = neighbor_y_neg;
+    n.pos_y = neighbor_y_pos;
+    n.neg_z = neighbor_z_neg;
+    n.pos_z = neighbor_z_pos;
+    n.neg_x_neg_z = neg_x_neg_z;
+    n.neg_x_pos_z = neg_x_pos_z;
+    n.pos_x_neg_z = pos_x_neg_z;
+    n.pos_x_pos_z = pos_x_pos_z;
+    n.neg_x_neg_y = neg_x_neg_y;
+    n.pos_x_neg_y = pos_x_neg_y;
+    n.neg_x_pos_y = neg_x_pos_y;
+    n.pos_x_pos_y = pos_x_pos_y;
+    n.neg_y_neg_z = neg_y_neg_z;
+    n.neg_y_pos_z = neg_y_pos_z;
+    n.pos_y_neg_z = pos_y_neg_z;
+    n.pos_y_pos_z = pos_y_pos_z;
+    n.neg_x_neg_y_neg_z = neg_x_neg_y_neg_z;
+    n.pos_x_neg_y_neg_z = pos_x_neg_y_neg_z;
+    n.neg_x_pos_y_neg_z = neg_x_pos_y_neg_z;
+    n.pos_x_pos_y_neg_z = pos_x_pos_y_neg_z;
+    n.neg_x_neg_y_pos_z = neg_x_neg_y_pos_z;
+    n.pos_x_neg_y_pos_z = pos_x_neg_y_pos_z;
+    n.neg_x_pos_y_pos_z = neg_x_pos_y_pos_z;
+    n.pos_x_pos_y_pos_z = pos_x_pos_y_pos_z;
+    init_accessor(chunk, n);
+
+    if (chunk.is_all_air()) {
+        return;
+    }
+
+    total_chunks.fetch_add(1, std::memory_order_relaxed);
+
+    // Far-mode: heightmap-only mesh. No solid_cache, no AO, no side faces.
+    if (far_mode_) {
+        build_far_mesh(chunk, registry);
+        return;
+    }
+
+    populate_solid_cache(chunk, registry);
+    emit_faces(chunk, registry);
+    accumulate_greedy_stats();
+
+    if (record_quads_) {
+        compute_light_checksums(chunk);
+    }
+}
+
+MeshBuilder::SubChunkBounds MeshBuilder::expand_bounds(const SubChunkBounds& b) {
+    SubChunkBounds r;
+    r.x_min = std::max(0, b.x_min - 1);
+    r.x_max = std::min(CHUNK_WIDTH, b.x_max + 1);
+    r.y_min = std::max(0, b.y_min - 1);
+    r.y_max = std::min(CHUNK_HEIGHT, b.y_max + 1);
+    r.z_min = std::max(0, b.z_min - 1);
+    r.z_max = std::min(CHUNK_DEPTH, b.z_max + 1);
+    return r;
+}
+
+void MeshBuilder::append_quad(const CachedQuad& q) {
+    auto& dest_vertices = q.water ? water_vertices : vertices;
+    auto& dest_indices = q.water ? water_indices : indices;
+    const uint32_t base = static_cast<uint32_t>(dest_vertices.size());
+    for (int i = 0; i < 4; ++i) dest_vertices.push_back(q.verts[i]);
+    for (int i = 0; i < 6; ++i) dest_indices.push_back(base + q.idx[i]);
+    quads.push_back(q);
+}
+
+bool MeshBuilder::should_drop_quad(const CachedQuad& q) const {
+    const SubChunkBounds& b = partial_bounds_;
+    if (b.x_max <= b.x_min || b.y_max <= b.y_min || b.z_max <= b.z_min) return false;
+    if (q.x + q.ex <= b.x_min || q.x >= b.x_max) return false;
+    if (q.y + q.ey <= b.y_min || q.y >= b.y_max) return false;
+    if (q.z + q.ez <= b.z_min || q.z >= b.z_max) return false;
+    return true;
+}
+
+void MeshBuilder::compute_light_checksums(const ChunkData& chunk) {
+    light_checksums_.columns.fill(0);
+    for (int32_t z = 0; z < CHUNK_DEPTH; ++z) {
+        for (int32_t x = 0; x < CHUNK_WIDTH; ++x) {
+            uint32_t h = 2166136261u;
+            for (int32_t y = 0; y < CHUNK_HEIGHT; ++y) {
+                const uint16_t w = chunk.get_light_packed_word_unsafe(x, y, z);
+                h ^= static_cast<uint8_t>(w);
+                h *= 16777619u;
+                h ^= static_cast<uint8_t>(w >> 8);
+                h *= 16777619u;
+            }
+            light_checksums_.columns[z * CHUNK_WIDTH + x] = h;
+        }
+    }
+}
+
+void MeshBuilder::build_mesh_incremental(const ChunkData& chunk,
+                                         const std::vector<CachedQuad>& prev_quads,
+                                         const MeshLightChecksums& prev_light,
+                                         const SubChunkBounds& dirty_bounds,
+                                         const NeighborPtrs& neighbors) {
+    ScopedTimer build_timer(perf_timer, TimerID::BuildMesh);
+
+    clear();
+    if (!registry_) { registry_ = &BlockRegistry::get_instance(); }
+    const BlockRegistry& registry = *registry_;
+    init_accessor(chunk, neighbors);
+
+    if (chunk.is_all_air()) {
+        return;
+    }
+
+    total_chunks.fetch_add(1, std::memory_order_relaxed);
+    if (far_mode_) {
+        build_far_mesh(chunk, registry);
+        return;
+    }
+
+    // Light-change region: every column whose light grid changed since the
+    // previous build. A face within ±1 of a changed column samples the changed
+    // light, so the re-emit region must cover those columns expanded by 1.
+    compute_light_checksums(chunk);
+    SubChunkBounds light_bounds{0, 0, 0, 0, 0, 0};  // empty
+    {
+        int32_t cx_min = CHUNK_WIDTH, cx_max = -1, cz_min = CHUNK_DEPTH, cz_max = -1;
+        for (int32_t z = 0; z < CHUNK_DEPTH; ++z) {
+            for (int32_t x = 0; x < CHUNK_WIDTH; ++x) {
+                if (light_checksums_.columns[z * CHUNK_WIDTH + x] != prev_light.columns[z * CHUNK_WIDTH + x]) {
+                    if (x < cx_min) cx_min = x;
+                    if (x > cx_max) cx_max = x;
+                    if (z < cz_min) cz_min = z;
+                    if (z > cz_max) cz_max = z;
+                }
+            }
+        }
+        if (cx_min <= cx_max && cz_min <= cz_max) {
+            light_bounds.x_min = std::max(0, cx_min - 1);
+            light_bounds.x_max = std::min(CHUNK_WIDTH, cx_max + 2);
+            light_bounds.y_min = 0;
+            light_bounds.y_max = CHUNK_HEIGHT;
+            light_bounds.z_min = std::max(0, cz_min - 1);
+            light_bounds.z_max = std::min(CHUNK_DEPTH, cz_max + 2);
+        }
+    }
+
+    // Re-emit region = dirty geometry (expanded by the AO/light ring) ∪
+    // light-changed columns.
+    const SubChunkBounds geom_bounds = expand_bounds(dirty_bounds);
+    partial_mode_ = true;
+    partial_bounds_.x_min = std::min(geom_bounds.x_min, light_bounds.x_min);
+    partial_bounds_.x_max = std::max(geom_bounds.x_max, light_bounds.x_max);
+    partial_bounds_.y_min = std::min(geom_bounds.y_min, light_bounds.y_min);
+    partial_bounds_.y_max = std::max(geom_bounds.y_max, light_bounds.y_max);
+    partial_bounds_.z_min = std::min(geom_bounds.z_min, light_bounds.z_min);
+    partial_bounds_.z_max = std::max(geom_bounds.z_max, light_bounds.z_max);
+
+    populate_solid_cache(chunk, registry);
+    emit_faces(chunk, registry);
+
+    // Carry forward cached quads outside the re-emit region.
+    for (const CachedQuad& q : prev_quads) {
+        if (!should_drop_quad(q)) {
+            append_quad(q);
+        }
+    }
+    accumulate_greedy_stats();
+    partial_mode_ = false;
+    partial_bounds_ = {};
+
+    if (record_quads_) {
+        // light_checksums_ already computed above; keep for the next build.
+    }
+}
+
 
 void MeshBuilder::build_far_mesh(const ChunkData& chunk, const BlockRegistry& registry) {
     // For each macro column (stride_xz_ x stride_xz_) emit a single top quad at

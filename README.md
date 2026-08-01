@@ -1,16 +1,17 @@
 # fuk-minecraft
 
-A Minecraft-style voxel engine built in Godot 4 with a custom C++ GDExtension. Procedural terrain generation, chunked world streaming, greedy meshing, colored block lighting, day/night cycle, distance-based mesh LOD, and frustum-prioritized chunk loading.
+A Minecraft-style voxel engine built in Godot 4 with a custom C++ GDExtension. Procedural terrain generation (signed 3D density field with overhangs and shelves), chunked world streaming, greedy meshing with per-chunk incremental rebuilds, colored block lighting, day/night cycle, multi-tier distance-based mesh LOD (including far-mode silhouette meshes), and frustum-prioritized chunk loading. Ships with a C++ player controller with Minecraft-accurate fixed-timestep physics.
 
 ## Architecture
 
 - **Godot 4** — renderer, input, audio, and UI
-- **C++ GDExtension** — voxel engine core (chunking, meshing, lighting, terrain gen, collision)
-- **ThreadPool** — async chunk generation, mesh building, and light propagation, sized to `hardware_concurrency() - 1` workers
+- **C++ GDExtension** — voxel engine core (chunking, meshing, lighting, terrain gen, collision, player sim)
+- **ThreadPool** — async chunk generation, mesh building, and light propagation, sized to `hardware_concurrency() - 1` workers with a high-priority queue
 - **RenderingServer** — direct GPU mesh upload for zero SceneTree overhead per chunk
 - **Sharded chunk map** — 64 independently-locked shards (`shared_mutex` each), so a write on one shard never blocks readers on another
 - **Palette-compressed storage** — block and light data stored as 8 paletted 16³ sections per chunk instead of dense arrays, cutting per-chunk memory from ~130KB to as little as ~1–20KB on uniform terrain
 - **Frustum prioritization** — camera frustum extracted each frame; visible chunks get priority for generation, meshing, retention, and LOD detail
+- **Budget-capped main thread** — generation completion, mesh uploads, and light propagation are wall-clock-budgeted per frame; the nearest-to-player completed mesh uploads first
 
 ## Key Systems
 
@@ -23,22 +24,25 @@ A Minecraft-style voxel engine built in Godot 4 with a custom C++ GDExtension. P
 | World updater | `src/world/world_updater.hpp/cpp` | Per-frame budgeted scheduling (generate → light → mesh → upload) |
 | Generation scheduler | `src/world/generation_scheduler.hpp/cpp` | Standalone generation loop |
 | Mesh queue | `src/mesh/mesh_queue.hpp` | Priority queue sorted by urgent > in-frustum > distance |
-| Mesh builder | `src/mesh/mesh_builder.hpp/cpp` (+ `mesh_builder_faces.cpp`, `mesh_builder_greedy.cpp`) | Greedy + standard face culling, neighbor-aware, thread-local instances, solid-block fast path |
-| Mesh manager | `src/mesh/mesh_manager.hpp/cpp` | Upload dedup, lazy RID creation, instance budget capping, distance-based LOD stride/detail scaling |
+| Mesh builder | `src/mesh/mesh_builder.hpp/cpp` (+ `mesh_builder_faces.cpp`, `mesh_builder_greedy.cpp`) | Greedy + standard face culling, neighbor-aware, thread-local instances, solid-block fast path, full rebuilds and incremental partial remeshes |
+| Mesh manager | `src/mesh/mesh_manager.hpp/cpp` | Upload dedup, lazy RID creation, instance budget capping, multi-tier LOD (stride/detail + far-mode), nearest-first budget-capped completion |
 | Lighting | `src/lighting/light_propagator.cpp` | Async block-light propagation on worker threads, sky-light columns |
-| Terrain gen | `src/worldgen/chunk_generator.hpp/cpp` | Multi-octave FBM noise, continentalness/temperature/humidity biomes, coastlines, oceans, near-water surface variants |
-| Vegetation | `src/worldgen/vegetation_generator.hpp/cpp` | Tree placement with minimum spacing, deferred cross-chunk writes |
-| Collision | `src/engine/collision_resolver.cpp` | Custom binary-search AABB voxel grid query (no Godot physics nodes) |
+| Terrain gen | `src/worldgen/chunk_generator.hpp/cpp` | Signed 3D density field over a macro heightmap (overhangs/shelves), 4×4×4 shape lattice, biome-based macro surface, chunk-level generation fast paths |
+| Vegetation | `src/worldgen/vegetation_generator.hpp/cpp` | Tree placement (oak/spruce/birch) with minimum spacing, deferred cross-chunk writes |
+| Collision | `src/engine/collision_resolver.cpp` | Custom binary-search AABB voxel grid query (no Godot physics nodes), step-up support |
 | Day/night | `src/world/day_night_cycle.hpp` | Shader-driven sky-light intensity + color blending |
-| LOD | `lod_distance` / `lod_detail_level` properties (`mesh_manager.cpp`) | Distance-based stride/detail reduction for far chunks, capped remesh-per-frame |
+| Player sim | `src/engine/player_controller.hpp/cpp` | Minecraft-accurate fixed 20-tick/s physics: vanilla jump/sprint/sneak ordering, accumulator, smooth eye-height transitions |
+| LOD | `lod_distance` / `lod_detail_level` / `lod_far_distance` / `far_detail_level` (`mesh_manager.cpp`) | Three tiers — full detail, stride/detail reduction, far-mode heightmap-only silhouette meshes merged into far regions; capped remesh-per-frame |
 | Frame budgets | `src/core/frame_budgets.hpp` | Tiered budgets for generate/light/mesh/upload (idle/active/loading) |
 | Performance timers | `src/core/performance_timer.hpp` | Scoped frame-by-frame profiling |
 
 ## Rendering Notes
 
-- Opaque and water are separate mesh surfaces; water uses its own shader (`shaders/voxel_shader_water.gdshader`) with edge fade, tint, shimmer, and Beer-Lambert depth absorption.
+- Opaque and water are separate mesh surfaces; water uses its own shader (`shaders/voxel_shader_water.gdshader`) with edge fade, tint, shimmer, sun glint, and Beer-Lambert depth absorption.
 - Blocks can carry an emissive texture (second `Texture2DArray`) for glow, driven by `data/block_definitions.json`.
+- The terrain shader (`shaders/voxel_shader.gdshader`) adds slope-triplanar cliff blending (>45° blends in rock faces), procedural wind sway on foliage, a twinkling night starfield, and a non-linear AO power curve (`pow(raw_ao, 1.35)`) that hides diagonal triangulation seams.
 - The directional sun light has shadows disabled — both terrain shaders are unshaded, so the shadow pass was pure overhead with no visual effect.
+- Block edits trigger an incremental partial remesh (tight dirty-AABB re-emit) instead of a full 32³ rebuild.
 
 ## Build
 
@@ -54,18 +58,18 @@ scons
 
 # Build standalone tools
 scons debug    # terrain_debug executable
-scons bench    # benchmark executable
-scons test     # builds and can run the doctest suite (see tests/)
+scons bench    # benchmark executable (supports --check <baseline>)
+scons test     # builds the doctest suite (see tests/)
+scons fuzz     # libFuzzer harnesses (Linux/macOS, clang required)
 ```
 
-CI (`.github/workflows/build.yml`) runs a 5-leg matrix on every push and pull request:
-- `ubuntu-latest` (plain build + tests)
-- `ubuntu-latest` with ThreadSanitizer (TSan)
-- `ubuntu-latest` with AddressSanitizer + UndefinedBehaviorSanitizer (ASan+UBSan)
-- `macos-latest` (plain build + tests)
-- `windows-latest` (plain build + tests)
+Optional build flags: `TSAN=1` (ThreadSanitizer), `ASAN=1` (ASan+UBSan), `COVERAGE=1` (lcov) — all Linux/macOS only.
 
-A separate fuzz job builds and runs libFuzzer harnesses (`fuzz_palette`, `fuzz_chunk_load`) for 60 seconds each on Linux.
+CI (`.github/workflows/build.yml`) runs on every push and pull request:
+- **Build job** — 5-leg matrix: ubuntu plain, ubuntu TSan, ubuntu ASan+UBSan, macos plain, windows plain. Tests run on every leg; the benchmark regression check (`--check benchmark_baseline.txt`) runs on the non-sanitizer legs.
+- **Fuzz job** — builds and runs 4 libFuzzer harnesses (`fuzz_palette`, `fuzz_chunk_load`, `fuzz_light_propagation`, `fuzz_mesh_builder`) for 60 seconds each on Linux.
+- **Static-analysis job** — clang-tidy across all of `src/` with `bugprone-*`, `concurrency-*`, and `performance-*` checks; findings in project sources fail the job.
+- **Coverage job** — lcov coverage report uploaded to Codecov.
 
 ## Running
 
@@ -76,41 +80,46 @@ Open the project root in Godot 4 and press Play. The main scene is `Main.tscn`. 
 | Key | Action |
 |-----|--------|
 | W/A/S/D | Move |
-| Space | Jump |
-| Shift (in flight) | Descend |
-| Mouse | Look |
+| Mouse | Look (click the window to capture the mouse) |
+| Space | Jump / ascend in flight |
 | Left click | Break block |
 | Right click | Place block |
-| 1–0, – | Select block type |
-| F | Toggle flight |
-| T | Toggle day/night cycle |
-| G | Step time forward |
-| Esc | Release mouse |
+| Shift | Sprint |
+| Ctrl | Sneak / descend in flight |
+| F | Toggle fly mode |
+| 1–0 | Select block type |
+| Esc | Release the mouse |
+
+Input bindings live in `project.godot` (`move_forward`, `move_back`, `move_left`, `move_right`, `jump`, `sprint`, `sneak`, `fly_toggle`, `mouse_click_left`, `mouse_click_right`). The C++ `PlayerController` node owns all movement, look, and block interaction — there is no player GDScript.
 
 ## Performance Tuning
 
 The `ChunkManager` node exposes these editor properties (see `src/godot_bindings/chunk_manager.cpp`):
 
-- **seed**, **render_distance**, **editor_render_distance**, **editor_enabled**
-- **player_path**, **player_position**, **auto_update**
-- **sea_level**, **base_height**, **height_scale**, **mountain_scale**, **biome_size** — terrain shape
+- **seed**, **render_distance**, **player_path**, **player_position**, **auto_update**
+- **editor_enabled**, **editor_render_distance**
+- **sea_level**, **biome_size** — terrain shape
 - **smooth_lighting** — toggle smooth vertex lighting
-- **lod_distance**, **lod_detail_level** — distance-based mesh LOD (stride/detail reduction; see `mesh_manager.cpp`)
+- **lod_distance**, **lod_detail_level** — mid-tier mesh LOD (stride/detail reduction; see `mesh_manager.cpp`)
+- **lod_far_distance**, **far_detail_level** — far-mode tier: heightmap-only silhouette meshes beyond the mid tier (0 disables)
 - **player_light_enabled** / **player_light_level** — player-following dynamic light
 - **day_time**, **day_night_cycle_enabled**, **day_duration**, **day_sky_intensity**/**night_sky_intensity**, **day_sky_color**/**night_sky_color**
 - **fog_density** — exponential fog distance
 - **vegetation_enabled** — toggle tree/vegetation generation
+- **move_speed_multiplier** — global player movement speed multiplier
 - **debug_enabled**, **debug_print_interval** — performance report logging
 - **FrameBudgets** (in `src/core/frame_budgets.hpp`) — per-frame generation/mesh/upload caps
 
+The `PlayerController` node exposes **sensitivity** (mouse look) and **fly_speed**.
+
 ## Notes
 
-- The player script (`player.gd`) is an explicit temporary GDScript placeholder — a C++ player controller is planned but not yet implemented.
-- Modified chunks are saved to `user://chunks/` via RLE-compressed `.chunk` files.
+- The player is a C++ `PlayerController` node (`src/engine/player_controller.*` + `src/godot_bindings/player_controller.*`) — fixed 20-tick/s simulation with an accumulator, vanilla-accurate jump/sprint/sneak ordering, smooth eye-height transitions, fly mode, and raycast-based block break/place. There is no player GDScript anymore.
+- Modified chunks are saved to `user://chunks/` as versioned RLE-compressed `.chunk` files (v3 format with a CRC32 checksum; v2/v1 legacy files load transparently).
 - `analyze.py` analyzes biome maps produced by the `terrain_debug` tool; it requires `Pillow`, `numpy`, and `scipy`, which aren't otherwise part of the build.
-- The old 2×2×2 merged-mesh LOD system (`MergedMeshBuilder`, `mesh_manager_lod.*`) was removed; the current LOD approach is per-chunk distance-based stride reduction inside the greedy mesher (`lod_distance`/`lod_detail_level`), not chunk group-merging.
+- The LOD system is per-chunk, three-tier distance-based reduction inside the greedy mesher: full detail within `lod_distance`, stride/detail reduction in the mid tier, and heightmap-only silhouette meshes in the far tier (`lod_far_distance`/`far_detail_level`).
 - Frustum prioritization requires a `Camera3D` child on the player node (named `Camera3D`).
-- There is no gameplay layer yet beyond block break/place — no inventory, crafting, mobs, or multiplayer.
+- There is no gameplay layer yet beyond movement and block break/place — no inventory, crafting, mobs, or multiplayer.
 
 ## License
 

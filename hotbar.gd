@@ -62,12 +62,20 @@ func _draw():
 		
 		# Draw block icon if slot has blocks
 		if block_id > 0 and count > 0:
-			# Draw colored rectangle as block placeholder
-			var block_color = _get_block_color(block_id)
-			var icon_size = slot_width * 0.7
-			var icon_x = slot_x + (slot_width - icon_size) / 2.0
-			var icon_y = slot_y + (slot_height - icon_size) / 2.0
-			draw_rect(Rect2(icon_x, icon_y, icon_size, icon_size), block_color)
+			# Try to get actual block texture
+			var block_texture = _get_block_texture(block_id)
+			if block_texture:
+				var icon_size = slot_width * 0.8
+				var icon_x = slot_x + (slot_width - icon_size) / 2.0
+				var icon_y = slot_y + (slot_height - icon_size) / 2.0
+				draw_texture_rect(block_texture, Rect2(icon_x, icon_y, icon_size, icon_size), false)
+			else:
+				# Fallback to colored rectangle
+				var block_color = _get_block_color(block_id)
+				var icon_size = slot_width * 0.7
+				var icon_x = slot_x + (slot_width - icon_size) / 2.0
+				var icon_y = slot_y + (slot_height - icon_size) / 2.0
+				draw_rect(Rect2(icon_x, icon_y, icon_size, icon_size), block_color)
 			
 			# Draw count text
 			if count > 1:
@@ -132,3 +140,27 @@ func _get_block_color(block_id: int) -> Color:
 		7: return Color(0.2, 0.5, 0.2)  # Leaves
 		8: return Color(0.4, 0.4, 0.4)  # Gravel
 		_: return Color(0.5, 0.5, 0.5)  # Default gray
+
+func _get_block_texture(block_id: int) -> Texture2D:
+	# Try to load the block texture from the block definitions
+	var texture_name = _get_block_texture_name(block_id)
+	if texture_name.is_empty():
+		return null
+	
+	var texture_path = "res://textures/blocks/" + texture_name + ".png"
+	if ResourceLoader.exists(texture_path):
+		return load(texture_path)
+	return null
+
+func _get_block_texture_name(block_id: int) -> String:
+	# Simple mapping based on block_definitions.json structure
+	match block_id:
+		1: return "stone"
+		2: return "dirt"
+		3: return "grass"
+		4: return "sand"
+		5: return "water"
+		6: return "wood"
+		7: return "leaves"
+		8: return "gravel"
+		_: return ""

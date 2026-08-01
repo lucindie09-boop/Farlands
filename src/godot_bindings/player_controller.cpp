@@ -33,6 +33,9 @@ void PlayerController::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_selected_hotbar_slot"), &PlayerController::get_selected_hotbar_slot);
     ClassDB::bind_method(D_METHOD("select_hotbar_slot", "slot"), &PlayerController::select_hotbar_slot);
     ClassDB::bind_method(D_METHOD("set_hotbar_slot", "slot", "block_id", "count"), &PlayerController::set_hotbar_slot);
+    ClassDB::bind_method(D_METHOD("get_inventory_slot_count", "slot"), &PlayerController::get_inventory_slot_count);
+    ClassDB::bind_method(D_METHOD("get_inventory_slot_block_id", "slot"), &PlayerController::get_inventory_slot_block_id);
+    ClassDB::bind_method(D_METHOD("set_inventory_slot", "slot", "block_id", "count"), &PlayerController::set_inventory_slot);
     ClassDB::bind_method(D_METHOD("save_inventory"), &PlayerController::save_inventory);
     ClassDB::bind_method(D_METHOD("load_inventory"), &PlayerController::load_inventory);
     
@@ -293,6 +296,18 @@ void PlayerController::select_hotbar_slot(int slot) {
 
 void PlayerController::set_hotbar_slot(int slot, int block_id, int count) {
     inventory_.set_hotbar_slot(slot, block_id, count);
+}
+
+int PlayerController::get_inventory_slot_count(int slot) const {
+    return inventory_.get_inventory_slot(slot).count;
+}
+
+int PlayerController::get_inventory_slot_block_id(int slot) const {
+    return inventory_.get_inventory_slot(slot).block_id;
+}
+
+void PlayerController::set_inventory_slot(int slot, int block_id, int count) {
+    inventory_.set_inventory_slot(slot, block_id, count);
 }
 
 void PlayerController::save_inventory() {

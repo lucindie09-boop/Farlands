@@ -41,6 +41,9 @@ public:
     int get_selected_hotbar_slot() const;
     void select_hotbar_slot(int slot);
     void set_hotbar_slot(int slot, int block_id, int count);
+    int get_inventory_slot_count(int slot) const;
+    int get_inventory_slot_block_id(int slot) const;
+    void set_inventory_slot(int slot, int block_id, int count);
     void save_inventory();
     bool load_inventory();
     

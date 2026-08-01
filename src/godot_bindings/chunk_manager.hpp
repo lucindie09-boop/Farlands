@@ -144,6 +144,9 @@ void toggle_day_night_cycle();
     void set_vegetation_enabled(bool enabled);
     bool get_vegetation_enabled() const;
 
+    void set_move_speed_multiplier(float multiplier);
+    float get_move_speed_multiplier() const;
+
     void save_world_metadata();
     bool load_world_metadata();
     bool world_metadata_exists() const;
@@ -159,6 +162,7 @@ private:
     godot::Node3D* cached_player = nullptr;
     godot::Camera3D* cached_camera = nullptr;
     bool ready_for_auto_update = false;
+    float move_speed_multiplier_ = 1.0f;
 };
 
 } // namespace VoxelEngine

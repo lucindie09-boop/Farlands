@@ -10,6 +10,7 @@
 
 namespace VoxelEngine {
 class CollisionResolver;
+class ChunkManager;
 }
 
 class PlayerController : public godot::Node3D {
@@ -42,6 +43,7 @@ private:
     VoxelEngine::PlayerSim sim_;
     godot::Camera3D* camera_ = nullptr;
     VoxelEngine::CollisionResolver* collision_resolver_ = nullptr;
+    VoxelEngine::ChunkManager* chunk_manager_ = nullptr;
 
     float pitch_ = 0.0f;
     float sensitivity_ = 0.003f;

@@ -248,6 +248,12 @@ bool is_smooth_lighting_enabled() const { return smooth_lighting_enabled; }
     // Per-column light-grid checksums of the last build.
     const MeshLightChecksums& get_light_checksums() const { return light_checksums_; }
 
+    // The re-emit region actually used by the last build_mesh_incremental call
+    // (expanded by the AO/light ring, plus any light-changed columns). Useful for
+    // tests/debugging: with no light change it should equal expand_bounds() of
+    // the dirty bbox, NOT a region pulled down toward the chunk origin.
+    const SubChunkBounds& get_last_partial_bounds() const { return last_partial_bounds_; }
+
     // When disabled, emitted faces are not recorded into the quad cache.
     // MeshManager disables this for chunks far from the player (which can never
     // be edited) to keep the cache memory bounded.
@@ -373,6 +379,9 @@ GreedyVerticalStatsSnapshot greedy_v_stats_local{};
     // passes only iterate the expanded dirty region (partial_bounds_).
     bool partial_mode_ = false;
     SubChunkBounds partial_bounds_;
+    // Copy of partial_bounds_ persisted past the end of build_mesh_incremental
+    // (which resets partial_bounds_), for tests/debugging.
+    SubChunkBounds last_partial_bounds_;
 
     // Quad list emitted by the last build (carried forward + newly emitted).
     std::vector<CachedQuad> quads;

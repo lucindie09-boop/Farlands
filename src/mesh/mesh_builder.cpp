@@ -118,6 +118,7 @@ void MeshBuilder::clear() {
     quads.clear();
     partial_mode_ = false;
     partial_bounds_ = {};
+    last_partial_bounds_ = {};
 }
 
 void MeshBuilder::init_accessor(const ChunkData& chunk, const NeighborPtrs& neighbors) {
@@ -472,6 +473,7 @@ void MeshBuilder::build_mesh_incremental(const ChunkData& chunk,
     // light, so the re-emit region must cover those columns expanded by 1.
     compute_light_checksums(chunk);
     SubChunkBounds light_bounds{0, 0, 0, 0, 0, 0};  // empty
+    bool light_changed = false;
     {
         int32_t cx_min = CHUNK_WIDTH, cx_max = -1, cz_min = CHUNK_DEPTH, cz_max = -1;
         for (int32_t z = 0; z < CHUNK_DEPTH; ++z) {
@@ -485,6 +487,7 @@ void MeshBuilder::build_mesh_incremental(const ChunkData& chunk,
             }
         }
         if (cx_min <= cx_max && cz_min <= cz_max) {
+            light_changed = true;
             light_bounds.x_min = std::max(0, cx_min - 1);
             light_bounds.x_max = std::min(CHUNK_WIDTH, cx_max + 2);
             light_bounds.y_min = 0;
@@ -495,15 +498,20 @@ void MeshBuilder::build_mesh_incremental(const ChunkData& chunk,
     }
 
     // Re-emit region = dirty geometry (expanded by the AO/light ring) ∪
-    // light-changed columns.
+    // light-changed columns. light_bounds is only valid when a changed span was
+    // actually found — its "empty" init {0,0,0,0,0,0} is a literal zero box, so
+    // unioning it unconditionally would pull the region down to (0,0,0).
     const SubChunkBounds geom_bounds = expand_bounds(dirty_bounds);
     partial_mode_ = true;
-    partial_bounds_.x_min = std::min(geom_bounds.x_min, light_bounds.x_min);
-    partial_bounds_.x_max = std::max(geom_bounds.x_max, light_bounds.x_max);
-    partial_bounds_.y_min = std::min(geom_bounds.y_min, light_bounds.y_min);
-    partial_bounds_.y_max = std::max(geom_bounds.y_max, light_bounds.y_max);
-    partial_bounds_.z_min = std::min(geom_bounds.z_min, light_bounds.z_min);
-    partial_bounds_.z_max = std::max(geom_bounds.z_max, light_bounds.z_max);
+    partial_bounds_ = geom_bounds;
+    if (light_changed) {
+        partial_bounds_.x_min = std::min(partial_bounds_.x_min, light_bounds.x_min);
+        partial_bounds_.x_max = std::max(partial_bounds_.x_max, light_bounds.x_max);
+        partial_bounds_.y_min = std::min(partial_bounds_.y_min, light_bounds.y_min);
+        partial_bounds_.y_max = std::max(partial_bounds_.y_max, light_bounds.y_max);
+        partial_bounds_.z_min = std::min(partial_bounds_.z_min, light_bounds.z_min);
+        partial_bounds_.z_max = std::max(partial_bounds_.z_max, light_bounds.z_max);
+    }
 
     populate_solid_cache(chunk, registry);
     emit_faces(chunk, registry);
@@ -515,6 +523,7 @@ void MeshBuilder::build_mesh_incremental(const ChunkData& chunk,
         }
     }
     accumulate_greedy_stats();
+    last_partial_bounds_ = partial_bounds_;
     partial_mode_ = false;
     partial_bounds_ = {};
 

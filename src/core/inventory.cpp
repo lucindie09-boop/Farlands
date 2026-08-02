@@ -29,20 +29,7 @@ bool Inventory::add_block(BlockID block_id, int count) {
         }
     }
     
-    // Try empty slots in hotbar
-    if (remaining > 0) {
-        for (auto& slot : hotbar_) {
-            if (slot.is_empty()) {
-                slot.block_id = block_id;
-                int to_add = std::min(64, remaining);
-                slot.count = to_add;
-                remaining -= to_add;
-                if (remaining <= 0) return true;
-            }
-        }
-    }
-    
-    // Try existing stacks in main inventory
+    // Then try existing stacks in main inventory (moved up, ahead of empty slots)
     if (remaining > 0) {
         for (auto& slot : inventory_) {
             if (slot.block_id == block_id && slot.count < 64) {
@@ -55,7 +42,18 @@ bool Inventory::add_block(BlockID block_id, int count) {
         }
     }
     
-    // Try empty slots in main inventory
+    // Only now fall back to empty slots: hotbar first, then main inventory
+    if (remaining > 0) {
+        for (auto& slot : hotbar_) {
+            if (slot.is_empty()) {
+                slot.block_id = block_id;
+                int to_add = std::min(64, remaining);
+                slot.count = to_add;
+                remaining -= to_add;
+                if (remaining <= 0) return true;
+            }
+        }
+    }
     if (remaining > 0) {
         for (auto& slot : inventory_) {
             if (slot.is_empty()) {

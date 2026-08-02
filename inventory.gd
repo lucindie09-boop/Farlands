@@ -251,6 +251,11 @@ func _gui_input(event):
 		if event.pressed:
 			# Button press: stash drag state and run existing single-click behavior
 			if slot >= 0:
+				# Handle double-click gather (second press of double-click)
+				if event.button_index == MOUSE_BUTTON_LEFT and event.double_click and _is_holding():
+					_collect_all_matching()
+					return  # Skip normal click handling for this second press
+				
 				_drag_button = event.button_index
 				_drag_shift = Input.is_key_pressed(KEY_SHIFT)
 				_drag_last_slot = slot
@@ -525,3 +530,26 @@ func _handle_scroll_transfer(slot: int, event: InputEventMouseButton):
 						_set_slot(slot, slot_id, slot_count + 1)
 						queue_redraw()
 						break
+
+func _collect_all_matching():
+	# Double-click: sweep every slot (hotbar + main) matching the held block into the cursor stack
+	if not _is_holding():
+		return
+	
+	for i in range(TOTAL_SLOTS):
+		if held_count >= 64:
+			break
+		
+		var slot_id = _get_slot_block_id(i)
+		var slot_count = _get_slot_count(i)
+		
+		if slot_id == held_block_id and slot_count > 0:
+			var take = min(slot_count, 64 - held_count)
+			held_count += take
+			var remaining = slot_count - take
+			if remaining <= 0:
+				_set_slot(i, 0, 0)
+			else:
+				_set_slot(i, slot_id, remaining)
+	
+	queue_redraw()

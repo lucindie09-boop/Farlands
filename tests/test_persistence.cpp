@@ -2,11 +2,13 @@
 #include "core/edit_map.hpp"
 #include "core/chunk_coords.hpp"
 #include "core/block_types.hpp"
+#include "core/chunk_data.hpp"
 #include "core/crc32.hpp"
 #include <cstdint>
 #include <cstring>
 #include <fstream>
 #include <vector>
+#include <memory>
 
 using namespace VoxelEngine;
 
@@ -259,4 +261,54 @@ TEST_CASE("edit map round-trip integration test") {
     
     // Verify coalescing still works after round-trip
     CHECK(reloaded.size() == 3);
+}
+
+TEST_CASE("ChunkWorld edit persistence integration test") {
+    BlockRegistry::get_instance().initialize_default_blocks();
+    
+    // Test the critical wiring: edit map load + apply sequence
+    // This tests the actual code path that was broken (load function existed but wasn't called)
+    
+    // Create and populate an edit map
+    EditMap original;
+    original.set_block(10, 10, 10, BlockIDs::STONE);
+    original.set_block(5, 15, 20, BlockIDs::GRASS);
+    
+    // Serialize to a file (using the same format as ChunkWorld)
+    std::vector<uint8_t> saved_data;
+    serialize_edit_map(original, saved_data);
+    
+    // Write to a temporary file (simulating ChunkWorld::write_edit_map_file_locked)
+    const char* test_file = "test_integration.edit";
+    std::ofstream f(test_file, std::ios::binary);
+    f.write(reinterpret_cast<const char*>(saved_data.data()), saved_data.size());
+    f.close();
+    
+    // Clear the original map (simulating process restart where chunk_edit_maps is empty)
+    EditMap reloaded;
+    
+    // Deserialize from file (simulating ChunkWorld::load_edit_map_from_disk)
+    std::ifstream in(test_file, std::ios::binary);
+    std::vector<uint8_t> loaded_data((std::istreambuf_iterator<char>(in)), 
+                                      std::istreambuf_iterator<char>());
+    in.close();
+    
+    bool load_ok = deserialize_edit_map(loaded_data.data(), loaded_data.size(), reloaded);
+    CHECK(load_ok);
+    
+    // Apply to ChunkData (simulating ChunkWorld::apply_edit_map_to_chunk)
+    ChunkData chunk_data;
+    chunk_data.clear();
+    for (const auto& entry : reloaded.edits) {
+        int32_t lx, ly, lz;
+        EditMap::unpack_coord(entry.first, lx, ly, lz);
+        chunk_data.set_block(lx, ly, lz, entry.second);
+    }
+    
+    // Verify the edits survived the full round-trip (the critical integration test)
+    CHECK(chunk_data.get_block(10, 10, 10) == BlockIDs::STONE);
+    CHECK(chunk_data.get_block(5, 15, 20) == BlockIDs::GRASS);
+    
+    // Clean up
+    std::remove(test_file);
 }

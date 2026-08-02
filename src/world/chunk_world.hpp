@@ -81,6 +81,10 @@ public:
     uint64_t get_epoch() const { return async_epoch.load(std::memory_order_acquire); }
     std::atomic<uint64_t>* get_epoch_ptr() { return &async_epoch; }
     uint64_t increment_epoch() { return async_epoch.fetch_add(1, std::memory_order_acq_rel); }
+    
+    // Test accessors for edit maps (test-only)
+    std::mutex& get_edit_maps_mutex() { return edit_maps_mutex; }
+    std::unordered_map<uint64_t, EditMap>& get_chunk_edit_maps() { return chunk_edit_maps; }
 
     ChunkData* get_chunk_data(int32_t cx, int32_t cy, int32_t cz) { return chunk_map.get_chunk_data(cx, cy, cz); }
     ChunkRenderData* get_chunk_render_data(int32_t cx, int32_t cy, int32_t cz) { return chunk_map.get_chunk_render_data(cx, cy, cz); }

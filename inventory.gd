@@ -8,11 +8,22 @@ const HOTBAR_SIZE = 9
 const INVENTORY_SIZE = 27
 const TOTAL_SLOTS = HOTBAR_SIZE + INVENTORY_SIZE
 
+# Slot grid geometry, measured from the #7e7d7d slot-background color.
+# Only these 36 slots (hotbar + main inventory) have real data behind them --
+# the flanking/crafting/output slots in the texture are decorative for now.
+const GRID_LEFT = 16
+const SLOT_PITCH = 21
+const SLOT_SIZE_PX = 18
+const MAIN_GRID_TOP = 105
+const HOTBAR_TOP = 173
+const TEX_SCALE = 3.0
+
 var selected_slot = -1
 var is_open = false
 var drag_slot = -1  # Slot being dragged
 var drag_block_id = 0
 var drag_count = 0
+var _block_textures = {}  # block_id -> Texture2D, cached to avoid per-frame load()
 
 func _ready():
 	# Load the inventory texture
@@ -31,12 +42,26 @@ func _input(event):
 			player_controller.set_inventory_open(false)
 
 func _process(_delta):
-	if is_open:
+	# Only redraw while dragging so the dragged item follows the mouse.
+	# The inventory content is static while open (break/place are blocked),
+	# so redraws on input events are enough otherwise.
+	if is_open and drag_slot >= 0:
 		queue_redraw()
-		
-		# Update drag position if dragging
-		if drag_slot >= 0:
-			queue_redraw()
+
+func _slot_screen_rect(slot_index: int, texture_x: float, texture_y: float) -> Rect2:
+	var col: int
+	var row_top_px: float
+	if slot_index < HOTBAR_SIZE:
+		col = slot_index
+		row_top_px = HOTBAR_TOP
+	else:
+		var i = slot_index - HOTBAR_SIZE
+		col = i % 9
+		row_top_px = MAIN_GRID_TOP + int(i / 9) * SLOT_PITCH
+	var x = texture_x + (GRID_LEFT + col * SLOT_PITCH) * TEX_SCALE
+	var y = texture_y + row_top_px * TEX_SCALE
+	var s = SLOT_SIZE_PX * TEX_SCALE
+	return Rect2(x, y, s, s)
 
 func _draw():
 	if not player_controller:
@@ -46,36 +71,17 @@ func _draw():
 	if inventory_texture:
 		var texture_width = inventory_texture.get_width()
 		var texture_height = inventory_texture.get_height()
-		var scale = 3.0  # Match hotbar scaling
+		var scale = TEX_SCALE  # Match hotbar scaling
 		var scaled_width = texture_width * scale
 		var scaled_height = texture_height * scale
 		var texture_x = (size.x - scaled_width) / 2.0
 		var texture_y = (size.y - scaled_height) / 2.0
 		draw_texture_rect(inventory_texture, Rect2(texture_x, texture_y, scaled_width, scaled_height), false)
 		
-		# Calculate slot positions based on texture
-		var slot_width = (float(texture_width) / 9.0) * scale  # 9 columns
-		var slot_height = (float(texture_height) / 4.0) * scale  # 4 rows (3 main + 1 hotbar)
-		var slot_spacing_x = slot_width * 0.1  # 10% spacing between slots
-		var slot_spacing_y = slot_height * 0.1  # 10% spacing between rows
-		var start_x = texture_x + slot_spacing_x / 2
-		var start_y = texture_y + slot_spacing_y / 2
-		var actual_slot_width = slot_width - slot_spacing_x
-		var actual_slot_height = slot_height - slot_spacing_y
-		
-		# Draw hotbar slots (bottom row)
-		for i in range(HOTBAR_SIZE):
-			var slot_x = start_x + i * slot_width
-			var slot_y = start_y + 3 * slot_height  # Bottom row
-			_draw_slot(slot_x, slot_y, actual_slot_width, actual_slot_height, i, true)
-		
-		# Draw main inventory slots (3 rows above hotbar)
-		for i in range(INVENTORY_SIZE):
-			var row = i / 9
-			var col = i % 9
-			var slot_x = start_x + col * slot_width
-			var slot_y = start_y + row * slot_height
-			_draw_slot(slot_x, slot_y, actual_slot_width, actual_slot_height, i + HOTBAR_SIZE, false)
+		# Draw all real slots (hotbar + main inventory) via shared geometry
+		for i in range(TOTAL_SLOTS):
+			var rect = _slot_screen_rect(i, texture_x, texture_y)
+			_draw_slot(rect.position.x, rect.position.y, rect.size.x, rect.size.y, i, i < HOTBAR_SIZE)
 	else:
 		# Fallback: draw without texture
 		_draw_fallback_inventory()
@@ -148,7 +154,7 @@ func _draw_fallback_inventory():
 	
 	# Draw all slots
 	for i in range(TOTAL_SLOTS):
-		var row = i / 9
+		var row = int(i / 9)
 		var col = i % 9
 		var slot_x = start_x + col * (slot_width + slot_spacing)
 		var slot_y = start_y + row * (slot_height + slot_spacing)
@@ -157,16 +163,17 @@ func _draw_fallback_inventory():
 		_draw_slot(slot_x, slot_y, slot_width, slot_height, i, is_hotbar)
 
 func _get_block_texture(block_id: int) -> Texture2D:
-	# Try to load the block texture from the block definitions
-	# This is a simplified version - in a full implementation, you'd use the BlockRegistry
+	# Cache textures so the redraw path never hits the resource loader
+	if _block_textures.has(block_id):
+		return _block_textures[block_id]
 	var texture_name = _get_block_texture_name(block_id)
-	if texture_name.is_empty():
-		return null
-	
-	var texture_path = "res://textures/blocks/" + texture_name + ".png"
-	if ResourceLoader.exists(texture_path):
-		return load(texture_path)
-	return null
+	var texture: Texture2D = null
+	if not texture_name.is_empty():
+		var texture_path = "res://textures/blocks/" + texture_name + ".png"
+		if ResourceLoader.exists(texture_path):
+			texture = load(texture_path)
+	_block_textures[block_id] = texture
+	return texture
 
 func _get_block_texture_name(block_id: int) -> String:
 	# Simple mapping based on block_definitions.json structure
@@ -209,94 +216,41 @@ func _gui_input(event):
 				drag_slot = -1
 				drag_block_id = 0
 				drag_count = 0
+				queue_redraw()
 
 func _select_slot_at_position(pos: Vector2):
-	# Calculate which slot was clicked
-	if inventory_texture:
-		var texture_width = inventory_texture.get_width()
-		var texture_height = inventory_texture.get_height()
-		var scale = 3.0  # Match hotbar scaling
-		var scaled_width = texture_width * scale
-		var scaled_height = texture_height * scale
-		var start_x = (size.x - scaled_width) / 2.0
-		var start_y = (size.y - scaled_height) / 2.0
-		
-		var slot_width = (float(texture_width) / 9.0) * scale
-		var slot_height = (float(texture_height) / 4.0) * scale
-		var slot_spacing_x = slot_width * 0.1
-		var slot_spacing_y = slot_height * 0.1
-		var actual_start_x = start_x + slot_spacing_x / 2
-		var actual_start_y = start_y + slot_spacing_y / 2
-		
-		# Check if click is within inventory bounds
-		if pos.x >= start_x && pos.x < start_x + scaled_width && pos.y >= start_y && pos.y < start_y + scaled_height:
-			var rel_x = pos.x - actual_start_x
-			var rel_y = pos.y - actual_start_y
-			
-			var col = int(rel_x / slot_width)
-			var row = int(rel_y / slot_height)
-			
-			if col >= 0 && col < 9 && row >= 0 && row < 4:
-				var slot_index = row * 9 + col
-				if slot_index < TOTAL_SLOTS:
-					selected_slot = slot_index
-					if slot_index < HOTBAR_SIZE:
-						player_controller.select_hotbar_slot(slot_index)
-					
-					# Start drag if slot has items
-					var block_id = 0
-					var count = 0
-					if slot_index < HOTBAR_SIZE:
-						block_id = player_controller.get_hotbar_slot_block_id(slot_index)
-						count = player_controller.get_hotbar_slot_count(slot_index)
-					else:
-						var main_slot_index = slot_index - HOTBAR_SIZE
-						block_id = player_controller.get_inventory_slot_block_id(main_slot_index)
-						count = player_controller.get_inventory_slot_count(main_slot_index)
-					
-					if block_id > 0 && count > 0:
-						drag_slot = slot_index
-						drag_block_id = block_id
-						drag_count = count
-					
-					queue_redraw()
+	if not inventory_texture:
+		return
+	var texture_x = (size.x - inventory_texture.get_width() * TEX_SCALE) / 2.0
+	var texture_y = (size.y - inventory_texture.get_height() * TEX_SCALE) / 2.0
+	
+	for i in range(TOTAL_SLOTS):
+		if _slot_screen_rect(i, texture_x, texture_y).has_point(pos):
+			selected_slot = i
+			if i < HOTBAR_SIZE:
+				player_controller.select_hotbar_slot(i)
+			var block_id = _get_slot_block_id(i)
+			var count = _get_slot_count(i)
+			if block_id > 0 && count > 0:
+				drag_slot = i
+				drag_block_id = block_id
+				drag_count = count
+			queue_redraw()
+			return
 
 func _drop_slot_at_position(pos: Vector2):
-	# Calculate which slot was dropped on
-	if inventory_texture:
-		var texture_width = inventory_texture.get_width()
-		var texture_height = inventory_texture.get_height()
-		var scale = 3.0
-		var scaled_width = texture_width * scale
-		var scaled_height = texture_height * scale
-		var start_x = (size.x - scaled_width) / 2.0
-		var start_y = (size.y - scaled_height) / 2.0
-		
-		var slot_width = (float(texture_width) / 9.0) * scale
-		var slot_height = (float(texture_height) / 4.0) * scale
-		var slot_spacing_x = slot_width * 0.1
-		var slot_spacing_y = slot_height * 0.1
-		var actual_start_x = start_x + slot_spacing_x / 2
-		var actual_start_y = start_y + slot_spacing_y / 2
-		
-		# Check if drop is within inventory bounds
-		if pos.x >= start_x && pos.x < start_x + scaled_width && pos.y >= start_y && pos.y < start_y + scaled_height:
-			var rel_x = pos.x - actual_start_x
-			var rel_y = pos.y - actual_start_y
-			
-			var col = int(rel_x / slot_width)
-			var row = int(rel_y / slot_height)
-			
-			if col >= 0 && col < 9 && row >= 0 && row < 4:
-				var target_slot = row * 9 + col
-				if target_slot < TOTAL_SLOTS && target_slot != drag_slot:
-					# Move items from drag_slot to target_slot
-					_move_slot_items(drag_slot, target_slot)
-		else:
-			# Dropped outside inventory - return items to original slot
-			drag_slot = -1
-			drag_block_id = 0
-			drag_count = 0
+	if not inventory_texture:
+		return
+	var texture_x = (size.x - inventory_texture.get_width() * TEX_SCALE) / 2.0
+	var texture_y = (size.y - inventory_texture.get_height() * TEX_SCALE) / 2.0
+	
+	for i in range(TOTAL_SLOTS):
+		if _slot_screen_rect(i, texture_x, texture_y).has_point(pos):
+			if i != drag_slot:
+				_move_slot_items(drag_slot, i)
+			return
+	# Dropped outside any slot: nothing to do -- _gui_input already resets
+	# drag_slot/drag_block_id/drag_count right after this call either way.
 
 func _get_slot_block_id(slot_index: int) -> int:
 	if slot_index < HOTBAR_SIZE:

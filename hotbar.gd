@@ -2,6 +2,7 @@ extends Control
 
 @onready var player_controller = get_node("/root/Main/Player")
 var hotbar_texture: Texture2D = null
+var _block_textures = {}  # block_id -> Texture2D, cached to avoid per-frame load()
 
 const SLOT_SIZE = 48
 const HOTBAR_SIZE = 9
@@ -142,15 +143,17 @@ func _get_block_color(block_id: int) -> Color:
 		_: return Color(0.5, 0.5, 0.5)  # Default gray
 
 func _get_block_texture(block_id: int) -> Texture2D:
-	# Try to load the block texture from the block definitions
+	# Cache textures so the per-frame redraw never hits the resource loader
+	if _block_textures.has(block_id):
+		return _block_textures[block_id]
 	var texture_name = _get_block_texture_name(block_id)
-	if texture_name.is_empty():
-		return null
-	
-	var texture_path = "res://textures/blocks/" + texture_name + ".png"
-	if ResourceLoader.exists(texture_path):
-		return load(texture_path)
-	return null
+	var texture: Texture2D = null
+	if not texture_name.is_empty():
+		var texture_path = "res://textures/blocks/" + texture_name + ".png"
+		if ResourceLoader.exists(texture_path):
+			texture = load(texture_path)
+	_block_textures[block_id] = texture
+	return texture
 
 func _get_block_texture_name(block_id: int) -> String:
 	# Simple mapping based on block_definitions.json structure

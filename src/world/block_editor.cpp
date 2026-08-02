@@ -36,9 +36,16 @@ void BlockEditor::place_block(int32_t world_x, int32_t world_y, int32_t world_z,
         }
     }
 
-    // Track mud variant chunk for post-lock dirty-marking.
+    // Track mud variant chunk for post-lock edit map write.
     int32_t mud_cx = 0, mud_cy = 0, mud_cz = 0;
+    int32_t mud_lx = 0, mud_ly = 0, mud_lz = 0;
+    BlockID mud_variant = BlockIDs::AIR;
     bool did_mud = false;
+
+    // Calculate mud variant local coordinates once (world_to_chunk_local needs chunk coords)
+    int32_t below_world_y = world_y - 1;
+    int32_t bw_cx, bw_cy, bw_cz;
+    world_to_chunk_local(world_x, below_world_y, world_z, bw_cx, bw_cy, bw_cz, mud_lx, mud_ly, mud_lz);
 
     {
         // Block change + light propagation can reach at most 1 chunk in each
@@ -90,11 +97,9 @@ void BlockEditor::place_block(int32_t world_x, int32_t world_y, int32_t world_z,
 
         // Mud variant: inline update_mud_variants logic while lock is held.
         if (world_y > 0) {
-            int32_t bw_cx, bw_cy, bw_cz, bw_lx, bw_ly, bw_lz;
-            world_to_chunk_local(world_x, world_y - 1, world_z, bw_cx, bw_cy, bw_cz, bw_lx, bw_ly, bw_lz);
             ChunkData* below_chunk = cm.get_chunk_data_fast(bw_cx, bw_cy, bw_cz);
-            if (below_chunk && is_local_in_bounds(bw_lx, bw_ly, bw_lz)) {
-                const BlockID below = below_chunk->get_block_unsafe(bw_lx, bw_ly, bw_lz);
+            if (below_chunk && is_local_in_bounds(mud_lx, mud_ly, mud_lz)) {
+                const BlockID below = below_chunk->get_block_unsafe(mud_lx, mud_ly, mud_lz);
                 BlockID variant = BlockIDs::AIR;
                 if (new_block != BlockIDs::AIR) {
                     if (below == BlockIDs::MUD) variant = BlockIDs::MUD_FULL;
@@ -104,17 +109,18 @@ void BlockEditor::place_block(int32_t world_x, int32_t world_y, int32_t world_z,
                     else if (below == BlockIDs::WET_SAND_FULL) variant = BlockIDs::WET_SAND;
                 }
                 if (variant != BlockIDs::AIR && below != variant) {
-                    below_chunk->set_block(bw_lx, bw_ly, bw_lz, variant);
+                    below_chunk->set_block(mud_lx, mud_ly, mud_lz, variant);
                     ChunkRenderData* bw_rd = cm.get_chunk_render_data_fast(bw_cx, bw_cy, bw_cz);
                     if (bw_rd) {
                         bw_rd->is_mesh_dirty = true;
                         bw_rd->mesh_version++;
-                        bw_rd->dirty_subchunks |= static_cast<uint8_t>(1 << subchunk_index(bw_lx, bw_ly, bw_lz));
-                        bw_rd->mark_block_dirty(bw_lx, bw_ly, bw_lz);
+                        bw_rd->dirty_subchunks |= static_cast<uint8_t>(1 << subchunk_index(mud_lx, mud_ly, mud_lz));
+                        bw_rd->mark_block_dirty(mud_lx, mud_ly, mud_lz);
                     }
                     mud_cx = bw_cx;
                     mud_cy = bw_cy;
                     mud_cz = bw_cz;
+                    mud_variant = variant;
                     did_mud = true;
                 }
             }
@@ -122,10 +128,12 @@ void BlockEditor::place_block(int32_t world_x, int32_t world_y, int32_t world_z,
     }
     // Lock released — auto-locking accessors are safe now.
 
-    chunk_world->mark_chunk_dirty(chunk_x, chunk_y, chunk_z);
+    // Persist the edit in the edit map instead of marking the whole chunk dirty
+    chunk_world->add_block_edit(chunk_x, chunk_y, chunk_z, local_x, local_y, local_z, new_block);
     queue_player_edit_chunk_refresh(chunk_x, chunk_y, chunk_z);
     if (did_mud) {
-        chunk_world->mark_chunk_dirty(mud_cx, mud_cy, mud_cz);
+        // Persist the mud variant edit as well
+        chunk_world->add_block_edit(mud_cx, mud_cy, mud_cz, mud_lx, mud_ly, mud_lz, mud_variant);
         mesh_manager->queue_dirty_chunk(mud_cx, mud_cy, mud_cz);
     }
 }

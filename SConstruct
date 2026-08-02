@@ -32,6 +32,9 @@ sources = Glob("src/*.cpp") + Glob("src/*/*.cpp")
 # Exclude standalone tools from the main library
 lib_sources = [s for s in sources if os.path.basename(str(s)) not in ("terrain_debug.cpp", "benchmark.cpp")]
 
+# Remove any non-existent .cpp files (like crc32.cpp which is header-only)
+lib_sources = [s for s in lib_sources if os.path.exists(str(s))]
+
 library = env.SharedLibrary("bin/libgdextension{}{}".format(env["suffix"], env["SHLIBSUFFIX"]), source=lib_sources)
 Default(library, cdb)
 
@@ -44,6 +47,7 @@ shared_sources = [
     "src/core/chunk_data.cpp",
     "src/core/block_types.cpp",
     "src/core/inventory.cpp",
+    "src/core/edit_map.cpp",
     "src/mesh/mesh_builder.cpp",
     "src/mesh/mesh_builder_faces.cpp",
     "src/mesh/mesh_builder_greedy.cpp",
@@ -54,6 +58,8 @@ shared_sources = [
     "src/engine/collision_resolver.cpp",
     "src/engine/player_controller.cpp",
 ]
+# Remove any non-existent .cpp files (like crc32.cpp which is header-only)
+shared_sources = [s for s in shared_sources if os.path.exists(str(s))]
 shared_objects = env.Object(shared_sources)
 
 # Debug terrain renderer (standalone executable)
@@ -88,9 +94,9 @@ if sys.platform != "win32":
     fuzz_env.Append(CCFLAGS=["-std=c++17", "-fsanitize=fuzzer,address,undefined", "-fno-omit-frame-pointer", "-g", "-O1"])
     fuzz_env.Append(LINKFLAGS=["-fsanitize=fuzzer,address,undefined"])
     # Reference source files directly to avoid VariantDir file locking
-    fuzz_sources_common = ["src/core/chunk_data.cpp", "src/core/block_types.cpp", "src/core/inventory.cpp", "src/lighting/block_light_region.cpp"]
+    fuzz_sources_common = ["src/core/chunk_data.cpp", "src/core/block_types.cpp", "src/core/inventory.cpp", "src/core/edit_map.cpp", "src/lighting/block_light_region.cpp"]
     fuzz_palette = fuzz_env.Program("bin/fuzz_palette", ["tools/fuzz_palette.cpp"] + fuzz_sources_common)
-    fuzz_chunk = fuzz_env.Program("bin/fuzz_chunk_load", ["tools/fuzz_chunk_load.cpp"] + fuzz_sources_common)
+    fuzz_chunk = fuzz_env.Program("bin/fuzz_chunk_load", ["tools/fuzz_chunk_load.cpp"] + ["src/core/edit_map.cpp"])
     fuzz_light = fuzz_env.Program("bin/fuzz_light_propagation", ["tools/fuzz_light_propagation.cpp"] + fuzz_sources_common)
     fuzz_mesh_sources = fuzz_sources_common + [
         "src/mesh/mesh_builder.cpp",

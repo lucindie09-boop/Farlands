@@ -4,6 +4,7 @@
 #include "core/terrain_params.hpp"
 #include "core/chunk_types.hpp"
 #include "core/inventory.hpp"
+#include "core/edit_map.hpp"
 #include "world/chunk_scheduler.hpp"
 #include "core/thread_pool.hpp"
 #include "worldgen/chunk_generator.hpp"
@@ -41,8 +42,8 @@ public:
     void save_chunk_to_disk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z);
     void save_chunk_to_disk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, ChunkData* chunk_data);
     void mark_chunk_dirty(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z);
-    // Snapshots every dirty chunk on the caller's thread and hands the snapshots
-    // to the thread pool for RLE encode + write. With wait_for_completion=true
+    // Snapshots every dirty chunk's edit map on the caller's thread and hands the
+    // snapshots to the thread pool for serialization + write. With wait_for_completion=true
     // (quit path) it blocks until all outstanding saves finish (or timeout).
     void flush_dirty_chunks(bool wait_for_completion = false, double timeout_sec = 5.0);
     bool is_chunk_dirty(uint64_t key) const;
@@ -52,6 +53,12 @@ public:
     void clear();
     void queue_pending_placement(int32_t world_x, int32_t world_y, int32_t world_z, int block_id);
     void apply_pending_placements(uint64_t key, int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, ChunkRenderData& render_data);
+    
+    // Edit map methods
+    void add_block_edit(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, int32_t local_x, int32_t local_y, int32_t local_z, BlockID block_id);
+    void apply_edit_map_to_chunk(uint64_t key, int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, ChunkData& chunk_data);
+    bool load_edit_map_from_disk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, EditMap& out_edit_map);
+    void save_edit_map_to_disk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, const EditMap& edit_map);
 
     // World metadata (seed, terrain params, version)
     void save_world_metadata(const TerrainParams& params);
@@ -80,14 +87,14 @@ public:
     int get_block_world(int32_t wx, int32_t wy, int32_t wz) { return chunk_map.get_block_world(wx, wy, wz); }
 
 private:
-    // Writes the RLE-compressed chunk file. Caller MUST hold file_access_mutex.
-    void write_chunk_file_locked(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, const ChunkData& chunk_data);
-    // Deep-copies the chunk data into the background-save queue. Supersedes any
+    // Writes the edit map file. Caller MUST hold file_access_mutex.
+    void write_edit_map_file_locked(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, const EditMap& edit_map);
+    // Deep-copies the edit map into the background-save queue. Supersedes any
     // in-flight save of the same chunk via a generation bump.
-    void enqueue_chunk_save(uint64_t key, int32_t cx, int32_t cy, int32_t cz, std::unique_ptr<ChunkData> snapshot);
+    void enqueue_edit_map_save(uint64_t key, int32_t cx, int32_t cy, int32_t cz, std::unique_ptr<EditMap> snapshot);
     // Background worker: epoch-gated, supersession-gated, writes the file.
-    void save_chunk_snapshot(uint64_t key, int32_t cx, int32_t cy, int32_t cz,
-                             std::unique_ptr<ChunkData> snapshot, uint64_t epoch, uint64_t generation);
+    void save_edit_map_snapshot(uint64_t key, int32_t cx, int32_t cy, int32_t cz,
+                               std::unique_ptr<EditMap> snapshot, uint64_t epoch, uint64_t generation);
     bool is_save_in_flight(uint64_t key) const;
     void wait_for_saves(double timeout_sec);
 
@@ -108,6 +115,10 @@ private:
 
     std::unordered_set<uint64_t> dirty_chunks;
     mutable std::mutex dirty_chunks_mutex;
+
+    // Per-chunk edit maps: sparse block edits that get persisted instead of full chunks
+    std::unordered_map<uint64_t, EditMap> chunk_edit_maps;
+    mutable std::mutex edit_maps_mutex;
 
     // Background chunk saves: key -> save generation. At most one live task per
     // key; a newer snapshot supersedes an older one by bumping the generation.

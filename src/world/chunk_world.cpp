@@ -98,8 +98,17 @@ float top_content_h = std::max(height_range.max_h, height_range.max_water_h);
             }
             chunk_data->compute_fully_solid();
             
-            // Apply edit map if it exists (player edits persisted as sparse diffs)
+            // Load edit map from disk if not already in memory, then apply it
             uint64_t key = chunk_map.get_chunk_key(cx, cy, cz);
+            {
+                std::lock_guard<std::mutex> lock(edit_maps_mutex);
+                if (chunk_edit_maps.find(key) == chunk_edit_maps.end()) {
+                    EditMap loaded;
+                    if (load_edit_map_from_disk(cx, cy, cz, loaded)) {
+                        chunk_edit_maps[key] = std::move(loaded);
+                    }
+                }
+            }
             apply_edit_map_to_chunk(key, cx, cy, cz, *chunk_data);
             
             return chunk_data;

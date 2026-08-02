@@ -231,3 +231,32 @@ TEST_CASE("edit map rejects truncated data") {
     bool ok = deserialize_edit_map(data.data(), data.size(), loaded);
     CHECK(!ok);
 }
+
+TEST_CASE("edit map round-trip integration test") {
+    BlockRegistry::get_instance().initialize_default_blocks();
+    
+    // Simulate player making edits
+    EditMap original;
+    original.set_block(10, 10, 10, BlockIDs::STONE);
+    original.set_block(5, 15, 20, BlockIDs::GRASS);
+    original.set_block(31, 0, 31, BlockIDs::DIRT);
+    
+    // Serialize (save to disk simulation)
+    std::vector<uint8_t> saved_data;
+    serialize_edit_map(original, saved_data);
+    
+    // Simulate process restart: clear original map
+    EditMap reloaded;
+    
+    // Deserialize (load from disk simulation)
+    bool ok = deserialize_edit_map(saved_data.data(), saved_data.size(), reloaded);
+    CHECK(ok);
+    
+    // Verify all edits survived the round-trip
+    CHECK(reloaded.get_block(10, 10, 10, BlockIDs::AIR) == BlockIDs::STONE);
+    CHECK(reloaded.get_block(5, 15, 20, BlockIDs::AIR) == BlockIDs::GRASS);
+    CHECK(reloaded.get_block(31, 0, 31, BlockIDs::AIR) == BlockIDs::DIRT);
+    
+    // Verify coalescing still works after round-trip
+    CHECK(reloaded.size() == 3);
+}

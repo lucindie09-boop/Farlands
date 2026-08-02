@@ -2,7 +2,7 @@
 #include "core/chunk_data.hpp"
 #include "core/block_types.hpp"
 #include "core/crc32.hpp"
-#include "core/rle_codec.hpp"
+#include "core/edit_map.hpp"
 #include "lighting/light_propagation.hpp"
 #include <thread>
 #include <vector>
@@ -852,90 +852,81 @@ TEST_CASE("OrderedExclusiveShardLock serializes concurrent writers") {
 }
 
 // =========================================================================
-// 17. RLE round-trip: encode then decode preserves all block data
+// 17. Edit map round-trip: encode then decode preserves all block data
 // =========================================================================
-TEST_CASE("RLE round-trip preserves block data") {
+TEST_CASE("edit map round-trip preserves block data") {
     BlockRegistry::get_instance().initialize_default_blocks();
 
-    ChunkData original;
-    original.clear();
-    // All-air (uniform) column
-    // Mixed column at x=5, z=10: alternating bands of STONE and DIRT
+    EditMap original;
+    // Mixed edits at various coordinates
     for (int32_t y = 0; y < 32; y++) {
         original.set_block(5, y, 10, y < 16 ? BlockIDs::STONE : BlockIDs::DIRT);
     }
-    // Single-block run at x=0, z=0, y=64
-    original.set_block(0, 64, 0, BlockIDs::LIGHT_BLOCK);
-    // Fully solid column at x=31, z=31
-    for (int32_t y = 0; y < 32; y++) {
-        original.set_block(31, y, 31, BlockIDs::STONE);
-    }
+    original.set_block(0, 0, 0, BlockIDs::LIGHT_BLOCK);
+    original.set_block(31, 31, 31, BlockIDs::GRASS);
 
-    std::vector<uint8_t> body;
-    encode_chunk_rle(original, body);
+    std::vector<uint8_t> data;
+    serialize_edit_map(original, data);
 
-    uint32_t checksum = crc32(body.data(), body.size());
-
-    ChunkData decoded;
-    decoded.clear();
-    bool ok = decode_chunk_rle(body.data(), body.size(), decoded);
+    EditMap decoded;
+    bool ok = deserialize_edit_map(data.data(), data.size(), decoded);
     CHECK(ok);
-    CHECK(checksum != 0);
 
-    // Verify all blocks match
-    for (int32_t z = 0; z < CHUNK_DEPTH; z++) {
-        for (int32_t x = 0; x < CHUNK_WIDTH; x++) {
-            for (int32_t y = 0; y < CHUNK_HEIGHT; y++) {
-                CHECK(decoded.get_block(x, y, z) == original.get_block(x, y, z));
-            }
-        }
+    // Verify all edits match
+    for (int32_t y = 0; y < 32; y++) {
+        CHECK(decoded.get_block(5, y, 10, BlockIDs::AIR) == (y < 16 ? BlockIDs::STONE : BlockIDs::DIRT));
     }
+    CHECK(decoded.get_block(0, 0, 0, BlockIDs::AIR) == BlockIDs::LIGHT_BLOCK);
+    CHECK(decoded.get_block(31, 31, 31, BlockIDs::AIR) == BlockIDs::GRASS);
 }
 
 // =========================================================================
-// 18. RLE decode rejects truncated buffers (fuzz-relevant)
+// 18. Edit map decode rejects truncated buffers (fuzz-relevant)
 // =========================================================================
-TEST_CASE("RLE decode rejects truncated input") {
+TEST_CASE("edit map decode rejects truncated input") {
     BlockRegistry::get_instance().initialize_default_blocks();
 
-    // Truncated at num_runs
+    // Truncated header
     {
-        const uint8_t trunc1[] = {0x01}; // partial num_runs
-        ChunkData c; c.clear();
-        CHECK_FALSE(decode_chunk_rle(trunc1, sizeof(trunc1), c));
+        const uint8_t trunc1[] = {0x01}; // partial header
+        EditMap m;
+        CHECK_FALSE(deserialize_edit_map(trunc1, sizeof(trunc1), m));
     }
-    // Truncated mid-run
+    // Truncated body (header says 1 edit but body is missing)
     {
-        const uint8_t trunc2[] = {0x01, 0x00, 0x00, 0x00}; // num_runs=1, partial run
-        ChunkData c; c.clear();
-        CHECK_FALSE(decode_chunk_rle(trunc2, sizeof(trunc2), c));
+        uint8_t trunc2[] = {0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}; // version=1, count=1, crc=0
+        EditMap m;
+        CHECK_FALSE(deserialize_edit_map(trunc2, sizeof(trunc2), m));
     }
     // Empty body
     {
-        ChunkData c; c.clear();
-        CHECK_FALSE(decode_chunk_rle(nullptr, 0, c));
+        EditMap m;
+        CHECK_FALSE(deserialize_edit_map(nullptr, 0, m));
     }
 }
 
 // =========================================================================
 // 19. CRC32 mismatch detection: tampered body is rejected
 // =========================================================================
-TEST_CASE("CRC32 detects tampered RLE body") {
+TEST_CASE("CRC32 detects tampered edit map body") {
     BlockRegistry::get_instance().initialize_default_blocks();
 
-    ChunkData chunk;
-    chunk.clear();
+    EditMap edit_map;
     for (int32_t y = 0; y < 32; y++) {
-        chunk.set_block(0, y, 0, BlockIDs::STONE);
+        edit_map.set_block(0, y, 0, BlockIDs::STONE);
     }
 
-    std::vector<uint8_t> body;
-    encode_chunk_rle(chunk, body);
-    uint32_t original_crc = crc32(body.data(), body.size());
+    std::vector<uint8_t> data;
+    serialize_edit_map(edit_map, data);
+    
+    // Extract CRC from header (bytes 8-11)
+    uint32_t original_crc = data[8] | (data[9] << 8) | (data[10] << 16) | (data[11] << 24);
 
-    // Flip one byte in the body
-    body[body.size() / 2] ^= 0xFF;
-    uint32_t tampered_crc = crc32(body.data(), body.size());
+    // Flip one byte in the body (after 12-byte header)
+    data[12 + data.size() / 2] ^= 0xFF;
+    
+    // Recompute CRC
+    uint32_t tampered_crc = crc32(data.data() + 12, data.size() - 12);
 
     CHECK(original_crc != tampered_crc);
 }

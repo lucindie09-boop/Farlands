@@ -8,8 +8,7 @@
 #include "worldgen/chunk_generator.hpp"
 #include "mesh/chunk_boundary_dirty.hpp"
 #include "core/crc32.hpp"
-#include "core/rle_codec.hpp"
-#include "core/chunk_persistence.hpp"
+#include "core/edit_map.hpp"
 
 namespace VoxelEngine {
 
@@ -23,13 +22,13 @@ bool ChunkWorld::generate_chunk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_
         [this](uint64_t k) { return chunk_map.contains(k); },
         [this, params = params](int32_t cx, int32_t cy, int32_t cz, bool& loaded) {
             auto chunk_data = std::make_unique<ChunkData>();
-            loaded = load_chunk_from_disk(cx, cy, cz, *chunk_data);
-            if (!loaded) {
-                thread_local ChunkGenerator generator;
-                generator.set_params(params);
+            
+            // Always generate - edit maps are applied as a diff on top
+            thread_local ChunkGenerator generator;
+            generator.set_params(params);
 
-                int32_t world_y_start = cy * CHUNK_HEIGHT;
-                int32_t world_y_end = world_y_start + CHUNK_HEIGHT;
+            int32_t world_y_start = cy * CHUNK_HEIGHT;
+            int32_t world_y_end = world_y_start + CHUNK_HEIGHT;
 
 if (world_y_start >= WORLD_HEIGHT_Y || world_y_end <= 0) {
 chunk_data->clear();
@@ -38,66 +37,71 @@ chunk_data->compute_fully_solid();
 return chunk_data;
 }
 
-                // Fast estimation: skip chunks that are entirely air or entirely solid
-                auto height_range = generator.get_chunk_height_range(cx, cz);
-                float margin = 3.0f; // safety margin for intra-chunk height variation
+            // Fast estimation: skip chunks that are entirely air or entirely solid
+            auto height_range = generator.get_chunk_height_range(cx, cz);
+            float margin = 3.0f; // safety margin for intra-chunk height variation
 float top_content_h = std::max(height_range.max_h, height_range.max_water_h);
 
-                // Entirely above surface: all air
-                if (world_y_start > static_cast<int32_t>(top_content_h + margin)) {
-                    chunk_data->clear();
-                    chunk_data->propagate_sky_light(nullptr); // sky light = 15 for all air
-                    chunk_data->compute_fully_solid();
-                    return chunk_data;
-                }
-
-                // Entirely below surface (and below bedrock): all bedrock
-                if (world_y_end <= params.bedrock_height) {
-                    chunk_data->fill_blocks(BlockIDs::BEDROCK);
-                    chunk_data->propagate_sky_light(nullptr); // first block is opaque → all light = 0
-                    return chunk_data;
-                }
-
-                // Caves only form inside [bedrock_height+3, sea_level+10]
-                // (see ChunkGenerator::is_cave). A chunk overlapping that range is
-                // not automatically solid even when it sits below the surface.
-                const int32_t cave_min_y = params.bedrock_height + 3;
-                const int32_t cave_max_y = static_cast<int32_t>(params.sea_level) + 10;
-                const bool may_contain_caves =
-                    world_y_end > cave_min_y && world_y_start < cave_max_y;
-
-                // Entirely below surface but above bedrock: all solid subsurface block.
-                if (!may_contain_caves && world_y_end < static_cast<int32_t>(height_range.min_h - margin)) {
-                    BlockID solid_block = generator.get_chunk_subsurface_block(cx, cz);
-                    chunk_data->fill_blocks(solid_block);
-                    chunk_data->propagate_sky_light(nullptr); // first block is opaque → all light = 0
-                    return chunk_data;
-                }
-
-                // Surface chunk: generate normally
-                {
-                    // Cross-chunk writes are deferred: the worker only pushes to
-                    // pending queues (no shard locking). The main thread applies
-                    // them during process_completed_chunks.
-                    auto cross_writer = [this](int32_t wx, int32_t wy, int32_t wz, BlockID block) {
-                        queue_pending_placement(wx, wy, wz, static_cast<int>(block));
-                        int32_t tc_x, tc_y, tc_z, lx, ly, lz;
-                        world_to_chunk_local(wx, wy, wz, tc_x, tc_y, tc_z, lx, ly, lz);
-                        {
-                            std::lock_guard<std::mutex> lock(cross_boundary_mutex);
-                            pending_cross_boundary_remesh.push_back({tc_x, tc_y, tc_z});
-                        }
-                    };
-                    generator.generate_chunk(*chunk_data, cx, cy, cz,
-                                             ChunkGenerator::CrossChunkWriter(std::move(cross_writer)),
-                                             vegetation_enabled);
-                }
+            // Entirely above surface: all air
+            if (world_y_start > static_cast<int32_t>(top_content_h + margin)) {
+                chunk_data->clear();
+                chunk_data->propagate_sky_light(nullptr); // sky light = 15 for all air
+                chunk_data->compute_fully_solid();
+                return chunk_data;
             }
+
+            // Entirely below surface (and below bedrock): all bedrock
+            if (world_y_end <= params.bedrock_height) {
+                chunk_data->fill_blocks(BlockIDs::BEDROCK);
+                chunk_data->propagate_sky_light(nullptr); // first block is opaque → all light = 0
+                return chunk_data;
+            }
+
+            // Caves only form inside [bedrock_height+3, sea_level+10]
+            // (see ChunkGenerator::is_cave). A chunk overlapping that range is
+            // not automatically solid even when it sits below the surface.
+            const int32_t cave_min_y = params.bedrock_height + 3;
+            const int32_t cave_max_y = static_cast<int32_t>(params.sea_level) + 10;
+            const bool may_contain_caves =
+                world_y_end > cave_min_y && world_y_start < cave_max_y;
+
+            // Entirely below surface but above bedrock: all solid subsurface block.
+            if (!may_contain_caves && world_y_end < static_cast<int32_t>(height_range.min_h - margin)) {
+                BlockID solid_block = generator.get_chunk_subsurface_block(cx, cz);
+                chunk_data->fill_blocks(solid_block);
+                chunk_data->propagate_sky_light(nullptr); // first block is opaque → all light = 0
+                return chunk_data;
+            }
+
+            // Surface chunk: generate normally
+            {
+                // Cross-chunk writes are deferred: the worker only pushes to
+                // pending queues (no shard locking). The main thread applies
+                // them during process_completed_chunks.
+                auto cross_writer = [this](int32_t wx, int32_t wy, int32_t wz, BlockID block) {
+                    queue_pending_placement(wx, wy, wz, static_cast<int>(block));
+                    int32_t tc_x, tc_y, tc_z, lx, ly, lz;
+                    world_to_chunk_local(wx, wy, wz, tc_x, tc_y, tc_z, lx, ly, lz);
+                    {
+                        std::lock_guard<std::mutex> lock(cross_boundary_mutex);
+                        pending_cross_boundary_remesh.push_back({tc_x, tc_y, tc_z});
+                    }
+                };
+                generator.generate_chunk(*chunk_data, cx, cy, cz,
+                                         ChunkGenerator::CrossChunkWriter(std::move(cross_writer)),
+                                         vegetation_enabled);
+            }
+            
             chunk_data->propagate_sky_light(chunk_map.get_chunk_data(cx, cy + 1, cz));
             if (chunk_data->get_emissive_count() > 0) {
                 chunk_data->propagate_light();
             }
             chunk_data->compute_fully_solid();
+            
+            // Apply edit map if it exists (player edits persisted as sparse diffs)
+            uint64_t key = chunk_map.get_chunk_key(cx, cy, cz);
+            apply_edit_map_to_chunk(key, cx, cy, cz, *chunk_data);
+            
             return chunk_data;
         },
         [this]() { return async_epoch.load(std::memory_order_acquire); }
@@ -468,18 +472,18 @@ void ChunkWorld::flush_dirty_chunks(bool wait_for_completion, double timeout_sec
         int32_t cx = 0, cy = 0, cz = 0;
         ChunkMap::decode_chunk_key(key, cx, cy, cz);
 
-        // Deep-copy the chunk's data under its shard lock so the background
-        // writer never reads a half-mutated chunk.
-        std::unique_ptr<ChunkData> snapshot;
+        // Deep-copy the edit map so the background writer never reads a half-mutated map.
+        std::unique_ptr<EditMap> snapshot;
         {
-            auto sl = chunk_map.lock_chunk(cx, cy, cz);
-            ChunkData* cd = chunk_map.get_chunk_data_fast(cx, cy, cz);
-            if (cd) {
-                snapshot = std::make_unique<ChunkData>(*cd);
+            std::lock_guard<std::mutex> lock(edit_maps_mutex);
+            auto it = chunk_edit_maps.find(key);
+            if (it != chunk_edit_maps.end()) {
+                snapshot = std::make_unique<EditMap>();
+                snapshot->edits = it->second.edits; // Deep copy the unordered_map
             }
         }
-        if (!snapshot) {
-            // Chunk no longer loaded — its file was already handled at unload.
+        if (!snapshot || snapshot->empty()) {
+            // No edits to save — this shouldn't happen since we only mark dirty when there are edits
             std::lock_guard<std::mutex> lock(dirty_chunks_mutex);
             dirty_chunks.erase(key);
             continue;
@@ -492,7 +496,7 @@ void ChunkWorld::flush_dirty_chunks(bool wait_for_completion, double timeout_sec
             dirty_chunks.erase(key);
         }
 
-        enqueue_chunk_save(key, cx, cy, cz, std::move(snapshot));
+        enqueue_edit_map_save(key, cx, cy, cz, std::move(snapshot));
     }
 
     if (wait_for_completion) {
@@ -500,8 +504,8 @@ void ChunkWorld::flush_dirty_chunks(bool wait_for_completion, double timeout_sec
     }
 }
 
-void ChunkWorld::enqueue_chunk_save(uint64_t key, int32_t cx, int32_t cy, int32_t cz,
-                                    std::unique_ptr<ChunkData> snapshot) {
+void ChunkWorld::enqueue_edit_map_save(uint64_t key, int32_t cx, int32_t cy, int32_t cz,
+                                      std::unique_ptr<EditMap> snapshot) {
     if (!thread_pool) return;
     const uint64_t epoch = async_epoch.load(std::memory_order_acquire);
     const uint64_t generation = next_save_generation.fetch_add(1, std::memory_order_acq_rel);
@@ -514,13 +518,13 @@ void ChunkWorld::enqueue_chunk_save(uint64_t key, int32_t cx, int32_t cy, int32_
     outstanding_saves.fetch_add(1, std::memory_order_acq_rel);
     thread_pool->fire_and_forget([this, key, cx, cy, cz,
                                   snapshot = std::move(snapshot), epoch, generation]() mutable {
-        save_chunk_snapshot(key, cx, cy, cz, std::move(snapshot), epoch, generation);
+        save_edit_map_snapshot(key, cx, cy, cz, std::move(snapshot), epoch, generation);
     });
 }
 
-void ChunkWorld::save_chunk_snapshot(uint64_t key, int32_t cx, int32_t cy, int32_t cz,
-                                     std::unique_ptr<ChunkData> snapshot,
-                                     uint64_t epoch, uint64_t generation) {
+void ChunkWorld::save_edit_map_snapshot(uint64_t key, int32_t cx, int32_t cy, int32_t cz,
+                                       std::unique_ptr<EditMap> snapshot,
+                                       uint64_t epoch, uint64_t generation) {
     bool wrote = false;
     // Epoch gate: abort if the world was reset while we were queued, so stale
     // data never lands in a fresh world's chunk files.
@@ -534,7 +538,7 @@ void ChunkWorld::save_chunk_snapshot(uint64_t key, int32_t cx, int32_t cy, int32
             wrote = (it != saves_in_flight.end() && it->second == generation);
         }
         if (wrote) {
-            write_chunk_file_locked(cx, cy, cz, *snapshot);
+            write_edit_map_file_locked(cx, cy, cz, *snapshot);
         }
     }
     {
@@ -569,202 +573,24 @@ bool ChunkWorld::is_chunk_dirty(uint64_t key) const {
 }
 
 void ChunkWorld::save_chunk_to_disk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z) {
-    ChunkData* chunk_data = chunk_map.get_chunk_data(chunk_x, chunk_y, chunk_z);
-    if (!chunk_data) return;
-    save_chunk_to_disk(chunk_x, chunk_y, chunk_z, chunk_data);
+    uint64_t key = chunk_map.get_chunk_key(chunk_x, chunk_y, chunk_z);
+    
+    std::lock_guard<std::mutex> lock(edit_maps_mutex);
+    auto it = chunk_edit_maps.find(key);
+    if (it != chunk_edit_maps.end()) {
+        save_edit_map_to_disk(chunk_x, chunk_y, chunk_z, it->second);
+    }
 }
 
 void ChunkWorld::save_chunk_to_disk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, ChunkData* chunk_data) {
-    if (!chunk_data) return;
-
-    std::lock_guard<std::mutex> lock(file_access_mutex);
-    write_chunk_file_locked(chunk_x, chunk_y, chunk_z, *chunk_data);
-}
-
-void ChunkWorld::write_chunk_file_locked(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, const ChunkData& chunk_data) {
-    String save_dir = "user://chunks/";
-    String filename = save_dir + "chunk_" + String::num_int64(chunk_x) + "_" + String::num_int64(chunk_y) + "_" + String::num_int64(chunk_z) + ".chunk";
-    String temp_filename = filename + ".tmp";
-    String backup_filename = filename + ".bak";
-
-    Ref<DirAccess> dir = DirAccess::open("user://");
-    if (dir.is_valid()) {
-        dir->make_dir_recursive("chunks");
-    }
-
-    // Build RLE body into a byte buffer so we can CRC32 it before writing.
-    std::vector<uint8_t> body;
-    encode_chunk_rle(chunk_data, body);
-
-    uint32_t checksum = crc32(body.data(), body.size());
-
-    // Write to temporary file first (atomic write pattern)
-    Ref<FileAccess> file = FileAccess::open(temp_filename, FileAccess::WRITE);
-    if (!file.is_valid()) return;
-
-    // Header: dimensions + version + CRC32
-    file->store_32(CHUNK_WIDTH);
-    file->store_32(CHUNK_HEIGHT);
-    file->store_32(CHUNK_DEPTH);
-    file->store_32(3);             // version = 3 (v2 + CRC32)
-    file->store_32(checksum);
-
-    // Body
-    file->store_buffer(body.data(), body.size());
-    file->close();
-
-    // Create backup of existing file before overwriting
-    if (dir.is_valid() && FileAccess::file_exists(filename)) {
-        // Remove old backup if it exists
-        if (FileAccess::file_exists(backup_filename)) {
-            dir->remove(backup_filename);
-        }
-        // Move current file to backup
-        dir->rename(filename, backup_filename);
-    }
-
-    // Atomic rename: temp -> target
-    // On POSIX this is atomic; on Windows it's atomic if both files are on the same volume
-    if (dir.is_valid()) {
-        dir->rename(temp_filename, filename);
-    }
+    // This overload is no longer used with edit maps - it's kept for API compatibility
+    // but does nothing since we now persist edit maps instead of full chunks
+    save_chunk_to_disk(chunk_x, chunk_y, chunk_z);
 }
 
 bool ChunkWorld::load_chunk_from_disk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, ChunkData& out_chunk_data) {
-    String save_dir = "user://chunks/";
-    String filename = save_dir + "chunk_" + String::num_int64(chunk_x) + "_" + String::num_int64(chunk_y) + "_" + String::num_int64(chunk_z) + ".chunk";
-    String old_filename = save_dir + "chunk_" + String::num_int64(chunk_x) + "_" + String::num_int64(chunk_z) + ".chunk";
-
-    std::lock_guard<std::mutex> lock(file_access_mutex);
-
-    String backup_filename = filename + ".bak";
-
-    bool use_old_format = false;
-    bool use_backup = false;
-    
-    if (!FileAccess::file_exists(filename)) {
-        // Primary file missing - try backup first
-        if (FileAccess::file_exists(backup_filename)) {
-            use_backup = true;
-        } else if (FileAccess::file_exists(old_filename)) {
-            use_old_format = true;
-        } else {
-            return false;
-        }
-    }
-
-    String target = use_old_format ? old_filename : (use_backup ? backup_filename : filename);
-    Ref<FileAccess> file = FileAccess::open(target, FileAccess::READ);
-    if (!file.is_valid()) return false;
-
-    int32_t saved_width  = file->get_32();
-    int32_t saved_height = file->get_32();
-    int32_t saved_depth  = file->get_32();
-
-    if (saved_width != CHUNK_WIDTH || saved_height != CHUNK_HEIGHT || saved_depth != CHUNK_DEPTH) {
-        file->close();
-        return false;
-    }
-
-    if (use_old_format) {
-        int32_t version = file->get_32();
-        if (version != 1) {
-            file->close();
-            return false;
-        }
-        for (int32_t y = 0; y < CHUNK_HEIGHT; y++) {
-            for (int32_t z = 0; z < CHUNK_DEPTH; z++) {
-                for (int32_t x = 0; x < CHUNK_WIDTH; x++) {
-                    BlockID block_id = static_cast<BlockID>(file->get_16());
-                    out_chunk_data.set_block(x, y, z, block_id);
-                }
-            }
-        }
-    } else {
-        int32_t version = file->get_32();
-        if (version == 3) {
-            // v3: RLE + CRC32 checksum — read primary body
-            uint32_t expected_crc = file->get_32();
-            int64_t body_start = file->get_position();
-            int64_t body_end = file->get_length();
-            size_t body_size = static_cast<size_t>(body_end - body_start);
-
-            std::vector<uint8_t> body(body_size);
-            file->get_buffer(body.data(), body_size);
-            file->close();
-
-            // Try to read backup body (may be empty if no backup exists)
-            std::vector<uint8_t> bk_body;
-            uint32_t bk_crc = 0;
-            String backup_filename = target + ".bak";
-            if (FileAccess::file_exists(backup_filename)) {
-                Ref<FileAccess> bk_file = FileAccess::open(backup_filename, FileAccess::READ);
-                if (bk_file.is_valid()) {
-                    int32_t bk_w = bk_file->get_32();
-                    int32_t bk_h = bk_file->get_32();
-                    int32_t bk_d = bk_file->get_32();
-                    int32_t bk_v = bk_file->get_32();
-                    bk_crc = bk_file->get_32();
-                    if (bk_w == CHUNK_WIDTH && bk_h == CHUNK_HEIGHT &&
-                        bk_d == CHUNK_DEPTH && bk_v == 3) {
-                        int64_t bk_body_start = bk_file->get_position();
-                        int64_t bk_body_end = bk_file->get_length();
-                        size_t bk_size = static_cast<size_t>(bk_body_end - bk_body_start);
-                        bk_body.resize(bk_size);
-                        bk_file->get_buffer(bk_body.data(), bk_size);
-                    }
-                    bk_file->close();
-                }
-            }
-
-            ChunkLoadOutcome outcome = decode_v3_chunk(
-                body.data(), body.size(), expected_crc,
-                bk_body.empty() ? nullptr : bk_body.data(),
-                bk_body.size(), bk_crc,
-                out_chunk_data);
-
-            if (outcome == ChunkLoadOutcome::RECOVERED_FROM_BACKUP) {
-                // Backup loaded successfully — restore it as the main file
-                Ref<DirAccess> recovery_dir = DirAccess::open("user://");
-                if (recovery_dir.is_valid()) {
-                    recovery_dir->rename(backup_filename, target);
-                }
-                return true;
-            } else if (outcome == ChunkLoadOutcome::BOTH_CORRUPTED) {
-                // No valid backup — delete corrupted file to prevent future load attempts
-                Ref<DirAccess> cleanup_dir = DirAccess::open("user://");
-                if (cleanup_dir.is_valid()) {
-                    cleanup_dir->remove(target);
-                }
-                return false;
-            }
-            return true;
-        } else if (version == 2) {
-            // v2: RLE, no checksum (legacy)
-            for (int32_t z = 0; z < CHUNK_DEPTH; z++) {
-                for (int32_t x = 0; x < CHUNK_WIDTH; x++) {
-                    uint16_t num_runs = file->get_16();
-                    for (uint16_t r = 0; r < num_runs; r++) {
-                        uint16_t start_y = file->get_16();
-                        uint16_t length = file->get_16();
-                        uint16_t block_id = file->get_16();
-                        for (uint16_t y = 0; y < length; y++) {
-                            int32_t wy = static_cast<int32_t>(start_y) + y;
-                            if (wy < CHUNK_HEIGHT) {
-                                out_chunk_data.set_block(x, wy, z, static_cast<BlockID>(block_id));
-                            }
-                        }
-                    }
-                }
-            }
-        } else {
-            file->close();
-            return false;
-        }
-    }
-    file->close();
-    out_chunk_data.compute_fully_solid();
-    return true;
+    // No longer used - we always generate now and apply edit maps on top
+    return false;
 }
 
 void ChunkWorld::save_world_metadata(const TerrainParams& params) {
@@ -984,12 +810,17 @@ needs_save = is_chunk_dirty(key);
         return !chunk_map.contains(key);
     }
 
-if (needs_save && render_data->data) {
-    // Hand the current state to the background saver. If a save for this chunk
+if (needs_save) {
+    // Hand the edit map to the background saver. If a save for this chunk
     // is already in flight it is superseded (generation bump), guaranteeing the
     // newest data is the one that reaches disk.
-    auto snapshot = std::make_unique<ChunkData>(*render_data->data);
-    enqueue_chunk_save(key, cx, cy, cz, std::move(snapshot));
+    std::lock_guard<std::mutex> lock(edit_maps_mutex);
+    auto it = chunk_edit_maps.find(key);
+    if (it != chunk_edit_maps.end()) {
+        auto snapshot = std::make_unique<EditMap>();
+        snapshot->edits = it->second.edits; // Deep copy
+        enqueue_edit_map_save(key, cx, cy, cz, std::move(snapshot));
+    }
 }
     if (mesh_mgr) {
         mesh_mgr->notify_chunk_unloaded(cx, cy, cz, render_data.get());
@@ -1024,6 +855,10 @@ void ChunkWorld::clear() {
         std::lock_guard<std::mutex> lock(saves_in_flight_mutex);
         saves_in_flight.clear();
     }
+    {
+        std::lock_guard<std::mutex> lock(edit_maps_mutex);
+        chunk_edit_maps.clear();
+    }
     chunk_scheduler.clear();
     pending_chunk_installs.clear();
     pending_chunk_lighting.clear();
@@ -1054,15 +889,114 @@ void ChunkWorld::apply_pending_placements(uint64_t key, int32_t chunk_x, int32_t
                 ly >= 0 && ly < CHUNK_HEIGHT &&
                 lz >= 0 && lz < CHUNK_DEPTH) {
                 render_data.data->set_block(lx, ly, lz, static_cast<BlockID>(placement.block_id));
+                // Also persist this edit in the edit map
+                add_block_edit(chunk_x, chunk_y, chunk_z, lx, ly, lz, static_cast<BlockID>(placement.block_id));
             }
         }
         pending_block_placements.erase(it);
         render_data.data->compute_section_flags();
         render_data.data->compute_fully_solid();
-        // The receiving chunk was modified (e.g. cross-chunk tree canopy writes
-        // from a neighbor's generation). Mark it dirty so the next flush/save
-        // persists these blocks — otherwise they are lost on reload.
-        mark_chunk_dirty(chunk_x, chunk_y, chunk_z);
+    }
+}
+
+void ChunkWorld::add_block_edit(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, int32_t local_x, int32_t local_y, int32_t local_z, BlockID block_id) {
+    uint64_t key = chunk_map.get_chunk_key(chunk_x, chunk_y, chunk_z);
+    std::lock_guard<std::mutex> lock(edit_maps_mutex);
+    chunk_edit_maps[key].set_block(local_x, local_y, local_z, block_id);
+    mark_chunk_dirty(chunk_x, chunk_y, chunk_z);
+}
+
+void ChunkWorld::apply_edit_map_to_chunk(uint64_t key, int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, ChunkData& chunk_data) {
+    std::lock_guard<std::mutex> lock(edit_maps_mutex);
+    auto it = chunk_edit_maps.find(key);
+    if (it != chunk_edit_maps.end()) {
+        for (const auto& entry : it->second.edits) {
+            int32_t lx, ly, lz;
+            EditMap::unpack_coord(entry.first, lx, ly, lz);
+            chunk_data.set_block(lx, ly, lz, entry.second);
+        }
+        chunk_data.compute_section_flags();
+        chunk_data.compute_fully_solid();
+    }
+}
+
+bool ChunkWorld::load_edit_map_from_disk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, EditMap& out_edit_map) {
+    String save_dir = "user://chunks/";
+    String filename = save_dir + "chunk_" + String::num_int64(chunk_x) + "_" + String::num_int64(chunk_y) + "_" + String::num_int64(chunk_z) + ".edit";
+
+    std::lock_guard<std::mutex> lock(file_access_mutex);
+
+    if (!FileAccess::file_exists(filename)) {
+        return false;
+    }
+
+    Ref<FileAccess> file = FileAccess::open(filename, FileAccess::READ);
+    if (!file.is_valid()) return false;
+
+    int64_t file_size = file->get_length();
+    if (file_size == 0) {
+        file->close();
+        return false;
+    }
+
+    std::vector<uint8_t> data(file_size);
+    file->get_buffer(data.data(), file_size);
+    file->close();
+
+    return deserialize_edit_map(data.data(), data.size(), out_edit_map);
+}
+
+void ChunkWorld::save_edit_map_to_disk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, const EditMap& edit_map) {
+    std::lock_guard<std::mutex> lock(file_access_mutex);
+    write_edit_map_file_locked(chunk_x, chunk_y, chunk_z, edit_map);
+}
+
+void ChunkWorld::write_edit_map_file_locked(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, const EditMap& edit_map) {
+    String save_dir = "user://chunks/";
+    String filename = save_dir + "chunk_" + String::num_int64(chunk_x) + "_" + String::num_int64(chunk_y) + "_" + String::num_int64(chunk_z) + ".edit";
+    String temp_filename = filename + ".tmp";
+    String backup_filename = filename + ".bak";
+
+    Ref<DirAccess> dir = DirAccess::open("user://");
+    if (dir.is_valid()) {
+        dir->make_dir_recursive("chunks");
+    }
+
+    // Serialize edit map to byte buffer
+    std::vector<uint8_t> data;
+    serialize_edit_map(edit_map, data);
+
+    // If edit map is empty, delete the file instead of writing an empty one
+    if (edit_map.empty()) {
+        if (FileAccess::file_exists(filename)) {
+            dir->remove(filename);
+        }
+        if (FileAccess::file_exists(backup_filename)) {
+            dir->remove(backup_filename);
+        }
+        return;
+    }
+
+    // Write to temporary file first (atomic write pattern)
+    Ref<FileAccess> file = FileAccess::open(temp_filename, FileAccess::WRITE);
+    if (!file.is_valid()) return;
+
+    file->store_buffer(data.data(), data.size());
+    file->close();
+
+    // Create backup of existing file before overwriting
+    if (dir.is_valid() && FileAccess::file_exists(filename)) {
+        // Remove old backup if it exists
+        if (FileAccess::file_exists(backup_filename)) {
+            dir->remove(backup_filename);
+        }
+        // Move current file to backup
+        dir->rename(filename, backup_filename);
+    }
+
+    // Atomic rename: temp -> target
+    if (dir.is_valid()) {
+        dir->rename(temp_filename, filename);
     }
 }
 

@@ -1,10 +1,8 @@
 #include "doctest.h"
-#include "core/chunk_data.hpp"
+#include "core/edit_map.hpp"
 #include "core/chunk_coords.hpp"
 #include "core/block_types.hpp"
 #include "core/crc32.hpp"
-#include "core/rle_codec.hpp"
-#include "core/chunk_persistence.hpp"
 #include <cstdint>
 #include <cstring>
 #include <fstream>
@@ -12,214 +10,224 @@
 
 using namespace VoxelEngine;
 
-// Write a v3 chunk file to disk (stand-in for Godot FileAccess).
-static void write_v3_file(const char* path, const uint8_t* body, size_t body_size, uint32_t checksum) {
-    std::ofstream f(path, std::ios::binary);
-    uint32_t w = CHUNK_WIDTH, h = CHUNK_HEIGHT, d = CHUNK_DEPTH, v = 3;
-    f.write(reinterpret_cast<const char*>(&w), 4);
-    f.write(reinterpret_cast<const char*>(&h), 4);
-    f.write(reinterpret_cast<const char*>(&d), 4);
-    f.write(reinterpret_cast<const char*>(&v), 4);
-    f.write(reinterpret_cast<const char*>(&checksum), 4);
-    f.write(reinterpret_cast<const char*>(body), body_size);
-}
-
-// Read a v3 chunk file from disk and return body + CRC (stand-in for Godot FileAccess).
-// Returns true on success (header parsed, body read).
-static bool read_v3_file_raw(const char* path, std::vector<uint8_t>& body, uint32_t& crc) {
-    std::ifstream f(path, std::ios::binary);
-    if (!f.is_open()) return false;
-
-    uint32_t w, h, d, v;
-    f.read(reinterpret_cast<char*>(&w), 4);
-    f.read(reinterpret_cast<char*>(&h), 4);
-    f.read(reinterpret_cast<char*>(&d), 4);
-    f.read(reinterpret_cast<char*>(&v), 4);
-    f.read(reinterpret_cast<char*>(&crc), 4);
-
-    if (w != CHUNK_WIDTH || h != CHUNK_HEIGHT || d != CHUNK_DEPTH || v != 3) return false;
-
-    std::streampos body_start = f.tellg();
-    f.seekg(0, std::ios::end);
-    size_t body_size = static_cast<size_t>(f.tellg() - body_start);
-    f.seekg(body_start);
-
-    body.resize(body_size);
-    f.read(reinterpret_cast<char*>(body.data()), body_size);
-    return true;
-}
-
-TEST_CASE("v3 round-trip preserves all block data") {
+TEST_CASE("edit map round-trip preserves all block data") {
     BlockRegistry::get_instance().initialize_default_blocks();
-    ChunkData original;
-    original.clear();
-
+    EditMap original;
+    
     original.set_block(0, 0, 0, BlockIDs::STONE);
     original.set_block(31, 31, 31, BlockIDs::GRASS);
     original.set_block(16, 16, 16, BlockIDs::LIGHT_BLOCK);
     original.set_block(5, 20, 10, BlockIDs::SAND);
     original.set_block(25, 1, 29, BlockIDs::WOOD);
-
-    std::vector<uint8_t> body;
-    encode_chunk_rle(original, body);
-    uint32_t checksum = crc32(body.data(), body.size());
-
-    const char* path = "test_persistence_roundtrip.chunk";
-    write_v3_file(path, body.data(), body.size(), checksum);
-
-    std::vector<uint8_t> read_body;
-    uint32_t read_crc;
-    bool file_ok = read_v3_file_raw(path, read_body, read_crc);
-    CHECK(file_ok);
-
-    ChunkData loaded;
-    loaded.clear();
-    ChunkLoadOutcome outcome = decode_v3_chunk(
-        read_body.data(), read_body.size(), read_crc,
-        nullptr, 0, 0,
-        loaded);
-    CHECK(outcome == ChunkLoadOutcome::LOADED_OK);
-    CHECK(loaded.get_block(0, 0, 0) == BlockIDs::STONE);
-    CHECK(loaded.get_block(31, 31, 31) == BlockIDs::GRASS);
-    CHECK(loaded.get_block(16, 16, 16) == BlockIDs::LIGHT_BLOCK);
-    CHECK(loaded.get_block(5, 20, 10) == BlockIDs::SAND);
-    CHECK(loaded.get_block(25, 1, 29) == BlockIDs::WOOD);
-
-    std::remove(path);
-}
-
-TEST_CASE("CRC32 mismatch returns BOTH_CORRUPTED") {
-    BlockRegistry::get_instance().initialize_default_blocks();
-    ChunkData original;
-    original.clear();
-    original.set_block(10, 10, 10, BlockIDs::STONE);
-
-    std::vector<uint8_t> body;
-    encode_chunk_rle(original, body);
-    uint32_t checksum = crc32(body.data(), body.size());
-
-    const char* path = "test_persistence_crc_mismatch.chunk";
-    write_v3_file(path, body.data(), body.size(), checksum);
-
-    // Corrupt one byte in the body
-    {
-        std::fstream f(path, std::ios::binary | std::ios::in | std::ios::out);
-        f.seekg(sizeof(uint32_t) * 5 + 10);
-        char bad = 0xFF;
-        f.write(&bad, 1);
-    }
-
-    std::vector<uint8_t> read_body;
-    uint32_t read_crc;
-    read_v3_file_raw(path, read_body, read_crc);
-
-    // Corrupt the body we pass to decode (simulating what was read from disk)
-    read_body[10] = 0xFF;
-
-    ChunkData loaded;
-    loaded.clear();
-    ChunkLoadOutcome outcome = decode_v3_chunk(
-        read_body.data(), read_body.size(), read_crc,
-        nullptr, 0, 0,
-        loaded);
-    CHECK(outcome == ChunkLoadOutcome::BOTH_CORRUPTED);
-
-    std::remove(path);
-}
-
-TEST_CASE("backup fallback via decode_v3_chunk") {
-    BlockRegistry::get_instance().initialize_default_blocks();
-
-    // Encode a valid backup
-    ChunkData backup_data;
-    backup_data.clear();
-    backup_data.set_block(5, 5, 5, BlockIDs::GRASS);
-
-    std::vector<uint8_t> backup_body;
-    encode_chunk_rle(backup_data, backup_body);
-    uint32_t backup_crc = crc32(backup_body.data(), backup_body.size());
-
-    // Corrupt the primary body
-    std::vector<uint8_t> primary_body = backup_body;
-    primary_body[0] ^= 0xFF; // flip a byte
-    uint32_t primary_crc = backup_crc ^ 0xDEAD; // wrong CRC
-
-    ChunkData loaded;
-    loaded.clear();
-    ChunkLoadOutcome outcome = decode_v3_chunk(
-        primary_body.data(), primary_body.size(), primary_crc,
-        backup_body.data(), backup_body.size(), backup_crc,
-        loaded);
-
-    CHECK(outcome == ChunkLoadOutcome::RECOVERED_FROM_BACKUP);
-    CHECK(loaded.get_block(5, 5, 5) == BlockIDs::GRASS);
-}
-
-TEST_CASE("both corrupted returns BOTH_CORRUPTED") {
-    BlockRegistry::get_instance().initialize_default_blocks();
-
-    uint8_t garbage[] = {0xFF, 0xFF, 0xFF, 0xFF};
-    uint32_t bad_crc = 0xDEADBEEF;
-
-    ChunkData loaded;
-    loaded.clear();
-    ChunkLoadOutcome outcome = decode_v3_chunk(
-        garbage, sizeof(garbage), bad_crc,
-        garbage, sizeof(garbage), bad_crc,
-        loaded);
-    CHECK(outcome == ChunkLoadOutcome::BOTH_CORRUPTED);
-}
-
-TEST_CASE("RLE pipeline round-trip all block types") {
-    BlockRegistry::get_instance().initialize_default_blocks();
-    ChunkData original;
-    original.clear();
-
-    BlockID blocks[] = {BlockIDs::AIR, BlockIDs::STONE, BlockIDs::GRASS,
-                        BlockIDs::DIRT, BlockIDs::SAND, BlockIDs::WOOD,
-                        BlockIDs::LIGHT_BLOCK, BlockIDs::LIGHT_RED,
-                        BlockIDs::LIGHT_BLUE, BlockIDs::LEAVES};
-    int num_blocks = sizeof(blocks) / sizeof(blocks[0]);
-
-    for (int i = 0; i < num_blocks; i++) {
-        int x = (i * 7) % CHUNK_WIDTH;
-        int y = (i * 5) % CHUNK_HEIGHT;
-        int z = (i * 3) % CHUNK_DEPTH;
-        original.set_block(x, y, z, blocks[i]);
-    }
-
-    std::vector<uint8_t> body;
-    encode_chunk_rle(original, body);
-
-    ChunkData decoded;
-    decoded.clear();
-    bool ok = decode_chunk_rle(body.data(), body.size(), decoded);
+    
+    std::vector<uint8_t> data;
+    serialize_edit_map(original, data);
+    
+    EditMap loaded;
+    bool ok = deserialize_edit_map(data.data(), data.size(), loaded);
     CHECK(ok);
+    
+    CHECK(loaded.get_block(0, 0, 0, BlockIDs::AIR) == BlockIDs::STONE);
+    CHECK(loaded.get_block(31, 31, 31, BlockIDs::AIR) == BlockIDs::GRASS);
+    CHECK(loaded.get_block(16, 16, 16, BlockIDs::AIR) == BlockIDs::LIGHT_BLOCK);
+    CHECK(loaded.get_block(5, 20, 10, BlockIDs::AIR) == BlockIDs::SAND);
+    CHECK(loaded.get_block(25, 1, 29, BlockIDs::AIR) == BlockIDs::WOOD);
+}
 
-    for (int i = 0; i < num_blocks; i++) {
-        int x = (i * 7) % CHUNK_WIDTH;
-        int y = (i * 5) % CHUNK_HEIGHT;
-        int z = (i * 3) % CHUNK_DEPTH;
-        CHECK(decoded.get_block(x, y, z) == blocks[i]);
+TEST_CASE("edit map last-write-wins coalescing") {
+    BlockRegistry::get_instance().initialize_default_blocks();
+    EditMap edit_map;
+    
+    // Place a block
+    edit_map.set_block(10, 10, 10, BlockIDs::STONE);
+    CHECK(edit_map.size() == 1);
+    
+    // Overwrite the same coordinate
+    edit_map.set_block(10, 10, 10, BlockIDs::GRASS);
+    CHECK(edit_map.size() == 1); // Still one entry
+    CHECK(edit_map.get_block(10, 10, 10, BlockIDs::AIR) == BlockIDs::GRASS);
+}
+
+TEST_CASE("edit map coordinate packing/unpacking") {
+    for (int32_t x = 0; x < 32; x++) {
+        for (int32_t y = 0; y < 32; y++) {
+            for (int32_t z = 0; z < 32; z++) {
+                uint32_t packed = EditMap::pack_coord(x, y, z);
+                int32_t rx, ry, rz;
+                EditMap::unpack_coord(packed, rx, ry, rz);
+                CHECK(rx == x);
+                CHECK(ry == y);
+                CHECK(rz == z);
+            }
+        }
     }
 }
 
-TEST_CASE("dimension mismatch detected by file reader") {
-    const char* path = "test_persistence_dim_mismatch.chunk";
-    {
-        std::ofstream f(path, std::ios::binary);
-        uint32_t w = 16, h = 16, d = 16, v = 3, crc = 0;
-        f.write(reinterpret_cast<const char*>(&w), 4);
-        f.write(reinterpret_cast<const char*>(&h), 4);
-        f.write(reinterpret_cast<const char*>(&d), 4);
-        f.write(reinterpret_cast<const char*>(&v), 4);
-        f.write(reinterpret_cast<const char*>(&crc), 4);
-    }
+TEST_CASE("empty edit map serializes to empty") {
+    EditMap empty;
+    std::vector<uint8_t> data;
+    serialize_edit_map(empty, data);
+    
+    // Header only: version (4) + count (4) + crc (4) = 12 bytes
+    CHECK(data.size() == 12);
+    
+    EditMap loaded;
+    bool ok = deserialize_edit_map(data.data(), data.size(), loaded);
+    CHECK(ok);
+    CHECK(loaded.empty());
+}
 
-    std::vector<uint8_t> body;
-    uint32_t crc;
-    bool ok = read_v3_file_raw(path, body, crc);
+TEST_CASE("edit map CRC32 mismatch detection") {
+    BlockRegistry::get_instance().initialize_default_blocks();
+    EditMap original;
+    original.set_block(10, 10, 10, BlockIDs::STONE);
+    
+    std::vector<uint8_t> data;
+    serialize_edit_map(original, data);
+    
+    // Corrupt the CRC32
+    data[11] ^= 0xFF;
+    
+    EditMap loaded;
+    bool ok = deserialize_edit_map(data.data(), data.size(), loaded);
     CHECK(!ok);
+}
 
-    std::remove(path);
+TEST_CASE("edit map body corruption detection") {
+    BlockRegistry::get_instance().initialize_default_blocks();
+    EditMap original;
+    original.set_block(10, 10, 10, BlockIDs::STONE);
+    
+    std::vector<uint8_t> data;
+    serialize_edit_map(original, data);
+    
+    // Corrupt a byte in the body (after the 12-byte header)
+    data[12] ^= 0xFF;
+    
+    EditMap loaded;
+    bool ok = deserialize_edit_map(data.data(), data.size(), loaded);
+    CHECK(!ok);
+}
+
+TEST_CASE("edit map removes blocks") {
+    BlockRegistry::get_instance().initialize_default_blocks();
+    EditMap edit_map;
+    
+    edit_map.set_block(10, 10, 10, BlockIDs::STONE);
+    CHECK(edit_map.has_edit(10, 10, 10));
+    
+    edit_map.remove_block(10, 10, 10);
+    CHECK(!edit_map.has_edit(10, 10, 10));
+    CHECK(edit_map.size() == 0);
+}
+
+TEST_CASE("edit map serialization size scales with edit count") {
+    BlockRegistry::get_instance().initialize_default_blocks();
+    
+    // Test with unique coordinates only
+    for (int num_edits = 0; num_edits <= 100; num_edits += 10) {
+        EditMap edit_map;
+        for (int i = 0; i < num_edits; i++) {
+            // Use unique coordinates by making i a linear index
+            int x = i % 32;
+            int y = (i / 32) % 32;
+            int z = (i / 1024) % 32;
+            if (z < 32) { // Only add if z is in valid range
+                edit_map.set_block(x, y, z, static_cast<BlockID>(i % 10));
+            }
+        }
+        
+        std::vector<uint8_t> data;
+        serialize_edit_map(edit_map, data);
+        
+        // Expected size: 12-byte header + 4 bytes per edit
+        size_t expected_size = 12 + (edit_map.size() * 4);
+        CHECK(data.size() == expected_size);
+    }
+}
+
+TEST_CASE("edit map rejects invalid block IDs") {
+    BlockRegistry::get_instance().initialize_default_blocks();
+    
+    // Manually construct a malformed edit map with an invalid block ID
+    std::vector<uint8_t> data;
+    data.resize(16); // 12-byte header + 1 edit (4 bytes)
+    
+    // Write header
+    data[0] = 1; data[1] = 0; data[2] = 0; data[3] = 0; // version = 1
+    data[4] = 1; data[5] = 0; data[6] = 0; data[7] = 0; // count = 1
+    data[8] = 0; data[9] = 0; data[10] = 0; data[11] = 0; // CRC placeholder
+    
+    // Write malformed edit: valid coord, invalid block ID (300, MAX_BLOCK_TYPES is 256)
+    // Stored as little-endian: low byte first, high byte second
+    data[12] = 0; data[13] = 0; // coord = 0
+    data[14] = 44; data[15] = 1; // block_id = 300 (0x012C)
+    
+    // Recompute CRC
+    uint32_t crc = crc32(data.data() + 12, 4);
+    data[8] = crc & 0xFF;
+    data[9] = (crc >> 8) & 0xFF;
+    data[10] = (crc >> 16) & 0xFF;
+    data[11] = (crc >> 24) & 0xFF;
+    
+    EditMap loaded;
+    bool ok = deserialize_edit_map(data.data(), data.size(), loaded);
+    CHECK(!ok);
+}
+
+TEST_CASE("edit map rejects malformed coordinate packing") {
+    BlockRegistry::get_instance().initialize_default_blocks();
+    
+    // Manually construct a malformed edit map with bit 15 set in coordinate
+    std::vector<uint8_t> data;
+    data.resize(16); // 12-byte header + 1 edit (4 bytes)
+    
+    // Write header
+    data[0] = 1; data[1] = 0; data[2] = 0; data[3] = 0; // version = 1
+    data[4] = 1; data[5] = 0; data[6] = 0; data[7] = 0; // count = 1
+    data[8] = 0; data[9] = 0; data[10] = 0; data[11] = 0; // CRC placeholder
+    
+    // Write malformed edit: bit 15 set in coord (invalid)
+    // Stored as little-endian: low byte first, high byte second
+    data[12] = 0x00; data[13] = 0x80; // coord = 0x8000 (bit 15 set)
+    data[14] = 1; data[15] = 0; // block_id = 1 (valid)
+    
+    // Recompute CRC
+    uint32_t crc = crc32(data.data() + 12, 4);
+    data[8] = crc & 0xFF;
+    data[9] = (crc >> 8) & 0xFF;
+    data[10] = (crc >> 16) & 0xFF;
+    data[11] = (crc >> 24) & 0xFF;
+    
+    EditMap loaded;
+    bool ok = deserialize_edit_map(data.data(), data.size(), loaded);
+    CHECK(!ok);
+}
+
+TEST_CASE("edit map rejects version mismatch") {
+    BlockRegistry::get_instance().initialize_default_blocks();
+    
+    // Construct an edit map with wrong version
+    std::vector<uint8_t> data;
+    data.resize(12);
+    
+    // Write header with version = 99
+    data[0] = 99; data[1] = 0; data[2] = 0; data[3] = 0; // version = 99
+    data[4] = 0; data[5] = 0; data[6] = 0; data[7] = 0; // count = 0
+    data[8] = 0; data[9] = 0; data[10] = 0; data[11] = 0; // CRC = 0
+    
+    EditMap loaded;
+    bool ok = deserialize_edit_map(data.data(), data.size(), loaded);
+    CHECK(!ok);
+}
+
+TEST_CASE("edit map rejects truncated data") {
+    BlockRegistry::get_instance().initialize_default_blocks();
+    
+    // Truncated header (less than 12 bytes)
+    std::vector<uint8_t> data(11, 0);
+    
+    EditMap loaded;
+    bool ok = deserialize_edit_map(data.data(), data.size(), loaded);
+    CHECK(!ok);
 }

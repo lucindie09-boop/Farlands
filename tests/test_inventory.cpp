@@ -120,6 +120,19 @@ TEST_CASE("inventory basic operations") {
         CHECK(inv.get_hotbar_slot(1).count == 20); // Unchanged
     }
     
+    SUBCASE("consume_block reduces remaining across non-selected hotbar before main inventory") {
+        inv.set_hotbar_slot(0, 1, 5);      // Selected slot
+        inv.set_hotbar_slot(1, 1, 20);     // Non-selected hotbar
+        inv.set_inventory_slot(0, 1, 10);  // Main inventory
+        inv.select_slot(0);
+        
+        inv.consume_block(1, 10);
+        CHECK(inv.get_hotbar_slot(0).count == 0);      // Selected fully drained
+        CHECK(inv.get_hotbar_slot(1).count == 15);     // 5 drained from hotbar
+        CHECK(inv.get_inventory_slot(0).count == 10);  // Main inventory untouched
+        CHECK(inv.get_total_count(1) == 25);
+    }
+    
     SUBCASE("inventory slot operations") {
         inv.set_inventory_slot(0, 1, 30);
         CHECK(inv.get_inventory_slot(0).block_id == 1);

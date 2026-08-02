@@ -298,18 +298,40 @@ func _drop_slot_at_position(pos: Vector2):
 			drag_block_id = 0
 			drag_count = 0
 
+func _get_slot_block_id(slot_index: int) -> int:
+	if slot_index < HOTBAR_SIZE:
+		return player_controller.get_hotbar_slot_block_id(slot_index)
+	return player_controller.get_inventory_slot_block_id(slot_index - HOTBAR_SIZE)
+
+func _get_slot_count(slot_index: int) -> int:
+	if slot_index < HOTBAR_SIZE:
+		return player_controller.get_hotbar_slot_count(slot_index)
+	return player_controller.get_inventory_slot_count(slot_index - HOTBAR_SIZE)
+
+func _set_slot(slot_index: int, block_id: int, count: int):
+	if slot_index < HOTBAR_SIZE:
+		player_controller.set_hotbar_slot(slot_index, block_id, count)
+	else:
+		player_controller.set_inventory_slot(slot_index - HOTBAR_SIZE, block_id, count)
+
 func _move_slot_items(from_slot: int, to_slot: int):
-	# Clear source slot
-	if from_slot < HOTBAR_SIZE:
-		player_controller.set_hotbar_slot(from_slot, 0, 0)
-	else:
-		player_controller.set_inventory_slot(from_slot - HOTBAR_SIZE, 0, 0)
+	# Read what's in the destination before changing anything
+	var dest_block_id = _get_slot_block_id(to_slot)
+	var dest_count = _get_slot_count(to_slot)
 	
-	# Set target slot
-	if to_slot < HOTBAR_SIZE:
-		player_controller.set_hotbar_slot(to_slot, drag_block_id, drag_count)
+	if dest_block_id == drag_block_id || dest_count == 0:
+		# Same block (or empty slot): merge stacks, overflowing back into source
+		var merged = drag_count + dest_count
+		if merged <= 64:
+			_set_slot(to_slot, drag_block_id, merged)
+			_set_slot(from_slot, 0, 0)
+		else:
+			_set_slot(to_slot, drag_block_id, 64)
+			_set_slot(from_slot, drag_block_id, merged - 64)
 	else:
-		player_controller.set_inventory_slot(to_slot - HOTBAR_SIZE, drag_block_id, drag_count)
+		# Incompatible block: swap the two slots' contents
+		_set_slot(to_slot, drag_block_id, drag_count)
+		_set_slot(from_slot, dest_block_id, dest_count)
 	
 	# Update hotbar selection if needed
 	if to_slot < HOTBAR_SIZE:

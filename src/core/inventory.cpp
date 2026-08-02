@@ -138,7 +138,7 @@ bool Inventory::consume_block(BlockID block_id, int count) {
     }
     
     if (remaining > 0) {
-        consume_from_slots(hotbar_, block_id, remaining);
+        remaining -= consume_from_slots(hotbar_, block_id, remaining);
     }
     
     if (remaining > 0) {
@@ -257,3 +257,5 @@ void Inventory::clear() {
 }
 
 } // namespace VoxelEngine
+
+

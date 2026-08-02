@@ -25,6 +25,7 @@ public:
     ~PlayerController() override;
 
     void _ready() override;
+    void _exit_tree() override;
     void _process(double delta) override;
     void _input(const godot::Ref<godot::InputEvent> &p_event) override;
 
@@ -69,6 +70,7 @@ private:
     float fly_speed_ = 10.0f;
     bool fly_mode_ = false;
     bool inventory_open_ = false;
+    bool inventory_saved_ = false;
     float rendered_eye_height_ = 1.62f;
 };
 

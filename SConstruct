@@ -41,6 +41,8 @@ Default(library, cdb)
 # Pre-compile sources shared between the library and standalone targets once
 # with env, so cloned envs (debug_env, bench_env, test_env) don't recompile
 # them with potentially different flags (e.g. --coverage).
+# Note: chunk_data.cpp is NOT in shared_sources because the library uses
+# PaletteStorage while tests use the simpler ChunkData implementation.
 shared_sources = [
     "src/worldgen/chunk_generator.cpp",
     "src/worldgen/vegetation_generator.cpp",

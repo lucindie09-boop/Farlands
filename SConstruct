@@ -44,7 +44,6 @@ Default(library, cdb)
 shared_sources = [
     "src/worldgen/chunk_generator.cpp",
     "src/worldgen/vegetation_generator.cpp",
-    "src/core/chunk_data.cpp",
     "src/core/block_types.cpp",
     "src/core/inventory.cpp",
     "src/core/edit_map.cpp",
@@ -79,7 +78,8 @@ Alias("bench", bench_prog)
 test_env = env.Clone()
 test_env.Append(CPPPATH=["src/", "tests/"])
 test_env.Append(LIBS=[])
-test_prog = test_env.Program("bin/run_tests", Glob("tests/*.cpp") + shared_objects)
+# Add chunk_data for integration test (not in shared_sources because library uses PaletteStorage)
+test_prog = test_env.Program("bin/run_tests", Glob("tests/*.cpp") + shared_objects + ["src/core/chunk_data.cpp"])
 Alias("test", test_prog)
 
 # LibFuzzer harnesses (Clang-only, Linux/macOS)

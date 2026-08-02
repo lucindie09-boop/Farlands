@@ -25,6 +25,18 @@ A Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked streamin
 - **Emissive texture support**: Second `Texture2DArray` for per-face glow maps
 - **Soft curved AO**: Non-linear power-curve smoothing to eliminate diagonal triangulation seams
 
+### Inventory & GUI
+- **C++ inventory core**: `Inventory` (9 hotbar + 27 main slots, 64 stack limit) with add/consume/can_add logic in `src/core/inventory.*`
+- **Block break/place integration**: Breaking collects into the inventory (gated by `can_add_block`); placing consumes from the selected hotbar slot
+- **GDScript GUI**: `hotbar.gd` / `inventory.gd` `Control` overlays — E toggles the inventory, mouse wheel cycles the hotbar, click-to-hold / drag-drop stack movement, hover/selection highlights built by pixel-color-keyed texture recolor (no hand-drawn art)
+- **Inventory persistence**: `user://chunks/inventory.bin` (`INVE` magic, version 1), saved in `PlayerController::_exit_tree` (nodes still alive) with a cached `ChunkManager` pointer — the old destructor-time tree lookup always failed at teardown
+
+### Async Chunk Saving
+- **Off-main-thread writes**: `flush_dirty_chunks` deep-copies each dirty chunk under its shard lock and hands the snapshot to the thread pool for RLE encode + atomic write; periodic 5s flush is non-blocking
+- **Generation gating**: per-key save generations (`next_save_generation`) so a newer snapshot supersedes an older in-flight save — superseded workers abort at their gate instead of clobbering newer data; epoch gate drops stale saves after a world reset
+- **Flush on quit**: `ChunkManager::_exit_tree()` blocks on `flush_dirty_chunks(true, 5.0)` so recent edits are never lost on exit
+- **Cross-chunk canopy persistence**: `apply_pending_placements` marks the receiving neighbor chunk dirty so deferred tree-canopy writes survive reload
+
 ### Terrain Generation
 - **Signed 3D density field**: Overhangs, shelves, and arches via 3D fBm deformation around macro heightmap surface
 - **4×4×4 world-aligned shape lattice**: Ensures bit-identical results across chunk boundaries
@@ -32,9 +44,9 @@ A Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked streamin
 - **Biome-based macro surface**: Multiple biomes with distinct terrain characteristics
 
 ### Testing & CI
-- **162 test cases / 91k+ assertions** across 17 doctest files
+- **164 test cases / 91,454 assertions** across 18 doctest files
 - **Cross-platform CI**: 5-leg matrix (ubuntu plain/TSan/ASan+UBSan, macos plain, windows plain) plus fuzz, static-analysis, and coverage jobs
-- **Concurrency tests**: 16 tests for shard locking, deadlock prevention, PaletteStorage, and cross-chunk patterns
+- **Concurrency tests**: 19 tests for shard locking, deadlock prevention, PaletteStorage, and cross-chunk patterns
 - **Benchmark tool**: 5 hot paths with `--check` regression detection mode
 - **Fuzzing**: 4 libFuzzer harnesses for palette, chunk load, light propagation, and mesh builder
 
@@ -42,6 +54,8 @@ A Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked streamin
 - **Save format v3**: RLE-compressed with CRC32 checksum; atomic writes with `.tmp` → `.bak` → target pattern
 - **Legacy support**: Handles v3 (CRC32), v2 (legacy RLE), and v1 (flat) transparently
 - **Corrupted file recovery**: Attempts to load from `.bak` backup on CRC mismatch
+- **Async background saves**: Dirty chunks are snapshotted and written on the thread pool; per-key generation + epoch gating ensures the newest state reaches disk
+- **Inventory persistence**: `user://chunks/inventory.bin` (`INVE` magic, version 1) written at `PlayerController::_exit_tree`
 
 ### Locking & Concurrency Fixes
 - **7 deadlock classes resolved**: Fixed self-deadlock in light propagation, shard lock ordering, and `_locked` method contracts

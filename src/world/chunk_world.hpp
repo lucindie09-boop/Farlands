@@ -53,6 +53,8 @@ public:
     void clear();
     void queue_pending_placement(int32_t world_x, int32_t world_y, int32_t world_z, int block_id);
     void apply_pending_placements(uint64_t key, int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, ChunkRenderData& render_data);
+    void queue_vegetation_placement(int32_t world_x, int32_t world_y, int32_t world_z, BlockID block_id);
+    void apply_vegetation_placements(uint64_t key, int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, ChunkRenderData& render_data);
     
     // Edit map methods
     void add_block_edit(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, int32_t local_x, int32_t local_y, int32_t local_z, BlockID block_id);
@@ -110,6 +112,8 @@ private:
     std::unordered_set<uint64_t> light_propagated_chunks;
     std::unordered_map<uint64_t, std::vector<PendingBlockPlacement>> pending_block_placements;
     std::mutex pending_placement_mutex;
+    std::unordered_map<uint64_t, std::vector<PendingBlockPlacement>> pending_vegetation_placements;
+    std::mutex vegetation_placement_mutex;
     std::mutex file_access_mutex;
     std::atomic<uint64_t> async_epoch{0};
 

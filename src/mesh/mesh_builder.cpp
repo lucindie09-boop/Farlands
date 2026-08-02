@@ -1,4 +1,5 @@
 #include "mesh/mesh_builder.hpp"
+#include <algorithm>
 
 namespace VoxelEngine {
 
@@ -599,6 +600,9 @@ void MeshBuilder::build_far_mesh(const ChunkData& chunk, const BlockRegistry& re
             face.block_id = merge_block;
             face.u_max = stride_xz_ - 1;
             face.v_max = (z - stride_xz_) - merge_start;
+            
+            // Far LOD: uniform AO for consistency with near/mid tiers
+            // Face direction shade is applied by shader, so we just need uniform brightness
             const float ao[4] = {1.0f, 1.0f, 1.0f, 1.0f};
             add_greedy_face(chunk, accessor, face, merge_light, 0, ao, registry);
             merge_start = -1;

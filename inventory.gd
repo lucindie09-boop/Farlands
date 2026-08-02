@@ -31,6 +31,11 @@ var held_block_id = 0  # Stack held at the cursor (click-to-hold model)
 var held_count = 0
 var _hover_texture: Texture2D = null  # pre-built recolored hovered slot
 
+# Drag state
+var _drag_button = -1  # which button is currently held, -1 if none
+var _drag_shift = false  # shift state captured at press time
+var _drag_last_slot = -1  # last slot a drag-action fired for
+
 func _ready():
 	# Load the inventory texture
 	inventory_texture = load("res://textures/gui/inventory.png")
@@ -76,6 +81,10 @@ func _toggle_inventory():
 
 func _close_inventory():
 	is_open = false
+	# Clear drag state to prevent stuck drags surviving close/reopen
+	_drag_button = -1
+	_drag_shift = false
+	_drag_last_slot = -1
 	hide()
 	player_controller.set_inventory_open(false)
 	queue_redraw()
@@ -217,19 +226,44 @@ func _get_block_color(block_id: int) -> Color:
 func _gui_input(event):
 	if not is_open:
 		return
+	
 	if event is InputEventMouseMotion:
 		var slot = _slot_at_position(event.position)
 		if slot != hovered_slot:
 			hovered_slot = slot
 			queue_redraw()
-	elif event is InputEventMouseButton and event.pressed:
+		
+		# Check for drag action: armed button and slot changed since last action
+		if _drag_button >= 0 and slot != _drag_last_slot:
+			if slot >= 0:  # Only fire when entering a slot, not when leaving to background
+				_handle_drag_action(slot)
+			_drag_last_slot = slot
+	
+	elif event is InputEventMouseButton:
 		var slot = _slot_at_position(event.position)
-		if slot < 0:
-			return
-		if event.button_index == MOUSE_BUTTON_LEFT:
-			_left_click_slot(slot)
-		elif event.button_index == MOUSE_BUTTON_RIGHT:
-			_right_click_slot(slot)
+		
+		if event.pressed:
+			# Button press: stash drag state and run existing single-click behavior
+			if slot >= 0:
+				_drag_button = event.button_index
+				_drag_shift = Input.is_key_pressed(KEY_SHIFT)
+				_drag_last_slot = slot
+				
+				if event.button_index == MOUSE_BUTTON_LEFT:
+					_left_click_slot(slot)
+				elif event.button_index == MOUSE_BUTTON_RIGHT:
+					_right_click_slot(slot)
+		else:
+			# Button release: clear drag state
+			if event.button_index == _drag_button:
+				_drag_button = -1
+				_drag_shift = false
+				_drag_last_slot = -1
+	
+	elif event is InputEventMouseWheel:
+		var slot = _slot_at_position(event.position)
+		if slot >= 0:
+			_handle_scroll_transfer(slot, event)
 
 func _slot_at_position(pos: Vector2) -> int:
 	if not inventory_texture:
@@ -252,6 +286,11 @@ func _left_click_slot(slot: int):
 	selected_slot = slot
 	if slot < HOTBAR_SIZE:
 		player_controller.select_hotbar_slot(slot)
+	
+	# Handle shift-click quick-transfer
+	if Input.is_key_pressed(KEY_SHIFT):
+		_quick_transfer_slot(slot)
+		return
 	
 	var slot_id = _get_slot_block_id(slot)
 	var slot_count = _get_slot_count(slot)
@@ -299,16 +338,8 @@ func _right_click_slot(slot: int):
 			else:
 				_set_slot(slot, slot_id, rest)
 	else:
-		# Place one item into an empty or same-block slot with room
-		if slot_id == 0:
-			_set_slot(slot, held_block_id, 1)
-			held_count -= 1
-		elif slot_id == held_block_id and slot_count < 64:
-			_set_slot(slot, slot_id, slot_count + 1)
-			held_count -= 1
-		# Incompatible block or full stack: nothing happens
-		if held_count <= 0:
-			_clear_held()
+		# Place one item using shared helper (same logic as RMB drag)
+		_try_place_one(slot)
 	queue_redraw()
 
 func _get_slot_block_id(slot_index: int) -> int:
@@ -326,3 +357,169 @@ func _set_slot(slot_index: int, block_id: int, count: int):
 		player_controller.set_hotbar_slot(slot_index, block_id, count)
 	else:
 		player_controller.set_inventory_slot(slot_index - HOTBAR_SIZE, block_id, count)
+
+func _is_hotbar_slot(slot: int) -> bool:
+	return slot < HOTBAR_SIZE
+
+func _handle_drag_action(slot: int):
+	# Handle drag actions based on button and shift state
+	if _drag_button == MOUSE_BUTTON_RIGHT and _is_holding():
+		# RMB drag-place: place 1 unit per slot entered
+		_try_place_one(slot)
+	elif _drag_button == MOUSE_BUTTON_LEFT and _is_holding():
+		# LMB drag-collect: collect matching blocks from slot
+		_try_collect_from_slot(slot)
+	elif _drag_button == MOUSE_BUTTON_LEFT and _drag_shift:
+		# Shift-drag quick-transfer: move to other zone
+		_quick_transfer_slot(slot)
+
+func _try_place_one(slot: int) -> bool:
+	# Shared helper for RMB place compatibility check
+	# Returns true if placement succeeded, false if blocked
+	if not _is_holding():
+		return false
+	
+	var slot_id = _get_slot_block_id(slot)
+	var slot_count = _get_slot_count(slot)
+	
+	# Can place if slot is empty or has same block with room
+	if slot_id == 0:
+		_set_slot(slot, held_block_id, 1)
+		held_count -= 1
+	elif slot_id == held_block_id and slot_count < 64:
+		_set_slot(slot, slot_id, slot_count + 1)
+		held_count -= 1
+	else:
+		return false  # Incompatible or full
+	
+	if held_count <= 0:
+		_clear_held()
+	
+	queue_redraw()
+	return true
+
+func _try_collect_from_slot(slot: int):
+	# LMB drag-collect: sweep as much as fits from matching slot
+	if not _is_holding():
+		return
+	
+	var slot_id = _get_slot_block_id(slot)
+	var slot_count = _get_slot_count(slot)
+	
+	# Only collect if block matches
+	if slot_id == held_block_id and slot_count > 0:
+		var space_left = 64 - held_count
+		if space_left > 0:
+			var take = min(slot_count, space_left)
+			held_count += take
+			_set_slot(slot, slot_id, slot_count - take)
+			queue_redraw()
+
+func _quick_transfer_slot(slot: int):
+	# Shift-click/drag: move stack to other zone
+	var slot_id = _get_slot_block_id(slot)
+	var slot_count = _get_slot_count(slot)
+	
+	if slot_id == 0 or slot_count == 0:
+		return
+	
+	var is_source_hotbar = _is_hotbar_slot(slot)
+	var source_is_hotbar = is_source_hotbar
+	
+	# Move as much as possible to the other zone
+	var moved = _quick_transfer_to_zone(slot_id, slot_count, not source_is_hotbar)
+	
+	if moved > 0:
+		var remaining = slot_count - moved
+		if remaining <= 0:
+			_set_slot(slot, 0, 0)
+		else:
+			_set_slot(slot, slot_id, remaining)
+		queue_redraw()
+
+func _quick_transfer_to_zone(block_id: int, count: int, target_is_hotbar: bool) -> int:
+	# Move count of block_id to target zone (hotbar or main inventory)
+	# Returns how many were actually moved
+	var moved = 0
+	var remaining = count
+	
+	# First, fill existing same-block slots in target zone
+	var zone_size = HOTBAR_SIZE if target_is_hotbar else INVENTORY_SIZE
+	var zone_offset = 0 if target_is_hotbar else HOTBAR_SIZE
+	
+	for i in range(zone_size):
+		if remaining <= 0:
+			break
+		
+		var slot_index = zone_offset + i
+		var slot_id = _get_slot_block_id(slot_index)
+		var slot_count = _get_slot_count(slot_index)
+		
+		if slot_id == block_id and slot_count < 64:
+			var space = 64 - slot_count
+			var add = min(remaining, space)
+			_set_slot(slot_index, block_id, slot_count + add)
+			moved += add
+			remaining -= add
+	
+	# Then, put remainder in first empty slot
+	if remaining > 0:
+		for i in range(zone_size):
+			if remaining <= 0:
+				break
+			
+			var slot_index = zone_offset + i
+			var slot_id = _get_slot_block_id(slot_index)
+			
+			if slot_id == 0:
+				var add = min(remaining, 64)
+				_set_slot(slot_index, block_id, add)
+				moved += add
+				remaining -= add
+				break  # Only fill one empty slot
+	
+	return moved
+
+func _handle_scroll_transfer(slot: int, event: InputEventMouseWheel):
+	# Scroll wheel quick-transfer between zones
+	var slot_id = _get_slot_block_id(slot)
+	var slot_count = _get_slot_count(slot)
+	
+	if event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+		# Scroll down: push 1 unit from hovered slot to other zone
+		if slot_id > 0 and slot_count > 0:
+			var is_source_hotbar = _is_hotbar_slot(slot)
+			var moved = _quick_transfer_to_zone(slot_id, 1, not is_source_hotbar)
+			if moved > 0:
+				var remaining = slot_count - moved
+				if remaining <= 0:
+					_set_slot(slot, 0, 0)
+				else:
+					_set_slot(slot, slot_id, remaining)
+				queue_redraw()
+	
+	elif event.button_index == MOUSE_BUTTON_WHEEL_UP:
+		# Scroll up: pull 1 unit from other zone of same block type
+		if slot_id > 0:
+			# Only pull if slot has a block type to match against
+			var is_source_hotbar = _is_hotbar_slot(slot)
+			var source_is_hotbar = is_source_hotbar
+			var target_is_hotbar = not source_is_hotbar
+			
+			# Search other zone for same block
+			var zone_size = HOTBAR_SIZE if target_is_hotbar else INVENTORY_SIZE
+			var zone_offset = 0 if target_is_hotbar else HOTBAR_SIZE
+			
+			for i in range(zone_size):
+				var source_slot = zone_offset + i
+				var source_id = _get_slot_block_id(source_slot)
+				var source_count = _get_slot_count(source_slot)
+				
+				if source_id == slot_id and source_count > 0:
+					# Found matching block, pull 1 unit
+					var target_space = 64 - slot_count
+					if target_space > 0:
+						_set_slot(source_slot, source_id, source_count - 1)
+						_set_slot(slot, slot_id, slot_count + 1)
+						queue_redraw()
+						break

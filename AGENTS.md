@@ -29,6 +29,7 @@ A Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked streamin
 - **C++ inventory core**: `Inventory` (9 hotbar + 27 main slots, 64 stack limit) with add/consume/can_add logic in `src/core/inventory.*`
 - **Block break/place integration**: Breaking collects into the inventory (gated by `can_add_block`); placing consumes from the selected hotbar slot
 - **GDScript GUI**: `hotbar.gd` / `inventory.gd` `Control` overlays — E toggles the inventory, mouse wheel cycles the hotbar, click-to-hold / drag-drop stack movement, hover/selection highlights built by pixel-color-keyed texture recolor (no hand-drawn art)
+- **Inventory drag operations**: RMB drag-place (spread 1 unit per slot), LMB drag-collect (sweep matching blocks), shift-click/drag quick-transfer (move between hotbar/main), scroll wheel quick-transfer (push/pull 1 unit between zones)
 - **Inventory persistence**: `user://chunks/inventory.bin` (`INVE` magic, version 1), saved in `PlayerController::_exit_tree` (nodes still alive) with a cached `ChunkManager` pointer — the old destructor-time tree lookup always failed at teardown
 
 ### Async Chunk Saving

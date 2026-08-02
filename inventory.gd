@@ -95,7 +95,7 @@ func _slot_screen_rect(slot_index: int, texture_x: float, texture_y: float) -> R
 	else:
 		var i = slot_index - HOTBAR_SIZE
 		col = i % 9
-		row_top_px = MAIN_GRID_TOP + int(i / 9) * SLOT_PITCH
+		row_top_px = MAIN_GRID_TOP + int(i / 9.0) * SLOT_PITCH
 	var x = texture_x + (GRID_LEFT + col * SLOT_PITCH) * TEX_SCALE
 	var y = texture_y + row_top_px * TEX_SCALE
 	var s = SLOT_SIZE_PX * TEX_SCALE
@@ -109,9 +109,9 @@ func _draw():
 	if inventory_texture:
 		var texture_width = inventory_texture.get_width()
 		var texture_height = inventory_texture.get_height()
-		var scale = TEX_SCALE  # Match hotbar scaling
-		var scaled_width = texture_width * scale
-		var scaled_height = texture_height * scale
+		var ui_scale = TEX_SCALE  # Match hotbar scaling
+		var scaled_width = texture_width * ui_scale
+		var scaled_height = texture_height * ui_scale
 		var texture_x = (size.x - scaled_width) / 2.0
 		var texture_y = (size.y - scaled_height) / 2.0
 		draw_texture_rect(inventory_texture, Rect2(texture_x, texture_y, scaled_width, scaled_height), false)
@@ -127,7 +127,7 @@ func _draw():
 	# Draw held stack following the mouse
 	if _is_holding():
 		var mouse_pos = get_local_mouse_position()
-		var drag_size = 48
+		var drag_size = 48.0
 		var block_texture = BlockTextures.get_texture(held_block_id)
 		if block_texture:
 			draw_texture_rect(block_texture, Rect2(mouse_pos.x - drag_size/2, mouse_pos.y - drag_size/2, drag_size, drag_size), false)
@@ -193,7 +193,7 @@ func _draw_fallback_inventory():
 	
 	# Draw all slots
 	for i in range(TOTAL_SLOTS):
-		var row = int(i / 9)
+		var row = int(i / 9.0)
 		var col = i % 9
 		var slot_x = start_x + col * (slot_width + slot_spacing)
 		var slot_y = start_y + row * (slot_height + slot_spacing)
@@ -290,7 +290,7 @@ func _right_click_slot(slot: int):
 	if not _is_holding():
 		# Pick up half the stack (rounded up), leave the rest
 		if slot_id > 0 and slot_count > 0:
-			var pick = int((slot_count + 1) / 2)
+			var pick = int((slot_count + 1) / 2.0)
 			held_block_id = slot_id
 			held_count = pick
 			var rest = slot_count - pick

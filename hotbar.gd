@@ -79,9 +79,9 @@ func _draw():
 		return
 	
 	# Draw the texture centered at bottom with scaling
-	var scale = 3.0  # Scale up the texture
-	var scaled_width = texture_width * scale
-	var scaled_height = texture_height * scale
+	var ui_scale = 3.0  # Scale up the texture
+	var scaled_width = texture_width * ui_scale
+	var scaled_height = texture_height * ui_scale
 	var texture_x = (size.x - scaled_width) / 2.0
 	var texture_y = size.y - scaled_height - 20.0
 	draw_texture_rect(hotbar_texture, Rect2(texture_x, texture_y, scaled_width, scaled_height), false)
@@ -89,10 +89,10 @@ func _draw():
 	# Draw each hotbar slot content, positioned inside the exact 16x16 fill
 	# box (SLOT_FILL_X/Y inset, SLOT_PITCH spacing) rather than the derived
 	# texture_width/HOTBAR_SIZE pitch, so icons never drift across the bar.
-	var fill_size = SLOT_FILL_SIZE * scale
+	var fill_size = SLOT_FILL_SIZE * ui_scale
 	for i in range(HOTBAR_SIZE):
-		var fill_x = texture_x + (SLOT_FILL_X + i * SLOT_PITCH) * scale
-		var fill_y = texture_y + SLOT_FILL_Y * scale
+		var fill_x = texture_x + (SLOT_FILL_X + i * SLOT_PITCH) * ui_scale
+		var fill_y = texture_y + SLOT_FILL_Y * ui_scale
 		
 		# Get slot data from C++ inventory
 		var block_id = player_controller.get_hotbar_slot_block_id(i)

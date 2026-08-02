@@ -69,7 +69,7 @@ This document describes the current, stable architecture of the voxel engine. Fo
 
 ### Unloading
 1. `try_unload_chunk()` checks if chunk can be unloaded (no pending mesh builds, not in frustum)
-2. Calls `save_chunk_to_disk()` with atomic write pattern
+2. Snapshots the chunk data and hands it to the background save queue (superseding any in-flight save of the same chunk) — no blocking file I/O on the main thread
 3. Removes from `ChunkMap`
 
 ### Persistence
@@ -77,6 +77,11 @@ This document describes the current, stable architecture of the voxel engine. Fo
 - **Atomic writes**: Write to `.tmp` file → create `.bak` backup of existing → atomic rename to target
 - **CRC recovery**: On CRC mismatch, attempt to load from `.bak` backup; delete corrupted files if no valid backup
 - Supports v3 (CRC32), v2 (legacy RLE), v1 (flat legacy) transparently
+- **Async saves**: `flush_dirty_chunks(wait_for_completion, timeout_sec)` deep-copies each dirty chunk under its shard lock (cheap — 1–20KB palette-compressed data), clears the dirty flag at snapshot time, and hands the snapshot to the thread pool for RLE encode + write. All file I/O is serialized by `file_access_mutex`. `WorldUpdater::flush_dirty()` triggers a periodic non-blocking flush every 5s (`flush_interval`).
+- **Generation gating**: each in-flight save carries a per-key generation from `next_save_generation`; a newer snapshot for the same chunk bumps the generation, and the superseded worker aborts at its gate (checked under `file_access_mutex`) instead of clobbering newer data. An epoch gate additionally drops stale saves after a world reset. This guarantees the newest state is always the last one written, with at most one live write per chunk file.
+- **Flush on quit**: `ChunkManager::_exit_tree()` calls `flush_dirty_chunks(true, 5.0)`, which blocks until all outstanding saves finish so recent edits are never lost on exit.
+- **Inventory persistence**: `Inventory` serializes to `user://chunks/inventory.bin` (magic `INVE`, version 1, hotbar + 27 main slots + selected slot). `PlayerController::_exit_tree()` saves it while nodes are still alive (the destructor's tree lookups always failed at teardown).
+- **Cross-chunk writes**: `apply_pending_placements()` marks the receiving chunk dirty, so deferred vegetation canopy writes to a neighbor chunk are persisted by the next flush.
 
 ## Memory Layout
 
@@ -138,7 +143,9 @@ This document describes the current, stable architecture of the voxel engine. Fo
 Two layers mirroring the ChunkManager/VoxelEngineController pattern:
 
 - **`VoxelEngine::PlayerSim`** (`src/engine/player_controller.*`) — pure, deterministic fixed-timestep simulation (20 ticks/s, velocities in blocks/tick). Vanilla-accurate ordering (jump + sprint boost applied before friction, matching `tickMovement()` → `travel()`), sticky sprint with a one-tick airborne staleness, sneak multiplier on ground only, and `on_floor` derived from the final resolved position (no swept floor probe). Standing/sneaking/landing eye-height transitions are smoothed at render time from the accumulator's partial-tick fraction.
-- **`PlayerController`** (`src/godot_bindings/player_controller.*`) — Godot `Node3D` scene node registered via ClassDB (used directly by `Main.tscn`). Polls input, drives the tick accumulator from `_process(delta)`, handles mouse look, fly mode (`fly_speed`), camera eye-height smoothing, raycast-based break/place, and block selection (keys 1–0).
+- **`PlayerController`** (`src/godot_bindings/player_controller.*`) — Godot `Node3D` scene node registered via ClassDB (used directly by `Main.tscn`). Polls input, drives the tick accumulator from `_process(delta)`, handles mouse look, fly mode (`fly_speed`), camera eye-height smoothing, raycast-based break/place, and block selection (keys 1–9).
+- **Inventory integration** — `PlayerController` owns a `VoxelEngine::Inventory` (9 hotbar + 27 main slots, 64 stack limit). Breaking a block collects it only if `can_add_block` succeeds; placing consumes from the selected hotbar slot. Hotbar/inventory state is exposed to GDScript via ClassDB bindings (`get_hotbar_slot_block_id`, `set_inventory_slot`, `select_hotbar_slot`, etc.) and rendered by the `hotbar.gd` / `inventory.gd` `Control` overlays (E toggles, mouse wheel cycles the hotbar, click-to-hold/drag-drop stack movement).
+- **Lifecycle hooks** — `PlayerController::_ready()` caches the `ChunkManager` pointer (no per-call tree lookups) and loads the saved inventory; `_exit_tree()` saves the inventory while every node is still allocated, guarded by `inventory_saved_` so the destructor's fallback save is a no-op.
 
 No `CharacterBody3D`, `move_and_slide`, or `CollisionShape3D` — all collision goes through `CollisionResolver` against the chunk map.
 
@@ -150,6 +157,7 @@ No `CharacterBody3D`, `move_and_slide`, or `CollisionShape3D` — all collision 
 - `src/core/chunk_coords.hpp` — Constants (`CHUNK_WIDTH`, `SECTION_HEIGHT`, `WORLD_HEIGHT_Y`)
 - `src/core/frustum.hpp` — Frustum utility (AABB test, chunk visibility)
 - `src/core/block_types.hpp/cpp` — `BlockRegistry`, `load_from_json`
+- `src/core/inventory.hpp/cpp` — `Inventory`, `InventorySlot`: hotbar/main storage, add/consume/can_add, 64 stack limit
 - `src/core/crc32.hpp` — IEEE 802.3 CRC32 for chunk save checksum
 - `src/core/thread_pool.hpp` — Shared worker pool, high-priority queue
 
@@ -160,10 +168,10 @@ No `CharacterBody3D`, `move_and_slide`, or `CollisionShape3D` — all collision 
 - `src/mesh/mesh_types.hpp` — Mesh types, light checksum grid for incremental rebuilds
 
 ### World
-- `src/world/chunk_world.cpp` — Save/load, all hot paths use `lock_keys_exclusive()`
+- `src/world/chunk_world.cpp` — Save/load, all hot paths use `lock_keys_exclusive()`; async `flush_dirty_chunks`, `enqueue_chunk_save` / `save_chunk_snapshot` (generation + epoch gated), `write_chunk_file_locked`, inventory save/load
 - `src/world/block_editor.cpp` — `place_block` with targeted locking
 - `src/world/player_light.hpp` — Player light with targeted locking
-- `src/world/world_updater.hpp/cpp` — Frustum integration, budgets
+- `src/world/world_updater.hpp/cpp` — Frustum integration, budgets, periodic dirty flush
 - `src/world/chunk_scheduler.hpp` — Completion queues, `poll_completed_mesh_nearest`
 - `src/world/day_night_cycle.hpp` — Sky-light cycle
 
@@ -178,8 +186,8 @@ No `CharacterBody3D`, `move_and_slide`, or `CollisionShape3D` — all collision 
 - `src/worldgen/texture_array_generator.hpp` — Diffuse + emissive `Texture2DArray` generation
 
 ### Godot bindings
-- `src/godot_bindings/chunk_manager.cpp` — Inspector properties, camera/frustum entry point, block API
-- `src/godot_bindings/player_controller.cpp` — `PlayerController` node: input, mouse look, fly mode, break/place
+- `src/godot_bindings/chunk_manager.cpp` — Inspector properties, camera/frustum entry point, block API, `flush_dirty_chunks`, `_exit_tree` quit flush
+- `src/godot_bindings/player_controller.cpp` — `PlayerController` node: input, mouse look, fly mode, break/place, inventory bindings, `_exit_tree` inventory save
 
 ### Lighting
 - `src/lighting/light_propagator.hpp/cpp` — Public wrappers + `_locked` variants
@@ -189,8 +197,9 @@ No `CharacterBody3D`, `move_and_slide`, or `CollisionShape3D` — all collision 
 - `data/block_definitions.json` — Single source of truth for block properties
 
 ### Testing
-- `tests/` — 17 doctest files, 162 test cases / 91k+ assertions, auto-discovered via `Glob("tests/*.cpp")`
-- `tests/test_concurrency.cpp` — 16 tests for shard locking, deadlock prevention, PaletteStorage
+- `tests/` — 18 doctest files, 164 test cases / 91,454 assertions, auto-discovered via `Glob("tests/*.cpp")`
+- `tests/test_concurrency.cpp` — 19 tests for shard locking, deadlock prevention, PaletteStorage
+- `tests/test_inventory.cpp` — Inventory add/consume/edge-case tests
 - `tests/test_light_propagation.cpp` — Cross-chunk BFS edge case tests
 - `tests/test_player_controller.cpp` — PlayerSim movement/sprint/sneak/collision tests
 - `tests/test_soak.cpp` — Multi-threaded fly-through-the-world stress test

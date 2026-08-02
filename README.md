@@ -1,6 +1,6 @@
 # fuk-minecraft
 
-A Minecraft-style voxel engine built in Godot 4 with a custom C++ GDExtension. Procedural terrain generation (signed 3D density field with overhangs and shelves), chunked world streaming, greedy meshing with per-chunk incremental rebuilds, colored block lighting, day/night cycle, multi-tier distance-based mesh LOD (including far-mode silhouette meshes), and frustum-prioritized chunk loading. Ships with a C++ player controller with Minecraft-accurate fixed-timestep physics.
+A Minecraft-style voxel engine built in Godot 4 with a custom C++ GDExtension. Procedural terrain generation (signed 3D density field with overhangs and shelves), chunked world streaming, greedy meshing with per-chunk incremental rebuilds, colored block lighting, day/night cycle, multi-tier distance-based mesh LOD (including far-mode silhouette meshes), frustum-prioritized chunk loading, async background chunk saving, and a C++ inventory system (hotbar + 27-slot storage) wired into block break/place with a GDScript GUI. Ships with a C++ player controller with Minecraft-accurate fixed-timestep physics.
 
 ## Architecture
 
@@ -35,6 +35,9 @@ A Minecraft-style voxel engine built in Godot 4 with a custom C++ GDExtension. P
 | LOD | `lod_distance` / `lod_detail_level` / `lod_far_distance` / `far_detail_level` (`mesh_manager.cpp`) | Three tiers — full detail, stride/detail reduction, far-mode heightmap-only silhouette meshes merged into far regions; capped remesh-per-frame |
 | Frame budgets | `src/core/frame_budgets.hpp` | Tiered budgets for generate/light/mesh/upload (idle/active/loading) |
 | Performance timers | `src/core/performance_timer.hpp` | Scoped frame-by-frame profiling |
+| Inventory | `src/core/inventory.hpp/cpp` | 9-slot hotbar + 27-slot main storage, 64 stack limit, add/consume/can_add logic, persisted to `user://chunks/inventory.bin` |
+| Inventory UI | `inventory.gd` / `hotbar.gd` | GDScript `Control` overlays: E toggles the full inventory, mouse wheel cycles the hotbar, click-to-hold / drag-drop stack movement, pixel-color-keyed hover/selection highlights |
+| Chunk persistence | `src/world/chunk_world.cpp` | Async background saves: dirty chunks are snapshotted under their shard lock, then RLE-encoded + atomically written on the thread pool; per-key generation gating guarantees the newest data reaches disk; blocking flush on quit |
 
 ## Rendering Notes
 
@@ -82,15 +85,17 @@ Open the project root in Godot 4 and press Play. The main scene is `Main.tscn`. 
 | W/A/S/D | Move |
 | Mouse | Look (click the window to capture the mouse) |
 | Space | Jump / ascend in flight |
-| Left click | Break block |
-| Right click | Place block |
+| Left click | Break block (collects into inventory) |
+| Right click | Place block (consumes from the selected hotbar slot) |
 | Shift | Sprint |
 | Ctrl | Sneak / descend in flight |
 | F | Toggle fly mode |
-| 1–0 | Select block type |
-| Esc | Release the mouse |
+| 1–9 | Select hotbar slot |
+| E | Toggle inventory |
+| Mouse wheel | Cycle hotbar selection (while the inventory is closed) |
+| Esc | Release the mouse / close the inventory |
 
-Input bindings live in `project.godot` (`move_forward`, `move_back`, `move_left`, `move_right`, `jump`, `sprint`, `sneak`, `fly_toggle`, `mouse_click_left`, `mouse_click_right`). The C++ `PlayerController` node owns all movement, look, and block interaction — there is no player GDScript.
+Input bindings live in `project.godot` (`move_forward`, `move_back`, `move_left`, `move_right`, `jump`, `sprint`, `sneak`, `fly_toggle`, `toggle_inventory`, `mouse_click_left`, `mouse_click_right`). The C++ `PlayerController` node owns all movement, look, block interaction, and inventory state — there is no player GDScript. The hotbar/inventory screens are GDScript `Control` overlays that read/write that state.
 
 ## Performance Tuning
 
@@ -114,12 +119,12 @@ The `PlayerController` node exposes **sensitivity** (mouse look) and **fly_speed
 
 ## Notes
 
-- The player is a C++ `PlayerController` node (`src/engine/player_controller.*` + `src/godot_bindings/player_controller.*`) — fixed 20-tick/s simulation with an accumulator, vanilla-accurate jump/sprint/sneak ordering, smooth eye-height transitions, fly mode, and raycast-based block break/place. There is no player GDScript anymore.
-- Modified chunks are saved to `user://chunks/` as versioned RLE-compressed `.chunk` files (v3 format with a CRC32 checksum; v2/v1 legacy files load transparently).
+- The player is a C++ `PlayerController` node (`src/engine/player_controller.*` + `src/godot_bindings/player_controller.*`) — fixed 20-tick/s simulation with an accumulator, vanilla-accurate jump/sprint/sneak ordering, smooth eye-height transitions, fly mode, and raycast-based block break/place. There is no player GDScript. The GUI layer (hotbar, full inventory screen, block-texture atlas) is GDScript (`hotbar.gd`, `inventory.gd`, `block_textures.gd`).
+- Modified chunks are saved to `user://chunks/` as versioned RLE-compressed `.chunk` files (v3 format with a CRC32 checksum; v2/v1 legacy files load transparently). Saves are asynchronous — `WorldUpdater` snapshots dirty chunks every 5s and writes them on the thread pool, and `ChunkManager::_exit_tree()` performs a blocking flush so nothing is lost on quit. The inventory persists to `user://chunks/inventory.bin` (magic `INVE`, version 1) and is written at `_exit_tree`.
 - `analyze.py` analyzes biome maps produced by the `terrain_debug` tool; it requires `Pillow`, `numpy`, and `scipy`, which aren't otherwise part of the build.
 - The LOD system is per-chunk, three-tier distance-based reduction inside the greedy mesher: full detail within `lod_distance`, stride/detail reduction in the mid tier, and heightmap-only silhouette meshes in the far tier (`lod_far_distance`/`far_detail_level`).
 - Frustum prioritization requires a `Camera3D` child on the player node (named `Camera3D`).
-- There is no gameplay layer yet beyond movement and block break/place — no inventory, crafting, mobs, or multiplayer.
+- There is no gameplay layer yet beyond movement and block break/place with an inventory — no crafting, mobs, or multiplayer.
 
 ## License
 

@@ -135,6 +135,7 @@ void toggle_day_night_cycle();
     
     void save_inventory(const Inventory& inventory);
     bool load_inventory(Inventory& inventory);
+    void flush_dirty_chunks(bool wait_for_completion = false, double timeout_sec = 5.0);
 
     ChunkWorld& get_chunk_world() { return chunk_world; }
     MeshManager& get_mesh_manager() { return mesh_manager; }

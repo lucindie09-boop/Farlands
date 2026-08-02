@@ -20,6 +20,8 @@
 #include <mutex>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
+#include <thread>
 
 namespace VoxelEngine {
 
@@ -39,7 +41,10 @@ public:
     void save_chunk_to_disk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z);
     void save_chunk_to_disk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, ChunkData* chunk_data);
     void mark_chunk_dirty(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z);
-    void flush_dirty_chunks();
+    // Snapshots every dirty chunk on the caller's thread and hands the snapshots
+    // to the thread pool for RLE encode + write. With wait_for_completion=true
+    // (quit path) it blocks until all outstanding saves finish (or timeout).
+    void flush_dirty_chunks(bool wait_for_completion = false, double timeout_sec = 5.0);
     bool is_chunk_dirty(uint64_t key) const;
     bool load_chunk_from_disk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, ChunkData& out_chunk_data);
     void free_loaded_chunks();
@@ -75,6 +80,17 @@ public:
     int get_block_world(int32_t wx, int32_t wy, int32_t wz) { return chunk_map.get_block_world(wx, wy, wz); }
 
 private:
+    // Writes the RLE-compressed chunk file. Caller MUST hold file_access_mutex.
+    void write_chunk_file_locked(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, const ChunkData& chunk_data);
+    // Deep-copies the chunk data into the background-save queue. Supersedes any
+    // in-flight save of the same chunk via a generation bump.
+    void enqueue_chunk_save(uint64_t key, int32_t cx, int32_t cy, int32_t cz, std::unique_ptr<ChunkData> snapshot);
+    // Background worker: epoch-gated, supersession-gated, writes the file.
+    void save_chunk_snapshot(uint64_t key, int32_t cx, int32_t cy, int32_t cz,
+                             std::unique_ptr<ChunkData> snapshot, uint64_t epoch, uint64_t generation);
+    bool is_save_in_flight(uint64_t key) const;
+    void wait_for_saves(double timeout_sec);
+
     godot::Node* owner = nullptr;
     MeshManager* mesh_manager = nullptr;
     LightPropagator* light_propagator = nullptr;
@@ -92,6 +108,15 @@ private:
 
     std::unordered_set<uint64_t> dirty_chunks;
     mutable std::mutex dirty_chunks_mutex;
+
+    // Background chunk saves: key -> save generation. At most one live task per
+    // key; a newer snapshot supersedes an older one by bumping the generation.
+    std::unordered_map<uint64_t, uint64_t> saves_in_flight;
+    mutable std::mutex saves_in_flight_mutex;
+    std::atomic<uint32_t> outstanding_saves{0};
+    std::atomic<uint64_t> next_save_generation{1};
+    std::mutex saves_cv_mutex;
+    std::condition_variable saves_cv;
 
     // Cross-boundary vegetation writes: neighbor chunks modified during generation
     std::vector<ChunkPos> pending_cross_boundary_remesh;

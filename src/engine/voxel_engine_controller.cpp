@@ -325,6 +325,10 @@ bool VoxelEngineController::load_inventory(Inventory& inventory) {
     return chunk_world.load_inventory(inventory);
 }
 
+void VoxelEngineController::flush_dirty_chunks(bool wait_for_completion, double timeout_sec) {
+    chunk_world.flush_dirty_chunks(wait_for_completion, timeout_sec);
+}
+
 void VoxelEngineController::set_auto_update(bool enabled) { auto_update = enabled; }
 bool VoxelEngineController::get_auto_update() const { return auto_update; }
 

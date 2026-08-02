@@ -16,8 +16,10 @@ using namespace VoxelEngine;
 
 PlayerController::PlayerController() = default;
 PlayerController::~PlayerController() {
-    // Auto-save inventory on destruction
-    save_inventory();
+    // Auto-save inventory on destruction (no-op if _exit_tree already saved).
+    if (!inventory_saved_) {
+        save_inventory();
+    }
 }
 
 void PlayerController::_bind_methods() {
@@ -76,6 +78,14 @@ void PlayerController::_ready() {
     
     // Load inventory from saved data
     load_inventory();
+}
+
+void PlayerController::_exit_tree() {
+    // _exit_tree fires while every node in the tree is still allocated, so the
+    // cached ChunkManager pointer is valid here — unlike in the destructor,
+    // where tree lookups and sibling pointers may be gone.
+    save_inventory();
+    inventory_saved_ = true;
 }
 
 void PlayerController::_process(double delta) {
@@ -339,21 +349,15 @@ bool PlayerController::is_inventory_open() const {
 }
 
 void PlayerController::save_inventory() {
-    Node* cm_node = get_node_or_null(NodePath("/root/Main/ChunkManager"));
-    if (!cm_node) return;
-    ChunkManager* cm = Object::cast_to<ChunkManager>(cm_node);
-    if (!cm) return;
-    auto* controller = cm->get_controller();
+    if (!chunk_manager_) return;
+    auto* controller = chunk_manager_->get_controller();
     if (!controller) return;
     controller->save_inventory(inventory_);
 }
 
 bool PlayerController::load_inventory() {
-    Node* cm_node = get_node_or_null(NodePath("/root/Main/ChunkManager"));
-    if (!cm_node) return false;
-    ChunkManager* cm = Object::cast_to<ChunkManager>(cm_node);
-    if (!cm) return false;
-    auto* controller = cm->get_controller();
+    if (!chunk_manager_) return false;
+    auto* controller = chunk_manager_->get_controller();
     if (!controller) return false;
     return controller->load_inventory(inventory_);
 }

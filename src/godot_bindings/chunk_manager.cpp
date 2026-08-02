@@ -125,6 +125,13 @@ void ChunkManager::_exit_tree() {
     ready_for_auto_update = false;
     cached_player = nullptr;
     cached_camera = nullptr;
+    // Flush any dirty chunks while the world is still fully alive (all chunks
+    // loaded, thread pool running, controller owned by this node). Without this,
+    // edits made since the last 5s periodic flush are lost on quit. Blocking:
+    // we must not let the process exit while background saves are outstanding.
+    if (controller) {
+        controller->flush_dirty_chunks(true, 5.0);
+    }
 }
 
 // -------------------------------------------------------------------------
@@ -273,6 +280,7 @@ float ChunkManager::get_move_speed_multiplier() const { return move_speed_multip
 void ChunkManager::save_world_metadata() { controller->save_world_metadata(); }
 bool ChunkManager::load_world_metadata() { return controller->load_world_metadata(); }
 bool ChunkManager::world_metadata_exists() const { return controller->world_metadata_exists(); }
+void ChunkManager::flush_dirty_chunks() { controller->flush_dirty_chunks(); }
 
 // -------------------------------------------------------------------------
 // _bind_methods
@@ -294,6 +302,7 @@ void ChunkManager::_bind_methods() {
     ClassDB::bind_method(D_METHOD("save_world_metadata"), &ChunkManager::save_world_metadata);
     ClassDB::bind_method(D_METHOD("load_world_metadata"), &ChunkManager::load_world_metadata);
     ClassDB::bind_method(D_METHOD("world_metadata_exists"), &ChunkManager::world_metadata_exists);
+    ClassDB::bind_method(D_METHOD("flush_dirty_chunks"), &ChunkManager::flush_dirty_chunks);
 
 ClassDB::bind_method(D_METHOD("set_time", "time"), &ChunkManager::set_time);
 ClassDB::bind_method(D_METHOD("get_time"), &ChunkManager::get_time);

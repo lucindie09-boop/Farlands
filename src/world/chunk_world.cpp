@@ -436,14 +436,131 @@ void ChunkWorld::mark_chunk_dirty(int32_t chunk_x, int32_t chunk_y, int32_t chun
     dirty_chunks.insert(key);
 }
 
-void ChunkWorld::flush_dirty_chunks() {
-    std::lock_guard<std::mutex> lock(dirty_chunks_mutex);
-    for (uint64_t key : dirty_chunks) {
+void ChunkWorld::flush_dirty_chunks(bool wait_for_completion, double timeout_sec) {
+    std::vector<uint64_t> keys;
+    {
+        std::lock_guard<std::mutex> lock(dirty_chunks_mutex);
+        keys.assign(dirty_chunks.begin(), dirty_chunks.end());
+    }
+
+    if (!thread_pool) {
+        // Defensive fallback (thread pool unavailable): synchronous save.
+        for (uint64_t key : keys) {
+            int32_t cx = 0, cy = 0, cz = 0;
+            ChunkMap::decode_chunk_key(key, cx, cy, cz);
+            save_chunk_to_disk(cx, cy, cz);
+        }
+        {
+            std::lock_guard<std::mutex> lock(dirty_chunks_mutex);
+            for (uint64_t key : keys) dirty_chunks.erase(key);
+        }
+        return;
+    }
+
+    for (uint64_t key : keys) {
+        // Periodic flush: skip chunks already being written (they stay dirty and
+        // get picked up next cycle). Quit flush: supersede instead so the very
+        // latest state is what actually reaches disk before teardown.
+        if (!wait_for_completion && is_save_in_flight(key)) {
+            continue;
+        }
+
         int32_t cx = 0, cy = 0, cz = 0;
         ChunkMap::decode_chunk_key(key, cx, cy, cz);
-        save_chunk_to_disk(cx, cy, cz);
+
+        // Deep-copy the chunk's data under its shard lock so the background
+        // writer never reads a half-mutated chunk.
+        std::unique_ptr<ChunkData> snapshot;
+        {
+            auto sl = chunk_map.lock_chunk(cx, cy, cz);
+            ChunkData* cd = chunk_map.get_chunk_data_fast(cx, cy, cz);
+            if (cd) {
+                snapshot = std::make_unique<ChunkData>(*cd);
+            }
+        }
+        if (!snapshot) {
+            // Chunk no longer loaded — its file was already handled at unload.
+            std::lock_guard<std::mutex> lock(dirty_chunks_mutex);
+            dirty_chunks.erase(key);
+            continue;
+        }
+
+        // Snapshot is taken: safe to clear the dirty flag immediately. Any later
+        // edit re-marks it through the normal edit path.
+        {
+            std::lock_guard<std::mutex> lock(dirty_chunks_mutex);
+            dirty_chunks.erase(key);
+        }
+
+        enqueue_chunk_save(key, cx, cy, cz, std::move(snapshot));
     }
-    dirty_chunks.clear();
+
+    if (wait_for_completion) {
+        wait_for_saves(timeout_sec);
+    }
+}
+
+void ChunkWorld::enqueue_chunk_save(uint64_t key, int32_t cx, int32_t cy, int32_t cz,
+                                    std::unique_ptr<ChunkData> snapshot) {
+    if (!thread_pool) return;
+    const uint64_t epoch = async_epoch.load(std::memory_order_acquire);
+    const uint64_t generation = next_save_generation.fetch_add(1, std::memory_order_acq_rel);
+    {
+        std::lock_guard<std::mutex> lock(saves_in_flight_mutex);
+        // Overwrites any older in-flight task for this chunk -> it aborts at its
+        // generation gate instead of clobbering this newer snapshot.
+        saves_in_flight[key] = generation;
+    }
+    outstanding_saves.fetch_add(1, std::memory_order_acq_rel);
+    thread_pool->fire_and_forget([this, key, cx, cy, cz,
+                                  snapshot = std::move(snapshot), epoch, generation]() mutable {
+        save_chunk_snapshot(key, cx, cy, cz, std::move(snapshot), epoch, generation);
+    });
+}
+
+void ChunkWorld::save_chunk_snapshot(uint64_t key, int32_t cx, int32_t cy, int32_t cz,
+                                     std::unique_ptr<ChunkData> snapshot,
+                                     uint64_t epoch, uint64_t generation) {
+    bool wrote = false;
+    // Epoch gate: abort if the world was reset while we were queued, so stale
+    // data never lands in a fresh world's chunk files.
+    if (async_epoch.load(std::memory_order_acquire) == epoch && snapshot) {
+        // file_access_mutex serializes all writes; the generation gate is checked
+        // while holding it so a superseded task aborts instead of racing a newer one.
+        std::lock_guard<std::mutex> lock(file_access_mutex);
+        {
+            std::lock_guard<std::mutex> ilock(saves_in_flight_mutex);
+            auto it = saves_in_flight.find(key);
+            wrote = (it != saves_in_flight.end() && it->second == generation);
+        }
+        if (wrote) {
+            write_chunk_file_locked(cx, cy, cz, *snapshot);
+        }
+    }
+    {
+        std::lock_guard<std::mutex> ilock(saves_in_flight_mutex);
+        auto it = saves_in_flight.find(key);
+        if (it != saves_in_flight.end() && it->second == generation) {
+            saves_in_flight.erase(it);
+        }
+    }
+    {
+        std::lock_guard<std::mutex> lock(saves_cv_mutex);
+        outstanding_saves.fetch_sub(1, std::memory_order_acq_rel);
+        saves_cv.notify_all();
+    }
+}
+
+bool ChunkWorld::is_save_in_flight(uint64_t key) const {
+    std::lock_guard<std::mutex> lock(saves_in_flight_mutex);
+    return saves_in_flight.find(key) != saves_in_flight.end();
+}
+
+void ChunkWorld::wait_for_saves(double timeout_sec) {
+    std::unique_lock<std::mutex> lock(saves_cv_mutex);
+    saves_cv.wait_for(lock, std::chrono::duration<double>(timeout_sec), [this]() {
+        return outstanding_saves.load(std::memory_order_acquire) == 0;
+    });
 }
 
 bool ChunkWorld::is_chunk_dirty(uint64_t key) const {
@@ -460,12 +577,15 @@ void ChunkWorld::save_chunk_to_disk(int32_t chunk_x, int32_t chunk_y, int32_t ch
 void ChunkWorld::save_chunk_to_disk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, ChunkData* chunk_data) {
     if (!chunk_data) return;
 
+    std::lock_guard<std::mutex> lock(file_access_mutex);
+    write_chunk_file_locked(chunk_x, chunk_y, chunk_z, *chunk_data);
+}
+
+void ChunkWorld::write_chunk_file_locked(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, const ChunkData& chunk_data) {
     String save_dir = "user://chunks/";
     String filename = save_dir + "chunk_" + String::num_int64(chunk_x) + "_" + String::num_int64(chunk_y) + "_" + String::num_int64(chunk_z) + ".chunk";
     String temp_filename = filename + ".tmp";
     String backup_filename = filename + ".bak";
-
-    std::lock_guard<std::mutex> lock(file_access_mutex);
 
     Ref<DirAccess> dir = DirAccess::open("user://");
     if (dir.is_valid()) {
@@ -474,7 +594,7 @@ void ChunkWorld::save_chunk_to_disk(int32_t chunk_x, int32_t chunk_y, int32_t ch
 
     // Build RLE body into a byte buffer so we can CRC32 it before writing.
     std::vector<uint8_t> body;
-    encode_chunk_rle(*chunk_data, body);
+    encode_chunk_rle(chunk_data, body);
 
     uint32_t checksum = crc32(body.data(), body.size());
 
@@ -864,8 +984,12 @@ needs_save = is_chunk_dirty(key);
         return !chunk_map.contains(key);
     }
 
-if (needs_save) {
-save_chunk_to_disk(cx, cy, cz, render_data->data.get());
+if (needs_save && render_data->data) {
+    // Hand the current state to the background saver. If a save for this chunk
+    // is already in flight it is superseded (generation bump), guaranteeing the
+    // newest data is the one that reaches disk.
+    auto snapshot = std::make_unique<ChunkData>(*render_data->data);
+    enqueue_chunk_save(key, cx, cy, cz, std::move(snapshot));
 }
     if (mesh_mgr) {
         mesh_mgr->notify_chunk_unloaded(cx, cy, cz, render_data.get());
@@ -895,6 +1019,10 @@ void ChunkWorld::clear() {
     {
         std::lock_guard<std::mutex> lock(dirty_chunks_mutex);
         dirty_chunks.clear();
+    }
+    {
+        std::lock_guard<std::mutex> lock(saves_in_flight_mutex);
+        saves_in_flight.clear();
     }
     chunk_scheduler.clear();
     pending_chunk_installs.clear();
@@ -931,6 +1059,10 @@ void ChunkWorld::apply_pending_placements(uint64_t key, int32_t chunk_x, int32_t
         pending_block_placements.erase(it);
         render_data.data->compute_section_flags();
         render_data.data->compute_fully_solid();
+        // The receiving chunk was modified (e.g. cross-chunk tree canopy writes
+        // from a neighbor's generation). Mark it dirty so the next flush/save
+        // persists these blocks — otherwise they are lost on reload.
+        mark_chunk_dirty(chunk_x, chunk_y, chunk_z);
     }
 }
 

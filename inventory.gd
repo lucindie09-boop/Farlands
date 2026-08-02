@@ -29,7 +29,6 @@ var is_open = false
 var hovered_slot = -1
 var held_block_id = 0  # Stack held at the cursor (click-to-hold model)
 var held_count = 0
-var _block_textures = {}  # block_id -> Texture2D, cached to avoid per-frame load()
 var _hover_texture: Texture2D = null  # pre-built recolored hovered slot
 
 func _ready():
@@ -129,7 +128,7 @@ func _draw():
 	if _is_holding():
 		var mouse_pos = get_local_mouse_position()
 		var drag_size = 48
-		var block_texture = _get_block_texture(held_block_id)
+		var block_texture = BlockTextures.get_texture(held_block_id)
 		if block_texture:
 			draw_texture_rect(block_texture, Rect2(mouse_pos.x - drag_size/2, mouse_pos.y - drag_size/2, drag_size, drag_size), false)
 		else:
@@ -159,7 +158,7 @@ func _draw_slot(x, y, width, height, slot_index, is_hotbar):
 	# Draw block icon if slot has blocks
 	if block_id > 0 && count > 0:
 		# Try to get actual block texture
-		var block_texture = _get_block_texture(block_id)
+		var block_texture = BlockTextures.get_texture(block_id)
 		if block_texture:
 			var icon_size = width * 0.8
 			var icon_x = x + (width - icon_size) / 2.0
@@ -201,32 +200,6 @@ func _draw_fallback_inventory():
 		
 		var is_hotbar = i < HOTBAR_SIZE
 		_draw_slot(slot_x, slot_y, slot_width, slot_height, i, is_hotbar)
-
-func _get_block_texture(block_id: int) -> Texture2D:
-	# Cache textures so the redraw path never hits the resource loader
-	if _block_textures.has(block_id):
-		return _block_textures[block_id]
-	var texture_name = _get_block_texture_name(block_id)
-	var texture: Texture2D = null
-	if not texture_name.is_empty():
-		var texture_path = "res://textures/blocks/" + texture_name + ".png"
-		if ResourceLoader.exists(texture_path):
-			texture = load(texture_path)
-	_block_textures[block_id] = texture
-	return texture
-
-func _get_block_texture_name(block_id: int) -> String:
-	# Simple mapping based on block_definitions.json structure
-	match block_id:
-		1: return "stone"
-		2: return "dirt"
-		3: return "grass"
-		4: return "sand"
-		5: return "water"
-		6: return "wood"
-		7: return "leaves"
-		8: return "gravel"
-		_: return ""
 
 func _get_block_color(block_id: int) -> Color:
 	# Fallback color mapping for when textures aren't available

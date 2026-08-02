@@ -3,6 +3,7 @@ extends Control
 @onready var player_controller = get_node("/root/Main/Player")
 var hotbar_texture: Texture2D = null
 var _block_textures = {}  # block_id -> Texture2D, cached to avoid per-frame load()
+var _highlight_texture: Texture2D = null  # pre-built recolored selected slot
 
 const SLOT_SIZE = 48
 const HOTBAR_SIZE = 9
@@ -14,11 +15,38 @@ const SLOT_FILL_Y = 3
 const SLOT_FILL_SIZE = 16
 const SLOT_PITCH = 20
 
+# Fill-key colors: pixels near FILL_BASE (incl. dithered variants) become
+# FILL_HIGHLIGHT; everything else is copied untouched.
+const FILL_BASE = Color(0.149, 0.145, 0.0196)      # #262505
+const FILL_HIGHLIGHT = Color(0.227, 0.224, 0.027)  # #3a3907
+const FILL_TOLERANCE = 0.012  # per channel, in 0..1 color space (~3/255)
+
 func _ready():
 	# Load the hotbar texture directly
 	hotbar_texture = load("res://textures/gui/hotbar.png")
 	# Set nearest-neighbor filtering on this Control to keep hard edges when scaling
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	_highlight_texture = _build_fill_highlight_texture()
+
+func _build_fill_highlight_texture() -> Texture2D:
+	# Recolor the selected slot from a pixel copy of the real art: only pixels
+	# matching the #262505 fill (incl. dithered near-variants) become #3a3907,
+	# so bevel corners and any other non-fill texels are left exactly as-is.
+	if not hotbar_texture:
+		return null
+	var img = hotbar_texture.get_image()
+	var out = Image.create(SLOT_FILL_SIZE, SLOT_FILL_SIZE, false, Image.FORMAT_RGBA8)
+	for y in range(SLOT_FILL_SIZE):
+		for x in range(SLOT_FILL_SIZE):
+			var px = img.get_pixel(SLOT_FILL_X + x, SLOT_FILL_Y + y)
+			if _is_fill_pixel(px, FILL_BASE, FILL_TOLERANCE):
+				out.set_pixel(x, y, FILL_HIGHLIGHT)
+			else:
+				out.set_pixel(x, y, px)
+	return ImageTexture.create_from_image(out)
+
+func _is_fill_pixel(px: Color, base: Color, tolerance: float) -> bool:
+	return absf(px.r - base.r) <= tolerance and absf(px.g - base.g) <= tolerance and absf(px.b - base.b) <= tolerance
 
 func _process(_delta):
 	queue_redraw()
@@ -72,14 +100,16 @@ func _draw():
 		var block_id = player_controller.get_hotbar_slot_block_id(i)
 		var count = player_controller.get_hotbar_slot_count(i)
 		
-		# Draw selection highlight: only the #262505 fill region is swapped
-		# to #3a3907, leaving the slot border and background untouched.
+		# Draw selection highlight: pixel-copy of the slot's fill region with
+		# only #262505-family fill pixels recolored to #3a3907. Non-fill
+		# texels like the 4 shadow bevel corners stay untouched.
 		var is_selected = (i == player_controller.get_selected_hotbar_slot())
-		if is_selected:
+		if is_selected and _highlight_texture:
 			var fill_size = SLOT_FILL_SIZE * scale
-			draw_rect(Rect2(texture_x + (SLOT_FILL_X + i * SLOT_PITCH) * scale,
-						  texture_y + SLOT_FILL_Y * scale, fill_size, fill_size),
-					 Color(0.227, 0.224, 0.027))  # #3a3907
+			draw_texture_rect(_highlight_texture,
+							  Rect2(texture_x + (SLOT_FILL_X + i * SLOT_PITCH) * scale,
+									texture_y + SLOT_FILL_Y * scale, fill_size, fill_size),
+							  false)
 		
 		# Draw block icon if slot has blocks
 		if block_id > 0 and count > 0:

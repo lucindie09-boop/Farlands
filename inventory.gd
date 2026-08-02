@@ -18,18 +18,46 @@ const MAIN_GRID_TOP = 105
 const HOTBAR_TOP = 173
 const TEX_SCALE = 3.0
 
+# Fill-key colors: pixels near FILL_BASE become FILL_HIGHLIGHT; everything
+# else (frame/bevel outside the 18x18 box) is copied untouched.
+const FILL_BASE = Color(0.494, 0.490, 0.490)       # #7e7d7d
+const FILL_HIGHLIGHT = Color(0.612, 0.608, 0.608)  # #9c9b9b
+const FILL_TOLERANCE = 0.012  # per channel, in 0..1 color space (~3/255)
+
 var selected_slot = -1
 var is_open = false
 var hovered_slot = -1
 var held_block_id = 0  # Stack held at the cursor (click-to-hold model)
 var held_count = 0
 var _block_textures = {}  # block_id -> Texture2D, cached to avoid per-frame load()
+var _hover_texture: Texture2D = null  # pre-built recolored hovered slot
 
 func _ready():
 	# Load the inventory texture
 	inventory_texture = load("res://textures/gui/inventory.png")
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	_hover_texture = _build_fill_hover_texture()
 	hide()
+
+func _build_fill_hover_texture() -> Texture2D:
+	# Recolor the hovered slot from a pixel copy of the real art: only pixels
+	# matching the #7e7d7d fill become #9c9b9b, leaving the slot's frame and
+	# bevel ring outside the 18x18 box untouched.
+	if not inventory_texture:
+		return null
+	var img = inventory_texture.get_image()
+	var out = Image.create(SLOT_SIZE_PX, SLOT_SIZE_PX, false, Image.FORMAT_RGBA8)
+	for y in range(SLOT_SIZE_PX):
+		for x in range(SLOT_SIZE_PX):
+			var px = img.get_pixel(GRID_LEFT + x, MAIN_GRID_TOP + y)
+			if _is_fill_pixel(px, FILL_BASE, FILL_TOLERANCE):
+				out.set_pixel(x, y, FILL_HIGHLIGHT)
+			else:
+				out.set_pixel(x, y, px)
+	return ImageTexture.create_from_image(out)
+
+func _is_fill_pixel(px: Color, base: Color, tolerance: float) -> bool:
+	return absf(px.r - base.r) <= tolerance and absf(px.g - base.g) <= tolerance and absf(px.b - base.b) <= tolerance
 
 func _input(event):
 	if event.is_action_pressed("toggle_inventory"):
@@ -123,9 +151,10 @@ func _draw_slot(x, y, width, height, slot_index, is_hotbar):
 		block_id = player_controller.get_inventory_slot_block_id(main_slot_index)
 		count = player_controller.get_inventory_slot_count(main_slot_index)
 	
-	# Hover highlight: lighten the slot fill instead of drawing a border.
-	if hovered_slot == slot_index:
-		draw_rect(Rect2(x, y, width, height), Color(0.61, 0.61, 0.61))  # #9c9b9b over #7e7d7d
+	# Hover highlight: pixel-copy of the slot box with only #7e7d7d fill pixels
+	# recolored to #9c9b9b, so the frame/bevel around the fill is left alone.
+	if hovered_slot == slot_index and _hover_texture:
+		draw_texture_rect(_hover_texture, Rect2(x, y, width, height), false)
 	
 	# Draw block icon if slot has blocks
 	if block_id > 0 && count > 0:

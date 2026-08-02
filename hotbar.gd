@@ -2,7 +2,6 @@ extends Control
 
 @onready var player_controller = get_node("/root/Main/Player")
 var hotbar_texture: Texture2D = null
-var _block_textures = {}  # block_id -> Texture2D, cached to avoid per-frame load()
 var _highlight_texture: Texture2D = null  # pre-built recolored selected slot
 
 const SLOT_SIZE = 48
@@ -87,14 +86,13 @@ func _draw():
 	var texture_y = size.y - scaled_height - 20.0
 	draw_texture_rect(hotbar_texture, Rect2(texture_x, texture_y, scaled_width, scaled_height), false)
 	
-	# Calculate slot dimensions (scaled)
-	var slot_width = (float(texture_width) / float(HOTBAR_SIZE)) * scale
-	var slot_height = float(texture_height) * scale
-	
-	# Draw each hotbar slot content
+	# Draw each hotbar slot content, positioned inside the exact 16x16 fill
+	# box (SLOT_FILL_X/Y inset, SLOT_PITCH spacing) rather than the derived
+	# texture_width/HOTBAR_SIZE pitch, so icons never drift across the bar.
+	var fill_size = SLOT_FILL_SIZE * scale
 	for i in range(HOTBAR_SIZE):
-		var slot_x = texture_x + i * slot_width
-		var slot_y = texture_y
+		var fill_x = texture_x + (SLOT_FILL_X + i * SLOT_PITCH) * scale
+		var fill_y = texture_y + SLOT_FILL_Y * scale
 		
 		# Get slot data from C++ inventory
 		var block_id = player_controller.get_hotbar_slot_block_id(i)
@@ -105,34 +103,32 @@ func _draw():
 		# texels like the 4 shadow bevel corners stay untouched.
 		var is_selected = (i == player_controller.get_selected_hotbar_slot())
 		if is_selected and _highlight_texture:
-			var fill_size = SLOT_FILL_SIZE * scale
 			draw_texture_rect(_highlight_texture,
-							  Rect2(texture_x + (SLOT_FILL_X + i * SLOT_PITCH) * scale,
-									texture_y + SLOT_FILL_Y * scale, fill_size, fill_size),
+							  Rect2(fill_x, fill_y, fill_size, fill_size),
 							  false)
 		
 		# Draw block icon if slot has blocks
 		if block_id > 0 and count > 0:
 			# Try to get actual block texture
-			var block_texture = _get_block_texture(block_id)
+			var block_texture = BlockTextures.get_texture(block_id)
 			if block_texture:
-				var icon_size = slot_width * 0.8
-				var icon_x = slot_x + (slot_width - icon_size) / 2.0
-				var icon_y = slot_y + (slot_height - icon_size) / 2.0
+				var icon_size = fill_size * 0.8
+				var icon_x = fill_x + (fill_size - icon_size) / 2.0
+				var icon_y = fill_y + (fill_size - icon_size) / 2.0
 				draw_texture_rect(block_texture, Rect2(icon_x, icon_y, icon_size, icon_size), false)
 			else:
 				# Fallback to colored rectangle
 				var block_color = _get_block_color(block_id)
-				var icon_size = slot_width * 0.7
-				var icon_x = slot_x + (slot_width - icon_size) / 2.0
-				var icon_y = slot_y + (slot_height - icon_size) / 2.0
+				var icon_size = fill_size * 0.7
+				var icon_x = fill_x + (fill_size - icon_size) / 2.0
+				var icon_y = fill_y + (fill_size - icon_size) / 2.0
 				draw_rect(Rect2(icon_x, icon_y, icon_size, icon_size), block_color)
 			
 			# Draw count text
 			if count > 1:
 				var count_text = str(count)
 				var font_size = 16
-				var count_pos = Vector2(slot_x + slot_width - 6, slot_y + slot_height - 6)
+				var count_pos = Vector2(fill_x + fill_size - 6, fill_y + fill_size - 6)
 				draw_string(ThemeDB.fallback_font, count_pos, count_text, HORIZONTAL_ALIGNMENT_RIGHT, -1, font_size)
 
 func _draw_custom_hotbar():
@@ -191,29 +187,3 @@ func _get_block_color(block_id: int) -> Color:
 		7: return Color(0.2, 0.5, 0.2)  # Leaves
 		8: return Color(0.4, 0.4, 0.4)  # Gravel
 		_: return Color(0.5, 0.5, 0.5)  # Default gray
-
-func _get_block_texture(block_id: int) -> Texture2D:
-	# Cache textures so the per-frame redraw never hits the resource loader
-	if _block_textures.has(block_id):
-		return _block_textures[block_id]
-	var texture_name = _get_block_texture_name(block_id)
-	var texture: Texture2D = null
-	if not texture_name.is_empty():
-		var texture_path = "res://textures/blocks/" + texture_name + ".png"
-		if ResourceLoader.exists(texture_path):
-			texture = load(texture_path)
-	_block_textures[block_id] = texture
-	return texture
-
-func _get_block_texture_name(block_id: int) -> String:
-	# Simple mapping based on block_definitions.json structure
-	match block_id:
-		1: return "stone"
-		2: return "dirt"
-		3: return "grass"
-		4: return "sand"
-		5: return "water"
-		6: return "wood"
-		7: return "leaves"
-		8: return "gravel"
-		_: return ""

@@ -260,10 +260,12 @@ func _gui_input(event):
 				_drag_shift = false
 				_drag_last_slot = -1
 	
-	elif event is InputEventMouseWheel:
-		var slot = _slot_at_position(event.position)
-		if slot >= 0:
-			_handle_scroll_transfer(slot, event)
+	elif event is InputEventMouseButton:
+		# Handle mouse wheel events (they come through as MouseButton in Godot 4)
+		if event.button_index == MOUSE_BUTTON_WHEEL_UP or event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+			var slot = _slot_at_position(event.position)
+			if slot >= 0:
+				_handle_scroll_transfer(slot, event)
 
 func _slot_at_position(pos: Vector2) -> int:
 	if not inventory_texture:
@@ -480,7 +482,7 @@ func _quick_transfer_to_zone(block_id: int, count: int, target_is_hotbar: bool) 
 	
 	return moved
 
-func _handle_scroll_transfer(slot: int, event: InputEventMouseWheel):
+func _handle_scroll_transfer(slot: int, event: InputEventMouseButton):
 	# Scroll wheel quick-transfer between zones
 	var slot_id = _get_slot_block_id(slot)
 	var slot_count = _get_slot_count(slot)

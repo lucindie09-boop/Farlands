@@ -7,6 +7,13 @@ var _block_textures = {}  # block_id -> Texture2D, cached to avoid per-frame loa
 const SLOT_SIZE = 48
 const HOTBAR_SIZE = 9
 
+# Slot fill geometry measured from hotbar.png: the #262505 fill is a 16x16 px
+# region inset (3,3) in a 20-px-pitch cell.
+const SLOT_FILL_X = 3
+const SLOT_FILL_Y = 3
+const SLOT_FILL_SIZE = 16
+const SLOT_PITCH = 20
+
 func _ready():
 	# Load the hotbar texture directly
 	hotbar_texture = load("res://textures/gui/hotbar.png")
@@ -15,6 +22,18 @@ func _ready():
 
 func _process(_delta):
 	queue_redraw()
+
+func _input(event):
+	# Scroll cycles the selected hotbar slot, wrapping around. Ignored while
+	# the inventory is open so the wheel isn't double-purposed there.
+	if not player_controller or player_controller.is_inventory_open():
+		return
+	if event is InputEventMouseButton and event.pressed:
+		var current = player_controller.get_selected_hotbar_slot()
+		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
+			player_controller.select_hotbar_slot((current - 1 + HOTBAR_SIZE) % HOTBAR_SIZE)
+		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+			player_controller.select_hotbar_slot((current + 1) % HOTBAR_SIZE)
 
 func _draw():
 	if not player_controller:
@@ -53,13 +72,14 @@ func _draw():
 		var block_id = player_controller.get_hotbar_slot_block_id(i)
 		var count = player_controller.get_hotbar_slot_count(i)
 		
-		# Draw selection highlight
+		# Draw selection highlight: only the #262505 fill region is swapped
+		# to #3a3907, leaving the slot border and background untouched.
 		var is_selected = (i == player_controller.get_selected_hotbar_slot())
 		if is_selected:
-			var highlight_margin = 2
-			draw_rect(Rect2(slot_x - highlight_margin, slot_y - highlight_margin, 
-						  slot_width + highlight_margin * 2, slot_height + highlight_margin * 2), 
-					 Color(1.0, 1.0, 1.0, 0.3), false, 2)
+			var fill_size = SLOT_FILL_SIZE * scale
+			draw_rect(Rect2(texture_x + (SLOT_FILL_X + i * SLOT_PITCH) * scale,
+						  texture_y + SLOT_FILL_Y * scale, fill_size, fill_size),
+					 Color(0.227, 0.224, 0.027))  # #3a3907
 		
 		# Draw block icon if slot has blocks
 		if block_id > 0 and count > 0:

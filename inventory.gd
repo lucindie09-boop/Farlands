@@ -242,6 +242,12 @@ func _gui_input(event):
 	elif event is InputEventMouseButton:
 		var slot = _slot_at_position(event.position)
 		
+		# Handle mouse wheel events first (before any drag-arming logic)
+		if event.button_index == MOUSE_BUTTON_WHEEL_UP or event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+			if slot >= 0:
+				_handle_scroll_transfer(slot, event)
+			return  # Don't process wheel events as drag buttons
+		
 		if event.pressed:
 			# Button press: stash drag state and run existing single-click behavior
 			if slot >= 0:
@@ -259,13 +265,6 @@ func _gui_input(event):
 				_drag_button = -1
 				_drag_shift = false
 				_drag_last_slot = -1
-	
-	elif event is InputEventMouseButton:
-		# Handle mouse wheel events (they come through as MouseButton in Godot 4)
-		if event.button_index == MOUSE_BUTTON_WHEEL_UP or event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-			var slot = _slot_at_position(event.position)
-			if slot >= 0:
-				_handle_scroll_transfer(slot, event)
 
 func _slot_at_position(pos: Vector2) -> int:
 	if not inventory_texture:
@@ -365,15 +364,16 @@ func _is_hotbar_slot(slot: int) -> bool:
 
 func _handle_drag_action(slot: int):
 	# Handle drag actions based on button and shift state
-	if _drag_button == MOUSE_BUTTON_RIGHT and _is_holding():
+	# Shift has highest priority (explicit modifier overrides hold-based behaviors)
+	if _drag_button == MOUSE_BUTTON_LEFT and _drag_shift:
+		# Shift-drag quick-transfer: move to other zone
+		_quick_transfer_slot(slot)
+	elif _drag_button == MOUSE_BUTTON_RIGHT and _is_holding():
 		# RMB drag-place: place 1 unit per slot entered
 		_try_place_one(slot)
 	elif _drag_button == MOUSE_BUTTON_LEFT and _is_holding():
 		# LMB drag-collect: collect matching blocks from slot
 		_try_collect_from_slot(slot)
-	elif _drag_button == MOUSE_BUTTON_LEFT and _drag_shift:
-		# Shift-drag quick-transfer: move to other zone
-		_quick_transfer_slot(slot)
 
 func _try_place_one(slot: int) -> bool:
 	# Shared helper for RMB place compatibility check

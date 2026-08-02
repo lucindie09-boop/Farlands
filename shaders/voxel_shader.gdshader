@@ -89,6 +89,24 @@ void fragment(){
     // Smooth non-linear curved AO to reduce diagonal triangulation seams
     float smooth_ao = pow(raw_ao, 1.35);
     float ao = mix(smooth_ao, raw_ao, 0.25);
+    
+    // Apply face-direction shade (static directional darkening)
+    // This is applied after the AO curve to avoid double-processing
+    float face_shade = 1.0;
+    if (abs(world_normal.y) > 0.9) {
+        face_shade = world_normal.y > 0.0 ? 1.0 : 0.5;  // Top vs Bottom
+    } else {
+        // Sides: distinguish North/South (Front/Back) from East/West (Left/Right)
+        // This matches the C++ get_face_shade values
+        float abs_x = abs(world_normal.x);
+        float abs_z = abs(world_normal.z);
+        if (abs_x > abs_z) {
+            face_shade = 0.75;  // Left/Right
+        } else {
+            face_shade = 0.6;   // Front/Back
+        }
+    }
+    ao *= face_shade;
 
     vec3 block_light=custom0_attr.rgb;
 

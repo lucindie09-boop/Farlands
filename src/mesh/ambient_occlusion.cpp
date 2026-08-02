@@ -181,11 +181,19 @@ void AmbientOcclusion::compute_greedy_face(const ChunkNeighborAccessor& accessor
 }
 
 // -------------------------------------------------------------------------
-// Pack AO + face shade into a single byte (0-255) for Vertex::ao
+// Pack AO into a single byte (0-255) for Vertex::ao
+//
+// Face shade is no longer baked into AO to avoid double-processing.
+// The shader's smooth curve (pow(x, 1.35)) is applied to pure AO values,
+// and directional lighting is handled separately via world_normal and sun_dir.
+// This prevents darker faces (bottom=0.5) from being incorrectly darkened
+// by the AO curve when they have zero actual occlusion.
 // -------------------------------------------------------------------------
 uint8_t AmbientOcclusion::pack_vertex_ao(float ao, FaceDirection direction) {
-    float value = ao * get_face_shade(direction);
-    int iv = static_cast<int>(std::lround(value * 255.0f));
+    // Pack only the AO value, not multiplied by face shade
+    // Face shade is handled by the shader's directional lighting
+    (void)direction;  // Direction no longer used for packing, kept for API compatibility
+    int iv = static_cast<int>(std::lround(ao * 255.0f));
     if (iv < 0) iv = 0;
     if (iv > 255) iv = 255;
     return static_cast<uint8_t>(iv);

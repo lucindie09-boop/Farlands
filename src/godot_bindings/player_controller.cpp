@@ -38,10 +38,17 @@ void PlayerController::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_inventory_slot_count", "slot"), &PlayerController::get_inventory_slot_count);
     ClassDB::bind_method(D_METHOD("get_inventory_slot_block_id", "slot"), &PlayerController::get_inventory_slot_block_id);
     ClassDB::bind_method(D_METHOD("set_inventory_slot", "slot", "block_id", "count"), &PlayerController::set_inventory_slot);
+    ClassDB::bind_method(D_METHOD("give_block", "block_id", "count"), &PlayerController::give_block);
     ClassDB::bind_method(D_METHOD("save_inventory"), &PlayerController::save_inventory);
     ClassDB::bind_method(D_METHOD("load_inventory"), &PlayerController::load_inventory);
     ClassDB::bind_method(D_METHOD("set_inventory_open", "open"), &PlayerController::set_inventory_open);
     ClassDB::bind_method(D_METHOD("is_inventory_open"), &PlayerController::is_inventory_open);
+    
+    ClassDB::bind_method(D_METHOD("set_chat_open", "open"), &PlayerController::set_chat_open);
+    ClassDB::bind_method(D_METHOD("is_chat_open"), &PlayerController::is_chat_open);
+    ClassDB::bind_method(D_METHOD("teleport_to", "pos"), &PlayerController::teleport_to);
+    ClassDB::bind_method(D_METHOD("set_fly_mode", "on"), &PlayerController::set_fly_mode);
+    ClassDB::bind_method(D_METHOD("get_fly_mode"), &PlayerController::get_fly_mode);
     
     ClassDB::bind_method(D_METHOD("set_sensitivity", "s"), &PlayerController::set_sensitivity);
     ClassDB::bind_method(D_METHOD("get_sensitivity"), &PlayerController::get_sensitivity);
@@ -97,7 +104,8 @@ void PlayerController::_process(double delta) {
     if (fly_mode_) {
         Input* input = Input::get_singleton();
         Vector3 input_dir;
-        if (input) {
+        // Suppress movement while a UI overlay (inventory/chat) is open
+        if (input && !inventory_open_ && !chat_open_) {
             Basis basis = get_basis();
             if (input->is_action_pressed("move_forward")) input_dir -= basis.get_column(2);
             if (input->is_action_pressed("move_back"))    input_dir += basis.get_column(2);
@@ -118,7 +126,8 @@ void PlayerController::_process(double delta) {
 
     PlayerInput pi;
     Input* input = Input::get_singleton();
-    if (input) {
+    // Suppress movement while a UI overlay (inventory/chat) is open
+    if (input && !inventory_open_ && !chat_open_) {
         Basis basis = get_basis();
         pi.move_forward_held = input->is_action_pressed("move_forward");
         if (input->is_action_pressed("move_forward")) pi.wish_direction -= basis.get_column(2);
@@ -153,8 +162,8 @@ void PlayerController::_input(const Ref<InputEvent>& p_event) {
     Input* input = Input::get_singleton();
     if (!input) return;
 
-    // Skip mouse mode switching when inventory is open
-    if (inventory_open_) {
+    // Skip mouse mode switching when inventory or chat is open
+    if (inventory_open_ || chat_open_) {
         return;
     }
 
@@ -170,11 +179,6 @@ void PlayerController::_input(const Ref<InputEvent>& p_event) {
         return;
     }
     
-    // Skip mouse look when inventory is open
-    if (inventory_open_) {
-        return;
-    }
-
     Ref<InputEventMouseMotion> mm = p_event;
     if (mm.is_valid()) {
         rotate_y(-mm->get_relative().x * sensitivity_);
@@ -212,8 +216,23 @@ void PlayerController::_input(const Ref<InputEvent>& p_event) {
 }
 
 void PlayerController::toggle_fly_mode() {
-    fly_mode_ = !fly_mode_;
+    set_fly_mode(!fly_mode_);
+}
+
+void PlayerController::set_fly_mode(bool on) {
+    if (fly_mode_ == on) return;
+    fly_mode_ = on;
     sim_.reset(get_global_position());
+    rendered_eye_height_ = 1.62f;
+}
+
+bool PlayerController::get_fly_mode() const {
+    return fly_mode_;
+}
+
+void PlayerController::teleport_to(const Vector3& pos) {
+    set_global_position(pos);
+    sim_.reset(pos);
     rendered_eye_height_ = 1.62f;
 }
 
@@ -332,20 +351,37 @@ void PlayerController::set_inventory_slot(int slot, int block_id, int count) {
     inventory_.set_inventory_slot(slot, block_id, count);
 }
 
+bool PlayerController::give_block(int block_id, int count) {
+    if (block_id <= 0 || count <= 0) return false;
+    return inventory_.add_block(block_id, count);
+}
+
 void PlayerController::set_inventory_open(bool open) {
     inventory_open_ = open;
-    Input* input = Input::get_singleton();
-    if (input) {
-        if (open) {
-            input->set_mouse_mode(Input::MOUSE_MODE_VISIBLE);
-        } else {
-            input->set_mouse_mode(Input::MOUSE_MODE_CAPTURED);
-        }
-    }
+    update_mouse_mode();
 }
 
 bool PlayerController::is_inventory_open() const {
     return inventory_open_;
+}
+
+void PlayerController::set_chat_open(bool open) {
+    chat_open_ = open;
+    update_mouse_mode();
+}
+
+bool PlayerController::is_chat_open() const {
+    return chat_open_;
+}
+
+void PlayerController::update_mouse_mode() {
+    Input* input = Input::get_singleton();
+    if (!input) return;
+    if (inventory_open_ || chat_open_) {
+        input->set_mouse_mode(Input::MOUSE_MODE_VISIBLE);
+    } else {
+        input->set_mouse_mode(Input::MOUSE_MODE_CAPTURED);
+    }
 }
 
 void PlayerController::save_inventory() {

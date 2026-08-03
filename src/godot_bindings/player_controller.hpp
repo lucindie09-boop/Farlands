@@ -45,10 +45,19 @@ public:
     int get_inventory_slot_count(int slot) const;
     int get_inventory_slot_block_id(int slot) const;
     void set_inventory_slot(int slot, int block_id, int count);
+    bool give_block(int block_id, int count);
     void save_inventory();
     bool load_inventory();
     void set_inventory_open(bool open);
     bool is_inventory_open() const;
+    
+    // Chat API
+    void set_chat_open(bool open);
+    bool is_chat_open() const;
+    
+    void teleport_to(const godot::Vector3& pos);
+    void set_fly_mode(bool on);
+    bool get_fly_mode() const;
     
     void set_sensitivity(float s);
     float get_sensitivity() const;
@@ -59,6 +68,7 @@ protected:
     static void _bind_methods();
 
 private:
+    void update_mouse_mode();
     VoxelEngine::PlayerSim sim_;
     godot::Camera3D* camera_ = nullptr;
     VoxelEngine::CollisionResolver* collision_resolver_ = nullptr;
@@ -70,6 +80,7 @@ private:
     float fly_speed_ = 10.0f;
     bool fly_mode_ = false;
     bool inventory_open_ = false;
+    bool chat_open_ = false;
     bool inventory_saved_ = false;
     float rendered_eye_height_ = 1.62f;
 };

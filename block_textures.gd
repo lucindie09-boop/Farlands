@@ -12,6 +12,7 @@ static var _loaded := false
 static var _side_texture_names: Array = []
 static var _texture_cache: Dictionary = {}
 static var _name_to_id: Dictionary = {}
+static var _block_names: PackedStringArray = PackedStringArray()
 
 static func _ensure_loaded() -> void:
 	if _loaded:
@@ -29,7 +30,10 @@ static func _ensure_loaded() -> void:
 					name = textures[SIDE_FACE_INDEX]
 			_side_texture_names.append(name)
 			if block.has("name"):
-				_name_to_id[str(block["name"]).to_lower()] = i
+				var block_name := str(block["name"])
+				_name_to_id[block_name.to_lower()] = i
+				if i > 0:
+					_block_names.append(block_name)
 
 static func get_side_texture_name(block_id: int) -> String:
 	_ensure_loaded()
@@ -40,6 +44,10 @@ static func get_side_texture_name(block_id: int) -> String:
 static func get_block_id_by_name(block_name: String) -> int:
 	_ensure_loaded()
 	return int(_name_to_id.get(block_name.to_lower(), -1))
+
+static func get_block_names() -> PackedStringArray:
+	_ensure_loaded()
+	return _block_names
 
 static func get_texture(block_id: int) -> Texture2D:
 	_ensure_loaded()

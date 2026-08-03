@@ -1,5 +1,6 @@
 #include "core/edit_map.hpp"
 #include "core/block_types.hpp"
+#include "core/crc32.hpp"
 #include <cstdint>
 #include <cstddef>
 #include <cstring>

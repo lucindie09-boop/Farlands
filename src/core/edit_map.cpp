@@ -75,7 +75,7 @@ bool deserialize_edit_map(const uint8_t* data, size_t size, EditMap& out_edit_ma
     pos += 4;
     
     // Validate body size
-    size_t expected_body_size = count * 4;
+    size_t expected_body_size = static_cast<size_t>(count) * 4;
     if (size != 12 + expected_body_size) return false;
     
     // Validate CRC32

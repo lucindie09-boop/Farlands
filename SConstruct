@@ -66,14 +66,16 @@ shared_objects = env.Object(shared_sources)
 # Debug terrain renderer (standalone executable)
 debug_env = env.Clone()
 debug_env.Append(LIBS=[])
-debug_prog = debug_env.Program("bin/terrain_debug", ["tools/terrain_debug.cpp"] + shared_objects[:4])
+# chunk_data.cpp is not in shared_sources (the library compiles its own copy),
+# so standalone programs that link chunk_generator.o must add it explicitly.
+debug_prog = debug_env.Program("bin/terrain_debug", ["tools/terrain_debug.cpp"] + shared_objects[:4] + ["src/core/chunk_data.cpp"])
 Alias("debug", debug_prog)
 
 # Performance benchmark (standalone executable)
 bench_env = env.Clone()
 bench_env.Append(CPPPATH=["src/"])
 bench_env.Append(LIBS=[])
-bench_prog = bench_env.Program("bin/benchmark", ["tools/benchmark.cpp"] + shared_objects)
+bench_prog = bench_env.Program("bin/benchmark", ["tools/benchmark.cpp"] + shared_objects + ["src/core/chunk_data.cpp"])
 Alias("bench", bench_prog)
 
 # Unit tests (standalone executable, no Godot runtime needed)

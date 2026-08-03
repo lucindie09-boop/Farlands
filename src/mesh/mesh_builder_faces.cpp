@@ -92,7 +92,7 @@ void MeshBuilder::add_face(const ChunkData& chunk, const ChunkNeighborAccessor& 
     }
 uint16_t light_keys[4];
 if (smooth_lighting_enabled && side_lowered_offset == 0.0f) {
-compute_smooth_light(accessor, x, y, z, direction, light_keys);
+compute_smooth_light(accessor, x, y, z, direction, light_keys, stride_xz_);
 } else {
 light_keys[0] = light_keys[1] = light_keys[2] = light_keys[3] = light_key;
 }
@@ -241,6 +241,23 @@ bool flip = (ao[0] + ao[2]) < (ao[1] + ao[3]);
             break;
     }
 
+    // Per-corner light so merged faces keep smooth gradients at light
+    // boundaries (shadow/overhang edges) instead of a flat value for the whole
+    // merged face. Sampling happens at the true grid corners, matching
+    // adjacent per-block faces at shared corners.
+    uint16_t corner_light[4];
+    if (smooth_lighting_enabled) {
+        for (int i = 0; i < 4; i++) {
+            corner_light[i] = compute_corner_light(accessor,
+                static_cast<int32_t>(corners[i][0]),
+                static_cast<int32_t>(corners[i][1]),
+                static_cast<int32_t>(corners[i][2]),
+                face.direction);
+        }
+    } else {
+        corner_light[0] = corner_light[1] = corner_light[2] = corner_light[3] = face_light_key;
+    }
+
     apply_special_block_offsets(corners, face.block_id, face.direction);
 
     for (int i = 0; i < 4; i++) {
@@ -263,10 +280,10 @@ bool flip = (ao[0] + ao[2]) < (ao[1] + ao[3]);
         v.texture_index = static_cast<uint16_t>(texture_idx);
         v.ao = AmbientOcclusion::pack_vertex_ao(ao[i], face.direction);
         v.emissive_index = static_cast<uint8_t>(emissive_idx);
-        v.light_r = static_cast<uint8_t>(kBlockBrightness[unpack_r(face_light_key)] * 255.0f);
-        v.light_g = static_cast<uint8_t>(kBlockBrightness[unpack_g(face_light_key)] * 255.0f);
-        v.light_b = static_cast<uint8_t>(kBlockBrightness[unpack_b(face_light_key)] * 255.0f);
-        v.sky_light = static_cast<uint8_t>(kBlockBrightness[unpack_sky(face_light_key)] * 255.0f);
+        v.light_r = static_cast<uint8_t>(kBlockBrightness[unpack_r(corner_light[i])] * 255.0f);
+        v.light_g = static_cast<uint8_t>(kBlockBrightness[unpack_g(corner_light[i])] * 255.0f);
+        v.light_b = static_cast<uint8_t>(kBlockBrightness[unpack_b(corner_light[i])] * 255.0f);
+        v.sky_light = static_cast<uint8_t>(kBlockBrightness[unpack_sky(corner_light[i])] * 255.0f);
         dest_vertices.push_back(v);
     }
 

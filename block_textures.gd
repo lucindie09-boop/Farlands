@@ -11,6 +11,7 @@ const SIDE_FACE_INDEX = 0
 static var _loaded := false
 static var _side_texture_names: Array = []
 static var _texture_cache: Dictionary = {}
+static var _name_to_id: Dictionary = {}
 
 static func _ensure_loaded() -> void:
 	if _loaded:
@@ -19,19 +20,26 @@ static func _ensure_loaded() -> void:
 	var text = FileAccess.get_file_as_string(BLOCK_DEFINITIONS_PATH)
 	var parsed = JSON.parse_string(text)
 	if parsed is Array:
-		for block in parsed:
+		for i in range(parsed.size()):
+			var block = parsed[i]
 			var name := ""
 			if block.has("textures"):
 				var textures = block["textures"]
 				if textures is Array and textures.size() > SIDE_FACE_INDEX:
 					name = textures[SIDE_FACE_INDEX]
 			_side_texture_names.append(name)
+			if block.has("name"):
+				_name_to_id[str(block["name"]).to_lower()] = i
 
 static func get_side_texture_name(block_id: int) -> String:
 	_ensure_loaded()
 	if block_id >= 0 and block_id < _side_texture_names.size():
 		return _side_texture_names[block_id]
 	return ""
+
+static func get_block_id_by_name(block_name: String) -> int:
+	_ensure_loaded()
+	return int(_name_to_id.get(block_name.to_lower(), -1))
 
 static func get_texture(block_id: int) -> Texture2D:
 	_ensure_loaded()

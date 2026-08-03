@@ -65,6 +65,10 @@ func _is_fill_pixel(px: Color, base: Color, tolerance: float) -> bool:
 	return absf(px.r - base.r) <= tolerance and absf(px.g - base.g) <= tolerance and absf(px.b - base.b) <= tolerance
 
 func _input(event):
+	# While the chat is open, E should type "e" into the chat box, not
+	# toggle the inventory. Check first so the guard also covers ui_cancel.
+	if player_controller and player_controller.is_chat_open():
+		return
 	if event.is_action_pressed("toggle_inventory"):
 		_toggle_inventory()
 	elif event.is_action_pressed("ui_cancel") and is_open:

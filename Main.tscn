@@ -5,6 +5,7 @@
 [ext_resource type="Script" uid="uid://rqwoe0qfwptc" path="res://godrays_overlay.gd" id="4_godrays"]
 [ext_resource type="Script" uid="uid://c1kgqnq3m3asf" path="res://hotbar.gd" id="5_hotbar"]
 [ext_resource type="Script" uid="uid://c51n2p71pmdb8" path="res://inventory.gd" id="6_inventory"]
+[ext_resource type="Script" uid="uid://dpp1manu5wtsx" path="res://chat.gd" id="7_chat"]
 
 [sub_resource type="Environment" id="Environment_uu6xs"]
 background_mode = 2
@@ -70,6 +71,15 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("6_inventory")
+
+[node name="Chat" type="Control" parent="HUD" unique_id=135246790]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("7_chat")
 
 [node name="Hotbar#HotbarTexture" type="TextureRect" parent="." unique_id=702814611]
 anchors_preset = 7

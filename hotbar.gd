@@ -6,6 +6,7 @@ var _highlight_texture: Texture2D = null  # pre-built recolored selected slot
 
 const SLOT_SIZE = 48
 const HOTBAR_SIZE = 9
+const MUNRO_FONT: Font = preload("res://fonts/munro.ttf")
 
 # Slot fill geometry measured from hotbar.png: the #262505 fill is a 16x16 px
 # region inset (3,3) in a 20-px-pitch cell.
@@ -126,10 +127,7 @@ func _draw():
 			
 			# Draw count text
 			if count > 1:
-				var count_text = str(count)
-				var font_size = 16
-				var count_pos = Vector2(fill_x + fill_size - 6, fill_y + fill_size - 6)
-				draw_string(ThemeDB.fallback_font, count_pos, count_text, HORIZONTAL_ALIGNMENT_RIGHT, -1, font_size)
+				_draw_item_count(str(count), fill_x + fill_size, fill_y + fill_size, fill_size)
 
 func _draw_custom_hotbar():
 	# Fallback custom drawing if texture not available
@@ -164,15 +162,22 @@ func _draw_custom_hotbar():
 					 block_color)
 			
 			if count > 1:
-				var count_text = str(count)
-				var font_size = 14
-				var count_pos = Vector2(slot_x + slot_width - 4, slot_y + slot_height - 4)
-				draw_string(ThemeDB.fallback_font, count_pos, count_text, HORIZONTAL_ALIGNMENT_RIGHT, -1, font_size)
+				_draw_item_count(str(count), slot_x + slot_width, slot_y + slot_height, slot_width)
 		
 		var slot_num_text = str(i + 1)
-		var num_font_size = 10
+		var num_font_size = 20
 		var num_pos = Vector2(slot_x + 2, slot_y + 2)
-		draw_string(ThemeDB.fallback_font, num_pos, slot_num_text, HORIZONTAL_ALIGNMENT_LEFT, -1, num_font_size)
+		draw_string(MUNRO_FONT, num_pos, slot_num_text, HORIZONTAL_ALIGNMENT_LEFT, -1, num_font_size)
+
+func _draw_item_count(count_text: String, right_x: float, bottom_y: float, slot_size: float) -> void:
+	var font_size = int(round(slot_size * 0.5))       # ~half the slot height, like Minecraft
+	var margin = max(1.0, slot_size / 18.0)             # scales with slot size instead of being flat
+	var pos = Vector2(right_x - margin, bottom_y - margin)
+	var shadow = Vector2(margin * 0.5, margin * 0.5)
+	draw_string(MUNRO_FONT, pos + shadow, count_text,
+				HORIZONTAL_ALIGNMENT_RIGHT, -1, font_size, Color(0.09, 0.09, 0.09))
+	draw_string(MUNRO_FONT, pos, count_text,
+				HORIZONTAL_ALIGNMENT_RIGHT, -1, font_size, Color.WHITE)
 
 func _get_block_color(block_id: int) -> Color:
 	# Simple color mapping for different block types

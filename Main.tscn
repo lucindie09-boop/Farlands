@@ -49,7 +49,7 @@ script = ExtResource("4_godrays")
 [node name="FPSCounter" type="Label" parent="HUD" unique_id=572272974]
 offset_right = 40.0
 offset_bottom = 23.0
-theme_override_font_sizes/font_size = 24
+theme_override_font_sizes/font_size = 30
 script = ExtResource("2_uu6xs")
 
 [node name="Hotbar" type="Control" parent="HUD" unique_id=175168676]

@@ -45,14 +45,18 @@ int AmbientOcclusion::compute_level(bool side1, bool side2, bool corner) {
 }
 
 // -------------------------------------------------------------------------
-// Brightness curve — gentler than the old 1.0 / 0.6 / 0.3 / 0.1 table.
+// Brightness curve for AO levels.
 // 0 neighbours occluded -> 1.00  (bright)
-// 1 neighbour occluded  -> 0.85
-// 2 neighbours occluded -> 0.65
-// 3 neighbours occluded -> 0.45  (darkest)
+// 1 neighbour occluded  -> 0.80
+// 2 neighbours occluded -> 0.55
+// 3 neighbours occluded -> 0.30  (darkest)
+//
+// Strengthened from the previous {1.0, 0.85, 0.65, 0.45} table after smooth
+// lighting stopped leaking dark light into occluded corners — corner shading
+// now comes from AO alone, so the curve needs more contrast to stay visible.
 // -------------------------------------------------------------------------
 float AmbientOcclusion::level_to_brightness(int level) {
-    static constexpr float table[4] = {1.0f, 0.85f, 0.65f, 0.45f};
+    static constexpr float table[4] = {1.0f, 0.80f, 0.55f, 0.30f};
     return table[level < 4 ? level : 3];
 }
 

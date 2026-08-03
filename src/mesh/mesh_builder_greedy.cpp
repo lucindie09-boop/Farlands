@@ -11,7 +11,12 @@ static inline bool lights_similar_enough(uint16_t a, uint16_t b) {
     uint8_t dr = (unpack_r(a) > unpack_r(b)) ? (unpack_r(a) - unpack_r(b)) : (unpack_r(b) - unpack_r(a));
     uint8_t dg = (unpack_g(a) > unpack_g(b)) ? (unpack_g(a) - unpack_g(b)) : (unpack_g(b) - unpack_g(a));
     uint8_t db = (unpack_b(a) > unpack_b(b)) ? (unpack_b(a) - unpack_b(b)) : (unpack_b(b) - unpack_b(a));
-    return dr <= kLightMergeThreshold && dg <= kLightMergeThreshold && db <= kLightMergeThreshold;
+    uint8_t ds = (unpack_sky(a) > unpack_sky(b)) ? (unpack_sky(a) - unpack_sky(b)) : (unpack_sky(b) - unpack_sky(a));
+    // Sky must count too: at a cave mouth / overhang the block channels can be
+    // identical while sky steps 15->0, and a merged face spanning that boundary
+    // would render flat (a hard border) instead of a smooth gradient.
+    return dr <= kLightMergeThreshold && dg <= kLightMergeThreshold
+        && db <= kLightMergeThreshold && ds <= kLightMergeThreshold;
 }
 
 // -------------------------------------------------------------------------

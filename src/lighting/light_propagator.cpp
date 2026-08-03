@@ -5,6 +5,7 @@
 #include "core/chunk_data.hpp"
 #include <godot_cpp/core/print_string.hpp>
 #include <godot_cpp/variant/string.hpp>
+#include <unordered_set>
 
 using namespace godot;
 
@@ -238,13 +239,10 @@ void LightPropagator::light_propagate_remove_locked(int32_t origin_cx, int32_t o
                 if (out_r > 0 || out_g > 0 || out_b > 0) {
                     add_queue.push_back({ncx, ncy, ncz, nx, ny, nz, out_r, out_g, out_b});
                 }
-
-                const uint8_t removed_r = (node.r > 0 && cur_r < node.r) ? cur_r : 0;
-                const uint8_t removed_g = (node.g > 0 && cur_g < node.g) ? cur_g : 0;
-                const uint8_t removed_b = (node.b > 0 && cur_b < node.b) ? cur_b : 0;
-                if (removed_r > 0 || removed_g > 0 || removed_b > 0) {
-                    remove_queue.push_back({ncx, ncy, ncz, nx, ny, nz, removed_r, removed_g, removed_b});
-                }
+                // Note: We do NOT re-add to remove_queue here. If light remains (added to add_queue),
+                // it means other sources are still contributing. The add_queue will re-propagate
+                // the remaining light to neighbors. Re-adding to remove_queue causes infinite loops
+                // when multiple sources overlap.
             }
         }
     }
@@ -331,6 +329,11 @@ void LightPropagator::update_block_light_incremental_locked(int32_t origin_cx, i
     if (old_light_level > 0 && old_light_level > target_level) {
         chunk->set_light_rgb(x, y, z, 0, 0, 0);
         remove_queue.push_back({cx, cy, cz, static_cast<int16_t>(x), static_cast<int16_t>(y), static_cast<int16_t>(z), remove_r, remove_g, remove_b});
+        light_propagate_remove_locked(cx, cy, cz, remove_queue, add_queue);
+    } else if (old_emissive && !new_emissive) {
+        // Special case: breaking an emissive block that had no stored light but still needs light removal
+        chunk->set_light_rgb(x, y, z, 0, 0, 0);
+        remove_queue.push_back({cx, cy, cz, static_cast<int16_t>(x), static_cast<int16_t>(y), static_cast<int16_t>(z), old_type.light_r, old_type.light_g, old_type.light_b});
         light_propagate_remove_locked(cx, cy, cz, remove_queue, add_queue);
     }
 

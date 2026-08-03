@@ -56,6 +56,7 @@ shared_sources = [
     "src/mesh/ambient_occlusion.cpp",
     "src/mesh/smooth_lighting.cpp",
     "src/lighting/block_light_region.cpp",
+    "src/lighting/light_propagator.cpp",
     "src/engine/collision_resolver.cpp",
     "src/engine/player_controller.cpp",
 ]
@@ -83,6 +84,7 @@ test_env = env.Clone()
 test_env.Append(CPPPATH=["src/", "tests/"])
 test_env.Append(LIBS=[])
 # Add chunk_data for integration test (not in shared_sources because library uses PaletteStorage)
+# Note: edit_map.cpp and block_light_region.cpp are already in shared_sources via library build
 test_prog = test_env.Program("bin/run_tests", Glob("tests/*.cpp") + shared_objects + ["src/core/chunk_data.cpp"])
 Alias("test", test_prog)
 

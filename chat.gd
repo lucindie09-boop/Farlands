@@ -20,6 +20,11 @@ var messages: Array = []  # Array of {text: String, color: Color}
 var _history: Array[String] = []
 var _history_index = -1
 var _input_edit: LineEdit = null
+var _completion_matches: Array[String] = []
+var _completion_index = -1
+var _completing = false
+
+const COMMANDS := ["/help", "/give", "/tp", "/fly", "/clear", "/version"]
 
 func _ready():
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -44,6 +49,7 @@ func _ready():
 	_input_edit.add_theme_stylebox_override("normal", box)
 	_input_edit.add_theme_stylebox_override("focus", box)
 	_input_edit.text_submitted.connect(_on_text_submitted)
+	_input_edit.text_changed.connect(_on_text_changed)
 	add_child(_input_edit)
 	_input_edit.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
 	_input_edit.offset_left = H_MARGIN
@@ -71,6 +77,9 @@ func _input(event):
 		return
 	if event is InputEventKey and event.pressed and not event.is_echo():
 		match event.keycode:
+			KEY_TAB:
+				_on_tab()
+				get_viewport().set_input_as_handled()
 			KEY_UP:
 				_history_back()
 				get_viewport().set_input_as_handled()
@@ -81,6 +90,7 @@ func _input(event):
 func _open_chat(initial_text: String = ""):
 	is_open = true
 	mouse_filter = Control.MOUSE_FILTER_STOP
+	_reset_completion()
 	_input_edit.visible = true
 	_input_edit.text = initial_text
 	_input_edit.caret_column = initial_text.length()
@@ -96,6 +106,69 @@ func _close_chat():
 	player_controller.set_chat_open(false)
 	_history_index = -1
 	queue_redraw()
+
+func _on_text_changed(_new_text: String):
+	if _completing:
+		return
+	_reset_completion()
+
+func _reset_completion():
+	_completion_matches = []
+	_completion_index = -1
+
+func _on_tab():
+	var text := _input_edit.text
+	var caret := _input_edit.caret_column
+	var word_start := (text.rfind(" ", caret - 1) + 1) if caret > 0 else 0
+	var word := text.substr(word_start, caret - word_start)
+	var prefix := text.substr(0, word_start)
+
+	var matches := _completion_matches
+	if matches.is_empty():
+		matches = _tab_candidates(prefix, word)
+		if matches.is_empty():
+			return
+		_completion_matches = matches
+
+	var lcp := _longest_common_prefix(matches)
+	var completion: String
+	if lcp.length() > word.length():
+		completion = lcp
+	else:
+		_completion_index = (_completion_index + 1) % matches.size()
+		completion = matches[_completion_index]
+
+	_completing = true
+	_input_edit.text = prefix + completion + text.substr(caret)
+	_input_edit.caret_column = word_start + completion.length()
+	_completing = false
+
+func _tab_candidates(prefix: String, word: String) -> Array[String]:
+	var out: Array[String] = []
+	if prefix.is_empty():
+		for c in COMMANDS:
+			if c.begins_with(word):
+				out.append(c)
+	else:
+		var parts := prefix.split(" ", false)
+		if parts.size() == 1 and parts[0].to_lower() == "/give":
+			for b in BlockTextures.get_block_names():
+				if b.begins_with(word):
+					out.append(b)
+	return out
+
+func _longest_common_prefix(words: Array[String]) -> String:
+	if words.is_empty():
+		return ""
+	var lcp := words[0]
+	for w in words:
+		while not w.begins_with(lcp):
+			lcp = lcp.substr(0, lcp.length() - 1)
+			if lcp.is_empty():
+				break
+		if lcp.is_empty():
+			break
+	return lcp
 
 func _on_text_submitted(text: String):
 	var trimmed := text.strip_edges()

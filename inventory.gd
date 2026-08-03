@@ -208,14 +208,20 @@ func _draw_fallback_inventory():
 		_draw_slot(slot_x, slot_y, slot_width, slot_height, i, is_hotbar)
 
 func _draw_item_count(count_text: String, right_x: float, bottom_y: float, slot_size: float) -> void:
+	# draw_string positions the BASELINE at pos (not the text box corner), and
+	# horizontal alignment is ignored when width is -1, so back the position off
+	# by the text's measured width and font descent to pin the glyphs inside the
+	# slot's bottom-right corner.
 	var font_size = int(round(slot_size * 0.5))       # ~half the slot height, like Minecraft
 	var margin = max(1.0, slot_size / 18.0)             # scales with slot size instead of being flat
-	var pos = Vector2(right_x - margin, bottom_y - margin)
+	var text_width = MUNRO_FONT.get_string_size(count_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
+	var descent = MUNRO_FONT.get_descent(font_size)
+	var pos = Vector2(right_x - margin - text_width, bottom_y - margin - descent)
 	var shadow = Vector2(margin * 0.5, margin * 0.5)
 	draw_string(MUNRO_FONT, pos + shadow, count_text,
-				HORIZONTAL_ALIGNMENT_RIGHT, -1, font_size, Color(0.09, 0.09, 0.09))
+				HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color(0.09, 0.09, 0.09))
 	draw_string(MUNRO_FONT, pos, count_text,
-				HORIZONTAL_ALIGNMENT_RIGHT, -1, font_size, Color.WHITE)
+				HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color.WHITE)
 
 func _get_block_color(block_id: int) -> Color:
 	# Fallback color mapping for when textures aren't available

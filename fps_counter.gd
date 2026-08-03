@@ -9,6 +9,7 @@ var perf_timer: float = 0.0
 const PERF_UPDATE_INTERVAL: float = 2.0 # Update performance report every 2 seconds
 
 func _ready() -> void:
+	add_theme_font_override("font", load("res://fonts/munro.ttf"))
 	chunk_manager = get_node_or_null("/root/Main/ChunkManager")
 
 func _process(delta: float) -> void:

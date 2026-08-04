@@ -46,6 +46,7 @@ public:
     int get_inventory_slot_block_id(int slot) const;
     void set_inventory_slot(int slot, int block_id, int count);
     bool give_block(int block_id, int count);
+    void clear_inventory();
     void save_inventory();
     bool load_inventory();
     void set_inventory_open(bool open);

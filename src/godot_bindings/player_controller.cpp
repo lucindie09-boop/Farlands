@@ -39,6 +39,7 @@ void PlayerController::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_inventory_slot_block_id", "slot"), &PlayerController::get_inventory_slot_block_id);
     ClassDB::bind_method(D_METHOD("set_inventory_slot", "slot", "block_id", "count"), &PlayerController::set_inventory_slot);
     ClassDB::bind_method(D_METHOD("give_block", "block_id", "count"), &PlayerController::give_block);
+    ClassDB::bind_method(D_METHOD("clear_inventory"), &PlayerController::clear_inventory);
     ClassDB::bind_method(D_METHOD("save_inventory"), &PlayerController::save_inventory);
     ClassDB::bind_method(D_METHOD("load_inventory"), &PlayerController::load_inventory);
     ClassDB::bind_method(D_METHOD("set_inventory_open", "open"), &PlayerController::set_inventory_open);
@@ -354,6 +355,10 @@ void PlayerController::set_inventory_slot(int slot, int block_id, int count) {
 bool PlayerController::give_block(int block_id, int count) {
     if (block_id <= 0 || count <= 0) return false;
     return inventory_.add_block(block_id, count);
+}
+
+void PlayerController::clear_inventory() {
+    inventory_.clear();
 }
 
 void PlayerController::set_inventory_open(bool open) {

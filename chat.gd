@@ -20,11 +20,21 @@ var messages: Array = []  # Array of {text: String, color: Color}
 var _history: Array[String] = []
 var _history_index = -1
 var _input_edit: LineEdit = null
+var _ghost_label: Label = null
 var _completion_matches: Array[String] = []
 var _completion_index = -1
 var _completing = false
+var _ghost_text: String = ""
+var _pulse_time: float = 0.0
+var _completion_word_start: int = -1  # Track where the completion word started
+var _completion_original_word: String = ""  # Remember the original word before completion
+var _tab_held: bool = false
+var _tab_hold_time: float = 0.0
+var _tab_cycle_delay: float = 0.1875
+var _up_held: bool = false
+var _up_hold_time: float = 0.0
 
-const COMMANDS := ["/help", "/give", "/tp", "/fly", "/clear", "/version"]
+const COMMANDS := ["/help", "/give", "/tp", "/fly", "/clearchat", "/clearinv", "/version"]
 
 func _ready():
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -57,7 +67,42 @@ func _ready():
 	_input_edit.offset_bottom = -H_MARGIN
 	_input_edit.offset_top = -INPUT_HEIGHT - H_MARGIN
 	_input_edit.visible = false
+	
+	# Ghost label for inline autocomplete suggestions
+	_ghost_label = Label.new()
+	_ghost_label.add_theme_font_override("font", MUNRO_FONT)
+	_ghost_label.add_theme_font_size_override("font_size", INPUT_FONT_SIZE)
+	_ghost_label.add_theme_color_override("font_color", Color(1, 1, 1, 0.3))
+	_ghost_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_ghost_label.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	_ghost_label.offset_left = 0
+	_ghost_label.offset_top = 0
+	_ghost_label.offset_right = 0
+	_ghost_label.offset_bottom = 0
+	_ghost_label.visible = false
+	add_child(_ghost_label)
+	
 	_add_message("Welcome! Type /help for a list of commands.", COLOR_SYSTEM)
+
+func _process(delta):
+	if is_open and not _ghost_text.is_empty():
+		_pulse_time += delta
+		var pulse_alpha = 0.25 + 0.15 * sin(_pulse_time * 3.0)
+		_ghost_label.add_theme_color_override("font_color", Color(1, 1, 1, pulse_alpha))
+	
+	# Handle tab hold auto-cycling
+	if _tab_held and not _completion_matches.is_empty():
+		_tab_hold_time += delta
+		if _tab_hold_time >= _tab_cycle_delay:
+			_perform_tab_cycle(true)  # Forward cycle
+			_tab_hold_time = 0.0
+	
+	# Handle up arrow hold auto-cycling
+	if _up_held and not _completion_matches.is_empty():
+		_up_hold_time += delta
+		if _up_hold_time >= _tab_cycle_delay:
+			_perform_tab_cycle(true)  # Forward cycle
+			_up_hold_time = 0.0
 
 func _input(event):
 	if not is_open:
@@ -78,14 +123,36 @@ func _input(event):
 	if event is InputEventKey and event.pressed and not event.is_echo():
 		match event.keycode:
 			KEY_TAB:
+				_tab_held = true
+				_tab_hold_time = 0.0
 				_on_tab()
 				get_viewport().set_input_as_handled()
 			KEY_UP:
-				_history_back()
-				get_viewport().set_input_as_handled()
+				# If we have active completions, cycle forward through them (same as tab)
+				if not _completion_matches.is_empty():
+					_up_held = true
+					_up_hold_time = 0.0
+					_perform_tab_cycle(true)  # Forward cycle
+					get_viewport().set_input_as_handled()
+				else:
+					_history_back()
+					get_viewport().set_input_as_handled()
 			KEY_DOWN:
-				_history_forward()
-				get_viewport().set_input_as_handled()
+				# If we have active completions, cycle backwards through them
+				if not _completion_matches.is_empty():
+					_perform_tab_cycle(false)  # Backward cycle
+					get_viewport().set_input_as_handled()
+				else:
+					_history_forward()
+					get_viewport().set_input_as_handled()
+	elif event is InputEventKey and not event.pressed:
+		match event.keycode:
+			KEY_TAB:
+				_tab_held = false
+				_tab_hold_time = 0.0
+			KEY_UP:
+				_up_held = false
+				_up_hold_time = 0.0
 
 func _open_chat(initial_text: String = ""):
 	is_open = true
@@ -94,14 +161,19 @@ func _open_chat(initial_text: String = ""):
 	_input_edit.visible = true
 	_input_edit.text = initial_text
 	_input_edit.caret_column = initial_text.length()
+	_ghost_label.visible = true
+	_pulse_time = 0.0
 	player_controller.set_chat_open(true)
 	_input_edit.grab_focus()
 	queue_redraw()
+	_update_ghost_text()
 
 func _close_chat():
 	is_open = false
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_input_edit.visible = false
+	_ghost_label.visible = false
+	_ghost_text = ""
 	_input_edit.release_focus()
 	player_controller.set_chat_open(false)
 	_history_index = -1
@@ -109,19 +181,164 @@ func _close_chat():
 
 func _on_text_changed(_new_text: String):
 	if _completing:
+		_update_ghost_text()
 		return
+	# Always reset completion when text changes to avoid stale matches
 	_reset_completion()
+	_update_ghost_text()
 
 func _reset_completion():
 	_completion_matches = []
 	_completion_index = -1
+	_completion_word_start = -1
+	_completion_original_word = ""
+	_tab_held = false
+	_tab_hold_time = 0.0
+	_up_held = false
+	_up_hold_time = 0.0
+	_ghost_text = ""
+	_ghost_label.text = ""
+	_ghost_label.visible = false
 
-func _on_tab():
+func _update_ghost_text():
+	if not is_open:
+		return
+	
 	var text := _input_edit.text
 	var caret := _input_edit.caret_column
 	var word_start := (text.rfind(" ", caret - 1) + 1) if caret > 0 else 0
 	var word := text.substr(word_start, caret - word_start)
 	var prefix := text.substr(0, word_start)
+	
+	# Don't show autocomplete if text is completely empty
+	if text.is_empty():
+		_ghost_text = ""
+		_ghost_label.text = ""
+		_ghost_label.visible = false
+		return
+	
+	# Position ghost label to align right after the caret
+	# Use the same font and size as LineEdit for accurate positioning
+	var font := MUNRO_FONT
+	var font_size := INPUT_FONT_SIZE
+	
+	# Calculate text width up to caret position
+	var text_before_caret := text.substr(0, caret)
+	var text_width := font.get_string_size(text_before_caret, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
+	
+	# Account for LineEdit's internal padding (content_margin from StyleBox)
+	var content_margin_left := 12.0
+	var content_margin_top := 6.0
+	
+	# Position the ghost label exactly where the caret is
+	_ghost_label.position.x = H_MARGIN + content_margin_left + text_width
+	_ghost_label.position.y = _input_edit.position.y + content_margin_top
+	
+	# Check if we should show parameter hints for commands
+	if word.is_empty() and not prefix.is_empty():
+		var parts := prefix.split(" ", false)
+		if parts.size() > 0:
+			var cmd := parts[0].to_lower()
+			var param_hint := _get_command_param_hint(cmd, parts.size())
+			if not param_hint.is_empty():
+				_ghost_text = param_hint
+				_ghost_label.text = _ghost_text
+				_ghost_label.visible = true
+				return
+	
+	# If we have active completion matches (from tab cycling), use them
+	if not _completion_matches.is_empty():
+		# Show the current indexed match as ghost suggestion
+		var current_match := _completion_matches[_completion_index]
+		if current_match.length() > word.length():
+			_ghost_text = current_match.substr(word.length())
+			_ghost_label.text = _ghost_text
+			_ghost_label.visible = true
+		else:
+			# Word is already complete, don't show ghost text
+			_ghost_text = ""
+			_ghost_label.text = ""
+			_ghost_label.visible = false
+			return
+	else:
+		# No active completion - get fresh matches based on current text
+		var matches := _tab_candidates(prefix, word)
+		if matches.is_empty():
+			_ghost_text = ""
+			_ghost_label.text = ""
+			_ghost_label.visible = false
+			return
+		
+		# Store matches for tab cycling and track word start
+		_completion_matches = matches
+		_completion_index = 0
+		_completion_word_start = word_start
+		_completion_original_word = word
+		
+		# Show the first match as ghost suggestion, but only if it's longer than current word
+		var first_match := matches[0]
+		if first_match.length() > word.length():
+			_ghost_text = first_match.substr(word.length())
+			_ghost_label.text = _ghost_text
+			_ghost_label.visible = true
+		else:
+			# Word is already complete, don't show ghost text
+			_ghost_text = ""
+			_ghost_label.text = ""
+			_ghost_label.visible = false
+			return
+
+func _get_command_param_hint(cmd: String, arg_count: int) -> String:
+	match cmd:
+		"/give":
+			if arg_count == 1:
+				return "<block>"
+			elif arg_count >= 2:
+				return "[count]"
+		"/tp":
+			if arg_count == 1:
+				return "<x>"
+			elif arg_count == 2:
+				return "<y>"
+			elif arg_count >= 3:
+				return "<z>"
+		"/help", "/fly", "/clearchat", "/clearinv", "/version":
+			# These commands take no arguments
+			return ""
+		_:
+			return ""
+	return ""
+
+func _on_tab():
+	_perform_tab_cycle(true)
+
+func _perform_tab_cycle(forward: bool):
+	var text := _input_edit.text
+	var caret := _input_edit.caret_column
+	var word_start := (text.rfind(" ", caret - 1) + 1) if caret > 0 else 0
+	var word := text.substr(word_start, caret - word_start)
+	var prefix := text.substr(0, word_start)
+
+	# If we're showing a parameter hint (no word to complete), start cycling through completions
+	if word.is_empty() and not prefix.is_empty():
+		var matches := _tab_candidates(prefix, word)
+		if not matches.is_empty():
+			# Initialize completion cycling
+			_completion_matches = matches
+			_completion_index = 0
+			_completion_word_start = word_start
+			_completion_original_word = word
+			
+			# Insert the first completion
+			var completion := matches[0]
+			_completing = true
+			_input_edit.text = text + completion
+			_input_edit.caret_column = word_start + completion.length()
+			_completing = false
+			_ghost_text = ""
+			_ghost_label.text = ""
+			_ghost_label.visible = false
+		return
 
 	var matches := _completion_matches
 	if matches.is_empty():
@@ -129,19 +346,45 @@ func _on_tab():
 		if matches.is_empty():
 			return
 		_completion_matches = matches
+		_completion_index = 0
+		_completion_word_start = word_start
+		_completion_original_word = word
 
-	var lcp := _longest_common_prefix(matches)
-	var completion: String
-	if lcp.length() > word.length():
-		completion = lcp
-	else:
+	# If we have ghost text showing, accept it (complete the word)
+	if not _ghost_text.is_empty():
+		_completing = true
+		_input_edit.text = text + _ghost_text + text.substr(caret)
+		_input_edit.caret_column = caret + _ghost_text.length()
+		_completing = false
+		# Don't reset completion - allow cycling through other options
+		_ghost_text = ""
+		_ghost_label.text = ""
+		_ghost_label.visible = false
+		return
+
+	# No ghost text - cycle through available matches based on original word
+	if forward:
 		_completion_index = (_completion_index + 1) % matches.size()
-		completion = matches[_completion_index]
-
+	else:
+		_completion_index = (_completion_index - 1 + matches.size()) % matches.size()
+	var completion := matches[_completion_index]
+	
+	# Find where the current completed word ends to remove it before adding new one
+	# We need to find the end of whatever is currently at word_start
+	var current_word_end := text.find(" ", word_start)
+	if current_word_end == -1:
+		current_word_end = text.length()
+	
+	var text_after_completion := text.substr(current_word_end)
+	var new_text := prefix + completion + text_after_completion
+	
 	_completing = true
-	_input_edit.text = prefix + completion + text.substr(caret)
-	_input_edit.caret_column = word_start + completion.length()
+	_input_edit.text = new_text
+	_input_edit.caret_column = _completion_word_start + completion.length()
 	_completing = false
+	_ghost_text = ""
+	_ghost_label.text = ""
+	_ghost_label.visible = false
 
 func _tab_candidates(prefix: String, word: String) -> Array[String]:
 	var out: Array[String] = []
@@ -155,6 +398,7 @@ func _tab_candidates(prefix: String, word: String) -> Array[String]:
 			for b in BlockTextures.get_block_names():
 				if b.begins_with(word):
 					out.append(b)
+	# For other parameters, return empty so we can show parameter hints instead
 	return out
 
 func _longest_common_prefix(words: Array[String]) -> String:
@@ -211,7 +455,8 @@ func _run_command(raw: String):
 			_add_message("/give <block> [count] - add blocks to your inventory", COLOR_SYSTEM)
 			_add_message("/tp <x> <y> <z> - teleport to a position", COLOR_SYSTEM)
 			_add_message("/fly - toggle flying", COLOR_SYSTEM)
-			_add_message("/clear - clear the chat", COLOR_SYSTEM)
+			_add_message("/clearchat - clear the chat", COLOR_SYSTEM)
+			_add_message("/clearinv - clear your inventory", COLOR_SYSTEM)
 			_add_message("/version - show the engine version", COLOR_SYSTEM)
 		"/give":
 			if parts.size() < 2:
@@ -246,8 +491,12 @@ func _run_command(raw: String):
 		"/fly":
 			player_controller.set_fly_mode(not player_controller.get_fly_mode())
 			_add_message("Flight %s" % ("enabled" if player_controller.get_fly_mode() else "disabled"), COLOR_SUCCESS)
-		"/clear":
+		"/clearchat":
 			messages.clear()
+			_add_message("Chat cleared.", COLOR_SYSTEM)
+		"/clearinv":
+			player_controller.clear_inventory()
+			_add_message("Inventory cleared.", COLOR_SUCCESS)
 		"/version":
 			_add_message("Farlands - Godot 4 + C++ GDExtension", COLOR_SYSTEM)
 		_:

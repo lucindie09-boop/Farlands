@@ -145,6 +145,7 @@ Two layers mirroring the ChunkManager/VoxelEngineController pattern:
 - **`VoxelEngine::PlayerSim`** (`src/engine/player_controller.*`) — pure, deterministic fixed-timestep simulation (20 ticks/s, velocities in blocks/tick). Vanilla-accurate ordering (jump + sprint boost applied before friction, matching `tickMovement()` → `travel()`), sticky sprint with a one-tick airborne staleness, sneak multiplier on ground only, and `on_floor` derived from the final resolved position (no swept floor probe). Standing/sneaking/landing eye-height transitions are smoothed at render time from the accumulator's partial-tick fraction.
 - **`PlayerController`** (`src/godot_bindings/player_controller.*`) — Godot `Node3D` scene node registered via ClassDB (used directly by `Main.tscn`). Polls input, drives the tick accumulator from `_process(delta)`, handles mouse look, fly mode (`fly_speed`), camera eye-height smoothing, raycast-based break/place, and block selection (keys 1–9).
 - **Inventory integration** — `PlayerController` owns a `VoxelEngine::Inventory` (9 hotbar + 27 main slots, 64 stack limit). Breaking a block collects it only if `can_add_block` succeeds; placing consumes from the selected hotbar slot. Hotbar/inventory state is exposed to GDScript via ClassDB bindings (`get_hotbar_slot_block_id`, `set_inventory_slot`, `select_hotbar_slot`, etc.) and rendered by the `hotbar.gd` / `inventory.gd` `Control` overlays (E toggles, mouse wheel cycles the hotbar, click-to-hold/drag-drop stack movement).
+- **Chat integration** — `PlayerController` provides chat state management (`set_chat_open`, `is_chat_open`) and inventory clearing (`clear_inventory`). The chat system (`chat.gd`) features advanced autocomplete with ghost text suggestions, tab cycling, and parameter hints.
 - **Lifecycle hooks** — `PlayerController::_ready()` caches the `ChunkManager` pointer (no per-call tree lookups) and loads the saved inventory; `_exit_tree()` saves the inventory while every node is still allocated, guarded by `inventory_saved_` so the destructor's fallback save is a no-op.
 
 No `CharacterBody3D`, `move_and_slide`, or `CollisionShape3D` — all collision goes through `CollisionResolver` against the chunk map.
@@ -175,6 +176,12 @@ No `CharacterBody3D`, `move_and_slide`, or `CollisionShape3D` — all collision 
 - `src/world/chunk_scheduler.hpp` — Completion queues, `poll_completed_mesh_nearest`
 - `src/world/day_night_cycle.hpp` — Sky-light cycle
 
+### UI (GDScript)
+- `chat.gd` — Chat system with autocomplete: ghost text suggestions with pulsing effect, tab cycling through completions, up/down arrow navigation, hold-to-cycle, parameter hints for commands, command execution (`/help`, `/give`, `/tp`, `/fly`, `/clearchat`, `/clearinv`, `/version`)
+- `hotbar.gd` — Hotbar UI with mouse wheel cycling, click-to-hold block selection
+- `inventory.gd` — Full inventory screen with drag-drop stack movement, shift-click quick-transfer
+- `block_textures.gd` — Block texture atlas generation from `textures/blocks/`
+
 ### Engine
 - `src/engine/collision_resolver.hpp/cpp` — Binary-search collision, step-up
 - `src/engine/player_controller.hpp/cpp` — `PlayerSim` (fixed-timestep simulation)
@@ -187,7 +194,7 @@ No `CharacterBody3D`, `move_and_slide`, or `CollisionShape3D` — all collision 
 
 ### Godot bindings
 - `src/godot_bindings/chunk_manager.cpp` — Inspector properties, camera/frustum entry point, block API, `flush_dirty_chunks`, `_exit_tree` quit flush
-- `src/godot_bindings/player_controller.cpp` — `PlayerController` node: input, mouse look, fly mode, break/place, inventory bindings, `_exit_tree` inventory save
+- `src/godot_bindings/player_controller.cpp` — `PlayerController` node: input, mouse look, fly mode, break/place, inventory bindings, chat bindings, `_exit_tree` inventory save
 
 ### Lighting
 - `src/lighting/light_propagator.hpp/cpp` — Public wrappers + `_locked` variants
@@ -195,6 +202,12 @@ No `CharacterBody3D`, `move_and_slide`, or `CollisionShape3D` — all collision 
 
 ### Data
 - `data/block_definitions.json` — Single source of truth for block properties
+- `textures/` — Asset organization:
+  - `textures/blocks/` — Block textures (bedrock, dirt, grass, stone, sand, water, etc.)
+  - `textures/gui/` — UI textures (hotbar, inventory background, effects)
+  - `textures/sprites/` — Sprite textures (hearts, etc.)
+  - `textures/atmosphere/` — Atmospheric textures (sun, north star)
+  - `textures/Archive/` — Archived/deprecated textures (old versions kept for reference)
 
 ### Testing
 - `tests/` — 18 doctest files, 164 test cases / 91,454 assertions, auto-discovered via `Glob("tests/*.cpp")`

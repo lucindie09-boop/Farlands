@@ -31,6 +31,7 @@ A Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked streamin
 - **GDScript GUI**: `hotbar.gd` / `inventory.gd` `Control` overlays — E toggles the inventory, mouse wheel cycles the hotbar, click-to-hold / drag-drop stack movement, hover/selection highlights built by pixel-color-keyed texture recolor (no hand-drawn art)
 - **Inventory drag operations**: RMB drag-place (spread 1 unit per slot), LMB drag-collect (sweep matching blocks), shift-click/drag quick-transfer (move between hotbar/main), scroll wheel quick-transfer (push/pull 1 unit between zones), double-click gather (sweep all matching blocks into cursor)
 - **Inventory persistence**: `user://chunks/inventory.bin` (`INVE` magic, version 1), saved in `PlayerController::_exit_tree` (nodes still alive) with a cached `ChunkManager` pointer — the old destructor-time tree lookup always failed at teardown
+- **Chat system**: `chat.gd` with advanced autocomplete — ghost text suggestions with pulsing effect (0.25-0.4 alpha), tab cycling through completions, up/down arrow navigation, hold-to-cycle (0.1875s intervals), parameter hints for commands (`/give <block> [count]`, `/tp <x> <y> <z>`), commands: `/help`, `/give`, `/tp`, `/fly`, `/clearchat`, `/clearinv`, `/version`
 
 ### Async Chunk Saving
 - **Off-main-thread writes**: `flush_dirty_chunks` deep-copies each dirty chunk under its shard lock and hands the snapshot to the thread pool for RLE encode + atomic write; periodic 5s flush is non-blocking

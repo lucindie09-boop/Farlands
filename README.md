@@ -37,6 +37,7 @@ A Minecraft-style voxel engine built in Godot 4 with a custom C++ GDExtension. P
 | Performance timers | `src/core/performance_timer.hpp` | Scoped frame-by-frame profiling |
 | Inventory | `src/core/inventory.hpp/cpp` | 9-slot hotbar + 27-slot main storage, 64 stack limit, add/consume/can_add logic, persisted to `user://chunks/inventory.bin` |
 | Inventory UI | `inventory.gd` / `hotbar.gd` | GDScript `Control` overlays: E toggles the full inventory, mouse wheel cycles the hotbar, click-to-hold / drag-drop stack movement, pixel-color-keyed hover/selection highlights |
+| Chat system | `chat.gd` | GDScript chat with autocomplete: ghost text suggestions with pulsing effect, tab cycling through completions, up/down arrow navigation, parameter hints for commands (`/give <block> [count]`, `/tp <x> <y> <z>`), commands: `/help`, `/give`, `/tp`, `/fly`, `/clearchat`, `/clearinv`, `/version` |
 | Chunk persistence | `src/world/chunk_world.cpp` | Async background saves: dirty chunks are snapshotted under their shard lock, then RLE-encoded + atomically written on the thread pool; per-key generation gating guarantees the newest data reaches disk; blocking flush on quit |
 
 ## Rendering Notes
@@ -46,6 +47,15 @@ A Minecraft-style voxel engine built in Godot 4 with a custom C++ GDExtension. P
 - The terrain shader (`shaders/voxel_shader.gdshader`) adds slope-triplanar cliff blending (>45° blends in rock faces), procedural wind sway on foliage, a twinkling night starfield, and a non-linear AO power curve (`pow(raw_ao, 1.35)`) that hides diagonal triangulation seams.
 - The directional sun light has shadows disabled — both terrain shaders are unshaded, so the shadow pass was pure overhead with no visual effect.
 - Block edits trigger an incremental partial remesh (tight dirty-AABB re-emit) instead of a full 32³ rebuild.
+
+## Assets
+
+Textures are organized in the `textures/` directory:
+- `textures/blocks/` — Block textures (bedrock, dirt, grass, stone, sand, water, etc.)
+- `textures/gui/` — UI textures (hotbar, inventory background, effects)
+- `textures/sprites/` — Sprite textures (hearts, etc.)
+- `textures/atmosphere/` — Atmospheric textures (sun, north star)
+- `textures/Archive/` — Archived/deprecated textures (old versions kept for reference)
 
 ## Build
 
@@ -91,9 +101,13 @@ Open the project root in Godot 4 and press Play. The main scene is `Main.tscn`. 
 | Ctrl | Sneak / descend in flight |
 | F | Toggle fly mode |
 | 1–9 | Select hotbar slot |
-| E | Toggle inventory |
+| E | Toggle inventory / open chat |
 | Mouse wheel | Cycle hotbar selection (while the inventory is closed) |
-| Esc | Release the mouse / close the inventory |
+| Esc | Release the mouse / close the inventory / close chat |
+| T | Open chat (to type a message) |
+| / | Open chat (to type a command) |
+| Tab | Accept autocomplete / cycle through completions (hold to auto-cycle) |
+| Up/Down arrows | Cycle through completions (when chat is open and completions are available) |
 
 Input bindings live in `project.godot` (`move_forward`, `move_back`, `move_left`, `move_right`, `jump`, `sprint`, `sneak`, `fly_toggle`, `toggle_inventory`, `mouse_click_left`, `mouse_click_right`). The C++ `PlayerController` node owns all movement, look, block interaction, and inventory state — there is no player GDScript. The hotbar/inventory screens are GDScript `Control` overlays that read/write that state.
 

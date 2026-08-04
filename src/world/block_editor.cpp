@@ -130,7 +130,13 @@ void BlockEditor::place_block(int32_t world_x, int32_t world_y, int32_t world_z,
 
     // Persist the edit in the edit map instead of marking the whole chunk dirty
     chunk_world->add_block_edit(chunk_x, chunk_y, chunk_z, local_x, local_y, local_z, new_block);
-    queue_player_edit_chunk_refresh(chunk_x, chunk_y, chunk_z);
+    // A block change (and any light removal) can touch every chunk in the
+    // 3×3×3 neighborhood — including diagonals when a light block near a chunk
+    // corner spills light across two boundaries at once. Bump mesh_version on
+    // the whole neighborhood so rebuild_rendering_server_mesh's version gate
+    // lets every affected chunk remesh (the old queue_player_edit_chunk_refresh
+    // only set is_mesh_dirty, which the gate silently discarded).
+    mesh_manager->mark_chunks_dirty_for_light(chunk_x, chunk_y, chunk_z);
     if (did_mud) {
         // Persist the mud variant edit as well
         chunk_world->add_block_edit(mud_cx, mud_cy, mud_cz, mud_lx, mud_ly, mud_lz, mud_variant);
@@ -230,26 +236,6 @@ map_lock = chunk_world->get_chunk_map().lock_all();
 // -------------------------------------------------------------------------
 // Internal helpers
 // -------------------------------------------------------------------------
-
-void BlockEditor::mark_chunk_refresh_urgent(int32_t center_x, int32_t center_y, int32_t center_z) {
-    for_each_chunk_in_refresh_radius(center_x, center_y, center_z, [this](int32_t cx, int32_t cy, int32_t cz) {
-        mesh_manager->mark_chunk_urgent(cx, cy, cz);
-    });
-}
-
-void BlockEditor::queue_immediate_dirty_chunk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z) {
-    if (!chunk_world->has_loaded_chunk(chunk_x, chunk_y, chunk_z)) {
-        return;
-    }
-    mesh_manager->queue_immediate_dirty_chunk(chunk_x, chunk_y, chunk_z);
-}
-
-void BlockEditor::queue_player_edit_chunk_refresh(int32_t center_x, int32_t center_y, int32_t center_z) {
-    mark_chunk_refresh_urgent(center_x, center_y, center_z);
-    for_each_chunk_in_refresh_radius(center_x, center_y, center_z, [this](int32_t cx, int32_t cy, int32_t cz) {
-        queue_immediate_dirty_chunk(cx, cy, cz);
-    });
-}
 
 void BlockEditor::update_mud_variants(int32_t world_x, int32_t world_y, int32_t world_z, BlockID new_block) {
     if (world_y <= 0) return;

@@ -43,6 +43,8 @@ Default(library, cdb)
 # them with potentially different flags (e.g. --coverage).
 # Note: chunk_data.cpp is NOT in shared_sources because the library uses
 # PaletteStorage while tests use the simpler ChunkData implementation.
+# Note: light_propagator.cpp is NOT in shared_sources because it requires
+# MeshManager which standalone tools don't have.
 shared_sources = [
     "src/worldgen/chunk_generator.cpp",
     "src/worldgen/vegetation_generator.cpp",
@@ -56,7 +58,6 @@ shared_sources = [
     "src/mesh/ambient_occlusion.cpp",
     "src/mesh/smooth_lighting.cpp",
     "src/lighting/block_light_region.cpp",
-    "src/lighting/light_propagator.cpp",
     "src/engine/collision_resolver.cpp",
     "src/engine/player_controller.cpp",
 ]
@@ -102,7 +103,7 @@ if sys.platform != "win32":
     # Reference source files directly to avoid VariantDir file locking
     fuzz_sources_common = ["src/core/chunk_data.cpp", "src/core/block_types.cpp", "src/core/inventory.cpp", "src/core/edit_map.cpp", "src/lighting/block_light_region.cpp"]
     fuzz_palette = fuzz_env.Program("bin/fuzz_palette", ["tools/fuzz_palette.cpp"] + fuzz_sources_common)
-    fuzz_chunk = fuzz_env.Program("bin/fuzz_chunk_load", ["tools/fuzz_chunk_load.cpp"] + ["src/core/edit_map.cpp"])
+    fuzz_chunk = fuzz_env.Program("bin/fuzz_chunk_load", ["tools/fuzz_chunk_load.cpp"] + ["src/core/edit_map.cpp", "src/core/block_types.cpp"])
     fuzz_light = fuzz_env.Program("bin/fuzz_light_propagation", ["tools/fuzz_light_propagation.cpp"] + fuzz_sources_common)
     fuzz_mesh_sources = fuzz_sources_common + [
         "src/mesh/mesh_builder.cpp",

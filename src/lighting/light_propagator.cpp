@@ -234,15 +234,17 @@ void LightPropagator::light_propagate_remove_locked(int32_t origin_cx, int32_t o
                 const uint8_t out_g = (node.g > 0 && cur_g < node.g) ? 0 : cur_g;
                 const uint8_t out_b = (node.b > 0 && cur_b < node.b) ? 0 : cur_b;
 
-                dst->set_light_rgb(nx, ny, nz, out_r, out_g, out_b);
+                // Only process if we actually changed something
+                if (out_r != cur_r || out_g != cur_g || out_b != cur_b) {
+                    dst->set_light_rgb(nx, ny, nz, out_r, out_g, out_b);
 
-                if (out_r > 0 || out_g > 0 || out_b > 0) {
-                    add_queue.push_back({ncx, ncy, ncz, nx, ny, nz, out_r, out_g, out_b});
+                    if (out_r > 0 || out_g > 0 || out_b > 0) {
+                        add_queue.push_back({ncx, ncy, ncz, nx, ny, nz, out_r, out_g, out_b});
+                    } else {
+                        // We zeroed all channels and changed the cell — continue removal
+                        remove_queue.push_back({ncx, ncy, ncz, nx, ny, nz, cur_r, cur_g, cur_b});
+                    }
                 }
-                // Note: We do NOT re-add to remove_queue here. If light remains (added to add_queue),
-                // it means other sources are still contributing. The add_queue will re-propagate
-                // the remaining light to neighbors. Re-adding to remove_queue causes infinite loops
-                // when multiple sources overlap.
             }
         }
     }

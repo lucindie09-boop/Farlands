@@ -123,6 +123,7 @@ func _input(event):
 	# Chat is open: only Esc closes it. T and / keep typing their characters.
 	if event.is_action_pressed("ui_cancel"):
 		_close_chat()
+		get_viewport().set_input_as_handled()
 		return
 	if event is InputEventMouseButton and event.pressed:
 		match event.button_index:

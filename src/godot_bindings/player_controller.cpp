@@ -8,6 +8,7 @@
 #include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/classes/input_event_key.hpp>
 #include <godot_cpp/classes/input_event_mouse_motion.hpp>
+#include <godot_cpp/classes/viewport.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 #include <cmath>
 
@@ -168,14 +169,19 @@ void PlayerController::_input(const Ref<InputEvent>& p_event) {
         return;
     }
 
-    if (input->get_mouse_mode() != Input::MOUSE_MODE_CAPTURED) {
-        if (p_event->is_action_pressed("ui_cancel")) {
-            input->set_mouse_mode(Input::MOUSE_MODE_VISIBLE);
+    if (p_event->is_action_pressed("ui_cancel")) {
+        // A UI (chat/inventory) may have already consumed this Escape to close
+        // itself and restore mouse capture. Don't show the cursor for it.
+        if (get_viewport()->is_input_handled()) {
             return;
         }
+        input->set_mouse_mode(Input::MOUSE_MODE_VISIBLE);
+        return;
+    }
+
+    if (input->get_mouse_mode() != Input::MOUSE_MODE_CAPTURED) {
         if (p_event->is_action_pressed("mouse_click_left")) {
             input->set_mouse_mode(Input::MOUSE_MODE_CAPTURED);
-            return;
         }
         return;
     }
@@ -190,11 +196,6 @@ void PlayerController::_input(const Ref<InputEvent>& p_event) {
             cam_rot.x = pitch_;
             camera_->set_rotation(cam_rot);
         }
-    }
-
-    if (p_event->is_action_pressed("ui_cancel")) {
-        input->set_mouse_mode(Input::MOUSE_MODE_VISIBLE);
-        return;
     }
 
     if (p_event->is_action_pressed("mouse_click_left")) {

@@ -46,6 +46,8 @@ func _ready():
 	_input_edit.add_theme_color_override("font_color", Color.WHITE)
 	_input_edit.add_theme_color_override("font_placeholder_color", Color(1, 1, 1, 0.45))
 	_input_edit.add_theme_color_override("caret_color", Color.WHITE)
+	_input_edit.caret_blink = true
+	_input_edit.caret_blink_interval = 0.5
 	var box := StyleBoxFlat.new()
 	box.bg_color = Color(0, 0, 0, 0.55)
 	box.corner_radius_top_left = 4

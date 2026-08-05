@@ -324,19 +324,19 @@ func _perform_tab_cycle(forward: bool):
 
 	# If we're showing a parameter hint (no word to complete), start cycling through completions
 	if word.is_empty() and not prefix.is_empty():
-		var matches := _tab_candidates(prefix, word)
-		if not matches.is_empty():
+		var param_matches := _tab_candidates(prefix, word)
+		if not param_matches.is_empty():
 			# Initialize completion cycling
-			_completion_matches = matches
+			_completion_matches = param_matches
 			_completion_index = 0
 			_completion_word_start = word_start
 			_completion_original_word = word
 			
 			# Insert the first completion
-			var completion := matches[0]
+			var first_completion := param_matches[0]
 			_completing = true
-			_input_edit.text = text + completion
-			_input_edit.caret_column = word_start + completion.length()
+			_input_edit.text = text + first_completion
+			_input_edit.caret_column = word_start + first_completion.length()
 			_completing = false
 			_ghost_text = ""
 			_ghost_label.text = ""

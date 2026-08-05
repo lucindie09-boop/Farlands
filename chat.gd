@@ -6,9 +6,9 @@ const MUNRO_FONT: Font = preload("res://fonts/munro.ttf")
 
 const MAX_MESSAGES = 8
 const LOG_FONT_SIZE = 20
-const LINE_HEIGHT = 24.0
 const INPUT_FONT_SIZE = 22
 const INPUT_HEIGHT = 40.0
+const INPUT_WIDTH_RATIO = 1.0
 const H_MARGIN = 8.0
 const COLOR_SYSTEM = Color(1.0, 0.85, 0.4)
 const COLOR_PLAYER = Color.WHITE
@@ -61,7 +61,8 @@ func _ready():
 	_input_edit.text_submitted.connect(_on_text_submitted)
 	_input_edit.text_changed.connect(_on_text_changed)
 	add_child(_input_edit)
-	_input_edit.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	_input_edit.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	_input_edit.anchor_right = INPUT_WIDTH_RATIO
 	_input_edit.offset_left = H_MARGIN
 	_input_edit.offset_right = -H_MARGIN
 	_input_edit.offset_bottom = -H_MARGIN
@@ -511,14 +512,18 @@ func _add_message(text: String, color: Color):
 func _draw():
 	if messages.is_empty():
 		return
+	var wrap_width := maxf(size.x - H_MARGIN * 2.0, 1.0)
+	var shadow := Color(0.09, 0.09, 0.09)
 	# Newest message at the bottom (closest to the input box), older ones
-	# stacked above it, Minecraft-style.
-	var baseline_y := size.y - INPUT_HEIGHT - H_MARGIN - 10.0
+	# stacked above it, Minecraft-style. Long text wraps onto extra lines.
+	var line_top := size.y - INPUT_HEIGHT - H_MARGIN - 10.0 - MUNRO_FONT.get_ascent(LOG_FONT_SIZE)
 	for i in range(messages.size() - 1, -1, -1):
 		var m = messages[i]
-		var shadow := Color(0.09, 0.09, 0.09)
-		draw_string(MUNRO_FONT, Vector2(H_MARGIN + 1, baseline_y + 1), m.text,
-					HORIZONTAL_ALIGNMENT_LEFT, -1, LOG_FONT_SIZE, shadow)
-		draw_string(MUNRO_FONT, Vector2(H_MARGIN, baseline_y), m.text,
-					HORIZONTAL_ALIGNMENT_LEFT, -1, LOG_FONT_SIZE, m.color)
-		baseline_y -= LINE_HEIGHT
+		var msg_height := MUNRO_FONT.get_multiline_string_size(
+				m.text, HORIZONTAL_ALIGNMENT_LEFT, wrap_width, LOG_FONT_SIZE).y
+		if line_top >= 0.0:
+			draw_multiline_string(MUNRO_FONT, Vector2(H_MARGIN + 1, line_top + 1), m.text,
+					HORIZONTAL_ALIGNMENT_LEFT, wrap_width, LOG_FONT_SIZE, -1, shadow)
+			draw_multiline_string(MUNRO_FONT, Vector2(H_MARGIN, line_top), m.text,
+					HORIZONTAL_ALIGNMENT_LEFT, wrap_width, LOG_FONT_SIZE, -1, m.color)
+		line_top -= msg_height

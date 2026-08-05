@@ -48,6 +48,8 @@ void PlayerController::_bind_methods() {
     
     ClassDB::bind_method(D_METHOD("set_chat_open", "open"), &PlayerController::set_chat_open);
     ClassDB::bind_method(D_METHOD("is_chat_open"), &PlayerController::is_chat_open);
+    ClassDB::bind_method(D_METHOD("set_settings_open", "open"), &PlayerController::set_settings_open);
+    ClassDB::bind_method(D_METHOD("is_settings_open"), &PlayerController::is_settings_open);
     ClassDB::bind_method(D_METHOD("teleport_to", "pos"), &PlayerController::teleport_to);
     ClassDB::bind_method(D_METHOD("set_fly_mode", "on"), &PlayerController::set_fly_mode);
     ClassDB::bind_method(D_METHOD("get_fly_mode"), &PlayerController::get_fly_mode);
@@ -106,8 +108,8 @@ void PlayerController::_process(double delta) {
     if (fly_mode_) {
         Input* input = Input::get_singleton();
         Vector3 input_dir;
-        // Suppress movement while a UI overlay (inventory/chat) is open
-        if (input && !inventory_open_ && !chat_open_) {
+        // Suppress movement while a UI overlay (inventory/chat/settings) is open
+        if (input && !inventory_open_ && !chat_open_ && !settings_open_) {
             Basis basis = get_basis();
             if (input->is_action_pressed("move_forward")) input_dir -= basis.get_column(2);
             if (input->is_action_pressed("move_back"))    input_dir += basis.get_column(2);
@@ -128,8 +130,8 @@ void PlayerController::_process(double delta) {
 
     PlayerInput pi;
     Input* input = Input::get_singleton();
-    // Suppress movement while a UI overlay (inventory/chat) is open
-    if (input && !inventory_open_ && !chat_open_) {
+    // Suppress movement while a UI overlay (inventory/chat/settings) is open
+    if (input && !inventory_open_ && !chat_open_ && !settings_open_) {
         Basis basis = get_basis();
         pi.move_forward_held = input->is_action_pressed("move_forward");
         if (input->is_action_pressed("move_forward")) pi.wish_direction -= basis.get_column(2);
@@ -164,8 +166,8 @@ void PlayerController::_input(const Ref<InputEvent>& p_event) {
     Input* input = Input::get_singleton();
     if (!input) return;
 
-    // Skip mouse mode switching when inventory or chat is open
-    if (inventory_open_ || chat_open_) {
+    // Skip mouse mode switching when inventory, chat or settings is open
+    if (inventory_open_ || chat_open_ || settings_open_) {
         return;
     }
 
@@ -380,10 +382,19 @@ bool PlayerController::is_chat_open() const {
     return chat_open_;
 }
 
+void PlayerController::set_settings_open(bool open) {
+    settings_open_ = open;
+    update_mouse_mode();
+}
+
+bool PlayerController::is_settings_open() const {
+    return settings_open_;
+}
+
 void PlayerController::update_mouse_mode() {
     Input* input = Input::get_singleton();
     if (!input) return;
-    if (inventory_open_ || chat_open_) {
+    if (inventory_open_ || chat_open_ || settings_open_) {
         input->set_mouse_mode(Input::MOUSE_MODE_VISIBLE);
     } else {
         input->set_mouse_mode(Input::MOUSE_MODE_CAPTURED);

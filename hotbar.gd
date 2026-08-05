@@ -55,7 +55,7 @@ func _input(event):
 	# Scroll cycles the selected hotbar slot, wrapping around. Ignored while
 	# the inventory is open so the wheel isn't double-purposed there, and while
 	# the chat is open so typing isn't interrupted by slot changes.
-	if not player_controller or player_controller.is_inventory_open() or player_controller.is_chat_open():
+	if not player_controller or player_controller.is_inventory_open() or player_controller.is_chat_open() or player_controller.is_settings_open():
 		return
 	if event is InputEventMouseButton and event.pressed:
 		var current = player_controller.get_selected_hotbar_slot()

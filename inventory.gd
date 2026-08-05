@@ -73,6 +73,7 @@ func _input(event):
 		_toggle_inventory()
 	elif event.is_action_pressed("ui_cancel") and is_open:
 		_close_inventory()
+		get_viewport().set_input_as_handled()
 
 func _toggle_inventory():
 	if is_open:

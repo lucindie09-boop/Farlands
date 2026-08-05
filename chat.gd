@@ -532,8 +532,8 @@ func _chat_total_height() -> float:
 	return total
 
 func _chat_max_scroll() -> float:
-	var visible := size.y - INPUT_HEIGHT - H_MARGIN - 10.0
-	return maxf(_chat_total_height() - visible, 0.0)
+	var view_height := size.y - INPUT_HEIGHT - H_MARGIN - 10.0
+	return maxf(_chat_total_height() - view_height, 0.0)
 
 func _scroll_chat(direction: int):
 	# direction: +1 = wheel up (older history), -1 = wheel down (newer)

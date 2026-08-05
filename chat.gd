@@ -516,14 +516,18 @@ func _draw():
 	var shadow := Color(0.09, 0.09, 0.09)
 	# Newest message at the bottom (closest to the input box), older ones
 	# stacked above it, Minecraft-style. Long text wraps onto extra lines.
-	var line_top := size.y - INPUT_HEIGHT - H_MARGIN - 10.0 - MUNRO_FONT.get_ascent(LOG_FONT_SIZE)
+	# The bottom line of each message sits where the old single-line text did,
+	# so wrapped messages keep the same gap to the input box.
+	var line_height := MUNRO_FONT.get_height(LOG_FONT_SIZE)
+	var bottom_y := size.y - INPUT_HEIGHT - H_MARGIN - 10.0
 	for i in range(messages.size() - 1, -1, -1):
 		var m = messages[i]
 		var msg_height := MUNRO_FONT.get_multiline_string_size(
 				m.text, HORIZONTAL_ALIGNMENT_LEFT, wrap_width, LOG_FONT_SIZE).y
-		if line_top >= 0.0:
-			draw_multiline_string(MUNRO_FONT, Vector2(H_MARGIN + 1, line_top + 1), m.text,
+		var block_top := bottom_y - msg_height + line_height - MUNRO_FONT.get_ascent(LOG_FONT_SIZE)
+		if block_top >= 0.0:
+			draw_multiline_string(MUNRO_FONT, Vector2(H_MARGIN + 1, block_top + 1), m.text,
 					HORIZONTAL_ALIGNMENT_LEFT, wrap_width, LOG_FONT_SIZE, -1, shadow)
-			draw_multiline_string(MUNRO_FONT, Vector2(H_MARGIN, line_top), m.text,
+			draw_multiline_string(MUNRO_FONT, Vector2(H_MARGIN, block_top), m.text,
 					HORIZONTAL_ALIGNMENT_LEFT, wrap_width, LOG_FONT_SIZE, -1, m.color)
-		line_top -= msg_height
+		bottom_y -= msg_height

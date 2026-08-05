@@ -4,7 +4,7 @@ extends Control
 
 const MUNRO_FONT: Font = preload("res://fonts/munro.ttf")
 
-const MAX_MESSAGES = 8
+const MAX_MESSAGES = 100
 const LOG_FONT_SIZE = 20
 const INPUT_FONT_SIZE = 22
 const INPUT_HEIGHT = 40.0
@@ -17,6 +17,7 @@ const COLOR_SUCCESS = Color(0.6, 0.95, 0.6)
 
 var is_open = false
 var messages: Array = []  # Array of {text: String, color: Color}
+var _scroll_offset: float = 0.0  # Pixels scrolled back into chat history (0 = newest)
 var _history: Array[String] = []
 var _history_index = -1
 var _input_edit: LineEdit = null
@@ -123,6 +124,14 @@ func _input(event):
 	if event.is_action_pressed("ui_cancel"):
 		_close_chat()
 		return
+	if event is InputEventMouseButton and event.pressed:
+		match event.button_index:
+			MOUSE_BUTTON_WHEEL_UP:
+				_scroll_chat(1)
+				get_viewport().set_input_as_handled()
+			MOUSE_BUTTON_WHEEL_DOWN:
+				_scroll_chat(-1)
+				get_viewport().set_input_as_handled()
 	if event is InputEventKey and event.pressed and not event.is_echo():
 		match event.keycode:
 			KEY_TAB:
@@ -161,6 +170,7 @@ func _open_chat(initial_text: String = ""):
 	is_open = true
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	_reset_completion()
+	_scroll_offset = 0.0
 	_input_edit.visible = true
 	_input_edit.text = initial_text
 	_input_edit.caret_column = initial_text.length()
@@ -174,6 +184,7 @@ func _open_chat(initial_text: String = ""):
 func _close_chat():
 	is_open = false
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_scroll_offset = 0.0
 	_input_edit.visible = false
 	_ghost_label.visible = false
 	_ghost_text = ""
@@ -509,6 +520,25 @@ func _add_message(text: String, color: Color):
 	messages.append({"text": text, "color": color})
 	if messages.size() > MAX_MESSAGES:
 		messages.remove_at(0)
+	_scroll_offset = 0.0
+	queue_redraw()
+
+func _chat_total_height() -> float:
+	var wrap_width := maxf(size.x - H_MARGIN * 2.0, 1.0)
+	var total := 0.0
+	for m in messages:
+		total += MUNRO_FONT.get_multiline_string_size(
+				m.text, HORIZONTAL_ALIGNMENT_LEFT, wrap_width, LOG_FONT_SIZE).y
+	return total
+
+func _chat_max_scroll() -> float:
+	var visible := size.y - INPUT_HEIGHT - H_MARGIN - 10.0
+	return maxf(_chat_total_height() - visible, 0.0)
+
+func _scroll_chat(direction: int):
+	# direction: +1 = wheel up (older history), -1 = wheel down (newer)
+	_scroll_offset += direction * MUNRO_FONT.get_height(LOG_FONT_SIZE)
+	_scroll_offset = clampf(_scroll_offset, 0.0, _chat_max_scroll())
 	queue_redraw()
 
 func _draw():
@@ -523,14 +553,27 @@ func _draw():
 	# same spot the old single-line text used.
 	var line_height := MUNRO_FONT.get_height(LOG_FONT_SIZE)
 	var bottom_y := size.y - INPUT_HEIGHT - H_MARGIN - 10.0
+	var heights: Array[float] = []
+	heights.resize(messages.size())
+	var total_height := 0.0
+	for i in range(messages.size()):
+		var h := MUNRO_FONT.get_multiline_string_size(
+				messages[i].text, HORIZONTAL_ALIGNMENT_LEFT, wrap_width, LOG_FONT_SIZE).y
+		heights[i] = h
+		total_height += h
+	# Scrolling shifts the whole stack down to reveal older messages above.
+	_scroll_offset = clampf(_scroll_offset, 0.0, maxf(total_height - bottom_y, 0.0))
+	var cursor := bottom_y + _scroll_offset  # Bottom-line baseline of the newest message
 	for i in range(messages.size() - 1, -1, -1):
+		var h := heights[i]
 		var m = messages[i]
-		var msg_height := MUNRO_FONT.get_multiline_string_size(
-				m.text, HORIZONTAL_ALIGNMENT_LEFT, wrap_width, LOG_FONT_SIZE).y
-		var first_baseline := bottom_y - msg_height + line_height
-		if first_baseline >= 0.0:
+		var first_baseline := cursor - h + line_height
+		# Cull messages outside the visible chat area
+		var block_top := first_baseline - MUNRO_FONT.get_ascent(LOG_FONT_SIZE)
+		var block_bottom := cursor + MUNRO_FONT.get_descent(LOG_FONT_SIZE)
+		if block_top <= bottom_y and block_bottom >= 0.0:
 			draw_multiline_string(MUNRO_FONT, Vector2(H_MARGIN + 1, first_baseline + 1), m.text,
 					HORIZONTAL_ALIGNMENT_LEFT, wrap_width, LOG_FONT_SIZE, -1, shadow)
 			draw_multiline_string(MUNRO_FONT, Vector2(H_MARGIN, first_baseline), m.text,
 					HORIZONTAL_ALIGNMENT_LEFT, wrap_width, LOG_FONT_SIZE, -1, m.color)
-		bottom_y -= msg_height
+		cursor -= h

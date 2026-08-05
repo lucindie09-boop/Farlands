@@ -110,7 +110,7 @@ func _process(delta):
 
 func _input(event):
 	if not is_open:
-		if player_controller.is_inventory_open():
+		if player_controller.is_inventory_open() or player_controller.is_settings_open():
 			return
 		if event.is_action_pressed("toggle_chat"):
 			_open_chat()

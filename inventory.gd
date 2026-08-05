@@ -67,7 +67,7 @@ func _is_fill_pixel(px: Color, base: Color, tolerance: float) -> bool:
 func _input(event):
 	# While the chat is open, E should type "e" into the chat box, not
 	# toggle the inventory. Check first so the guard also covers ui_cancel.
-	if player_controller and player_controller.is_chat_open():
+	if player_controller and (player_controller.is_chat_open() or player_controller.is_settings_open()):
 		return
 	if event.is_action_pressed("toggle_inventory"):
 		_toggle_inventory()

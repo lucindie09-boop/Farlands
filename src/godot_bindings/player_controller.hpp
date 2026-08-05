@@ -56,6 +56,10 @@ public:
     void set_chat_open(bool open);
     bool is_chat_open() const;
     
+    // Settings menu API
+    void set_settings_open(bool open);
+    bool is_settings_open() const;
+    
     void teleport_to(const godot::Vector3& pos);
     void set_fly_mode(bool on);
     bool get_fly_mode() const;
@@ -82,6 +86,7 @@ private:
     bool fly_mode_ = false;
     bool inventory_open_ = false;
     bool chat_open_ = false;
+    bool settings_open_ = false;
     bool inventory_saved_ = false;
     float rendered_eye_height_ = 1.62f;
 };

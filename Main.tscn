@@ -6,8 +6,9 @@
 [ext_resource type="Script" uid="uid://c1kgqnq3m3asf" path="res://hotbar.gd" id="5_hotbar"]
 [ext_resource type="Script" uid="uid://c51n2p71pmdb8" path="res://inventory.gd" id="6_inventory"]
 [ext_resource type="Script" uid="uid://dpp1manu5wtsx" path="res://chat.gd" id="7_chat"]
-[ext_resource type="Script" path="res://settings_menu.gd" id="8_settings"]
-[ext_resource type="Script" path="res://crosshair.gd" id="9_crosshair"]
+[ext_resource type="Script" uid="uid://g3lh0j0xb0jf" path="res://settings_menu.gd" id="8_settings"]
+[ext_resource type="Script" uid="uid://cg56m76b43332" path="res://crosshair.gd" id="9_crosshair"]
+[ext_resource type="Script" uid="uid://xebno2le0tgp" path="res://block_outline.gd" id="10_outline"]
 
 [sub_resource type="Environment" id="Environment_uu6xs"]
 background_mode = 2
@@ -76,7 +77,6 @@ script = ExtResource("6_inventory")
 
 [node name="Chat" type="Control" parent="HUD" unique_id=135246790]
 layout_mode = 3
-anchors_preset = -1
 anchor_top = 0.6666667
 anchor_right = 0.3333333
 anchor_bottom = 1.0
@@ -101,6 +101,9 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("9_crosshair")
+
+[node name="BlockOutline" type="Node3D" parent="." unique_id=135246793]
+script = ExtResource("10_outline")
 
 [node name="Hotbar#HotbarTexture" type="TextureRect" parent="." unique_id=702814611]
 anchors_preset = 7

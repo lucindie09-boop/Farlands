@@ -74,6 +74,8 @@ godot::Vector3 get_sun_direction() const { return day_night.get_sun_direction();
     double get_fog_density() const { return static_cast<double>(fog_controller.get_fog_density()); }
     void set_render_distance_blocks(float blocks) { fog_controller.set_render_distance_blocks(blocks); update_shader_parameters(); }
     float get_render_distance_blocks() const { return fog_controller.get_render_distance_blocks(); }
+    void set_fog_mode(int32_t mode) { fog_controller.set_fog_mode(static_cast<FogController::FogMode>(mode)); update_shader_parameters(); }
+    int32_t get_fog_mode() const { return static_cast<int32_t>(fog_controller.get_fog_mode()); }
 
 private:
     DayNightCycle day_night;

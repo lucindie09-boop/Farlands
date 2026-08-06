@@ -397,6 +397,8 @@ godot::Color VoxelEngineController::get_darkness_color() const { return environm
 
 void VoxelEngineController::set_fog_density(double density) { environment_controller.set_fog_density(density); }
 double VoxelEngineController::get_fog_density() const { return environment_controller.get_fog_density(); }
+void VoxelEngineController::set_fog_mode(int32_t mode) { environment_controller.set_fog_mode(mode); }
+int32_t VoxelEngineController::get_fog_mode() const { return environment_controller.get_fog_mode(); }
 void VoxelEngineController::set_render_distance_blocks(float blocks) { environment_controller.set_render_distance_blocks(blocks); }
 float VoxelEngineController::get_render_distance_blocks() const { return environment_controller.get_render_distance_blocks(); }
 

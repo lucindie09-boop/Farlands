@@ -23,6 +23,7 @@ uniform float fog_end=896.0;
 uniform float fog_density=0.6;
 uniform float height_fog_density=0.012;
 uniform float sea_level=64.0;
+uniform int fog_mode=1; // 0=disabled, 1=edge, 2=linear, 3=exponential
 
 // Color grading
 uniform float saturation=1.0;
@@ -182,29 +183,46 @@ void fragment(){
 	float fog_amount = 0.0;
 	float dist_factor = 0.0;
 
-	if (fog_density > 0.001) {
+	if (fog_mode > 0 && fog_density > 0.001) {
     	float dist = max(fog_distance - fog_begin, 0.0);
     	float fog_range = max(fog_end - fog_begin, 1.0);
-    	float x = clamp(dist / fog_range, 0.0, 1.0);
-    	fog_amount = x * sqrt(x);
-    	fog_amount *= fog_density * 1.5;
+    	
+    	if (fog_mode == 1) {
+    		// Edge fog - linear starting 50 blocks before end
+    		float edge_start = fog_end - 50.0;
+    		float edge_range = max(fog_end - edge_start, 1.0);
+    		float edge_dist = max(fog_distance - edge_start, 0.0);
+    		float x = clamp(edge_dist / edge_range, 0.0, 1.0);
+    		fog_amount = x;
+    		dist_factor = smoothstep(edge_start, fog_end, fog_distance);
+    	} else if (fog_mode == 2) {
+    		// Linear fog - Minecraft-style, only applies near the end
+    		float x = clamp(dist / fog_range, 0.0, 1.0);
+    		fog_amount = x;
+    		dist_factor = smoothstep(fog_begin, fog_end, fog_distance);
+    	} else {
+    		// Exponential fog - current setup
+    		float x = clamp(dist / fog_range, 0.0, 1.0);
+    		fog_amount = x * sqrt(x);
+    		fog_amount *= fog_density * 1.5;
+    		dist_factor = smoothstep(fog_begin, fog_end, fog_distance);
+    	}
+    	
     	fog_amount = clamp(fog_amount, 0.0, 1.0);
-    	dist_factor = smoothstep(fog_begin, fog_end, fog_distance);
+    	
+    	// Apply height fog and horizon fog only when fog is enabled
+    	float belowSea = max(sea_level - world_position.y, 0.0);
+    	float hf = belowSea * height_fog_density;
+    	float heightFog = hf / (1.0 + hf);
+    	heightFog *= dist_factor;
+    	fog_amount += heightFog * 0.5;
+
+    	float horizon = abs(view_direction.y);
+    	float h3 = (1.0 - horizon);
+    	h3 = h3 * h3 * h3;
+    	fog_amount += h3 * 0.18 * dist_factor;
+    	fog_amount = clamp(fog_amount, 0.0, 1.0);
 	}
-
-    float belowSea = max(sea_level - world_position.y, 0.0);
-    float hf = belowSea * height_fog_density;
-    float heightFog = hf / (1.0 + hf);
-    heightFog *= dist_factor;
-    fog_amount += heightFog * 0.5;
-
-    float horizon = abs(view_direction.y);
-    float h3 = (1.0 - horizon);
-    h3 = h3 * h3 * h3;
-    fog_amount += h3 * 0.18 * dist_factor;
-    fog_amount = clamp(fog_amount, 0.0, 1.0);
-
-    fog_amount = clamp(fog_amount, 0.0, 1.0);
 
     // ========= TURBIDITY (Rayleigh/Mie haze) =========
 	float haze = clamp(sky_turbidity * 1.4 - 0.2, 0.0, 1.0);

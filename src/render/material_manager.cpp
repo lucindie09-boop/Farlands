@@ -32,7 +32,8 @@ void MaterialManager::update_shader_parameters(float sky_intensity, const Color&
 
 void MaterialManager::update_fog_parameters(float fog_begin, float fog_end, const Color& fog_color,
                                             float fog_density, float height_fog_density, float sea_level,
-                                            const Color& aerial_color, float fog_scatter, const Color& fog_scatter_color) {
+                                            const Color& aerial_color, float fog_scatter, const Color& fog_scatter_color,
+                                            int fog_mode) {
     Ref<ShaderMaterial> material = get_material();
     if (material.is_valid()) {
         material->set_shader_parameter("fog_begin", fog_begin);
@@ -42,6 +43,7 @@ void MaterialManager::update_fog_parameters(float fog_begin, float fog_end, cons
         material->set_shader_parameter("sea_level", sea_level);
         material->set_shader_parameter("fog_scatter", fog_scatter);
         material->set_shader_parameter("fog_scatter_color", fog_scatter_color);
+        material->set_shader_parameter("fog_mode", fog_mode);
     }
 }
 

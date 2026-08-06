@@ -81,11 +81,11 @@ func _draw():
 		return
 	
 	# Draw the texture centered at bottom with scaling
-	var ui_scale = 3.0  # Scale up the texture
+	var ui_scale = UIScale.value  # Global GUI scale
 	var scaled_width = texture_width * ui_scale
 	var scaled_height = texture_height * ui_scale
 	var texture_x = (size.x - scaled_width) / 2.0
-	var texture_y = size.y - scaled_height - 20.0
+	var texture_y = size.y - scaled_height
 	draw_texture_rect(hotbar_texture, Rect2(texture_x, texture_y, scaled_width, scaled_height), false)
 	
 	# Draw each hotbar slot content, positioned inside the exact 16x16 fill
@@ -138,7 +138,7 @@ func _draw_custom_hotbar():
 	
 	var total_width = HOTBAR_SIZE * slot_width + (HOTBAR_SIZE - 1) * slot_spacing
 	var start_x = (size.x - total_width) / 2
-	var start_y = size.y - slot_height - 20
+	var start_y = size.y - slot_height
 	
 	for i in range(HOTBAR_SIZE):
 		var slot_x = start_x + i * (slot_width + slot_spacing)

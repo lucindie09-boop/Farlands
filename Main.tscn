@@ -7,6 +7,7 @@
 [ext_resource type="Script" uid="uid://c51n2p71pmdb8" path="res://inventory.gd" id="6_inventory"]
 [ext_resource type="Script" uid="uid://dpp1manu5wtsx" path="res://chat.gd" id="7_chat"]
 [ext_resource type="Script" path="res://settings_menu.gd" id="8_settings"]
+[ext_resource type="Script" path="res://crosshair.gd" id="9_crosshair"]
 
 [sub_resource type="Environment" id="Environment_uu6xs"]
 background_mode = 2
@@ -91,6 +92,15 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("8_settings")
+
+[node name="Crosshair" type="Control" parent="HUD" unique_id=135246792]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("9_crosshair")
 
 [node name="Hotbar#HotbarTexture" type="TextureRect" parent="." unique_id=702814611]
 anchors_preset = 7

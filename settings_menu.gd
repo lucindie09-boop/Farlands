@@ -192,7 +192,7 @@ func _build_gui_page() -> Control:
 		UIScale.value = _default_gui_scale
 		scale_btn.text = str(int(round(_default_gui_scale))) + "x"
 
-	var crosshair_btn := _make_button("Crosshair", 180.0)
+	var crosshair_btn := _make_button("Crosshair")
 	crosshair_btn.pressed.connect(func(): _show_page("crosshair"))
 
 	return _build_option_page("GUI", [
@@ -207,20 +207,20 @@ func _build_crosshair_page() -> Control:
 	page.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 	var title := _make_title("CROSSHAIR")
-	title.offset_top = -173.0 * s
-	title.offset_bottom = -133.0 * s
+	title.offset_top = -150.0 * s
+	title.offset_bottom = -110.0 * s
 	page.add_child(title)
 
 	var preview: Control = (preload("res://crosshair_preview.gd") as GDScript).new()
 	preview.set_anchors_preset(Control.PRESET_CENTER)
 	preview.offset_left = -70.0 * s
 	preview.offset_right = 70.0 * s
-	preview.offset_top = -38.0 * s
-	preview.offset_bottom = 82.0 * s
+	preview.offset_top = -23.0 * s
+	preview.offset_bottom = 97.0 * s
 	page.add_child(preview)
 
-	_crosshair_header(page, 0, -121.0, "CROSS")
-	_crosshair_header(page, 1, -121.0, "DOT")
+	_crosshair_header(page, 0, -102.0, "CROSS")
+	_crosshair_header(page, 1, -102.0, "DOT")
 
 	var controls := {}
 	controls["cross_enabled"] = _make_toggle("cross_enabled", _crosshair_val("cross_enabled"))
@@ -235,7 +235,7 @@ func _build_crosshair_page() -> Control:
 	controls["dot_size"] = _make_spin(_crosshair_val("dot_size"), 0.0, 40.0, 1.0, "dot_size")
 	controls["dot_opacity"] = _make_spin(_crosshair_val("dot_opacity"), 0.0, 1.0, 0.05, "dot_opacity")
 
-	var y := -97.0
+	var y := -82.0
 	_crosshair_place(page, 0, y, "Show", controls["cross_enabled"])
 	y += 34.0
 	_crosshair_place(page, 0, y, "Colour", controls["cross_color"])
@@ -250,7 +250,7 @@ func _build_crosshair_page() -> Control:
 	y += 34.0
 	_crosshair_place(page, 0, y, "Top Line", controls["top_line_enabled"])
 
-	var yd := -97.0
+	var yd := -82.0
 	_crosshair_place(page, 1, yd, "Show", controls["dot_enabled"])
 	yd += 34.0
 	_crosshair_place(page, 1, yd, "Colour", controls["dot_color"])
@@ -260,8 +260,8 @@ func _build_crosshair_page() -> Control:
 	_crosshair_place(page, 1, yd, "Opacity", controls["dot_opacity"])
 
 	var reset := _make_button("Reset")
-	reset.offset_top = 153.0 * s
-	reset.offset_bottom = 173.0 * s
+	reset.offset_top = 166.0 * s
+	reset.offset_bottom = 186.0 * s
 	reset.offset_left = -210.0 * s
 	reset.offset_right = -10.0 * s
 	reset.pressed.connect(func():
@@ -273,8 +273,8 @@ func _build_crosshair_page() -> Control:
 	page.add_child(reset)
 
 	var back := _make_button("Back")
-	back.offset_top = 153.0 * s
-	back.offset_bottom = 173.0 * s
+	back.offset_top = 166.0 * s
+	back.offset_bottom = 186.0 * s
 	back.offset_left = 10.0 * s
 	back.offset_right = 210.0 * s
 	back.pressed.connect(func(): _show_page("gui"))
@@ -460,8 +460,8 @@ func _build_option_page(title_text: String, rows: Array, back_target: String) ->
 			control.offset_left = -140.0 * s
 			control.offset_right = 40.0 * s
 		else:
-			control.offset_left = -90.0 * s
-			control.offset_right = 90.0 * s
+			control.offset_left = -100.0 * s
+			control.offset_right = 100.0 * s
 		control.offset_top = (y + 14.0) * s
 		control.offset_bottom = (y + 34.0) * s
 		page.add_child(control)

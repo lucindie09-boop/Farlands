@@ -512,7 +512,7 @@ func _build_lighting_page() -> Control:
 		["Darkness Color", dark_color, dark_reset],
 		["Contrast", contrast, contrast_reset],
 		["Saturation", saturation, saturation_reset],
-	], "settings", 36.0)
+	], "settings", 40.0)
 
 func _build_render_page() -> Control:
 	var rd := SpinBox.new()
@@ -534,12 +534,18 @@ func _build_option_page(title_text: String, rows: Array, back_target: String, ro
 	page.set_anchors_preset(Control.PRESET_FULL_RECT)
 	page.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
+	var title_h := 40.0
+	var title_gap := 10.0
+	var n := float(rows.size())
+	var content_h := title_h + title_gap + (n - 1.0) * row_spacing + 38.0 + 8.0 + 20.0
+	var y0 := -content_h / 2.0
+
 	var title := _make_title(title_text)
-	title.offset_top = -80.0 * s
-	title.offset_bottom = -40.0 * s
+	title.offset_top = y0 * s
+	title.offset_bottom = (y0 + title_h) * s
 	page.add_child(title)
 
-	var y := -30.0
+	var y := y0 + title_h + title_gap
 	for row in rows:
 		var label := Label.new()
 		label.text = row[0]
@@ -551,7 +557,7 @@ func _build_option_page(title_text: String, rows: Array, back_target: String, ro
 		label.offset_left = -200.0 * s
 		label.offset_right = 200.0 * s
 		label.offset_top = y * s
-		label.offset_bottom = (y + 12.0) * s
+		label.offset_bottom = (y + 16.0) * s
 		page.add_child(label)
 
 		var control: Control = row[1]
@@ -562,16 +568,16 @@ func _build_option_page(title_text: String, rows: Array, back_target: String, ro
 		else:
 			control.offset_left = -100.0 * s
 			control.offset_right = 100.0 * s
-		control.offset_top = (y + 14.0) * s
-		control.offset_bottom = (y + 34.0) * s
+		control.offset_top = (y + 18.0) * s
+		control.offset_bottom = (y + 38.0) * s
 		page.add_child(control)
 
 		if row.size() > 2 and row[2] != null:
 			var reset := _make_button("Reset", 80.0)
 			reset.offset_left = 48.0 * s
 			reset.offset_right = 128.0 * s
-			reset.offset_top = (y + 14.0) * s
-			reset.offset_bottom = (y + 34.0) * s
+			reset.offset_top = (y + 18.0) * s
+			reset.offset_bottom = (y + 38.0) * s
 			reset.pressed.connect(row[2])
 			page.add_child(reset)
 

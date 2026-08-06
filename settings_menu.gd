@@ -91,7 +91,8 @@ func _ready():
 	_default_ao_strength = chunk_manager.get_ao_strength()
 	_default_darkness_color = chunk_manager.get_darkness_color()
 	_default_smooth_lighting = chunk_manager.get_smooth_lighting()
-	_default_fog_mode = chunk_manager.get_fog_mode()
+	# Don't load fog_mode from chunk_manager - keep hardcoded default for reset
+	# _default_fog_mode = chunk_manager.get_fog_mode()
 	if crosshair_node:
 		for k in _crosshair_defaults:
 			_crosshair_defaults[k] = crosshair_node.get(k)

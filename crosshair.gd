@@ -3,13 +3,13 @@ extends Control
 @onready var player_controller = get_node("/root/Main/Player")
 
 var cross_enabled: bool = true
-var cross_length: float = 4.0
-var cross_thickness: float = 1.0
+var cross_length: float = 9.0
+var cross_thickness: float = 2.0
 var cross_spacing: float = 0.0
 var cross_opacity: float = 1.0
 var cross_color: Color = Color.WHITE
 var top_line_enabled: bool = true
-var dot_enabled: bool = true
+var dot_enabled: bool = false
 var dot_size: float = 3.0
 var dot_opacity: float = 1.0
 var dot_color: Color = Color.WHITE
@@ -38,16 +38,22 @@ func _draw():
 
 static func draw_crosshair(canvas: CanvasItem, cx: int, cy: int, cross_on: bool, w: int, seg: int, gap: int, cross_color: Color, cross_opacity: float, top_line: bool, dot_on: bool, d: int, dot_color: Color, dot_opacity: float):
 	if cross_on:
-		var inner: int
+		var t := floori(float(w - 1) / 2.0)
+		var l_ref := cx - t
+		var r_ref := l_ref + w - 1
+		var u_ref := cy - t
+		var d_ref := u_ref + w - 1
 		if dot_on:
-			inner = floori(float(d - 1) / 2.0) + gap
-		else:
-			inner = gap
-		_draw_seg(canvas, cx - inner - seg, cy, cx - inner - 1, cy, w, cross_color, cross_opacity)
-		_draw_seg(canvas, cx + inner + 1, cy, cx + inner + seg, cy, w, cross_color, cross_opacity)
-		_draw_seg(canvas, cx, cy + inner + 1, cx, cy + inner + seg, w, cross_color, cross_opacity)
+			var dt := floori(float(d - 1) / 2.0)
+			l_ref = cx - dt
+			r_ref = l_ref + d - 1
+			u_ref = cy - dt
+			d_ref = u_ref + d - 1
+		_draw_seg(canvas, l_ref - gap - seg, cy, l_ref - gap - 1, cy, w, cross_color, cross_opacity)
+		_draw_seg(canvas, r_ref + gap + 1, cy, r_ref + gap + seg, cy, w, cross_color, cross_opacity)
+		_draw_seg(canvas, cx, d_ref + gap + 1, cx, d_ref + gap + seg, w, cross_color, cross_opacity)
 		if top_line:
-			_draw_seg(canvas, cx, cy - inner - seg, cx, cy - inner - 1, w, cross_color, cross_opacity)
+			_draw_seg(canvas, cx, u_ref - gap - seg, cx, u_ref - gap - 1, w, cross_color, cross_opacity)
 	if dot_on:
 		_draw_dot(canvas, cx, cy, d, dot_color, dot_opacity)
 

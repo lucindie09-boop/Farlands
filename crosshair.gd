@@ -15,6 +15,7 @@ var dot_size: float = 3.0
 var dot_opacity: float = 1.0
 var dot_color: Color = Color.WHITE
 var dot_rotation: float = 0.0
+var cross_dot_collision: bool = true
 
 func _ready():
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -37,31 +38,30 @@ func _draw():
 		dot_enabled,
 		int(round(dot_size)),
 		dot_color, dot_opacity,
-		cross_rotation, dot_rotation)
+		cross_rotation, dot_rotation,
+		cross_dot_collision)
 
-static func draw_crosshair(canvas: CanvasItem, cx: int, cy: int, cross_on: bool, w: int, seg: int, gap: int, cross_color: Color, cross_opacity: float, top_line: bool, dot_on: bool, d: int, dot_color: Color, dot_opacity: float, cross_deg: float, dot_deg: float):
+static func draw_crosshair(canvas: CanvasItem, cx: int, cy: int, cross_on: bool, w: int, seg: int, gap: int, cross_color: Color, cross_opacity: float, top_line: bool, dot_on: bool, d: int, dot_color: Color, dot_opacity: float, cross_deg: float, dot_deg: float, collision: bool):
 	if cross_on:
 		var t := floori(float(w - 1) / 2.0)
-		var l_ref := cx - t
-		var r_ref := l_ref + w - 1
-		var u_ref := cy - t
-		var d_ref := u_ref + w - 1
-		if dot_on:
-			var dt := floori(float(d - 1) / 2.0)
-			l_ref = cx - dt
-			r_ref = l_ref + d - 1
-			u_ref = cy - dt
-			d_ref = u_ref + d - 1
+		var use_dot_ref := dot_on and collision
+		var half := t
+		if use_dot_ref:
+			half = floori(float(d - 1) / 2.0)
 		var arms: Array = []
-		if dot_on or gap > 0:
+		if use_dot_ref or gap > 0:
 			arms = [
-				[l_ref - gap - seg, cy, l_ref - gap - 1, cy],
-				[r_ref + gap + 1, cy, r_ref + gap + seg, cy],
-				[cx, d_ref + gap + 1, cx, d_ref + gap + seg],
+				[cx - half - gap - seg, cy, cx - half - gap - 1, cy],
+				[cx + half + gap + 1, cy, cx + half + gap + seg, cy],
+				[cx, cy + half + gap + 1, cx, cy + half + gap + seg],
 			]
 			if top_line:
-				arms.append([cx, u_ref - gap - seg, cx, u_ref - gap - 1])
+				arms.append([cx, cy - half - gap - seg, cx, cy - half - gap - 1])
 		else:
+			var l_ref := cx - t
+			var r_ref := l_ref + w - 1
+			var u_ref := cy - t
+			var d_ref := u_ref + w - 1
 			arms = [
 				[l_ref - seg, cy, r_ref + seg, cy],
 				[cx, d_ref, cx, d_ref + seg],

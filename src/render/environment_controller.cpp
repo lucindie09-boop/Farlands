@@ -91,6 +91,7 @@ void EnvironmentController::update_shader_parameters() {
     const float sky_turbidity = day_night.get_sky_turbidity();
 
     material_manager.update_shader_parameters(sky_intensity, sky_color, sun_dir, sky_warmth, sky_horizon_color, sky_zenith_color, sky_turbidity);
+    material_manager.update_color_parameters(contrast, saturation, ao_color, ao_strength, darkness_color);
 
     const float fog_begin = fog_controller.get_fog_begin();
     const float fog_end = fog_controller.get_fog_end();

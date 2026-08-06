@@ -139,6 +139,19 @@ void toggle_day_night_cycle();
     void set_night_sky_color(const godot::Color& color);
     godot::Color get_night_sky_color() const;
 
+    void set_contrast(double contrast);
+    double get_contrast() const;
+
+    void set_saturation(double saturation);
+    double get_saturation() const;
+
+    void set_ao_color(const godot::Color& color);
+    godot::Color get_ao_color() const;
+    void set_ao_strength(double strength);
+    double get_ao_strength() const;
+    void set_darkness_color(const godot::Color& color);
+    godot::Color get_darkness_color() const;
+
     void set_fog_density(double density);
     double get_fog_density() const;
 

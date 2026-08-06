@@ -45,6 +45,25 @@ void MaterialManager::update_fog_parameters(float fog_begin, float fog_end, cons
     }
 }
 
+void MaterialManager::update_color_parameters(float contrast, float saturation, const Color& ao_color, float ao_strength, const Color& darkness_color) {
+    Ref<ShaderMaterial> material = get_material();
+    if (material.is_valid()) {
+        material->set_shader_parameter("contrast", contrast);
+        material->set_shader_parameter("saturation", saturation);
+        material->set_shader_parameter("ao_color", Vector3(ao_color.r, ao_color.g, ao_color.b));
+        material->set_shader_parameter("ao_strength", ao_strength);
+        material->set_shader_parameter("darkness_color", Vector3(darkness_color.r, darkness_color.g, darkness_color.b));
+    }
+    Ref<ShaderMaterial> water_mat = get_water_material();
+    if (water_mat.is_valid()) {
+        water_mat->set_shader_parameter("contrast", contrast);
+        water_mat->set_shader_parameter("saturation", saturation);
+        water_mat->set_shader_parameter("ao_color", Vector3(ao_color.r, ao_color.g, ao_color.b));
+        water_mat->set_shader_parameter("ao_strength", ao_strength);
+        water_mat->set_shader_parameter("darkness_color", Vector3(darkness_color.r, darkness_color.g, darkness_color.b));
+    }
+}
+
 void MaterialManager::update_player_light(const Vector3& position, float radius, float intensity, const Color& color) {
 Ref<ShaderMaterial> material = get_material();
 if (material.is_valid()) {

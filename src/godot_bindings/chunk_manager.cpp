@@ -267,6 +267,21 @@ godot::Color ChunkManager::get_day_sky_color() const { return controller->get_da
 void ChunkManager::set_night_sky_color(const godot::Color& color) { controller->set_night_sky_color(color); }
 godot::Color ChunkManager::get_night_sky_color() const { return controller->get_night_sky_color(); }
 
+void ChunkManager::set_contrast(double contrast) { controller->set_contrast(contrast); }
+double ChunkManager::get_contrast() const { return controller->get_contrast(); }
+
+void ChunkManager::set_saturation(double saturation) { controller->set_saturation(saturation); }
+double ChunkManager::get_saturation() const { return controller->get_saturation(); }
+
+void ChunkManager::set_ao_color(const godot::Color& color) { controller->set_ao_color(color); }
+godot::Color ChunkManager::get_ao_color() const { return controller->get_ao_color(); }
+
+void ChunkManager::set_ao_strength(double strength) { controller->set_ao_strength(strength); }
+double ChunkManager::get_ao_strength() const { return controller->get_ao_strength(); }
+
+void ChunkManager::set_darkness_color(const godot::Color& color) { controller->set_darkness_color(color); }
+godot::Color ChunkManager::get_darkness_color() const { return controller->get_darkness_color(); }
+
 void ChunkManager::set_fog_density(double density) { controller->set_fog_density(density); }
 double ChunkManager::get_fog_density() const { return controller->get_fog_density(); }
 void ChunkManager::set_vegetation_enabled(bool enabled) { controller->set_vegetation_enabled(enabled); }
@@ -373,6 +388,11 @@ BIND_PROP(Variant::FLOAT, day_time, "time");
     BIND_PROP(Variant::FLOAT,   night_sky_intensity,       "intensity");
     BIND_PROP(Variant::COLOR,   day_sky_color,             "color");
     BIND_PROP(Variant::COLOR,   night_sky_color,           "color");
+    BIND_PROP(Variant::FLOAT,   contrast,                  "value");
+    BIND_PROP(Variant::FLOAT,   saturation,                "value");
+    BIND_PROP(Variant::COLOR,   ao_color,                  "color");
+    BIND_PROP(Variant::FLOAT,   ao_strength,               "strength");
+    BIND_PROP(Variant::COLOR,   darkness_color,            "color");
     BIND_PROP(Variant::FLOAT,   fog_density,               "density");
     BIND_PROP(Variant::BOOL,    vegetation_enabled,         "enabled");
     ClassDB::bind_method(D_METHOD("set_move_speed_multiplier", "multiplier"), &ChunkManager::set_move_speed_multiplier);

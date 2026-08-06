@@ -17,6 +17,7 @@ public:
                                float fog_density = 0.003f, float height_fog_density = 0.015f,
                                float sea_level = 64.0f, const godot::Color& aerial_color = godot::Color(0.60f, 0.78f, 0.95f, 1.0f),
                                float fog_scatter = 0.0f, const godot::Color& fog_scatter_color = godot::Color(1.0f, 0.85f, 0.55f, 1.0f));
+    void update_color_parameters(float contrast, float saturation, const godot::Color& ao_color, float ao_strength, const godot::Color& darkness_color);
 void update_player_light(const godot::Vector3& position, float radius, float intensity, const godot::Color& color);
     godot::Ref<godot::ShaderMaterial> get_material();
     godot::Ref<godot::ShaderMaterial> get_water_material();

@@ -28,6 +28,7 @@ var _default_ao_color: Color = Color(0, 0, 0, 1)
 var _default_ao_strength: float = 1.0
 var _default_darkness_color: Color = Color(0, 0, 0, 1)
 var _default_smooth_lighting: bool = false
+var _default_fog_mode: int = 1  # 0=disabled, 1=edge, 2=linear, 3=exponential
 
 var _block_outline_defaults := {
 	"outline_enabled": true,
@@ -90,6 +91,7 @@ func _ready():
 	_default_ao_strength = chunk_manager.get_ao_strength()
 	_default_darkness_color = chunk_manager.get_darkness_color()
 	_default_smooth_lighting = chunk_manager.get_smooth_lighting()
+	_default_fog_mode = chunk_manager.get_fog_mode()
 	if crosshair_node:
 		for k in _crosshair_defaults:
 			_crosshair_defaults[k] = crosshair_node.get(k)
@@ -132,6 +134,7 @@ func _save_settings():
 	cfg.set_value("render", "distance", chunk_manager.get_render_distance())
 	cfg.set_value("render", "lod_distance", chunk_manager.get_lod_distance())
 	cfg.set_value("render", "lod_detail_level", chunk_manager.get_lod_detail_level())
+	cfg.set_value("render", "fog_mode", chunk_manager.get_fog_mode())
 	cfg.save(SETTINGS_PATH)
 
 func _load_settings():
@@ -159,6 +162,7 @@ func _load_settings():
 	chunk_manager.set_render_distance(int(cfg.get_value("render", "distance", chunk_manager.get_render_distance())))
 	chunk_manager.set_lod_distance(int(cfg.get_value("render", "lod_distance", chunk_manager.get_lod_distance())))
 	chunk_manager.set_lod_detail_level(cfg.get_value("render", "lod_detail_level", chunk_manager.get_lod_detail_level()))
+	chunk_manager.set_fog_mode(int(cfg.get_value("render", "fog_mode", chunk_manager.get_fog_mode())))
 
 # Settings menu uses the global GUI scale with a 2/3 modifier so its default
 # look (2x when UIScale is 3.0) is preserved while still scaling with the rest.
@@ -655,6 +659,8 @@ func _build_lighting_page() -> Control:
 		_schedule_save())
 	var dur_reset := func():
 		dur.value = _default_day_duration
+		chunk_manager.set_day_duration(_default_day_duration)
+		_schedule_save()
 
 	var day_color := ColorPickerButton.new()
 	day_color.color = chunk_manager.get_day_sky_color()
@@ -696,6 +702,8 @@ func _build_lighting_page() -> Control:
 		_schedule_save())
 	var ao_strength_reset := func():
 		ao_strength.value = _default_ao_strength
+		chunk_manager.set_ao_strength(_default_ao_strength)
+		_schedule_save()
 
 	var dark_color := ColorPickerButton.new()
 	dark_color.color = chunk_manager.get_darkness_color()
@@ -717,6 +725,8 @@ func _build_lighting_page() -> Control:
 		_schedule_save())
 	var contrast_reset := func():
 		contrast.value = _default_contrast
+		chunk_manager.set_contrast(_default_contrast)
+		_schedule_save()
 
 	var saturation := SpinBox.new()
 	saturation.min_value = 0.0
@@ -728,6 +738,8 @@ func _build_lighting_page() -> Control:
 		_schedule_save())
 	var saturation_reset := func():
 		saturation.value = _default_saturation
+		chunk_manager.set_saturation(_default_saturation)
+		_schedule_save()
 
 	var smooth_lighting := Button.new()
 	smooth_lighting.text = "On" if chunk_manager.get_smooth_lighting() else "Off"
@@ -766,6 +778,8 @@ func _build_render_page() -> Control:
 		_schedule_save())
 	var rd_reset := func():
 		rd.value = _default_render_distance
+		chunk_manager.set_render_distance(_default_render_distance)
+		_schedule_save()
 
 	var lod_dist := SpinBox.new()
 	lod_dist.min_value = 0.0
@@ -778,6 +792,8 @@ func _build_render_page() -> Control:
 		_schedule_save())
 	var lod_reset := func():
 		lod_dist.value = _default_lod_distance
+		chunk_manager.set_lod_distance(_default_lod_distance)
+		_schedule_save()
 
 	var lod_detail := SpinBox.new()
 	lod_detail.min_value = 0.125
@@ -789,11 +805,28 @@ func _build_render_page() -> Control:
 		_schedule_save())
 	var lod_detail_reset := func():
 		lod_detail.value = _default_lod_detail
+		chunk_manager.set_lod_detail_level(_default_lod_detail)
+		_schedule_save()
+
+	var fog_mode_btn := _make_button("", 180.0)
+	var fog_mode_names := ["Off", "Edge", "Linear", "Exponential"]
+	fog_mode_btn.text = fog_mode_names[chunk_manager.get_fog_mode()]
+	fog_mode_btn.pressed.connect(func():
+		var current: int = chunk_manager.get_fog_mode()
+		var next: int = (current + 1) % fog_mode_names.size()
+		chunk_manager.set_fog_mode(next)
+		fog_mode_btn.text = fog_mode_names[next]
+		_schedule_save())
+	var fog_mode_reset := func():
+		chunk_manager.set_fog_mode(_default_fog_mode)
+		fog_mode_btn.text = fog_mode_names[_default_fog_mode]
+		_schedule_save()
 
 	return _build_option_page("RENDER", [
 		["Render Distance", rd, rd_reset],
 		["LOD Distance", lod_dist, lod_reset],
 		["LOD Detail Level", lod_detail, lod_detail_reset],
+		["Fog Mode", fog_mode_btn, fog_mode_reset],
 	], "settings")
 
 func _build_option_page(title_text: String, rows: Array, back_target: String, row_spacing := 44.0) -> Control:

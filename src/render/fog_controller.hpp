@@ -16,8 +16,16 @@ inline float smoothstep(float edge0, float edge1, float x) {
 
 class FogController {
 public:
+    enum class FogMode {
+        Disabled,
+        Edge,
+        Linear,
+        Exponential
+    };
     void update(godot::Environment* env, float blend, const godot::Color& sky_color, const godot::Color& fog_color, float fog_scatter) {
         if (!env) return;
+        
+        // All fog handling is done in the shader, Godot fog is disabled
         env->set_fog_enabled(false);
     }
 
@@ -78,8 +86,11 @@ public:
     void set_fog_color_dawn(const godot::Color& c) { fog_color_dawn = c; }
     void set_enabled(bool v) { enabled = v; }
     [[nodiscard]] bool get_enabled() const { return enabled; }
+    void set_fog_mode(FogMode mode) { fog_mode = mode; }
+    [[nodiscard]] FogMode get_fog_mode() const { return fog_mode; }
 
 private:
+    FogMode fog_mode = FogMode::Edge; // Default to edge (mode 1)
     bool enabled = true;
     float render_distance_blocks = 512.0f;
     float fog_density = 0.3f;

@@ -102,7 +102,8 @@ void EnvironmentController::update_shader_parameters() {
 
     material_manager.update_fog_parameters(fog_begin, fog_end, fog_color,
                                            fog_controller.get_shader_fog_density(), 0.012f, 200.0f, fog_color,
-                                           fog_scatter, fog_scatter_color);
+                                           fog_scatter, fog_scatter_color,
+                                           static_cast<int>(fog_controller.get_fog_mode()));
 }
 
 void EnvironmentController::update_player_light(const godot::Vector3& player_pos, double runtime_elapsed,

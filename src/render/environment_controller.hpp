@@ -59,6 +59,17 @@ godot::Vector3 get_sun_direction() const { return day_night.get_sun_direction();
     void set_night_sky_color(const godot::Color& color) { day_night.set_night_color(color); update_shader_parameters(); }
     godot::Color get_night_sky_color() const { return day_night.get_night_color(); }
 
+    void set_contrast(double value) { contrast = static_cast<float>(value); update_shader_parameters(); }
+    double get_contrast() const { return contrast; }
+    void set_saturation(double value) { saturation = static_cast<float>(value); update_shader_parameters(); }
+    double get_saturation() const { return saturation; }
+    void set_ao_color(const godot::Color& color) { ao_color = color; update_shader_parameters(); }
+    godot::Color get_ao_color() const { return ao_color; }
+    void set_ao_strength(double value) { ao_strength = static_cast<float>(value); update_shader_parameters(); }
+    double get_ao_strength() const { return ao_strength; }
+    void set_darkness_color(const godot::Color& color) { darkness_color = color; update_shader_parameters(); }
+    godot::Color get_darkness_color() const { return darkness_color; }
+
     void set_fog_density(double density) { fog_controller.set_fog_density(static_cast<float>(density)); update_shader_parameters(); }
     double get_fog_density() const { return static_cast<double>(fog_controller.get_fog_density()); }
     void set_render_distance_blocks(float blocks) { fog_controller.set_render_distance_blocks(blocks); update_shader_parameters(); }
@@ -70,6 +81,12 @@ private:
     MaterialManager material_manager;
     SkyController sky_controller;
     FogController fog_controller;
+
+    float contrast = 1.0f;
+    float saturation = 1.0f;
+    godot::Color ao_color = godot::Color(0.0f, 0.0f, 0.0f, 1.0f);
+    float ao_strength = 1.0f;
+    godot::Color darkness_color = godot::Color(0.0f, 0.0f, 0.0f, 1.0f);
 
     godot::Node* cached_parent = nullptr;
     godot::WorldEnvironment* cached_world_env = nullptr;

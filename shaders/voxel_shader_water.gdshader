@@ -27,6 +27,11 @@ uniform float sea_level=64.0;
 uniform float saturation=1.0;
 uniform float contrast=1.0;
 
+// AO tint & darkness floor
+uniform vec3 ao_color=vec3(0.0);
+uniform float ao_strength=1.0;
+uniform vec3 darkness_color=vec3(0.0);
+
 // Atmosphere
 uniform float fog_scatter=0.0;
 uniform vec3 fog_scatter_color=vec3(1.0,0.85,0.55);
@@ -90,6 +95,8 @@ void fragment(){
     vec4 color = texture(texture_array, tex_coord, mipmap_bias);
 
     float ao=custom1_attr.g;
+    float ao_amount = clamp((1.0 - ao) * ao_strength, 0.0, 1.0);
+    vec3 ao_tint = mix(ao_color, vec3(1.0), 1.0 - ao_amount);
 
     vec3 block_light=custom0_attr.rgb;
 
@@ -128,7 +135,7 @@ void fragment(){
         player_light_intensity
     );
 
-    vec3 lit_color=color.rgb*combinedLight*ao;
+    vec3 lit_color=color.rgb*combinedLight*ao_tint;
 
     // Water shimmer
     float shimmer=
@@ -173,8 +180,12 @@ void fragment(){
             color.rgb*
             bounce*
             bounceAmount*
-            ao;
+            ao_tint;
     }
+
+    // Darkness colour: tinted minimum light where light cannot reach
+    float light_amount = clamp(max(max(combinedLight.r, combinedLight.g), combinedLight.b), 0.0, 1.0);
+    lit_color += color.rgb * darkness_color * (1.0 - light_amount);
 
     // ========= FOG =========
 	float fog_amount = 0.0;

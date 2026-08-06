@@ -384,6 +384,17 @@ godot::Color VoxelEngineController::get_day_sky_color() const { return environme
 void VoxelEngineController::set_night_sky_color(const godot::Color& color) { environment_controller.set_night_sky_color(color); }
 godot::Color VoxelEngineController::get_night_sky_color() const { return environment_controller.get_night_sky_color(); }
 
+void VoxelEngineController::set_contrast(double contrast) { environment_controller.set_contrast(contrast); }
+double VoxelEngineController::get_contrast() const { return environment_controller.get_contrast(); }
+void VoxelEngineController::set_saturation(double saturation) { environment_controller.set_saturation(saturation); }
+double VoxelEngineController::get_saturation() const { return environment_controller.get_saturation(); }
+void VoxelEngineController::set_ao_color(const godot::Color& color) { environment_controller.set_ao_color(color); }
+godot::Color VoxelEngineController::get_ao_color() const { return environment_controller.get_ao_color(); }
+void VoxelEngineController::set_ao_strength(double strength) { environment_controller.set_ao_strength(strength); }
+double VoxelEngineController::get_ao_strength() const { return environment_controller.get_ao_strength(); }
+void VoxelEngineController::set_darkness_color(const godot::Color& color) { environment_controller.set_darkness_color(color); }
+godot::Color VoxelEngineController::get_darkness_color() const { return environment_controller.get_darkness_color(); }
+
 void VoxelEngineController::set_fog_density(double density) { environment_controller.set_fog_density(density); }
 double VoxelEngineController::get_fog_density() const { return environment_controller.get_fog_density(); }
 void VoxelEngineController::set_render_distance_blocks(float blocks) { environment_controller.set_render_distance_blocks(blocks); }

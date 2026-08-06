@@ -19,6 +19,11 @@ var _default_day_duration: float = 10.0
 var _default_day_sky: Color = Color(1, 1, 1, 1)
 var _default_night_sky: Color = Color(0, 0, 0, 1)
 var _default_render_distance: int = 32
+var _default_contrast: float = 1.0
+var _default_saturation: float = 1.0
+var _default_ao_color: Color = Color(0, 0, 0, 1)
+var _default_ao_strength: float = 1.0
+var _default_darkness_color: Color = Color(0, 0, 0, 1)
 
 var _crosshair_defaults := {
 	"cross_enabled": true,
@@ -54,6 +59,11 @@ func _ready():
 	_default_day_sky = chunk_manager.get_day_sky_color()
 	_default_night_sky = chunk_manager.get_night_sky_color()
 	_default_render_distance = chunk_manager.get_render_distance()
+	_default_contrast = chunk_manager.get_contrast()
+	_default_saturation = chunk_manager.get_saturation()
+	_default_ao_color = chunk_manager.get_ao_color()
+	_default_ao_strength = chunk_manager.get_ao_strength()
+	_default_darkness_color = chunk_manager.get_darkness_color()
 	if crosshair_node:
 		for k in _crosshair_defaults:
 			_crosshair_defaults[k] = crosshair_node.get(k)
@@ -80,6 +90,11 @@ func _save_settings():
 	cfg.set_value("lighting", "day_duration", chunk_manager.get_day_duration())
 	cfg.set_value("lighting", "day_sky_color", chunk_manager.get_day_sky_color())
 	cfg.set_value("lighting", "night_sky_color", chunk_manager.get_night_sky_color())
+	cfg.set_value("lighting", "contrast", chunk_manager.get_contrast())
+	cfg.set_value("lighting", "saturation", chunk_manager.get_saturation())
+	cfg.set_value("lighting", "ao_color", chunk_manager.get_ao_color())
+	cfg.set_value("lighting", "ao_strength", chunk_manager.get_ao_strength())
+	cfg.set_value("lighting", "darkness_color", chunk_manager.get_darkness_color())
 	cfg.set_value("render", "distance", chunk_manager.get_render_distance())
 	cfg.save(SETTINGS_PATH)
 
@@ -96,6 +111,11 @@ func _load_settings():
 	chunk_manager.set_day_duration(cfg.get_value("lighting", "day_duration", chunk_manager.get_day_duration()))
 	chunk_manager.set_day_sky_color(cfg.get_value("lighting", "day_sky_color", chunk_manager.get_day_sky_color()))
 	chunk_manager.set_night_sky_color(cfg.get_value("lighting", "night_sky_color", chunk_manager.get_night_sky_color()))
+	chunk_manager.set_contrast(cfg.get_value("lighting", "contrast", chunk_manager.get_contrast()))
+	chunk_manager.set_saturation(cfg.get_value("lighting", "saturation", chunk_manager.get_saturation()))
+	chunk_manager.set_ao_color(cfg.get_value("lighting", "ao_color", chunk_manager.get_ao_color()))
+	chunk_manager.set_ao_strength(cfg.get_value("lighting", "ao_strength", chunk_manager.get_ao_strength()))
+	chunk_manager.set_darkness_color(cfg.get_value("lighting", "darkness_color", chunk_manager.get_darkness_color()))
 	chunk_manager.set_render_distance(int(cfg.get_value("render", "distance", chunk_manager.get_render_distance())))
 
 # Settings menu uses the global GUI scale with a 2/3 modifier so its default
@@ -430,11 +450,69 @@ func _build_lighting_page() -> Control:
 		chunk_manager.set_night_sky_color(_default_night_sky)
 		_schedule_save()
 
+	var ao_color := ColorPickerButton.new()
+	ao_color.color = chunk_manager.get_ao_color()
+	ao_color.color_changed.connect(func(c: Color):
+		chunk_manager.set_ao_color(c)
+		_schedule_save())
+	var ao_reset := func():
+		ao_color.color = _default_ao_color
+		chunk_manager.set_ao_color(_default_ao_color)
+		_schedule_save()
+
+	var ao_strength := SpinBox.new()
+	ao_strength.min_value = 0.0
+	ao_strength.max_value = 2.0
+	ao_strength.step = 0.05
+	ao_strength.value = chunk_manager.get_ao_strength()
+	ao_strength.value_changed.connect(func(v: float):
+		chunk_manager.set_ao_strength(v)
+		_schedule_save())
+	var ao_strength_reset := func():
+		ao_strength.value = _default_ao_strength
+
+	var dark_color := ColorPickerButton.new()
+	dark_color.color = chunk_manager.get_darkness_color()
+	dark_color.color_changed.connect(func(c: Color):
+		chunk_manager.set_darkness_color(c)
+		_schedule_save())
+	var dark_reset := func():
+		dark_color.color = _default_darkness_color
+		chunk_manager.set_darkness_color(_default_darkness_color)
+		_schedule_save()
+
+	var contrast := SpinBox.new()
+	contrast.min_value = 0.0
+	contrast.max_value = 2.0
+	contrast.step = 0.05
+	contrast.value = chunk_manager.get_contrast()
+	contrast.value_changed.connect(func(v: float):
+		chunk_manager.set_contrast(v)
+		_schedule_save())
+	var contrast_reset := func():
+		contrast.value = _default_contrast
+
+	var saturation := SpinBox.new()
+	saturation.min_value = 0.0
+	saturation.max_value = 2.0
+	saturation.step = 0.05
+	saturation.value = chunk_manager.get_saturation()
+	saturation.value_changed.connect(func(v: float):
+		chunk_manager.set_saturation(v)
+		_schedule_save())
+	var saturation_reset := func():
+		saturation.value = _default_saturation
+
 	return _build_option_page("LIGHTING", [
 		["Day Duration", dur, dur_reset],
 		["Day Sky Color", day_color, day_reset],
 		["Night Sky Color", night_color, night_reset],
-	], "settings")
+		["Ambient Occlusion Color", ao_color, ao_reset],
+		["AO Strength", ao_strength, ao_strength_reset],
+		["Darkness Color", dark_color, dark_reset],
+		["Contrast", contrast, contrast_reset],
+		["Saturation", saturation, saturation_reset],
+	], "settings", 36.0)
 
 func _build_render_page() -> Control:
 	var rd := SpinBox.new()
@@ -450,7 +528,7 @@ func _build_render_page() -> Control:
 		rd.value = _default_render_distance
 	return _build_option_page("RENDER", [["Render Distance", rd, reset]], "settings")
 
-func _build_option_page(title_text: String, rows: Array, back_target: String) -> Control:
+func _build_option_page(title_text: String, rows: Array, back_target: String, row_spacing := 44.0) -> Control:
 	var s := _ui_scale()
 	var page := Control.new()
 	page.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -497,7 +575,7 @@ func _build_option_page(title_text: String, rows: Array, back_target: String) ->
 			reset.pressed.connect(row[2])
 			page.add_child(reset)
 
-		y += 44.0
+		y += row_spacing
 
 	var back := _make_button("Back")
 	back.offset_top = (y + 8.0) * s

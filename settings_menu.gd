@@ -28,10 +28,12 @@ var _crosshair_defaults := {
 	"cross_spacing": 0.0,
 	"top_line_enabled": true,
 	"cross_color": Color.WHITE,
+	"cross_rotation": 0.0,
 	"dot_enabled": false,
 	"dot_size": 3.0,
 	"dot_opacity": 1.0,
 	"dot_color": Color.WHITE,
+	"dot_rotation": 0.0,
 }
 
 var _save_timer: Timer = null
@@ -230,10 +232,12 @@ func _build_crosshair_page() -> Control:
 	controls["cross_opacity"] = _make_spin(_crosshair_val("cross_opacity"), 0.0, 1.0, 0.05, "cross_opacity")
 	controls["cross_spacing"] = _make_spin(_crosshair_val("cross_spacing"), 0.0, 10.0, 0.5, "cross_spacing")
 	controls["top_line_enabled"] = _make_toggle("top_line_enabled", _crosshair_val("top_line_enabled"))
+	controls["cross_rotation"] = _make_spin(_crosshair_val("cross_rotation"), 0.0, 360.0, 1.0, "cross_rotation")
 	controls["dot_enabled"] = _make_toggle("dot_enabled", _crosshair_val("dot_enabled"))
 	controls["dot_color"] = _make_color("dot_color", _crosshair_val("dot_color"))
 	controls["dot_size"] = _make_spin(_crosshair_val("dot_size"), 0.0, 40.0, 1.0, "dot_size")
 	controls["dot_opacity"] = _make_spin(_crosshair_val("dot_opacity"), 0.0, 1.0, 0.05, "dot_opacity")
+	controls["dot_rotation"] = _make_spin(_crosshair_val("dot_rotation"), 0.0, 45.0, 1.0, "dot_rotation")
 
 	var y := -82.0
 	_crosshair_place(page, 0, y, "Show", controls["cross_enabled"])
@@ -249,6 +253,8 @@ func _build_crosshair_page() -> Control:
 	_crosshair_place(page, 0, y, "Spacing", controls["cross_spacing"])
 	y += 40.0
 	_crosshair_place(page, 0, y, "Top Line", controls["top_line_enabled"])
+	y += 40.0
+	_crosshair_place(page, 0, y, "Rotation", controls["cross_rotation"])
 
 	var yd := -82.0
 	_crosshair_place(page, 1, yd, "Show", controls["dot_enabled"])
@@ -258,10 +264,12 @@ func _build_crosshair_page() -> Control:
 	_crosshair_place(page, 1, yd, "Size", controls["dot_size"])
 	yd += 40.0
 	_crosshair_place(page, 1, yd, "Opacity", controls["dot_opacity"])
+	yd += 40.0
+	_crosshair_place(page, 1, yd, "Rotation", controls["dot_rotation"])
 
 	var reset := _make_button("Reset")
-	reset.offset_top = 206.0 * s
-	reset.offset_bottom = 226.0 * s
+	reset.offset_top = 240.0 * s
+	reset.offset_bottom = 260.0 * s
 	reset.offset_left = -210.0 * s
 	reset.offset_right = -10.0 * s
 	reset.pressed.connect(func():
@@ -273,8 +281,8 @@ func _build_crosshair_page() -> Control:
 	page.add_child(reset)
 
 	var back := _make_button("Back")
-	back.offset_top = 206.0 * s
-	back.offset_bottom = 226.0 * s
+	back.offset_top = 240.0 * s
+	back.offset_bottom = 260.0 * s
 	back.offset_left = 10.0 * s
 	back.offset_right = 210.0 * s
 	back.pressed.connect(func(): _show_page("gui"))

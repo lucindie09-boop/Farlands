@@ -14,7 +14,7 @@ compatibility/default_parent_skeleton_in_mesh_instance_3d=true
 
 [application]
 
-config/name="fuk minecraft"
+config/name="Farlands"
 run/main_scene="uid://d0f2kff4camjn"
 config/features=PackedStringArray("4.7", "Forward Plus")
 config/icon="res://icon.svg"

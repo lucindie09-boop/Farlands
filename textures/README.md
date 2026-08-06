@@ -17,7 +17,7 @@ replaced with an original work or attributed here with its license.
 ```
 textures/
   blocks/           Active block face textures (16×16 PNG)
-    Old/            Deprecated texture variants (not loaded at runtime)
+	Old/            Deprecated texture variants (not loaded at runtime)
   atmosphere/       Skybox elements (sun, north star)
   gui/              UI elements (inventory, hotbar)
   sprites/          In-game sprites (heart)

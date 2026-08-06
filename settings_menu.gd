@@ -1,4 +1,4 @@
-﻿extends Control
+extends Control
 
 const MUNRO_FONT: Font = preload("res://fonts/munro.ttf")
 const BUTTON_TEX: Texture2D = preload("res://textures/gui/button.png")
@@ -27,6 +27,7 @@ var _default_saturation: float = 1.0
 var _default_ao_color: Color = Color(0, 0, 0, 1)
 var _default_ao_strength: float = 1.0
 var _default_darkness_color: Color = Color(0, 0, 0, 1)
+var _default_smooth_lighting: bool = false
 
 var _block_outline_defaults := {
 	"outline_enabled": true,
@@ -88,6 +89,7 @@ func _ready():
 	_default_ao_color = chunk_manager.get_ao_color()
 	_default_ao_strength = chunk_manager.get_ao_strength()
 	_default_darkness_color = chunk_manager.get_darkness_color()
+	_default_smooth_lighting = chunk_manager.get_smooth_lighting()
 	if crosshair_node:
 		for k in _crosshair_defaults:
 			_crosshair_defaults[k] = crosshair_node.get(k)
@@ -126,6 +128,7 @@ func _save_settings():
 	cfg.set_value("lighting", "ao_color", chunk_manager.get_ao_color())
 	cfg.set_value("lighting", "ao_strength", chunk_manager.get_ao_strength())
 	cfg.set_value("lighting", "darkness_color", chunk_manager.get_darkness_color())
+	cfg.set_value("lighting", "smooth_lighting", chunk_manager.get_smooth_lighting())
 	cfg.set_value("render", "distance", chunk_manager.get_render_distance())
 	cfg.set_value("render", "lod_distance", chunk_manager.get_lod_distance())
 	cfg.set_value("render", "lod_detail_level", chunk_manager.get_lod_detail_level())
@@ -152,6 +155,7 @@ func _load_settings():
 	chunk_manager.set_ao_color(cfg.get_value("lighting", "ao_color", chunk_manager.get_ao_color()))
 	chunk_manager.set_ao_strength(cfg.get_value("lighting", "ao_strength", chunk_manager.get_ao_strength()))
 	chunk_manager.set_darkness_color(cfg.get_value("lighting", "darkness_color", chunk_manager.get_darkness_color()))
+	chunk_manager.set_smooth_lighting(cfg.get_value("lighting", "smooth_lighting", chunk_manager.get_smooth_lighting()))
 	chunk_manager.set_render_distance(int(cfg.get_value("render", "distance", chunk_manager.get_render_distance())))
 	chunk_manager.set_lod_distance(int(cfg.get_value("render", "lod_distance", chunk_manager.get_lod_distance())))
 	chunk_manager.set_lod_detail_level(cfg.get_value("render", "lod_detail_level", chunk_manager.get_lod_detail_level()))
@@ -548,6 +552,17 @@ func _crosshair_header(page: Control, col: int, y: float, text: String):
 
 func _crosshair_place(page: Control, col: int, y: float, label_text: String, control: Control):
 	var s := _ui_scale()
+	control.set_anchors_preset(Control.PRESET_CENTER)
+	if col == 0:
+		control.offset_left = -280.0 * s
+		control.offset_right = -80.0 * s
+	else:
+		control.offset_left = 80.0 * s
+		control.offset_right = 280.0 * s
+	control.offset_top = (y + 12.0) * s
+	control.offset_bottom = (y + 34.0) * s
+	page.add_child(control)
+
 	var label := Label.new()
 	label.text = label_text
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -555,23 +570,11 @@ func _crosshair_place(page: Control, col: int, y: float, label_text: String, con
 	label.add_theme_font_size_override("font_size", int(10 * s))
 	label.add_theme_color_override("font_color", Color.WHITE)
 	label.set_anchors_preset(Control.PRESET_CENTER)
+	label.offset_left = control.offset_left
+	label.offset_right = control.offset_right
 	label.offset_top = y * s
 	label.offset_bottom = (y + 12.0) * s
-	control.set_anchors_preset(Control.PRESET_CENTER)
-	if col == 0:
-		label.offset_left = -280.0 * s
-		label.offset_right = -80.0 * s
-		control.offset_left = -280.0 * s
-		control.offset_right = -80.0 * s
-	else:
-		label.offset_left = 80.0 * s
-		label.offset_right = 280.0 * s
-		control.offset_left = 80.0 * s
-		control.offset_right = 280.0 * s
-	control.offset_top = (y + 12.0) * s
-	control.offset_bottom = (y + 34.0) * s
 	page.add_child(label)
-	page.add_child(control)
 
 func _block_outline_header(page: Control, col: int, y: float, text: String):
 	var s := _ui_scale()
@@ -594,6 +597,17 @@ func _block_outline_header(page: Control, col: int, y: float, text: String):
 
 func _block_outline_place(page: Control, col: int, y: float, label_text: String, control: Control):
 	var s := _ui_scale()
+	control.set_anchors_preset(Control.PRESET_CENTER)
+	if col == 0:
+		control.offset_left = -280.0 * s
+		control.offset_right = -80.0 * s
+	else:
+		control.offset_left = 80.0 * s
+		control.offset_right = 280.0 * s
+	control.offset_top = (y + 12.0) * s
+	control.offset_bottom = (y + 34.0) * s
+	page.add_child(control)
+
 	var label := Label.new()
 	label.text = label_text
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -601,23 +615,11 @@ func _block_outline_place(page: Control, col: int, y: float, label_text: String,
 	label.add_theme_font_size_override("font_size", int(10 * s))
 	label.add_theme_color_override("font_color", Color.WHITE)
 	label.set_anchors_preset(Control.PRESET_CENTER)
+	label.offset_left = control.offset_left
+	label.offset_right = control.offset_right
 	label.offset_top = y * s
 	label.offset_bottom = (y + 12.0) * s
-	control.set_anchors_preset(Control.PRESET_CENTER)
-	if col == 0:
-		label.offset_left = -280.0 * s
-		label.offset_right = -80.0 * s
-		control.offset_left = -280.0 * s
-		control.offset_right = -80.0 * s
-	else:
-		label.offset_left = 80.0 * s
-		label.offset_right = 280.0 * s
-		control.offset_left = 80.0 * s
-		control.offset_right = 280.0 * s
-	control.offset_top = (y + 12.0) * s
-	control.offset_bottom = (y + 34.0) * s
 	page.add_child(label)
-	page.add_child(control)
 
 func _cross_refresh_controls(controls: Dictionary):
 	for k in controls:
@@ -727,6 +729,19 @@ func _build_lighting_page() -> Control:
 	var saturation_reset := func():
 		saturation.value = _default_saturation
 
+	var smooth_lighting := Button.new()
+	smooth_lighting.text = "On" if chunk_manager.get_smooth_lighting() else "Off"
+	_style_button(smooth_lighting, 180.0)
+	# Note: Smooth lighting setting only takes effect on game restart
+	smooth_lighting.pressed.connect(func():
+		chunk_manager.set_smooth_lighting(not chunk_manager.get_smooth_lighting())
+		smooth_lighting.text = "On" if chunk_manager.get_smooth_lighting() else "Off"
+		_schedule_save())
+	var smooth_lighting_reset := func():
+		chunk_manager.set_smooth_lighting(_default_smooth_lighting)
+		smooth_lighting.text = "On" if _default_smooth_lighting else "Off"
+		_schedule_save()
+
 	return _build_option_page("LIGHTING", [
 		["Day Duration", dur, dur_reset],
 		["Day Sky Color", day_color, day_reset],
@@ -736,6 +751,7 @@ func _build_lighting_page() -> Control:
 		["Darkness Color", dark_color, dark_reset],
 		["Contrast", contrast, contrast_reset],
 		["Saturation", saturation, saturation_reset],
+		["Smooth Lighting", smooth_lighting, smooth_lighting_reset],
 	], "settings", 40.0)
 
 func _build_render_page() -> Control:
@@ -799,22 +815,10 @@ func _build_option_page(title_text: String, rows: Array, back_target: String, ro
 
 	var y := y0 + title_h + title_gap
 	for row in rows:
-		var label := Label.new()
-		label.text = row[0]
-		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		label.add_theme_font_override("font", MUNRO_FONT)
-		label.add_theme_font_size_override("font_size", int(10 * s))
-		label.add_theme_color_override("font_color", Color.WHITE)
-		label.set_anchors_preset(Control.PRESET_CENTER)
-		label.offset_left = -200.0 * s
-		label.offset_right = 200.0 * s
-		label.offset_top = y * s
-		label.offset_bottom = (y + 16.0) * s
-		page.add_child(label)
-
 		var control: Control = row[1]
 		control.set_anchors_preset(Control.PRESET_CENTER)
-		if row.size() > 2 and row[2] != null:
+		var has_reset: bool = row.size() > 2 and row[2] != null
+		if has_reset:
 			control.offset_left = -140.0 * s
 			control.offset_right = 40.0 * s
 		else:
@@ -823,6 +827,19 @@ func _build_option_page(title_text: String, rows: Array, back_target: String, ro
 		control.offset_top = (y + 18.0) * s
 		control.offset_bottom = (y + 38.0) * s
 		page.add_child(control)
+
+		var label := Label.new()
+		label.text = row[0]
+		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		label.add_theme_font_override("font", MUNRO_FONT)
+		label.add_theme_font_size_override("font_size", int(10 * s))
+		label.add_theme_color_override("font_color", Color.WHITE)
+		label.set_anchors_preset(Control.PRESET_CENTER)
+		label.offset_left = control.offset_left
+		label.offset_right = control.offset_right
+		label.offset_top = y * s
+		label.offset_bottom = (y + 16.0) * s
+		page.add_child(label)
 
 		if row.size() > 2 and row[2] != null:
 			var reset := _make_button("Reset", 80.0)

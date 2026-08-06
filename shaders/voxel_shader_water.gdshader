@@ -209,12 +209,16 @@ void fragment(){
     		float x = clamp(dist / fog_range, 0.0, 1.0);
     		fog_amount = x;
     		dist_factor = smoothstep(fog_begin, fog_end, fog_distance);
-    	} else {
+    	} else if (fog_mode == 3) {
     		// Exponential fog - current setup
     		float x = clamp(dist / fog_range, 0.0, 1.0);
     		fog_amount = x * sqrt(x);
     		fog_amount *= fog_density * 1.5;
     		dist_factor = smoothstep(fog_begin, fog_end, fog_distance);
+    	} else {
+    		// Unknown mode - fail safe
+    		fog_amount = 0.0;
+    		dist_factor = 0.0;
     	}
     	
     	fog_amount = clamp(fog_amount, 0.0, 1.0);

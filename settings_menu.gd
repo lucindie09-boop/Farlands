@@ -21,7 +21,6 @@ var _default_night_sky: Color = Color(0, 0, 0, 1)
 var _default_render_distance: int = 32
 var _default_lod_distance: int = 0
 var _default_lod_detail: float = 0.5
-var _default_lod_far: int = 0
 var _default_contrast: float = 1.0
 var _default_saturation: float = 1.0
 var _default_ao_color: Color = Color(0, 0, 0, 1)
@@ -64,7 +63,6 @@ func _ready():
 	_default_render_distance = chunk_manager.get_render_distance()
 	_default_lod_distance = chunk_manager.get_lod_distance()
 	_default_lod_detail = chunk_manager.get_lod_detail_level()
-	_default_lod_far = chunk_manager.get_lod_far_distance()
 	_default_contrast = chunk_manager.get_contrast()
 	_default_saturation = chunk_manager.get_saturation()
 	_default_ao_color = chunk_manager.get_ao_color()
@@ -104,7 +102,6 @@ func _save_settings():
 	cfg.set_value("render", "distance", chunk_manager.get_render_distance())
 	cfg.set_value("render", "lod_distance", chunk_manager.get_lod_distance())
 	cfg.set_value("render", "lod_detail_level", chunk_manager.get_lod_detail_level())
-	cfg.set_value("render", "lod_far_distance", chunk_manager.get_lod_far_distance())
 	cfg.save(SETTINGS_PATH)
 
 func _load_settings():
@@ -128,7 +125,6 @@ func _load_settings():
 	chunk_manager.set_render_distance(int(cfg.get_value("render", "distance", chunk_manager.get_render_distance())))
 	chunk_manager.set_lod_distance(int(cfg.get_value("render", "lod_distance", chunk_manager.get_lod_distance())))
 	chunk_manager.set_lod_detail_level(cfg.get_value("render", "lod_detail_level", chunk_manager.get_lod_detail_level()))
-	chunk_manager.set_lod_far_distance(int(cfg.get_value("render", "lod_far_distance", chunk_manager.get_lod_far_distance())))
 
 # Settings menu uses the global GUI scale with a 2/3 modifier so its default
 # look (2x when UIScale is 3.0) is preserved while still scaling with the rest.
@@ -562,23 +558,10 @@ func _build_render_page() -> Control:
 	var lod_detail_reset := func():
 		lod_detail.value = _default_lod_detail
 
-	var lod_far := SpinBox.new()
-	lod_far.min_value = 0.0
-	lod_far.max_value = 128.0
-	lod_far.step = 1.0
-	lod_far.suffix = " chunks"
-	lod_far.value = chunk_manager.get_lod_far_distance()
-	lod_far.value_changed.connect(func(v: float):
-		chunk_manager.set_lod_far_distance(int(v))
-		_schedule_save())
-	var lod_far_reset := func():
-		lod_far.value = _default_lod_far
-
 	return _build_option_page("RENDER", [
 		["Render Distance", rd, rd_reset],
 		["LOD Distance", lod_dist, lod_reset],
 		["LOD Detail Level", lod_detail, lod_detail_reset],
-		["Far LOD Distance", lod_far, lod_far_reset],
 	], "settings")
 
 func _build_option_page(title_text: String, rows: Array, back_target: String, row_spacing := 44.0) -> Control:

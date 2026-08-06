@@ -19,6 +19,10 @@ run/main_scene="uid://d0f2kff4camjn"
 config/features=PackedStringArray("4.7", "Forward Plus")
 config/icon="res://icon.svg"
 
+[autoload]
+
+UIScale="*res://ui_scale.gd"
+
 [display]
 
 window/vsync/vsync_mode=0

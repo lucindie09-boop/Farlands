@@ -37,13 +37,24 @@ var _up_hold_time: float = 0.0
 
 const COMMANDS := ["/help", "/give", "/tp", "/fly", "/clearchat", "/clearinv", "/version"]
 
+func _chat_scale() -> float:
+	return 1.0  # Chat is not affected by the global GUI scale
+
+func _apply_input_layout():
+	var sc := _chat_scale()
+	_input_edit.offset_left = (H_MARGIN * sc)
+	_input_edit.offset_right = -(H_MARGIN * sc)
+	_input_edit.offset_bottom = -(H_MARGIN * sc)
+	_input_edit.offset_top = -(INPUT_HEIGHT * sc) - (H_MARGIN * sc)
+	_input_edit.add_theme_font_size_override("font_size", int(INPUT_FONT_SIZE * sc))
+	_ghost_label.add_theme_font_size_override("font_size", int(INPUT_FONT_SIZE * sc))
+
 func _ready():
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_input_edit = LineEdit.new()
 	_input_edit.max_length = 256
 	_input_edit.placeholder_text = "Type a message or command..."
 	_input_edit.add_theme_font_override("font", MUNRO_FONT)
-	_input_edit.add_theme_font_size_override("font_size", INPUT_FONT_SIZE)
 	_input_edit.add_theme_color_override("font_color", Color.WHITE)
 	_input_edit.add_theme_color_override("font_placeholder_color", Color(1, 1, 1, 0.45))
 	_input_edit.add_theme_color_override("caret_color", Color.WHITE)
@@ -66,16 +77,11 @@ func _ready():
 	add_child(_input_edit)
 	_input_edit.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
 	_input_edit.anchor_right = INPUT_WIDTH_RATIO
-	_input_edit.offset_left = H_MARGIN
-	_input_edit.offset_right = -H_MARGIN
-	_input_edit.offset_bottom = -H_MARGIN
-	_input_edit.offset_top = -INPUT_HEIGHT - H_MARGIN
 	_input_edit.visible = false
 	
 	# Ghost label for inline autocomplete suggestions
 	_ghost_label = Label.new()
 	_ghost_label.add_theme_font_override("font", MUNRO_FONT)
-	_ghost_label.add_theme_font_size_override("font_size", INPUT_FONT_SIZE)
 	_ghost_label.add_theme_color_override("font_color", Color(1, 1, 1, 0.3))
 	_ghost_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_ghost_label.set_anchors_preset(Control.PRESET_TOP_LEFT)
@@ -85,6 +91,7 @@ func _ready():
 	_ghost_label.offset_bottom = 0
 	_ghost_label.visible = false
 	add_child(_ghost_label)
+	_apply_input_layout()
 	
 	_add_message("Welcome! Type /help for a list of commands.", COLOR_SYSTEM)
 
@@ -170,6 +177,7 @@ func _input(event):
 func _open_chat(initial_text: String = ""):
 	is_open = true
 	mouse_filter = Control.MOUSE_FILTER_STOP
+	_apply_input_layout()
 	_reset_completion()
 	_scroll_offset = 0.0
 	_input_edit.visible = true
@@ -235,7 +243,7 @@ func _update_ghost_text():
 	# Position ghost label to align right after the caret
 	# Use the same font and size as LineEdit for accurate positioning
 	var font := MUNRO_FONT
-	var font_size := INPUT_FONT_SIZE
+	var font_size := int(INPUT_FONT_SIZE * _chat_scale())
 	
 	# Calculate text width up to caret position
 	var text_before_caret := text.substr(0, caret)
@@ -246,7 +254,7 @@ func _update_ghost_text():
 	var content_margin_top := 6.0
 	
 	# Position the ghost label exactly where the caret is
-	_ghost_label.position.x = H_MARGIN + content_margin_left + text_width
+	_ghost_label.position.x = (H_MARGIN * _chat_scale()) + content_margin_left + text_width
 	_ghost_label.position.y = _input_edit.position.y + content_margin_top
 	
 	# Check if we should show parameter hints for commands
@@ -525,41 +533,41 @@ func _add_message(text: String, color: Color):
 	queue_redraw()
 
 func _chat_total_height() -> float:
-	var wrap_width := maxf(size.x - H_MARGIN * 2.0, 1.0)
+	var wrap_width := maxf(size.x - (H_MARGIN * _chat_scale()) * 2.0, 1.0)
 	var total := 0.0
 	for m in messages:
 		total += MUNRO_FONT.get_multiline_string_size(
-				m.text, HORIZONTAL_ALIGNMENT_LEFT, wrap_width, LOG_FONT_SIZE).y
+				m.text, HORIZONTAL_ALIGNMENT_LEFT, wrap_width, int(LOG_FONT_SIZE * _chat_scale())).y
 	return total
 
 func _chat_max_scroll() -> float:
-	var view_height := size.y - INPUT_HEIGHT - H_MARGIN - 10.0
+	var view_height := size.y - (INPUT_HEIGHT * _chat_scale()) - (H_MARGIN * _chat_scale()) - 10.0
 	return maxf(_chat_total_height() - view_height, 0.0)
 
 func _scroll_chat(direction: int):
 	# direction: +1 = wheel up (older history), -1 = wheel down (newer)
-	_scroll_offset += direction * MUNRO_FONT.get_height(LOG_FONT_SIZE)
+	_scroll_offset += direction * MUNRO_FONT.get_height(int(LOG_FONT_SIZE * _chat_scale()))
 	_scroll_offset = clampf(_scroll_offset, 0.0, _chat_max_scroll())
 	queue_redraw()
 
 func _draw():
 	if messages.is_empty():
 		return
-	var wrap_width := maxf(size.x - H_MARGIN * 2.0, 1.0)
+	var wrap_width := maxf(size.x - (H_MARGIN * _chat_scale()) * 2.0, 1.0)
 	var shadow := Color(0.09, 0.09, 0.09)
 	# Newest message at the bottom (closest to the input box), older ones
 	# stacked above it, Minecraft-style. Long text wraps onto extra lines.
 	# draw_multiline_string's pos is the baseline of the FIRST line, so place
 	# the first line up by the wrapped height so the bottom line stays in the
 	# same spot the old single-line text used.
-	var line_height := MUNRO_FONT.get_height(LOG_FONT_SIZE)
-	var bottom_y := size.y - INPUT_HEIGHT - H_MARGIN - 10.0
+	var line_height := MUNRO_FONT.get_height(int(LOG_FONT_SIZE * _chat_scale()))
+	var bottom_y := size.y - (INPUT_HEIGHT * _chat_scale()) - (H_MARGIN * _chat_scale()) - 10.0
 	var heights: Array[float] = []
 	heights.resize(messages.size())
 	var total_height := 0.0
 	for i in range(messages.size()):
 		var h := MUNRO_FONT.get_multiline_string_size(
-				messages[i].text, HORIZONTAL_ALIGNMENT_LEFT, wrap_width, LOG_FONT_SIZE).y
+				messages[i].text, HORIZONTAL_ALIGNMENT_LEFT, wrap_width, int(LOG_FONT_SIZE * _chat_scale())).y
 		heights[i] = h
 		total_height += h
 	# Scrolling shifts the whole stack down to reveal older messages above.
@@ -570,11 +578,11 @@ func _draw():
 		var m = messages[i]
 		var first_baseline := cursor - h + line_height
 		# Cull messages outside the visible chat area
-		var block_top := first_baseline - MUNRO_FONT.get_ascent(LOG_FONT_SIZE)
-		var block_bottom := cursor + MUNRO_FONT.get_descent(LOG_FONT_SIZE)
+		var block_top := first_baseline - MUNRO_FONT.get_ascent(int(LOG_FONT_SIZE * _chat_scale()))
+		var block_bottom := cursor + MUNRO_FONT.get_descent(int(LOG_FONT_SIZE * _chat_scale()))
 		if block_top <= bottom_y and block_bottom >= 0.0:
-			draw_multiline_string(MUNRO_FONT, Vector2(H_MARGIN + 1, first_baseline + 1), m.text,
-					HORIZONTAL_ALIGNMENT_LEFT, wrap_width, LOG_FONT_SIZE, -1, shadow)
-			draw_multiline_string(MUNRO_FONT, Vector2(H_MARGIN, first_baseline), m.text,
-					HORIZONTAL_ALIGNMENT_LEFT, wrap_width, LOG_FONT_SIZE, -1, m.color)
+			draw_multiline_string(MUNRO_FONT, Vector2((H_MARGIN * _chat_scale()) + 1, first_baseline + 1), m.text,
+					HORIZONTAL_ALIGNMENT_LEFT, wrap_width, int(LOG_FONT_SIZE * _chat_scale()), -1, shadow)
+			draw_multiline_string(MUNRO_FONT, Vector2((H_MARGIN * _chat_scale()), first_baseline), m.text,
+					HORIZONTAL_ALIGNMENT_LEFT, wrap_width, int(LOG_FONT_SIZE * _chat_scale()), -1, m.color)
 		cursor -= h

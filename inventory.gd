@@ -17,7 +17,6 @@ const SLOT_PITCH = 21
 const SLOT_SIZE_PX = 18
 const MAIN_GRID_TOP = 105
 const HOTBAR_TOP = 173
-const TEX_SCALE = 3.0
 
 # Fill-key colors: pixels near FILL_BASE become FILL_HIGHLIGHT; everything
 # else (frame/bevel outside the 18x18 box) is copied untouched.
@@ -111,9 +110,9 @@ func _slot_screen_rect(slot_index: int, texture_x: float, texture_y: float) -> R
 		var i = slot_index - HOTBAR_SIZE
 		col = i % 9
 		row_top_px = MAIN_GRID_TOP + int(i / 9.0) * SLOT_PITCH
-	var x = texture_x + (GRID_LEFT + col * SLOT_PITCH) * TEX_SCALE
-	var y = texture_y + row_top_px * TEX_SCALE
-	var s = SLOT_SIZE_PX * TEX_SCALE
+	var x = texture_x + (GRID_LEFT + col * SLOT_PITCH) * UIScale.value
+	var y = texture_y + row_top_px * UIScale.value
+	var s = SLOT_SIZE_PX * UIScale.value
 	return Rect2(x, y, s, s)
 
 func _draw():
@@ -124,7 +123,7 @@ func _draw():
 	if inventory_texture:
 		var texture_width = inventory_texture.get_width()
 		var texture_height = inventory_texture.get_height()
-		var ui_scale = TEX_SCALE  # Match hotbar scaling
+		var ui_scale = UIScale.value  # Match hotbar scaling
 		var scaled_width = texture_width * ui_scale
 		var scaled_height = texture_height * ui_scale
 		var texture_x = (size.x - scaled_width) / 2.0
@@ -292,8 +291,8 @@ func _gui_input(event):
 func _slot_at_position(pos: Vector2) -> int:
 	if not inventory_texture:
 		return -1
-	var texture_x = (size.x - inventory_texture.get_width() * TEX_SCALE) / 2.0
-	var texture_y = (size.y - inventory_texture.get_height() * TEX_SCALE) / 2.0
+	var texture_x = (size.x - inventory_texture.get_width() * UIScale.value) / 2.0
+	var texture_y = (size.y - inventory_texture.get_height() * UIScale.value) / 2.0
 	for i in range(TOTAL_SLOTS):
 		if _slot_screen_rect(i, texture_x, texture_y).has_point(pos):
 			return i

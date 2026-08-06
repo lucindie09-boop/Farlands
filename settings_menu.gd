@@ -2,43 +2,297 @@ extends Control
 
 const MUNRO_FONT: Font = preload("res://fonts/munro.ttf")
 const BUTTON_TEX: Texture2D = preload("res://textures/gui/button.png")
+const SETTINGS_PATH := "user://settings.cfg"
 
 @onready var player_controller = get_node("/root/Main/Player")
+@onready var chunk_manager = get_node("/root/Main/ChunkManager")
 
 var is_open = false
+var _current_page: String = "pause"
+
+var _bg: ColorRect
+var _pages: Dictionary = {}
+
+var _default_gui_scale: float = 3.0
+var _default_day_duration: float = 10.0
+var _default_day_sky: Color = Color(1, 1, 1, 1)
+var _default_night_sky: Color = Color(0, 0, 0, 1)
+var _default_render_distance: int = 32
+
+var _save_timer: Timer = null
 
 func _ready():
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_build_ui()
+	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	_bg = ColorRect.new()
+	_bg.color = Color(0.02, 0.02, 0.05, 0.5)
+	_bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_bg.mouse_filter = Control.MOUSE_FILTER_STOP
+	add_child(_bg)
+	_default_gui_scale = UIScale.value
+	_default_day_duration = chunk_manager.get_day_duration()
+	_default_day_sky = chunk_manager.get_day_sky_color()
+	_default_night_sky = chunk_manager.get_night_sky_color()
+	_default_render_distance = chunk_manager.get_render_distance()
+	_load_settings()
 	hide()
 
-func _build_ui():
-	var bg := ColorRect.new()
-	bg.color = Color(0.02, 0.02, 0.05, 0.5)
-	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
-	bg.mouse_filter = Control.MOUSE_FILTER_STOP
-	add_child(bg)
+func _exit_tree():
+	_save_settings()
 
+func _schedule_save():
+	if _save_timer == null:
+		_save_timer = Timer.new()
+		_save_timer.one_shot = true
+		_save_timer.timeout.connect(_save_settings)
+		add_child(_save_timer)
+	_save_timer.start(0.5)
+
+func _save_settings():
+	var cfg := ConfigFile.new()
+	cfg.set_value("gui", "scale", UIScale.value)
+	cfg.set_value("lighting", "day_duration", chunk_manager.get_day_duration())
+	cfg.set_value("lighting", "day_sky_color", chunk_manager.get_day_sky_color())
+	cfg.set_value("lighting", "night_sky_color", chunk_manager.get_night_sky_color())
+	cfg.set_value("render", "distance", chunk_manager.get_render_distance())
+	cfg.save(SETTINGS_PATH)
+
+func _load_settings():
+	if not FileAccess.file_exists(SETTINGS_PATH):
+		return
+	var cfg := ConfigFile.new()
+	if cfg.load(SETTINGS_PATH) != OK:
+		return
+	UIScale.value = clampf(cfg.get_value("gui", "scale", UIScale.value), 1.0, 4.0)
+	chunk_manager.set_day_duration(cfg.get_value("lighting", "day_duration", chunk_manager.get_day_duration()))
+	chunk_manager.set_day_sky_color(cfg.get_value("lighting", "day_sky_color", chunk_manager.get_day_sky_color()))
+	chunk_manager.set_night_sky_color(cfg.get_value("lighting", "night_sky_color", chunk_manager.get_night_sky_color()))
+	chunk_manager.set_render_distance(int(cfg.get_value("render", "distance", chunk_manager.get_render_distance())))
+
+# Settings menu uses the global GUI scale with a 2/3 modifier so its default
+# look (2x when UIScale is 3.0) is preserved while still scaling with the rest.
+func _ui_scale() -> float:
+	return UIScale.value * 2.0 / 3.0
+
+func _rebuild_pages():
+	for p in _pages.values():
+		if is_instance_valid(p):
+			p.queue_free()
+	_pages.clear()
+	_pages["pause"] = _build_pause_page()
+	_pages["settings"] = _build_settings_page()
+	_pages["gui"] = _build_gui_page()
+	_pages["lighting"] = _build_lighting_page()
+	_pages["render"] = _build_render_page()
+	for p in _pages.values():
+		p.hide()
+		add_child(p)
+
+func _show_page(name: String):
+	_current_page = name
+	for k in _pages:
+		_pages[k].visible = (k == name)
+
+func _build_pause_page() -> Control:
+	var s := _ui_scale()
+	var page := Control.new()
+	page.set_anchors_preset(Control.PRESET_FULL_RECT)
+	page.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	var title := _make_title("PAUSED")
+	title.offset_top = -80.0 * s
+	title.offset_bottom = -40.0 * s
+	page.add_child(title)
+
+	var resume := _make_button("Resume")
+	resume.offset_top = -10.0 * s
+	resume.offset_bottom = 10.0 * s
+	resume.pressed.connect(_close)
+	page.add_child(resume)
+
+	var settings := _make_button("Settings")
+	settings.offset_top = 30.0 * s
+	settings.offset_bottom = 50.0 * s
+	settings.pressed.connect(func(): _show_page("settings"))
+	page.add_child(settings)
+	return page
+
+func _build_settings_page() -> Control:
+	var s := _ui_scale()
+	var page := Control.new()
+	page.set_anchors_preset(Control.PRESET_FULL_RECT)
+	page.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	var title := _make_title("SETTINGS")
+	title.offset_top = -80.0 * s
+	title.offset_bottom = -40.0 * s
+	page.add_child(title)
+
+	var gui_btn := _make_button("GUI")
+	gui_btn.offset_top = -35.0 * s
+	gui_btn.offset_bottom = -15.0 * s
+	gui_btn.pressed.connect(func(): _show_page("gui"))
+	page.add_child(gui_btn)
+
+	var light_btn := _make_button("Lighting")
+	light_btn.offset_top = -5.0 * s
+	light_btn.offset_bottom = 15.0 * s
+	light_btn.pressed.connect(func(): _show_page("lighting"))
+	page.add_child(light_btn)
+
+	var render_btn := _make_button("Render")
+	render_btn.offset_top = 25.0 * s
+	render_btn.offset_bottom = 45.0 * s
+	render_btn.pressed.connect(func(): _show_page("render"))
+	page.add_child(render_btn)
+
+	var back := _make_button("Back")
+	back.offset_top = 55.0 * s
+	back.offset_bottom = 75.0 * s
+	back.pressed.connect(func(): _show_page("pause"))
+	page.add_child(back)
+	return page
+
+func _build_gui_page() -> Control:
+	var scale := SpinBox.new()
+	scale.min_value = 1.0
+	scale.max_value = 4.0
+	scale.step = 1.0
+	scale.suffix = "x"
+	scale.value = UIScale.value
+	scale.value_changed.connect(func(v: float):
+		UIScale.value = v
+		_schedule_save())
+	var reset := func():
+		scale.value = _default_gui_scale
+	return _build_option_page("GUI", [["GUI Scale", scale, reset]], "settings")
+
+func _build_lighting_page() -> Control:
+	var dur := SpinBox.new()
+	dur.min_value = 10.0
+	dur.max_value = 600.0
+	dur.step = 10.0
+	dur.suffix = " s"
+	dur.value = chunk_manager.get_day_duration()
+	dur.value_changed.connect(func(v: float):
+		chunk_manager.set_day_duration(v)
+		_schedule_save())
+	var dur_reset := func():
+		dur.value = _default_day_duration
+
+	var day_color := ColorPickerButton.new()
+	day_color.color = chunk_manager.get_day_sky_color()
+	day_color.color_changed.connect(func(c: Color):
+		chunk_manager.set_day_sky_color(c)
+		_schedule_save())
+	var day_reset := func():
+		day_color.color = _default_day_sky
+		chunk_manager.set_day_sky_color(_default_day_sky)
+		_schedule_save()
+
+	var night_color := ColorPickerButton.new()
+	night_color.color = chunk_manager.get_night_sky_color()
+	night_color.color_changed.connect(func(c: Color):
+		chunk_manager.set_night_sky_color(c)
+		_schedule_save())
+	var night_reset := func():
+		night_color.color = _default_night_sky
+		chunk_manager.set_night_sky_color(_default_night_sky)
+		_schedule_save()
+
+	return _build_option_page("LIGHTING", [
+		["Day Duration", dur, dur_reset],
+		["Day Sky Color", day_color, day_reset],
+		["Night Sky Color", night_color, night_reset],
+	], "settings")
+
+func _build_render_page() -> Control:
+	var rd := SpinBox.new()
+	rd.min_value = 2.0
+	rd.max_value = 64.0
+	rd.step = 1.0
+	rd.suffix = " chunks"
+	rd.value = chunk_manager.get_render_distance()
+	rd.value_changed.connect(func(v: float):
+		chunk_manager.set_render_distance(int(v))
+		_schedule_save())
+	var reset := func():
+		rd.value = _default_render_distance
+	return _build_option_page("RENDER", [["Render Distance", rd, reset]], "settings")
+
+func _build_option_page(title_text: String, rows: Array, back_target: String) -> Control:
+	var s := _ui_scale()
+	var page := Control.new()
+	page.set_anchors_preset(Control.PRESET_FULL_RECT)
+	page.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	var title := _make_title(title_text)
+	title.offset_top = -80.0 * s
+	title.offset_bottom = -40.0 * s
+	page.add_child(title)
+
+	var y := -30.0
+	for row in rows:
+		var label := Label.new()
+		label.text = row[0]
+		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		label.add_theme_font_override("font", MUNRO_FONT)
+		label.add_theme_font_size_override("font_size", int(10 * s))
+		label.add_theme_color_override("font_color", Color.WHITE)
+		label.set_anchors_preset(Control.PRESET_CENTER)
+		label.offset_left = -200.0 * s
+		label.offset_right = 200.0 * s
+		label.offset_top = y * s
+		label.offset_bottom = (y + 12.0) * s
+		page.add_child(label)
+
+		var control: Control = row[1]
+		control.set_anchors_preset(Control.PRESET_CENTER)
+		control.offset_left = -140.0 * s
+		control.offset_right = 40.0 * s
+		control.offset_top = (y + 14.0) * s
+		control.offset_bottom = (y + 34.0) * s
+		page.add_child(control)
+
+		var reset := _make_button("Reset", 80.0)
+		reset.offset_left = 48.0 * s
+		reset.offset_right = 128.0 * s
+		reset.offset_top = (y + 14.0) * s
+		reset.offset_bottom = (y + 34.0) * s
+		reset.pressed.connect(row[2])
+		page.add_child(reset)
+
+		y += 44.0
+
+	var back := _make_button("Back")
+	back.offset_top = (y + 8.0) * s
+	back.offset_bottom = (y + 28.0) * s
+	back.pressed.connect(func(): _show_page(back_target))
+	page.add_child(back)
+	return page
+
+func _make_title(text: String) -> Label:
+	var s := _ui_scale()
 	var title := Label.new()
-	title.text = "SETTINGS"
+	title.text = text
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_font_override("font", MUNRO_FONT)
-	title.add_theme_font_size_override("font_size", 32)
+	title.add_theme_font_size_override("font_size", int(24 * s))
 	title.add_theme_color_override("font_color", Color.WHITE)
 	title.set_anchors_preset(Control.PRESET_CENTER)
-	title.offset_left = -200.0
-	title.offset_right = 200.0
-	title.offset_top = -160.0
-	title.offset_bottom = -120.0
-	add_child(title)
+	title.offset_left = -200.0 * s
+	title.offset_right = 200.0 * s
+	return title
 
-	var resume := Button.new()
-	resume.text = "Resume"
-	resume.add_theme_font_override("font", MUNRO_FONT)
-	resume.add_theme_font_size_override("font_size", 16)
-	resume.add_theme_color_override("font_color", Color.WHITE)
-	resume.add_theme_color_override("font_hover_color", Color.WHITE)
-	resume.add_theme_color_override("font_pressed_color", Color.WHITE)
+func _make_button(text: String, width := 200.0) -> Button:
+	var s := _ui_scale()
+	var btn := Button.new()
+	btn.text = text
+	btn.add_theme_font_override("font", MUNRO_FONT)
+	btn.add_theme_font_size_override("font_size", int(12 * s))
+	btn.add_theme_color_override("font_color", Color.WHITE)
+	btn.add_theme_color_override("font_hover_color", Color.WHITE)
+	btn.add_theme_color_override("font_pressed_color", Color.WHITE)
 	var normal := StyleBoxTexture.new()
 	normal.texture = BUTTON_TEX
 	var hover := StyleBoxTexture.new()
@@ -47,18 +301,15 @@ func _build_ui():
 	var pressed := StyleBoxTexture.new()
 	pressed.texture = BUTTON_TEX
 	pressed.modulate_color = Color(0.75, 0.75, 0.75)
-	resume.add_theme_stylebox_override("normal", normal)
-	resume.add_theme_stylebox_override("hover", hover)
-	resume.add_theme_stylebox_override("pressed", pressed)
-	resume.add_theme_stylebox_override("focus", normal)
-	resume.custom_minimum_size = Vector2(200, 32)
-	resume.set_anchors_preset(Control.PRESET_CENTER)
-	resume.offset_left = -100.0
-	resume.offset_right = 100.0
-	resume.offset_top = -16.0
-	resume.offset_bottom = 16.0
-	resume.pressed.connect(_on_resume_pressed)
-	add_child(resume)
+	btn.add_theme_stylebox_override("normal", normal)
+	btn.add_theme_stylebox_override("hover", hover)
+	btn.add_theme_stylebox_override("pressed", pressed)
+	btn.add_theme_stylebox_override("focus", normal)
+	btn.custom_minimum_size = Vector2(width, 20) * s
+	btn.set_anchors_preset(Control.PRESET_CENTER)
+	btn.offset_left = -(width / 2.0) * s
+	btn.offset_right = (width / 2.0) * s
+	return btn
 
 func _input(event):
 	if not event.is_action_pressed("ui_cancel"):
@@ -66,18 +317,23 @@ func _input(event):
 	if get_viewport().is_input_handled():
 		return
 	if is_open:
-		_close()
+		match _current_page:
+			"pause":
+				_close()
+			"settings":
+				_show_page("pause")
+			_:
+				_show_page("settings")
 		get_viewport().set_input_as_handled()
 	elif not player_controller.is_chat_open() and not player_controller.is_inventory_open():
 		_open()
 		get_viewport().set_input_as_handled()
 
-func _on_resume_pressed():
-	_close()
-
 func _open():
 	is_open = true
 	mouse_filter = Control.MOUSE_FILTER_STOP
+	_rebuild_pages()
+	_show_page("pause")
 	show()
 	player_controller.set_settings_open(true)
 
@@ -86,3 +342,4 @@ func _close():
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hide()
 	player_controller.set_settings_open(false)
+	_save_settings()

@@ -49,11 +49,17 @@ static func draw_crosshair(canvas: CanvasItem, cx: int, cy: int, cross_on: bool,
 			r_ref = l_ref + d - 1
 			u_ref = cy - dt
 			d_ref = u_ref + d - 1
-		_draw_seg(canvas, l_ref - gap - seg, cy, l_ref - gap - 1, cy, w, cross_color, cross_opacity)
-		_draw_seg(canvas, r_ref + gap + 1, cy, r_ref + gap + seg, cy, w, cross_color, cross_opacity)
-		_draw_seg(canvas, cx, d_ref + gap + 1, cx, d_ref + gap + seg, w, cross_color, cross_opacity)
-		if top_line:
-			_draw_seg(canvas, cx, u_ref - gap - seg, cx, u_ref - gap - 1, w, cross_color, cross_opacity)
+		if dot_on or gap > 0:
+			_draw_seg(canvas, l_ref - gap - seg, cy, l_ref - gap - 1, cy, w, cross_color, cross_opacity)
+			_draw_seg(canvas, r_ref + gap + 1, cy, r_ref + gap + seg, cy, w, cross_color, cross_opacity)
+			_draw_seg(canvas, cx, d_ref + gap + 1, cx, d_ref + gap + seg, w, cross_color, cross_opacity)
+			if top_line:
+				_draw_seg(canvas, cx, u_ref - gap - seg, cx, u_ref - gap - 1, w, cross_color, cross_opacity)
+		else:
+			_draw_seg(canvas, l_ref - seg, cy, r_ref + seg, cy, w, cross_color, cross_opacity)
+			_draw_seg(canvas, cx, d_ref, cx, d_ref + seg, w, cross_color, cross_opacity)
+			if top_line:
+				_draw_seg(canvas, cx, u_ref - seg, cx, u_ref, w, cross_color, cross_opacity)
 	if dot_on:
 		_draw_dot(canvas, cx, cy, d, dot_color, dot_opacity)
 

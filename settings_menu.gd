@@ -235,13 +235,13 @@ func _build_crosshair_page() -> Control:
 	controls["cross_opacity"] = _make_spin(_crosshair_val("cross_opacity"), 0.0, 1.0, 0.05, "cross_opacity")
 	controls["cross_spacing"] = _make_spin(_crosshair_val("cross_spacing"), 0.0, 10.0, 0.5, "cross_spacing")
 	controls["top_line_enabled"] = _make_toggle("top_line_enabled", _crosshair_val("top_line_enabled"))
-	controls["cross_rotation"] = _make_spin(_crosshair_val("cross_rotation"), 0.0, 360.0, 1.0, "cross_rotation")
+	controls["cross_rotation"] = _make_spin(_crosshair_val("cross_rotation"), 0.0, 360.0, 1.0, "cross_rotation", "°")
 	controls["cross_contrast"] = _make_toggle("cross_contrast", _crosshair_val("cross_contrast"))
 	controls["dot_enabled"] = _make_toggle("dot_enabled", _crosshair_val("dot_enabled"))
 	controls["dot_color"] = _make_color("dot_color", _crosshair_val("dot_color"))
 	controls["dot_size"] = _make_spin(_crosshair_val("dot_size"), 0.0, 40.0, 1.0, "dot_size")
 	controls["dot_opacity"] = _make_spin(_crosshair_val("dot_opacity"), 0.0, 1.0, 0.05, "dot_opacity")
-	controls["dot_rotation"] = _make_spin(_crosshair_val("dot_rotation"), 0.0, 45.0, 1.0, "dot_rotation")
+	controls["dot_rotation"] = _make_spin(_crosshair_val("dot_rotation"), 0.0, 45.0, 1.0, "dot_rotation", "°")
 	controls["cross_dot_collision"] = _make_toggle("cross_dot_collision", _crosshair_val("cross_dot_collision"))
 	controls["dot_contrast"] = _make_toggle("dot_contrast", _crosshair_val("dot_contrast"))
 
@@ -262,7 +262,7 @@ func _build_crosshair_page() -> Control:
 	y += 35.0
 	_crosshair_place(page, 0, y, "Top Line", controls["top_line_enabled"])
 	y += 35.0
-	_crosshair_place(page, 0, y, "Contrast", controls["cross_contrast"])
+	_crosshair_place(page, 0, y, "Dynamic Contrast", controls["cross_contrast"])
 
 	var yd := -82.0
 	_crosshair_place(page, 1, yd, "Show", controls["dot_enabled"])
@@ -277,7 +277,7 @@ func _build_crosshair_page() -> Control:
 	yd += 35.0
 	_crosshair_place(page, 1, yd, "Collision", controls["cross_dot_collision"])
 	yd += 35.0
-	_crosshair_place(page, 1, yd, "Contrast", controls["dot_contrast"])
+	_crosshair_place(page, 1, yd, "Dynamic Contrast", controls["dot_contrast"])
 
 	var reset := _make_button("Reset")
 	reset.offset_top = 240.0 * s
@@ -309,13 +309,14 @@ func _cross_set(field: String, value):
 		crosshair_node.set(field, value)
 	_schedule_save()
 
-func _make_spin(value: float, min_value: float, max_value: float, step: float, field: String) -> SpinBox:
+func _make_spin(value: float, min_value: float, max_value: float, step: float, field: String, suffix: String = "") -> SpinBox:
 	var s := _ui_scale()
 	var sp := SpinBox.new()
 	sp.min_value = min_value
 	sp.max_value = max_value
 	sp.step = step
 	sp.value = value
+	sp.suffix = suffix
 	sp.get_line_edit().add_theme_font_override("font", MUNRO_FONT)
 	sp.get_line_edit().add_theme_font_size_override("font_size", int(10 * s))
 	sp.get_line_edit().custom_minimum_size = Vector2(0, 0)

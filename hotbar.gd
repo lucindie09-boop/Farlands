@@ -128,7 +128,7 @@ func _draw():
 			
 			# Draw count text
 			if count > 1:
-				_draw_item_count(str(count), fill_x + fill_size, fill_y + fill_size, fill_size)
+				UIUtils.draw_item_count(self, str(count), fill_x + fill_size, fill_y + fill_size, fill_size)
 
 func _draw_custom_hotbar():
 	# Fallback custom drawing if texture not available
@@ -163,7 +163,7 @@ func _draw_custom_hotbar():
 					 block_color)
 			
 			if count > 1:
-				_draw_item_count(str(count), slot_x + slot_width, slot_y + slot_height, slot_width)
+				UIUtils.draw_item_count(self, str(count), slot_x + slot_width, slot_y + slot_height, slot_width)
 		
 		var slot_num_text = str(i + 1)
 		var num_font_size = 20

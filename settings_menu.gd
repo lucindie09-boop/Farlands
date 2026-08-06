@@ -1,4 +1,4 @@
-extends Control
+﻿extends Control
 
 const MUNRO_FONT: Font = preload("res://fonts/munro.ttf")
 const BUTTON_TEX: Texture2D = preload("res://textures/gui/button.png")
@@ -7,6 +7,7 @@ const SETTINGS_PATH := "user://settings.cfg"
 @onready var player_controller = get_node("/root/Main/Player")
 @onready var chunk_manager = get_node("/root/Main/ChunkManager")
 @onready var crosshair_node = get_node_or_null("/root/Main/HUD/Crosshair")
+@onready var block_outline_node = get_node_or_null("/root/Main/BlockOutline")
 
 var is_open = false
 var _current_page: String = "pause"
@@ -26,6 +27,25 @@ var _default_saturation: float = 1.0
 var _default_ao_color: Color = Color(0, 0, 0, 1)
 var _default_ao_strength: float = 1.0
 var _default_darkness_color: Color = Color(0, 0, 0, 1)
+
+var _block_outline_defaults := {
+	"outline_enabled": true,
+	"outline_color": Color.BLACK,
+	"outline_thickness": 0.1,
+	"outline_opacity": 1.0,
+	"outline_pulse_enabled": false,
+	"outline_pulse_speed": 2.0,
+	"outline_pulse_min_opacity": 0.3,
+	"outline_pulse_max_opacity": 1.0,
+	"fill_enabled": false,
+	"fill_color": Color(0.0, 0.0, 0.0, 1.0),
+	"fill_opacity": 0.3,
+	"fill_pulse_enabled": false,
+	"fill_pulse_speed": 2.0,
+	"fill_pulse_min_opacity": 0.1,
+	"fill_pulse_max_opacity": 0.5,
+	"reach_distance": 5.0,
+}
 
 var _crosshair_defaults := {
 	"cross_enabled": true,
@@ -71,6 +91,9 @@ func _ready():
 	if crosshair_node:
 		for k in _crosshair_defaults:
 			_crosshair_defaults[k] = crosshair_node.get(k)
+	if block_outline_node:
+		for k in _block_outline_defaults:
+			_block_outline_defaults[k] = block_outline_node.get(k)
 	_load_settings()
 	hide()
 func _exit_tree():
@@ -89,8 +112,12 @@ func _save_settings():
 	cfg.set_value("gui", "scale", UIScale.value)
 	if cfg.has_section_key("gui", "crosshair"):
 		cfg.erase_section_key("gui", "crosshair")
+	if cfg.has_section_key("gui", "block_outline"):
+		cfg.erase_section_key("gui", "block_outline")
 	for k in _crosshair_defaults:
 		cfg.set_value("gui", k, crosshair_node.get(k) if crosshair_node else _crosshair_defaults[k])
+	for k in _block_outline_defaults:
+		cfg.set_value("gui", k, block_outline_node.get(k) if block_outline_node else _block_outline_defaults[k])
 	cfg.set_value("lighting", "day_duration", chunk_manager.get_day_duration())
 	cfg.set_value("lighting", "day_sky_color", chunk_manager.get_day_sky_color())
 	cfg.set_value("lighting", "night_sky_color", chunk_manager.get_night_sky_color())
@@ -114,6 +141,9 @@ func _load_settings():
 	for k in _crosshair_defaults:
 		if crosshair_node:
 			crosshair_node.set(k, cfg.get_value("gui", k, _crosshair_defaults[k]))
+	for k in _block_outline_defaults:
+		if block_outline_node:
+			block_outline_node.set(k, cfg.get_value("gui", k, _block_outline_defaults[k]))
 	chunk_manager.set_day_duration(cfg.get_value("lighting", "day_duration", chunk_manager.get_day_duration()))
 	chunk_manager.set_day_sky_color(cfg.get_value("lighting", "day_sky_color", chunk_manager.get_day_sky_color()))
 	chunk_manager.set_night_sky_color(cfg.get_value("lighting", "night_sky_color", chunk_manager.get_night_sky_color()))
@@ -140,6 +170,7 @@ func _rebuild_pages():
 	_pages["settings"] = _build_settings_page()
 	_pages["gui"] = _build_gui_page()
 	_pages["crosshair"] = _build_crosshair_page()
+	_pages["block_outline"] = _build_block_outline_page()
 	_pages["lighting"] = _build_lighting_page()
 	_pages["render"] = _build_render_page()
 	for p in _pages.values():
@@ -228,9 +259,13 @@ func _build_gui_page() -> Control:
 	var crosshair_btn := _make_button("Crosshair")
 	crosshair_btn.pressed.connect(func(): _show_page("crosshair"))
 
+	var block_outline_btn := _make_button("Block Outline")
+	block_outline_btn.pressed.connect(func(): _show_page("block_outline"))
+
 	return _build_option_page("GUI", [
 		["GUI Scale", scale_btn, reset],
 		["Crosshair", crosshair_btn, null],
+		["Block Outline", block_outline_btn, null],
 	], "settings")
 
 func _build_crosshair_page() -> Control:
@@ -329,6 +364,99 @@ func _build_crosshair_page() -> Control:
 	page.add_child(back)
 	return page
 
+func _build_block_outline_page() -> Control:
+	var s := _ui_scale()
+	var page := Control.new()
+	page.set_anchors_preset(Control.PRESET_FULL_RECT)
+	page.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	var title := _make_title("BLOCK OUTLINE")
+	title.offset_top = -150.0 * s
+	title.offset_bottom = -110.0 * s
+	page.add_child(title)
+
+	_block_outline_header(page, 0, -102.0, "OUTLINE")
+	_block_outline_header(page, 1, -102.0, "FILL")
+
+	var controls := {}
+	controls["outline_enabled"] = _make_toggle_outline("outline_enabled", _block_outline_val("outline_enabled"))
+	controls["outline_color"] = _make_color_outline("outline_color", _block_outline_val("outline_color"))
+	controls["outline_thickness"] = _make_spin_outline(_block_outline_val("outline_thickness"), 0.0, 0.99, 0.01, "outline_thickness")
+	controls["outline_opacity"] = _make_spin_outline(_block_outline_val("outline_opacity"), 0.0, 1.0, 0.05, "outline_opacity")
+	controls["outline_pulse_enabled"] = _make_toggle_outline("outline_pulse_enabled", _block_outline_val("outline_pulse_enabled"))
+	controls["outline_pulse_speed"] = _make_spin_outline(_block_outline_val("outline_pulse_speed"), 0.5, 10.0, 0.5, "outline_pulse_speed")
+	controls["outline_pulse_min_opacity"] = _make_spin_outline(_block_outline_val("outline_pulse_min_opacity"), 0.0, 1.0, 0.05, "outline_pulse_min_opacity")
+	controls["outline_pulse_max_opacity"] = _make_spin_outline(_block_outline_val("outline_pulse_max_opacity"), 0.0, 1.0, 0.05, "outline_pulse_max_opacity")
+	controls["fill_enabled"] = _make_toggle_outline("fill_enabled", _block_outline_val("fill_enabled"))
+	controls["fill_color"] = _make_color_outline("fill_color", _block_outline_val("fill_color"))
+	controls["fill_opacity"] = _make_spin_outline(_block_outline_val("fill_opacity"), 0.0, 1.0, 0.05, "fill_opacity")
+	controls["fill_pulse_enabled"] = _make_toggle_outline("fill_pulse_enabled", _block_outline_val("fill_pulse_enabled"))
+	controls["fill_pulse_speed"] = _make_spin_outline(_block_outline_val("fill_pulse_speed"), 0.5, 10.0, 0.5, "fill_pulse_speed")
+	controls["fill_pulse_min_opacity"] = _make_spin_outline(_block_outline_val("fill_pulse_min_opacity"), 0.0, 1.0, 0.05, "fill_pulse_min_opacity")
+	controls["fill_pulse_max_opacity"] = _make_spin_outline(_block_outline_val("fill_pulse_max_opacity"), 0.0, 1.0, 0.05, "fill_pulse_max_opacity")
+
+	var y := -82.0
+	_block_outline_place(page, 0, y, "Show", controls["outline_enabled"])
+	y += 35.0
+	_block_outline_place(page, 0, y, "Colour", controls["outline_color"])
+	y += 35.0
+	_block_outline_place(page, 0, y, "Thickness", controls["outline_thickness"])
+	y += 35.0
+	_block_outline_place(page, 0, y, "Opacity", controls["outline_opacity"])
+	y += 35.0
+	_block_outline_place(page, 0, y, "Pulse", controls["outline_pulse_enabled"])
+	y += 35.0
+	_block_outline_place(page, 0, y, "Pulse Speed", controls["outline_pulse_speed"])
+	y += 35.0
+	_block_outline_place(page, 0, y, "Pulse Min", controls["outline_pulse_min_opacity"])
+	y += 35.0
+	_block_outline_place(page, 0, y, "Pulse Max", controls["outline_pulse_max_opacity"])
+
+	var yf := -82.0
+	_block_outline_place(page, 1, yf, "Show", controls["fill_enabled"])
+	yf += 35.0
+	_block_outline_place(page, 1, yf, "Colour", controls["fill_color"])
+	yf += 35.0
+	_block_outline_place(page, 1, yf, "Opacity", controls["fill_opacity"])
+	yf += 35.0
+	_block_outline_place(page, 1, yf, "Pulse", controls["fill_pulse_enabled"])
+	yf += 35.0
+	_block_outline_place(page, 1, yf, "Pulse Speed", controls["fill_pulse_speed"])
+	yf += 35.0
+	_block_outline_place(page, 1, yf, "Pulse Min", controls["fill_pulse_min_opacity"])
+	yf += 35.0
+	_block_outline_place(page, 1, yf, "Pulse Max", controls["fill_pulse_max_opacity"])
+
+	var reset := _make_button("Reset")
+	reset.offset_top = 240.0 * s
+	reset.offset_bottom = 260.0 * s
+	reset.offset_left = -210.0 * s
+	reset.offset_right = -10.0 * s
+	reset.pressed.connect(func():
+		for k in _block_outline_defaults:
+			if block_outline_node:
+				block_outline_node.set(k, _block_outline_defaults[k])
+		_block_outline_refresh_controls(controls)
+		_schedule_save())
+	page.add_child(reset)
+
+	var back := _make_button("Back")
+	back.offset_top = 240.0 * s
+	back.offset_bottom = 260.0 * s
+	back.offset_left = 10.0 * s
+	back.offset_right = 210.0 * s
+	back.pressed.connect(func(): _show_page("gui"))
+	page.add_child(back)
+	return page
+
+func _block_outline_val(field: String) -> Variant:
+	return block_outline_node.get(field) if block_outline_node else _block_outline_defaults[field]
+
+func _block_outline_set(field: String, value):
+	if block_outline_node:
+		block_outline_node.set(field, value)
+	_schedule_save()
+
 func _crosshair_val(field: String) -> Variant:
 	return crosshair_node.get(field) if crosshair_node else _crosshair_defaults[field]
 
@@ -351,11 +479,32 @@ func _make_spin(value: float, min_value: float, max_value: float, step: float, f
 		_cross_set(field, v))
 	return sp
 
+func _make_spin_outline(value: float, min_value: float, max_value: float, step: float, field: String) -> SpinBox:
+	var s := _ui_scale()
+	var sp := SpinBox.new()
+	sp.min_value = min_value
+	sp.max_value = max_value
+	sp.step = step
+	sp.value = value
+	sp.get_line_edit().add_theme_font_override("font", MUNRO_FONT)
+	sp.get_line_edit().add_theme_font_size_override("font_size", int(10 * s))
+	sp.get_line_edit().custom_minimum_size = Vector2(0, 0)
+	sp.value_changed.connect(func(v: float):
+		_block_outline_set(field, v))
+	return sp
+
 func _make_color(field: String, value: Color) -> ColorPickerButton:
 	var cp := ColorPickerButton.new()
 	cp.color = value
 	cp.color_changed.connect(func(c: Color):
 		_cross_set(field, c))
+	return cp
+
+func _make_color_outline(field: String, value: Color) -> ColorPickerButton:
+	var cp := ColorPickerButton.new()
+	cp.color = value
+	cp.color_changed.connect(func(c: Color):
+		_block_outline_set(field, c))
 	return cp
 
 func _make_toggle(field: String, value: bool) -> Button:
@@ -365,6 +514,16 @@ func _make_toggle(field: String, value: bool) -> Button:
 	btn.pressed.connect(func():
 		var nxt := not bool(_crosshair_val(field))
 		_cross_set(field, nxt)
+		btn.text = "On" if nxt else "Off")
+	return btn
+
+func _make_toggle_outline(field: String, value: bool) -> Button:
+	var btn := Button.new()
+	btn.text = "On" if value else "Off"
+	_style_button(btn, 180.0)
+	btn.pressed.connect(func():
+		var nxt := not bool(_block_outline_val(field))
+		_block_outline_set(field, nxt)
 		btn.text = "On" if nxt else "Off")
 	return btn
 
@@ -414,9 +573,66 @@ func _crosshair_place(page: Control, col: int, y: float, label_text: String, con
 	page.add_child(label)
 	page.add_child(control)
 
+func _block_outline_header(page: Control, col: int, y: float, text: String):
+	var s := _ui_scale()
+	var label := Label.new()
+	label.text = text
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.add_theme_font_override("font", MUNRO_FONT)
+	label.add_theme_font_size_override("font_size", int(14 * s))
+	label.add_theme_color_override("font_color", Color(0.8, 0.85, 1.0))
+	label.set_anchors_preset(Control.PRESET_CENTER)
+	label.offset_top = y * s
+	label.offset_bottom = (y + 14.0) * s
+	if col == 0:
+		label.offset_left = -280.0 * s
+		label.offset_right = -80.0 * s
+	else:
+		label.offset_left = 80.0 * s
+		label.offset_right = 280.0 * s
+	page.add_child(label)
+
+func _block_outline_place(page: Control, col: int, y: float, label_text: String, control: Control):
+	var s := _ui_scale()
+	var label := Label.new()
+	label.text = label_text
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.add_theme_font_override("font", MUNRO_FONT)
+	label.add_theme_font_size_override("font_size", int(10 * s))
+	label.add_theme_color_override("font_color", Color.WHITE)
+	label.set_anchors_preset(Control.PRESET_CENTER)
+	label.offset_top = y * s
+	label.offset_bottom = (y + 12.0) * s
+	control.set_anchors_preset(Control.PRESET_CENTER)
+	if col == 0:
+		label.offset_left = -280.0 * s
+		label.offset_right = -80.0 * s
+		control.offset_left = -280.0 * s
+		control.offset_right = -80.0 * s
+	else:
+		label.offset_left = 80.0 * s
+		label.offset_right = 280.0 * s
+		control.offset_left = 80.0 * s
+		control.offset_right = 280.0 * s
+	control.offset_top = (y + 12.0) * s
+	control.offset_bottom = (y + 34.0) * s
+	page.add_child(label)
+	page.add_child(control)
+
 func _cross_refresh_controls(controls: Dictionary):
 	for k in controls:
 		var v = crosshair_node.get(k) if crosshair_node else _crosshair_defaults[k]
+		var c: Control = controls[k]
+		if c is Button:
+			c.text = "On" if v else "Off"
+		elif c is SpinBox:
+			c.value = v
+		elif c is ColorPickerButton:
+			c.color = v
+
+func _block_outline_refresh_controls(controls: Dictionary):
+	for k in controls:
+		var v = block_outline_node.get(k) if block_outline_node else _block_outline_defaults[k]
 		var c: Control = controls[k]
 		if c is Button:
 			c.text = "On" if v else "Off"
@@ -682,6 +898,8 @@ func _input(event):
 			"settings":
 				_show_page("pause")
 			"crosshair":
+				_show_page("gui")
+			"block_outline":
 				_show_page("gui")
 			_:
 				_show_page("settings")

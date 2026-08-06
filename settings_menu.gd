@@ -309,7 +309,7 @@ func _make_color(field: String, value: Color) -> ColorPickerButton:
 func _make_toggle(field: String, value: bool) -> Button:
 	var btn := Button.new()
 	btn.text = "On" if value else "Off"
-	_style_button(btn, 180.0)
+	_style_button(btn, 80.0)
 	btn.pressed.connect(func():
 		var nxt := not bool(_crosshair_val(field))
 		_cross_set(field, nxt)
@@ -339,28 +339,27 @@ func _crosshair_place(page: Control, col: int, y: float, label_text: String, con
 	var s := _ui_scale()
 	var label := Label.new()
 	label.text = label_text
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.add_theme_font_override("font", MUNRO_FONT)
 	label.add_theme_font_size_override("font_size", int(10 * s))
 	label.add_theme_color_override("font_color", Color.WHITE)
 	label.set_anchors_preset(Control.PRESET_CENTER)
 	label.offset_top = y * s
-	label.offset_bottom = (y + 12.0) * s
-	var lx: float
-	var rx: float
-	if col == 0:
-		lx = -280.0
-		rx = -80.0
-	else:
-		lx = 80.0
-		rx = 280.0
-	label.offset_left = lx * s
-	label.offset_right = rx * s
+	label.offset_bottom = (y + 31.0) * s
 	control.set_anchors_preset(Control.PRESET_CENTER)
-	control.offset_left = lx * s
-	control.offset_right = rx * s
-	control.offset_top = (y + 14.0) * s
-	control.offset_bottom = (y + 34.0) * s
+	control.offset_top = y * s
+	control.offset_bottom = (y + 31.0) * s
+	if col == 0:
+		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		label.offset_left = -280.0 * s
+		label.offset_right = -190.0 * s
+		control.offset_left = -188.0 * s
+		control.offset_right = -80.0 * s
+	else:
+		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		label.offset_left = 190.0 * s
+		label.offset_right = 280.0 * s
+		control.offset_left = 80.0 * s
+		control.offset_right = 188.0 * s
 	page.add_child(label)
 	page.add_child(control)
 

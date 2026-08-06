@@ -215,8 +215,8 @@ func _build_crosshair_page() -> Control:
 	preview.set_anchors_preset(Control.PRESET_CENTER)
 	preview.offset_left = -70.0 * s
 	preview.offset_right = 70.0 * s
-	preview.offset_top = -23.0 * s
-	preview.offset_bottom = 97.0 * s
+	preview.offset_top = -3.0 * s
+	preview.offset_bottom = 117.0 * s
 	page.add_child(preview)
 
 	_crosshair_header(page, 0, -102.0, "CROSS")
@@ -237,31 +237,31 @@ func _build_crosshair_page() -> Control:
 
 	var y := -82.0
 	_crosshair_place(page, 0, y, "Show", controls["cross_enabled"])
-	y += 34.0
+	y += 40.0
 	_crosshair_place(page, 0, y, "Colour", controls["cross_color"])
-	y += 34.0
+	y += 40.0
 	_crosshair_place(page, 0, y, "Length", controls["cross_length"])
-	y += 34.0
+	y += 40.0
 	_crosshair_place(page, 0, y, "Thickness", controls["cross_thickness"])
-	y += 34.0
+	y += 40.0
 	_crosshair_place(page, 0, y, "Opacity", controls["cross_opacity"])
-	y += 34.0
+	y += 40.0
 	_crosshair_place(page, 0, y, "Spacing", controls["cross_spacing"])
-	y += 34.0
+	y += 40.0
 	_crosshair_place(page, 0, y, "Top Line", controls["top_line_enabled"])
 
 	var yd := -82.0
 	_crosshair_place(page, 1, yd, "Show", controls["dot_enabled"])
-	yd += 34.0
+	yd += 40.0
 	_crosshair_place(page, 1, yd, "Colour", controls["dot_color"])
-	yd += 34.0
+	yd += 40.0
 	_crosshair_place(page, 1, yd, "Size", controls["dot_size"])
-	yd += 34.0
+	yd += 40.0
 	_crosshair_place(page, 1, yd, "Opacity", controls["dot_opacity"])
 
 	var reset := _make_button("Reset")
-	reset.offset_top = 166.0 * s
-	reset.offset_bottom = 186.0 * s
+	reset.offset_top = 206.0 * s
+	reset.offset_bottom = 226.0 * s
 	reset.offset_left = -210.0 * s
 	reset.offset_right = -10.0 * s
 	reset.pressed.connect(func():
@@ -273,8 +273,8 @@ func _build_crosshair_page() -> Control:
 	page.add_child(reset)
 
 	var back := _make_button("Back")
-	back.offset_top = 166.0 * s
-	back.offset_bottom = 186.0 * s
+	back.offset_top = 206.0 * s
+	back.offset_bottom = 226.0 * s
 	back.offset_left = 10.0 * s
 	back.offset_right = 210.0 * s
 	back.pressed.connect(func(): _show_page("gui"))
@@ -290,11 +290,15 @@ func _cross_set(field: String, value):
 	_schedule_save()
 
 func _make_spin(value: float, min_value: float, max_value: float, step: float, field: String) -> SpinBox:
+	var s := _ui_scale()
 	var sp := SpinBox.new()
 	sp.min_value = min_value
 	sp.max_value = max_value
 	sp.step = step
 	sp.value = value
+	sp.get_line_edit().add_theme_font_override("font", MUNRO_FONT)
+	sp.get_line_edit().add_theme_font_size_override("font_size", int(10 * s))
+	sp.get_line_edit().custom_minimum_size = Vector2(0, 0)
 	sp.value_changed.connect(func(v: float):
 		_cross_set(field, v))
 	return sp
@@ -309,7 +313,7 @@ func _make_color(field: String, value: Color) -> ColorPickerButton:
 func _make_toggle(field: String, value: bool) -> Button:
 	var btn := Button.new()
 	btn.text = "On" if value else "Off"
-	_style_button(btn, 80.0)
+	_style_button(btn, 180.0)
 	btn.pressed.connect(func():
 		var nxt := not bool(_crosshair_val(field))
 		_cross_set(field, nxt)
@@ -339,27 +343,26 @@ func _crosshair_place(page: Control, col: int, y: float, label_text: String, con
 	var s := _ui_scale()
 	var label := Label.new()
 	label.text = label_text
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.add_theme_font_override("font", MUNRO_FONT)
 	label.add_theme_font_size_override("font_size", int(10 * s))
 	label.add_theme_color_override("font_color", Color.WHITE)
 	label.set_anchors_preset(Control.PRESET_CENTER)
 	label.offset_top = y * s
-	label.offset_bottom = (y + 31.0) * s
+	label.offset_bottom = (y + 12.0) * s
 	control.set_anchors_preset(Control.PRESET_CENTER)
-	control.offset_top = y * s
-	control.offset_bottom = (y + 31.0) * s
 	if col == 0:
-		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		label.offset_left = -280.0 * s
-		label.offset_right = -190.0 * s
-		control.offset_left = -188.0 * s
+		label.offset_right = -80.0 * s
+		control.offset_left = -280.0 * s
 		control.offset_right = -80.0 * s
 	else:
-		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-		label.offset_left = 190.0 * s
+		label.offset_left = 80.0 * s
 		label.offset_right = 280.0 * s
 		control.offset_left = 80.0 * s
-		control.offset_right = 188.0 * s
+		control.offset_right = 280.0 * s
+	control.offset_top = (y + 14.0) * s
+	control.offset_bottom = (y + 38.0) * s
 	page.add_child(label)
 	page.add_child(control)
 

@@ -118,10 +118,10 @@ func _rebuild_pages():
 		p.hide()
 		add_child(p)
 
-func _show_page(name: String):
-	_current_page = name
+func _show_page(page_name: String):
+	_current_page = page_name
 	for k in _pages:
-		_pages[k].visible = (k == name)
+		_pages[k].visible = (k == page_name)
 
 func _build_pause_page() -> Control:
 	var s := _ui_scale()
@@ -235,13 +235,13 @@ func _build_crosshair_page() -> Control:
 	controls["cross_opacity"] = _make_spin(_crosshair_val("cross_opacity"), 0.0, 1.0, 0.05, "cross_opacity")
 	controls["cross_spacing"] = _make_spin(_crosshair_val("cross_spacing"), 0.0, 10.0, 0.5, "cross_spacing")
 	controls["top_line_enabled"] = _make_toggle("top_line_enabled", _crosshair_val("top_line_enabled"))
-	controls["cross_rotation"] = _make_spin(_crosshair_val("cross_rotation"), 0.0, 360.0, 1.0, "cross_rotation", "°")
+	controls["cross_rotation"] = _make_spin(_crosshair_val("cross_rotation"), 0.0, 360.0, 1.0, "cross_rotation")
 	controls["cross_contrast"] = _make_toggle("cross_contrast", _crosshair_val("cross_contrast"))
 	controls["dot_enabled"] = _make_toggle("dot_enabled", _crosshair_val("dot_enabled"))
 	controls["dot_color"] = _make_color("dot_color", _crosshair_val("dot_color"))
 	controls["dot_size"] = _make_spin(_crosshair_val("dot_size"), 0.0, 40.0, 1.0, "dot_size")
 	controls["dot_opacity"] = _make_spin(_crosshair_val("dot_opacity"), 0.0, 1.0, 0.05, "dot_opacity")
-	controls["dot_rotation"] = _make_spin(_crosshair_val("dot_rotation"), 0.0, 45.0, 1.0, "dot_rotation", "°")
+	controls["dot_rotation"] = _make_spin(_crosshair_val("dot_rotation"), 0.0, 45.0, 1.0, "dot_rotation")
 	controls["cross_dot_collision"] = _make_toggle("cross_dot_collision", _crosshair_val("cross_dot_collision"))
 	controls["dot_contrast"] = _make_toggle("dot_contrast", _crosshair_val("dot_contrast"))
 
@@ -309,14 +309,13 @@ func _cross_set(field: String, value):
 		crosshair_node.set(field, value)
 	_schedule_save()
 
-func _make_spin(value: float, min_value: float, max_value: float, step: float, field: String, suffix: String = "") -> SpinBox:
+func _make_spin(value: float, min_value: float, max_value: float, step: float, field: String) -> SpinBox:
 	var s := _ui_scale()
 	var sp := SpinBox.new()
 	sp.min_value = min_value
 	sp.max_value = max_value
 	sp.step = step
 	sp.value = value
-	sp.suffix = suffix
 	sp.get_line_edit().add_theme_font_override("font", MUNRO_FONT)
 	sp.get_line_edit().add_theme_font_size_override("font_size", int(10 * s))
 	sp.get_line_edit().custom_minimum_size = Vector2(0, 0)

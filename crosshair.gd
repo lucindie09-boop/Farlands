@@ -68,10 +68,10 @@ func _draw():
 		cross_dot_collision,
 		cross_contrast or dot_contrast)
 
-static func draw_crosshair(canvas: CanvasItem, cx: int, cy: int, cross_on: bool, w: int, seg: int, gap: int, cross_color: Color, cross_opacity: float, top_line: bool, dot_on: bool, d: int, dot_color: Color, dot_opacity: float, cross_deg: float, dot_deg: float, collision: bool, marker_mode: bool):
+static func draw_crosshair(canvas: CanvasItem, cx: int, cy: int, cross_on: bool, w: int, seg: int, gap: int, cross_col: Color, cross_opa: float, top_line: bool, dot_on: bool, d: int, dot_col: Color, dot_opa: float, cross_deg: float, dot_deg: float, collision: bool, marker_mode: bool):
 	if cross_on:
-		var cross_fill := MARKER_CROSS if marker_mode else cross_color
-		var cross_alpha := 1.0 if marker_mode else cross_opacity
+		var cross_fill := MARKER_CROSS if marker_mode else cross_col
+		var cross_alpha := 1.0 if marker_mode else cross_opa
 		var t := floori(float(w - 1) / 2.0)
 		var use_dot_ref := dot_on and collision
 		var half := t
@@ -99,8 +99,8 @@ static func draw_crosshair(canvas: CanvasItem, cx: int, cy: int, cross_on: bool,
 				arms.append([cx, u_ref - seg, cx, u_ref])
 		_draw_arms(canvas, cx, cy, arms, w, cross_fill, cross_alpha, cross_deg)
 	if dot_on:
-		var dot_fill := MARKER_DOT if marker_mode else dot_color
-		var dot_alpha := 1.0 if marker_mode else dot_opacity
+		var dot_fill := MARKER_DOT if marker_mode else dot_col
+		var dot_alpha := 1.0 if marker_mode else dot_opa
 		_draw_dot(canvas, cx, cy, d, dot_fill, dot_alpha, dot_deg)
 
 static func _draw_arms(canvas: CanvasItem, cx: int, cy: int, arms: Array, w: int, color: Color, opacity: float, deg: float):

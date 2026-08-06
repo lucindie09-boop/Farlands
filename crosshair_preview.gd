@@ -26,4 +26,5 @@ func _draw():
 		src.dot_enabled,
 		int(round(src.dot_size)),
 		src.dot_color, src.dot_opacity,
-		src.cross_rotation, src.dot_rotation)
+		src.cross_rotation, src.dot_rotation,
+		src.cross_dot_collision)

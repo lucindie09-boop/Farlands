@@ -34,6 +34,7 @@ var _crosshair_defaults := {
 	"dot_opacity": 1.0,
 	"dot_color": Color.WHITE,
 	"dot_rotation": 0.0,
+	"cross_dot_collision": true,
 }
 
 var _save_timer: Timer = null
@@ -238,6 +239,7 @@ func _build_crosshair_page() -> Control:
 	controls["dot_size"] = _make_spin(_crosshair_val("dot_size"), 0.0, 40.0, 1.0, "dot_size")
 	controls["dot_opacity"] = _make_spin(_crosshair_val("dot_opacity"), 0.0, 1.0, 0.05, "dot_opacity")
 	controls["dot_rotation"] = _make_spin(_crosshair_val("dot_rotation"), 0.0, 45.0, 1.0, "dot_rotation")
+	controls["cross_dot_collision"] = _make_toggle("cross_dot_collision", _crosshair_val("cross_dot_collision"))
 
 	var y := -82.0
 	_crosshair_place(page, 0, y, "Show", controls["cross_enabled"])
@@ -266,6 +268,8 @@ func _build_crosshair_page() -> Control:
 	_crosshair_place(page, 1, yd, "Opacity", controls["dot_opacity"])
 	yd += 40.0
 	_crosshair_place(page, 1, yd, "Rotation", controls["dot_rotation"])
+	yd += 40.0
+	_crosshair_place(page, 1, yd, "Collision", controls["cross_dot_collision"])
 
 	var reset := _make_button("Reset")
 	reset.offset_top = 240.0 * s

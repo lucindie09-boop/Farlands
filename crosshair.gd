@@ -1,6 +1,13 @@
 extends Control
 
+const CONTRAST_SHADER := preload("res://shaders/crosshair_contrast.gdshader")
+
+const MARKER_CROSS := Color(1.0, 0.0, 0.0, 1.0)
+const MARKER_DOT := Color(0.0, 1.0, 0.0, 1.0)
+
 @onready var player_controller = get_node("/root/Main/Player")
+
+var _material: ShaderMaterial
 
 var cross_enabled: bool = true
 var cross_length: float = 9.0
@@ -10,18 +17,37 @@ var cross_opacity: float = 1.0
 var cross_color: Color = Color.WHITE
 var top_line_enabled: bool = true
 var cross_rotation: float = 0.0
+var cross_contrast: bool = true
 var dot_enabled: bool = false
 var dot_size: float = 3.0
 var dot_opacity: float = 1.0
 var dot_color: Color = Color.WHITE
 var dot_rotation: float = 0.0
+var dot_contrast: bool = false
 var cross_dot_collision: bool = true
 
 func _ready():
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_material = ShaderMaterial.new()
+	_material.shader = CONTRAST_SHADER
 
 func _process(_delta):
 	queue_redraw()
+	_sync_material()
+
+func _sync_material():
+	var marker_mode := cross_contrast or dot_contrast
+	if marker_mode:
+		if material != _material:
+			material = _material
+		_material.set_shader_parameter("cross_color", cross_color)
+		_material.set_shader_parameter("cross_opacity", cross_opacity)
+		_material.set_shader_parameter("cross_contrast", cross_contrast)
+		_material.set_shader_parameter("dot_color", dot_color)
+		_material.set_shader_parameter("dot_opacity", dot_opacity)
+		_material.set_shader_parameter("dot_contrast", dot_contrast)
+	elif material != null:
+		material = null
 
 func _draw():
 	if player_controller.is_chat_open() or player_controller.is_inventory_open() or player_controller.is_settings_open():
@@ -39,10 +65,13 @@ func _draw():
 		int(round(dot_size)),
 		dot_color, dot_opacity,
 		cross_rotation, dot_rotation,
-		cross_dot_collision)
+		cross_dot_collision,
+		cross_contrast or dot_contrast)
 
-static func draw_crosshair(canvas: CanvasItem, cx: int, cy: int, cross_on: bool, w: int, seg: int, gap: int, cross_color: Color, cross_opacity: float, top_line: bool, dot_on: bool, d: int, dot_color: Color, dot_opacity: float, cross_deg: float, dot_deg: float, collision: bool):
+static func draw_crosshair(canvas: CanvasItem, cx: int, cy: int, cross_on: bool, w: int, seg: int, gap: int, cross_color: Color, cross_opacity: float, top_line: bool, dot_on: bool, d: int, dot_color: Color, dot_opacity: float, cross_deg: float, dot_deg: float, collision: bool, marker_mode: bool):
 	if cross_on:
+		var cross_fill := MARKER_CROSS if marker_mode else cross_color
+		var cross_alpha := 1.0 if marker_mode else cross_opacity
 		var t := floori(float(w - 1) / 2.0)
 		var use_dot_ref := dot_on and collision
 		var half := t
@@ -68,9 +97,11 @@ static func draw_crosshair(canvas: CanvasItem, cx: int, cy: int, cross_on: bool,
 			]
 			if top_line:
 				arms.append([cx, u_ref - seg, cx, u_ref])
-		_draw_arms(canvas, cx, cy, arms, w, cross_color, cross_opacity, cross_deg)
+		_draw_arms(canvas, cx, cy, arms, w, cross_fill, cross_alpha, cross_deg)
 	if dot_on:
-		_draw_dot(canvas, cx, cy, d, dot_color, dot_opacity, dot_deg)
+		var dot_fill := MARKER_DOT if marker_mode else dot_color
+		var dot_alpha := 1.0 if marker_mode else dot_opacity
+		_draw_dot(canvas, cx, cy, d, dot_fill, dot_alpha, dot_deg)
 
 static func _draw_arms(canvas: CanvasItem, cx: int, cy: int, arms: Array, w: int, color: Color, opacity: float, deg: float):
 	if deg == 0.0:

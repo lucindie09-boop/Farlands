@@ -29,11 +29,13 @@ var _crosshair_defaults := {
 	"top_line_enabled": true,
 	"cross_color": Color.WHITE,
 	"cross_rotation": 0.0,
+	"cross_contrast": true,
 	"dot_enabled": false,
 	"dot_size": 3.0,
 	"dot_opacity": 1.0,
 	"dot_color": Color.WHITE,
 	"dot_rotation": 0.0,
+	"dot_contrast": false,
 	"cross_dot_collision": true,
 }
 
@@ -234,42 +236,48 @@ func _build_crosshair_page() -> Control:
 	controls["cross_spacing"] = _make_spin(_crosshair_val("cross_spacing"), 0.0, 10.0, 0.5, "cross_spacing")
 	controls["top_line_enabled"] = _make_toggle("top_line_enabled", _crosshair_val("top_line_enabled"))
 	controls["cross_rotation"] = _make_spin(_crosshair_val("cross_rotation"), 0.0, 360.0, 1.0, "cross_rotation")
+	controls["cross_contrast"] = _make_toggle("cross_contrast", _crosshair_val("cross_contrast"))
 	controls["dot_enabled"] = _make_toggle("dot_enabled", _crosshair_val("dot_enabled"))
 	controls["dot_color"] = _make_color("dot_color", _crosshair_val("dot_color"))
 	controls["dot_size"] = _make_spin(_crosshair_val("dot_size"), 0.0, 40.0, 1.0, "dot_size")
 	controls["dot_opacity"] = _make_spin(_crosshair_val("dot_opacity"), 0.0, 1.0, 0.05, "dot_opacity")
 	controls["dot_rotation"] = _make_spin(_crosshair_val("dot_rotation"), 0.0, 45.0, 1.0, "dot_rotation")
 	controls["cross_dot_collision"] = _make_toggle("cross_dot_collision", _crosshair_val("cross_dot_collision"))
+	controls["dot_contrast"] = _make_toggle("dot_contrast", _crosshair_val("dot_contrast"))
 
 	var y := -82.0
 	_crosshair_place(page, 0, y, "Show", controls["cross_enabled"])
-	y += 40.0
+	y += 35.0
 	_crosshair_place(page, 0, y, "Colour", controls["cross_color"])
-	y += 40.0
+	y += 35.0
 	_crosshair_place(page, 0, y, "Length", controls["cross_length"])
-	y += 40.0
+	y += 35.0
 	_crosshair_place(page, 0, y, "Thickness", controls["cross_thickness"])
-	y += 40.0
+	y += 35.0
 	_crosshair_place(page, 0, y, "Opacity", controls["cross_opacity"])
-	y += 40.0
+	y += 35.0
 	_crosshair_place(page, 0, y, "Spacing", controls["cross_spacing"])
-	y += 40.0
-	_crosshair_place(page, 0, y, "Top Line", controls["top_line_enabled"])
-	y += 40.0
+	y += 35.0
 	_crosshair_place(page, 0, y, "Rotation", controls["cross_rotation"])
+	y += 35.0
+	_crosshair_place(page, 0, y, "Top Line", controls["top_line_enabled"])
+	y += 35.0
+	_crosshair_place(page, 0, y, "Contrast", controls["cross_contrast"])
 
 	var yd := -82.0
 	_crosshair_place(page, 1, yd, "Show", controls["dot_enabled"])
-	yd += 40.0
+	yd += 35.0
 	_crosshair_place(page, 1, yd, "Colour", controls["dot_color"])
-	yd += 40.0
+	yd += 35.0
 	_crosshair_place(page, 1, yd, "Size", controls["dot_size"])
-	yd += 40.0
+	yd += 35.0
 	_crosshair_place(page, 1, yd, "Opacity", controls["dot_opacity"])
-	yd += 40.0
+	yd += 35.0
 	_crosshair_place(page, 1, yd, "Rotation", controls["dot_rotation"])
-	yd += 40.0
+	yd += 35.0
 	_crosshair_place(page, 1, yd, "Collision", controls["cross_dot_collision"])
+	yd += 35.0
+	_crosshair_place(page, 1, yd, "Contrast", controls["dot_contrast"])
 
 	var reset := _make_button("Reset")
 	reset.offset_top = 240.0 * s
@@ -373,8 +381,8 @@ func _crosshair_place(page: Control, col: int, y: float, label_text: String, con
 		label.offset_right = 280.0 * s
 		control.offset_left = 80.0 * s
 		control.offset_right = 280.0 * s
-	control.offset_top = (y + 14.0) * s
-	control.offset_bottom = (y + 38.0) * s
+	control.offset_top = (y + 12.0) * s
+	control.offset_bottom = (y + 34.0) * s
 	page.add_child(label)
 	page.add_child(control)
 

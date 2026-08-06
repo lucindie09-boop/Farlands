@@ -22,13 +22,13 @@ var _default_render_distance: int = 32
 
 var _crosshair_defaults := {
 	"cross_enabled": true,
-	"cross_length": 4.0,
-	"cross_thickness": 1.0,
+	"cross_length": 9.0,
+	"cross_thickness": 2.0,
 	"cross_opacity": 1.0,
 	"cross_spacing": 0.0,
 	"top_line_enabled": true,
 	"cross_color": Color.WHITE,
-	"dot_enabled": true,
+	"dot_enabled": false,
 	"dot_size": 3.0,
 	"dot_opacity": 1.0,
 	"dot_color": Color.WHITE,

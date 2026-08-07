@@ -14,7 +14,7 @@ uniform vec3 sun_direction=vec3(0.0,1.0,0.0);
 uniform vec3 player_light_position=vec3(0.0);
 uniform float player_light_radius=8.0;
 uniform float player_light_intensity=1.0;
-uniform vec3 player_light_color=vec3(1.0,0.9,0.7);
+uniform vec3 player_light_color=vec3(1.0,1.0,1.0);
 
 // Fog
 uniform float fog_begin=64.0;
@@ -35,19 +35,19 @@ uniform vec3 darkness_color=vec3(0.0);
 
 // Atmosphere
 uniform float fog_scatter=0.0;
-uniform vec3 fog_scatter_color=vec3(1.0,0.85,0.55);
+uniform vec3 fog_scatter_color=vec3(1.0,1.0,1.0);
 
-uniform vec3 aerial_color=vec3(0.62,0.80,0.96);
+uniform vec3 aerial_color=vec3(1.0,1.0,1.0);
 uniform float aerial_strength=0.35;
 
-uniform vec3 sky_light_warmth=vec3(1.0,0.95,0.85);
+uniform vec3 sky_light_warmth=vec3(1.0,1.0,1.0);
 
-uniform vec3 horizon_color=vec3(0.30,0.52,0.85);
-uniform vec3 zenith_color=vec3(0.06,0.20,0.85);
+uniform vec3 horizon_color=vec3(1.0,1.0,1.0);
+uniform vec3 zenith_color=vec3(1.0,1.0,1.0);
 uniform float sky_turbidity=0.35;
 
 // Water appearance
-uniform vec4 water_color=vec4(0.15,0.45,0.55,0.85);
+uniform vec4 water_color=vec4(1.0,1.0,1.0,0.85);
 uniform float water_edge_fade=0.3;
 uniform float water_absorption=4.0;
 
@@ -102,15 +102,13 @@ void fragment(){
     vec3 block_light=custom0_attr.rgb;
 
     vec3 sun_dir_norm = normalize(sun_direction);
-    float sunFacing=max(dot(world_normal, sun_dir_norm),0.0);
 
     float skyBrightness=
         custom0_attr.a*
-        sky_light_intensity*
-        mix(0.25,1.0,sunFacing);
+        sky_light_intensity;
 
     vec3 skyTemp=
-        mix(vec3(0.55,0.65,0.85),
+        mix(vec3(1.0,1.0,1.0),
             sky_light_warmth,
             sky_light_intensity);
 
@@ -164,12 +162,12 @@ void fragment(){
         pow(specAngle,20.0)*0.25;
     glint*=max(sky_light_intensity,0.05);
 
-    lit_color+=vec3(1.0,0.85,0.6)*glint;
+    lit_color+=vec3(1.0,1.0,1.0)*glint;
 
     // Bounce lighting
     if(sky_light_intensity>0.1){
         vec3 bounce=
-            vec3(0.35,0.32,0.22)*
+            vec3(1.0,1.0,1.0)*
             sky_light_intensity*
             0.15;
 
@@ -256,12 +254,12 @@ void fragment(){
     scatter *= dist_factor * (1.0 + haze * 0.4);
 
 	// Horizon + zenith haze modulation
-	vec3 haze_color = mix(vec3(0.95, 0.92, 0.88), fog_scatter_color, 0.3);
+	vec3 haze_color = mix(vec3(1.0, 1.0, 1.0), fog_scatter_color, 0.3);
 	vec3 turb_horizon = mix(horizon_color, haze_color, haze * 0.55);
 
 	// Zenith desaturation: aerosols overwhelm Rayleigh, sky pales overhead
 	float z_luma = dot(zenith_color, vec3(0.299, 0.587, 0.114));
-	vec3 pale_zenith = mix(zenith_color, vec3(z_luma) * vec3(0.75, 0.80, 0.92), haze * 0.60);
+	vec3 pale_zenith = mix(zenith_color, vec3(z_luma) * vec3(1.0, 1.0, 1.0), haze * 0.60);
 
 	// ========= SKY GRADIENT =========
 	float up2 = max(view_direction.y, 0.0);
@@ -293,13 +291,13 @@ void fragment(){
     float facingSky = clamp(world_normal.y * 0.5 + 0.5, 0.0, 1.0);
     tintStrength *= mix(1.2, 0.8, facingSky);
     vec3 sceneColor = mix(lit_color, finalFogColor, tintStrength);
-    sceneColor += vec3(0.05, 0.08, 0.12) * fog_amount * (1.0 - sky_light_intensity);
+    sceneColor += vec3(0.0, 0.0, 0.0) * fog_amount * (1.0 - sky_light_intensity);
 
     // ========= FINAL BLEND =========
     vec3 final_color = mix(sceneColor, finalFogColor, fog_amount);
     final_color += scatter * fog_amount * 0.20;
 
-    float desat = (1.0 - smoothstep(0.95, 1.0, fog_amount)) * 0.12;
+    float desat = smoothstep(0.0, 1.0, fog_amount) * 0.12;
     float lum = dot(final_color, vec3(0.299, 0.587, 0.114));
     final_color = mix(final_color, vec3(lum), desat);
 

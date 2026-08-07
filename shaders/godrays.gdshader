@@ -27,8 +27,8 @@ uniform float decay : hint_range(0.0, 1.0) = 0.975;
 uniform float weight : hint_range(0.0, 2.0) = 0.85;
 uniform float exposure : hint_range(0.0, 2.0) = 0.55;
 uniform float threshold : hint_range(0.0, 1.0) = 0.18;
-uniform vec3 sun_ray_color : source_color = vec3(1.0, 0.92, 0.72);
-uniform vec3 moon_ray_color : source_color = vec3(0.5, 0.65, 1.0);
+uniform vec3 sun_ray_color : source_color = vec3(1.0, 1.0, 1.0);
+uniform vec3 moon_ray_color : source_color = vec3(1.0, 1.0, 1.0);
 
 float luminance(vec3 c) {
     return dot(c, vec3(0.299, 0.587, 0.114));

@@ -28,7 +28,6 @@ public:
                 moon_time -= 1.0;
             }
         }
-        cloud_time += delta * 0.01;
     }
 
     [[nodiscard]] float get_sun_elevation() const {
@@ -122,14 +121,14 @@ public:
     }
 
     [[nodiscard]] godot::Color get_ambient_color() const {
-        if (!enabled) return godot::Color(0.6f, 0.7f, 0.85f, 1.0f);
+        if (!enabled) return godot::Color(1.0f, 1.0f, 1.0f, 1.0f);
         const float elevation = get_sun_elevation();
         const float blend = get_blend();
-        godot::Color sky_ambient_day = godot::Color(0.55f, 0.68f, 0.85f, 1.0f);
-        godot::Color sky_ambient_night = godot::Color(0.08f, 0.12f, 0.25f, 1.0f);
+        godot::Color sky_ambient_day = godot::Color(1.0f, 1.0f, 1.0f, 1.0f);
+        godot::Color sky_ambient_night = godot::Color(0.0f, 0.0f, 0.0f, 1.0f);
         godot::Color sky_ambient = sky_ambient_night.lerp(sky_ambient_day, blend);
-        godot::Color ground_ambient_day = godot::Color(0.65f, 0.62f, 0.55f, 1.0f);
-        godot::Color ground_ambient_night = godot::Color(0.10f, 0.12f, 0.18f, 1.0f);
+        godot::Color ground_ambient_day = godot::Color(1.0f, 1.0f, 1.0f, 1.0f);
+        godot::Color ground_ambient_night = godot::Color(0.0f, 0.0f, 0.0f, 1.0f);
         godot::Color ground_ambient = ground_ambient_night.lerp(ground_ambient_day, blend);
         float ground_factor = std::clamp(elevation * 0.5f + 0.5f, 0.0f, 1.0f);
         return sky_ambient.lerp(ground_ambient, ground_factor * 0.3f);
@@ -148,7 +147,6 @@ public:
         return smoothstep(0.0f, 0.4f, 1.0f - std::abs(elevation)) * 0.6f;
     }
 
-    [[nodiscard]] double get_cloud_time() const { return cloud_time; }
     [[nodiscard]] double get_raw_time() const { return time; }
     [[nodiscard]] double get_moon_time() const { return moon_time; }
 
@@ -194,19 +192,18 @@ public:
 private:
     double time = 0.0;
     double duration = 10.0;
-    double cloud_time = 0.0;
     double moon_time = 0.0;
     bool enabled = true;
     float day_intensity = 1.0f;
     float night_intensity = 0.18f;
-    godot::Color day_color = godot::Color(1.0f, 0.72f, 0.42f, 1.0f);
-    godot::Color night_color = godot::Color(0.08f, 0.16f, 0.35f, 1.0f);
-    godot::Color dawn_color = godot::Color(1.0f, 0.50f, 0.30f, 1.0f);
-    godot::Color dusk_color = godot::Color(0.90f, 0.35f, 0.25f, 1.0f);
-    godot::Color day_horizon_color = godot::Color(0.62f, 0.80f, 0.96f, 1.0f);
-    godot::Color night_horizon_color = godot::Color(0.015f, 0.03f, 0.08f, 1.0f);
-    godot::Color dawn_horizon_color = godot::Color(0.92f, 0.55f, 0.32f, 1.0f);
-    godot::Color dusk_horizon_color = godot::Color(0.88f, 0.42f, 0.28f, 1.0f);
+    godot::Color day_color = godot::Color(1.0f, 1.0f, 1.0f, 1.0f);
+    godot::Color night_color = godot::Color(0.0f, 0.0f, 0.0f, 1.0f);
+    godot::Color dawn_color = godot::Color(1.0f, 1.0f, 1.0f, 1.0f);
+    godot::Color dusk_color = godot::Color(1.0f, 1.0f, 1.0f, 1.0f);
+    godot::Color day_horizon_color = godot::Color(1.0f, 1.0f, 1.0f, 1.0f);
+    godot::Color night_horizon_color = godot::Color(0.0f, 0.0f, 0.0f, 1.0f);
+    godot::Color dawn_horizon_color = godot::Color(1.0f, 1.0f, 1.0f, 1.0f);
+    godot::Color dusk_horizon_color = godot::Color(1.0f, 1.0f, 1.0f, 1.0f);
 };
 
 } // namespace VoxelEngine

@@ -52,17 +52,24 @@ public:
         return 0.7f;
     }
 
-    [[nodiscard]] godot::Color get_fog_color(float blend, const godot::Color& horizon_color, float sun_elevation) const {
-        if (!enabled) return fog_color_day;
-        if (sun_elevation > 0.08f) {
-            return fog_color_day.lerp(horizon_color, 0.5f);
-        } else if (sun_elevation > -0.08f) {
-            float t = (sun_elevation + 0.08f) / 0.16f;
-            return fog_color_sunset.lerp(fog_color_day, t);
+    [[nodiscard]] godot::Color get_fog_color(float blend, const godot::Color& horizon_color, float sun_elevation, const godot::Color& sun_color = godot::Color(1.0f, 1.0f, 1.0f), float sky_turbidity = 0.35f) const {
+        if (!enabled) return horizon_color;
+
+        godot::Color base_color;
+        if (sun_elevation > -0.08f) {
+            base_color = horizon_color;
         } else {
             float t = std::clamp((sun_elevation + 0.25f) / 0.17f, 0.0f, 1.0f);
-            return fog_color_night.lerp(fog_color_sunset, t);
+            base_color = fog_color_night.lerp(horizon_color, t);
         }
+
+        // Apply turbidity haze effect to match sky shader
+        float haze = std::clamp(sky_turbidity * 1.4f - 0.2f, 0.0f, 1.0f);
+        haze *= smoothstep(0.0f, 0.35f, blend);
+        godot::Color haze_color = godot::Color(0.95f, 0.92f, 0.88f).lerp(sun_color, 0.25f);
+        godot::Color turb_horizon = base_color.lerp(haze_color, haze * 0.55f);
+
+        return turb_horizon;
     }
 
     [[nodiscard]] float get_fog_scatter(float blend, float sun_elevation) const {
@@ -99,10 +106,10 @@ private:
     float depth_end_night = 1024.0f;
     float depth_end_day = 1536.0f;
     float fog_scatter_intensity = 0.5f;
-    godot::Color fog_color_day = godot::Color(1.0f, 1.0f, 1.0f, 1.0f);
-    godot::Color fog_color_night = godot::Color(0.0f, 0.0f, 0.0f, 1.0f);
-    godot::Color fog_color_sunset = godot::Color(1.0f, 1.0f, 1.0f, 1.0f);
-    godot::Color fog_color_dawn = godot::Color(1.0f, 1.0f, 1.0f, 1.0f);
+    godot::Color fog_color_day = godot::Color(0.30f, 0.52f, 0.85f, 1.0f);
+    godot::Color fog_color_night = godot::Color(0.025f, 0.045f, 0.090f, 1.0f);
+    godot::Color fog_color_sunset = godot::Color(0.95f, 0.70f, 0.40f, 1.0f);
+    godot::Color fog_color_dawn = godot::Color(0.95f, 0.70f, 0.40f, 1.0f);
 };
 
 } // namespace VoxelEngine

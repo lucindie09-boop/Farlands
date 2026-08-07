@@ -165,7 +165,7 @@ void sky() {
 
 class SkyController {
 private:
-    godot::Vector3 compute_horizon_color(float blend, float sun_elevation) const {
+    godot::Vector3 compute_horizon_color(float blend, float sun_elevation, const godot::Color& sun_color, float sky_turbidity) const {
         godot::Vector3 day_horizon(0.30f, 0.52f, 0.85f);
         godot::Vector3 night_horizon(0.025f, 0.045f, 0.090f);
 
@@ -173,7 +173,15 @@ private:
         godot::Vector3 sunset_horizon(0.95f, 0.70f, 0.40f);
 
         godot::Vector3 base_color = night_horizon.lerp(day_horizon, blend);
-        return base_color.lerp(sunset_horizon, (1.0f - sunset_factor) * 0.5f * blend);
+        godot::Vector3 horizon_color = base_color.lerp(sunset_horizon, (1.0f - sunset_factor) * 0.5f * blend);
+
+        // Apply turbidity haze effect to match sky shader
+        float haze = std::clamp(sky_turbidity * 1.4f - 0.2f, 0.0f, 1.0f);
+        haze *= smoothstep(0.0f, 0.35f, blend);
+        godot::Vector3 haze_color = godot::Vector3(0.95f, 0.92f, 0.88f).lerp(godot::Vector3(sun_color.r, sun_color.g, sun_color.b), 0.25f);
+        godot::Vector3 turb_horizon = horizon_color.lerp(haze_color, haze * 0.55f);
+
+        return turb_horizon;
     }
 
     godot::Vector3 compute_zenith_color(float blend) const {
@@ -183,8 +191,8 @@ private:
     }
 
 public:
-    [[nodiscard]] godot::Vector3 get_horizon_color(float blend, float sun_elevation = 0.0f) const {
-        return compute_horizon_color(blend, sun_elevation);
+    [[nodiscard]] godot::Vector3 get_horizon_color(float blend, float sun_elevation = 0.0f, const godot::Color& sun_color = godot::Color(1.0f, 1.0f, 1.0f), float sky_turbidity = 0.35f) const {
+        return compute_horizon_color(blend, sun_elevation, sun_color, sky_turbidity);
     }
 
     [[nodiscard]] godot::Vector3 get_zenith_color(float blend) const {
@@ -243,7 +251,7 @@ public:
         cached_mat->set_shader_parameter(p_moon_phase, moon_phase);
 
         float sun_elevation = sun_dir.y;
-        godot::Vector3 horizon_color = compute_horizon_color(blend, sun_elevation);
+        godot::Vector3 horizon_color = compute_horizon_color(blend, sun_elevation, sun_color, sky_turbidity);
         godot::Vector3 zenith_color = compute_zenith_color(blend);
         cached_mat->set_shader_parameter(p_horizon_color, horizon_color);
         cached_mat->set_shader_parameter(p_zenith_color, zenith_color);

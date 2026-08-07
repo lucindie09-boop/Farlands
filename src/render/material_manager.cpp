@@ -44,6 +44,7 @@ void MaterialManager::update_fog_parameters(float fog_begin, float fog_end, cons
         material->set_shader_parameter("fog_scatter", fog_scatter);
         material->set_shader_parameter("fog_scatter_color", fog_scatter_color);
         material->set_shader_parameter("fog_mode", fog_mode);
+        material->set_shader_parameter("fog_color", Vector3(fog_color.r, fog_color.g, fog_color.b));
     }
 }
 

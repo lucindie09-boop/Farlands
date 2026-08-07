@@ -43,7 +43,7 @@ void EnvironmentController::update_environment(godot::Node* parent) {
     const godot::Vector3 sun_dir = day_night.get_sun_direction();
 
     sky_controller.update(env.ptr(), blend, static_cast<float>(day_night.get_raw_time()),
-                          static_cast<float>(day_night.get_cloud_time()), sun_color, sun_dir,
+                          sun_color, sun_dir,
                           day_night.get_moon_phase(), 1.0f, day_night.get_sky_turbidity(), 1.0f,
                           fog_controller.get_fog_scatter(blend, elevation));
     fog_controller.update(env.ptr(), blend, horizon_color, fog_controller.get_fog_color(blend, horizon_color, elevation), fog_controller.get_fog_scatter(blend, elevation));
@@ -65,7 +65,7 @@ void EnvironmentController::update_environment(godot::Node* parent) {
             cached_sun_light->set_shadow(false);
             cached_sun_light->set_sky_mode(godot::DirectionalLight3D::SKY_MODE_LIGHT_ONLY);
         } else if (moon_visible > 0.0f) {
-            cached_sun_light->set_color(godot::Color(0.55f, 0.65f, 0.85f));
+            cached_sun_light->set_color(godot::Color(1.0f, 1.0f, 1.0f));
             cached_sun_light->set_param(godot::Light3D::PARAM_ENERGY, 0.25f * moon_visible * day_night.get_night_intensity());
             cached_sun_light->set_shadow(false);
             cached_sun_light->set_sky_mode(godot::DirectionalLight3D::SKY_MODE_LIGHT_ONLY);

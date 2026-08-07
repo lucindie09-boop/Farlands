@@ -14,10 +14,10 @@ float AmbientOcclusion::get_face_shade(FaceDirection direction) {
     switch (direction) {
         case FaceDirection::Top:    return 1.00f;
         case FaceDirection::Bottom: return 0.50f;
-        case FaceDirection::Right:  return 0.75f;
-        case FaceDirection::Left:   return 0.75f;
-        case FaceDirection::Front:  return 0.60f;
-        case FaceDirection::Back:   return 0.60f;
+        case FaceDirection::Right:  return 0.60f;
+        case FaceDirection::Left:   return 0.60f;
+        case FaceDirection::Front:  return 0.80f;
+        case FaceDirection::Back:   return 0.80f;
     }
     return 1.0f;
 }

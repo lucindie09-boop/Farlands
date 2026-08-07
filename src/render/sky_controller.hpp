@@ -27,13 +27,6 @@ uniform float moon_phase = 0.5;
 uniform sampler2D sun_texture;
 uniform sampler2D star_texture;
 
-// Clouds
-uniform float cloud_time = 0.0;
-uniform float cloud_coverage : hint_range(0.0, 1.0) = 0.45;
-uniform float cloud_speed = 0.35;
-uniform float cloud_scale = 1.6;
-uniform float cloud_height = 0.28;
-
 vec3 aces_tonemap(vec3 x) {
     float a = 2.51;
     float b = 0.03;
@@ -60,50 +53,6 @@ float value_noise(vec2 p) {
     float d = hash2(i + vec2(1.0, 1.0));
     vec2 u = f * f * (3.0 - 2.0 * f);
     return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
-}
-
-float cloud_fbm(vec2 p) {
-    float sum = 0.0;
-    float amp = 0.5;
-    float freq = 1.0;
-    for (int i = 0; i < 5; i++) {
-        sum += value_noise(p * freq) * amp;
-        freq *= 2.02;
-        amp *= 0.52;
-    }
-    return sum;
-}
-
-// Returns cloud alpha + shaded RGB contribution for a view direction, sampled
-// on a flat plane above the world so clouds drift with cloud_time and thin
-// out realistically toward the horizon.
-vec4 sample_clouds(vec3 dir, vec3 sun_fwd, vec3 sun_col, float day_blend) {
-    if (dir.y < 0.015) return vec4(0.0);
-
-    vec2 uv = dir.xz / dir.y * cloud_height;
-    uv = uv * cloud_scale + vec2(cloud_time * cloud_speed, cloud_time * cloud_speed * 0.35);
-
-    float n = cloud_fbm(uv);
-    float coverage_bias = mix(0.62, 0.30, cloud_coverage);
-    float density = smoothstep(coverage_bias, coverage_bias + 0.35, n);
-
-    // Fade out near the horizon so the cloud plane doesn't reveal its seam.
-    float horizon_fade = smoothstep(0.02, 0.22, dir.y);
-    density *= horizon_fade;
-    if (density <= 0.001) return vec4(0.0);
-
-    // Cheap directional shading: sample the field slightly offset toward the
-    // sun to fake self-shadowing / sunlit edges without a real raymarch.
-    float n_sun = cloud_fbm(uv - normalize(sun_fwd.xz + vec2(0.0001)) * 0.06);
-    float density_sun = smoothstep(coverage_bias, coverage_bias + 0.35, n_sun);
-    float lit = clamp(density - density_sun + 0.5, 0.0, 1.0);
-
-    vec3 dusk_tint = mix(vec3(1.0, 0.55, 0.30), vec3(1.0), day_blend);
-    vec3 lit_color = mix(vec3(0.35, 0.38, 0.46), vec3(1.0, 0.97, 0.92), lit) * dusk_tint * sun_col;
-    vec3 shade_color = vec3(0.10, 0.12, 0.20) * mix(0.3, 1.0, day_blend);
-    vec3 cloud_color = mix(shade_color, lit_color, mix(0.35, 1.0, day_blend));
-
-    return vec4(cloud_color, density * mix(0.25, 0.85, day_blend + 0.15));
 }
 
 void sky() {
@@ -208,11 +157,6 @@ void sky() {
         }
     }
 
-    // Clouds — drawn last so they occlude the sun glow, moon and stars
-    // as a real layer between the viewer and the sky dome would.
-    vec4 clouds = sample_clouds(dir, sun_fwd, sun_color, blend);
-    base_sky = mix(base_sky, clouds.rgb, clouds.a);
-
     base_sky = aces_tonemap(base_sky * exposure);
 
     COLOR = max(base_sky, vec3(0.0));
@@ -283,7 +227,7 @@ public:
         }
     }
 
-    void update(godot::Environment* env, float blend, float time, float cloud_time, const godot::Color& sun_color, const godot::Vector3& sun_dir, float moon_phase, float exposure, float sky_turbidity = 0.35f, float aurora_intensity = 1.0f, float fog_scatter = 0.0f) {
+    void update(godot::Environment* env, float blend, float time, const godot::Color& sun_color, const godot::Vector3& sun_dir, float moon_phase, float exposure, float sky_turbidity = 0.35f, float aurora_intensity = 1.0f, float fog_scatter = 0.0f) {
         if (!env) return;
         if (!sky_ready) {
             ensure_sky(env);
@@ -297,7 +241,6 @@ public:
         cached_mat->set_shader_parameter(p_sun_color, godot::Vector3(sun_color.r, sun_color.g, sun_color.b));
         cached_mat->set_shader_parameter(p_exposure, exposure);
         cached_mat->set_shader_parameter(p_moon_phase, moon_phase);
-        cached_mat->set_shader_parameter(p_cloud_time, cloud_time);
 
         float sun_elevation = sun_dir.y;
         godot::Vector3 horizon_color = compute_horizon_color(blend, sun_elevation);
@@ -317,7 +260,6 @@ private:
     godot::StringName p_sun_color = godot::StringName("sun_color");
     godot::StringName p_exposure = godot::StringName("exposure");
     godot::StringName p_moon_phase = godot::StringName("moon_phase");
-    godot::StringName p_cloud_time = godot::StringName("cloud_time");
     godot::StringName p_horizon_color = godot::StringName("horizon_color");
     godot::StringName p_zenith_color = godot::StringName("zenith_color");
 };

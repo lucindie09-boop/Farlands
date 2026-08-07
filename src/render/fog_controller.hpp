@@ -99,10 +99,10 @@ private:
     float depth_end_night = 1024.0f;
     float depth_end_day = 1536.0f;
     float fog_scatter_intensity = 0.5f;
-    godot::Color fog_color_day = godot::Color(0.62f, 0.78f, 0.95f, 1.0f);
-    godot::Color fog_color_night = godot::Color(0.04f, 0.07f, 0.14f, 1.0f);
-    godot::Color fog_color_sunset = godot::Color(0.85f, 0.55f, 0.32f, 1.0f);
-    godot::Color fog_color_dawn = godot::Color(0.92f, 0.62f, 0.40f, 1.0f);
+    godot::Color fog_color_day = godot::Color(1.0f, 1.0f, 1.0f, 1.0f);
+    godot::Color fog_color_night = godot::Color(0.0f, 0.0f, 0.0f, 1.0f);
+    godot::Color fog_color_sunset = godot::Color(1.0f, 1.0f, 1.0f, 1.0f);
+    godot::Color fog_color_dawn = godot::Color(1.0f, 1.0f, 1.0f, 1.0f);
 };
 
 } // namespace VoxelEngine

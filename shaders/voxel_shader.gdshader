@@ -41,6 +41,8 @@ uniform vec3 fog_scatter_color=vec3(1.0,1.0,1.0);
 uniform vec3 aerial_color=vec3(1.0,1.0,1.0);
 uniform float aerial_strength=0.35;
 
+uniform vec3 fog_color=vec3(1.0,1.0,1.0);
+
 uniform vec3 sky_light_warmth=vec3(1.0,1.0,1.0);
 
 uniform vec3 horizon_color=vec3(1.0,1.0,1.0);
@@ -246,7 +248,7 @@ void fragment(){
 
 	// Horizon + zenith haze modulation
 	vec3 haze_color = mix(vec3(1.0, 1.0, 1.0), fog_scatter_color, 0.3);
-	vec3 turb_horizon = mix(horizon_color, haze_color, haze * 0.55);
+	vec3 turb_horizon = mix(fog_color, haze_color, haze * 0.55);
 
 	// Zenith desaturation: aerosols overwhelm Rayleigh, sky pales overhead
 	float z_luma = dot(zenith_color, vec3(0.299, 0.587, 0.114));
@@ -255,7 +257,7 @@ void fragment(){
 	// ========= SKY GRADIENT =========
 	float up2 = max(view_direction.y, 0.0);
 	float skyBlend = 1.0 - (1.0 - up2) * sqrt(1.0 - up2);
-	vec3 finalFogColor = mix(turb_horizon, pale_zenith, skyBlend);
+	vec3 finalFogColor = fog_color;
 
 	float sun_elevation = sun_dir_norm.y;
 	float sun_vis = smoothstep(-0.08, 0.08, sun_elevation);
@@ -267,13 +269,9 @@ void fragment(){
 	for (int i = 0; i < 2; i++) { sd2w = sd2w * sd2; sd4w = sd4w * sd4; }
 	float sun_glow_turb = sd4 * 0.25 + sd2w * 0.15 + sd4w * 0.08;
 
-	vec3 warmFog = mix(turb_horizon, fog_scatter_color, 0.35);
-	finalFogColor = mix(finalFogColor, warmFog, sun_glow_turb * sun_vis * sun_glow_width);
-	finalFogColor += scatter * (1.0 - fog_amount);
-
-	// Extra horizon haze from turbidity
-	float horizon_haze = (1.0 - up2) * haze * 0.12;
-	finalFogColor = mix(finalFogColor, haze_color, horizon_haze);
+	vec3 warmFog = mix(fog_color, fog_scatter_color, 0.05);
+	finalFogColor = mix(finalFogColor, warmFog, sun_glow_turb * sun_vis * sun_glow_width * 0.2);
+	finalFogColor += scatter * (1.0 - fog_amount) * 0.3;
 
     // ========= AERIAL PERSPECTIVE =========
     float aerial = fog_amount * fog_amount * aerial_strength;

@@ -46,7 +46,7 @@ void EnvironmentController::update_environment(godot::Node* parent) {
                           sun_color, sun_dir,
                           day_night.get_moon_phase(), 1.0f, day_night.get_sky_turbidity(), 1.0f,
                           fog_controller.get_fog_scatter(blend, elevation));
-    fog_controller.update(env.ptr(), blend, horizon_color, fog_controller.get_fog_color(blend, horizon_color, elevation), fog_controller.get_fog_scatter(blend, elevation));
+    fog_controller.update(env.ptr(), blend, horizon_color, fog_controller.get_fog_color(blend, horizon_color, elevation, sun_color, day_night.get_sky_turbidity()), fog_controller.get_fog_scatter(blend, elevation));
 
     env->set_ambient_source(godot::Environment::AMBIENT_SOURCE_SKY);
     env->set_ambient_light_color(day_night.get_ambient_color());
@@ -85,10 +85,10 @@ void EnvironmentController::update_shader_parameters() {
     const float elevation = day_night.get_sun_elevation();
     const godot::Color sun_color = day_night.get_sun_color();
     const godot::Color sky_warmth = sun_color;
-
-    const godot::Vector3 sky_horizon_color = sky_controller.get_horizon_color(blend, elevation);
-    const godot::Vector3 sky_zenith_color = sky_controller.get_zenith_color(blend);
     const float sky_turbidity = day_night.get_sky_turbidity();
+
+    const godot::Vector3 sky_horizon_color = sky_controller.get_horizon_color(blend, elevation, sun_color, sky_turbidity);
+    const godot::Vector3 sky_zenith_color = sky_controller.get_zenith_color(blend);
 
     material_manager.update_shader_parameters(sky_intensity, sky_color, sun_dir, sky_warmth, sky_horizon_color, sky_zenith_color, sky_turbidity);
     material_manager.update_color_parameters(contrast, saturation, ao_color, ao_strength, darkness_color);
@@ -96,7 +96,7 @@ void EnvironmentController::update_shader_parameters() {
     const float fog_begin = fog_controller.get_fog_begin();
     const float fog_end = fog_controller.get_fog_end();
 
-    const godot::Color fog_color = godot::Color(sky_horizon_color.x, sky_horizon_color.y, sky_horizon_color.z);
+    const godot::Color fog_color = fog_controller.get_fog_color(blend, godot::Color(sky_horizon_color.x, sky_horizon_color.y, sky_horizon_color.z), elevation, sun_color, sky_turbidity);
     const float fog_scatter = fog_controller.get_fog_scatter(blend, elevation);
     const godot::Color fog_scatter_color = sun_color;
 

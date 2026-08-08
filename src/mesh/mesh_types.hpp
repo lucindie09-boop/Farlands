@@ -39,15 +39,6 @@ struct Vertex {
     uint8_t sky_light;    // 1 byte
 };
 
-// Built mesh data ready for upload to GPU
-struct BuiltMeshData {
-    std::vector<Vertex> vertices;
-    std::vector<uint32_t> indices;
-    std::vector<Vertex> water_vertices;
-    std::vector<uint32_t> water_indices;
-    bool empty = true;
-};
-
 // One emitted quad (a greedy merge run or a single face) with its final
 // vertex/indices data. Used for partial remeshing: a rebuild carries forward
 // every cached quad outside the dirty region (memcpy, no AO/light recompute)

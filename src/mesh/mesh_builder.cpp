@@ -62,53 +62,6 @@ void MeshBuilder::set_detail_level(float level) {
     while (stride_xz_ * 2 <= raw && stride_xz_ < 8) stride_xz_ *= 2;
 }
 
-BuiltMeshData MeshBuilder::build_mesh_data(
-    const ChunkData& chunk_data,
-    const ChunkData* neg_x,
-    const ChunkData* pos_x,
-    const ChunkData* neg_y,
-    const ChunkData* pos_y,
-    const ChunkData* neg_z,
-    const ChunkData* pos_z,
-    const ChunkData* neg_x_neg_z,
-    const ChunkData* neg_x_pos_z,
-    const ChunkData* pos_x_neg_z,
-    const ChunkData* pos_x_pos_z,
-    const ChunkData* neg_x_neg_y,
-    const ChunkData* pos_x_neg_y,
-    const ChunkData* neg_x_pos_y,
-    const ChunkData* pos_x_pos_y,
-    const ChunkData* neg_y_neg_z,
-    const ChunkData* neg_y_pos_z,
-    const ChunkData* pos_y_neg_z,
-    const ChunkData* pos_y_pos_z,
-    const ChunkData* neg_x_neg_y_neg_z,
-    const ChunkData* pos_x_neg_y_neg_z,
-    const ChunkData* neg_x_pos_y_neg_z,
-    const ChunkData* pos_x_pos_y_neg_z,
-    const ChunkData* neg_x_neg_y_pos_z,
-    const ChunkData* pos_x_neg_y_pos_z,
-    const ChunkData* neg_x_pos_y_pos_z,
-    const ChunkData* pos_x_pos_y_pos_z
-) {
-    build_mesh(chunk_data, neg_x, pos_x, neg_y, pos_y, neg_z, pos_z,
-               neg_x_neg_z, neg_x_pos_z, pos_x_neg_z, pos_x_pos_z,
-               neg_x_neg_y, pos_x_neg_y, neg_x_pos_y, pos_x_pos_y,
-               neg_y_neg_z, neg_y_pos_z, pos_y_neg_z, pos_y_pos_z,
-               neg_x_neg_y_neg_z, pos_x_neg_y_neg_z,
-               neg_x_pos_y_neg_z, pos_x_pos_y_neg_z,
-               neg_x_neg_y_pos_z, pos_x_neg_y_pos_z,
-               neg_x_pos_y_pos_z, pos_x_pos_y_pos_z);
-    BuiltMeshData result;
-    result.vertices = std::move(vertices);
-    result.indices = std::move(indices);
-    result.water_vertices = std::move(water_vertices);
-    result.water_indices = std::move(water_indices);
-    result.empty = (result.vertices.empty() || result.indices.empty()) &&
-                   (result.water_vertices.empty() || result.water_indices.empty());
-    return result;
-}
-
 void MeshBuilder::clear() {
     vertices.clear();
     indices.clear();

@@ -84,12 +84,6 @@ public:
         return sl;
     }
 
-    ExclusiveShardLock lock_chunk_exclusive(int32_t cx, int32_t cy, int32_t cz) const {
-        ExclusiveShardLock sl;
-        sl.locks_.emplace_back(shards_[key_to_shard(get_chunk_key(cx, cy, cz))].mutex);
-        return sl;
-    }
-
     ShardLock lock_keys(const std::vector<uint64_t>& keys) const {
         ShardLock sl;
         if (keys.empty()) return sl;
@@ -339,32 +333,6 @@ public:
         }
     }
 
-    void get_extended_neighbors(int32_t cx, int32_t cy, int32_t cz,
-                                ChunkRenderData* ortho[6],
-                                ChunkRenderData* diag[4]) const {
-        uint64_t keys[10] = {
-            get_chunk_key(cx - 1, cy,     cz    ),
-            get_chunk_key(cx + 1, cy,     cz    ),
-            get_chunk_key(cx,     cy - 1, cz    ),
-            get_chunk_key(cx,     cy + 1, cz    ),
-            get_chunk_key(cx,     cy,     cz - 1),
-            get_chunk_key(cx,     cy,     cz + 1),
-            get_chunk_key(cx - 1, cy,     cz - 1),
-            get_chunk_key(cx - 1, cy,     cz + 1),
-            get_chunk_key(cx + 1, cy,     cz - 1),
-            get_chunk_key(cx + 1, cy,     cz + 1)
-        };
-        auto sl = lock_keys(keys);
-        for (int i = 0; i < 6; ++i) {
-            auto it = shards_[key_to_shard(keys[i])].chunks.find(keys[i]);
-            ortho[i] = (it != shards_[key_to_shard(keys[i])].chunks.end()) ? it->second.get() : nullptr;
-        }
-        for (int i = 6; i < 10; ++i) {
-            auto it = shards_[key_to_shard(keys[i])].chunks.find(keys[i]);
-            diag[i - 6] = (it != shards_[key_to_shard(keys[i])].chunks.end()) ? it->second.get() : nullptr;
-        }
-    }
-
     // Returns all 26 neighbors as ChunkRenderData* pointers in this order:
     //   0: neg_x     1: pos_x     2: neg_y     3: pos_y
     //   4: neg_z     5: pos_z
@@ -425,38 +393,6 @@ public:
             auto it = shards_[key_to_shard(keys[i])].chunks.find(keys[i]);
             out[i] = (it != shards_[key_to_shard(keys[i])].chunks.end()) ? it->second.get() : nullptr;
         }
-    }
-
-    void get_neighbor_data(int32_t cx, int32_t cy, int32_t cz, ChunkData* out[6]) const {
-        uint64_t keys[6] = {
-            get_chunk_key(cx - 1, cy,     cz    ),
-            get_chunk_key(cx + 1, cy,     cz    ),
-            get_chunk_key(cx,     cy - 1, cz    ),
-            get_chunk_key(cx,     cy + 1, cz    ),
-            get_chunk_key(cx,     cy,     cz - 1),
-            get_chunk_key(cx,     cy,     cz + 1)
-        };
-        auto sl = lock_keys(keys);
-        for (int i = 0; i < 6; ++i) {
-            auto it = shards_[key_to_shard(keys[i])].chunks.find(keys[i]);
-            out[i] = (it != shards_[key_to_shard(keys[i])].chunks.end()) ? it->second->data.get() : nullptr;
-        }
-    }
-
-    [[nodiscard]] bool has_any_solid_above(int32_t cx, int32_t cy_start, int32_t cz) const {
-        constexpr int32_t MAX_SEARCH = 128;
-        std::vector<uint64_t> keys;
-        keys.reserve(static_cast<size_t>(MAX_SEARCH));
-        for (int32_t y = cy_start; y < cy_start + MAX_SEARCH; ++y)
-            keys.push_back(get_chunk_key(cx, y, cz));
-        auto sl = lock_keys(keys);
-        for (int32_t y = cy_start; y < cy_start + MAX_SEARCH; ++y) {
-            uint64_t k = get_chunk_key(cx, y, cz);
-            auto it = shards_[key_to_shard(k)].chunks.find(k);
-            if (it == shards_[key_to_shard(k)].chunks.end()) return false;
-            if (!it->second->data->is_all_air()) return true;
-        }
-        return true;
     }
 
     // -- Global iteration --

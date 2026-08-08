@@ -127,36 +127,6 @@ uint64_t lod_faces_emitted = 0;
         water_indices.reserve(kIndexReserve);
     }
 
-    BuiltMeshData build_mesh_data(
-        const ChunkData& chunk_data,
-        const ChunkData* neg_x,
-        const ChunkData* pos_x,
-        const ChunkData* neg_y,
-        const ChunkData* pos_y,
-        const ChunkData* neg_z,
-        const ChunkData* pos_z,
-        const ChunkData* neg_x_neg_z = nullptr,
-        const ChunkData* neg_x_pos_z = nullptr,
-        const ChunkData* pos_x_neg_z = nullptr,
-        const ChunkData* pos_x_pos_z = nullptr,
-        const ChunkData* neg_x_neg_y = nullptr,
-        const ChunkData* pos_x_neg_y = nullptr,
-        const ChunkData* neg_x_pos_y = nullptr,
-        const ChunkData* pos_x_pos_y = nullptr,
-        const ChunkData* neg_y_neg_z = nullptr,
-        const ChunkData* neg_y_pos_z = nullptr,
-        const ChunkData* pos_y_neg_z = nullptr,
-        const ChunkData* pos_y_pos_z = nullptr,
-        const ChunkData* neg_x_neg_y_neg_z = nullptr,
-        const ChunkData* pos_x_neg_y_neg_z = nullptr,
-        const ChunkData* neg_x_pos_y_neg_z = nullptr,
-        const ChunkData* pos_x_pos_y_neg_z = nullptr,
-        const ChunkData* neg_x_neg_y_pos_z = nullptr,
-        const ChunkData* pos_x_neg_y_pos_z = nullptr,
-        const ChunkData* neg_x_pos_y_pos_z = nullptr,
-        const ChunkData* pos_x_pos_y_pos_z = nullptr
-    );
-
     void clear();
 
     void build_mesh(const ChunkData& chunk,

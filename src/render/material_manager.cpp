@@ -2,7 +2,7 @@
 
 #include <godot_cpp/classes/resource_loader.hpp>
 #include <godot_cpp/classes/texture2d_array.hpp>
-#include "worldgen/texture_array_generator.hpp"
+#include "render/texture_array_generator.hpp"
 
 using namespace godot;
 using namespace VoxelEngine;

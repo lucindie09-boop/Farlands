@@ -1,6 +1,5 @@
 #ifndef FUK_MINECRAFT_MESH_QUEUE_HPP
 #define FUK_MINECRAFT_MESH_QUEUE_HPP
-#include "core/chunk_types.hpp"
 #include "core/chunk_map.hpp"
 #include "core/frustum.hpp"
 #include <cstdint>
@@ -11,6 +10,22 @@
 #include <chrono>
 
 namespace VoxelEngine {
+
+// -------------------------------------------------------------------------
+// Dirty mesh queue entry (priority by distance)
+// -------------------------------------------------------------------------
+struct DirtyChunkEntry {
+    uint64_t key = 0;
+    int32_t dist_sq = 0;
+    bool urgent = false;
+    bool in_frustum = false;
+    uint32_t priority_revision = 0;
+    bool operator>(const DirtyChunkEntry& other) const {
+        if (urgent != other.urgent) return !urgent && other.urgent;
+        if (in_frustum != other.in_frustum) return !in_frustum && other.in_frustum;
+        return dist_sq > other.dist_sq;
+    }
+};
 
 // -------------------------------------------------------------------------
 // Mesh queue — manages the priority queue of chunks that need mesh rebuilds.

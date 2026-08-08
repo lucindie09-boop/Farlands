@@ -24,8 +24,8 @@ A Minecraft-style voxel engine built in Godot 4 with a custom C++ GDExtension. P
 | World updater | `src/world/world_updater.hpp/cpp` | Per-frame budgeted scheduling (generate → light → mesh → upload) |
 | Generation scheduler | `src/world/generation_scheduler.hpp/cpp` | Standalone generation loop |
 | Mesh queue | `src/mesh/mesh_queue.hpp` | Priority queue sorted by urgent > in-frustum > distance |
-| Mesh builder | `src/mesh/mesh_builder.hpp/cpp` (+ `mesh_builder_faces.cpp`, `mesh_builder_greedy.cpp`) | Greedy + standard face culling, neighbor-aware, thread-local instances, solid-block fast path, full rebuilds and incremental partial remeshes |
-| Mesh manager | `src/mesh/mesh_manager.hpp/cpp` | Upload dedup, lazy RID creation, instance budget capping, multi-tier LOD (stride/detail + far-mode), nearest-first budget-capped completion |
+| Mesh builder | `src/mesh/mesh_builder.hpp/cpp` (+ `mesh_builder_solid.cpp`, `mesh_builder_faces.cpp`, `mesh_builder_greedy.cpp`) | Greedy + standard face culling, neighbor-aware, thread-local instances, solid-block fast path, full rebuilds and incremental partial remeshes |
+| Mesh manager | `src/mesh/mesh_manager.hpp` + `mesh_manager.cpp`/`_worker`/`_upload`/`_rebuild`/`_far`/`_lifecycle` (`mesh_manager_internal.hpp` shares the build task) | Upload dedup, lazy RID creation, instance budget capping, multi-tier LOD (stride/detail + far-mode), nearest-first budget-capped completion |
 | Lighting | `src/lighting/light_propagator.cpp` | Async block-light propagation on worker threads, sky-light columns |
 | Terrain gen | `src/worldgen/chunk_generator.hpp/cpp` | Signed 3D density field over a macro heightmap (overhangs/shelves), 4×4×4 shape lattice, biome-based macro surface, chunk-level generation fast paths |
 | Vegetation | `src/worldgen/vegetation_generator.hpp/cpp` | Tree placement (oak/spruce/birch) with minimum spacing, deferred cross-chunk writes |
@@ -38,7 +38,7 @@ A Minecraft-style voxel engine built in Godot 4 with a custom C++ GDExtension. P
 | Inventory | `src/core/inventory.hpp/cpp` | 9-slot hotbar + 27-slot main storage, 64 stack limit, add/consume/can_add logic, persisted to `user://chunks/inventory.bin` |
 | Inventory UI | `inventory.gd` / `hotbar.gd` | GDScript `Control` overlays: E toggles the full inventory, mouse wheel cycles the hotbar, click-to-hold / drag-drop stack movement, pixel-color-keyed hover/selection highlights |
 | Chat system | `chat.gd` | GDScript chat with autocomplete: ghost text suggestions with pulsing effect, tab cycling through completions, up/down arrow navigation, parameter hints for commands (`/give <block> [count]`, `/tp <x> <y> <z>`), commands: `/help`, `/give`, `/tp`, `/fly`, `/clearchat`, `/clearinv`, `/version` |
-| Chunk persistence | `src/world/chunk_world.cpp` | Async background saves: dirty chunks are snapshotted under their shard lock, then RLE-encoded + atomically written on the thread pool; per-key generation gating guarantees the newest data reaches disk; blocking flush on quit |
+| Chunk persistence | `src/world/chunk_world.cpp` + `chunk_world_edits.cpp` / `chunk_world_persistence.cpp` | Async background saves: dirty chunks are snapshotted under their shard lock, then RLE-encoded + atomically written on the thread pool; per-key generation gating guarantees the newest data reaches disk; blocking flush on quit |
 
 ## Rendering Notes
 

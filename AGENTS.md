@@ -46,7 +46,7 @@ A Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked streamin
 - **Biome-based macro surface**: Multiple biomes with distinct terrain characteristics
 
 ### Testing & CI
-- **164 test cases / 91,454 assertions** across 18 doctest files
+- **182 test cases / 157,085 assertions** across 23 doctest files
 - **Cross-platform CI**: 5-leg matrix (ubuntu plain/TSan/ASan+UBSan, macos plain, windows plain) plus fuzz, static-analysis, and coverage jobs
 - **Concurrency tests**: 19 tests for shard locking, deadlock prevention, PaletteStorage, and cross-chunk patterns
 - **Benchmark tool**: 5 hot paths with `--check` regression detection mode
@@ -72,6 +72,7 @@ A Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked streamin
 
 ### Code Quality & Hygiene
 - **Single source of truth**: `data/block_definitions.json` for all block properties
+- **Source reorganization**: Split `mesh_manager.cpp` into worker/upload/rebuild/far/lifecycle TUs (shared `mesh_manager_internal.hpp`), `mesh_builder.cpp` (`mesh_builder_solid.cpp`), and `chunk_world.cpp` (`chunk_world_edits.cpp`, `chunk_world_persistence.cpp`). Moved render-facing types out of the `core/chunk_types.hpp` junk drawer: `ChunkRenderData`/`CachedFarChunkMesh`/`CompletedMesh` → `mesh/chunk_render_data.hpp`, `DirtyChunkEntry` → `mesh/mesh_queue.hpp`, `WorldRenderStats` → `render/world_render_stats.hpp`; relocated `texture_array_generator.hpp` to `render/`; deleted orphaned `.obj` artifacts
 - **Removed old LOD system**: Deleted 2,435 lines of 2×2×2 group-mesh-merging code
 - **Clang compatibility**: Fixed NSDMI compile error for nested structs
 - **Repo cleanup**: Removed leaked `.lnk` shortcuts, orphaned `.import` files, added `.gitignore` rules

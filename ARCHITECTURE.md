@@ -128,7 +128,7 @@ This document describes the current, stable architecture of the voxel engine. Fo
 - Primary surface: opaque terrain with greedy meshing
 - Secondary surface: translucent water with edge fade, tint, shimmer, Beer-Lambert depth absorption
 - Emissive textures: second `Texture2DArray` for per-face glow maps
-- Far tier: heightmap-only silhouette meshes merged into far regions (`far_regions`, `far_mesh_cache` in `mesh_manager.*`/`chunk_types.hpp`)
+- Far tier: heightmap-only silhouette meshes merged into far regions (`far_regions`, `far_mesh_cache` in `mesh_manager.*`/`chunk_render_data.hpp`)
 
 ## Collision
 
@@ -162,13 +162,15 @@ No `CharacterBody3D`, `move_and_slide`, or `CollisionShape3D` — all collision 
 - `src/core/thread_pool.hpp` — Shared worker pool, high-priority queue
 
 ### Mesh
-- `src/mesh/mesh_manager.hpp/cpp` — Per-chunk mesh builds, upload, instance management, multi-tier LOD, far-region merging, nearest-first completion
-- `src/mesh/mesh_builder.cpp` / `mesh_builder_greedy.cpp` / `mesh_builder_faces.cpp` — Greedy meshing, incremental partial remeshes, `build_far_mesh`
+- `src/mesh/mesh_manager.hpp` + `mesh_manager.cpp` / `mesh_manager_worker.cpp` / `mesh_manager_upload.cpp` / `mesh_manager_rebuild.cpp` / `mesh_manager_far.cpp` / `mesh_manager_lifecycle.cpp` / `mesh_manager_internal.hpp` — Per-chunk mesh builds, upload, instance management, multi-tier LOD, far-region merging, nearest-first completion
+- `src/mesh/mesh_builder.cpp` / `mesh_builder_solid.cpp` / `mesh_builder_greedy.cpp` / `mesh_builder_faces.cpp` — Greedy meshing, incremental partial remeshes, `build_far_mesh`
 - `src/mesh/chunk_neighbor_accessor.hpp/cpp` — 26 neighbor pointers for mesh building
+- `src/mesh/chunk_render_data.hpp` — `ChunkRenderData` (per-chunk render state stored in the chunk map), `CachedFarChunkMesh`, `CompletedMesh`
 - `src/mesh/mesh_types.hpp` — Mesh types, light checksum grid for incremental rebuilds
+- `src/mesh/mesh_queue.hpp` — `DirtyChunkEntry` + frustum/distance-prioritized mesh rebuild queue
 
 ### World
-- `src/world/chunk_world.cpp` — Save/load, all hot paths use `lock_keys_exclusive()`; async `flush_dirty_chunks`, `enqueue_chunk_save` / `save_chunk_snapshot` (generation + epoch gated), `write_chunk_file_locked`, inventory save/load
+- `src/world/chunk_world.cpp` + `chunk_world_edits.cpp` / `chunk_world_persistence.cpp` — Edit application (block edits, pending/vegetation placements, unload/clear) and save/load (async `flush_dirty_chunks`, generation + epoch gated `enqueue_chunk_save` / `save_chunk_snapshot`, `write_chunk_file_locked`, inventory save/load). All hot paths use `lock_keys_exclusive()`
 - `src/world/block_editor.cpp` — `place_block` with targeted locking
 - `src/world/player_light.hpp` — Player light with targeted locking
 - `src/world/world_updater.hpp/cpp` — Frustum integration, budgets, periodic dirty flush
@@ -189,7 +191,8 @@ No `CharacterBody3D`, `move_and_slide`, or `CollisionShape3D` — all collision 
 ### Rendering
 - `src/render/environment_controller.cpp` — Sky/fog/player-light parameter pushes
 - `src/render/material_manager.hpp/cpp` — Terrain + water materials, texture arrays
-- `src/worldgen/texture_array_generator.hpp` — Diffuse + emissive `Texture2DArray` generation
+- `src/render/texture_array_generator.hpp` — Diffuse + emissive `Texture2DArray` generation
+- `src/render/world_render_stats.hpp` — `WorldRenderStats` snapshot consumed by `PerfReport`
 
 ### Godot bindings
 - `src/godot_bindings/chunk_manager.cpp` — Inspector properties, camera/frustum entry point, block API, `flush_dirty_chunks`, `_exit_tree` quit flush
@@ -209,7 +212,7 @@ No `CharacterBody3D`, `move_and_slide`, or `CollisionShape3D` — all collision 
   - `textures/Archive/` — Archived/deprecated textures (old versions kept for reference)
 
 ### Testing
-- `tests/` — 18 doctest files, 164 test cases / 91,454 assertions, auto-discovered via `Glob("tests/*.cpp")`
+- `tests/` — 23 test files, 182 test cases / 157,085 assertions, auto-discovered via `Glob("tests/*.cpp")`
 - `tests/test_concurrency.cpp` — 19 tests for shard locking, deadlock prevention, PaletteStorage
 - `tests/test_inventory.cpp` — Inventory add/consume/edge-case tests
 - `tests/test_light_propagation.cpp` — Cross-chunk BFS edge case tests

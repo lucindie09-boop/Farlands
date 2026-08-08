@@ -325,7 +325,10 @@ func _get_command_param_hint(cmd: String, arg_count: int) -> String:
 				return "<y>"
 			elif arg_count >= 3:
 				return "<z>"
-		"/help", "/fly", "/clearchat", "/clearinv", "/version":
+		"/fly":
+			if arg_count == 1:
+				return "[speed]"
+		"/help", "/clearchat", "/clearinv", "/version":
 			# These commands take no arguments
 			return ""
 		_:
@@ -477,7 +480,7 @@ func _run_command(raw: String):
 		"/help":
 			_add_message("/give <block> [count] - add blocks to your inventory", COLOR_SYSTEM)
 			_add_message("/tp <x> <y> <z> - teleport to a position", COLOR_SYSTEM)
-			_add_message("/fly - toggle flying", COLOR_SYSTEM)
+			_add_message("/fly [speed] - toggle flying (optional speed multiplier)", COLOR_SYSTEM)
 			_add_message("/clearchat - clear the chat", COLOR_SYSTEM)
 			_add_message("/clearinv - clear your inventory", COLOR_SYSTEM)
 			_add_message("/version - show the engine version", COLOR_SYSTEM)
@@ -492,8 +495,8 @@ func _run_command(raw: String):
 			var count := 1
 			if parts.size() >= 3:
 				count = int(parts[2].to_float())
-				if count <= 0 or count > 64:
-					_add_message("Count must be between 1 and 64.", COLOR_ERROR)
+				if count <= 0:
+					_add_message("Count must be at least 1.", COLOR_ERROR)
 					return
 			if player_controller.give_block(block_id, count):
 				_add_message("Gave you %d x %s" % [count, parts[1]], COLOR_SUCCESS)
@@ -512,8 +515,23 @@ func _run_command(raw: String):
 			player_controller.teleport_to(Vector3(x, y, z))
 			_add_message("Teleported to (%d, %d, %d)" % [int(x), int(y), int(z)], COLOR_SUCCESS)
 		"/fly":
-			player_controller.set_fly_mode(not player_controller.get_fly_mode())
-			_add_message("Flight %s" % ("enabled" if player_controller.get_fly_mode() else "disabled"), COLOR_SUCCESS)
+			const BASE_FLY_SPEED := 10.0
+			if parts.size() >= 2:
+				var speed_multiplier := parts[1].to_float()
+				if not is_finite(speed_multiplier) or speed_multiplier <= 0:
+					_add_message("Speed must be a positive number.", COLOR_ERROR)
+					return
+				var old_speed: float = player_controller.get_fly_speed()
+				var new_speed := BASE_FLY_SPEED * speed_multiplier
+				player_controller.set_fly_speed(new_speed)
+				if not player_controller.get_fly_mode():
+					player_controller.set_fly_mode(true)
+					_add_message("Flight enabled (speed: %.1fx)" % speed_multiplier, COLOR_SUCCESS)
+				else:
+					_add_message("Fly speed set to %.1fx (was %.1fx)" % [speed_multiplier, old_speed / BASE_FLY_SPEED], COLOR_SUCCESS)
+			else:
+				player_controller.set_fly_mode(not player_controller.get_fly_mode())
+				_add_message("Flight %s" % ("enabled" if player_controller.get_fly_mode() else "disabled"), COLOR_SUCCESS)
 		"/clearchat":
 			messages.clear()
 			_add_message("Chat cleared.", COLOR_SYSTEM)

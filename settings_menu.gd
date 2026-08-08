@@ -8,6 +8,7 @@ const SETTINGS_PATH := "user://settings.cfg"
 @onready var chunk_manager = get_node("/root/Main/ChunkManager")
 @onready var crosshair_node = get_node_or_null("/root/Main/HUD/Crosshair")
 @onready var block_outline_node = get_node_or_null("/root/Main/BlockOutline")
+@onready var godrays_node = get_node_or_null("/root/Main/HUD/GodRaysOverlay")
 
 var is_open = false
 var _current_page: String = "pause"
@@ -29,6 +30,7 @@ var _default_ao_strength: float = 1.0
 var _default_darkness_color: Color = Color(0, 0, 0, 1)
 var _default_smooth_lighting: bool = false
 var _default_fog_mode: int = 1  # 0=disabled, 1=edge, 2=linear, 3=exponential
+var _default_godrays: bool = true
 
 var _block_outline_defaults := {
 	"outline_enabled": true,
@@ -136,6 +138,7 @@ func _save_settings():
 	cfg.set_value("render", "lod_distance", chunk_manager.get_lod_distance())
 	cfg.set_value("render", "lod_detail_level", chunk_manager.get_lod_detail_level())
 	cfg.set_value("render", "fog_mode", chunk_manager.get_fog_mode())
+	cfg.set_value("render", "godrays", godrays_node.visible if godrays_node else _default_godrays)
 	cfg.save(SETTINGS_PATH)
 
 func _load_settings():
@@ -164,6 +167,8 @@ func _load_settings():
 	chunk_manager.set_lod_distance(int(cfg.get_value("render", "lod_distance", chunk_manager.get_lod_distance())))
 	chunk_manager.set_lod_detail_level(cfg.get_value("render", "lod_detail_level", chunk_manager.get_lod_detail_level()))
 	chunk_manager.set_fog_mode(int(cfg.get_value("render", "fog_mode", chunk_manager.get_fog_mode())))
+	if godrays_node:
+		godrays_node.visible = cfg.get_value("render", "godrays", _default_godrays)
 
 # Settings menu uses the global GUI scale with a 2/3 modifier so its default
 # look (2x when UIScale is 3.0) is preserved while still scaling with the rest.
@@ -823,11 +828,28 @@ func _build_render_page() -> Control:
 		fog_mode_btn.text = fog_mode_names[_default_fog_mode]
 		_schedule_save()
 
+	var godrays_btn := Button.new()
+	var godrays_enabled: bool = godrays_node.visible if godrays_node else _default_godrays
+	godrays_btn.text = "On" if godrays_enabled else "Off"
+	_style_button(godrays_btn, 180.0)
+	godrays_btn.pressed.connect(func():
+		var next: bool = not (godrays_node.visible if godrays_node else _default_godrays)
+		if godrays_node:
+			godrays_node.visible = next
+		godrays_btn.text = "On" if next else "Off"
+		_schedule_save())
+	var godrays_reset := func():
+		if godrays_node:
+			godrays_node.visible = _default_godrays
+		godrays_btn.text = "On" if _default_godrays else "Off"
+		_schedule_save()
+
 	return _build_option_page("RENDER", [
 		["Render Distance", rd, rd_reset],
 		["LOD Distance", lod_dist, lod_reset],
 		["LOD Detail Level", lod_detail, lod_detail_reset],
 		["Fog Mode", fog_mode_btn, fog_mode_reset],
+		["God Rays", godrays_btn, godrays_reset],
 	], "settings")
 
 func _build_option_page(title_text: String, rows: Array, back_target: String, row_spacing := 44.0) -> Control:

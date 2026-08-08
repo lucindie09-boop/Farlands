@@ -87,8 +87,8 @@ public:
     void set_editor_enabled(bool enabled);
     bool get_editor_enabled() const;
 
-void set_smooth_lighting(bool enabled);
-bool get_smooth_lighting() const;
+    void set_smooth_lighting(bool enabled);
+    bool get_smooth_lighting() const;
 
     void set_lod_distance(int32_t d);
     int32_t get_lod_distance() const;
@@ -103,14 +103,14 @@ bool get_smooth_lighting() const;
     bool get_player_light_enabled() const;
     void set_player_light_level(int32_t level);
     int32_t get_player_light_level() const;
-void set_day_time(double t);
-double get_day_time() const;
-void set_time(double t);
-double get_time() const;
-godot::Vector3 get_sun_direction() const;
+    void set_day_time(double t);
+    double get_day_time() const;
+    void set_time(double t);
+    double get_time() const;
+    godot::Vector3 get_sun_direction() const;
     void set_day_night_cycle_enabled(bool enabled);
     bool get_day_night_cycle_enabled() const;
-void toggle_day_night_cycle();
+    void toggle_day_night_cycle();
     void set_day_duration(double duration);
     double get_day_duration() const;
     void set_day_sky_intensity(double intensity);
@@ -150,11 +150,7 @@ void toggle_day_night_cycle();
     void flush_dirty_chunks(bool wait_for_completion = false, double timeout_sec = 5.0);
 
     ChunkWorld& get_chunk_world() { return chunk_world; }
-    MeshManager& get_mesh_manager() { return mesh_manager; }
-    WorldUpdater& get_world_updater() { return world_updater; }
-    const WorldUpdater& get_world_updater() const { return world_updater; }
     EnvironmentController& get_environment_controller() { return environment_controller; }
-    BlockEditor& get_block_editor() { return block_editor; }
     CollisionResolver& get_collision_resolver() { return collision_resolver; }
 
     static PerformanceTimer& get_perf_timer();

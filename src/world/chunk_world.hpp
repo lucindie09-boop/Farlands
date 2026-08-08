@@ -40,14 +40,12 @@ public:
     bool generate_chunk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, uint64_t epoch, const TerrainParams& params);
     int32_t process_completed_chunks(uint64_t epoch, double budget_ms, int32_t max_installs, int32_t max_lighting, int32_t max_dirties, int32_t player_cx, int32_t player_cy, int32_t player_cz, int32_t render_distance);
     void save_chunk_to_disk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z);
-    void save_chunk_to_disk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, ChunkData* chunk_data);
     void mark_chunk_dirty(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z);
     // Snapshots every dirty chunk's edit map on the caller's thread and hands the
     // snapshots to the thread pool for serialization + write. With wait_for_completion=true
     // (quit path) it blocks until all outstanding saves finish (or timeout).
     void flush_dirty_chunks(bool wait_for_completion = false, double timeout_sec = 5.0);
     bool is_chunk_dirty(uint64_t key) const;
-    bool load_chunk_from_disk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, ChunkData& out_chunk_data);
     void free_loaded_chunks();
     bool try_unload_chunk(uint64_t key, MeshManager* mesh_mgr);
     void clear();

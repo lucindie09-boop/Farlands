@@ -47,7 +47,6 @@ void WorldUpdater::update(bool is_editor, uint64_t epoch, uint64_t& chunks_proce
         mesh_manager->set_lod_far_distance(lod_far_distance);
         mesh_manager->set_far_detail_level(far_detail_level);
     }
-    mesh_manager->set_frustum(frustum.is_initialized() ? &frustum : nullptr);
 
     update_generation(is_editor, active_render_distance, epoch, player_chunk_x, player_chunk_y, player_chunk_z, chunk_changed);
     update_unload(active_render_distance, player_chunk_x, player_chunk_y, player_chunk_z, chunk_changed);

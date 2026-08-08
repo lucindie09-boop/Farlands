@@ -423,17 +423,6 @@ float max_water_h = -1.0f;
                         const CrossChunkWriter& cross_writer = nullptr, bool vegetation_enabled = true);
 
     // -------------------------------------------------------------------------
-    // Debug: render continentalness as a PGM image (portable graymap)
-    // -------------------------------------------------------------------------
-    void render_continentalness_pgm(const char* filename, int img_w, int img_h,
-                                    float world_x_start, float world_z_start,
-                                    float step) const;
-
-    void render_biome_pgm(const char* filename, int img_w, int img_h,
-                          float world_x_start, float world_z_start,
-                          float step) const;
-
-    // -------------------------------------------------------------------------
     // Parameter management
     // -------------------------------------------------------------------------
     void set_params(const TerrainParams& p) {

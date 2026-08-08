@@ -38,7 +38,6 @@ public:
     }
 
     void set_mesh_render_distance(int32_t rd) { mesh_render_distance = rd; }
-    void set_frustum(const Frustum* /*frustum*/) {}
 
     void process_completed_meshes(uint64_t epoch, double budget_ms, int32_t max_uploads,
                                    const godot::Ref<godot::ShaderMaterial>& material,

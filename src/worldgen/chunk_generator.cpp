@@ -443,49 +443,4 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
     chunk.compute_section_flags();
 }
 
-void ChunkGenerator::render_continentalness_pgm(const char* filename, int img_w, int img_h,
-                                float world_x_start, float world_z_start,
-                                float step) const {
-    FILE* f = fopen(filename, "wb");
-    if (!f) return;
-    fprintf(f, "P5\n%d %d\n255\n", img_w, img_h);
-    for (int py = 0; py < img_h; py++) {
-        for (int px = 0; px < img_w; px++) {
-            float wx = world_x_start + static_cast<float>(px) * step;
-            float wz = world_z_start + static_cast<float>(py) * step;
-            float cont = sample_continentalness(wx, wz);
-            uint8_t byte = static_cast<uint8_t>(std::round(cont * 255.0f));
-            fwrite(&byte, 1, 1, f);
-        }
-    }
-    fclose(f);
-}
-
-void ChunkGenerator::render_biome_pgm(const char* filename, int img_w, int img_h,
-                      float world_x_start, float world_z_start,
-                      float step) const {
-    FILE* f = fopen(filename, "wb");
-    if (!f) return;
-    fprintf(f, "P5\n%d %d\n255\n", img_w, img_h);
-    for (int py = 0; py < img_h; py++) {
-        for (int px = 0; px < img_w; px++) {
-            float wx = world_x_start + static_cast<float>(px) * step;
-            float wz = world_z_start + static_cast<float>(py) * step;
-            ColumnSample col = sample_column(static_cast<int32_t>(wx),
-                                               static_cast<int32_t>(wz));
-            uint8_t byte = 0;
-            switch (col.biome) {
-                case BiomeType::Ocean:         byte = 30;  break;
-                case BiomeType::Beach:         byte = 220; break;
-                case BiomeType::Plains:        byte = 150; break;
-                case BiomeType::Forest:        byte = 100; break;
-                case BiomeType::Desert:        byte = 200; break;
-                default:                       byte = 128; break;
-            }
-            fwrite(&byte, 1, 1, f);
-        }
-    }
-    fclose(f);
-}
-
 } // namespace VoxelEngine

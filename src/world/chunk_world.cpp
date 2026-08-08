@@ -609,17 +609,6 @@ void ChunkWorld::save_chunk_to_disk(int32_t chunk_x, int32_t chunk_y, int32_t ch
     }
 }
 
-void ChunkWorld::save_chunk_to_disk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, ChunkData* chunk_data) {
-    // This overload is no longer used with edit maps - it's kept for API compatibility
-    // but does nothing since we now persist edit maps instead of full chunks
-    save_chunk_to_disk(chunk_x, chunk_y, chunk_z);
-}
-
-bool ChunkWorld::load_chunk_from_disk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, ChunkData& out_chunk_data) {
-    // No longer used - we always generate now and apply edit maps on top
-    return false;
-}
-
 void ChunkWorld::save_world_metadata(const TerrainParams& params) {
     String filename = "user://chunks/world.meta";
 

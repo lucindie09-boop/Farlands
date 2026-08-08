@@ -55,10 +55,9 @@ This document describes the current, stable architecture of the voxel engine. Fo
 
 ### Generation
 1. `ChunkWorld::generate_chunk()` checks if chunk exists in map
-2. If not found, attempts `load_chunk_from_disk()`
-3. If load fails, generates via `ChunkGenerator`
-4. Inserts into `ChunkMap` with `ChunkRenderData` wrapper
-5. Queues for mesh build via `ChunkScheduler`
+2. If not found, generates via `ChunkGenerator` (chunks are never stored whole; sparse `EditMap`s are layered on top)
+3. Inserts into `ChunkMap` with `ChunkRenderData` wrapper
+4. Queues for mesh build via `ChunkScheduler`
 
 ### Mesh Building
 1. `MeshBuilder::build_mesh()` creates mesh data from `ChunkData`; `build_far_mesh()` emits heightmap-only silhouette meshes for far-mode chunks

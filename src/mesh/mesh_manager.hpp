@@ -1,13 +1,14 @@
 #ifndef FUK_MINECRAFT_MESH_MANAGER_HPP
 #define FUK_MINECRAFT_MESH_MANAGER_HPP
 #include "core/chunk_map.hpp"
-#include "core/chunk_types.hpp"
+#include "mesh/chunk_render_data.hpp"
 #include "core/frustum.hpp"
 #include "world/chunk_scheduler.hpp"
 #include "mesh/mesh_queue.hpp"
 #include "mesh/mesh_builder.hpp"
 #include "core/thread_pool.hpp"
 #include "core/performance_timer.hpp"
+#include "render/world_render_stats.hpp"
 #include <godot_cpp/classes/shader_material.hpp>
 #include <chrono>
 #include <memory>

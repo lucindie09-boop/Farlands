@@ -1,7 +1,7 @@
 #include "godot_bindings/register_types.hpp"
 #include "godot_bindings/chunk_manager.hpp"
 #include "godot_bindings/player_controller.hpp"
-#include "worldgen/texture_array_generator.hpp"
+#include "render/texture_array_generator.hpp"
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/core/defs.hpp>
 #include <godot_cpp/godot.hpp>

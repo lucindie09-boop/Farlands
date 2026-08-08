@@ -3,6 +3,7 @@
 #include <godot_cpp/variant/color.hpp>
 #include <godot_cpp/classes/environment.hpp>
 #include <algorithm>
+#include <cstdint>
 
 namespace VoxelEngine {
 
@@ -16,7 +17,7 @@ inline float smoothstep(float edge0, float edge1, float x) {
 
 class FogController {
 public:
-    enum class FogMode {
+    enum class FogMode : std::uint8_t {
         Disabled,
         Edge,
         Linear,

@@ -6,7 +6,7 @@
 # Standard build (debug)
 python -m SCons -j8
 
-# Run tests (129 tests / 33k+ assertions)
+# Run tests (182 tests / 157k+ assertions)
 python -m SCons test -j8
 .\bin\run_tests.exe
 

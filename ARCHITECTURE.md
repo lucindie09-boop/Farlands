@@ -36,6 +36,7 @@ This document describes the current, stable architecture of the voxel engine. Fo
 5. **`_locked` methods**: Caller MUST already hold exclusive lock, uses `_fast` accessors only, MUST NOT call auto-locking methods
 6. **Auto-locking methods** (`get_chunk_data`, `get_chunk_render_data`, `mark_chunks_dirty_for_light`, `queue_dirty_chunk`): Acquire their own shared locks — MUST NOT be called under exclusive lock
 7. **Public wrappers**: Acquire exclusive lock → call `_locked` → release lock → call auto-locking accessors for dirty-marking
+8. **No recursive shared acquisition**: Never re-acquire a shard lock you already hold shared. Windows SRW locks block new shared acquisitions once a writer is queued on a shard, so this deadlocks whenever a worker is waiting exclusive. Use `queue_dirty_chunk_fast()` (dirty-queue under a caller-held lock) inside `lock_keys` scopes, and `ShardLock::reset()` before re-acquiring a periodically-refreshed lock (e.g. `BlockEditor::raycast` re-locks `lock_all()` every 8 DDA steps)
 
 **Targeted Shard Locking:**
 - `lock_keys_exclusive<N>()` locks only shards whose keys appear in input, in ascending shard order
@@ -46,6 +47,7 @@ This document describes the current, stable architecture of the voxel engine. Fo
   - `light_propagate_add` / `light_propagate_remove` — origin 3×3×3 + each seed node's 3×3×3 (deduplicated)
   - `update_block_light_incremental` — 54 keys (origin + center 3×3×3)
   - `PlayerLight::update` — vector of up to 54 keys (old+new chunk 3×3×3)
+  - `MeshBuildTask::execute` — 27 keys (center + 26 neighbors), **shared** `lock_keys` held for the whole data read, serializing the build against exclusive writers
 
 **BFS Bounded Reach:**
 - Max light level 15 < chunk size 32
@@ -63,7 +65,7 @@ This document describes the current, stable architecture of the voxel engine. Fo
 1. `MeshBuilder::build_mesh()` creates mesh data from `ChunkData`; `build_far_mesh()` emits heightmap-only silhouette meshes for far-mode chunks
 2. Uses `ChunkNeighborAccessor` for 26 neighbor chunks
 3. Greedy meshing with stride/detail reduction for LOD (controlled by `lod_distance`/`lod_detail_level`/`lod_far_distance`/`far_detail_level`)
-4. Neighbor chunks are pinned via `pending_mesh_builds` atomic during build to prevent unload
+4. The build holds a shared `lock_keys` over the center chunk + 26 neighbors for the whole data read. This both pins the chunks (erasure requires an exclusive lock on the shard) and serializes the build against exclusive writers (block edits, light region recomputes, player light) that mutate neighbor section palettes mid-build. The center chunk additionally carries `pending_mesh_builds`, which `try_unload_chunk` checks before erasing
 5. Block edits take the incremental path (`build_mesh_incremental()`): a tight dirty-AABB re-emit merged with the previously emitted mesh, with fallback to a full rebuild when the bounds grow beyond a threshold
 
 ### Unloading
@@ -216,6 +218,7 @@ No `CharacterBody3D`, `move_and_slide`, or `CollisionShape3D` — all collision 
 - `tests/test_concurrency.cpp` — 19 tests for shard locking, deadlock prevention, PaletteStorage
 - `tests/test_inventory.cpp` — Inventory add/consume/edge-case tests
 - `tests/test_light_propagation.cpp` — Cross-chunk BFS edge case tests
+- `tests/test_light_removal.cpp` — Overlapping multi-source light removal tests
 - `tests/test_player_controller.cpp` — PlayerSim movement/sprint/sneak/collision tests
 - `tests/test_soak.cpp` — Multi-threaded fly-through-the-world stress test
 - `tests/test_persistence.cpp`, `tests/test_collision_resolver.cpp`, `tests/test_density_field.cpp` — format, collision, and terrain tests

@@ -399,6 +399,12 @@ void VoxelEngineController::set_fog_density(double density) { environment_contro
 double VoxelEngineController::get_fog_density() const { return environment_controller.get_fog_density(); }
 void VoxelEngineController::set_fog_mode(int32_t mode) { environment_controller.set_fog_mode(mode); }
 int32_t VoxelEngineController::get_fog_mode() const { return environment_controller.get_fog_mode(); }
+void VoxelEngineController::set_mipmaps_enabled(bool enabled) { environment_controller.set_mipmaps_enabled(enabled); }
+bool VoxelEngineController::get_mipmaps_enabled() const { return environment_controller.get_mipmaps_enabled(); }
+void VoxelEngineController::set_mipmap_bias(double bias) { environment_controller.set_mipmap_bias(bias); }
+double VoxelEngineController::get_mipmap_bias() const { return environment_controller.get_mipmap_bias(); }
+void VoxelEngineController::set_textures_enabled(bool enabled) { environment_controller.set_textures_enabled(enabled); }
+bool VoxelEngineController::get_textures_enabled() const { return environment_controller.get_textures_enabled(); }
 void VoxelEngineController::set_render_distance_blocks(float blocks) { environment_controller.set_render_distance_blocks(blocks); }
 float VoxelEngineController::get_render_distance_blocks() const { return environment_controller.get_render_distance_blocks(); }
 

@@ -286,6 +286,12 @@ void ChunkManager::set_fog_density(double density) { controller->set_fog_density
 double ChunkManager::get_fog_density() const { return controller->get_fog_density(); }
 void ChunkManager::set_fog_mode(int32_t mode) { controller->set_fog_mode(mode); }
 int32_t ChunkManager::get_fog_mode() const { return controller->get_fog_mode(); }
+void ChunkManager::set_mipmaps_enabled(bool enabled) { controller->set_mipmaps_enabled(enabled); }
+bool ChunkManager::get_mipmaps_enabled() const { return controller->get_mipmaps_enabled(); }
+void ChunkManager::set_mipmap_bias(double bias) { controller->set_mipmap_bias(bias); }
+double ChunkManager::get_mipmap_bias() const { return controller->get_mipmap_bias(); }
+void ChunkManager::set_textures_enabled(bool enabled) { controller->set_textures_enabled(enabled); }
+bool ChunkManager::get_textures_enabled() const { return controller->get_textures_enabled(); }
 void ChunkManager::set_vegetation_enabled(bool enabled) { controller->set_vegetation_enabled(enabled); }
 
 bool ChunkManager::get_vegetation_enabled() const { return controller->is_vegetation_enabled(); }
@@ -399,6 +405,11 @@ BIND_PROP(Variant::FLOAT, day_time, "time");
     ClassDB::bind_method(D_METHOD("set_fog_mode", "mode"), &ChunkManager::set_fog_mode);
     ClassDB::bind_method(D_METHOD("get_fog_mode"), &ChunkManager::get_fog_mode);
     ADD_PROPERTY(PropertyInfo(Variant::INT, "fog_mode", PROPERTY_HINT_ENUM, "Disabled:0,Edge:1,Linear:2,Exponential:3"), "set_fog_mode", "get_fog_mode");
+    BIND_PROP(Variant::BOOL,    mipmaps_enabled,            "enabled");
+    ClassDB::bind_method(D_METHOD("set_mipmap_bias", "bias"), &ChunkManager::set_mipmap_bias);
+    ClassDB::bind_method(D_METHOD("get_mipmap_bias"), &ChunkManager::get_mipmap_bias);
+    ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "mipmap_bias", PROPERTY_HINT_RANGE, "-4.0,4.0,0.01"), "set_mipmap_bias", "get_mipmap_bias");
+    BIND_PROP(Variant::BOOL,    textures_enabled,           "enabled");
     BIND_PROP(Variant::BOOL,    vegetation_enabled,         "enabled");
     ClassDB::bind_method(D_METHOD("set_move_speed_multiplier", "multiplier"), &ChunkManager::set_move_speed_multiplier);
     ClassDB::bind_method(D_METHOD("get_move_speed_multiplier"), &ChunkManager::get_move_speed_multiplier);

@@ -3,7 +3,7 @@ render_mode blend_mix, unshaded, cull_back;
 
 uniform sampler2DArray texture_array : filter_nearest_mipmap;
 
-uniform float mipmap_bias = 1.0;
+uniform float mipmap_bias = 0.1;
 
 // Lighting
 uniform float sky_light_intensity : hint_range(0.0,1.0)=1.0;

@@ -1,11 +1,38 @@
 #include "render/material_manager.hpp"
 
 #include <godot_cpp/classes/resource_loader.hpp>
+#include <godot_cpp/classes/shader.hpp>
 #include <godot_cpp/classes/texture2d_array.hpp>
 #include "render/texture_array_generator.hpp"
 
 using namespace godot;
 using namespace VoxelEngine;
+
+namespace {
+
+const char* filter_hint_for_mode(int mode) {
+    switch (mode) {
+        case static_cast<int>(TextureFilterMode::Nearest): return "filter_nearest";
+        case static_cast<int>(TextureFilterMode::Linear): return "filter_linear";
+        case static_cast<int>(TextureFilterMode::LinearMipmap): return "filter_linear_mipmap";
+        case static_cast<int>(TextureFilterMode::LinearMipmapAnisotropic): return "filter_linear_mipmap_anisotropic";
+        case static_cast<int>(TextureFilterMode::NearestMipmap):
+        default: return "filter_nearest_mipmap";
+    }
+}
+
+void apply_filter_hint_to_material(const Ref<ShaderMaterial>& material, const String& hint, const String& old_hint) {
+    if (!material.is_valid()) return;
+    Ref<Shader> shader = material->get_shader();
+    if (!shader.is_valid()) return;
+    String code = shader->get_code();
+    String new_code = code.replace(": filter_" + old_hint, ": filter_" + hint);
+    if (new_code != code) {
+        shader->set_code(new_code);
+    }
+}
+
+} // namespace
 
 void MaterialManager::update_shader_parameters(float sky_intensity, const Color& sky_color, const Vector3& sun_direction, const Color& sky_light_warmth, const Vector3& horizon_color, const Vector3& zenith_color, float sky_turbidity) {
     Ref<ShaderMaterial> material = get_material();
@@ -75,6 +102,70 @@ material->set_shader_parameter("player_light_radius", radius);
 material->set_shader_parameter("player_light_intensity", intensity);
 material->set_shader_parameter("player_light_color", color);
 }
+}
+
+void MaterialManager::set_mipmap_bias(float bias) {
+    mipmap_bias_ = bias;
+    apply_mipmap_bias();
+}
+
+void MaterialManager::set_texture_filter_mode(int mode) {
+    if (mode < static_cast<int>(TextureFilterMode::Nearest) || mode > static_cast<int>(TextureFilterMode::LinearMipmapAnisotropic)) {
+        mode = static_cast<int>(TextureFilterMode::NearestMipmap);
+    }
+    if (texture_filter_mode_ == mode) return;
+    texture_filter_mode_ = mode;
+    TextureArrayGenerator::get_instance().set_mipmaps_enabled(mode_uses_mipmaps(mode));
+    reload_textures();
+    apply_filter_hint_if_needed();
+    apply_mipmap_bias();
+}
+
+void MaterialManager::apply_mipmap_bias() {
+    const float bias = TextureArrayGenerator::is_mipmaps_enabled() ? mipmap_bias_ : 0.0f;
+    Ref<ShaderMaterial> material = get_material();
+    if (material.is_valid()) {
+        material->set_shader_parameter("mipmap_bias", bias);
+    }
+    Ref<ShaderMaterial> water_mat = get_water_material();
+    if (water_mat.is_valid()) {
+        water_mat->set_shader_parameter("mipmap_bias", bias);
+    }
+}
+
+void MaterialManager::apply_filter_hint_if_needed() {
+    if (filter_hint_applied_for_mode_ == texture_filter_mode_) return;
+    const String hint = filter_hint_for_mode(texture_filter_mode_);
+    const String old_hint = filter_hint_for_mode(filter_hint_applied_for_mode_);
+    apply_filter_hint_to_material(get_material(), hint, old_hint);
+    apply_filter_hint_to_material(get_water_material(), hint, old_hint);
+    filter_hint_applied_for_mode_ = texture_filter_mode_;
+}
+
+void MaterialManager::set_textures_enabled(bool enabled) {
+    TextureArrayGenerator::get_instance().set_textures_enabled(enabled);
+    reload_textures();
+}
+
+void MaterialManager::reload_textures() {
+    Ref<Texture2DArray> texture_array = TextureArrayGenerator::get_instance().get_texture_array();
+    Ref<Texture2DArray> emissive_array = TextureArrayGenerator::get_instance().get_emissive_texture_array();
+    if (cached_material.is_valid()) {
+        if (texture_array.is_valid()) {
+            cached_material->set_shader_parameter("texture_array", texture_array);
+        }
+        if (emissive_array.is_valid()) {
+            cached_material->set_shader_parameter("emissive_array", emissive_array);
+        }
+    }
+    if (cached_water_material.is_valid()) {
+        if (texture_array.is_valid()) {
+            cached_water_material->set_shader_parameter("texture_array", texture_array);
+        }
+        if (emissive_array.is_valid()) {
+            cached_water_material->set_shader_parameter("emissive_array", emissive_array);
+        }
+    }
 }
 
 Ref<ShaderMaterial> MaterialManager::get_material() {

@@ -124,6 +124,9 @@ The `ChunkManager` node exposes these editor properties (see `src/godot_bindings
 - **player_light_enabled** / **player_light_level** — player-following dynamic light
 - **day_time**, **day_night_cycle_enabled**, **day_duration**, **day_sky_intensity**/**night_sky_intensity**, **day_sky_color**/**night_sky_color**
 - **fog_density** — exponential fog distance
+- **mipmaps_enabled** — toggle mipmap generation on the block/emissive texture arrays (regenerates the arrays live; disables the shader LOD bias so only the base level is sampled)
+- **mipmap_bias** — shader LOD bias for block-texture sampling (both terrain and water; ignored when `mipmaps_enabled` is off)
+- **textures_enabled** — toggle real block textures vs. a magenta/black checker placeholder (regenerates the arrays live; emissive layers become black when off)
 - **vegetation_enabled** — toggle tree/vegetation generation
 - **move_speed_multiplier** — global player movement speed multiplier
 - **debug_enabled**, **debug_print_interval** — performance report logging

@@ -20,6 +20,8 @@ class TextureArrayGenerator {
 private:
     std::map<godot::String, godot::String> texture_path_cache;
     size_t last_registry_count = 0;
+    bool mipmaps_enabled_ = true;
+    bool textures_enabled_ = true;
 
     // Albedo texture state
     static inline godot::Ref<godot::Texture2DArray> s_global_texture_array;
@@ -52,6 +54,18 @@ public:
     [[nodiscard]] int get_emissive_texture_index(const godot::String& texture_name);
     [[nodiscard]] int get_block_texture_index(const godot::String& block_name, const godot::String& face);
 
+    // Whether generated arrays call Image::generate_mipmaps(). Toggling after
+    // first use regenerates the arrays, so materials must re-assign them
+    // (MaterialManager::reload_textures()).
+    static void set_mipmaps_enabled(bool enabled);
+    [[nodiscard]] static bool is_mipmaps_enabled();
+
+    // Whether generated arrays load the real block textures. When disabled,
+    // every layer is a magenta/black checker placeholder. Toggling after first
+    // use regenerates the arrays (MaterialManager::reload_textures()).
+    static void set_textures_enabled(bool enabled);
+    [[nodiscard]] static bool is_textures_enabled();
+
     static void cleanup() {
         s_global_texture_array.unref();
         s_global_texture_name_to_index.clear();
@@ -70,6 +84,47 @@ public:
 inline TextureArrayGenerator& TextureArrayGenerator::get_instance() {
     static TextureArrayGenerator instance;
     return instance;
+}
+
+// Forces an image into the requested mipmap state. Images returned by
+// texture->get_image() may already carry mipmaps from the 3D texture import
+// (while create_from_data images never do), so every image must be normalized
+// explicitly or create_from_images() rejects the array as mixed usage.
+inline void normalize_mipmaps(godot::Ref<godot::Image>& image, bool enabled) {
+    if (image.is_null()) return;
+    if (enabled) {
+        if (!image->has_mipmaps()) {
+            image->generate_mipmaps();
+        }
+    } else {
+        if (image->has_mipmaps()) {
+            image->clear_mipmaps();
+        }
+    }
+}
+
+// Magenta/black checker placeholder used when textures are disabled.
+inline godot::Ref<godot::Image> build_checker_image(int width, int height) {
+    const int cell = 4;
+    godot::PackedByteArray data;
+    data.resize(static_cast<int64_t>(width) * height * 4);
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            const int64_t idx = (static_cast<int64_t>(y) * width + x) * 4;
+            const bool magenta = ((x / cell + y / cell) % 2) == 0;
+            if (magenta) {
+                data[idx] = 255;
+                data[idx + 1] = 0;
+                data[idx + 2] = 255;
+            } else {
+                data[idx] = 0;
+                data[idx + 1] = 0;
+                data[idx + 2] = 0;
+            }
+            data[idx + 3] = 255;
+        }
+    }
+    return godot::Image::create_from_data(width, height, false, godot::Image::FORMAT_RGBA8, data);
 }
 
 inline godot::String TextureArrayGenerator::get_safe_texture_path(const godot::String& texture_name) {
@@ -132,21 +187,25 @@ inline godot::Ref<godot::Texture2DArray> TextureArrayGenerator::generate_texture
     s_global_texture_name_to_index.clear();
 
     for (int i = 0; i < static_cast<int>(texture_paths.size()); ++i) {
-        godot::Ref<godot::Texture2D> texture = loader->load(texture_paths[i]);
-        if (!texture.is_valid()) {
-            continue;
+        godot::Ref<godot::Image> image;
+        if (textures_enabled_) {
+            godot::Ref<godot::Texture2D> texture = loader->load(texture_paths[i]);
+            if (!texture.is_valid()) {
+                continue;
+            }
+            image = texture->get_image();
+            if (!image.is_valid()) {
+                continue;
+            }
+
+            if (image->get_width() != width || image->get_height() != height) {
+                image->resize(width, height, godot::Image::INTERPOLATE_NEAREST);
+            }
+        } else {
+            image = build_checker_image(width, height);
         }
 
-        godot::Ref<godot::Image> image = texture->get_image();
-        if (!image.is_valid()) {
-            continue;
-        }
-
-        if (image->get_width() != width || image->get_height() != height) {
-            image->resize(width, height, godot::Image::INTERPOLATE_NEAREST);
-        }
-
-        image->generate_mipmaps();
+        normalize_mipmaps(image, mipmaps_enabled_);
 
         const int layer_index = static_cast<int>(textures.size());
         textures.append(image);
@@ -157,7 +216,7 @@ inline godot::Ref<godot::Texture2DArray> TextureArrayGenerator::generate_texture
 
     if (textures.size() > 0) {
         s_global_texture_array->create_from_images(textures);
-        godot::print_line("Generated texture array with " + godot::String::num_int64(s_global_texture_array->get_layers()) + " layers (with mipmaps)");
+        godot::print_line("Generated texture array with " + godot::String::num_int64(s_global_texture_array->get_layers()) + " layers" + (mipmaps_enabled_ ? " (with mipmaps)" : " (no mipmaps)"));
     }
 
     return s_global_texture_array;
@@ -201,7 +260,7 @@ inline godot::Ref<godot::Texture2DArray> TextureArrayGenerator::generate_emissiv
         black_data[i] = 255;
     }
     godot::Ref<godot::Image> black_image = godot::Image::create_from_data(target_width, target_height, false, godot::Image::FORMAT_RGBA8, black_data);
-    black_image->generate_mipmaps();
+    normalize_mipmaps(black_image, mipmaps_enabled_);
 
     godot::Array images;
     images.append(black_image);
@@ -218,7 +277,7 @@ inline godot::Ref<godot::Texture2DArray> TextureArrayGenerator::generate_emissiv
         godot::String path = "res://textures/blocks/" + tex_name + ".png";
         godot::Ref<godot::Image> emissive_image;
 
-        if (godot::FileAccess::file_exists(path)) {
+        if (textures_enabled_ && godot::FileAccess::file_exists(path)) {
             godot::Ref<godot::Texture2D> tex = loader->load(path);
             if (tex.is_valid()) {
                 emissive_image = tex->get_image();
@@ -240,7 +299,7 @@ inline godot::Ref<godot::Texture2DArray> TextureArrayGenerator::generate_emissiv
             }
         }
 
-        emissive_image->generate_mipmaps();
+        normalize_mipmaps(emissive_image, mipmaps_enabled_);
 
         const int layer_index = static_cast<int>(images.size());
         images.append(emissive_image);
@@ -300,6 +359,32 @@ inline void TextureArrayGenerator::force_regenerate() {
     populate_block_registry();
     s_global_texture_initialized = true;
     s_global_emissive_initialized = true;
+}
+
+inline bool TextureArrayGenerator::is_mipmaps_enabled() {
+    return get_instance().mipmaps_enabled_;
+}
+
+inline void TextureArrayGenerator::set_mipmaps_enabled(bool enabled) {
+    TextureArrayGenerator& gen = get_instance();
+    if (gen.mipmaps_enabled_ == enabled) return;
+    gen.mipmaps_enabled_ = enabled;
+    if (s_global_texture_initialized || s_global_emissive_initialized) {
+        gen.force_regenerate();
+    }
+}
+
+inline bool TextureArrayGenerator::is_textures_enabled() {
+    return get_instance().textures_enabled_;
+}
+
+inline void TextureArrayGenerator::set_textures_enabled(bool enabled) {
+    TextureArrayGenerator& gen = get_instance();
+    if (gen.textures_enabled_ == enabled) return;
+    gen.textures_enabled_ = enabled;
+    if (s_global_texture_initialized || s_global_emissive_initialized) {
+        gen.force_regenerate();
+    }
 }
 
 inline godot::Ref<godot::Texture2DArray> TextureArrayGenerator::get_texture_array() {

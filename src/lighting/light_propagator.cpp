@@ -203,7 +203,6 @@ void LightPropagator::light_propagate_remove_locked(int32_t origin_cx, int32_t o
     size_t idx = 0;
     while (idx < remove_queue.size()) {
         const LightNode node = remove_queue[idx++];
-        const uint8_t node_level = node.r > node.g ? (node.r > node.b ? node.r : node.b) : (node.g > node.b ? node.g : node.b);
         for (int i = 0; i < 6; i++) {
             int32_t ncx = node.cx;
             int32_t ncy = node.cy;
@@ -224,27 +223,43 @@ void LightPropagator::light_propagate_remove_locked(int32_t origin_cx, int32_t o
             const uint8_t cur_r = dst->get_light_r(nx, ny, nz);
             const uint8_t cur_g = dst->get_light_g(nx, ny, nz);
             const uint8_t cur_b = dst->get_light_b(nx, ny, nz);
-            const uint8_t cur_level = cur_r > cur_g ? (cur_r > cur_b ? cur_r : cur_b) : (cur_g > cur_b ? cur_g : cur_b);
+            if (cur_r == 0 && cur_g == 0 && cur_b == 0) continue;
 
-            if (cur_level < node_level) {
-                dst->set_light_rgb(nx, ny, nz, 0, 0, 0);
-                remove_queue.push_back({ncx, ncy, ncz, nx, ny, nz, cur_r, cur_g, cur_b});
-            } else {
-                const uint8_t out_r = (node.r > 0 && cur_r < node.r) ? 0 : cur_r;
-                const uint8_t out_g = (node.g > 0 && cur_g < node.g) ? 0 : cur_g;
-                const uint8_t out_b = (node.b > 0 && cur_b < node.b) ? 0 : cur_b;
+            // Per-channel removal. A channel is cleared only if the removed
+            // source emitted that channel AND this cell's level is strictly
+            // below the removed source's level here — i.e. the light could have
+            // come from the source being removed. Channels supplied by other
+            // (still present) sources are kept so they can refill the region.
+            const bool remove_r = node.r > 0 && cur_r > 0 && cur_r < node.r;
+            const bool remove_g = node.g > 0 && cur_g > 0 && cur_g < node.g;
+            const bool remove_b = node.b > 0 && cur_b > 0 && cur_b < node.b;
 
-                // Only process if we actually changed something
-                if (out_r != cur_r || out_g != cur_g || out_b != cur_b) {
-                    dst->set_light_rgb(nx, ny, nz, out_r, out_g, out_b);
+            if (!remove_r && !remove_g && !remove_b) {
+                // This cell's light comes from another source at the same or a
+                // higher level. Re-add it so the surviving sources refill the
+                // region that the removal BFS is about to clear.
+                add_queue.push_back({ncx, ncy, ncz, nx, ny, nz, cur_r, cur_g, cur_b});
+                continue;
+            }
 
-                    if (out_r > 0 || out_g > 0 || out_b > 0) {
-                        add_queue.push_back({ncx, ncy, ncz, nx, ny, nz, out_r, out_g, out_b});
-                    } else {
-                        // We zeroed all channels and changed the cell — continue removal
-                        remove_queue.push_back({ncx, ncy, ncz, nx, ny, nz, cur_r, cur_g, cur_b});
-                    }
-                }
+            const uint8_t out_r = remove_r ? 0 : cur_r;
+            const uint8_t out_g = remove_g ? 0 : cur_g;
+            const uint8_t out_b = remove_b ? 0 : cur_b;
+            dst->set_light_rgb(nx, ny, nz, out_r, out_g, out_b);
+
+            // Continue the removal BFS carrying the cell's previous levels for
+            // the removed channels, so the cleared region follows the removed
+            // source's light falloff. Each (cell, channel) is cleared at most
+            // once, so the BFS terminates even with many overlapping sources.
+            remove_queue.push_back({ncx, ncy, ncz, nx, ny, nz,
+                                    remove_r ? cur_r : static_cast<uint8_t>(0),
+                                    remove_g ? cur_g : static_cast<uint8_t>(0),
+                                    remove_b ? cur_b : static_cast<uint8_t>(0)});
+
+            // Re-add the channels that survive here so they refill this cell
+            // and everything cleared behind it.
+            if (out_r > 0 || out_g > 0 || out_b > 0) {
+                add_queue.push_back({ncx, ncy, ncz, nx, ny, nz, out_r, out_g, out_b});
             }
         }
     }

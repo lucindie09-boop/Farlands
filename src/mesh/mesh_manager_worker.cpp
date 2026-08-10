@@ -153,33 +153,30 @@ void MeshBuildTask::execute() {
             {-1,-1,-1},{1,-1,-1},{-1,1,-1},{1,1,-1},
             {-1,-1,1},{1,-1,1},{-1,1,1},{1,1,1}
         };
-        auto unpin_neighbors = [&]() {
-            if (!chunk_map) return;
-            for (int i = 0; i < 26; i++) {
-                if (all_neighbors[i]) {
-                    chunk_map->unpin_chunk(chunk_map->get_chunk_key(
-                        chunk_x + kNeighborOffsets[i][0],
-                        chunk_y + kNeighborOffsets[i][1],
-                        chunk_z + kNeighborOffsets[i][2]));
-                }
-            }
-        };
-
+        // Acquire a shared lock over the center chunk and its 26 neighbors for
+        // the whole data read. Writers (block edits, light region recomputes,
+        // player light) hold exclusive locks on the same 3x3x3 neighborhood, so
+        // this serializes the build against any concurrent mutation of block or
+        // light data. The previous pin-only scheme only protected against chunk
+        // erasure and raced with those writers: on restart, chunks containing
+        // light-source blocks triggered a recompute worker that mutated a
+        // neighbor's section palettes while this build read them.
+        std::unique_ptr<ChunkMap::ShardLock> build_lock;
         if (chunk_map) {
-            chunk_map->get_all_neighbors(chunk_x, chunk_y, chunk_z, all_neighbors);
-
-            // Pin neighbor chunks to prevent unload during build.
-            // get_all_neighbors returned raw pointers after releasing shard locks;
-            // without pinning, try_unload_chunk could destroy a neighbor while we
-            // read its ChunkData. Pinning increments pending_mesh_builds (under shard
-            // lock), which try_unload_chunk checks before erasing.
+            uint64_t build_keys[27] = {};
+            build_keys[0] = chunk_map->get_chunk_key(chunk_x, chunk_y, chunk_z);
             for (int i = 0; i < 26; i++) {
-                if (all_neighbors[i]) {
-                    chunk_map->pin_chunk(chunk_map->get_chunk_key(
-                        chunk_x + kNeighborOffsets[i][0],
-                        chunk_y + kNeighborOffsets[i][1],
-                        chunk_z + kNeighborOffsets[i][2]));
-                }
+                build_keys[i + 1] = chunk_map->get_chunk_key(
+                    chunk_x + kNeighborOffsets[i][0],
+                    chunk_y + kNeighborOffsets[i][1],
+                    chunk_z + kNeighborOffsets[i][2]);
+            }
+            build_lock.reset(new ChunkMap::ShardLock(chunk_map->lock_keys(build_keys)));
+            for (int i = 0; i < 26; i++) {
+                all_neighbors[i] = chunk_map->get_chunk_render_data_fast(
+                    chunk_x + kNeighborOffsets[i][0],
+                    chunk_y + kNeighborOffsets[i][1],
+                    chunk_z + kNeighborOffsets[i][2]);
             }
         }
         auto data_or_null = [](ChunkRenderData* rd) -> const ChunkData* {
@@ -263,7 +260,6 @@ void MeshBuildTask::execute() {
         if (async_epoch && epoch != async_epoch->load(std::memory_order_acquire)) {
             render_data->pending_mesh_builds.fetch_sub(1, std::memory_order_relaxed);
             render_data->pending_mesh_uploads.fetch_sub(1, std::memory_order_relaxed);
-            unpin_neighbors();
             return;
         }
 
@@ -286,7 +282,6 @@ void MeshBuildTask::execute() {
         chunk_scheduler->push_completed_mesh(std::move(completed), high_priority);
 
         render_data->pending_mesh_builds.fetch_sub(1, std::memory_order_relaxed);
-        unpin_neighbors();
 }
 
 } // namespace VoxelEngine

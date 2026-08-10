@@ -77,6 +77,13 @@ godot::Vector3 get_sun_direction() const { return day_night.get_sun_direction();
     void set_fog_mode(int32_t mode) { fog_controller.set_fog_mode(static_cast<FogController::FogMode>(mode)); update_shader_parameters(); }
     int32_t get_fog_mode() const { return static_cast<int32_t>(fog_controller.get_fog_mode()); }
 
+    void set_mipmaps_enabled(bool enabled);
+    bool get_mipmaps_enabled() const { return mipmaps_enabled; }
+    void set_mipmap_bias(double bias) { mipmap_bias = static_cast<float>(bias); update_shader_parameters(); }
+    double get_mipmap_bias() const { return static_cast<double>(mipmap_bias); }
+    void set_textures_enabled(bool enabled);
+    bool get_textures_enabled() const { return textures_enabled; }
+
 private:
     DayNightCycle day_night;
     PlayerLight player_light;
@@ -89,6 +96,9 @@ private:
     godot::Color ao_color = godot::Color(0.0f, 0.0f, 0.0f, 1.0f);
     float ao_strength = 1.0f;
     godot::Color darkness_color = godot::Color(0.0f, 0.0f, 0.0f, 1.0f);
+    bool mipmaps_enabled = true;
+    float mipmap_bias = 0.1f;
+    bool textures_enabled = true;
 
     godot::Node* cached_parent = nullptr;
     godot::WorldEnvironment* cached_world_env = nullptr;

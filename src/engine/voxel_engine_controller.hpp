@@ -136,6 +136,12 @@ public:
     double get_fog_density() const;
     void set_fog_mode(int32_t mode);
     int32_t get_fog_mode() const;
+    void set_mipmaps_enabled(bool enabled);
+    bool get_mipmaps_enabled() const;
+    void set_mipmap_bias(double bias);
+    double get_mipmap_bias() const;
+    void set_textures_enabled(bool enabled);
+    bool get_textures_enabled() const;
     void set_render_distance_blocks(float blocks);
     float get_render_distance_blocks() const;
     void set_vegetation_enabled(bool enabled);

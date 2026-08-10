@@ -76,6 +76,19 @@ void EnvironmentController::update_environment(godot::Node* parent) {
     }
 }
 
+void EnvironmentController::set_mipmaps_enabled(bool enabled) {
+    if (mipmaps_enabled == enabled) return;
+    mipmaps_enabled = enabled;
+    material_manager.set_texture_filter_mode(enabled ? static_cast<int>(TextureFilterMode::NearestMipmap) : static_cast<int>(TextureFilterMode::Nearest));
+    update_shader_parameters();
+}
+
+void EnvironmentController::set_textures_enabled(bool enabled) {
+    if (textures_enabled == enabled) return;
+    textures_enabled = enabled;
+    material_manager.set_textures_enabled(enabled);
+}
+
 void EnvironmentController::update_shader_parameters() {
     const float blend = day_night.get_blend();
     const float sky_intensity = day_night.get_sky_intensity();
@@ -92,6 +105,7 @@ void EnvironmentController::update_shader_parameters() {
 
     material_manager.update_shader_parameters(sky_intensity, sky_color, sun_dir, sky_warmth, sky_horizon_color, sky_zenith_color, sky_turbidity);
     material_manager.update_color_parameters(contrast, saturation, ao_color, ao_strength, darkness_color);
+    material_manager.set_mipmap_bias(mipmaps_enabled ? mipmap_bias : 0.0f);
 
     const float fog_begin = fog_controller.get_fog_begin();
     const float fog_end = fog_controller.get_fog_end();

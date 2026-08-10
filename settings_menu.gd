@@ -31,6 +31,9 @@ var _default_darkness_color: Color = Color(0, 0, 0, 1)
 var _default_smooth_lighting: bool = false
 var _default_fog_mode: int = 1  # 0=disabled, 1=edge, 2=linear, 3=exponential
 var _default_godrays: bool = true
+var _default_mipmaps_enabled: bool = true
+var _default_mipmap_bias: float = 0.1
+var _default_textures_enabled: bool = true
 
 var _block_outline_defaults := {
 	"outline_enabled": true,
@@ -95,6 +98,9 @@ func _ready():
 	_default_smooth_lighting = chunk_manager.get_smooth_lighting()
 	# Don't load fog_mode from chunk_manager - keep hardcoded default for reset
 	# _default_fog_mode = chunk_manager.get_fog_mode()
+	_default_mipmaps_enabled = chunk_manager.get_mipmaps_enabled()
+	_default_mipmap_bias = chunk_manager.get_mipmap_bias()
+	_default_textures_enabled = chunk_manager.get_textures_enabled()
 	if crosshair_node:
 		for k in _crosshair_defaults:
 			_crosshair_defaults[k] = crosshair_node.get(k)
@@ -139,6 +145,9 @@ func _save_settings():
 	cfg.set_value("render", "lod_detail_level", chunk_manager.get_lod_detail_level())
 	cfg.set_value("render", "fog_mode", chunk_manager.get_fog_mode())
 	cfg.set_value("render", "godrays", godrays_node.visible if godrays_node else _default_godrays)
+	cfg.set_value("render", "mipmaps_enabled", chunk_manager.get_mipmaps_enabled())
+	cfg.set_value("render", "mipmap_bias", chunk_manager.get_mipmap_bias())
+	cfg.set_value("render", "textures_enabled", chunk_manager.get_textures_enabled())
 	cfg.save(SETTINGS_PATH)
 
 func _load_settings():
@@ -169,6 +178,9 @@ func _load_settings():
 	chunk_manager.set_fog_mode(int(cfg.get_value("render", "fog_mode", chunk_manager.get_fog_mode())))
 	if godrays_node:
 		godrays_node.visible = cfg.get_value("render", "godrays", _default_godrays)
+	chunk_manager.set_mipmaps_enabled(cfg.get_value("render", "mipmaps_enabled", chunk_manager.get_mipmaps_enabled()))
+	chunk_manager.set_mipmap_bias(cfg.get_value("render", "mipmap_bias", chunk_manager.get_mipmap_bias()))
+	chunk_manager.set_textures_enabled(cfg.get_value("render", "textures_enabled", chunk_manager.get_textures_enabled()))
 
 # Settings menu uses the global GUI scale with a 2/3 modifier so its default
 # look (2x when UIScale is 3.0) is preserved while still scaling with the rest.
@@ -844,12 +856,59 @@ func _build_render_page() -> Control:
 		godrays_btn.text = "On" if _default_godrays else "Off"
 		_schedule_save()
 
+	var mipmap_bias_spin := SpinBox.new()
+	mipmap_bias_spin.min_value = -4.0
+	mipmap_bias_spin.max_value = 4.0
+	mipmap_bias_spin.step = 0.01
+	mipmap_bias_spin.value = chunk_manager.get_mipmap_bias()
+	mipmap_bias_spin.editable = chunk_manager.get_mipmaps_enabled()
+	mipmap_bias_spin.value_changed.connect(func(v: float):
+		chunk_manager.set_mipmap_bias(v)
+		_schedule_save())
+	var mipmap_bias_reset := func():
+		mipmap_bias_spin.value = _default_mipmap_bias
+		chunk_manager.set_mipmap_bias(_default_mipmap_bias)
+		_schedule_save()
+
+	var mipmaps_btn := Button.new()
+	var mipmaps_enabled: bool = chunk_manager.get_mipmaps_enabled()
+	mipmaps_btn.text = "On" if mipmaps_enabled else "Off"
+	_style_button(mipmaps_btn, 180.0)
+	mipmaps_btn.pressed.connect(func():
+		var next: bool = not chunk_manager.get_mipmaps_enabled()
+		chunk_manager.set_mipmaps_enabled(next)
+		mipmaps_btn.text = "On" if next else "Off"
+		mipmap_bias_spin.editable = next
+		_schedule_save())
+	var mipmaps_reset := func():
+		chunk_manager.set_mipmaps_enabled(_default_mipmaps_enabled)
+		mipmaps_btn.text = "On" if _default_mipmaps_enabled else "Off"
+		mipmap_bias_spin.editable = _default_mipmaps_enabled
+		_schedule_save()
+
+	var textures_btn := Button.new()
+	var textures_enabled: bool = chunk_manager.get_textures_enabled()
+	textures_btn.text = "On" if textures_enabled else "Off"
+	_style_button(textures_btn, 180.0)
+	textures_btn.pressed.connect(func():
+		var next: bool = not chunk_manager.get_textures_enabled()
+		chunk_manager.set_textures_enabled(next)
+		textures_btn.text = "On" if next else "Off"
+		_schedule_save())
+	var textures_reset := func():
+		chunk_manager.set_textures_enabled(_default_textures_enabled)
+		textures_btn.text = "On" if _default_textures_enabled else "Off"
+		_schedule_save()
+
 	return _build_option_page("RENDER", [
 		["Render Distance", rd, rd_reset],
 		["LOD Distance", lod_dist, lod_reset],
 		["LOD Detail Level", lod_detail, lod_detail_reset],
 		["Fog Mode", fog_mode_btn, fog_mode_reset],
 		["God Rays", godrays_btn, godrays_reset],
+		["Mipmaps", mipmaps_btn, mipmaps_reset],
+		["Mipmap Bias", mipmap_bias_spin, mipmap_bias_reset],
+		["Textures", textures_btn, textures_reset],
 	], "settings")
 
 func _build_option_page(title_text: String, rows: Array, back_target: String, row_spacing := 44.0) -> Control:

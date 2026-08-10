@@ -60,10 +60,11 @@ A Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked streamin
 - **Inventory persistence**: `user://chunks/inventory.bin` (`INVE` magic, version 1) written at `PlayerController::_exit_tree`
 
 ### Locking & Concurrency Fixes
-- **7 deadlock classes resolved**: Fixed self-deadlock in light propagation, shard lock ordering, and `_locked` method contracts
+- **8 deadlock classes resolved**: Self-deadlock in light propagation, shard lock ordering, `_locked` method contracts, and **recursive shared shard-lock acquisition** (Windows SRW locks block new shared acquisitions once a writer is queued on a shard, so re-acquiring a shard you already hold shared freezes the whole game). The recursive class was fixed with `queue_dirty_chunk_fast()` (dirty-queue under a caller-held lock) and `ShardLock::reset()` (release-then-re-acquire for periodic lock refreshes like the block raycast's all-shard lock)
 - **Player light thread safety**: Fixed unlocked writes while BFS runs concurrently
 - **Cross-chunk writer race**: Fixed vegetation cross-chunk block writes with proper exclusive locking
-- **Neighbor chunk pinning**: Fixed use-after-free by pinning chunks during mesh build
+- **Mesh-build serialization**: `MeshBuildTask::execute` holds a shared 3×3×3 `lock_keys` over the center chunk + 26 neighbors for the whole data read, serializing the build against writers (block edits, light region recomputes, player light) that mutate neighbor section palettes mid-build
+- **Overlapping light removal**: Per-channel removal clears a channel only when the removed source emitted it and the cell's level is strictly below the source's; surviving channels are re-added so they refill the cleared region, and each (cell, channel) is cleared at most once so the BFS terminates with overlapping sources
 
 ### Collision & Physics
 - **Binary-search AABB collision**: Custom voxel collision queries directly against chunk map
@@ -89,6 +90,7 @@ A Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked streamin
 - Batch methods lock all relevant shards in ascending order to avoid deadlock
 - `_locked` methods: Caller MUST already hold exclusive lock, uses `_fast` accessors only
 - Auto-locking methods: Acquire their own shared locks — MUST NOT be called under exclusive lock
+- Recursive shared acquisition is forbidden: never re-acquire a shard you already hold shared (e.g. calling `queue_dirty_chunk` inside a `lock_keys` scope, or building a fresh `lock_all()` while one is alive). Use `queue_dirty_chunk_fast()` / `get_chunk_render_data_fast()` and `ShardLock::reset()` before re-locking. Windows SRW blocks new shared acquisitions once a writer is queued, turning the recursion into a hard deadlock
 
 ### Targeted Shard Locking Usage
 - `set_block_variant()` — 1 chunk key

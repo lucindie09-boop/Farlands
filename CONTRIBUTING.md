@@ -35,12 +35,13 @@ The chunk map uses 64 shards with `shared_mutex` per shard. Violations cause dea
 5. **Auto-locking methods** acquire their own shared locks. They MUST NOT be called while holding an exclusive lock (shared→exclusive upgrade is not supported by `std::shared_mutex`).
 6. **BFS bounded reach**: Max light level 15 < chunk size 32, so a 3×3×3 neighborhood (27 keys) covers all BFS paths from a single seed chunk.
 7. **Thread pool**: Always a single shared pool. Do not split into separate gen/mesh pools (tried, reverted — starved generation throughput ~7×).
+8. **No recursive shared acquisition**: Never re-acquire a shard lock you already hold shared (shared→shared or shared→exclusive). Windows SRW locks block new shared acquisitions once a writer is queued on a shard, so the recursion deadlocks the moment a worker waits exclusive. Use `queue_dirty_chunk_fast()` instead of `queue_dirty_chunk()` inside `lock_keys` scopes, and `ShardLock::reset()` before re-acquiring a periodically-refreshed lock (e.g. `BlockEditor::raycast` re-locks `lock_all()` every 8 DDA steps).
 
 ### Thread Safety
 
 - `std::atomic` for counters and flags. Use `std::memory_order_relaxed` unless ordering matters.
 - `std::mutex` for narrow-scope protecting (`pending_light_removals_`). Lock, do minimal work, unlock — never hold across BFS calls.
-- Neighbor chunks are pinned via `pending_mesh_builds` atomic during mesh build to prevent mid-build unload.
+- `MeshBuildTask::execute` holds a shared `lock_keys` over the center chunk + 26 neighbors for the whole data read — this pins them (erasure needs an exclusive lock on the shard) and serializes the build against exclusive writers that mutate block/light data mid-build. The center chunk also carries `pending_mesh_builds`, which `try_unload_chunk` checks before erasing.
 
 ### Block Definitions
 
@@ -75,6 +76,7 @@ The chunk map uses 64 shards with `shared_mutex` per shard. Violations cause dea
 
 - `MeshBuilder` takes a center `ChunkData&` plus 26 optional neighbor `ChunkData*` pointers.
 - Null neighbors are treated as air — this is correct for edge chunks.
+- The build must run under a shared `lock_keys` over the center + 26 neighbors (see Thread Safety) — never build from raw neighbor pointers acquired and released earlier.
 - LOD uses per-chunk stride/detail reduction (`lod_distance`/`lod_detail_level`), not chunk merging.
 
 ## Architecture

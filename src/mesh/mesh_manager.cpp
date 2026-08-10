@@ -74,6 +74,22 @@ void MeshManager::queue_dirty_chunk(int32_t cx, int32_t cy, int32_t cz) {
     mesh_queue.queue_dirty_chunk(chunk_map->get_chunk_key(cx, cy, cz), dist_sq, false);
 }
 
+void MeshManager::queue_dirty_chunk_fast(int32_t cx, int32_t cy, int32_t cz) {
+    if (!chunk_map) return;
+    ChunkRenderData* render_data = chunk_map->get_chunk_render_data_fast(cx, cy, cz);
+    if (render_data) {
+        render_data->is_mesh_dirty = true;
+        if (render_data->far_mesh_cache) {
+            mark_far_region_dirty_for_chunk(cx, cy, cz);
+        }
+    }
+    int32_t dx = cx - last_player_chunk_x;
+    int32_t dy = cy - last_player_chunk_y;
+    int32_t dz = cz - last_player_chunk_z;
+    int32_t dist_sq = dx * dx + dy * dy + dz * dz;
+    mesh_queue.queue_dirty_chunk(chunk_map->get_chunk_key(cx, cy, cz), dist_sq, false);
+}
+
 void MeshManager::queue_immediate_dirty_chunk(int32_t cx, int32_t cy, int32_t cz) {
     if (!chunk_map) return;
     ChunkRenderData* render_data = chunk_map->get_chunk_render_data(cx, cy, cz);

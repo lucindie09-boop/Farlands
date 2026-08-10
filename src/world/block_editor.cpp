@@ -197,6 +197,11 @@ constexpr int32_t kLockReacquireInterval = 8;
     auto map_lock = chunk_world->get_chunk_map().lock_all();
     while (steps < max_steps) {
 if (steps > 0 && steps % kLockReacquireInterval == 0) {
+// Release the current all-shard hold BEFORE re-acquiring. Constructing a
+// fresh lock_all() while the previous one is still held is a recursive
+// shared acquisition: if a writer is queued on any shard, SRW blocks it
+// forever (the holder never releases because it never completes).
+map_lock.reset();
 map_lock = chunk_world->get_chunk_map().lock_all();
 }
         int block = chunk_world->get_chunk_map().get_block_world_fast(current_x, current_y, current_z);

@@ -39,6 +39,14 @@ public:
     public:
         ShardLock(ShardLock&&) = default;
         ShardLock& operator=(ShardLock&&) = default;
+        // Releases all held shard locks. Callers that re-lock periodically
+        // (e.g. a long raycast refreshing its all-shard lock) MUST release
+        // before re-acquiring: constructing a fresh lock_all() while the
+        // previous one is still held is a recursive shared acquisition, which
+        // SRW blocks forever once a writer is queued on any shard.
+        void reset() noexcept {
+            locks_.clear();
+        }
     };
 
     // RAII lock that holds unique_locks (exclusive) on one or more shards.

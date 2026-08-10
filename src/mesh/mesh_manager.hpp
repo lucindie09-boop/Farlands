@@ -55,6 +55,9 @@ public:
     void rebuild_chunk_mesh(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, uint64_t epoch);
     void rebuild_all_meshes_with_neighbors(uint64_t epoch);
     void queue_dirty_chunk(int32_t cx, int32_t cy, int32_t cz);
+    // Same as queue_dirty_chunk but uses the caller-held shard lock (must hold
+    // the lock covering cx/cy/cz before calling; never acquires its own).
+    void queue_dirty_chunk_fast(int32_t cx, int32_t cy, int32_t cz);
     void queue_immediate_dirty_chunk(int32_t cx, int32_t cy, int32_t cz);
     void mark_chunk_urgent(int32_t cx, int32_t cy, int32_t cz);
     void reprioritize(int32_t player_cx, int32_t player_cy, int32_t player_cz, const Frustum* frustum = nullptr);

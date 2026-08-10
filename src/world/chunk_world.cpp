@@ -260,39 +260,39 @@ int32_t ChunkWorld::process_completed_chunks(uint64_t epoch, double budget_ms, i
                 if (!chunk_map.contains_fast(key)) continue;
 
                 if (mesh_manager) {
-                    mesh_manager->queue_dirty_chunk(stage.chunk_x,     stage.chunk_y,     stage.chunk_z);
+                    mesh_manager->queue_dirty_chunk_fast(stage.chunk_x,     stage.chunk_y,     stage.chunk_z);
                     ChunkData* installed_chunk = chunk_map.get_chunk_data_fast(stage.chunk_x, stage.chunk_y, stage.chunk_z);
                     if (installed_chunk) {
                         ChunkData* neighbor = nullptr;
                         
                         neighbor = chunk_map.get_chunk_data_fast(stage.chunk_x - 1, stage.chunk_y, stage.chunk_z);
                         if (should_dirty_neighbor(neighbor, FaceDirection::Left, installed_chunk)) {
-                            mesh_manager->queue_dirty_chunk(stage.chunk_x - 1, stage.chunk_y,     stage.chunk_z);
+                            mesh_manager->queue_dirty_chunk_fast(stage.chunk_x - 1, stage.chunk_y,     stage.chunk_z);
                         }
                         
                         neighbor = chunk_map.get_chunk_data_fast(stage.chunk_x + 1, stage.chunk_y, stage.chunk_z);
                         if (should_dirty_neighbor(neighbor, FaceDirection::Right, installed_chunk)) {
-                            mesh_manager->queue_dirty_chunk(stage.chunk_x + 1, stage.chunk_y,     stage.chunk_z);
+                            mesh_manager->queue_dirty_chunk_fast(stage.chunk_x + 1, stage.chunk_y,     stage.chunk_z);
                         }
                         
                         neighbor = chunk_map.get_chunk_data_fast(stage.chunk_x, stage.chunk_y - 1, stage.chunk_z);
                         if (should_dirty_neighbor(neighbor, FaceDirection::Bottom, installed_chunk)) {
-                            mesh_manager->queue_dirty_chunk(stage.chunk_x,     stage.chunk_y - 1, stage.chunk_z);
+                            mesh_manager->queue_dirty_chunk_fast(stage.chunk_x,     stage.chunk_y - 1, stage.chunk_z);
                         }
                         
                         neighbor = chunk_map.get_chunk_data_fast(stage.chunk_x, stage.chunk_y + 1, stage.chunk_z);
                         if (should_dirty_neighbor(neighbor, FaceDirection::Top, installed_chunk)) {
-                            mesh_manager->queue_dirty_chunk(stage.chunk_x,     stage.chunk_y + 1, stage.chunk_z);
+                            mesh_manager->queue_dirty_chunk_fast(stage.chunk_x,     stage.chunk_y + 1, stage.chunk_z);
                         }
                         
                         neighbor = chunk_map.get_chunk_data_fast(stage.chunk_x, stage.chunk_y, stage.chunk_z - 1);
                         if (should_dirty_neighbor(neighbor, FaceDirection::Back, installed_chunk)) {
-                            mesh_manager->queue_dirty_chunk(stage.chunk_x,     stage.chunk_y,     stage.chunk_z - 1);
+                            mesh_manager->queue_dirty_chunk_fast(stage.chunk_x,     stage.chunk_y,     stage.chunk_z - 1);
                         }
                         
                         neighbor = chunk_map.get_chunk_data_fast(stage.chunk_x, stage.chunk_y, stage.chunk_z + 1);
                         if (should_dirty_neighbor(neighbor, FaceDirection::Front, installed_chunk)) {
-                            mesh_manager->queue_dirty_chunk(stage.chunk_x,     stage.chunk_y,     stage.chunk_z + 1);
+                            mesh_manager->queue_dirty_chunk_fast(stage.chunk_x,     stage.chunk_y,     stage.chunk_z + 1);
                         }
                     }
                 }
@@ -371,7 +371,7 @@ if (mesh_manager) {
             ChunkData* neighbor = chunk_map.get_chunk_data_fast(
                 ncx + kOff[i][0], ncy + kOff[i][1], ncz + kOff[i][2]);
             if (should_dirty_neighbor(neighbor, kDirs[i], installed_chunk)) {
-                mesh_manager->queue_dirty_chunk(
+                mesh_manager->queue_dirty_chunk_fast(
                     ncx + kOff[i][0], ncy + kOff[i][1], ncz + kOff[i][2]);
             }
         }

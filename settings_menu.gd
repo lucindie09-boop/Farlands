@@ -2,6 +2,8 @@ extends Control
 
 const MUNRO_FONT: Font = preload("res://fonts/munro.ttf")
 const BUTTON_TEX: Texture2D = preload("res://textures/gui/button.png")
+const BUTTON_SQUARE_TEX: Texture2D = preload("res://textures/gui/button_square.png")
+const UNDO_TEX: Texture2D = preload("res://textures/gui/undo_button.png")
 const SETTINGS_PATH := "user://settings.cfg"
 
 @onready var player_controller = get_node("/root/Main/Player")
@@ -34,6 +36,7 @@ var _default_godrays: bool = true
 var _default_mipmaps_enabled: bool = true
 var _default_mipmap_bias: float = 0.1
 var _default_textures_enabled: bool = true
+var _default_old_reset_buttons: bool = false
 
 var _block_outline_defaults := {
 	"outline_enabled": true,
@@ -74,6 +77,7 @@ var _crosshair_defaults := {
 }
 
 var _save_timer: Timer = null
+var _old_reset_buttons: bool = false
 
 func _ready():
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -148,6 +152,7 @@ func _save_settings():
 	cfg.set_value("render", "mipmaps_enabled", chunk_manager.get_mipmaps_enabled())
 	cfg.set_value("render", "mipmap_bias", chunk_manager.get_mipmap_bias())
 	cfg.set_value("render", "textures_enabled", chunk_manager.get_textures_enabled())
+	cfg.set_value("gui", "old_reset_buttons", _old_reset_buttons)
 	cfg.save(SETTINGS_PATH)
 
 func _load_settings():
@@ -181,6 +186,7 @@ func _load_settings():
 	chunk_manager.set_mipmaps_enabled(cfg.get_value("render", "mipmaps_enabled", chunk_manager.get_mipmaps_enabled()))
 	chunk_manager.set_mipmap_bias(cfg.get_value("render", "mipmap_bias", chunk_manager.get_mipmap_bias()))
 	chunk_manager.set_textures_enabled(cfg.get_value("render", "textures_enabled", chunk_manager.get_textures_enabled()))
+	_old_reset_buttons = cfg.get_value("gui", "old_reset_buttons", _default_old_reset_buttons)
 
 # Settings menu uses the global GUI scale with a 2/3 modifier so its default
 # look (2x when UIScale is 3.0) is preserved while still scaling with the rest.
@@ -288,11 +294,22 @@ func _build_gui_page() -> Control:
 	var block_outline_btn := _make_button("Block Outline")
 	block_outline_btn.pressed.connect(func(): _show_page("block_outline"))
 
+	var old_reset_btn := _make_button("Old" if _old_reset_buttons else "New", 180.0)
+	old_reset_btn.pressed.connect(func():
+		_old_reset_buttons = not _old_reset_buttons
+		old_reset_btn.text = "Old" if _old_reset_buttons else "New"
+		_schedule_save())
+	var old_reset_reset := func():
+		_old_reset_buttons = _default_old_reset_buttons
+		old_reset_btn.text = "Old" if _default_old_reset_buttons else "New"
+		_schedule_save()
+
 	return _build_option_page("GUI", [
 		["GUI Scale", scale_btn, reset],
+		["Reset Button Type", old_reset_btn, old_reset_reset],
 		["Crosshair", crosshair_btn, null],
 		["Block Outline", block_outline_btn, null],
-	], "settings")
+	], "settings", 44.0)
 
 func _build_crosshair_page() -> Control:
 	var s := _ui_scale()
@@ -934,8 +951,12 @@ func _build_option_page(title_text: String, rows: Array, back_target: String, ro
 		control.set_anchors_preset(Control.PRESET_CENTER)
 		var has_reset: bool = row.size() > 2 and row[2] != null
 		if has_reset:
-			control.offset_left = -140.0 * s
-			control.offset_right = 40.0 * s
+			if _old_reset_buttons:
+				control.offset_left = -140.0 * s
+				control.offset_right = 40.0 * s
+			else:
+				control.offset_left = -120.0 * s
+				control.offset_right = 60.0 * s
 		else:
 			control.offset_left = -100.0 * s
 			control.offset_right = 100.0 * s
@@ -957,11 +978,19 @@ func _build_option_page(title_text: String, rows: Array, back_target: String, ro
 		page.add_child(label)
 
 		if row.size() > 2 and row[2] != null:
-			var reset := _make_button("Reset", 80.0)
-			reset.offset_left = 48.0 * s
-			reset.offset_right = 128.0 * s
-			reset.offset_top = (y + 18.0) * s
-			reset.offset_bottom = (y + 38.0) * s
+			var reset: Button
+			if _old_reset_buttons:
+				reset = _make_button("Reset", 80.0)
+				reset.offset_left = 48.0 * s
+				reset.offset_right = 128.0 * s
+				reset.offset_top = (y + 18.0) * s
+				reset.offset_bottom = (y + 38.0) * s
+			else:
+				reset = _make_undo_button(20.0)
+				reset.offset_left = 78.0 * s
+				reset.offset_right = 98.0 * s
+				reset.offset_top = (y + 18.0) * s
+				reset.offset_bottom = (y + 38.0) * s
 			reset.pressed.connect(row[2])
 			page.add_child(reset)
 
@@ -1017,6 +1046,30 @@ func _style_button(btn: Button, width: float):
 	btn.add_theme_stylebox_override("pressed", pressed)
 	btn.add_theme_stylebox_override("focus", normal)
 	btn.custom_minimum_size = Vector2(width, 20) * s
+
+func _make_undo_button(width := 200.0) -> Button:
+	var s := _ui_scale()
+	var btn := Button.new()
+	btn.text = ""
+	_style_undo_button(btn, width)
+	btn.set_anchors_preset(Control.PRESET_CENTER)
+	return btn
+
+func _style_undo_button(btn: Button, width: float):
+	var s := _ui_scale()
+	var normal := StyleBoxTexture.new()
+	normal.texture = UNDO_TEX
+	var hover := StyleBoxTexture.new()
+	hover.texture = UNDO_TEX
+	hover.modulate_color = Color(1.2, 1.2, 1.2)
+	var pressed := StyleBoxTexture.new()
+	pressed.texture = UNDO_TEX
+	pressed.modulate_color = Color(0.75, 0.75, 0.75)
+	btn.add_theme_stylebox_override("normal", normal)
+	btn.add_theme_stylebox_override("hover", hover)
+	btn.add_theme_stylebox_override("pressed", pressed)
+	btn.add_theme_stylebox_override("focus", normal)
+	btn.custom_minimum_size = Vector2(width, width) * s
 
 func _input(event):
 	if not event.is_action_pressed("ui_cancel"):

@@ -38,6 +38,7 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 280, 0)
 
 [node name="Camera3D" type="Camera3D" parent="Player" unique_id=539519829]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.62, 0)
+fov = 81.7
 
 [node name="HUD" type="CanvasLayer" parent="." unique_id=386916972]
 

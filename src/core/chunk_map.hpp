@@ -483,7 +483,19 @@ private:
     std::atomic<size_t> chunk_count_{0};
 
     size_t key_to_shard(uint64_t key) const noexcept {
-        return key % kNumShards;
+        // Mix all three packed coordinates into the shard index. The raw key's
+        // low bits come only from z (x/y occupy bits 21..62), so a plain
+        // `key % 64` put every chunk sharing a Z coordinate on the same shard
+        // and collapsed a 3x3x3 neighborhood lock (3 distinct z values) to just
+        // 3 shards. Fold x ^ y ^ z together, then avalanche via the murmur3
+        // finalizer so unrelated (x,y,z) spread across all 64 shards.
+        uint64_t h = (key >> 42) ^ (key >> 21) ^ key;
+        h ^= h >> 33;
+        h *= 0xFF51AFD7ED558CCDULL;
+        h ^= h >> 33;
+        h *= 0xC4CEB9FE1A85EC53ULL;
+        h ^= h >> 33;
+        return static_cast<size_t>(h % kNumShards);
     }
 };
 

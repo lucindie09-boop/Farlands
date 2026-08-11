@@ -22,6 +22,7 @@ private:
     size_t last_registry_count = 0;
     bool mipmaps_enabled_ = true;
     bool textures_enabled_ = true;
+    bool compression_enabled_ = false;
 
     // Albedo texture state
     static inline godot::Ref<godot::Texture2DArray> s_global_texture_array;
@@ -66,6 +67,13 @@ public:
     static void set_textures_enabled(bool enabled);
     [[nodiscard]] static bool is_textures_enabled();
 
+    // Whether generated arrays use GPU compression (BC7/S3TC/ETC2). When enabled,
+    // textures are compressed using Image::compress() before array creation,
+    // reducing VRAM by ~4-6x at the cost of lossy compression. Toggling after
+    // first use regenerates the arrays (MaterialManager::reload_textures()).
+    static void set_compression_enabled(bool enabled);
+    [[nodiscard]] static bool is_compression_enabled();
+
     static void cleanup() {
         s_global_texture_array.unref();
         s_global_texture_name_to_index.clear();
@@ -101,6 +109,15 @@ inline void normalize_mipmaps(godot::Ref<godot::Image>& image, bool enabled) {
             image->clear_mipmaps();
         }
     }
+}
+
+// Applies GPU compression to an image if enabled. Uses platform-appropriate
+// compression format (BC7 on desktop, ETC2 on mobile, etc.) via Image::compress().
+inline void apply_compression(godot::Ref<godot::Image>& image, bool enabled) {
+    if (image.is_null() || !enabled) return;
+    // Image::compress() automatically selects the best format for the platform
+    // BC7 for desktop, ETC2 for mobile, S3TC as fallback
+    image->compress(godot::Image::COMPRESS_S3TC); // Use S3TC/BC7 as default
 }
 
 // Magenta/black checker placeholder used when textures are disabled.
@@ -206,6 +223,7 @@ inline godot::Ref<godot::Texture2DArray> TextureArrayGenerator::generate_texture
         }
 
         normalize_mipmaps(image, mipmaps_enabled_);
+        apply_compression(image, compression_enabled_);
 
         const int layer_index = static_cast<int>(textures.size());
         textures.append(image);
@@ -261,6 +279,7 @@ inline godot::Ref<godot::Texture2DArray> TextureArrayGenerator::generate_emissiv
     }
     godot::Ref<godot::Image> black_image = godot::Image::create_from_data(target_width, target_height, false, godot::Image::FORMAT_RGBA8, black_data);
     normalize_mipmaps(black_image, mipmaps_enabled_);
+    apply_compression(black_image, compression_enabled_);
 
     godot::Array images;
     images.append(black_image);
@@ -300,6 +319,7 @@ inline godot::Ref<godot::Texture2DArray> TextureArrayGenerator::generate_emissiv
         }
 
         normalize_mipmaps(emissive_image, mipmaps_enabled_);
+        apply_compression(emissive_image, compression_enabled_);
 
         const int layer_index = static_cast<int>(images.size());
         images.append(emissive_image);
@@ -382,6 +402,19 @@ inline void TextureArrayGenerator::set_textures_enabled(bool enabled) {
     TextureArrayGenerator& gen = get_instance();
     if (gen.textures_enabled_ == enabled) return;
     gen.textures_enabled_ = enabled;
+    if (s_global_texture_initialized || s_global_emissive_initialized) {
+        gen.force_regenerate();
+    }
+}
+
+inline bool TextureArrayGenerator::is_compression_enabled() {
+    return get_instance().compression_enabled_;
+}
+
+inline void TextureArrayGenerator::set_compression_enabled(bool enabled) {
+    TextureArrayGenerator& gen = get_instance();
+    if (gen.compression_enabled_ == enabled) return;
+    gen.compression_enabled_ = enabled;
     if (s_global_texture_initialized || s_global_emissive_initialized) {
         gen.force_regenerate();
     }

@@ -147,6 +147,15 @@ void MaterialManager::set_textures_enabled(bool enabled) {
     reload_textures();
 }
 
+void MaterialManager::set_compression_enabled(bool enabled) {
+    TextureArrayGenerator::get_instance().set_compression_enabled(enabled);
+    reload_textures();
+}
+
+bool MaterialManager::get_compression_enabled() const {
+    return TextureArrayGenerator::is_compression_enabled();
+}
+
 void MaterialManager::reload_textures() {
     Ref<Texture2DArray> texture_array = TextureArrayGenerator::get_instance().get_texture_array();
     Ref<Texture2DArray> emissive_array = TextureArrayGenerator::get_instance().get_emissive_texture_array();

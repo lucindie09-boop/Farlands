@@ -416,6 +416,8 @@ void VoxelEngineController::set_mipmap_bias(double bias) { environment_controlle
 double VoxelEngineController::get_mipmap_bias() const { return environment_controller.get_mipmap_bias(); }
 void VoxelEngineController::set_textures_enabled(bool enabled) { environment_controller.set_textures_enabled(enabled); }
 bool VoxelEngineController::get_textures_enabled() const { return environment_controller.get_textures_enabled(); }
+void VoxelEngineController::set_compression_enabled(bool enabled) { environment_controller.set_compression_enabled(enabled); }
+bool VoxelEngineController::get_compression_enabled() const { return environment_controller.get_compression_enabled(); }
 void VoxelEngineController::set_render_distance_blocks(float blocks) { environment_controller.set_render_distance_blocks(blocks); }
 float VoxelEngineController::get_render_distance_blocks() const { return environment_controller.get_render_distance_blocks(); }
 

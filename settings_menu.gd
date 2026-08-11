@@ -38,6 +38,7 @@ var _default_godrays: bool = true
 var _default_mipmaps_enabled: bool = true
 var _default_mipmap_bias: float = 0.1
 var _default_textures_enabled: bool = true
+var _default_compression_enabled: bool = false
 var _default_old_reset_buttons: bool = false
 var _default_fps_cap: int = 0
 
@@ -109,6 +110,7 @@ func _ready():
 	_default_mipmaps_enabled = chunk_manager.get_mipmaps_enabled()
 	_default_mipmap_bias = chunk_manager.get_mipmap_bias()
 	_default_textures_enabled = chunk_manager.get_textures_enabled()
+	_default_compression_enabled = chunk_manager.get_compression_enabled()
 	if crosshair_node:
 		for k in _crosshair_defaults:
 			_crosshair_defaults[k] = crosshair_node.get(k)
@@ -157,6 +159,7 @@ func _save_settings():
 	cfg.set_value("render", "mipmaps_enabled", chunk_manager.get_mipmaps_enabled())
 	cfg.set_value("render", "mipmap_bias", chunk_manager.get_mipmap_bias())
 	cfg.set_value("render", "textures_enabled", chunk_manager.get_textures_enabled())
+	cfg.set_value("render", "compression_enabled", chunk_manager.get_compression_enabled())
 	cfg.set_value("render", "fps_cap", _fps_cap)
 	cfg.set_value("gui", "old_reset_buttons", _old_reset_buttons)
 	cfg.save(SETTINGS_PATH)
@@ -192,6 +195,7 @@ func _load_settings():
 	chunk_manager.set_mipmaps_enabled(cfg.get_value("render", "mipmaps_enabled", chunk_manager.get_mipmaps_enabled()))
 	chunk_manager.set_mipmap_bias(cfg.get_value("render", "mipmap_bias", chunk_manager.get_mipmap_bias()))
 	chunk_manager.set_textures_enabled(cfg.get_value("render", "textures_enabled", chunk_manager.get_textures_enabled()))
+	chunk_manager.set_compression_enabled(cfg.get_value("render", "compression_enabled", chunk_manager.get_compression_enabled()))
 	var loaded_fps_cap = cfg.get_value("render", "fps_cap", _default_fps_cap)
 	_fps_cap = loaded_fps_cap if loaded_fps_cap != 60 else _default_fps_cap
 	Engine.max_fps = _fps_cap
@@ -956,6 +960,20 @@ func _build_render_page() -> Control:
 		textures_btn.text = "On" if _default_textures_enabled else "Off"
 		_schedule_save()
 
+	var compression_btn := Button.new()
+	var compression_enabled: bool = chunk_manager.get_compression_enabled()
+	compression_btn.text = "On" if compression_enabled else "Off"
+	_style_button(compression_btn, 180.0)
+	compression_btn.pressed.connect(func():
+		var next: bool = not chunk_manager.get_compression_enabled()
+		chunk_manager.set_compression_enabled(next)
+		compression_btn.text = "On" if next else "Off"
+		_schedule_save())
+	var compression_reset := func():
+		chunk_manager.set_compression_enabled(_default_compression_enabled)
+		compression_btn.text = "On" if _default_compression_enabled else "Off"
+		_schedule_save()
+
 	var fps_cap := _make_slider(float(_fps_cap), 0.0, 300.0, 1.0,
 		func(v: float):
 			_fps_cap = int(v)
@@ -976,6 +994,7 @@ func _build_render_page() -> Control:
 		["Mipmaps", mipmaps_btn, mipmaps_reset],
 		["Mipmap Bias", mipmap_bias, mipmap_bias_reset],
 		["Textures", textures_btn, textures_reset],
+		["Compression", compression_btn, compression_reset],
 		["FPS Cap", fps_cap, fps_cap_reset],
 	], "settings")
 

@@ -91,7 +91,12 @@ bool BlockRegistry::load_from_json(const godot::String& json_path) noexcept {
 
         // top_face_offset
         if (d.has("top_face_offset")) {
-            bt.top_face_offset = static_cast<float>(static_cast<double>(d["top_face_offset"]));
+            float offset = static_cast<float>(static_cast<double>(d["top_face_offset"]));
+            // Clamp to [0.0, 1.0] to prevent UB in vertex format conversion
+            // (negative values wrap when cast to uint16_t, >1.0 exceeds chunk bounds)
+            if (offset < 0.0f) offset = 0.0f;
+            if (offset > 1.0f) offset = 1.0f;
+            bt.top_face_offset = offset;
         }
 
         // slipperiness

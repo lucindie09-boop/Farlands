@@ -43,20 +43,20 @@ static void run_soak_test(int total_iterations, int render_distance) {
     int32_t grid_w = x_max - x_min + 1;
     int32_t grid_d = z_max - z_min + 1;
 
-    std::vector<ChunkEntry> grid(static_cast<size_t>(grid_w) * grid_d);
+    auto grid = std::make_shared<std::vector<ChunkEntry>>(static_cast<size_t>(grid_w) * grid_d);
 
     auto idx = [&](int32_t x, int32_t z) -> ChunkEntry& {
-        return grid[static_cast<size_t>(x - x_min) * grid_d + (z - z_min)];
+        return (*grid)[static_cast<size_t>(x - x_min) * grid_d + (z - z_min)];
     };
 
     TerrainParams params;
     ChunkGenerator gen(params);
 
-    std::atomic<int> chunks_generated{0};
-    std::atomic<int> chunks_meshed{0};
-    std::atomic<int> chunks_lighted{0};
-    std::atomic<int> errors{0};
-    std::atomic<int> pending_mesh{0};
+    auto chunks_generated = std::make_shared<std::atomic<int>>(0);
+    auto chunks_meshed = std::make_shared<std::atomic<int>>(0);
+    auto chunks_lighted = std::make_shared<std::atomic<int>>(0);
+    auto errors = std::make_shared<std::atomic<int>>(0);
+    auto pending_mesh = std::make_shared<std::atomic<int>>(0);
 
     ThreadPool pool(std::max(std::size_t(2), static_cast<std::size_t>(std::thread::hardware_concurrency()) - 1));
 
@@ -80,7 +80,7 @@ static void run_soak_test(int total_iterations, int render_distance) {
                 std::function<void(int32_t, int32_t, int32_t, BlockID)> no_cross_writes;
                 gen.generate_chunk(entry.data, cx, 0, cz, no_cross_writes, false);
                 entry.generated = true;
-                chunks_generated.fetch_add(1, std::memory_order_relaxed);
+                chunks_generated->fetch_add(1, std::memory_order_relaxed);
             }
         }
 
@@ -97,18 +97,18 @@ static void run_soak_test(int total_iterations, int render_distance) {
                 auto& center_entry = idx(cx, cz);
                 if (!center_entry.generated) continue;
 
-                pending_mesh.fetch_add(1, std::memory_order_relaxed);
-                pool.fire_and_forget([&grid, &grid_d, &x_min, &z_min, &x_max, &z_max,
-                                      &pending_mesh, &chunks_meshed, &errors, cx, cz]() {
+                pending_mesh->fetch_add(1, std::memory_order_relaxed);
+                pool.fire_and_forget([grid, grid_d, x_min, z_min, x_max, z_max,
+                                      pending_mesh, chunks_meshed, errors, cx, cz]() {
                     auto lookup = [&](int dx, int dz) -> const ChunkData* {
                         int32_t nx = cx + dx;
                         int32_t nz = cz + dz;
                         if (nx < x_min || nx > x_max || nz < z_min || nz > z_max) return nullptr;
-                        auto& e = grid[static_cast<size_t>(nx - x_min) * grid_d + (nz - z_min)];
+                        auto& e = (*grid)[static_cast<size_t>(nx - x_min) * grid_d + (nz - z_min)];
                         return e.generated ? &e.data : nullptr;
                     };
 
-                    auto& center = grid[static_cast<size_t>(cx - x_min) * grid_d + (cz - z_min)];
+                    auto& center = (*grid)[static_cast<size_t>(cx - x_min) * grid_d + (cz - z_min)];
 
                     MeshBuilder mb;
                     mb.build_mesh(
@@ -126,18 +126,18 @@ static void run_soak_test(int total_iterations, int render_distance) {
 
                     if (center.data.get_block_count() > 0) {
                         if (mb.get_vertex_count() == 0 && mb.get_index_count() == 0) {
-                            errors.fetch_add(1, std::memory_order_relaxed);
+                            errors->fetch_add(1, std::memory_order_relaxed);
                         }
                     }
 
-                    chunks_meshed.fetch_add(1, std::memory_order_relaxed);
-                    pending_mesh.fetch_sub(1, std::memory_order_relaxed);
+                    chunks_meshed->fetch_add(1, std::memory_order_relaxed);
+                    pending_mesh->fetch_sub(1, std::memory_order_relaxed);
                 });
             }
         }
 
         // Wait for all mesh builds to complete
-        while (pending_mesh.load(std::memory_order_acquire) > 0)
+        while (pending_mesh->load(std::memory_order_acquire) > 0)
             std::this_thread::yield();
 
         // Phase 3: Light propagation — main thread (writes to chunks, not thread-safe)
@@ -178,13 +178,13 @@ static void run_soak_test(int total_iterations, int render_distance) {
                             uint8_t g = region[1][1][1]->get_light_g(lx, ly, lz);
                             uint8_t b = region[1][1][1]->get_light_b(lx, ly, lz);
                             if (r > 15 || g > 15 || b > 15) {
-                                errors.fetch_add(1, std::memory_order_relaxed);
+                                errors->fetch_add(1, std::memory_order_relaxed);
                             }
                         }
                     }
                 }
 
-                chunks_lighted.fetch_add(1, std::memory_order_relaxed);
+                chunks_lighted->fetch_add(1, std::memory_order_relaxed);
             }
         }
 
@@ -210,15 +210,15 @@ static void run_soak_test(int total_iterations, int render_distance) {
 
     pool.shutdown();
 
-    INFO("Chunks generated: ", chunks_generated.load());
-    INFO("Chunks meshed:    ", chunks_meshed.load());
-    INFO("Chunks lighted:   ", chunks_lighted.load());
-    INFO("Errors:           ", errors.load());
+    INFO("Chunks generated: ", chunks_generated->load());
+    INFO("Chunks meshed:    ", chunks_meshed->load());
+    INFO("Chunks lighted:   ", chunks_lighted->load());
+    INFO("Errors:           ", errors->load());
 
-    CHECK(chunks_generated.load() > 0);
-    CHECK(chunks_meshed.load() > 0);
-    CHECK(chunks_lighted.load() > 0);
-    CHECK(errors.load() == 0);
+    CHECK(chunks_generated->load() > 0);
+    CHECK(chunks_meshed->load() > 0);
+    CHECK(chunks_lighted->load() > 0);
+    CHECK(errors->load() == 0);
 }
 
 TEST_CASE("soak: quick smoke test") {
@@ -249,12 +249,12 @@ static uint64_t soak_key(int32_t x, int32_t y, int32_t z) {
 }
 
 static void run_shard_hammer() {
-    std::array<SoakShard, kSoakShards> shards;
+    auto shards = std::make_shared<std::array<SoakShard, kSoakShards>>();
 
-    std::atomic<int> insert_count{0};
-    std::atomic<int> read_count{0};
-    std::atomic<int> erase_count{0};
-    std::atomic<int> error_count{0};
+    auto insert_count = std::make_shared<std::atomic<int>>(0);
+    auto read_count = std::make_shared<std::atomic<int>>(0);
+    auto erase_count = std::make_shared<std::atomic<int>>(0);
+    auto error_count = std::make_shared<std::atomic<int>>(0);
 
     BlockRegistry::get_instance().initialize_default_blocks();
 
@@ -264,12 +264,12 @@ static void run_shard_hammer() {
     ThreadPool pool(std::max(std::size_t(2), static_cast<std::size_t>(std::thread::hardware_concurrency()) - 1));
 
     for (int i = 0; i < kTotalOps; i++) {
-        pool.fire_and_forget([&, i]() {
+        pool.fire_and_forget([shards, insert_count, read_count, erase_count, error_count, i, kMaxChunks]() {
             int32_t x = i % kMaxChunks;
             int32_t y = 0;
             int32_t z = (i / kMaxChunks) % 8;
             uint64_t k = soak_key(x, y, z);
-            size_t s = k % kSoakShards;
+            size_t s = k % 64;
 
             int op = i % 10;
 
@@ -277,42 +277,42 @@ static void run_shard_hammer() {
                 auto chunk = std::make_unique<ChunkData>();
                 chunk->clear();
                 chunk->set_block(x % CHUNK_WIDTH, 16, z % CHUNK_DEPTH, BlockIDs::STONE);
-                std::unique_lock<std::shared_mutex> lk(shards[s].mutex);
-                shards[s].chunks.insert_or_assign(k, std::move(chunk));
-                insert_count.fetch_add(1, std::memory_order_relaxed);
+                std::unique_lock<std::shared_mutex> lk((*shards)[s].mutex);
+                (*shards)[s].chunks.insert_or_assign(k, std::move(chunk));
+                insert_count->fetch_add(1, std::memory_order_relaxed);
             } else if (op < 7) {
                 // Read: hold lock for the entire read operation
-                std::shared_lock<std::shared_mutex> lk(shards[s].mutex);
-                auto it = shards[s].chunks.find(k);
-                if (it != shards[s].chunks.end()) {
+                std::shared_lock<std::shared_mutex> lk((*shards)[s].mutex);
+                auto it = (*shards)[s].chunks.find(k);
+                if (it != (*shards)[s].chunks.end()) {
                     BlockID id = it->second->get_block(0, 0, 0);
                     if (id != BlockIDs::AIR && id != BlockIDs::STONE) {
-                        error_count.fetch_add(1, std::memory_order_relaxed);
+                        error_count->fetch_add(1, std::memory_order_relaxed);
                     }
                 }
-                read_count.fetch_add(1, std::memory_order_relaxed);
+                read_count->fetch_add(1, std::memory_order_relaxed);
             } else if (op < 9) {
-                std::unique_lock<std::shared_mutex> lk(shards[s].mutex);
-                shards[s].chunks.erase(k);
-                erase_count.fetch_add(1, std::memory_order_relaxed);
+                std::unique_lock<std::shared_mutex> lk((*shards)[s].mutex);
+                (*shards)[s].chunks.erase(k);
+                erase_count->fetch_add(1, std::memory_order_relaxed);
             } else {
-                std::shared_lock<std::shared_mutex> lk(shards[s].mutex);
-                volatile size_t count = shards[s].chunks.size();
+                std::shared_lock<std::shared_mutex> lk((*shards)[s].mutex);
+                volatile size_t count = (*shards)[s].chunks.size();
                 (void)count;
-                read_count.fetch_add(1, std::memory_order_relaxed);
+                read_count->fetch_add(1, std::memory_order_relaxed);
             }
         });
     }
 
     pool.shutdown();
 
-    INFO("Inserts: ", insert_count.load());
-    INFO("Reads:   ", read_count.load());
-    INFO("Erases:  ", erase_count.load());
-    INFO("Errors:  ", error_count.load());
+    INFO("Inserts: ", insert_count->load());
+    INFO("Reads:   ", read_count->load());
+    INFO("Erases:  ", erase_count->load());
+    INFO("Errors:  ", error_count->load());
 
-    CHECK(insert_count.load() + erase_count.load() > 0);
-    CHECK(error_count.load() == 0);
+    CHECK(insert_count->load() + erase_count->load() > 0);
+    CHECK(error_count->load() == 0);
 }
 
 TEST_CASE("soak: shard map concurrent insert/erase/read") {
@@ -327,42 +327,42 @@ TEST_CASE("soak: mesh builder concurrent stress") {
     BlockRegistry::get_instance().initialize_default_blocks();
 
     constexpr int kNumChunks = 64;
-    std::vector<ChunkData> chunks(kNumChunks);
-    std::vector<ChunkData*> chunk_ptrs(kNumChunks);
+    auto chunks = std::make_shared<std::vector<ChunkData>>(kNumChunks);
+    auto chunk_ptrs = std::make_shared<std::vector<ChunkData*>>(kNumChunks);
 
     for (int i = 0; i < kNumChunks; i++) {
-        chunks[i].clear();
+        (*chunks)[i].clear();
         for (int z = 0; z < CHUNK_DEPTH; z++) {
             for (int y = 0; y < CHUNK_HEIGHT; y++) {
                 for (int x = 0; x < CHUNK_WIDTH; x++) {
                     if ((x + y + z + i) % 7 == 0)
-                        chunks[i].set_block(x, y, z, BlockIDs::STONE);
+                        (*chunks)[i].set_block(x, y, z, BlockIDs::STONE);
                     else if ((x + y + z + i) % 11 == 0)
-                        chunks[i].set_block(x, y, z, BlockIDs::GRASS);
+                        (*chunks)[i].set_block(x, y, z, BlockIDs::GRASS);
                     else if ((x + y + z + i) % 13 == 0)
-                        chunks[i].set_block(x, y, z, BlockIDs::LIGHT_BLOCK);
+                        (*chunks)[i].set_block(x, y, z, BlockIDs::LIGHT_BLOCK);
                 }
             }
         }
-        chunks[i].compute_fully_solid();
-        chunk_ptrs[i] = &chunks[i];
+        (*chunks)[i].compute_fully_solid();
+        (*chunk_ptrs)[i] = &(*chunks)[i];
     }
 
-    std::atomic<int> builds_completed{0};
-    std::atomic<int> errors{0};
+    auto builds_completed = std::make_shared<std::atomic<int>>(0);
+    auto errors = std::make_shared<std::atomic<int>>(0);
 
     ThreadPool pool(std::max(std::size_t(2), static_cast<std::size_t>(std::thread::hardware_concurrency()) - 1));
 
     constexpr int kBuildsPerChunk = 20;
     for (int i = 0; i < kNumChunks * kBuildsPerChunk; i++) {
-        pool.fire_and_forget([&, i]() {
+        pool.fire_and_forget([chunk_ptrs, builds_completed, errors, i, kNumChunks]() {
             int chunk_idx = i % kNumChunks;
             int neighbor_idx = (i + 1) % kNumChunks;
 
             MeshBuilder mb;
             mb.build_mesh(
-                *chunk_ptrs[chunk_idx],
-                chunk_ptrs[neighbor_idx], nullptr, nullptr,
+                *(*chunk_ptrs)[chunk_idx],
+                (*chunk_ptrs)[neighbor_idx], nullptr, nullptr,
                 nullptr, nullptr, nullptr,
                 nullptr, nullptr, nullptr,
                 nullptr, nullptr, nullptr,
@@ -375,20 +375,20 @@ TEST_CASE("soak: mesh builder concurrent stress") {
 
             size_t indices = mb.get_index_count();
             if (indices % 3 != 0) {
-                errors.fetch_add(1, std::memory_order_relaxed);
+                errors->fetch_add(1, std::memory_order_relaxed);
             }
 
-            builds_completed.fetch_add(1, std::memory_order_relaxed);
+            builds_completed->fetch_add(1, std::memory_order_relaxed);
         });
     }
 
     pool.shutdown();
 
-    INFO("Builds completed: ", builds_completed.load());
-    INFO("Errors:           ", errors.load());
+    INFO("Builds completed: ", builds_completed->load());
+    INFO("Errors:           ", errors->load());
 
-    CHECK(builds_completed.load() == kNumChunks * kBuildsPerChunk);
-    CHECK(errors.load() == 0);
+    CHECK(builds_completed->load() == kNumChunks * kBuildsPerChunk);
+    CHECK(errors->load() == 0);
 }
 
 // =========================================================================
@@ -412,8 +412,8 @@ TEST_CASE("soak: light propagation across shifting grid") {
         }
     }
 
-    std::atomic<int> propagations{0};
-    std::atomic<int> light_errors{0};
+    auto propagations = std::make_shared<std::atomic<int>>(0);
+    auto light_errors = std::make_shared<std::atomic<int>>(0);
 
     constexpr int kWindowRadius = 3;
     constexpr int kSteps = 200;
@@ -454,7 +454,7 @@ TEST_CASE("soak: light propagation across shifting grid") {
                                 uint8_t g = c->get_light_g(x, y, z);
                                 uint8_t b = c->get_light_b(x, y, z);
                                 if (r > 15 || g > 15 || b > 15)
-                                    light_errors.fetch_add(1, std::memory_order_relaxed);
+                                    light_errors->fetch_add(1, std::memory_order_relaxed);
                             }
                         }
                     }
@@ -462,12 +462,12 @@ TEST_CASE("soak: light propagation across shifting grid") {
             }
         }
 
-        propagations.fetch_add(1, std::memory_order_relaxed);
+        propagations->fetch_add(1, std::memory_order_relaxed);
     }
 
-    INFO("Propagations: ", propagations.load());
-    INFO("Light errors: ", light_errors.load());
+    INFO("Propagations: ", propagations->load());
+    INFO("Light errors: ", light_errors->load());
 
-    CHECK(propagations.load() > 0);
-    CHECK(light_errors.load() == 0);
+    CHECK(propagations->load() > 0);
+    CHECK(light_errors->load() == 0);
 }

@@ -182,17 +182,24 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
         // No solids possible. Shallow-ocean chunks still carry the sea surface
         // (water tops out at sea_level, well above the sea floor), so fill
         // per-column water; land-only chunks end up all-air.
+        // Optimized: use dense buffer to avoid set_block overhead
+        thread_local std::vector<BlockID> above_terrain_buffer;
+        above_terrain_buffer.resize(static_cast<size_t>(CHUNK_WIDTH) * CHUNK_HEIGHT * CHUNK_DEPTH);
+        std::fill(above_terrain_buffer.begin(), above_terrain_buffer.end(), BlockIDs::AIR);
+        
         for (int32_t x = 0; x < CHUNK_WIDTH; x++) {
             for (int32_t z = 0; z < CHUNK_DEPTH; z++) {
                 const int32_t water_top = columns[x][z].water_level;
                 if (water_top < 0 || water_top < world_y_start) continue;
                 const int32_t end = std::min(world_y_end - 1, water_top);
                 for (int32_t wy = world_y_start; wy <= end; wy++) {
-                    chunk.set_block(x, wy - world_y_start, z,
-                                    (wy == water_top) ? BlockIDs::SURFACE_WATER : BlockIDs::WATER);
+                    int32_t ly = wy - world_y_start;
+                    above_terrain_buffer[static_cast<size_t>(x) + static_cast<size_t>(ly) * CHUNK_WIDTH + static_cast<size_t>(z) * CHUNK_WIDTH * CHUNK_HEIGHT] =
+                        (wy == water_top) ? BlockIDs::SURFACE_WATER : BlockIDs::WATER;
                 }
             }
         }
+        chunk.set_data(above_terrain_buffer.data(), CHUNK_VOLUME);
         return;
     }
 
@@ -344,6 +351,15 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
     }
 
     // ---- Material pass: solid geometry first, materials second ----
+    // Optimized: Build into a dense buffer first, then use build_from_dense()
+    // to avoid palette upgrade thrashing from thousands of set_block() calls.
+    thread_local std::vector<BlockID> dense_buffer;
+    dense_buffer.resize(static_cast<size_t>(CHUNK_WIDTH) * CHUNK_HEIGHT * CHUNK_DEPTH);
+    std::fill(dense_buffer.begin(), dense_buffer.end(), BlockIDs::AIR);
+    auto dense = [&](int32_t x, int32_t y, int32_t z) -> BlockID& {
+        return dense_buffer[static_cast<size_t>(x) + static_cast<size_t>(y) * CHUNK_WIDTH + static_cast<size_t>(z) * CHUNK_WIDTH * CHUNK_HEIGHT];
+    };
+
     const int32_t bed = params.bedrock_height;
 
     for (int32_t x = 0; x < CHUNK_WIDTH; x++) {
@@ -363,7 +379,7 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
             int32_t bedrock_overlap_end   = std::min(bed, world_y_end);
             if (bedrock_overlap_start < bedrock_overlap_end) {
                 for (int32_t local_y = bedrock_overlap_start - world_y_start; local_y < bedrock_overlap_end - world_y_start; local_y++) {
-                    chunk.set_block(x, local_y, z, BlockIDs::BEDROCK);
+                    dense(x, local_y, z) = BlockIDs::BEDROCK;
                 }
             }
 
@@ -371,7 +387,10 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
                 const int32_t wy = world_y_start + ly;
 
                 // Bedrock region takes priority (also keeps cave noise out of it).
-                if (wy < bed) continue;
+                if (wy < bed) {
+                    dense(x, ly, z) = BlockIDs::AIR;
+                    continue;
+                }
 
                 const float density = dens(x, ly, z);
                 bool solid = density > 0.0f;
@@ -390,7 +409,9 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
                     const bool above_original_ground = static_cast<float>(wy) > macro_height_f;
                     if (above_original_ground && wy <= water_top) {
                         BlockID water_block = (wy == water_top) ? BlockIDs::SURFACE_WATER : BlockIDs::WATER;
-                        chunk.set_block(x, ly, z, water_block);
+                        dense(x, ly, z) = water_block;
+                    } else {
+                        dense(x, ly, z) = BlockIDs::AIR;
                     }
                     continue;
                 }
@@ -410,7 +431,7 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
                 } else {
                     block = BlockIDs::STONE;
                 }
-                chunk.set_block(x, ly, z, block);
+                dense(x, ly, z) = block;
             }
         }
     }
@@ -419,7 +440,7 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
     // orthogonal neighbors are all air is a density-noise glitch (a lone
     // floating cube). Only interior blocks are touched — boundary-layer
     // neighbors may live in adjacent, not-yet-generated chunks.
-    // Optimized: use the dens() buffer instead of expensive get_block() calls.
+    // Optimized: work directly on the dense buffer using dens() for detection.
     // Positive density = solid, negative density = air.
     for (int32_t ly = 1; ly < CHUNK_HEIGHT - 1; ly++) {
         for (int32_t x = 1; x < CHUNK_WIDTH - 1; x++) {
@@ -431,10 +452,13 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
                 if (dens(x, ly - 1, z) > 0.0f) continue;
                 if (dens(x, ly, z + 1) > 0.0f) continue;
                 if (dens(x, ly, z - 1) > 0.0f) continue;
-                chunk.set_block(x, ly, z, BlockIDs::AIR);
+                dense(x, ly, z) = BlockIDs::AIR;
             }
         }
     }
+
+    // Bulk build from dense buffer - avoids palette upgrade thrashing
+    chunk.set_data(dense_buffer.data(), CHUNK_VOLUME);
 
     // Place vegetation
     if (vegetation_enabled) {

@@ -33,7 +33,11 @@ VoxelEngineController::VoxelEngineController()
             registry.initialize_default_blocks();
         }
     });
-    chunk_world.get_chunk_map().reserve(5000);
+    // Reserve based on render distance to avoid rehashing during load
+    // Render distance is radius, so total chunks ≈ (2*RD + 1)^3
+    // Divide by 64 shards, multiply by 2 for headroom
+    int32_t reserve_per_shard = static_cast<int32_t>(((2 * render_distance + 1) * (2 * render_distance + 1) * (2 * render_distance + 1)) / 64 * 2);
+    chunk_world.get_chunk_map().reserve(std::max(5000, reserve_per_shard));
     create_thread_pool();
     chunk_world.set_thread_pool(thread_pool.get());
     mesh_manager.set_chunk_map(chunk_world.get_chunk_map_ptr());

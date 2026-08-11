@@ -36,6 +36,7 @@ var _pulse_time: float = 0.0
 # Throttling: skip raycast when camera hasn't moved significantly
 var _last_camera_position: Vector3 = Vector3.ZERO
 var _last_camera_rotation: Vector3 = Vector3.ZERO
+var _last_block_edit_counter: int = -1
 var _position_threshold: float = 0.01
 var _rotation_threshold: float = 0.001
 
@@ -215,14 +216,16 @@ func _process(delta):
 
 	var current_position = camera.global_position
 	var current_rotation = camera.global_rotation
+	var current_edit_counter = player_controller.get_block_edit_counter()
 
-	# Skip raycast if camera hasn't moved significantly (throttling)
+	# Skip raycast if camera hasn't moved significantly and no blocks were edited (throttling)
 	var position_changed = current_position.distance_to(_last_camera_position) > _position_threshold
 	var rotation_changed = abs(current_rotation.x - _last_camera_rotation.x) > _rotation_threshold or \
 						  abs(current_rotation.y - _last_camera_rotation.y) > _rotation_threshold or \
 						  abs(current_rotation.z - _last_camera_rotation.z) > _rotation_threshold
+	var world_changed = current_edit_counter != _last_block_edit_counter
 
-	var needs_raycast = position_changed or rotation_changed or _last_camera_position == Vector3.ZERO
+	var needs_raycast = position_changed or rotation_changed or world_changed or _last_camera_position == Vector3.ZERO
 
 	if not needs_raycast:
 		# Still update pulse animations even if raycast is skipped
@@ -233,6 +236,7 @@ func _process(delta):
 	# Update tracked camera state
 	_last_camera_position = current_position
 	_last_camera_rotation = current_rotation
+	_last_block_edit_counter = current_edit_counter
 
 	var result = chunk_manager.raycast_from_camera(reach_distance)
 	if not result or not result.get("success", false):

@@ -29,6 +29,7 @@ void PlayerController::_bind_methods() {
     ClassDB::bind_method(D_METHOD("place_block"), &PlayerController::place_block);
     ClassDB::bind_method(D_METHOD("get_selected_block"), &PlayerController::get_selected_block);
     ClassDB::bind_method(D_METHOD("set_selected_block", "block_id"), &PlayerController::set_selected_block);
+    ClassDB::bind_method(D_METHOD("get_block_edit_counter"), &PlayerController::get_block_edit_counter);
     
     // Inventory API
     ClassDB::bind_method(D_METHOD("get_hotbar_slot_count", "slot"), &PlayerController::get_hotbar_slot_count);
@@ -260,9 +261,12 @@ void PlayerController::break_block() {
         if (block_type != 0 && inventory_.can_add_block(block_type, 1)) {
             // Break the block
             cm->set_block(bx, by, bz, 0);
-            
+
             // Add to inventory
             inventory_.add_block(block_type, 1);
+
+            // Increment edit counter to invalidate block outline
+            block_edit_counter_++;
         }
     }
 }
@@ -295,13 +299,17 @@ void PlayerController::place_block() {
 
         // Place the block
         cm->set_block(bx, by, bz, block_to_place);
-        
+
         // Consume from inventory
         inventory_.consume_block(block_to_place, 1);
+
+        // Increment edit counter to invalidate block outline
+        block_edit_counter_++;
     }
 }
 
 int PlayerController::get_selected_block() const { return inventory_.get_selected_block(); }
+int PlayerController::get_block_edit_counter() const { return block_edit_counter_; }
 void PlayerController::set_selected_block(int block_id) { 
     // Legacy method - set the selected hotbar slot to this block type
     // This is for backwards compatibility, but does NOT grant free blocks

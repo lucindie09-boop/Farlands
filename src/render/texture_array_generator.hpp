@@ -111,13 +111,13 @@ inline void normalize_mipmaps(godot::Ref<godot::Image>& image, bool enabled) {
     }
 }
 
-// Applies GPU compression to an image if enabled. Uses platform-appropriate
-// compression format (BC7 on desktop, ETC2 on mobile, etc.) via Image::compress().
+// Applies GPU compression to an image if enabled. Uses S3TC (DXT1/DXT5, BC1/BC3)
+// which provides ~4:1–6:1 compression at the cost of lossy artifacts.
 inline void apply_compression(godot::Ref<godot::Image>& image, bool enabled) {
     if (image.is_null() || !enabled) return;
-    // Image::compress() automatically selects the best format for the platform
-    // BC7 for desktop, ETC2 for mobile, S3TC as fallback
-    image->compress(godot::Image::COMPRESS_S3TC); // Use S3TC/BC7 as default
+    // COMPRESS_S3TC uses DXT1/DXT5 (BC1/BC3), not BC7. For better quality
+    // (especially gradients), use COMPRESS_BPTC instead, but S3TC has wider support.
+    image->compress(godot::Image::COMPRESS_S3TC);
 }
 
 // Magenta/black checker placeholder used when textures are disabled.

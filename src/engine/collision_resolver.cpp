@@ -1,12 +1,45 @@
 #include "engine/collision_resolver.hpp"
 #include "core/chunk_map.hpp"
+#include "core/chunk_coords.hpp"
 #include "core/block_types.hpp"
 #include <cmath>
 #include <algorithm>
+#include <vector>
 
 namespace VoxelEngine {
 
 using namespace godot;
+
+namespace {
+
+// Shared-lock only the shards of the chunks intersecting a block-space box,
+// instead of the whole map. Collision probes only ever touch the swept volume
+// of the player's body, so the key set is tiny (usually 1-8 chunks).
+std::vector<uint64_t> chunk_keys_for_box(const ChunkMap* chunk_map,
+                                         const godot::Vector3& box_lo,
+                                         const godot::Vector3& box_hi) {
+    int32_t min_cx, min_cy, min_cz, max_cx, max_cy, max_cz;
+    int32_t dummy;
+    world_to_chunk_local(static_cast<int32_t>(std::floor(box_lo.x)),
+                         static_cast<int32_t>(std::floor(box_lo.y)),
+                         static_cast<int32_t>(std::floor(box_lo.z)),
+                         min_cx, min_cy, min_cz, dummy, dummy, dummy);
+    world_to_chunk_local(static_cast<int32_t>(std::floor(box_hi.x)),
+                         static_cast<int32_t>(std::floor(box_hi.y)),
+                         static_cast<int32_t>(std::floor(box_hi.z)),
+                         max_cx, max_cy, max_cz, dummy, dummy, dummy);
+    std::vector<uint64_t> keys;
+    keys.reserve(static_cast<size_t>(max_cx - min_cx + 1) *
+                 static_cast<size_t>(max_cy - min_cy + 1) *
+                 static_cast<size_t>(max_cz - min_cz + 1));
+    for (int32_t cx = min_cx; cx <= max_cx; ++cx)
+        for (int32_t cy = min_cy; cy <= max_cy; ++cy)
+            for (int32_t cz = min_cz; cz <= max_cz; ++cz)
+                keys.push_back(chunk_map->get_chunk_key(cx, cy, cz));
+    return keys;
+}
+
+} // namespace
 
 template<typename Pred>
 static void resolve_axis(const godot::Vector3& position,
@@ -74,7 +107,21 @@ CollisionResolver::CollisionResult CollisionResolver::resolve(
     Vector3 result = position - half_xz;
     CollisionResult out;
 
-    auto lock = chunk_map_->lock_all();
+    // Conservative swept volume (corner space) that every solid probe below can
+    // touch: the 3-axis sweep over `motion`, the floor probe (y-0.05), and the
+    // step-up assist (raised body + settle down). Shared-lock only the shards of
+    // chunks intersecting this box instead of the whole map.
+    constexpr float kPad = 1.0f;
+    Vector3 box_lo = result;
+    Vector3 box_hi = result + size;
+    box_lo.x = std::min(box_lo.x, box_lo.x + motion.x) - kPad;
+    box_hi.x = std::max(box_hi.x, box_hi.x + motion.x) + kPad;
+    box_lo.z = std::min(box_lo.z, box_lo.z + motion.z) - kPad;
+    box_hi.z = std::max(box_hi.z, box_hi.z + motion.z) + kPad;
+    box_lo.y = std::min(box_lo.y, box_lo.y + motion.y) - 0.05f - kPad;
+    box_hi.y = std::max(box_hi.y, box_hi.y + motion.y) + step_height + kPad;
+
+    auto lock = chunk_map_->lock_keys(chunk_keys_for_box(chunk_map_, box_lo, box_hi));
 
     auto is_solid = [this](const AABB& aabb) { return is_aabb_solid_fast(aabb); };
 
@@ -177,7 +224,10 @@ bool CollisionResolver::is_aabb_solid_fast(const AABB& aabb) const {
 }
 
 bool CollisionResolver::is_aabb_solid(const AABB& aabb) const {
-    auto lock = chunk_map_->lock_all();
+    constexpr float kPad = 1.0f;
+    auto lock = chunk_map_->lock_keys(chunk_keys_for_box(
+        chunk_map_, aabb.position - Vector3(kPad, kPad, kPad),
+        aabb.position + aabb.size + Vector3(kPad, kPad, kPad)));
     return is_aabb_solid_fast(aabb);
 }
 

@@ -255,11 +255,12 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
 
     // ---- Geometry pass (2/3): signed density field over the whole chunk ----
     // One extra row of density above the chunk so the top voxel layer can decide
-    // air/solid for the voxel above it. Heap-allocated: generation runs on
-    // worker threads with limited stacks.
+    // air/solid for the voxel above it. Buffers are thread-local so generation
+    // workers reuse them across chunks instead of malloc/zeroing ~4MB every call;
+    // every cell is fully rewritten each call, so no clearing is needed.
     const int32_t DENSITY_STRIDE_Y = CHUNK_HEIGHT + 1;
-    std::vector<float> density_buf(
-        static_cast<size_t>(CHUNK_WIDTH) * DENSITY_STRIDE_Y * CHUNK_DEPTH);
+    thread_local std::vector<float> density_buf;
+    density_buf.resize(static_cast<size_t>(CHUNK_WIDTH) * DENSITY_STRIDE_Y * CHUNK_DEPTH);
     auto dens = [&](int32_t x, int32_t ly, int32_t z) -> float& {
         return density_buf[(static_cast<size_t>(x) * DENSITY_STRIDE_Y + ly) * CHUNK_DEPTH + z];
     };
@@ -274,8 +275,8 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
     constexpr int32_t LATTICE_X = CHUNK_WIDTH / SPACING + 1;
     constexpr int32_t LATTICE_Y = DENSITY_STRIDE_Y / SPACING + 1;
     constexpr int32_t LATTICE_Z = CHUNK_DEPTH / SPACING + 1;
-    std::vector<float> shape_lattice(
-        static_cast<size_t>(LATTICE_X) * LATTICE_Y * LATTICE_Z);
+    thread_local std::vector<float> shape_lattice;
+    shape_lattice.resize(static_cast<size_t>(LATTICE_X) * LATTICE_Y * LATTICE_Z);
     auto lat = [&](int32_t gx, int32_t gy, int32_t gz) -> float& {
         return shape_lattice[(static_cast<size_t>(gx) * LATTICE_Y + gy) * LATTICE_Z + gz];
     };

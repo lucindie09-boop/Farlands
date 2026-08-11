@@ -66,7 +66,7 @@ void LightPropagator::light_propagate_add(int32_t origin_cx, int32_t origin_cy, 
         keys.reserve(static_cast<size_t>(27) * 4);
         bool seen[ChunkMap::kNumShards] = {};
         auto add_key = [&](uint64_t k) {
-            size_t s = k % ChunkMap::kNumShards;
+            size_t s = chunk_map->shard_of(k);
             if (!seen[s]) { seen[s] = true; keys.push_back(k); }
         };
         // Origin chunk + its 3×3×3
@@ -96,7 +96,7 @@ void LightPropagator::light_propagate_remove(int32_t origin_cx, int32_t origin_c
         keys.reserve(static_cast<size_t>(27) * 4);
         bool seen[ChunkMap::kNumShards] = {};
         auto add_key = [&](uint64_t k) {
-            size_t s = k % ChunkMap::kNumShards;
+            size_t s = chunk_map->shard_of(k);
             if (!seen[s]) { seen[s] = true; keys.push_back(k); }
         };
         for (int dz = -1; dz <= 1; dz++)

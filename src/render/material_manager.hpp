@@ -3,6 +3,7 @@
 #include <godot_cpp/classes/shader_material.hpp>
 #include <godot_cpp/variant/color.hpp>
 #include <godot_cpp/variant/vector3.hpp>
+#include <cstdint>
 
 namespace godot {
 class ShaderMaterial;
@@ -12,7 +13,7 @@ namespace VoxelEngine {
 
 // Filter/mipmap mode for the block texture arrays. Modes without mipmaps skip
 // Image::generate_mipmaps() (single-level arrays) and sample with bias 0.
-enum class TextureFilterMode : int {
+enum class TextureFilterMode : std::uint8_t {
     Nearest = 0,
     NearestMipmap = 1,            // default
     Linear = 2,

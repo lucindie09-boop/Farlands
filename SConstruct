@@ -106,6 +106,9 @@ Alias("repro_stride2", repro_prog)
 test_env = env.Clone()
 test_env.Append(CPPPATH=["src/", "tests/"])
 test_env.Append(LIBS=[])
+# Disable doctest's internal threading to avoid ThreadSanitizer false positives
+# in doctest's thread pool when built with TSan (Linux CI)
+test_env.Append(CPPDEFINES=["DOCTEST_NO_MULTITHREADED"])
 # Add chunk_data for integration test (not in shared_sources because library uses PaletteStorage)
 # Add light_propagator for light removal tests (not in shared_sources because it requires MeshManager)
 # Note: edit_map.cpp and block_light_region.cpp are already in shared_sources via library build

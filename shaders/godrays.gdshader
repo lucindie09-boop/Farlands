@@ -56,10 +56,14 @@ void fragment() {
     vec3 base_color = texture(screen_texture, SCREEN_UV).rgb;
     vec3 accum = vec3(0.0);
 
-    if (sun_visibility > 0.001) {
+    // Only run a pass when the light actually contributes: below ~0.02 the
+    // accumulated ray contribution over num_samples is far below visible
+    // brightness, so skipping it avoids a full ray march for a faded source
+    // (notably the far side of the sky during twilight).
+    if (sun_visibility > 0.02) {
         accum += accumulate_rays(SCREEN_UV, sun_screen_uv, sun_visibility, sun_ray_color);
     }
-    if (moon_visibility > 0.001) {
+    if (moon_visibility > 0.02) {
         accum += accumulate_rays(SCREEN_UV, moon_screen_uv, moon_visibility, moon_ray_color);
     }
 

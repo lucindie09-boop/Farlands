@@ -42,9 +42,12 @@ func _process(_delta: float) -> void:
 		return
 
 	# Dynamically reduce sample count at higher resolutions.
-	# 48 samples at 1080p, scaling down for larger viewports.
+	# 32 samples at 1080p, scaling down for larger viewports. The ray march
+	# self-normalizes (step and exposure scale by num_samples), so cutting the
+	# count is visually free and directly halves the worst-case cost when sun
+	# and moon both run a pass during twilight (up to 64 dependent samples/px).
 	var shader_material := material as ShaderMaterial
-	var samples := maxi(16, int(48.0 * 1080.0 / max(viewport_size.y, 1.0)))
+	var samples := maxi(16, int(32.0 * 1080.0 / max(viewport_size.y, 1.0)))
 	shader_material.set_shader_parameter("num_samples", samples)
 
 	# --- Sun ---

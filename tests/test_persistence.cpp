@@ -9,6 +9,7 @@
 #include <fstream>
 #include <vector>
 #include <memory>
+#include <algorithm>
 
 using namespace VoxelEngine;
 
@@ -24,9 +25,9 @@ TEST_CASE("edit map round-trip preserves all block data") {
     
     std::vector<uint8_t> data;
     serialize_edit_map(original, data);
-    
+
     EditMap loaded;
-    bool ok = deserialize_edit_map(data.data(), data.size(), loaded);
+    bool ok = deserialize_edit_map(data.data(), data.size(), loaded, BlockRegistry::get_instance());
     CHECK(ok);
     
     CHECK(loaded.get_block(0, 0, 0, BlockIDs::AIR) == BlockIDs::STONE);
@@ -74,7 +75,7 @@ TEST_CASE("empty edit map serializes to empty") {
     CHECK(data.size() == 12);
     
     EditMap loaded;
-    bool ok = deserialize_edit_map(data.data(), data.size(), loaded);
+    bool ok = deserialize_edit_map(data.data(), data.size(), loaded, BlockRegistry::get_instance());
     CHECK(ok);
     CHECK(loaded.empty());
 }
@@ -89,9 +90,9 @@ TEST_CASE("edit map CRC32 mismatch detection") {
     
     // Corrupt the CRC32
     data[11] ^= 0xFF;
-    
+
     EditMap loaded;
-    bool ok = deserialize_edit_map(data.data(), data.size(), loaded);
+    bool ok = deserialize_edit_map(data.data(), data.size(), loaded, BlockRegistry::get_instance());
     CHECK(!ok);
 }
 
@@ -105,9 +106,9 @@ TEST_CASE("edit map body corruption detection") {
     
     // Corrupt a byte in the body (after the 12-byte header)
     data[12] ^= 0xFF;
-    
+
     EditMap loaded;
-    bool ok = deserialize_edit_map(data.data(), data.size(), loaded);
+    bool ok = deserialize_edit_map(data.data(), data.size(), loaded, BlockRegistry::get_instance());
     CHECK(!ok);
 }
 
@@ -164,16 +165,16 @@ TEST_CASE("edit map rejects invalid block IDs") {
     // Stored as little-endian: low byte first, high byte second
     data[12] = 0; data[13] = 0; // coord = 0
     data[14] = 44; data[15] = 1; // block_id = 300 (0x012C)
-    
+
     // Recompute CRC
     uint32_t crc = crc32(data.data() + 12, 4);
     data[8] = crc & 0xFF;
     data[9] = (crc >> 8) & 0xFF;
     data[10] = (crc >> 16) & 0xFF;
     data[11] = (crc >> 24) & 0xFF;
-    
+
     EditMap loaded;
-    bool ok = deserialize_edit_map(data.data(), data.size(), loaded);
+    bool ok = deserialize_edit_map(data.data(), data.size(), loaded, BlockRegistry::get_instance());
     CHECK(!ok);
 }
 
@@ -193,16 +194,16 @@ TEST_CASE("edit map rejects malformed coordinate packing") {
     // Stored as little-endian: low byte first, high byte second
     data[12] = 0x00; data[13] = 0x80; // coord = 0x8000 (bit 15 set)
     data[14] = 1; data[15] = 0; // block_id = 1 (valid)
-    
+
     // Recompute CRC
     uint32_t crc = crc32(data.data() + 12, 4);
     data[8] = crc & 0xFF;
     data[9] = (crc >> 8) & 0xFF;
     data[10] = (crc >> 16) & 0xFF;
     data[11] = (crc >> 24) & 0xFF;
-    
+
     EditMap loaded;
-    bool ok = deserialize_edit_map(data.data(), data.size(), loaded);
+    bool ok = deserialize_edit_map(data.data(), data.size(), loaded, BlockRegistry::get_instance());
     CHECK(!ok);
 }
 
@@ -217,9 +218,9 @@ TEST_CASE("edit map rejects version mismatch") {
     data[0] = 99; data[1] = 0; data[2] = 0; data[3] = 0; // version = 99
     data[4] = 0; data[5] = 0; data[6] = 0; data[7] = 0; // count = 0
     data[8] = 0; data[9] = 0; data[10] = 0; data[11] = 0; // CRC = 0
-    
+
     EditMap loaded;
-    bool ok = deserialize_edit_map(data.data(), data.size(), loaded);
+    bool ok = deserialize_edit_map(data.data(), data.size(), loaded, BlockRegistry::get_instance());
     CHECK(!ok);
 }
 
@@ -228,9 +229,9 @@ TEST_CASE("edit map rejects truncated data") {
     
     // Truncated header (less than 12 bytes)
     std::vector<uint8_t> data(11, 0);
-    
+
     EditMap loaded;
-    bool ok = deserialize_edit_map(data.data(), data.size(), loaded);
+    bool ok = deserialize_edit_map(data.data(), data.size(), loaded, BlockRegistry::get_instance());
     CHECK(!ok);
 }
 
@@ -251,7 +252,7 @@ TEST_CASE("edit map round-trip integration test") {
     EditMap reloaded;
     
     // Deserialize (load from disk simulation)
-    bool ok = deserialize_edit_map(saved_data.data(), saved_data.size(), reloaded);
+    bool ok = deserialize_edit_map(saved_data.data(), saved_data.size(), reloaded, BlockRegistry::get_instance());
     CHECK(ok);
     
     // Verify all edits survived the round-trip
@@ -293,7 +294,7 @@ TEST_CASE("ChunkWorld edit persistence integration test") {
                                       std::istreambuf_iterator<char>());
     in.close();
     
-    bool load_ok = deserialize_edit_map(loaded_data.data(), loaded_data.size(), reloaded);
+    bool load_ok = deserialize_edit_map(loaded_data.data(), loaded_data.size(), reloaded, BlockRegistry::get_instance());
     CHECK(load_ok);
     
     // Apply to ChunkData (simulating ChunkWorld::apply_edit_map_to_chunk)

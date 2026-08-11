@@ -870,7 +870,7 @@ TEST_CASE("edit map round-trip preserves block data") {
     serialize_edit_map(original, data);
 
     EditMap decoded;
-    bool ok = deserialize_edit_map(data.data(), data.size(), decoded);
+    bool ok = deserialize_edit_map(data.data(), data.size(), decoded, BlockRegistry::get_instance());
     CHECK(ok);
 
     // Verify all edits match
@@ -891,18 +891,18 @@ TEST_CASE("edit map decode rejects truncated input") {
     {
         const uint8_t trunc1[] = {0x01}; // partial header
         EditMap m;
-        CHECK_FALSE(deserialize_edit_map(trunc1, sizeof(trunc1), m));
+        CHECK_FALSE(deserialize_edit_map(trunc1, sizeof(trunc1), m, BlockRegistry::get_instance()));
     }
     // Truncated body (header says 1 edit but body is missing)
     {
         uint8_t trunc2[] = {0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}; // version=1, count=1, crc=0
         EditMap m;
-        CHECK_FALSE(deserialize_edit_map(trunc2, sizeof(trunc2), m));
+        CHECK_FALSE(deserialize_edit_map(trunc2, sizeof(trunc2), m, BlockRegistry::get_instance()));
     }
     // Empty body
     {
         EditMap m;
-        CHECK_FALSE(deserialize_edit_map(nullptr, 0, m));
+        CHECK_FALSE(deserialize_edit_map(nullptr, 0, m, BlockRegistry::get_instance()));
     }
 }
 

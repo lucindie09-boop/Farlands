@@ -15,6 +15,7 @@ namespace VoxelEngine {
 // while AO independently shades the occluded corner.
 static uint16_t average_light_filtered(
     const ChunkNeighborAccessor& accessor,
+    const BlockRegistry& registry,
     int32_t cx, int32_t cy, int32_t cz,
     int32_t ox1, int32_t oy1, int32_t oz1,
     int32_t ox2, int32_t oy2, int32_t oz2,
@@ -29,7 +30,7 @@ static uint16_t average_light_filtered(
         const int32_t px = cx + sx[i];
         const int32_t py = cy + sy[i];
         const int32_t pz = cz + sz[i];
-        if (AmbientOcclusion::is_occluding(accessor.get_block(px, py, pz)))
+        if (AmbientOcclusion::is_occluding(accessor.get_block(px, py, pz), registry))
             continue;
         const uint16_t light = (i == 0) ? center_light
                                         : accessor.get_light_packed(px, py, pz);
@@ -52,6 +53,7 @@ static uint16_t average_light_filtered(
 
 uint16_t compute_corner_light(
     const ChunkNeighborAccessor& accessor,
+    const BlockRegistry& registry,
     int32_t gx, int32_t gy, int32_t gz,
     FaceDirection direction
 ) {
@@ -68,13 +70,14 @@ uint16_t compute_corner_light(
         case FaceDirection::Front:  cx = gx;     cy = gy;     cz = gz;     o1x = 0; o1y = -1; o1z = 0; o2x = -1; o2y = 0; o2z = 0; break;
         case FaceDirection::Back:   cx = gx;     cy = gy;     cz = gz - 1; o1x = 0; o1y = -1; o1z = 0; o2x = -1; o2y = 0; o2z = 0; break;
     }
-    return average_light_filtered(accessor, cx, cy, cz,
+    return average_light_filtered(accessor, registry, cx, cy, cz,
                                   o1x, o1y, o1z, o2x, o2y, o2z,
                                   accessor.get_light_packed(cx, cy, cz));
 }
 
 void compute_smooth_light(
     const ChunkNeighborAccessor& accessor,
+    const BlockRegistry& registry,
     int32_t x, int32_t y, int32_t z,
     FaceDirection direction,
     uint16_t light_keys_out[4],
@@ -102,7 +105,7 @@ void compute_smooth_light(
         const int32_t gx = x + kCornerOffsets[di][i][0] * stride;
         const int32_t gy = y + kCornerOffsets[di][i][1];
         const int32_t gz = z + kCornerOffsets[di][i][2] * stride;
-        light_keys_out[i] = compute_corner_light(accessor, gx, gy, gz, direction);
+        light_keys_out[i] = compute_corner_light(accessor, registry, gx, gy, gz, direction);
     }
 }
 

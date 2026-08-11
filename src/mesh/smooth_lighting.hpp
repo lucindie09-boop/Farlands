@@ -18,6 +18,7 @@ namespace VoxelEngine {
 // true corners, matching adjacent full-detail faces at shared grid corners.
 void compute_smooth_light(
     const ChunkNeighborAccessor& accessor,
+    const BlockRegistry& registry,
     int32_t x, int32_t y, int32_t z,
     FaceDirection direction,
     uint16_t light_keys_out[4],
@@ -32,6 +33,7 @@ void compute_smooth_light(
 // adjacent per-block faces by construction.
 uint16_t compute_corner_light(
     const ChunkNeighborAccessor& accessor,
+    const BlockRegistry& registry,
     int32_t gx, int32_t gy, int32_t gz,
     FaceDirection direction
 );

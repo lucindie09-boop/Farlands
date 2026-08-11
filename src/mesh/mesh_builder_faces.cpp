@@ -31,7 +31,7 @@ void MeshBuilder::add_face(const ChunkData& chunk, const ChunkNeighborAccessor& 
 
     float ao[4];
     if (!HasProperty(block_type.properties, BlockProperty::Liquid)) {
-        this->ao.compute_face(accessor, x, y, z, direction, ao, stride_xz_);
+        this->ao.compute_face(accessor, registry, x, y, z, direction, ao, stride_xz_);
     } else {
         ao[0] = ao[1] = ao[2] = ao[3] = 1.0f;
     }
@@ -93,7 +93,7 @@ void MeshBuilder::add_face(const ChunkData& chunk, const ChunkNeighborAccessor& 
     }
 uint16_t light_keys[4];
 if (smooth_lighting_enabled && side_lowered_offset == 0.0f) {
-compute_smooth_light(accessor, x, y, z, direction, light_keys, stride_xz_);
+compute_smooth_light(accessor, registry, x, y, z, direction, light_keys, stride_xz_);
 } else {
 light_keys[0] = light_keys[1] = light_keys[2] = light_keys[3] = light_key;
 }
@@ -252,7 +252,7 @@ bool flip = (ao[0] + ao[2]) < (ao[1] + ao[3]);
     uint16_t corner_light[4];
     if (smooth_lighting_enabled) {
         for (int i = 0; i < 4; i++) {
-            corner_light[i] = compute_corner_light(accessor,
+            corner_light[i] = compute_corner_light(accessor, registry,
                 static_cast<int32_t>(corners[i][0]),
                 static_cast<int32_t>(corners[i][1]),
                 static_cast<int32_t>(corners[i][2]),

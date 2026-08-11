@@ -219,8 +219,8 @@ func _process(delta):
 	# Skip raycast if camera hasn't moved significantly (throttling)
 	var position_changed = current_position.distance_to(_last_camera_position) > _position_threshold
 	var rotation_changed = abs(current_rotation.x - _last_camera_rotation.x) > _rotation_threshold or \
-	                      abs(current_rotation.y - _last_camera_rotation.y) > _rotation_threshold or \
-	                      abs(current_rotation.z - _last_camera_rotation.z) > _rotation_threshold
+						  abs(current_rotation.y - _last_camera_rotation.y) > _rotation_threshold or \
+						  abs(current_rotation.z - _last_camera_rotation.z) > _rotation_threshold
 
 	var needs_raycast = position_changed or rotation_changed or _last_camera_position == Vector3.ZERO
 

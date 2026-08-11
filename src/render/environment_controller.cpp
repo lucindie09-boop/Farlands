@@ -89,6 +89,14 @@ void EnvironmentController::set_textures_enabled(bool enabled) {
     material_manager.set_textures_enabled(enabled);
 }
 
+void EnvironmentController::set_compression_enabled(bool enabled) {
+    material_manager.set_compression_enabled(enabled);
+}
+
+bool EnvironmentController::get_compression_enabled() const {
+    return material_manager.get_compression_enabled();
+}
+
 void EnvironmentController::update_shader_parameters() {
     const float blend = day_night.get_blend();
     const float sky_intensity = day_night.get_sky_intensity();

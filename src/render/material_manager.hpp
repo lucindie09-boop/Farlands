@@ -41,6 +41,10 @@ void update_player_light(const godot::Vector3& position, float radius, float int
     // Toggles between real block textures and the magenta/black checker
     // placeholder. Regenerates the arrays and re-assigns them to the materials.
     void set_textures_enabled(bool enabled);
+    // Toggles GPU compression for texture arrays. Regenerates the arrays
+    // and re-assigns them to the materials.
+    void set_compression_enabled(bool enabled);
+    bool get_compression_enabled() const;
     // Re-assigns the (possibly regenerated) texture arrays to both cached
     // materials. Must be called after TextureArrayGenerator regenerates them.
     void reload_textures();

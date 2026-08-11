@@ -83,6 +83,8 @@ godot::Vector3 get_sun_direction() const { return day_night.get_sun_direction();
     double get_mipmap_bias() const { return static_cast<double>(mipmap_bias); }
     void set_textures_enabled(bool enabled);
     bool get_textures_enabled() const { return textures_enabled; }
+    void set_compression_enabled(bool enabled);
+    bool get_compression_enabled() const;
 
 private:
     DayNightCycle day_night;

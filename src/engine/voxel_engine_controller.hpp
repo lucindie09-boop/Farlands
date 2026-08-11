@@ -142,6 +142,8 @@ public:
     double get_mipmap_bias() const;
     void set_textures_enabled(bool enabled);
     bool get_textures_enabled() const;
+    void set_compression_enabled(bool enabled);
+    bool get_compression_enabled() const;
     void set_render_distance_blocks(float blocks);
     float get_render_distance_blocks() const;
     void set_vegetation_enabled(bool enabled);

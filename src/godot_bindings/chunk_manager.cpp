@@ -292,6 +292,8 @@ void ChunkManager::set_mipmap_bias(double bias) { controller->set_mipmap_bias(bi
 double ChunkManager::get_mipmap_bias() const { return controller->get_mipmap_bias(); }
 void ChunkManager::set_textures_enabled(bool enabled) { controller->set_textures_enabled(enabled); }
 bool ChunkManager::get_textures_enabled() const { return controller->get_textures_enabled(); }
+void ChunkManager::set_compression_enabled(bool enabled) { controller->set_compression_enabled(enabled); }
+bool ChunkManager::get_compression_enabled() const { return controller->get_compression_enabled(); }
 void ChunkManager::set_vegetation_enabled(bool enabled) { controller->set_vegetation_enabled(enabled); }
 
 bool ChunkManager::get_vegetation_enabled() const { return controller->is_vegetation_enabled(); }
@@ -410,6 +412,9 @@ BIND_PROP(Variant::FLOAT, day_time, "time");
     ClassDB::bind_method(D_METHOD("get_mipmap_bias"), &ChunkManager::get_mipmap_bias);
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "mipmap_bias", PROPERTY_HINT_RANGE, "-4.0,4.0,0.01"), "set_mipmap_bias", "get_mipmap_bias");
     BIND_PROP(Variant::BOOL,    textures_enabled,           "enabled");
+    ClassDB::bind_method(D_METHOD("set_compression_enabled", "enabled"), &ChunkManager::set_compression_enabled);
+    ClassDB::bind_method(D_METHOD("get_compression_enabled"), &ChunkManager::get_compression_enabled);
+    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "compression_enabled"), "set_compression_enabled", "get_compression_enabled");
     BIND_PROP(Variant::BOOL,    vegetation_enabled,         "enabled");
     ClassDB::bind_method(D_METHOD("set_move_speed_multiplier", "multiplier"), &ChunkManager::set_move_speed_multiplier);
     ClassDB::bind_method(D_METHOD("get_move_speed_multiplier"), &ChunkManager::get_move_speed_multiplier);

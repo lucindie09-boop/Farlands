@@ -11,6 +11,10 @@ using namespace godot;
 
 namespace VoxelEngine {
 
+// Thread-local buffers for light propagation queues
+thread_local std::vector<LightNode> LightPropagator::add_queue_buffer;
+thread_local std::vector<LightNode> LightPropagator::remove_queue_buffer;
+
 // -------------------------------------------------------------------------
 // Public wrapper: acquire lock, call _locked, release, dirty-mark.
 // -------------------------------------------------------------------------
@@ -35,8 +39,11 @@ void LightPropagator::propagate_block_light_region(int32_t cx, int32_t cy, int32
 void LightPropagator::propagate_from_existing_light(int32_t cx, int32_t cy, int32_t cz) {
     ChunkData* chunk = chunk_map->get_chunk_data(cx, cy, cz);
     if (!chunk) return;
-    std::vector<LightNode> add_queue;
-    add_queue.reserve(64);
+    
+    // Use thread-local buffer instead of local allocation
+    add_queue_buffer.clear();
+    add_queue_buffer.reserve(64);
+    
     for (int y = 0; y < CHUNK_HEIGHT; y++) {
         for (int z = 0; z < CHUNK_DEPTH; z++) {
             for (int x = 0; x < CHUNK_WIDTH; x++) {
@@ -44,13 +51,13 @@ void LightPropagator::propagate_from_existing_light(int32_t cx, int32_t cy, int3
                 uint8_t g = chunk->get_light_g(x, y, z);
                 uint8_t b = chunk->get_light_b(x, y, z);
                 if (r > 0 || g > 0 || b > 0) {
-                    add_queue.push_back({cx, cy, cz, static_cast<int16_t>(x), static_cast<int16_t>(y), static_cast<int16_t>(z), r, g, b});
+                    add_queue_buffer.push_back({cx, cy, cz, static_cast<int16_t>(x), static_cast<int16_t>(y), static_cast<int16_t>(z), r, g, b});
                 }
             }
         }
     }
-    if (!add_queue.empty()) {
-        light_propagate_add(cx, cy, cz, add_queue);
+    if (!add_queue_buffer.empty()) {
+        light_propagate_add(cx, cy, cz, add_queue_buffer);
     }
     if (mesh_manager) {
         mesh_manager->mark_chunks_dirty_for_light(cx, cy, cz);
@@ -338,25 +345,26 @@ void LightPropagator::update_block_light_incremental_locked(int32_t origin_cx, i
     ChunkData* chunk = chunk_map->get_chunk_data_fast(cx, cy, cz);
     if (!chunk) return;
 
-    std::vector<LightNode> remove_queue;
-    std::vector<LightNode> add_queue;
-    remove_queue.reserve(64);
-    add_queue.reserve(64);
+    // Use thread-local buffers instead of local allocation
+    remove_queue_buffer.clear();
+    add_queue_buffer.clear();
+    remove_queue_buffer.reserve(64);
+    add_queue_buffer.reserve(64);
 
     if (old_light_level > 0 && old_light_level > target_level) {
         chunk->set_light_rgb(x, y, z, 0, 0, 0);
-        remove_queue.push_back({cx, cy, cz, static_cast<int16_t>(x), static_cast<int16_t>(y), static_cast<int16_t>(z), remove_r, remove_g, remove_b});
-        light_propagate_remove_locked(cx, cy, cz, remove_queue, add_queue);
+        remove_queue_buffer.push_back({cx, cy, cz, static_cast<int16_t>(x), static_cast<int16_t>(y), static_cast<int16_t>(z), remove_r, remove_g, remove_b});
+        light_propagate_remove_locked(cx, cy, cz, remove_queue_buffer, add_queue_buffer);
     } else if (old_emissive && !new_emissive) {
         // Special case: breaking an emissive block that had no stored light but still needs light removal
         chunk->set_light_rgb(x, y, z, 0, 0, 0);
-        remove_queue.push_back({cx, cy, cz, static_cast<int16_t>(x), static_cast<int16_t>(y), static_cast<int16_t>(z), old_type.light_r, old_type.light_g, old_type.light_b});
-        light_propagate_remove_locked(cx, cy, cz, remove_queue, add_queue);
+        remove_queue_buffer.push_back({cx, cy, cz, static_cast<int16_t>(x), static_cast<int16_t>(y), static_cast<int16_t>(z), old_type.light_r, old_type.light_g, old_type.light_b});
+        light_propagate_remove_locked(cx, cy, cz, remove_queue_buffer, add_queue_buffer);
     }
 
     if (target_level > 0) {
         chunk->set_light_rgb(x, y, z, target_r, target_g, target_b);
-        add_queue.push_back({cx, cy, cz, static_cast<int16_t>(x), static_cast<int16_t>(y), static_cast<int16_t>(z), target_r, target_g, target_b});
+        add_queue_buffer.push_back({cx, cy, cz, static_cast<int16_t>(x), static_cast<int16_t>(y), static_cast<int16_t>(z), target_r, target_g, target_b});
     } else if (!new_opaque) {
         static constexpr int16_t offsets[6][3] = {
             {1, 0, 0}, {-1, 0, 0},
@@ -380,15 +388,15 @@ void LightPropagator::update_block_light_incremental_locked(int32_t origin_cx, i
             const uint8_t lg = src->get_light_g(nx, ny, nz);
             const uint8_t lb = src->get_light_b(nx, ny, nz);
             if (lr > 0 || lg > 0 || lb > 0) {
-                add_queue.push_back({ncx, ncy, ncz, nx, ny, nz, lr, lg, lb});
+                add_queue_buffer.push_back({ncx, ncy, ncz, nx, ny, nz, lr, lg, lb});
             }
         }
     } else {
         chunk->set_light_rgb(x, y, z, 0, 0, 0);
     }
 
-    if (!add_queue.empty()) {
-        light_propagate_add_locked(cx, cy, cz, add_queue);
+    if (!add_queue_buffer.empty()) {
+        light_propagate_add_locked(cx, cy, cz, add_queue_buffer);
     }
 }
 

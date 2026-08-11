@@ -38,6 +38,10 @@ private:
     MeshManager* mesh_manager = nullptr;
     mutable std::mutex pending_light_removals_mutex_;
     std::unordered_set<uint64_t> pending_light_removals_;
+
+    // Thread-local buffers for light propagation queues (avoid repeated allocation)
+    static thread_local std::vector<LightNode> add_queue_buffer;
+    static thread_local std::vector<LightNode> remove_queue_buffer;
 };
 
 } // namespace VoxelEngine

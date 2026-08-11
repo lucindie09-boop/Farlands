@@ -71,7 +71,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         // CRC mismatch: still attempt decode to test error handling.
         // The decoder should reject malformed input without crashing.
         EditMap edit_map;
-        deserialize_edit_map(data, size, edit_map);
+        deserialize_edit_map(data, size, edit_map, BlockRegistry::get_instance());
     }
 
     return 0;

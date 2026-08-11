@@ -25,8 +25,13 @@ enum class FaceDirection : uint8_t {
 };
 
 // Vertex layout for chunk meshes
+// Position is stored in fixed-point format: uint8_t for x/z (0-31 block coords),
+// uint16_t Q8.8 fixed-point for y (8 integer bits + 8 fractional bits)
+// This reduces position storage from 12 bytes to 4 bytes while preserving
+// fractional precision for top_face_offset (water, slabs, etc.)
 struct Vertex {
-    float x, y, z;        // 12 bytes
+    uint8_t x, z;         // 2 bytes (block coords 0-31)
+    uint16_t y;           // 2 bytes (Q8.8 fixed-point: 8 int + 8 frac)
     int8_t nx, ny, nz;    // 3 bytes
     uint8_t normal_pad;   // 1 byte padding
     float u, v;           // 8 bytes

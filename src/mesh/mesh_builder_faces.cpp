@@ -118,9 +118,12 @@ light_keys[0] = light_keys[1] = light_keys[2] = light_keys[3] = light_key;
 
     for (int i = 0; i < 4; i++) {
         Vertex v;
-        v.x = corners[i][0];
-        v.y = corners[i][1];
-        v.z = corners[i][2];
+        // Convert positions to fixed-point format
+        v.x = static_cast<uint8_t>(corners[i][0]);  // x is integer 0-31
+        v.z = static_cast<uint8_t>(corners[i][2]);  // z is integer 0-31
+        // y is Q8.8 fixed-point: 8 integer bits + 8 fractional bits
+        // This preserves fractional precision for top_face_offset (water, slabs, etc.)
+        v.y = static_cast<uint16_t>(corners[i][1] * 256.0f + 0.5f);  // Round to nearest
         v.nx = static_cast<int8_t>(kFaceNormals[dir_index][0] * 127.0f);
         v.ny = static_cast<int8_t>(kFaceNormals[dir_index][1] * 127.0f);
         v.nz = static_cast<int8_t>(kFaceNormals[dir_index][2] * 127.0f);
@@ -262,9 +265,11 @@ bool flip = (ao[0] + ao[2]) < (ao[1] + ao[3]);
 
     for (int i = 0; i < 4; i++) {
         Vertex v;
-        v.x = corners[i][0];
-        v.y = corners[i][1];
-        v.z = corners[i][2];
+        // Convert positions to fixed-point format
+        v.x = static_cast<uint8_t>(corners[i][0]);  // x is integer 0-31
+        v.z = static_cast<uint8_t>(corners[i][2]);  // z is integer 0-31
+        // y is Q8.8 fixed-point: 8 integer bits + 8 fractional bits
+        v.y = static_cast<uint16_t>(corners[i][1] * 256.0f + 0.5f);  // Round to nearest
         v.nx = static_cast<int8_t>(kFaceNormals[dir_index][0] * 127.0f);
         v.ny = static_cast<int8_t>(kFaceNormals[dir_index][1] * 127.0f);
         v.nz = static_cast<int8_t>(kFaceNormals[dir_index][2] * 127.0f);

@@ -29,6 +29,9 @@ float AmbientOcclusion::get_face_shade(FaceDirection direction) {
 // -------------------------------------------------------------------------
 bool AmbientOcclusion::is_occluding(BlockID block_id, const BlockRegistry& registry) {
     if (block_id == BlockIDs::AIR) return false;
+    // Note: get_block_fast() is safe here because block_id is bounds-checked by caller
+    // (vertex_level checks via ChunkNeighborAccessor, compute_face via ChunkData::get_block)
+    // and world-gen/deserialize ensure only valid registered IDs are assigned.
     const BlockType& type = registry.get_block_fast(block_id);
     return HasProperty(type.properties, BlockProperty::Opaque) ||
            HasProperty(type.properties, BlockProperty::Solid);
@@ -81,6 +84,9 @@ void AmbientOcclusion::compute_face(const ChunkNeighborAccessor& accessor,
                                     float ao_out[4],
                                     int32_t stride) const {
     BlockID current_block = accessor.center->get_block(x, y, z);
+    // Note: get_block_fast() is safe here because world-gen and chunk loading ensure
+    // only valid registered IDs are present in chunk data. Current block position
+    // is always within chunk bounds and contains a valid block_id.
     const BlockType& current_type = registry.get_block_fast(current_block);
     bool is_lowered = current_type.top_face_offset > 0.0f;
 

@@ -103,21 +103,58 @@ void EnvironmentController::update_shader_parameters() {
     const godot::Vector3 sky_horizon_color = sky_controller.get_horizon_color(blend, elevation, sun_color, sky_turbidity);
     const godot::Vector3 sky_zenith_color = sky_controller.get_zenith_color(blend);
 
+    // Check if any values changed meaningfully (epsilon-gated dirty check)
+    bool needs_update = false;
+    
+    if (std::abs(blend - cached_blend) > PARAM_EPSILON) needs_update = true;
+    if (sky_color != cached_sky_color) needs_update = true;
+    if (sun_dir != cached_sun_dir) needs_update = true;
+    if (std::abs(contrast - cached_contrast) > PARAM_EPSILON) needs_update = true;
+    if (std::abs(saturation - cached_saturation) > PARAM_EPSILON) needs_update = true;
+    if (ao_color != cached_ao_color) needs_update = true;
+    if (std::abs(ao_strength - cached_ao_strength) > PARAM_EPSILON) needs_update = true;
+    if (darkness_color != cached_darkness_color) needs_update = true;
+    if (std::abs(mipmap_bias - cached_mipmap_bias) > PARAM_EPSILON) needs_update = true;
+
+    // Fog parameters
+    const float fog_begin = fog_controller.get_fog_begin();
+    const float fog_end = fog_controller.get_fog_end();
+    const godot::Color fog_color = fog_controller.get_fog_color(blend, godot::Color(sky_horizon_color.x, sky_horizon_color.y, sky_horizon_color.z), elevation, sun_color, sky_turbidity);
+    const float fog_scatter = fog_controller.get_fog_scatter(blend, elevation);
+    const int32_t fog_mode = static_cast<int32_t>(fog_controller.get_fog_mode());
+
+    if (std::abs(fog_begin - cached_fog_begin) > PARAM_EPSILON) needs_update = true;
+    if (std::abs(fog_end - cached_fog_end) > PARAM_EPSILON) needs_update = true;
+    if (fog_color != cached_fog_color) needs_update = true;
+    if (std::abs(fog_scatter - cached_fog_scatter) > PARAM_EPSILON) needs_update = true;
+    if (fog_mode != cached_fog_mode) needs_update = true;
+
+    if (!needs_update) return;
+
+    // Update cached values
+    cached_blend = blend;
+    cached_sky_color = sky_color;
+    cached_sun_dir = sun_dir;
+    cached_contrast = contrast;
+    cached_saturation = saturation;
+    cached_ao_color = ao_color;
+    cached_ao_strength = ao_strength;
+    cached_darkness_color = darkness_color;
+    cached_mipmap_bias = mipmap_bias;
+    cached_fog_begin = fog_begin;
+    cached_fog_end = fog_end;
+    cached_fog_color = fog_color;
+    cached_fog_scatter = fog_scatter;
+    cached_fog_mode = fog_mode;
+
     material_manager.update_shader_parameters(sky_intensity, sky_color, sun_dir, sky_warmth, sky_horizon_color, sky_zenith_color, sky_turbidity);
     material_manager.update_color_parameters(contrast, saturation, ao_color, ao_strength, darkness_color);
     material_manager.set_mipmap_bias(mipmaps_enabled ? mipmap_bias : 0.0f);
 
-    const float fog_begin = fog_controller.get_fog_begin();
-    const float fog_end = fog_controller.get_fog_end();
-
-    const godot::Color fog_color = fog_controller.get_fog_color(blend, godot::Color(sky_horizon_color.x, sky_horizon_color.y, sky_horizon_color.z), elevation, sun_color, sky_turbidity);
-    const float fog_scatter = fog_controller.get_fog_scatter(blend, elevation);
-    const godot::Color fog_scatter_color = sun_color;
-
     material_manager.update_fog_parameters(fog_begin, fog_end, fog_color,
                                            fog_controller.get_shader_fog_density(), 0.012f, 200.0f, fog_color,
-                                           fog_scatter, fog_scatter_color,
-                                           static_cast<int>(fog_controller.get_fog_mode()));
+                                           fog_scatter, sun_color,
+                                           fog_mode);
 }
 
 void EnvironmentController::update_player_light(const godot::Vector3& player_pos, double runtime_elapsed,

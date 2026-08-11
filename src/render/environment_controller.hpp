@@ -104,6 +104,25 @@ private:
     godot::WorldEnvironment* cached_world_env = nullptr;
     godot::DirectionalLight3D* cached_sun_light = nullptr;
 
+    // Dirty tracking for shader parameters (avoid redundant Godot API calls)
+    float cached_blend = -1.0f;
+    godot::Color cached_sky_color = godot::Color(0.0f, 0.0f, 0.0f, 1.0f);
+    godot::Vector3 cached_sun_dir = godot::Vector3(0.0f, 1.0f, 0.0f);
+    float cached_contrast = -1.0f;
+    float cached_saturation = -1.0f;
+    godot::Color cached_ao_color = godot::Color(0.0f, 0.0f, 0.0f, 1.0f);
+    float cached_ao_strength = -1.0f;
+    godot::Color cached_darkness_color = godot::Color(0.0f, 0.0f, 0.0f, 1.0f);
+    float cached_mipmap_bias = -1.0f;
+    float cached_fog_begin = -1.0f;
+    float cached_fog_end = -1.0f;
+    godot::Color cached_fog_color = godot::Color(0.0f, 0.0f, 0.0f, 1.0f);
+    float cached_fog_scatter = -1.0f;
+    int32_t cached_fog_mode = -1;
+
+    // Epsilon threshold for detecting meaningful changes (sky/fog transitions are smooth)
+    static constexpr float PARAM_EPSILON = 0.001f;
+
     void update_shader_parameters();
     void update_player_light(const godot::Vector3& player_pos, double runtime_elapsed,
                              ChunkWorld& cw, LightPropagator& lp, MeshManager& mm,

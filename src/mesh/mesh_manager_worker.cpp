@@ -6,6 +6,7 @@
 #include <godot_cpp/variant/packed_byte_array.hpp>
 #include <godot_cpp/variant/packed_int32_array.hpp>
 #include <cstring>
+#include <optional>
 
 namespace VoxelEngine {
 
@@ -166,7 +167,7 @@ void MeshBuildTask::execute() {
         // erasure and raced with those writers: on restart, chunks containing
         // light-source blocks triggered a recompute worker that mutated a
         // neighbor's section palettes while this build read them.
-        std::unique_ptr<ChunkMap::ShardLock> build_lock;
+        std::optional<ChunkMap::ShardLock> build_lock;
         if (chunk_map) {
             uint64_t build_keys[27] = {};
             build_keys[0] = chunk_map->get_chunk_key(chunk_x, chunk_y, chunk_z);
@@ -176,7 +177,7 @@ void MeshBuildTask::execute() {
                     chunk_y + kNeighborOffsets[i][1],
                     chunk_z + kNeighborOffsets[i][2]);
             }
-            build_lock.reset(new ChunkMap::ShardLock(chunk_map->lock_keys(build_keys)));
+            build_lock.emplace(chunk_map->lock_keys(build_keys));
             for (int i = 0; i < 26; i++) {
                 all_neighbors[i] = chunk_map->get_chunk_render_data_fast(
                     chunk_x + kNeighborOffsets[i][0],

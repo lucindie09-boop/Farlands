@@ -33,11 +33,9 @@ VoxelEngineController::VoxelEngineController()
             registry.initialize_default_blocks();
         }
     });
-    // Reserve based on render distance to avoid rehashing during load
-    // Render distance is radius, so total chunks ≈ (2*RD + 1)^3
-    // Divide by 64 shards, multiply by 2 for headroom
-    int32_t reserve_per_shard = static_cast<int32_t>(((2 * render_distance + 1) * (2 * render_distance + 1) * (2 * render_distance + 1)) / 64 * 2);
-    chunk_world.get_chunk_map().reserve(std::max(5000, reserve_per_shard));
+    // Note: reserve(5000) is a placeholder. Real reserve happens in set_render_distance()
+    // where the actual render distance value is known.
+    chunk_world.get_chunk_map().reserve(5000);
     create_thread_pool();
     chunk_world.set_thread_pool(thread_pool.get());
     mesh_manager.set_chunk_map(chunk_world.get_chunk_map_ptr());
@@ -274,7 +272,16 @@ void VoxelEngineController::print_debug_info(double delta) {
 void VoxelEngineController::set_seed(int32_t s) { seed = s; world_updater.set_seed(seed); }
 int32_t VoxelEngineController::get_seed() const { return seed; }
 
-void VoxelEngineController::set_render_distance(int32_t rd) { render_distance = rd; world_updater.set_render_distance(render_distance); environment_controller.set_render_distance_blocks(static_cast<float>(rd * CHUNK_WIDTH)); }
+void VoxelEngineController::set_render_distance(int32_t rd) { 
+    render_distance = rd; 
+    world_updater.set_render_distance(render_distance); 
+    environment_controller.set_render_distance_blocks(static_cast<float>(rd * CHUNK_WIDTH));
+    
+    // Reserve ChunkMap based on render distance to avoid rehashing during load
+    // Total chunks ≈ (2*RD + 1)^3, reserve() divides by 64 internally
+    size_t total_chunks = (2 * rd + 1) * (2 * rd + 1) * (2 * rd + 1);
+    chunk_world.get_chunk_map().reserve(total_chunks);
+}
 int32_t VoxelEngineController::get_render_distance() const { return render_distance; }
 
 void VoxelEngineController::set_editor_render_distance(int32_t rd) { editor_render_distance = rd; world_updater.set_editor_render_distance(editor_render_distance); }

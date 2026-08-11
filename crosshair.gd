@@ -31,9 +31,41 @@ func _ready():
 	_material = ShaderMaterial.new()
 	_material.shader = CONTRAST_SHADER
 
+var _last_signature := -1
+
 func _process(_delta):
-	queue_redraw()
 	_sync_material()
+	# queue_redraw() only when the drawn state changes. The crosshair vars are
+	# set externally by the settings menu, so fingerprint them (plus window size
+	# and the chat/inventory/settings open flags that gate _draw) each frame and
+	# skip the redraw when nothing moved.
+	var sig := _draw_signature()
+	if sig != _last_signature:
+		_last_signature = sig
+		queue_redraw()
+
+func _draw_signature() -> int:
+	var h := int(round(size.x)) * 73856093 ^ int(round(size.y)) * 19349663
+	h ^= int(player_controller.is_chat_open()) * 2654435761
+	h ^= int(player_controller.is_inventory_open()) * 40503
+	h ^= int(player_controller.is_settings_open()) * 2246822519
+	h ^= (1 if cross_enabled else 0) * 104729
+	h ^= int(round(cross_thickness * 8)) * 4051
+	h ^= int(round(cross_length * 8)) * 521
+	h ^= int(round(cross_spacing * 8)) * 3329
+	h ^= int(round(cross_opacity * 32)) * 617
+	h ^= int(cross_color.to_rgba32()) * 19
+	h ^= (1 if top_line_enabled else 0) * 3559
+	h ^= int(round(cross_rotation * 8)) * 8929
+	h ^= (1 if cross_contrast else 0) * 7669
+	h ^= (1 if dot_enabled else 0) * 10037
+	h ^= int(round(dot_size * 8)) * 577
+	h ^= int(round(dot_opacity * 32)) * 191
+	h ^= int(dot_color.to_rgba32()) * 3359
+	h ^= (1 if dot_contrast else 0) * 8117
+	h ^= (1 if cross_dot_collision else 0) * 6221
+	h ^= int(round(dot_rotation * 8)) * 4967
+	return h
 
 func _sync_material():
 	var marker_mode := cross_contrast or dot_contrast

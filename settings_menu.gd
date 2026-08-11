@@ -4,6 +4,8 @@ const MUNRO_FONT: Font = preload("res://fonts/munro.ttf")
 const BUTTON_TEX: Texture2D = preload("res://textures/gui/button.png")
 const BUTTON_SQUARE_TEX: Texture2D = preload("res://textures/gui/button_square.png")
 const UNDO_TEX: Texture2D = preload("res://textures/gui/undo_button.png")
+const SLIDER_TRACK_TEX: Texture2D = preload("res://textures/gui/slider_button.png")
+const SLIDER_THUMB_TEX: Texture2D = preload("res://textures/gui/slider.png")
 const SETTINGS_PATH := "user://settings.cfg"
 
 @onready var player_controller = get_node("/root/Main/Player")
@@ -515,33 +517,94 @@ func _cross_set(field: String, value):
 		crosshair_node.set(field, value)
 	_schedule_save()
 
-func _make_spin(value: float, min_value: float, max_value: float, step: float, field: String) -> SpinBox:
-	var s := _ui_scale()
-	var sp := SpinBox.new()
-	sp.min_value = min_value
-	sp.max_value = max_value
-	sp.step = step
-	sp.value = value
-	sp.get_line_edit().add_theme_font_override("font", MUNRO_FONT)
-	sp.get_line_edit().add_theme_font_size_override("font_size", int(10 * s))
-	sp.get_line_edit().custom_minimum_size = Vector2(0, 0)
-	sp.value_changed.connect(func(v: float):
-		_cross_set(field, v))
-	return sp
+func _make_spin(value: float, min_value: float, max_value: float, step: float, field: String) -> Control:
+	return _make_slider(value, min_value, max_value, step, _cross_set.bind(field))
 
-func _make_spin_outline(value: float, min_value: float, max_value: float, step: float, field: String) -> SpinBox:
+func _make_spin_outline(value: float, min_value: float, max_value: float, step: float, field: String) -> Control:
+	return _make_slider(value, min_value, max_value, step, _block_outline_set.bind(field))
+
+func _make_slider(value: float, min_value: float, max_value: float, step: float, setter: Callable, suffix := "") -> Control:
 	var s := _ui_scale()
-	var sp := SpinBox.new()
-	sp.min_value = min_value
-	sp.max_value = max_value
-	sp.step = step
-	sp.value = value
-	sp.get_line_edit().add_theme_font_override("font", MUNRO_FONT)
-	sp.get_line_edit().add_theme_font_size_override("font_size", int(10 * s))
-	sp.get_line_edit().custom_minimum_size = Vector2(0, 0)
-	sp.value_changed.connect(func(v: float):
-		_block_outline_set(field, v))
-	return sp
+	var box := Control.new()
+	var slider := HSlider.new()
+	slider.set_anchors_preset(Control.PRESET_FULL_RECT)
+	slider.min_value = min_value
+	slider.max_value = max_value
+	slider.step = step
+	slider.value = value
+	slider.custom_minimum_size = Vector2(0, 20 * s)
+	var normal := _slider_track_style()
+	var hover := _slider_track_style()
+	hover.modulate_color = Color(1.2, 1.2, 1.2)
+	slider.add_theme_stylebox_override("slider", normal)
+	# Suppress the separate "grabber_area" fill (Godot would draw a second
+	# background for the portion left of the grabber) - we only want one.
+	slider.add_theme_stylebox_override("grabber_area", StyleBoxEmpty.new())
+	slider.add_theme_stylebox_override("grabber_area_highlight", StyleBoxEmpty.new())
+	slider.add_theme_icon_override("grabber", _scaled_thumb_tex())
+	slider.add_theme_icon_override("grabber_highlight", _scaled_thumb_tex())
+	slider.add_theme_constant_override("grabber_offset", 0)
+	slider.add_theme_constant_override("center_grabber", 1)
+	# Highlight the whole track (not just the filled portion left of the
+	# grabber) when the slider is hovered or focused.
+	var set_highlight := func(on: bool):
+		slider.add_theme_stylebox_override("slider", hover if on else normal)
+	slider.mouse_entered.connect(set_highlight.bind(true))
+	slider.mouse_exited.connect(set_highlight.bind(false))
+	slider.focus_entered.connect(set_highlight.bind(true))
+	slider.focus_exited.connect(set_highlight.bind(false))
+	var label := Label.new()
+	label.set_anchors_preset(Control.PRESET_FULL_RECT)
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	label.add_theme_font_override("font", MUNRO_FONT)
+	label.add_theme_font_size_override("font_size", int(10 * s))
+	label.add_theme_color_override("font_color", Color(0.85, 0.9, 1.0))
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	label.text = _format_slider_value(value, step) + suffix
+	slider.value_changed.connect(func(v: float):
+		label.text = _format_slider_value(v, step) + suffix
+		setter.call(v))
+	box.add_child(slider)
+	box.add_child(label)
+	box.set_meta("slider", slider)
+	return box
+
+func _slider_track_style() -> StyleBoxTexture:
+	# The slider draws its track at the stylebox's minimum size height (the
+	# sum of the texture margins), so we pre-scale the texture up to ui_scale
+	# and use half the scaled height as each margin. The track ends up exactly
+	# 20 * ui_scale tall (matching the buttons) and the top/bottom borders tile
+	# the texture with no overlap. Using raw margins larger than the 20 px
+	# source texture (UI scales 3-4) makes the nine-patch sample out of bounds
+	# and draw a black seam in the middle of the track.
+	var s := _ui_scale()
+	var img := SLIDER_TRACK_TEX.get_image()
+	img.resize(maxi(1, roundi(SLIDER_TRACK_TEX.get_width() * s)), maxi(1, roundi(SLIDER_TRACK_TEX.get_height() * s)), Image.INTERPOLATE_NEAREST)
+	var style := StyleBoxTexture.new()
+	style.texture = ImageTexture.create_from_image(img)
+	style.texture_margin_left = 1.0
+	style.texture_margin_right = 1.0
+	var half := img.get_height() / 2.0
+	style.texture_margin_top = half
+	style.texture_margin_bottom = half
+	return style
+
+func _scaled_thumb_tex() -> Texture2D:
+	# The grabber icon is drawn at native size, so scale it up to match the
+	# stretched track/button height (20 * ui_scale), like everything else.
+	var s := _ui_scale()
+	var img := SLIDER_THUMB_TEX.get_image()
+	img.resize(maxi(1, roundi(SLIDER_THUMB_TEX.get_width() * s)), maxi(1, roundi(SLIDER_THUMB_TEX.get_height() * s)), Image.INTERPOLATE_NEAREST)
+	return ImageTexture.create_from_image(img)
+
+func _format_slider_value(v: float, step: float) -> String:
+	var decimals := 0
+	var st := step
+	while st < 1.0 and decimals < 6:
+		st *= 10.0
+		decimals += 1
+	return ("%." + str(decimals) + "f") % v
 
 func _make_color(field: String, value: Color) -> ColorPickerButton:
 	var cp := ColorPickerButton.new()
@@ -675,6 +738,8 @@ func _cross_refresh_controls(controls: Dictionary):
 			c.text = "On" if v else "Off"
 		elif c is SpinBox:
 			c.value = v
+		elif c.has_meta("slider"):
+			c.get_meta("slider").value = v
 		elif c is ColorPickerButton:
 			c.color = v
 
@@ -686,21 +751,18 @@ func _block_outline_refresh_controls(controls: Dictionary):
 			c.text = "On" if v else "Off"
 		elif c is SpinBox:
 			c.value = v
+		elif c.has_meta("slider"):
+			c.get_meta("slider").value = v
 		elif c is ColorPickerButton:
 			c.color = v
 
 func _build_lighting_page() -> Control:
-	var dur := SpinBox.new()
-	dur.min_value = 10.0
-	dur.max_value = 600.0
-	dur.step = 10.0
-	dur.suffix = " s"
-	dur.value = chunk_manager.get_day_duration()
-	dur.value_changed.connect(func(v: float):
-		chunk_manager.set_day_duration(v)
-		_schedule_save())
+	var dur := _make_slider(chunk_manager.get_day_duration(), 10.0, 600.0, 10.0,
+		func(v: float):
+			chunk_manager.set_day_duration(v)
+			_schedule_save(), " s")
 	var dur_reset := func():
-		dur.value = _default_day_duration
+		dur.get_meta("slider").value = _default_day_duration
 		chunk_manager.set_day_duration(_default_day_duration)
 		_schedule_save()
 
@@ -734,16 +796,12 @@ func _build_lighting_page() -> Control:
 		chunk_manager.set_ao_color(_default_ao_color)
 		_schedule_save()
 
-	var ao_strength := SpinBox.new()
-	ao_strength.min_value = 0.0
-	ao_strength.max_value = 2.0
-	ao_strength.step = 0.05
-	ao_strength.value = chunk_manager.get_ao_strength()
-	ao_strength.value_changed.connect(func(v: float):
-		chunk_manager.set_ao_strength(v)
-		_schedule_save())
+	var ao_strength := _make_slider(chunk_manager.get_ao_strength(), 0.0, 2.0, 0.05,
+		func(v: float):
+			chunk_manager.set_ao_strength(v)
+			_schedule_save())
 	var ao_strength_reset := func():
-		ao_strength.value = _default_ao_strength
+		ao_strength.get_meta("slider").value = _default_ao_strength
 		chunk_manager.set_ao_strength(_default_ao_strength)
 		_schedule_save()
 
@@ -757,29 +815,21 @@ func _build_lighting_page() -> Control:
 		chunk_manager.set_darkness_color(_default_darkness_color)
 		_schedule_save()
 
-	var contrast := SpinBox.new()
-	contrast.min_value = 0.0
-	contrast.max_value = 2.0
-	contrast.step = 0.05
-	contrast.value = chunk_manager.get_contrast()
-	contrast.value_changed.connect(func(v: float):
-		chunk_manager.set_contrast(v)
-		_schedule_save())
+	var contrast := _make_slider(chunk_manager.get_contrast(), 0.0, 2.0, 0.05,
+		func(v: float):
+			chunk_manager.set_contrast(v)
+			_schedule_save())
 	var contrast_reset := func():
-		contrast.value = _default_contrast
+		contrast.get_meta("slider").value = _default_contrast
 		chunk_manager.set_contrast(_default_contrast)
 		_schedule_save()
 
-	var saturation := SpinBox.new()
-	saturation.min_value = 0.0
-	saturation.max_value = 2.0
-	saturation.step = 0.05
-	saturation.value = chunk_manager.get_saturation()
-	saturation.value_changed.connect(func(v: float):
-		chunk_manager.set_saturation(v)
-		_schedule_save())
+	var saturation := _make_slider(chunk_manager.get_saturation(), 0.0, 2.0, 0.05,
+		func(v: float):
+			chunk_manager.set_saturation(v)
+			_schedule_save())
 	var saturation_reset := func():
-		saturation.value = _default_saturation
+		saturation.get_meta("slider").value = _default_saturation
 		chunk_manager.set_saturation(_default_saturation)
 		_schedule_save()
 
@@ -809,44 +859,30 @@ func _build_lighting_page() -> Control:
 	], "settings", 40.0)
 
 func _build_render_page() -> Control:
-	var rd := SpinBox.new()
-	rd.min_value = 2.0
-	rd.max_value = 64.0
-	rd.step = 1.0
-	rd.suffix = " chunks"
-	rd.value = chunk_manager.get_render_distance()
-	rd.value_changed.connect(func(v: float):
-		chunk_manager.set_render_distance(int(v))
-		_schedule_save())
+	var rd := _make_slider(chunk_manager.get_render_distance(), 2.0, 64.0, 1.0,
+		func(v: float):
+			chunk_manager.set_render_distance(int(v))
+			_schedule_save(), " chunks")
 	var rd_reset := func():
-		rd.value = _default_render_distance
+		rd.get_meta("slider").value = _default_render_distance
 		chunk_manager.set_render_distance(_default_render_distance)
 		_schedule_save()
 
-	var lod_dist := SpinBox.new()
-	lod_dist.min_value = 0.0
-	lod_dist.max_value = 64.0
-	lod_dist.step = 1.0
-	lod_dist.suffix = " chunks"
-	lod_dist.value = chunk_manager.get_lod_distance()
-	lod_dist.value_changed.connect(func(v: float):
-		chunk_manager.set_lod_distance(int(v))
-		_schedule_save())
+	var lod_dist := _make_slider(chunk_manager.get_lod_distance(), 0.0, 64.0, 1.0,
+		func(v: float):
+			chunk_manager.set_lod_distance(int(v))
+			_schedule_save(), " chunks")
 	var lod_reset := func():
-		lod_dist.value = _default_lod_distance
+		lod_dist.get_meta("slider").value = _default_lod_distance
 		chunk_manager.set_lod_distance(_default_lod_distance)
 		_schedule_save()
 
-	var lod_detail := SpinBox.new()
-	lod_detail.min_value = 0.125
-	lod_detail.max_value = 1.0
-	lod_detail.step = 0.005
-	lod_detail.value = chunk_manager.get_lod_detail_level()
-	lod_detail.value_changed.connect(func(v: float):
-		chunk_manager.set_lod_detail_level(v)
-		_schedule_save())
+	var lod_detail := _make_slider(chunk_manager.get_lod_detail_level(), 0.125, 1.0, 0.005,
+		func(v: float):
+			chunk_manager.set_lod_detail_level(v)
+			_schedule_save())
 	var lod_detail_reset := func():
-		lod_detail.value = _default_lod_detail
+		lod_detail.get_meta("slider").value = _default_lod_detail
 		chunk_manager.set_lod_detail_level(_default_lod_detail)
 		_schedule_save()
 
@@ -880,17 +916,13 @@ func _build_render_page() -> Control:
 		godrays_btn.text = "On" if _default_godrays else "Off"
 		_schedule_save()
 
-	var mipmap_bias_spin := SpinBox.new()
-	mipmap_bias_spin.min_value = -4.0
-	mipmap_bias_spin.max_value = 4.0
-	mipmap_bias_spin.step = 0.01
-	mipmap_bias_spin.value = chunk_manager.get_mipmap_bias()
-	mipmap_bias_spin.editable = chunk_manager.get_mipmaps_enabled()
-	mipmap_bias_spin.value_changed.connect(func(v: float):
-		chunk_manager.set_mipmap_bias(v)
-		_schedule_save())
+	var mipmap_bias := _make_slider(chunk_manager.get_mipmap_bias(), -4.0, 4.0, 0.01,
+		func(v: float):
+			chunk_manager.set_mipmap_bias(v)
+			_schedule_save())
+	mipmap_bias.get_meta("slider").editable = chunk_manager.get_mipmaps_enabled()
 	var mipmap_bias_reset := func():
-		mipmap_bias_spin.value = _default_mipmap_bias
+		mipmap_bias.get_meta("slider").value = _default_mipmap_bias
 		chunk_manager.set_mipmap_bias(_default_mipmap_bias)
 		_schedule_save()
 
@@ -902,12 +934,12 @@ func _build_render_page() -> Control:
 		var next: bool = not chunk_manager.get_mipmaps_enabled()
 		chunk_manager.set_mipmaps_enabled(next)
 		mipmaps_btn.text = "On" if next else "Off"
-		mipmap_bias_spin.editable = next
+		mipmap_bias.get_meta("slider").editable = next
 		_schedule_save())
 	var mipmaps_reset := func():
 		chunk_manager.set_mipmaps_enabled(_default_mipmaps_enabled)
 		mipmaps_btn.text = "On" if _default_mipmaps_enabled else "Off"
-		mipmap_bias_spin.editable = _default_mipmaps_enabled
+		mipmap_bias.get_meta("slider").editable = _default_mipmaps_enabled
 		_schedule_save()
 
 	var textures_btn := Button.new()
@@ -924,18 +956,13 @@ func _build_render_page() -> Control:
 		textures_btn.text = "On" if _default_textures_enabled else "Off"
 		_schedule_save()
 
-	var fps_cap_spin := SpinBox.new()
-	fps_cap_spin.min_value = 0.0
-	fps_cap_spin.max_value = 300.0
-	fps_cap_spin.step = 1.0
-	fps_cap_spin.suffix = " FPS"
-	fps_cap_spin.value = _fps_cap
-	fps_cap_spin.value_changed.connect(func(v: float):
-		_fps_cap = int(v)
-		Engine.max_fps = _fps_cap
-		_schedule_save())
+	var fps_cap := _make_slider(float(_fps_cap), 0.0, 300.0, 1.0,
+		func(v: float):
+			_fps_cap = int(v)
+			Engine.max_fps = _fps_cap
+			_schedule_save(), " FPS")
 	var fps_cap_reset := func():
-		fps_cap_spin.value = _default_fps_cap
+		fps_cap.get_meta("slider").value = _default_fps_cap
 		_fps_cap = _default_fps_cap
 		Engine.max_fps = _default_fps_cap
 		_schedule_save()
@@ -947,9 +974,9 @@ func _build_render_page() -> Control:
 		["Fog Mode", fog_mode_btn, fog_mode_reset],
 		["God Rays", godrays_btn, godrays_reset],
 		["Mipmaps", mipmaps_btn, mipmaps_reset],
-		["Mipmap Bias", mipmap_bias_spin, mipmap_bias_reset],
+		["Mipmap Bias", mipmap_bias, mipmap_bias_reset],
 		["Textures", textures_btn, textures_reset],
-		["FPS Cap", fps_cap_spin, fps_cap_reset],
+		["FPS Cap", fps_cap, fps_cap_reset],
 	], "settings")
 
 func _build_option_page(title_text: String, rows: Array, back_target: String, row_spacing := 44.0) -> Control:

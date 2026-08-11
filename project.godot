@@ -96,7 +96,6 @@ occlusion_culling/jitter_projection=false
 reflections/sky_reflections/texture_array_reflections=false
 reflections/specular_occlusion/enabled=false
 textures/default_filters/use_nearest_mipmap_filter=true
-anti_aliasing/quality/msaa_3d=1
 anti_aliasing/screen_space_roughness_limiter/enabled=false
 textures/default_filters/texture_mipmap_bias=0.5
 global_illumination/sdfgi/probe_ray_count=0

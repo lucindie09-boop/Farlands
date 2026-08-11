@@ -37,6 +37,7 @@ var _default_mipmaps_enabled: bool = true
 var _default_mipmap_bias: float = 0.1
 var _default_textures_enabled: bool = true
 var _default_old_reset_buttons: bool = false
+var _default_fps_cap: int = 0
 
 var _block_outline_defaults := {
 	"outline_enabled": true,
@@ -78,6 +79,7 @@ var _crosshair_defaults := {
 
 var _save_timer: Timer = null
 var _old_reset_buttons: bool = false
+var _fps_cap: int = 0
 
 func _ready():
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -112,6 +114,7 @@ func _ready():
 		for k in _block_outline_defaults:
 			_block_outline_defaults[k] = block_outline_node.get(k)
 	_load_settings()
+	Engine.max_fps = _fps_cap
 	hide()
 func _exit_tree():
 	_save_settings()
@@ -152,6 +155,7 @@ func _save_settings():
 	cfg.set_value("render", "mipmaps_enabled", chunk_manager.get_mipmaps_enabled())
 	cfg.set_value("render", "mipmap_bias", chunk_manager.get_mipmap_bias())
 	cfg.set_value("render", "textures_enabled", chunk_manager.get_textures_enabled())
+	cfg.set_value("render", "fps_cap", _fps_cap)
 	cfg.set_value("gui", "old_reset_buttons", _old_reset_buttons)
 	cfg.save(SETTINGS_PATH)
 
@@ -186,6 +190,9 @@ func _load_settings():
 	chunk_manager.set_mipmaps_enabled(cfg.get_value("render", "mipmaps_enabled", chunk_manager.get_mipmaps_enabled()))
 	chunk_manager.set_mipmap_bias(cfg.get_value("render", "mipmap_bias", chunk_manager.get_mipmap_bias()))
 	chunk_manager.set_textures_enabled(cfg.get_value("render", "textures_enabled", chunk_manager.get_textures_enabled()))
+	var loaded_fps_cap = cfg.get_value("render", "fps_cap", _default_fps_cap)
+	_fps_cap = loaded_fps_cap if loaded_fps_cap != 60 else _default_fps_cap
+	Engine.max_fps = _fps_cap
 	_old_reset_buttons = cfg.get_value("gui", "old_reset_buttons", _default_old_reset_buttons)
 
 # Settings menu uses the global GUI scale with a 2/3 modifier so its default
@@ -917,6 +924,22 @@ func _build_render_page() -> Control:
 		textures_btn.text = "On" if _default_textures_enabled else "Off"
 		_schedule_save()
 
+	var fps_cap_spin := SpinBox.new()
+	fps_cap_spin.min_value = 0.0
+	fps_cap_spin.max_value = 300.0
+	fps_cap_spin.step = 1.0
+	fps_cap_spin.suffix = " FPS"
+	fps_cap_spin.value = _fps_cap
+	fps_cap_spin.value_changed.connect(func(v: float):
+		_fps_cap = int(v)
+		Engine.max_fps = _fps_cap
+		_schedule_save())
+	var fps_cap_reset := func():
+		fps_cap_spin.value = _default_fps_cap
+		_fps_cap = _default_fps_cap
+		Engine.max_fps = _default_fps_cap
+		_schedule_save()
+
 	return _build_option_page("RENDER", [
 		["Render Distance", rd, rd_reset],
 		["LOD Distance", lod_dist, lod_reset],
@@ -926,6 +949,7 @@ func _build_render_page() -> Control:
 		["Mipmaps", mipmaps_btn, mipmaps_reset],
 		["Mipmap Bias", mipmap_bias_spin, mipmap_bias_reset],
 		["Textures", textures_btn, textures_reset],
+		["FPS Cap", fps_cap_spin, fps_cap_reset],
 	], "settings")
 
 func _build_option_page(title_text: String, rows: Array, back_target: String, row_spacing := 44.0) -> Control:
@@ -1048,7 +1072,6 @@ func _style_button(btn: Button, width: float):
 	btn.custom_minimum_size = Vector2(width, 20) * s
 
 func _make_undo_button(width := 200.0) -> Button:
-	var s := _ui_scale()
 	var btn := Button.new()
 	btn.text = ""
 	_style_undo_button(btn, width)

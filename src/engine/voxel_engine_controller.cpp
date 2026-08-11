@@ -279,7 +279,7 @@ void VoxelEngineController::set_render_distance(int32_t rd) {
     
     // Reserve ChunkMap based on render distance to avoid rehashing during load
     // Total chunks ≈ (2*RD + 1)^3, reserve() divides by 64 internally
-    size_t total_chunks = (2 * rd + 1) * (2 * rd + 1) * (2 * rd + 1);
+    size_t total_chunks = static_cast<size_t>(2 * rd + 1) * static_cast<size_t>(2 * rd + 1) * static_cast<size_t>(2 * rd + 1);
     chunk_world.get_chunk_map().reserve(total_chunks);
 }
 int32_t VoxelEngineController::get_render_distance() const { return render_distance; }

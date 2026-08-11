@@ -36,7 +36,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
     if (body_size != count * 4) {
         // Size mismatch - still attempt decode to test error handling
         EditMap edit_map;
-        deserialize_edit_map(data, size, edit_map);
+        deserialize_edit_map(data, size, edit_map, BlockRegistry::get_instance());
         return 0;
     }
 
@@ -46,7 +46,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
     // Only decode if CRC matches (fuzzer may find intentional mismatches)
     if (actual_crc == stored_crc) {
         EditMap edit_map1;
-        if (deserialize_edit_map(data, size, edit_map1)) {
+        if (deserialize_edit_map(data, size, edit_map1, BlockRegistry::get_instance())) {
             // Round-trip check: decode → encode → decode, then compare.
             // This catches real encode/decode bugs while avoiding false positives
             // on non-canonical-but-valid inputs (which would fail CRC comparison).
@@ -54,7 +54,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
             serialize_edit_map(edit_map1, re_encoded);
 
             EditMap edit_map2;
-            if (deserialize_edit_map(re_encoded.data(), re_encoded.size(), edit_map2)) {
+            if (deserialize_edit_map(re_encoded.data(), re_encoded.size(), edit_map2, BlockRegistry::get_instance())) {
                 // Verify all edits match between the two decode pipelines
                 if (edit_map1.size() != edit_map2.size()) {
                     abort();

@@ -518,10 +518,10 @@ func _cross_set(field: String, value):
 	_schedule_save()
 
 func _make_spin(value: float, min_value: float, max_value: float, step: float, field: String) -> Control:
-	return _make_slider(value, min_value, max_value, step, _cross_set.bind(field))
+	return _make_slider(value, min_value, max_value, step, func(v: float): _cross_set(field, v))
 
 func _make_spin_outline(value: float, min_value: float, max_value: float, step: float, field: String) -> Control:
-	return _make_slider(value, min_value, max_value, step, _block_outline_set.bind(field))
+	return _make_slider(value, min_value, max_value, step, func(v: float): _block_outline_set(field, v))
 
 func _make_slider(value: float, min_value: float, max_value: float, step: float, setter: Callable, suffix := "") -> Control:
 	var s := _ui_scale()

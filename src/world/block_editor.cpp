@@ -4,6 +4,8 @@
 #include "lighting/light_propagator.hpp"
 #include "core/block_types.hpp"
 #include <godot_cpp/core/class_db.hpp>
+#include <algorithm>
+#include <vector>
 
 namespace VoxelEngine {
 using namespace godot;
@@ -193,17 +195,29 @@ Dictionary BlockEditor::raycast(godot::Node* chunk_manager, const NodePath& play
     const int32_t max_steps = static_cast<int32_t>(max_distance) * 3;
     int32_t steps = 0;
 
-constexpr int32_t kLockReacquireInterval = 8;
-    auto map_lock = chunk_world->get_chunk_map().lock_all();
+    // The DDA below advances up to one block per axis per step, so it stays
+    // inside [origin, origin + dir * (3 * max_distance)] blocks. Shared-lock
+    // only the shards of the chunks that box can touch (a reach-distance ray
+    // spans 1-3 chunks) once, up front — the DDA never leaves the box, so no
+    // mid-walk re-acquisition is needed.
+    const int32_t end_x = static_cast<int32_t>(std::floor(ray_origin.x + ray_dir.x * (max_distance * 3.0 + 2.0)));
+    const int32_t end_y = static_cast<int32_t>(std::floor(ray_origin.y + ray_dir.y * (max_distance * 3.0 + 2.0)));
+    const int32_t end_z = static_cast<int32_t>(std::floor(ray_origin.z + ray_dir.z * (max_distance * 3.0 + 2.0)));
+
+    std::vector<uint64_t> keys;
+    {
+        int32_t min_cx, min_cy, min_cz, max_cx, max_cy, max_cz, dummy;
+        world_to_chunk_local(std::min(current_x, end_x), std::min(current_y, end_y), std::min(current_z, end_z),
+                             min_cx, min_cy, min_cz, dummy, dummy, dummy);
+        world_to_chunk_local(std::max(current_x, end_x), std::max(current_y, end_y), std::max(current_z, end_z),
+                             max_cx, max_cy, max_cz, dummy, dummy, dummy);
+        for (int32_t cx = min_cx; cx <= max_cx; ++cx)
+            for (int32_t cy = min_cy; cy <= max_cy; ++cy)
+                for (int32_t cz = min_cz; cz <= max_cz; ++cz)
+                    keys.push_back(chunk_world->get_chunk_map().get_chunk_key(cx, cy, cz));
+    }
+    auto map_lock = chunk_world->get_chunk_map().lock_keys(keys);
     while (steps < max_steps) {
-if (steps > 0 && steps % kLockReacquireInterval == 0) {
-// Release the current all-shard hold BEFORE re-acquiring. Constructing a
-// fresh lock_all() while the previous one is still held is a recursive
-// shared acquisition: if a writer is queued on any shard, SRW blocks it
-// forever (the holder never releases because it never completes).
-map_lock.reset();
-map_lock = chunk_world->get_chunk_map().lock_all();
-}
         int block = chunk_world->get_chunk_map().get_block_world_fast(current_x, current_y, current_z);
         if (block != 0) {
             result["success"] = true;

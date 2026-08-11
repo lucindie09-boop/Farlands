@@ -127,12 +127,16 @@ public:
 
         auto scan_and_pop = [&](std::deque<CompletedMesh>& queue, bool is_high) -> bool {
             // Drop stale entries (wrong epoch) first so they cannot accumulate
-            // and so mesh_count_a mirrors the queue depth.
-            for (size_t i = queue.size(); i-- > 0;) {
+            // and so mesh_count_a mirrors the queue depth. Swap-pop keeps each
+            // removal O(1) instead of shifting the rest of the deque.
+            for (size_t i = 0; i < queue.size();) {
                 if (queue[i].epoch != epoch) {
-                    queue.erase(queue.begin() + static_cast<std::ptrdiff_t>(i));
+                    queue[i] = std::move(queue.back());
+                    queue.pop_back();
                     mesh_count_a.fetch_sub(1, std::memory_order_relaxed);
+                    continue;  // re-check the swapped-in element
                 }
+                ++i;
             }
             int64_t best_dist = INT64_MAX;
             int best_idx = -1;
@@ -151,7 +155,8 @@ public:
                 return false;
             }
             out = std::move(queue[static_cast<size_t>(best_idx)]);
-            queue.erase(queue.begin() + static_cast<std::ptrdiff_t>(best_idx));
+            queue[static_cast<size_t>(best_idx)] = std::move(queue.back());
+            queue.pop_back();
             high_priority = is_high;
             mesh_count_a.fetch_sub(1, std::memory_order_relaxed);
             return true;

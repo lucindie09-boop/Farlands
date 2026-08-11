@@ -27,9 +27,9 @@ float AmbientOcclusion::get_face_shade(FaceDirection direction) {
 // Occlusion predicate — a block occludes ambient light if it is solid
 // or opaque.  Air and purely transparent blocks (glass, water) do not.
 // -------------------------------------------------------------------------
-bool AmbientOcclusion::is_occluding(BlockID block_id) {
+bool AmbientOcclusion::is_occluding(BlockID block_id, const BlockRegistry& registry) {
     if (block_id == BlockIDs::AIR) return false;
-    const BlockType& type = BlockRegistry::get_instance().get_block(block_id);
+    const BlockType& type = registry.get_block_fast(block_id);
     return HasProperty(type.properties, BlockProperty::Opaque) ||
            HasProperty(type.properties, BlockProperty::Solid);
 }
@@ -61,12 +61,13 @@ float AmbientOcclusion::level_to_brightness(int level) {
 }
 
 int AmbientOcclusion::vertex_level(const ChunkNeighborAccessor& accessor,
+                                   const BlockRegistry& registry,
                                    int32_t s1x, int32_t s1y, int32_t s1z,
                                    int32_t s2x, int32_t s2y, int32_t s2z,
                                    int32_t cx,  int32_t cy,  int32_t cz) {
-    bool side1  = is_occluding(accessor.get_block(s1x, s1y, s1z));
-    bool side2  = is_occluding(accessor.get_block(s2x, s2y, s2z));
-    bool corner = is_occluding(accessor.get_block(cx,  cy,  cz));
+    bool side1  = is_occluding(accessor.get_block(s1x, s1y, s1z), registry);
+    bool side2  = is_occluding(accessor.get_block(s2x, s2y, s2z), registry);
+    bool corner = is_occluding(accessor.get_block(cx,  cy,  cz), registry);
     return compute_level(side1, side2, corner);
 }
 
@@ -74,12 +75,13 @@ int AmbientOcclusion::vertex_level(const ChunkNeighborAccessor& accessor,
 // Per-block-face AO
 // -------------------------------------------------------------------------
 void AmbientOcclusion::compute_face(const ChunkNeighborAccessor& accessor,
+                                    const BlockRegistry& registry,
                                     int32_t x, int32_t y, int32_t z,
                                     FaceDirection direction,
                                     float ao_out[4],
                                     int32_t stride) const {
     BlockID current_block = accessor.center->get_block(x, y, z);
-    const BlockType& current_type = BlockRegistry::get_instance().get_block(current_block);
+    const BlockType& current_type = registry.get_block_fast(current_block);
     bool is_lowered = current_type.top_face_offset > 0.0f;
 
     switch (direction) {
@@ -88,7 +90,7 @@ void AmbientOcclusion::compute_face(const ChunkNeighborAccessor& accessor,
             const int dz[4] = {-stride, -stride,  stride,  stride};
             for (int i = 0; i < 4; i++) {
                 ao_out[i] = level_to_brightness(vertex_level(
-                    accessor,
+                    accessor, registry,
                     x + dx[i], y + 1, z,
                     x,         y + 1, z + dz[i],
                     x + dx[i], y + 1, z + dz[i]));
@@ -100,7 +102,7 @@ void AmbientOcclusion::compute_face(const ChunkNeighborAccessor& accessor,
             const int dz[4] = {-stride, -stride,  stride,  stride};
             for (int i = 0; i < 4; i++) {
                 ao_out[i] = level_to_brightness(vertex_level(
-                    accessor,
+                    accessor, registry,
                     x + dx[i], y - 1, z,
                     x,         y - 1, z + dz[i],
                     x + dx[i], y - 1, z + dz[i]));
@@ -112,11 +114,11 @@ void AmbientOcclusion::compute_face(const ChunkNeighborAccessor& accessor,
             const int dz[4] = {-stride,  stride,  stride, -stride};
             for (int i = 0; i < 4; i++) {
                 if (is_lowered && dy[i] > 0) {
-                    int ao_y   = vertex_level(accessor, x + 1, y + dy[i],     z,   x + 1, y,         z + dz[i], x + 1, y + dy[i],     z + dz[i]);
-                    int ao_yp1 = vertex_level(accessor, x + 1, y + dy[i] + 1, z,   x + 1, y + 1,     z + dz[i], x + 1, y + dy[i] + 1, z + dz[i]);
+                    int ao_y   = vertex_level(accessor, registry, x + 1, y + dy[i],     z,   x + 1, y,         z + dz[i], x + 1, y + dy[i],     z + dz[i]);
+                    int ao_yp1 = vertex_level(accessor, registry, x + 1, y + dy[i] + 1, z,   x + 1, y + 1,     z + dz[i], x + 1, y + dy[i] + 1, z + dz[i]);
                     ao_out[i] = level_to_brightness(std::max(ao_y, ao_yp1));
                 } else {
-                    int ao = vertex_level(accessor, x + 1, y + dy[i], z,   x + 1, y, z + dz[i], x + 1, y + dy[i], z + dz[i]);
+                    int ao = vertex_level(accessor, registry, x + 1, y + dy[i], z,   x + 1, y, z + dz[i], x + 1, y + dy[i], z + dz[i]);
                     ao_out[i] = level_to_brightness(ao);
                 }
             }
@@ -127,11 +129,11 @@ void AmbientOcclusion::compute_face(const ChunkNeighborAccessor& accessor,
             const int dz[4] = { stride, -stride, -stride,  stride};
             for (int i = 0; i < 4; i++) {
                 if (is_lowered && dy[i] > 0) {
-                    int ao_y   = vertex_level(accessor, x - 1, y + dy[i],     z,   x - 1, y,         z + dz[i], x - 1, y + dy[i],     z + dz[i]);
-                    int ao_yp1 = vertex_level(accessor, x - 1, y + dy[i] + 1, z,   x - 1, y + 1,     z + dz[i], x - 1, y + dy[i] + 1, z + dz[i]);
+                    int ao_y   = vertex_level(accessor, registry, x - 1, y + dy[i],     z,   x - 1, y,         z + dz[i], x - 1, y + dy[i],     z + dz[i]);
+                    int ao_yp1 = vertex_level(accessor, registry, x - 1, y + dy[i] + 1, z,   x - 1, y + 1,     z + dz[i], x - 1, y + dy[i] + 1, z + dz[i]);
                     ao_out[i] = level_to_brightness(std::max(ao_y, ao_yp1));
                 } else {
-                    int ao = vertex_level(accessor, x - 1, y + dy[i], z,   x - 1, y, z + dz[i], x - 1, y + dy[i], z + dz[i]);
+                    int ao = vertex_level(accessor, registry, x - 1, y + dy[i], z,   x - 1, y, z + dz[i], x - 1, y + dy[i], z + dz[i]);
                     ao_out[i] = level_to_brightness(ao);
                 }
             }
@@ -142,11 +144,11 @@ void AmbientOcclusion::compute_face(const ChunkNeighborAccessor& accessor,
             const int dy[4] = {-stride, -stride,  stride,  stride};
             for (int i = 0; i < 4; i++) {
                 if (is_lowered && dy[i] > 0) {
-                    int ao_y   = vertex_level(accessor, x + dx[i], y,         z + 1, x,         y + dy[i],     z + 1, x + dx[i], y + dy[i],     z + 1);
-                    int ao_yp1 = vertex_level(accessor, x + dx[i], y + 1,     z + 1, x,         y + dy[i] + 1, z + 1, x + dx[i], y + dy[i] + 1, z + 1);
+                    int ao_y   = vertex_level(accessor, registry, x + dx[i], y,         z + 1, x,         y + dy[i],     z + 1, x + dx[i], y + dy[i],     z + 1);
+                    int ao_yp1 = vertex_level(accessor, registry, x + dx[i], y + 1,     z + 1, x,         y + dy[i] + 1, z + 1, x + dx[i], y + dy[i] + 1, z + 1);
                     ao_out[i] = level_to_brightness(std::max(ao_y, ao_yp1));
                 } else {
-                    int ao = vertex_level(accessor, x + dx[i], y, z + 1, x, y + dy[i], z + 1, x + dx[i], y + dy[i], z + 1);
+                    int ao = vertex_level(accessor, registry, x + dx[i], y, z + 1, x, y + dy[i], z + 1, x + dx[i], y + dy[i], z + 1);
                     ao_out[i] = level_to_brightness(ao);
                 }
             }
@@ -157,11 +159,11 @@ void AmbientOcclusion::compute_face(const ChunkNeighborAccessor& accessor,
             const int dy[4] = {-stride, -stride,  stride,  stride};
             for (int i = 0; i < 4; i++) {
                 if (is_lowered && dy[i] > 0) {
-                    int ao_y   = vertex_level(accessor, x + dx[i], y,         z - 1, x,         y + dy[i],     z - 1, x + dx[i], y + dy[i],     z - 1);
-                    int ao_yp1 = vertex_level(accessor, x + dx[i], y + 1,     z - 1, x,         y + dy[i] + 1, z - 1, x + dx[i], y + dy[i] + 1, z - 1);
+                    int ao_y   = vertex_level(accessor, registry, x + dx[i], y,         z - 1, x,         y + dy[i],     z - 1, x + dx[i], y + dy[i],     z - 1);
+                    int ao_yp1 = vertex_level(accessor, registry, x + dx[i], y + 1,     z - 1, x,         y + dy[i] + 1, z - 1, x + dx[i], y + dy[i] + 1, z - 1);
                     ao_out[i] = level_to_brightness(std::max(ao_y, ao_yp1));
                 } else {
-                    int ao = vertex_level(accessor, x + dx[i], y, z - 1, x, y + dy[i], z - 1, x + dx[i], y + dy[i], z - 1);
+                    int ao = vertex_level(accessor, registry, x + dx[i], y, z - 1, x, y + dy[i], z - 1, x + dx[i], y + dy[i], z - 1);
                     ao_out[i] = level_to_brightness(ao);
                 }
             }
@@ -178,10 +180,11 @@ void AmbientOcclusion::compute_face(const ChunkNeighborAccessor& accessor,
 // valid for all four corners of the merged rectangle.
 // -------------------------------------------------------------------------
 void AmbientOcclusion::compute_greedy_face(const ChunkNeighborAccessor& accessor,
+                                             const BlockRegistry& registry,
                                              const Face& face,
                                              float ao_out[4],
                                              int32_t stride) const {
-    compute_face(accessor, face.x, face.y, face.z, face.direction, ao_out, stride);
+    compute_face(accessor, registry, face.x, face.y, face.z, face.direction, ao_out, stride);
 }
 
 // -------------------------------------------------------------------------

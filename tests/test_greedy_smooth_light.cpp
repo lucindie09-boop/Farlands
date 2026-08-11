@@ -58,11 +58,12 @@ TEST_CASE("greedy merged side faces keep smooth gradients at shadow boundaries")
     // two faces sharing a corner must produce the SAME light.
     std::map<std::pair<int, int>, std::pair<float, float>> per_corner;
     for (const auto& v : mb.get_vertices()) {
-        const float px = snap(v.x);
-        const float pz = snap(v.z);
+        // Convert fixed-point positions back to float for comparison
+        const float px = snap(static_cast<float>(v.x));
+        const float pz = snap(static_cast<float>(v.z));
         if (px != 9.0f || v.nx <= 100) continue;
         if (pz < 1.0f || pz >= 31.0f) continue;  // chunk-border nulls
-        const int gy = static_cast<int>(std::lround(snap(v.y)));
+        const int gy = static_cast<int>(std::lround(snap(static_cast<float>(v.y) / 256.0f)));  // Q8.8 to float
         const int gz = static_cast<int>(std::lround(pz));
         const float sky = static_cast<float>(v.sky_light);
         auto it = per_corner.find({gy, gz});

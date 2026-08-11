@@ -35,6 +35,7 @@ public:
     void place_block();
     int get_selected_block() const;
     void set_selected_block(int block_id);
+    int get_block_edit_counter() const;
     
     // Inventory API
     int get_hotbar_slot_count(int slot) const;
@@ -89,6 +90,7 @@ private:
     bool settings_open_ = false;
     bool inventory_saved_ = false;
     float rendered_eye_height_ = 1.62f;
+    int block_edit_counter_ = 0;
 };
 
 #endif // FUK_MINECRAFT_PLAYER_CONTROLLER_NODE_HPP

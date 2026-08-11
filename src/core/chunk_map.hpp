@@ -84,6 +84,8 @@ public:
         world_to_chunk_local(wx, wy, wz, chunk_x, chunk_y, chunk_z, dummy_x, dummy_y, dummy_z);
     }
 
+    [[nodiscard]] size_t shard_of(uint64_t key) const noexcept { return key_to_shard(key); }
+
     // -- Explicit shard locking (for callers that need multiple fast reads) --
 
     ShardLock lock_chunk(int32_t cx, int32_t cy, int32_t cz) const {

@@ -72,7 +72,9 @@ TEST_CASE("side_lowered_offset: stone side face above water is shortened") {
     CHECK(mb.get_vertex_count() > 0);
     bool found_shortened = false;
     for (const auto& v : mb.get_vertices()) {
-        if (std::abs(v.y - 15.88f) < 0.02f) {
+        // Convert Q8.8 fixed-point back to float for comparison
+        float fy = static_cast<float>(v.y) / 256.0f;
+        if (std::abs(fy - 15.88f) < 0.02f) {
             found_shortened = true;
         }
     }

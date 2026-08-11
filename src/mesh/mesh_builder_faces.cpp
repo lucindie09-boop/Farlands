@@ -124,7 +124,7 @@ light_keys[0] = light_keys[1] = light_keys[2] = light_keys[3] = light_key;
         v.z = static_cast<uint8_t>(corners[i][2]);  // z is integer 0-31
         // y is Q8.8 fixed-point: 8 integer bits + 8 fractional bits
         // This preserves fractional precision for top_face_offset (water, slabs, etc.)
-        v.y = static_cast<uint16_t>(lround(corners[i][1] * 256.0f));  // Round to nearest
+        v.y = static_cast<uint16_t>(std::lroundf(corners[i][1] * 256.0f));  // Round to nearest
         v.nx = static_cast<int8_t>(kFaceNormals[dir_index][0] * 127.0f);
         v.ny = static_cast<int8_t>(kFaceNormals[dir_index][1] * 127.0f);
         v.nz = static_cast<int8_t>(kFaceNormals[dir_index][2] * 127.0f);
@@ -270,7 +270,7 @@ bool flip = (ao[0] + ao[2]) < (ao[1] + ao[3]);
         v.x = static_cast<uint8_t>(corners[i][0]);  // x is integer 0-31
         v.z = static_cast<uint8_t>(corners[i][2]);  // z is integer 0-31
         // y is Q8.8 fixed-point: 8 integer bits + 8 fractional bits
-        v.y = static_cast<uint16_t>(lround(corners[i][1] * 256.0f));  // Round to nearest
+        v.y = static_cast<uint16_t>(std::lroundf(corners[i][1] * 256.0f));  // Round to nearest
         v.nx = static_cast<int8_t>(kFaceNormals[dir_index][0] * 127.0f);
         v.ny = static_cast<int8_t>(kFaceNormals[dir_index][1] * 127.0f);
         v.nz = static_cast<int8_t>(kFaceNormals[dir_index][2] * 127.0f);

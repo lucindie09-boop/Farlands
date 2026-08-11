@@ -48,8 +48,39 @@ func _build_fill_highlight_texture() -> Texture2D:
 func _is_fill_pixel(px: Color, base: Color, tolerance: float) -> bool:
 	return absf(px.r - base.r) <= tolerance and absf(px.g - base.g) <= tolerance and absf(px.b - base.b) <= tolerance
 
+var _last_ids: Array[int] = [-1, -1, -1, -1, -1, -1, -1, -1, -1]
+var _last_counts: Array[int] = [-1, -1, -1, -1, -1, -1, -1, -1, -1]
+var _last_selected := -1
+var _last_ui_scale := -1.0
+var _last_size := Vector2.ZERO
+
 func _process(_delta):
-	queue_redraw()
+	if _needs_redraw():
+		queue_redraw()
+
+# Redraw only when the drawn state actually changed (slot contents, selection,
+# GUI scale, or window size). The previous code queued a redraw every frame,
+# which forced hotbar _draw() (9 slot lookups + 9 draw_texture_rect calls into
+# the C++ inventory) to run even when nothing moved.
+func _needs_redraw() -> bool:
+	if not player_controller:
+		return false
+	if size != _last_size or not is_equal_approx(UIScale.value, _last_ui_scale):
+		_last_size = size
+		_last_ui_scale = UIScale.value
+		return true
+	var sel: int = player_controller.get_selected_hotbar_slot()
+	if sel != _last_selected:
+		_last_selected = sel
+		return true
+	for i in range(HOTBAR_SIZE):
+		var id: int = player_controller.get_hotbar_slot_block_id(i)
+		var cnt: int = player_controller.get_hotbar_slot_count(i)
+		if id != _last_ids[i] or cnt != _last_counts[i]:
+			_last_ids[i] = id
+			_last_counts[i] = cnt
+			return true
+	return false
 
 func _input(event):
 	# Scroll cycles the selected hotbar slot, wrapping around. Ignored while

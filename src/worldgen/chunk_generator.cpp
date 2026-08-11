@@ -419,16 +419,18 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
     // orthogonal neighbors are all air is a density-noise glitch (a lone
     // floating cube). Only interior blocks are touched — boundary-layer
     // neighbors may live in adjacent, not-yet-generated chunks.
+    // Optimized: use the dens() buffer instead of expensive get_block() calls.
+    // Positive density = solid, negative density = air.
     for (int32_t ly = 1; ly < CHUNK_HEIGHT - 1; ly++) {
         for (int32_t x = 1; x < CHUNK_WIDTH - 1; x++) {
             for (int32_t z = 1; z < CHUNK_DEPTH - 1; z++) {
-                if (chunk.get_block(x, ly, z) == BlockIDs::AIR) continue;
-                if (chunk.get_block(x + 1, ly, z) != BlockIDs::AIR) continue;
-                if (chunk.get_block(x - 1, ly, z) != BlockIDs::AIR) continue;
-                if (chunk.get_block(x, ly + 1, z) != BlockIDs::AIR) continue;
-                if (chunk.get_block(x, ly - 1, z) != BlockIDs::AIR) continue;
-                if (chunk.get_block(x, ly, z + 1) != BlockIDs::AIR) continue;
-                if (chunk.get_block(x, ly, z - 1) != BlockIDs::AIR) continue;
+                if (dens(x, ly, z) <= 0.0f) continue;  // Skip air voxels
+                if (dens(x + 1, ly, z) > 0.0f) continue;
+                if (dens(x - 1, ly, z) > 0.0f) continue;
+                if (dens(x, ly + 1, z) > 0.0f) continue;
+                if (dens(x, ly - 1, z) > 0.0f) continue;
+                if (dens(x, ly, z + 1) > 0.0f) continue;
+                if (dens(x, ly, z - 1) > 0.0f) continue;
                 chunk.set_block(x, ly, z, BlockIDs::AIR);
             }
         }

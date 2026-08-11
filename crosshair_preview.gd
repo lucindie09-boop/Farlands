@@ -5,6 +5,7 @@ const CONTRAST_SHADER := preload("res://shaders/crosshair_contrast.gdshader")
 const SRC_PATH := "/root/Main/HUD/Crosshair"
 
 var _material: ShaderMaterial
+var _last_signature := -1
 
 func _ready():
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -13,8 +14,34 @@ func _ready():
 
 func _process(_delta):
 	if is_visible_in_tree():
-		queue_redraw()
-		_sync_material()
+		var sig := _draw_signature()
+		if sig != _last_signature:
+			_last_signature = sig
+			queue_redraw()
+			_sync_material()
+
+func _draw_signature() -> int:
+	var src := get_node_or_null(SRC_PATH)
+	if src == null:
+		return 0
+	var h := int(round(size.x)) * 73856093 ^ int(round(size.y)) * 19349663
+	h ^= (1 if src.cross_enabled else 0) * 104729
+	h ^= int(round(src.cross_thickness * 8)) * 4051
+	h ^= int(round(src.cross_length * 8)) * 521
+	h ^= int(round(src.cross_spacing * 8)) * 3329
+	h ^= int(round(src.cross_opacity * 32)) * 617
+	h ^= int(src.cross_color.to_rgba32()) * 19
+	h ^= (1 if src.top_line_enabled else 0) * 3559
+	h ^= int(round(src.cross_rotation * 8)) * 8929
+	h ^= (1 if src.cross_contrast else 0) * 7669
+	h ^= (1 if src.dot_enabled else 0) * 10037
+	h ^= int(round(src.dot_size * 8)) * 577
+	h ^= int(round(src.dot_opacity * 32)) * 191
+	h ^= int(src.dot_color.to_rgba32()) * 3359
+	h ^= (1 if src.dot_contrast else 0) * 8117
+	h ^= (1 if src.cross_dot_collision else 0) * 6221
+	h ^= int(round(src.dot_rotation * 8)) * 4967
+	return h
 
 func _sync_material():
 	var src := get_node_or_null(SRC_PATH)

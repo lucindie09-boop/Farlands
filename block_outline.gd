@@ -33,6 +33,12 @@ var _inner_vertex_indices: Array[int] = []
 var _vertex_face_center: Dictionary = {}  # Map vertex index to its face center
 var _pulse_time: float = 0.0
 
+# Throttling: skip raycast when camera hasn't moved significantly
+var _last_camera_position: Vector3 = Vector3.ZERO
+var _last_camera_rotation: Vector3 = Vector3.ZERO
+var _position_threshold: float = 0.01
+var _rotation_threshold: float = 0.001
+
 func _ready():
 	_create_outline()
 	_create_fill()
@@ -201,6 +207,32 @@ func _process(delta):
 		if fill_mesh:
 			fill_mesh.visible = false
 		return
+
+	# Get current camera state
+	var camera = player_controller.get_node("Camera3D")
+	if not camera:
+		return
+
+	var current_position = camera.global_position
+	var current_rotation = camera.rotation
+
+	# Skip raycast if camera hasn't moved significantly (throttling)
+	var position_changed = current_position.distance_to(_last_camera_position) > _position_threshold
+	var rotation_changed = abs(current_rotation.x - _last_camera_rotation.x) > _rotation_threshold or \
+	                      abs(current_rotation.y - _last_camera_rotation.y) > _rotation_threshold or \
+	                      abs(current_rotation.z - _last_camera_rotation.z) > _rotation_threshold
+
+	var needs_raycast = position_changed or rotation_changed or _last_camera_position == Vector3.ZERO
+
+	if not needs_raycast:
+		# Still update pulse animations even if raycast is skipped
+		_pulse_time += delta
+		_update_materials()
+		return
+
+	# Update tracked camera state
+	_last_camera_position = current_position
+	_last_camera_rotation = current_rotation
 
 	var result = chunk_manager.raycast_from_camera(reach_distance)
 	if not result or not result.get("success", false):

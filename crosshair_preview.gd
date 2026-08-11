@@ -24,6 +24,9 @@ func _draw_signature() -> int:
 	var src := get_node_or_null(SRC_PATH)
 	if src == null:
 		return 0
+	# Note: This is a hash, not a true equality check. Different settings states could
+	# theoretically collide and skip a needed redraw, but probability is extremely low.
+	# Low stakes since this only affects the settings menu preview.
 	var h := int(round(size.x)) * 73856093 ^ int(round(size.y)) * 19349663
 	h ^= (1 if src.cross_enabled else 0) * 104729
 	h ^= int(round(src.cross_thickness * 8)) * 4051

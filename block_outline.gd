@@ -214,7 +214,7 @@ func _process(delta):
 		return
 
 	var current_position = camera.global_position
-	var current_rotation = camera.rotation
+	var current_rotation = camera.global_rotation
 
 	# Skip raycast if camera hasn't moved significantly (throttling)
 	var position_changed = current_position.distance_to(_last_camera_position) > _position_threshold

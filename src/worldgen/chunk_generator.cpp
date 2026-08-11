@@ -200,20 +200,20 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
         // All density is solid: plain stone over the bedrock base. Skipping the
         // material pass must NOT be done while cave carving is enabled — deep
         // chunks lie inside the cave band.
+        // Optimized: use O(1) fill instead of 32K individual set_block calls
+        chunk.fill_blocks(BlockIDs::STONE);
+        
         const int32_t bed = params.bedrock_height;
-        for (int32_t x = 0; x < CHUNK_WIDTH; x++) {
-            for (int32_t z = 0; z < CHUNK_DEPTH; z++) {
-                int32_t bedrock_overlap_start = std::max(0, world_y_start);
-                int32_t bedrock_overlap_end   = std::min(bed, world_y_end);
-                if (bedrock_overlap_start < bedrock_overlap_end) {
+        // Only overwrite the bedrock layer with individual calls
+        int32_t bedrock_overlap_start = std::max(0, world_y_start);
+        int32_t bedrock_overlap_end   = std::min(bed, world_y_end);
+        if (bedrock_overlap_start < bedrock_overlap_end) {
+            for (int32_t x = 0; x < CHUNK_WIDTH; x++) {
+                for (int32_t z = 0; z < CHUNK_DEPTH; z++) {
                     for (int32_t ly = bedrock_overlap_start - world_y_start;
                          ly < bedrock_overlap_end - world_y_start; ly++) {
                         chunk.set_block(x, ly, z, BlockIDs::BEDROCK);
                     }
-                }
-                const int32_t stone_start = std::max(bed, world_y_start) - world_y_start;
-                for (int32_t ly = stone_start; ly < CHUNK_HEIGHT; ly++) {
-                    chunk.set_block(x, ly, z, BlockIDs::STONE);
                 }
             }
         }
@@ -441,7 +441,8 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
                                 world_y_start, world_y_end, cross_writer);
     }
 
-    chunk.compute_section_flags();
+    // NOTE: compute_section_flags() removed - section_block_count is already correct
+    // from set_block calls during generation. No need to rescan all sections.
 }
 
 } // namespace VoxelEngine

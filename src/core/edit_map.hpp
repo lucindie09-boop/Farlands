@@ -9,6 +9,9 @@
 
 namespace VoxelEngine {
 
+// Forward declaration
+class BlockRegistry;
+
 // Edit map format: sparse per-chunk block edits
 // Key: packed local coordinate (15 bits: 5 for x, 5 for y, 5 for z)
 // Value: block ID (uint16_t)
@@ -85,8 +88,9 @@ constexpr uint32_t EDIT_MAP_VERSION = 1;
 void serialize_edit_map(const EditMap& edit_map, std::vector<uint8_t>& out);
 
 // Deserialize an edit map from a byte buffer
-// Returns true on success, false if the buffer is malformed or CRC mismatch
-bool deserialize_edit_map(const uint8_t* data, size_t size, EditMap& out_edit_map);
+// Returns true on success, false if the buffer is malformed, CRC mismatch, or contains
+// block IDs not registered in the current session (cross-version save safety)
+bool deserialize_edit_map(const uint8_t* data, size_t size, EditMap& out_edit_map, const BlockRegistry& registry);
 
 } // namespace VoxelEngine
 

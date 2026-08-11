@@ -1,5 +1,6 @@
 #include "world/chunk_world.hpp"
 #include "core/edit_map.hpp"
+#include "core/block_types.hpp"
 
 namespace VoxelEngine {
 
@@ -332,7 +333,7 @@ bool ChunkWorld::world_metadata_exists() const {
     return FileAccess::file_exists(filename);
 }
 
-bool ChunkWorld::load_edit_map_from_disk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, EditMap& out_edit_map) {
+bool ChunkWorld::load_edit_map_from_disk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, EditMap& out_edit_map, const BlockRegistry& registry) {
     String save_dir = "user://chunks/";
     String filename = save_dir + "chunk_" + String::num_int64(chunk_x) + "_" + String::num_int64(chunk_y) + "_" + String::num_int64(chunk_z) + ".edit";
 
@@ -355,7 +356,7 @@ bool ChunkWorld::load_edit_map_from_disk(int32_t chunk_x, int32_t chunk_y, int32
     file->get_buffer(data.data(), file_size);
     file->close();
 
-    return deserialize_edit_map(data.data(), data.size(), out_edit_map);
+    return deserialize_edit_map(data.data(), data.size(), out_edit_map, BlockRegistry::get_instance());
 }
 
 void ChunkWorld::save_edit_map_to_disk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, const EditMap& edit_map) {

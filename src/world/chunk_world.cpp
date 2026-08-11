@@ -104,7 +104,7 @@ float top_content_h = std::max(height_range.max_h, height_range.max_water_h);
                 std::lock_guard<std::mutex> lock(edit_maps_mutex);
                 if (chunk_edit_maps.find(key) == chunk_edit_maps.end()) {
                     EditMap loaded;
-                    if (load_edit_map_from_disk(cx, cy, cz, loaded)) {
+                    if (load_edit_map_from_disk(cx, cy, cz, loaded, BlockRegistry::get_instance())) {
                         chunk_edit_maps[key] = std::move(loaded);
                     }
                 }

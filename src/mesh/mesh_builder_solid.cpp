@@ -39,10 +39,10 @@ void MeshBuilder::populate_solid_cache(const ChunkData& chunk, const BlockRegist
             int32_t y0 = s * SECTION_HEIGHT;
             int32_t y1 = y0 + SECTION_HEIGHT;
             for (int32_t y = y0; y < y1; y++) {
-                for (int32_t z = 1; z <= CHUNK_DEPTH; z++) {
-                    int32_t z_src = ((z - 1) / stride_xz_) * stride_xz_;
-                    for (int32_t x = 1; x <= CHUNK_WIDTH; x++) {
-                        int32_t x_src = ((x - 1) / stride_xz_) * stride_xz_;
+                for (int32_t z = 1; z <= CHUNK_DEPTH; z += stride_xz_) {
+                    int32_t z_src = z - 1;
+                    for (int32_t x = 1; x <= CHUNK_WIDTH; x += stride_xz_) {
+                        int32_t x_src = x - 1;
                         BlockID representative = BlockIDs::AIR;
                         for (int32_t dz = 0; dz < stride_xz_; ++dz) {
                             for (int32_t dx = 0; dx < stride_xz_; ++dx) {

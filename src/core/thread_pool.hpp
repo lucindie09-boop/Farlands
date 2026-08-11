@@ -1,6 +1,7 @@
 #ifndef FUK_MINECRAFT_VOXEL_ENGINE_THREAD_POOL_HPP
 #define FUK_MINECRAFT_VOXEL_ENGINE_THREAD_POOL_HPP
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstddef>
 #include <cstdlib>
@@ -82,6 +83,10 @@ public:
         return high_priority_queue_size_.load(std::memory_order_relaxed);
     }
 
+    [[nodiscard]] std::size_t get_steal_count() const noexcept {
+        return steal_count_.load(std::memory_order_relaxed);
+    }
+
     [[nodiscard]] std::size_t get_worker_count() const noexcept {
         return workers_.size();
     }
@@ -105,28 +110,74 @@ private:
         std::condition_variable cv;
     };
 
+    // Pops one task from a queue (high-priority first). Caller MUST hold the
+    // queue's mutex. Task costs here are highly non-uniform (an empty-sky mesh
+    // build is ~7x cheaper than a dense-terrain one), so a round-robin enqueue
+    // can leave one worker with a long tail of expensive builds while others
+    // sit idle. Work stealing rebalances: an idle worker grabs a task from a
+    // busy worker's queue instead of blocking.
+    std::unique_ptr<Task> pop_one(PerWorker& q) {
+        std::unique_ptr<Task> task;
+        if (!q.high_pri.empty()) {
+            task = std::move(q.high_pri.front());
+            q.high_pri.pop();
+            high_priority_queue_size_.fetch_sub(1, std::memory_order_relaxed);
+        } else if (!q.normal.empty()) {
+            task = std::move(q.normal.front());
+            q.normal.pop();
+        }
+        if (task) {
+            total_queue_size_.fetch_sub(1, std::memory_order_relaxed);
+        }
+        return task;
+    }
+
+    // Scan the other workers' queues (round-robin, try-lock so a busy queue
+    // never blocks a thief) and steal one task. High-priority tasks are stolen
+    // first so a latency-critical build is not stranded behind slow work on
+    // its dispatch worker.
+    std::unique_ptr<Task> steal_task(std::size_t self) {
+        const std::size_t n = queues_.size();
+        for (std::size_t i = 1; i < n; ++i) {
+            std::size_t target = (self + i) % n;
+            PerWorker& q = queues_[target];
+            std::unique_lock<std::mutex> lock(q.mtx, std::try_to_lock);
+            if (!lock.owns_lock()) continue;
+            std::unique_ptr<Task> task = pop_one(q);
+            if (task) {
+                steal_count_.fetch_add(1, std::memory_order_relaxed);
+                return task;
+            }
+        }
+        return nullptr;
+    }
+
     void worker_loop(std::size_t idx) {
-        auto& q = queues_[idx];
+        auto& my = queues_[idx];
         while (true) {
             std::unique_ptr<Task> task;
             {
-                std::unique_lock<std::mutex> lock(q.mtx);
-                q.cv.wait(lock, [this, &q] {
+                std::unique_lock<std::mutex> lock(my.mtx);
+                // Poll for steal opportunities aggressively while work exists
+                // anywhere in the pool; when everything is idle, sleep long so
+                // 15 idle workers do not burn ~15k wakeups/sec churning.
+                const auto poll = (total_queue_size_.load(std::memory_order_relaxed) > 0)
+                                      ? kStealPollInterval
+                                      : kIdlePollInterval;
+                my.cv.wait_for(lock, poll, [this, &my] {
                     return stop_flag_.load(std::memory_order_acquire) ||
-                           !q.high_pri.empty() || !q.normal.empty();
+                           !my.high_pri.empty() || !my.normal.empty();
                 });
                 if (stop_flag_.load(std::memory_order_acquire) &&
-                    q.high_pri.empty() && q.normal.empty())
+                    my.high_pri.empty() && my.normal.empty())
                     return;
-                if (!q.high_pri.empty()) {
-                    task = std::move(q.high_pri.front());
-                    q.high_pri.pop();
-                    high_priority_queue_size_.fetch_sub(1, std::memory_order_relaxed);
-                } else {
-                    task = std::move(q.normal.front());
-                    q.normal.pop();
-                }
-                total_queue_size_.fetch_sub(1, std::memory_order_relaxed);
+                task = pop_one(my);
+            }
+            if (!task) {
+                // Own queue was empty (spurious wakeup / steal poll): try to
+                // steal from a busy worker before going back to sleep.
+                task = steal_task(idx);
+                if (!task) continue;
             }
             task->execute();
         }
@@ -137,12 +188,24 @@ private:
         return (hc > 1) ? (hc - 1) : 1;
     }
 
+    // While any task is queued anywhere in the pool, idle workers poll this
+    // often to try stealing. Short enough to reclaim a stranded task within a
+    // few milliseconds of it landing on a busy worker.
+    static constexpr std::chrono::microseconds kStealPollInterval{1000};
+    // When the whole pool is idle (nothing queued), idle workers sleep this
+    // long between steal attempts. Long enough that 15 idle workers do not
+    // burn ~15k wakeups/sec, short enough that a fresh burst of work is
+    // picked up within a frame (~16ms). Enqueues still wake the target worker
+    // immediately via notify_one, so this only caps steal latency.
+    static constexpr std::chrono::microseconds kIdlePollInterval{16000};
+
     std::vector<std::thread> workers_;
     std::deque<PerWorker> queues_;
     std::atomic<bool> stop_flag_;
     std::atomic<std::size_t> next_worker_;
     std::atomic<std::size_t> total_queue_size_{0};
     std::atomic<std::size_t> high_priority_queue_size_{0};
+    std::atomic<std::size_t> steal_count_{0};
 };
 
 } // namespace VoxelEngine

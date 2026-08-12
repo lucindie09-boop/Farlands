@@ -61,7 +61,14 @@ std::optional<TexturePack> parse_pack(const godot::String& root_dir,
         if (json.has("base_resolution")) {
             godot::Variant res_var = json["base_resolution"];
             if (res_var.get_type() == godot::Variant::INT) {
-                pack.base_resolution = static_cast<int>(static_cast<int64_t>(res_var));
+                int res = static_cast<int>(static_cast<int64_t>(res_var));
+                // Validate base_resolution: must be positive and multiple of 4 for S3TC compression
+                if (res > 0 && res % 4 == 0) {
+                    pack.base_resolution = res;
+                } else {
+                    WARN_PRINT("Invalid base_resolution in pack.json: " + godot::String::num_int64(res) + " (must be positive and multiple of 4). Using default 16.");
+                    pack.base_resolution = 16;
+                }
             }
         }
         if (json.has("author")) {

@@ -192,7 +192,6 @@ inline godot::String TextureArrayGenerator::get_safe_texture_path(const godot::S
 }
 
 inline godot::Ref<godot::Texture2DArray> TextureArrayGenerator::generate_texture_array() {
-    godot::print_line("Starting texture array generation");
     BlockRegistry& registry = BlockRegistry::get_instance();
     const size_t block_count = registry.get_count();
 
@@ -206,8 +205,6 @@ inline godot::Ref<godot::Texture2DArray> TextureArrayGenerator::generate_texture
             }
         }
     }
-
-    godot::print_line("Found " + godot::String::num_int64(unique_textures.size()) + " unique textures");
     
     godot::PackedStringArray texture_paths;
     for (const godot::String& texture_name : unique_textures) {
@@ -228,14 +225,11 @@ inline godot::Ref<godot::Texture2DArray> TextureArrayGenerator::generate_texture
     const int width  = TexturePackManager::get_instance().get_base_resolution();
     const int height = width;
 
-    godot::print_line("Target resolution: " + godot::String::num_int64(width) + "x" + godot::String::num_int64(height));
-
     godot::Array textures;
     s_global_texture_name_to_index.clear();
 
     for (int i = 0; i < static_cast<int>(texture_paths.size()); ++i) {
         const godot::String& path = texture_paths[i];
-        godot::print_line("Loading texture " + godot::String::num_int64(i) + "/" + godot::String::num_int64(texture_paths.size()) + ": " + path);
         
         godot::Ref<godot::Image> image;
         if (textures_enabled_) {
@@ -243,24 +237,19 @@ inline godot::Ref<godot::Texture2DArray> TextureArrayGenerator::generate_texture
                 // Pack textures live outside the import system: load the raw
                 // PNG directly so we don't hit the ResourceLoader cache or the
                 // exported .pck import remap.
-                godot::print_line("  Loading from user:// path");
                 image = godot::Image::load_from_file(path);
             } else {
-                godot::print_line("  Loading from res:// path");
                 godot::Ref<godot::Texture2D> texture = loader->load(path);
                 if (texture.is_valid()) {
                     image = texture->get_image();
                 }
             }
             
-            godot::print_line("  Image valid: " + godot::String(image.is_valid() ? "yes" : "no"));
-            
             if (!image.is_valid()) {
                 // Corrupt/truncated pack PNG: degrade to the built-in texture
                 // instead of dropping the layer (which would map the name to
                 // layer 0/stone and look wrong).
                 const godot::String builtin = "res://textures/blocks/" + texture_paths[i].get_file().get_basename() + ".png";
-                godot::print_line("  Trying fallback: " + builtin);
                 godot::Ref<godot::Texture2D> fallback = loader->load(builtin);
                 if (fallback.is_valid()) {
                     image = fallback->get_image();
@@ -281,7 +270,6 @@ inline godot::Ref<godot::Texture2DArray> TextureArrayGenerator::generate_texture
             }
 
             if (img_width != width || img_height != height) {
-                godot::print_line("  Resizing from " + godot::String::num_int64(img_width) + "x" + godot::String::num_int64(img_height) + " to " + godot::String::num_int64(width) + "x" + godot::String::num_int64(height));
                 image->resize(width, height, godot::Image::INTERPOLATE_NEAREST);
             }
         } else {
@@ -317,13 +305,10 @@ inline godot::Ref<godot::Texture2DArray> TextureArrayGenerator::generate_texture
 
         godot::String file_name = texture_paths[i].get_file().get_basename();
         s_global_texture_name_to_index[file_name] = layer_index;
-        godot::print_line("  Added layer " + godot::String::num_int64(layer_index) + " for: " + file_name);
     }
 
-    godot::print_line("Creating texture array from " + godot::String::num_int64(textures.size()) + " images");
     if (textures.size() > 0) {
         s_global_texture_array->create_from_images(textures);
-        godot::print_line("Generated texture array with " + godot::String::num_int64(s_global_texture_array->get_layers()) + " layers" + (mipmaps_enabled_ ? " (with mipmaps)" : " (no mipmaps)"));
     }
 
     return s_global_texture_array;
@@ -455,7 +440,6 @@ inline godot::Ref<godot::Texture2DArray> TextureArrayGenerator::generate_emissiv
 
     s_global_emissive_array->create_from_images(images);
     s_global_emissive_initialized = true;
-    godot::print_line("Generated emissive texture array with " + godot::String::num_int64(s_global_emissive_array->get_layers()) + " layers");
 
     return s_global_emissive_array;
 }

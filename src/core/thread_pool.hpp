@@ -33,12 +33,18 @@ public:
         : stop_flag_(false), next_worker_(0)
     {
         num_threads = std::max(std::size_t(1), num_threads);
-        workers_.reserve(num_threads);
 
-        for (std::size_t i = 0; i < num_threads; ++i) {
+        // Create every per-worker queue before starting any thread. Each
+        // worker navigates queues_[idx] on entry, and std::deque keeps its
+        // map/finish pointers inside this object; growing it while a freshly
+        // spawned worker reads those pointers is a data race (the pool object
+        // often lives on the caller's stack, so TSan reports it there).
+        for (std::size_t i = 0; i < num_threads; ++i)
             queues_.emplace_back();
+
+        workers_.reserve(num_threads);
+        for (std::size_t i = 0; i < num_threads; ++i)
             workers_.emplace_back([this, i] { worker_loop(i); });
-        }
     }
 
     ~ThreadPool() {

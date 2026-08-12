@@ -26,65 +26,60 @@ bool default_path_exists(const std::string& path) {
 // schema range is validated by the caller via schema_supported().
 std::optional<TexturePack> parse_pack(const godot::String& root_dir,
                                       const godot::Dictionary& json) {
-    try {
-        TexturePack pack;
-        pack.root_dir = std::string(root_dir.utf8().get_data()) + "/";
-        
-        if (json.has("name")) {
-            godot::Variant name_var = json["name"];
-            if (name_var.get_type() == godot::Variant::STRING) {
-                pack.name = std::string(static_cast<godot::String>(name_var).utf8().get_data());
-            }
+    TexturePack pack;
+    pack.root_dir = std::string(root_dir.utf8().get_data()) + "/";
+    
+    if (json.has("name")) {
+        godot::Variant name_var = json["name"];
+        if (name_var.get_type() == godot::Variant::STRING) {
+            pack.name = std::string(static_cast<godot::String>(name_var).utf8().get_data());
         }
-        if (pack.name.empty()) {
-            pack.name = std::string(root_dir.get_file().utf8().get_data());
-        }
-        
-        if (json.has("schema")) {
-            godot::Variant schema_var = json["schema"];
-            if (schema_var.get_type() == godot::Variant::INT) {
-                pack.schema = static_cast<int>(static_cast<int64_t>(schema_var));
-            }
-        }
-        if (json.has("min_supported")) {
-            godot::Variant min_var = json["min_supported"];
-            if (min_var.get_type() == godot::Variant::INT) {
-                pack.min_supported = static_cast<int>(static_cast<int64_t>(min_var));
-            }
-        }
-        if (json.has("max_supported")) {
-            godot::Variant max_var = json["max_supported"];
-            if (max_var.get_type() == godot::Variant::INT) {
-                pack.max_supported = static_cast<int>(static_cast<int64_t>(max_var));
-            }
-        }
-        if (json.has("base_resolution")) {
-            godot::Variant res_var = json["base_resolution"];
-            if (res_var.get_type() == godot::Variant::INT) {
-                int res = static_cast<int>(static_cast<int64_t>(res_var));
-                // Validate base_resolution: must be positive and multiple of 4 for S3TC compression
-                if (res > 0 && res % 4 == 0) {
-                    pack.base_resolution = res;
-                } else {
-                    WARN_PRINT("Invalid base_resolution in pack.json: " + godot::String::num_int64(res) + " (must be positive and multiple of 4). Using default 16.");
-                    pack.base_resolution = 16;
-                }
-            }
-        }
-        if (json.has("author")) {
-            godot::Variant author_var = json["author"];
-            if (author_var.get_type() == godot::Variant::STRING) {
-                pack.author = std::string(static_cast<godot::String>(author_var).utf8().get_data());
-            }
-        }
-        if (pack.min_supported > pack.max_supported) {
-            std::swap(pack.min_supported, pack.max_supported);
-        }
-        return pack;
-    } catch (...) {
-        // Catch any exceptions during JSON parsing
-        return std::nullopt;
     }
+    if (pack.name.empty()) {
+        pack.name = std::string(root_dir.get_file().utf8().get_data());
+    }
+    
+    if (json.has("schema")) {
+        godot::Variant schema_var = json["schema"];
+        if (schema_var.get_type() == godot::Variant::INT) {
+            pack.schema = static_cast<int>(static_cast<int64_t>(schema_var));
+        }
+    }
+    if (json.has("min_supported")) {
+        godot::Variant min_var = json["min_supported"];
+        if (min_var.get_type() == godot::Variant::INT) {
+            pack.min_supported = static_cast<int>(static_cast<int64_t>(min_var));
+        }
+    }
+    if (json.has("max_supported")) {
+        godot::Variant max_var = json["max_supported"];
+        if (max_var.get_type() == godot::Variant::INT) {
+            pack.max_supported = static_cast<int>(static_cast<int64_t>(max_var));
+        }
+    }
+    if (json.has("base_resolution")) {
+        godot::Variant res_var = json["base_resolution"];
+        if (res_var.get_type() == godot::Variant::INT) {
+            int res = static_cast<int>(static_cast<int64_t>(res_var));
+            // Validate base_resolution: must be positive and multiple of 4 for S3TC compression
+            if (res > 0 && res % 4 == 0) {
+                pack.base_resolution = res;
+            } else {
+                WARN_PRINT("Invalid base_resolution in pack.json: " + godot::String::num_int64(res) + " (must be positive and multiple of 4). Using default 16.");
+                pack.base_resolution = 16;
+            }
+        }
+    }
+    if (json.has("author")) {
+        godot::Variant author_var = json["author"];
+        if (author_var.get_type() == godot::Variant::STRING) {
+            pack.author = std::string(static_cast<godot::String>(author_var).utf8().get_data());
+        }
+    }
+    if (pack.min_supported > pack.max_supported) {
+        std::swap(pack.min_supported, pack.max_supported);
+    }
+    return pack;
 }
 #endif // !FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
 

@@ -41,10 +41,10 @@ inline std::string resolve_texture(const std::vector<TexturePack>& packs,
                                    const PackPathExistsFn& exists) {
     for (size_t idx : active) {
         if (idx >= packs.size()) continue;
-        const std::string pack_path = packs[idx].root_dir + "textures/" + texture_name + ".png";
+        std::string pack_path = packs[idx].root_dir + "textures/" + texture_name + ".png";
         if (exists(pack_path)) return pack_path;
     }
-    const std::string builtin = "res://textures/blocks/" + texture_name + ".png";
+    std::string builtin = "res://textures/blocks/" + texture_name + ".png";
     if (exists(builtin)) return builtin;
     return "res://textures/blocks/stone.png";
 }
@@ -58,10 +58,10 @@ inline std::optional<std::string> resolve_texture_optional(
     const PackPathExistsFn& exists) {
     for (size_t idx : active) {
         if (idx >= packs.size()) continue;
-        const std::string pack_path = packs[idx].root_dir + "textures/" + texture_name + ".png";
+        std::string pack_path = packs[idx].root_dir + "textures/" + texture_name + ".png";
         if (exists(pack_path)) return pack_path;
     }
-    const std::string builtin = "res://textures/blocks/" + texture_name + ".png";
+    std::string builtin = "res://textures/blocks/" + texture_name + ".png";
     if (exists(builtin)) return builtin;
     return std::nullopt;
 }

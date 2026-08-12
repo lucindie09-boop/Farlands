@@ -5,6 +5,7 @@
 #include <godot_cpp/classes/camera3d.hpp>
 #include <godot_cpp/classes/input_event.hpp>
 #include <godot_cpp/core/class_db.hpp>
+#include <godot_cpp/variant/packed_string_array.hpp>
 
 #include "engine/player_controller.hpp"
 #include "core/inventory.hpp"
@@ -50,6 +51,9 @@ public:
     void clear_inventory();
     void save_inventory();
     bool load_inventory();
+    bool set_active_texture_pack(const godot::String& pack_name);
+    godot::PackedStringArray get_installed_pack_names() const;
+    godot::String resolve_texture_path(const godot::String& texture_name) const;
     void set_inventory_open(bool open);
     bool is_inventory_open() const;
     

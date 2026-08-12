@@ -57,7 +57,25 @@ static func get_texture(block_id: int) -> Texture2D:
 	var name := get_side_texture_name(block_id)
 	if not name.is_empty():
 		var path := "res://textures/blocks/" + name + ".png"
-		if ResourceLoader.exists(path):
+		var player = _player_controller()
+		if player and player.has_method("resolve_texture_path"):
+			path = player.resolve_texture_path(name)
+		if path.begins_with("user://"):
+			# Pack textures live outside the import system: load the raw PNG
+			# directly and wrap it, same as the C++ side does for the array.
+			var img := Image.load_from_file(path)
+			if img:
+				texture = ImageTexture.create_from_image(img)
+		elif ResourceLoader.exists(path):
 			texture = load(path)
 	_texture_cache[block_id] = texture
 	return texture
+
+static func _player_controller() -> Node:
+	var tree := Engine.get_main_loop() as SceneTree
+	if not tree:
+		return null
+	return tree.root.get_node_or_null("/root/Main/Player")
+
+static func invalidate_cache() -> void:
+	_texture_cache.clear()

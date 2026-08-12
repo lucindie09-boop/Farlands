@@ -64,6 +64,8 @@ shared_sources = [
     "src/lighting/block_light_region.cpp",
     "src/engine/collision_resolver.cpp",
     "src/engine/player_controller.cpp",
+    "src/render/texture_pack_manager.cpp",
+    "src/render/minecraft_pack_converter.cpp",
 ]
 # Remove any non-existent .cpp files (like crc32.cpp which is header-only)
 shared_sources = [s for s in shared_sources if os.path.exists(str(s))]

@@ -11,8 +11,10 @@
 #include <map>
 #include <set>
 #include <array>
+#include <optional>
 #include <cstddef>
 #include "core/block_types.hpp"
+#include "render/texture_pack_manager.hpp"
 
 namespace VoxelEngine {
 
@@ -49,6 +51,9 @@ public:
     godot::Ref<godot::Texture2DArray> generate_emissive_texture_array();
     void populate_block_registry();
     void force_regenerate();
+    // Drops the per-name resolved-path memo so a newly activated texture pack
+    // takes effect on the next generation. force_regenerate() does NOT do this.
+    void invalidate_texture_path_cache() { texture_path_cache.clear(); }
     [[nodiscard]] godot::Ref<godot::Texture2DArray> get_texture_array();
     [[nodiscard]] godot::Ref<godot::Texture2DArray> get_emissive_texture_array();
     [[nodiscard]] int get_texture_index(const godot::String& texture_name);
@@ -111,6 +116,16 @@ inline void normalize_mipmaps(godot::Ref<godot::Image>& image, bool enabled) {
     }
 }
 
+// Normalizes image format to RGBA8. Texture packs may contain mixed formats
+// (RGB8, RGBA8, etc.) which causes create_from_images() to fail. This ensures
+// all layers share a consistent format.
+inline void normalize_format(godot::Ref<godot::Image>& image) {
+    if (image.is_null()) return;
+    if (image->get_format() != godot::Image::FORMAT_RGBA8) {
+        image->convert(godot::Image::FORMAT_RGBA8);
+    }
+}
+
 // Applies GPU compression to an image if enabled. Uses S3TC (DXT1/DXT5, BC1/BC3)
 // which provides ~4:1–6:1 compression at the cost of lossy artifacts.
 inline void apply_compression(godot::Ref<godot::Image>& image, bool enabled) {
@@ -122,12 +137,26 @@ inline void apply_compression(godot::Ref<godot::Image>& image, bool enabled) {
 
 // Magenta/black checker placeholder used when textures are disabled.
 inline godot::Ref<godot::Image> build_checker_image(int width, int height) {
+    if (width <= 0 || height <= 0) {
+        ERR_PRINT("Invalid checker image dimensions");
+        width = 16;
+        height = 16;
+    }
+    
     const int cell = 4;
     godot::PackedByteArray data;
-    data.resize(static_cast<int64_t>(width) * height * 4);
+    const int64_t expected_size = static_cast<int64_t>(width) * height * 4;
+    data.resize(expected_size);
+    
+    if (data.size() != expected_size) {
+        ERR_PRINT("Failed to allocate checker image data");
+        return godot::Image::create(width, height, false, godot::Image::FORMAT_RGBA8);
+    }
+    
     for (int y = 0; y < height; ++y) {
         for (int x = 0; x < width; ++x) {
             const int64_t idx = (static_cast<int64_t>(y) * width + x) * 4;
+            if (idx + 3 >= data.size()) continue; // Safety check
             const bool magenta = ((x / cell + y / cell) % 2) == 0;
             if (magenta) {
                 data[idx] = 255;
@@ -150,12 +179,12 @@ inline godot::String TextureArrayGenerator::get_safe_texture_path(const godot::S
         return it->second;
     }
 
-    godot::String primary_path = "res://textures/blocks/" + texture_name + ".png";
-    godot::String result;
-    if (godot::FileAccess::file_exists(primary_path)) {
-        result = primary_path;
-    } else {
-        result = "res://textures/blocks/stone.png";
+    // Resolution stack (see TexturePackManager): active pack textures override
+    // the built-in res://textures/blocks set, which itself falls back to
+    // stone.png. The manager owns the path decision; the array build below is
+    // unchanged.
+    godot::String result = TexturePackManager::get_instance().resolve(texture_name);
+    if (texture_name != "stone" && result == "res://textures/blocks/stone.png") {
         WARN_PRINT("Texture not found: " + texture_name + ", falling back to stone.png");
     }
     texture_path_cache.emplace(texture_name, result);
@@ -163,6 +192,7 @@ inline godot::String TextureArrayGenerator::get_safe_texture_path(const godot::S
 }
 
 inline godot::Ref<godot::Texture2DArray> TextureArrayGenerator::generate_texture_array() {
+    godot::print_line("Starting texture array generation");
     BlockRegistry& registry = BlockRegistry::get_instance();
     const size_t block_count = registry.get_count();
 
@@ -177,6 +207,8 @@ inline godot::Ref<godot::Texture2DArray> TextureArrayGenerator::generate_texture
         }
     }
 
+    godot::print_line("Found " + godot::String::num_int64(unique_textures.size()) + " unique textures");
+    
     godot::PackedStringArray texture_paths;
     for (const godot::String& texture_name : unique_textures) {
         texture_paths.append(get_safe_texture_path(texture_name));
@@ -190,48 +222,113 @@ inline godot::Ref<godot::Texture2DArray> TextureArrayGenerator::generate_texture
         return s_global_texture_array;
     }
 
-    godot::Ref<godot::Texture2D> base_texture = loader->load(texture_paths[0]);
-    if (!base_texture.is_valid()) {
-        ERR_PRINT("Failed to load base layout reference texture: " + texture_paths[0]);
-        return s_global_texture_array;
-    }
+    // Array layer resolution comes from the active pack's declared
+    // base_resolution (default 16), not from whichever texture sorts first.
+    // Pack and built-in layers are all resized to it with nearest-neighbour.
+    const int width  = TexturePackManager::get_instance().get_base_resolution();
+    const int height = width;
 
-    godot::Ref<godot::Image> base_image = base_texture->get_image();
-    const int width  = base_image->get_width();
-    const int height = base_image->get_height();
+    godot::print_line("Target resolution: " + godot::String::num_int64(width) + "x" + godot::String::num_int64(height));
 
     godot::Array textures;
     s_global_texture_name_to_index.clear();
 
     for (int i = 0; i < static_cast<int>(texture_paths.size()); ++i) {
+        const godot::String& path = texture_paths[i];
+        godot::print_line("Loading texture " + godot::String::num_int64(i) + "/" + godot::String::num_int64(texture_paths.size()) + ": " + path);
+        
         godot::Ref<godot::Image> image;
         if (textures_enabled_) {
-            godot::Ref<godot::Texture2D> texture = loader->load(texture_paths[i]);
-            if (!texture.is_valid()) {
-                continue;
+            if (path.begins_with("user://")) {
+                // Pack textures live outside the import system: load the raw
+                // PNG directly so we don't hit the ResourceLoader cache or the
+                // exported .pck import remap.
+                godot::print_line("  Loading from user:// path");
+                image = godot::Image::load_from_file(path);
+            } else {
+                godot::print_line("  Loading from res:// path");
+                godot::Ref<godot::Texture2D> texture = loader->load(path);
+                if (texture.is_valid()) {
+                    image = texture->get_image();
+                }
             }
-            image = texture->get_image();
+            
+            godot::print_line("  Image valid: " + godot::String(image.is_valid() ? "yes" : "no"));
+            
             if (!image.is_valid()) {
+                // Corrupt/truncated pack PNG: degrade to the built-in texture
+                // instead of dropping the layer (which would map the name to
+                // layer 0/stone and look wrong).
+                const godot::String builtin = "res://textures/blocks/" + texture_paths[i].get_file().get_basename() + ".png";
+                godot::print_line("  Trying fallback: " + builtin);
+                godot::Ref<godot::Texture2D> fallback = loader->load(builtin);
+                if (fallback.is_valid()) {
+                    image = fallback->get_image();
+                }
+            }
+            if (!image.is_valid()) {
+                WARN_PRINT("Failed to load texture: " + texture_paths[i] + ", skipping layer");
                 continue;
             }
 
-            if (image->get_width() != width || image->get_height() != height) {
+            // Validate image dimensions before resize
+            const int img_width = image->get_width();
+            const int img_height = image->get_height();
+            const int img_format = image->get_format();
+            godot::print_line("  Image dimensions: " + godot::String::num_int64(img_width) + "x" + godot::String::num_int64(img_height) + " format: " + godot::String::num_int64(img_format));
+            
+            if (img_width <= 0 || img_height <= 0) {
+                WARN_PRINT("Invalid image dimensions for: " + texture_paths[i] + ", skipping layer");
+                continue;
+            }
+
+            if (img_width != width || img_height != height) {
+                godot::print_line("  Resizing from " + godot::String::num_int64(img_width) + "x" + godot::String::num_int64(img_height) + " to " + godot::String::num_int64(width) + "x" + godot::String::num_int64(height));
                 image->resize(width, height, godot::Image::INTERPOLATE_NEAREST);
             }
         } else {
             image = build_checker_image(width, height);
         }
 
-        normalize_mipmaps(image, mipmaps_enabled_);
-        apply_compression(image, compression_enabled_);
+        if (!image.is_valid()) {
+            WARN_PRINT("Image became invalid during processing: " + texture_paths[i] + ", skipping layer");
+            continue;
+        }
+
+        godot::print_line("  Normalizing format and mipmaps");
+        const int original_format = image->get_format();
+        normalize_format(image);
+        const int new_format = image->get_format();
+        if (original_format != new_format) {
+            godot::print_line("  Format converted from " + godot::String::num_int64(original_format) + " to " + godot::String::num_int64(new_format));
+        }
+        
+        // Force mipmap consistency: all images must have the same mipmap state
+        if (mipmaps_enabled_) {
+            if (!image->has_mipmaps()) {
+                image->generate_mipmaps();
+            }
+        } else {
+            if (image->has_mipmaps()) {
+                // Create a new image without mipmaps
+                godot::Ref<godot::Image> new_image = godot::Image::create(image->get_width(), image->get_height(), false, image->get_format());
+                new_image->copy_from(image);
+                image = new_image;
+            }
+        }
+        
+        // Temporarily disable compression to diagnose format issues
+        // apply_compression(image, compression_enabled_);
 
         const int layer_index = static_cast<int>(textures.size());
         textures.append(image);
 
         godot::String file_name = texture_paths[i].get_file().get_basename();
         s_global_texture_name_to_index[file_name] = layer_index;
+        godot::print_line("  Added layer " + godot::String::num_int64(layer_index) + " for: " + file_name);
     }
 
+    godot::print_line("Creating texture array from " + godot::String::num_int64(textures.size()) + " images");
     if (textures.size() > 0) {
         s_global_texture_array->create_from_images(textures);
         godot::print_line("Generated texture array with " + godot::String::num_int64(s_global_texture_array->get_layers()) + " layers" + (mipmaps_enabled_ ? " (with mipmaps)" : " (no mipmaps)"));
@@ -271,15 +368,23 @@ inline godot::Ref<godot::Texture2DArray> TextureArrayGenerator::generate_emissiv
 
     // Layer 0 = solid black (no emissive contribution)
     godot::PackedByteArray black_data;
-    black_data.resize(static_cast<int64_t>(target_width) * target_height * 4);
+    const int64_t black_size = static_cast<int64_t>(target_width) * target_height * 4;
+    black_data.resize(black_size);
+    if (black_data.size() != black_size) {
+        ERR_PRINT("Failed to allocate emissive black layer");
+        target_width = 16;
+        target_height = 16;
+        black_data.resize(16 * 16 * 4);
+    }
     black_data.fill(0);
     // Alpha = 255 so emissive.rgb * emissive.a doesn't multiply by zero-alpha edge cases
     for (int i = 3; i < static_cast<int>(black_data.size()); i += 4) {
         black_data[i] = 255;
     }
     godot::Ref<godot::Image> black_image = godot::Image::create_from_data(target_width, target_height, false, godot::Image::FORMAT_RGBA8, black_data);
+    normalize_format(black_image);
     normalize_mipmaps(black_image, mipmaps_enabled_);
-    apply_compression(black_image, compression_enabled_);
+    // apply_compression(black_image, compression_enabled_);
 
     godot::Array images;
     images.append(black_image);
@@ -293,33 +398,61 @@ inline godot::Ref<godot::Texture2DArray> TextureArrayGenerator::generate_emissiv
     godot::ResourceLoader* loader = godot::ResourceLoader::get_singleton();
 
     for (const godot::String& tex_name : unique_emissive) {
-        godot::String path = "res://textures/blocks/" + tex_name + ".png";
+        // Packs may override emissive textures too, but a missing emissive is
+        // NOT a stone fallback — it means "no glow" (black below).
+        std::optional<godot::String> path = TexturePackManager::get_instance().resolve_optional(tex_name);
         godot::Ref<godot::Image> emissive_image;
 
-        if (textures_enabled_ && godot::FileAccess::file_exists(path)) {
-            godot::Ref<godot::Texture2D> tex = loader->load(path);
-            if (tex.is_valid()) {
-                emissive_image = tex->get_image();
+        if (textures_enabled_ && path.has_value()) {
+            if (path->begins_with("user://")) {
+                emissive_image = godot::Image::load_from_file(*path);
+            } else {
+                godot::Ref<godot::Texture2D> tex = loader->load(*path);
+                if (tex.is_valid()) {
+                    emissive_image = tex->get_image();
+                }
             }
         }
 
         if (!emissive_image.is_valid()) {
             // Missing emissive texture → fall back to black (no glow)
             godot::PackedByteArray fb_data;
-            fb_data.resize(static_cast<int64_t>(target_width) * target_height * 4);
+            const int64_t fb_size = static_cast<int64_t>(target_width) * target_height * 4;
+            fb_data.resize(fb_size);
+            if (fb_data.size() != fb_size) {
+                ERR_PRINT("Failed to allocate emissive fallback layer");
+                continue;
+            }
             fb_data.fill(0);
             for (int i = 3; i < static_cast<int>(fb_data.size()); i += 4) {
                 fb_data[i] = 255;
             }
             emissive_image = godot::Image::create_from_data(target_width, target_height, false, godot::Image::FORMAT_RGBA8, fb_data);
         } else {
-            if (emissive_image->get_width() != target_width || emissive_image->get_height() != target_height) {
+            // Validate image dimensions before resize
+            if (emissive_image->get_width() <= 0 || emissive_image->get_height() <= 0) {
+                WARN_PRINT("Invalid emissive image dimensions for: " + tex_name + ", using fallback");
+                godot::PackedByteArray fb_data;
+                const int64_t fb_size = static_cast<int64_t>(target_width) * target_height * 4;
+                fb_data.resize(fb_size);
+                fb_data.fill(0);
+                for (int i = 3; i < static_cast<int>(fb_data.size()); i += 4) {
+                    fb_data[i] = 255;
+                }
+                emissive_image = godot::Image::create_from_data(target_width, target_height, false, godot::Image::FORMAT_RGBA8, fb_data);
+            } else if (emissive_image->get_width() != target_width || emissive_image->get_height() != target_height) {
                 emissive_image->resize(target_width, target_height, godot::Image::INTERPOLATE_NEAREST);
             }
         }
 
+        if (!emissive_image.is_valid()) {
+            WARN_PRINT("Emissive image became invalid during processing: " + tex_name + ", skipping layer");
+            continue;
+        }
+
+        normalize_format(emissive_image);
         normalize_mipmaps(emissive_image, mipmaps_enabled_);
-        apply_compression(emissive_image, compression_enabled_);
+        // apply_compression(emissive_image, compression_enabled_);
 
         const int layer_index = static_cast<int>(images.size());
         images.append(emissive_image);

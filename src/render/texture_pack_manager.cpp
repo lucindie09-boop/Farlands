@@ -10,6 +10,7 @@
 #include <godot_cpp/classes/dir_access.hpp>
 #include <godot_cpp/classes/file_access.hpp>
 #include <godot_cpp/core/error_macros.hpp>
+#include <godot_cpp/variant/utility_functions.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
 #endif
 
@@ -116,16 +117,16 @@ void TexturePackManager::load_packs(const godot::String& root_dir) {
         const godot::String pack_json_path = pack_dir.path_join("pack.json");
         std::optional<godot::Dictionary> root = read_json_dictionary(pack_json_path);
         if (!root.has_value()) {
-            WARN_PRINT("Texture pack skipped (missing/unparseable pack.json): " + pack_dir);
+            godot::UtilityFunctions::print("Texture pack skipped (missing/unparseable pack.json): " + pack_dir);
             return;
         }
         std::optional<TexturePack> parsed = parse_pack(pack_dir, *root);
         if (!parsed.has_value()) {
-            WARN_PRINT("Texture pack skipped (failed to parse pack.json): " + pack_dir);
+            godot::UtilityFunctions::print("Texture pack skipped (failed to parse pack.json): " + pack_dir);
             return;
         }
         if (!schema_supported(*parsed)) {
-            WARN_PRINT("Texture pack skipped (unsupported schema): " + pack_dir);
+            godot::UtilityFunctions::print("Texture pack skipped (unsupported schema): " + pack_dir);
             return;
         }
         loaded.push_back(std::move(*parsed));

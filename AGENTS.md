@@ -6,6 +6,7 @@ A Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked streamin
 - Camera3D child named "Camera3D" on the player node is the frustum source
 - Chunk size is 32×32×32, world height 1024 blocks (`WORLD_HEIGHT_Y` in `chunk_coords.hpp`)
 - Block properties live in `data/block_definitions.json` — single source of truth
+- Worldgen tuning is data-driven: `data/terrain_config.json` (macro surface + height centers), `data/biomes.json` (per-biome materials/trees + climate thresholds), `data/vegetation.json` (forest/plains/desert feature knobs)
 
 ## Major Completed Work
 
@@ -19,7 +20,7 @@ A Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked streamin
 ### Rendering & Visual Features
 - **Three-tier LOD system**: Per-chunk distance-based reduction (not chunk merging) — full detail, stride/detail reduction, and far-mode heightmap-only silhouette meshes
 - **Dynamic water shader**: Translucent water with edge fade, depth absorption, bounce light, and sun glint
-- **Vegetation generation**: Oak, spruce, and birch trees with minimum spacing, deferred cross-chunk writes
+- **Vegetation generation**: Oak, spruce, and birch trees with minimum spacing, deferred cross-chunk writes, per-biome density + tree-variant weights from `data/biomes.json` / `data/vegetation.json`
 - **Slope triplanar cliff blending**: Steep slopes (>45°) automatically blend in rock face textures
 - **Night sky & starfield**: Dynamic procedural twinkling starfield during night sun elevations
 - **Emissive texture support**: Second `Texture2DArray` for per-face glow maps
@@ -44,9 +45,18 @@ A Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked streamin
 - **4×4×4 world-aligned shape lattice**: Ensures bit-identical results across chunk boundaries
 - **Chunk-level fast paths**: Chunks entirely above/below height band skip all lattice/density work (~7× speedup on deep chunks)
 - **Biome-based macro surface**: Multiple biomes with distinct terrain characteristics
+- **Data-driven worldgen**: Surfaces, climate thresholds, tree density/variants, and macro height centers all load from JSON configs at startup (see "Worldgen Config Data" below)
+- **Per-biome amplitude scaling**: Height-center `scale_m` is applied as a terrain amplitude multiplier (was previously dead config) — plains are genuinely flat, desert low/dry, forest hilly
+
+### Worldgen Config Data
+- **`data/biomes.json`** → `BiomeConfig` (`src/worldgen/biome_config.hpp`): hosts the `BiomeType` enum (Ocean/Beach/Plains/Forest/Desert), per-biome surface/subsurface + near-water block names (resolved via `BlockRegistry::get_block_id_by_name`), `tree_density`, `tree_variants` weights, and climate-grid thresholds (`temp_cold_max`/`temp_hot_min`/`hum_dry_max`/`hum_humid_min`)
+- **`data/vegetation.json`** → `VegetationConfig` (`src/worldgen/vegetation_config.hpp`): forest (chunk tree chance, min/max trees, column chance, spacing, boulders), plains (single-tree chance), desert (cactus density + min/max heights)
+- **`data/terrain_config.json`** → `TerrainParams::load_from_json` (`src/core/terrain_params.cpp`): `height_base_y`, fixed-base climate scales (`climate_temp_base_scale`/`climate_humidity_base_scale`), and the 3 Voronoi height centers (`temp`/`hum`/`base_off`/`scale_m`)
+- Loaded in `VoxelEngineController::load_world_configs()` at startup; missing files/keys fall back to built-in defaults that mirror the old hardcoded values
+- Config threads to generation workers via `WorldUpdater` → `ChunkWorld::generate_chunk` (captured per call) → the `thread_local ChunkGenerator`
 
 ### Testing & CI
-- **182 test cases / 157,085 assertions** across 23 doctest files
+- **183 test cases / 157,088 assertions** across 23 doctest files
 - **Cross-platform CI**: 5-leg matrix (ubuntu plain/TSan/ASan+UBSan, macos plain, windows plain) plus fuzz, static-analysis, and coverage jobs
 - **Concurrency tests**: 19 tests for shard locking, deadlock prevention, PaletteStorage, and cross-chunk patterns
 - **Benchmark tool**: 5 hot paths with `--check` regression detection mode

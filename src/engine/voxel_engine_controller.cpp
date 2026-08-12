@@ -12,6 +12,8 @@
 #include "core/thread_pool.hpp"
 #include "mesh/mesh_builder.hpp"
 #include "worldgen/chunk_generator.hpp"
+#include "worldgen/biome_config.hpp"
+#include "worldgen/vegetation_config.hpp"
 #include "core/chunk_coords.hpp"
 #include <mutex>
 
@@ -36,6 +38,7 @@ VoxelEngineController::VoxelEngineController()
     // Note: reserve(5000) is a placeholder. Real reserve happens in set_render_distance()
     // where the actual render distance value is known.
     chunk_world.get_chunk_map().reserve(5000);
+    load_world_configs();
     create_thread_pool();
     chunk_world.set_thread_pool(thread_pool.get());
     mesh_manager.set_chunk_map(chunk_world.get_chunk_map_ptr());
@@ -297,6 +300,22 @@ float VoxelEngineController::get_biome_size() const { return biome_size; }
 
 void VoxelEngineController::set_vegetation_enabled(bool enabled) { vegetation_enabled = enabled; world_updater.set_vegetation_enabled(enabled); }
 bool VoxelEngineController::is_vegetation_enabled() const { return vegetation_enabled; }
+
+void VoxelEngineController::load_world_configs() {
+    TerrainParams params = world_updater.get_terrain_params();
+    params.load_from_json("res://data/terrain_config.json");
+    world_updater.set_terrain_params(params);
+
+    BiomeConfig biomes;
+    if (!BiomeConfig::load("res://data/biomes.json", biomes)) {
+        biomes.reset_defaults();
+    }
+    world_updater.set_biome_config(biomes);
+
+    VegetationConfig vegetation;
+    vegetation.load("res://data/vegetation.json");
+    world_updater.set_vegetation_config(vegetation);
+}
 
 void VoxelEngineController::save_world_metadata() {
     const TerrainParams& params = world_updater.get_terrain_params();

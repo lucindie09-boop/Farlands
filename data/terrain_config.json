@@ -1,0 +1,10 @@
+{
+  "height_base_y": 208.0,
+  "climate_temp_base_scale": 0.00015,
+  "climate_humidity_base_scale": 0.00020,
+  "height_centers": [
+    {"temp": 0.50, "hum": 0.35, "base_off": 6.0, "scale_m": 0.12},
+    {"temp": 0.50, "hum": 0.78, "base_off": 4.0, "scale_m": 1.00},
+    {"temp": 0.78, "hum": 0.22, "base_off": -12.0, "scale_m": 0.37}
+  ]
+}

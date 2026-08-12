@@ -1,0 +1,21 @@
+{
+  "tree_trunk_height": 5,
+  "forest": {
+    "chunk_chance_pct": 80,
+    "min_trees": 15,
+    "max_trees": 25,
+    "column_chance_pct": 50,
+    "spacing_radius": 3,
+    "boulder_chance_per_10000": 3,
+    "boulder_radius": 3
+  },
+  "plains": {
+    "chunk_chance_pct": 25,
+    "spacing_radius": 3
+  },
+  "desert": {
+    "cactus_chance_per_1000": 3,
+    "min_height": 2,
+    "max_height": 3
+  }
+}

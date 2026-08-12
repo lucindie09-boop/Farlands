@@ -274,8 +274,6 @@ inline godot::Ref<godot::Texture2DArray> TextureArrayGenerator::generate_texture
             // Validate image dimensions before resize
             const int img_width = image->get_width();
             const int img_height = image->get_height();
-            const int img_format = image->get_format();
-            godot::print_line("  Image dimensions: " + godot::String::num_int64(img_width) + "x" + godot::String::num_int64(img_height) + " format: " + godot::String::num_int64(img_format));
             
             if (img_width <= 0 || img_height <= 0) {
                 WARN_PRINT("Invalid image dimensions for: " + texture_paths[i] + ", skipping layer");
@@ -295,13 +293,8 @@ inline godot::Ref<godot::Texture2DArray> TextureArrayGenerator::generate_texture
             continue;
         }
 
-        godot::print_line("  Normalizing format and mipmaps");
-        const int original_format = image->get_format();
+        // Normalize format to RGBA8
         normalize_format(image);
-        const int new_format = image->get_format();
-        if (original_format != new_format) {
-            godot::print_line("  Format converted from " + godot::String::num_int64(original_format) + " to " + godot::String::num_int64(new_format));
-        }
         
         // Force mipmap consistency: all images must have the same mipmap state
         if (mipmaps_enabled_) {

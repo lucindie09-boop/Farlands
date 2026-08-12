@@ -42,8 +42,10 @@ struct BiomeSurface {
 struct BiomeVegetation {
     // Probability that a qualifying surface column grows a tree (0 = none).
     float tree_density = 0.0f;
-    // Weighted variant pick: [oak, spruce, birch].
-    std::array<float, 3> tree_variants{1.0f, 0.0f, 0.0f};
+    // Weighted variant pick: [oak, spruce]. Fixed-size, order-fixed contract
+    // (index 0 = oak, index 1 = spruce). No birch — birch needs its own
+    // block/texture definitions before it can be placed (vegetation_generator.cpp).
+    std::array<float, 2> tree_variants{1.0f, 0.0f};
 };
 
 // One entry per BiomeType value (index == static_cast<int>(BiomeType)).

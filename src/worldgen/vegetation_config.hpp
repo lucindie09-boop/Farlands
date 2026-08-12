@@ -45,7 +45,7 @@ struct DesertVegConfig {
 };
 
 struct VegetationConfig {
-    int32_t tree_trunk_height = 5;   // oak/birch trunk height in blocks
+    int32_t tree_trunk_height = 5;   // oak/spruce trunk height in blocks
 
     ForestVegConfig forest;
     PlainsVegConfig plains;

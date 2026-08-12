@@ -1,11 +1,8 @@
 #include "worldgen/vegetation_config.hpp"
+#include "core/json_config.hpp"
 
 #ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
-#include <godot_cpp/classes/file_access.hpp>
-#include <godot_cpp/classes/json.hpp>
 #include <godot_cpp/variant/string.hpp>
-#include <godot_cpp/variant/variant.hpp>
-#include <godot_cpp/variant/array.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
 #endif
 
@@ -25,18 +22,11 @@ int32_t read_int(const godot::Dictionary& d, const char* key, int32_t fallback) 
 
 bool VegetationConfig::load(const godot::String& json_path) {
 #ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
-    godot::Ref<godot::FileAccess> file = godot::FileAccess::open(json_path, godot::FileAccess::READ);
-    if (!file.is_valid()) {
+    std::optional<godot::Dictionary> root_opt = read_json_dictionary(json_path);
+    if (!root_opt.has_value()) {
         return false;
     }
-    godot::String text = file->get_as_text();
-    file->close();
-
-    godot::Variant parsed = godot::JSON::parse_string(text);
-    if (parsed.get_type() != godot::Variant::DICTIONARY) {
-        return false;
-    }
-    godot::Dictionary root = parsed;
+    const godot::Dictionary& root = *root_opt;
 
     tree_trunk_height = read_int(root, "tree_trunk_height", tree_trunk_height);
 

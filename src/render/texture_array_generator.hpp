@@ -351,7 +351,7 @@ inline godot::Ref<godot::Texture2DArray> TextureArrayGenerator::generate_emissiv
         ERR_PRINT("Failed to allocate emissive black layer");
         target_width = 16;
         target_height = 16;
-        black_data.resize(16 * 16 * 4);
+        black_data.resize(static_cast<int64_t>(16) * 16 * 4);
     }
     black_data.fill(0);
     // Alpha = 255 so emissive.rgb * emissive.a doesn't multiply by zero-alpha edge cases

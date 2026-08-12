@@ -23,7 +23,8 @@ public:
 
 private:
     static uint32_t hash_pos(int32_t x, int32_t z);
-    static int pick_variant(const std::array<float, 3>& weights, uint32_t seed);
+    // Weighted variant pick over [oak, spruce] (order-fixed, see BiomeVegetation).
+    static int pick_variant(const std::array<float, 2>& weights, uint32_t seed);
 
     // Weighted variant pick, then dispatch to the matching shape.
     static void place_tree(ChunkData& chunk,

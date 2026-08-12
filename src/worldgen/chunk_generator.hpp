@@ -198,6 +198,7 @@ private:
 
         const size_t num_biomes = params.height_centers.size();
         float w_total = 0.0f, w_base = 0.0f, w_scale = 0.0f;
+        // Exactly 3 height centers (order-fixed, see terrain_params.cpp loader).
         float weights[3];
         for (size_t i = 0; i < num_biomes; i++) {
             const HeightCenter& c = params.height_centers[i];

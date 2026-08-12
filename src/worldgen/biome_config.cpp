@@ -1,10 +1,10 @@
 #include "worldgen/biome_config.hpp"
+#include "core/json_config.hpp"
 
 #include <cstring>
 
 #ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
-#include <godot_cpp/classes/file_access.hpp>
-#include <godot_cpp/classes/json.hpp>
+#include <godot_cpp/core/error_macros.hpp>
 #include <godot_cpp/variant/string.hpp>
 #include <godot_cpp/variant/variant.hpp>
 #include <godot_cpp/variant/array.hpp>
@@ -51,27 +51,20 @@ void BiomeConfig::reset_defaults() {
         v = BiomeVegetation{};
     }
     vegetation[static_cast<size_t>(BiomeType::Plains)].tree_density  = 1.0f;
-    vegetation[static_cast<size_t>(BiomeType::Plains)].tree_variants = {1.0f, 0.0f, 0.0f};
+    vegetation[static_cast<size_t>(BiomeType::Plains)].tree_variants = {1.0f, 0.0f};
     vegetation[static_cast<size_t>(BiomeType::Forest)].tree_density  = 1.0f;
-    vegetation[static_cast<size_t>(BiomeType::Forest)].tree_variants = {0.5f, 0.5f, 0.0f};
+    vegetation[static_cast<size_t>(BiomeType::Forest)].tree_variants = {0.5f, 0.5f};
 }
 
 bool BiomeConfig::load(const godot::String& json_path, BiomeConfig& out) {
     out.reset_defaults();
 
 #ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
-    godot::Ref<godot::FileAccess> file = godot::FileAccess::open(json_path, godot::FileAccess::READ);
-    if (!file.is_valid()) {
+    std::optional<godot::Dictionary> root_opt = read_json_dictionary(json_path);
+    if (!root_opt.has_value()) {
         return false;
     }
-    godot::String text = file->get_as_text();
-    file->close();
-
-    godot::Variant parsed = godot::JSON::parse_string(text);
-    if (parsed.get_type() != godot::Variant::DICTIONARY) {
-        return false;
-    }
-    godot::Dictionary root = parsed;
+    const godot::Dictionary& root = *root_opt;
 
     if (root.has("underwater_surface")) {
         godot::String name = root["underwater_surface"];
@@ -112,12 +105,18 @@ bool BiomeConfig::load(const godot::String& json_path, BiomeConfig& out) {
             }
             if (b.has("tree_variants")) {
                 godot::Dictionary tv = b["tree_variants"];
-                const char* keys[3] = {"oak", "spruce", "birch"};
-                for (int v = 0; v < 3; ++v) {
+                // Fixed-size contract: exactly 2 weights, order-fixed
+                // (index 0 = oak, index 1 = spruce). Extra keys (e.g. "birch")
+                // are ignored; warn so they are not silently dead config.
+                const char* keys[2] = {"oak", "spruce"};
+                for (int v = 0; v < 2; ++v) {
                     if (tv.has(godot::String(keys[v]))) {
                         out.vegetation[ix].tree_variants[static_cast<size_t>(v)] =
                             static_cast<float>(static_cast<double>(tv[godot::String(keys[v])]));
                     }
+                }
+                if (tv.size() > 2) {
+                    WARN_PRINT("biomes.json tree_variants has more than 2 entries; extras are ignored (exactly 2: oak, spruce)");
                 }
             }
         }

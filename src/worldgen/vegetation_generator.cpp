@@ -147,13 +147,12 @@ uint32_t VegetationGenerator::hash_pos(int32_t wx, int32_t wz) {
     return h ^ (h >> 16);
 }
 
-int VegetationGenerator::pick_variant(const std::array<float, 3>& weights, uint32_t seed) {
-    const float total = weights[0] + weights[1] + weights[2];
+int VegetationGenerator::pick_variant(const std::array<float, 2>& weights, uint32_t seed) {
+    const float total = weights[0] + weights[1];
     if (total <= 0.0f) return 0;
     const float r = (static_cast<float>((seed >> 3) & 0xFFFFu) / 65535.0f) * total;
     if (r < weights[0]) return 0;
-    if (r < weights[0] + weights[1]) return 1;
-    return 2;
+    return 1;
 }
 
 void VegetationGenerator::place_tree(

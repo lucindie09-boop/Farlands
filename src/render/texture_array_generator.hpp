@@ -310,8 +310,7 @@ inline godot::Ref<godot::Texture2DArray> TextureArrayGenerator::generate_texture
             }
         }
         
-        // Temporarily disable compression to diagnose format issues
-        // apply_compression(image, compression_enabled_);
+        apply_compression(image, compression_enabled_);
 
         const int layer_index = static_cast<int>(textures.size());
         textures.append(image);
@@ -377,7 +376,7 @@ inline godot::Ref<godot::Texture2DArray> TextureArrayGenerator::generate_emissiv
     godot::Ref<godot::Image> black_image = godot::Image::create_from_data(target_width, target_height, false, godot::Image::FORMAT_RGBA8, black_data);
     normalize_format(black_image);
     normalize_mipmaps(black_image, mipmaps_enabled_);
-    // apply_compression(black_image, compression_enabled_);
+    apply_compression(black_image, compression_enabled_);
 
     godot::Array images;
     images.append(black_image);
@@ -445,7 +444,7 @@ inline godot::Ref<godot::Texture2DArray> TextureArrayGenerator::generate_emissiv
 
         normalize_format(emissive_image);
         normalize_mipmaps(emissive_image, mipmaps_enabled_);
-        // apply_compression(emissive_image, compression_enabled_);
+        apply_compression(emissive_image, compression_enabled_);
 
         const int layer_index = static_cast<int>(images.size());
         images.append(emissive_image);

@@ -18,7 +18,29 @@ WorldUpdater::~WorldUpdater() = default;
 
 void WorldUpdater::set_seed(int32_t s) { terrain_params.seed = s; if (height_estimator) height_estimator->set_params(terrain_params); invalidate_height_cache(); }
 void WorldUpdater::set_sea_level(float level) { terrain_params.sea_level = level; if (height_estimator) height_estimator->set_params(terrain_params); invalidate_height_cache(); }
-void WorldUpdater::set_biome_size(float size) { terrain_params.biome_size = size; terrain_params.climate_temp_scale = 0.00015f / size; terrain_params.climate_humidity_scale = 0.00020f / size; if (height_estimator) height_estimator->set_params(terrain_params); invalidate_height_cache(); }
+void WorldUpdater::set_biome_size(float size) {
+    terrain_params.biome_size = size;
+    terrain_params.climate_temp_scale = terrain_params.climate_temp_base_scale / size;
+    terrain_params.climate_humidity_scale = terrain_params.climate_humidity_base_scale / size;
+    if (height_estimator) height_estimator->set_params(terrain_params);
+    invalidate_height_cache();
+}
+
+void WorldUpdater::set_terrain_params(const TerrainParams& p) {
+    terrain_params = p;
+    if (height_estimator) height_estimator->set_params(terrain_params);
+    invalidate_height_cache();
+}
+
+void WorldUpdater::set_biome_config(const BiomeConfig& c) {
+    biome_config = c;
+    if (height_estimator) height_estimator->set_biome_config(c);
+}
+
+void WorldUpdater::set_vegetation_config(const VegetationConfig& c) {
+    vegetation_config = c;
+    if (height_estimator) height_estimator->set_vegetation_config(c);
+}
 
 void WorldUpdater::set_vegetation_enabled(bool enabled) {
     vegetation_enabled = enabled;
@@ -333,7 +355,8 @@ void WorldUpdater::flush_dirty(double delta) {
 }
 
 bool WorldUpdater::generate_chunk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, uint64_t epoch) {
-    return chunk_world->generate_chunk(chunk_x, chunk_y, chunk_z, epoch, terrain_params);
+    return chunk_world->generate_chunk(chunk_x, chunk_y, chunk_z, epoch, terrain_params,
+                                       biome_config, vegetation_config);
 }
 
 void WorldUpdater::try_unload(uint64_t key) {
@@ -384,6 +407,8 @@ void WorldUpdater::initialize_view_distance(int32_t horizontal_rd) {
     } else {
         height_estimator->set_params(terrain_params);
     }
+    height_estimator->set_biome_config(biome_config);
+    height_estimator->set_vegetation_config(vegetation_config);
     column_height_cache.reserve(65536);
     // Vertical range covers terrain variation up to ~500-block mountain peaks.
     constexpr int32_t VERTICAL_BUFFER = 10;

@@ -37,7 +37,9 @@ public:
     void set_light_propagator(LightPropagator* lp) { light_propagator = lp; }
     void set_thread_pool(ThreadPool* tp) { thread_pool = tp; }
 
-    bool generate_chunk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, uint64_t epoch, const TerrainParams& params);
+    bool generate_chunk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, uint64_t epoch,
+                        const TerrainParams& params, const BiomeConfig& biomes,
+                        const VegetationConfig& veg_config);
     int32_t process_completed_chunks(uint64_t epoch, double budget_ms, int32_t max_installs, int32_t max_lighting, int32_t max_dirties, int32_t player_cx, int32_t player_cy, int32_t player_cz, int32_t render_distance);
     void save_chunk_to_disk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z);
     void mark_chunk_dirty(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z);

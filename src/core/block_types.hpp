@@ -127,6 +127,10 @@ public:
         return count;
     }
 
+    // Resolves a block name to its registered id (case-sensitive, matches
+    // block_definitions.json "name" fields). Returns AIR (0) when unknown.
+    [[nodiscard]] BlockID get_block_id_by_name(const char* name) const noexcept;
+
     void initialize_default_blocks() noexcept;
     bool load_from_json(const godot::String& json_path) noexcept;
 

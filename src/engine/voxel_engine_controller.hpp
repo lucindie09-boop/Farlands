@@ -169,6 +169,10 @@ private:
     void clear_async_queues();
     void free_loaded_chunks();
 
+    // Loads data/terrain_config.json, biomes.json and vegetation.json into the
+    // world_updater at startup. Missing files keep built-in defaults.
+    void load_world_configs();
+
     // Subsystems
     ChunkWorld chunk_world;
     MeshManager mesh_manager;

@@ -46,7 +46,10 @@ Default(library, cdb)
 # Note: light_propagator.cpp is NOT in shared_sources because it requires
 # MeshManager which standalone tools don't have.
 shared_sources = [
+    "src/core/terrain_params.cpp",
     "src/worldgen/chunk_generator.cpp",
+    "src/worldgen/biome_config.cpp",
+    "src/worldgen/vegetation_config.cpp",
     "src/worldgen/vegetation_generator.cpp",
     "src/core/block_types.cpp",
     "src/core/inventory.cpp",
@@ -66,16 +69,26 @@ shared_sources = [
 shared_sources = [s for s in shared_sources if os.path.exists(str(s))]
 shared_objects = env.Object(shared_sources)
 
+# Object lookup for standalone tools that link only a subset of shared_sources.
+# Keyed by source basename (extension-agnostic: .o on GCC/Clang, .obj on MSVC).
+shared_obj_by_src = {os.path.splitext(os.path.basename(str(s)))[0]: o for s, o in zip(shared_sources, shared_objects)}
+
+# Terrain-generation objects needed by standalone terrain tools (no mesh/lighting).
+terrain_tool_objects = [shared_obj_by_src[n] for n in [
+    "terrain_params", "chunk_generator", "biome_config", "vegetation_config",
+    "vegetation_generator", "block_types", "inventory", "edit_map",
+]]
+
 # Pre-compile chunk_data.cpp once for non-test standalone tools (debug, bench, greedy, memory, repro)
 # Give it a unique target name to avoid conflicts with test environment
 chunk_data_object = env.Object("src/core/chunk_data_standalone", source="src/core/chunk_data.cpp")
 
-# Debug terrain renderer (standalone executable)
-debug_env = env.Clone()
-debug_env.Append(LIBS=[])
+# Debug terrain renderer (standalone executable).
 # chunk_data.cpp is not in shared_sources (the library compiles its own copy),
 # so standalone programs that link chunk_generator.o must add it explicitly.
-debug_prog = debug_env.Program("bin/terrain_debug", ["tools/terrain_debug.cpp"] + shared_objects[:4] + [chunk_data_object])
+debug_env = env.Clone()
+debug_env.Append(LIBS=[])
+debug_prog = debug_env.Program("bin/terrain_debug", ["tools/terrain_debug.cpp"] + terrain_tool_objects + [chunk_data_object])
 Alias("debug", debug_prog)
 
 # Performance benchmark (standalone executable)

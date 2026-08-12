@@ -1,0 +1,14 @@
+{
+  "underwater_surface": "sand",
+  "temp_cold_max": 0.43,
+  "temp_hot_min": 0.57,
+  "hum_dry_max": 0.43,
+  "hum_humid_min": 0.57,
+  "biomes": [
+    {"index": 0, "name": "ocean", "surface": "sand", "subsurface": "sand", "near_water_surface": "sand", "near_water_subsurface": "sand"},
+    {"index": 1, "name": "beach", "surface": "sand", "subsurface": "sand", "near_water_surface": "wet_sand", "near_water_subsurface": "wet_sand_full"},
+    {"index": 2, "name": "plains", "surface": "grass", "subsurface": "dirt", "near_water_surface": "mud", "near_water_subsurface": "dirt", "tree_density": 1.0, "tree_variants": {"oak": 1.0, "spruce": 0.0, "birch": 0.0}},
+    {"index": 3, "name": "forest", "surface": "grass", "subsurface": "dirt", "near_water_surface": "mud", "near_water_subsurface": "dirt", "tree_density": 1.0, "tree_variants": {"oak": 0.5, "spruce": 0.5, "birch": 0.0}},
+    {"index": 4, "name": "desert", "surface": "sand", "subsurface": "sand", "near_water_surface": "sand", "near_water_subsurface": "sand"}
+  ]
+}

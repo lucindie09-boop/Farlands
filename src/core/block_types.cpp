@@ -2,6 +2,7 @@
 
 #include <vector>
 #include <string>
+#include <cstring>
 
 #ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
 #include <godot_cpp/classes/file_access.hpp>
@@ -13,6 +14,19 @@
 #endif
 
 namespace VoxelEngine {
+
+BlockID BlockRegistry::get_block_id_by_name(const char* name) const noexcept {
+    if (name == nullptr) {
+        return BlockIDs::AIR;
+    }
+    for (size_t i = 0; i < count; ++i) {
+        const BlockType& bt = block_types[i];
+        if (bt.name != nullptr && std::strcmp(bt.name, name) == 0) {
+            return bt.id;
+        }
+    }
+    return BlockIDs::AIR;
+}
 
 #ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
 bool BlockRegistry::load_from_json(const godot::String& json_path) noexcept {

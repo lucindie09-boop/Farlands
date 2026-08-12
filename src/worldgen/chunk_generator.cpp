@@ -56,23 +56,15 @@ ChunkGenerator::ColumnSample ChunkGenerator::sample_column(int32_t world_x, int3
 
 BlockID ChunkGenerator::get_surface_block(BiomeType biome, int32_t y, bool has_surface_water, bool near_water) const {
     if (has_surface_water) {
-        return BlockIDs::SAND;
+        return biome_config.underwater_surface;
     }
-    switch (biome) {
-        case BiomeType::Ocean:       return BlockIDs::SAND;
-        case BiomeType::Beach:        return near_water ? BlockIDs::WET_SAND : BlockIDs::SAND;
-        case BiomeType::Desert:      return BlockIDs::SAND;
-        default:                     return near_water ? BlockIDs::MUD : BlockIDs::GRASS;
-    }
+    const BiomeSurface& s = biome_config.surfaces[static_cast<size_t>(biome)];
+    return near_water ? s.near_water_surface : s.surface;
 }
 
 BlockID ChunkGenerator::get_subsurface_block(BiomeType biome, bool near_water) const {
-    switch (biome) {
-        case BiomeType::Ocean:       return BlockIDs::SAND;
-        case BiomeType::Beach:        return near_water ? BlockIDs::WET_SAND_FULL : BlockIDs::SAND;
-        case BiomeType::Desert:       return BlockIDs::SAND;
-        default:                      return BlockIDs::DIRT;
-    }
+    const BiomeSurface& s = biome_config.surfaces[static_cast<size_t>(biome)];
+    return near_water ? s.near_water_subsurface : s.subsurface;
 }
 
 // -------------------------------------------------------------------------
@@ -464,7 +456,8 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
     if (vegetation_enabled) {
         VegetationGenerator veg;
         veg.generate_vegetation(chunk, columns, chunk_x, chunk_z,
-                                world_y_start, world_y_end, cross_writer);
+                                world_y_start, world_y_end,
+                                biome_config, vegetation_config, cross_writer);
     }
 
     // NOTE: compute_section_flags() removed - section_block_count is already correct

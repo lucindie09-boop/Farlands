@@ -14,18 +14,22 @@ namespace VoxelEngine {
 
 using namespace godot;
 
-bool ChunkWorld::generate_chunk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, uint64_t epoch, const TerrainParams& params) {
+bool ChunkWorld::generate_chunk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, uint64_t epoch,
+                                const TerrainParams& params, const BiomeConfig& biomes,
+                                const VegetationConfig& veg_config) {
     if (!thread_pool) return false;
     uint64_t key = chunk_map.get_chunk_key(chunk_x, chunk_y, chunk_z);
     return chunk_scheduler.enqueue_generation(
         thread_pool, chunk_x, chunk_y, chunk_z, epoch, key,
         [this](uint64_t k) { return chunk_map.contains(k); },
-        [this, params = params](int32_t cx, int32_t cy, int32_t cz, bool& loaded) {
+        [this, params = params, biomes = biomes, veg_config = veg_config](int32_t cx, int32_t cy, int32_t cz, bool& loaded) {
             auto chunk_data = std::make_unique<ChunkData>();
             
             // Always generate - edit maps are applied as a diff on top
             thread_local ChunkGenerator generator;
             generator.set_params(params);
+            generator.set_biome_config(biomes);
+            generator.set_vegetation_config(veg_config);
 
             int32_t world_y_start = cy * CHUNK_HEIGHT;
             int32_t world_y_end = world_y_start + CHUNK_HEIGHT;

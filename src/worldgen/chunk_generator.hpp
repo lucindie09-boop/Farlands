@@ -6,6 +6,8 @@
 #include "core/block_types.hpp"
 #include "core/chunk_data.hpp"
 #include "core/performance_timer.hpp"
+#include "worldgen/biome_config.hpp"
+#include "worldgen/vegetation_config.hpp"
 #include <utility>
 #include <cstdio>
 #include <algorithm>
@@ -14,17 +16,6 @@
 #include <random>
 
 namespace VoxelEngine {
-
-// -------------------------------------------------------------------------
-// Biome types
-// -------------------------------------------------------------------------
-enum class BiomeType : uint8_t {
-    Ocean,
-    Beach,
-    Plains,
-    Forest,
-    Desert,
-};
 
 // -------------------------------------------------------------------------
 // Chunk generator - Minecraft-style procedural terrain generation
@@ -43,6 +34,8 @@ private:
     FastNoise weirdness_noise;
 
     TerrainParams params;
+    BiomeConfig biome_config;
+    VegetationConfig vegetation_config;
     std::mt19937 rng;
     static PerformanceTimer perf_timer;
 
@@ -168,14 +161,10 @@ private:
     // sampled data into even thirds) guarantees each temperature/humidity
     // bin gets a fair, predictable share of land regardless of biome_size,
     // since biome_size only rescales noise frequency, not its distribution.
-    static constexpr float TEMP_COLD_MAX  = 0.43f;
-    static constexpr float TEMP_HOT_MIN   = 0.57f;
-    static constexpr float HUM_DRY_MAX    = 0.43f;
-    static constexpr float HUM_HUMID_MIN  = 0.57f;
-
-    static BiomeType land_biome_from_grid(float temperature, float humidity) {
-        bool hot  = temperature >= TEMP_HOT_MIN;
-        bool dry  = humidity < HUM_DRY_MAX;
+    // Thresholds live in data/biomes.json (BiomeConfig).
+    BiomeType land_biome_from_grid(float temperature, float humidity) const {
+        bool hot  = temperature >= biome_config.temp_hot_min;
+        bool dry  = humidity < biome_config.hum_dry_max;
 
         if (hot) {
             return dry ? BiomeType::Desert : BiomeType::Forest;
@@ -197,40 +186,35 @@ private:
 
     // Continuous Voronoi-weighted blend of all land-biome height parameters.
     // All biomes share the same noise recipe; differentiation comes from
-    // base_off and scale_m per biome center.
+    // base_off and scale_m per biome center (data/terrain_config.json).
     // Uses fixed base-frequency climate for Voronoi weights so biome boundaries
     // in the height field remain smooth regardless of biome_size.
     float sample_land_shape(float x, float z, float /*temperature*/, float /*humidity*/) const {
-        static constexpr float BASE_TEMP_SCALE = 0.00015f;
-        static constexpr float BASE_HUM_SCALE  = 0.00020f;
-        // One entry per land biome. base_off/scale_m shape the *height*;
-        // all biomes now use the same noise recipe, so the only difference
-        // between them is base height offset and amplitude scaling.
-        static constexpr struct { float t, h, base_off, scale_m; } centers[] = {
- {0.50f, 0.35f,   6.0f, 0.12f},   // 0 Plains — gentle rolling
-            {0.50f, 0.78f,   4.0f, 1.00f},   // 1 Forest     — temperate, humid: hilly
-            {0.78f, 0.22f, -12.0f, 0.37f},   // 2 Desert     — hot, dry
-        };
-        static constexpr int NUM_BIOMES = 3;
         // Sample climate at the base frequency for smooth height blending
-        float blend_temp = clamp01((temp_noise.noise_2d(x * BASE_TEMP_SCALE, z * BASE_TEMP_SCALE) + 1.0f) * 0.5f);
-        float blend_hum  = clamp01((humidity_noise.noise_2d(x * BASE_HUM_SCALE,  z * BASE_HUM_SCALE)  + 1.0f) * 0.5f);
+        float blend_temp = clamp01((temp_noise.noise_2d(x * params.climate_temp_base_scale,
+                                                        z * params.climate_temp_base_scale) + 1.0f) * 0.5f);
+        float blend_hum  = clamp01((humidity_noise.noise_2d(x * params.climate_humidity_base_scale,
+                                                            z * params.climate_humidity_base_scale) + 1.0f) * 0.5f);
 
-        float w_total = 0.0f, w_base = 0.0f;
-        float weights[NUM_BIOMES];
-        for (int i = 0; i < NUM_BIOMES; i++) {
-            float dsq = (blend_temp - centers[i].t) * (blend_temp - centers[i].t)
-                      + (blend_hum  - centers[i].h) * (blend_hum  - centers[i].h);
+        const size_t num_biomes = params.height_centers.size();
+        float w_total = 0.0f, w_base = 0.0f, w_scale = 0.0f;
+        float weights[3];
+        for (size_t i = 0; i < num_biomes; i++) {
+            const HeightCenter& c = params.height_centers[i];
+            float dsq = (blend_temp - c.temp) * (blend_temp - c.temp)
+                      + (blend_hum  - c.hum)  * (blend_hum  - c.hum);
             float w = 1.0f / (dsq + 0.0001f);
             weights[i] = w;
-            w_base  += w * centers[i].base_off;
+            w_base  += w * c.base_off;
+            w_scale += w * c.scale_m;
             w_total += w;
         }
-        float base  = 208.0f + w_base / w_total;
+        float base  = params.height_base_y + w_base / w_total;
+        float scale_m = w_scale / w_total;
 
         // Terrain amplitude control — distinct flat, hilly, and mountainous regions
         float terrain_control = terrain_noise.fbm(x + 7000.0f, z + 7000.0f, 3, 0.50f, 0.0015f);
-        float terrain_amplitude = lerp(8.0f, 32.0f, smoothstep(-0.3f, 0.5f, terrain_control));
+        float terrain_amplitude = lerp(8.0f, 32.0f, smoothstep(-0.3f, 0.5f, terrain_control)) * scale_m;
 
         // Anisotropic domain warp — recursive warping for flowing ridges
         float wx1 = terrain_noise.noise_2d(x * 0.002f, z * 0.002f) * 18.0f;
@@ -444,6 +428,22 @@ float max_water_h = -1.0f;
 
     const TerrainParams& get_params() const {
         return params;
+    }
+
+    void set_biome_config(const BiomeConfig& config) {
+        biome_config = config;
+    }
+
+    const BiomeConfig& get_biome_config() const {
+        return biome_config;
+    }
+
+    void set_vegetation_config(const VegetationConfig& config) {
+        vegetation_config = config;
+    }
+
+    const VegetationConfig& get_vegetation_config() const {
+        return vegetation_config;
     }
 
     static PerformanceTimer& get_perf_timer() {

@@ -3,6 +3,8 @@
 #include "engine/collision_resolver.hpp"
 #include "world/chunk_world.hpp"
 #include "engine/voxel_engine_controller.hpp"
+#include "render/texture_array_generator.hpp"
+#include "render/texture_pack_manager.hpp"
 
 #include <godot_cpp/classes/input.hpp>
 #include <godot_cpp/classes/engine.hpp>
@@ -44,6 +46,9 @@ void PlayerController::_bind_methods() {
     ClassDB::bind_method(D_METHOD("clear_inventory"), &PlayerController::clear_inventory);
     ClassDB::bind_method(D_METHOD("save_inventory"), &PlayerController::save_inventory);
     ClassDB::bind_method(D_METHOD("load_inventory"), &PlayerController::load_inventory);
+    ClassDB::bind_method(D_METHOD("set_active_texture_pack", "pack_name"), &PlayerController::set_active_texture_pack);
+    ClassDB::bind_method(D_METHOD("get_installed_pack_names"), &PlayerController::get_installed_pack_names);
+    ClassDB::bind_method(D_METHOD("resolve_texture_path", "texture_name"), &PlayerController::resolve_texture_path);
     ClassDB::bind_method(D_METHOD("set_inventory_open", "open"), &PlayerController::set_inventory_open);
     ClassDB::bind_method(D_METHOD("is_inventory_open"), &PlayerController::is_inventory_open);
     
@@ -370,6 +375,40 @@ bool PlayerController::give_block(int block_id, int count) {
 
 void PlayerController::clear_inventory() {
     inventory_.clear();
+}
+
+bool PlayerController::set_active_texture_pack(const String& pack_name) {
+    TexturePackManager& tpm = TexturePackManager::get_instance();
+    if (pack_name.is_empty()) {
+        tpm.clear_active_pack();
+    } else if (!tpm.set_active_pack(pack_name)) {
+        return false;  // unknown pack name
+    }
+
+    // Re-resolve every texture name through the new pack, rebuild the albedo
+    // and emissive arrays, and push them into the shared chunk materials.
+    // Layer indices are keyed by name (not pack), so existing meshes remain
+    // valid — only the pixels change.
+    TextureArrayGenerator::get_instance().invalidate_texture_path_cache();
+    TextureArrayGenerator::get_instance().force_regenerate();
+    if (chunk_manager_) {
+        if (VoxelEngineController* controller = chunk_manager_->get_controller()) {
+            controller->get_environment_controller().get_material_manager().reload_textures();
+        }
+    }
+    return true;
+}
+
+godot::PackedStringArray PlayerController::get_installed_pack_names() const {
+    godot::PackedStringArray names;
+    for (const VoxelEngine::TexturePack& pack : TexturePackManager::get_instance().packs()) {
+        names.push_back(godot::String(pack.name.c_str()));
+    }
+    return names;
+}
+
+godot::String PlayerController::resolve_texture_path(const String& texture_name) const {
+    return TexturePackManager::get_instance().resolve(texture_name);
 }
 
 void PlayerController::set_inventory_open(bool open) {

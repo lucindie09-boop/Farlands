@@ -10,6 +10,7 @@
 #include "debug/perf_report.hpp"
 #include "world/block_editor.hpp"
 #include "core/thread_pool.hpp"
+#include "render/texture_pack_manager.hpp"
 #include "mesh/mesh_builder.hpp"
 #include "worldgen/chunk_generator.hpp"
 #include "worldgen/biome_config.hpp"
@@ -39,6 +40,8 @@ VoxelEngineController::VoxelEngineController()
     // where the actual render distance value is known.
     chunk_world.get_chunk_map().reserve(5000);
     load_world_configs();
+    // Load optional texture packs from user://packs (no-op when absent).
+    TexturePackManager::get_instance().load_packs("user://packs");
     create_thread_pool();
     chunk_world.set_thread_pool(thread_pool.get());
     mesh_manager.set_chunk_map(chunk_world.get_chunk_map_ptr());

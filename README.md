@@ -57,6 +57,35 @@ Textures are organized in the `textures/` directory:
 - `textures/atmosphere/` — Atmospheric textures (sun, north star)
 - `textures/Archive/` — Archived/deprecated textures (old versions kept for reference)
 
+### Texture Packs
+
+Texture packs are directories under `user://packs/` (on Windows:
+`%APPDATA%\Godot\app_userdata\Farlands\packs\`), each containing:
+
+- `pack.json` — metadata:
+  ```json
+  {
+    "name": "demo",
+    "schema": 1,
+    "min_supported": 1,
+    "max_supported": 1,
+    "base_resolution": 16,
+    "author": "optional author"
+  }
+  ```
+- `textures/<name>.png` — PNG overrides for individual blocks; names must match
+  the built-in files in `textures/blocks/` (e.g. `grass_top.png`). Missing
+  textures fall back to the built-ins. Corrupt/truncated PNGs degrade to the
+  built-in texture for that name rather than dropping the array layer.
+
+Commands (in-game chat):
+- `/texturepack` — list installed packs
+- `/texturepack <name>` — activate a pack (case-insensitive)
+- `/texturepack off` — back to built-in textures
+
+A full demo pack fixture (7 tinted textures) can be generated from the built-in
+textures with `python tools/make_demo_pack.py examples/texture_pack`.
+
 ## Build
 
 Requires:

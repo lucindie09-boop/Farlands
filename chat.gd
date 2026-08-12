@@ -35,7 +35,7 @@ var _tab_cycle_delay: float = 0.1875
 var _up_held: bool = false
 var _up_hold_time: float = 0.0
 
-const COMMANDS := ["/help", "/give", "/tp", "/fly", "/clearchat", "/clearinv", "/version"]
+const COMMANDS := ["/help", "/give", "/tp", "/fly", "/clearchat", "/clearinv", "/version", "/texturepack"]
 
 func _chat_scale() -> float:
 	return 1.0  # Chat is not affected by the global GUI scale
@@ -328,6 +328,9 @@ func _get_command_param_hint(cmd: String, arg_count: int) -> String:
 		"/fly":
 			if arg_count == 1:
 				return "[speed]"
+		"/texturepack":
+			if arg_count == 1:
+				return "<name>"
 		"/help", "/clearchat", "/clearinv", "/version":
 			# These commands take no arguments
 			return ""
@@ -484,6 +487,7 @@ func _run_command(raw: String):
 			_add_message("/clearchat - clear the chat", COLOR_SYSTEM)
 			_add_message("/clearinv - clear your inventory", COLOR_SYSTEM)
 			_add_message("/version - show the engine version", COLOR_SYSTEM)
+			_add_message("/texturepack [name] - list packs, activate one, or clear with 'off'", COLOR_SYSTEM)
 		"/give":
 			if parts.size() < 2:
 				_add_message("Usage: /give <block> [count]", COLOR_ERROR)
@@ -540,8 +544,36 @@ func _run_command(raw: String):
 			_add_message("Inventory cleared.", COLOR_SUCCESS)
 		"/version":
 			_add_message("Farlands - Godot 4 + C++ GDExtension", COLOR_SYSTEM)
+		"/texturepack":
+			if parts.size() >= 2 and parts[1] in ["off", "clear", ""]:
+				player_controller.set_active_texture_pack("")
+				BlockTextures.invalidate_cache()
+				_refresh_icon_ui()
+				_add_message("Texture pack cleared (built-in textures)", COLOR_SYSTEM)
+			elif parts.size() >= 2:
+				if player_controller.set_active_texture_pack(parts[1]):
+					BlockTextures.invalidate_cache()
+					_refresh_icon_ui()
+					_add_message("Texture pack activated: %s" % parts[1], COLOR_SUCCESS)
+				else:
+					_add_message("Unknown texture pack: %s (use /texturepack to list)" % parts[1], COLOR_ERROR)
+			else:
+				var packs: PackedStringArray = player_controller.get_installed_pack_names()
+				if packs.is_empty():
+					_add_message("No texture packs installed (check user://packs/). Built-in textures active.", COLOR_SYSTEM)
+				else:
+					_add_message("Installed texture packs:", COLOR_SYSTEM)
+					for p in packs:
+						_add_message("  - %s" % p, COLOR_SYSTEM)
+					_add_message("Use /texturepack <name> to activate, /texturepack off to clear.", COLOR_SYSTEM)
 		_:
 			_add_message("Unknown command: %s (type /help)" % parts[0], COLOR_ERROR)
+
+func _refresh_icon_ui():
+	for node_path in ["/root/Main/HUD/Hotbar", "/root/Main/HUD/Inventory"]:
+		var node := get_node_or_null(node_path)
+		if node and node is Control:
+			node.queue_redraw()
 
 func _add_message(text: String, color: Color):
 	messages.append({"text": text, "color": color})

@@ -125,4 +125,5 @@ render_distance = 32
 player_position = Vector3(0, 280, 0)
 smooth_lighting = true
 lod_distance = 6
+far_lod_distance = 16
 fog_density = 0.1

@@ -66,6 +66,8 @@ void WorldUpdater::update(bool is_editor, uint64_t epoch, uint64_t& chunks_proce
         mesh_manager->set_mesh_render_distance(active_render_distance);
         mesh_manager->set_lod_distance(lod_distance);
         mesh_manager->set_lod_detail_level(lod_detail_level);
+        mesh_manager->set_far_lod_distance(far_lod_distance);
+        mesh_manager->set_far_lod_detail_level(far_lod_detail_level);
     }
 
     update_generation(is_editor, active_render_distance, epoch, player_chunk_x, player_chunk_y, player_chunk_z, chunk_changed);

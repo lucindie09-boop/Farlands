@@ -27,6 +27,8 @@ var _default_night_sky: Color = Color(0, 0, 0, 1)
 var _default_render_distance: int = 32
 var _default_lod_distance: int = 0
 var _default_lod_detail: float = 0.5
+var _default_far_lod_distance: int = 16
+var _default_far_lod_detail: float = 0.25
 var _default_contrast: float = 1.0
 var _default_saturation: float = 1.0
 var _default_ao_color: Color = Color(0, 0, 0, 1)
@@ -99,6 +101,8 @@ func _ready():
 	_default_render_distance = chunk_manager.get_render_distance()
 	_default_lod_distance = chunk_manager.get_lod_distance()
 	_default_lod_detail = chunk_manager.get_lod_detail_level()
+	_default_far_lod_distance = chunk_manager.get_far_lod_distance()
+	_default_far_lod_detail = chunk_manager.get_far_lod_detail_level()
 	_default_contrast = chunk_manager.get_contrast()
 	_default_saturation = chunk_manager.get_saturation()
 	_default_ao_color = chunk_manager.get_ao_color()
@@ -154,6 +158,8 @@ func _save_settings():
 	cfg.set_value("render", "distance", chunk_manager.get_render_distance())
 	cfg.set_value("render", "lod_distance", chunk_manager.get_lod_distance())
 	cfg.set_value("render", "lod_detail_level", chunk_manager.get_lod_detail_level())
+	cfg.set_value("render", "far_lod_distance", chunk_manager.get_far_lod_distance())
+	cfg.set_value("render", "far_lod_detail_level", chunk_manager.get_far_lod_detail_level())
 	cfg.set_value("render", "fog_mode", chunk_manager.get_fog_mode())
 	cfg.set_value("render", "godrays", godrays_node.visible if godrays_node else _default_godrays)
 	cfg.set_value("render", "mipmaps_enabled", chunk_manager.get_mipmaps_enabled())
@@ -189,6 +195,8 @@ func _load_settings():
 	chunk_manager.set_render_distance(int(cfg.get_value("render", "distance", chunk_manager.get_render_distance())))
 	chunk_manager.set_lod_distance(int(cfg.get_value("render", "lod_distance", chunk_manager.get_lod_distance())))
 	chunk_manager.set_lod_detail_level(cfg.get_value("render", "lod_detail_level", chunk_manager.get_lod_detail_level()))
+	chunk_manager.set_far_lod_distance(int(cfg.get_value("render", "far_lod_distance", chunk_manager.get_far_lod_distance())))
+	chunk_manager.set_far_lod_detail_level(cfg.get_value("render", "far_lod_detail_level", chunk_manager.get_far_lod_detail_level()))
 	chunk_manager.set_fog_mode(int(cfg.get_value("render", "fog_mode", chunk_manager.get_fog_mode())))
 	if godrays_node:
 		godrays_node.visible = cfg.get_value("render", "godrays", _default_godrays)
@@ -890,6 +898,24 @@ func _build_render_page() -> Control:
 		chunk_manager.set_lod_detail_level(_default_lod_detail)
 		_schedule_save()
 
+	var far_lod_dist := _make_slider(chunk_manager.get_far_lod_distance(), 0.0, 64.0, 1.0,
+		func(v: float):
+			chunk_manager.set_far_lod_distance(int(v))
+			_schedule_save(), " chunks")
+	var far_lod_reset := func():
+		far_lod_dist.get_meta("slider").value = _default_far_lod_distance
+		chunk_manager.set_far_lod_distance(_default_far_lod_distance)
+		_schedule_save()
+
+	var far_lod_detail := _make_slider(chunk_manager.get_far_lod_detail_level(), 0.125, 1.0, 0.005,
+		func(v: float):
+			chunk_manager.set_far_lod_detail_level(v)
+			_schedule_save())
+	var far_lod_detail_reset := func():
+		far_lod_detail.get_meta("slider").value = _default_far_lod_detail
+		chunk_manager.set_far_lod_detail_level(_default_far_lod_detail)
+		_schedule_save()
+
 	var fog_mode_btn := _make_button("", 180.0)
 	var fog_mode_names := ["Off", "Edge", "Linear", "Exponential"]
 	fog_mode_btn.text = fog_mode_names[chunk_manager.get_fog_mode()]
@@ -989,6 +1015,8 @@ func _build_render_page() -> Control:
 		["Render Distance", rd, rd_reset],
 		["LOD Distance", lod_dist, lod_reset],
 		["LOD Detail Level", lod_detail, lod_detail_reset],
+		["Far LOD Distance", far_lod_dist, far_lod_reset],
+		["Far LOD Detail Level", far_lod_detail, far_lod_detail_reset],
 		["Fog Mode", fog_mode_btn, fog_mode_reset],
 		["God Rays", godrays_btn, godrays_reset],
 		["Mipmaps", mipmaps_btn, mipmaps_reset],

@@ -67,6 +67,8 @@ VoxelEngineController::VoxelEngineController()
     world_updater.set_editor_render_distance(editor_render_distance);
     world_updater.set_lod_distance(lod_distance);
     world_updater.set_lod_detail_level(lod_detail_level);
+    world_updater.set_far_lod_distance(far_lod_distance);
+    world_updater.set_far_lod_detail_level(far_lod_detail_level);
     mesh_manager.set_mesh_render_distance(render_distance);
 }
 
@@ -374,6 +376,10 @@ void VoxelEngineController::set_lod_distance(int32_t d) { lod_distance = d; worl
 int32_t VoxelEngineController::get_lod_distance() const { return lod_distance; }
 void VoxelEngineController::set_lod_detail_level(float l) { lod_detail_level = l; world_updater.set_lod_detail_level(l); }
 float VoxelEngineController::get_lod_detail_level() const { return lod_detail_level; }
+void VoxelEngineController::set_far_lod_distance(int32_t d) { far_lod_distance = d; world_updater.set_far_lod_distance(d); }
+int32_t VoxelEngineController::get_far_lod_distance() const { return far_lod_distance; }
+void VoxelEngineController::set_far_lod_detail_level(float l) { far_lod_detail_level = l; world_updater.set_far_lod_detail_level(l); }
+float VoxelEngineController::get_far_lod_detail_level() const { return far_lod_detail_level; }
 
 void VoxelEngineController::set_editor_enabled(bool enabled) { editor_enabled = enabled; }
 bool VoxelEngineController::get_editor_enabled() const { return editor_enabled; }

@@ -20,6 +20,7 @@ void MeshManager::clear() {
     }
     completed_far_region_mesh_count.store(0, std::memory_order_relaxed);
     active_full_detail_chunks_.clear();
+    active_mid_detail_chunks_.clear();
     far_regions_partial_missing_cache_last = 0;
     last_player_chunk_x = INT32_MIN;
     last_player_chunk_y = INT32_MIN;
@@ -136,16 +137,17 @@ float MeshManager::compute_chunk_detail_level(int32_t cx, int32_t cy, int32_t cz
     int32_t dz = cz - last_player_chunk_z;
     int32_t dist = std::max({std::abs(dx), std::abs(dy), std::abs(dz)});
 
-    // Two-tier LOD: chunks within lod_distance+1 are always full-res.
-    // The +1 ring acts as a skirt so that the first coarse ring (dist =
-    // lod_distance+2) always borders a stride-1 neighbor, preventing
-    // T-junction cracks at the transition boundary.
-    // TODO: if more LOD tiers are added, replace with resolved-stride
-    // propagation (compute nearest-first, store in ChunkRenderData, check
-    // neighbor's actual resolved stride instead of recomputing from distance).
+    // Three-tier LOD, each tier using the same stride-reduction mechanism:
+    //   Tier 0 (full res): dist <= lod_distance + 1
+    //   Tier 1 (mid):      lod_distance + 2 <= dist <= far_lod_distance + 1
+    //   Tier 2 (far):      dist >= far_lod_distance + 2
+    // Each tier keeps a +1 "skirt" ring at its render start (full res at
+    // lod_distance+1, mid detail at far_lod_distance+1) so the first reduced
+    // ring of a tier always borders a neighbor one detail step finer,
+    // preventing T-junction cracks at the transition boundary.
     if (dist <= lod_distance + 1) return 1.0f;
-
-    return lod_detail_level;
+    if (dist <= far_lod_distance + 1) return lod_detail_level;
+    return far_lod_detail_level;
 }
 
 } // namespace VoxelEngine

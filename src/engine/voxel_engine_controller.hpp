@@ -94,6 +94,10 @@ public:
     int32_t get_lod_distance() const;
     void set_lod_detail_level(float l);
     float get_lod_detail_level() const;
+    void set_far_lod_distance(int32_t d);
+    int32_t get_far_lod_distance() const;
+    void set_far_lod_detail_level(float l);
+    float get_far_lod_detail_level() const;
 
     void set_player_light_enabled(bool enabled);
     bool get_player_light_enabled() const;
@@ -194,6 +198,8 @@ private:
 bool smooth_lighting = false;
     int32_t lod_distance = 0;
     float lod_detail_level = 0.5f;
+    int32_t far_lod_distance = 16;
+    float far_lod_detail_level = 0.25f;
     float sea_level = 200.0f;
     float biome_size = 1.0f;
     bool vegetation_enabled = true;

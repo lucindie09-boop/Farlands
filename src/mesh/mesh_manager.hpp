@@ -78,6 +78,10 @@ public:
     int32_t get_lod_distance() const { return lod_distance; }
     void set_lod_detail_level(float l) { lod_detail_level = l; }
     float get_lod_detail_level() const { return lod_detail_level; }
+    void set_far_lod_distance(int32_t d) { far_lod_distance = d; }
+    int32_t get_far_lod_distance() const { return far_lod_distance; }
+    void set_far_lod_detail_level(float l) { far_lod_detail_level = l; }
+    float get_far_lod_detail_level() const { return far_lod_detail_level; }
 
 private:
     struct CompletedRegionMesh {
@@ -133,8 +137,15 @@ private:
     bool smooth_lighting_enabled = false;
     int32_t lod_distance = 0;
     float lod_detail_level = 0.5f;
+    // Third LOD tier (identical stride-reduction mechanism to the mid tier):
+    // render start far_lod_distance, detail far_lod_detail_level.
+    int32_t far_lod_distance = 16;
+    float far_lod_detail_level = 0.25f;
     std::unordered_map<uint64_t, FarRegionRenderData> far_regions;
     std::unordered_set<uint64_t> active_full_detail_chunks_;
+    // Chunks currently built at the mid tier, used to remesh mid->far
+    // downgrades that fall outside the reprioritize transition shells.
+    std::unordered_set<uint64_t> active_mid_detail_chunks_;
     std::queue<CompletedRegionMesh> completed_far_region_meshes;
     mutable std::mutex completed_far_region_meshes_mutex;
     std::atomic<int32_t> completed_far_region_mesh_count{0};

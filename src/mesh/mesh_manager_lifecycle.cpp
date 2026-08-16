@@ -145,24 +145,7 @@ float MeshManager::compute_chunk_detail_level(int32_t cx, int32_t cy, int32_t cz
     // neighbor's actual resolved stride instead of recomputing from distance).
     if (dist <= lod_distance + 1) return 1.0f;
 
-    // Third tier: beyond lod_far_distance, chunks drop to the far-mode
-    // heightmap-only mesh (see is_chunk_far_mode / MeshBuilder::set_far_mode).
-    if (lod_far_distance > lod_distance + 1 && dist > lod_far_distance) {
-        return far_detail_level;
-    }
-
     return lod_detail_level;
-}
-
-bool MeshManager::is_chunk_far_mode(int32_t cx, int32_t cy, int32_t cz) const {
-    if (lod_far_distance <= 0 || lod_distance <= 0 || last_player_chunk_x == INT32_MIN) {
-        return false;
-    }
-    int32_t dx = cx - last_player_chunk_x;
-    int32_t dy = cy - last_player_chunk_y;
-    int32_t dz = cz - last_player_chunk_z;
-    int32_t dist = std::max({std::abs(dx), std::abs(dy), std::abs(dz)});
-    return dist > lod_far_distance;
 }
 
 } // namespace VoxelEngine

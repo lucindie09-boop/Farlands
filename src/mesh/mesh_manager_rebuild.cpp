@@ -156,9 +156,6 @@ void MeshManager::rebuild_rendering_server_mesh(int32_t chunk_x, int32_t chunk_y
     const int32_t player_by = last_player_block_y;
     const int32_t player_bz = last_player_block_z;
 
-    const bool far_mode = detail < 1.0f && is_chunk_far_mode(chunk_x, chunk_y, chunk_z);
-    render_data->last_built_far_mode = far_mode;
-
     // Greedy vs per-face fallback (mirrors the worker's old decision).
     const bool player_known = player_bx != INT32_MIN && player_by != INT32_MIN && player_bz != INT32_MIN;
     int32_t pdx = 0, pdy = 0, pdz = 0;
@@ -190,9 +187,8 @@ void MeshManager::rebuild_rendering_server_mesh(int32_t chunk_x, int32_t chunk_y
         render_data->dirty_subchunks != 0 && render_data->dirty_subchunks != 0xFF &&
         render_data->has_dirty_bbox() &&
         !render_data->cached_quads.empty() &&
-        detail >= 1.0f && !far_mode &&
+        detail >= 1.0f &&
         render_data->last_built_detail_level == detail &&
-        render_data->last_built_far_mode == far_mode &&
         render_data->last_built_greedy_mode == greedy_enabled;
 
     // Do NOT capture raw neighbor pointers. The worker looks up neighbors by coordinate
@@ -214,7 +210,6 @@ void MeshManager::rebuild_rendering_server_mesh(int32_t chunk_x, int32_t chunk_y
     mesh_task->high_priority = high_priority;
     mesh_task->smooth_lighting = smooth_lighting_enabled;
     mesh_task->detail_level = detail;
-    mesh_task->far_mode = far_mode;
     mesh_task->greedy_enabled = greedy_enabled;
     mesh_task->record_quads = record_quads;
     mesh_task->partial = partial;

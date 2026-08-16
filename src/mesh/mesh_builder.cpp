@@ -195,12 +195,6 @@ void MeshBuilder::build_mesh(const ChunkData& chunk,
 
     total_chunks.fetch_add(1, std::memory_order_relaxed);
 
-    // Far-mode: heightmap-only mesh. No solid_cache, no AO, no side faces.
-    if (far_mode_) {
-        build_far_mesh(chunk, registry);
-        return;
-    }
-
     populate_solid_cache(chunk, registry);
     emit_faces(chunk, registry);
     accumulate_greedy_stats();
@@ -255,10 +249,6 @@ void MeshBuilder::build_mesh_incremental(const ChunkData& chunk,
     }
 
     total_chunks.fetch_add(1, std::memory_order_relaxed);
-    if (far_mode_) {
-        build_far_mesh(chunk, registry);
-        return;
-    }
 
     // Light-change region: every column whose light grid changed since the
     // previous build. A face within ±1 of a changed column samples the changed
@@ -326,70 +316,6 @@ void MeshBuilder::build_mesh_incremental(const ChunkData& chunk,
 
     if (record_quads_) {
         // light_checksums_ already computed above; keep for the next build.
-    }
-}
-
-
-void MeshBuilder::build_far_mesh(const ChunkData& chunk, const BlockRegistry& registry) {
-    // For each macro column (stride_xz_ x stride_xz_) emit a single top quad at
-    // the topmost non-air block. Runs of equal block type at equal height merge
-    // along z so flat terrain collapses to a handful of quads. No AO (flat
-    // light), no side/underside faces, no caves — this is a silhouette mesh for
-    // the far distance, merged into regions by the MeshManager.
-    for (int32_t x = 0; x < CHUNK_WIDTH; x += stride_xz_) {
-        int32_t merge_start = -1;
-        int32_t merge_y = -1;
-        BlockID merge_block = BlockIDs::AIR;
-        uint16_t merge_light = 0;
-
-        auto flush_run = [&](int32_t z) {
-            if (merge_start < 0) {
-                return;
-            }
-            Face face;
-            face.x = x;
-            face.y = merge_y;
-            face.z = merge_start;
-            face.direction = FaceDirection::Top;
-            face.block_id = merge_block;
-            face.u_max = stride_xz_ - 1;
-            face.v_max = (z - stride_xz_) - merge_start;
-            
-            // Far LOD: uniform AO for consistency with near/mid tiers
-            // Face direction shade is applied by shader, so we just need uniform brightness
-            const float ao[4] = {1.0f, 1.0f, 1.0f, 1.0f};
-            add_greedy_face(chunk, accessor, face, merge_light, 0, ao, registry);
-            merge_start = -1;
-        };
-
-        for (int32_t z = 0; z < CHUNK_DEPTH; z += stride_xz_) {
-            int32_t top_y = -1;
-            BlockID top_block = BlockIDs::AIR;
-            for (int32_t y = CHUNK_HEIGHT - 1; y >= 0; y--) {
-                const BlockID b = chunk.get_block_unsafe(x, y, z);
-                if (b != BlockIDs::AIR) {
-                    top_y = y;
-                    top_block = b;
-                    break;
-                }
-            }
-            if (top_y < 0) {
-                flush_run(z);
-                continue;
-            }
-            const int32_t light_y = std::min(top_y + 1, CHUNK_HEIGHT - 1);
-            const uint16_t light_key = chunk.get_light_packed_word_unsafe(x, light_y, z);
-
-            if (merge_start != -1 && top_block == merge_block && top_y == merge_y) {
-                continue;
-            }
-            flush_run(z);
-            merge_start = z;
-            merge_y = top_y;
-            merge_block = top_block;
-            merge_light = light_key;
-        }
-        flush_run(CHUNK_DEPTH);
     }
 }
 

@@ -1,6 +1,6 @@
 # fuk-minecraft
 
-A Minecraft-style voxel engine built in Godot 4 with a custom C++ GDExtension. Procedural terrain generation (signed 3D density field with overhangs and shelves), chunked world streaming, greedy meshing with per-chunk incremental rebuilds, colored block lighting, day/night cycle, multi-tier distance-based mesh LOD (including far-mode silhouette meshes), frustum-prioritized chunk loading, async background chunk saving, and a C++ inventory system (hotbar + 27-slot storage) wired into block break/place with a GDScript GUI. Ships with a C++ player controller with Minecraft-accurate fixed-timestep physics.
+A Minecraft-style voxel engine built in Godot 4 with a custom C++ GDExtension. Procedural terrain generation (signed 3D density field with overhangs and shelves), chunked world streaming, greedy meshing with per-chunk incremental rebuilds, colored block lighting, day/night cycle, two-tier distance-based mesh LOD with LOD-reduced chunks merged into regions to cap draw calls, frustum-prioritized chunk loading, async background chunk saving, and a C++ inventory system (hotbar + 27-slot storage) wired into block break/place with a GDScript GUI. Ships with a C++ player controller with Minecraft-accurate fixed-timestep physics.
 
 ## Architecture
 
@@ -25,14 +25,14 @@ A Minecraft-style voxel engine built in Godot 4 with a custom C++ GDExtension. P
 | Generation scheduler | `src/world/generation_scheduler.hpp/cpp` | Standalone generation loop |
 | Mesh queue | `src/mesh/mesh_queue.hpp` | Priority queue sorted by urgent > in-frustum > distance |
 | Mesh builder | `src/mesh/mesh_builder.hpp/cpp` (+ `mesh_builder_solid.cpp`, `mesh_builder_faces.cpp`, `mesh_builder_greedy.cpp`) | Greedy + standard face culling, neighbor-aware, thread-local instances, solid-block fast path, full rebuilds and incremental partial remeshes |
-| Mesh manager | `src/mesh/mesh_manager.hpp` + `mesh_manager.cpp`/`_worker`/`_upload`/`_rebuild`/`_far`/`_lifecycle` (`mesh_manager_internal.hpp` shares the build task) | Upload dedup, lazy RID creation, instance budget capping, multi-tier LOD (stride/detail + far-mode), nearest-first budget-capped completion |
+| Mesh manager | `src/mesh/mesh_manager.hpp` + `mesh_manager.cpp`/`_worker`/`_upload`/`_rebuild`/`_far`/`_lifecycle` (`mesh_manager_internal.hpp` shares the build task) | Upload dedup, lazy RID creation, instance budget capping, two-tier LOD (stride/detail) with LOD-reduced chunks merged into region instances, nearest-first budget-capped completion |
 | Lighting | `src/lighting/light_propagator.cpp` | Async block-light propagation on worker threads, sky-light columns, overlap-safe per-channel light removal |
 | Terrain gen | `src/worldgen/chunk_generator.hpp/cpp` | Signed 3D density field over a macro heightmap (overhangs/shelves), 4×4×4 shape lattice, biome-based macro surface, chunk-level generation fast paths |
 | Vegetation | `src/worldgen/vegetation_generator.hpp/cpp` | Tree placement (oak/spruce/birch) with minimum spacing, deferred cross-chunk writes |
 | Collision | `src/engine/collision_resolver.cpp` | Custom binary-search AABB voxel grid query (no Godot physics nodes), step-up support |
 | Day/night | `src/world/day_night_cycle.hpp` | Shader-driven sky-light intensity + color blending |
 | Player sim | `src/engine/player_controller.hpp/cpp` | Minecraft-accurate fixed 20-tick/s physics: vanilla jump/sprint/sneak ordering, accumulator, smooth eye-height transitions |
-| LOD | `lod_distance` / `lod_detail_level` / `lod_far_distance` / `far_detail_level` (`mesh_manager.cpp`) | Three tiers — full detail, stride/detail reduction, far-mode heightmap-only silhouette meshes merged into far regions; capped remesh-per-frame |
+| LOD | `lod_distance` / `lod_detail_level` (`mesh_manager.cpp`) | Two tiers — full detail and stride/detail reduction; LOD-reduced chunks merged into regions; capped remesh-per-frame |
 | Frame budgets | `src/core/frame_budgets.hpp` | Tiered budgets for generate/light/mesh/upload (idle/active/loading) |
 | Performance timers | `src/core/performance_timer.hpp` | Scoped frame-by-frame profiling |
 | Inventory | `src/core/inventory.hpp/cpp` | 9-slot hotbar + 27-slot main storage, 64 stack limit, add/consume/can_add logic, persisted to `user://chunks/inventory.bin` |
@@ -148,8 +148,7 @@ The `ChunkManager` node exposes these editor properties (see `src/godot_bindings
 - **editor_enabled**, **editor_render_distance**
 - **sea_level**, **biome_size** — terrain shape
 - **smooth_lighting** — toggle smooth vertex lighting
-- **lod_distance**, **lod_detail_level** — mid-tier mesh LOD (stride/detail reduction; see `mesh_manager.cpp`)
-- **lod_far_distance**, **far_detail_level** — far-mode tier: heightmap-only silhouette meshes beyond the mid tier (0 disables)
+- **lod_distance**, **lod_detail_level** — mesh LOD (stride/detail reduction; LOD-reduced chunks merge into region instances; see `mesh_manager.cpp`)
 - **player_light_enabled** / **player_light_level** — player-following dynamic light
 - **day_time**, **day_night_cycle_enabled**, **day_duration**, **day_sky_intensity**/**night_sky_intensity**, **day_sky_color**/**night_sky_color**
 - **fog_density** — exponential fog distance
@@ -168,7 +167,7 @@ The `PlayerController` node exposes **sensitivity** (mouse look) and **fly_speed
 - The player is a C++ `PlayerController` node (`src/engine/player_controller.*` + `src/godot_bindings/player_controller.*`) — fixed 20-tick/s simulation with an accumulator, vanilla-accurate jump/sprint/sneak ordering, smooth eye-height transitions, fly mode, and raycast-based block break/place. There is no player GDScript. The GUI layer (hotbar, full inventory screen, block-texture atlas) is GDScript (`hotbar.gd`, `inventory.gd`, `block_textures.gd`).
 - Modified chunks are saved to `user://chunks/` as versioned RLE-compressed `.chunk` files (v3 format with a CRC32 checksum; v2/v1 legacy files load transparently). Saves are asynchronous — `WorldUpdater` snapshots dirty chunks every 5s and writes them on the thread pool, and `ChunkManager::_exit_tree()` performs a blocking flush so nothing is lost on quit. The inventory persists to `user://chunks/inventory.bin` (magic `INVE`, version 1) and is written at `_exit_tree`.
 - `analyze.py` analyzes biome maps produced by the `terrain_debug` tool; it requires `Pillow`, `numpy`, and `scipy`, which aren't otherwise part of the build.
-- The LOD system is per-chunk, three-tier distance-based reduction inside the greedy mesher: full detail within `lod_distance`, stride/detail reduction in the mid tier, and heightmap-only silhouette meshes in the far tier (`lod_far_distance`/`far_detail_level`).
+- The LOD system is per-chunk, two-tier distance-based reduction inside the greedy mesher: full detail within `lod_distance`, and stride/detail reduction beyond it (`lod_detail_level`). LOD-reduced chunks are cached and merged into region instances so the coarse ring costs only a handful of draw calls.
 - Frustum prioritization requires a `Camera3D` child on the player node (named `Camera3D`).
 - There is no gameplay layer yet beyond movement and block break/place with an inventory — no crafting, mobs, or multiplayer.
 

@@ -192,13 +192,6 @@ bool is_smooth_lighting_enabled() const { return smooth_lighting_enabled; }
     float get_detail_level() const { return detail_level_; }
     int get_stride_xz() const { return stride_xz_; }
 
-    // Far-mode: emit a heightmap-only mesh (one merged top quad per macro
-    // column, no side/underside faces, no AO, no caves, no water columns).
-    // Used for chunks far enough that only their silhouette matters; the
-    // region-merging pipeline renders these as merged far meshes.
-    void set_far_mode(bool enabled) { far_mode_ = enabled; }
-    bool is_far_mode() const { return far_mode_; }
-
     void set_subchunk_bounds(const SubChunkBounds& bounds) { active_bounds = bounds; }
     const SubChunkBounds& get_subchunk_bounds() const { return active_bounds; }
 
@@ -352,7 +345,6 @@ GreedyVerticalStatsSnapshot greedy_v_stats_local{};
 
     float detail_level_ = 1.0f;
     int stride_xz_ = 1;
-    bool far_mode_ = false;
 
     SubChunkBounds active_bounds;
 
@@ -479,9 +471,6 @@ const BlockRegistry& registry) const;
     BlockID solid_at(int32_t y, int32_t zi, int32_t xi) const;
     void emit_faces(const ChunkData& chunk, const BlockRegistry& registry);
     void accumulate_greedy_stats();
-
-    // Far-mode heightmap-only mesh emitter (see set_far_mode).
-    void build_far_mesh(const ChunkData& chunk, const BlockRegistry& registry);
 
     // -------------------------------------------------------------------------
     // Passive greedy meshing (heavy — defined in .cpp)

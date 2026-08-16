@@ -231,10 +231,6 @@ void ChunkManager::set_lod_distance(int32_t distance) { controller->set_lod_dist
 int32_t ChunkManager::get_lod_distance() const { return controller->get_lod_distance(); }
 void ChunkManager::set_lod_detail_level(float level) { controller->set_lod_detail_level(level); }
 float ChunkManager::get_lod_detail_level() const { return controller->get_lod_detail_level(); }
-void ChunkManager::set_lod_far_distance(int32_t distance) { controller->set_lod_far_distance(distance); }
-int32_t ChunkManager::get_lod_far_distance() const { return controller->get_lod_far_distance(); }
-void ChunkManager::set_far_detail_level(float level) { controller->set_far_detail_level(level); }
-float ChunkManager::get_far_detail_level() const { return controller->get_far_detail_level(); }
 
 void ChunkManager::set_player_light_enabled(bool enabled) { controller->set_player_light_enabled(enabled); }
 bool ChunkManager::get_player_light_enabled() const { return controller->get_player_light_enabled(); }
@@ -383,12 +379,6 @@ BIND_PROP(Variant::BOOL, smooth_lighting, "enabled");
     ClassDB::bind_method(D_METHOD("set_lod_detail_level", "level"), &ChunkManager::set_lod_detail_level);
     ClassDB::bind_method(D_METHOD("get_lod_detail_level"), &ChunkManager::get_lod_detail_level);
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "lod_detail_level", PROPERTY_HINT_RANGE, "0.125,1.0,0.005"), "set_lod_detail_level", "get_lod_detail_level");
-    ClassDB::bind_method(D_METHOD("set_lod_far_distance", "distance"), &ChunkManager::set_lod_far_distance);
-    ClassDB::bind_method(D_METHOD("get_lod_far_distance"), &ChunkManager::get_lod_far_distance);
-    ADD_PROPERTY(PropertyInfo(Variant::INT, "lod_far_distance", PROPERTY_HINT_RANGE, "0,128,1"), "set_lod_far_distance", "get_lod_far_distance");
-    ClassDB::bind_method(D_METHOD("set_far_detail_level", "level"), &ChunkManager::set_far_detail_level);
-    ClassDB::bind_method(D_METHOD("get_far_detail_level"), &ChunkManager::get_far_detail_level);
-    ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "far_detail_level", PROPERTY_HINT_RANGE, "0.125,1.0,0.005"), "set_far_detail_level", "get_far_detail_level");
     BIND_PROP(Variant::BOOL,    player_light_enabled,      "enabled");
     BIND_PROP(Variant::INT,     player_light_level,        "level");
 BIND_PROP(Variant::FLOAT, day_time, "time");

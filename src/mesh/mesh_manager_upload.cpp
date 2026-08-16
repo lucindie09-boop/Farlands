@@ -281,7 +281,7 @@ void MeshManager::process_completed_region_meshes(uint64_t epoch, int32_t max_up
         }
         rs->mesh_set_custom_aabb(
             region.mesh_rid,
-            AABB(Vector3(0, 0, 0), Vector3(kFarRegionSizeXZ * CHUNK_WIDTH, CHUNK_HEIGHT, kFarRegionSizeXZ * CHUNK_DEPTH)));
+            AABB(Vector3(0, 0, 0), Vector3(region.region_size_xz * CHUNK_WIDTH, CHUNK_HEIGHT, region.region_size_xz * CHUNK_DEPTH)));
 
         int64_t fmt = 0;
         fmt |= RenderingServer::ARRAY_FORMAT_VERTEX;

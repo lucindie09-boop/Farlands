@@ -29,8 +29,10 @@ uint64_t MeshManager::get_far_region_key(int32_t cx, int32_t cy, int32_t cz) con
     if (!chunk_map) {
         return 0;
     }
-    const int32_t rx = floor_div(cx, kFarRegionSizeXZ);
-    const int32_t rz = floor_div(cz, kFarRegionSizeXZ);
+    // Always use 8x8 for region keys to ensure stability across LOD transitions
+    const int32_t region_size = kFarRegionSizeXZ;
+    const int32_t rx = floor_div(cx, region_size);
+    const int32_t rz = floor_div(cz, region_size);
     return chunk_map->get_chunk_key(rx, cy, rz);
 }
 
@@ -81,14 +83,14 @@ void MeshManager::ensure_far_region_instance(FarRegionRenderData& region, uint64
             RenderingServer::SHADOW_CASTING_SETTING_OFF);
         AABB region_aabb(
             Vector3(0, 0, 0),
-            Vector3(kFarRegionSizeXZ * CHUNK_WIDTH, CHUNK_HEIGHT, kFarRegionSizeXZ * CHUNK_DEPTH));
+            Vector3(region.region_size_xz * CHUNK_WIDTH, CHUNK_HEIGHT, region.region_size_xz * CHUNK_DEPTH));
         rs->instance_set_custom_aabb(region.instance_rid, region_aabb);
 
         Transform3D transform;
         transform.origin = Vector3(
-            rx * kFarRegionSizeXZ * CHUNK_WIDTH,
+            rx * region.region_size_xz * CHUNK_WIDTH,
             ry * CHUNK_HEIGHT,
-            rz * kFarRegionSizeXZ * CHUNK_DEPTH);
+            rz * region.region_size_xz * CHUNK_DEPTH);
         rs->instance_set_transform(region.instance_rid, transform);
 
         if (owner) {
@@ -152,6 +154,8 @@ void MeshManager::mark_far_region_dirty_for_chunk(int32_t cx, int32_t cy, int32_
     region.last_dirty_at = std::chrono::steady_clock::now();
     region.dirty = true;
     ++region.revision;
+    // All far regions are now 8x8
+    region.region_size_xz = kFarRegionSizeXZ;
 }
 
 void MeshManager::process_far_region_queue(int32_t max_rebuilds) {
@@ -176,8 +180,9 @@ void MeshManager::process_far_region_queue(int32_t max_rebuilds) {
         }
         int32_t rx, ry, rz;
         ChunkMap::decode_chunk_key(region_key, rx, ry, rz);
-        const int32_t center_x = rx * kFarRegionSizeXZ + kFarRegionSizeXZ / 2;
-        const int32_t center_z = rz * kFarRegionSizeXZ + kFarRegionSizeXZ / 2;
+        const int32_t region_size = region.region_size_xz;
+        const int32_t center_x = rx * region_size + region_size / 2;
+        const int32_t center_z = rz * region_size + region_size / 2;
         const int32_t dx = center_x - last_player_chunk_x;
         const int32_t dy = ry - last_player_chunk_y;
         const int32_t dz = center_z - last_player_chunk_z;
@@ -206,8 +211,9 @@ void MeshManager::process_far_region_queue(int32_t max_rebuilds) {
 
         int32_t rx, ry, rz;
         ChunkMap::decode_chunk_key(region_key, rx, ry, rz);
-        const int32_t base_cx = rx * kFarRegionSizeXZ;
-        const int32_t base_cz = rz * kFarRegionSizeXZ;
+        const int32_t region_size = region.region_size_xz;
+        const int32_t base_cx = rx * region_size;
+        const int32_t base_cz = rz * region_size;
 
         struct BuildSource {
             int32_t local_chunk_x = 0;
@@ -221,8 +227,8 @@ void MeshManager::process_far_region_queue(int32_t max_rebuilds) {
         bool missing_far_cache = false;
         int32_t eligible_chunk_count = 0;
 
-        for (int32_t local_z = 0; local_z < kFarRegionSizeXZ; ++local_z) {
-            for (int32_t local_x = 0; local_x < kFarRegionSizeXZ; ++local_x) {
+        for (int32_t local_z = 0; local_z < region_size; ++local_z) {
+            for (int32_t local_x = 0; local_x < region_size; ++local_x) {
                 const int32_t cx = base_cx + local_x;
                 const int32_t cz = base_cz + local_z;
                 if (!should_use_far_region_for_chunk(cx, ry, cz)) {
@@ -264,11 +270,11 @@ void MeshManager::process_far_region_queue(int32_t max_rebuilds) {
 
         const uint64_t build_epoch = async_epoch ? async_epoch->load(std::memory_order_acquire) : 0;
         thread_pool->fire_and_forget([this, sources = std::move(sources), member_chunk_keys = std::move(member_chunk_keys),
-                                      region_key, revision, build_epoch]() mutable {
+                                      region_key, revision, build_epoch, region_size = region.region_size_xz]() mutable {
             int32_t rx_local, ry_local, rz_local;
             ChunkMap::decode_chunk_key(region_key, rx_local, ry_local, rz_local);
-            const int32_t region_origin_x = rx_local * kFarRegionSizeXZ * CHUNK_WIDTH;
-            const int32_t region_origin_z = rz_local * kFarRegionSizeXZ * CHUNK_DEPTH;
+            const int32_t region_origin_x = rx_local * region_size * CHUNK_WIDTH;
+            const int32_t region_origin_z = rz_local * region_size * CHUNK_DEPTH;
 
             CompletedRegionMesh completed;
             completed.region_key = region_key;

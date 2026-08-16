@@ -102,6 +102,7 @@ private:
         uint64_t revision = 0;
         std::vector<uint64_t> active_chunk_keys;
         std::chrono::steady_clock::time_point last_dirty_at{};
+        int32_t region_size_xz = 4; // 4 for mid LOD, 8 for far LOD
     };
 
     void hide_chunk_instance(ChunkRenderData* render_data);
@@ -150,7 +151,7 @@ private:
     mutable std::mutex completed_far_region_meshes_mutex;
     std::atomic<int32_t> completed_far_region_mesh_count{0};
     int32_t far_regions_partial_missing_cache_last = 0;
-    static constexpr int32_t kFarRegionSizeXZ = 4;
+    static constexpr int32_t kFarRegionSizeXZ = 8;
 
     float compute_chunk_detail_level(int32_t cx, int32_t cy, int32_t cz) const;
 };

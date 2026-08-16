@@ -190,8 +190,8 @@ void fragment(){
     	float fog_range = max(fog_end - fog_begin, 1.0);
     	
     	if (fog_mode == 1) {
-    		// Edge fog - linear starting 50 blocks before end
-    		float edge_start = fog_end - 50.0;
+    		// Edge fog - linear starting at 75% of render distance
+    		float edge_start = fog_end * 0.75;
     		float edge_range = max(fog_end - edge_start, 1.0);
     		float edge_dist = max(fog_distance - edge_start, 0.0);
     		float x = clamp(edge_dist / edge_range, 0.0, 1.0);

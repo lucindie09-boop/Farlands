@@ -18,7 +18,7 @@ A Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked streamin
 - **Targeted shard locking**: `lock_keys_exclusive()` locks only shards whose keys appear in input, reducing contention from all-64-shard locks to only the 1–54 shards actually needed
 
 ### Rendering & Visual Features
-- **Three-tier LOD system**: Per-chunk distance-based reduction (not chunk merging) — full detail, stride/detail reduction, and far-mode heightmap-only silhouette meshes
+- **Two-tier LOD with region merging**: Per-chunk distance-based reduction (not chunk merging) — full detail and stride/detail reduction; LOD-reduced chunks are cached and merged into 4×4-chunk region instances so the coarse ring costs only a handful of draw calls
 - **Dynamic water shader**: Translucent water with edge fade, depth absorption, bounce light, and sun glint
 - **Vegetation generation**: Oak and spruce trees (variant-weighted per biome from `data/biomes.json`), minimum spacing, deferred cross-chunk writes, per-biome density + forest/plains/desert knobs from `data/vegetation.json`
 - **Slope triplanar cliff blending**: Steep slopes (>45°) automatically blend in rock face textures
@@ -111,7 +111,7 @@ A Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked streamin
 - `PlayerLight::update` — vector of up to 54 keys (old+new chunk 3×3×3)
 
 ### LOD System Details
-- Three tiers: full detail → stride/detail reduction → far-mode silhouette
+- Two tiers: full detail → stride/detail reduction
 - Stride-1 "skirt" ring at mid-tier transition prevents T-junction cracks
 - Cap of 128 LOD remeshes/frame
 - Far-region rebuilds debounced (250 ms)

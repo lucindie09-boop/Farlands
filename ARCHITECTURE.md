@@ -62,9 +62,9 @@ This document describes the current, stable architecture of the voxel engine. Fo
 4. Queues for mesh build via `ChunkScheduler`
 
 ### Mesh Building
-1. `MeshBuilder::build_mesh()` creates mesh data from `ChunkData`; `build_far_mesh()` emits heightmap-only silhouette meshes for far-mode chunks
+1. `MeshBuilder::build_mesh()` creates mesh data from `ChunkData`
 2. Uses `ChunkNeighborAccessor` for 26 neighbor chunks
-3. Greedy meshing with stride/detail reduction for LOD (controlled by `lod_distance`/`lod_detail_level`/`lod_far_distance`/`far_detail_level`)
+3. Greedy meshing with stride/detail reduction for LOD (controlled by `lod_distance`/`lod_detail_level`)
 4. The build holds a shared `lock_keys` over the center chunk + 26 neighbors for the whole data read. This both pins the chunks (erasure requires an exclusive lock on the shard) and serializes the build against exclusive writers (block edits, light region recomputes, player light) that mutate neighbor section palettes mid-build. The center chunk additionally carries `pending_mesh_builds`, which `try_unload_chunk` checks before erasing
 5. Block edits take the incremental path (`build_mesh_incremental()`): a tight dirty-AABB re-emit merged with the previously emitted mesh, with fallback to a full rebuild when the bounds grow beyond a threshold
 
@@ -115,10 +115,10 @@ This document describes the current, stable architecture of the voxel engine. Fo
 - Dynamic mesh budget: visible-chunk ratio scales budget from 0.5× (sparse) to 1.0× (full)
 
 ### LOD System
-- Per-chunk distance-based reduction (not chunk merging), in three tiers:
+- Per-chunk distance-based reduction (not chunk merging), in two tiers:
   1. **Full detail** within `lod_distance` (+1)
-  2. **Mid tier**: stride/detail reduction controlled by `lod_detail_level` inside the greedy mesher
-  3. **Far tier**: heightmap-only silhouette meshes controlled by `lod_far_distance`/`far_detail_level`, fed into the far-region merge pipeline
+  2. **Coarse tier**: stride/detail reduction controlled by `lod_detail_level` inside the greedy mesher
+- LOD-reduced chunks (detail < 1.0) are cached (`far_mesh_cache`) and merged into 4×4-chunk **far regions** — the coarse ring renders as a handful of region instances instead of one per-chunk instance, keeping draw calls low
 - Stride-1 "skirt" ring at the mid-tier transition prevents T-junction cracks
 - Cap of 128 LOD remeshes/frame; far-region rebuilds debounced (250 ms)
 
@@ -130,7 +130,7 @@ This document describes the current, stable architecture of the voxel engine. Fo
 - Primary surface: opaque terrain with greedy meshing
 - Secondary surface: translucent water with edge fade, tint, shimmer, Beer-Lambert depth absorption
 - Emissive textures: second `Texture2DArray` for per-face glow maps
-- Far tier: heightmap-only silhouette meshes merged into far regions (`far_regions`, `far_mesh_cache` in `mesh_manager.*`/`chunk_render_data.hpp`)
+- Far regions: LOD-reduced chunk meshes merged into region instances (`far_regions`, `far_mesh_cache` in `mesh_manager.*`/`chunk_render_data.hpp`) so the coarse ring costs a handful of draw calls
 
 ## Collision
 
@@ -164,8 +164,8 @@ No `CharacterBody3D`, `move_and_slide`, or `CollisionShape3D` — all collision 
 - `src/core/thread_pool.hpp` — Shared worker pool, high-priority queue
 
 ### Mesh
-- `src/mesh/mesh_manager.hpp` + `mesh_manager.cpp` / `mesh_manager_worker.cpp` / `mesh_manager_upload.cpp` / `mesh_manager_rebuild.cpp` / `mesh_manager_far.cpp` / `mesh_manager_lifecycle.cpp` / `mesh_manager_internal.hpp` — Per-chunk mesh builds, upload, instance management, multi-tier LOD, far-region merging, nearest-first completion
-- `src/mesh/mesh_builder.cpp` / `mesh_builder_solid.cpp` / `mesh_builder_greedy.cpp` / `mesh_builder_faces.cpp` — Greedy meshing, incremental partial remeshes, `build_far_mesh`
+- `src/mesh/mesh_manager.hpp` + `mesh_manager.cpp` / `mesh_manager_worker.cpp` / `mesh_manager_upload.cpp` / `mesh_manager_rebuild.cpp` / `mesh_manager_far.cpp` / `mesh_manager_lifecycle.cpp` / `mesh_manager_internal.hpp` — Per-chunk mesh builds, upload, instance management, two-tier LOD, far-region merging, nearest-first completion
+- `src/mesh/mesh_builder.cpp` / `mesh_builder_solid.cpp` / `mesh_builder_greedy.cpp` / `mesh_builder_faces.cpp` — Greedy meshing, incremental partial remeshes
 - `src/mesh/chunk_neighbor_accessor.hpp/cpp` — 26 neighbor pointers for mesh building
 - `src/mesh/chunk_render_data.hpp` — `ChunkRenderData` (per-chunk render state stored in the chunk map), `CachedFarChunkMesh`, `CompletedMesh`
 - `src/mesh/mesh_types.hpp` — Mesh types, light checksum grid for incremental rebuilds

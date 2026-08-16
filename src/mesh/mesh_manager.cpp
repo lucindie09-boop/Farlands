@@ -149,42 +149,6 @@ void MeshManager::reprioritize(int32_t player_cx, int32_t player_cy, int32_t pla
         }
     }
 
-    // Far shell: chunks crossing the third-tier boundary (dist ==
-    // lod_far_distance..lod_far_distance+1) must switch between the mid-LOD
-    // mesh and the far-mode heightmap-only mesh. The distance classifier only
-    // crosses a shell ring when the player moves one chunk, so scanning these
-    // two rings keeps the far tier in sync without a full-world sweep.
-    if (lod_far_distance > lod + 1) {
-        const int32_t far_shell_min = lod_far_distance;
-        const int32_t far_shell_max = lod_far_distance + 1;
-        for (int32_t dx = -far_shell_max; dx <= far_shell_max && queued < kMaxLodRemeshPerFrame; ++dx) {
-            for (int32_t dz = -far_shell_max; dz <= far_shell_max && queued < kMaxLodRemeshPerFrame; ++dz) {
-                for (int32_t dy = -vert_range; dy <= vert_range && queued < kMaxLodRemeshPerFrame; ++dy) {
-                    const int32_t dist = std::max({std::abs(dx), std::abs(dy), std::abs(dz)});
-                    if (dist < far_shell_min || dist > far_shell_max) continue;
-
-                    const int32_t cx = player_cx + dx;
-                    const int32_t cy = player_cy + dy;
-                    const int32_t cz = player_cz + dz;
-
-                    ChunkRenderData* render_data = chunk_map->get_chunk_render_data(cx, cy, cz);
-                    if (!render_data) continue;
-
-                    const float target = compute_chunk_detail_level(cx, cy, cz);
-                    const bool target_far_mode = is_chunk_far_mode(cx, cy, cz);
-                    if ((target != render_data->last_built_detail_level || target_far_mode != render_data->last_built_far_mode) &&
-                        !render_data->is_mesh_dirty) {
-                        render_data->is_mesh_dirty = true;
-                        render_data->mesh_version++;
-                        mark_far_region_dirty_for_chunk(cx, cy, cz);
-                        queue_dirty_chunk(cx, cy, cz);
-                        ++queued;
-                    }
-                }
-            }
-        }
-    }
-
     // Downgrade chunks that were built at full detail but are now beyond LOD threshold.
     for (auto it = active_full_detail_chunks_.begin(); it != active_full_detail_chunks_.end() && queued < kMaxLodRemeshPerFrame;) {
         uint64_t chunk_key = *it;

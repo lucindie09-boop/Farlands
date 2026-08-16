@@ -109,7 +109,6 @@ void MeshBuildTask::execute() {
         thread_local MeshBuilder builder;
         builder.set_smooth_lighting(smooth_lighting);
         builder.set_detail_level(detail_level);
-        builder.set_far_mode(far_mode);
         builder.set_greedy_enabled(greedy_enabled);
         builder.set_quad_recording(record_quads);
 

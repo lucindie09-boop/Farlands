@@ -45,7 +45,6 @@ struct MeshBuildTask : Task {
     int32_t player_bx, player_by, player_bz;
     bool smooth_lighting;
     float detail_level = 1.0f;
-    bool far_mode = false;
     uint8_t dirty_subchunks = 0xFF;
     // Partial remeshing: only re-emit the dirty region, carry everything else.
     bool partial = false;

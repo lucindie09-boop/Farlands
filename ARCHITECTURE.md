@@ -115,11 +115,12 @@ This document describes the current, stable architecture of the voxel engine. Fo
 - Dynamic mesh budget: visible-chunk ratio scales budget from 0.5× (sparse) to 1.0× (full)
 
 ### LOD System
-- Per-chunk distance-based reduction (not chunk merging), in two tiers:
+- Per-chunk distance-based reduction (not chunk merging), in three tiers:
   1. **Full detail** within `lod_distance` (+1)
-  2. **Coarse tier**: stride/detail reduction controlled by `lod_detail_level` inside the greedy mesher
-- LOD-reduced chunks (detail < 1.0) are cached (`far_mesh_cache`) and merged into 4×4-chunk **far regions** — the coarse ring renders as a handful of region instances instead of one per-chunk instance, keeping draw calls low
-- Stride-1 "skirt" ring at the mid-tier transition prevents T-junction cracks
+  2. **Mid tier**: stride/detail reduction controlled by `lod_detail_level` inside the greedy mesher
+  3. **Far tier**: identical stride/detail mechanism, with its own render start `far_lod_distance` and detail `far_lod_detail_level`; far-detail chunks are upgraded/downgraded via the same reprioritize transition-shell + tracked-set logic
+- LOD-reduced chunks (detail < 1.0) are cached (`far_mesh_cache`) and merged into 4×4-chunk **far regions** — the coarse rings render as a handful of region instances instead of one per-chunk instance, keeping draw calls low
+- Per-tier stride-1 "skirt" rings at each LOD transition prevent T-junction cracks
 - Cap of 128 LOD remeshes/frame; far-region rebuilds debounced (250 ms)
 
 ### Mesh Completion
@@ -164,7 +165,7 @@ No `CharacterBody3D`, `move_and_slide`, or `CollisionShape3D` — all collision 
 - `src/core/thread_pool.hpp` — Shared worker pool, high-priority queue
 
 ### Mesh
-- `src/mesh/mesh_manager.hpp` + `mesh_manager.cpp` / `mesh_manager_worker.cpp` / `mesh_manager_upload.cpp` / `mesh_manager_rebuild.cpp` / `mesh_manager_far.cpp` / `mesh_manager_lifecycle.cpp` / `mesh_manager_internal.hpp` — Per-chunk mesh builds, upload, instance management, two-tier LOD, far-region merging, nearest-first completion
+- `src/mesh/mesh_manager.hpp` + `mesh_manager.cpp` / `mesh_manager_worker.cpp` / `mesh_manager_upload.cpp` / `mesh_manager_rebuild.cpp` / `mesh_manager_far.cpp` / `mesh_manager_lifecycle.cpp` / `mesh_manager_internal.hpp` — Per-chunk mesh builds, upload, instance management, three-tier LOD, far-region merging, nearest-first completion
 - `src/mesh/mesh_builder.cpp` / `mesh_builder_solid.cpp` / `mesh_builder_greedy.cpp` / `mesh_builder_faces.cpp` — Greedy meshing, incremental partial remeshes
 - `src/mesh/chunk_neighbor_accessor.hpp/cpp` — 26 neighbor pointers for mesh building
 - `src/mesh/chunk_render_data.hpp` — `ChunkRenderData` (per-chunk render state stored in the chunk map), `CachedFarChunkMesh`, `CompletedMesh`

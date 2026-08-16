@@ -131,6 +131,7 @@ void MeshManager::rebuild_rendering_server_mesh(int32_t chunk_x, int32_t chunk_y
     render_data->last_built_detail_level = detail;
     uint64_t key = chunk_map->get_chunk_key(chunk_x, chunk_y, chunk_z);
     if (detail >= 1.0f) {
+        active_mid_detail_chunks_.erase(key);
         if (lod_distance > 0 && last_player_chunk_x != INT32_MIN) {
             int32_t dx = chunk_x - last_player_chunk_x;
             int32_t dy = chunk_y - last_player_chunk_y;
@@ -140,8 +141,20 @@ void MeshManager::rebuild_rendering_server_mesh(int32_t chunk_x, int32_t chunk_y
                 active_full_detail_chunks_.insert(key);
             }
         }
+    } else if (detail == lod_detail_level) {
+        active_full_detail_chunks_.erase(key);
+        if (far_lod_distance > 0 && last_player_chunk_x != INT32_MIN) {
+            int32_t dx = chunk_x - last_player_chunk_x;
+            int32_t dy = chunk_y - last_player_chunk_y;
+            int32_t dz = chunk_z - last_player_chunk_z;
+            int32_t dist = std::max({std::abs(dx), std::abs(dy), std::abs(dz)});
+            if (dist <= far_lod_distance + 2) {
+                active_mid_detail_chunks_.insert(key);
+            }
+        }
     } else {
         active_full_detail_chunks_.erase(key);
+        active_mid_detail_chunks_.erase(key);
     }
     const bool high_priority = mesh_queue.erase_urgent(key);
 

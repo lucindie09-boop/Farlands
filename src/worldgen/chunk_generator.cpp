@@ -19,34 +19,39 @@ ChunkGenerator::ColumnSample ChunkGenerator::sample_column(int32_t world_x, int3
     float temperature = sample_temperature(x, z);
     float humidity = sample_humidity(x, z);
     bool is_land = cont >= params.land_threshold;
-    float coast_width = std::max(0.0001f, params.shelf_width * 0.4f);
-
     float height = 0.0f;
     float water_level = -1.0f;
     BiomeType biome = BiomeType::Plains;
-    float saved_land_height = 0.0f;
 
-    if (is_land) {
-        float land_height = sample_land_shape(x, z, temperature, humidity);
-        float coast_t = smoothstep(params.ocean_threshold, params.ocean_threshold + coast_width, cont);
-        land_height = lerp(params.sea_level, land_height, coast_t);
-        saved_land_height = land_height;
-        height = land_height;
+    // Unified height: compute both ocean and land heights for every column,
+    // then blend them through a single smoothstep.  No hard is_land split —
+    // the height transitions continuously across the coastline.
+    float land_height = sample_land_shape(x, z, temperature, humidity);
+    float saved_land_height = land_height;
 
-        biome = biome_from_climate(temperature, humidity, cont);
-    } else {
-        float cont_from_coast = params.land_threshold - cont;
-        float depth = cont_from_coast <= 0.05f
-            ? lerp(1.0f, params.shelf_depth, cont_from_coast / 0.05f)
+    float cont_from_coast = params.land_threshold - cont;
+    float depth = 0.0f;
+    if (cont_from_coast > 0.0f) {
+        depth = cont_from_coast <= 0.05f
+            ? lerp(0.0f, params.shelf_depth, cont_from_coast / 0.05f)
             : lerp(params.shelf_depth, params.deep_ocean_depth, (cont_from_coast - 0.05f) / 0.12f);
         depth = std::min(params.deep_ocean_depth, depth);
-        height = params.sea_level - depth;
+    }
+    float bed_noise = terrain_noise.noise_2d(x * 0.002f, z * 0.002f) * 2.0f;
+    float ocean_height = params.sea_level - depth + bed_noise;
 
-        float bed_noise = terrain_noise.noise_2d(x * 0.002f, z * 0.002f) * 2.0f;
-        height += bed_noise;
+    float coast_width = std::max(0.0001f, params.shelf_width * 0.4f);
+    if (cont >= params.land_threshold) {
+        float coast_t = smoothstep(params.land_threshold, params.land_threshold + coast_width, cont);
+        height = lerp(params.sea_level, land_height, coast_t);
+    } else {
+        float coast_t = smoothstep(params.land_threshold, params.land_threshold - coast_width, cont);
+        height = lerp(params.sea_level, ocean_height, coast_t);
+    }
+
+    biome = biome_from_climate(temperature, humidity, cont);
+    if (!is_land) {
         water_level = params.sea_level;
-
-        biome = biome_from_climate(temperature, humidity, cont);
     }
 
     height = std::max(static_cast<float>(params.bedrock_height) + 1.0f, height);

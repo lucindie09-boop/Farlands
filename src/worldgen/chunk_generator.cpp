@@ -12,6 +12,10 @@ ChunkGenerator::ColumnSample ChunkGenerator::sample_column(int32_t world_x, int3
     float z = static_cast<float>(world_z);
 
     float cont = sample_continentalness(x, z);
+    // Warp continentalness with a higher-frequency noise to make the
+    // shoreline wavy (bays, inlets, peninsulas) instead of straight.
+    float cont_warp = terrain_noise.noise_2d(x * 0.003f + 10000.0f, z * 0.003f + 10000.0f) * 0.04f;
+    cont = clamp01(cont + cont_warp);
     float temperature = sample_temperature(x, z);
     float humidity = sample_humidity(x, z);
     bool is_land = cont >= params.land_threshold;

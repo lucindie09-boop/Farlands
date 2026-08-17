@@ -381,8 +381,7 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
             const int32_t water_top = col.water_level >= 0
                 ? col.water_level
                 : (col.surface_y >= 0 && col.surface_y < params.sea_level
-                   ? params.sea_level
-                   : col.water_level);
+                   ? params.sea_level : -1);
             const bool has_surface_water = col.water_level >= 0;
             const BlockID surface_block = get_surface_block(col.biome, col.height, has_surface_water, col.near_water);
             const BlockID subsurface_block = get_subsurface_block(col.biome, col.near_water);

@@ -35,9 +35,8 @@ bool ray_aabb_intersect(const Vector3& origin, const Vector3& dir,
             double t2 = (bmax - o) * inv_d;
             if (t1 > t2) std::swap(t1, t2);
 
-            double n = -1.0;
-            if (t1 > tmin) { tmin = t1; n = -1.0; }
-            if (t2 < tmax) { tmax = t2; n = 1.0; }
+            if (t1 > tmin) tmin = t1;
+            if (t2 < tmax) tmax = t2;
 
             if (tmin > tmax) return false;
 

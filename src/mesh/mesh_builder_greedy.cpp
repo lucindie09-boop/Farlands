@@ -309,9 +309,9 @@ void MeshBuilder::passive_greedy_mesh_vertical(const ChunkData& chunk, const Chu
                     const int sx0 = x + 1 - 1, sx1 = x + 1 + 1;
                     const int sz0 = z + 1 - 1, sz1 = z + 1 + 1;
                     if ((solid_at(y, z + 1, sx0) != BlockIDs::AIR)
-                        & (solid_at(y, z + 1, sx1) != BlockIDs::AIR)
-                        & (solid_at(y, sz0, x + 1) != BlockIDs::AIR)
-                        & (solid_at(y, sz1, x + 1) != BlockIDs::AIR)
+                        && (solid_at(y, z + 1, sx1) != BlockIDs::AIR)
+                        && (solid_at(y, sz0, x + 1) != BlockIDs::AIR)
+                        && (solid_at(y, sz1, x + 1) != BlockIDs::AIR)
                         && !boundary[0] && !boundary[1] && !boundary[2] && !boundary[3]) {
                         const BlockType& bt = registry.get_block(block_id);
                         if (HasProperty(bt.properties, BlockProperty::Solid)
@@ -321,13 +321,13 @@ void MeshBuilder::passive_greedy_mesh_vertical(const ChunkData& chunk, const Chu
                             const BlockType& n_zneg = registry.get_block_fast(solid_at(y, sz0, x + 1));
                             const BlockType& n_zpos = registry.get_block_fast(solid_at(y, sz1, x + 1));
                             if (n_xneg.is_full_cube()
-                                & n_xpos.is_full_cube()
-                                & n_zneg.is_full_cube()
-                                & n_zpos.is_full_cube()
+                                && n_xpos.is_full_cube()
+                                && n_zneg.is_full_cube()
+                                && n_zpos.is_full_cube()
                                 && n_xneg.top_face_offset == 0.0f
-                                & n_xpos.top_face_offset == 0.0f
-                                & n_zneg.top_face_offset == 0.0f
-                                & n_zpos.top_face_offset == 0.0f) {
+                                && n_xpos.top_face_offset == 0.0f
+                                && n_zneg.top_face_offset == 0.0f
+                                && n_zpos.top_face_offset == 0.0f) {
                                 for (int d = 0; d < kDirCount; d++) {
                                     auto& dst = dirs[d];
                                     flush_vertical_merge(chunk, accessor, dst.merge_start, y, x, z,

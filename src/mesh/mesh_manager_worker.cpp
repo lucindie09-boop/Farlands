@@ -189,35 +189,35 @@ void MeshBuildTask::execute() {
         };
 
         if (partial && have_bounds && !prev_quads.empty()) {
-            MeshBuilder::NeighborPtrs n;
-            n.neg_x = data_or_null(all_neighbors[0]);
-            n.pos_x = data_or_null(all_neighbors[1]);
-            n.neg_y = data_or_null(all_neighbors[2]);
-            n.pos_y = data_or_null(all_neighbors[3]);
-            n.neg_z = data_or_null(all_neighbors[4]);
-            n.pos_z = data_or_null(all_neighbors[5]);
-            n.neg_x_neg_z = data_or_null(all_neighbors[6]);
-            n.neg_x_pos_z = data_or_null(all_neighbors[7]);
-            n.pos_x_neg_z = data_or_null(all_neighbors[8]);
-            n.pos_x_pos_z = data_or_null(all_neighbors[9]);
-            n.neg_x_neg_y = data_or_null(all_neighbors[10]);
-            n.pos_x_neg_y = data_or_null(all_neighbors[11]);
-            n.neg_x_pos_y = data_or_null(all_neighbors[12]);
-            n.pos_x_pos_y = data_or_null(all_neighbors[13]);
-            n.neg_y_neg_z = data_or_null(all_neighbors[14]);
-            n.neg_y_pos_z = data_or_null(all_neighbors[15]);
-            n.pos_y_neg_z = data_or_null(all_neighbors[16]);
-            n.pos_y_pos_z = data_or_null(all_neighbors[17]);
-            n.neg_x_neg_y_neg_z = data_or_null(all_neighbors[18]);
-            n.pos_x_neg_y_neg_z = data_or_null(all_neighbors[19]);
-            n.neg_x_pos_y_neg_z = data_or_null(all_neighbors[20]);
-            n.pos_x_pos_y_neg_z = data_or_null(all_neighbors[21]);
-            n.neg_x_neg_y_pos_z = data_or_null(all_neighbors[22]);
-            n.pos_x_neg_y_pos_z = data_or_null(all_neighbors[23]);
-            n.neg_x_pos_y_pos_z = data_or_null(all_neighbors[24]);
-            n.pos_x_pos_y_pos_z = data_or_null(all_neighbors[25]);
+            MeshBuilder::NeighborPtrs neighbors;
+            neighbors.neg_x = data_or_null(all_neighbors[0]);
+            neighbors.pos_x = data_or_null(all_neighbors[1]);
+            neighbors.neg_y = data_or_null(all_neighbors[2]);
+            neighbors.pos_y = data_or_null(all_neighbors[3]);
+            neighbors.neg_z = data_or_null(all_neighbors[4]);
+            neighbors.pos_z = data_or_null(all_neighbors[5]);
+            neighbors.neg_x_neg_z = data_or_null(all_neighbors[6]);
+            neighbors.neg_x_pos_z = data_or_null(all_neighbors[7]);
+            neighbors.pos_x_neg_z = data_or_null(all_neighbors[8]);
+            neighbors.pos_x_pos_z = data_or_null(all_neighbors[9]);
+            neighbors.neg_x_neg_y = data_or_null(all_neighbors[10]);
+            neighbors.pos_x_neg_y = data_or_null(all_neighbors[11]);
+            neighbors.neg_x_pos_y = data_or_null(all_neighbors[12]);
+            neighbors.pos_x_pos_y = data_or_null(all_neighbors[13]);
+            neighbors.neg_y_neg_z = data_or_null(all_neighbors[14]);
+            neighbors.neg_y_pos_z = data_or_null(all_neighbors[15]);
+            neighbors.pos_y_neg_z = data_or_null(all_neighbors[16]);
+            neighbors.pos_y_pos_z = data_or_null(all_neighbors[17]);
+            neighbors.neg_x_neg_y_neg_z = data_or_null(all_neighbors[18]);
+            neighbors.pos_x_neg_y_neg_z = data_or_null(all_neighbors[19]);
+            neighbors.neg_x_pos_y_neg_z = data_or_null(all_neighbors[20]);
+            neighbors.pos_x_pos_y_neg_z = data_or_null(all_neighbors[21]);
+            neighbors.neg_x_neg_y_pos_z = data_or_null(all_neighbors[22]);
+            neighbors.pos_x_neg_y_pos_z = data_or_null(all_neighbors[23]);
+            neighbors.neg_x_pos_y_pos_z = data_or_null(all_neighbors[24]);
+            neighbors.pos_x_pos_y_pos_z = data_or_null(all_neighbors[25]);
             builder.build_mesh_incremental(
-                *render_data->data, prev_quads, prev_light_checksums, bounds, n);
+                *render_data->data, prev_quads, prev_light_checksums, bounds, neighbors);
         } else {
             builder.build_mesh(
                 *render_data->data,

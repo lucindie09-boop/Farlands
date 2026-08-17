@@ -6,7 +6,7 @@ extends Node3D
 var outline_enabled: bool = true
 var outline_color: Color = Color.BLACK
 var outline_opacity: float = 1.0
-var outline_thickness: float = 0.1  # 0.0 = outer edges only, 1.0 = inner edges at original position
+var outline_thickness: float = 0.1
 var outline_pulse_enabled: bool = false
 var outline_pulse_speed: float = 1.5
 var outline_pulse_min_opacity: float = 0.75
@@ -27,7 +27,7 @@ var fill_mesh: MeshInstance3D
 var _outline_material: StandardMaterial3D
 var _fill_material: StandardMaterial3D
 
-var _current_thickness: float = 0.5
+var _current_thickness: float = -1.0
 var _pulse_time: float = 0.0
 var _current_block_id: int = -1
 var _current_boxes: Array = []
@@ -43,149 +43,92 @@ func _ready():
 	_create_fill()
 	_create_materials()
 
-func _create_wireframe_box(box_min_x: float, box_min_y: float, box_min_z: float,
-							box_max_x: float, box_max_y: float, box_max_z: float) -> ArrayMesh:
-	var verts = PackedVector3Array()
-	var indices = PackedInt32Array()
-	
-	# 8 corners of the AABB
-	var corners = [
-		Vector3(box_min_x, box_min_y, box_min_z),
-		Vector3(box_max_x, box_min_y, box_min_z),
-		Vector3(box_max_x, box_max_y, box_min_z),
-		Vector3(box_min_x, box_max_y, box_min_z),
-		Vector3(box_min_x, box_min_y, box_max_z),
-		Vector3(box_max_x, box_min_y, box_max_z),
-		Vector3(box_max_x, box_max_y, box_max_z),
-		Vector3(box_min_x, box_max_y, box_max_z)
-	]
-	
-	# 12 edges of the cube (each edge = 2 vertices forming a thin quad)
-	var edges = [
-		[0, 1], [1, 2], [2, 3], [3, 0],  # bottom, right, top, left (Z- face)
-		[4, 5], [5, 6], [6, 7], [7, 4],  # bottom, right, top, left (Z+ face)
-		[0, 4], [1, 5], [2, 6], [3, 7]   # connecting edges
-	]
-	
-	for edge in edges:
-		var p0 = corners[edge[0]]
-		var p1 = corners[edge[1]]
-		var dir = (p1 - p0).normalized()
-		var length = p0.distance_to(p1)
-		if length < 0.001:
-			continue
-		
-		# Compute perpendicular axes for the wireframe thickness
-		var up = Vector3(0, 1, 0)
-		if abs(dir.dot(up)) > 0.99:
-			up = Vector3(1, 0, 0)
-		var right = dir.cross(up).normalized() * outline_thickness * 0.02
-		up = dir.cross(right).normalized() * outline_thickness * 0.02
-		
-		var base_idx = verts.size()
-		verts.append(p0 - right - up)
-		verts.append(p0 + right - up)
-		verts.append(p1 + right - up)
-		verts.append(p0 - right + up)
-		verts.append(p1 - right + up)
-		verts.append(p1 + right + up)
-		verts.append(p0 - right + up)
-		verts.append(p1 + right + up)
-		verts.append(p1 + right - up)
-		verts.append(p1 + right + up)
-		verts.append(p1 - right + up)
-		verts.append(p1 - right - up)
-		
-		for i in range(12):
-			indices.append(base_idx + i)
-	
-	var arrays = []
-	arrays.resize(Mesh.ARRAY_MAX)
-	arrays[Mesh.ARRAY_VERTEX] = verts
-	arrays[Mesh.ARRAY_INDEX] = indices
-	
-	var mesh = ArrayMesh.new()
-	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-	return mesh
+func _get_edge_perpendiculars(dir: Vector3) -> Array:
+	var up = Vector3(0, 1, 0)
+	if abs(dir.dot(up)) > 0.99:
+		up = Vector3(1, 0, 0)
+	var right = dir.cross(up).normalized()
+	up = dir.cross(right).normalized()
+	return [right, up]
 
 func _rebuild_outline_mesh():
+	_current_thickness = outline_thickness
 	if outline_mesh:
 		outline_mesh.queue_free()
 		outline_mesh = null
-	
+
 	if _current_boxes.is_empty():
 		return
-	
+
+	var half = outline_thickness * 0.01
+
 	var verts = PackedVector3Array()
 	var indices = PackedInt32Array()
-	
+
 	for box in _current_boxes:
-		var box_min_x = box[0]
-		var box_min_y = box[1]
-		var box_min_z = box[2]
-		var box_max_x = box[3]
-		var box_max_y = box[4]
-		var box_max_z = box[5]
-		
+		var bmin = Vector3(box[0], box[1], box[2])
+		var bmax = Vector3(box[3], box[4], box[5])
+
 		var corners = [
-			Vector3(box_min_x, box_min_y, box_min_z),
-			Vector3(box_max_x, box_min_y, box_min_z),
-			Vector3(box_max_x, box_max_y, box_min_z),
-			Vector3(box_min_x, box_max_y, box_min_z),
-			Vector3(box_min_x, box_min_y, box_max_z),
-			Vector3(box_max_x, box_min_y, box_max_z),
-			Vector3(box_max_x, box_max_y, box_max_z),
-			Vector3(box_min_x, box_max_y, box_max_z)
+			Vector3(bmin.x, bmin.y, bmin.z),
+			Vector3(bmax.x, bmin.y, bmin.z),
+			Vector3(bmax.x, bmax.y, bmin.z),
+			Vector3(bmin.x, bmax.y, bmin.z),
+			Vector3(bmin.x, bmin.y, bmax.z),
+			Vector3(bmax.x, bmin.y, bmax.z),
+			Vector3(bmax.x, bmax.y, bmax.z),
+			Vector3(bmin.x, bmax.y, bmax.z)
 		]
-		
+
 		var edges = [
 			[0, 1], [1, 2], [2, 3], [3, 0],
 			[4, 5], [5, 6], [6, 7], [7, 4],
 			[0, 4], [1, 5], [2, 6], [3, 7]
 		]
-		
+
 		for edge in edges:
 			var p0 = corners[edge[0]]
 			var p1 = corners[edge[1]]
 			var dir = (p1 - p0).normalized()
-			var length = p0.distance_to(p1)
-			if length < 0.001:
+			if p0.distance_to(p1) < 0.001:
 				continue
-			
-			var up = Vector3(0, 1, 0)
-			if abs(dir.dot(up)) > 0.99:
-				up = Vector3(1, 0, 0)
-			var right = dir.cross(up).normalized() * outline_thickness * 0.02
-			up = dir.cross(right).normalized() * outline_thickness * 0.02
-			
-			var base_idx = verts.size()
-			verts.append(p0 - right - up)
-			verts.append(p0 + right - up)
-			verts.append(p1 + right - up)
-			verts.append(p0 - right + up)
-			verts.append(p1 - right + up)
-			verts.append(p1 + right + up)
-			verts.append(p0 - right + up)
-			verts.append(p1 + right + up)
-			verts.append(p1 + right - up)
-			verts.append(p1 + right + up)
-			verts.append(p1 - right + up)
-			verts.append(p1 - right - up)
-			
-			for i in range(12):
-				indices.append(base_idx + i)
-	
+
+			var perps = _get_edge_perpendiculars(dir)
+			var right = perps[0] * half
+			var up = perps[1] * half
+
+			var base = verts.size()
+			# 8 vertices: 4 around p0, 4 around p1
+			verts.append(p0 - right - up)  # 0
+			verts.append(p0 + right - up)  # 1
+			verts.append(p0 + right + up)  # 2
+			verts.append(p0 - right + up)  # 3
+			verts.append(p1 - right - up)  # 4
+			verts.append(p1 + right - up)  # 5
+			verts.append(p1 + right + up)  # 6
+			verts.append(p1 - right + up)  # 7
+
+			# 4 side faces (2 triangles each)
+			# Face 0: -right side
+			indices.append_array([base+0, base+4, base+7, base+0, base+7, base+3])
+			# Face 1: +right side
+			indices.append_array([base+1, base+2, base+6, base+1, base+6, base+5])
+			# Face 2: -up side
+			indices.append_array([base+0, base+5, base+4, base+0, base+1, base+5])
+			# Face 3: +up side
+			indices.append_array([base+3, base+7, base+6, base+3, base+6, base+2])
+
 	if verts.size() == 0:
 		return
-	
+
 	var arrays = []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = verts
 	arrays[Mesh.ARRAY_INDEX] = indices
-	
+
 	var mesh = ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-	
+
 	outline_mesh = MeshInstance3D.new()
 	outline_mesh.mesh = mesh
 	outline_mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -295,6 +238,8 @@ func _process(delta):
 	if block_id != _current_block_id:
 		_current_block_id = block_id
 		_current_boxes = chunk_manager.get_selection_boxes(block_id)
+		_rebuild_outline_mesh()
+	elif outline_thickness != _current_thickness:
 		_rebuild_outline_mesh()
 
 	if outline_mesh:

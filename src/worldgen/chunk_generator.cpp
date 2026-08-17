@@ -40,7 +40,6 @@ ChunkGenerator::ColumnSample ChunkGenerator::sample_column(int32_t world_x, int3
 
         float bed_noise = terrain_noise.noise_2d(x * 0.002f, z * 0.002f) * 2.0f;
         height += bed_noise;
-        height = std::min(height, params.sea_level - 1.0f);
         water_level = params.sea_level;
 
         biome = biome_from_climate(temperature, humidity, cont);
@@ -219,39 +218,6 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
         return;
     }
 
-    // 2-pass scanline Manhattan distance transform for near_water detection.
-    constexpr int32_t INF_DIST = 999;
-    int32_t dist[CHUNK_WIDTH][CHUNK_DEPTH];
-
-    for (int32_t x = 0; x < CHUNK_WIDTH; x++) {
-        for (int32_t z = 0; z < CHUNK_DEPTH; z++) {
-            dist[x][z] = (columns[x][z].water_level > columns[x][z].height) ? 0 : INF_DIST;
-        }
-    }
-
-    for (int32_t x = 0; x < CHUNK_WIDTH; x++) {
-        for (int32_t z = 0; z < CHUNK_DEPTH; z++) {
-            if (dist[x][z] == 0) continue;
-            int32_t best = dist[x][z];
-            if (x > 0)             best = std::min(best, dist[x-1][z] + 1);
-            if (z > 0)             best = std::min(best, dist[x][z-1] + 1);
-            dist[x][z] = best;
-        }
-    }
-    for (int32_t x = CHUNK_WIDTH - 1; x >= 0; x--) {
-        for (int32_t z = CHUNK_DEPTH - 1; z >= 0; z--) {
-            if (dist[x][z] == 0) continue;
-            int32_t best = dist[x][z];
-            if (x < CHUNK_WIDTH - 1)  best = std::min(best, dist[x+1][z] + 1);
-            if (z < CHUNK_DEPTH - 1)  best = std::min(best, dist[x][z+1] + 1);
-            dist[x][z] = best;
-
-            if (dist[x][z] > 0 && dist[x][z] <= 3) {
-                columns[x][z].near_water = true;
-            }
-        }
-    }
-
     // ---- Geometry pass (2/3): signed density field over the whole chunk ----
     // One extra row of density above the chunk so the top voxel layer can decide
     // air/solid for the voxel above it. Buffers are thread-local so generation
@@ -342,6 +308,50 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
         }
     }
 
+    // ---- Near-water detection (post-density) ----
+    // 2-pass scanline Manhattan distance transform.  Seeded from the actual
+    // density surface_y so that columns whose 3D noise pushed terrain below
+    // sea level are treated as water, and columns near *actual* water get
+    // near_water = true (wet sand, etc.).  The old pre-density version used
+    // macro height and missed shoreline detail.
+    constexpr int32_t INF_DIST = 999;
+    int32_t dist[CHUNK_WIDTH][CHUNK_DEPTH];
+
+    for (int32_t x = 0; x < CHUNK_WIDTH; x++) {
+        for (int32_t z = 0; z < CHUNK_DEPTH; z++) {
+            const ChunkColumn& col = columns[x][z];
+            const int32_t wt = col.water_level >= 0
+                ? col.water_level
+                : (col.surface_y >= 0 && col.surface_y < params.sea_level
+                   ? params.sea_level : -1);
+            const bool is_water = wt >= 0 && col.surface_y >= 0 && col.surface_y < wt;
+            dist[x][z] = is_water ? 0 : INF_DIST;
+        }
+    }
+
+    for (int32_t x = 0; x < CHUNK_WIDTH; x++) {
+        for (int32_t z = 0; z < CHUNK_DEPTH; z++) {
+            if (dist[x][z] == 0) continue;
+            int32_t best = dist[x][z];
+            if (x > 0)             best = std::min(best, dist[x-1][z] + 1);
+            if (z > 0)             best = std::min(best, dist[x][z-1] + 1);
+            dist[x][z] = best;
+        }
+    }
+    for (int32_t x = CHUNK_WIDTH - 1; x >= 0; x--) {
+        for (int32_t z = CHUNK_DEPTH - 1; z >= 0; z--) {
+            if (dist[x][z] == 0) continue;
+            int32_t best = dist[x][z];
+            if (x < CHUNK_WIDTH - 1)  best = std::min(best, dist[x+1][z] + 1);
+            if (z < CHUNK_DEPTH - 1)  best = std::min(best, dist[x][z+1] + 1);
+            dist[x][z] = best;
+
+            if (dist[x][z] > 0 && dist[x][z] <= 1) {
+                columns[x][z].near_water = true;
+            }
+        }
+    }
+
     // ---- Material pass: solid geometry first, materials second ----
     // Optimized: Build into a dense buffer first, then use build_from_dense()
     // to avoid palette upgrade thrashing from thousands of set_block() calls.
@@ -359,11 +369,14 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
             const ChunkColumn& col = columns[x][z];
             const int32_t wx = world_x_start + x;
             const int32_t wz = world_z_start + z;
-            const int32_t surface_y = col.height;
-            const bool has_surface_water = col.water_level > col.height;
-            const BlockID surface_block = get_surface_block(col.biome, surface_y, has_surface_water, col.near_water);
+            const int32_t water_top = col.water_level >= 0
+                ? col.water_level
+                : (col.surface_y >= 0 && col.surface_y < params.sea_level
+                   ? params.sea_level
+                   : col.water_level);
+            const bool has_surface_water = col.water_level >= 0;
+            const BlockID surface_block = get_surface_block(col.biome, col.height, has_surface_water, col.near_water);
             const BlockID subsurface_block = get_subsurface_block(col.biome, col.near_water);
-            const int32_t water_top = col.water_level;
             const float macro_height_f = static_cast<float>(col.height);
 
             // Bedrock occupies world y in [0, bed)
@@ -394,12 +407,17 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
                 }
 
                 if (!solid) {
-                    // Water: preserve the column-based macro behaviour. Only fill
-                    // above the original (macro) ground so newly carved cavities
-                    // below sea level do not flood; overhangs above ocean water
-                    // still produce arches and covered channels.
-                    const bool above_original_ground = static_cast<float>(wy) > macro_height_f;
-                    if (above_original_ground && wy <= water_top) {
+                    // Water: fill air voxels between the terrain floor and the
+                    // water surface.  Use whichever is lower — the macro
+                    // heightmap or the actual density surface — so that 3D shape
+                    // deformation doesn't leave dry gaps whether it pushes
+                    // terrain down (surface_y < macro) or up (macro < surface_y
+                    // peaks).  Caves below the reference stay dry.
+                    const int32_t macro_h = static_cast<int32_t>(macro_height_f);
+                    const int32_t ref_surface = col.surface_y >= 0
+                        ? std::min(col.surface_y, macro_h)
+                        : macro_h;
+                    if (wy > ref_surface && wy <= water_top) {
                         BlockID water_block = (wy == water_top) ? BlockIDs::SURFACE_WATER : BlockIDs::WATER;
                         dense(x, ly, z) = water_block;
                     } else {
@@ -445,6 +463,59 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
                 if (dens(x, ly, z + 1) > 0.0f) continue;
                 if (dens(x, ly, z - 1) > 0.0f) continue;
                 dense(x, ly, z) = BlockIDs::AIR;
+            }
+        }
+    }
+
+    // Replace thin solid noise artifacts within water columns.  Near the macro
+    // surface the 3D shape noise (density_from_shape) can flip a single voxel
+    // to positive density while both Y-neighbours stay negative, creating a
+    // 1-block-thick solid sheet inside what should be water.  Any solid voxel
+    // with non-solid density both above AND below, and whose world Y is below
+    // the column's water surface, is replaced with water.
+    for (int32_t x = 0; x < CHUNK_WIDTH; x++) {
+        for (int32_t z = 0; z < CHUNK_DEPTH; z++) {
+            const ChunkColumn& col = columns[x][z];
+            const int32_t wt = col.water_level >= 0
+                ? col.water_level
+                : (col.surface_y >= 0 && col.surface_y < params.sea_level
+                   ? params.sea_level : -1);
+            if (wt < 0) continue;
+            for (int32_t ly = 1; ly < CHUNK_HEIGHT - 1; ly++) {
+                const int32_t wy = world_y_start + ly;
+                if (wy >= wt) break;
+                if (dens(x, ly, z) <= 0.0f) continue;
+                if (dens(x, ly + 1, z) > 0.0f) continue;
+                if (dens(x, ly - 1, z) > 0.0f) continue;
+                dense(x, ly, z) = BlockIDs::WATER;
+            }
+        }
+    }
+
+    // Flood-fill water gaps below the water surface.  After the thin-layer
+    // cleanup above, some AIR voxels may remain below water_top — e.g. when
+    // a noise spike raised surface_y during the material pass, leaving AIR
+    // voxels at the chunk bottom that the water fill missed.  Scan each water
+    // column from water_top downward: any AIR becomes WATER until we hit solid
+    // terrain.  Enclosed caves (surrounded by solid above) stay dry because the
+    // scan stops at the first solid block.
+    for (int32_t x = 0; x < CHUNK_WIDTH; x++) {
+        for (int32_t z = 0; z < CHUNK_DEPTH; z++) {
+            const ChunkColumn& col = columns[x][z];
+            const int32_t wt = col.water_level >= 0
+                ? col.water_level
+                : (col.surface_y >= 0 && col.surface_y < params.sea_level
+                   ? params.sea_level : -1);
+            if (wt < 0) continue;
+            for (int32_t ly = CHUNK_HEIGHT - 1; ly >= 0; ly--) {
+                const int32_t wy = world_y_start + ly;
+                if (wy >= wt) continue;
+                BlockID& bid = dense(x, ly, z);
+                if (bid == BlockIDs::AIR) {
+                    bid = BlockIDs::WATER;
+                } else if (bid != BlockIDs::WATER && bid != BlockIDs::SURFACE_WATER) {
+                    break;
+                }
             }
         }
     }

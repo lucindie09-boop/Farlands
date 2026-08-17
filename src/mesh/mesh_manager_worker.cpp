@@ -42,10 +42,10 @@ PackedBuiltMeshData pack_vertex_array(const std::vector<Vertex>& vertices, const
     for (size_t i = 0; i < n; i++) {
         const Vertex& v = vertices[i];
         // Convert fixed-point positions back to float for Godot's PackedVector3Array
-        // x/z are uint8_t (0-31), y is Q8.8 fixed-point
-        float fx = static_cast<float>(v.x);
-        float fy = static_cast<float>(v.y) / 256.0f;  // Convert Q8.8 back to float
-        float fz = static_cast<float>(v.z);
+        // x/y/z are all Q8.8 fixed-point
+        float fx = static_cast<float>(v.x) / 256.0f;
+        float fy = static_cast<float>(v.y) / 256.0f;
+        float fz = static_cast<float>(v.z) / 256.0f;
         v_ptr[i] = Vector3(fx, fy, fz);
         c0_ptr[i * 4 + 0] = v.light_r;
         c0_ptr[i * 4 + 1] = v.light_g;

@@ -118,6 +118,32 @@ bool BlockRegistry::load_from_json(const godot::String& json_path) noexcept {
             bt.slipperiness = static_cast<float>(static_cast<double>(d["slipperiness"]));
         }
 
+        // selection_boxes: array of [min_x, min_y, min_z, max_x, max_y, max_z]
+        if (d.has("selection_boxes")) {
+            godot::Array boxes = d["selection_boxes"];
+            bt.selection_boxes.clear();
+            bt.selection_boxes.reserve(static_cast<size_t>(boxes.size()));
+            for (int b = 0; b < static_cast<int>(boxes.size()); ++b) {
+                godot::Array box = boxes[b];
+                if (box.size() >= 6) {
+                    BlockAABB aabb;
+                    aabb.min[0] = static_cast<float>(static_cast<double>(box[0]));
+                    aabb.min[1] = static_cast<float>(static_cast<double>(box[1]));
+                    aabb.min[2] = static_cast<float>(static_cast<double>(box[2]));
+                    aabb.max[0] = static_cast<float>(static_cast<double>(box[3]));
+                    aabb.max[1] = static_cast<float>(static_cast<double>(box[4]));
+                    aabb.max[2] = static_cast<float>(static_cast<double>(box[5]));
+                    bt.selection_boxes.push_back(aabb);
+                }
+            }
+        }
+
+        // Compute cached full_cube_ flag
+        bt.full_cube_ = (bt.selection_boxes.empty()) ||
+            (bt.selection_boxes.size() == 1 &&
+             bt.selection_boxes[0].min[0] == 0.0f && bt.selection_boxes[0].min[1] == 0.0f && bt.selection_boxes[0].min[2] == 0.0f &&
+             bt.selection_boxes[0].max[0] == 1.0f && bt.selection_boxes[0].max[1] == 1.0f && bt.selection_boxes[0].max[2] == 1.0f);
+
         register_block(bt);
     }
 
@@ -128,150 +154,172 @@ bool BlockRegistry::load_from_json(const godot::String& json_path) noexcept {
 void BlockRegistry::initialize_default_blocks() noexcept {
     // Helper for solid, opaque, AO-generating blocks with all 6 faces visible.
     const auto solid = [&](const char* name) {
-        register_block({
-            0, name,
-            BlockProperty::Solid | BlockProperty::Opaque,
-             {true, true, true, true, true, true},
-            {0, 0, 0, 0, 0, 0},
-            0,
-            0, 0, 0,
-            LightEmissionPattern::Diamond
-        });
+        BlockType bt{};
+        bt.name = name;
+        bt.properties = BlockProperty::Solid | BlockProperty::Opaque;
+        bt.visible_faces = {true, true, true, true, true, true};
+        bt.light_pattern = LightEmissionPattern::Diamond;
+        bt.slipperiness = 0.6f;
+        bt.full_cube_ = true;
+        register_block(bt);
     };
 
     // 0: Air
-    register_block({
-        0, "air",
-        BlockProperty::Transparent | BlockProperty::NoOcclusion,
-        {false, false, false, false, false, false},
-        {0, 0, 0, 0, 0, 0},
-        0,
-        0, 0, 0
-    });
+    {
+        BlockType bt{};
+        bt.name = "air";
+        bt.properties = BlockProperty::Transparent | BlockProperty::NoOcclusion;
+        bt.visible_faces = {false, false, false, false, false, false};
+        bt.light_pattern = LightEmissionPattern::Diamond;
+        bt.slipperiness = 0.6f;
+        bt.full_cube_ = true;
+        register_block(bt);
+    }
 
     // 1-4: Basic solids
     solid("stone");
     solid("dirt");
 
     // 3: Grass (bottom face hidden by dirt underneath)
-    register_block({
-        0, "grass",
-        BlockProperty::Solid | BlockProperty::Opaque,
-        {true, true, true, false, true, true},
-        {0, 0, 0, 0, 0, 0},
-        0,
-        0, 0, 0
-    });
+    {
+        BlockType bt{};
+        bt.name = "grass";
+        bt.properties = BlockProperty::Solid | BlockProperty::Opaque;
+        bt.visible_faces = {true, true, true, false, true, true};
+        bt.light_pattern = LightEmissionPattern::Diamond;
+        bt.slipperiness = 0.6f;
+        bt.full_cube_ = true;
+        register_block(bt);
+    }
 
     solid("sand");
 
     // 5: Surface water (lowered top face)
-    register_block({
-        0, "surface_water",
-        BlockProperty::Liquid | BlockProperty::Transparent,
-        {true, true, true, false, true, true},
-        {0, 0, 0, 0, 0, 0},
-        0,
-        0, 0, 0,
-        LightEmissionPattern::Diamond,
-        0.12f
-    });
+    {
+        BlockType bt{};
+        bt.name = "surface_water";
+        bt.properties = BlockProperty::Liquid | BlockProperty::Transparent;
+        bt.visible_faces = {true, true, true, false, true, true};
+        bt.light_pattern = LightEmissionPattern::Diamond;
+        bt.top_face_offset = 0.12f;
+        bt.slipperiness = 0.6f;
+        bt.full_cube_ = true;
+        register_block(bt);
+    }
 
     // 6: Water (lowered top face)
-    register_block({
-        0, "water",
-        BlockProperty::Liquid | BlockProperty::Transparent,
-        {true, true, true, true, true, true},
-        {0, 0, 0, 0, 0, 0},
-        0,
-        0, 0, 0,
-        LightEmissionPattern::Diamond,
-        0.12f
-    });
+    {
+        BlockType bt{};
+        bt.name = "water";
+        bt.properties = BlockProperty::Liquid | BlockProperty::Transparent;
+        bt.visible_faces = {true, true, true, true, true, true};
+        bt.light_pattern = LightEmissionPattern::Diamond;
+        bt.top_face_offset = 0.12f;
+        bt.slipperiness = 0.6f;
+        bt.full_cube_ = true;
+        register_block(bt);
+    }
 
     // 7-8: Wood & Leaves
     solid("wood");
 
-    register_block({
-        0, "leaves",
-        BlockProperty::Solid | BlockProperty::Transparent,
-        {true, true, true, true, true, true},
-        {0, 0, 0, 0, 0, 0},
-        0,
-        0, 0, 0
-    });
+    // 8: Leaves
+    {
+        BlockType bt{};
+        bt.name = "leaves";
+        bt.properties = BlockProperty::Solid | BlockProperty::Transparent;
+        bt.visible_faces = {true, true, true, true, true, true};
+        bt.light_pattern = LightEmissionPattern::Diamond;
+        bt.slipperiness = 0.6f;
+        bt.full_cube_ = true;
+        register_block(bt);
+    }
 
     // 9: Bedrock
     solid("bedrock");
 
     // 10: Mud (lowered top face)
-    register_block({
-        0, "mud",
-        BlockProperty::Solid | BlockProperty::Opaque,
-        {true, true, true, true, true, true},
-        {0, 0, 0, 0, 0, 0},
-        0,
-        0, 0, 0,
-        LightEmissionPattern::Diamond,
-        0.0625f
-    });
+    {
+        BlockType bt{};
+        bt.name = "mud";
+        bt.properties = BlockProperty::Solid | BlockProperty::Opaque;
+        bt.visible_faces = {true, true, true, true, true, true};
+        bt.light_pattern = LightEmissionPattern::Diamond;
+        bt.top_face_offset = 0.0625f;
+        bt.slipperiness = 0.6f;
+        bt.full_cube_ = true;
+        register_block(bt);
+    }
 
     // 11: Wet sand (lowered top face)
-    register_block({
-        0, "wet_sand",
-        BlockProperty::Solid | BlockProperty::Opaque,
-        {true, true, true, true, true, true},
-        {0, 0, 0, 0, 0, 0},
-        0,
-        0, 0, 0,
-        LightEmissionPattern::Diamond,
-        0.0625f
-    });
+    {
+        BlockType bt{};
+        bt.name = "wet_sand";
+        bt.properties = BlockProperty::Solid | BlockProperty::Opaque;
+        bt.visible_faces = {true, true, true, true, true, true};
+        bt.light_pattern = LightEmissionPattern::Diamond;
+        bt.top_face_offset = 0.0625f;
+        bt.slipperiness = 0.6f;
+        bt.full_cube_ = true;
+        register_block(bt);
+    }
 
     // 12-13: Full variants (no offset)
     solid("mud_full");
     solid("wet_sand_full");
 
     // 14-17: Light blocks (emissive)
-    register_block({
-        0, "light_block",
-        BlockProperty::Solid | BlockProperty::Opaque | BlockProperty::Emissive,
-        {true, true, true, true, true, true},
-        {0, 0, 0, 0, 0, 0},
-        15,
-        15, 15, 15,
-        LightEmissionPattern::Diamond
-    });
+    {
+        BlockType bt{};
+        bt.name = "light_block";
+        bt.properties = BlockProperty::Solid | BlockProperty::Opaque | BlockProperty::Emissive;
+        bt.visible_faces = {true, true, true, true, true, true};
+        bt.light_level = 15;
+        bt.light_r = 15; bt.light_g = 15; bt.light_b = 15;
+        bt.light_pattern = LightEmissionPattern::Diamond;
+        bt.slipperiness = 0.6f;
+        bt.full_cube_ = true;
+        register_block(bt);
+    }
 
-    register_block({
-        0, "light_red",
-        BlockProperty::Solid | BlockProperty::Opaque | BlockProperty::Emissive,
-        {true, true, true, true, true, true},
-        {0, 0, 0, 0, 0, 0},
-        15,
-        15, 0, 0,
-        LightEmissionPattern::Diamond
-    });
+    {
+        BlockType bt{};
+        bt.name = "light_red";
+        bt.properties = BlockProperty::Solid | BlockProperty::Opaque | BlockProperty::Emissive;
+        bt.visible_faces = {true, true, true, true, true, true};
+        bt.light_level = 15;
+        bt.light_r = 15; bt.light_g = 0; bt.light_b = 0;
+        bt.light_pattern = LightEmissionPattern::Diamond;
+        bt.slipperiness = 0.6f;
+        bt.full_cube_ = true;
+        register_block(bt);
+    }
 
-    register_block({
-        0, "light_green",
-        BlockProperty::Solid | BlockProperty::Opaque | BlockProperty::Emissive,
-        {true, true, true, true, true, true},
-        {0, 0, 0, 0, 0, 0},
-        15,
-        0, 15, 0,
-        LightEmissionPattern::Diamond
-    });
+    {
+        BlockType bt{};
+        bt.name = "light_green";
+        bt.properties = BlockProperty::Solid | BlockProperty::Opaque | BlockProperty::Emissive;
+        bt.visible_faces = {true, true, true, true, true, true};
+        bt.light_level = 15;
+        bt.light_r = 0; bt.light_g = 15; bt.light_b = 0;
+        bt.light_pattern = LightEmissionPattern::Diamond;
+        bt.slipperiness = 0.6f;
+        bt.full_cube_ = true;
+        register_block(bt);
+    }
 
-    register_block({
-        0, "light_blue",
-        BlockProperty::Solid | BlockProperty::Opaque | BlockProperty::Emissive,
-        {true, true, true, true, true, true},
-        {0, 0, 0, 0, 0, 0},
-        15,
-        0, 0, 15,
-        LightEmissionPattern::Diamond
-    });
+    {
+        BlockType bt{};
+        bt.name = "light_blue";
+        bt.properties = BlockProperty::Solid | BlockProperty::Opaque | BlockProperty::Emissive;
+        bt.visible_faces = {true, true, true, true, true, true};
+        bt.light_level = 15;
+        bt.light_r = 0; bt.light_g = 0; bt.light_b = 15;
+        bt.light_pattern = LightEmissionPattern::Diamond;
+        bt.slipperiness = 0.6f;
+        bt.full_cube_ = true;
+        register_block(bt);
+    }
 
     // 18-20: Snow, Gravel, Cactus
     solid("snow");

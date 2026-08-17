@@ -6,9 +6,57 @@
 #include <godot_cpp/core/class_db.hpp>
 #include <algorithm>
 #include <vector>
+#include <cmath>
 
 namespace VoxelEngine {
 using namespace godot;
+
+namespace {
+// Ray-AABB intersection using the slab method. Returns true if the ray hits
+// the box, with the parametric distance t and the outward face normal.
+bool ray_aabb_intersect(const Vector3& origin, const Vector3& dir,
+                        const Vector3& box_min, const Vector3& box_max,
+                        double& t_out, Vector3& normal_out) {
+    double tmin = -1e30;
+    double tmax = 1e30;
+    Vector3 normal(0, 0, 0);
+
+    for (int i = 0; i < 3; ++i) {
+        double o = (i == 0) ? origin.x : (i == 1) ? origin.y : origin.z;
+        double d = (i == 0) ? dir.x : (i == 1) ? dir.y : dir.z;
+        double bmin = (i == 0) ? box_min.x : (i == 1) ? box_min.y : box_min.z;
+        double bmax = (i == 0) ? box_max.x : (i == 1) ? box_max.y : box_max.z;
+
+        if (std::abs(d) < 1e-12) {
+            if (o < bmin || o > bmax) return false;
+        } else {
+            double inv_d = 1.0 / d;
+            double t1 = (bmin - o) * inv_d;
+            double t2 = (bmax - o) * inv_d;
+            if (t1 > t2) std::swap(t1, t2);
+
+            double n = -1.0;
+            if (t1 > tmin) { tmin = t1; n = -1.0; }
+            if (t2 < tmax) { tmax = t2; n = 1.0; }
+
+            if (tmin > tmax) return false;
+
+            // Track which axis/face was hit at tmin
+            if (tmin == t1) {
+                normal = Vector3(0, 0, 0);
+                if (i == 0) normal.x = (dir.x > 0) ? -1.0 : 1.0;
+                else if (i == 1) normal.y = (dir.y > 0) ? -1.0 : 1.0;
+                else normal.z = (dir.z > 0) ? -1.0 : 1.0;
+            }
+        }
+    }
+
+    if (tmin < 0 || tmin > 1e30) return false;
+    t_out = tmin;
+    normal_out = normal;
+    return true;
+}
+} // namespace
 
 BlockEditor::BlockEditor(ChunkWorld* cw, MeshManager* mm, LightPropagator* lp)
     : chunk_world(cw), mesh_manager(mm), light_propagator(lp) {}
@@ -217,18 +265,50 @@ Dictionary BlockEditor::raycast(godot::Node* chunk_manager, const NodePath& play
                     keys.push_back(chunk_world->get_chunk_map().get_chunk_key(cx, cy, cz));
     }
     auto map_lock = chunk_world->get_chunk_map().lock_keys(keys);
+    const BlockRegistry& registry = BlockRegistry::get_instance();
     while (steps < max_steps) {
         int block = chunk_world->get_chunk_map().get_block_world_fast(current_x, current_y, current_z);
         if (block != 0) {
-            result["success"] = true;
-            result["position"] = Vector3(current_x, current_y, current_z);
-            result["place_position"] = Vector3(prev_x, prev_y, prev_z);
-            return result;
+            BlockID bid = static_cast<BlockID>(block);
+            const BlockType& bt = registry.get_block_fast(bid);
+            if (bt.is_full_cube()) {
+                result["success"] = true;
+                result["position"] = Vector3(current_x, current_y, current_z);
+                result["place_position"] = Vector3(prev_x, prev_y, prev_z);
+                result["block_id"] = static_cast<int>(bid);
+                return result;
+            }
+            // Non-full block: test ray against each selection_box
+            bool hit_any = false;
+            double closest_t = max_distance;
+            Vector3 hit_normal;
+            for (const auto& box : bt.selection_boxes) {
+                Vector3 box_min(current_x + box.min[0], current_y + box.min[1], current_z + box.min[2]);
+                Vector3 box_max(current_x + box.max[0], current_y + box.max[1], current_z + box.max[2]);
+                double t;
+                Vector3 n;
+                if (ray_aabb_intersect(ray_origin, ray_dir, box_min, box_max, t, n) && t < closest_t) {
+                    closest_t = t;
+                    hit_normal = n;
+                    hit_any = true;
+                }
+            }
+            if (hit_any) {
+                result["success"] = true;
+                result["position"] = Vector3(current_x, current_y, current_z);
+                result["place_position"] = Vector3(current_x, current_y, current_z) + hit_normal;
+                result["block_id"] = static_cast<int>(bid);
+                return result;
+            }
+            // No AABB hit — continue DDA to find next block
+            prev_x = current_x;
+            prev_y = current_y;
+            prev_z = current_z;
+        } else {
+            prev_x = current_x;
+            prev_y = current_y;
+            prev_z = current_z;
         }
-
-        prev_x = current_x;
-        prev_y = current_y;
-        prev_z = current_z;
 
         if (t_max_x < t_max_y) {
             if (t_max_x < t_max_z) {

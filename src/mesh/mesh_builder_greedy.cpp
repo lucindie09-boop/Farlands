@@ -99,6 +99,14 @@ void MeshBuilder::passive_greedy_mesh_horizontal(const ChunkData& chunk, const C
                         continue;
                     }
 
+                    // Non-full blocks can't participate in greedy merging
+                    if (!registry.get_block_fast(block_id).is_full_cube()) {
+                        flush_horizontal_merge(chunk, accessor, merge_start, z, y, x, direction,
+                                               current_block, current_light_key, current_rotation, current_ao, registry);
+                        merge_start = -1;
+                        continue;
+                    }
+
                     if (direction == FaceDirection::Top && y < CHUNK_HEIGHT - 1
                         && solid_at(y + 1, z + 1, x + 1) != BlockIDs::AIR) {
                         const BlockType& nbt = registry.get_block(solid_at(y + 1, z + 1, x + 1));
@@ -272,6 +280,19 @@ void MeshBuilder::passive_greedy_mesh_vertical(const ChunkData& chunk, const Chu
                     }
 
                     if (block_id == BlockIDs::AIR) {
+                        for (int d = 0; d < kDirCount; d++) {
+                            auto& dst = dirs[d];
+                            flush_vertical_merge(chunk, accessor, dst.merge_start, y, x, z,
+                                                kDirs[d], dst.current_block, dst.current_light_key,
+                                                dst.current_rotation, dst.current_ao, registry);
+                            dst.merge_start = -1;
+                            dst.ao_valid = false;
+                        }
+                        continue;
+                    }
+
+                    // Non-full blocks can't participate in greedy merging
+                    if (!registry.get_block_fast(block_id).is_full_cube()) {
                         for (int d = 0; d < kDirCount; d++) {
                             auto& dst = dirs[d];
                             flush_vertical_merge(chunk, accessor, dst.merge_start, y, x, z,

@@ -208,5 +208,60 @@
     "light": [0, 0, 0],
     "top_face_offset": 0.0,
     "slipperiness": 0.6
+  },
+  {
+    "name": "oak_slab",
+    "properties": ["Solid", "Opaque"],
+    "visible_faces": [true, true, true, false, true, true],
+    "textures": ["wood_side", "wood_side", "wood_top", "wood_top", "wood_side", "wood_side"],
+    "emissive_textures": ["", "", "", "", "", ""],
+    "light": [0, 0, 0],
+    "top_face_offset": 0.0,
+    "slipperiness": 0.6,
+    "selection_boxes": [[0, 0, 0, 1, 0.5, 1]]
+  },
+  {
+    "name": "oak_slab_top",
+    "properties": ["Solid", "Opaque"],
+    "visible_faces": [true, true, true, true, true, true],
+    "textures": ["wood_side", "wood_side", "wood_top", "wood_top", "wood_side", "wood_side"],
+    "emissive_textures": ["", "", "", "", "", ""],
+    "light": [0, 0, 0],
+    "top_face_offset": 0.0,
+    "slipperiness": 0.6,
+    "selection_boxes": [[0, 0.5, 0, 1, 1, 1]]
+  },
+  {
+    "name": "oak_stairs",
+    "properties": ["Solid", "Opaque"],
+    "visible_faces": [true, true, true, true, true, true],
+    "textures": ["wood_side", "wood_side", "wood_top", "wood_top", "wood_side", "wood_side"],
+    "emissive_textures": ["", "", "", "", "", ""],
+    "light": [0, 0, 0],
+    "top_face_offset": 0.0,
+    "slipperiness": 0.6,
+    "selection_boxes": [[0, 0, 0, 1, 0.5, 1], [0, 0.5, 0, 1, 1, 0.5]]
+  },
+  {
+    "name": "oak_fence",
+    "properties": ["Solid", "Opaque", "NoOcclusion"],
+    "visible_faces": [true, true, true, true, true, true],
+    "textures": ["wood_side", "wood_side", "wood_top", "wood_top", "wood_side", "wood_side"],
+    "emissive_textures": ["", "", "", "", "", ""],
+    "light": [0, 0, 0],
+    "top_face_offset": 0.0,
+    "slipperiness": 0.6,
+    "selection_boxes": [[0.375, 0, 0.375, 0.625, 1, 0.625]]
+  },
+  {
+    "name": "oak_wall",
+    "properties": ["Solid", "Opaque"],
+    "visible_faces": [true, true, true, true, true, true],
+    "textures": ["wood_side", "wood_side", "wood_top", "wood_top", "wood_side", "wood_side"],
+    "emissive_textures": ["", "", "", "", "", ""],
+    "light": [0, 0, 0],
+    "top_face_offset": 0.0,
+    "slipperiness": 0.6,
+    "selection_boxes": [[0, 0, 0, 1, 1, 0.5]]
   }
 ]

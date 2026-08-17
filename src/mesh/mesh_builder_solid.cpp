@@ -120,6 +120,8 @@ BlockID MeshBuilder::solid_at(int32_t y, int32_t zi, int32_t xi) const {
 // -------------------------------------------------------------------------
 // AABB face culling: check if a neighbor block's selection boxes cover
 // this face area, making the face invisible.
+// The neighbor must both (a) reach the face boundary plane and (b) cover
+// the face's extent in the other two axes.
 // -------------------------------------------------------------------------
 bool MeshBuilder::should_cull_aabb_face(const float self_min[3], const float self_max[3],
                                          FaceDirection dir, const BlockType& neighbor_type) const {
@@ -129,21 +131,39 @@ bool MeshBuilder::should_cull_aabb_face(const float self_min[3], const float sel
         bool covers = true;
         switch (dir) {
             case FaceDirection::Top:
+                // Neighbor must reach y=0 (face plane) and cover full XZ
+                covers = nb.min[1] <= 0.0f &&
+                         nb.min[0] <= self_min[0] && nb.max[0] >= self_max[0] &&
+                         nb.min[2] <= self_min[2] && nb.max[2] >= self_max[2];
+                break;
             case FaceDirection::Bottom:
-                // Check XZ overlap: neighbor must cover same XZ area
-                covers = nb.min[0] <= self_min[0] && nb.max[0] >= self_max[0] &&
+                // Neighbor must reach y=1 (face plane) and cover full XZ
+                covers = nb.max[1] >= 1.0f &&
+                         nb.min[0] <= self_min[0] && nb.max[0] >= self_max[0] &&
                          nb.min[2] <= self_min[2] && nb.max[2] >= self_max[2];
                 break;
             case FaceDirection::Right:
+                // Neighbor must reach x=0 (face plane) and cover full YZ
+                covers = nb.min[0] <= 0.0f &&
+                         nb.min[1] <= self_min[1] && nb.max[1] >= self_max[1] &&
+                         nb.min[2] <= self_min[2] && nb.max[2] >= self_max[2];
+                break;
             case FaceDirection::Left:
-                // Check YZ overlap
-                covers = nb.min[1] <= self_min[1] && nb.max[1] >= self_max[1] &&
+                // Neighbor must reach x=1 (face plane) and cover full YZ
+                covers = nb.max[0] >= 1.0f &&
+                         nb.min[1] <= self_min[1] && nb.max[1] >= self_max[1] &&
                          nb.min[2] <= self_min[2] && nb.max[2] >= self_max[2];
                 break;
             case FaceDirection::Front:
+                // Neighbor must reach z=0 (face plane) and cover full XY
+                covers = nb.min[2] <= 0.0f &&
+                         nb.min[0] <= self_min[0] && nb.max[0] >= self_max[0] &&
+                         nb.min[1] <= self_min[1] && nb.max[1] >= self_max[1];
+                break;
             case FaceDirection::Back:
-                // Check XY overlap
-                covers = nb.min[0] <= self_min[0] && nb.max[0] >= self_max[0] &&
+                // Neighbor must reach z=1 (face plane) and cover full XY
+                covers = nb.max[2] >= 1.0f &&
+                         nb.min[0] <= self_min[0] && nb.max[0] >= self_max[0] &&
                          nb.min[1] <= self_min[1] && nb.max[1] >= self_max[1];
                 break;
         }

@@ -111,7 +111,8 @@ void MeshBuilder::passive_greedy_mesh_horizontal(const ChunkData& chunk, const C
                         && solid_at(y + 1, z + 1, x + 1) != BlockIDs::AIR) {
                         const BlockType& nbt = registry.get_block(solid_at(y + 1, z + 1, x + 1));
                         const BlockType& bt = registry.get_block(block_id);
-                        if (HasProperty(bt.properties, BlockProperty::Solid)
+                        if (nbt.is_full_cube()
+                            && HasProperty(bt.properties, BlockProperty::Solid)
                             && bt.top_face_offset == 0.0f
                             && !HasProperty(nbt.properties, BlockProperty::Transparent)) {
                             flush_horizontal_merge(chunk, accessor, merge_start, z, y, x, direction,
@@ -319,7 +320,11 @@ void MeshBuilder::passive_greedy_mesh_vertical(const ChunkData& chunk, const Chu
                             const BlockType& n_xpos = registry.get_block_fast(solid_at(y, z + 1, sx1));
                             const BlockType& n_zneg = registry.get_block_fast(solid_at(y, sz0, x + 1));
                             const BlockType& n_zpos = registry.get_block_fast(solid_at(y, sz1, x + 1));
-                            if (n_xneg.top_face_offset == 0.0f
+                            if (n_xneg.is_full_cube()
+                                & n_xpos.is_full_cube()
+                                & n_zneg.is_full_cube()
+                                & n_zpos.is_full_cube()
+                                && n_xneg.top_face_offset == 0.0f
                                 & n_xpos.top_face_offset == 0.0f
                                 & n_zneg.top_face_offset == 0.0f
                                 & n_zpos.top_face_offset == 0.0f) {

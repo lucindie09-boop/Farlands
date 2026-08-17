@@ -109,6 +109,9 @@ void MeshManager::mark_chunk_urgent(int32_t cx, int32_t cy, int32_t cz) {
 }
 
 void MeshManager::reprioritize(int32_t player_cx, int32_t player_cy, int32_t player_cz, const Frustum* frustum) {
+    last_player_chunk_x = player_cx;
+    last_player_chunk_y = player_cy;
+    last_player_chunk_z = player_cz;
     mesh_queue.reprioritize(player_cx, player_cy, player_cz, frustum);
 
     if (lod_distance <= 0 || !chunk_map) {
@@ -118,9 +121,80 @@ void MeshManager::reprioritize(int32_t player_cx, int32_t player_cy, int32_t pla
 
     const int32_t vert_range = 10;
     int32_t queued = 0;
-    constexpr int32_t kMaxLodRemeshPerFrame = 128;
+    constexpr int32_t kMaxLodRemeshPerFrame = 512;
 
-    // Pass A: scan the transition shells of both LOD tiers (mid and far).
+    // Pass A: Active set demotions run FIRST so they are never starved by
+    // the much larger shell scans.  Each sweep erases the chunk from its set
+    // unconditionally after attempting a requeue — chunks already marked dirty
+    // (or unloaded) are simply dropped; they re-insert on completion.
+
+    // Full detail → mid detail (or far) downgrades.
+    for (auto it = active_full_detail_chunks_.begin(); it != active_full_detail_chunks_.end() && queued < kMaxLodRemeshPerFrame;) {
+        uint64_t chunk_key = *it;
+        int32_t cx, cy, cz;
+        ChunkMap::decode_chunk_key(chunk_key, cx, cy, cz);
+        float target = compute_chunk_detail_level(cx, cy, cz);
+        if (target >= 1.0f) {
+            ++it;
+            continue;
+        }
+        ChunkRenderData* render_data = chunk_map->get_chunk_render_data(cx, cy, cz);
+        if (render_data && !render_data->is_mesh_dirty) {
+            render_data->is_mesh_dirty = true;
+            render_data->mesh_version++;
+            mark_far_region_dirty_for_chunk(cx, cy, cz);
+            queue_dirty_chunk(cx, cy, cz);
+            ++queued;
+        }
+        it = active_full_detail_chunks_.erase(it);
+    }
+
+    // Mid detail → far detail downgrades.
+    for (auto it = active_mid_detail_chunks_.begin(); it != active_mid_detail_chunks_.end() && queued < kMaxLodRemeshPerFrame;) {
+        uint64_t chunk_key = *it;
+        int32_t cx, cy, cz;
+        ChunkMap::decode_chunk_key(chunk_key, cx, cy, cz);
+        float target = compute_chunk_detail_level(cx, cy, cz);
+        if (target >= lod_detail_level) {
+            ++it;
+            continue;
+        }
+        ChunkRenderData* render_data = chunk_map->get_chunk_render_data(cx, cy, cz);
+        if (render_data && !render_data->is_mesh_dirty) {
+            render_data->is_mesh_dirty = true;
+            render_data->mesh_version++;
+            mark_far_region_dirty_for_chunk(cx, cy, cz);
+            queue_dirty_chunk(cx, cy, cz);
+            ++queued;
+        }
+        it = active_mid_detail_chunks_.erase(it);
+    }
+
+    // Far detail → mid (or full) upgrades when the player moves closer.
+    // Without this sweep, chunks built at far detail that fall inside the
+    // mid/full range are never upgraded because the shell scans only cover
+    // ±1 of each transition distance.
+    for (auto it = active_far_detail_chunks_.begin(); it != active_far_detail_chunks_.end() && queued < kMaxLodRemeshPerFrame;) {
+        uint64_t chunk_key = *it;
+        int32_t cx, cy, cz;
+        ChunkMap::decode_chunk_key(chunk_key, cx, cy, cz);
+        float target = compute_chunk_detail_level(cx, cy, cz);
+        if (target <= far_lod_detail_level) {
+            ++it;
+            continue;
+        }
+        ChunkRenderData* render_data = chunk_map->get_chunk_render_data(cx, cy, cz);
+        if (render_data && !render_data->is_mesh_dirty) {
+            render_data->is_mesh_dirty = true;
+            render_data->mesh_version++;
+            mark_far_region_dirty_for_chunk(cx, cy, cz);
+            queue_dirty_chunk(cx, cy, cz);
+            ++queued;
+        }
+        it = active_far_detail_chunks_.erase(it);
+    }
+
+    // Pass B: scan the transition shells of both LOD tiers (mid and far).
     // Chunks newly inside a tier's render start are upgraded in place to the
     // tier's detail level (full res at the lod ring, mid detail at the far ring).
     const int32_t transition_starts[2] = {lod_distance, far_lod_distance};
@@ -152,50 +226,6 @@ void MeshManager::reprioritize(int32_t player_cx, int32_t player_cy, int32_t pla
                 }
             }
         }
-    }
-
-    // Downgrade chunks that were built at full detail but are now beyond the
-    // mid LOD threshold (either tier).
-    for (auto it = active_full_detail_chunks_.begin(); it != active_full_detail_chunks_.end() && queued < kMaxLodRemeshPerFrame;) {
-        uint64_t chunk_key = *it;
-        int32_t cx, cy, cz;
-        ChunkMap::decode_chunk_key(chunk_key, cx, cy, cz);
-        float target = compute_chunk_detail_level(cx, cy, cz);
-        if (target >= 1.0f) {
-            ++it;
-            continue;
-        }
-        ChunkRenderData* render_data = chunk_map->get_chunk_render_data(cx, cy, cz);
-        if (render_data && !render_data->is_mesh_dirty) {
-            render_data->is_mesh_dirty = true;
-            render_data->mesh_version++;
-            mark_far_region_dirty_for_chunk(cx, cy, cz);
-            queue_dirty_chunk(cx, cy, cz);
-            ++queued;
-        }
-        it = active_full_detail_chunks_.erase(it);
-    }
-
-    // Downgrade chunks that were built at mid detail but are now beyond the
-    // far LOD threshold.
-    for (auto it = active_mid_detail_chunks_.begin(); it != active_mid_detail_chunks_.end() && queued < kMaxLodRemeshPerFrame;) {
-        uint64_t chunk_key = *it;
-        int32_t cx, cy, cz;
-        ChunkMap::decode_chunk_key(chunk_key, cx, cy, cz);
-        float target = compute_chunk_detail_level(cx, cy, cz);
-        if (target >= lod_detail_level) {
-            ++it;
-            continue;
-        }
-        ChunkRenderData* render_data = chunk_map->get_chunk_render_data(cx, cy, cz);
-        if (render_data && !render_data->is_mesh_dirty) {
-            render_data->is_mesh_dirty = true;
-            render_data->mesh_version++;
-            mark_far_region_dirty_for_chunk(cx, cy, cz);
-            queue_dirty_chunk(cx, cy, cz);
-            ++queued;
-        }
-        it = active_mid_detail_chunks_.erase(it);
     }
 
     refresh_far_region_visibility();

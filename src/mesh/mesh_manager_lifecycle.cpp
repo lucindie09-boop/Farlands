@@ -21,6 +21,7 @@ void MeshManager::clear() {
     completed_far_region_mesh_count.store(0, std::memory_order_relaxed);
     active_full_detail_chunks_.clear();
     active_mid_detail_chunks_.clear();
+    active_far_detail_chunks_.clear();
     far_regions_partial_missing_cache_last = 0;
     last_player_chunk_x = INT32_MIN;
     last_player_chunk_y = INT32_MIN;

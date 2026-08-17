@@ -41,7 +41,7 @@ struct TerrainParams {
     float shelf_width = 0.025f;
     float shelf_depth = 18.0f;
     float deep_ocean_depth = 48.0f;
-    float beach_width = 0.002f;
+    float beach_width = 0.003f;
     int32_t subsurface_cover_depth = 4;
 
     // Climate noise scales (lower = broader regions).

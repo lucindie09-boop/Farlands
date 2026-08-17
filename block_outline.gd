@@ -28,10 +28,9 @@ var _outline_material: StandardMaterial3D
 var _fill_material: StandardMaterial3D
 
 var _current_thickness: float = 0.5
-var _original_vertices: PackedVector3Array
-var _inner_vertex_indices: Array[int] = []
-var _vertex_face_center: Dictionary = {}  # Map vertex index to its face center
 var _pulse_time: float = 0.0
+var _current_block_id: int = -1
+var _current_boxes: Array = []
 
 # Throttling: skip raycast when camera hasn't moved significantly
 var _last_camera_position: Vector3 = Vector3.ZERO
@@ -41,125 +40,157 @@ var _position_threshold: float = 0.01
 var _rotation_threshold: float = 0.001
 
 func _ready():
-	_create_outline()
 	_create_fill()
 	_create_materials()
 
-func _create_outline():
-	var mesh = _load_and_build_mesh()
+func _create_wireframe_box(box_min_x: float, box_min_y: float, box_min_z: float,
+							box_max_x: float, box_max_y: float, box_max_z: float) -> ArrayMesh:
+	var verts = PackedVector3Array()
+	var indices = PackedInt32Array()
 	
-	outline_mesh = MeshInstance3D.new()
-	outline_mesh.mesh = mesh
-	outline_mesh.position = Vector3(0.5, 0.5, 0.5)
-	outline_mesh.scale = Vector3(0.501, 0.501, 0.501)
-	outline_mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(outline_mesh)
-
-func _load_and_build_mesh() -> ArrayMesh:
-	var file = FileAccess.open("res://Untitled.obj", FileAccess.READ)
-	if not file:
-		return null
+	# 8 corners of the AABB
+	var corners = [
+		Vector3(box_min_x, box_min_y, box_min_z),
+		Vector3(box_max_x, box_min_y, box_min_z),
+		Vector3(box_max_x, box_max_y, box_min_z),
+		Vector3(box_min_x, box_max_y, box_min_z),
+		Vector3(box_min_x, box_min_y, box_max_z),
+		Vector3(box_max_x, box_min_y, box_max_z),
+		Vector3(box_max_x, box_max_y, box_max_z),
+		Vector3(box_min_x, box_max_y, box_max_z)
+	]
 	
-	var obj_vertices = PackedVector3Array()
-	var obj_uvs = PackedVector2Array()
-	var obj_normals = PackedVector3Array()
+	# 12 edges of the cube (each edge = 2 vertices forming a thin quad)
+	var edges = [
+		[0, 1], [1, 2], [2, 3], [3, 0],  # bottom, right, top, left (Z- face)
+		[4, 5], [5, 6], [6, 7], [7, 4],  # bottom, right, top, left (Z+ face)
+		[0, 4], [1, 5], [2, 6], [3, 7]   # connecting edges
+	]
 	
-	while not file.eof_reached():
-		var line = file.get_line().strip_edges()
-		if line.is_empty() or line.begins_with("#"):
+	for edge in edges:
+		var p0 = corners[edge[0]]
+		var p1 = corners[edge[1]]
+		var dir = (p1 - p0).normalized()
+		var length = p0.distance_to(p1)
+		if length < 0.001:
 			continue
 		
-		if line.begins_with("v "):
-			var parts = line.split(" ", false)
-			var v = Vector3(float(parts[1]), float(parts[2]), float(parts[3]))
-			obj_vertices.append(v)
+		# Compute perpendicular axes for the wireframe thickness
+		var up = Vector3(0, 1, 0)
+		if abs(dir.dot(up)) > 0.99:
+			up = Vector3(1, 0, 0)
+		var right = dir.cross(up).normalized() * outline_thickness * 0.02
+		up = dir.cross(right).normalized() * outline_thickness * 0.02
 		
-		elif line.begins_with("vt "):
-			var parts = line.split(" ", false)
-			var uv = Vector2(float(parts[1]), float(parts[2]))
-			obj_uvs.append(uv)
+		var base_idx = verts.size()
+		verts.append(p0 - right - up)
+		verts.append(p0 + right - up)
+		verts.append(p1 + right - up)
+		verts.append(p0 - right + up)
+		verts.append(p1 - right + up)
+		verts.append(p1 + right + up)
+		verts.append(p0 - right + up)
+		verts.append(p1 + right + up)
+		verts.append(p1 + right - up)
+		verts.append(p1 + right + up)
+		verts.append(p1 - right + up)
+		verts.append(p1 - right - up)
 		
-		elif line.begins_with("vn "):
-			var parts = line.split(" ", false)
-			var n = Vector3(float(parts[1]), float(parts[2]), float(parts[3]))
-			obj_normals.append(n)
-	
-	file.close()
-	
-	# Parse faces and build mesh with proper vertex attributes
-	var vertex_map = {}  # Maps (v_idx, vt_idx, vn_idx) to mesh vertex index
-	var mesh_vertices = PackedVector3Array()
-	var mesh_uvs = PackedVector2Array()
-	var mesh_normals = PackedVector3Array()
-	var mesh_indices = PackedInt32Array()
-	var mesh_vertex_count = 0
-	
-	file = FileAccess.open("res://Untitled.obj", FileAccess.READ)
-	while not file.eof_reached():
-		var line = file.get_line().strip_edges()
-		if line.begins_with("f "):
-			var parts = line.split(" ", false)
-			var face_vertices = []
-			
-			for i in range(1, parts.size()):
-				var face_part = parts[i].split("/")
-				var v_idx = int(face_part[0]) - 1
-				var vt_idx = int(face_part[1]) - 1 if face_part.size() > 1 and face_part[1] != "" else 0
-				var vn_idx = int(face_part[2]) - 1 if face_part.size() > 2 and face_part[2] != "" else 0
-				
-				face_vertices.append([v_idx, vt_idx, vn_idx])
-			
-			# Triangulate face (assuming quads)
-			var triangles = [[0, 1, 2], [0, 2, 3]]
-			for tri in triangles:
-				for vtx_idx in tri:
-					var v_data = face_vertices[vtx_idx]
-					var key = str(v_data[0]) + "_" + str(v_data[1]) + "_" + str(v_data[2])
-					
-					if not vertex_map.has(key):
-						mesh_vertices.append(obj_vertices[v_data[0]])
-						mesh_uvs.append(obj_uvs[v_data[1]] if v_data[1] < obj_uvs.size() else Vector2(0, 0))
-						mesh_normals.append(obj_normals[v_data[2]] if v_data[2] < obj_normals.size() else Vector3(0, 1, 0))
-						vertex_map[key] = mesh_vertex_count
-						mesh_vertex_count += 1
-					
-					mesh_indices.append(vertex_map[key])
-	
-	file.close()
-	
-	# Store original vertices and identify inner vertices with their face centers
-	_original_vertices = mesh_vertices.duplicate()
-	
-	# Determine face centers for each inner vertex
-	for i in range(mesh_vertices.size()):
-		var v = mesh_vertices[i]
-		# Inner vertices are those not at the outer cube corners (±1.0, ±1.0, ±1.0)
-		# The outer cube has 8 corner vertices at exact (±1, ±1, ±1)
-		var is_corner = abs(abs(v.x) - 1.0) < 0.01 and abs(abs(v.y) - 1.0) < 0.01 and abs(abs(v.z) - 1.0) < 0.01
-		
-		if not is_corner:
-			_inner_vertex_indices.append(i)
-			# Determine which face this vertex belongs to based on which coordinate is near ±1.0
-			# The face center keeps the coordinate at ±1.0 and sets the others to 0
-			var face_center = Vector3(0, 0, 0)
-			if abs(v.x) > 0.5:
-				face_center.x = sign(v.x) * 1.0
-			if abs(v.y) > 0.5:
-				face_center.y = sign(v.y) * 1.0
-			if abs(v.z) > 0.5:
-				face_center.z = sign(v.z) * 1.0
-			_vertex_face_center[i] = face_center
+		for i in range(12):
+			indices.append(base_idx + i)
 	
 	var arrays = []
 	arrays.resize(Mesh.ARRAY_MAX)
-	arrays[Mesh.ARRAY_VERTEX] = mesh_vertices
-	arrays[Mesh.ARRAY_TEX_UV] = mesh_uvs
-	arrays[Mesh.ARRAY_NORMAL] = mesh_normals
-	arrays[Mesh.ARRAY_INDEX] = mesh_indices
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_INDEX] = indices
 	
 	var mesh = ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 	return mesh
+
+func _rebuild_outline_mesh():
+	if outline_mesh:
+		outline_mesh.queue_free()
+		outline_mesh = null
+	
+	if _current_boxes.is_empty():
+		return
+	
+	var verts = PackedVector3Array()
+	var indices = PackedInt32Array()
+	
+	for box in _current_boxes:
+		var box_min_x = box[0]
+		var box_min_y = box[1]
+		var box_min_z = box[2]
+		var box_max_x = box[3]
+		var box_max_y = box[4]
+		var box_max_z = box[5]
+		
+		var corners = [
+			Vector3(box_min_x, box_min_y, box_min_z),
+			Vector3(box_max_x, box_min_y, box_min_z),
+			Vector3(box_max_x, box_max_y, box_min_z),
+			Vector3(box_min_x, box_max_y, box_min_z),
+			Vector3(box_min_x, box_min_y, box_max_z),
+			Vector3(box_max_x, box_min_y, box_max_z),
+			Vector3(box_max_x, box_max_y, box_max_z),
+			Vector3(box_min_x, box_max_y, box_max_z)
+		]
+		
+		var edges = [
+			[0, 1], [1, 2], [2, 3], [3, 0],
+			[4, 5], [5, 6], [6, 7], [7, 4],
+			[0, 4], [1, 5], [2, 6], [3, 7]
+		]
+		
+		for edge in edges:
+			var p0 = corners[edge[0]]
+			var p1 = corners[edge[1]]
+			var dir = (p1 - p0).normalized()
+			var length = p0.distance_to(p1)
+			if length < 0.001:
+				continue
+			
+			var up = Vector3(0, 1, 0)
+			if abs(dir.dot(up)) > 0.99:
+				up = Vector3(1, 0, 0)
+			var right = dir.cross(up).normalized() * outline_thickness * 0.02
+			up = dir.cross(right).normalized() * outline_thickness * 0.02
+			
+			var base_idx = verts.size()
+			verts.append(p0 - right - up)
+			verts.append(p0 + right - up)
+			verts.append(p1 + right - up)
+			verts.append(p0 - right + up)
+			verts.append(p1 - right + up)
+			verts.append(p1 + right + up)
+			verts.append(p0 - right + up)
+			verts.append(p1 + right + up)
+			verts.append(p1 + right - up)
+			verts.append(p1 + right + up)
+			verts.append(p1 - right + up)
+			verts.append(p1 - right - up)
+			
+			for i in range(12):
+				indices.append(base_idx + i)
+	
+	if verts.size() == 0:
+		return
+	
+	var arrays = []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_INDEX] = indices
+	
+	var mesh = ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	
+	outline_mesh = MeshInstance3D.new()
+	outline_mesh.mesh = mesh
+	outline_mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	outline_mesh.material_override = _outline_material
+	add_child(outline_mesh)
 
 func _create_fill():
 	fill_mesh = MeshInstance3D.new()
@@ -191,7 +222,6 @@ func _create_materials():
 	_fill_material.render_priority = 9
 
 	# Apply materials
-	outline_mesh.material_override = _outline_material
 	fill_mesh.mesh.surface_set_material(0, _fill_material)
 
 func _process(delta):
@@ -228,12 +258,10 @@ func _process(delta):
 	var needs_raycast = position_changed or rotation_changed or world_changed or _last_camera_position == Vector3.ZERO
 
 	if not needs_raycast:
-		# Still update pulse animations even if raycast is skipped
 		_pulse_time += delta
 		_update_materials()
 		return
 
-	# Update tracked camera state
 	_last_camera_position = current_position
 	_last_camera_rotation = current_rotation
 	_last_block_edit_counter = current_edit_counter
@@ -256,84 +284,39 @@ func _process(delta):
 			fill_mesh.visible = false
 		return
 
-	# Convert to block coordinates
 	var bx = int(floor(block_pos.x))
 	var by = int(floor(block_pos.y))
 	var bz = int(floor(block_pos.z))
 
-	# Position at block location
 	global_position = Vector3(bx, by, bz)
+
+	# Get selection boxes for this block
+	var block_id = result.get("block_id", 0)
+	if block_id != _current_block_id:
+		_current_block_id = block_id
+		_current_boxes = chunk_manager.get_selection_boxes(block_id)
+		_rebuild_outline_mesh()
 
 	if outline_mesh:
 		outline_mesh.visible = outline_enabled
 	if fill_mesh:
 		fill_mesh.visible = fill_enabled
 
-	# Update pulse time
 	_pulse_time += delta
-
-	# Update materials and thickness with pulse
 	_update_materials()
 
 func _update_materials():
-	# Regenerate mesh if thickness changed
-	if abs(outline_thickness - _current_thickness) > 0.01:
-		_current_thickness = outline_thickness
-		call_deferred("_rebuild_mesh_with_thickness")
-	
-	# Calculate pulse factors (0.0 to 1.0 oscillating)
 	var outline_pulse_factor = (sin(_pulse_time * outline_pulse_speed) + 1.0) / 2.0
 	var fill_pulse_factor = (sin(_pulse_time * fill_pulse_speed) + 1.0) / 2.0
 	
-	# Update outline material with pulse
 	var current_outline_opacity = outline_opacity
 	if outline_pulse_enabled:
 		current_outline_opacity = lerp(outline_pulse_min_opacity, outline_pulse_max_opacity, outline_pulse_factor)
 	_outline_material.albedo_color = outline_color
 	_outline_material.albedo_color.a = clampf(current_outline_opacity, 0.0, 1.0)
 
-	# Update fill material with pulse
 	var current_fill_opacity = fill_opacity
 	if fill_pulse_enabled:
 		current_fill_opacity = lerp(fill_pulse_min_opacity, fill_pulse_max_opacity, fill_pulse_factor)
 	_fill_material.albedo_color = fill_color
 	_fill_material.albedo_color.a = clampf(current_fill_opacity, 0.0, 1.0)
-
-func _rebuild_mesh_with_thickness():
-	if not outline_mesh or not outline_mesh.mesh:
-		return
-	
-	var arrays = outline_mesh.mesh.surface_get_arrays(0)
-	if arrays.is_empty():
-		return
-	
-	var new_vertices = _original_vertices.duplicate()
-	
-	# Adjust inner vertices based on thickness
-	for idx in _inner_vertex_indices:
-		if idx >= new_vertices.size() or idx >= _original_vertices.size():
-			continue
-		var original = _original_vertices[idx]
-		var face_center = _vertex_face_center.get(idx, Vector3.ZERO)
-		
-		# Skip if face center is zero (invalid)
-		if face_center == Vector3.ZERO:
-			continue
-		
-		# Move vertices toward the center of their face
-		# thickness 0.0 = vertices at original position (thinnest outline)
-		# thickness 1.0 = vertices at face center (thickest outline)
-		var direction = original - face_center
-		var thickness_factor = clampf(1.0 - outline_thickness, 0.0, 1.0)
-		var target = original - direction * thickness_factor
-		new_vertices[idx] = target
-	
-	arrays[Mesh.ARRAY_VERTEX] = new_vertices
-	
-	var new_mesh = ArrayMesh.new()
-	new_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-	
-	if outline_mesh.mesh:
-		outline_mesh.mesh.call_deferred("queue_free")
-	outline_mesh.mesh = new_mesh
-	outline_mesh.material_override = _outline_material

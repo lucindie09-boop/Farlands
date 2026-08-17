@@ -118,6 +118,41 @@ BlockID MeshBuilder::solid_at(int32_t y, int32_t zi, int32_t xi) const {
 }
 
 // -------------------------------------------------------------------------
+// AABB face culling: check if a neighbor block's selection boxes cover
+// this face area, making the face invisible.
+// -------------------------------------------------------------------------
+bool MeshBuilder::should_cull_aabb_face(const float self_min[3], const float self_max[3],
+                                         FaceDirection dir, const BlockType& neighbor_type) const {
+    if (neighbor_type.is_full_cube()) return true;
+
+    for (const auto& nb : neighbor_type.selection_boxes) {
+        bool covers = true;
+        switch (dir) {
+            case FaceDirection::Top:
+            case FaceDirection::Bottom:
+                // Check XZ overlap: neighbor must cover same XZ area
+                covers = nb.min[0] <= self_min[0] && nb.max[0] >= self_max[0] &&
+                         nb.min[2] <= self_min[2] && nb.max[2] >= self_max[2];
+                break;
+            case FaceDirection::Right:
+            case FaceDirection::Left:
+                // Check YZ overlap
+                covers = nb.min[1] <= self_min[1] && nb.max[1] >= self_max[1] &&
+                         nb.min[2] <= self_min[2] && nb.max[2] >= self_max[2];
+                break;
+            case FaceDirection::Front:
+            case FaceDirection::Back:
+                // Check XY overlap
+                covers = nb.min[0] <= self_min[0] && nb.max[0] >= self_max[0] &&
+                         nb.min[1] <= self_min[1] && nb.max[1] >= self_max[1];
+                break;
+        }
+        if (covers) return true;
+    }
+    return false;
+}
+
+// -------------------------------------------------------------------------
 // Face emission driver
 // -------------------------------------------------------------------------
 void MeshBuilder::emit_faces(const ChunkData& chunk, const BlockRegistry& registry) {
@@ -132,6 +167,46 @@ void MeshBuilder::emit_faces(const ChunkData& chunk, const BlockRegistry& regist
         {
             ScopedTimer greedy_v_timer(perf_timer, TimerID::GreedyMeshVertical);
             passive_greedy_mesh_vertical(chunk, accessor, registry);
+        }
+        // Non-full blocks can't participate in greedy merging (the greedy passes
+        // skip them), so emit their faces separately via per-AABB geometry.
+        for (int32_t s = 0; s < CHUNK_SECTIONS; s++) {
+            if (chunk.is_section_all_air(s)) continue;
+            int32_t y0 = s * SECTION_HEIGHT;
+            int32_t y1 = y0 + SECTION_HEIGHT;
+            for (int32_t y = y0; y < y1; y++) {
+                for (int32_t z = 0; z < CHUNK_DEPTH; z += stride_xz_) {
+                    for (int32_t x = 0; x < CHUNK_WIDTH; x += stride_xz_) {
+                        if (partial_mode_ &&
+                            !(x < partial_bounds_.x_max && x + stride_xz_ > partial_bounds_.x_min &&
+                              y >= partial_bounds_.y_min && y < partial_bounds_.y_max &&
+                              z < partial_bounds_.z_max && z + stride_xz_ > partial_bounds_.z_min)) {
+                            continue;
+                        }
+                        const BlockID block_id = solid_at(y, z + 1, x + 1);
+                        if (block_id == BlockIDs::AIR) continue;
+                        const BlockType& bt = registry.get_block_fast(block_id);
+                        if (bt.is_full_cube()) continue;
+                        for (const auto& box : bt.selection_boxes) {
+                            for (int i = 0; i < 6; i++) {
+                                FaceDirection dir = kAllDirections[i];
+                                if (dir == FaceDirection::Bottom) continue;
+                                int32_t dir_idx = static_cast<int32_t>(dir);
+                                int32_t nx = x + kDirectionOffsets[dir_idx][0] * stride_xz_;
+                                int32_t ny = y + kDirectionOffsets[dir_idx][1];
+                                int32_t nz = z + kDirectionOffsets[dir_idx][2] * stride_xz_;
+                                BlockID neighbor = accessor.get_block(nx, ny, nz);
+                                const BlockType& neighbor_type = registry.get_block(neighbor);
+                                if (neighbor == BlockIDs::AIR ||
+                                    !should_cull_aabb_face(box.min, box.max, dir, neighbor_type)) {
+                                    add_aabb_face(chunk, accessor, x, y, z, dir, block_id, registry,
+                                                  box.min, box.max);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     } else {
         for (int32_t s = 0; s < CHUNK_SECTIONS; s++) {
@@ -149,6 +224,31 @@ void MeshBuilder::emit_faces(const ChunkData& chunk, const BlockRegistry& regist
                         }
                         const BlockID block_id = solid_at(y, z + 1, x + 1);
                         if (block_id == BlockIDs::AIR) continue;
+
+                        const BlockType& bt = registry.get_block_fast(block_id);
+
+                        // Non-full blocks: emit faces per selection AABB
+                        if (!bt.is_full_cube()) {
+                            for (const auto& box : bt.selection_boxes) {
+                                for (int i = 0; i < 6; i++) {
+                                    FaceDirection dir = kAllDirections[i];
+                                    if (dir == FaceDirection::Bottom) continue;
+                                    int32_t dir_idx = static_cast<int32_t>(dir);
+                                    int32_t nx = x + kDirectionOffsets[dir_idx][0] * stride_xz_;
+                                    int32_t ny = y + kDirectionOffsets[dir_idx][1];
+                                    int32_t nz = z + kDirectionOffsets[dir_idx][2] * stride_xz_;
+                                    BlockID neighbor = accessor.get_block(nx, ny, nz);
+                                    const BlockType& neighbor_type = registry.get_block(neighbor);
+                                    if (neighbor == BlockIDs::AIR ||
+                                        !should_cull_aabb_face(box.min, box.max, dir, neighbor_type)) {
+                                        add_aabb_face(chunk, accessor, x, y, z, dir, block_id, registry,
+                                                      box.min, box.max);
+                                    }
+                                }
+                            }
+                            continue;
+                        }
+
                         if (stride_xz_ == 1) {
                             bool all_surrounded = true;
                             for (int i = 0; i < 6; i++) {
@@ -230,11 +330,28 @@ bool MeshBuilder::should_cull_against_neighbor(const ChunkData& chunk, BlockID c
         }
     }
     if (current == neighbor && current_type.cull_against_same) return true;
+
+    // For non-full blocks, use AABB face culling
+    if (!current_type.is_full_cube() && !current_type.selection_boxes.empty()) {
+        for (const auto& box : current_type.selection_boxes) {
+            if (!should_cull_aabb_face(box.min, box.max, direction, neighbor_type)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     if (is_side_face(direction)) {
         float current_height = 1.0f - current_type.top_face_offset;
         float neighbor_height = 1.0f - neighbor_type.top_face_offset;
         if (neighbor_height < current_height) return false;
         if (neighbor_height > current_height) return true;
+    }
+    // Non-full neighbor blocks: only cull if their AABBs fully cover this face area
+    if (!neighbor_type.is_full_cube() && !neighbor_type.selection_boxes.empty()) {
+        float full_min[3] = {0.0f, 0.0f, 0.0f};
+        float full_max[3] = {1.0f, 1.0f, 1.0f};
+        return should_cull_aabb_face(full_min, full_max, direction, neighbor_type);
     }
     return true;
 }

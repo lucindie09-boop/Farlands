@@ -4,6 +4,7 @@
 #include <array>
 #include <cassert>
 #include <string>
+#include <vector>
 
 namespace godot { class String; }
 
@@ -44,6 +45,14 @@ enum class LightEmissionPattern : uint8_t {
 };
 
 // -----------------------------------------------------------------------------
+// Block Collision AABB
+// -----------------------------------------------------------------------------
+struct BlockAABB {
+    float min[3];
+    float max[3];
+};
+
+// -----------------------------------------------------------------------------
 // Block Type Definition
 // -----------------------------------------------------------------------------
 struct BlockType {
@@ -72,6 +81,16 @@ struct BlockType {
     // Emissive texture filename per face (empty = no emissive contribution).
     std::array<std::string, 6> emissive_texture_names{};
     std::array<int, 6> emissive_texture_indices{};  // resolved by TextureArrayGenerator
+
+    // Collision / selection shape: one or more AABBs in block-local [0,1] space.
+    // Empty vector = full cube (default). Used by collision, raycast, outline, and mesh builder.
+    std::vector<BlockAABB> selection_boxes{};
+
+    // Cached flag: true when selection_boxes is a single full cube [0,0,0,1,1,1].
+    // Checked on hot paths (greedy meshing, collision, AO) for zero-overhead fast path.
+    bool full_cube_ = true;
+
+    [[nodiscard]] bool is_full_cube() const noexcept { return full_cube_; }
 };
 
 // -----------------------------------------------------------------------------
@@ -141,17 +160,17 @@ private:
     size_t count = 0;
 
     // Pre-constructed empty block for out-of-bounds queries.
-    static const BlockType empty_block;
-};
-
-inline const BlockType BlockRegistry::empty_block = {
-    0, "air", BlockProperty::None,
-    {false, false, false, false, false, false},
-    {0, 0, 0, 0, 0, 0},
-    0,
-    0, 0, 0,
-    LightEmissionPattern::Diamond,
-    0.0f, true
+    static inline BlockType empty_block = []() {
+        BlockType bt{};
+        bt.id = 0;
+        bt.name = "air";
+        bt.properties = BlockProperty::None;
+        bt.visible_faces = {false, false, false, false, false, false};
+        bt.light_pattern = LightEmissionPattern::Diamond;
+        bt.slipperiness = 0.6f;
+        bt.full_cube_ = true;
+        return bt;
+    }();
 };
 
 // -----------------------------------------------------------------------------
@@ -179,6 +198,11 @@ namespace BlockIDs {
     constexpr BlockID SNOW           = 18;
     constexpr BlockID GRAVEL         = 19;
     constexpr BlockID CACTUS         = 20;
+    constexpr BlockID OAK_SLAB       = 21;
+    constexpr BlockID OAK_SLAB_TOP   = 22;
+    constexpr BlockID OAK_STAIRS     = 23;
+    constexpr BlockID OAK_FENCE      = 24;
+    constexpr BlockID OAK_WALL       = 25;
 }
 
 } // namespace VoxelEngine

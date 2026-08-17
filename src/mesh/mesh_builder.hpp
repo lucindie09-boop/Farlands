@@ -429,6 +429,9 @@ if (is_side_face(dir)) return 0;
 FaceDirection direction, int32_t x, int32_t y, int32_t z,
 const BlockRegistry& registry) const;
 
+    bool should_cull_aabb_face(const float self_min[3], const float self_max[3],
+                               FaceDirection dir, const BlockType& neighbor_type) const;
+
     bool boundary_face_fully_occluded(const ChunkData& current_chunk, const ChunkData* neighbor,
                                        FaceDirection dir, int32_t x, int32_t y, int32_t z,
                                        int32_t stride, BlockID current_block,
@@ -440,6 +443,11 @@ const BlockRegistry& registry) const;
     void add_face(const ChunkData& chunk, const ChunkNeighborAccessor& accessor,
                   int32_t x, int32_t y, int32_t z,
                   FaceDirection direction, BlockID block_id, const BlockRegistry& registry);
+
+    void add_aabb_face(const ChunkData& chunk, const ChunkNeighborAccessor& accessor,
+                       int32_t x, int32_t y, int32_t z,
+                       FaceDirection direction, BlockID block_id, const BlockRegistry& registry,
+                       const float aabb_min[3], const float aabb_max[3]);
 
     void add_greedy_face(const ChunkData& chunk, const ChunkNeighborAccessor& accessor,
                          const Face& face, uint16_t face_light_key, int rotation,

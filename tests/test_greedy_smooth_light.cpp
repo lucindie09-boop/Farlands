@@ -10,9 +10,8 @@
 using namespace VoxelEngine;
 
 namespace {
-// Vertices are stored in 1/64 mesh-space increments; snap positions so exact
-// integer coordinates can be compared.
-float snap(float v) { return std::round(v * 64.0f) / 64.0f; }
+// Vertices are stored in Q8.8 fixed-point (1/256 block increments).
+float snap(float v) { return std::round(v * 256.0f) / 256.0f; }
 } // namespace
 
 TEST_CASE("greedy merged side faces keep smooth gradients at shadow boundaries") {
@@ -58,9 +57,9 @@ TEST_CASE("greedy merged side faces keep smooth gradients at shadow boundaries")
     // two faces sharing a corner must produce the SAME light.
     std::map<std::pair<int, int>, std::pair<float, float>> per_corner;
     for (const auto& v : mb.get_vertices()) {
-        // Convert fixed-point positions back to float for comparison
-        const float px = snap(static_cast<float>(v.x));
-        const float pz = snap(static_cast<float>(v.z));
+        // Convert Q8.8 fixed-point positions back to float for comparison
+        const float px = snap(static_cast<float>(v.x) / 256.0f);
+        const float pz = snap(static_cast<float>(v.z) / 256.0f);
         if (px != 9.0f || v.nx <= 100) continue;
         if (pz < 1.0f || pz >= 31.0f) continue;  // chunk-border nulls
         const int gy = static_cast<int>(std::lround(snap(static_cast<float>(v.y) / 256.0f)));  // Q8.8 to float

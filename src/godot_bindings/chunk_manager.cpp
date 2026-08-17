@@ -8,6 +8,7 @@
 #include <godot_cpp/classes/node3d.hpp>
 #include <godot_cpp/classes/viewport.hpp>
 #include <godot_cpp/variant/string.hpp>
+#include <godot_cpp/variant/packed_float32_array.hpp>
 
 using namespace godot;
 using namespace VoxelEngine;
@@ -209,6 +210,26 @@ String ChunkManager::get_block_name(int block_id) {
     return controller->get_block_name(block_id);
 }
 
+Array ChunkManager::get_selection_boxes(int block_id) {
+    Array result;
+    const BlockType& bt = BlockRegistry::get_instance().get_block(static_cast<BlockID>(block_id));
+    if (bt.selection_boxes.empty()) {
+        // Default full cube
+        PackedFloat32Array box;
+        box.push_back(0.0f); box.push_back(0.0f); box.push_back(0.0f);
+        box.push_back(1.0f); box.push_back(1.0f); box.push_back(1.0f);
+        result.push_back(box);
+    } else {
+        for (const auto& b : bt.selection_boxes) {
+            PackedFloat32Array box;
+            box.push_back(b.min[0]); box.push_back(b.min[1]); box.push_back(b.min[2]);
+            box.push_back(b.max[0]); box.push_back(b.max[1]); box.push_back(b.max[2]);
+            result.push_back(box);
+        }
+    }
+    return result;
+}
+
 Dictionary ChunkManager::resolve_voxel_collision(const godot::Vector3& position, const godot::Vector3& motion, const godot::Vector3& size) {
     auto result = controller->resolve_voxel_collision(position, motion, size);
     Dictionary dict;
@@ -322,6 +343,7 @@ void ChunkManager::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_block", "world_x", "world_y", "world_z", "block_id"), &ChunkManager::set_block);
     ClassDB::bind_method(D_METHOD("get_block", "world_x", "world_y", "world_z"), &ChunkManager::get_block);
     ClassDB::bind_method(D_METHOD("get_block_name", "block_id"), &ChunkManager::get_block_name);
+    ClassDB::bind_method(D_METHOD("get_selection_boxes", "block_id"), &ChunkManager::get_selection_boxes);
     ClassDB::bind_method(D_METHOD("resolve_voxel_collision", "position", "motion", "size"), &ChunkManager::resolve_voxel_collision);
 
     ClassDB::bind_method(D_METHOD("save_world_metadata"), &ChunkManager::save_world_metadata);

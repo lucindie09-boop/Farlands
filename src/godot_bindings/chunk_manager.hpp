@@ -91,6 +91,7 @@ public:
     void set_block(int32_t world_x, int32_t world_y, int32_t world_z, int block_id);
     int get_block(int32_t world_x, int32_t world_y, int32_t world_z);
     godot::String get_block_name(int block_id);
+    godot::Array get_selection_boxes(int block_id);
 
     godot::Dictionary resolve_voxel_collision(const godot::Vector3& position, const godot::Vector3& motion, const godot::Vector3& size);
 

@@ -204,6 +204,7 @@ CollisionResolver::CollisionResult CollisionResolver::resolve(
 
 bool CollisionResolver::is_aabb_solid_fast(const AABB& aabb) const {
     if (!chunk_map_) return false;
+    const BlockRegistry& registry = BlockRegistry::get_instance();
     int32_t min_x = static_cast<int32_t>(std::floor(aabb.position.x));
     int32_t min_y = static_cast<int32_t>(std::floor(aabb.position.y));
     int32_t min_z = static_cast<int32_t>(std::floor(aabb.position.z));
@@ -214,8 +215,15 @@ bool CollisionResolver::is_aabb_solid_fast(const AABB& aabb) const {
     for (int32_t y = min_y; y <= max_y; ++y) {
         for (int32_t z = min_z; z <= max_z; ++z) {
             for (int32_t x = min_x; x <= max_x; ++x) {
-                if (chunk_map_->is_block_solid_fast(x, y, z)) {
-                    return true;
+                BlockID bid = static_cast<BlockID>(chunk_map_->get_block_world_fast(x, y, z));
+                if (bid == BlockIDs::AIR) continue;
+                const BlockType& bt = registry.get_block_fast(bid);
+                if (bt.is_full_cube()) return true;
+                for (const auto& box : bt.selection_boxes) {
+                    AABB cell_aabb(
+                        Vector3(x + box.min[0], y + box.min[1], z + box.min[2]),
+                        Vector3(box.max[0] - box.min[0], box.max[1] - box.min[1], box.max[2] - box.min[2]));
+                    if (aabb.intersects(cell_aabb)) return true;
                 }
             }
         }

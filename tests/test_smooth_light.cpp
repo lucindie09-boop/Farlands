@@ -9,9 +9,8 @@
 using namespace VoxelEngine;
 
 namespace {
-// Vertices are stored in 1/64 mesh-space increments; snap positions so exact
-// integer coordinates can be compared.
-float snap(float v) { return std::round(v * 64.0f) / 64.0f; }
+// Vertices are stored in Q8.8 fixed-point (1/256 block increments).
+float snap(float v) { return std::round(v * 256.0f) / 256.0f; }
 } // namespace
 
 TEST_CASE("smooth lighting ignores occluding samples at face corners") {
@@ -52,10 +51,10 @@ TEST_CASE("smooth lighting ignores occluding samples at face corners") {
     float min_sky = 1e9f, max_sky = -1e9f;
     int count = 0;
     for (const auto& v : mb.get_vertices()) {
-        // Convert fixed-point positions back to float for comparison
-        const float px = snap(static_cast<float>(v.x));
-        const float py = snap(static_cast<float>(v.y) / 256.0f);  // Q8.8 to float
-        const float pz = snap(static_cast<float>(v.z));
+        // Convert Q8.8 fixed-point positions back to float for comparison
+        const float px = snap(static_cast<float>(v.x) / 256.0f);
+        const float py = snap(static_cast<float>(v.y) / 256.0f);
+        const float pz = snap(static_cast<float>(v.z) / 256.0f);
         if (px == 17.0f && py >= 12.0f && py <= 20.0f && pz >= 16.0f && pz <= 17.0f) {
             const float sky = static_cast<float>(v.sky_light);
             min_sky = std::min(min_sky, sky);

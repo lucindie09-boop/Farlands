@@ -147,6 +147,9 @@ private:
     // Chunks currently built at the mid tier, used to remesh mid->far
     // downgrades that fall outside the reprioritize transition shells.
     std::unordered_set<uint64_t> active_mid_detail_chunks_;
+    // Chunks currently built at the far detail tier. Tracked so the active-set
+    // sweep can detect far→mid upgrades that are missed by the shell scans.
+    std::unordered_set<uint64_t> active_far_detail_chunks_;
     std::queue<CompletedRegionMesh> completed_far_region_meshes;
     mutable std::mutex completed_far_region_meshes_mutex;
     std::atomic<int32_t> completed_far_region_mesh_count{0};

@@ -112,6 +112,7 @@ void BlockEditor::place_block(int32_t world_x, int32_t world_y, int32_t world_z,
         if (!is_local_in_bounds(local_x, local_y, local_z)) return;
 
         const BlockID old_block = chunk_data->get_block_unsafe(local_x, local_y, local_z);
+        if (old_block != BlockIDs::AIR && new_block != BlockIDs::AIR) return;
         if (old_block == new_block) return;
 
         const BlockRegistry& registry = BlockRegistry::get_instance();

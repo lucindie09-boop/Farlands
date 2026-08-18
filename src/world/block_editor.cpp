@@ -112,7 +112,8 @@ void BlockEditor::place_block(int32_t world_x, int32_t world_y, int32_t world_z,
         if (!is_local_in_bounds(local_x, local_y, local_z)) return;
 
         const BlockID old_block = chunk_data->get_block_unsafe(local_x, local_y, local_z);
-        const bool is_merge = BlockIDs::is_oak_slab(old_block) && new_block == BlockIDs::OAK_DOUBLE_SLAB;
+        const bool is_merge = (BlockIDs::is_oak_slab(old_block) && new_block == BlockIDs::OAK_DOUBLE_SLAB)
+                           || (BlockIDs::is_oak_wall(old_block) && new_block == BlockIDs::OAK_WALL_FULL);
         if (old_block != BlockIDs::AIR && new_block != BlockIDs::AIR && !is_merge) return;
         if (old_block == new_block) return;
 
@@ -314,7 +315,19 @@ Dictionary BlockEditor::raycast(godot::Node* chunk_manager, const NodePath& play
             if (hit_any) {
                 result["success"] = true;
                 result["position"] = Vector3(current_x, current_y, current_z);
-                result["place_position"] = Vector3(current_x, current_y, current_z) + hit_normal;
+                Vector3 hit_pt = ray_origin + ray_dir * closest_t;
+                Vector3 frac = hit_pt - Vector3(current_x, current_y, current_z);
+                const double EPS = 1e-6;
+                bool at_boundary = false;
+                if (std::abs(hit_normal.x) > 0.5)
+                    at_boundary = (hit_normal.x > 0) ? (frac.x > 1.0 - EPS) : (frac.x < EPS);
+                else if (std::abs(hit_normal.y) > 0.5)
+                    at_boundary = (hit_normal.y > 0) ? (frac.y > 1.0 - EPS) : (frac.y < EPS);
+                else if (std::abs(hit_normal.z) > 0.5)
+                    at_boundary = (hit_normal.z > 0) ? (frac.z > 1.0 - EPS) : (frac.z < EPS);
+                result["place_position"] = at_boundary
+                    ? Vector3(current_x, current_y, current_z) + hit_normal
+                    : Vector3(current_x, current_y, current_z);
                 result["block_id"] = static_cast<int>(bid);
                 result["hit_normal"] = hit_normal;
                 result["hit_point"] = ray_origin + ray_dir * closest_t;

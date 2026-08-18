@@ -33,6 +33,7 @@ bool AmbientOcclusion::is_occluding(BlockID block_id, const BlockRegistry& regis
     // (vertex_level checks via ChunkNeighborAccessor, compute_face via ChunkData::get_block)
     // and world-gen/edit_map loading ensure only valid registered IDs are assigned.
     const BlockType& type = registry.get_block_fast(block_id);
+    if (!type.is_full_cube()) return false;
     return HasProperty(type.properties, BlockProperty::Opaque) ||
            HasProperty(type.properties, BlockProperty::Solid);
 }

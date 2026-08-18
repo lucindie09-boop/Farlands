@@ -219,7 +219,7 @@ bool CollisionResolver::is_aabb_solid_fast(const AABB& aabb) const {
                 if (bid == BlockIDs::AIR) continue;
                 const BlockType& bt = registry.get_block_fast(bid);
                 if (bt.is_full_cube()) return true;
-                for (const auto& box : bt.selection_boxes) {
+                for (const auto& box : bt.get_collision_boxes()) {
                     AABB cell_aabb(
                         Vector3(x + box.min[0], y + box.min[1], z + box.min[2]),
                         Vector3(box.max[0] - box.min[0], box.max[1] - box.min[1], box.max[2] - box.min[2]));

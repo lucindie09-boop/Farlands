@@ -100,7 +100,11 @@ void MeshBuilder::add_aabb_face(const ChunkData& chunk, const ChunkNeighborAcces
     }
 
     uint16_t light_keys[4];
-    light_keys[0] = light_keys[1] = light_keys[2] = light_keys[3] = light_key;
+    if (smooth_lighting_enabled) {
+        compute_smooth_light(accessor, registry, x, y, z, direction, light_keys, stride_xz_);
+    } else {
+        light_keys[0] = light_keys[1] = light_keys[2] = light_keys[3] = light_key;
+    }
 
     bool flip = (ao[0] + ao[2]) < (ao[1] + ao[3]);
 

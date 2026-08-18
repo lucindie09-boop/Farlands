@@ -70,7 +70,7 @@
     "slipperiness": 0.6
   },
   {
-    "name": "wood",
+    "name": "oak_log",
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, true, true, true],
     "textures": ["wood_side", "wood_side", "wood_top", "wood_top", "wood_side", "wood_side"],
@@ -222,6 +222,7 @@
   },
   {
     "name": "oak_slab_top",
+    "hidden": true,
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, true, true, true],
     "textures": ["wood_side", "wood_side", "wood_top", "wood_top", "wood_side", "wood_side"],
@@ -266,6 +267,7 @@
   },
   {
     "name": "oak_double_slab",
+    "hidden": true,
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, true, true, true],
     "textures": ["wood_side", "wood_side", "wood_top", "wood_top", "wood_side", "wood_side"],

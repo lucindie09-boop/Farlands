@@ -111,6 +111,55 @@ void MeshBuilder::add_aabb_face(const ChunkData& chunk, const ChunkNeighborAcces
     float corners[4][3];
     compute_aabb_face_corners(corners, x, y, z, direction, aabb_min, aabb_max);
 
+    // Compute UV scaling based on AABB dimensions (for partial blocks like slabs/stairs)
+    float uv_scale_u = aabb_max[0] - aabb_min[0];
+    float uv_scale_v = aabb_max[1] - aabb_min[1];
+    float uv_offset_u = aabb_min[0];
+    float uv_offset_v = aabb_min[1];
+
+    // Adjust UV scale/offset based on face direction
+    // For side faces, V coordinate should map from top of block (y=1) downward
+    bool invert_v = false;
+    bool invert_u = false;
+    switch (direction) {
+        case FaceDirection::Top:
+            uv_scale_u = aabb_max[0] - aabb_min[0];
+            uv_scale_v = aabb_max[2] - aabb_min[2];
+            uv_offset_u = aabb_min[0];
+            uv_offset_v = aabb_min[2];
+            break;
+        case FaceDirection::Bottom:
+            uv_scale_u = aabb_max[0] - aabb_min[0];
+            uv_scale_v = aabb_max[2] - aabb_min[2];
+            uv_offset_u = aabb_min[0];
+            uv_offset_v = aabb_min[2];
+            invert_v = true; // Invert V for bottom face so texture maps correctly
+            break;
+        case FaceDirection::Right:
+            uv_scale_u = aabb_max[2] - aabb_min[2];
+            uv_scale_v = aabb_max[1] - aabb_min[1];
+            uv_offset_u = aabb_min[2];
+            // For side faces, map V from top of block (y=1) down to the AABB top
+            uv_offset_v = 1.0f - aabb_max[1];
+            break;
+        case FaceDirection::Left:
+            uv_scale_u = aabb_max[2] - aabb_min[2];
+            uv_scale_v = aabb_max[1] - aabb_min[1];
+            uv_offset_u = aabb_min[2];
+            // For side faces, map V from top of block (y=1) down to the AABB top
+            uv_offset_v = 1.0f - aabb_max[1];
+            invert_u = true; // Invert U for left face to fix horizontal mirroring on stair L side
+            break;
+        case FaceDirection::Front:
+        case FaceDirection::Back:
+            uv_scale_u = aabb_max[0] - aabb_min[0];
+            uv_scale_v = aabb_max[1] - aabb_min[1];
+            uv_offset_u = aabb_min[0];
+            // For side faces, map V from top of block (y=1) down to the AABB top
+            uv_offset_v = 1.0f - aabb_max[1];
+            break;
+    }
+
     for (int i = 0; i < 4; i++) {
         Vertex v;
         v.x = static_cast<uint16_t>(std::lroundf(corners[i][0] * 256.0f));
@@ -119,8 +168,11 @@ void MeshBuilder::add_aabb_face(const ChunkData& chunk, const ChunkNeighborAcces
         v.nx = static_cast<int8_t>(kFaceNormals[dir_index][0] * 127.0f);
         v.ny = static_cast<int8_t>(kFaceNormals[dir_index][1] * 127.0f);
         v.nz = static_cast<int8_t>(kFaceNormals[dir_index][2] * 127.0f);
-        v.u = kFaceUVs[i][0];
-        v.v = kFaceUVs[i][1];
+        // Scale UVs based on AABB dimensions so partial blocks sample correct texture region
+        float base_u = kFaceUVs[i][0] * uv_scale_u + uv_offset_u;
+        v.u = invert_u ? (1.0f - base_u) : base_u;
+        float base_v = kFaceUVs[i][1] * uv_scale_v + uv_offset_v;
+        v.v = invert_v ? (1.0f - base_v) : base_v;
         v.texture_index = static_cast<uint16_t>(texture_idx);
         v.ao = AmbientOcclusion::pack_vertex_ao(ao[i], direction);
         v.emissive_index = static_cast<uint8_t>(emissive_idx);

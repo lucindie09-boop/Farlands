@@ -496,6 +496,9 @@ func _run_command(raw: String):
 			if block_id <= 0:
 				_add_message("Unknown block: %s" % parts[1], COLOR_ERROR)
 				return
+			if BlockTextures.is_hidden(block_id):
+				_add_message("Unknown block: %s" % parts[1], COLOR_ERROR)
+				return
 			var count := 1
 			if parts.size() >= 3:
 				count = int(parts[2].to_float())

@@ -264,16 +264,20 @@ void PlayerController::break_block() {
         
         // Remap slab variants to oak_slab for inventory consistency
         BlockID collect_id = static_cast<BlockID>(block_type);
-        if (collect_id == BlockIDs::OAK_SLAB_TOP || collect_id == BlockIDs::OAK_DOUBLE_SLAB)
+        int collect_count = 1;
+        if (collect_id == BlockIDs::OAK_SLAB_TOP || collect_id == BlockIDs::OAK_DOUBLE_SLAB) {
+            if (collect_id == BlockIDs::OAK_DOUBLE_SLAB)
+                collect_count = 2;
             collect_id = BlockIDs::OAK_SLAB;
+        }
         
         // Only break if we can add it to inventory (and it's not air)
-        if (block_type != 0 && inventory_.can_add_block(collect_id, 1)) {
+        if (block_type != 0 && inventory_.can_add_block(collect_id, collect_count)) {
             // Break the block
             cm->set_block(bx, by, bz, 0);
 
             // Add to inventory
-            inventory_.add_block(collect_id, 1);
+            inventory_.add_block(collect_id, collect_count);
 
             // Increment edit counter to invalidate block outline
             block_edit_counter_++;

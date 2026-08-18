@@ -262,13 +262,17 @@ void PlayerController::break_block() {
         // Get the block type before breaking
         int block_type = cm->get_block(bx, by, bz);
         
-        // Remap slab variants to oak_slab for inventory consistency
+        // Remap block variants to base IDs for inventory consistency
         BlockID collect_id = static_cast<BlockID>(block_type);
         int collect_count = 1;
         if (collect_id == BlockIDs::OAK_SLAB_TOP || collect_id == BlockIDs::OAK_DOUBLE_SLAB) {
             if (collect_id == BlockIDs::OAK_DOUBLE_SLAB)
                 collect_count = 2;
             collect_id = BlockIDs::OAK_SLAB;
+        } else if (BlockIDs::is_oak_stairs(collect_id)) {
+            collect_id = BlockIDs::OAK_STAIRS_N;
+        } else if (BlockIDs::is_oak_wall(collect_id)) {
+            collect_id = BlockIDs::OAK_WALL_N;
         }
         
         // Only break if we can add it to inventory (and it's not air)
@@ -334,6 +338,75 @@ void PlayerController::place_block() {
                 Vector3 hit_point = result["hit_point"];
                 double frac_y = hit_point.y - by;
                 final_block = (frac_y < 0.5) ? BlockIDs::OAK_SLAB : BlockIDs::OAK_SLAB_TOP;
+            }
+        }
+
+        // Stair auto-detection: pick rotation from face hit and player direction
+        if (BlockIDs::is_oak_stairs(block_to_place)) {
+            Vector3 hit_normal = Vector3(result["hit_normal"]);
+            Vector3 ppos_stair = get_global_position();
+
+            if (std::abs(hit_normal.y) > 0.5) {
+                // Horizontal face: compute player-to-target direction for rotation
+                double dx = ppos_stair.x - (bx + 0.5);
+                double dz = ppos_stair.z - (bz + 0.5);
+                bool up = hit_normal.y < 0; // bottom face = upside-down
+
+                if (std::abs(dx) > std::abs(dz)) {
+                    final_block = (dx > 0)
+                        ? (up ? BlockIDs::OAK_STAIRS_W_UP : BlockIDs::OAK_STAIRS_W)
+                        : (up ? BlockIDs::OAK_STAIRS_E_UP : BlockIDs::OAK_STAIRS_E);
+                } else {
+                    final_block = (dz > 0)
+                        ? (up ? BlockIDs::OAK_STAIRS_N_UP : BlockIDs::OAK_STAIRS_N)
+                        : (up ? BlockIDs::OAK_STAIRS_S_UP : BlockIDs::OAK_STAIRS_S);
+                }
+            } else {
+                // Side face: step goes against the clicked face; upper portion = upside-down
+                Vector3 hit_point = result["hit_point"];
+                double frac_y = hit_point.y - by;
+                bool up = (frac_y > 0.75);
+                double nx = hit_normal.x, nz = hit_normal.z;
+                if (std::abs(nx) > std::abs(nz)) {
+                    final_block = (nx > 0)
+                        ? (up ? BlockIDs::OAK_STAIRS_W_UP : BlockIDs::OAK_STAIRS_W)
+                        : (up ? BlockIDs::OAK_STAIRS_E_UP : BlockIDs::OAK_STAIRS_E);
+                } else {
+                    final_block = (nz > 0)
+                        ? (up ? BlockIDs::OAK_STAIRS_N_UP : BlockIDs::OAK_STAIRS_N)
+                        : (up ? BlockIDs::OAK_STAIRS_S_UP : BlockIDs::OAK_STAIRS_S);
+                }
+            }
+        }
+
+        // Wall auto-detection: orient from face hit, merge if target has wall
+        if (BlockIDs::is_oak_wall(block_to_place)) {
+            Vector3 hit_normal = Vector3(result["hit_normal"]);
+            BlockID target_block = static_cast<BlockID>(cm->get_block(bx, by, bz));
+
+            if (BlockIDs::is_oak_wall(target_block) && target_block != BlockIDs::OAK_WALL_FULL) {
+                // Side face, target cell already has a wall — merge there
+                final_block = BlockIDs::OAK_WALL_FULL;
+            } else if (std::abs(hit_normal.y) > 0.5) {
+                // Top/bottom face: wall sits on the edge closest to hit point
+                Vector3 hit_point = result["hit_point"];
+                double frac_x = hit_point.x - bx;
+                double frac_z = hit_point.z - bz;
+                double off_x = std::abs(frac_x - 0.5);
+                double off_z = std::abs(frac_z - 0.5);
+                if (off_x > off_z) {
+                    final_block = (frac_x > 0.5) ? BlockIDs::OAK_WALL_E : BlockIDs::OAK_WALL_W;
+                } else {
+                    final_block = (frac_z > 0.5) ? BlockIDs::OAK_WALL_S : BlockIDs::OAK_WALL_N;
+                }
+            } else {
+                // Side face: wall panel hugs the clicked block (flat side toward it)
+                double nx = hit_normal.x, nz = hit_normal.z;
+                if (std::abs(nx) > std::abs(nz)) {
+                    final_block = (nx > 0) ? BlockIDs::OAK_WALL_W : BlockIDs::OAK_WALL_E;
+                } else {
+                    final_block = (nz > 0) ? BlockIDs::OAK_WALL_N : BlockIDs::OAK_WALL_S;
+                }
             }
         }
 

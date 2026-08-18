@@ -86,11 +86,20 @@ struct BlockType {
     // Empty vector = full cube (default). Used by collision, raycast, outline, and mesh builder.
     std::vector<BlockAABB> selection_boxes{};
 
+    // Optional override for collision only. When non-empty, collision queries use this
+    // instead of selection_boxes. Raycast, mesh, and outline still use selection_boxes.
+    std::vector<BlockAABB> collision_boxes{};
+
     // Cached flag: true when selection_boxes is a single full cube [0,0,0,1,1,1].
     // Checked on hot paths (greedy meshing, collision, AO) for zero-overhead fast path.
     bool full_cube_ = true;
 
     [[nodiscard]] bool is_full_cube() const noexcept { return full_cube_; }
+
+    // Returns collision_boxes if set, otherwise falls back to selection_boxes.
+    [[nodiscard]] const std::vector<BlockAABB>& get_collision_boxes() const noexcept {
+        return collision_boxes.empty() ? selection_boxes : collision_boxes;
+    }
 };
 
 // -----------------------------------------------------------------------------
@@ -200,13 +209,32 @@ namespace BlockIDs {
     constexpr BlockID CACTUS         = 20;
     constexpr BlockID OAK_SLAB       = 21;
     constexpr BlockID OAK_SLAB_TOP   = 22;
-    constexpr BlockID OAK_STAIRS     = 23;
+    constexpr BlockID OAK_STAIRS_N     = 23;
     constexpr BlockID OAK_FENCE      = 24;
-    constexpr BlockID OAK_WALL       = 25;
+    constexpr BlockID OAK_WALL_N     = 25;
     constexpr BlockID OAK_DOUBLE_SLAB = 26;
+    constexpr BlockID OAK_STAIRS_S     = 27;
+    constexpr BlockID OAK_STAIRS_E     = 28;
+    constexpr BlockID OAK_STAIRS_W     = 29;
+    constexpr BlockID OAK_STAIRS_N_UP  = 30;
+    constexpr BlockID OAK_STAIRS_S_UP  = 31;
+    constexpr BlockID OAK_STAIRS_E_UP  = 32;
+    constexpr BlockID OAK_STAIRS_W_UP  = 33;
+    constexpr BlockID OAK_WALL_S     = 34;
+    constexpr BlockID OAK_WALL_E     = 35;
+    constexpr BlockID OAK_WALL_W     = 36;
+    constexpr BlockID OAK_WALL_FULL  = 37;
 
     constexpr bool is_oak_slab(BlockID id) {
         return id == OAK_SLAB || id == OAK_SLAB_TOP;
+    }
+
+    constexpr bool is_oak_stairs(BlockID id) {
+        return (id >= OAK_STAIRS_N && id <= OAK_STAIRS_W_UP) && id != OAK_FENCE;
+    }
+
+    constexpr bool is_oak_wall(BlockID id) {
+        return id == OAK_WALL_N || id == OAK_WALL_S || id == OAK_WALL_E || id == OAK_WALL_W || id == OAK_WALL_FULL;
     }
 }
 

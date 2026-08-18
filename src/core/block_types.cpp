@@ -138,6 +138,26 @@ bool BlockRegistry::load_from_json(const godot::String& json_path) noexcept {
             }
         }
 
+        // collision_boxes: optional override for collision only
+        if (d.has("collision_boxes")) {
+            godot::Array cboxes = d["collision_boxes"];
+            bt.collision_boxes.clear();
+            bt.collision_boxes.reserve(static_cast<size_t>(cboxes.size()));
+            for (int b = 0; b < static_cast<int>(cboxes.size()); ++b) {
+                godot::Array box = cboxes[b];
+                if (box.size() >= 6) {
+                    BlockAABB aabb;
+                    aabb.min[0] = static_cast<float>(static_cast<double>(box[0]));
+                    aabb.min[1] = static_cast<float>(static_cast<double>(box[1]));
+                    aabb.min[2] = static_cast<float>(static_cast<double>(box[2]));
+                    aabb.max[0] = static_cast<float>(static_cast<double>(box[3]));
+                    aabb.max[1] = static_cast<float>(static_cast<double>(box[4]));
+                    aabb.max[2] = static_cast<float>(static_cast<double>(box[5]));
+                    bt.collision_boxes.push_back(aabb);
+                }
+            }
+        }
+
         // Compute cached full_cube_ flag
         bt.full_cube_ = (bt.selection_boxes.empty()) ||
             (bt.selection_boxes.size() == 1 &&

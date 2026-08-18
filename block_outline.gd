@@ -60,63 +60,53 @@ func _rebuild_outline_mesh():
 	if _current_boxes.is_empty():
 		return
 
-	var half = outline_thickness * 0.01
+	# Process per-axis: for each face plane, faces from both directions
+	# (positive and negative normals) are XORed so internal faces
+	# (covered on both sides) are excluded.
+	var edge_set := {}
+	var verts := PackedVector3Array()
+	var indices := PackedInt32Array()
 
-	var verts = PackedVector3Array()
-	var indices = PackedInt32Array()
+	# axis -> [u_axis, v_axis]
+	var axis_uv := [[1, 2], [0, 2], [0, 1]]
 
-	for box in _current_boxes:
-		var bmin = Vector3(box[0], box[1], box[2])
-		var bmax = Vector3(box[3], box[4], box[5])
+	for axis in 3:
+		var u_axis: int = axis_uv[axis][0]
+		var v_axis: int = axis_uv[axis][1]
 
-		var corners = [
-			Vector3(bmin.x, bmin.y, bmin.z),
-			Vector3(bmax.x, bmin.y, bmin.z),
-			Vector3(bmax.x, bmax.y, bmin.z),
-			Vector3(bmin.x, bmax.y, bmin.z),
-			Vector3(bmin.x, bmin.y, bmax.z),
-			Vector3(bmax.x, bmin.y, bmax.z),
-			Vector3(bmax.x, bmax.y, bmax.z),
-			Vector3(bmin.x, bmax.y, bmax.z)
-		]
+		# Collect all plane positions from both min and max of each box
+		var plane_positions: Array = []
+		for box in _current_boxes:
+			var neg_pos: float = box[axis]
+			var pos_pos: float = box[3 + axis]
+			var found_neg := false
+			var found_pos := false
+			for p in plane_positions:
+				if absf(p - neg_pos) < 0.0001:
+					found_neg = true
+				if absf(p - pos_pos) < 0.0001:
+					found_pos = true
+			if not found_neg:
+				plane_positions.append(neg_pos)
+			if not found_pos:
+				plane_positions.append(pos_pos)
+		plane_positions.sort()
 
-		var edges = [
-			[0, 1], [1, 2], [2, 3], [3, 0],
-			[4, 5], [5, 6], [6, 7], [7, 4],
-			[0, 4], [1, 5], [2, 6], [3, 7]
-		]
+		# For each plane position, collect positive-dir and negative-dir rects
+		for fp in plane_positions:
+			var pos_rects: Array = []  # faces with normal in +axis direction
+			var neg_rects: Array = []  # faces with normal in -axis direction
 
-		for edge in edges:
-			var p0 = corners[edge[0]]
-			var p1 = corners[edge[1]]
-			var dir = (p1 - p0).normalized()
-			if p0.distance_to(p1) < 0.001:
-				continue
+			for box in _current_boxes:
+				# Positive-direction face (at box max on this axis)
+				if absf(box[3 + axis] - fp) < 0.0001:
+					pos_rects.append([box[u_axis], box[3 + u_axis], box[v_axis], box[3 + v_axis]])
+				# Negative-direction face (at box min on this axis)
+				if absf(box[axis] - fp) < 0.0001:
+					neg_rects.append([box[u_axis], box[3 + u_axis], box[v_axis], box[3 + v_axis]])
 
-			var perps = _get_edge_perpendiculars(dir)
-			var right = perps[0] * half
-			var up = perps[1] * half
-
-			var base = verts.size()
-			# 8 vertices: 4 around p0, 4 around p1
-			verts.append(p0 - right - up)  # 0
-			verts.append(p0 + right - up)  # 1
-			verts.append(p0 + right + up)  # 2
-			verts.append(p0 - right + up)  # 3
-			verts.append(p1 - right - up)  # 4
-			verts.append(p1 + right - up)  # 5
-			verts.append(p1 + right + up)  # 6
-			verts.append(p1 - right + up)  # 7
-
-			# 4 side faces (2 triangles each)
-			# Face 0: -right side
-			indices.append_array([base+0, base+4, base+7, base+0, base+7, base+3])
-			# Face 1: +right side
-			indices.append_array([base+1, base+2, base+6, base+1, base+6, base+5])
-			# Face 2: -up side
-			indices.append_array([base+0, base+5, base+4, base+0, base+1, base+5])
-			# Face 3: +up side
-			indices.append_array([base+3, base+7, base+6, base+3, base+6, base+2])
+			# XOR: surface exists where exactly one side is solid
+			_emit_xor_perimeter(axis, u_axis, v_axis, fp, pos_rects, neg_rects, edge_set, verts, indices)
 
 	if verts.size() == 0:
 		return
@@ -135,6 +125,160 @@ func _rebuild_outline_mesh():
 	outline_mesh.material_override = _outline_material
 	add_child(outline_mesh)
 
+func _emit_xor_perimeter(axis: int, u_axis: int, v_axis: int, fp: float,
+		pos_rects: Array, neg_rects: Array,
+		edge_set: Dictionary, verts: PackedVector3Array, indices: PackedInt32Array) -> void:
+	# Find exposed cells where solid is on one side but not the other.
+	var all_rects: Array = pos_rects + neg_rects
+	if all_rects.is_empty():
+		return
+
+	# Single rect in only one direction — emit its 4 edges directly
+	if pos_rects.size() + neg_rects.size() == 1:
+		var r: Array = all_rects[0]
+		_emit_face_edges(axis, u_axis, v_axis, fp, r[0], r[1], r[2], r[3], edge_set, verts, indices)
+		return
+
+	# Collect unique u and v coordinates from all rectangles
+	var u_vals: Array = []
+	var v_vals: Array = []
+	for r in all_rects:
+		u_vals.append(r[0])
+		u_vals.append(r[1])
+		v_vals.append(r[2])
+		v_vals.append(r[3])
+	u_vals.sort()
+	v_vals.sort()
+
+	# Deduplicate near-equal values
+	var u_unique: Array = [u_vals[0]]
+	var v_unique: Array = [v_vals[0]]
+	for i in range(1, u_vals.size()):
+		if absf(u_vals[i] - u_unique[-1]) > 0.0001:
+			u_unique.append(u_vals[i])
+	for i in range(1, v_vals.size()):
+		if absf(v_vals[i] - v_unique[-1]) > 0.0001:
+			v_unique.append(v_vals[i])
+
+	var cols: int = u_unique.size() - 1
+	var rows: int = v_unique.size() - 1
+	if cols < 1 or rows < 1:
+		return
+
+	# Build pos_mask and neg_mask grids
+	var pos_mask: Array = []
+	var neg_mask: Array = []
+	pos_mask.resize(cols * rows)
+	neg_mask.resize(cols * rows)
+	pos_mask.fill(false)
+	neg_mask.fill(false)
+
+	for r in pos_rects:
+		for ci in cols:
+			var cu: float = (u_unique[ci] + u_unique[ci + 1]) * 0.5
+			if cu < r[0] or cu > r[1]:
+				continue
+			for ri in rows:
+				var cv: float = (v_unique[ri] + v_unique[ri + 1]) * 0.5
+				if cv >= r[2] and cv <= r[3]:
+					pos_mask[ci + ri * cols] = true
+
+	for r in neg_rects:
+		for ci in cols:
+			var cu: float = (u_unique[ci] + u_unique[ci + 1]) * 0.5
+			if cu < r[0] or cu > r[1]:
+				continue
+			for ri in rows:
+				var cv: float = (v_unique[ri] + v_unique[ri + 1]) * 0.5
+				if cv >= r[2] and cv <= r[3]:
+					neg_mask[ci + ri * cols] = true
+
+	# XOR: surface exists where exactly one side is solid
+	var filled: Array = []
+	filled.resize(cols * rows)
+	for i in cols * rows:
+		filled[i] = pos_mask[i] != neg_mask[i]
+
+	# Emit perimeter edges
+	# Horizontal edges (along u, between rows)
+	for ci in cols:
+		for ri in range(0, rows + 1):
+			var above: bool = (ri > 0 and filled[ci + (ri - 1) * cols])
+			var below: bool = (ri < rows and filled[ci + ri * cols])
+			if above != below:
+				var p0 := Vector3.ZERO
+				var p1 := Vector3.ZERO
+				p0[axis] = fp
+				p0[u_axis] = u_unique[ci]
+				p0[v_axis] = v_unique[ri]
+				p1[axis] = fp
+				p1[u_axis] = u_unique[ci + 1]
+				p1[v_axis] = v_unique[ri]
+				_add_outline_edge(p0, p1, edge_set, verts, indices)
+
+	# Vertical edges (along v, between columns)
+	for ri in rows:
+		for ci in range(0, cols + 1):
+			var left: bool = (ci > 0 and filled[(ci - 1) + ri * cols])
+			var right: bool = (ci < cols and filled[ci + ri * cols])
+			if left != right:
+				var p0 := Vector3.ZERO
+				var p1 := Vector3.ZERO
+				p0[axis] = fp
+				p0[u_axis] = u_unique[ci]
+				p0[v_axis] = v_unique[ri]
+				p1[axis] = fp
+				p1[u_axis] = u_unique[ci]
+				p1[v_axis] = v_unique[ri + 1]
+				_add_outline_edge(p0, p1, edge_set, verts, indices)
+
+func _emit_face_edges(axis: int, u_axis: int, v_axis: int,
+		fp: float, u_min: float, u_max: float, v_min: float, v_max: float,
+		edge_set: Dictionary, verts: PackedVector3Array, indices: PackedInt32Array) -> void:
+	var c := []
+	for ci in 4:
+		var v := Vector3.ZERO
+		v[axis] = fp
+		v[u_axis] = u_min if ci < 2 else u_max
+		v[v_axis] = v_min if ci == 0 or ci == 3 else v_max
+		c.append(v)
+	for ci in 4:
+		_add_outline_edge(c[ci], c[(ci + 1) % 4], edge_set, verts, indices)
+
+func _add_outline_edge(p0: Vector3, p1: Vector3,
+		edge_set: Dictionary, verts: PackedVector3Array, indices: PackedInt32Array) -> void:
+	if p0.distance_to(p1) < 0.001:
+		return
+	var key: String
+	if p0.x < p1.x or (is_equal_approx(p0.x, p1.x) and (p0.y < p1.y or (is_equal_approx(p0.y, p1.y) and p0.z < p1.z))):
+		key = "%f_%f_%f_%f_%f_%f" % [p0.x, p0.y, p0.z, p1.x, p1.y, p1.z]
+	else:
+		key = "%f_%f_%f_%f_%f_%f" % [p1.x, p1.y, p1.z, p0.x, p0.y, p0.z]
+	if edge_set.has(key):
+		return
+	edge_set[key] = true
+
+	var dir = (p1 - p0).normalized()
+	var perps = _get_edge_perpendiculars(dir)
+	var half = outline_thickness * 0.01
+	var right = perps[0] * half
+	var up = perps[1] * half
+
+	var base = verts.size()
+	verts.append(p0 - right - up)
+	verts.append(p0 + right - up)
+	verts.append(p0 + right + up)
+	verts.append(p0 - right + up)
+	verts.append(p1 - right - up)
+	verts.append(p1 + right - up)
+	verts.append(p1 + right + up)
+	verts.append(p1 - right + up)
+
+	indices.append_array([base+0, base+4, base+7, base+0, base+7, base+3])
+	indices.append_array([base+1, base+2, base+6, base+1, base+6, base+5])
+	indices.append_array([base+0, base+5, base+4, base+0, base+1, base+5])
+	indices.append_array([base+3, base+7, base+6, base+3, base+6, base+2])
+
 func _create_fill():
 	fill_mesh = MeshInstance3D.new()
 	var mesh = BoxMesh.new()
@@ -144,6 +288,23 @@ func _create_fill():
 	fill_mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	fill_mesh.visible = false
 	add_child(fill_mesh)
+
+func _update_fill_for_boxes():
+	if _current_boxes.is_empty():
+		return
+	var bmin = Vector3(INF, INF, INF)
+	var bmax = Vector3(-INF, -INF, -INF)
+	for box in _current_boxes:
+		bmin.x = minf(bmin.x, box[0])
+		bmin.y = minf(bmin.y, box[1])
+		bmin.z = minf(bmin.z, box[2])
+		bmax.x = maxf(bmax.x, box[3])
+		bmax.y = maxf(bmax.y, box[4])
+		bmax.z = maxf(bmax.z, box[5])
+	var size = bmax - bmin
+	var pad = 0.001
+	fill_mesh.mesh.size = size + Vector3(pad, pad, pad)
+	fill_mesh.position = (bmin + bmax) * 0.5
 
 func _create_materials():
 	_outline_material = StandardMaterial3D.new()
@@ -239,6 +400,7 @@ func _process(delta):
 		_current_block_id = block_id
 		_current_boxes = chunk_manager.get_selection_boxes(block_id)
 		_rebuild_outline_mesh()
+		_update_fill_for_boxes()
 	elif outline_thickness != _current_thickness:
 		_rebuild_outline_mesh()
 

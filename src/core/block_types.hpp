@@ -203,6 +203,11 @@ namespace BlockIDs {
     constexpr BlockID OAK_STAIRS     = 23;
     constexpr BlockID OAK_FENCE      = 24;
     constexpr BlockID OAK_WALL       = 25;
+    constexpr BlockID OAK_DOUBLE_SLAB = 26;
+
+    constexpr bool is_oak_slab(BlockID id) {
+        return id == OAK_SLAB || id == OAK_SLAB_TOP;
+    }
 }
 
 } // namespace VoxelEngine

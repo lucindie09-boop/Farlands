@@ -112,7 +112,8 @@ void BlockEditor::place_block(int32_t world_x, int32_t world_y, int32_t world_z,
         if (!is_local_in_bounds(local_x, local_y, local_z)) return;
 
         const BlockID old_block = chunk_data->get_block_unsafe(local_x, local_y, local_z);
-        if (old_block != BlockIDs::AIR && new_block != BlockIDs::AIR) return;
+        const bool is_merge = BlockIDs::is_oak_slab(old_block) && new_block == BlockIDs::OAK_DOUBLE_SLAB;
+        if (old_block != BlockIDs::AIR && new_block != BlockIDs::AIR && !is_merge) return;
         if (old_block == new_block) return;
 
         const BlockRegistry& registry = BlockRegistry::get_instance();
@@ -272,10 +273,27 @@ Dictionary BlockEditor::raycast(godot::Node* chunk_manager, const NodePath& play
             BlockID bid = static_cast<BlockID>(block);
             const BlockType& bt = registry.get_block_fast(bid);
             if (bt.is_full_cube()) {
+                Vector3 face_normal(
+                    static_cast<double>(prev_x - current_x),
+                    static_cast<double>(prev_y - current_y),
+                    static_cast<double>(prev_z - current_z));
+                double t_face = 0.0;
+                if (face_normal.x != 0.0) {
+                    double fx = (face_normal.x > 0) ? current_x + 1 : current_x;
+                    t_face = (fx - ray_origin.x) / ray_dir.x;
+                } else if (face_normal.y != 0.0) {
+                    double fy = (face_normal.y > 0) ? current_y + 1 : current_y;
+                    t_face = (fy - ray_origin.y) / ray_dir.y;
+                } else {
+                    double fz = (face_normal.z > 0) ? current_z + 1 : current_z;
+                    t_face = (fz - ray_origin.z) / ray_dir.z;
+                }
                 result["success"] = true;
                 result["position"] = Vector3(current_x, current_y, current_z);
                 result["place_position"] = Vector3(prev_x, prev_y, prev_z);
                 result["block_id"] = static_cast<int>(bid);
+                result["hit_normal"] = face_normal;
+                result["hit_point"] = ray_origin + ray_dir * t_face;
                 return result;
             }
             // Non-full block: test ray against each selection_box
@@ -298,6 +316,8 @@ Dictionary BlockEditor::raycast(godot::Node* chunk_manager, const NodePath& play
                 result["position"] = Vector3(current_x, current_y, current_z);
                 result["place_position"] = Vector3(current_x, current_y, current_z) + hit_normal;
                 result["block_id"] = static_cast<int>(bid);
+                result["hit_normal"] = hit_normal;
+                result["hit_point"] = ray_origin + ray_dir * closest_t;
                 return result;
             }
             // No AABB hit — continue DDA to find next block

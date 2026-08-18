@@ -262,13 +262,18 @@ void PlayerController::break_block() {
         // Get the block type before breaking
         int block_type = cm->get_block(bx, by, bz);
         
+        // Remap slab variants to oak_slab for inventory consistency
+        BlockID collect_id = static_cast<BlockID>(block_type);
+        if (collect_id == BlockIDs::OAK_SLAB_TOP || collect_id == BlockIDs::OAK_DOUBLE_SLAB)
+            collect_id = BlockIDs::OAK_SLAB;
+        
         // Only break if we can add it to inventory (and it's not air)
-        if (block_type != 0 && inventory_.can_add_block(block_type, 1)) {
+        if (block_type != 0 && inventory_.can_add_block(collect_id, 1)) {
             // Break the block
             cm->set_block(bx, by, bz, 0);
 
             // Add to inventory
-            inventory_.add_block(block_type, 1);
+            inventory_.add_block(collect_id, 1);
 
             // Increment edit counter to invalidate block outline
             block_edit_counter_++;
@@ -296,6 +301,38 @@ void PlayerController::place_block() {
         int by = static_cast<int>(std::floor(place_pos.y));
         int bz = static_cast<int>(std::floor(place_pos.z));
 
+        // Slab auto-detection: merge halves into double slab, or pick top/bottom orientation
+        BlockID final_block = block_to_place;
+        if (BlockIDs::is_oak_slab(block_to_place)) {
+            Vector3 hit_normal = Vector3(result["hit_normal"]);
+            BlockID target_block = static_cast<BlockID>(cm->get_block(bx, by, bz));
+
+            if (BlockIDs::is_oak_slab(target_block)) {
+                // Target cell already has a slab — merge
+                final_block = BlockIDs::OAK_DOUBLE_SLAB;
+            } else if (std::abs(hit_normal.y) > 0.5) {
+                // Horizontal face: check if clicking on an existing slab to merge
+                Vector3 hit_pos = result["position"];
+                int pos_x = static_cast<int>(std::floor(hit_pos.x));
+                int pos_y = static_cast<int>(std::floor(hit_pos.y));
+                int pos_z = static_cast<int>(std::floor(hit_pos.z));
+                BlockID look_block = static_cast<BlockID>(cm->get_block(pos_x, pos_y, pos_z));
+
+                if (BlockIDs::is_oak_slab(look_block)) {
+                    final_block = BlockIDs::OAK_DOUBLE_SLAB;
+                    bx = pos_x; by = pos_y; bz = pos_z;
+                } else {
+                    // +Y face = bottom slab sits on surface, -Y face = top slab hugs ceiling
+                    final_block = (hit_normal.y > 0) ? BlockIDs::OAK_SLAB : BlockIDs::OAK_SLAB_TOP;
+                }
+            } else {
+                // Side face: upper half of face → top slab, lower half → bottom slab
+                Vector3 hit_point = result["hit_point"];
+                double frac_y = hit_point.y - by;
+                final_block = (frac_y < 0.5) ? BlockIDs::OAK_SLAB : BlockIDs::OAK_SLAB_TOP;
+            }
+        }
+
         Vector3 ppos = get_global_position();
         int px = static_cast<int>(std::floor(ppos.x));
         int py = static_cast<int>(std::floor(ppos.y));
@@ -303,7 +340,7 @@ void PlayerController::place_block() {
         if (bx == px && bz == pz && (by == py || by == py + 1)) return;
 
         // Place the block
-        cm->set_block(bx, by, bz, block_to_place);
+        cm->set_block(bx, by, bz, final_block);
 
         // Consume from inventory
         inventory_.consume_block(block_to_place, 1);

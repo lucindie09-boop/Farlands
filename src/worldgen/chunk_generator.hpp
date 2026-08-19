@@ -32,6 +32,7 @@ private:
     FastNoise density_noise;
     FastNoise density_warp_noise;
     FastNoise weirdness_noise;
+    FastNoise elevation_noise;
 
     TerrainParams params;
     BiomeConfig biome_config;
@@ -119,6 +120,8 @@ private:
     static constexpr float WEIRDNESS_SCALE     = 0.0012f;
     static constexpr float WEIRDNESS_LOW       = -0.20f;
     static constexpr float WEIRDNESS_HIGH      = 0.55f;
+    static constexpr float ELEV_WEIRD_LO      = 0.6f;
+    static constexpr float ELEV_WEIRD_HI      = 1.0f;
 
     // The 3D shape noise is stored on a 4x4x4 world-aligned lattice and
     // trilinearly interpolated per voxel. SPACING divides the chunk size, so
@@ -145,6 +148,15 @@ private:
     float sample_humidity(float x, float z) const {
         return clamp01((humidity_noise.noise_2d(x * params.climate_humidity_scale,
                                                  z * params.climate_humidity_scale) + 1.0f) * 0.5f);
+    }
+
+    // Continental-scale elevation — [0,1], purely additive (never removes).
+    // Squared so low values collapse to near-zero (terrain unchanged) and
+    // only genuine peaks add visible height.
+    float sample_elevation(float x, float z) const {
+        float raw = elevation_noise.fbm(x, z, 2, 0.5f, params.elevation_scale);
+        float pos = std::max(0.0f, raw);
+        return pos * pos;
     }
 
     // Grid-based land biome lookup from temperature/humidity.
@@ -213,6 +225,10 @@ private:
         float base  = params.height_base_y + w_base / w_total;
         float scale_m = w_scale / w_total;
 
+        // Elevation — additive only, pushes terrain UP over large scales
+        float elevation = sample_elevation(x, z);
+        base += elevation * params.elevation_amplitude;
+
         // Terrain amplitude control — distinct flat, hilly, and mountainous regions
         float terrain_control = terrain_noise.fbm(x + 7000.0f, z + 7000.0f, 3, 0.50f, 0.0015f);
         float terrain_amplitude = lerp(8.0f, 32.0f, smoothstep(-0.3f, 0.5f, terrain_control)) * scale_m;
@@ -242,7 +258,10 @@ private:
     float sample_weirdness(float x, float z) const {
         float raw = weirdness_noise.fbm(
             x + 12000.0f, z - 12000.0f, 3, 0.5f, WEIRDNESS_SCALE);
-        return smoothstep(WEIRDNESS_LOW, WEIRDNESS_HIGH, raw);
+        float base_w = smoothstep(WEIRDNESS_LOW, WEIRDNESS_HIGH, raw);
+        float elev = sample_elevation(x, z);
+        float elev_w = smoothstep(ELEV_WEIRD_LO, ELEV_WEIRD_HI, elev);
+        return std::max(base_w, elev_w);
     }
 
     // Signed, normalized 3D fBm (FastNoise::fbm_3d already normalizes by the
@@ -334,6 +353,7 @@ float max_water_h = -1.0f;
         , density_noise(p.seed + 7000)
         , density_warp_noise(p.seed + 8000)
         , weirdness_noise(p.seed + 9000)
+        , elevation_noise(p.seed + 10000)
         , params(p)
         , rng(p.seed)
     {
@@ -422,6 +442,7 @@ float max_water_h = -1.0f;
             density_noise     = FastNoise(p.seed + 7000);
             density_warp_noise = FastNoise(p.seed + 8000);
             weirdness_noise   = FastNoise(p.seed + 9000);
+            elevation_noise   = FastNoise(p.seed + 10000);
 
             rng.seed(p.seed);
         }

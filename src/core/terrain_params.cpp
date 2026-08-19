@@ -24,6 +24,12 @@ bool TerrainParams::load_from_json(const godot::String& json_path) noexcept {
     if (root.has("height_base_y")) {
         height_base_y = static_cast<float>(static_cast<double>(root["height_base_y"]));
     }
+    if (root.has("elevation_scale")) {
+        elevation_scale = static_cast<float>(static_cast<double>(root["elevation_scale"]));
+    }
+    if (root.has("elevation_amplitude")) {
+        elevation_amplitude = static_cast<float>(static_cast<double>(root["elevation_amplitude"]));
+    }
     if (root.has("climate_temp_base_scale")) {
         climate_temp_base_scale = static_cast<float>(static_cast<double>(root["climate_temp_base_scale"]));
     }

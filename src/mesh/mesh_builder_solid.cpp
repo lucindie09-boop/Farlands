@@ -125,7 +125,20 @@ BlockID MeshBuilder::solid_at(int32_t y, int32_t zi, int32_t xi) const {
 // -------------------------------------------------------------------------
 bool MeshBuilder::should_cull_aabb_face(const float self_min[3], const float self_max[3],
                                          FaceDirection dir, const BlockType& neighbor_type) const {
-    if (neighbor_type.is_full_cube()) return true;
+    if (neighbor_type.is_full_cube()) {
+        // Full cube only covers the face if the face reaches the cell boundary.
+        // A wall back face at z=0.5, pole side at x=0.625, stair internal face etc.
+        // don't reach the boundary, so the full cube neighbor doesn't cover them.
+        switch (dir) {
+            case FaceDirection::Top:    return self_max[1] >= 1.0f;
+            case FaceDirection::Bottom: return self_min[1] <= 0.0f;
+            case FaceDirection::Right:  return self_max[0] >= 1.0f;
+            case FaceDirection::Left:   return self_min[0] <= 0.0f;
+            case FaceDirection::Front:  return self_min[2] <= 0.0f;
+            case FaceDirection::Back:   return self_max[2] >= 1.0f;
+        }
+        return true;
+    }
 
     for (const auto& nb : neighbor_type.selection_boxes) {
         bool covers = true;

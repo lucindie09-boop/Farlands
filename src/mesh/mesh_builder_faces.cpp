@@ -79,10 +79,11 @@ void MeshBuilder::add_aabb_face(const ChunkData& chunk, const ChunkNeighborAcces
 
     float ao[4];
     if (!HasProperty(block_type.properties, BlockProperty::Liquid)) {
-        // Pass whether the AABB touches the floor (aabb_min[1] <= 0) to fix AO on stairs
-        // where the top step doesn't touch the ground and shouldn't sample the cell below
+        // Pass whether the AABB touches the floor/ceiling to fix AO on stairs
+        // Bottom step touches floor but not ceiling, top step touches neither
         bool touches_floor = (aabb_min[1] <= 0.0f);
-        this->ao.compute_face(accessor, registry, x, y, z, direction, ao, stride_xz_, touches_floor);
+        bool touches_ceiling = (aabb_max[1] >= 1.0f);
+        this->ao.compute_face(accessor, registry, x, y, z, direction, ao, stride_xz_, touches_floor, touches_ceiling);
     } else {
         ao[0] = ao[1] = ao[2] = ao[3] = 1.0f;
     }
@@ -247,8 +248,8 @@ void MeshBuilder::add_face(const ChunkData& chunk, const ChunkNeighborAccessor& 
 
     float ao[4];
     if (!HasProperty(block_type.properties, BlockProperty::Liquid)) {
-        // Regular full blocks always touch the floor
-        this->ao.compute_face(accessor, registry, x, y, z, direction, ao, stride_xz_, true);
+        // Regular full blocks always touch both floor and ceiling
+        this->ao.compute_face(accessor, registry, x, y, z, direction, ao, stride_xz_, true, true);
     } else {
         ao[0] = ao[1] = ao[2] = ao[3] = 1.0f;
     }

@@ -327,8 +327,16 @@ void PlayerController::place_block() {
                 BlockID look_block = static_cast<BlockID>(cm->get_block(pos_x, pos_y, pos_z));
 
                 if (BlockIDs::is_oak_slab(look_block)) {
-                    final_block = BlockIDs::OAK_DOUBLE_SLAB;
-                    bx = pos_x; by = pos_y; bz = pos_z;
+                    // Only merge when the face completes the double slab:
+                    // bottom slab's top face (+Y) or top slab's bottom face (-Y)
+                    bool merge = (look_block == BlockIDs::OAK_SLAB && hit_normal.y > 0)
+                              || (look_block == BlockIDs::OAK_SLAB_TOP && hit_normal.y < 0);
+                    if (merge) {
+                        final_block = BlockIDs::OAK_DOUBLE_SLAB;
+                        bx = pos_x; by = pos_y; bz = pos_z;
+                    } else {
+                        final_block = (hit_normal.y > 0) ? BlockIDs::OAK_SLAB : BlockIDs::OAK_SLAB_TOP;
+                    }
                 } else {
                     // +Y face = bottom slab sits on surface, -Y face = top slab hugs ceiling
                     final_block = (hit_normal.y > 0) ? BlockIDs::OAK_SLAB : BlockIDs::OAK_SLAB_TOP;

@@ -84,7 +84,8 @@ void AmbientOcclusion::compute_face(const ChunkNeighborAccessor& accessor,
                                     FaceDirection direction,
                                     float ao_out[4],
                                     int32_t stride,
-                                    bool touches_floor) const {
+                                    bool touches_floor,
+                                    bool touches_ceiling) const {
     BlockID current_block = accessor.center->get_block(x, y, z);
     // Note: get_block_fast() is safe here because world-gen and edit_map loading
     // ensure only valid registered IDs are assigned to chunk data. Current block
@@ -130,6 +131,10 @@ void AmbientOcclusion::compute_face(const ChunkNeighborAccessor& accessor,
                     // Box doesn't touch the floor - skip sampling the cell below
                     ao_out[i] = level_to_brightness(vertex_level(
                         accessor, registry, x + 1, y, z, x + 1, y, z + dz[i], x + 1, y, z + dz[i]));
+                } else if (!touches_ceiling && dy[i] > 0) {
+                    // Box doesn't touch the ceiling - skip sampling the cell above
+                    ao_out[i] = level_to_brightness(vertex_level(
+                        accessor, registry, x + 1, y, z, x + 1, y, z + dz[i], x + 1, y, z + dz[i]));
                 } else {
                     int ao = vertex_level(accessor, registry, x + 1, y + dy[i], z,   x + 1, y, z + dz[i], x + 1, y + dy[i], z + dz[i]);
                     ao_out[i] = level_to_brightness(ao);
@@ -147,6 +152,10 @@ void AmbientOcclusion::compute_face(const ChunkNeighborAccessor& accessor,
                     ao_out[i] = level_to_brightness(std::max(ao_y, ao_yp1));
                 } else if (is_raised && dy[i] < 0) {
                     // Box doesn't touch the floor - skip sampling the cell below
+                    ao_out[i] = level_to_brightness(vertex_level(
+                        accessor, registry, x - 1, y, z, x - 1, y, z + dz[i], x - 1, y, z + dz[i]));
+                } else if (!touches_ceiling && dy[i] > 0) {
+                    // Box doesn't touch the ceiling - skip sampling the cell above
                     ao_out[i] = level_to_brightness(vertex_level(
                         accessor, registry, x - 1, y, z, x - 1, y, z + dz[i], x - 1, y, z + dz[i]));
                 } else {
@@ -168,6 +177,10 @@ void AmbientOcclusion::compute_face(const ChunkNeighborAccessor& accessor,
                     // Box doesn't touch the floor - skip sampling the cell below
                     ao_out[i] = level_to_brightness(vertex_level(
                         accessor, registry, x + dx[i], y, z + 1, x, y, z + 1, x + dx[i], y, z + 1));
+                } else if (!touches_ceiling && dy[i] > 0) {
+                    // Box doesn't touch the ceiling - skip sampling the cell above
+                    ao_out[i] = level_to_brightness(vertex_level(
+                        accessor, registry, x + dx[i], y, z + 1, x, y, z + 1, x + dx[i], y, z + 1));
                 } else {
                     int ao = vertex_level(accessor, registry, x + dx[i], y, z + 1, x, y + dy[i], z + 1, x + dx[i], y + dy[i], z + 1);
                     ao_out[i] = level_to_brightness(ao);
@@ -185,6 +198,10 @@ void AmbientOcclusion::compute_face(const ChunkNeighborAccessor& accessor,
                     ao_out[i] = level_to_brightness(std::max(ao_y, ao_yp1));
                 } else if (is_raised && dy[i] < 0) {
                     // Box doesn't touch the floor - skip sampling the cell below
+                    ao_out[i] = level_to_brightness(vertex_level(
+                        accessor, registry, x + dx[i], y, z - 1, x, y, z - 1, x + dx[i], y, z - 1));
+                } else if (!touches_ceiling && dy[i] > 0) {
+                    // Box doesn't touch the ceiling - skip sampling the cell above
                     ao_out[i] = level_to_brightness(vertex_level(
                         accessor, registry, x + dx[i], y, z - 1, x, y, z - 1, x + dx[i], y, z - 1));
                 } else {
@@ -209,8 +226,8 @@ void AmbientOcclusion::compute_greedy_face(const ChunkNeighborAccessor& accessor
                                              const Face& face,
                                              float ao_out[4],
                                              int32_t stride) const {
-    // Greedy meshing is only used for full blocks, which always touch the floor
-    compute_face(accessor, registry, face.x, face.y, face.z, face.direction, ao_out, stride, true);
+    // Greedy meshing is only used for full blocks, which always touch both floor and ceiling
+    compute_face(accessor, registry, face.x, face.y, face.z, face.direction, ao_out, stride, true, true);
 }
 
 // -------------------------------------------------------------------------

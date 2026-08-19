@@ -4,6 +4,7 @@
 #include <array>
 #include <cassert>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace godot { class String; }
@@ -50,6 +51,14 @@ enum class LightEmissionPattern : uint8_t {
 struct BlockAABB {
     float min[3];
     float max[3];
+};
+
+// -----------------------------------------------------------------------------
+// Block Shape (shared geometry from block_shapes.json)
+// -----------------------------------------------------------------------------
+struct BlockShape {
+    std::vector<BlockAABB> selection_boxes;
+    std::vector<BlockAABB> collision_boxes;
 };
 
 // -----------------------------------------------------------------------------
@@ -160,6 +169,7 @@ public:
     [[nodiscard]] BlockID get_block_id_by_name(const char* name) const noexcept;
 
     void initialize_default_blocks() noexcept;
+    bool load_shapes_from_json(const godot::String& json_path) noexcept;
     bool load_from_json(const godot::String& json_path) noexcept;
 
 private:
@@ -167,6 +177,7 @@ private:
 
     std::array<BlockType, MAX_BLOCK_TYPES> block_types{};
     size_t count = 0;
+    std::unordered_map<std::string, BlockShape> shapes{};
 
     // Pre-constructed empty block for out-of-bounds queries.
     static inline BlockType empty_block = []() {

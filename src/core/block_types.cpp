@@ -15,6 +15,90 @@
 
 namespace VoxelEngine {
 
+#ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
+namespace {
+
+void parse_aabb_array(const godot::Array& arr, std::vector<BlockAABB>& out) {
+    out.reserve(static_cast<size_t>(arr.size()));
+    for (int b = 0; b < static_cast<int>(arr.size()); ++b) {
+        godot::Array box = arr[b];
+        if (box.size() >= 6) {
+            BlockAABB aabb;
+            aabb.min[0] = static_cast<float>(static_cast<double>(box[0]));
+            aabb.min[1] = static_cast<float>(static_cast<double>(box[1]));
+            aabb.min[2] = static_cast<float>(static_cast<double>(box[2]));
+            aabb.max[0] = static_cast<float>(static_cast<double>(box[3]));
+            aabb.max[1] = static_cast<float>(static_cast<double>(box[4]));
+            aabb.max[2] = static_cast<float>(static_cast<double>(box[5]));
+            out.push_back(aabb);
+        }
+    }
+}
+
+void parse_shape_dict(const godot::Dictionary& sd, BlockShape& shape) {
+    if (sd.has("selection_boxes")) {
+        parse_aabb_array(sd["selection_boxes"], shape.selection_boxes);
+    }
+    if (sd.has("collision_boxes")) {
+        parse_aabb_array(sd["collision_boxes"], shape.collision_boxes);
+    }
+}
+
+} // anonymous namespace
+
+bool BlockRegistry::load_shapes_from_json(const godot::String& json_path) noexcept {
+    if (!shapes.empty()) return true;  // already loaded
+
+    godot::Ref<godot::FileAccess> file = godot::FileAccess::open(json_path, godot::FileAccess::READ);
+    if (!file.is_valid()) {
+        ERR_PRINT("BlockRegistry: failed to open " + json_path);
+        return false;
+    }
+
+    godot::String text = file->get_as_text();
+    file->close();
+
+    godot::Variant parsed = godot::JSON::parse_string(text);
+    if (parsed.get_type() != godot::Variant::DICTIONARY) {
+        ERR_PRINT("BlockRegistry: failed to parse " + json_path);
+        return false;
+    }
+
+    godot::Dictionary shapes_dict = parsed;
+    godot::Array keys = shapes_dict.keys();
+    for (int i = 0; i < static_cast<int>(keys.size()); ++i) {
+        godot::String key = keys[i];
+        godot::Variant val = shapes_dict[key];
+        std::string prefix = key.utf8().get_data();
+
+        if (val.get_type() == godot::Variant::DICTIONARY) {
+            godot::Dictionary group = val;
+            // Grouped: check if it's a leaf shape (has "selection_boxes") or a variant group
+            if (group.has("selection_boxes")) {
+                // Leaf shape (e.g. "pole")
+                BlockShape shape;
+                parse_shape_dict(group, shape);
+                shapes[prefix] = std::move(shape);
+            } else {
+                // Variant group (e.g. "stair" -> "n", "s", ...)
+                godot::Array sub_keys = group.keys();
+                for (int j = 0; j < static_cast<int>(sub_keys.size()); ++j) {
+                    godot::String sub_key = sub_keys[j];
+                    godot::Dictionary sub_val = group[sub_key];
+                    std::string full_name = prefix + "/" + sub_key.utf8().get_data();
+
+                    BlockShape shape;
+                    parse_shape_dict(sub_val, shape);
+                    shapes[full_name] = std::move(shape);
+                }
+            }
+        }
+    }
+
+    return true;
+}
+#endif
+
 BlockID BlockRegistry::get_block_id_by_name(const char* name) const noexcept {
     if (name == nullptr) {
         return BlockIDs::AIR;
@@ -30,6 +114,12 @@ BlockID BlockRegistry::get_block_id_by_name(const char* name) const noexcept {
 
 #ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
 bool BlockRegistry::load_from_json(const godot::String& json_path) noexcept {
+    // Load shared shapes from block_shapes.json (same directory as block_definitions.json)
+    if (shapes.empty()) {
+        godot::String shapes_path = json_path.left(json_path.rfind("/") + 1) + "block_shapes.json";
+        load_shapes_from_json(shapes_path);
+    }
+
     godot::Ref<godot::FileAccess> file = godot::FileAccess::open(json_path, godot::FileAccess::READ);
     if (!file.is_valid()) {
         ERR_PRINT("BlockRegistry: failed to open " + json_path);
@@ -116,6 +206,19 @@ bool BlockRegistry::load_from_json(const godot::String& json_path) noexcept {
         // slipperiness
         if (d.has("slipperiness")) {
             bt.slipperiness = static_cast<float>(static_cast<double>(d["slipperiness"]));
+        }
+
+        // Resolve shape reference from block_shapes.json
+        if (d.has("shape")) {
+            godot::String shape_name_str = d["shape"];
+            std::string shape_key = shape_name_str.utf8().get_data();
+            auto it = shapes.find(shape_key);
+            if (it != shapes.end()) {
+                bt.selection_boxes = it->second.selection_boxes;
+                bt.collision_boxes = it->second.collision_boxes;
+            } else {
+                ERR_PRINT("BlockRegistry: unknown shape \"" + shape_name_str + "\" for block \"" + name_str + "\"");
+            }
         }
 
         // selection_boxes: array of [min_x, min_y, min_z, max_x, max_y, max_z]

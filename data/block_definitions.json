@@ -211,60 +211,59 @@
   },
   {
     "name": "oak_slab",
+    "shape": "slab/bottom",
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, false, true, true],
     "textures": ["wood_side", "wood_side", "wood_top", "wood_top", "wood_side", "wood_side"],
     "emissive_textures": ["", "", "", "", "", ""],
     "light": [0, 0, 0],
     "top_face_offset": 0.0,
-    "slipperiness": 0.6,
-    "selection_boxes": [[0, 0, 0, 1, 0.5, 1]]
+    "slipperiness": 0.6
   },
   {
     "name": "oak_slab_top",
     "hidden": true,
+    "shape": "slab/top",
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, true, true, true],
     "textures": ["wood_side", "wood_side", "wood_top", "wood_top", "wood_side", "wood_side"],
     "emissive_textures": ["", "", "", "", "", ""],
     "light": [0, 0, 0],
     "top_face_offset": 0.0,
-    "slipperiness": 0.6,
-    "selection_boxes": [[0, 0.5, 0, 1, 1, 1]]
+    "slipperiness": 0.6
   },
   {
     "name": "oak_stairs",
+    "shape": "stair/n",
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, true, true, true],
     "textures": ["wood_side", "wood_side", "wood_top", "wood_top", "wood_side", "wood_side"],
     "emissive_textures": ["", "", "", "", "", ""],
     "light": [0, 0, 0],
     "top_face_offset": 0.0,
-    "slipperiness": 0.6,
-    "selection_boxes": [[0, 0, 0, 1, 0.5, 1], [0, 0.5, 0, 1, 1, 0.5]]
+    "slipperiness": 0.6
   },
   {
     "name": "oak_pole",
+    "shape": "pole",
     "properties": ["Solid", "Opaque", "NoOcclusion"],
     "visible_faces": [true, true, true, true, true, true],
     "textures": ["wood_side", "wood_side", "wood_top", "wood_top", "wood_side", "wood_side"],
     "emissive_textures": ["", "", "", "", "", ""],
     "light": [0, 0, 0],
     "top_face_offset": 0.0,
-    "slipperiness": 0.6,
-    "selection_boxes": [[0.375, 0, 0.375, 0.625, 1, 0.625]],
-    "collision_boxes": [[0.375, 0, 0.375, 0.625, 1.5, 0.625]]
+    "slipperiness": 0.6
   },
   {
     "name": "oak_wall",
+    "shape": "wall/n",
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, true, true, true],
     "textures": ["wood_side", "wood_side", "wood_top", "wood_top", "wood_side", "wood_side"],
     "emissive_textures": ["", "", "", "", "", ""],
     "light": [0, 0, 0],
     "top_face_offset": 0.0,
-    "slipperiness": 0.6,
-    "selection_boxes": [[0, 0, 0, 1, 1, 0.5]]
+    "slipperiness": 0.6
   },
   {
     "name": "oak_double_slab",
@@ -280,122 +279,122 @@
   {
     "name": "oak_stairs_s",
     "hidden": true,
+    "shape": "stair/s",
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, true, true, true],
     "textures": ["wood_side", "wood_side", "wood_top", "wood_top", "wood_side", "wood_side"],
     "emissive_textures": ["", "", "", "", "", ""],
     "light": [0, 0, 0],
     "top_face_offset": 0.0,
-    "slipperiness": 0.6,
-    "selection_boxes": [[0, 0, 0, 1, 0.5, 1], [0, 0.5, 0.5, 1, 1, 1]]
+    "slipperiness": 0.6
   },
   {
     "name": "oak_stairs_e",
     "hidden": true,
+    "shape": "stair/e",
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, true, true, true],
     "textures": ["wood_side", "wood_side", "wood_top", "wood_top", "wood_side", "wood_side"],
     "emissive_textures": ["", "", "", "", "", ""],
     "light": [0, 0, 0],
     "top_face_offset": 0.0,
-    "slipperiness": 0.6,
-    "selection_boxes": [[0, 0, 0, 1, 0.5, 1], [0.5, 0.5, 0, 1, 1, 1]]
+    "slipperiness": 0.6
   },
   {
     "name": "oak_stairs_w",
     "hidden": true,
+    "shape": "stair/w",
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, true, true, true],
     "textures": ["wood_side", "wood_side", "wood_top", "wood_top", "wood_side", "wood_side"],
     "emissive_textures": ["", "", "", "", "", ""],
     "light": [0, 0, 0],
     "top_face_offset": 0.0,
-    "slipperiness": 0.6,
-    "selection_boxes": [[0, 0, 0, 1, 0.5, 1], [0, 0.5, 0, 0.5, 1, 1]]
+    "slipperiness": 0.6
   },
   {
     "name": "oak_stairs_n_up",
     "hidden": true,
+    "shape": "stair/n_up",
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, true, true, true],
     "textures": ["wood_side", "wood_side", "wood_top", "wood_top", "wood_side", "wood_side"],
     "emissive_textures": ["", "", "", "", "", ""],
     "light": [0, 0, 0],
     "top_face_offset": 0.0,
-    "slipperiness": 0.6,
-    "selection_boxes": [[0, 0.5, 0, 1, 1, 1], [0, 0, 0, 1, 0.5, 0.5]]
+    "slipperiness": 0.6
   },
   {
     "name": "oak_stairs_s_up",
     "hidden": true,
+    "shape": "stair/s_up",
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, true, true, true],
     "textures": ["wood_side", "wood_side", "wood_top", "wood_top", "wood_side", "wood_side"],
     "emissive_textures": ["", "", "", "", "", ""],
     "light": [0, 0, 0],
     "top_face_offset": 0.0,
-    "slipperiness": 0.6,
-    "selection_boxes": [[0, 0.5, 0, 1, 1, 1], [0, 0, 0.5, 1, 0.5, 1]]
+    "slipperiness": 0.6
   },
   {
     "name": "oak_stairs_e_up",
     "hidden": true,
+    "shape": "stair/e_up",
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, true, true, true],
     "textures": ["wood_side", "wood_side", "wood_top", "wood_top", "wood_side", "wood_side"],
     "emissive_textures": ["", "", "", "", "", ""],
     "light": [0, 0, 0],
     "top_face_offset": 0.0,
-    "slipperiness": 0.6,
-    "selection_boxes": [[0, 0.5, 0, 1, 1, 1], [0.5, 0, 0, 1, 0.5, 1]]
+    "slipperiness": 0.6
   },
   {
     "name": "oak_stairs_w_up",
     "hidden": true,
+    "shape": "stair/w_up",
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, true, true, true],
     "textures": ["wood_side", "wood_side", "wood_top", "wood_top", "wood_side", "wood_side"],
     "emissive_textures": ["", "", "", "", "", ""],
     "light": [0, 0, 0],
     "top_face_offset": 0.0,
-    "slipperiness": 0.6,
-    "selection_boxes": [[0, 0.5, 0, 1, 1, 1], [0, 0, 0, 0.5, 0.5, 1]]
+    "slipperiness": 0.6
   },
   {
     "name": "oak_wall_s",
     "hidden": true,
+    "shape": "wall/s",
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, true, true, true],
     "textures": ["wood_side", "wood_side", "wood_top", "wood_top", "wood_side", "wood_side"],
     "emissive_textures": ["", "", "", "", "", ""],
     "light": [0, 0, 0],
     "top_face_offset": 0.0,
-    "slipperiness": 0.6,
-    "selection_boxes": [[0, 0, 0.5, 1, 1, 1]]
+    "slipperiness": 0.6
   },
   {
     "name": "oak_wall_e",
     "hidden": true,
+    "shape": "wall/e",
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, true, true, true],
     "textures": ["wood_side", "wood_side", "wood_top", "wood_top", "wood_side", "wood_side"],
     "emissive_textures": ["", "", "", "", "", ""],
     "light": [0, 0, 0],
     "top_face_offset": 0.0,
-    "slipperiness": 0.6,
-    "selection_boxes": [[0.5, 0, 0, 1, 1, 1]]
+    "slipperiness": 0.6
   },
   {
     "name": "oak_wall_w",
     "hidden": true,
+    "shape": "wall/w",
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, true, true, true],
     "textures": ["wood_side", "wood_side", "wood_top", "wood_top", "wood_side", "wood_side"],
     "emissive_textures": ["", "", "", "", "", ""],
     "light": [0, 0, 0],
     "top_face_offset": 0.0,
-    "slipperiness": 0.6,
-    "selection_boxes": [[0, 0, 0, 0.5, 1, 1]]
+    "slipperiness": 0.6
   },
   {
     "name": "oak_wall_full",

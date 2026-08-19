@@ -127,12 +127,8 @@ void AmbientOcclusion::compute_face(const ChunkNeighborAccessor& accessor,
                     int ao_y   = vertex_level(accessor, registry, x + 1, y + dy[i],     z,   x + 1, y,         z + dz[i], x + 1, y + dy[i],     z + dz[i]);
                     int ao_yp1 = vertex_level(accessor, registry, x + 1, y + dy[i] + 1, z,   x + 1, y + 1,     z + dz[i], x + 1, y + dy[i] + 1, z + dz[i]);
                     ao_out[i] = level_to_brightness(std::max(ao_y, ao_yp1));
-                } else if (is_raised && dy[i] < 0) {
-                    // Box doesn't touch the floor - skip sampling the cell below
-                    ao_out[i] = level_to_brightness(vertex_level(
-                        accessor, registry, x + 1, y, z, x + 1, y, z + dz[i], x + 1, y, z + dz[i]));
-                } else if (!touches_ceiling && dy[i] > 0) {
-                    // Box doesn't touch the ceiling - skip sampling the cell above
+                } else if ((is_raised && dy[i] < 0) || (!touches_ceiling && dy[i] > 0)) {
+                    // Box doesn't touch the floor/ceiling — skip sampling the adjacent cell
                     ao_out[i] = level_to_brightness(vertex_level(
                         accessor, registry, x + 1, y, z, x + 1, y, z + dz[i], x + 1, y, z + dz[i]));
                 } else {
@@ -150,12 +146,8 @@ void AmbientOcclusion::compute_face(const ChunkNeighborAccessor& accessor,
                     int ao_y   = vertex_level(accessor, registry, x - 1, y + dy[i],     z,   x - 1, y,         z + dz[i], x - 1, y + dy[i],     z + dz[i]);
                     int ao_yp1 = vertex_level(accessor, registry, x - 1, y + dy[i] + 1, z,   x - 1, y + 1,     z + dz[i], x - 1, y + dy[i] + 1, z + dz[i]);
                     ao_out[i] = level_to_brightness(std::max(ao_y, ao_yp1));
-                } else if (is_raised && dy[i] < 0) {
-                    // Box doesn't touch the floor - skip sampling the cell below
-                    ao_out[i] = level_to_brightness(vertex_level(
-                        accessor, registry, x - 1, y, z, x - 1, y, z + dz[i], x - 1, y, z + dz[i]));
-                } else if (!touches_ceiling && dy[i] > 0) {
-                    // Box doesn't touch the ceiling - skip sampling the cell above
+                } else if ((is_raised && dy[i] < 0) || (!touches_ceiling && dy[i] > 0)) {
+                    // Box doesn't touch the floor/ceiling — skip sampling the adjacent cell
                     ao_out[i] = level_to_brightness(vertex_level(
                         accessor, registry, x - 1, y, z, x - 1, y, z + dz[i], x - 1, y, z + dz[i]));
                 } else {
@@ -173,12 +165,8 @@ void AmbientOcclusion::compute_face(const ChunkNeighborAccessor& accessor,
                     int ao_y   = vertex_level(accessor, registry, x + dx[i], y,         z + 1, x,         y + dy[i],     z + 1, x + dx[i], y + dy[i],     z + 1);
                     int ao_yp1 = vertex_level(accessor, registry, x + dx[i], y + 1,     z + 1, x,         y + dy[i] + 1, z + 1, x + dx[i], y + dy[i] + 1, z + 1);
                     ao_out[i] = level_to_brightness(std::max(ao_y, ao_yp1));
-                } else if (is_raised && dy[i] < 0) {
-                    // Box doesn't touch the floor - skip sampling the cell below
-                    ao_out[i] = level_to_brightness(vertex_level(
-                        accessor, registry, x + dx[i], y, z + 1, x, y, z + 1, x + dx[i], y, z + 1));
-                } else if (!touches_ceiling && dy[i] > 0) {
-                    // Box doesn't touch the ceiling - skip sampling the cell above
+                } else if ((is_raised && dy[i] < 0) || (!touches_ceiling && dy[i] > 0)) {
+                    // Box doesn't touch the floor/ceiling — skip sampling the adjacent cell
                     ao_out[i] = level_to_brightness(vertex_level(
                         accessor, registry, x + dx[i], y, z + 1, x, y, z + 1, x + dx[i], y, z + 1));
                 } else {
@@ -196,12 +184,8 @@ void AmbientOcclusion::compute_face(const ChunkNeighborAccessor& accessor,
                     int ao_y   = vertex_level(accessor, registry, x + dx[i], y,         z - 1, x,         y + dy[i],     z - 1, x + dx[i], y + dy[i],     z - 1);
                     int ao_yp1 = vertex_level(accessor, registry, x + dx[i], y + 1,     z - 1, x,         y + dy[i] + 1, z - 1, x + dx[i], y + dy[i] + 1, z - 1);
                     ao_out[i] = level_to_brightness(std::max(ao_y, ao_yp1));
-                } else if (is_raised && dy[i] < 0) {
-                    // Box doesn't touch the floor - skip sampling the cell below
-                    ao_out[i] = level_to_brightness(vertex_level(
-                        accessor, registry, x + dx[i], y, z - 1, x, y, z - 1, x + dx[i], y, z - 1));
-                } else if (!touches_ceiling && dy[i] > 0) {
-                    // Box doesn't touch the ceiling - skip sampling the cell above
+                } else if ((is_raised && dy[i] < 0) || (!touches_ceiling && dy[i] > 0)) {
+                    // Box doesn't touch the floor/ceiling — skip sampling the adjacent cell
                     ao_out[i] = level_to_brightness(vertex_level(
                         accessor, registry, x + dx[i], y, z - 1, x, y, z - 1, x + dx[i], y, z - 1));
                 } else {

@@ -116,10 +116,7 @@ void MeshBuilder::add_aabb_face(const ChunkData& chunk, const ChunkNeighborAcces
     compute_aabb_face_corners(corners, x, y, z, direction, aabb_min, aabb_max);
 
     // Compute UV scaling based on AABB dimensions (for partial blocks like slabs/stairs)
-    float uv_scale_u = aabb_max[0] - aabb_min[0];
-    float uv_scale_v = aabb_max[1] - aabb_min[1];
-    float uv_offset_u = aabb_min[0];
-    float uv_offset_v = aabb_min[1];
+    float uv_scale_u, uv_scale_v, uv_offset_u, uv_offset_v;
 
     // Adjust UV scale/offset based on face direction
     // For side faces, V coordinate should map from top of block (y=1) downward

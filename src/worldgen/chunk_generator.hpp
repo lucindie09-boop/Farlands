@@ -120,8 +120,6 @@ private:
     static constexpr float WEIRDNESS_SCALE     = 0.0012f;
     static constexpr float WEIRDNESS_LOW       = -0.20f;
     static constexpr float WEIRDNESS_HIGH      = 0.55f;
-    static constexpr float ELEV_WEIRD_LO      = 0.6f;
-    static constexpr float ELEV_WEIRD_HI      = 1.0f;
 
     // The 3D shape noise is stored on a 4x4x4 world-aligned lattice and
     // trilinearly interpolated per voxel. SPACING divides the chunk size, so
@@ -260,8 +258,7 @@ private:
             x + 12000.0f, z - 12000.0f, 3, 0.5f, WEIRDNESS_SCALE);
         float base_w = smoothstep(WEIRDNESS_LOW, WEIRDNESS_HIGH, raw);
         float elev = sample_elevation(x, z);
-        float elev_w = smoothstep(ELEV_WEIRD_LO, ELEV_WEIRD_HI, elev);
-        return std::max(base_w, elev_w);
+        return base_w * (1.0f + elev);
     }
 
     // Signed, normalized 3D fBm (FastNoise::fbm_3d already normalizes by the

@@ -57,6 +57,9 @@ struct TerrainParams {
     // Macro surface base height (sea_level + margin).
     float height_base_y = 208.0f;
 
+    float elevation_scale = 0.001f;
+    float elevation_amplitude = 100.0f;
+
     // Voronoi height centers over land biomes (indexed with the same order as
     // the hardcoded table: plains, forest, desert).
     std::array<HeightCenter, 3> height_centers{

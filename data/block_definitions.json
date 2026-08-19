@@ -52,6 +52,7 @@
   {
     "name": "surface_water",
     "properties": ["Liquid", "Transparent"],
+    "shape": "lowered/12",
     "visible_faces": [true, true, true, false, true, true],
     "textures": ["water", "water", "water", "water", "water", "water"],
     "emissive_textures": ["", "", "", "", "", ""],
@@ -62,6 +63,7 @@
   {
     "name": "water",
     "properties": ["Liquid", "Transparent"],
+    "shape": "lowered/12",
     "visible_faces": [true, true, true, true, true, true],
     "textures": ["water", "water", "water", "water", "water", "water"],
     "emissive_textures": ["", "", "", "", "", ""],
@@ -102,6 +104,7 @@
   {
     "name": "mud",
     "properties": ["Solid", "Opaque"],
+    "shape": "lowered/0625",
     "visible_faces": [true, true, true, true, true, true],
     "textures": ["mud", "mud", "mud", "mud", "mud", "mud"],
     "emissive_textures": ["", "", "", "", "", ""],
@@ -112,6 +115,7 @@
   {
     "name": "wet_sand",
     "properties": ["Solid", "Opaque"],
+    "shape": "lowered/0625",
     "visible_faces": [true, true, true, true, true, true],
     "textures": ["wet_sand", "wet_sand", "wet_sand", "wet_sand", "wet_sand", "wet_sand"],
     "emissive_textures": ["", "", "", "", "", ""],

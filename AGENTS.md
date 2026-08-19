@@ -6,6 +6,7 @@ A Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked streamin
 - Camera3D child named "Camera3D" on the player node is the frustum source
 - Chunk size is 32×32×32, world height 1024 blocks (`WORLD_HEIGHT_Y` in `chunk_coords.hpp`)
 - Block properties live in `data/block_definitions.json` — single source of truth
+- Block shapes live in `data/block_shapes.json` — shared shape registry for non-full blocks (slabs, stairs, walls, poles)
 - Worldgen tuning is data-driven: `data/terrain_config.json` (macro surface + height centers), `data/biomes.json` (per-biome materials/trees + climate thresholds), `data/vegetation.json` (forest/plains/desert feature knobs)
 
 ## Major Completed Work
@@ -15,16 +16,32 @@ A Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked streamin
 - **Sharded chunk map**: 64 independently-locked shards (`shared_mutex` each), so a write on one shard never blocks readers on another
 - **Palette-compressed storage**: Block and light data stored as 8 paletted 16³ sections per chunk instead of dense arrays, cutting per-chunk memory from ~130KB to ~1–20KB on uniform terrain
 - **Budget-capped main thread**: Generation completion, mesh uploads, and light propagation are wall-clock-budgeted per frame; nearest-to-player completed mesh uploads first
+- **Dynamic mesh budget**: Scales rebuild/upload budgets by visible-chunk ratio (0.5x to 1.0x) based on viewport load
 - **Targeted shard locking**: `lock_keys_exclusive()` locks only shards whose keys appear in input, reducing contention from all-64-shard locks to only the 1–54 shards actually needed
+- **Work stealing thread pool**: Adaptive idle polling with work stealing for better CPU utilization
+- **Per-worker task queues**: Round-robin task distribution replaces single global mutex for better throughput
+
+### Block Shapes & Collision
+- **Non-full block shapes**: Slabs (bottom/top with auto-detecting placement and double-slab merging), stairs (8 orientations with auto-detecting placement), walls (4 orientations), and poles (fence-like collision boxes that extend 1.5 blocks high)
+- **Shared shape registry**: `data/block_shapes.json` defines selection boxes and collision boxes for all non-full block shapes
+- **Auto-detecting placement**: Slabs, stairs, and walls automatically orient based on the face clicked and neighboring blocks
+- **Proper collision and raycast**: Multi-box shapes (stairs, slabs, walls, poles) have accurate collision detection and raycast selection
+- **Fixed AO and UV mapping**: Ambient occlusion and texture mapping properly handle partial blocks with their irregular geometry
 
 ### Rendering & Visual Features
 - **Three-tier LOD with region merging**: Per-chunk distance-based reduction (not chunk merging) — full detail, mid stride/detail reduction, and a far tier with its own detail level + render start (`far_lod_distance`/`far_lod_detail_level`); LOD-reduced chunks are cached and merged into 4×4-chunk region instances so the coarse rings cost only a handful of draw calls
-- **Dynamic water shader**: Translucent water with edge fade, depth absorption, bounce light, and sun glint
-- **Vegetation generation**: Oak and spruce trees (variant-weighted per biome from `data/biomes.json`), minimum spacing, deferred cross-chunk writes, per-biome density + forest/plains/desert knobs from `data/vegetation.json`
+- **Dynamic water shader**: Translucent water with edge fade, depth absorption, bounce light, sun glint, Beer-Lambert depth absorption, flowing texture animation, and separate blend-mix surface
+- **Vegetation generation**: Oak and spruce trees (variant-weighted per biome from `data/biomes.json`), minimum spacing, deferred cross-chunk writes, per-biome density + forest/plains/desert knobs from `data/vegetation.json`, improved forest placement (80% chunk coverage, 15-25 trees per chunk)
 - **Slope triplanar cliff blending**: Steep slopes (>45°) automatically blend in rock face textures
 - **Night sky & starfield**: Dynamic procedural twinkling starfield during night sun elevations
 - **Emissive texture support**: Second `Texture2DArray` for per-face glow maps
 - **Soft curved AO**: Non-linear power-curve smoothing to eliminate diagonal triangulation seams
+- **Fog system**: 4 fog modes (Disabled, Edge, Linear, Exponential) with fog color matching sky color throughout day/night cycle
+- **God rays**: Toggleable atmospheric lighting effects with dynamic sample count and twilight optimization
+- **Sky turbidity**: Rayleigh/Mie haze effects gated by sky light for proper night darkness
+- **GPU texture compression**: Optional S3TC/BC1-BC3 compression for texture arrays to reduce VRAM usage
+- **Vertex compression**: 24 bytes per vertex (-40% VRAM) with fixed-point positions
+- **Lighting customization**: Adjustable AO color/strength, darkness color, contrast, and saturation
 
 ### Inventory & GUI
 - **C++ inventory core**: `Inventory` (9 hotbar + 27 main slots, 64 stack limit) with add/consume/can_add logic in `src/core/inventory.*`
@@ -32,7 +49,11 @@ A Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked streamin
 - **GDScript GUI**: `hotbar.gd` / `inventory.gd` `Control` overlays — E toggles the inventory, mouse wheel cycles the hotbar, click-to-hold / drag-drop stack movement, hover/selection highlights built by pixel-color-keyed texture recolor (no hand-drawn art)
 - **Inventory drag operations**: RMB drag-place (spread 1 unit per slot), LMB drag-collect (sweep matching blocks), shift-click/drag quick-transfer (move between hotbar/main), scroll wheel quick-transfer (push/pull 1 unit between zones), double-click gather (sweep all matching blocks into cursor)
 - **Inventory persistence**: `user://chunks/inventory.bin` (`INVE` magic, version 1), saved in `PlayerController::_exit_tree` (nodes still alive) with a cached `ChunkManager` pointer — the old destructor-time tree lookup always failed at teardown
-- **Chat system**: `chat.gd` with advanced autocomplete — ghost text suggestions with pulsing effect (0.25-0.4 alpha), tab cycling through completions, up/down arrow navigation, hold-to-cycle (0.1875s intervals), parameter hints for commands (`/give <block> [count]`, `/tp <x> <y> <z>`), commands: `/help`, `/give`, `/tp`, `/fly`, `/clearchat`, `/clearinv`, `/version`
+- **Chat system**: `chat.gd` with advanced autocomplete — ghost text suggestions with pulsing effect (0.25-0.4 alpha), tab cycling through completions, up/down arrow navigation, hold-to-cycle (0.1875s intervals), parameter hints for commands (`/give <block> [count]`, `/tp <x> <y> <z>`), commands: `/help`, `/give` (unlimited count), `/tp`, `/fly`, `/clearchat`, `/clearinv`, `/version`, mouse wheel scrolling for chat history, caret blink, wrapped messages with proper input box anchoring
+- **Settings menu**: `settings_menu.gd` with adjustable settings (render, lighting, crosshair, controls) opened with Escape key, all settings persist across sessions
+- **Texture pack system**: Custom texture packs with per-block texture overrides loaded from `user://packs/`, converter tool in `tools/pack_converter.py`
+- **Block outline system**: Adjustable block outline with pulse effects, thickness control (0.0-0.99), fill box with separate color/opacity controls
+- **Crosshair customization**: Adjustable crosshair with rotation, spacing, dot, and color-inversion modes
 
 ### Async Chunk Saving
 - **Off-main-thread writes**: `flush_dirty_chunks` deep-copies each dirty chunk under its shard lock and hands the snapshot to the thread pool for RLE encode + atomic write; periodic 5s flush is non-blocking
@@ -45,6 +66,11 @@ A Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked streamin
 - **4×4×4 world-aligned shape lattice**: Ensures bit-identical results across chunk boundaries
 - **Chunk-level fast paths**: Chunks entirely above/below height band skip all lattice/density work (~7× speedup on deep chunks)
 - **Biome-based macro surface**: Multiple biomes with distinct terrain characteristics
+- **Continental-scale elevation noise**: Additive-only ~1000 block wavelength noise for large-scale terrain variation
+- **Elevation-based weirdness amplification**: Terrain features become 1-2x more dramatic at higher elevations
+- **Continentalness warp**: Wavy coastlines through continental-scale warping
+- **Widened beach biome band**: Proper shoreline coverage with expanded beach biome
+- **Improved water placement**: Better near-water detection and ocean floor terrain
 - **Data-driven worldgen**: Surfaces, climate thresholds, tree density/variants, and macro height centers all load from JSON configs at startup (see "Worldgen Config Data" below)
 - **Per-biome amplitude scaling**: Height-center `scale_m` is applied as a terrain amplitude multiplier (was previously dead config) — plains are genuinely flat, desert low/dry, forest hilly
 
@@ -52,6 +78,7 @@ A Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked streamin
 - **`data/biomes.json`** → `BiomeConfig` (`src/worldgen/biome_config.hpp`): hosts the `BiomeType` enum (Ocean/Beach/Plains/Forest/Desert), per-biome surface/subsurface + near-water block names (resolved via `BlockRegistry::get_block_id_by_name`), `tree_density`, `tree_variants` weights, and climate-grid thresholds (`temp_cold_max`/`temp_hot_min`/`hum_dry_max`/`hum_humid_min`)
 - **`data/vegetation.json`** → `VegetationConfig` (`src/worldgen/vegetation_config.hpp`): forest (chunk tree chance, min/max trees, column chance, spacing, boulders), plains (single-tree chance), desert (cactus density + min/max heights)
 - **`data/terrain_config.json`** → `TerrainParams::load_from_json` (`src/core/terrain_params.cpp`): `height_base_y`, fixed-base climate scales (`climate_temp_base_scale`/`climate_humidity_base_scale`), and the 3 Voronoi height centers (`temp`/`hum`/`base_off`/`scale_m`)
+- **`data/block_shapes.json`** → Shared shape registry for non-full blocks (slabs, stairs, walls, poles) with selection/collision boxes
 - Loaded in `VoxelEngineController::load_world_configs()` at startup; missing files/keys fall back to built-in defaults that mirror the old hardcoded values
 - Config threads to generation workers via `WorldUpdater` → `ChunkWorld::generate_chunk` (captured per call) → the `thread_local ChunkGenerator`
 
@@ -59,14 +86,17 @@ A Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked streamin
 - **183 test cases / 157,088 assertions** across 23 doctest files
 - **Cross-platform CI**: 5-leg matrix (ubuntu plain/TSan/ASan+UBSan, macos plain, windows plain) plus fuzz, static-analysis, and coverage jobs
 - **Concurrency tests**: 19 tests for shard locking, deadlock prevention, PaletteStorage, and cross-chunk patterns
+- **Integration soak tests**: Concurrent pipeline simulation with Phase 4 unload to exercise unload vs active work races
 - **Benchmark tool**: 5 hot paths with `--check` regression detection mode
 - **Fuzzing**: 4 libFuzzer harnesses for palette, chunk load, light propagation, and mesh builder
+- **Code coverage**: lcov coverage with integration tests and memory benchmark
 
 ### Persistence & Format
 - **Save format v3**: RLE-compressed with CRC32 checksum; atomic writes with `.tmp` → `.bak` → target pattern
 - **Legacy support**: Handles v3 (CRC32), v2 (legacy RLE), and v1 (flat) transparently
 - **Corrupted file recovery**: Attempts to load from `.bak` backup on CRC mismatch
 - **Async background saves**: Dirty chunks are snapshotted and written on the thread pool; per-key generation + epoch gating ensures the newest state reaches disk
+- **Sparse edit map persistence**: Replace whole-chunk snapshots with sparse edit map persistence for cross-version compatibility
 - **Inventory persistence**: `user://chunks/inventory.bin` (`INVE` magic, version 1) written at `PlayerController::_exit_tree`
 
 ### Locking & Concurrency Fixes
@@ -78,17 +108,34 @@ A Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked streamin
 
 ### Collision & Physics
 - **Binary-search AABB collision**: Custom voxel collision queries directly against chunk map
+- **Multi-box collision support**: Non-full block shapes (stairs, slabs, walls, poles) have accurate multi-box collision detection
 - **Step-up fix**: Tests player's full body AABB raised by step_height (old approach always failed)
-- **Minecraft-accurate physics**: Fixed 20-tick/s simulation with vanilla jump/sprint/sneak ordering
+- **Minecraft-accurate physics**: Fixed 20-tick/s simulation with vanilla jump/sprint/sneak ordering, removed 0.98 input scaling, proper sprint state machine with sticky flag and one-tick stale airborne, sneak multiplier only on ground
+- **Move speed multiplier**: Adjustable player movement speed multiplier property
 
 ### Code Quality & Hygiene
 - **Single source of truth**: `data/block_definitions.json` for all block properties
 - **Source reorganization**: Split `mesh_manager.cpp` into worker/upload/rebuild/far/lifecycle TUs (shared `mesh_manager_internal.hpp`), `mesh_builder.cpp` (`mesh_builder_solid.cpp`), and `chunk_world.cpp` (`chunk_world_edits.cpp`, `chunk_world_persistence.cpp`). Moved render-facing types out of the `core/chunk_types.hpp` junk drawer: `ChunkRenderData`/`CachedFarChunkMesh`/`CompletedMesh` → `mesh/chunk_render_data.hpp`, `DirtyChunkEntry` → `mesh/mesh_queue.hpp`, `WorldRenderStats` → `render/world_render_stats.hpp`; relocated `texture_array_generator.hpp` to `render/`; deleted orphaned `.obj` artifacts
-- **Removed old LOD system**: Deleted 2,435 lines of 2×2×2 group-mesh-merging code
+- **Removed old LOD system**: Deleted 2,435 lines of 2×2×2 group-mesh-merging code, replaced with per-chunk three-tier LOD with region merging
+- **Removed experimental features**: Cloud layer system, lighting preset system (Main/Spooky), occluder boxes - all reverted or removed
+- **Terrain simplification**: Removed complex biome systems (Tundra/Taiga/Savanna/StonePlateau) and experimental mountain/erosion systems in favor of current 5-biome JSON-driven system; domain warp retained for flowing terrain ridges
+- **Dead code cleanup**: `is_occluder()` method defined but unused, legacy `mountain_scale` parameter in persistence (ignored), cave system disabled (`kCavesEnabled = false`)
 - **Clang compatibility**: Fixed NSDMI compile error for nested structs
 - **Repo cleanup**: Removed leaked `.lnk` shortcuts, orphaned `.import` files, added `.gitignore` rules
 - **License**: Added GPL-3.0 license (repo was previously all-rights-reserved)
 - **Shadow optimization**: Disabled sun shadow map (both terrain shaders are unshaded)
+
+### Performance Optimizations
+- **Vertex format optimization**: Fixed-point positions reduce quad cache memory usage, ARRAY_CUSTOM format for GPU compatibility
+- **Chunk generation optimization**: Fill blocks for uniform chunks, chunk-level fast paths for chunks far from terrain surface
+- **AO optimization**: Pass BlockRegistry by reference, use get_block_fast() for hot path, incremental AO tracking removes redundant passes
+- **GDScript performance**: Gate queue_redraw() calls, throttle block outline raycast, skip per-frame redraw churn
+- **Mesh queue optimization**: O(1) mesh-queue removes, bounded lock_keys instead of whole-map locks
+- **Generator buffer reuse**: Reuse generation buffers to reduce allocations
+- **Shader fog gating**: Gate sun-scatter/haze math behind fog check for performance
+- **LOD solid cache fix**: Fix O(stride²) solid_cache population in LOD mesh builder, stores BlockID instead of bool
+- **Light propagation optimization**: Offload to worker threads with fast-path atomic check, poll results on main thread
+- **Sub-chunk dirty tracking**: Fine-grained invalidation instead of full-chunk rebuilds
 
 ## Technical Details
 
@@ -109,9 +156,10 @@ A Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked streamin
 - `light_propagate_add` / `light_propagate_remove` — origin 3×3×3 + each seed node's 3×3×3 (deduplicated)
 - `update_block_light_incremental` — 54 keys (origin + center 3×3×3)
 - `PlayerLight::update` — vector of up to 54 keys (old+new chunk 3×3×3)
+- `MeshBuildTask::execute` — 27 keys (center + 26 neighbors), **shared** `lock_keys` held for the whole data read
 
 ### LOD System Details
-- Two tiers: full detail → stride/detail reduction
+- Three tiers: full detail → mid stride/detail reduction → far tier with its own detail level
 - Per-tier stride-1 "skirt" rings at each LOD transition prevent T-junction cracks
 - Cap of 128 LOD remeshes/frame
 - Far-region rebuilds debounced (250 ms)

@@ -38,7 +38,8 @@ public:
                       int32_t x, int32_t y, int32_t z,
                       FaceDirection direction,
                       float ao_out[4],
-                      int32_t stride = 1) const;
+                      int32_t stride = 1,
+                      bool touches_floor = true) const;
 
     // -----------------------------------------------------------------
     // Greedy-merged face AO

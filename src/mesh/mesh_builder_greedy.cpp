@@ -141,7 +141,7 @@ void MeshBuilder::passive_greedy_mesh_horizontal(const ChunkData& chunk, const C
                         && lights_similar_enough(light_key, current_light_key)
                         && rotation == current_rotation) {
                         float block_ao[4];
-                        ao.compute_face(accessor, registry, x, y, z, direction, block_ao, stride_xz_);
+                        ao.compute_face(accessor, registry, x, y, z, direction, block_ao, stride_xz_, true);
                         if (block_ao[0] == current_ao[0] && block_ao[1] == current_ao[1]
                             && block_ao[2] == current_ao[2] && block_ao[3] == current_ao[3]) {
                             continue;
@@ -165,7 +165,7 @@ void MeshBuilder::passive_greedy_mesh_horizontal(const ChunkData& chunk, const C
                     current_block = block_id;
                     current_rotation = rotation;
                     current_light_key = light_key;
-                    ao.compute_face(accessor, registry, x, y, z, direction, current_ao, stride_xz_);
+                    ao.compute_face(accessor, registry, x, y, z, direction, current_ao, stride_xz_, true);
                 }
 
                 if (merge_start != -1) {
@@ -396,9 +396,9 @@ void MeshBuilder::passive_greedy_mesh_vertical(const ChunkData& chunk, const Chu
                             const bool same_rotation = rotation == dst.current_rotation;
                             if (same_block && within_distance && same_light && same_rotation) {
                                 float block_ao[4];
-                                this->ao.compute_face(accessor, registry, x, y, z, kDirs[d], block_ao, stride_xz_);
+                                this->ao.compute_face(accessor, registry, x, y, z, kDirs[d], block_ao, stride_xz_, true);
                                 if (!dst.ao_valid) {
-                                    this->ao.compute_face(accessor, registry, x, dst.merge_start, z, kDirs[d], dst.current_ao, stride_xz_);
+                                    this->ao.compute_face(accessor, registry, x, dst.merge_start, z, kDirs[d], dst.current_ao, stride_xz_, true);
                                     dst.ao_valid = true;
                                 }
                                 if (block_ao[0] == dst.current_ao[0] && block_ao[1] == dst.current_ao[1]

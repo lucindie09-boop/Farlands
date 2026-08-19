@@ -99,11 +99,25 @@ This document describes the current, stable architecture of the voxel engine. Fo
 - Texture/emissive arrays generated from same file
 - Do not hardcode block properties in C++
 
+### Block Shapes
+- **Non-full block shapes**: Slabs, stairs, walls, and poles defined in `data/block_shapes.json`
+- **Selection and collision boxes**: Each shape variant has explicit selection boxes (for raycast) and collision boxes (for physics)
+- **Auto-detecting placement**: Slabs, stairs, and walls automatically orient based on clicked face and neighboring blocks
+- **Double-slab merging**: Two stacked slabs of the same type merge into a double slab; breaking drops 2 slabs
+- **Pole collision**: Fence-like collision boxes extend 1.5 blocks high for proper player interaction
+
 ## Terrain Generation
 
 - **Signed 3D density field** over a macro heightmap: `density = (surface_y - y) + shape_noise * strength * surface_band` (positive = solid). The 3D fBm deforms only a band around the macro surface, producing overhangs, shelves, and arches.
 - **4×4×4 world-aligned shape lattice**: the 3D shape noise is sampled once per lattice node and trilinearly interpolated per voxel, so chunk grids and single-point field queries stay bit-identical and lattice nodes land on shared world coordinates across chunk boundaries (no seams).
 - **Chunk-level fast paths**: after the exact macro column pass, chunks entirely above/below the per-chunk height band fill plain water/air or stone over bedrock and skip all lattice/density/material work (~7× on deep-chunk generation).
+- **Continental-scale elevation noise**: Additive-only ~1000 block wavelength noise for large-scale terrain variation
+- **Elevation-based weirdness amplification**: Terrain features become 1-2x more dramatic at higher elevations
+- **Continentalness warp**: Wavy coastlines through continental-scale warping
+- **Widened beach biome band**: Proper shoreline coverage with expanded beach biome
+- **Improved water placement**: Better near-water detection and ocean floor terrain
+- **Data-driven worldgen**: Surfaces, climate thresholds, tree density/variants, and macro height centers all load from JSON configs at startup (`data/biomes.json`, `data/vegetation.json`, `data/terrain_config.json`).
+- **Per-biome amplitude scaling**: Height-center `scale_m` is applied as a terrain amplitude multiplier — plains are genuinely flat, desert low/dry, forest hilly.
 - Vegetation uses the real density surface with an underwater rejection guard; an isolated-singleton removal pass clears lone floating voxels the density field occasionally produces.
 
 ## Rendering
@@ -129,9 +143,10 @@ This document describes the current, stable architecture of the voxel engine. Fo
 
 ### Mesh Surfaces
 - Primary surface: opaque terrain with greedy meshing
-- Secondary surface: translucent water with edge fade, tint, shimmer, Beer-Lambert depth absorption
+- Secondary surface: translucent water with edge fade, tint, shimmer, Beer-Lambert depth absorption, flowing texture animation, and separate blend-mix surface
 - Emissive textures: second `Texture2DArray` for per-face glow maps
 - Far regions: LOD-reduced chunk meshes merged into region instances (`far_regions`, `far_mesh_cache` in `mesh_manager.*`/`chunk_render_data.hpp`) so the coarse ring costs a handful of draw calls
+- Vertex compression: 24 bytes per vertex (-40% VRAM) with fixed-point positions
 
 ## Collision
 
@@ -151,6 +166,28 @@ Two layers mirroring the ChunkManager/VoxelEngineController pattern:
 - **Lifecycle hooks** — `PlayerController::_ready()` caches the `ChunkManager` pointer (no per-call tree lookups) and loads the saved inventory; `_exit_tree()` saves the inventory while every node is still allocated, guarded by `inventory_saved_` so the destructor's fallback save is a no-op.
 
 No `CharacterBody3D`, `move_and_slide`, or `CollisionShape3D` — all collision goes through `CollisionResolver` against the chunk map.
+
+## Removed/Experimental Features
+
+The following experimental features were attempted but removed or reverted:
+
+- **2×2×2 LOD group merging**: Replaced with per-chunk three-tier LOD with 8×8 region merging
+- **Cloud layer system**: Removed atmospheric cloud layer with fbm noise
+- **Lighting preset system**: Reverted Main/Spooky preset system with separate visual sky
+- **Occluder boxes**: Reverted Godot occluder boxes for fully-solid chunks
+- **Complex biome systems**: Removed Tundra/Taiga/Savanna/StonePlateau biomes in favor of current 5-biome JSON system
+- **Erosion-driven mountains**: Removed experimental mountain generation systems
+- **3D DDA collision**: Reverted to binary-search AABB collision
+- **11-biome climate system**: Simplified from 11 biomes to current 5-biome temperature/humidity grid
+
+## Legacy/Disabled Code
+
+The following code remains in the codebase but is disabled or unused:
+
+- **Cave system**: `kCavesEnabled = false` in `ChunkGenerator` - cave carving code exists but is globally disabled
+- **is_occluder() method**: Defined in `ChunkNeighborAccessor` but never called anywhere in the codebase
+- **mountain_scale parameter**: Read from save files in persistence but ignored in current terrain generation
+- **Domain warp**: Anisotropic domain warp code still present in terrain generation but its impact is minimal with current parameters (provides flowing terrain ridges)
 
 ## Key Files
 
@@ -180,10 +217,18 @@ No `CharacterBody3D`, `move_and_slide`, or `CollisionShape3D` — all collision 
 - `src/world/chunk_scheduler.hpp` — Completion queues, `poll_completed_mesh_nearest`
 - `src/world/day_night_cycle.hpp` — Sky-light cycle
 
+### Worldgen
+- `src/worldgen/chunk_generator.hpp/cpp` — Signed 3D density field, 4×4×4 shape lattice, biome-based macro surface, chunk-level fast paths
+- `src/worldgen/vegetation_generator.hpp/cpp` — Tree placement with variant-weighted per biome, minimum spacing, deferred cross-chunk writes
+- `src/worldgen/biome_config.hpp` — Biome config loaded from `data/biomes.json`
+- `src/worldgen/vegetation_config.hpp` — Vegetation config loaded from `data/vegetation.json`
+- `src/core/terrain_params.cpp` — Terrain parameters loaded from `data/terrain_config.json`
+
 ### UI (GDScript)
-- `chat.gd` — Chat system with autocomplete: ghost text suggestions with pulsing effect, tab cycling through completions, up/down arrow navigation, hold-to-cycle, parameter hints for commands, command execution (`/help`, `/give`, `/tp`, `/fly`, `/clearchat`, `/clearinv`, `/version`)
+- `chat.gd` — Chat system with autocomplete: ghost text suggestions with pulsing effect, tab cycling through completions, up/down arrow navigation, hold-to-cycle, parameter hints for commands, command execution (`/help`, `/give` with unlimited count, `/tp`, `/fly`, `/clearchat`, `/clearinv`, `/version`), mouse wheel scrolling for chat history, caret blink, wrapped messages with proper input box anchoring
 - `hotbar.gd` — Hotbar UI with mouse wheel cycling, click-to-hold block selection
-- `inventory.gd` — Full inventory screen with drag-drop stack movement, shift-click quick-transfer
+- `inventory.gd` — Full inventory screen with drag-drop stack movement, shift-click quick-transfer, RMB drag-place, LMB drag-collect, scroll wheel quick-transfer, double-click gather
+- `settings_menu.gd` — Adjustable settings with persistence (render, lighting, crosshair, controls) opened with Escape key
 - `block_textures.gd` — Block texture atlas generation from `textures/blocks/`
 
 ### Engine
@@ -207,6 +252,10 @@ No `CharacterBody3D`, `move_and_slide`, or `CollisionShape3D` — all collision 
 
 ### Data
 - `data/block_definitions.json` — Single source of truth for block properties
+- `data/block_shapes.json` — Shared shape registry for non-full blocks (slabs, stairs, walls, poles)
+- `data/biomes.json` — Biome definitions with per-biome materials, climate thresholds, tree density, and tree variant weights
+- `data/vegetation.json` — Vegetation parameters for forest/plains/desert biomes
+- `data/terrain_config.json` — Macro height centers, climate scales, and terrain amplitude parameters
 - `textures/` — Asset organization:
   - `textures/blocks/` — Block textures (bedrock, dirt, grass, stone, sand, water, etc.)
   - `textures/gui/` — UI textures (hotbar, inventory background, effects)

@@ -134,8 +134,8 @@ bool MeshBuilder::should_cull_aabb_face(const float self_min[3], const float sel
             case FaceDirection::Bottom: return self_min[1] <= 0.0f;
             case FaceDirection::Right:  return self_max[0] >= 1.0f;
             case FaceDirection::Left:   return self_min[0] <= 0.0f;
-            case FaceDirection::Front:  return self_min[2] <= 0.0f;
-            case FaceDirection::Back:   return self_max[2] >= 1.0f;
+            case FaceDirection::Front:  return self_max[2] >= 1.0f;
+            case FaceDirection::Back:   return self_min[2] <= 0.0f;
         }
         return true;
     }
@@ -144,38 +144,39 @@ bool MeshBuilder::should_cull_aabb_face(const float self_min[3], const float sel
         bool covers = true;
         switch (dir) {
             case FaceDirection::Top:
-                // Neighbor must reach y=0 (face plane) and cover full XZ
-                covers = nb.min[1] <= 0.0f &&
+                // Neighbor must reach the face plane and cover full XZ
+                // Face at y=self_max[1], neighbor local face = self_max[1]-1
+                covers = nb.min[1] <= self_max[1] - 1.0f &&
                          nb.min[0] <= self_min[0] && nb.max[0] >= self_max[0] &&
                          nb.min[2] <= self_min[2] && nb.max[2] >= self_max[2];
                 break;
             case FaceDirection::Bottom:
-                // Neighbor must reach y=1 (face plane) and cover full XZ
-                covers = nb.max[1] >= 1.0f &&
+                // Face at y=self_min[1], neighbor local face = self_min[1]+1
+                covers = nb.max[1] >= self_min[1] + 1.0f &&
                          nb.min[0] <= self_min[0] && nb.max[0] >= self_max[0] &&
                          nb.min[2] <= self_min[2] && nb.max[2] >= self_max[2];
                 break;
             case FaceDirection::Right:
-                // Neighbor must reach x=0 (face plane) and cover full YZ
-                covers = nb.min[0] <= 0.0f &&
+                // Face at x=self_max[0], neighbor local face = self_max[0]-1
+                covers = nb.min[0] <= self_max[0] - 1.0f &&
                          nb.min[1] <= self_min[1] && nb.max[1] >= self_max[1] &&
                          nb.min[2] <= self_min[2] && nb.max[2] >= self_max[2];
                 break;
             case FaceDirection::Left:
-                // Neighbor must reach x=1 (face plane) and cover full YZ
-                covers = nb.max[0] >= 1.0f &&
+                // Face at x=self_min[0], neighbor local face = self_min[0]+1
+                covers = nb.max[0] >= self_min[0] + 1.0f &&
                          nb.min[1] <= self_min[1] && nb.max[1] >= self_max[1] &&
                          nb.min[2] <= self_min[2] && nb.max[2] >= self_max[2];
                 break;
             case FaceDirection::Front:
-                // Neighbor must reach z=0 (face plane) and cover full XY
-                covers = nb.min[2] <= 0.0f &&
+                // Face at z=self_max[2], neighbor local face = self_max[2]-1
+                covers = nb.min[2] <= self_max[2] - 1.0f &&
                          nb.min[0] <= self_min[0] && nb.max[0] >= self_max[0] &&
                          nb.min[1] <= self_min[1] && nb.max[1] >= self_max[1];
                 break;
             case FaceDirection::Back:
-                // Neighbor must reach z=1 (face plane) and cover full XY
-                covers = nb.max[2] >= 1.0f &&
+                // Face at z=self_min[2], neighbor local face = self_min[2]+1
+                covers = nb.max[2] >= self_min[2] + 1.0f &&
                          nb.min[0] <= self_min[0] && nb.max[0] >= self_max[0] &&
                          nb.min[1] <= self_min[1] && nb.max[1] >= self_max[1];
                 break;

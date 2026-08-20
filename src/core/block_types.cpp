@@ -267,6 +267,12 @@ bool BlockRegistry::load_from_json(const godot::String& json_path) noexcept {
              bt.selection_boxes[0].min[0] == 0.0f && bt.selection_boxes[0].min[1] == 0.0f && bt.selection_boxes[0].min[2] == 0.0f &&
              bt.selection_boxes[0].max[0] == 1.0f && bt.selection_boxes[0].max[1] == 1.0f && bt.selection_boxes[0].max[2] == 1.0f);
 
+        // Compute greedy_mergeable: full cubes or single-box blocks spanning full XZ
+        bt.greedy_mergeable = bt.full_cube_ ||
+            (bt.selection_boxes.size() == 1 &&
+             bt.selection_boxes[0].min[0] == 0.0f && bt.selection_boxes[0].max[0] == 1.0f &&
+             bt.selection_boxes[0].min[2] == 0.0f && bt.selection_boxes[0].max[2] == 1.0f);
+
         register_block(bt);
     }
 

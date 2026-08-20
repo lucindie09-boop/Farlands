@@ -103,6 +103,11 @@ struct BlockType {
     // Checked on hot paths (greedy meshing, collision, AO) for zero-overhead fast path.
     bool full_cube_ = true;
 
+    // Cached flag: true when the block can participate in greedy meshing.
+    // True for full cubes or single-box blocks whose AABB spans the full XZ footprint
+    // (e.g. water, slabs, mud). Walls, poles, and multi-box stairs are excluded.
+    bool greedy_mergeable = true;
+
     [[nodiscard]] bool is_full_cube() const noexcept { return full_cube_; }
 
     // Returns collision_boxes if set, otherwise falls back to selection_boxes.

@@ -220,7 +220,7 @@ void MeshBuilder::emit_faces(const ChunkData& chunk, const BlockRegistry& regist
                         const BlockID block_id = solid_at(y, z + 1, x + 1);
                         if (block_id == BlockIDs::AIR) continue;
                         const BlockType& bt = registry.get_block_fast(block_id);
-                        if (bt.is_full_cube()) continue;
+                        if (bt.greedy_mergeable) continue;
                         for (const auto& box : bt.selection_boxes) {
                             for (int i = 0; i < 6; i++) {
                                 FaceDirection dir = kAllDirections[i];
@@ -230,9 +230,14 @@ void MeshBuilder::emit_faces(const ChunkData& chunk, const BlockRegistry& regist
                                 int32_t ny = y + kDirectionOffsets[dir_idx][1];
                                 int32_t nz = z + kDirectionOffsets[dir_idx][2] * stride_xz_;
                                 BlockID neighbor = accessor.get_block(nx, ny, nz);
+                                if (neighbor == BlockIDs::AIR) {
+                                    add_aabb_face(chunk, accessor, x, y, z, dir, block_id, registry,
+                                                  box.min, box.max);
+                                    continue;
+                                }
+                                if (block_id == neighbor && bt.cull_against_same) continue;
                                 const BlockType& neighbor_type = registry.get_block(neighbor);
-                                if (neighbor == BlockIDs::AIR ||
-                                    !should_cull_aabb_face(box.min, box.max, dir, neighbor_type)) {
+                                if (!should_cull_aabb_face(box.min, box.max, dir, neighbor_type)) {
                                     add_aabb_face(chunk, accessor, x, y, z, dir, block_id, registry,
                                                   box.min, box.max);
                                 }
@@ -272,9 +277,14 @@ void MeshBuilder::emit_faces(const ChunkData& chunk, const BlockRegistry& regist
                                     int32_t ny = y + kDirectionOffsets[dir_idx][1];
                                     int32_t nz = z + kDirectionOffsets[dir_idx][2] * stride_xz_;
                                     BlockID neighbor = accessor.get_block(nx, ny, nz);
+                                    if (neighbor == BlockIDs::AIR) {
+                                        add_aabb_face(chunk, accessor, x, y, z, dir, block_id, registry,
+                                                      box.min, box.max);
+                                        continue;
+                                    }
+                                    if (block_id == neighbor && bt.cull_against_same) continue;
                                     const BlockType& neighbor_type = registry.get_block(neighbor);
-                                    if (neighbor == BlockIDs::AIR ||
-                                        !should_cull_aabb_face(box.min, box.max, dir, neighbor_type)) {
+                                    if (!should_cull_aabb_face(box.min, box.max, dir, neighbor_type)) {
                                         add_aabb_face(chunk, accessor, x, y, z, dir, block_id, registry,
                                                       box.min, box.max);
                                     }

@@ -357,7 +357,11 @@ void MeshBuilder::passive_greedy_mesh_vertical(const ChunkData& chunk, const Chu
                             const int sx = x + 1 + kNxOff[d] * stride_xz_;
                             const int sz = z + 1 + kNzOff[d] * stride_xz_;
                             BlockID neighbor = solid_at(y, sz, sx);
-                            cull = should_cull_against_neighbor(chunk, block_id, neighbor, kDirs[d], x, y, z, registry);
+                            if (stride_xz_ == 1) {
+                                cull = should_cull_against_neighbor(chunk, block_id, neighbor, kDirs[d], x, y, z, registry);
+                            } else {
+                                cull = lod_side_face_culled(chunk, block_id, x, y, z, kDirs[d], registry);
+                            }
                         }
                         if (stride_xz_ > 1) {
                             if (cull) greedy_v_stats_local.lod_faces_culled++;

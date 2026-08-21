@@ -230,14 +230,9 @@ void MeshBuilder::emit_faces(const ChunkData& chunk, const BlockRegistry& regist
                                 int32_t ny = y + kDirectionOffsets[dir_idx][1];
                                 int32_t nz = z + kDirectionOffsets[dir_idx][2] * stride_xz_;
                                 BlockID neighbor = accessor.get_block(nx, ny, nz);
-                                if (neighbor == BlockIDs::AIR) {
-                                    add_aabb_face(chunk, accessor, x, y, z, dir, block_id, registry,
-                                                  box.min, box.max);
-                                    continue;
-                                }
-                                if (block_id == neighbor && bt.cull_against_same) continue;
-                                const BlockType& neighbor_type = registry.get_block(neighbor);
-                                if (!should_cull_aabb_face(box.min, box.max, dir, neighbor_type)) {
+                                if (neighbor == BlockIDs::AIR ||
+                                    !should_cull_aabb_face(box.min, box.max, dir,
+                                                           registry.get_block(neighbor))) {
                                     add_aabb_face(chunk, accessor, x, y, z, dir, block_id, registry,
                                                   box.min, box.max);
                                 }
@@ -277,14 +272,9 @@ void MeshBuilder::emit_faces(const ChunkData& chunk, const BlockRegistry& regist
                                     int32_t ny = y + kDirectionOffsets[dir_idx][1];
                                     int32_t nz = z + kDirectionOffsets[dir_idx][2] * stride_xz_;
                                     BlockID neighbor = accessor.get_block(nx, ny, nz);
-                                    if (neighbor == BlockIDs::AIR) {
-                                        add_aabb_face(chunk, accessor, x, y, z, dir, block_id, registry,
-                                                      box.min, box.max);
-                                        continue;
-                                    }
-                                    if (block_id == neighbor && bt.cull_against_same) continue;
-                                    const BlockType& neighbor_type = registry.get_block(neighbor);
-                                    if (!should_cull_aabb_face(box.min, box.max, dir, neighbor_type)) {
+                                    if (neighbor == BlockIDs::AIR ||
+                                        !should_cull_aabb_face(box.min, box.max, dir,
+                                                               registry.get_block(neighbor))) {
                                         add_aabb_face(chunk, accessor, x, y, z, dir, block_id, registry,
                                                       box.min, box.max);
                                     }

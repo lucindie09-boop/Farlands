@@ -432,21 +432,6 @@ const BlockRegistry& registry) const;
     bool should_cull_aabb_face(const float self_min[3], const float self_max[3],
                                FaceDirection dir, const BlockType& neighbor_type) const;
 
-    // LOD side-face culling: evaluates the real cull rule at EVERY cell along a
-    // side direction out to stride distance. The face is dropped only when all
-    // window cells cull; any visible gap (air/water/shaped) forces emission,
-    // while same-type windows (e.g. interior water) still cull so greedy
-    // merging survives. Vertical faces are never strided.
-    [[nodiscard]] bool lod_side_face_culled(const ChunkData& chunk, BlockID current,
-                                            int32_t x, int32_t y, int32_t z,
-                                            FaceDirection direction,
-                                            const BlockRegistry& registry) const;
-
-    [[nodiscard]] bool lod_aabb_side_visible(const float self_min[3], const float self_max[3],
-                                             int32_t x, int32_t y, int32_t z,
-                                             FaceDirection direction,
-                                             const BlockRegistry& registry) const;
-
     bool boundary_face_fully_occluded(const ChunkData& current_chunk, const ChunkData* neighbor,
                                        FaceDirection dir, int32_t x, int32_t y, int32_t z,
                                        int32_t stride, BlockID current_block,

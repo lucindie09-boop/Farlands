@@ -187,46 +187,6 @@ bool MeshBuilder::should_cull_aabb_face(const float self_min[3], const float sel
 }
 
 // -------------------------------------------------------------------------
-// LOD side-face culling: side faces sample the neighbor `stride` cells away;
-// culling must hold for EVERY cell in the window, otherwise a face visible
-// through an intermediate air/water/shaped cell would be wrongly dropped.
-// -------------------------------------------------------------------------
-bool MeshBuilder::lod_side_face_culled(const ChunkData& chunk, BlockID current,
-                                       int32_t x, int32_t y, int32_t z,
-                                       FaceDirection direction,
-                                       const BlockRegistry& registry) const {
-    const int dir_idx = static_cast<int>(direction);
-    const int ox = kDirectionOffsets[dir_idx][0];
-    const int oy = kDirectionOffsets[dir_idx][1];
-    const int oz = kDirectionOffsets[dir_idx][2];
-    for (int32_t i = 1; i <= stride_xz_; ++i) {
-        BlockID b = accessor.get_block(x + ox * i, y + oy * i, z + oz * i);
-        if (!should_cull_against_neighbor(chunk, current, b, direction, x, y, z, registry)) {
-            return false;
-        }
-    }
-    return true;
-}
-
-bool MeshBuilder::lod_aabb_side_visible(const float self_min[3], const float self_max[3],
-                                        int32_t x, int32_t y, int32_t z,
-                                        FaceDirection direction,
-                                        const BlockRegistry& registry) const {
-    const int dir_idx = static_cast<int>(direction);
-    const int ox = kDirectionOffsets[dir_idx][0];
-    const int oy = kDirectionOffsets[dir_idx][1];
-    const int oz = kDirectionOffsets[dir_idx][2];
-    for (int32_t i = 1; i <= stride_xz_; ++i) {
-        BlockID b = accessor.get_block(x + ox * i, y + oy * i, z + oz * i);
-        if (b == BlockIDs::AIR ||
-            !should_cull_aabb_face(self_min, self_max, direction, registry.get_block(b))) {
-            return true;
-        }
-    }
-    return false;
-}
-
-// -------------------------------------------------------------------------
 // Face emission driver
 // -------------------------------------------------------------------------
 void MeshBuilder::emit_faces(const ChunkData& chunk, const BlockRegistry& registry) {
@@ -270,12 +230,9 @@ void MeshBuilder::emit_faces(const ChunkData& chunk, const BlockRegistry& regist
                                 int32_t ny = y + kDirectionOffsets[dir_idx][1];
                                 int32_t nz = z + kDirectionOffsets[dir_idx][2] * stride_xz_;
                                 BlockID neighbor = accessor.get_block(nx, ny, nz);
-                                bool emit = stride_xz_ > 1 && is_side_face(dir)
-                                                ? lod_aabb_side_visible(box.min, box.max, x, y, z, dir, registry)
-                                                : (neighbor == BlockIDs::AIR ||
-                                                   !should_cull_aabb_face(box.min, box.max, dir,
-                                                                          registry.get_block(neighbor)));
-                                if (emit) {
+                                if (neighbor == BlockIDs::AIR ||
+                                    !should_cull_aabb_face(box.min, box.max, dir,
+                                                           registry.get_block(neighbor))) {
                                     add_aabb_face(chunk, accessor, x, y, z, dir, block_id, registry,
                                                   box.min, box.max);
                                 }
@@ -315,12 +272,9 @@ void MeshBuilder::emit_faces(const ChunkData& chunk, const BlockRegistry& regist
                                     int32_t ny = y + kDirectionOffsets[dir_idx][1];
                                     int32_t nz = z + kDirectionOffsets[dir_idx][2] * stride_xz_;
                                     BlockID neighbor = accessor.get_block(nx, ny, nz);
-                                    bool emit = stride_xz_ > 1 && is_side_face(dir)
-                                                    ? lod_aabb_side_visible(box.min, box.max, x, y, z, dir, registry)
-                                                    : (neighbor == BlockIDs::AIR ||
-                                                       !should_cull_aabb_face(box.min, box.max, dir,
-                                                                              registry.get_block(neighbor)));
-                                    if (emit) {
+                                    if (neighbor == BlockIDs::AIR ||
+                                        !should_cull_aabb_face(box.min, box.max, dir,
+                                                               registry.get_block(neighbor))) {
                                         add_aabb_face(chunk, accessor, x, y, z, dir, block_id, registry,
                                                       box.min, box.max);
                                     }
@@ -358,10 +312,7 @@ void MeshBuilder::emit_faces(const ChunkData& chunk, const BlockRegistry& regist
                             int32_t nz = z + kDirectionOffsets[dir_idx][2] * stride_xz_;
 
                             BlockID neighbor = accessor.get_block(nx, ny, nz);
-                            bool culled = stride_xz_ == 1
-                                              ? should_cull_against_neighbor(chunk, block_id, neighbor, dir, x, y, z, registry)
-                                              : lod_side_face_culled(chunk, block_id, x, y, z, dir, registry);
-                            if (!culled) {
+                            if (!should_cull_against_neighbor(chunk, block_id, neighbor, dir, x, y, z, registry)) {
                                 add_face(chunk, accessor, x, y, z, dir, block_id, registry);
                             }
                         }

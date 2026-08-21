@@ -104,8 +104,9 @@ struct BlockType {
     bool full_cube_ = true;
 
     // Cached flag: true when the block can participate in greedy meshing.
-    // True for full cubes or single-box blocks whose AABB spans the full XZ footprint
-    // (e.g. water, slabs, mud). Walls, poles, and multi-box stairs are excluded.
+    // True for full cubes or bottom-anchored full-XZ columns whose height is
+    // 1 - top_face_offset (water, mud, wet_sand). Slabs, walls, poles, and
+    // multi-box stairs are excluded — they emit via per-AABB geometry.
     bool greedy_mergeable = true;
 
     [[nodiscard]] bool is_full_cube() const noexcept { return full_cube_; }

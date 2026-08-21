@@ -267,10 +267,16 @@ bool BlockRegistry::load_from_json(const godot::String& json_path) noexcept {
              bt.selection_boxes[0].min[0] == 0.0f && bt.selection_boxes[0].min[1] == 0.0f && bt.selection_boxes[0].min[2] == 0.0f &&
              bt.selection_boxes[0].max[0] == 1.0f && bt.selection_boxes[0].max[1] == 1.0f && bt.selection_boxes[0].max[2] == 1.0f);
 
-        // Compute greedy_mergeable: full cubes or single-box blocks spanning full XZ
+        // Compute greedy_mergeable: full cubes, or bottom-anchored full-XZ columns
+        // whose height is exactly 1 - top_face_offset — the only non-full geometry
+        // the greedy flush can emit (it lowers tops via top_face_offset).
+        // Slabs/stairs/walls/poles don't qualify and use per-AABB emission.
         bt.greedy_mergeable = bt.full_cube_ ||
-            (bt.selection_boxes.size() == 1 &&
+            (bt.top_face_offset > 0.0f &&
+             bt.selection_boxes.size() == 1 &&
              bt.selection_boxes[0].min[0] == 0.0f && bt.selection_boxes[0].max[0] == 1.0f &&
+             bt.selection_boxes[0].min[1] == 0.0f &&
+             bt.selection_boxes[0].max[1] == 1.0f - bt.top_face_offset &&
              bt.selection_boxes[0].min[2] == 0.0f && bt.selection_boxes[0].max[2] == 1.0f);
 
         register_block(bt);

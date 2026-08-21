@@ -199,14 +199,9 @@ bool MeshBuilder::lod_side_face_culled(const ChunkData& chunk, BlockID current,
     const int ox = kDirectionOffsets[dir_idx][0];
     const int oy = kDirectionOffsets[dir_idx][1];
     const int oz = kDirectionOffsets[dir_idx][2];
-    const BlockID adjacent = accessor.get_block(x + ox, y + oy, z + oz);
-    if (!should_cull_against_neighbor(chunk, current, adjacent, direction, x, y, z, registry)) {
-        return false;
-    }
-    if (stride_xz_ > 2) {
-        BlockID far_cell = accessor.get_block(x + ox * stride_xz_, y + oy * stride_xz_,
-                                              z + oz * stride_xz_);
-        if (!should_cull_against_neighbor(chunk, current, far_cell, direction, x, y, z, registry)) {
+    for (int32_t i = 1; i <= stride_xz_; ++i) {
+        BlockID b = accessor.get_block(x + ox * i, y + oy * i, z + oz * i);
+        if (!should_cull_against_neighbor(chunk, current, b, direction, x, y, z, registry)) {
             return false;
         }
     }
@@ -221,16 +216,10 @@ bool MeshBuilder::lod_aabb_side_visible(const float self_min[3], const float sel
     const int ox = kDirectionOffsets[dir_idx][0];
     const int oy = kDirectionOffsets[dir_idx][1];
     const int oz = kDirectionOffsets[dir_idx][2];
-    BlockID adjacent = accessor.get_block(x + ox, y + oy, z + oz);
-    if (adjacent == BlockIDs::AIR ||
-        !should_cull_aabb_face(self_min, self_max, direction, registry.get_block(adjacent))) {
-        return true;
-    }
-    if (stride_xz_ > 2) {
-        BlockID far_cell = accessor.get_block(x + ox * stride_xz_, y + oy * stride_xz_,
-                                              z + oz * stride_xz_);
-        if (far_cell == BlockIDs::AIR ||
-            !should_cull_aabb_face(self_min, self_max, direction, registry.get_block(far_cell))) {
+    for (int32_t i = 1; i <= stride_xz_; ++i) {
+        BlockID b = accessor.get_block(x + ox * i, y + oy * i, z + oz * i);
+        if (b == BlockIDs::AIR ||
+            !should_cull_aabb_face(self_min, self_max, direction, registry.get_block(b))) {
             return true;
         }
     }

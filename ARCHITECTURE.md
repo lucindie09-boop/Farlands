@@ -162,6 +162,7 @@ Two layers mirroring the ChunkManager/VoxelEngineController pattern:
 - **`VoxelEngine::PlayerSim`** (`src/engine/player_controller.*`) — pure, deterministic fixed-timestep simulation (20 ticks/s, velocities in blocks/tick). Vanilla-accurate ordering (jump + sprint boost applied before friction, matching `tickMovement()` → `travel()`), sticky sprint with a one-tick airborne staleness, sneak multiplier on ground only, and `on_floor` derived from the final resolved position (no swept floor probe). Standing/sneaking/landing eye-height transitions are smoothed at render time from the accumulator's partial-tick fraction.
 - **`PlayerController`** (`src/godot_bindings/player_controller.*`) — Godot `Node3D` scene node registered via ClassDB (used directly by `Main.tscn`). Polls input, drives the tick accumulator from `_process(delta)`, handles mouse look, fly mode (`fly_speed`), camera eye-height smoothing, raycast-based break/place, and block selection (keys 1–9).
 - **Inventory integration** — `PlayerController` owns a `VoxelEngine::Inventory` (9 hotbar + 27 main slots, 64 stack limit). Breaking a block collects it only if `can_add_block` succeeds; placing consumes from the selected hotbar slot. Hotbar/inventory state is exposed to GDScript via ClassDB bindings (`get_hotbar_slot_block_id`, `set_inventory_slot`, `select_hotbar_slot`, etc.) and rendered by the `hotbar.gd` / `inventory.gd` `Control` overlays (E toggles, mouse wheel cycles the hotbar, click-to-hold/drag-drop stack movement).
+- **Crafting integration** — `RecipeBook` (`src/core/crafting.*`) loads recipes from `data/recipes.json` in `load_world_configs()` and is exposed through two ClassDB bindings: `match_recipe(grid_ids, grid_counts)` previews the output slot (gated on ingredient availability so the preview disappears once the grid runs dry), and `craft_recipe(grid_ids, grid_counts)` atomically verifies + deducts the grid and returns the new counts plus the result. The 2×2 grid lives GUI-side in `inventory.gd` (contents persist across open/close); crafting-area geometry is measured from the color-coded slot pixels in the atlas (`#7e7d7e` inputs, `#7e7d7f` output vs. `#7e7d7d` regular slots).
 - **Chat integration** — `PlayerController` provides chat state management (`set_chat_open`, `is_chat_open`) and inventory clearing (`clear_inventory`). The chat system (`chat.gd`) features advanced autocomplete with ghost text suggestions, tab cycling, and parameter hints.
 - **Lifecycle hooks** — `PlayerController::_ready()` caches the `ChunkManager` pointer (no per-call tree lookups) and loads the saved inventory; `_exit_tree()` saves the inventory while every node is still allocated, guarded by `inventory_saved_` so the destructor's fallback save is a no-op.
 
@@ -198,6 +199,7 @@ The following code remains in the codebase but is disabled or unused:
 - `src/core/frustum.hpp` — Frustum utility (AABB test, chunk visibility)
 - `src/core/block_types.hpp/cpp` — `BlockRegistry`, `load_from_json`
 - `src/core/inventory.hpp/cpp` — `Inventory`, `InventorySlot`: hotbar/main storage, add/consume/can_add, 64 stack limit
+- `src/core/crafting.hpp/cpp` — `RecipeBook`, `CraftingRecipe`, `craft_item`: shapeless (sorted-multiset) and shaped (bounding-box trim + mirror) matching over an N×N grid; Godot-guarded JSON loader keeps the matching core fuzz/test friendly
 - `src/core/crc32.hpp` — IEEE 802.3 CRC32 for chunk save checksum
 - `src/core/thread_pool.hpp` — Shared worker pool, high-priority queue
 
@@ -227,7 +229,8 @@ The following code remains in the codebase but is disabled or unused:
 ### UI (GDScript)
 - `chat.gd` — Chat system with autocomplete: ghost text suggestions with pulsing effect, tab cycling through completions, up/down arrow navigation, hold-to-cycle, parameter hints for commands, command execution (`/help`, `/give` with unlimited count, `/tp`, `/fly`, `/clearchat`, `/clearinv`, `/version`), mouse wheel scrolling for chat history, caret blink, wrapped messages with proper input box anchoring
 - `hotbar.gd` — Hotbar UI with mouse wheel cycling, click-to-hold block selection
-- `inventory.gd` — Full inventory screen with drag-drop stack movement, shift-click quick-transfer, RMB drag-place, LMB drag-collect, scroll wheel quick-transfer, double-click gather
+- `inventory.gd` - Full inventory screen with drag-drop stack movement, shift-click quick-transfer, RMB drag-place, LMB drag-collect, scroll wheel quick-transfer, double-click gather; live 2×2 crafting grid + output preview (click/drag/shift/scroll interactions mirrored on the crafting cells; shift-click output crafts as many as possible)
+- `data/recipes.json` — Crafting recipes (shaped/shapeless), resolved by block name; loaded into `RecipeBook` at startup
 - `settings_menu.gd` — Adjustable settings with persistence (render, lighting, crosshair, controls) opened with Escape key
 - `block_textures.gd` — Block texture atlas generation from `textures/blocks/`
 
@@ -264,9 +267,10 @@ The following code remains in the codebase but is disabled or unused:
   - `textures/Archive/` — Archived/deprecated textures (old versions kept for reference)
 
 ### Testing
-- `tests/` — 23 test files, 182 test cases / 157,085 assertions, auto-discovered via `Glob("tests/*.cpp")`
+- `tests/` — 24 test files, 186 test cases / 157,111 assertions, auto-discovered via `Glob("tests/*.cpp")`
 - `tests/test_concurrency.cpp` — 19 tests for shard locking, deadlock prevention, PaletteStorage
 - `tests/test_inventory.cpp` — Inventory add/consume/edge-case tests
+- `tests/test_crafting.cpp` — Shapeless/shaped matching (trim, mirror, offset, rotation/partial misses) + atomic craft_item tests (success, insufficient ingredients, full inventory rejection)
 - `tests/test_light_propagation.cpp` — Cross-chunk BFS edge case tests
 - `tests/test_light_removal.cpp` — Overlapping multi-source light removal tests
 - `tests/test_player_controller.cpp` — PlayerSim movement/sprint/sneak/collision tests

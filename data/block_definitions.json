@@ -410,5 +410,15 @@
     "light": [0, 0, 0],
     "top_face_offset": 0.0,
     "slipperiness": 0.6
+  },
+  {
+    "name": "oak_planks",
+    "properties": ["Solid", "Opaque"],
+    "visible_faces": [true, true, true, true, true, true],
+    "textures": ["oak_planks", "oak_planks", "oak_planks", "oak_planks", "oak_planks", "oak_planks"],
+    "emissive_textures": ["", "", "", "", "", ""],
+    "light": [0, 0, 0],
+    "top_face_offset": 0.0,
+    "slipperiness": 0.6
   }
 ]

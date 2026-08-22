@@ -44,6 +44,8 @@ void PlayerController::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_inventory_slot", "slot", "block_id", "count"), &PlayerController::set_inventory_slot);
     ClassDB::bind_method(D_METHOD("give_block", "block_id", "count"), &PlayerController::give_block);
     ClassDB::bind_method(D_METHOD("clear_inventory"), &PlayerController::clear_inventory);
+    ClassDB::bind_method(D_METHOD("match_recipe", "grid_ids", "grid_counts"), &PlayerController::match_recipe);
+    ClassDB::bind_method(D_METHOD("craft_recipe", "grid_ids", "grid_counts"), &PlayerController::craft_recipe);
     ClassDB::bind_method(D_METHOD("save_inventory"), &PlayerController::save_inventory);
     ClassDB::bind_method(D_METHOD("load_inventory"), &PlayerController::load_inventory);
     ClassDB::bind_method(D_METHOD("set_active_texture_pack", "pack_name"), &PlayerController::set_active_texture_pack);
@@ -497,6 +499,99 @@ bool PlayerController::give_block(int block_id, int count) {
 
 void PlayerController::clear_inventory() {
     inventory_.clear();
+}
+
+// Crafting API
+Dictionary PlayerController::match_recipe(const PackedInt32Array& grid_ids,
+                                          const PackedInt32Array& grid_counts) {
+    Dictionary out;
+    out["ok"] = false;
+    if (!chunk_manager_ || grid_ids.size() != 4 || grid_counts.size() != 4) {
+        return out;
+    }
+    VoxelEngineController* controller = chunk_manager_->get_controller();
+    if (!controller) {
+        return out;
+    }
+    BlockID cells[4];
+    int counts[4];
+    for (int i = 0; i < 4; ++i) {
+        const int v = grid_ids[i];
+        cells[i] = (v > 0 && v < 256) ? static_cast<BlockID>(v) : BlockIDs::AIR;
+        counts[i] = grid_counts[i] > 0 ? grid_counts[i] : 0;
+    }
+    const CraftingRecipe* recipe = controller->get_recipe_book().match(cells, 2);
+    if (!recipe) {
+        return out;
+    }
+    // Gate the preview on availability: ids alone would keep showing a result
+    // after craft_recipe consumed the last ingredient (the ghost-icon bug).
+    for (const InventorySlot& need : recipe->ingredient_totals) {
+        int available = 0;
+        for (int i = 0; i < 4; ++i) {
+            if (cells[i] == need.block_id) available += counts[i];
+        }
+        if (available < need.count) {
+            return out;
+        }
+    }
+    out["ok"] = true;
+    out["block_id"] = static_cast<int>(recipe->result.block_id);
+    out["count"] = recipe->result.count;
+    return out;
+}
+
+Dictionary PlayerController::craft_recipe(const PackedInt32Array& grid_ids,
+                                          const PackedInt32Array& grid_counts) {
+    Dictionary out;
+    out["ok"] = false;
+    if (!chunk_manager_ || grid_ids.size() != 4 || grid_counts.size() != 4) {
+        return out;
+    }
+    VoxelEngineController* controller = chunk_manager_->get_controller();
+    if (!controller) {
+        return out;
+    }
+    BlockID cells[4];
+    int counts[4];
+    for (int i = 0; i < 4; ++i) {
+        const int v = grid_ids[i];
+        cells[i] = (v > 0 && v < 256) ? static_cast<BlockID>(v) : BlockIDs::AIR;
+        counts[i] = grid_counts[i] > 0 ? grid_counts[i] : 0;
+    }
+    const CraftingRecipe* recipe = controller->get_recipe_book().match(cells, 2);
+    if (!recipe) {
+        return out;
+    }
+
+    // Verify every ingredient total is coverable by the grid before touching
+    // any cell, then deduct greedily per total (totals have unique ids, so the
+    // deductions never interact).
+    for (const InventorySlot& need : recipe->ingredient_totals) {
+        int available = 0;
+        for (int i = 0; i < 4; ++i) {
+            if (cells[i] == need.block_id) available += counts[i];
+        }
+        if (available < need.count) {
+            return out;
+        }
+    }
+    PackedInt32Array new_counts = grid_counts;
+    for (const InventorySlot& need : recipe->ingredient_totals) {
+        int remaining = need.count;
+        for (int i = 0; i < 4 && remaining > 0; ++i) {
+            if (cells[i] != need.block_id) continue;
+            const int take = counts[i] < remaining ? counts[i] : remaining;
+            counts[i] -= take;
+            remaining -= take;
+            new_counts[i] = counts[i];
+        }
+    }
+    out["ok"] = true;
+    out["block_id"] = static_cast<int>(recipe->result.block_id);
+    out["count"] = recipe->result.count;
+    out["new_counts"] = new_counts;
+    return out;
 }
 
 bool PlayerController::set_active_texture_pack(const String& pack_name) {

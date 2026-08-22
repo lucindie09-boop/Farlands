@@ -1,6 +1,7 @@
 #include "core/block_types.hpp"
 
 #include <vector>
+#include <deque>
 #include <string>
 #include <cstring>
 
@@ -143,7 +144,10 @@ bool BlockRegistry::load_from_json(const godot::String& json_path) noexcept {
 
         // name
         godot::String name_str = d["name"];
-        static std::vector<std::string> name_storage;
+        // deque: element addresses are stable across pushes, so bt.name keeps
+        // pointing at valid storage for the process lifetime (a vector would
+        // dangle every earlier pointer on reallocation).
+        static std::deque<std::string> name_storage;
         name_storage.push_back(name_str.utf8().get_data());
         bt.name = name_storage.back().c_str();
 
@@ -287,6 +291,12 @@ bool BlockRegistry::load_from_json(const godot::String& json_path) noexcept {
 #endif
 
 void BlockRegistry::initialize_default_blocks() noexcept {
+    // Idempotent: repeated calls (e.g. once per test case) must not append
+    // duplicate defaults, which would eventually overflow MAX_BLOCK_TYPES.
+    static bool initialized = false;
+    if (initialized) return;
+    initialized = true;
+
     // Helper for solid, opaque, AO-generating blocks with all 6 faces visible.
     const auto solid = [&](const char* name) {
         BlockType bt{};

@@ -6,6 +6,8 @@ A Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked streamin
 - Camera3D child named "Camera3D" on the player node is the frustum source
 - Chunk size is 32×32×32, world height 1024 blocks (`WORLD_HEIGHT_Y` in `chunk_coords.hpp`)
 - Block properties live in `data/block_definitions.json` — single source of truth
+- Block IDs are positional (entry order = save-format ID): **always append** new blocks to `block_definitions.json`, never insert mid-list — inserting shifts every later ID and corrupts existing worlds
+- Crafting recipes live in `data/recipes.json` — shaped (`pattern`+`key`) and shapeless entries resolved by block name
 - Block shapes live in `data/block_shapes.json` — shared shape registry for non-full blocks (slabs, stairs, walls, poles)
 - Worldgen tuning is data-driven: `data/terrain_config.json` (macro surface + height centers), `data/biomes.json` (per-biome materials/trees + climate thresholds), `data/vegetation.json` (forest/plains/desert feature knobs)
 
@@ -45,9 +47,11 @@ A Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked streamin
 
 ### Inventory & GUI
 - **C++ inventory core**: `Inventory` (9 hotbar + 27 main slots, 64 stack limit) with add/consume/can_add logic in `src/core/inventory.*`
+- **C++ crafting core**: `RecipeBook`/`CraftingRecipe`/`craft_item` in `src/core/crafting.*` — shapeless (sorted-multiset) and shaped (bounding-box trim + mirror) matching over an N×N grid; atomic all-or-nothing crafting; recipes load from `data/recipes.json` at startup
 - **Block break/place integration**: Breaking collects into the inventory (gated by `can_add_block`); placing consumes from the selected hotbar slot
 - **GDScript GUI**: `hotbar.gd` / `inventory.gd` `Control` overlays — E toggles the inventory, mouse wheel cycles the hotbar, click-to-hold / drag-drop stack movement, hover/selection highlights built by pixel-color-keyed texture recolor (no hand-drawn art)
-- **Inventory drag operations**: RMB drag-place (spread 1 unit per slot), LMB drag-collect (sweep matching blocks), shift-click/drag quick-transfer (move between hotbar/main), scroll wheel quick-transfer (push/pull 1 unit between zones), double-click gather (sweep all matching blocks into cursor)
+- **2×2 crafting menu**: The atlas' color-coded slots (`#7e7d7e` inputs / `#7e7d7f` output vs. `#7e7d7d` regular) are located by their fill colors and wired to the C++ RecipeBook via `match_recipe(grid_ids, grid_counts)` (availability-gated preview — no ghost results after ingredients run out) and `craft_recipe` (atomic verify + deduct). Grid state lives GUI-side and persists across open/close so items are never lost
+- **Inventory drag operations**: RMB drag-place (spread 1 unit per slot), LMB drag-collect (sweep matching blocks), shift-click/drag quick-transfer (move between hotbar/main), scroll wheel quick-transfer (push/pull 1 unit between zones), double-click gather (sweep all matching blocks into cursor); all mirrored on the crafting grid cells, shift-click output crafts as many as possible
 - **Inventory persistence**: `user://chunks/inventory.bin` (`INVE` magic, version 1), saved in `PlayerController::_exit_tree` (nodes still alive) with a cached `ChunkManager` pointer — the old destructor-time tree lookup always failed at teardown
 - **Chat system**: `chat.gd` with advanced autocomplete — ghost text suggestions with pulsing effect (0.25-0.4 alpha), tab cycling through completions, up/down arrow navigation, hold-to-cycle (0.1875s intervals), parameter hints for commands (`/give <block> [count]`, `/tp <x> <y> <z>`), commands: `/help`, `/give` (unlimited count), `/tp`, `/fly`, `/clearchat`, `/clearinv`, `/version`, mouse wheel scrolling for chat history, caret blink, wrapped messages with proper input box anchoring
 - **Settings menu**: `settings_menu.gd` with adjustable settings (render, lighting, crosshair, controls) opened with Escape key, all settings persist across sessions
@@ -79,11 +83,12 @@ A Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked streamin
 - **`data/vegetation.json`** → `VegetationConfig` (`src/worldgen/vegetation_config.hpp`): forest (chunk tree chance, min/max trees, column chance, spacing, boulders), plains (single-tree chance), desert (cactus density + min/max heights)
 - **`data/terrain_config.json`** → `TerrainParams::load_from_json` (`src/core/terrain_params.cpp`): `height_base_y`, fixed-base climate scales (`climate_temp_base_scale`/`climate_humidity_base_scale`), and the 3 Voronoi height centers (`temp`/`hum`/`base_off`/`scale_m`)
 - **`data/block_shapes.json`** → Shared shape registry for non-full blocks (slabs, stairs, walls, poles) with selection/collision boxes
+- **`data/recipes.json`** → `RecipeBook::load_from_json` (`src/core/crafting.cpp`): `grid_size` plus shaped (`pattern` + `key`, `' '` = empty) and shapeless (`ingredients`) entries; results resolved by block name; unknown names/ragged rows skip that recipe with a WARN_PRINT
 - Loaded in `VoxelEngineController::load_world_configs()` at startup; missing files/keys fall back to built-in defaults that mirror the old hardcoded values
 - Config threads to generation workers via `WorldUpdater` → `ChunkWorld::generate_chunk` (captured per call) → the `thread_local ChunkGenerator`
 
 ### Testing & CI
-- **183 test cases / 157,088 assertions** across 23 doctest files
+- **186 test cases / 157,111 assertions** across 24 doctest files
 - **Cross-platform CI**: 5-leg matrix (ubuntu plain/TSan/ASan+UBSan, macos plain, windows plain) plus fuzz, static-analysis, and coverage jobs
 - **Concurrency tests**: 19 tests for shard locking, deadlock prevention, PaletteStorage, and cross-chunk patterns
 - **Integration soak tests**: Concurrent pipeline simulation with Phase 4 unload to exercise unload vs active work races
@@ -115,6 +120,7 @@ A Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked streamin
 
 ### Code Quality & Hygiene
 - **Single source of truth**: `data/block_definitions.json` for all block properties
+- **Stable block-name storage**: `BlockRegistry::load_from_json` stores `bt.name` pointers into a static `std::deque<std::string>` (was `std::vector`, which dangled every previously-stored name on reallocation — late lookups like recipe resolution read freed memory and intermittently failed)
 - **Source reorganization**: Split `mesh_manager.cpp` into worker/upload/rebuild/far/lifecycle TUs (shared `mesh_manager_internal.hpp`), `mesh_builder.cpp` (`mesh_builder_solid.cpp`), and `chunk_world.cpp` (`chunk_world_edits.cpp`, `chunk_world_persistence.cpp`). Moved render-facing types out of the `core/chunk_types.hpp` junk drawer: `ChunkRenderData`/`CachedFarChunkMesh`/`CompletedMesh` → `mesh/chunk_render_data.hpp`, `DirtyChunkEntry` → `mesh/mesh_queue.hpp`, `WorldRenderStats` → `render/world_render_stats.hpp`; relocated `texture_array_generator.hpp` to `render/`; deleted orphaned `.obj` artifacts
 - **Removed old LOD system**: Deleted 2,435 lines of 2×2×2 group-mesh-merging code, replaced with per-chunk three-tier LOD with region merging
 - **Removed experimental features**: Cloud layer system, lighting preset system (Main/Spooky), occluder boxes - all reverted or removed

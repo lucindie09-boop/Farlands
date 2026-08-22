@@ -318,6 +318,11 @@ void VoxelEngineController::load_world_configs() {
     VegetationConfig vegetation;
     vegetation.load("res://data/vegetation.json");
     world_updater.set_vegetation_config(vegetation);
+
+    recipe_book.clear();
+    if (!recipe_book.load_from_json("res://data/recipes.json")) {
+        WARN_PRINT("recipes.json missing or unparseable; crafting disabled");
+    }
 }
 
 void VoxelEngineController::save_world_metadata() {

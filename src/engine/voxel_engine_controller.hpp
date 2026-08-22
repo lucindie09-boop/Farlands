@@ -13,6 +13,7 @@
 
 #include "core/chunk_types.hpp"
 #include "core/inventory.hpp"
+#include "core/crafting.hpp"
 #include "core/frustum.hpp"
 #include "core/performance_timer.hpp"
 #include "world/world_updater.hpp"
@@ -161,6 +162,9 @@ public:
     EnvironmentController& get_environment_controller() { return environment_controller; }
     CollisionResolver& get_collision_resolver() { return collision_resolver; }
 
+    // Loaded once at startup from res://data/recipes.json.
+    const RecipeBook& get_recipe_book() const { return recipe_book; }
+
     static PerformanceTimer& get_perf_timer();
 
 private:
@@ -169,8 +173,8 @@ private:
     void clear_async_queues();
     void free_loaded_chunks();
 
-    // Loads data/terrain_config.json, biomes.json and vegetation.json into the
-    // world_updater at startup. Missing files keep built-in defaults.
+    // Loads data/terrain_config.json, biomes.json, vegetation.json and
+    // recipes.json at startup. Missing files keep built-in defaults.
     void load_world_configs();
 
     // Subsystems
@@ -179,6 +183,7 @@ private:
     LightPropagator light_propagator;
     WorldUpdater world_updater;
     BlockEditor block_editor;
+    RecipeBook recipe_book;
     CollisionResolver collision_resolver{&chunk_world.get_chunk_map()};
     EnvironmentController environment_controller;
 

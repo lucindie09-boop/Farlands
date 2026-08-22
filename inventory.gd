@@ -11,12 +11,20 @@ const MUNRO_FONT: Font = preload("res://fonts/munro.ttf")
 
 # Slot grid geometry, measured from the #7e7d7d slot-background color.
 # Only these 36 slots (hotbar + main inventory) have real data behind them --
-# the flanking/crafting/output slots in the texture are decorative for now.
+# the flanking decorative slots do nothing.
 const GRID_LEFT = 16
 const SLOT_PITCH = 21
 const SLOT_SIZE_PX = 18
 const MAIN_GRID_TOP = 105
 const HOTBAR_TOP = 173
+
+# Crafting area geometry, measured from the #7e7d7e (input grid) and #7e7d7f
+# (output) slot-background colors in the atlas. Inputs share the 18px box /
+# 21px pitch used by the main grid; the output box is its own size.
+const CRAFT_GRID_TX = [Vector2i(121, 37), Vector2i(142, 37), Vector2i(121, 58), Vector2i(142, 58)]
+const CRAFT_OUT_TX = Rect2i(185, 48, 17, 17)
+const CRAFT_FILL_BASE = Color(0.494118, 0.490196, 0.494118)   # #7e7d7e
+const OUT_FILL_BASE = Color(0.494118, 0.490196, 0.498039)     # #7e7d7f
 
 # Fill-key colors: pixels near FILL_BASE become FILL_HIGHLIGHT; everything
 # else (frame/bevel outside the 18x18 box) is copied untouched.
@@ -31,30 +39,46 @@ var held_block_id = 0  # Stack held at the cursor (click-to-hold model)
 var held_count = 0
 var _hover_texture: Texture2D = null  # pre-built recolored hovered slot
 
+# Crafting grid state (GUI-side; contents persist across open/close so items
+# placed in the grid are never lost, even with a full inventory)
+var craft_ids = [0, 0, 0, 0]        # 2x2 inputs, row-major block ids
+var craft_counts = [0, 0, 0, 0]     # parallel counts for the grid
+var craft_result_id = 0             # matched recipe preview for the output slot
+var craft_result_count = 0
+var _hovered_craft = -1             # 0..3 input cells, 4 output slot, -1 none
+var _craft_hover_texture: Texture2D = null
+var _out_hover_texture: Texture2D = null
+
 # Drag state
 var _drag_button = -1  # which button is currently held, -1 if none
 var _drag_shift = false  # shift state captured at press time
 var _drag_last_slot = -1  # last slot a drag-action fired for
+var _drag_last_craft = -1  # last crafting cell a drag-action fired for
 
 func _ready():
 	# Load the inventory texture
 	inventory_texture = load("res://textures/gui/inventory.png")
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	_hover_texture = _build_fill_hover_texture()
+	_hover_texture = _build_hover_texture(GRID_LEFT, MAIN_GRID_TOP, SLOT_SIZE_PX, SLOT_SIZE_PX, FILL_BASE)
+	_craft_hover_texture = _build_hover_texture(
+			CRAFT_GRID_TX[0].x, CRAFT_GRID_TX[0].y, SLOT_SIZE_PX, SLOT_SIZE_PX, CRAFT_FILL_BASE)
+	_out_hover_texture = _build_hover_texture(
+			CRAFT_OUT_TX.position.x, CRAFT_OUT_TX.position.y,
+			CRAFT_OUT_TX.size.x, CRAFT_OUT_TX.size.y, OUT_FILL_BASE)
 	hide()
 
-func _build_fill_hover_texture() -> Texture2D:
-	# Recolor the hovered slot from a pixel copy of the real art: only pixels
-	# matching the #7e7d7d fill become #9c9b9b, leaving the slot's frame and
-	# bevel ring outside the 18x18 box untouched.
+func _build_hover_texture(tx_x: int, tx_y: int, w: int, h: int, base: Color) -> Texture2D:
+	# Recolor a slot-sized pixel copy of the real art: only pixels matching the
+	# base fill color become FILL_HIGHLIGHT, leaving the frame and bevel ring
+	# outside the box untouched.
 	if not inventory_texture:
 		return null
 	var img = inventory_texture.get_image()
-	var out = Image.create(SLOT_SIZE_PX, SLOT_SIZE_PX, false, Image.FORMAT_RGBA8)
-	for y in range(SLOT_SIZE_PX):
-		for x in range(SLOT_SIZE_PX):
-			var px = img.get_pixel(GRID_LEFT + x, MAIN_GRID_TOP + y)
-			if _is_fill_pixel(px, FILL_BASE, FILL_TOLERANCE):
+	var out = Image.create(w, h, false, Image.FORMAT_RGBA8)
+	for y in range(h):
+		for x in range(w):
+			var px = img.get_pixel(tx_x + x, tx_y + y)
+			if _is_fill_pixel(px, base, FILL_TOLERANCE):
 				out.set_pixel(x, y, FILL_HIGHLIGHT)
 			else:
 				out.set_pixel(x, y, px)
@@ -80,6 +104,8 @@ func _toggle_inventory():
 	else:
 		is_open = true
 		hovered_slot = -1
+		_hovered_craft = -1
+		_refresh_craft_result()
 		show()
 		player_controller.set_inventory_open(true)
 		queue_redraw()
@@ -90,6 +116,8 @@ func _close_inventory():
 	_drag_button = -1
 	_drag_shift = false
 	_drag_last_slot = -1
+	_drag_last_craft = -1
+	_hovered_craft = -1
 	hide()
 	player_controller.set_inventory_open(false)
 	queue_redraw()
@@ -138,6 +166,15 @@ func _draw():
 		for i in range(TOTAL_SLOTS):
 			var rect = _slot_screen_rect(i, texture_x, texture_y)
 			_draw_slot(rect.position.x, rect.position.y, rect.size.x, rect.size.y, i, i < HOTBAR_SIZE)
+		
+		# Crafting grid inputs + output preview
+		for i in range(4):
+			var crect = _craft_slot_rect(i, Vector2(texture_x, texture_y))
+			_draw_craft_cell(crect.position.x, crect.position.y, crect.size.x, crect.size.y,
+					i, craft_ids[i], craft_counts[i], _craft_hover_texture)
+		var orect = _craft_slot_rect(4, Vector2(texture_x, texture_y))
+		_draw_craft_cell(orect.position.x, orect.position.y, orect.size.x, orect.size.y,
+				4, craft_result_id, craft_result_count, _out_hover_texture)
 	else:
 		# Fallback: draw without texture
 		_draw_fallback_inventory()
@@ -190,6 +227,26 @@ func _draw_slot(x, y, width, height, slot_index, is_hotbar):
 			draw_rect(Rect2(icon_x, icon_y, icon_size, icon_size), block_color)
 		
 		# Draw count text
+		if count > 1:
+			_draw_item_count(str(count), x + width, y + height, width)
+
+func _draw_craft_cell(x, y, width, height, cslot, block_id, count, hover_tex: Texture2D):
+	# Hover highlight for the crafting cells uses their own pre-built
+	# recolored copies keyed on the #7e7d7e / #7e7d7f fill colors.
+	if _hovered_craft == cslot and hover_tex:
+		draw_texture_rect(hover_tex, Rect2(x, y, width, height), false)
+	
+	# Draw block icon if the cell has items
+	if block_id > 0 and count > 0:
+		var block_texture = BlockTextures.get_texture(block_id)
+		if block_texture:
+			var icon_size = width * 0.8
+			draw_texture_rect(block_texture,
+					Rect2(x + (width - icon_size) / 2.0, y + (height - icon_size) / 2.0, icon_size, icon_size), false)
+		else:
+			var block_color = _get_block_color(block_id)
+			var icon_size = width * 0.7
+			draw_rect(Rect2(x + (width - icon_size) / 2.0, y + (height - icon_size) / 2.0, icon_size, icon_size), block_color)
 		if count > 1:
 			_draw_item_count(str(count), x + width, y + height, width)
 
@@ -249,6 +306,10 @@ func _gui_input(event):
 		return
 	
 	if event is InputEventMouseMotion:
+		var cslot = _craft_slot_at_position(event.position)
+		if cslot != _hovered_craft:
+			_hovered_craft = cslot
+			queue_redraw()
 		var slot = _slot_at_position(event.position)
 		if slot != hovered_slot:
 			hovered_slot = slot
@@ -259,38 +320,71 @@ func _gui_input(event):
 			if slot >= 0:  # Only fire when entering a slot, not when leaving to background
 				_handle_drag_action(slot)
 			_drag_last_slot = slot
+		
+		# Same sweep logic for the crafting cells (tracked separately so a
+		# single drag can cross both zones without re-firing)
+		if _drag_button >= 0:
+			if cslot >= 0 and cslot != _drag_last_craft:
+				if cslot < 4:  # No drag actions on the output cell
+					_handle_craft_drag_action(cslot)
+					_drag_last_craft = cslot
+			elif cslot < 0:
+				_drag_last_craft = -1
 	
 	elif event is InputEventMouseButton:
 		var slot = _slot_at_position(event.position)
-		
-		# Handle mouse wheel events first (before any drag-arming logic)
-		if event.button_index == MOUSE_BUTTON_WHEEL_UP or event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-			if slot >= 0:
-				_handle_scroll_transfer(slot, event)
-			return  # Don't process wheel events as drag buttons
-		
+		var cslot = _craft_slot_at_position(event.position)
+
 		if event.pressed:
+			# Crafting area takes precedence (never overlaps regular slots)
+			if cslot >= 0:
+				if cslot == 4:
+					if event.button_index == MOUSE_BUTTON_LEFT or event.button_index == MOUSE_BUTTON_RIGHT:
+						_take_craft_output(
+								event.button_index == MOUSE_BUTTON_LEFT and Input.is_key_pressed(KEY_SHIFT))
+				elif event.button_index == MOUSE_BUTTON_LEFT:
+					_left_click_craft_input(cslot)
+					_drag_button = MOUSE_BUTTON_LEFT
+					_drag_shift = Input.is_key_pressed(KEY_SHIFT)
+					_drag_last_craft = cslot
+				elif event.button_index == MOUSE_BUTTON_RIGHT:
+					_right_click_craft_input(cslot)
+					_drag_button = MOUSE_BUTTON_RIGHT
+					_drag_shift = Input.is_key_pressed(KEY_SHIFT)
+					_drag_last_craft = cslot
+				elif event.button_index == MOUSE_BUTTON_WHEEL_UP or event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+					_handle_craft_scroll_transfer(cslot, event)
+				return  # No double-click gather over crafting
+
+			# Handle mouse wheel events first (before any drag-arming logic)
+			if event.button_index == MOUSE_BUTTON_WHEEL_UP or event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+				if slot >= 0:
+					_handle_scroll_transfer(slot, event)
+				return  # Don't process wheel events as drag buttons
+
 			# Button press: stash drag state and run existing single-click behavior
 			if slot >= 0:
 				# Handle double-click gather (second press of double-click)
 				if event.button_index == MOUSE_BUTTON_LEFT and event.double_click and _is_holding():
 					_collect_all_matching()
 					return  # Skip normal click handling for this second press
-				
+
 				_drag_button = event.button_index
 				_drag_shift = Input.is_key_pressed(KEY_SHIFT)
 				_drag_last_slot = slot
-				
+
 				if event.button_index == MOUSE_BUTTON_LEFT:
 					_left_click_slot(slot)
 				elif event.button_index == MOUSE_BUTTON_RIGHT:
 					_right_click_slot(slot)
 		else:
-			# Button release: clear drag state
+			# Button release: ALWAYS clear drag state, wherever it lands --
+			# swallowing releases over the crafting area left drags stuck on.
 			if event.button_index == _drag_button:
 				_drag_button = -1
 				_drag_shift = false
 				_drag_last_slot = -1
+				_drag_last_craft = -1
 
 func _slot_at_position(pos: Vector2) -> int:
 	if not inventory_texture:
@@ -299,6 +393,30 @@ func _slot_at_position(pos: Vector2) -> int:
 	var texture_y = (size.y - inventory_texture.get_height() * UIScale.value) / 2.0
 	for i in range(TOTAL_SLOTS):
 		if _slot_screen_rect(i, texture_x, texture_y).has_point(pos):
+			return i
+	return -1
+
+func _craft_slot_rect(cslot: int, origin: Vector2) -> Rect2:
+	# Screen-space rect for a crafting cell (0..3 inputs, 4 output)
+	var tx: Vector2i
+	var s: int
+	if cslot < 4:
+		tx = CRAFT_GRID_TX[cslot]
+		s = SLOT_SIZE_PX
+	else:
+		tx = CRAFT_OUT_TX.position
+		s = CRAFT_OUT_TX.size.x
+	var v = UIScale.value
+	return Rect2(origin.x + tx.x * v, origin.y + tx.y * v, s * v, s * v)
+
+func _craft_slot_at_position(pos: Vector2) -> int:
+	if not inventory_texture:
+		return -1
+	var origin = Vector2(
+			(size.x - inventory_texture.get_width() * UIScale.value) / 2.0,
+			(size.y - inventory_texture.get_height() * UIScale.value) / 2.0)
+	for i in range(5):
+		if _craft_slot_rect(i, origin).has_point(pos):
 			return i
 	return -1
 
@@ -573,4 +691,214 @@ func _collect_all_matching():
 			else:
 				_set_slot(i, slot_id, remaining)
 	
+	# Also sweep matching stacks out of the crafting grid cells
+	for i in range(4):
+		if held_count >= 64:
+			break
+		if craft_ids[i] == held_block_id and craft_counts[i] > 0:
+			var take = min(craft_counts[i], 64 - held_count)
+			held_count += take
+			craft_counts[i] -= take
+			if craft_counts[i] <= 0:
+				craft_ids[i] = 0
+	
+	if held_block_id > 0 and held_count > 0:
+		_refresh_craft_result()
+	queue_redraw()
+
+# ============================================================================
+# CRAFTING GRID
+# ============================================================================
+
+func _refresh_craft_result():
+	# Query the C++ RecipeBook for whatever currently sits in the grid; an
+	# unmatched grid, or one whose counts no longer cover the ingredients,
+	# clears the output preview.
+	var res = player_controller.match_recipe(
+			PackedInt32Array(craft_ids), PackedInt32Array(craft_counts))
+	if res and res.get("ok", false):
+		craft_result_id = int(res["block_id"])
+		craft_result_count = int(res["count"])
+	else:
+		craft_result_id = 0
+		craft_result_count = 0
+
+func _left_click_craft_input(cell: int):
+	if Input.is_key_pressed(KEY_SHIFT):
+		_shift_craft_input_to_inventory(cell)
+		return
+	var cell_id = craft_ids[cell]
+	var cell_count = craft_counts[cell]
+	if not _is_holding():
+		# Pick up the whole stack from the cell
+		if cell_id > 0 and cell_count > 0:
+			held_block_id = cell_id
+			held_count = cell_count
+			craft_ids[cell] = 0
+			craft_counts[cell] = 0
+	elif cell_id == 0:
+		# Empty cell: place the entire held stack
+		craft_ids[cell] = held_block_id
+		craft_counts[cell] = held_count
+		_clear_held()
+	elif cell_id == held_block_id:
+		# Same block: merge up to 64, overflow stays in hand
+		var merged = held_count + cell_count
+		if merged <= 64:
+			craft_counts[cell] = merged
+			_clear_held()
+		else:
+			craft_counts[cell] = 64
+			held_count = merged - 64
+	else:
+		# Different block: swap the two stacks
+		craft_ids[cell] = held_block_id
+		craft_counts[cell] = held_count
+		held_block_id = cell_id
+		held_count = cell_count
+	_refresh_craft_result()
+	queue_redraw()
+
+func _right_click_craft_input(cell: int):
+	var cell_id = craft_ids[cell]
+	var cell_count = craft_counts[cell]
+	if not _is_holding():
+		# Pick up half the stack (rounded up), leave the rest
+		if cell_id > 0 and cell_count > 0:
+			var pick = int((cell_count + 1) / 2.0)
+			held_block_id = cell_id
+			held_count = pick
+			var rest = cell_count - pick
+			craft_counts[cell] = rest
+			if rest <= 0:
+				craft_ids[cell] = 0
+	else:
+		_craft_place_one(cell)
+	_refresh_craft_result()
+	queue_redraw()
+
+func _handle_craft_drag_action(cell: int):
+	# Mirror of _handle_drag_action for the crafting cells
+	if _drag_button == MOUSE_BUTTON_RIGHT and _is_holding():
+		# RMB drag-place: drop 1 unit per cell entered
+		_craft_place_one(cell)
+	elif _drag_button == MOUSE_BUTTON_LEFT and _drag_shift:
+		# Shift-drag: return the cell's stack to the inventory
+		_shift_craft_input_to_inventory(cell)
+	elif _drag_button == MOUSE_BUTTON_LEFT and _is_holding():
+		# LMB drag-collect: sweep matching blocks from the cell
+		_craft_collect_from_cell(cell)
+
+func _craft_place_one(cell: int) -> bool:
+	if not _is_holding():
+		return false
+	var cell_id = craft_ids[cell]
+	var cell_count = craft_counts[cell]
+	if cell_id == 0:
+		craft_ids[cell] = held_block_id
+		craft_counts[cell] = 1
+		held_count -= 1
+	elif cell_id == held_block_id and cell_count < 64:
+		craft_counts[cell] = cell_count + 1
+		held_count -= 1
+	else:
+		return false
+	if held_count <= 0:
+		_clear_held()
+	_refresh_craft_result()
+	queue_redraw()
+	return true
+
+func _craft_collect_from_cell(cell: int):
+	if not _is_holding():
+		return
+	var cell_id = craft_ids[cell]
+	var cell_count = craft_counts[cell]
+	if cell_id == held_block_id and cell_count > 0:
+		var space_left = 64 - held_count
+		if space_left > 0:
+			var take = min(cell_count, space_left)
+			held_count += take
+			craft_counts[cell] = cell_count - take
+			if craft_counts[cell] <= 0:
+				craft_ids[cell] = 0
+			_refresh_craft_result()
+			queue_redraw()
+
+func _handle_craft_scroll_transfer(cell: int, event: InputEventMouseButton):
+	# Wheel over a crafting cell pushes/pulls 1 unit between it and the
+	# inventory zones (hotbar first, then main), matching the slot behavior.
+	var cell_id = craft_ids[cell]
+	var cell_count = craft_counts[cell]
+	
+	if event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+		# Push 1 unit from the cell into the inventory
+		if cell_id > 0 and cell_count > 0:
+			var moved = _quick_transfer_to_zone(cell_id, 1, true)
+			if moved == 0:
+				moved = _quick_transfer_to_zone(cell_id, 1, false)
+			if moved > 0:
+				craft_counts[cell] -= 1
+				if craft_counts[cell] <= 0:
+					craft_ids[cell] = 0
+				_refresh_craft_result()
+				queue_redraw()
+	
+	elif event.button_index == MOUSE_BUTTON_WHEEL_UP:
+		# Pull 1 matching unit out of the inventory into the cell
+		if cell_id > 0:
+			for zone in [[HOTBAR_SIZE, 0], [INVENTORY_SIZE, HOTBAR_SIZE]]:
+				var zone_size: int = zone[0]
+				var zone_offset: int = zone[1]
+				for i in range(zone_size):
+					var s = zone_offset + i
+					if _get_slot_block_id(s) == cell_id and _get_slot_count(s) > 0:
+						craft_counts[cell] += 1
+						_set_slot(s, cell_id, _get_slot_count(s) - 1)
+						_refresh_craft_result()
+						queue_redraw()
+						return
+
+func _shift_craft_input_to_inventory(cell: int):
+	# Shift-click a grid cell: return its stack to the inventory (hotbar first,
+	# then main); anything that doesn't fit stays in the grid.
+	var cell_id = craft_ids[cell]
+	var cell_count = craft_counts[cell]
+	if cell_id == 0 or cell_count == 0:
+		return
+	var moved = _quick_transfer_to_zone(cell_id, cell_count, true)
+	if moved < cell_count:
+		moved += _quick_transfer_to_zone(cell_id, cell_count - moved, false)
+	if moved > 0:
+		var remaining = cell_count - moved
+		if remaining <= 0:
+			craft_ids[cell] = 0
+			craft_counts[cell] = 0
+		else:
+			craft_counts[cell] = remaining
+	_refresh_craft_result()
+	queue_redraw()
+
+func _take_craft_output(craft_all := false):
+	# Craft once (or repeatedly while possible on shift-click). Stops when the
+	# grid runs out of ingredients or the cursor can't fit another result.
+	while craft_result_id > 0 and craft_result_count > 0:
+		if _is_holding() and (held_block_id != craft_result_id or held_count + craft_result_count > 64):
+			break
+		var res = player_controller.craft_recipe(
+				PackedInt32Array(craft_ids), PackedInt32Array(craft_counts))
+		if not (res and res.get("ok", false)):
+			break
+		var new_counts = res["new_counts"]
+		for i in range(4):
+			craft_counts[i] = new_counts[i]
+		if _is_holding():
+			held_count += craft_result_count
+		else:
+			held_block_id = craft_result_id
+			held_count = craft_result_count
+		# Re-evaluate the preview against the deducted grid before looping
+		_refresh_craft_result()
+		if not craft_all:
+			break
 	queue_redraw()

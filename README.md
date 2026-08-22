@@ -1,6 +1,6 @@
 # Farlands
 
-A Minecraft-style voxel engine built in Godot 4 with a custom C++ GDExtension. Procedural terrain generation (signed 3D density field with overhangs and shelves), chunked world streaming, greedy meshing with per-chunk incremental rebuilds, colored block lighting, day/night cycle, three-tier distance-based mesh LOD with LOD-reduced chunks merged into regions to cap draw calls, frustum-prioritized chunk loading, async background chunk saving, and a C++ inventory system (hotbar + 27-slot storage) wired into block break/place with a GDScript GUI. Ships with a C++ player controller with Minecraft-accurate fixed-timestep physics.
+A Minecraft-style voxel engine built in Godot 4 with a custom C++ GDExtension. Procedural terrain generation (signed 3D density field with overhangs and shelves), chunked world streaming, greedy meshing with per-chunk incremental rebuilds, colored block lighting, day/night cycle, three-tier distance-based mesh LOD with LOD-reduced chunks merged into regions to cap draw calls, frustum-prioritized chunk loading, async background chunk saving, and a C++ inventory system (hotbar + 27-slot storage) wired into block break/place with a GDScript GUI, plus data-driven 2×2 crafting (`data/recipes.json`). Ships with a C++ player controller with Minecraft-accurate fixed-timestep physics.
 
 ## Architecture
 
@@ -40,9 +40,10 @@ A Minecraft-style voxel engine built in Godot 4 with a custom C++ GDExtension. P
 | Frame budgets | `src/core/frame_budgets.hpp` | Tiered budgets for generate/light/mesh/upload (idle/active/loading) |
 | Performance timers | `src/core/performance_timer.hpp` | Scoped frame-by-frame profiling |
 | Inventory | `src/core/inventory.hpp/cpp` | 9-slot hotbar + 27-slot main storage, 64 stack limit, add/consume/can_add logic, persisted to `user://chunks/inventory.bin` |
-| Inventory UI | `inventory.gd` / `hotbar.gd` | GDScript `Control` overlays: E toggles the full inventory, mouse wheel cycles the hotbar, click-to-hold / drag-drop stack movement, pixel-color-keyed hover/selection highlights |
+| Crafting | `src/core/crafting.hpp/cpp` + `data/recipes.json` | RecipeBook with shapeless (multiset) and shaped (trim + mirror) matching over the 2×2 grid; atomic all-or-nothing crafting; recipes loaded from JSON at startup |
+| Inventory UI | `inventory.gd` / `hotbar.gd` | GDScript `Control` overlays: E toggles the full inventory, mouse wheel cycles the hotbar, click-to-hold / drag-drop stack movement, pixel-color-keyed hover/selection highlights, live 2×2 crafting grid + output preview wired to the C++ RecipeBook |
 | Chat system | `chat.gd` | GDScript chat with autocomplete: ghost text suggestions with pulsing effect, tab cycling through completions, up/down arrow navigation, hold-to-cycle, parameter hints for commands (`/give <block> [count]`, `/tp <x> <y> <z>`), commands: `/help`, `/give` (unlimited count), `/tp`, `/fly`, `/clearchat`, `/clearinv`, `/version` |
-| Inventory drag ops | `inventory.gd` | RMB drag-place (spread 1 unit per slot), LMB drag-collect (sweep matching blocks), shift-click/drag quick-transfer (move between hotbar/main), scroll wheel quick-transfer (push/pull 1 unit), double-click gather (sweep all matching blocks) |
+| Inventory drag ops | `inventory.gd` | RMB drag-place (spread 1 unit per slot), LMB drag-collect (sweep matching blocks), shift-click/drag quick-transfer (move between hotbar/main), scroll wheel quick-transfer (push/pull 1 unit), double-click gather (sweep all matching blocks); the same interactions work on the crafting grid cells, and shift-clicking the output crafts as many as possible |
 | Settings menu | `settings_menu.gd` | Adjustable settings with persistence (render, lighting, crosshair, controls) opened with Escape key |
 | Texture packs | `src/render/texture_pack_manager.hpp` + `tools/pack_converter.py` | Custom texture pack system with per-block texture overrides loaded from `user://packs/` |
 | Block outline | Adjustable block outline system with pulse effects, thickness control (0.0-0.99), and fill box with separate color/opacity |
@@ -69,6 +70,7 @@ The terrain generation system is data-driven through JSON configuration files:
 - **`data/vegetation.json`** — Vegetation parameters for forest/plains/desert biomes (tree density, min/max counts, spacing, cactus settings)
 - **`data/terrain_config.json`** — Macro height centers, climate scales, and terrain amplitude parameters
 - **`data/block_shapes.json`** — Shared shape registry for non-full blocks (slabs, stairs, walls, poles) with selection/collision boxes
+- **`data/recipes.json`** — Crafting recipes (shaped/shapeless) resolved by block name against `block_definitions.json`; grid size and per-recipe results
 
 These configs are loaded at startup via `VoxelEngineController::load_world_configs()` and threaded to generation workers. Missing files or keys fall back to built-in defaults.
 
@@ -137,7 +139,7 @@ CI (`.github/workflows/build.yml`) runs on every push and pull request:
 - **Static-analysis job** — clang-tidy across all of `src/` with `bugprone-*`, `concurrency-*`, and `performance-*` checks; findings in project sources fail the job.
 - **Coverage job** — lcov coverage report uploaded to Codecov.
 
-The project has **183 test cases / 157,088 assertions** across 23 doctest files, including 19 concurrency tests for shard locking, deadlock prevention, and PaletteStorage.
+The project has **186 test cases / 157,111 assertions** across 24 doctest files, including 19 concurrency tests for shard locking, deadlock prevention, and PaletteStorage.
 
 ## Running
 
@@ -196,7 +198,8 @@ The `PlayerController` node exposes **sensitivity** (mouse look) and **fly_speed
 - The LOD system is per-chunk, three-tier distance-based reduction inside the greedy mesher: full detail within `lod_distance`, stride/detail reduction between `lod_distance` and `far_lod_distance` (`lod_detail_level`), and a further reduced far tier beyond it (`far_lod_distance`/`far_lod_detail_level`). LOD-reduced chunks are cached and merged into region instances so the coarse rings cost only a handful of draw calls.
 - Frustum prioritization requires a `Camera3D` child on the player node (named `Camera3D`).
 - Non-full block shapes (slabs, stairs, walls, poles) are defined in `data/block_shapes.json` with auto-detecting placement based on the clicked face and neighboring blocks. Slabs merge into double slabs when stacked; breaking a double slab drops 2 slabs. Poles have fence-like collision boxes that extend 1.5 blocks high for proper player interaction.
-- There is no gameplay layer yet beyond movement and block break/place with an inventory — no crafting, mobs, or multiplayer.
+- There is no gameplay layer yet beyond movement, block break/place, inventory, and 2×2 crafting — no mobs or multiplayer.
+- Block IDs are positional: the order of entries in `block_definitions.json` defines save-format IDs. New blocks must always be **appended** to keep existing worlds loading correctly.
 
 ## License
 

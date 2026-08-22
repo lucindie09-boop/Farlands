@@ -49,6 +49,14 @@ public:
     void set_inventory_slot(int slot, int block_id, int count);
     bool give_block(int block_id, int count);
     void clear_inventory();
+    // Crafting API: grid is 2x2 row-major block ids (0 = empty) with parallel
+    // counts. match_recipe previews the result but only reports a match when
+    // the grid actually holds every ingredient; craft_recipe additionally
+    // returns the deducted grid plus the crafted output.
+    godot::Dictionary match_recipe(const godot::PackedInt32Array& grid_ids,
+                                   const godot::PackedInt32Array& grid_counts);
+    godot::Dictionary craft_recipe(const godot::PackedInt32Array& grid_ids,
+                                   const godot::PackedInt32Array& grid_counts);
     void save_inventory();
     bool load_inventory();
     bool set_active_texture_pack(const godot::String& pack_name);

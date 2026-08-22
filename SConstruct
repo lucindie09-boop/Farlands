@@ -53,6 +53,7 @@ shared_sources = [
     "src/worldgen/vegetation_generator.cpp",
     "src/core/block_types.cpp",
     "src/core/inventory.cpp",
+    "src/core/crafting.cpp",
     "src/core/edit_map.cpp",
     "src/mesh/mesh_builder.cpp",
     "src/mesh/mesh_builder_faces.cpp",

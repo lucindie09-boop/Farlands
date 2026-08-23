@@ -35,13 +35,14 @@ A Minecraft-style voxel engine built in Godot 4 with a custom C++ GDExtension. P
 | Terrain config | `src/core/terrain_params.cpp` + `data/terrain_config.json` | Macro height centers, climate scales loaded from JSON |
 | Collision | `src/engine/collision_resolver.cpp` | Custom binary-search AABB voxel grid query (no Godot physics nodes), step-up support |
 | Day/night | `src/world/day_night_cycle.hpp` | Shader-driven sky-light intensity + color blending |
-| Player sim | `src/engine/player_controller.hpp/cpp` | Minecraft-accurate fixed 20-tick/s physics: vanilla jump/sprint/sneak ordering, accumulator, smooth eye-height transitions |
+| Player sim | `src/engine/player_controller.hpp/cpp` | Minecraft-accurate fixed 20-tick/s physics: vanilla jump/sprint/sneak ordering, accumulator, smooth eye-height transitions, fall-distance tracking with vanilla landing damage (1 half-heart per block past 3) |
 | LOD | `lod_distance` / `lod_detail_level` / `far_lod_distance` / `far_lod_detail_level` (`mesh_manager.cpp`) | Three tiers — full detail, mid stride/detail reduction, and far tier with its own detail level; LOD-reduced chunks merged into regions; capped remesh-per-frame |
 | Frame budgets | `src/core/frame_budgets.hpp` | Tiered budgets for generate/light/mesh/upload (idle/active/loading) |
 | Performance timers | `src/core/performance_timer.hpp` | Scoped frame-by-frame profiling |
 | Inventory | `src/core/inventory.hpp/cpp` | 9-slot hotbar + 27-slot main storage, 64 stack limit, add/consume/can_add logic, persisted to `user://chunks/inventory.bin` |
 | Crafting | `src/core/crafting.hpp/cpp` + `data/recipes.json` | RecipeBook with shapeless (multiset) and shaped (trim + mirror) matching over the 2×2 grid; atomic all-or-nothing crafting; recipes loaded from JSON at startup |
 | Inventory UI | `inventory.gd` / `hotbar.gd` | GDScript `Control` overlays: E toggles the full inventory, mouse wheel cycles the hotbar, click-to-hold / drag-drop stack movement, pixel-color-keyed hover/selection highlights, live 2×2 crafting grid + output preview wired to the C++ RecipeBook |
+| Healthbar | `healthbar.gd` | 10 hearts (`heart_full/half/empty.png`) above the hotbar's left edge, spanning ~40% of its width; full/half/empty sprites resolved from the half-heart health polled off `PlayerController.get_health()` |
 | Chat system | `chat.gd` | GDScript chat with autocomplete: ghost text suggestions with pulsing effect, tab cycling through completions, up/down arrow navigation, hold-to-cycle, parameter hints for commands (`/give <block> [count]`, `/tp <x> <y> <z>`), commands: `/help`, `/give` (unlimited count), `/tp`, `/fly`, `/clearchat`, `/clearinv`, `/version` |
 | Inventory drag ops | `inventory.gd` | RMB drag-place (spread 1 unit per slot), LMB drag-collect (sweep matching blocks), shift-click/drag quick-transfer (move between hotbar/main), scroll wheel quick-transfer (push/pull 1 unit), double-click gather (sweep all matching blocks); the same interactions work on the crafting grid cells, and shift-clicking the output crafts as many as possible |
 | Settings menu | `settings_menu.gd` | Adjustable settings with persistence (render, lighting, crosshair, controls) opened with Escape key |
@@ -139,7 +140,7 @@ CI (`.github/workflows/build.yml`) runs on every push and pull request:
 - **Static-analysis job** — clang-tidy across all of `src/` with `bugprone-*`, `concurrency-*`, and `performance-*` checks; findings in project sources fail the job.
 - **Coverage job** — lcov coverage report uploaded to Codecov.
 
-The project has **186 test cases / 157,111 assertions** across 24 doctest files, including 19 concurrency tests for shard locking, deadlock prevention, and PaletteStorage.
+The project has **189 test cases / 157,120 assertions** across 24 doctest files, including 19 concurrency tests for shard locking, deadlock prevention, and PaletteStorage.
 
 ## Running
 
@@ -188,17 +189,17 @@ The `ChunkManager` node exposes these editor properties (see `src/godot_bindings
 - **debug_enabled**, **debug_print_interval** — performance report logging
 - **FrameBudgets** (in `src/core/frame_budgets.hpp`) — per-frame generation/mesh/upload caps
 
-The `PlayerController` node exposes **sensitivity** (mouse look) and **fly_speed**.
+The `PlayerController` node exposes **sensitivity** (mouse look), **fly_speed**, and **health** (half-hearts 0–20; fall damage drains it).
 
 ## Notes
 
-- The player is a C++ `PlayerController` node (`src/engine/player_controller.*` + `src/godot_bindings/player_controller.*`) — fixed 20-tick/s simulation with an accumulator, vanilla-accurate jump/sprint/sneak ordering, smooth eye-height transitions, fly mode, and raycast-based block break/place. There is no player GDScript. The GUI layer (hotbar, full inventory screen, block-texture atlas) is GDScript (`hotbar.gd`, `inventory.gd`, `block_textures.gd`).
+- The player is a C++ `PlayerController` node (`src/engine/player_controller.*` + `src/godot_bindings/player_controller.*`) — fixed 20-tick/s simulation with an accumulator, vanilla-accurate jump/sprint/sneak ordering, smooth eye-height transitions, fly mode, raycast-based block break/place, and vanilla fall damage (1 half-heart per block past a 3-block safe fall, applied on landing). There is no player GDScript. The GUI layer (hotbar, full inventory screen, health bar, block-texture atlas) is GDScript (`hotbar.gd`, `inventory.gd`, `healthbar.gd`, `block_textures.gd`).
 - Modified chunks are saved to `user://chunks/` as versioned RLE-compressed `.chunk` files (v3 format with a CRC32 checksum; v2/v1 legacy files load transparently). Saves are asynchronous — `WorldUpdater` snapshots dirty chunks every 5s and writes them on the thread pool, and `ChunkManager::_exit_tree()` performs a blocking flush so nothing is lost on quit. The inventory persists to `user://chunks/inventory.bin` (magic `INVE`, version 1) and is written at `_exit_tree`.
 - `analyze.py` analyzes biome maps produced by the `terrain_debug` tool; it requires `Pillow`, `numpy`, and `scipy`, which aren't otherwise part of the build.
 - The LOD system is per-chunk, three-tier distance-based reduction inside the greedy mesher: full detail within `lod_distance`, stride/detail reduction between `lod_distance` and `far_lod_distance` (`lod_detail_level`), and a further reduced far tier beyond it (`far_lod_distance`/`far_lod_detail_level`). LOD-reduced chunks are cached and merged into region instances so the coarse rings cost only a handful of draw calls.
 - Frustum prioritization requires a `Camera3D` child on the player node (named `Camera3D`).
 - Non-full block shapes (slabs, stairs, walls, poles) are defined in `data/block_shapes.json` with auto-detecting placement based on the clicked face and neighboring blocks. Slabs merge into double slabs when stacked; breaking a double slab drops 2 slabs. Poles have fence-like collision boxes that extend 1.5 blocks high for proper player interaction.
-- There is no gameplay layer yet beyond movement, block break/place, inventory, and 2×2 crafting — no mobs or multiplayer.
+- There is no gameplay layer yet beyond movement, block break/place, inventory, 2×2 crafting, and health/fall damage (no death handling yet — health just clamps at 0) — no mobs or multiplayer.
 - Block IDs are positional: the order of entries in `block_definitions.json` defines save-format IDs. New blocks must always be **appended** to keep existing worlds loading correctly.
 
 ## License

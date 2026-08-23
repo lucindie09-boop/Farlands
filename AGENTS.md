@@ -50,6 +50,7 @@ A Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked streamin
 - **C++ crafting core**: `RecipeBook`/`CraftingRecipe`/`craft_item` in `src/core/crafting.*` — shapeless (sorted-multiset) and shaped (bounding-box trim + mirror) matching over an N×N grid; atomic all-or-nothing crafting; recipes load from `data/recipes.json` at startup
 - **Block break/place integration**: Breaking collects into the inventory (gated by `can_add_block`); placing consumes from the selected hotbar slot
 - **GDScript GUI**: `hotbar.gd` / `inventory.gd` `Control` overlays — E toggles the inventory, mouse wheel cycles the hotbar, click-to-hold / drag-drop stack movement, hover/selection highlights built by pixel-color-keyed texture recolor (no hand-drawn art)
+- **Health bar**: `healthbar.gd` draws 10 hearts (`heart_full/half/empty.png`, 9×9) floating above the hotbar's left edge; sized off the hotbar's on-screen width so the row spans ~40% of it (9-texel sprites on a 10-texel pitch), linear-filtered because nearest sampling wobbles 1-texel outlines at fractional ratios; polls `PlayerController.get_health()` (half-hearts 0–20) and redraws only on change
 - **2×2 crafting menu**: The atlas' color-coded slots (`#7e7d7e` inputs / `#7e7d7f` output vs. `#7e7d7d` regular) are located by their fill colors and wired to the C++ RecipeBook via `match_recipe(grid_ids, grid_counts)` (availability-gated preview — no ghost results after ingredients run out) and `craft_recipe` (atomic verify + deduct). Grid state lives GUI-side and persists across open/close so items are never lost
 - **Inventory drag operations**: RMB drag-place (spread 1 unit per slot), LMB drag-collect (sweep matching blocks), shift-click/drag quick-transfer (move between hotbar/main), scroll wheel quick-transfer (push/pull 1 unit between zones), double-click gather (sweep all matching blocks into cursor); all mirrored on the crafting grid cells, shift-click output crafts as many as possible
 - **Inventory persistence**: `user://chunks/inventory.bin` (`INVE` magic, version 1), saved in `PlayerController::_exit_tree` (nodes still alive) with a cached `ChunkManager` pointer — the old destructor-time tree lookup always failed at teardown
@@ -88,7 +89,7 @@ A Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked streamin
 - Config threads to generation workers via `WorldUpdater` → `ChunkWorld::generate_chunk` (captured per call) → the `thread_local ChunkGenerator`
 
 ### Testing & CI
-- **186 test cases / 157,111 assertions** across 24 doctest files
+- **186 test cases / 157,120 assertions** across 24 doctest files
 - **Cross-platform CI**: 5-leg matrix (ubuntu plain/TSan/ASan+UBSan, macos plain, windows plain) plus fuzz, static-analysis, and coverage jobs
 - **Concurrency tests**: 19 tests for shard locking, deadlock prevention, PaletteStorage, and cross-chunk patterns
 - **Integration soak tests**: Concurrent pipeline simulation with Phase 4 unload to exercise unload vs active work races
@@ -117,6 +118,7 @@ A Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked streamin
 - **Step-up fix**: Tests player's full body AABB raised by step_height (old approach always failed)
 - **Minecraft-accurate physics**: Fixed 20-tick/s simulation with vanilla jump/sprint/sneak ordering, removed 0.98 input scaling, proper sprint state machine with sticky flag and one-tick stale airborne, sneak multiplier only on ground
 - **Move speed multiplier**: Adjustable player movement speed multiplier property
+- **Fall damage**: `PlayerSim` accumulates fall distance from per-tick position deltas (including the collision-clipped landing segment — it must be added before the landing check or every fall loses its final stretch), and a landing past `SAFE_FALL_DISTANCE` (3 blocks) queues `floor(distance − 3)` half-hearts via `consume_pending_fall_damage()`; `PlayerController` applies it to a clamped `health` property (0–20 half-hearts, `get_health`/`set_health` bindings) that `healthbar.gd` renders; ascending doesn't accumulate and `reset()` (teleport/fly) clears everything
 
 ### Code Quality & Hygiene
 - **Single source of truth**: `data/block_definitions.json` for all block properties

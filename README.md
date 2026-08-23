@@ -45,7 +45,7 @@ A Minecraft-style voxel engine built in Godot 4 with a custom C++ GDExtension. P
 | Healthbar | `healthbar.gd` | 10 hearts (`heart_full/half/empty.png`) above the hotbar's left edge, spanning ~40% of its width; full/half/empty sprites resolved from the half-heart health polled off `PlayerController.get_health()` |
 | Chat system | `chat.gd` | GDScript chat with autocomplete: ghost text suggestions with pulsing effect, tab cycling through completions, up/down arrow navigation, hold-to-cycle, parameter hints for commands (`/give <block> [count]`, `/tp <x> <y> <z>`), commands: `/help`, `/give` (unlimited count), `/tp`, `/fly`, `/clearchat`, `/clearinv`, `/version` |
 | Inventory drag ops | `inventory.gd` | RMB drag-place (spread 1 unit per slot), LMB drag-collect (sweep matching blocks), shift-click/drag quick-transfer (move between hotbar/main), scroll wheel quick-transfer (push/pull 1 unit), double-click gather (sweep all matching blocks); the same interactions work on the crafting grid cells, and shift-clicking the output crafts as many as possible |
-| Settings menu | `settings_menu.gd` | Adjustable settings with persistence (render, lighting, crosshair, controls) opened with Escape key |
+| Settings menu | `settings_menu.gd` | Adjustable settings with persistence (render — including an MSAA 3D Off/2x/4x/8x toggle that sets the root viewport's `msaa_3d` live — plus lighting, crosshair, controls) opened with Escape key |
 | Texture packs | `src/render/texture_pack_manager.hpp` + `tools/pack_converter.py` | Custom texture pack system with per-block texture overrides loaded from `user://packs/` |
 | Block outline | Adjustable block outline system with pulse effects, thickness control (0.0-0.99), and fill box with separate color/opacity |
 | Chunk persistence | `src/world/chunk_world.cpp` + `chunk_world_edits.cpp` / `chunk_world_persistence.cpp` | Async background saves: dirty chunks are snapshotted under their shard lock, then RLE-encoded + atomically written on the thread pool; per-key generation gating guarantees the newest data reaches disk; blocking flush on quit |
@@ -60,6 +60,7 @@ A Minecraft-style voxel engine built in Godot 4 with a custom C++ GDExtension. P
 - Block edits trigger an incremental partial remesh (tight dirty-AABB re-emit) instead of a full 32³ rebuild.
 - Fog system with 4 modes: Disabled, Edge, Linear, Exponential; fog color matches sky color throughout day/night cycle.
 - God rays toggle for atmospheric lighting effects with dynamic sample count.
+- MSAA 3D is adjustable in-game (Off/2x/4x/8x cycle button under Settings → Render); it sets the root viewport's `msaa_3d` live and persists across sessions.
 - GPU compression option for texture arrays to reduce VRAM usage (S3TC/BC1-BC3).
 - Vertex compression (24 bytes per vertex, -40% VRAM) with fixed-point positions.
 

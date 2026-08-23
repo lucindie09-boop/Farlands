@@ -224,12 +224,12 @@ bool RecipeBook::load_from_json(const godot::String& json_path) noexcept {
             while (recipe.shape_width > 0) {
                 bool empty = true;
                 for (int32_t r = 0; r < recipe.shape_height; ++r) {
-                    if (recipe.shaped_cells[r * recipe.shape_width] != BlockIDs::AIR) empty = false;
+                    if (recipe.shaped_cells[static_cast<size_t>(r) * recipe.shape_width] != BlockIDs::AIR) empty = false;
                 }
                 if (!empty) break;
                 for (int32_t r = recipe.shape_height - 1; r >= 0; --r) {
                     recipe.shaped_cells.erase(
-                        recipe.shaped_cells.begin() + r * recipe.shape_width);
+                        recipe.shaped_cells.begin() + static_cast<ptrdiff_t>(r) * recipe.shape_width);
                 }
                 --recipe.shape_width;
             }

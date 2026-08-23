@@ -32,7 +32,7 @@ A Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked streamin
 
 ### Rendering & Visual Features
 - **Three-tier LOD with region merging**: Per-chunk distance-based reduction (not chunk merging) — full detail, mid stride/detail reduction, and a far tier with its own detail level + render start (`far_lod_distance`/`far_lod_detail_level`); LOD-reduced chunks are cached and merged into 4×4-chunk region instances so the coarse rings cost only a handful of draw calls
-- **Dynamic water shader**: Translucent water with edge fade, depth absorption, bounce light, sun glint, Beer-Lambert depth absorption, flowing texture animation, and separate blend-mix surface
+- **Dynamic water shader**: Translucent water with edge fade, bounce light, sun glint, flowing texture animation, and separate blend-mix surface
 - **Vegetation generation**: Oak and spruce trees (variant-weighted per biome from `data/biomes.json`), minimum spacing, deferred cross-chunk writes, per-biome density + forest/plains/desert knobs from `data/vegetation.json`, improved forest placement (80% chunk coverage, 15-25 trees per chunk)
 - **Slope triplanar cliff blending**: Steep slopes (>45°) automatically blend in rock face textures
 - **Night sky & starfield**: Dynamic procedural twinkling starfield during night sun elevations

@@ -357,24 +357,4 @@ void MeshManager::process_completed_region_meshes(uint64_t epoch, int32_t max_up
     }
 }
 
-static inline bool should_cull_neighbor(BlockID current, BlockID neighbor, FaceDirection direction, const BlockRegistry& registry) {
-    if (neighbor == BlockIDs::AIR) {
-         return false;
-    }
-    const BlockType& neighbor_type = registry.get_block(neighbor);
-    if (HasProperty(neighbor_type.properties, BlockProperty::Transparent)) {
-        if (current != neighbor) return false;
-    }
-    const BlockType& current_type = registry.get_block(current);
-    if (current == neighbor && current_type.cull_against_same) return true;
-    if (direction == FaceDirection::Right || direction == FaceDirection::Left ||
-        direction == FaceDirection::Front || direction == FaceDirection::Back) {
-        float current_height = 1.0f - current_type.top_face_offset;
-        float neighbor_height = 1.0f - neighbor_type.top_face_offset;
-        if (neighbor_height < current_height) return false;
-        if (neighbor_height > current_height) return true;
-    }
-    return true;
-}
-
 } // namespace VoxelEngine

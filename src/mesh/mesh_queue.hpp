@@ -1,5 +1,5 @@
-#ifndef FUK_MINECRAFT_MESH_QUEUE_HPP
-#define FUK_MINECRAFT_MESH_QUEUE_HPP
+#ifndef FARLANDS_MESH_QUEUE_HPP
+#define FARLANDS_MESH_QUEUE_HPP
 #include "core/chunk_map.hpp"
 #include "core/frustum.hpp"
 #include <cstdint>
@@ -183,4 +183,4 @@ private:
 
 } // namespace VoxelEngine
 
-#endif // FUK_MINECRAFT_MESH_QUEUE_HPP
+#endif // FARLANDS_MESH_QUEUE_HPP

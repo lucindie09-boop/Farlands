@@ -1,5 +1,5 @@
-#ifndef FUK_MINECRAFT_BIOME_CONFIG_HPP
-#define FUK_MINECRAFT_BIOME_CONFIG_HPP
+#ifndef FARLANDS_BIOME_CONFIG_HPP
+#define FARLANDS_BIOME_CONFIG_HPP
 
 #include <array>
 #include <cstdint>
@@ -72,4 +72,4 @@ struct BiomeConfig {
 
 } // namespace VoxelEngine
 
-#endif // FUK_MINECRAFT_BIOME_CONFIG_HPP
+#endif // FARLANDS_BIOME_CONFIG_HPP

@@ -1,5 +1,5 @@
-#ifndef FUK_MINECRAFT_COLLISION_RESOLVER_HPP
-#define FUK_MINECRAFT_COLLISION_RESOLVER_HPP
+#ifndef FARLANDS_COLLISION_RESOLVER_HPP
+#define FARLANDS_COLLISION_RESOLVER_HPP
 
 #include <godot_cpp/variant/vector3.hpp>
 #include <godot_cpp/variant/aabb.hpp>

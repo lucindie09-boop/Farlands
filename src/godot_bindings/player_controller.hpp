@@ -1,5 +1,5 @@
-#ifndef FUK_MINECRAFT_PLAYER_CONTROLLER_NODE_HPP
-#define FUK_MINECRAFT_PLAYER_CONTROLLER_NODE_HPP
+#ifndef FARLANDS_PLAYER_CONTROLLER_NODE_HPP
+#define FARLANDS_PLAYER_CONTROLLER_NODE_HPP
 
 #include <godot_cpp/classes/node3d.hpp>
 #include <godot_cpp/classes/camera3d.hpp>
@@ -111,4 +111,4 @@ private:
     int health_ = MAX_HEALTH;
 };
 
-#endif // FUK_MINECRAFT_PLAYER_CONTROLLER_NODE_HPP
+#endif // FARLANDS_PLAYER_CONTROLLER_NODE_HPP

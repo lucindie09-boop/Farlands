@@ -1,5 +1,5 @@
-#ifndef FUK_MINECRAFT_SKY_CONTROLLER_HPP
-#define FUK_MINECRAFT_SKY_CONTROLLER_HPP
+#ifndef FARLANDS_SKY_CONTROLLER_HPP
+#define FARLANDS_SKY_CONTROLLER_HPP
 #include <godot_cpp/variant/color.hpp>
 #include <godot_cpp/variant/vector2.hpp>
 #include <godot_cpp/variant/vector3.hpp>
@@ -274,4 +274,4 @@ private:
 
 } // namespace VoxelEngine
 
-#endif // FUK_MINECRAFT_SKY_CONTROLLER_HPP
+#endif // FARLANDS_SKY_CONTROLLER_HPP

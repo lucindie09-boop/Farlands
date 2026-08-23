@@ -1,5 +1,5 @@
-#ifndef FUK_MINECRAFT_NOISE_HPP
-#define FUK_MINECRAFT_NOISE_HPP
+#ifndef FARLANDS_NOISE_HPP
+#define FARLANDS_NOISE_HPP
 #include <cstdint>
 #include <cmath>
 #include <array>
@@ -225,4 +225,4 @@ public:
 
 } // namespace VoxelEngine
 
-#endif // FUK_MINECRAFT_NOISE_HPP
+#endif // FARLANDS_NOISE_HPP

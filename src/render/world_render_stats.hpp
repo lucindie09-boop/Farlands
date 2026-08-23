@@ -1,5 +1,5 @@
-#ifndef FUK_MINECRAFT_WORLD_RENDER_STATS_HPP
-#define FUK_MINECRAFT_WORLD_RENDER_STATS_HPP
+#ifndef FARLANDS_WORLD_RENDER_STATS_HPP
+#define FARLANDS_WORLD_RENDER_STATS_HPP
 #include <cstdint>
 
 namespace VoxelEngine {
@@ -19,4 +19,4 @@ struct WorldRenderStats {
 
 } // namespace VoxelEngine
 
-#endif // FUK_MINECRAFT_WORLD_RENDER_STATS_HPP
+#endif // FARLANDS_WORLD_RENDER_STATS_HPP

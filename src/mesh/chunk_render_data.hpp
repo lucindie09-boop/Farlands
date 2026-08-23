@@ -1,5 +1,5 @@
-#ifndef FUK_MINECRAFT_CHUNK_RENDER_DATA_HPP
-#define FUK_MINECRAFT_CHUNK_RENDER_DATA_HPP
+#ifndef FARLANDS_CHUNK_RENDER_DATA_HPP
+#define FARLANDS_CHUNK_RENDER_DATA_HPP
 #include "core/chunk_data.hpp"
 #include "mesh/mesh_types.hpp"
 #include <godot_cpp/variant/rid.hpp>
@@ -115,4 +115,4 @@ struct CompletedMesh {
 
 } // namespace VoxelEngine
 
-#endif // FUK_MINECRAFT_CHUNK_RENDER_DATA_HPP
+#endif // FARLANDS_CHUNK_RENDER_DATA_HPP

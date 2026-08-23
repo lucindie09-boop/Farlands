@@ -1,5 +1,5 @@
-#ifndef FUK_MINECRAFT_CHUNK_TYPES_HPP
-#define FUK_MINECRAFT_CHUNK_TYPES_HPP
+#ifndef FARLANDS_CHUNK_TYPES_HPP
+#define FARLANDS_CHUNK_TYPES_HPP
 #include "core/chunk_data.hpp"
 #include "mesh/chunk_render_data.hpp"
 #include <memory>
@@ -50,4 +50,4 @@ struct PendingBlockPlacement {
 
 } // namespace VoxelEngine
 
-#endif // FUK_MINECRAFT_CHUNK_TYPES_HPP
+#endif // FARLANDS_CHUNK_TYPES_HPP

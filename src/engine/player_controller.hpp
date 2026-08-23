@@ -1,5 +1,5 @@
-#ifndef FUK_MINECRAFT_PLAYER_CONTROLLER_HPP
-#define FUK_MINECRAFT_PLAYER_CONTROLLER_HPP
+#ifndef FARLANDS_PLAYER_CONTROLLER_HPP
+#define FARLANDS_PLAYER_CONTROLLER_HPP
 
 #include <godot_cpp/variant/vector3.hpp>
 #include <cstdint>

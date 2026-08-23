@@ -1,5 +1,5 @@
-#ifndef FUK_MINECRAFT_PLAYER_LIGHT_HPP
-#define FUK_MINECRAFT_PLAYER_LIGHT_HPP
+#ifndef FARLANDS_PLAYER_LIGHT_HPP
+#define FARLANDS_PLAYER_LIGHT_HPP
 #include "core/chunk_data.hpp"
 #include "core/chunk_map.hpp"
 #include <godot_cpp/variant/vector3.hpp>
@@ -153,4 +153,4 @@ private:
 
 } // namespace VoxelEngine
 
-#endif // FUK_MINECRAFT_PLAYER_LIGHT_HPP
+#endif // FARLANDS_PLAYER_LIGHT_HPP

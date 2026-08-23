@@ -1,5 +1,5 @@
-#ifndef FUK_MINECRAFT_SMOOTH_LIGHTING_HPP
-#define FUK_MINECRAFT_SMOOTH_LIGHTING_HPP
+#ifndef FARLANDS_SMOOTH_LIGHTING_HPP
+#define FARLANDS_SMOOTH_LIGHTING_HPP
 
 #include <cstdint>
 #include "mesh/mesh_types.hpp"
@@ -40,4 +40,4 @@ uint16_t compute_corner_light(
 
 } // namespace VoxelEngine
 
-#endif // FUK_MINECRAFT_SMOOTH_LIGHTING_HPP
+#endif // FARLANDS_SMOOTH_LIGHTING_HPP

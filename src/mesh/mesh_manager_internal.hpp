@@ -1,5 +1,5 @@
-#ifndef FUK_MINECRAFT_MESH_MANAGER_INTERNAL_HPP
-#define FUK_MINECRAFT_MESH_MANAGER_INTERNAL_HPP
+#ifndef FARLANDS_MESH_MANAGER_INTERNAL_HPP
+#define FARLANDS_MESH_MANAGER_INTERNAL_HPP
 
 // Internal header shared by the MeshManager translation units (mesh_manager.cpp,
 // mesh_manager_worker.cpp, mesh_manager_upload.cpp, mesh_manager_rebuild.cpp,
@@ -64,4 +64,4 @@ struct MeshBuildTask : Task {
 
 } // namespace VoxelEngine
 
-#endif // FUK_MINECRAFT_MESH_MANAGER_INTERNAL_HPP
+#endif // FARLANDS_MESH_MANAGER_INTERNAL_HPP

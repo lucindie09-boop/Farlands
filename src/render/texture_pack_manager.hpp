@@ -1,5 +1,5 @@
-#ifndef FUK_MINECRAFT_TEXTURE_PACK_MANAGER_HPP
-#define FUK_MINECRAFT_TEXTURE_PACK_MANAGER_HPP
+#ifndef FARLANDS_TEXTURE_PACK_MANAGER_HPP
+#define FARLANDS_TEXTURE_PACK_MANAGER_HPP
 
 #include <godot_cpp/variant/string.hpp>
 #include <functional>
@@ -113,4 +113,4 @@ private:
 
 } // namespace VoxelEngine
 
-#endif // FUK_MINECRAFT_TEXTURE_PACK_MANAGER_HPP
+#endif // FARLANDS_TEXTURE_PACK_MANAGER_HPP

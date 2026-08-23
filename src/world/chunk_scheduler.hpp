@@ -1,5 +1,5 @@
-#ifndef FUK_MINECRAFT_CHUNK_SCHEDULER_HPP
-#define FUK_MINECRAFT_CHUNK_SCHEDULER_HPP
+#ifndef FARLANDS_CHUNK_SCHEDULER_HPP
+#define FARLANDS_CHUNK_SCHEDULER_HPP
 #include "core/chunk_types.hpp"
 #include "core/thread_pool.hpp"
 #include <atomic>
@@ -233,4 +233,4 @@ private:
 
 } // namespace VoxelEngine
 
-#endif // FUK_MINECRAFT_CHUNK_SCHEDULER_HPP
+#endif // FARLANDS_CHUNK_SCHEDULER_HPP

@@ -1,5 +1,5 @@
-#ifndef FUK_MINECRAFT_PERF_REPORT_HPP
-#define FUK_MINECRAFT_PERF_REPORT_HPP
+#ifndef FARLANDS_PERF_REPORT_HPP
+#define FARLANDS_PERF_REPORT_HPP
 #include <godot_cpp/variant/string.hpp>
 #include <cstdint>
 #include <cstddef>
@@ -28,4 +28,4 @@ public:
 
 } // namespace VoxelEngine
 
-#endif // FUK_MINECRAFT_PERF_REPORT_HPP
+#endif // FARLANDS_PERF_REPORT_HPP

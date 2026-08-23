@@ -1,5 +1,5 @@
-#ifndef FUK_MINECRAFT_CHUNK_BOUNDARY_DIRTY_HPP
-#define FUK_MINECRAFT_CHUNK_BOUNDARY_DIRTY_HPP
+#ifndef FARLANDS_CHUNK_BOUNDARY_DIRTY_HPP
+#define FARLANDS_CHUNK_BOUNDARY_DIRTY_HPP
 
 #include "core/chunk_data.hpp"
 #include "mesh/mesh_types.hpp"
@@ -58,4 +58,4 @@ inline bool should_dirty_neighbor(const ChunkData* center_chunk, FaceDirection d
 
 } // namespace VoxelEngine
 
-#endif // FUK_MINECRAFT_CHUNK_BOUNDARY_DIRTY_HPP
+#endif // FARLANDS_CHUNK_BOUNDARY_DIRTY_HPP

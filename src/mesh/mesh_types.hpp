@@ -1,5 +1,5 @@
-#ifndef FUK_MINECRAFT_MESH_TYPES_HPP
-#define FUK_MINECRAFT_MESH_TYPES_HPP
+#ifndef FARLANDS_MESH_TYPES_HPP
+#define FARLANDS_MESH_TYPES_HPP
 #include <cstdint>
 #include <cstddef>
 #include <array>
@@ -84,4 +84,4 @@ struct PackedBuiltMeshData {
 
 } // namespace VoxelEngine
 
-#endif // FUK_MINECRAFT_MESH_TYPES_HPP
+#endif // FARLANDS_MESH_TYPES_HPP

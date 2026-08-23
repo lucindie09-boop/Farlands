@@ -1,5 +1,5 @@
-#ifndef FUK_MINECRAFT_HASH_UTILS_HPP
-#define FUK_MINECRAFT_HASH_UTILS_HPP
+#ifndef FARLANDS_HASH_UTILS_HPP
+#define FARLANDS_HASH_UTILS_HPP
 
 #include <cstdint>
 #include <cstddef>
@@ -22,4 +22,4 @@ inline uint64_t fnv1a_hash_value(const T& value, uint64_t hash = 0xcbf29ce484222
 
 } // namespace VoxelEngine
 
-#endif // FUK_MINECRAFT_HASH_UTILS_HPP
+#endif // FARLANDS_HASH_UTILS_HPP

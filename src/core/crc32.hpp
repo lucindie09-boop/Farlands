@@ -1,5 +1,5 @@
-#ifndef FUK_MINECRAFT_CRC32_HPP
-#define FUK_MINECRAFT_CRC32_HPP
+#ifndef FARLANDS_CRC32_HPP
+#define FARLANDS_CRC32_HPP
 #include <cstdint>
 #include <cstddef>
 

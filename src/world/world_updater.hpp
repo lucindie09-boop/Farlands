@@ -1,5 +1,5 @@
-#ifndef FUK_MINECRAFT_WORLD_UPDATER_HPP
-#define FUK_MINECRAFT_WORLD_UPDATER_HPP
+#ifndef FARLANDS_WORLD_UPDATER_HPP
+#define FARLANDS_WORLD_UPDATER_HPP
 #include "core/chunk_types.hpp"
 #include "core/terrain_params.hpp"
 #include "core/frame_budgets.hpp"
@@ -154,4 +154,4 @@ private:
 
 } // namespace VoxelEngine
 
-#endif // FUK_MINECRAFT_WORLD_UPDATER_HPP
+#endif // FARLANDS_WORLD_UPDATER_HPP

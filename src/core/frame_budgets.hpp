@@ -1,5 +1,5 @@
-#ifndef FUK_MINECRAFT_FRAME_BUDGETS_HPP
-#define FUK_MINECRAFT_FRAME_BUDGETS_HPP
+#ifndef FARLANDS_FRAME_BUDGETS_HPP
+#define FARLANDS_FRAME_BUDGETS_HPP
 
 #include <cstddef>
 #include <cstdint>
@@ -40,4 +40,4 @@ struct FrameBudgets {
 
 } // namespace VoxelEngine
 
-#endif // FUK_MINECRAFT_FRAME_BUDGETS_HPP
+#endif // FARLANDS_FRAME_BUDGETS_HPP

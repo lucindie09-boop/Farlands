@@ -1,5 +1,5 @@
-#ifndef FUK_MINECRAFT_CHUNK_GENERATOR_HPP
-#define FUK_MINECRAFT_CHUNK_GENERATOR_HPP
+#ifndef FARLANDS_CHUNK_GENERATOR_HPP
+#define FARLANDS_CHUNK_GENERATOR_HPP
 #include <functional>
 #include "core/terrain_params.hpp"
 #include "core/noise.hpp"
@@ -472,4 +472,4 @@ float max_water_h = -1.0f;
 
 } // namespace VoxelEngine
 
-#endif // FUK_MINECRAFT_CHUNK_GENERATOR_HPP
+#endif // FARLANDS_CHUNK_GENERATOR_HPP

@@ -1,5 +1,5 @@
-#ifndef FUK_MINECRAFT_VEGETATION_GENERATOR_HPP
-#define FUK_MINECRAFT_VEGETATION_GENERATOR_HPP
+#ifndef FARLANDS_VEGETATION_GENERATOR_HPP
+#define FARLANDS_VEGETATION_GENERATOR_HPP
 #include <cstdint>
 #include "core/chunk_data.hpp"
 #include "worldgen/chunk_generator.hpp"
@@ -53,4 +53,4 @@ private:
 };
 
 } // namespace VoxelEngine
-#endif // FUK_MINECRAFT_VEGETATION_GENERATOR_HPP
+#endif // FARLANDS_VEGETATION_GENERATOR_HPP

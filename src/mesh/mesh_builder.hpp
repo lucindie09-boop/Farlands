@@ -1,5 +1,5 @@
-#ifndef FUK_MINECRAFT_MESH_BUILDER_HPP
-#define FUK_MINECRAFT_MESH_BUILDER_HPP
+#ifndef FARLANDS_MESH_BUILDER_HPP
+#define FARLANDS_MESH_BUILDER_HPP
 #include <atomic>
 
 #include "core/chunk_data.hpp"
@@ -508,4 +508,4 @@ const BlockRegistry& registry) const;
 
 } // namespace VoxelEngine
 
-#endif // FUK_MINECRAFT_MESH_BUILDER_HPP
+#endif // FARLANDS_MESH_BUILDER_HPP

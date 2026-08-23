@@ -69,6 +69,12 @@ void PlayerController::_bind_methods() {
 
     ClassDB::bind_method(D_METHOD("get_health"), &PlayerController::get_health);
     ClassDB::bind_method(D_METHOD("set_health", "value"), &PlayerController::set_health);
+    ClassDB::bind_method(D_METHOD("is_dead"), &PlayerController::is_dead);
+    ClassDB::bind_method(D_METHOD("die"), &PlayerController::die);
+    ClassDB::bind_method(D_METHOD("respawn"), &PlayerController::respawn);
+
+    ADD_SIGNAL(MethodInfo("died"));
+    ADD_SIGNAL(MethodInfo("respawned"));
 
     ADD_PROPERTY(PropertyInfo(Variant::INT, "health", PROPERTY_HINT_RANGE, "0,20,1"),
                  "set_health", "get_health");
@@ -86,8 +92,30 @@ float PlayerController::get_fly_speed() const { return fly_speed_; }
 
 int PlayerController::get_health() const { return health_; }
 
+bool PlayerController::is_dead() const { return dead_; }
+
 void PlayerController::set_health(int value) {
     health_ = CLAMP(value, 0, MAX_HEALTH);
+    if (health_ <= 0 && !dead_) {
+        die();
+    }
+}
+
+void PlayerController::die() {
+    if (dead_) return;
+    dead_ = true;
+    update_mouse_mode();
+    emit_signal("died");
+}
+
+void PlayerController::respawn() {
+    if (!dead_) return;
+    dead_ = false;
+    health_ = MAX_HEALTH;
+    // teleport_to resets the sim (clearing fall state) at the spawn point.
+    teleport_to(spawn_point_);
+    emit_signal("respawned");
+    update_mouse_mode();
 }
 
 void PlayerController::_ready() {
@@ -106,7 +134,8 @@ void PlayerController::_ready() {
     }
 
     sim_.reset(get_global_position());
-    
+    spawn_point_ = get_global_position();
+
     // Load inventory from saved data
     load_inventory();
 }
@@ -120,7 +149,7 @@ void PlayerController::_exit_tree() {
 }
 
 void PlayerController::_process(double delta) {
-    if (!collision_resolver_) return;
+    if (!collision_resolver_ || dead_) return;
 
     float speed_multiplier = 1.0f;
     if (chunk_manager_) speed_multiplier = chunk_manager_->get_move_speed_multiplier();
@@ -191,6 +220,9 @@ void PlayerController::_process(double delta) {
 void PlayerController::_input(const Ref<InputEvent>& p_event) {
     Input* input = Input::get_singleton();
     if (!input) return;
+
+    // Dead: freeze everything (look/move/break/place/hotbar) until respawn.
+    if (dead_) return;
 
     // Skip mouse mode switching when inventory, chat or settings is open
     if (inventory_open_ || chat_open_ || settings_open_) {
@@ -676,7 +708,7 @@ bool PlayerController::is_settings_open() const {
 void PlayerController::update_mouse_mode() {
     Input* input = Input::get_singleton();
     if (!input) return;
-    if (inventory_open_ || chat_open_ || settings_open_) {
+    if (inventory_open_ || chat_open_ || settings_open_ || dead_) {
         input->set_mouse_mode(Input::MOUSE_MODE_VISIBLE);
     } else {
         input->set_mouse_mode(Input::MOUSE_MODE_CAPTURED);

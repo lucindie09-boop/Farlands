@@ -22,10 +22,18 @@ void PlayerSim::reset(const Vector3& initial_pos) {
     sprint_active_ = false;
     prev_sprint_active_ = false;
     accumulator_ = 0.0f;
+    fall_distance_ = 0.0f;
+    pending_fall_damage_ = 0;
 }
 
 float PlayerSim::get_accumulator_fraction() const {
     return accumulator_ / TICK_DT;
+}
+
+int PlayerSim::consume_pending_fall_damage() {
+    int damage = pending_fall_damage_;
+    pending_fall_damage_ = 0;
+    return damage;
 }
 
 Vector3 PlayerSim::get_render_position(float partial_tick) const {
@@ -207,6 +215,22 @@ void PlayerSim::tick(const PlayerInput& input, CollisionResolver& cr, float step
     if (result.collided_x || result.collided_z) sprint_active_ = false;
 
     on_floor_ = result.on_floor;
+
+    // --- Fall damage tracking (vanilla: landings over 3 blocks hurt) ---
+    // prev_position_ -> position_ is this tick's actual motion; on the
+    // landing tick it includes the collision-clipped remainder, so it must be
+    // added BEFORE the landing check or every fall loses its final segment.
+    float fallen = prev_position_.y - position_.y;
+    if (fallen > 0.0f) {
+        fall_distance_ += fallen;
+    }
+    if (on_floor_) {
+        if (fall_distance_ > SAFE_FALL_DISTANCE) {
+            pending_fall_damage_ +=
+                static_cast<int>(std::floor(fall_distance_ - SAFE_FALL_DISTANCE));
+        }
+        fall_distance_ = 0.0f;
+    }
 
     // --- Gravity + vertical drag (applied AFTER move, matching vanilla tick order) ---
     velocity_.y -= GRAVITY;

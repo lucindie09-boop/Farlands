@@ -1,5 +1,5 @@
-#ifndef FUK_MINECRAFT_INVENTORY_HPP
-#define FUK_MINECRAFT_INVENTORY_HPP
+#ifndef FARLANDS_INVENTORY_HPP
+#define FARLANDS_INVENTORY_HPP
 
 #include "core/block_types.hpp"
 #include <array>
@@ -60,4 +60,4 @@ private:
 
 } // namespace VoxelEngine
 
-#endif // FUK_MINECRAFT_INVENTORY_HPP
+#endif // FARLANDS_INVENTORY_HPP

@@ -1,5 +1,5 @@
-#ifndef FUK_MINECRAFT_TERRAIN_PARAMS_HPP
-#define FUK_MINECRAFT_TERRAIN_PARAMS_HPP
+#ifndef FARLANDS_TERRAIN_PARAMS_HPP
+#define FARLANDS_TERRAIN_PARAMS_HPP
 #include <array>
 #include <cstdint>
 
@@ -78,4 +78,4 @@ struct TerrainParams {
 
 } // namespace VoxelEngine
 
-#endif // FUK_MINECRAFT_TERRAIN_PARAMS_HPP
+#endif // FARLANDS_TERRAIN_PARAMS_HPP

@@ -1,5 +1,5 @@
-#ifndef FUK_MINECRAFT_CHUNK_COORDS_HPP
-#define FUK_MINECRAFT_CHUNK_COORDS_HPP
+#ifndef FARLANDS_CHUNK_COORDS_HPP
+#define FARLANDS_CHUNK_COORDS_HPP
 #include <cstdint>
 
 namespace VoxelEngine {
@@ -87,4 +87,4 @@ inline constexpr void world_to_chunk_local(int32_t world_x, int32_t world_y, int
 
 } // namespace VoxelEngine
 
-#endif // FUK_MINECRAFT_CHUNK_COORDS_HPP
+#endif // FARLANDS_CHUNK_COORDS_HPP

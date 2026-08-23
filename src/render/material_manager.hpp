@@ -1,5 +1,5 @@
-#ifndef FUK_MINECRAFT_MATERIAL_MANAGER_HPP
-#define FUK_MINECRAFT_MATERIAL_MANAGER_HPP
+#ifndef FARLANDS_MATERIAL_MANAGER_HPP
+#define FARLANDS_MATERIAL_MANAGER_HPP
 #include <godot_cpp/classes/shader_material.hpp>
 #include <godot_cpp/variant/color.hpp>
 #include <godot_cpp/variant/vector3.hpp>
@@ -70,4 +70,4 @@ private:
 
 } // namespace VoxelEngine
 
-#endif // FUK_MINECRAFT_MATERIAL_MANAGER_HPP
+#endif // FARLANDS_MATERIAL_MANAGER_HPP

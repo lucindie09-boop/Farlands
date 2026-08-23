@@ -1,5 +1,5 @@
-#ifndef FUK_MINECRAFT_DAY_NIGHT_CYCLE_HPP
-#define FUK_MINECRAFT_DAY_NIGHT_CYCLE_HPP
+#ifndef FARLANDS_DAY_NIGHT_CYCLE_HPP
+#define FARLANDS_DAY_NIGHT_CYCLE_HPP
 #include <godot_cpp/variant/color.hpp>
 #include <godot_cpp/variant/vector3.hpp>
 #include <cmath>
@@ -7,8 +7,8 @@
 
 namespace VoxelEngine {
 
-#ifndef FUK_SMOOTHSTEP_DEFINED
-#define FUK_SMOOTHSTEP_DEFINED
+#ifndef FARLANDS_SMOOTHSTEP_DEFINED
+#define FARLANDS_SMOOTHSTEP_DEFINED
 inline float smoothstep(float edge0, float edge1, float x) {
     float t = std::clamp((x - edge0) / (edge1 - edge0), 0.0f, 1.0f);
     return t * t * (3.0f - 2.0f * t);
@@ -208,4 +208,4 @@ private:
 
 } // namespace VoxelEngine
 
-#endif // FUK_MINECRAFT_DAY_NIGHT_CYCLE_HPP
+#endif // FARLANDS_DAY_NIGHT_CYCLE_HPP

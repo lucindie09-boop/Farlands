@@ -1,5 +1,5 @@
-#ifndef FUK_MINECRAFT_CHUNK_MAP_HPP
-#define FUK_MINECRAFT_CHUNK_MAP_HPP
+#ifndef FARLANDS_CHUNK_MAP_HPP
+#define FARLANDS_CHUNK_MAP_HPP
 #include "core/chunk_types.hpp"
 #include "core/chunk_data.hpp"
 #include "core/block_types.hpp"
@@ -503,4 +503,4 @@ private:
 
 } // namespace VoxelEngine
 
-#endif // FUK_MINECRAFT_CHUNK_MAP_HPP
+#endif // FARLANDS_CHUNK_MAP_HPP

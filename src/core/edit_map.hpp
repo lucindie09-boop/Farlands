@@ -1,5 +1,5 @@
-#ifndef FUK_MINECRAFT_EDIT_MAP_HPP
-#define FUK_MINECRAFT_EDIT_MAP_HPP
+#ifndef FARLANDS_EDIT_MAP_HPP
+#define FARLANDS_EDIT_MAP_HPP
 
 #include "core/chunk_coords.hpp"
 #include "core/block_types.hpp"
@@ -94,4 +94,4 @@ bool deserialize_edit_map(const uint8_t* data, size_t size, EditMap& out_edit_ma
 
 } // namespace VoxelEngine
 
-#endif // FUK_MINECRAFT_EDIT_MAP_HPP
+#endif // FARLANDS_EDIT_MAP_HPP

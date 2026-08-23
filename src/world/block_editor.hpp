@@ -1,5 +1,5 @@
-#ifndef FUK_MINECRAFT_BLOCK_EDITOR_HPP
-#define FUK_MINECRAFT_BLOCK_EDITOR_HPP
+#ifndef FARLANDS_BLOCK_EDITOR_HPP
+#define FARLANDS_BLOCK_EDITOR_HPP
 #include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/vector3.hpp>
 #include <godot_cpp/variant/node_path.hpp>
@@ -48,4 +48,4 @@ private:
 
 } // namespace VoxelEngine
 
-#endif // FUK_MINECRAFT_BLOCK_EDITOR_HPP
+#endif // FARLANDS_BLOCK_EDITOR_HPP

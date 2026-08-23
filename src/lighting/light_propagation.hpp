@@ -1,5 +1,5 @@
-#ifndef FUK_MINECRAFT_LIGHT_PROPAGATION_HPP
-#define FUK_MINECRAFT_LIGHT_PROPAGATION_HPP
+#ifndef FARLANDS_LIGHT_PROPAGATION_HPP
+#define FARLANDS_LIGHT_PROPAGATION_HPP
 #include "core/chunk_data.hpp"
 #include "core/block_types.hpp"
 #include <array>
@@ -68,4 +68,4 @@ void propagate_chunk_block_light_additive(ChunkData& chunk);
 
 } // namespace VoxelEngine
 
-#endif // FUK_MINECRAFT_LIGHT_PROPAGATION_HPP
+#endif // FARLANDS_LIGHT_PROPAGATION_HPP

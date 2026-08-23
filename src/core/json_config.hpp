@@ -1,5 +1,5 @@
-#ifndef FUK_MINECRAFT_JSON_CONFIG_HPP
-#define FUK_MINECRAFT_JSON_CONFIG_HPP
+#ifndef FARLANDS_JSON_CONFIG_HPP
+#define FARLANDS_JSON_CONFIG_HPP
 
 #include <optional>
 
@@ -45,4 +45,4 @@ inline std::optional<godot::Dictionary> read_json_dictionary(const godot::String
 
 } // namespace VoxelEngine
 
-#endif // FUK_MINECRAFT_JSON_CONFIG_HPP
+#endif // FARLANDS_JSON_CONFIG_HPP

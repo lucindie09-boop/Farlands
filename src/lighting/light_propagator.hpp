@@ -1,5 +1,5 @@
-#ifndef FUK_MINECRAFT_LIGHT_PROPAGATOR_HPP
-#define FUK_MINECRAFT_LIGHT_PROPAGATOR_HPP
+#ifndef FARLANDS_LIGHT_PROPAGATOR_HPP
+#define FARLANDS_LIGHT_PROPAGATOR_HPP
 #include "lighting/light_propagation.hpp"
 #include "core/chunk_map.hpp"
 #include "core/block_types.hpp"
@@ -46,4 +46,4 @@ private:
 
 } // namespace VoxelEngine
 
-#endif // FUK_MINECRAFT_LIGHT_PROPAGATOR_HPP
+#endif // FARLANDS_LIGHT_PROPAGATOR_HPP

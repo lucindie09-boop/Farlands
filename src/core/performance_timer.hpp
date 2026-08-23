@@ -1,5 +1,5 @@
-#ifndef FUK_MINECRAFT_PERFORMANCE_TIMER_HPP
-#define FUK_MINECRAFT_PERFORMANCE_TIMER_HPP
+#ifndef FARLANDS_PERFORMANCE_TIMER_HPP
+#define FARLANDS_PERFORMANCE_TIMER_HPP
 #include <cstdint>
 #include <chrono>
 #include <array>
@@ -175,4 +175,4 @@ public:
 
 } // namespace VoxelEngine
 
-#endif // FUK_MINECRAFT_PERFORMANCE_TIMER_HPP
+#endif // FARLANDS_PERFORMANCE_TIMER_HPP

@@ -1,5 +1,5 @@
-#ifndef FUK_MINECRAFT_VOXEL_ENGINE_THREAD_POOL_HPP
-#define FUK_MINECRAFT_VOXEL_ENGINE_THREAD_POOL_HPP
+#ifndef FARLANDS_VOXEL_ENGINE_THREAD_POOL_HPP
+#define FARLANDS_VOXEL_ENGINE_THREAD_POOL_HPP
 #include <atomic>
 #include <chrono>
 #include <condition_variable>

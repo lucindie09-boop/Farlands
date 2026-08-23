@@ -1,5 +1,5 @@
-#ifndef FUK_MINECRAFT_BLOCK_LIGHT_REGION_HPP
-#define FUK_MINECRAFT_BLOCK_LIGHT_REGION_HPP
+#ifndef FARLANDS_BLOCK_LIGHT_REGION_HPP
+#define FARLANDS_BLOCK_LIGHT_REGION_HPP
 #include "core/chunk_data.hpp"
 #include "core/block_types.hpp"
 #include "lighting/light_propagation.hpp"
@@ -190,4 +190,4 @@ private:
 
 } // namespace VoxelEngine
 
-#endif // FUK_MINECRAFT_BLOCK_LIGHT_REGION_HPP
+#endif // FARLANDS_BLOCK_LIGHT_REGION_HPP

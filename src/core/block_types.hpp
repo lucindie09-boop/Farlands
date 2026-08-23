@@ -1,5 +1,5 @@
-#ifndef FUK_MINECRAFT_BLOCK_TYPES_HPP
-#define FUK_MINECRAFT_BLOCK_TYPES_HPP
+#ifndef FARLANDS_BLOCK_TYPES_HPP
+#define FARLANDS_BLOCK_TYPES_HPP
 #include <cstdint>
 #include <array>
 #include <cassert>
@@ -257,4 +257,4 @@ namespace BlockIDs {
 
 } // namespace VoxelEngine
 
-#endif // FUK_MINECRAFT_BLOCK_TYPES_HPP
+#endif // FARLANDS_BLOCK_TYPES_HPP

@@ -1,5 +1,5 @@
-#ifndef FUK_MINECRAFT_CRAFTING_HPP
-#define FUK_MINECRAFT_CRAFTING_HPP
+#ifndef FARLANDS_CRAFTING_HPP
+#define FARLANDS_CRAFTING_HPP
 
 #include "core/block_types.hpp"
 #include "core/inventory.hpp"
@@ -66,4 +66,4 @@ private:
 
 } // namespace VoxelEngine
 
-#endif // FUK_MINECRAFT_CRAFTING_HPP
+#endif // FARLANDS_CRAFTING_HPP

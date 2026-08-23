@@ -1,5 +1,5 @@
-#ifndef FUK_MINECRAFT_CHUNK_MANAGER_HPP
-#define FUK_MINECRAFT_CHUNK_MANAGER_HPP
+#ifndef FARLANDS_CHUNK_MANAGER_HPP
+#define FARLANDS_CHUNK_MANAGER_HPP
 #include <godot_cpp/classes/node3d.hpp>
 #include <godot_cpp/classes/camera3d.hpp>
 #include <godot_cpp/variant/vector3.hpp>
@@ -197,4 +197,4 @@ private:
 
 } // namespace VoxelEngine
 
-#endif // FUK_MINECRAFT_CHUNK_MANAGER_HPP
+#endif // FARLANDS_CHUNK_MANAGER_HPP

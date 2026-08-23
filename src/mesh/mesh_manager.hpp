@@ -1,5 +1,5 @@
-#ifndef FUK_MINECRAFT_MESH_MANAGER_HPP
-#define FUK_MINECRAFT_MESH_MANAGER_HPP
+#ifndef FARLANDS_MESH_MANAGER_HPP
+#define FARLANDS_MESH_MANAGER_HPP
 #include "core/chunk_map.hpp"
 #include "mesh/chunk_render_data.hpp"
 #include "core/frustum.hpp"
@@ -161,4 +161,4 @@ private:
 
 } // namespace VoxelEngine
 
-#endif // FUK_MINECRAFT_MESH_MANAGER_HPP
+#endif // FARLANDS_MESH_MANAGER_HPP

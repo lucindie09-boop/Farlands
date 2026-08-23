@@ -1,5 +1,5 @@
-#ifndef FUK_MINECRAFT_CHUNK_WORLD_HPP
-#define FUK_MINECRAFT_CHUNK_WORLD_HPP
+#ifndef FARLANDS_CHUNK_WORLD_HPP
+#define FARLANDS_CHUNK_WORLD_HPP
 #include "core/chunk_map.hpp"
 #include "core/terrain_params.hpp"
 #include "core/chunk_types.hpp"
@@ -146,4 +146,4 @@ private:
 
 } // namespace VoxelEngine
 
-#endif // FUK_MINECRAFT_CHUNK_WORLD_HPP
+#endif // FARLANDS_CHUNK_WORLD_HPP

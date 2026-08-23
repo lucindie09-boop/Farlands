@@ -1,5 +1,5 @@
-#ifndef FUK_MINECRAFT_TEXTURE_ARRAY_GENERATOR_HPP
-#define FUK_MINECRAFT_TEXTURE_ARRAY_GENERATOR_HPP
+#ifndef FARLANDS_TEXTURE_ARRAY_GENERATOR_HPP
+#define FARLANDS_TEXTURE_ARRAY_GENERATOR_HPP
 #include <godot_cpp/classes/texture2d.hpp>
 #include <godot_cpp/classes/texture2d_array.hpp>
 #include <godot_cpp/classes/resource_loader.hpp>
@@ -594,4 +594,4 @@ inline int TextureArrayGenerator::get_block_texture_index(const godot::String& b
 
 } // namespace VoxelEngine
 
-#endif // FUK_MINECRAFT_TEXTURE_ARRAY_GENERATOR_HPP
+#endif // FARLANDS_TEXTURE_ARRAY_GENERATOR_HPP

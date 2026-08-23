@@ -1,5 +1,5 @@
-#ifndef FUK_MINECRAFT_LIGHT_PACKING_HPP
-#define FUK_MINECRAFT_LIGHT_PACKING_HPP
+#ifndef FARLANDS_LIGHT_PACKING_HPP
+#define FARLANDS_LIGHT_PACKING_HPP
 #include <cstdint>
 
 namespace VoxelEngine {
@@ -34,4 +34,4 @@ static_assert(unpack_b(pack_light(0, 0, 0, 7)) == 7,   "b round-trip failed");
 
 } // namespace VoxelEngine
 
-#endif // FUK_MINECRAFT_LIGHT_PACKING_HPP
+#endif // FARLANDS_LIGHT_PACKING_HPP

@@ -1,5 +1,5 @@
-#ifndef FUK_MINECRAFT_CHUNK_DATA_HPP
-#define FUK_MINECRAFT_CHUNK_DATA_HPP
+#ifndef FARLANDS_CHUNK_DATA_HPP
+#define FARLANDS_CHUNK_DATA_HPP
 #include "core/block_types.hpp"
 #include "core/chunk_coords.hpp"
 #include "core/light_packing.hpp"
@@ -530,4 +530,4 @@ public:
 
 } // namespace VoxelEngine
 
-#endif // FUK_MINECRAFT_CHUNK_DATA_HPP
+#endif // FARLANDS_CHUNK_DATA_HPP

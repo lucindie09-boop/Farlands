@@ -1,5 +1,5 @@
-#ifndef FUK_MINECRAFT_FRUSTUM_HPP
-#define FUK_MINECRAFT_FRUSTUM_HPP
+#ifndef FARLANDS_FRUSTUM_HPP
+#define FARLANDS_FRUSTUM_HPP
 
 #include <godot_cpp/variant/plane.hpp>
 #include <godot_cpp/variant/aabb.hpp>
@@ -55,4 +55,4 @@ private:
 
 } // namespace VoxelEngine
 
-#endif // FUK_MINECRAFT_FRUSTUM_HPP
+#endif // FARLANDS_FRUSTUM_HPP

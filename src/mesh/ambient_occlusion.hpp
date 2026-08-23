@@ -1,5 +1,5 @@
-#ifndef FUK_MINECRAFT_AMBIENT_OCCLUSION_HPP
-#define FUK_MINECRAFT_AMBIENT_OCCLUSION_HPP
+#ifndef FARLANDS_AMBIENT_OCCLUSION_HPP
+#define FARLANDS_AMBIENT_OCCLUSION_HPP
 
 #include "core/block_types.hpp"
 #include "mesh/chunk_neighbor_accessor.hpp"
@@ -77,4 +77,4 @@ private:
 
 } // namespace VoxelEngine
 
-#endif // FUK_MINECRAFT_AMBIENT_OCCLUSION_HPP
+#endif // FARLANDS_AMBIENT_OCCLUSION_HPP

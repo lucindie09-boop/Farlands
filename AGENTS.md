@@ -119,6 +119,7 @@ A Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked streamin
 - **Minecraft-accurate physics**: Fixed 20-tick/s simulation with vanilla jump/sprint/sneak ordering, removed 0.98 input scaling, proper sprint state machine with sticky flag and one-tick stale airborne, sneak multiplier only on ground
 - **Move speed multiplier**: Adjustable player movement speed multiplier property
 - **Fall damage**: `PlayerSim` accumulates fall distance from per-tick position deltas (including the collision-clipped landing segment — it must be added before the landing check or every fall loses its final stretch), and a landing past `SAFE_FALL_DISTANCE` (3 blocks) queues `floor(distance − 3)` half-hearts via `consume_pending_fall_damage()`; `PlayerController` applies it to a clamped `health` property (0–20 half-hearts, `get_health`/`set_health` bindings) that `healthbar.gd` renders; ascending doesn't accumulate and `reset()` (teleport/fly) clears everything
+- **Death & respawn**: `set_health` reaching 0 triggers `die()` — sets a `dead_` flag that freezes `_process`/`_input` (no movement, look, break/place, hotbar), forces the mouse cursor visible via `update_mouse_mode()`, and emits `died`; `respawn()` restores full health, teleports to the `_ready`-captured spawn point (clearing fall state), emits `respawned`. `death_screen.gd` shows a vanilla-style "You died!" + Respawn overlay on those signals; inventory is kept on death
 
 ### Code Quality & Hygiene
 - **Single source of truth**: `data/block_definitions.json` for all block properties

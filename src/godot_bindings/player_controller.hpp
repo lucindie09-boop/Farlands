@@ -80,6 +80,9 @@ public:
     // Health API (half-hearts, vanilla scale: 20 max)
     int get_health() const;
     void set_health(int value);
+    bool is_dead() const;
+    void die();
+    void respawn();
     
     void set_sensitivity(float s);
     float get_sensitivity() const;
@@ -109,6 +112,8 @@ private:
     int block_edit_counter_ = 0;
     static constexpr int MAX_HEALTH = 20;
     int health_ = MAX_HEALTH;
+    bool dead_ = false;
+    godot::Vector3 spawn_point_;
 };
 
 #endif // FARLANDS_PLAYER_CONTROLLER_NODE_HPP

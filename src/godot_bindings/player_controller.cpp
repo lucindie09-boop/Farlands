@@ -67,6 +67,12 @@ void PlayerController::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_fly_speed", "s"), &PlayerController::set_fly_speed);
     ClassDB::bind_method(D_METHOD("get_fly_speed"), &PlayerController::get_fly_speed);
 
+    ClassDB::bind_method(D_METHOD("get_health"), &PlayerController::get_health);
+    ClassDB::bind_method(D_METHOD("set_health", "value"), &PlayerController::set_health);
+
+    ADD_PROPERTY(PropertyInfo(Variant::INT, "health", PROPERTY_HINT_RANGE, "0,20,1"),
+                 "set_health", "get_health");
+
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "sensitivity", PROPERTY_HINT_RANGE, "0.001,0.01,0.001"),
                  "set_sensitivity", "get_sensitivity");
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "fly_speed", PROPERTY_HINT_RANGE, "1.0,50.0,0.5"),
@@ -77,6 +83,12 @@ void PlayerController::set_sensitivity(float s) { sensitivity_ = s; }
 float PlayerController::get_sensitivity() const { return sensitivity_; }
 void PlayerController::set_fly_speed(float s) { fly_speed_ = s; }
 float PlayerController::get_fly_speed() const { return fly_speed_; }
+
+int PlayerController::get_health() const { return health_; }
+
+void PlayerController::set_health(int value) {
+    health_ = CLAMP(value, 0, MAX_HEALTH);
+}
 
 void PlayerController::_ready() {
     g_engine_running = true;
@@ -158,6 +170,12 @@ void PlayerController::_process(double delta) {
     }
 
     sim_.accumulate_and_tick(delta, pi, *collision_resolver_, PlayerSim::STEP_HEIGHT, speed_multiplier);
+
+    // Apply any fall damage queued by landings during this frame's ticks.
+    int fall_damage = sim_.consume_pending_fall_damage();
+    if (fall_damage > 0) {
+        set_health(health_ - fall_damage);
+    }
 
     float partial = sim_.get_accumulator_fraction();
     set_global_position(sim_.get_render_position(partial));

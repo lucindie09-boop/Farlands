@@ -40,6 +40,9 @@ public:
     static constexpr float JUMP_VELOCITY = 0.42f;
     static constexpr float SPRINT_JUMP_BOOST = 0.2f;
     static constexpr float STEP_HEIGHT = 0.6f;
+    // Vanilla fall damage: landings further than 3 blocks hurt, 1 half-heart
+    // per extra block (floor(fall_distance - 3)).
+    static constexpr float SAFE_FALL_DISTANCE = 3.0f;
     static constexpr float WALK_MULT = 1.0f;
     static constexpr float SPRINT_MULT = 1.3f;
     static constexpr float SNEAK_MULT = 0.3f;
@@ -63,6 +66,9 @@ public:
     float get_eye_height() const;
     godot::Vector3 get_velocity() const { return velocity_; }
     godot::Vector3 get_position() const { return position_; }
+    float get_fall_distance() const { return fall_distance_; }
+    // Half-hearts queued by landings since the last call; consuming clears it.
+    int consume_pending_fall_damage();
 
     void queue_jump() { jump_queued_ = true; }
 
@@ -78,6 +84,8 @@ private:
     bool sprint_active_ = false;
     bool prev_sprint_active_ = false;
     float accumulator_ = 0.0f;
+    float fall_distance_ = 0.0f;
+    int pending_fall_damage_ = 0;
 };
 
 } // namespace VoxelEngine

@@ -9,6 +9,7 @@
 [ext_resource type="Script" uid="uid://g3lh0j0xb0jf" path="res://settings_menu.gd" id="8_settings"]
 [ext_resource type="Script" uid="uid://cg56m76b43332" path="res://crosshair.gd" id="9_crosshair"]
 [ext_resource type="Script" uid="uid://xebno2le0tgp" path="res://block_outline.gd" id="10_outline"]
+[ext_resource type="Script" path="res://healthbar.gd" id="11_healthbar"]
 
 [sub_resource type="Environment" id="Environment_uu6xs"]
 background_mode = 2
@@ -65,6 +66,16 @@ grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
 script = ExtResource("5_hotbar")
+
+[node name="Healthbar" type="Control" parent="HUD" unique_id=857493012]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("11_healthbar")
 
 [node name="Inventory" type="Control" parent="HUD" unique_id=516853706]
 layout_mode = 3

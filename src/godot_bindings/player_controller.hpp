@@ -76,6 +76,10 @@ public:
     void teleport_to(const godot::Vector3& pos);
     void set_fly_mode(bool on);
     bool get_fly_mode() const;
+
+    // Health API (half-hearts, vanilla scale: 20 max)
+    int get_health() const;
+    void set_health(int value);
     
     void set_sensitivity(float s);
     float get_sensitivity() const;
@@ -103,6 +107,8 @@ private:
     bool inventory_saved_ = false;
     float rendered_eye_height_ = 1.62f;
     int block_edit_counter_ = 0;
+    static constexpr int MAX_HEALTH = 20;
+    int health_ = MAX_HEALTH;
 };
 
 #endif // FUK_MINECRAFT_PLAYER_CONTROLLER_NODE_HPP

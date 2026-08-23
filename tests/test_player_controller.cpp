@@ -399,3 +399,69 @@ TEST_CASE("Player step-up disabled while airborne or jumping") {
     CHECK(pc_jump.get_velocity().y > 0.0f);  // Jump impulse applied
     CHECK(!pc_jump.is_on_floor());  // Airborne after jump
 }
+
+TEST_CASE("Fall damage: vanilla jump lands safely") {
+    ChunkMap cm;
+    fill_flat_floor(cm);
+    CollisionResolver cr(&cm);
+
+    PlayerSim pc;
+    pc.reset(Vector3(0.5f, 1.0f, 0.5f));
+
+    // Settle on floor
+    PlayerInput idle;
+    for (int i = 0; i < 5; ++i) {
+        pc.accumulate_and_tick(1.0 / 20.0, idle, cr);
+    }
+    CHECK(pc.is_on_floor());
+
+    // Vanilla jump apex is ~1.25 blocks — well under the 3-block safe fall
+    PlayerInput jump_input;
+    jump_input.jump_pressed = true;
+    pc.accumulate_and_tick(1.0 / 20.0, jump_input, cr);
+    for (int i = 0; i < 40 && !pc.is_on_floor(); ++i) {
+        pc.accumulate_and_tick(1.0 / 20.0, idle, cr);
+    }
+    CHECK(pc.is_on_floor());
+    CHECK(pc.consume_pending_fall_damage() == 0);
+}
+
+TEST_CASE("Fall damage: 7.5-block drop deals 4 half-hearts") {
+    ChunkMap cm;
+    fill_flat_floor(cm);
+    CollisionResolver cr(&cm);
+
+    // Floor top surface sits at y=1, so starting at y=8.5 is a 7.5-block fall
+    // -> floor(7.5 - 3) = 4 half-hearts. A non-integer height keeps the
+    // assertion away from a damage boundary where fp noise could flip the
+    // floor() (e.g. an exact 5-block fall accumulating as 4.9999996).
+    PlayerSim pc;
+    pc.reset(Vector3(0.5f, 8.5f, 0.5f));
+
+    PlayerInput idle;
+    for (int i = 0; i < 60 && !pc.is_on_floor(); ++i) {
+        pc.accumulate_and_tick(1.0 / 20.0, idle, cr);
+    }
+    CHECK(pc.is_on_floor());
+
+    CHECK(pc.get_fall_distance() == doctest::Approx(0.0f));
+    CHECK(pc.consume_pending_fall_damage() == 4);
+    CHECK(pc.consume_pending_fall_damage() == 0);  // consumed exactly once
+}
+
+TEST_CASE("Fall damage: teleport reset clears pending damage") {
+    ChunkMap cm;
+    fill_flat_floor(cm);
+    CollisionResolver cr(&cm);
+
+    PlayerSim pc;
+    pc.reset(Vector3(0.5f, 8.5f, 0.5f));
+    pc.reset(Vector3(0.5f, 1.0f, 0.5f));  // mid-fall teleport
+
+    PlayerInput idle;
+    for (int i = 0; i < 10; ++i) {
+        pc.accumulate_and_tick(1.0 / 20.0, idle, cr);
+    }
+    CHECK(pc.is_on_floor());
+    CHECK(pc.consume_pending_fall_damage() == 0);
+}

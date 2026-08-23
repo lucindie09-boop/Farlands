@@ -43,6 +43,7 @@ var _default_textures_enabled: bool = true
 var _default_compression_enabled: bool = false
 var _default_old_reset_buttons: bool = false
 var _default_fps_cap: int = 0
+var _default_msaa_3d: int = 0
 
 var _block_outline_defaults := {
 	"outline_enabled": true,
@@ -115,6 +116,7 @@ func _ready():
 	_default_mipmap_bias = chunk_manager.get_mipmap_bias()
 	_default_textures_enabled = chunk_manager.get_textures_enabled()
 	_default_compression_enabled = chunk_manager.get_compression_enabled()
+	_default_msaa_3d = get_viewport().msaa_3d
 	if crosshair_node:
 		for k in _crosshair_defaults:
 			_crosshair_defaults[k] = crosshair_node.get(k)
@@ -167,6 +169,7 @@ func _save_settings():
 	cfg.set_value("render", "textures_enabled", chunk_manager.get_textures_enabled())
 	cfg.set_value("render", "compression_enabled", chunk_manager.get_compression_enabled())
 	cfg.set_value("render", "fps_cap", _fps_cap)
+	cfg.set_value("render", "msaa_3d", get_viewport().msaa_3d)
 	cfg.set_value("gui", "old_reset_buttons", _old_reset_buttons)
 	cfg.save(SETTINGS_PATH)
 
@@ -207,6 +210,7 @@ func _load_settings():
 	var loaded_fps_cap = cfg.get_value("render", "fps_cap", _default_fps_cap)
 	_fps_cap = loaded_fps_cap if loaded_fps_cap != 60 else _default_fps_cap
 	Engine.max_fps = _fps_cap
+	get_viewport().msaa_3d = int(cfg.get_value("render", "msaa_3d", _default_msaa_3d))
 	_old_reset_buttons = cfg.get_value("gui", "old_reset_buttons", _default_old_reset_buttons)
 
 # Settings menu uses the global GUI scale with a 2/3 modifier so its default
@@ -946,6 +950,21 @@ func _build_render_page() -> Control:
 		godrays_btn.text = "On" if _default_godrays else "Off"
 		_schedule_save()
 
+	# Viewport.msaa_3d enum values (0=disabled, 1=2x, 2=4x, 3=8x) double as
+	# the label list indices, so the cycled index is the property value.
+	var msaa_btn := _make_button("", 180.0)
+	var msaa_names := ["Off", "2x", "4x", "8x"]
+	msaa_btn.text = msaa_names[get_viewport().msaa_3d]
+	msaa_btn.pressed.connect(func():
+		var next: int = (int(get_viewport().msaa_3d) + 1) % msaa_names.size()
+		get_viewport().msaa_3d = next
+		msaa_btn.text = msaa_names[next]
+		_schedule_save())
+	var msaa_reset := func():
+		get_viewport().msaa_3d = _default_msaa_3d
+		msaa_btn.text = msaa_names[_default_msaa_3d]
+		_schedule_save()
+
 	var mipmap_bias := _make_slider(chunk_manager.get_mipmap_bias(), -4.0, 4.0, 0.01,
 		func(v: float):
 			chunk_manager.set_mipmap_bias(v)
@@ -1019,6 +1038,7 @@ func _build_render_page() -> Control:
 		["Far LOD Detail Level", far_lod_detail, far_lod_detail_reset],
 		["Fog Mode", fog_mode_btn, fog_mode_reset],
 		["God Rays", godrays_btn, godrays_reset],
+		["MSAA 3D", msaa_btn, msaa_reset],
 		["Mipmaps", mipmaps_btn, mipmaps_reset],
 		["Mipmap Bias", mipmap_bias, mipmap_bias_reset],
 		["Textures", textures_btn, textures_reset],

@@ -51,10 +51,6 @@ uniform float sky_turbidity=0.35;
 // Water appearance
 uniform vec4 water_color=vec4(1.0,1.0,1.0,0.85);
 uniform float water_edge_fade=0.3;
-uniform float water_absorption=4.0;
-
-// Depth texture for Beer-Lambert absorption
-uniform sampler2D depth_tex : hint_depth_texture, filter_linear;
 
 varying vec3 world_position;
 varying vec3 world_normal;
@@ -316,14 +312,6 @@ void fragment(){
     float view_angle = abs(dot(normalize(view_direction), world_normal));
     float edge_fade = smoothstep(0.0, water_edge_fade, view_angle);
 
-    // Beer-Lambert depth absorption: deeper water = more opaque.
-    // Sample depth texture at current screen UV to get opaque geometry depth,
-    // then compute non-linear depth difference vs water surface (FRAGCOORD.z).
-    float scene_depth = texture(depth_tex, SCREEN_UV).r;
-    float water_depth = abs(scene_depth - FRAGCOORD.z);
-    float depth_factor = 1.0 - exp(-water_absorption * water_depth * 5.0);
-    depth_factor = mix(0.35, 1.0, depth_factor);
-
     ALBEDO = final_color * water_color.rgb;
-    ALPHA = water_color.a * depth_factor * edge_fade;
+    ALPHA = water_color.a * edge_fade;
 }

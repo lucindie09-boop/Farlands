@@ -52,7 +52,7 @@ A Minecraft-style voxel engine built in Godot 4 with a custom C++ GDExtension. P
 
 ## Rendering Notes
 
-- Opaque and water are separate mesh surfaces; water uses its own shader (`shaders/voxel_shader_water.gdshader`) with edge fade, tint, shimmer, sun glint, Beer-Lambert depth absorption, flowing texture animation, and separate blend-mix surface for translucency.
+- Opaque and water are separate mesh surfaces; water uses its own shader (`shaders/voxel_shader_water.gdshader`) with edge fade, tint, shimmer, sun glint, flowing texture animation, and separate blend-mix surface for translucency.
 - Blocks can carry an emissive texture (second `Texture2DArray`) for glow, driven by `data/block_definitions.json`.
 - The terrain shader (`shaders/voxel_shader.gdshader`) adds slope-triplanar cliff blending (>45° blends in rock faces), procedural wind sway on foliage, a twinkling night starfield, and a non-linear AO power curve (`pow(raw_ao, 1.35)`) that hides diagonal triangulation seams (soft curved AO). Sky turbidity provides Rayleigh/Mie haze effects.
 - Non-full block shapes (slabs, stairs, walls, poles) have proper ambient occlusion and UV texture mapping for their irregular geometry.

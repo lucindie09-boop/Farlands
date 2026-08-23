@@ -143,7 +143,7 @@ This document describes the current, stable architecture of the voxel engine. Fo
 
 ### Mesh Surfaces
 - Primary surface: opaque terrain with greedy meshing
-- Secondary surface: translucent water with edge fade, tint, shimmer, Beer-Lambert depth absorption, flowing texture animation, and separate blend-mix surface
+- Secondary surface: translucent water with edge fade, tint, shimmer, flowing texture animation, and separate blend-mix surface
 - Emissive textures: second `Texture2DArray` for per-face glow maps
 - Far regions: LOD-reduced chunk meshes merged into region instances (`far_regions`, `far_mesh_cache` in `mesh_manager.*`/`chunk_render_data.hpp`) so the coarse ring costs a handful of draw calls
 - Vertex compression: 24 bytes per vertex (-40% VRAM) with fixed-point positions

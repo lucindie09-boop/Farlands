@@ -210,7 +210,7 @@ func _load_settings():
 	var loaded_fps_cap = cfg.get_value("render", "fps_cap", _default_fps_cap)
 	_fps_cap = loaded_fps_cap if loaded_fps_cap != 60 else _default_fps_cap
 	Engine.max_fps = _fps_cap
-	get_viewport().msaa_3d = int(cfg.get_value("render", "msaa_3d", _default_msaa_3d))
+	get_viewport().msaa_3d = int(cfg.get_value("render", "msaa_3d", _default_msaa_3d)) as Viewport.MSAA
 	_old_reset_buttons = cfg.get_value("gui", "old_reset_buttons", _default_old_reset_buttons)
 
 # Settings menu uses the global GUI scale with a 2/3 modifier so its default
@@ -957,11 +957,11 @@ func _build_render_page() -> Control:
 	msaa_btn.text = msaa_names[get_viewport().msaa_3d]
 	msaa_btn.pressed.connect(func():
 		var next: int = (int(get_viewport().msaa_3d) + 1) % msaa_names.size()
-		get_viewport().msaa_3d = next
+		get_viewport().msaa_3d = next as Viewport.MSAA
 		msaa_btn.text = msaa_names[next]
 		_schedule_save())
 	var msaa_reset := func():
-		get_viewport().msaa_3d = _default_msaa_3d
+		get_viewport().msaa_3d = _default_msaa_3d as Viewport.MSAA
 		msaa_btn.text = msaa_names[_default_msaa_3d]
 		_schedule_save()
 

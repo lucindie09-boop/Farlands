@@ -357,9 +357,20 @@ bool MeshBuilder::should_cull_against_neighbor(const ChunkData& chunk, BlockID c
     const BlockType& current_type = registry.get_block(current);
     if (HasProperty(neighbor_type.properties, BlockProperty::Transparent)) {
         if (current != neighbor) {
-            if (!HasProperty(neighbor_type.properties, BlockProperty::Liquid) ||
-                !HasProperty(current_type.properties, BlockProperty::Liquid)) {
+            const bool both_liquid =
+                HasProperty(neighbor_type.properties, BlockProperty::Liquid) &&
+                HasProperty(current_type.properties, BlockProperty::Liquid);
+            if (!both_liquid) {
                 return false;
+            }
+            // Different-ID liquids stack throughout oceans (WATER bodies capped
+            // by SURFACE_WATER). Their lowered selection boxes make both non-full
+            // cubes whose AABBs never reach each other's planes, so the generic
+            // path below would emit an interior top face one block below every
+            // water surface. Vertical liquid-liquid interfaces are always
+            // interior; lateral ones keep the height-aware handling below.
+            if (direction == FaceDirection::Top || direction == FaceDirection::Bottom) {
+                return true;
             }
         }
     }

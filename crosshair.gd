@@ -49,6 +49,7 @@ func _draw_signature() -> int:
 	h ^= int(player_controller.is_chat_open()) * 2654435761
 	h ^= int(player_controller.is_inventory_open()) * 40503
 	h ^= int(player_controller.is_settings_open()) * 2246822519
+	h ^= int(player_controller.is_table_menu_open()) * 3266489917
 	h ^= (1 if cross_enabled else 0) * 104729
 	h ^= int(round(cross_thickness * 8)) * 4051
 	h ^= int(round(cross_length * 8)) * 521
@@ -82,7 +83,8 @@ func _sync_material():
 		material = null
 
 func _draw():
-	if player_controller.is_chat_open() or player_controller.is_inventory_open() or player_controller.is_settings_open():
+	if player_controller.is_chat_open() or player_controller.is_inventory_open() \
+			or player_controller.is_settings_open() or player_controller.is_table_menu_open():
 		return
 	var cx := int(round(size.x / 2.0))
 	var cy := int(round(size.y / 2.0))

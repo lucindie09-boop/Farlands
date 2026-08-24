@@ -49,10 +49,10 @@ public:
     void set_inventory_slot(int slot, int block_id, int count);
     bool give_block(int block_id, int count);
     void clear_inventory();
-    // Crafting API: grid is 2x2 row-major block ids (0 = empty) with parallel
-    // counts. match_recipe previews the result but only reports a match when
-    // the grid actually holds every ingredient; craft_recipe additionally
-    // returns the deducted grid plus the crafted output.
+    // Crafting API: grid is 2x2 or 3x3 row-major block ids (0 = empty) with
+    // parallel counts. match_recipe previews the result but only reports a
+    // match when the grid actually holds every ingredient; craft_recipe
+    // additionally returns the deducted grid plus the crafted output.
     godot::Dictionary match_recipe(const godot::PackedInt32Array& grid_ids,
                                    const godot::PackedInt32Array& grid_counts);
     godot::Dictionary craft_recipe(const godot::PackedInt32Array& grid_ids,
@@ -64,7 +64,11 @@ public:
     godot::String resolve_texture_path(const godot::String& texture_name) const;
     void set_inventory_open(bool open);
     bool is_inventory_open() const;
-    
+
+    // Crafting table 3x3 menu API
+    void set_table_menu_open(bool open);
+    bool is_table_menu_open() const;
+
     // Chat API
     void set_chat_open(bool open);
     bool is_chat_open() const;
@@ -105,6 +109,7 @@ private:
     float fly_speed_ = 10.0f;
     bool fly_mode_ = false;
     bool inventory_open_ = false;
+    bool table_menu_open_ = false;
     bool chat_open_ = false;
     bool settings_open_ = false;
     bool inventory_saved_ = false;

@@ -54,6 +54,7 @@ shared_sources = [
     "src/core/block_types.cpp",
     "src/core/inventory.cpp",
     "src/core/crafting.cpp",
+    "src/core/item_registry.cpp",
     "src/core/edit_map.cpp",
     "src/mesh/mesh_builder.cpp",
     "src/mesh/mesh_builder_faces.cpp",

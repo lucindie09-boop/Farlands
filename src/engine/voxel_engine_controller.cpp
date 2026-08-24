@@ -15,6 +15,7 @@
 #include "worldgen/chunk_generator.hpp"
 #include "worldgen/biome_config.hpp"
 #include "worldgen/vegetation_config.hpp"
+#include "core/item_registry.hpp"
 #include "core/chunk_coords.hpp"
 #include <mutex>
 
@@ -318,6 +319,10 @@ void VoxelEngineController::load_world_configs() {
     VegetationConfig vegetation;
     vegetation.load("res://data/vegetation.json");
     world_updater.set_vegetation_config(vegetation);
+
+    if (!ItemRegistry::get_instance().load_from_json("res://data/items.json")) {
+        WARN_PRINT("items.json missing or unparseable; item recipes will not resolve");
+    }
 
     recipe_book.clear();
     if (!recipe_book.load_from_json("res://data/recipes.json")) {

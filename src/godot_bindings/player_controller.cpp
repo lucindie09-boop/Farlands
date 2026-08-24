@@ -1,6 +1,7 @@
 #include "godot_bindings/player_controller.hpp"
 #include "godot_bindings/chunk_manager.hpp"
 #include "engine/collision_resolver.hpp"
+#include "core/item_registry.hpp"
 #include "world/chunk_world.hpp"
 #include "engine/voxel_engine_controller.hpp"
 #include "render/texture_array_generator.hpp"
@@ -371,7 +372,11 @@ void PlayerController::place_block() {
     // Get the block type from inventory
     BlockID block_to_place = inventory_.get_selected_block();
     if (block_to_place == 0) return; // No block selected
-    
+
+    // Items (sticks, tools, ...) are never placeable — their ids live in a
+    // separate space above the block registry and must stay out of voxels.
+    if (VoxelEngine::ItemRegistry::get_instance().is_item(block_to_place)) return;
+
     // Check if we have enough blocks
     if (inventory_.get_selected_count() <= 0) return;
 
@@ -598,8 +603,9 @@ Dictionary PlayerController::match_recipe(const PackedInt32Array& grid_ids,
         const int v = grid_ids[i];
         // A cell drained to 0 by a previous craft can keep its stale id on
         // the GUI side; treat it as empty so matching never sees phantom
-        // ingredients.
-        cells[i] = (v > 0 && v < 256 && c > 0) ? static_cast<BlockID>(v) : BlockIDs::AIR;
+        // ingredients. Ids may address blocks or items (>=1024 id space).
+        cells[i] = (v > 0 && v < VoxelEngine::ItemRegistry::FIRST_ITEM_ID + 256 && c > 0)
+                       ? static_cast<BlockID>(v) : BlockIDs::AIR;
         counts[i] = c;
     }
     const CraftingRecipe* recipe = controller->get_recipe_book().match(cells, dim);
@@ -646,8 +652,10 @@ Dictionary PlayerController::craft_recipe(const PackedInt32Array& grid_ids,
     for (int i = 0; i < cell_count; ++i) {
         const int c = grid_counts[i] > 0 ? grid_counts[i] : 0;
         const int v = grid_ids[i];
-        // Same stale-drained-cell guard as match_recipe.
-        cells[i] = (v > 0 && v < 256 && c > 0) ? static_cast<BlockID>(v) : BlockIDs::AIR;
+        // Same stale-drained-cell guard as match_recipe; ids may address
+        // blocks or items (>=1024 id space).
+        cells[i] = (v > 0 && v < VoxelEngine::ItemRegistry::FIRST_ITEM_ID + 256 && c > 0)
+                       ? static_cast<BlockID>(v) : BlockIDs::AIR;
         counts[i] = c;
     }
     const CraftingRecipe* recipe = controller->get_recipe_book().match(cells, dim);

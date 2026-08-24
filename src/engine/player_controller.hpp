@@ -61,6 +61,9 @@ public:
     float get_accumulator_fraction() const;
     godot::Vector3 get_render_position(float partial_tick) const;
     godot::Vector3 get_camera_position(float partial_tick) const;
+    // Freezes the interpolated view exactly on position_ — used on death, so
+    // the camera lands where the body did instead of mid-lerp above it.
+    void snap_render_position() { prev_position_ = position_; }
     MoveState get_state() const { return state_; }
     bool is_on_floor() const { return on_floor_; }
     float get_eye_height() const;

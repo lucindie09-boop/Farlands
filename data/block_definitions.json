@@ -420,5 +420,35 @@
     "light": [0, 0, 0],
     "top_face_offset": 0.0,
     "slipperiness": 0.6
+  },
+  {
+    "name": "coal_ore",
+    "properties": ["Solid", "Opaque"],
+    "visible_faces": [true, true, true, true, true, true],
+    "textures": ["coal_ore", "coal_ore", "coal_ore", "coal_ore", "coal_ore", "coal_ore"],
+    "emissive_textures": ["", "", "", "", "", ""],
+    "light": [0, 0, 0],
+    "top_face_offset": 0.0,
+    "slipperiness": 0.6
+  },
+  {
+    "name": "gold_ore",
+    "properties": ["Solid", "Opaque"],
+    "visible_faces": [true, true, true, true, true, true],
+    "textures": ["gold_ore", "gold_ore", "gold_ore", "gold_ore", "gold_ore", "gold_ore"],
+    "emissive_textures": ["", "", "", "", "", ""],
+    "light": [0, 0, 0],
+    "top_face_offset": 0.0,
+    "slipperiness": 0.6
+  },
+  {
+    "name": "ice",
+    "properties": ["Solid", "Opaque"],
+    "visible_faces": [true, true, true, true, true, true],
+    "textures": ["ice", "ice", "ice", "ice", "ice", "ice"],
+    "emissive_textures": ["", "", "", "", "", ""],
+    "light": [0, 0, 0],
+    "top_face_offset": 0.0,
+    "slipperiness": 0.98
   }
 ]

@@ -104,6 +104,9 @@ void PlayerController::set_health(int value) {
 void PlayerController::die() {
     if (dead_) return;
     dead_ = true;
+    // The sim stops ticking when dead, so the prev->curr interpolation would
+    // freeze mid-lerp short of the landing spot. Snap it onto position_.
+    sim_.snap_render_position();
     update_mouse_mode();
     emit_signal("died");
 }

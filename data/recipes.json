@@ -29,6 +29,18 @@
       "pattern": ["P  ", "PP ", "PPP"],
       "key": { "P": "oak_planks" },
       "result": { "block": "oak_stairs", "count": 4 }
+    },
+    {
+      "type": "shaped",
+      "pattern": ["P", "P"],
+      "key": { "P": "oak_planks" },
+      "result": { "block": "stick", "count": 4 }
+    },
+    {
+      "type": "shaped",
+      "pattern": ["S", "S"],
+      "key": { "S": "stick" },
+      "result": { "block": "oak_pole", "count": 1 }
     }
   ]
 }

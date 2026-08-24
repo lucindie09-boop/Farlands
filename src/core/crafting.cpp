@@ -3,6 +3,7 @@
 #include <algorithm>
 
 #ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
+#include "core/item_registry.hpp"
 #include "core/json_config.hpp"
 #include <godot_cpp/core/error_macros.hpp>
 #include <godot_cpp/variant/array.hpp>
@@ -128,8 +129,13 @@ bool craft_item(const CraftingRecipe& recipe, Inventory& inv) {
 namespace {
 
 BlockID resolve_name(const godot::String& name) {
-    return BlockRegistry::get_instance().get_block_id_by_name(
-        name.utf8().get_data());
+    const char* utf8 = name.utf8().get_data();
+    // Items (sticks, tools, ...) share the recipe namespace with blocks.
+    BlockID id = BlockRegistry::get_instance().get_block_id_by_name(utf8);
+    if (id == BlockIDs::AIR) {
+        id = ItemRegistry::get_instance().get_item_id_by_name(utf8);
+    }
+    return id;
 }
 
 } // namespace

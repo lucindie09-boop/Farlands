@@ -11,6 +11,24 @@
       "pattern": ["PP", "PP"],
       "key": { "P": "oak_planks" },
       "result": { "block": "crafting_table", "count": 1 }
+    },
+    {
+      "type": "shaped",
+      "pattern": ["PPP"],
+      "key": { "P": "oak_planks" },
+      "result": { "block": "oak_slab", "count": 6 }
+    },
+    {
+      "type": "shaped",
+      "pattern": ["P", "P", "P"],
+      "key": { "P": "oak_planks" },
+      "result": { "block": "oak_wall", "count": 6 }
+    },
+    {
+      "type": "shaped",
+      "pattern": ["P  ", "PP ", "PPP"],
+      "key": { "P": "oak_planks" },
+      "result": { "block": "oak_stairs", "count": 4 }
     }
   ]
 }

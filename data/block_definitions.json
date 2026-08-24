@@ -450,5 +450,15 @@
     "light": [0, 0, 0],
     "top_face_offset": 0.0,
     "slipperiness": 0.98
+  },
+  {
+    "name": "crafting_table",
+    "properties": ["Solid", "Opaque"],
+    "visible_faces": [true, true, true, true, true, true],
+    "textures": ["crafting_table_side", "crafting_table_side", "crafting_table_top", "oak_planks", "crafting_table_side", "crafting_table_side"],
+    "emissive_textures": ["", "", "", "", "", ""],
+    "light": [0, 0, 0],
+    "top_face_offset": 0.0,
+    "slipperiness": 0.6
   }
 ]

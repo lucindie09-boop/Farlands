@@ -5,6 +5,12 @@
       "type": "shapeless",
       "ingredients": ["oak_log"],
       "result": { "block": "oak_planks", "count": 4 }
+    },
+    {
+      "type": "shaped",
+      "pattern": ["PP", "PP"],
+      "key": { "P": "oak_planks" },
+      "result": { "block": "crafting_table", "count": 1 }
     }
   ]
 }

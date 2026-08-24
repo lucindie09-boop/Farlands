@@ -53,7 +53,9 @@ void PlayerController::_bind_methods() {
     ClassDB::bind_method(D_METHOD("resolve_texture_path", "texture_name"), &PlayerController::resolve_texture_path);
     ClassDB::bind_method(D_METHOD("set_inventory_open", "open"), &PlayerController::set_inventory_open);
     ClassDB::bind_method(D_METHOD("is_inventory_open"), &PlayerController::is_inventory_open);
-    
+    ClassDB::bind_method(D_METHOD("set_table_menu_open", "open"), &PlayerController::set_table_menu_open);
+    ClassDB::bind_method(D_METHOD("is_table_menu_open"), &PlayerController::is_table_menu_open);
+
     ClassDB::bind_method(D_METHOD("set_chat_open", "open"), &PlayerController::set_chat_open);
     ClassDB::bind_method(D_METHOD("is_chat_open"), &PlayerController::is_chat_open);
     ClassDB::bind_method(D_METHOD("set_settings_open", "open"), &PlayerController::set_settings_open);
@@ -73,6 +75,7 @@ void PlayerController::_bind_methods() {
     ClassDB::bind_method(D_METHOD("die"), &PlayerController::die);
     ClassDB::bind_method(D_METHOD("respawn"), &PlayerController::respawn);
 
+    ADD_SIGNAL(MethodInfo("crafting_table_used"));
     ADD_SIGNAL(MethodInfo("died"));
     ADD_SIGNAL(MethodInfo("respawned"));
 
@@ -160,8 +163,8 @@ void PlayerController::_process(double delta) {
     if (fly_mode_) {
         Input* input = Input::get_singleton();
         Vector3 input_dir;
-        // Suppress movement while a UI overlay (inventory/chat/settings) is open
-        if (input && !inventory_open_ && !chat_open_ && !settings_open_) {
+        // Suppress movement while a UI overlay (inventory/table/chat/settings) is open
+        if (input && !inventory_open_ && !table_menu_open_ && !chat_open_ && !settings_open_) {
             Basis basis = get_basis();
             if (input->is_action_pressed("move_forward")) input_dir -= basis.get_column(2);
             if (input->is_action_pressed("move_back"))    input_dir += basis.get_column(2);
@@ -182,8 +185,8 @@ void PlayerController::_process(double delta) {
 
     PlayerInput pi;
     Input* input = Input::get_singleton();
-    // Suppress movement while a UI overlay (inventory/chat/settings) is open
-    if (input && !inventory_open_ && !chat_open_ && !settings_open_) {
+    // Suppress movement while a UI overlay (inventory/table/chat/settings) is open
+    if (input && !inventory_open_ && !table_menu_open_ && !chat_open_ && !settings_open_) {
         Basis basis = get_basis();
         pi.move_forward_held = input->is_action_pressed("move_forward");
         if (input->is_action_pressed("move_forward")) pi.wish_direction -= basis.get_column(2);
@@ -227,8 +230,8 @@ void PlayerController::_input(const Ref<InputEvent>& p_event) {
     // Dead: freeze everything (look/move/break/place/hotbar) until respawn.
     if (dead_) return;
 
-    // Skip mouse mode switching when inventory, chat or settings is open
-    if (inventory_open_ || chat_open_ || settings_open_) {
+    // Skip mouse mode switching when inventory, table menu, chat or settings is open
+    if (inventory_open_ || table_menu_open_ || chat_open_ || settings_open_) {
         return;
     }
 
@@ -349,6 +352,21 @@ void PlayerController::place_block() {
     if (!cm_node) return;
     ChunkManager* cm = Object::cast_to<ChunkManager>(cm_node);
     if (!cm) return;
+
+    // Vanilla container behavior: right-clicking a crafting table uses it
+    // (opens its 3x3 menu via the crafting_table_used signal) instead of
+    // placing a block against it.
+    Dictionary hit = cm->raycast_from_camera(10.0);
+    if (hit.get("success", false)) {
+        Vector3 hit_pos = hit["position"];
+        const int target = cm->get_block(static_cast<int>(std::floor(hit_pos.x)),
+                                         static_cast<int>(std::floor(hit_pos.y)),
+                                         static_cast<int>(std::floor(hit_pos.z)));
+        if (target == static_cast<int>(VoxelEngine::BlockRegistry::get_instance().get_block_id_by_name("crafting_table"))) {
+            emit_signal("crafting_table_used");
+            return;
+        }
+    }
 
     // Get the block type from inventory
     BlockID block_to_place = inventory_.get_selected_block();
@@ -559,21 +577,32 @@ Dictionary PlayerController::match_recipe(const PackedInt32Array& grid_ids,
                                           const PackedInt32Array& grid_counts) {
     Dictionary out;
     out["ok"] = false;
-    if (!chunk_manager_ || grid_ids.size() != 4 || grid_counts.size() != 4) {
+    const int cell_count = grid_ids.size();
+    if (!chunk_manager_ || cell_count != grid_counts.size()) {
         return out;
+    }
+    int dim;
+    switch (cell_count) {
+        case 4:  dim = 2; break;   // inventory menu grid
+        case 9:  dim = 3; break;   // crafting table grid
+        default: return out;
     }
     VoxelEngineController* controller = chunk_manager_->get_controller();
     if (!controller) {
         return out;
     }
-    BlockID cells[4];
-    int counts[4];
-    for (int i = 0; i < 4; ++i) {
+    BlockID cells[9];
+    int counts[9];
+    for (int i = 0; i < cell_count; ++i) {
+        const int c = grid_counts[i] > 0 ? grid_counts[i] : 0;
         const int v = grid_ids[i];
-        cells[i] = (v > 0 && v < 256) ? static_cast<BlockID>(v) : BlockIDs::AIR;
-        counts[i] = grid_counts[i] > 0 ? grid_counts[i] : 0;
+        // A cell drained to 0 by a previous craft can keep its stale id on
+        // the GUI side; treat it as empty so matching never sees phantom
+        // ingredients.
+        cells[i] = (v > 0 && v < 256 && c > 0) ? static_cast<BlockID>(v) : BlockIDs::AIR;
+        counts[i] = c;
     }
-    const CraftingRecipe* recipe = controller->get_recipe_book().match(cells, 2);
+    const CraftingRecipe* recipe = controller->get_recipe_book().match(cells, dim);
     if (!recipe) {
         return out;
     }
@@ -581,7 +610,7 @@ Dictionary PlayerController::match_recipe(const PackedInt32Array& grid_ids,
     // after craft_recipe consumed the last ingredient (the ghost-icon bug).
     for (const InventorySlot& need : recipe->ingredient_totals) {
         int available = 0;
-        for (int i = 0; i < 4; ++i) {
+        for (int i = 0; i < cell_count; ++i) {
             if (cells[i] == need.block_id) available += counts[i];
         }
         if (available < need.count) {
@@ -598,21 +627,30 @@ Dictionary PlayerController::craft_recipe(const PackedInt32Array& grid_ids,
                                           const PackedInt32Array& grid_counts) {
     Dictionary out;
     out["ok"] = false;
-    if (!chunk_manager_ || grid_ids.size() != 4 || grid_counts.size() != 4) {
+    const int cell_count = grid_ids.size();
+    if (!chunk_manager_ || cell_count != grid_counts.size()) {
         return out;
+    }
+    int dim;
+    switch (cell_count) {
+        case 4:  dim = 2; break;
+        case 9:  dim = 3; break;
+        default: return out;
     }
     VoxelEngineController* controller = chunk_manager_->get_controller();
     if (!controller) {
         return out;
     }
-    BlockID cells[4];
-    int counts[4];
-    for (int i = 0; i < 4; ++i) {
+    BlockID cells[9];
+    int counts[9];
+    for (int i = 0; i < cell_count; ++i) {
+        const int c = grid_counts[i] > 0 ? grid_counts[i] : 0;
         const int v = grid_ids[i];
-        cells[i] = (v > 0 && v < 256) ? static_cast<BlockID>(v) : BlockIDs::AIR;
-        counts[i] = grid_counts[i] > 0 ? grid_counts[i] : 0;
+        // Same stale-drained-cell guard as match_recipe.
+        cells[i] = (v > 0 && v < 256 && c > 0) ? static_cast<BlockID>(v) : BlockIDs::AIR;
+        counts[i] = c;
     }
-    const CraftingRecipe* recipe = controller->get_recipe_book().match(cells, 2);
+    const CraftingRecipe* recipe = controller->get_recipe_book().match(cells, dim);
     if (!recipe) {
         return out;
     }
@@ -622,7 +660,7 @@ Dictionary PlayerController::craft_recipe(const PackedInt32Array& grid_ids,
     // deductions never interact).
     for (const InventorySlot& need : recipe->ingredient_totals) {
         int available = 0;
-        for (int i = 0; i < 4; ++i) {
+        for (int i = 0; i < cell_count; ++i) {
             if (cells[i] == need.block_id) available += counts[i];
         }
         if (available < need.count) {
@@ -632,7 +670,7 @@ Dictionary PlayerController::craft_recipe(const PackedInt32Array& grid_ids,
     PackedInt32Array new_counts = grid_counts;
     for (const InventorySlot& need : recipe->ingredient_totals) {
         int remaining = need.count;
-        for (int i = 0; i < 4 && remaining > 0; ++i) {
+        for (int i = 0; i < cell_count && remaining > 0; ++i) {
             if (cells[i] != need.block_id) continue;
             const int take = counts[i] < remaining ? counts[i] : remaining;
             counts[i] -= take;
@@ -690,6 +728,15 @@ bool PlayerController::is_inventory_open() const {
     return inventory_open_;
 }
 
+void PlayerController::set_table_menu_open(bool open) {
+    table_menu_open_ = open;
+    update_mouse_mode();
+}
+
+bool PlayerController::is_table_menu_open() const {
+    return table_menu_open_;
+}
+
 void PlayerController::set_chat_open(bool open) {
     chat_open_ = open;
     update_mouse_mode();
@@ -711,7 +758,7 @@ bool PlayerController::is_settings_open() const {
 void PlayerController::update_mouse_mode() {
     Input* input = Input::get_singleton();
     if (!input) return;
-    if (inventory_open_ || chat_open_ || settings_open_ || dead_) {
+    if (inventory_open_ || table_menu_open_ || chat_open_ || settings_open_ || dead_) {
         input->set_mouse_mode(Input::MOUSE_MODE_VISIBLE);
     } else {
         input->set_mouse_mode(Input::MOUSE_MODE_CAPTURED);

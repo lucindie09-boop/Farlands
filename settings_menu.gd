@@ -1206,7 +1206,8 @@ func _input(event):
 			_:
 				_show_page("settings")
 		get_viewport().set_input_as_handled()
-	elif not player_controller.is_chat_open() and not player_controller.is_inventory_open():
+	elif not player_controller.is_chat_open() and not player_controller.is_inventory_open() \
+			and not player_controller.is_table_menu_open():
 		_open()
 		get_viewport().set_input_as_handled()
 

@@ -11,6 +11,7 @@
 [ext_resource type="Script" uid="uid://xebno2le0tgp" path="res://block_outline.gd" id="10_outline"]
 [ext_resource type="Script" path="res://healthbar.gd" id="11_healthbar"]
 [ext_resource type="Script" path="res://death_screen.gd" id="12_deathscreen"]
+[ext_resource type="Script" path="res://crafting_table_menu.gd" id="13_tablemenu"]
 
 [sub_resource type="Environment" id="Environment_uu6xs"]
 background_mode = 2
@@ -86,6 +87,15 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("6_inventory")
+
+[node name="CraftingTableMenu" type="Control" parent="HUD"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("13_tablemenu")
 
 [node name="Chat" type="Control" parent="HUD" unique_id=135246790]
 layout_mode = 3

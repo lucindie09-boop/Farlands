@@ -149,6 +149,30 @@ void MeshManager::reprioritize(int32_t player_cx, int32_t player_cy, int32_t pla
         it = active_full_detail_chunks_.erase(it);
     }
 
+    // Mid detail → full detail upgrades (e.g. after teleport/respawn).
+    // Without this, chunks built at mid detail that fall inside the full
+    // range are never upgraded because the shell scans only cover ±1 of
+    // each transition distance.
+    for (auto it = active_mid_detail_chunks_.begin(); it != active_mid_detail_chunks_.end() && queued < kMaxLodRemeshPerFrame;) {
+        uint64_t chunk_key = *it;
+        int32_t cx, cy, cz;
+        ChunkMap::decode_chunk_key(chunk_key, cx, cy, cz);
+        float target = compute_chunk_detail_level(cx, cy, cz);
+        if (target < 1.0f) {
+            ++it;
+            continue;
+        }
+        ChunkRenderData* render_data = chunk_map->get_chunk_render_data(cx, cy, cz);
+        if (render_data && !render_data->is_mesh_dirty) {
+            render_data->is_mesh_dirty = true;
+            render_data->mesh_version++;
+            mark_far_region_dirty_for_chunk(cx, cy, cz);
+            queue_dirty_chunk(cx, cy, cz);
+            ++queued;
+        }
+        it = active_mid_detail_chunks_.erase(it);
+    }
+
     // Mid detail → far detail downgrades.
     for (auto it = active_mid_detail_chunks_.begin(); it != active_mid_detail_chunks_.end() && queued < kMaxLodRemeshPerFrame;) {
         uint64_t chunk_key = *it;

@@ -204,6 +204,9 @@ void MeshBuilder::emit_faces(const ChunkData& chunk, const BlockRegistry& regist
         }
         // Non-full blocks can't participate in greedy merging (the greedy passes
         // skip them), so emit their faces separately via per-AABB geometry.
+        // At LOD stride > 1 all blocks are treated as full cubes by the greedy
+        // passes, so this pass is unnecessary.
+        if (stride_xz_ <= 1) {
         for (int32_t s = 0; s < CHUNK_SECTIONS; s++) {
             if (chunk.is_section_all_air(s)) continue;
             int32_t y0 = s * SECTION_HEIGHT;
@@ -242,6 +245,7 @@ void MeshBuilder::emit_faces(const ChunkData& chunk, const BlockRegistry& regist
                 }
             }
         }
+        } // stride_xz_ <= 1
     } else {
         for (int32_t s = 0; s < CHUNK_SECTIONS; s++) {
             if (chunk.is_section_all_air(s)) continue;
@@ -262,7 +266,8 @@ void MeshBuilder::emit_faces(const ChunkData& chunk, const BlockRegistry& regist
                         const BlockType& bt = registry.get_block_fast(block_id);
 
                         // Non-full blocks: emit faces per selection AABB
-                        if (!bt.is_full_cube()) {
+                        // (at LOD stride > 1, treat them as full cubes instead)
+                        if (stride_xz_ <= 1 && !bt.is_full_cube()) {
                             for (const auto& box : bt.selection_boxes) {
                                 for (int i = 0; i < 6; i++) {
                                     FaceDirection dir = kAllDirections[i];

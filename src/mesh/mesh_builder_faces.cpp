@@ -326,10 +326,8 @@ light_keys[0] = light_keys[1] = light_keys[2] = light_keys[3] = light_key;
     apply_special_block_offsets(corners, block_id, direction);
 
     if (side_lowered_offset > 0.0f) {
-        float top_y = corners[2][1];
-        float new_bottom_y = top_y - side_lowered_offset;
-        corners[0][1] = new_bottom_y;
-        corners[1][1] = new_bottom_y;
+        corners[0][1] -= side_lowered_offset;
+        corners[1][1] -= side_lowered_offset;
     }
 
     for (int i = 0; i < 4; i++) {
@@ -344,7 +342,7 @@ light_keys[0] = light_keys[1] = light_keys[2] = light_keys[3] = light_key;
         v.u = kFaceUVs[i][0];
         v.v = kFaceUVs[i][1];
         if (side_lowered_offset > 0.0f && i < 2 && surface_rotation == 0) {
-            v.v = side_lowered_offset;
+            v.v = 1.0f + side_lowered_offset;
         }
         if (surface_rotation != 0) {
             apply_uv_rotation(v.u, v.v, surface_rotation);

@@ -398,6 +398,11 @@ bool MeshBuilder::should_cull_against_neighbor(const ChunkData& chunk, BlockID c
         float full_max[3] = {1.0f, 1.0f, 1.0f};
         return should_cull_aabb_face(full_min, full_max, direction, neighbor_type);
     }
+    // Lowered blocks (top_face_offset > 0) are full-cube but their visual
+    // top is below the cell boundary, so they don't cover the face above.
+    if (neighbor_type.top_face_offset > 0.0f && direction == FaceDirection::Bottom) {
+        return false;
+    }
     return true;
 }
 

@@ -170,6 +170,17 @@ public:
         return count;
     }
 
+    // Data-driven slab family: each family groups a bottom half, top half, and
+    // merged full block so the placement code can orient and merge generically
+    // without hardcoding IDs.  Built from "slab_family" fields in the JSON.
+    struct SlabFamily {
+        BlockID bottom = 0;
+        BlockID top    = 0;
+        BlockID full   = 0;
+    };
+    // nullptr when the id does not belong to any slab family.
+    [[nodiscard]] const SlabFamily* get_slab_family(BlockID id) const noexcept;
+
     // Resolves a block name to its registered id (case-sensitive, matches
     // block_definitions.json "name" fields). Returns AIR (0) when unknown.
     [[nodiscard]] BlockID get_block_id_by_name(const char* name) const noexcept;
@@ -184,6 +195,12 @@ private:
     std::array<BlockType, MAX_BLOCK_TYPES> block_types{};
     size_t count = 0;
     std::unordered_map<std::string, BlockShape> shapes{};
+
+    // Slab family lookup: maps block id → 1-indexed family (0 = not in any).
+    std::vector<SlabFamily> families_;
+    std::vector<std::string> family_names_;
+    std::unordered_map<std::string, size_t> family_index_;
+    std::array<BlockID, MAX_BLOCK_TYPES> slab_family_map_{};
 
     // Pre-constructed empty block for out-of-bounds queries.
     static inline BlockType empty_block = []() {
@@ -246,10 +263,8 @@ namespace BlockIDs {
     constexpr BlockID ICE            = 41;
     constexpr BlockID CRAFTING_TABLE = 42;
     constexpr BlockID OAK_STUMP      = 43;
-
-    constexpr bool is_oak_slab(BlockID id) {
-        return id == OAK_SLAB || id == OAK_SLAB_TOP;
-    }
+    constexpr BlockID OAK_STUMP_TOP   = 44;
+    constexpr BlockID OAK_STUMP_DOUBLE = 45;
 
     constexpr bool is_oak_stairs(BlockID id) {
         return (id >= OAK_STAIRS_N && id <= OAK_STAIRS_W_UP) && id != OAK_FENCE;

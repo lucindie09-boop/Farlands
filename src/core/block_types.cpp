@@ -286,9 +286,47 @@ bool BlockRegistry::load_from_json(const godot::String& json_path) noexcept {
         register_block(bt);
     }
 
+    // Build slab families from "slab_family" fields.  Each family name
+    // collects three ids (bottom/top/full) so the placement code can work
+    // generically without hardcoding any block ids.
+    for (int i = 0; i < static_cast<int>(blocks_arr.size()); ++i) {
+        godot::Dictionary d = blocks_arr[i];
+        if (!d.has("slab_family")) continue;
+        godot::String fam_str = d["slab_family"];
+        std::string fam_name = fam_str.utf8().get_data();
+        size_t fi;
+        auto it = family_index_.find(fam_name);
+        if (it == family_index_.end()) {
+            fi = families_.size();
+            families_.emplace_back();
+            family_names_.push_back(fam_name);
+            family_index_[fam_name] = fi;
+        } else {
+            fi = it->second;
+        }
+        SlabFamily& fam = families_[fi];
+        const BlockID id = static_cast<BlockID>(i);
+        std::string shape;
+        if (d.has("shape")) {
+            godot::String shape_str = d["shape"];
+            shape = shape_str.utf8().get_data();
+        }
+        if (shape == "slab/bottom")      fam.bottom = id;
+        else if (shape == "slab/top")     fam.top    = id;
+        else                              fam.full   = id;
+        slab_family_map_[id] = static_cast<BlockID>(fi + 1);
+    }
+
     return true;
 }
 #endif
+
+const BlockRegistry::SlabFamily* BlockRegistry::get_slab_family(BlockID id) const noexcept {
+    if (id >= MAX_BLOCK_TYPES) return nullptr;
+    const BlockID fi = slab_family_map_[id];
+    if (fi == 0) return nullptr;
+    return &families_[static_cast<size_t>(fi - 1)];
+}
 
 void BlockRegistry::initialize_default_blocks() noexcept {
     // Idempotent: repeated calls (e.g. once per test case) must not append

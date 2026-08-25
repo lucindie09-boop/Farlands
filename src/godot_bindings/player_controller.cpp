@@ -324,10 +324,11 @@ void PlayerController::break_block() {
         // Remap block variants to base IDs for inventory consistency
         BlockID collect_id = static_cast<BlockID>(block_type);
         int collect_count = 1;
-        if (collect_id == BlockIDs::OAK_SLAB_TOP || collect_id == BlockIDs::OAK_DOUBLE_SLAB) {
-            if (collect_id == BlockIDs::OAK_DOUBLE_SLAB)
+        if (const auto* slab_fam = VoxelEngine::BlockRegistry::get_instance().get_slab_family(collect_id)) {
+            // Halves drop as the bottom variant; a merged full block drops both halves
+            if (collect_id == slab_fam->full)
                 collect_count = 2;
-            collect_id = BlockIDs::OAK_SLAB;
+            collect_id = slab_fam->bottom;
         } else if (BlockIDs::is_oak_stairs(collect_id)) {
             collect_id = BlockIDs::OAK_STAIRS_N;
         } else if (BlockIDs::is_oak_wall(collect_id)) {
@@ -387,43 +388,45 @@ void PlayerController::place_block() {
         int by = static_cast<int>(std::floor(place_pos.y));
         int bz = static_cast<int>(std::floor(place_pos.z));
 
-        // Slab auto-detection: merge halves into double slab, or pick top/bottom orientation
+        // Slab auto-detection: merge halves into double slab, or pick top/bottom orientation.
+        // Works per family (plank slabs, log stumps) so the two never cross-merge.
         BlockID final_block = block_to_place;
-        if (BlockIDs::is_oak_slab(block_to_place)) {
+        if (const auto* slab_fam = VoxelEngine::BlockRegistry::get_instance().get_slab_family(block_to_place);
+                slab_fam && block_to_place != slab_fam->full) {
             Vector3 hit_normal = Vector3(result["hit_normal"]);
             BlockID target_block = static_cast<BlockID>(cm->get_block(bx, by, bz));
 
-            if (BlockIDs::is_oak_slab(target_block)) {
-                // Target cell already has a slab — merge
-                final_block = BlockIDs::OAK_DOUBLE_SLAB;
+            if (target_block == slab_fam->bottom || target_block == slab_fam->top) {
+                // Target cell already has a half of this family — merge
+                final_block = slab_fam->full;
             } else if (std::abs(hit_normal.y) > 0.5) {
-                // Horizontal face: check if clicking on an existing slab to merge
+                // Horizontal face: check if clicking on an existing half to merge
                 Vector3 hit_pos = result["position"];
                 int pos_x = static_cast<int>(std::floor(hit_pos.x));
                 int pos_y = static_cast<int>(std::floor(hit_pos.y));
                 int pos_z = static_cast<int>(std::floor(hit_pos.z));
                 BlockID look_block = static_cast<BlockID>(cm->get_block(pos_x, pos_y, pos_z));
 
-                if (BlockIDs::is_oak_slab(look_block)) {
-                    // Only merge when the face completes the double slab:
-                    // bottom slab's top face (+Y) or top slab's bottom face (-Y)
-                    bool merge = (look_block == BlockIDs::OAK_SLAB && hit_normal.y > 0)
-                              || (look_block == BlockIDs::OAK_SLAB_TOP && hit_normal.y < 0);
+                if (look_block == slab_fam->bottom || look_block == slab_fam->top) {
+                    // Only merge when the face completes the full block:
+                    // bottom half's top face (+Y) or top half's bottom face (-Y)
+                    bool merge = (look_block == slab_fam->bottom && hit_normal.y > 0)
+                              || (look_block == slab_fam->top && hit_normal.y < 0);
                     if (merge) {
-                        final_block = BlockIDs::OAK_DOUBLE_SLAB;
+                        final_block = slab_fam->full;
                         bx = pos_x; by = pos_y; bz = pos_z;
                     } else {
-                        final_block = (hit_normal.y > 0) ? BlockIDs::OAK_SLAB : BlockIDs::OAK_SLAB_TOP;
+                        final_block = (hit_normal.y > 0) ? slab_fam->bottom : slab_fam->top;
                     }
                 } else {
-                    // +Y face = bottom slab sits on surface, -Y face = top slab hugs ceiling
-                    final_block = (hit_normal.y > 0) ? BlockIDs::OAK_SLAB : BlockIDs::OAK_SLAB_TOP;
+                    // +Y face = bottom half sits on surface, -Y face = top half hugs ceiling
+                    final_block = (hit_normal.y > 0) ? slab_fam->bottom : slab_fam->top;
                 }
             } else {
-                // Side face: upper half of face → top slab, lower half → bottom slab
+                // Side face: upper half of face → top half, lower half → bottom half
                 Vector3 hit_point = result["hit_point"];
                 double frac_y = hit_point.y - by;
-                final_block = (frac_y < 0.5) ? BlockIDs::OAK_SLAB : BlockIDs::OAK_SLAB_TOP;
+                final_block = (frac_y < 0.5) ? slab_fam->bottom : slab_fam->top;
             }
         }
 

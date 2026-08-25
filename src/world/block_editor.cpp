@@ -112,10 +112,14 @@ void BlockEditor::place_block(int32_t world_x, int32_t world_y, int32_t world_z,
         if (!is_local_in_bounds(local_x, local_y, local_z)) return;
 
         const BlockID old_block = chunk_data->get_block_unsafe(local_x, local_y, local_z);
-        const auto* new_slab_fam = VoxelEngine::BlockRegistry::get_instance().get_slab_family(new_block);
+        const auto& reg = VoxelEngine::BlockRegistry::get_instance();
+        const auto* new_slab_fam = reg.get_slab_family(new_block);
+        const auto* new_wall_fam = reg.get_wall_family(new_block);
+        const auto* old_wall_fam = reg.get_wall_family(old_block);
         const bool is_merge = (new_slab_fam && new_block == new_slab_fam->full
                                && (old_block == new_slab_fam->bottom || old_block == new_slab_fam->top))
-                           || (BlockIDs::is_oak_wall(old_block) && new_block == BlockIDs::OAK_WALL_FULL);
+                           || (new_wall_fam && old_wall_fam == new_wall_fam
+                               && new_block == new_wall_fam->full);
         if (old_block != BlockIDs::AIR && new_block != BlockIDs::AIR && !is_merge) return;
         if (old_block == new_block) return;
 

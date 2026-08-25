@@ -329,10 +329,10 @@ void PlayerController::break_block() {
             if (collect_id == slab_fam->full)
                 collect_count = 2;
             collect_id = slab_fam->bottom;
-        } else if (BlockIDs::is_oak_stairs(collect_id)) {
-            collect_id = BlockIDs::OAK_STAIRS_N;
-        } else if (BlockIDs::is_oak_wall(collect_id)) {
-            collect_id = BlockIDs::OAK_WALL_N;
+        } else if (const auto* stair_fam = VoxelEngine::BlockRegistry::get_instance().get_stair_family(collect_id)) {
+            collect_id = stair_fam->base;
+        } else if (const auto* wall_fam = VoxelEngine::BlockRegistry::get_instance().get_wall_family(collect_id)) {
+            collect_id = wall_fam->base;
         }
         
         // Only break if we can add it to inventory (and it's not air)
@@ -431,7 +431,7 @@ void PlayerController::place_block() {
         }
 
         // Stair auto-detection: pick rotation from face hit and player direction
-        if (BlockIDs::is_oak_stairs(block_to_place)) {
+        if (const auto* stair_fam = VoxelEngine::BlockRegistry::get_instance().get_stair_family(block_to_place)) {
             Vector3 hit_normal = Vector3(result["hit_normal"]);
             Vector3 ppos_stair = get_global_position();
 
@@ -443,12 +443,12 @@ void PlayerController::place_block() {
 
                 if (std::abs(dx) > std::abs(dz)) {
                     final_block = (dx > 0)
-                        ? (up ? BlockIDs::OAK_STAIRS_W_UP : BlockIDs::OAK_STAIRS_W)
-                        : (up ? BlockIDs::OAK_STAIRS_E_UP : BlockIDs::OAK_STAIRS_E);
+                        ? (up ? stair_fam->w_up : stair_fam->w)
+                        : (up ? stair_fam->e_up : stair_fam->e);
                 } else {
                     final_block = (dz > 0)
-                        ? (up ? BlockIDs::OAK_STAIRS_N_UP : BlockIDs::OAK_STAIRS_N)
-                        : (up ? BlockIDs::OAK_STAIRS_S_UP : BlockIDs::OAK_STAIRS_S);
+                        ? (up ? stair_fam->n_up : stair_fam->base)
+                        : (up ? stair_fam->s_up : stair_fam->s);
                 }
             } else {
                 // Side face: step goes against the clicked face; upper portion = upside-down
@@ -458,24 +458,25 @@ void PlayerController::place_block() {
                 double nx = hit_normal.x, nz = hit_normal.z;
                 if (std::abs(nx) > std::abs(nz)) {
                     final_block = (nx > 0)
-                        ? (up ? BlockIDs::OAK_STAIRS_W_UP : BlockIDs::OAK_STAIRS_W)
-                        : (up ? BlockIDs::OAK_STAIRS_E_UP : BlockIDs::OAK_STAIRS_E);
+                        ? (up ? stair_fam->w_up : stair_fam->w)
+                        : (up ? stair_fam->e_up : stair_fam->e);
                 } else {
                     final_block = (nz > 0)
-                        ? (up ? BlockIDs::OAK_STAIRS_N_UP : BlockIDs::OAK_STAIRS_N)
-                        : (up ? BlockIDs::OAK_STAIRS_S_UP : BlockIDs::OAK_STAIRS_S);
+                        ? (up ? stair_fam->n_up : stair_fam->base)
+                        : (up ? stair_fam->s_up : stair_fam->s);
                 }
             }
         }
 
-        // Wall auto-detection: orient from face hit, merge if target has wall
-        if (BlockIDs::is_oak_wall(block_to_place)) {
+        // Wall auto-detection: orient from face hit, merge if target has wall of same family
+        if (const auto* wall_fam = VoxelEngine::BlockRegistry::get_instance().get_wall_family(block_to_place)) {
             Vector3 hit_normal = Vector3(result["hit_normal"]);
             BlockID target_block = static_cast<BlockID>(cm->get_block(bx, by, bz));
+            const auto* target_wall = VoxelEngine::BlockRegistry::get_instance().get_wall_family(target_block);
 
-            if (BlockIDs::is_oak_wall(target_block) && target_block != BlockIDs::OAK_WALL_FULL) {
-                // Side face, target cell already has a wall — merge there
-                final_block = BlockIDs::OAK_WALL_FULL;
+            if (target_wall && target_wall == wall_fam && target_block != wall_fam->full) {
+                // Side face, target cell already has a wall of same family — merge there
+                final_block = wall_fam->full;
             } else if (std::abs(hit_normal.y) > 0.5) {
                 // Top/bottom face: wall sits on the edge closest to hit point
                 Vector3 hit_point = result["hit_point"];
@@ -484,17 +485,17 @@ void PlayerController::place_block() {
                 double off_x = std::abs(frac_x - 0.5);
                 double off_z = std::abs(frac_z - 0.5);
                 if (off_x > off_z) {
-                    final_block = (frac_x > 0.5) ? BlockIDs::OAK_WALL_E : BlockIDs::OAK_WALL_W;
+                    final_block = (frac_x > 0.5) ? wall_fam->e : wall_fam->w;
                 } else {
-                    final_block = (frac_z > 0.5) ? BlockIDs::OAK_WALL_S : BlockIDs::OAK_WALL_N;
+                    final_block = (frac_z > 0.5) ? wall_fam->s : wall_fam->base;
                 }
             } else {
                 // Side face: wall panel hugs the clicked block (flat side toward it)
                 double nx = hit_normal.x, nz = hit_normal.z;
                 if (std::abs(nx) > std::abs(nz)) {
-                    final_block = (nx > 0) ? BlockIDs::OAK_WALL_W : BlockIDs::OAK_WALL_E;
+                    final_block = (nx > 0) ? wall_fam->w : wall_fam->e;
                 } else {
-                    final_block = (nz > 0) ? BlockIDs::OAK_WALL_N : BlockIDs::OAK_WALL_S;
+                    final_block = (nz > 0) ? wall_fam->base : wall_fam->s;
                 }
             }
         }

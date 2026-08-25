@@ -317,6 +317,71 @@ bool BlockRegistry::load_from_json(const godot::String& json_path) noexcept {
         slab_family_map_[id] = static_cast<BlockID>(fi + 1);
     }
 
+    // Build stair families from "stair_family" fields.
+    for (int i = 0; i < static_cast<int>(blocks_arr.size()); ++i) {
+        godot::Dictionary d = blocks_arr[i];
+        if (!d.has("stair_family")) continue;
+        godot::String fam_str = d["stair_family"];
+        std::string fam_name = fam_str.utf8().get_data();
+        size_t fi;
+        auto it = stair_family_index_.find(fam_name);
+        if (it == stair_family_index_.end()) {
+            fi = stair_families_.size();
+            stair_families_.emplace_back();
+            stair_family_names_.push_back(fam_name);
+            stair_family_index_[fam_name] = fi;
+        } else {
+            fi = it->second;
+        }
+        StairFamily& fam = stair_families_[fi];
+        const BlockID id = static_cast<BlockID>(i);
+        std::string shape;
+        if (d.has("shape")) {
+            godot::String shape_str = d["shape"];
+            shape = shape_str.utf8().get_data();
+        }
+        if      (shape == "stair/n")     fam.base  = id;
+        else if (shape == "stair/s")     fam.s     = id;
+        else if (shape == "stair/e")     fam.e     = id;
+        else if (shape == "stair/w")     fam.w     = id;
+        else if (shape == "stair/n_up")  fam.n_up  = id;
+        else if (shape == "stair/s_up")  fam.s_up  = id;
+        else if (shape == "stair/e_up")  fam.e_up  = id;
+        else if (shape == "stair/w_up")  fam.w_up  = id;
+        stair_family_map_[id] = static_cast<BlockID>(fi + 1);
+    }
+
+    // Build wall families from "wall_family" fields.
+    for (int i = 0; i < static_cast<int>(blocks_arr.size()); ++i) {
+        godot::Dictionary d = blocks_arr[i];
+        if (!d.has("wall_family")) continue;
+        godot::String fam_str = d["wall_family"];
+        std::string fam_name = fam_str.utf8().get_data();
+        size_t fi;
+        auto it = wall_family_index_.find(fam_name);
+        if (it == wall_family_index_.end()) {
+            fi = wall_families_.size();
+            wall_families_.emplace_back();
+            wall_family_names_.push_back(fam_name);
+            wall_family_index_[fam_name] = fi;
+        } else {
+            fi = it->second;
+        }
+        WallFamily& fam = wall_families_[fi];
+        const BlockID id = static_cast<BlockID>(i);
+        std::string shape;
+        if (d.has("shape")) {
+            godot::String shape_str = d["shape"];
+            shape = shape_str.utf8().get_data();
+        }
+        if      (shape == "wall/n")      fam.base = id;
+        else if (shape == "wall/s")      fam.s    = id;
+        else if (shape == "wall/e")      fam.e    = id;
+        else if (shape == "wall/w")      fam.w    = id;
+        else                             fam.full = id;
+        wall_family_map_[id] = static_cast<BlockID>(fi + 1);
+    }
+
     return true;
 }
 #endif
@@ -326,6 +391,20 @@ const BlockRegistry::SlabFamily* BlockRegistry::get_slab_family(BlockID id) cons
     const BlockID fi = slab_family_map_[id];
     if (fi == 0) return nullptr;
     return &families_[static_cast<size_t>(fi - 1)];
+}
+
+const BlockRegistry::StairFamily* BlockRegistry::get_stair_family(BlockID id) const noexcept {
+    if (id >= MAX_BLOCK_TYPES) return nullptr;
+    const BlockID fi = stair_family_map_[id];
+    if (fi == 0) return nullptr;
+    return &stair_families_[static_cast<size_t>(fi - 1)];
+}
+
+const BlockRegistry::WallFamily* BlockRegistry::get_wall_family(BlockID id) const noexcept {
+    if (id >= MAX_BLOCK_TYPES) return nullptr;
+    const BlockID fi = wall_family_map_[id];
+    if (fi == 0) return nullptr;
+    return &wall_families_[static_cast<size_t>(fi - 1)];
 }
 
 void BlockRegistry::initialize_default_blocks() noexcept {

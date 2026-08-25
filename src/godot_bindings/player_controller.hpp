@@ -118,6 +118,7 @@ private:
     static constexpr int MAX_HEALTH = 20;
     int health_ = MAX_HEALTH;
     bool dead_ = false;
+    bool needs_spawn_calc_ = true;
     godot::Vector3 spawn_point_;
 };
 

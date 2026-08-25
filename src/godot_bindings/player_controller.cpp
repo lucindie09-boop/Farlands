@@ -2,6 +2,7 @@
 #include "godot_bindings/chunk_manager.hpp"
 #include "engine/collision_resolver.hpp"
 #include "core/item_registry.hpp"
+#include "core/chunk_coords.hpp"
 #include "world/chunk_world.hpp"
 #include "engine/voxel_engine_controller.hpp"
 #include "render/texture_array_generator.hpp"
@@ -156,6 +157,21 @@ void PlayerController::_exit_tree() {
 }
 
 void PlayerController::_process(double delta) {
+    if (needs_spawn_calc_ && chunk_manager_) {
+        // Scan the column at (0, 0) from top down to find the first solid block.
+        for (int32_t y = WORLD_HEIGHT_Y - 1; y >= 0; --y) {
+            if (chunk_manager_->get_block(0, y, 0) != 0) {
+                Vector3 spawn(0, y + 1, 0);
+                set_global_position(spawn);
+                sim_.reset(spawn);
+                spawn_point_ = spawn;
+                needs_spawn_calc_ = false;
+                break;
+            }
+        }
+        if (needs_spawn_calc_) return;  // chunks not loaded yet, try next frame
+    }
+
     if (!collision_resolver_ || dead_) return;
 
     float speed_multiplier = 1.0f;

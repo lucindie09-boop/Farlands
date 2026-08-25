@@ -41,6 +41,29 @@
       "pattern": ["S", "S"],
       "key": { "S": "stick" },
       "result": { "block": "oak_pole", "count": 1 }
+    },
+    {
+      "type": "shaped",
+      "pattern": ["SSS"],
+      "key": { "S": "stone" },
+      "result": { "block": "stone_slab", "count": 6 }
+    },
+    {
+      "type": "shaped",
+      "pattern": ["S", "S", "S"],
+      "key": { "S": "stone" },
+      "result": { "block": "stone_wall", "count": 6 }
+    },
+    {
+      "type": "shaped",
+      "pattern": ["S  ", "SS ", "SSS"],
+      "key": { "S": "stone" },
+      "result": { "block": "stone_stairs", "count": 4 }
+    },
+    {
+      "type": "shapeless",
+      "ingredients": ["gravel"],
+      "result": { "block": "gravel_path", "count": 4 }
     }
   ]
 }

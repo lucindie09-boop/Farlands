@@ -59,7 +59,7 @@ TEST_CASE("solid block adjacent to water produces non-water mesh") {
     CHECK(mb.get_water_vertices().size() > 0);
 }
 
-TEST_CASE("side_lowered_offset: stone side face above water is shortened") {
+TEST_CASE("side face above water is NOT shortened (side_lowered_offset removed)") {
     BlockRegistry::get_instance().initialize_default_blocks();
     ChunkData chunk;
     chunk.fill_blocks(BlockIDs::AIR);
@@ -70,15 +70,14 @@ TEST_CASE("side_lowered_offset: stone side face above water is shortened") {
     mb.set_greedy_enabled(false);
     mb.build_mesh(chunk);
     CHECK(mb.get_vertex_count() > 0);
-    bool found_shortened = false;
+    bool found_normal = false;
     for (const auto& v : mb.get_vertices()) {
-        // Convert Q8.8 fixed-point back to float for comparison
         float fy = static_cast<float>(v.y) / 256.0f;
-        if (std::abs(fy - 15.88f) < 0.02f) {
-            found_shortened = true;
+        if (std::abs(fy - 16.0f) < 0.02f) {
+            found_normal = true;
         }
     }
-    CHECK(found_shortened);
+    CHECK(found_normal);
 }
 
 TEST_CASE("AO: hole in solid chunk produces more faces than solid") {

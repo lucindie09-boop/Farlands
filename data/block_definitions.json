@@ -215,6 +215,7 @@
   },
   {
     "name": "oak_slab",
+    "slab_family": "plank_slab",
     "shape": "slab/bottom",
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, false, true, true],
@@ -226,6 +227,7 @@
   },
   {
     "name": "oak_slab_top",
+    "slab_family": "plank_slab",
     "hidden": true,
     "shape": "slab/top",
     "properties": ["Solid", "Opaque"],
@@ -271,6 +273,7 @@
   },
   {
     "name": "oak_double_slab",
+    "slab_family": "plank_slab",
     "hidden": true,
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, true, true, true],
@@ -463,9 +466,35 @@
   },
   {
     "name": "oak_stump",
+    "slab_family": "stump",
     "shape": "slab/bottom",
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, false, true, true],
+    "textures": ["wood_side", "wood_side", "wood_top", "wood_top", "wood_side", "wood_side"],
+    "emissive_textures": ["", "", "", "", "", ""],
+    "light": [0, 0, 0],
+    "top_face_offset": 0.0,
+    "slipperiness": 0.6
+  },
+  {
+    "name": "oak_stump_top",
+    "slab_family": "stump",
+    "hidden": true,
+    "shape": "slab/top",
+    "properties": ["Solid", "Opaque"],
+    "visible_faces": [true, true, true, true, true, true],
+    "textures": ["wood_side", "wood_side", "wood_top", "wood_top", "wood_side", "wood_side"],
+    "emissive_textures": ["", "", "", "", "", ""],
+    "light": [0, 0, 0],
+    "top_face_offset": 0.0,
+    "slipperiness": 0.6
+  },
+  {
+    "name": "oak_stump_double",
+    "slab_family": "stump",
+    "hidden": true,
+    "properties": ["Solid", "Opaque"],
+    "visible_faces": [true, true, true, true, true, true],
     "textures": ["wood_side", "wood_side", "wood_top", "wood_top", "wood_side", "wood_side"],
     "emissive_textures": ["", "", "", "", "", ""],
     "light": [0, 0, 0],

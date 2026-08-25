@@ -96,13 +96,9 @@ float top_content_h = std::max(height_range.max_h, height_range.max_water_h);
                                          vegetation_enabled);
             }
             
-            chunk_data->propagate_sky_light(chunk_map.get_chunk_data(cx, cy + 1, cz));
-            if (chunk_data->get_emissive_count() > 0) {
-                chunk_data->propagate_light();
-            }
-            chunk_data->compute_fully_solid();
-            
-            // Load edit map from disk if not already in memory, then apply it
+            // Load and apply edit map BEFORE light propagation so that sky/block
+            // light is computed on the final terrain (edits remove/add blocks that
+            // affect shadow/light columns).
             uint64_t key = chunk_map.get_chunk_key(cx, cy, cz);
             {
                 std::lock_guard<std::mutex> lock(edit_maps_mutex);
@@ -114,6 +110,12 @@ float top_content_h = std::max(height_range.max_h, height_range.max_water_h);
                 }
             }
             apply_edit_map_to_chunk(key, cx, cy, cz, *chunk_data);
+
+            chunk_data->propagate_sky_light(chunk_map.get_chunk_data(cx, cy + 1, cz));
+            if (chunk_data->get_emissive_count() > 0) {
+                chunk_data->propagate_light();
+            }
+            chunk_data->compute_fully_solid();
             
             return chunk_data;
         },

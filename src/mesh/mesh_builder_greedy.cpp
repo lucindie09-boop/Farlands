@@ -99,8 +99,9 @@ void MeshBuilder::passive_greedy_mesh_horizontal(const ChunkData& chunk, const C
                         continue;
                     }
 
-                    // Non-mergeable blocks can't participate in greedy merging
-                    if (!registry.get_block_fast(block_id).greedy_mergeable) {
+                    // Non-mergeable blocks can't participate in greedy merging,
+                    // except at LOD stride > 1 where they are treated as full cubes.
+                    if (stride_xz_ <= 1 && !registry.get_block_fast(block_id).greedy_mergeable) {
                         flush_horizontal_merge(chunk, accessor, merge_start, z, y, x, direction,
                                                current_block, current_light_key, current_rotation, current_ao, registry);
                         merge_start = -1;
@@ -292,8 +293,9 @@ void MeshBuilder::passive_greedy_mesh_vertical(const ChunkData& chunk, const Chu
                         continue;
                     }
 
-                    // Non-mergeable blocks can't participate in greedy merging
-                    if (!registry.get_block_fast(block_id).greedy_mergeable) {
+                    // Non-mergeable blocks can't participate in greedy merging,
+                    // except at LOD stride > 1 where they are treated as full cubes.
+                    if (stride_xz_ <= 1 && !registry.get_block_fast(block_id).greedy_mergeable) {
                         for (int d = 0; d < kDirCount; d++) {
                             auto& dst = dirs[d];
                             flush_vertical_merge(chunk, accessor, dst.merge_start, y, x, z,

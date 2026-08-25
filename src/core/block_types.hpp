@@ -241,6 +241,11 @@ namespace BlockIDs {
     constexpr BlockID OAK_WALL_E     = 35;
     constexpr BlockID OAK_WALL_W     = 36;
     constexpr BlockID OAK_WALL_FULL  = 37;
+    constexpr BlockID COAL_ORE       = 39;
+    constexpr BlockID GOLD_ORE       = 40;
+    constexpr BlockID ICE            = 41;
+    constexpr BlockID CRAFTING_TABLE = 42;
+    constexpr BlockID OAK_STUMP      = 43;
 
     constexpr bool is_oak_slab(BlockID id) {
         return id == OAK_SLAB || id == OAK_SLAB_TOP;

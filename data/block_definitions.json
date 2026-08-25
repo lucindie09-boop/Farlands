@@ -460,5 +460,16 @@
     "light": [0, 0, 0],
     "top_face_offset": 0.0,
     "slipperiness": 0.6
+  },
+  {
+    "name": "oak_stump",
+    "shape": "slab/bottom",
+    "properties": ["Solid", "Opaque"],
+    "visible_faces": [true, true, true, false, true, true],
+    "textures": ["wood_side", "wood_side", "wood_top", "wood_top", "wood_side", "wood_side"],
+    "emissive_textures": ["", "", "", "", "", ""],
+    "light": [0, 0, 0],
+    "top_face_offset": 0.0,
+    "slipperiness": 0.6
   }
 ]

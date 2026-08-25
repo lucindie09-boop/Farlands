@@ -252,7 +252,6 @@ void MeshBuilder::add_face(const ChunkData& chunk, const ChunkNeighborAccessor& 
     }
 
     uint16_t light_key;
-    float side_lowered_offset = 0.0f;
     if (is_side_face(direction)) {
         int32_t nx = x + kDirectionOffsets[dir_index][0] * stride_xz_;
         int32_t ny = y + kDirectionOffsets[dir_index][1];
@@ -266,18 +265,6 @@ void MeshBuilder::add_face(const ChunkData& chunk, const ChunkNeighborAccessor& 
             } else {
                 neighbor_id = accessor.get_block(nx, ny, nz);
                 use_self_light = registry.get_block(neighbor_id).top_face_offset > 0.0f;
-            }
-            // Check the block below (y-1) for geometry offset, NOT the horizontal neighbor.
-            // This handles the case where a solid block sits above water:
-            // the water's lowered top face means the solid block's side face
-            // should extend downward to fill the gap.
-            // The horizontal neighbor check above is for lighting only (use_self_light).
-            int32_t by = y - 1;
-            if (by >= 0) {
-                BlockID below_id = chunk.get_block_unsafe(x, by, z);
-                if (registry.get_block(below_id).top_face_offset > 0.0f) {
-                    side_lowered_offset = registry.get_block(below_id).top_face_offset;
-                }
             }
         }
         if (use_self_light) {
@@ -307,7 +294,7 @@ void MeshBuilder::add_face(const ChunkData& chunk, const ChunkNeighborAccessor& 
         light_key = accessor.get_light_packed(x + dx, y + dy, z + dz);
     }
 uint16_t light_keys[4];
-if (smooth_lighting_enabled && side_lowered_offset == 0.0f) {
+if (smooth_lighting_enabled) {
 compute_smooth_light(accessor, registry, x, y, z, direction, light_keys, stride_xz_);
 } else {
 light_keys[0] = light_keys[1] = light_keys[2] = light_keys[3] = light_key;
@@ -325,11 +312,6 @@ light_keys[0] = light_keys[1] = light_keys[2] = light_keys[3] = light_key;
     }
     apply_special_block_offsets(corners, block_id, direction);
 
-    if (side_lowered_offset > 0.0f) {
-        corners[0][1] -= side_lowered_offset;
-        corners[1][1] -= side_lowered_offset;
-    }
-
     for (int i = 0; i < 4; i++) {
         Vertex v;
         // Convert positions to fixed-point format
@@ -341,9 +323,6 @@ light_keys[0] = light_keys[1] = light_keys[2] = light_keys[3] = light_key;
         v.nz = static_cast<int8_t>(kFaceNormals[dir_index][2] * 127.0f);
         v.u = kFaceUVs[i][0];
         v.v = kFaceUVs[i][1];
-        if (side_lowered_offset > 0.0f && i < 2 && surface_rotation == 0) {
-            v.v = 1.0f + side_lowered_offset;
-        }
         if (surface_rotation != 0) {
             apply_uv_rotation(v.u, v.v, surface_rotation);
         }

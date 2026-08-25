@@ -321,19 +321,7 @@ Dictionary BlockEditor::raycast(godot::Node* chunk_manager, const NodePath& play
             if (hit_any) {
                 result["success"] = true;
                 result["position"] = Vector3(current_x, current_y, current_z);
-                Vector3 hit_pt = ray_origin + ray_dir * closest_t;
-                Vector3 frac = hit_pt - Vector3(current_x, current_y, current_z);
-                const double EPS = 1e-6;
-                bool at_boundary = false;
-                if (std::abs(hit_normal.x) > 0.5)
-                    at_boundary = (hit_normal.x > 0) ? (frac.x > 1.0 - EPS) : (frac.x < EPS);
-                else if (std::abs(hit_normal.y) > 0.5)
-                    at_boundary = (hit_normal.y > 0) ? (frac.y > 1.0 - EPS) : (frac.y < EPS);
-                else if (std::abs(hit_normal.z) > 0.5)
-                    at_boundary = (hit_normal.z > 0) ? (frac.z > 1.0 - EPS) : (frac.z < EPS);
-                result["place_position"] = at_boundary
-                    ? Vector3(current_x, current_y, current_z) + hit_normal
-                    : Vector3(current_x, current_y, current_z);
+                result["place_position"] = Vector3(current_x, current_y, current_z) + hit_normal;
                 result["block_id"] = static_cast<int>(bid);
                 result["hit_normal"] = hit_normal;
                 result["hit_point"] = ray_origin + ray_dir * closest_t;

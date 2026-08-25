@@ -178,8 +178,19 @@ public:
         BlockID top    = 0;
         BlockID full   = 0;
     };
-    // nullptr when the id does not belong to any slab family.
+    struct StairFamily {
+        BlockID base = 0;  // stair/n (inventory variant)
+        BlockID s = 0, e = 0, w = 0;
+        BlockID n_up = 0, s_up = 0, e_up = 0, w_up = 0;
+    };
+    struct WallFamily {
+        BlockID base = 0;  // wall/n (inventory variant)
+        BlockID s = 0, e = 0, w = 0;
+        BlockID full = 0;
+    };
     [[nodiscard]] const SlabFamily* get_slab_family(BlockID id) const noexcept;
+    [[nodiscard]] const StairFamily* get_stair_family(BlockID id) const noexcept;
+    [[nodiscard]] const WallFamily* get_wall_family(BlockID id) const noexcept;
 
     // Resolves a block name to its registered id (case-sensitive, matches
     // block_definitions.json "name" fields). Returns AIR (0) when unknown.
@@ -201,6 +212,18 @@ private:
     std::vector<std::string> family_names_;
     std::unordered_map<std::string, size_t> family_index_;
     std::array<BlockID, MAX_BLOCK_TYPES> slab_family_map_{};
+
+    // Stair family lookup: maps block id → 1-indexed family (0 = not in any).
+    std::vector<StairFamily> stair_families_;
+    std::vector<std::string> stair_family_names_;
+    std::unordered_map<std::string, size_t> stair_family_index_;
+    std::array<BlockID, MAX_BLOCK_TYPES> stair_family_map_{};
+
+    // Wall family lookup: maps block id → 1-indexed family (0 = not in any).
+    std::vector<WallFamily> wall_families_;
+    std::vector<std::string> wall_family_names_;
+    std::unordered_map<std::string, size_t> wall_family_index_;
+    std::array<BlockID, MAX_BLOCK_TYPES> wall_family_map_{};
 
     // Pre-constructed empty block for out-of-bounds queries.
     static inline BlockType empty_block = []() {
@@ -265,14 +288,6 @@ namespace BlockIDs {
     constexpr BlockID OAK_STUMP      = 43;
     constexpr BlockID OAK_STUMP_TOP   = 44;
     constexpr BlockID OAK_STUMP_DOUBLE = 45;
-
-    constexpr bool is_oak_stairs(BlockID id) {
-        return (id >= OAK_STAIRS_N && id <= OAK_STAIRS_W_UP) && id != OAK_FENCE;
-    }
-
-    constexpr bool is_oak_wall(BlockID id) {
-        return id == OAK_WALL_N || id == OAK_WALL_S || id == OAK_WALL_E || id == OAK_WALL_W || id == OAK_WALL_FULL;
-    }
 }
 
 } // namespace VoxelEngine

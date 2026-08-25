@@ -526,8 +526,10 @@ void PlayerController::place_block() {
         BlockID existing = static_cast<BlockID>(cm->get_block(bx, by, bz));
         if (existing != 0 && final_block == block_to_place) return;
 
-        // Place the block
+        // Place the block, then verify it actually landed before consuming
         cm->set_block(bx, by, bz, final_block);
+        BlockID placed = static_cast<BlockID>(cm->get_block(bx, by, bz));
+        if (placed != final_block) return;
 
         // Consume from inventory
         inventory_.consume_block(block_to_place, 1);

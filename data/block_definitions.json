@@ -705,5 +705,16 @@
     "light": [0, 0, 0],
     "top_face_offset": 0.0,
     "slipperiness": 0.6
+  },
+  {
+    "name": "gravel_path",
+    "shape": "lowered/00625",
+    "properties": ["Solid", "Opaque"],
+    "visible_faces": [true, true, true, true, true, true],
+    "textures": ["gravel", "gravel", "gravel", "gravel", "gravel", "gravel"],
+    "emissive_textures": ["", "", "", "", "", ""],
+    "light": [0, 0, 0],
+    "top_face_offset": 0.0,
+    "slipperiness": 0.6
   }
 ]

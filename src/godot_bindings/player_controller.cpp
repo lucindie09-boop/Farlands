@@ -522,6 +522,10 @@ void PlayerController::place_block() {
         int pz = static_cast<int>(std::floor(ppos.z));
         if (bx == px && bz == pz && (by == py || by == py + 1)) return;
 
+        // Don't overwrite an occupied voxel unless a merge changed the block type
+        BlockID existing = static_cast<BlockID>(cm->get_block(bx, by, bz));
+        if (existing != 0 && final_block == block_to_place) return;
+
         // Place the block
         cm->set_block(bx, by, bz, final_block);
 

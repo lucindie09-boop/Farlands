@@ -156,8 +156,11 @@ if sys.platform != "win32":
     # Reference source files directly to avoid VariantDir file locking
     fuzz_sources_common = [fuzz_chunk_data_object, "src/core/block_types.cpp", "src/core/inventory.cpp", "src/core/edit_map.cpp", "src/lighting/block_light_region.cpp"]
     fuzz_palette = fuzz_env.Program("bin/fuzz_palette", ["tools/fuzz_palette.cpp"] + fuzz_sources_common)
-    fuzz_chunk = fuzz_env.Program("bin/fuzz_chunk_load", ["tools/fuzz_chunk_load.cpp"] + ["src/core/edit_map.cpp", "src/core/block_types.cpp"])
-    fuzz_recovery = fuzz_env.Program("bin/fuzz_chunk_recovery", ["tools/fuzz_chunk_recovery.cpp"] + ["src/core/edit_map.cpp", "src/core/block_types.cpp"])
+    # edit_map.cpp's apply_edit_map_to_chunk calls ChunkData methods, so any
+    # harness that links edit_map must also link the ChunkData implementation.
+    fuzz_edit_map_sources = [fuzz_chunk_data_object, "src/core/edit_map.cpp", "src/core/block_types.cpp"]
+    fuzz_chunk = fuzz_env.Program("bin/fuzz_chunk_load", ["tools/fuzz_chunk_load.cpp"] + fuzz_edit_map_sources)
+    fuzz_recovery = fuzz_env.Program("bin/fuzz_chunk_recovery", ["tools/fuzz_chunk_recovery.cpp"] + fuzz_edit_map_sources)
     fuzz_light = fuzz_env.Program("bin/fuzz_light_propagation", ["tools/fuzz_light_propagation.cpp"] + fuzz_sources_common)
     fuzz_mesh_sources = fuzz_sources_common + [
         "src/mesh/mesh_builder.cpp",

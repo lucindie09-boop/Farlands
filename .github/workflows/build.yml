@@ -46,6 +46,30 @@ jobs:
       - name: Install SCons
         run: pip install scons
 
+      - name: Compute godot-cpp submodule hash
+        id: cachekey
+        shell: bash
+        run: echo "godotcpp=$(git rev-parse HEAD:godot-cpp)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache SCons build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            .sconsign.dblite
+            godot-cpp/bin
+            godot-cpp/gen
+            godot-cpp/src/**/*.obj
+            godot-cpp/src/**/*.o
+            src/**/*.obj
+            src/**/*.o
+            tests/**/*.obj
+            tests/**/*.o
+            tools/**/*.obj
+            tools/**/*.o
+          key: scons-${{ matrix.os }}-tsan${{ matrix.tsan }}-asan${{ matrix.asan || 0 }}-${{ steps.cachekey.outputs.godotcpp }}
+          restore-keys: |
+            scons-${{ matrix.os }}-tsan${{ matrix.tsan }}-asan${{ matrix.asan || 0 }}-
+
       - name: Build
         shell: bash
         timeout-minutes: 15
@@ -104,6 +128,16 @@ jobs:
       - name: Install clang
         run: sudo apt-get install -y clang
 
+      - name: Cache SCons build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            .sconsign.dblite
+            src/**/*.o
+            tools/**/*.o
+            bin
+          key: scons-fuzz
+
       - name: Build fuzz targets
         timeout-minutes: 10
         run: CC=clang CXX=clang++ scons fuzz -j$(nproc)
@@ -140,6 +174,30 @@ jobs:
 
       - name: Install clang-tidy
         run: sudo apt-get install -y clang-tidy
+
+      - name: Compute godot-cpp submodule hash
+        id: cachekey
+        shell: bash
+        run: echo "godotcpp=$(git rev-parse HEAD:godot-cpp)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache SCons build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            .sconsign.dblite
+            godot-cpp/bin
+            godot-cpp/gen
+            godot-cpp/src/**/*.obj
+            godot-cpp/src/**/*.o
+            src/**/*.obj
+            src/**/*.o
+            tests/**/*.obj
+            tests/**/*.o
+            tools/**/*.obj
+            tools/**/*.o
+          key: scons-ubuntu-latest-tsan0-asan0-${{ steps.cachekey.outputs.godotcpp }}
+          restore-keys: |
+            scons-ubuntu-latest-tsan0-asan0-
 
       - name: Run scons to generate godot-cpp headers and compile_commands.json
         timeout-minutes: 10

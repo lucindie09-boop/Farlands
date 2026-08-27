@@ -1,9 +1,5 @@
 #include "engine/voxel_engine_controller.hpp"
 
-#include <godot_cpp/classes/rendering_server.hpp>
-#include <godot_cpp/classes/world3d.hpp>
-#include <godot_cpp/classes/engine.hpp>
-#include <godot_cpp/classes/node3d.hpp>
 #include <cmath>
 #include <algorithm>
 
@@ -81,7 +77,7 @@ void VoxelEngineController::initialize() {
     set_render_distance(render_distance);
 }
 
-void VoxelEngineController::shutdown(godot::Node* parent) {
+void VoxelEngineController::shutdown() {
     reset_runtime_state(false);
 }
 
@@ -135,7 +131,7 @@ void VoxelEngineController::reset_runtime_state(bool restart_thread_pool) {
     }
 }
 
-void VoxelEngineController::update(double delta, bool is_editor, const godot::Vector3& player_pos, godot::Node* owner) {
+void VoxelEngineController::update(double delta, bool is_editor, const godot::Vector3& player_pos) {
     if (!auto_update) return;
     if (is_editor && !editor_enabled) return;
 
@@ -189,43 +185,15 @@ int VoxelEngineController::get_block_world(int32_t world_x, int32_t world_y, int
     return block_editor.query_block(world_x, world_y, world_z);
 }
 
-String VoxelEngineController::get_block_name(int block_id) {
-    return block_editor.get_block_name(block_id);
-}
-
-Dictionary VoxelEngineController::raycast_from_camera(godot::Node* owner, const NodePath& player_path, double max_distance) {
-    return block_editor.raycast(owner, player_path, max_distance);
-}
-
 // -------------------------------------------------------------------------
 // Chunk scenario / editor
 // -------------------------------------------------------------------------
 
-void VoxelEngineController::set_chunk_scenario(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, godot::Node* owner) {
-    ChunkRenderData* render_data = chunk_world.get_chunk_render_data(chunk_x, chunk_y, chunk_z);
-    if (!render_data) return;
-    if (!render_data->instance_rid.is_valid()) return;
-
-    RenderingServer* rs = RenderingServer::get_singleton();
-    Node3D* owner3d = Object::cast_to<Node3D>(owner);
-    Ref<World3D> world = owner3d ? owner3d->get_world_3d() : Ref<World3D>();
-    if (!world.is_valid()) {
-        if (owner && owner->is_inside_tree()) {
-            owner->call_deferred("set_chunk_scenario", chunk_x, chunk_y, chunk_z);
-        }
-        return;
-    }
-    RID scenario = world->get_scenario();
-    rs->instance_set_scenario(render_data->instance_rid, scenario);
-    rs->instance_set_visible(render_data->instance_rid, true);
-}
-
-void VoxelEngineController::clear_editor_chunks(godot::Node* parent) {
+void VoxelEngineController::clear_editor_chunks() {
     reset_runtime_state(true);
     last_player_block_x = INT32_MIN;
     last_player_block_y = INT32_MIN;
     last_player_block_z = INT32_MIN;
-    print_line("clear_editor_chunks: All chunks cleared");
 }
 
 void VoxelEngineController::unload_chunk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z) {

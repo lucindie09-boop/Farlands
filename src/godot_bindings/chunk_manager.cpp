@@ -1,14 +1,20 @@
 #include "godot_bindings/chunk_manager.hpp"
 
 #include "engine/voxel_engine_controller.hpp"
+#include "world/block_editor.hpp"
 
 #include <godot_cpp/classes/rendering_server.hpp>
 #include <godot_cpp/classes/world3d.hpp>
+#include <godot_cpp/classes/world_environment.hpp>
+#include <godot_cpp/classes/directional_light3d.hpp>
+#include <godot_cpp/classes/environment.hpp>
 #include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/classes/node3d.hpp>
 #include <godot_cpp/classes/viewport.hpp>
 #include <godot_cpp/variant/string.hpp>
 #include <godot_cpp/variant/packed_float32_array.hpp>
+#include <cmath>
+#include <algorithm>
 
 using namespace godot;
 using namespace VoxelEngine;
@@ -19,7 +25,7 @@ ChunkManager::ChunkManager() {
 }
 
 ChunkManager::~ChunkManager() {
-    controller->shutdown(this);
+    controller->shutdown();
     controller.reset();
 }
 
@@ -37,7 +43,7 @@ void ChunkManager::_ready() {
             controller->set_player_position(cached_player->get_global_position());
         }
     }
-    controller->get_environment_controller().update_environment(get_parent());
+    update_environment();
 
     // Load world metadata if it exists, otherwise save initial metadata
     if (controller->world_metadata_exists()) {
@@ -118,8 +124,8 @@ void ChunkManager::_process(double delta) {
         }
     }
 
-    controller->update(delta, is_editor, player_pos, this);
-    controller->get_environment_controller().update_environment(get_parent());
+    controller->update(delta, is_editor, player_pos);
+    update_environment();
 }
 
 void ChunkManager::_exit_tree() {
@@ -178,10 +184,28 @@ float ChunkManager::get_biome_size() const { return controller->get_biome_size()
 String ChunkManager::get_performance_report() { return controller->get_performance_report(); }
 
 void ChunkManager::set_chunk_scenario(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z) {
-    controller->set_chunk_scenario(chunk_x, chunk_y, chunk_z, this);
+    ChunkRenderData* render_data = controller->get_chunk_world().get_chunk_render_data(chunk_x, chunk_y, chunk_z);
+    if (!render_data) return;
+    if (!render_data->instance_rid.is_valid()) return;
+
+    RenderingServer* rs = RenderingServer::get_singleton();
+    Node3D* owner3d = Object::cast_to<Node3D>(this);
+    Ref<World3D> world = owner3d ? owner3d->get_world_3d() : Ref<World3D>();
+    if (!world.is_valid()) {
+        if (is_inside_tree()) {
+            call_deferred("set_chunk_scenario", chunk_x, chunk_y, chunk_z);
+        }
+        return;
+    }
+    RID scenario = world->get_scenario();
+    rs->instance_set_scenario(render_data->instance_rid, scenario);
+    rs->instance_set_visible(render_data->instance_rid, true);
 }
 
-void ChunkManager::clear_editor_chunks() { controller->clear_editor_chunks(this); }
+void ChunkManager::clear_editor_chunks() {
+    controller->clear_editor_chunks();
+    print_line("clear_editor_chunks: All chunks cleared");
+}
 
 void ChunkManager::set_editor_enabled(bool enabled) {
     controller->set_editor_enabled(enabled);
@@ -195,7 +219,37 @@ void ChunkManager::set_editor_render_distance(int32_t distance) { controller->se
 int32_t ChunkManager::get_editor_render_distance() const { return controller->get_editor_render_distance(); }
 
 Dictionary ChunkManager::raycast_from_camera(double max_distance) {
-    return controller->raycast_from_camera(this, player_path, max_distance);
+    Dictionary result;
+    result["success"] = false;
+
+    if (player_path.is_empty()) return result;
+    Node* player_node = get_node_or_null(player_path);
+    if (!player_node) return result;
+    Node3D* player = Object::cast_to<Node3D>(player_node);
+    if (!player) return result;
+
+    Camera3D* camera = nullptr;
+    if (cached_camera) {
+        camera = cached_camera;
+    } else {
+        camera = Object::cast_to<Camera3D>(player->get_node_or_null(NodePath("Camera3D")));
+        if (camera) cached_camera = camera;
+    }
+    if (!camera) return result;
+
+    Vector3 ray_origin = camera->get_global_position();
+    Vector3 ray_dir = -camera->get_global_transform().basis.get_column(2).normalized();
+
+    RaycastResult rr = controller->get_block_editor().raycast_from_ray(ray_origin, ray_dir, max_distance);
+    if (!rr.success) return result;
+
+    result["success"] = true;
+    result["position"] = rr.position;
+    result["place_position"] = rr.place_position;
+    result["block_id"] = rr.block_id;
+    result["hit_normal"] = rr.hit_normal;
+    result["hit_point"] = rr.hit_point;
+    return result;
 }
 
 void ChunkManager::set_block(int32_t world_x, int32_t world_y, int32_t world_z, int block_id) {
@@ -207,7 +261,8 @@ int ChunkManager::get_block(int32_t world_x, int32_t world_y, int32_t world_z) {
 }
 
 String ChunkManager::get_block_name(int block_id) {
-    return controller->get_block_name(block_id);
+    const auto& block = BlockRegistry::get_instance().get_block(static_cast<BlockID>(block_id));
+    return String(block.name);
 }
 
 Array ChunkManager::get_selection_boxes(int block_id) {
@@ -327,6 +382,70 @@ void ChunkManager::save_world_metadata() { controller->save_world_metadata(); }
 bool ChunkManager::load_world_metadata() { return controller->load_world_metadata(); }
 bool ChunkManager::world_metadata_exists() const { return controller->world_metadata_exists(); }
 void ChunkManager::flush_dirty_chunks() { controller->flush_dirty_chunks(); }
+
+// -------------------------------------------------------------------------
+// Scene tree manipulation — Godot-specific, lives in the binding layer
+// -------------------------------------------------------------------------
+
+void ChunkManager::update_environment() {
+    Node* parent = get_parent();
+    if (!parent) return;
+    if (parent != cached_env_parent || !cached_world_env) {
+        cached_env_parent = parent;
+        cached_world_env = Object::cast_to<WorldEnvironment>(
+            parent->get_node_or_null(NodePath("WorldEnvironment"))
+        );
+        cached_sun_light = Object::cast_to<DirectionalLight3D>(
+            parent->get_node_or_null(NodePath("SunLight"))
+        );
+    }
+    if (!cached_world_env) return;
+    Ref<Environment> env = cached_world_env->get_environment();
+    if (!env.is_valid()) return;
+
+    auto& ec = controller->get_environment_controller();
+    const auto& day_night = ec.get_day_night_cycle();
+    const float blend = day_night.get_blend();
+    const float elevation = day_night.get_sun_elevation();
+    const Color horizon_color = day_night.get_horizon_color();
+    const Color sun_color = day_night.get_sun_color();
+    const Vector3 sun_dir = day_night.get_sun_direction();
+
+    ec.get_sky_controller().update(env.ptr(), blend, static_cast<float>(day_night.get_raw_time()),
+                                   sun_color, sun_dir,
+                                   day_night.get_moon_phase(), 1.0f, day_night.get_sky_turbidity(), 1.0f,
+                                   ec.get_fog_controller().get_fog_scatter(blend, elevation));
+    ec.get_fog_controller().update(env.ptr(), blend, horizon_color,
+                                   ec.get_fog_controller().get_fog_color(blend, horizon_color, elevation, sun_color, day_night.get_sky_turbidity()),
+                                   ec.get_fog_controller().get_fog_scatter(blend, elevation));
+
+    env->set_ambient_source(Environment::AMBIENT_SOURCE_SKY);
+    env->set_ambient_light_color(day_night.get_ambient_color());
+    env->set_ambient_light_energy(day_night.get_ambient_intensity());
+
+    if (cached_sun_light) {
+        Vector3 light_pos = cached_sun_light->get_global_position();
+        cached_sun_light->look_at(light_pos - sun_dir, Vector3(0, 0, 1));
+
+        float sun_visible = std::clamp((elevation + 0.08f) / 0.16f, 0.0f, 1.0f);
+        float moon_visible = (1.0f - sun_visible) * (1.0f - blend);
+
+        if (sun_visible > 0.0f) {
+            cached_sun_light->set_color(sun_color);
+            cached_sun_light->set_param(Light3D::PARAM_ENERGY, 3.0f * sun_visible * day_night.get_day_intensity());
+            cached_sun_light->set_shadow(false);
+            cached_sun_light->set_sky_mode(DirectionalLight3D::SKY_MODE_LIGHT_ONLY);
+        } else if (moon_visible > 0.0f) {
+            cached_sun_light->set_color(Color(1.0f, 1.0f, 1.0f));
+            cached_sun_light->set_param(Light3D::PARAM_ENERGY, 0.25f * moon_visible * day_night.get_night_intensity());
+            cached_sun_light->set_shadow(false);
+            cached_sun_light->set_sky_mode(DirectionalLight3D::SKY_MODE_LIGHT_ONLY);
+        } else {
+            cached_sun_light->set_param(Light3D::PARAM_ENERGY, 0.0f);
+            cached_sun_light->set_shadow(false);
+        }
+    }
+}
 
 // -------------------------------------------------------------------------
 // _bind_methods

@@ -4,18 +4,12 @@
 
 #include <godot_cpp/variant/vector3.hpp>
 #include <godot_cpp/variant/color.hpp>
-#include <godot_cpp/classes/world_environment.hpp>
-#include <godot_cpp/classes/directional_light3d.hpp>
 
 #include "world/day_night_cycle.hpp"
 #include "world/player_light.hpp"
 #include "render/material_manager.hpp"
 #include "render/sky_controller.hpp"
 #include "render/fog_controller.hpp"
-
-namespace godot {
-class Node;
-}
 
 namespace VoxelEngine {
 
@@ -31,15 +25,17 @@ public:
                 ChunkWorld& cw, LightPropagator& lp, MeshManager& mm,
                 double initial_loading_duration);
 
-    void update_environment(godot::Node* parent);
-
     DayNightCycle& get_day_night_cycle() { return day_night; }
+    const DayNightCycle& get_day_night_cycle() const { return day_night; }
     MaterialManager& get_material_manager() { return material_manager; }
     PlayerLight& get_player_light() { return player_light; }
+    SkyController& get_sky_controller() { return sky_controller; }
+    FogController& get_fog_controller() { return fog_controller; }
+    const FogController& get_fog_controller() const { return fog_controller; }
 
-void set_day_time(double t) { day_night.set_time(t); update_shader_parameters(); }
-double get_day_time() const { return day_night.get_time(); }
-godot::Vector3 get_sun_direction() const { return day_night.get_sun_direction(); }
+    void set_day_time(double t) { day_night.set_time(t); update_shader_parameters(); }
+    double get_day_time() const { return day_night.get_time(); }
+    godot::Vector3 get_sun_direction() const { return day_night.get_sun_direction(); }
 
     void set_player_light_enabled(bool enabled) { player_light.set_enabled(enabled); }
     bool get_player_light_enabled() const { return player_light.get_enabled(); }
@@ -101,10 +97,6 @@ private:
     bool mipmaps_enabled = true;
     float mipmap_bias = 0.1f;
     bool textures_enabled = true;
-
-    godot::Node* cached_parent = nullptr;
-    godot::WorldEnvironment* cached_world_env = nullptr;
-    godot::DirectionalLight3D* cached_sun_light = nullptr;
 
     // Dirty tracking for shader parameters (avoid redundant Godot API calls)
     float cached_blend = -1.0f;

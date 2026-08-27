@@ -17,6 +17,8 @@
 namespace godot {
 class Node;
 class Node3D;
+class WorldEnvironment;
+class DirectionalLight3D;
 }
 
 namespace VoxelEngine {
@@ -187,10 +189,16 @@ protected:
     static void _bind_methods();
 
 private:
+    void update_mouse_mode();
+    void update_environment();
+
     std::unique_ptr<VoxelEngineController> controller;
     godot::NodePath player_path = godot::NodePath("../Player");
     godot::Node3D* cached_player = nullptr;
     godot::Camera3D* cached_camera = nullptr;
+    godot::WorldEnvironment* cached_world_env = nullptr;
+    godot::DirectionalLight3D* cached_sun_light = nullptr;
+    godot::Node* cached_env_parent = nullptr;
     bool ready_for_auto_update = false;
     float move_speed_multiplier_ = 1.0f;
 };

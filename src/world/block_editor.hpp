@@ -1,13 +1,6 @@
 #ifndef FARLANDS_BLOCK_EDITOR_HPP
 #define FARLANDS_BLOCK_EDITOR_HPP
-#include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/vector3.hpp>
-#include <godot_cpp/variant/node_path.hpp>
-#include <godot_cpp/variant/string.hpp>
-#include <godot_cpp/classes/node.hpp>
-#include <godot_cpp/classes/node3d.hpp>
-#include <godot_cpp/classes/camera3d.hpp>
-#include <godot_cpp/classes/object.hpp>
 #include <cstdint>
 #include <cmath>
 
@@ -19,21 +12,30 @@ class ChunkWorld;
 class MeshManager;
 class LightPropagator;
 
+struct RaycastResult {
+    bool success = false;
+    godot::Vector3 position;
+    godot::Vector3 place_position;
+    int block_id = 0;
+    godot::Vector3 hit_normal;
+    godot::Vector3 hit_point;
+};
+
 class BlockEditor {
 public:
     BlockEditor(ChunkWorld* cw, MeshManager* mm, LightPropagator* lp);
 
     void place_block(int32_t world_x, int32_t world_y, int32_t world_z, BlockID block_id);
     int query_block(int32_t world_x, int32_t world_y, int32_t world_z) const;
-    godot::String get_block_name(int block_id) const;
-    godot::Dictionary raycast(godot::Node* owner, const godot::NodePath& player_path, double max_distance) const;
+
+    RaycastResult raycast_from_ray(const godot::Vector3& origin,
+                                    const godot::Vector3& direction,
+                                    double max_distance) const;
 
 private:
     ChunkWorld* chunk_world;
     MeshManager* mesh_manager;
     LightPropagator* light_propagator;
-    mutable godot::Camera3D* cached_camera = nullptr;
-    mutable godot::NodePath last_camera_path;
 
     void set_block_variant(int32_t world_x, int32_t world_y, int32_t world_z, BlockID block_id);
     void update_mud_variants(int32_t world_x, int32_t world_y, int32_t world_z, BlockID new_block);

@@ -146,6 +146,10 @@ jobs:
         timeout-minutes: 2
         run: timeout 60s ./bin/fuzz_chunk_load -seed=12345 || [ $? -eq 124 ]
 
+      - name: Run fuzz_chunk_recovery
+        timeout-minutes: 2
+        run: timeout 60s ./bin/fuzz_chunk_recovery -seed=12345 || [ $? -eq 124 ]
+
       - name: Run fuzz_palette
         timeout-minutes: 2
         run: timeout 60s ./bin/fuzz_palette -seed=12345 || [ $? -eq 124 ]

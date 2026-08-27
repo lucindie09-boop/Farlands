@@ -100,6 +100,26 @@ class ChunkData;
 // and tests apply edits identically.
 void apply_edit_map_to_chunk(const EditMap& edit_map, ChunkData& chunk_data);
 
+// Outcome of recovering an edit map from the atomic on-disk layout
+// (.edit primary + .bak backup produced by the .tmp -> .bak -> target write).
+struct EditMapRecovery {
+    bool recovered = false;  // true if any candidate deserialized
+    bool used_backup = false; // true if the .edit was missing/corrupt and .bak won
+};
+
+// Decode the best available edit map given the raw .edit (primary) and .bak
+// (backup) bytes. An empty buffer means "file missing". The primary is tried
+// first (newest data); if it is missing or rejects (bad header, CRC mismatch,
+// truncated, unknown block IDs), the backup is tried — this recoverable
+// snapshot is what survives a crash between the two renames in the write
+// pattern (see ChunkWorld::write_edit_map_file_locked). On failure out_edit_map
+// is left empty. Pure shared logic: ChunkWorld::load_edit_map_from_disk and
+// the crash-recovery tests call this.
+EditMapRecovery recover_edit_map(const std::vector<uint8_t>& primary,
+                                 const std::vector<uint8_t>& backup,
+                                 EditMap& out_edit_map,
+                                 const BlockRegistry& registry);
+
 } // namespace VoxelEngine
 
 #endif // FARLANDS_EDIT_MAP_HPP

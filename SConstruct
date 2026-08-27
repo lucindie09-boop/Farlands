@@ -157,6 +157,7 @@ if sys.platform != "win32":
     fuzz_sources_common = [fuzz_chunk_data_object, "src/core/block_types.cpp", "src/core/inventory.cpp", "src/core/edit_map.cpp", "src/lighting/block_light_region.cpp"]
     fuzz_palette = fuzz_env.Program("bin/fuzz_palette", ["tools/fuzz_palette.cpp"] + fuzz_sources_common)
     fuzz_chunk = fuzz_env.Program("bin/fuzz_chunk_load", ["tools/fuzz_chunk_load.cpp"] + ["src/core/edit_map.cpp", "src/core/block_types.cpp"])
+    fuzz_recovery = fuzz_env.Program("bin/fuzz_chunk_recovery", ["tools/fuzz_chunk_recovery.cpp"] + ["src/core/edit_map.cpp", "src/core/block_types.cpp"])
     fuzz_light = fuzz_env.Program("bin/fuzz_light_propagation", ["tools/fuzz_light_propagation.cpp"] + fuzz_sources_common)
     fuzz_mesh_sources = fuzz_sources_common + [
         "src/mesh/mesh_builder.cpp",
@@ -168,4 +169,4 @@ if sys.platform != "win32":
         "src/mesh/smooth_lighting.cpp",
     ]
     fuzz_mesh = fuzz_env.Program("bin/fuzz_mesh_builder", ["tools/fuzz_mesh_builder.cpp"] + fuzz_mesh_sources)
-    Alias("fuzz", [fuzz_palette, fuzz_chunk, fuzz_light, fuzz_mesh])
+    Alias("fuzz", [fuzz_palette, fuzz_chunk, fuzz_recovery, fuzz_light, fuzz_mesh])

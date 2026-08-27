@@ -296,27 +296,44 @@ bool ChunkWorld::world_metadata_exists() const {
 bool ChunkWorld::load_edit_map_from_disk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, EditMap& out_edit_map, const BlockRegistry& registry) {
     String save_dir = "user://chunks/";
     String filename = save_dir + "chunk_" + String::num_int64(chunk_x) + "_" + String::num_int64(chunk_y) + "_" + String::num_int64(chunk_z) + ".edit";
+    String backup_filename = filename + ".bak";
 
     std::lock_guard<std::mutex> lock(file_access_mutex);
 
-    if (!FileAccess::file_exists(filename)) {
-        return false;
-    }
-
-    Ref<FileAccess> file = FileAccess::open(filename, FileAccess::READ);
-    if (!file.is_valid()) return false;
-
-    int64_t file_size = file->get_length();
-    if (file_size == 0) {
+    // Read a file's raw bytes into a buffer; returns empty for missing/empty files.
+    auto read_file = [](const String& path) -> std::vector<uint8_t> {
+        if (!FileAccess::file_exists(path)) return {};
+        Ref<FileAccess> file = FileAccess::open(path, FileAccess::READ);
+        if (!file.is_valid()) return {};
+        int64_t file_size = file->get_length();
+        if (file_size <= 0) {
+            file->close();
+            return {};
+        }
+        std::vector<uint8_t> data(static_cast<size_t>(file_size));
+        file->get_buffer(data.data(), file_size);
         file->close();
+        return data;
+    };
+
+    std::vector<uint8_t> primary = read_file(filename);
+    std::vector<uint8_t> backup = read_file(backup_filename);
+
+    if (primary.empty() && backup.empty()) {
         return false;
     }
 
-    std::vector<uint8_t> data(file_size);
-    file->get_buffer(data.data(), file_size);
-    file->close();
-
-    return deserialize_edit_map(data.data(), data.size(), out_edit_map, BlockRegistry::get_instance());
+    // Pure shared recovery decision (see core/edit_map.*): try .edit first, and
+    // on a missing/corrupt .edit fall back to .bak (the snapshot saved before the
+    // overwrite — this is what survives a crash between the two renames).
+    EditMapRecovery recovery = recover_edit_map(primary, backup, out_edit_map, registry);
+    if (recovery.recovered && recovery.used_backup) {
+        // Self-heal the crash state: promote the recovered backup back into the
+        // canonical .edit/.bak layout so the next load no longer trips over the
+        // missing/corrupt primary and no longer depends on the backup.
+        write_edit_map_file_locked(chunk_x, chunk_y, chunk_z, out_edit_map);
+    }
+    return recovery.recovered;
 }
 
 void ChunkWorld::save_edit_map_to_disk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, const EditMap& edit_map) {

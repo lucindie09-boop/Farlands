@@ -120,4 +120,18 @@ void apply_edit_map_to_chunk(const EditMap& edit_map, ChunkData& chunk_data) {
     chunk_data.compute_fully_solid();
 }
 
+EditMapRecovery recover_edit_map(const std::vector<uint8_t>& primary,
+                                 const std::vector<uint8_t>& backup,
+                                 EditMap& out_edit_map,
+                                 const BlockRegistry& registry) {
+    if (!primary.empty() && deserialize_edit_map(primary.data(), primary.size(), out_edit_map, registry)) {
+        return EditMapRecovery{true, false};
+    }
+    if (!backup.empty() && deserialize_edit_map(backup.data(), backup.size(), out_edit_map, registry)) {
+        return EditMapRecovery{true, true};
+    }
+    out_edit_map.clear();
+    return EditMapRecovery{false, false};
+}
+
 } // namespace VoxelEngine

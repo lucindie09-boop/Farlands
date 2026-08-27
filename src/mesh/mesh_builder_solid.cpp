@@ -1,4 +1,30 @@
 #include "mesh/mesh_builder.hpp"
+#include "core/block_types.hpp"
+
+namespace {
+
+int lod_representative_priority(VoxelEngine::BlockID block_id, const VoxelEngine::BlockRegistry& registry) {
+    if (block_id == VoxelEngine::BlockIDs::AIR) return 0;
+    const VoxelEngine::BlockType& block_type = registry.get_block_fast(block_id);
+    if (!VoxelEngine::HasProperty(block_type.properties, VoxelEngine::BlockProperty::Transparent)) {
+        return 3;
+    }
+    if (!VoxelEngine::HasProperty(block_type.properties, VoxelEngine::BlockProperty::Liquid)) {
+        return 2;
+    }
+    return 1;
+}
+
+void choose_lod_representative(VoxelEngine::BlockID sample, const VoxelEngine::BlockRegistry& registry,
+                               VoxelEngine::BlockID& representative, int& best_priority) {
+    const int priority = lod_representative_priority(sample, registry);
+    if (priority > best_priority) {
+        representative = sample;
+        best_priority = priority;
+    }
+}
+
+} // namespace
 
 namespace VoxelEngine {
 
@@ -44,12 +70,12 @@ void MeshBuilder::populate_solid_cache(const ChunkData& chunk, const BlockRegist
                     for (int32_t x = 1; x <= CHUNK_WIDTH; x += stride_xz_) {
                         int32_t x_src = x - 1;
                         BlockID representative = BlockIDs::AIR;
+                        int representative_priority = 0;
                         for (int32_t dz = 0; dz < stride_xz_; ++dz) {
                             for (int32_t dx = 0; dx < stride_xz_; ++dx) {
                                 BlockID sample = chunk.get_block_unsafe(x_src + dx, y, z_src + dz);
-                                if (sample != BlockIDs::AIR) {
-                                    if (representative == BlockIDs::AIR) representative = sample;
-                                }
+                                choose_lod_representative(sample, registry, representative,
+                                                          representative_priority);
                             }
                         }
                         // LOD meshing must be conservative: if any voxel in the coarse footprint
@@ -64,12 +90,22 @@ void MeshBuilder::populate_solid_cache(const ChunkData& chunk, const BlockRegist
         for (int32_t y = 0; y < CHUNK_HEIGHT; y++) {
             for (int32_t z = 1; z <= CHUNK_DEPTH; z++) {
                 int32_t z_src = ((z - 1) / stride_xz_) * stride_xz_;
-                solid_cache[y][z][0] = accessor.neg_x
-                    ? accessor.neg_x->get_block_unsafe(CHUNK_WIDTH - 1, y, z_src)
-                    : BlockIDs::AIR;
-                solid_cache[y][z][SC_W - 1] = accessor.pos_x
-                    ? accessor.pos_x->get_block_unsafe(0, y, z_src)
-                    : BlockIDs::AIR;
+                BlockID neg_x_rep = BlockIDs::AIR;
+                BlockID pos_x_rep = BlockIDs::AIR;
+                int neg_x_priority = 0;
+                int pos_x_priority = 0;
+                for (int32_t dz = 0; dz < stride_xz_ && z_src + dz < CHUNK_DEPTH; ++dz) {
+                    if (accessor.neg_x) {
+                        choose_lod_representative(accessor.neg_x->get_block_unsafe(CHUNK_WIDTH - 1, y, z_src + dz),
+                                                  registry, neg_x_rep, neg_x_priority);
+                    }
+                    if (accessor.pos_x) {
+                        choose_lod_representative(accessor.pos_x->get_block_unsafe(0, y, z_src + dz),
+                                                  registry, pos_x_rep, pos_x_priority);
+                    }
+                }
+                solid_cache[y][z][0] = neg_x_rep;
+                solid_cache[y][z][SC_W - 1] = pos_x_rep;
             }
         }
 
@@ -77,29 +113,63 @@ void MeshBuilder::populate_solid_cache(const ChunkData& chunk, const BlockRegist
         for (int32_t y = 0; y < CHUNK_HEIGHT; y++) {
             for (int32_t x = 1; x <= CHUNK_WIDTH; x++) {
                 int32_t x_src = ((x - 1) / stride_xz_) * stride_xz_;
-                solid_cache[y][0][x] = accessor.neg_z
-                    ? accessor.neg_z->get_block_unsafe(x_src, y, CHUNK_DEPTH - 1)
-                    : BlockIDs::AIR;
-                solid_cache[y][SC_D - 1][x] = accessor.pos_z
-                    ? accessor.pos_z->get_block_unsafe(x_src, y, 0)
-                    : BlockIDs::AIR;
+                BlockID neg_z_rep = BlockIDs::AIR;
+                BlockID pos_z_rep = BlockIDs::AIR;
+                int neg_z_priority = 0;
+                int pos_z_priority = 0;
+                for (int32_t dx = 0; dx < stride_xz_ && x_src + dx < CHUNK_WIDTH; ++dx) {
+                    if (accessor.neg_z) {
+                        choose_lod_representative(accessor.neg_z->get_block_unsafe(x_src + dx, y, CHUNK_DEPTH - 1),
+                                                  registry, neg_z_rep, neg_z_priority);
+                    }
+                    if (accessor.pos_z) {
+                        choose_lod_representative(accessor.pos_z->get_block_unsafe(x_src + dx, y, 0),
+                                                  registry, pos_z_rep, pos_z_priority);
+                    }
+                }
+                solid_cache[y][0][x] = neg_z_rep;
+                solid_cache[y][SC_D - 1][x] = pos_z_rep;
             }
         }
 
         // Four corner columns (x=0 or SC_W-1, z=0 or SC_D-1)
         for (int32_t y = 0; y < CHUNK_HEIGHT; y++) {
-            solid_cache[y][0][0] = accessor.neg_x_neg_z
-                ? accessor.neg_x_neg_z->get_block_unsafe(CHUNK_WIDTH - 1, y, CHUNK_DEPTH - 1)
-                : BlockIDs::AIR;
-            solid_cache[y][0][SC_W - 1] = accessor.pos_x_neg_z
-                ? accessor.pos_x_neg_z->get_block_unsafe(0, y, CHUNK_DEPTH - 1)
-                : BlockIDs::AIR;
-            solid_cache[y][SC_D - 1][0] = accessor.neg_x_pos_z
-                ? accessor.neg_x_pos_z->get_block_unsafe(CHUNK_WIDTH - 1, y, 0)
-                : BlockIDs::AIR;
-            solid_cache[y][SC_D - 1][SC_W - 1] = accessor.pos_x_pos_z
-                ? accessor.pos_x_pos_z->get_block_unsafe(0, y, 0)
-                : BlockIDs::AIR;
+            BlockID neg_x_neg_z_rep = BlockIDs::AIR;
+            BlockID pos_x_neg_z_rep = BlockIDs::AIR;
+            BlockID neg_x_pos_z_rep = BlockIDs::AIR;
+            BlockID pos_x_pos_z_rep = BlockIDs::AIR;
+            int neg_x_neg_z_priority = 0;
+            int pos_x_neg_z_priority = 0;
+            int neg_x_pos_z_priority = 0;
+            int pos_x_pos_z_priority = 0;
+            for (int32_t dz = 0; dz < stride_xz_; ++dz) {
+                const int32_t neg_z = CHUNK_DEPTH - stride_xz_ + dz;
+                const int32_t pos_z = dz;
+                for (int32_t dx = 0; dx < stride_xz_; ++dx) {
+                    const int32_t neg_x = CHUNK_WIDTH - stride_xz_ + dx;
+                    const int32_t pos_x = dx;
+                    if (accessor.neg_x_neg_z) {
+                        choose_lod_representative(accessor.neg_x_neg_z->get_block_unsafe(neg_x, y, neg_z),
+                                                  registry, neg_x_neg_z_rep, neg_x_neg_z_priority);
+                    }
+                    if (accessor.pos_x_neg_z) {
+                        choose_lod_representative(accessor.pos_x_neg_z->get_block_unsafe(pos_x, y, neg_z),
+                                                  registry, pos_x_neg_z_rep, pos_x_neg_z_priority);
+                    }
+                    if (accessor.neg_x_pos_z) {
+                        choose_lod_representative(accessor.neg_x_pos_z->get_block_unsafe(neg_x, y, pos_z),
+                                                  registry, neg_x_pos_z_rep, neg_x_pos_z_priority);
+                    }
+                    if (accessor.pos_x_pos_z) {
+                        choose_lod_representative(accessor.pos_x_pos_z->get_block_unsafe(pos_x, y, pos_z),
+                                                  registry, pos_x_pos_z_rep, pos_x_pos_z_priority);
+                    }
+                }
+            }
+            solid_cache[y][0][0] = neg_x_neg_z_rep;
+            solid_cache[y][0][SC_W - 1] = pos_x_neg_z_rep;
+            solid_cache[y][SC_D - 1][0] = neg_x_pos_z_rep;
+            solid_cache[y][SC_D - 1][SC_W - 1] = pos_x_pos_z_rep;
         }
     }
 }

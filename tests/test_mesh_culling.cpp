@@ -485,3 +485,48 @@ TEST_CASE("LOD boundary: mixed sand/water column at stride=4 boundary") {
     CHECK(lod_verts > 0);
     CHECK(has_vertex_at_x(mb.get_vertices(), static_cast<float>(CHUNK_WIDTH), 0.01f));
 }
+
+TEST_CASE("LOD boundary: mixed shoreline footprint still emits opaque face against water") {
+    BlockRegistry::get_instance().initialize_default_blocks();
+
+    ChunkData chunk;
+    chunk.fill_blocks(BlockIDs::AIR);
+    for (int y = 10; y < 14; ++y) {
+        for (int x = CHUNK_WIDTH - 4; x < CHUNK_WIDTH; ++x) {
+            for (int z = 0; z < 4; ++z) {
+                chunk.set_block(x, y, z, BlockIDs::WATER);
+            }
+        }
+        chunk.set_block(CHUNK_WIDTH - 1, y, 1, BlockIDs::SAND);
+    }
+    chunk.compute_section_flags();
+
+    ChunkData water_neighbor;
+    water_neighbor.fill_blocks(BlockIDs::AIR);
+    for (int y = 10; y < 14; ++y) {
+        for (int z = 0; z < 4; ++z) {
+            water_neighbor.set_block(0, y, z, BlockIDs::WATER);
+        }
+    }
+    water_neighbor.compute_section_flags();
+
+    MeshBuilder mb_full;
+    mb_full.set_greedy_enabled(true);
+    mb_full.set_detail_level(1.0f);
+    mb_full.build_mesh(chunk, nullptr, &water_neighbor);
+    const bool full_has_opaque_boundary =
+        has_vertex_at_x(mb_full.get_vertices(), static_cast<float>(CHUNK_WIDTH), 0.01f);
+    CHECK(full_has_opaque_boundary);
+
+    MeshBuilder mb_lod;
+    mb_lod.set_greedy_enabled(true);
+    mb_lod.set_detail_level(0.25f);
+    CHECK(mb_lod.get_stride_xz() == 4);
+    mb_lod.build_mesh(chunk, nullptr, &water_neighbor);
+    const bool lod_has_opaque_boundary =
+        has_vertex_at_x(mb_lod.get_vertices(), static_cast<float>(CHUNK_WIDTH), 0.01f);
+
+    INFO("full opaque boundary face: ", full_has_opaque_boundary,
+         " lod opaque boundary face: ", lod_has_opaque_boundary);
+    CHECK(lod_has_opaque_boundary);
+}

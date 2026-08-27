@@ -13,6 +13,7 @@
 [ext_resource type="Script" uid="uid://b3eee8l30k8qd" path="res://death_screen.gd" id="12_deathscreen"]
 [ext_resource type="Script" uid="uid://csimhtsb21lnr" path="res://crafting_table_menu.gd" id="13_tablemenu"]
 [ext_resource type="PackedScene" path="res://player.glb" id="14_playermodel"]
+[ext_resource type="Script" path="res://player_model.gd" id="15_playerskin"]
 
 [sub_resource type="Environment" id="Environment_uu6xs"]
 background_mode = 2
@@ -46,6 +47,7 @@ fov = 81.7
 
 [node name="PlayerModel" parent="Player" instance=ExtResource("14_playermodel")]
 transform = Transform3D(-0.05625, 0, 0, 0, 0.05625, 0, 0, 0, -0.05625, 0, 0, -0.0844)
+script = ExtResource("15_playerskin")
 
 [node name="HUD" type="CanvasLayer" parent="." unique_id=386916972]
 

@@ -307,10 +307,16 @@ void fragment(){
     final_color = clamp(final_color, 0.0, 1.0);
 
     // ========= WATER ALPHA =========
-    // Edge fade: shallow viewing angles (grazing) get more transparent.
-    // This hides the hard transition where water meets terrain at the surface.
+    // The view-angle fade softens the hard seam where water meets terrain near
+    // the shore. Applying it globally also hits far water viewed at the same
+    // grazing angle: looking across open water to the horizon gives
+    // abs(dot(view, normal)) -> 0, so distance makes water fade to fully
+    // transparent. Restrict the fade to near range and let far water keep its
+    // full opacity.
     float view_angle = abs(dot(normalize(view_direction), world_normal));
-    float edge_fade = smoothstep(0.0, water_edge_fade, view_angle);
+    float near_edge_fade = smoothstep(0.0, water_edge_fade, view_angle);
+    float distance_restore = smoothstep(8.0, 24.0, fog_distance);
+    float edge_fade = mix(near_edge_fade, 1.0, distance_restore);
 
     ALBEDO = final_color * water_color.rgb;
     ALPHA = water_color.a * edge_fade;

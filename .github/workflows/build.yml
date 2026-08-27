@@ -281,7 +281,12 @@ jobs:
 
       - name: Generate coverage report
         run: |
-          lcov --capture --directory . --output-file coverage.info --ignore-errors negative
+          # Capture only the project's own coverage data. A repo-wide
+          # --directory . also captures godot-cpp, whose runtime .gcda files may
+          # lack matching .gcno files (the coverage cache only glues our gcno in
+          # place), and lcov 2.x hard-errors on that mismatch. godot-cpp data is
+          # dropped from the report anyway.
+          lcov --capture --directory src --directory tests --output-file coverage.info --ignore-errors negative
           lcov --remove coverage.info '/usr/*' 'godot-cpp/*' --output-file coverage.info
           lcov --list coverage.info
 

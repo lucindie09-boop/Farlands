@@ -4,6 +4,8 @@
 #include "core/block_types.hpp"
 #include <array>
 #include <cstdint>
+#include <cstddef>
+#include <vector>
 
 namespace VoxelEngine {
 
@@ -57,6 +59,20 @@ private:
     int consume_from_slots(std::array<InventorySlot, HOTBAR_SIZE>& slots, BlockID block_id, int count);
     int consume_from_slots(std::array<InventorySlot, INVENTORY_SIZE>& slots, BlockID block_id, int count);
 };
+
+// -------------------------------------------------------------------------
+// INVE binary persistence (v1). Format:
+//   [magic:u32=0x494E5645 "INVE"][version:u32=1][hotbar HOTBAR_SIZE×2:u32]
+//   [inventory INVENTORY_SIZE×2:u32][selected_slot:u32]
+// All integers little-endian. Pure shared logic so ChunkWorld (Godot
+// FileAccess orchestration) and tests encode/decode identically.
+// -------------------------------------------------------------------------
+constexpr uint32_t INVENTORY_MAGIC = 0x494E5645; // "INVE"
+constexpr uint32_t INVENTORY_VERSION = 1;
+
+void serialize_inventory(const Inventory& inventory, std::vector<uint8_t>& out);
+
+bool deserialize_inventory(const uint8_t* data, size_t size, Inventory& out_inventory);
 
 } // namespace VoxelEngine
 

@@ -256,26 +256,10 @@ void ChunkWorld::save_inventory(const Inventory& inventory) {
     Ref<FileAccess> file = FileAccess::open(filename, FileAccess::WRITE);
     if (!file.is_valid()) return;
     
-    // Header: magic + version
-    file->store_32(0x494E5645); // "INVE" magic
-    file->store_32(1);           // inventory version
-    
-    // Save hotbar
-    for (int i = 0; i < Inventory::HOTBAR_SIZE; i++) {
-        const auto& slot = inventory.get_hotbar_slot(i);
-        file->store_32(slot.block_id);
-        file->store_32(slot.count);
-    }
-    
-    // Save main inventory
-    for (int i = 0; i < Inventory::INVENTORY_SIZE; i++) {
-        const auto& slot = inventory.get_inventory_slot(i);
-        file->store_32(slot.block_id);
-        file->store_32(slot.count);
-    }
-    
-    // Save selected slot
-    file->store_32(inventory.get_selected_slot());
+    // Pure INVE format encode (shared with tests)
+    std::vector<uint8_t> data;
+    serialize_inventory(inventory, data);
+    file->store_buffer(data.data(), static_cast<int64_t>(data.size()));
     
     file->close();
 }
@@ -290,42 +274,18 @@ bool ChunkWorld::load_inventory(Inventory& inventory) {
     Ref<FileAccess> file = FileAccess::open(filename, FileAccess::READ);
     if (!file.is_valid()) return false;
     
-    // Header: magic + version
-    uint32_t magic = file->get_32();
-    if (magic != 0x494E5645) { // "INVE"
+    int64_t file_size = file->get_length();
+    if (file_size <= 0) {
         file->close();
         return false;
     }
     
-    int32_t inv_version = file->get_32();
-    if (inv_version != 1) {
-        file->close();
-        return false;
-    }
-    
-    // Clear existing inventory
-    inventory.clear();
-    
-    // Load hotbar (restore exact slot positions)
-    for (int i = 0; i < Inventory::HOTBAR_SIZE; i++) {
-        BlockID block_id = file->get_32();
-        int count = file->get_32();
-        inventory.set_hotbar_slot(i, block_id, count);
-    }
-    
-    // Load main inventory (restore exact slot positions)
-    for (int i = 0; i < Inventory::INVENTORY_SIZE; i++) {
-        BlockID block_id = file->get_32();
-        int count = file->get_32();
-        inventory.set_inventory_slot(i, block_id, count);
-    }
-    
-    // Load selected slot
-    int selected_slot = file->get_32();
-    inventory.select_slot(selected_slot);
-    
+    std::vector<uint8_t> data(static_cast<size_t>(file_size));
+    file->get_buffer(data.data(), file_size);
     file->close();
-    return true;
+    
+    // Pure INVE format decode (shared with tests)
+    return deserialize_inventory(data.data(), data.size(), inventory);
 }
 
 bool ChunkWorld::world_metadata_exists() const {

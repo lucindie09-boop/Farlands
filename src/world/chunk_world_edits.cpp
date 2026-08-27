@@ -173,16 +173,14 @@ void ChunkWorld::add_block_edit(int32_t chunk_x, int32_t chunk_y, int32_t chunk_
 }
 
 void ChunkWorld::apply_edit_map_to_chunk(uint64_t key, int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, ChunkData& chunk_data) {
+    (void)chunk_x;
+    (void)chunk_y;
+    (void)chunk_z;
     std::lock_guard<std::mutex> lock(edit_maps_mutex);
     auto it = chunk_edit_maps.find(key);
     if (it != chunk_edit_maps.end()) {
-        for (const auto& entry : it->second.edits) {
-            int32_t lx, ly, lz;
-            EditMap::unpack_coord(entry.first, lx, ly, lz);
-            chunk_data.set_block(lx, ly, lz, entry.second);
-        }
-        chunk_data.compute_section_flags();
-        chunk_data.compute_fully_solid();
+        // Pure shared apply logic (see core/edit_map.*) — also exercised by tests.
+        VoxelEngine::apply_edit_map_to_chunk(it->second, chunk_data);
     }
 }
 

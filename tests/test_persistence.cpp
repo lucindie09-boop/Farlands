@@ -297,14 +297,10 @@ TEST_CASE("ChunkWorld edit persistence integration test") {
     bool load_ok = deserialize_edit_map(loaded_data.data(), loaded_data.size(), reloaded, BlockRegistry::get_instance());
     CHECK(load_ok);
     
-    // Apply to ChunkData (simulating ChunkWorld::apply_edit_map_to_chunk)
+    // Apply to ChunkData (shared with ChunkWorld::apply_edit_map_to_chunk)
     ChunkData chunk_data;
     chunk_data.clear();
-    for (const auto& entry : reloaded.edits) {
-        int32_t lx, ly, lz;
-        EditMap::unpack_coord(entry.first, lx, ly, lz);
-        chunk_data.set_block(lx, ly, lz, entry.second);
-    }
+    apply_edit_map_to_chunk(reloaded, chunk_data);
     
     // Verify the edits survived the full round-trip (the critical integration test)
     CHECK(chunk_data.get_block(10, 10, 10) == BlockIDs::STONE);

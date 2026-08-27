@@ -8,79 +8,20 @@
 #include "core/crafting.hpp"
 #include "worldgen/chunk_generator.hpp"
 #include <vector>
-#include <cstring>
 #include <unordered_map>
 #include <functional>
 
 using namespace VoxelEngine;
 
 // =========================================================================
-// Helpers: standalone inventory binary persistence (mirrors the production
-// INVE format from ChunkWorld::save/load_inventory without godot::FileAccess)
+// Note: the inventory INVE byte format (serialize_inventory /
+// deserialize_inventory) and the edit-map apply step (apply_edit_map_to_chunk)
+// live in src/core/ and are the SAME functions ChunkWorld uses. These tests
+// therefore exercise the production format and apply logic, not a mirrored
+// copy.
 // =========================================================================
 
 namespace {
-
-constexpr uint32_t INVE_MAGIC = 0x494E5645; // "INVE"
-constexpr uint32_t INVE_VERSION = 1;
-
-void serialize_inventory(const Inventory& inv, std::vector<uint8_t>& out) {
-    auto put32 = [&](uint32_t v) {
-        out.push_back(v & 0xFF);
-        out.push_back((v >> 8) & 0xFF);
-        out.push_back((v >> 16) & 0xFF);
-        out.push_back((v >> 24) & 0xFF);
-    };
-    put32(INVE_MAGIC);
-    put32(INVE_VERSION);
-    for (int i = 0; i < Inventory::HOTBAR_SIZE; ++i) {
-        const auto& s = inv.get_hotbar_slot(i);
-        put32(static_cast<uint32_t>(s.block_id));
-        put32(static_cast<uint32_t>(s.count));
-    }
-    for (int i = 0; i < Inventory::INVENTORY_SIZE; ++i) {
-        const auto& s = inv.get_inventory_slot(i);
-        put32(static_cast<uint32_t>(s.block_id));
-        put32(static_cast<uint32_t>(s.count));
-    }
-    put32(static_cast<uint32_t>(inv.get_selected_slot()));
-}
-
-bool deserialize_inventory(const uint8_t* data, size_t size, Inventory& inv) {
-    if (size < 12) return false;
-    auto get32 = [&](size_t offset) -> uint32_t {
-        return static_cast<uint32_t>(data[offset])
-             | (static_cast<uint32_t>(data[offset + 1]) << 8)
-             | (static_cast<uint32_t>(data[offset + 2]) << 16)
-             | (static_cast<uint32_t>(data[offset + 3]) << 24);
-    };
-    if (get32(0) != INVE_MAGIC) return false;
-    if (get32(4) != INVE_VERSION) return false;
-    size_t expected = 8 + (Inventory::HOTBAR_SIZE + Inventory::INVENTORY_SIZE + 1) * 4;
-    if (size < expected) return false;
-
-    inv.clear();
-    size_t pos = 8;
-    for (int i = 0; i < Inventory::HOTBAR_SIZE; ++i) {
-        inv.set_hotbar_slot(i, static_cast<BlockID>(get32(pos)), static_cast<int>(get32(pos + 4)));
-        pos += 8;
-    }
-    for (int i = 0; i < Inventory::INVENTORY_SIZE; ++i) {
-        inv.set_inventory_slot(i, static_cast<BlockID>(get32(pos)), static_cast<int>(get32(pos + 4)));
-        pos += 8;
-    }
-    inv.select_slot(static_cast<int>(get32(pos)));
-    return true;
-}
-
-// Helper: apply an EditMap to a ChunkData (mirrors ChunkWorld::apply_edit_map_to_chunk)
-void apply_edit_map(EditMap& edit_map, ChunkData& chunk) {
-    for (const auto& entry : edit_map.edits) {
-        int32_t lx, ly, lz;
-        EditMap::unpack_coord(entry.first, lx, ly, lz);
-        chunk.set_block(lx, ly, lz, entry.second);
-    }
-}
 
 // Helper: create a shaped recipe
 CraftingRecipe shaped_recipe(std::vector<std::vector<BlockID>> rows,
@@ -235,7 +176,7 @@ TEST_CASE("Full play session: generate, break, collect, place, craft, save, relo
     gen.generate_chunk(reloaded_chunk, 0, 0, 0, no_cross, false);
 
     // Apply reloaded edits (simulating ChunkWorld::apply_edit_map_to_chunk)
-    apply_edit_map(reloaded_edits, reloaded_chunk);
+    apply_edit_map_to_chunk(reloaded_edits, reloaded_chunk);
 
     // -- Phase 8: Verify everything survived the full loop --
     SUBCASE("chunk block state persisted correctly") {
@@ -323,7 +264,7 @@ TEST_CASE("Multi-chunk play session: cross-chunk edits, save, reload, verify") {
             bool ok = deserialize_edit_map(data[cx][cz].data(), data[cx][cz].size(),
                                            re, BlockRegistry::get_instance());
             CHECK(ok);
-            apply_edit_map(re, reloaded[cx][cz]);
+            apply_edit_map_to_chunk(re, reloaded[cx][cz]);
         }
 
     SUBCASE("break at chunk (0,0) boundary persisted") {
@@ -387,7 +328,7 @@ TEST_CASE("Cumulative edits: edit, save, reload, more edits, save, reload, verif
     ChunkData chunk2;
     chunk2.clear();
     gen.generate_chunk(chunk2, 0, 0, 0, no_cross, false);
-    apply_edit_map(loaded1, chunk2);
+    apply_edit_map_to_chunk(loaded1, chunk2);
 
     CHECK(chunk2.get_block(10, 20, 10) == sand);
     CHECK(chunk2.get_block(15, 25, 15) == BlockIDs::AIR);
@@ -411,7 +352,7 @@ TEST_CASE("Cumulative edits: edit, save, reload, more edits, save, reload, verif
     ChunkData chunk3;
     chunk3.clear();
     gen.generate_chunk(chunk3, 0, 0, 0, no_cross, false);
-    apply_edit_map(loaded2, chunk3);
+    apply_edit_map_to_chunk(loaded2, chunk3);
 
     SUBCASE("all round-1 edits survive into round 2") {
         CHECK(chunk3.get_block(10, 20, 10) == sand);
@@ -562,7 +503,7 @@ TEST_CASE("Crafting session: gather, craft, place, save, reload, verify") {
     ChunkData reloaded;
     reloaded.clear();
     gen.generate_chunk(reloaded, 0, 0, 0, no_cross, false);
-    apply_edit_map(loaded_edits, reloaded);
+    apply_edit_map_to_chunk(loaded_edits, reloaded);
 
     SUBCASE("crafted blocks placed in world survived") {
         CHECK(reloaded.get_block(16, 31, 16) == stone_block);
@@ -641,7 +582,7 @@ TEST_CASE("Break and replace same block: last-write-wins through save/load") {
     ChunkData reloaded;
     reloaded.clear();
     gen.generate_chunk(reloaded, 0, 0, 0, no_cross, false);
-    apply_edit_map(loaded, reloaded);
+    apply_edit_map_to_chunk(loaded, reloaded);
 
     CHECK(reloaded.get_block(16, 30, 16) == BlockIDs::AIR);
 }
@@ -684,7 +625,7 @@ TEST_CASE("Edge-of-chunk edits don't corrupt neighbors through save/load") {
     ChunkData reloaded;
     reloaded.clear();
     gen.generate_chunk(reloaded, 0, 0, 0, no_cross, false);
-    apply_edit_map(loaded, reloaded);
+    apply_edit_map_to_chunk(loaded, reloaded);
 
     SUBCASE("edited block changed") {
         CHECK(reloaded.get_block(31, 30, 31) == sand);

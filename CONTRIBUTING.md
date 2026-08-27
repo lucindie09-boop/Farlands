@@ -62,7 +62,7 @@ The chunk map uses 64 shards with `shared_mutex` per shard. Violations cause dea
 - **Save format v3**: `[width:u32][height:u32][depth:u32][version:u32=3][crc32:u32][RLE body...]`
 - **Atomic writes**: `.tmp` → backup existing to `.bak` → rename to target
 - **CRC recovery**: On mismatch, try `.bak` fallback; delete if both corrupt
-- Pure decode logic lives in `src/core/chunk_persistence.hpp` (testable standalone). Godot file orchestration stays in `chunk_world.cpp`.
+- Pure persistence logic lives in `src/core/` and is shared by tests and `ChunkWorld`: chunk decode in `chunk_persistence.hpp`, the inventory INVE byte format in `inventory.hpp`, and edit-map serialize/deserialize/apply in `edit_map.hpp`. Never re-implement these formats in tests — call the core functions. Godot file orchestration stays in `chunk_world.cpp`.
 
 ### Testing
 

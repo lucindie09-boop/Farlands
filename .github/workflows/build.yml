@@ -65,7 +65,7 @@ jobs:
         if: matrix.tsan == 1
         timeout-minutes: 10
         env:
-          TSAN_OPTIONS: suppressions=tsan_suppressions.txt halt_on_error=1
+          TSAN_OPTIONS: suppressions=tsan_suppressions.txt halt_on_error=1 second_deadlock_stack=1
         run: ${{ matrix.test_bin }}
 
       - name: Run tests (ASan+UBSan)

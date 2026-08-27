@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cstring>
 #include <atomic>
+#include "core/lock_order_checker.hpp"
 
 namespace VoxelEngine {
 
@@ -35,16 +36,39 @@ public:
     class [[nodiscard]] ShardLock {
         friend class ChunkMap;
         std::vector<std::shared_lock<std::shared_mutex>> locks_;
+#ifdef DEBUG_ENABLED
+        std::vector<size_t> shard_indices_;
+#endif
         ShardLock() = default;
     public:
         ShardLock(ShardLock&&) = default;
+#ifndef DEBUG_ENABLED
         ShardLock& operator=(ShardLock&&) = default;
+#else
+        ShardLock& operator=(ShardLock&& other) noexcept {
+            if (this != &other) {
+                for (auto si : shard_indices_) LOCK_ORDER_RELEASE(si);
+                locks_ = std::move(other.locks_);
+                shard_indices_ = std::move(other.shard_indices_);
+            }
+            return *this;
+        }
+#endif
+        ~ShardLock() {
+#ifdef DEBUG_ENABLED
+            for (auto si : shard_indices_) LOCK_ORDER_RELEASE(si);
+#endif
+        }
         // Releases all held shard locks. Callers that re-lock periodically
         // (e.g. a long raycast refreshing its all-shard lock) MUST release
         // before re-acquiring: constructing a fresh lock_all() while the
         // previous one is still held is a recursive shared acquisition, which
         // SRW blocks forever once a writer is queued on any shard.
         void reset() noexcept {
+#ifdef DEBUG_ENABLED
+            for (auto si : shard_indices_) LOCK_ORDER_RELEASE(si);
+            shard_indices_.clear();
+#endif
             locks_.clear();
         }
     };
@@ -53,10 +77,29 @@ public:
     class [[nodiscard]] ExclusiveShardLock {
         friend class ChunkMap;
         std::vector<std::unique_lock<std::shared_mutex>> locks_;
+#ifdef DEBUG_ENABLED
+        std::vector<size_t> shard_indices_;
+#endif
         ExclusiveShardLock() = default;
     public:
         ExclusiveShardLock(ExclusiveShardLock&&) = default;
+#ifndef DEBUG_ENABLED
         ExclusiveShardLock& operator=(ExclusiveShardLock&&) = default;
+#else
+        ExclusiveShardLock& operator=(ExclusiveShardLock&& other) noexcept {
+            if (this != &other) {
+                for (auto si : shard_indices_) LOCK_ORDER_RELEASE(si);
+                locks_ = std::move(other.locks_);
+                shard_indices_ = std::move(other.shard_indices_);
+            }
+            return *this;
+        }
+#endif
+        ~ExclusiveShardLock() {
+#ifdef DEBUG_ENABLED
+            for (auto si : shard_indices_) LOCK_ORDER_RELEASE(si);
+#endif
+        }
     };
 
     [[nodiscard]] inline uint64_t get_chunk_key(int32_t x, int32_t y, int32_t z) const noexcept {
@@ -90,7 +133,12 @@ public:
 
     ShardLock lock_chunk(int32_t cx, int32_t cy, int32_t cz) const {
         ShardLock sl;
-        sl.locks_.emplace_back(shards_[key_to_shard(get_chunk_key(cx, cy, cz))].mutex);
+        size_t si = key_to_shard(get_chunk_key(cx, cy, cz));
+        sl.locks_.emplace_back(shards_[si].mutex);
+        LOCK_ORDER_ACQUIRE(si);
+#ifdef DEBUG_ENABLED
+        sl.shard_indices_.push_back(si);
+#endif
         return sl;
     }
 
@@ -100,8 +148,15 @@ public:
         bool seen[kNumShards] = {};
         for (auto k : keys) seen[key_to_shard(k)] = true;
         sl.locks_.reserve(kNumShards);
-        for (size_t i = 0; i < kNumShards; ++i)
-            if (seen[i]) sl.locks_.emplace_back(shards_[i].mutex);
+        for (size_t i = 0; i < kNumShards; ++i) {
+            if (seen[i]) {
+                sl.locks_.emplace_back(shards_[i].mutex);
+                LOCK_ORDER_ACQUIRE(i);
+#ifdef DEBUG_ENABLED
+                sl.shard_indices_.push_back(i);
+#endif
+            }
+        }
         return sl;
     }
 
@@ -119,6 +174,10 @@ public:
         for (size_t i = 0; i < kNumShards; ++i) {
             if (seen[i]) {
                 sl.locks_.emplace_back(shards_[i].mutex);
+                LOCK_ORDER_ACQUIRE(i);
+#ifdef DEBUG_ENABLED
+                sl.shard_indices_.push_back(i);
+#endif
             }
         }
         return sl;
@@ -130,8 +189,15 @@ public:
         bool seen[kNumShards] = {};
         for (auto k : keys) seen[key_to_shard(k)] = true;
         sl.locks_.reserve(kNumShards);
-        for (size_t i = 0; i < kNumShards; ++i)
-            if (seen[i]) sl.locks_.emplace_back(shards_[i].mutex);
+        for (size_t i = 0; i < kNumShards; ++i) {
+            if (seen[i]) {
+                sl.locks_.emplace_back(shards_[i].mutex);
+                LOCK_ORDER_ACQUIRE(i);
+#ifdef DEBUG_ENABLED
+                sl.shard_indices_.push_back(i);
+#endif
+            }
+        }
         return sl;
     }
 
@@ -149,6 +215,10 @@ public:
         for (size_t i = 0; i < kNumShards; ++i) {
             if (seen[i]) {
                 sl.locks_.emplace_back(shards_[i].mutex);
+                LOCK_ORDER_ACQUIRE(i);
+#ifdef DEBUG_ENABLED
+                sl.shard_indices_.push_back(i);
+#endif
             }
         }
         return sl;
@@ -157,16 +227,26 @@ public:
     ShardLock lock_all() const {
         ShardLock sl;
         sl.locks_.reserve(kNumShards);
-        for (auto& s : shards_)
-            sl.locks_.emplace_back(s.mutex);
+        for (size_t i = 0; i < kNumShards; ++i) {
+            sl.locks_.emplace_back(shards_[i].mutex);
+            LOCK_ORDER_ACQUIRE(i);
+#ifdef DEBUG_ENABLED
+            sl.shard_indices_.push_back(i);
+#endif
+        }
         return sl;
     }
 
     ExclusiveShardLock lock_all_exclusive() const {
         ExclusiveShardLock sl;
         sl.locks_.reserve(kNumShards);
-        for (auto& s : shards_)
-            sl.locks_.emplace_back(s.mutex);
+        for (size_t i = 0; i < kNumShards; ++i) {
+            sl.locks_.emplace_back(shards_[i].mutex);
+            LOCK_ORDER_ACQUIRE(i);
+#ifdef DEBUG_ENABLED
+            sl.shard_indices_.push_back(i);
+#endif
+        }
         return sl;
     }
 

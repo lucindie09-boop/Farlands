@@ -3,7 +3,6 @@
 #include "mesh/mesh_manager.hpp"
 #include "lighting/light_propagator.hpp"
 #include "core/block_types.hpp"
-#include <godot_cpp/core/class_db.hpp>
 #include <algorithm>
 #include <vector>
 #include <cmath>
@@ -62,11 +61,6 @@ BlockEditor::BlockEditor(ChunkWorld* cw, MeshManager* mm, LightPropagator* lp)
 
 int BlockEditor::query_block(int32_t world_x, int32_t world_y, int32_t world_z) const {
     return chunk_world->get_block_world(world_x, world_y, world_z);
-}
-
-String BlockEditor::get_block_name(int block_id) const {
-    const auto& block = BlockRegistry::get_instance().get_block(static_cast<BlockID>(block_id));
-    return String(block.name);
 }
 
 void BlockEditor::place_block(int32_t world_x, int32_t world_y, int32_t world_z, BlockID new_block) {
@@ -202,28 +196,10 @@ void BlockEditor::place_block(int32_t world_x, int32_t world_y, int32_t world_z,
     }
 }
 
-Dictionary BlockEditor::raycast(godot::Node* chunk_manager, const NodePath& player_path, double max_distance) const {
-    Dictionary result;
-    result["success"] = false;
-
-    if (player_path.is_empty()) return result;
-    Node* player_node = chunk_manager->get_node_or_null(player_path);
-    if (!player_node) return result;
-    Node3D* player = Object::cast_to<Node3D>(player_node);
-    if (!player) return result;
-
-    Camera3D* camera = nullptr;
-    if (!player_path.is_empty()) {
-        if (player_path != last_camera_path) {
-            last_camera_path = player_path;
-            cached_camera = Object::cast_to<Camera3D>(player->get_node_or_null(NodePath("Camera3D")));
-        }
-        camera = cached_camera;
-    }
-    if (!camera) return result;
-
-    Vector3 ray_origin = camera->get_global_position();
-    Vector3 ray_dir = -camera->get_global_transform().basis.get_column(2).normalized();
+RaycastResult BlockEditor::raycast_from_ray(const Vector3& ray_origin,
+                                              const Vector3& ray_dir,
+                                              double max_distance) const {
+    RaycastResult result;
 
     int32_t current_x = static_cast<int32_t>(std::floor(ray_origin.x));
     int32_t current_y = static_cast<int32_t>(std::floor(ray_origin.y));
@@ -295,12 +271,12 @@ Dictionary BlockEditor::raycast(godot::Node* chunk_manager, const NodePath& play
                     double fz = (face_normal.z > 0) ? current_z + 1 : current_z;
                     t_face = (fz - ray_origin.z) / ray_dir.z;
                 }
-                result["success"] = true;
-                result["position"] = Vector3(current_x, current_y, current_z);
-                result["place_position"] = Vector3(prev_x, prev_y, prev_z);
-                result["block_id"] = static_cast<int>(bid);
-                result["hit_normal"] = face_normal;
-                result["hit_point"] = ray_origin + ray_dir * t_face;
+                result.success = true;
+                result.position = Vector3(current_x, current_y, current_z);
+                result.place_position = Vector3(prev_x, prev_y, prev_z);
+                result.block_id = static_cast<int>(bid);
+                result.hit_normal = face_normal;
+                result.hit_point = ray_origin + ray_dir * t_face;
                 return result;
             }
             // Non-full block: test ray against each selection_box
@@ -319,12 +295,12 @@ Dictionary BlockEditor::raycast(godot::Node* chunk_manager, const NodePath& play
                 }
             }
             if (hit_any) {
-                result["success"] = true;
-                result["position"] = Vector3(current_x, current_y, current_z);
-                result["place_position"] = Vector3(current_x, current_y, current_z) + hit_normal;
-                result["block_id"] = static_cast<int>(bid);
-                result["hit_normal"] = hit_normal;
-                result["hit_point"] = ray_origin + ray_dir * closest_t;
+                result.success = true;
+                result.position = Vector3(current_x, current_y, current_z);
+                result.place_position = Vector3(current_x, current_y, current_z) + hit_normal;
+                result.block_id = static_cast<int>(bid);
+                result.hit_normal = hit_normal;
+                result.hit_point = ray_origin + ray_dir * closest_t;
                 return result;
             }
             // No AABB hit — continue DDA to find next block

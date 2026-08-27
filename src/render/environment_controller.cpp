@@ -21,61 +21,6 @@ void EnvironmentController::update(double delta, double runtime_elapsed, const g
     );
 }
 
-void EnvironmentController::update_environment(godot::Node* parent) {
-    if (!parent) return;
-    if (parent != cached_parent || !cached_world_env) {
-        cached_parent = parent;
-        cached_world_env = godot::Object::cast_to<godot::WorldEnvironment>(
-            parent->get_node_or_null(godot::NodePath("WorldEnvironment"))
-        );
-        cached_sun_light = godot::Object::cast_to<godot::DirectionalLight3D>(
-            parent->get_node_or_null(godot::NodePath("SunLight"))
-        );
-    }
-    if (!cached_world_env) return;
-    godot::Ref<godot::Environment> env = cached_world_env->get_environment();
-    if (!env.is_valid()) return;
-
-    const float blend = day_night.get_blend();
-    const float elevation = day_night.get_sun_elevation();
-    const godot::Color horizon_color = day_night.get_horizon_color();
-    const godot::Color sun_color = day_night.get_sun_color();
-    const godot::Vector3 sun_dir = day_night.get_sun_direction();
-
-    sky_controller.update(env.ptr(), blend, static_cast<float>(day_night.get_raw_time()),
-                          sun_color, sun_dir,
-                          day_night.get_moon_phase(), 1.0f, day_night.get_sky_turbidity(), 1.0f,
-                          fog_controller.get_fog_scatter(blend, elevation));
-    fog_controller.update(env.ptr(), blend, horizon_color, fog_controller.get_fog_color(blend, horizon_color, elevation, sun_color, day_night.get_sky_turbidity()), fog_controller.get_fog_scatter(blend, elevation));
-
-    env->set_ambient_source(godot::Environment::AMBIENT_SOURCE_SKY);
-    env->set_ambient_light_color(day_night.get_ambient_color());
-    env->set_ambient_light_energy(day_night.get_ambient_intensity());
-
-    if (cached_sun_light) {
-        godot::Vector3 light_pos = cached_sun_light->get_global_position();
-        cached_sun_light->look_at(light_pos - sun_dir, godot::Vector3(0, 0, 1));
-
-        float sun_visible = std::clamp((elevation + 0.08f) / 0.16f, 0.0f, 1.0f);
-        float moon_visible = (1.0f - sun_visible) * (1.0f - blend);
-
-        if (sun_visible > 0.0f) {
-            cached_sun_light->set_color(sun_color);
-            cached_sun_light->set_param(godot::Light3D::PARAM_ENERGY, 3.0f * sun_visible * day_night.get_day_intensity());
-            cached_sun_light->set_shadow(false);
-            cached_sun_light->set_sky_mode(godot::DirectionalLight3D::SKY_MODE_LIGHT_ONLY);
-        } else if (moon_visible > 0.0f) {
-            cached_sun_light->set_color(godot::Color(1.0f, 1.0f, 1.0f));
-            cached_sun_light->set_param(godot::Light3D::PARAM_ENERGY, 0.25f * moon_visible * day_night.get_night_intensity());
-            cached_sun_light->set_shadow(false);
-            cached_sun_light->set_sky_mode(godot::DirectionalLight3D::SKY_MODE_LIGHT_ONLY);
-        } else {
-            cached_sun_light->set_param(godot::Light3D::PARAM_ENERGY, 0.0f);
-            cached_sun_light->set_shadow(false);
-        }
-    }
-}
-
 void EnvironmentController::set_mipmaps_enabled(bool enabled) {
     if (mipmaps_enabled == enabled) return;
     mipmaps_enabled = enabled;

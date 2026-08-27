@@ -6,10 +6,7 @@
 #include <godot_cpp/variant/vector3.hpp>
 #include <godot_cpp/variant/plane.hpp>
 #include <godot_cpp/variant/color.hpp>
-#include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/aabb.hpp>
-#include <godot_cpp/variant/string.hpp>
-#include <godot_cpp/variant/node_path.hpp>
 
 #include "core/chunk_types.hpp"
 #include "core/inventory.hpp"
@@ -24,10 +21,6 @@
 #include "lighting/light_propagator.hpp"
 #include "engine/collision_resolver.hpp"
 
-namespace godot {
-class Node;
-}
-
 namespace VoxelEngine {
 
 class ThreadPool;
@@ -41,18 +34,16 @@ public:
     VoxelEngineController& operator=(const VoxelEngineController&) = delete;
 
     void initialize();
-    void shutdown(godot::Node* parent);
+    void shutdown();
     void reset_runtime_state(bool restart_thread_pool);
     void set_owner(godot::Node* node);
 
-    void update(double delta, bool is_editor, const godot::Vector3& player_position, godot::Node* owner);
+    void update(double delta, bool is_editor, const godot::Vector3& player_position);
     void update_frustum(const std::array<godot::Plane, 6>& planes);
     void update_chunks(bool is_editor);
 
     void set_block_world(int32_t world_x, int32_t world_y, int32_t world_z, int block_id);
     int  get_block_world(int32_t world_x, int32_t world_y, int32_t world_z);
-    godot::String get_block_name(int block_id);
-    godot::Dictionary raycast_from_camera(godot::Node* owner, const godot::NodePath& player_path, double max_distance);
 
     bool is_aabb_solid(const godot::AABB& aabb) {
         return collision_resolver.is_aabb_solid(aabb);
@@ -62,9 +53,8 @@ public:
         return collision_resolver.resolve(position, motion, size);
     }
 
-    void set_chunk_scenario(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, godot::Node* owner);
-    void clear_editor_chunks(godot::Node* parent);
     void unload_chunk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z);
+    void clear_editor_chunks();
 
     void generate_chunk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z);
 
@@ -161,6 +151,7 @@ public:
     ChunkWorld& get_chunk_world() { return chunk_world; }
     EnvironmentController& get_environment_controller() { return environment_controller; }
     CollisionResolver& get_collision_resolver() { return collision_resolver; }
+    BlockEditor& get_block_editor() { return block_editor; }
 
     // Loaded once at startup from res://data/recipes.json.
     const RecipeBook& get_recipe_book() const { return recipe_book; }

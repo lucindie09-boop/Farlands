@@ -89,7 +89,7 @@ A Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked streamin
 - Config threads to generation workers via `WorldUpdater` → `ChunkWorld::generate_chunk` (captured per call) → the `thread_local ChunkGenerator`
 
 ### Testing & CI
-- **186 test cases / 157,120 assertions** across 24 doctest files
+- **225 test cases / 163,385 assertions** across 24 doctest files
 - **Cross-platform CI**: 5-leg matrix (ubuntu plain/TSan/ASan+UBSan, macos plain, windows plain) plus fuzz, static-analysis, and coverage jobs
 - **Concurrency tests**: 19 tests for shard locking, deadlock prevention, PaletteStorage, and cross-chunk patterns
 - **Integration soak tests**: Concurrent pipeline simulation with Phase 4 unload to exercise unload vs active work races

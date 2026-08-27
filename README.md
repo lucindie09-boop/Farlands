@@ -43,6 +43,7 @@ A Minecraft-style voxel engine built in Godot 4 with a custom C++ GDExtension. P
 | Performance timers | `src/core/performance_timer.hpp` | Scoped frame-by-frame profiling |
 | Inventory | `src/core/inventory.hpp/cpp` | 9-slot hotbar + 27-slot main storage, 64 stack limit, add/consume/can_add logic, persisted to `user://chunks/inventory.bin` |
 | Crafting | `src/core/crafting.hpp/cpp` + `data/recipes.json` | RecipeBook with shapeless (multiset) and shaped (trim + mirror) matching over the 2×2 grid; atomic all-or-nothing crafting; recipes loaded from JSON at startup |
+| Crafting table UI | `crafting_table_menu.gd` | 3×3 crafting table menu: a single atlas (`textures/gui/crafting_table.png`) carries both the 36-slot inventory and the 3×3 grid; opens when the player right-clicks a `crafting_table` block (on the `crafting_table_used` signal), closes on Escape/E, with availability-gated recipe preview and atomic craft wired to the C++ RecipeBook |
 | Inventory UI | `inventory.gd` / `hotbar.gd` | GDScript `Control` overlays: E toggles the full inventory, mouse wheel cycles the hotbar, click-to-hold / drag-drop stack movement, pixel-color-keyed hover/selection highlights, live 2×2 crafting grid + output preview wired to the C++ RecipeBook |
 | Healthbar | `healthbar.gd` | 10 hearts (`heart_full/half/empty.png`) above the hotbar's left edge, spanning ~40% of its width; full/half/empty sprites resolved from the half-heart health polled off `PlayerController.get_health()` |
 | Death screen | `death_screen.gd` | "You died!" overlay with a Respawn button; shown on the `died` signal (health reaching 0), hidden on `respawned` — respawn restores full health at the game-start spawn point |
@@ -144,7 +145,7 @@ CI (`.github/workflows/build.yml`) runs on every push and pull request:
 - **Static-analysis job** — clang-tidy across all of `src/` with `bugprone-*`, `concurrency-*`, and `performance-*` checks; findings in project sources fail the job.
 - **Coverage job** — lcov coverage report uploaded to Codecov.
 
-The project has **189 test cases / 157,120 assertions** across 24 doctest files, including 19 concurrency tests for shard locking, deadlock prevention, and PaletteStorage.
+The project has **225 test cases / 163,385 assertions** across 24 doctest files, including 19 concurrency tests for shard locking, deadlock prevention, and PaletteStorage.
 
 ## Running
 

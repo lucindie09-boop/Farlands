@@ -254,6 +254,61 @@ void Inventory::clear() {
     selected_hotbar_slot_ = 0;
 }
 
+void serialize_inventory(const Inventory& inventory, std::vector<uint8_t>& out) {
+    auto put32 = [&out](uint32_t v) {
+        out.push_back(v & 0xFF);
+        out.push_back((v >> 8) & 0xFF);
+        out.push_back((v >> 16) & 0xFF);
+        out.push_back((v >> 24) & 0xFF);
+    };
+
+    out.clear();
+    out.reserve(8 + (Inventory::HOTBAR_SIZE + Inventory::INVENTORY_SIZE + 1) * 4);
+
+    put32(INVENTORY_MAGIC);
+    put32(INVENTORY_VERSION);
+
+    for (int i = 0; i < Inventory::HOTBAR_SIZE; i++) {
+        const InventorySlot& slot = inventory.get_hotbar_slot(i);
+        put32(static_cast<uint32_t>(slot.block_id));
+        put32(static_cast<uint32_t>(slot.count));
+    }
+    for (int i = 0; i < Inventory::INVENTORY_SIZE; i++) {
+        const InventorySlot& slot = inventory.get_inventory_slot(i);
+        put32(static_cast<uint32_t>(slot.block_id));
+        put32(static_cast<uint32_t>(slot.count));
+    }
+
+    put32(static_cast<uint32_t>(inventory.get_selected_slot()));
+}
+
+bool deserialize_inventory(const uint8_t* data, size_t size, Inventory& out_inventory) {
+    auto get32 = [](const uint8_t* d, size_t offset) -> uint32_t {
+        return static_cast<uint32_t>(d[offset])
+             | (static_cast<uint32_t>(d[offset + 1]) << 8)
+             | (static_cast<uint32_t>(d[offset + 2]) << 16)
+             | (static_cast<uint32_t>(d[offset + 3]) << 24);
+    };
+
+    size_t expected = 8 + (Inventory::HOTBAR_SIZE + Inventory::INVENTORY_SIZE + 1) * 4;
+    if (data == nullptr || size < expected) return false;
+    if (get32(data, 0) != INVENTORY_MAGIC) return false;
+    if (get32(data, 4) != INVENTORY_VERSION) return false;
+
+    out_inventory.clear();
+    size_t pos = 8;
+    for (int i = 0; i < Inventory::HOTBAR_SIZE; i++) {
+        out_inventory.set_hotbar_slot(i, static_cast<BlockID>(get32(data, pos)), static_cast<int>(get32(data, pos + 4)));
+        pos += 8;
+    }
+    for (int i = 0; i < Inventory::INVENTORY_SIZE; i++) {
+        out_inventory.set_inventory_slot(i, static_cast<BlockID>(get32(data, pos)), static_cast<int>(get32(data, pos + 4)));
+        pos += 8;
+    }
+    out_inventory.select_slot(static_cast<int>(get32(data, pos)));
+    return true;
+}
+
 } // namespace VoxelEngine
 
 

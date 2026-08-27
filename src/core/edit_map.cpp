@@ -1,6 +1,7 @@
 #include "core/edit_map.hpp"
 #include "core/crc32.hpp"
 #include "core/block_types.hpp"
+#include "core/chunk_data.hpp"
 #include <cstring>
 
 namespace VoxelEngine {
@@ -107,6 +108,16 @@ bool deserialize_edit_map(const uint8_t* data, size_t size, EditMap& out_edit_ma
     }
 
     return true;
+}
+
+void apply_edit_map_to_chunk(const EditMap& edit_map, ChunkData& chunk_data) {
+    for (const auto& entry : edit_map.edits) {
+        int32_t lx, ly, lz;
+        EditMap::unpack_coord(entry.first, lx, ly, lz);
+        chunk_data.set_block(lx, ly, lz, entry.second);
+    }
+    chunk_data.compute_section_flags();
+    chunk_data.compute_fully_solid();
 }
 
 } // namespace VoxelEngine

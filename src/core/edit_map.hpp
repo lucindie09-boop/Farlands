@@ -92,6 +92,14 @@ void serialize_edit_map(const EditMap& edit_map, std::vector<uint8_t>& out);
 // block IDs not registered in the current session (cross-version save safety)
 bool deserialize_edit_map(const uint8_t* data, size_t size, EditMap& out_edit_map, const BlockRegistry& registry);
 
+class ChunkData;
+
+// Apply every entry in an edit map to a chunk (last-write-wins over generated
+// terrain) and recompute section flags / fully-solid masks. Pure shared logic
+// so ChunkWorld::apply_edit_map_to_chunk (which owns the map lookup + mutex)
+// and tests apply edits identically.
+void apply_edit_map_to_chunk(const EditMap& edit_map, ChunkData& chunk_data);
+
 } // namespace VoxelEngine
 
 #endif // FARLANDS_EDIT_MAP_HPP

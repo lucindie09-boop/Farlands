@@ -55,6 +55,44 @@ This document describes the current, stable architecture of the voxel engine. Fo
 
 ## Chunk Lifecycle
 
+### Frame Pipeline
+
+Every frame the main thread walks a wall-clock-budgeted pipeline that turns a missing chunk into on-GPU geometry (Godot `_process` → `VoxelEngineController` → `WorldUpdater::update`). Heavy stages are handed to the shared worker pool; the `ChunkScheduler` queues between stages decouple them, so a slow worker never blocks a frame.
+
+```
+ ONE CHUNK'S JOURNEY:  generate → light → mesh → upload
+ (each stage is wall-clock-budgeted; worker pool = hardware_concurrency()-1 threads)
+
+   STAGE 1 · GENERATE ── runs on WORKER
+     ChunkGenerator::generate_chunk             (thread_local generator)
+       · density field, biomes, vegetation
+       · edit maps layered on top
+       · sky light propagated in-worker (reads chunk above)
+             │
+             ▼  completed_chunks           (queue)
+   STAGE 2 · LIGHT + INSTALL ── runs on MAIN thread
+     ChunkWorld::process_completed_chunks        (budgeted)
+       · installs chunk into ChunkMap, queues neighbor remeshes
+       · emissive blocks in 3×3×3? → worker task BlockLightRegion::propagate_additive
+       · result polled back on main (completed_light_propagations),
+         then chunk + rim neighbors marked dirty for remesh
+             │
+             ▼  dirty mesh queue
+   STAGE 3 · MESH ── dispatched on MAIN, built on WORKER
+     MeshManager::process_queue → enqueue MeshBuildTask
+     MeshBuildTask::execute                      (worker)
+       · shared 27-key lock (center + 26 neighbors) held for the whole read
+       · greedy meshing, or incremental ~3³ re-emit for block edits
+             │
+             ▼  completed_meshes           (queue)
+   STAGE 4 · UPLOAD ── runs on MAIN thread
+     MeshManager::process_completed_meshes       (budgeted)
+       · nearest-first poll (stale epoch completions dropped)
+       · vertex/light arrays → RenderingServer → GPU
+```
+
+Async persistence shares the same pool: the main thread snapshots dirty chunks on a 5s timer and workers RLE-encode + atomically write them; generation-gated saves abort in-flight superseded workers.
+
 ### Generation
 1. `ChunkWorld::generate_chunk()` checks if chunk exists in map
 2. If not found, generates via `ChunkGenerator` (chunks are never stored whole; sparse `EditMap`s are layered on top)

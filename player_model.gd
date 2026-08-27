@@ -27,6 +27,12 @@ func apply_skin_texture():
 			if material != null and material is StandardMaterial3D:
 				# Apply the skin texture to the albedo texture
 				material.albedo_texture = skin_texture
+				# The skin is a tightly-packed 64x64 pixel-art atlas (like the
+				# block textures), so use nearest filtering with no mipmaps.
+				# Otherwise linear/mipmap filtering blends texels across
+				# neighboring UV islands, causing the smeared/aliased look on
+				# angled or minified (side) faces.
+				material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
 				# Create an override material if one doesn't exist
 				if mesh_instance.get_surface_override_material(surface_index) == null:
 					mesh_instance.set_surface_override_material(surface_index, material)

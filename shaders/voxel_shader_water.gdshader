@@ -307,15 +307,15 @@ void fragment(){
     final_color = clamp(final_color, 0.0, 1.0);
 
     // ========= WATER ALPHA =========
-    // The view-angle fade softens the hard seam where water meets terrain near
-    // the shore. Applying it globally also hits far water viewed at the same
-    // grazing angle: looking across open water to the horizon gives
+    // The view-angle fade softens the hard seam where water meets terrain
+    // right at the shoreline. Applying it globally also hits far water viewed
+    // at the same grazing angle: looking across open water to the horizon gives
     // abs(dot(view, normal)) -> 0, so distance makes water fade to fully
-    // transparent. Restrict the fade to near range and let far water keep its
-    // full opacity.
+    // transparent. Confine the fade to the immediate seam zone (a few blocks)
+    // and give everything beyond full opacity.
     float view_angle = abs(dot(normalize(view_direction), world_normal));
     float near_edge_fade = smoothstep(0.0, water_edge_fade, view_angle);
-    float distance_restore = smoothstep(8.0, 24.0, fog_distance);
+    float distance_restore = smoothstep(1.0, 6.0, fog_distance);
     float edge_fade = mix(near_edge_fade, 1.0, distance_restore);
 
     ALBEDO = final_color * water_color.rgb;

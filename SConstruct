@@ -129,7 +129,7 @@ test_env.Append(CPPPATH=["src/", "tests/"])
 test_env.Append(LIBS=[])
 # Disable doctest's internal threading to avoid ThreadSanitizer false positives
 # in doctest's thread pool when built with TSan (Linux CI)
-test_env.Append(CPPDEFINES=["DOCTEST_NO_MULTITHREADED"])
+test_env.Append(CPPDEFINES=["DOCTEST_NO_MULTITHREADED", "DEBUG_ENABLED"])
 # Add chunk_data for integration test (not in shared_sources because library uses PaletteStorage)
 # Compile separately with the DOCTEST_NO_MULTITHREADED flag
 test_chunk_data_object = test_env.Object("src/core/chunk_data_test", source="src/core/chunk_data.cpp")

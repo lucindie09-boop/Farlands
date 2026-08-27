@@ -19,6 +19,11 @@
 using namespace godot;
 using namespace VoxelEngine;
 
+namespace {
+// Third-person camera is same as first-person but offset backward along look direction
+constexpr float kThirdPersonOffset = 3.0f;
+} // namespace
+
 PlayerController::PlayerController() = default;
 PlayerController::~PlayerController() {
     // Auto-save inventory on destruction (no-op if _exit_tree already saved).
@@ -77,6 +82,10 @@ void PlayerController::_bind_methods() {
     ClassDB::bind_method(D_METHOD("die"), &PlayerController::die);
     ClassDB::bind_method(D_METHOD("respawn"), &PlayerController::respawn);
 
+    ClassDB::bind_method(D_METHOD("toggle_third_person"), &PlayerController::toggle_third_person);
+    ClassDB::bind_method(D_METHOD("set_third_person", "on"), &PlayerController::set_third_person);
+    ClassDB::bind_method(D_METHOD("get_third_person"), &PlayerController::get_third_person);
+
     ADD_SIGNAL(MethodInfo("crafting_table_used"));
     ADD_SIGNAL(MethodInfo("died"));
     ADD_SIGNAL(MethodInfo("respawned"));
@@ -88,6 +97,7 @@ void PlayerController::_bind_methods() {
                  "set_sensitivity", "get_sensitivity");
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "fly_speed", PROPERTY_HINT_RANGE, "1.0,50.0,0.5"),
                  "set_fly_speed", "get_fly_speed");
+    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "third_person"), "set_third_person", "get_third_person");
 }
 
 void PlayerController::set_sensitivity(float s) { sensitivity_ = s; }
@@ -131,6 +141,13 @@ void PlayerController::_ready() {
     camera_ = get_node<Camera3D>("Camera3D");
     if (camera_) {
         camera_->set_position(Vector3(0, 1.62f, 0));
+    }
+
+    // The visual body (player.glb) is parented under this node so it always
+    // follows the player's position/rotation. Hidden in first person.
+    model_ = Object::cast_to<Node3D>(get_node_or_null(NodePath("PlayerModel")));
+    if (model_) {
+        model_->set_visible(false);
     }
 
     Node* cm_node = get_node_or_null(NodePath("/root/Main/ChunkManager"));
@@ -196,7 +213,16 @@ void PlayerController::_process(double delta) {
         set_global_position(pos);
         sim_.reset(pos);
         rendered_eye_height_ = 1.62f;
-        if (camera_) camera_->set_position(Vector3(0, 1.62f, 0));
+        if (camera_) {
+            if (third_person_) {
+                // Third-person fly mode: same offset logic
+                Vector3 forward = Vector3(0, 0, -1).rotated(Vector3(1, 0, 0), pitch_);
+                Vector3 third_person_pos = Vector3(0, 1.62f, 0) - forward * kThirdPersonOffset;
+                camera_->set_position(third_person_pos);
+            } else {
+                camera_->set_position(Vector3(0, 1.62f, 0));
+            }
+        }
         return;
     }
 
@@ -232,11 +258,36 @@ void PlayerController::_process(double delta) {
     float partial = sim_.get_accumulator_fraction();
     set_global_position(sim_.get_render_position(partial));
     if (camera_) {
-        float target_eye = sim_.get_eye_height();
-        rendered_eye_height_ += (target_eye - rendered_eye_height_) * static_cast<float>(1.0 - std::pow(0.0001, delta));
-        Vector3 cam_pos = camera_->get_position();
-        cam_pos.y = rendered_eye_height_;
-        camera_->set_position(cam_pos);
+        float eye_height = sim_.get_eye_height();
+        
+        if (third_person_) {
+            // Third-person: position camera 3 blocks back along the look direction
+            // First-person position in local space
+            Vector3 first_person_pos = Vector3(0, eye_height, 0);
+            
+            // Look direction with pitch applied
+            Vector3 forward = Vector3(0, 0, -1).rotated(Vector3(1, 0, 0), pitch_);
+            
+            // Third-person position is first-person position minus forward direction * offset
+            Vector3 third_person_pos = first_person_pos - forward * kThirdPersonOffset;
+            
+            camera_->set_position(third_person_pos);
+            
+            // Camera rotation matches first-person (pitch only, no yaw since it's a child)
+            Vector3 cam_rot = camera_->get_rotation();
+            cam_rot.x = pitch_;
+            cam_rot.y = 0.0f;
+            camera_->set_rotation(cam_rot);
+        } else {
+            // First-person: normal behavior
+            float target_eye = eye_height;
+            rendered_eye_height_ += (target_eye - rendered_eye_height_) * static_cast<float>(1.0 - std::pow(0.0001, delta));
+            camera_->set_position(Vector3(0, rendered_eye_height_, 0));
+            
+            Vector3 cam_rot = camera_->get_rotation();
+            cam_rot.x = pitch_;
+            camera_->set_rotation(cam_rot);
+        }
     }
 }
 
@@ -246,6 +297,12 @@ void PlayerController::_input(const Ref<InputEvent>& p_event) {
 
     // Dead: freeze everything (look/move/break/place/hotbar) until respawn.
     if (dead_) return;
+
+    // Third-person toggle works even while a UI overlay is open (and without
+    // mouse capture); only the dead check above gates it.
+    if (p_event->is_action_pressed("toggle_third_person")) {
+        toggle_third_person();
+    }
 
     // Skip mouse mode switching when inventory, table menu, chat or settings is open
     if (inventory_open_ || table_menu_open_ || chat_open_ || settings_open_) {
@@ -277,6 +334,7 @@ void PlayerController::_input(const Ref<InputEvent>& p_event) {
         if (camera_) {
             Vector3 cam_rot = camera_->get_rotation();
             cam_rot.x = pitch_;
+            cam_rot.y = 0.0f;
             camera_->set_rotation(cam_rot);
         }
     }
@@ -313,6 +371,38 @@ void PlayerController::set_fly_mode(bool on) {
 
 bool PlayerController::get_fly_mode() const {
     return fly_mode_;
+}
+
+void PlayerController::toggle_third_person() {
+    set_third_person(!third_person_);
+}
+
+void PlayerController::set_third_person(bool on) {
+    if (third_person_ == on) return;
+    third_person_ = on;
+    if (model_) {
+        model_->set_visible(on);
+    }
+    // Immediately update camera position for smooth transition
+    if (camera_) {
+        if (on) {
+            // Set third-person position based on current pitch
+            Vector3 forward = Vector3(0, 0, -1).rotated(Vector3(1, 0, 0), pitch_);
+            Vector3 third_person_pos = Vector3(0, rendered_eye_height_, 0) - forward * kThirdPersonOffset;
+            camera_->set_position(third_person_pos);
+        } else {
+            camera_->set_position(Vector3(0, rendered_eye_height_, 0));
+        }
+        
+        // Reset rotation to ensure clean state
+        Vector3 cam_rot = camera_->get_rotation();
+        cam_rot.y = 0.0f;
+        camera_->set_rotation(cam_rot);
+    }
+}
+
+bool PlayerController::get_third_person() const {
+    return third_person_;
 }
 
 void PlayerController::teleport_to(const Vector3& pos) {

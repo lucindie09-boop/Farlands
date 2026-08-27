@@ -241,6 +241,31 @@ jobs:
       - name: Install lcov
         run: sudo apt-get install -y lcov
 
+      - name: Compute godot-cpp submodule hash
+        id: cachekey
+        shell: bash
+        run: echo "godotcpp=$(git rev-parse HEAD:godot-cpp)" >> "$GITHUB_OUTPUT"
+
+      # Dedicated coverage cache: instrumented (.o + .gcno) objects only, never
+      # .gcda (runtime data would merge stale counts into fresh runs and
+      # mismatch new checksums). Kept separate from the plain ubuntu cache so a
+      # COVERAGE build never restores non-instrumented objects.
+      - name: Cache SCons build artifacts (coverage)
+        uses: actions/cache@v4
+        with:
+          path: |
+            .sconsign.dblite
+            godot-cpp/bin
+            godot-cpp/gen
+            godot-cpp/src/**/*.o
+            src/**/*.o
+            src/**/*.gcno
+            tests/**/*.o
+            tests/**/*.gcno
+          key: scons-coverage-ubuntu-latest-${{ steps.cachekey.outputs.godotcpp }}
+          restore-keys: |
+            scons-coverage-ubuntu-latest-
+
       - name: Build tests with coverage
         shell: bash
         timeout-minutes: 15

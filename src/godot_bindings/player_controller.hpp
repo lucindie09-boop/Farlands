@@ -93,6 +93,11 @@ public:
     void set_fly_speed(float s);
     float get_fly_speed() const;
 
+    // Third-person camera API (F5 toggles it)
+    void toggle_third_person();
+    void set_third_person(bool on);
+    bool get_third_person() const;
+
 protected:
     static void _bind_methods();
 
@@ -119,6 +124,8 @@ private:
     int health_ = MAX_HEALTH;
     bool dead_ = false;
     bool needs_spawn_calc_ = true;
+    bool third_person_ = false;
+    godot::Node3D* model_ = nullptr;
     godot::Vector3 spawn_point_;
 };
 

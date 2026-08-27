@@ -9,9 +9,10 @@
 [ext_resource type="Script" uid="uid://g3lh0j0xb0jf" path="res://settings_menu.gd" id="8_settings"]
 [ext_resource type="Script" uid="uid://cg56m76b43332" path="res://crosshair.gd" id="9_crosshair"]
 [ext_resource type="Script" uid="uid://xebno2le0tgp" path="res://block_outline.gd" id="10_outline"]
-[ext_resource type="Script" path="res://healthbar.gd" id="11_healthbar"]
-[ext_resource type="Script" path="res://death_screen.gd" id="12_deathscreen"]
-[ext_resource type="Script" path="res://crafting_table_menu.gd" id="13_tablemenu"]
+[ext_resource type="Script" uid="uid://byak67cusfoxc" path="res://healthbar.gd" id="11_healthbar"]
+[ext_resource type="Script" uid="uid://b3eee8l30k8qd" path="res://death_screen.gd" id="12_deathscreen"]
+[ext_resource type="Script" uid="uid://csimhtsb21lnr" path="res://crafting_table_menu.gd" id="13_tablemenu"]
+[ext_resource type="PackedScene" path="res://player.glb" id="14_playermodel"]
 
 [sub_resource type="Environment" id="Environment_uu6xs"]
 background_mode = 2
@@ -42,6 +43,9 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 280, 0)
 [node name="Camera3D" type="Camera3D" parent="Player" unique_id=539519829]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.62, 0)
 fov = 81.7
+
+[node name="PlayerModel" parent="Player" instance=ExtResource("14_playermodel")]
+transform = Transform3D(-0.05625, 0, 0, 0, 0.05625, 0, 0, 0, -0.05625, 0, 0, -0.0844)
 
 [node name="HUD" type="CanvasLayer" parent="." unique_id=386916972]
 
@@ -88,7 +92,7 @@ grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("6_inventory")
 
-[node name="CraftingTableMenu" type="Control" parent="HUD"]
+[node name="CraftingTableMenu" type="Control" parent="HUD" unique_id=226253676]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
@@ -124,14 +128,13 @@ grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("9_crosshair")
 
-[node name="DeathScreen" type="Control" parent="HUD"]
+[node name="DeathScreen" type="Control" parent="HUD" unique_id=1526793449]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-mouse_filter = 0
 script = ExtResource("12_deathscreen")
 
 [node name="BlockOutline" type="Node3D" parent="." unique_id=135246793]
@@ -157,5 +160,4 @@ render_distance = 32
 player_position = Vector3(0, 280, 0)
 smooth_lighting = true
 lod_distance = 6
-far_lod_distance = 16
 fog_density = 0.1

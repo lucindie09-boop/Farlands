@@ -45,6 +45,15 @@ var _default_old_reset_buttons: bool = false
 var _default_fps_cap: int = 0
 var _default_msaa_3d: int = 0
 
+var _skin_dark_mode := false
+var _skin_bg: ColorRect
+var _skin_title: Label
+var _skin_hex: Label
+var _skin_hint: Label
+var _skin_picker: ColorPicker
+var _skin_preview: Control
+var _skin_toggle: Button
+
 var _block_outline_defaults := {
 	"outline_enabled": true,
 	"outline_color": Color.BLACK,
@@ -171,6 +180,7 @@ func _save_settings():
 	cfg.set_value("render", "fps_cap", _fps_cap)
 	cfg.set_value("render", "msaa_3d", get_viewport().msaa_3d)
 	cfg.set_value("gui", "old_reset_buttons", _old_reset_buttons)
+	cfg.set_value("gui", "skin_dark_mode", _skin_dark_mode)
 	cfg.save(SETTINGS_PATH)
 
 func _load_settings():
@@ -212,6 +222,7 @@ func _load_settings():
 	Engine.max_fps = _fps_cap
 	get_viewport().msaa_3d = int(cfg.get_value("render", "msaa_3d", _default_msaa_3d)) as Viewport.MSAA
 	_old_reset_buttons = cfg.get_value("gui", "old_reset_buttons", _default_old_reset_buttons)
+	_skin_dark_mode = cfg.get_value("gui", "skin_dark_mode", _skin_dark_mode)
 
 # Settings menu uses the global GUI scale with a 2/3 modifier so its default
 # look (2x when UIScale is 3.0) is preserved while still scaling with the rest.
@@ -1059,73 +1070,167 @@ func _build_skin_maker_page() -> Control:
 	page.set_anchors_preset(Control.PRESET_FULL_RECT)
 	page.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
-	var white := ColorRect.new()
-	white.color = Color.WHITE
-	white.set_anchors_preset(Control.PRESET_FULL_RECT)
-	white.mouse_filter = Control.MOUSE_FILTER_STOP
-	page.add_child(white)
+	_skin_bg = ColorRect.new()
+	_skin_bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_skin_bg.mouse_filter = Control.MOUSE_FILTER_STOP
+	page.add_child(_skin_bg)
 
-	var title := _make_title("SKIN MAKER")
-	title.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	title.offset_top = 20.0 * s
-	title.offset_bottom = 60.0 * s
-	title.add_theme_color_override("font_color", Color.BLACK)
-	page.add_child(title)
+	_skin_title = _make_title("SKIN MAKER")
+	_skin_title.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	_skin_title.offset_top = 20.0 * s
+	_skin_title.offset_bottom = 60.0 * s
+	page.add_child(_skin_title)
 
-	var picker := ColorPicker.new()
+	_skin_picker = ColorPicker.new()
 	# PickerShapeType.VHS_CIRCLE = 2 (full colour wheel; enum symbols not
 	# exposed in GDScript, so cast the int to the enum type).
-	picker.picker_shape = 2 as ColorPicker.PickerShapeType
-	picker.edit_alpha = false
-	picker.color_modes_visible = false
-	picker.hex_visible = false
-	picker.color = Color.WHITE
+	_skin_picker.picker_shape = 2 as ColorPicker.PickerShapeType
+	_skin_picker.edit_alpha = false
+	_skin_picker.color_modes_visible = false
+	_skin_picker.hex_visible = false
+	_skin_picker.color = Color.WHITE
 	# The ColorPicker's content is drawn at its natural theme size (measured
 	# 290x478 px) regardless of GUI scale, so size the box in fixed px large
 	# enough to contain it and place the hex label below its real bottom edge.
-	picker.set_anchors_preset(Control.PRESET_TOP_LEFT)
-	picker.offset_left = 20.0
-	picker.offset_top = 20.0
-	picker.offset_right = 360.0
-	picker.offset_bottom = 20.0 + 478.0
-	page.add_child(picker)
+	_skin_picker.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	_skin_picker.offset_left = 20.0
+	_skin_picker.offset_top = 20.0
+	_skin_picker.offset_right = 360.0
+	_skin_picker.offset_bottom = 20.0 + 478.0
+	page.add_child(_skin_picker)
 
 	var hex_label := Label.new()
 	hex_label.text = "#FFFFFF"
 	hex_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hex_label.add_theme_font_override("font", MUNRO_FONT)
 	hex_label.add_theme_font_size_override("font_size", int(14 * s))
-	hex_label.add_theme_color_override("font_color", Color.BLACK)
 	hex_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
 	hex_label.offset_left = -120.0
 	hex_label.offset_right = 120.0
 	hex_label.offset_top = 60.0 * s + 8.0
 	hex_label.offset_bottom = 60.0 * s + 38.0
-	picker.color_changed.connect(func(c: Color): hex_label.text = "#" + c.to_html(false))
+	_skin_picker.color_changed.connect(func(c: Color): hex_label.text = "#" + c.to_html(false))
 	page.add_child(hex_label)
+	_skin_hex = hex_label
 
-	var preview: Control = (preload("res://skin_preview.gd") as GDScript).new()
-	preview.name = "SkinPreview"
-	preview.set_anchors_preset(Control.PRESET_CENTER)
-	preview.offset_left = -260.0
-	preview.offset_right = 260.0
-	preview.offset_top = -220.0
-	preview.offset_bottom = 220.0
-	page.add_child(preview)
+	_skin_preview = (preload("res://skin_preview.gd") as GDScript).new()
+	_skin_preview.name = "SkinPreview"
+	_skin_preview.set_anchors_preset(Control.PRESET_CENTER)
+	_skin_preview.offset_left = -260.0
+	_skin_preview.offset_right = 260.0
+	_skin_preview.offset_top = -220.0
+	_skin_preview.offset_bottom = 220.0
+	page.add_child(_skin_preview)
 
 	var hint := Label.new()
 	hint.text = "ESC to exit"
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	hint.add_theme_font_override("font", MUNRO_FONT)
 	hint.add_theme_font_size_override("font_size", int(13 * s))
-	hint.add_theme_color_override("font_color", Color(0.2, 0.2, 0.2))
 	hint.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
 	hint.offset_left = 12.0
 	hint.offset_top = -38.0
 	hint.offset_right = 200.0
 	hint.offset_bottom = -12.0
 	page.add_child(hint)
+	_skin_hint = hint
+
+	var toggle := Button.new()
+	toggle.name = "DarkModeToggle"
+	toggle.toggle_mode = true
+	toggle.button_pressed = _skin_dark_mode
+	toggle.add_theme_font_override("font", MUNRO_FONT)
+	toggle.add_theme_font_size_override("font_size", int(14 * s))
+	toggle.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	toggle.offset_left = -190.0
+	toggle.offset_right = -12.0
+	toggle.offset_top = 20.0 * s
+	toggle.offset_bottom = 20.0 * s + 40.0
+	toggle.pressed.connect(func():
+		_skin_dark_mode = not _skin_dark_mode
+		_apply_skin_palette()
+		_schedule_save())
+	page.add_child(toggle)
+	_skin_toggle = toggle
+
+	_apply_skin_palette()
 	return page
+
+func _apply_skin_palette() -> void:
+	var s := _ui_scale()
+	var dark := _skin_dark_mode
+	var bg_col := Color(0.08, 0.08, 0.1) if dark else Color.WHITE
+	var fg_col := Color(1, 1, 1, 1) if dark else Color.BLACK
+	var hover_col := Color(0.72, 0.72, 0.72, 1) if dark else Color(0.35, 0.35, 0.35, 1)
+	var hint_col := Color(0.75, 0.75, 0.75, 1) if dark else Color(0.2, 0.2, 0.2)
+	if _skin_bg:
+		_skin_bg.color = bg_col
+	if _skin_title:
+		_skin_title.add_theme_color_override("font_color", fg_col)
+	if _skin_hex:
+		_skin_hex.add_theme_color_override("font_color", fg_col)
+	if _skin_hint:
+		_skin_hint.add_theme_color_override("font_color", hint_col)
+	if _skin_picker:
+		_skin_picker.theme = _make_picker_theme(s, dark)
+		_tint_picker_internals(_skin_picker, fg_col, hover_col)
+	if _skin_toggle:
+		_skin_toggle.text = "LIGHT MODE" if dark else "DARK MODE"
+		_skin_toggle.add_theme_color_override("font_color", fg_col)
+		var sw_bg := Color(0.15, 0.15, 0.18) if dark else Color(1, 1, 1, 1)
+		var sb := StyleBoxFlat.new()
+		sb.bg_color = sw_bg
+		sb.border_color = fg_col
+		sb.set_border_width_all(1)
+		sb.set_corner_radius_all(2)
+		var sb_hover := sb.duplicate() as StyleBoxFlat
+		sb_hover.bg_color = fg_col.lerp(sw_bg, 0.5)
+		_skin_toggle.add_theme_stylebox_override("normal", sb)
+		_skin_toggle.add_theme_stylebox_override("hover", sb_hover)
+		_skin_toggle.add_theme_stylebox_override("pressed", sb_hover)
+		_skin_toggle.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+
+func _make_picker_theme(s: float, dark: bool) -> Theme:
+	var th := Theme.new()
+	th.default_font = MUNRO_FONT
+	th.default_font_size = int(12 * s)
+	var fg := Color(1, 1, 1, 1) if dark else Color.BLACK
+	var hover := Color(0.72, 0.72, 0.72, 1) if dark else Color(0.35, 0.35, 0.35, 1)
+	# The ColorPicker's internals are C++-built (inaccessible child controls),
+	# so colour lookups happen under its own "ColorPicker" theme type — set the
+	# items there and on the fallback types too.
+	for type_name in ["ColorPicker", "Label", "Button", "LineEdit"]:
+		th.set_color("font_color", type_name, fg)
+		th.set_color("icon_color", type_name, fg)
+		for state in ["font_hover_color", "font_pressed_color", "font_focus_color",
+				"icon_normal_color", "icon_hover_color", "icon_pressed_color", "icon_focus_color"]:
+			var col := fg
+			if state.contains("hover") or state.contains("pressed") or state.contains("focus"):
+				col = hover
+			th.set_color(state, type_name, col)
+	var swatch := StyleBoxFlat.new()
+	swatch.bg_color = Color(0.15, 0.15, 0.18) if dark else Color(1, 1, 1, 1)
+	swatch.border_color = fg
+	swatch.set_border_width_all(1)
+	swatch.set_corner_radius_all(2)
+	for state in ["normal", "hover", "pressed"]:
+		th.set_stylebox(state, "Button", swatch)
+	th.set_stylebox("focus", "Button", StyleBoxEmpty.new())
+	return th
+
+func _tint_picker_internals(node: Node, fg: Color, hover: Color) -> void:
+	for child in node.get_children(true):
+		if child is Button:
+			var btn := child as Button
+			btn.add_theme_color_override("font_color", fg)
+			btn.add_theme_color_override("icon_color", fg)
+			for state in ["font_hover_color", "font_pressed_color", "font_focus_color",
+					"icon_normal_color", "icon_hover_color", "icon_pressed_color", "icon_focus_color"]:
+				var col := fg
+				if state.contains("hover") or state.contains("pressed") or state.contains("focus"):
+					col = hover
+				btn.add_theme_color_override(state, col)
+		_tint_picker_internals(child, fg, hover)
 
 func _build_option_page(title_text: String, rows: Array, back_target: String, row_spacing := 44.0) -> Control:
 	var s := _ui_scale()

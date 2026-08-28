@@ -230,6 +230,7 @@ func _rebuild_pages():
 	_pages["block_outline"] = _build_block_outline_page()
 	_pages["lighting"] = _build_lighting_page()
 	_pages["render"] = _build_render_page()
+	_pages["skin_maker"] = _build_skin_maker_page()
 	for p in _pages.values():
 		p.hide()
 		add_child(p)
@@ -292,9 +293,15 @@ func _build_settings_page() -> Control:
 	render_btn.pressed.connect(func(): _show_page("render"))
 	page.add_child(render_btn)
 
+	var skin_btn := _make_button("Skin Maker")
+	skin_btn.offset_top = 55.0 * s
+	skin_btn.offset_bottom = 75.0 * s
+	skin_btn.pressed.connect(func(): _show_page("skin_maker"))
+	page.add_child(skin_btn)
+
 	var back := _make_button("Back")
-	back.offset_top = 55.0 * s
-	back.offset_bottom = 75.0 * s
+	back.offset_top = 85.0 * s
+	back.offset_bottom = 105.0 * s
 	back.pressed.connect(func(): _show_page("pause"))
 	page.add_child(back)
 	return page
@@ -1046,6 +1053,70 @@ func _build_render_page() -> Control:
 		["FPS Cap", fps_cap, fps_cap_reset],
 	], "settings")
 
+func _build_skin_maker_page() -> Control:
+	var s := _ui_scale()
+	var page := Control.new()
+	page.set_anchors_preset(Control.PRESET_FULL_RECT)
+	page.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	var white := ColorRect.new()
+	white.color = Color.WHITE
+	white.set_anchors_preset(Control.PRESET_FULL_RECT)
+	white.mouse_filter = Control.MOUSE_FILTER_STOP
+	page.add_child(white)
+
+	var title := _make_title("SKIN MAKER")
+	title.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	title.offset_top = 20.0 * s
+	title.offset_bottom = 60.0 * s
+	title.add_theme_color_override("font_color", Color.BLACK)
+	page.add_child(title)
+
+	var picker := ColorPicker.new()
+	# PickerShape.VHS_CIRCLE = 2 (full colour wheel; enum not exposed in GDScript)
+	picker.picker_shape = 2
+	picker.edit_alpha = false
+	picker.color_modes_visible = false
+	picker.hex_visible = false
+	picker.color = Color.WHITE
+	# The ColorPicker's content is drawn at its natural theme size (measured
+	# 290x478 px) regardless of GUI scale, so size the box in fixed px large
+	# enough to contain it and place the hex label below its real bottom edge.
+	picker.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	picker.offset_left = 20.0
+	picker.offset_top = 20.0
+	picker.offset_right = 360.0
+	picker.offset_bottom = 20.0 + 478.0
+	page.add_child(picker)
+
+	var hex_label := Label.new()
+	hex_label.text = "#FFFFFF"
+	hex_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hex_label.add_theme_font_override("font", MUNRO_FONT)
+	hex_label.add_theme_font_size_override("font_size", int(14 * s))
+	hex_label.add_theme_color_override("font_color", Color.BLACK)
+	hex_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	hex_label.offset_left = -120.0
+	hex_label.offset_right = 120.0
+	hex_label.offset_top = 60.0 * s + 8.0
+	hex_label.offset_bottom = 60.0 * s + 38.0
+	picker.color_changed.connect(func(c: Color): hex_label.text = "#" + c.to_html(false))
+	page.add_child(hex_label)
+
+	var hint := Label.new()
+	hint.text = "ESC to exit"
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	hint.add_theme_font_override("font", MUNRO_FONT)
+	hint.add_theme_font_size_override("font_size", int(13 * s))
+	hint.add_theme_color_override("font_color", Color(0.2, 0.2, 0.2))
+	hint.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	hint.offset_left = 12.0
+	hint.offset_top = -38.0
+	hint.offset_right = 200.0
+	hint.offset_bottom = -12.0
+	page.add_child(hint)
+	return page
+
 func _build_option_page(title_text: String, rows: Array, back_target: String, row_spacing := 44.0) -> Control:
 	var s := _ui_scale()
 	var page := Control.new()
@@ -1203,6 +1274,8 @@ func _input(event):
 				_show_page("gui")
 			"block_outline":
 				_show_page("gui")
+			"skin_maker":
+				_close()
 			_:
 				_show_page("settings")
 		get_viewport().set_input_as_handled()

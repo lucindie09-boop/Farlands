@@ -171,9 +171,9 @@ Async persistence shares the same pool: the main thread snapshots dirty chunks o
   1. **Full detail** within `lod_distance` (+1)
   2. **Mid tier**: stride/detail reduction controlled by `lod_detail_level` inside the greedy mesher
   3. **Far tier**: identical stride/detail mechanism, with its own render start `far_lod_distance` and detail `far_lod_detail_level`; far-detail chunks are upgraded/downgraded via the same reprioritize transition-shell + tracked-set logic
-- LOD-reduced chunks (detail < 1.0) are cached (`far_mesh_cache`) and merged into 4×4-chunk **far regions** — the coarse rings render as a handful of region instances instead of one per-chunk instance, keeping draw calls low
+- LOD-reduced chunks (detail < 1.0) are cached (`far_mesh_cache`) and merged into 8×8-chunk **far regions** — the coarse rings render as a handful of region instances instead of one per-chunk instance, keeping draw calls low
 - Per-tier stride-1 "skirt" rings at each LOD transition prevent T-junction cracks
-- Cap of 128 LOD remeshes/frame; far-region rebuilds debounced (250 ms)
+- Cap of 512 LOD remeshes/frame; far-region rebuilds debounced (250 ms)
 
 ### Mesh Completion
 - `process_completed_meshes` is wall-clock-budgeted (`mesh_completion_budget_ms` = 0.75) plus a per-frame completion cap, so a backlog can never stall one frame
@@ -273,7 +273,10 @@ The following code remains in the codebase but is disabled or unused:
 - `death_screen.gd` — Death overlay: "You died!" + Respawn button, shown on the `PlayerController.died` signal and hidden on `respawned`
 - `inventory.gd` - Full inventory screen with drag-drop stack movement, shift-click quick-transfer, RMB drag-place, LMB drag-collect, scroll wheel quick-transfer, double-click gather; live 2×2 crafting grid + output preview (click/drag/shift/scroll interactions mirrored on the crafting cells; shift-click output crafts as many as possible)
 - `data/recipes.json` — Crafting recipes (shaped/shapeless), resolved by block name; loaded into `RecipeBook` at startup
-- `settings_menu.gd` — Adjustable settings with persistence (render, lighting, crosshair, controls) opened with Escape key
+- `settings_menu.gd` — Adjustable settings with persistence (render, lighting, crosshair, controls) opened with Escape key; includes a **Skin Maker** page (color wheel, hex readout, orbitable preview) with a dark-mode toggle
+- `skin_preview.gd` — Transparent-background sub-viewport that orbits `player.glb` behind the skin maker; the camera orbits the model's AABB center rather than being a child of the rotating node
+- `player_model.gd` — Applies the skin texture to `player.glb`'s `StandardMaterial3D` surfaces with nearest filtering (no mipmaps, avoiding smeared UV islands)
+- `player.glb` — Voxel-style player model with a tightly-packed 64×64 skin-texture atlas
 - `block_textures.gd` — Block texture atlas generation from `textures/blocks/`
 
 ### Engine
@@ -309,8 +312,8 @@ The following code remains in the codebase but is disabled or unused:
   - `textures/Archive/` — Archived/deprecated textures (old versions kept for reference)
 
 ### Testing
-- `tests/` — 24 test files, 189 test cases / 157,120 assertions, auto-discovered via `Glob("tests/*.cpp")`
-- `tests/test_concurrency.cpp` — 19 tests for shard locking, deadlock prevention, PaletteStorage
+- `tests/` — 24 test files, 225 test cases / 163,385 assertions, auto-discovered via `Glob("tests/*.cpp")`
+- `tests/test_concurrency.cpp` — 27 tests for shard locking, deadlock prevention, PaletteStorage, cross-chunk writers, and thread-pool work stealing
 - `tests/test_inventory.cpp` — Inventory add/consume/edge-case tests
 - `tests/test_crafting.cpp` — Shapeless/shaped matching (trim, mirror, offset, rotation/partial misses) + atomic craft_item tests (success, insufficient ingredients, full inventory rejection)
 - `tests/test_light_propagation.cpp` — Cross-chunk BFS edge case tests
@@ -319,4 +322,4 @@ The following code remains in the codebase but is disabled or unused:
 - `tests/test_soak.cpp` — Multi-threaded fly-through-the-world stress test
 - `tests/test_persistence.cpp`, `tests/test_collision_resolver.cpp`, `tests/test_density_field.cpp` — format, collision, and terrain tests
 - `tools/benchmark.cpp` — 5 hot paths + memory, with `--check <baseline>` regression mode
-- `tools/fuzz_*.cpp` — libFuzzer harnesses (`fuzz_palette`, `fuzz_chunk_load`, `fuzz_light_propagation`, `fuzz_mesh_builder`)
+- `tools/fuzz_*.cpp` — libFuzzer harnesses (`fuzz_palette`, `fuzz_chunk_load`, `fuzz_chunk_recovery`, `fuzz_light_propagation`, `fuzz_mesh_builder`)

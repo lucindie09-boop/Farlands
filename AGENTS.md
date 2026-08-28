@@ -31,10 +31,9 @@ A Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked streamin
 - **Fixed AO and UV mapping**: Ambient occlusion and texture mapping properly handle partial blocks with their irregular geometry
 
 ### Rendering & Visual Features
-- **Three-tier LOD with region merging**: Per-chunk distance-based reduction (not chunk merging) — full detail, mid stride/detail reduction, and a far tier with its own detail level + render start (`far_lod_distance`/`far_lod_detail_level`); LOD-reduced chunks are cached and merged into 4×4-chunk region instances so the coarse rings cost only a handful of draw calls
+- **Three-tier LOD with region merging**: Per-chunk distance-based reduction (not chunk merging) — full detail, mid stride/detail reduction, and a far tier with its own detail level + render start (`far_lod_distance`/`far_lod_detail_level`); LOD-reduced chunks are cached and merged into 8×8-chunk region instances so the coarse rings cost only a handful of draw calls
 - **Dynamic water shader**: Translucent water with edge fade, bounce light, sun glint, flowing texture animation, and separate blend-mix surface
 - **Vegetation generation**: Oak and spruce trees (variant-weighted per biome from `data/biomes.json`), minimum spacing, deferred cross-chunk writes, per-biome density + forest/plains/desert knobs from `data/vegetation.json`, improved forest placement (80% chunk coverage, 15-25 trees per chunk)
-- **Slope triplanar cliff blending**: Steep slopes (>45°) automatically blend in rock face textures
 - **Night sky & starfield**: Dynamic procedural twinkling starfield during night sun elevations
 - **Emissive texture support**: Second `Texture2DArray` for per-face glow maps
 - **Soft curved AO**: Non-linear power-curve smoothing to eliminate diagonal triangulation seams
@@ -56,6 +55,9 @@ A Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked streamin
 - **Inventory persistence**: `user://chunks/inventory.bin` (`INVE` magic, version 1), saved in `PlayerController::_exit_tree` (nodes still alive) with a cached `ChunkManager` pointer — the old destructor-time tree lookup always failed at teardown
 - **Chat system**: `chat.gd` with advanced autocomplete — ghost text suggestions with pulsing effect (0.25-0.4 alpha), tab cycling through completions, up/down arrow navigation, hold-to-cycle (0.1875s intervals), parameter hints for commands (`/give <block> [count]`, `/tp <x> <y> <z>`), commands: `/help`, `/give` (unlimited count), `/tp`, `/fly`, `/clearchat`, `/clearinv`, `/version`, mouse wheel scrolling for chat history, caret blink, wrapped messages with proper input box anchoring
 - **Settings menu**: `settings_menu.gd` with adjustable settings (render — including an MSAA 3D Off/2x/4x/8x cycle button that sets the root viewport's `msaa_3d` live — plus lighting, crosshair, controls) opened with Escape key, all settings persist across sessions
+- **Skin Maker**: Settings → Skin Maker page — a MUNRO-font restyled ColorPicker (custom `Theme` on the picker plus per-node overrides via `_tint_picker_internals`, applied to its internal `get_children(true)` controls — bare `get_children()` returns 0 for internals in 4.7), live hex readout, and `skin_preview.gd`, a transparent-background sub-viewport that drag-orbits `player.glb` around its AABB center (the camera must NOT be a child of the rotating pivot, and 4.7's `own_world_3d` leaves `world_3d` null so the viewport environment has to be built manually). The internal picker headers (Swatches / Recent Colors) default to `font_pressed` 1.0 white — the reason hovered text looked white
+- **Skin dark-mode toggle**: Top-right "DARK MODE"/"LIGHT MODE" toggle (`_skin_dark_mode`, persisted in `settings.cfg` under `gui/skin_dark_mode`); `_apply_skin_palette()` flips page bg, fg/borders, hex/hint colors, swatch tiles, and rebuilds the picker theme; the toggle's `PRESET_TOP_RIGHT` offsets must stay positive or it renders off-screen. Preview needs no changes — its transparent bg shows the page behind
+- **Player model**: `player.glb` is a voxel-style model with slim 3-px arms and a tightly-packed 64×64 skin atlas laid out over pixel-face UV islands (`patch_slim.py` in temp is the source of truth if the glb ever needs re-patching — it must read the pristine file); `player_model.gd` applies the skin texture with nearest filtering (linear/mipmap blends texels across UV islands)
 - **Texture pack system**: Custom texture packs with per-block texture overrides loaded from `user://packs/`, converter tool in `tools/pack_converter.py`
 - **Block outline system**: Adjustable block outline with pulse effects, thickness control (0.0-0.99), fill box with separate color/opacity controls
 - **Crosshair customization**: Adjustable crosshair with rotation, spacing, dot, and color-inversion modes
@@ -91,10 +93,10 @@ A Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked streamin
 ### Testing & CI
 - **225 test cases / 163,385 assertions** across 24 doctest files
 - **Cross-platform CI**: 5-leg matrix (ubuntu plain/TSan/ASan+UBSan, macos plain, windows plain) plus fuzz, static-analysis, and coverage jobs
-- **Concurrency tests**: 19 tests for shard locking, deadlock prevention, PaletteStorage, and cross-chunk patterns
+- **Concurrency tests**: 27 tests for shard locking, deadlock prevention, PaletteStorage, cross-chunk writers, and thread-pool work stealing
 - **Integration soak tests**: Concurrent pipeline simulation with Phase 4 unload to exercise unload vs active work races
 - **Benchmark tool**: 5 hot paths with `--check` regression detection mode
-- **Fuzzing**: 4 libFuzzer harnesses for palette, chunk load, light propagation, and mesh builder
+- **Fuzzing**: 5 libFuzzer harnesses for palette, chunk load, chunk recovery, light propagation, and mesh builder
 - **Code coverage**: lcov coverage with integration tests and memory benchmark
 
 ### Persistence & Format
@@ -170,7 +172,7 @@ A Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked streamin
 ### LOD System Details
 - Three tiers: full detail → mid stride/detail reduction → far tier with its own detail level
 - Per-tier stride-1 "skirt" rings at each LOD transition prevent T-junction cracks
-- Cap of 128 LOD remeshes/frame
+- Cap of 512 LOD remeshes/frame
 - Far-region rebuilds debounced (250 ms)
 
 ### Save Format v3

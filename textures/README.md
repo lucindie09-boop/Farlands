@@ -17,7 +17,7 @@ replaced with an original work or attributed here with its license.
 ```
 textures/
   blocks/           Active block face textures (16×16 PNG)
-	Old/            Deprecated texture variants (not loaded at runtime)
+  Archive/          Deprecated texture variants (not loaded at runtime)
   atmosphere/       Skybox elements (sun, north star)
   gui/              UI elements (inventory, hotbar, hearts)
   sprites/          In-game sprites (heart)
@@ -38,9 +38,6 @@ appear as plain stone with no emissive glow.
 
 **Albedo (fall back to stone.png):**
 - `wood_top.png` (wood block top/bottom face)
-- `leaves.png`
-- `light_block.png`, `light_red.png`, `light_green.png`, `light_blue.png`
-- `snow.png`, `gravel.png`, `cactus.png`
 
 **Emissive (fall back to solid black):**
 - `light_block_emit.png`, `light_red_emit.png`,
@@ -48,7 +45,5 @@ appear as plain stone with no emissive glow.
 
 ## Orphan Textures
 
-Files present on disk but not referenced by any block in `block_definitions.json`:
-- `coal_ore.png`, `gold_ore.png`, `ice.png`
-
-These may be leftover from earlier block definitions or reserved for future use.
+`coal_ore.png`, `gold_ore.png`, and `ice.png` are now referenced by blocks in
+`block_definitions.json`; there are currently no orphan textures on disk.

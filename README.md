@@ -24,8 +24,7 @@ A Minecraft-style voxel engine built in Godot 4 with a custom C++ GDExtension. P
 | Block shapes | `data/block_shapes.json` | Shared shape registry for non-full blocks (slabs, stairs, walls, poles) with selection/collision boxes and auto-detecting placement |
 | Chunk map | `src/core/chunk_map.hpp` | 64-shard `shared_mutex` map, ordered multi-shard locking (`lock_keys`/`lock_all`), resumable bucket-cursor iteration |
 | Frustum utility | `src/core/frustum.hpp` | AABB-in-frustum test, used by generation, mesh, unload, and LOD priority |
-| World updater | `src/world/world_updater.hpp/cpp` | Per-frame budgeted scheduling (generate → light → mesh → upload) |
-| Generation scheduler | `src/world/generation_scheduler.hpp/cpp` | Standalone generation loop |
+| World updater | `src/world/world_updater.hpp/cpp` | Per-frame budgeted scheduling (generate → light → mesh → upload); two-phase generation (`update_generation`): a frustum-priority pass first, then a distance-sorted sweep |
 | Mesh queue | `src/mesh/mesh_queue.hpp` | Priority queue sorted by urgent > in-frustum > distance |
 | Mesh builder | `src/mesh/mesh_builder.hpp/cpp` (+ `mesh_builder_solid.cpp`, `mesh_builder_faces.cpp`, `mesh_builder_greedy.cpp`) | Greedy + standard face culling, neighbor-aware, thread-local instances, solid-block fast path, full rebuilds and incremental partial remeshes |
 | Mesh manager | `src/mesh/mesh_manager.hpp` + `mesh_manager.cpp`/`_worker`/`_upload`/`_rebuild`/`_far`/`_lifecycle` (`mesh_manager_internal.hpp` shares the build task) | Upload dedup, lazy RID creation, instance budget capping, three-tier LOD (stride/detail) with LOD-reduced chunks merged into region instances, nearest-first budget-capped completion |
@@ -49,7 +48,7 @@ A Minecraft-style voxel engine built in Godot 4 with a custom C++ GDExtension. P
 | Death screen | `death_screen.gd` | "You died!" overlay with a Respawn button; shown on the `died` signal (health reaching 0), hidden on `respawned` — respawn restores full health at the game-start spawn point |
 | Chat system | `chat.gd` | GDScript chat with autocomplete: ghost text suggestions with pulsing effect, tab cycling through completions, up/down arrow navigation, hold-to-cycle, parameter hints for commands (`/give <block> [count]`, `/tp <x> <y> <z>`), commands: `/help`, `/give` (unlimited count), `/tp`, `/fly`, `/clearchat`, `/clearinv`, `/version` |
 | Inventory drag ops | `inventory.gd` | RMB drag-place (spread 1 unit per slot), LMB drag-collect (sweep matching blocks), shift-click/drag quick-transfer (move between hotbar/main), scroll wheel quick-transfer (push/pull 1 unit), double-click gather (sweep all matching blocks); the same interactions work on the crafting grid cells, and shift-clicking the output crafts as many as possible |
-| Settings menu | `settings_menu.gd` | Adjustable settings with persistence (render — including an MSAA 3D Off/2x/4x/8x toggle that sets the root viewport's `msaa_3d` live — plus lighting, crosshair, controls) opened with Escape key |
+| Settings menu | `settings_menu.gd` | Adjustable settings with persistence (render — including an MSAA 3D Off/2x/4x/8x toggle that sets the root viewport's `msaa_3d` live — plus lighting, crosshair, controls) opened with Escape key; includes a **Skin Maker** page (color wheel + orbitable preview) with a dark-mode toggle |
 | Texture packs | `src/render/texture_pack_manager.hpp` + `tools/pack_converter.py` | Custom texture pack system with per-block texture overrides loaded from `user://packs/` |
 | Block outline | Adjustable block outline system with pulse effects, thickness control (0.0-0.99), and fill box with separate color/opacity |
 | Chunk persistence | `src/world/chunk_world.cpp` + `chunk_world_edits.cpp` / `chunk_world_persistence.cpp` | Async background saves: dirty chunks are snapshotted under their shard lock, then RLE-encoded + atomically written on the thread pool; per-key generation gating guarantees the newest data reaches disk; blocking flush on quit |
@@ -58,7 +57,7 @@ A Minecraft-style voxel engine built in Godot 4 with a custom C++ GDExtension. P
 
 - Opaque and water are separate mesh surfaces; water uses its own shader (`shaders/voxel_shader_water.gdshader`) with edge fade, tint, shimmer, sun glint, flowing texture animation, and separate blend-mix surface for translucency.
 - Blocks can carry an emissive texture (second `Texture2DArray`) for glow, driven by `data/block_definitions.json`.
-- The terrain shader (`shaders/voxel_shader.gdshader`) adds slope-triplanar cliff blending (>45° blends in rock faces), procedural wind sway on foliage, a twinkling night starfield, and a non-linear AO power curve (`pow(raw_ao, 1.35)`) that hides diagonal triangulation seams (soft curved AO). Sky turbidity provides Rayleigh/Mie haze effects.
+- The terrain shader (`shaders/voxel_shader.gdshader`) applies a non-linear AO power curve (`pow(raw_ao, 1.35)`) that hides diagonal triangulation seams (soft curved AO). The procedural sky shader (`src/render/sky_controller.hpp`) provides a procedurally twinkling night starfield with a fixed north star, and sky turbidity provides Rayleigh/Mie haze effects.
 - Non-full block shapes (slabs, stairs, walls, poles) have proper ambient occlusion and UV texture mapping for their irregular geometry.
 - The directional sun light has shadows disabled — both terrain shaders are unshaded, so the shadow pass was pure overhead with no visual effect.
 - Block edits trigger an incremental partial remesh (tight dirty-AABB re-emit) instead of a full 32³ rebuild.
@@ -88,6 +87,8 @@ Textures are organized in the `textures/` directory:
 - `textures/sprites/` — Sprite textures (hearts, etc.)
 - `textures/atmosphere/` — Atmospheric textures (sun, north star)
 - `textures/Archive/` — Archived/deprecated textures (old versions kept for reference)
+
+The player model lives in `player.glb` (voxel-style, slim 3-px arms with a tightly-packed 64×64 skin-texture atlas). `player_model.gd` applies a skin texture to the model with nearest filtering (no mipmaps, to avoid blending UV islands), and `skin_preview.gd` is a transparent-background sub-viewport that orbits the model for the skin maker.
 
 ### Texture Packs
 
@@ -141,11 +142,11 @@ Optional build flags: `TSAN=1` (ThreadSanitizer), `ASAN=1` (ASan+UBSan), `COVERA
 
 CI (`.github/workflows/build.yml`) runs on every push and pull request:
 - **Build job** — 5-leg matrix: ubuntu plain, ubuntu TSan, ubuntu ASan+UBSan, macos plain, windows plain. Tests run on every leg; the benchmark regression check (`--check benchmark_baseline.txt`) runs on the non-sanitizer legs.
-- **Fuzz job** — builds and runs 4 libFuzzer harnesses (`fuzz_palette`, `fuzz_chunk_load`, `fuzz_light_propagation`, `fuzz_mesh_builder`) for 60 seconds each on Linux.
+- **Fuzz job** — builds and runs 5 libFuzzer harnesses (`fuzz_palette`, `fuzz_chunk_load`, `fuzz_chunk_recovery`, `fuzz_light_propagation`, `fuzz_mesh_builder`) for 60 seconds each on Linux.
 - **Static-analysis job** — clang-tidy across all of `src/` with `bugprone-*`, `concurrency-*`, and `performance-*` checks; findings in project sources fail the job.
 - **Coverage job** — lcov coverage report uploaded to Codecov.
 
-The project has **225 test cases / 163,385 assertions** across 24 doctest files, including 19 concurrency tests for shard locking, deadlock prevention, and PaletteStorage.
+The project has **225 test cases / 163,385 assertions** across 24 doctest files, including 27 tests in `test_concurrency.cpp` (shard locking, deadlock prevention, PaletteStorage, cross-chunk writers, thread-pool work stealing).
 
 ## Running
 
@@ -163,8 +164,9 @@ Open the project root in Godot 4 and press Play. The main scene is `Main.tscn`. 
 | Shift | Sprint |
 | Ctrl | Sneak / descend in flight |
 | F | Toggle fly mode |
+| F5 | Toggle third-person camera |
 | 1–9 | Select hotbar slot |
-| E | Toggle inventory / open chat |
+| E | Toggle inventory |
 | Mouse wheel | Cycle hotbar selection (while the inventory is closed) |
 | Esc | Release the mouse / close the inventory / close chat / open settings menu |
 | T | Open chat (to type a message) |
@@ -172,7 +174,7 @@ Open the project root in Godot 4 and press Play. The main scene is `Main.tscn`. 
 | Tab | Accept autocomplete / cycle through completions (hold to auto-cycle) |
 | Up/Down arrows | Cycle through completions (when chat is open and completions are available) |
 
-Input bindings live in `project.godot` (`move_forward`, `move_back`, `move_left`, `move_right`, `jump`, `sprint`, `sneak`, `fly_toggle`, `toggle_inventory`, `mouse_click_left`, `mouse_click_right`). The C++ `PlayerController` node owns all movement, look, block interaction, and inventory state — there is no player GDScript. The hotbar/inventory screens are GDScript `Control` overlays that read/write that state.
+Input bindings live in `project.godot` (`move_forward`, `move_back`, `move_left`, `move_right`, `jump`, `sprint`, `sneak`, `fly_toggle`, `toggle_inventory`, `toggle_chat`, `toggle_third_person`, `mouse_click_left`, `mouse_click_right`). The C++ `PlayerController` node owns all movement, look, block interaction, and inventory state — there is no player GDScript. The hotbar/inventory screens are GDScript `Control` overlays that read/write that state.
 
 ## Performance Tuning
 

@@ -1073,8 +1073,9 @@ func _build_skin_maker_page() -> Control:
 	page.add_child(title)
 
 	var picker := ColorPicker.new()
-	# PickerShape.VHS_CIRCLE = 2 (full colour wheel; enum not exposed in GDScript)
-	picker.picker_shape = 2
+	# PickerShapeType.VHS_CIRCLE = 2 (full colour wheel; enum symbols not
+	# exposed in GDScript, so cast the int to the enum type).
+	picker.picker_shape = 2 as ColorPicker.PickerShapeType
 	picker.edit_alpha = false
 	picker.color_modes_visible = false
 	picker.hex_visible = false
@@ -1102,6 +1103,15 @@ func _build_skin_maker_page() -> Control:
 	hex_label.offset_bottom = 60.0 * s + 38.0
 	picker.color_changed.connect(func(c: Color): hex_label.text = "#" + c.to_html(false))
 	page.add_child(hex_label)
+
+	var preview: Control = (preload("res://skin_preview.gd") as GDScript).new()
+	preview.name = "SkinPreview"
+	preview.set_anchors_preset(Control.PRESET_CENTER)
+	preview.offset_left = -260.0
+	preview.offset_right = 260.0
+	preview.offset_top = -220.0
+	preview.offset_bottom = 220.0
+	page.add_child(preview)
 
 	var hint := Label.new()
 	hint.text = "ESC to exit"

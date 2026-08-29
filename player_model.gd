@@ -137,12 +137,17 @@ func get_paint_image() -> Image:
 # Replace the whole skin with a new image (e.g. loaded from a save). The shared
 # texture is pointed at the new image so every model updates. Callers should
 # reset undo history, which no longer matches the new pixels.
+# Since saved skins are now clean (noise-free), this also resets the noise base
+# so noise can be re-applied from the sidecar value after loading.
 func load_skin_image(img: Image) -> void:
 	if img == null:
 		return
 	var mgr = _manager()
 	if mgr != null:
 		mgr.set_from_image(img)
+		# Reset noise base since the loaded image is clean (noise-free)
+		if mgr.has_method("reset_noise_base"):
+			mgr.reset_noise_base()
 		_swap_albedo_texture(mgr.get_texture())
 		return
 	_paint_image = img.duplicate()

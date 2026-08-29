@@ -376,10 +376,19 @@ func _commit_box_stroke() -> void:
 	_commit_stroke()
 
 # Save the current skin (base + all paint edits) to a PNG at `path`.
+# Always saves the CLEAN (noise-free) image so noise remains reversible.
 func save_skin(path: String) -> bool:
 	if _model == null or not _model.has_method("get_paint_image"):
 		return false
-	var img: Image = _model.get_paint_image()
+	var skin_manager := get_node_or_null("/root/SkinManager")
+	if skin_manager == null:
+		return false
+	# Get the clean image (noise_base if noise is active, otherwise current image)
+	var img: Image
+	if skin_manager.has_method("get_clean_image"):
+		img = skin_manager.get_clean_image()
+	if img == null:
+		img = _model.get_paint_image()
 	if img == null:
 		return false
 	return img.save_png(path) == OK
@@ -403,9 +412,8 @@ func load_skin(path: String) -> bool:
 	_undo_stack = []
 	_last_paint_uv = Vector2.INF
 	_prev_hit_mesh = null
-	# A loaded skin replaces the pixels the noise was computed from, so drop any
-	# active noise state too (the settings menu resets the slider alongside this).
-	set_noise(0.0)
+	# Do NOT reset noise here - the loaded image is clean (noise-free), and the
+	# settings menu will re-apply the noise value from the sidecar JSON after loading.
 	_model.load_skin_image(img)
 	paint_history_changed.emit(false)
 	return true

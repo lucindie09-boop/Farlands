@@ -61,6 +61,21 @@ func get_texture() -> ImageTexture:
 func get_image() -> Image:
 	return image
 
+# Get the clean (noise-free) image for saving. Returns noise_base if noise is
+# active, otherwise the current image. This ensures saved skins can have noise
+# re-applied or adjusted later without losing the base colors.
+func get_clean_image() -> Image:
+	if noise_severity > 0.0 and noise_base != null:
+		return noise_base.duplicate()
+	return image.duplicate()
+
+# Reset the noise base (e.g. when loading a clean skin image). This allows noise
+# to be re-applied from a new base image without keeping stale state.
+func reset_noise_base() -> void:
+	noise_base = null
+	noise_severity = 0.0
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(NOISE_BASE_PATH))
+
 # Apply a whole new skin (named load or factory default). Duplicates the input
 # so later external mutations can't corrupt the shared copy.
 func set_from_image(img: Image) -> void:

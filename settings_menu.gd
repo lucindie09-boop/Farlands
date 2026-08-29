@@ -1869,6 +1869,27 @@ func _apply_skin_textures(model: Node3D, png_path: String) -> void:
 	var img := Image.load_from_file(png_path)
 	if img == null or img.is_empty():
 		return
+	
+	# Load the noise value from the sidecar and apply it for the gallery preview
+	var skin_name := png_path.get_file().get_basename()
+	var noise_value := _load_skin_sidecar(skin_name)
+	if noise_value > 0.0:
+		# Apply noise to the image for the gallery preview
+		var noise_map := _make_gallery_noise_map()
+		var max_grain := 0.35
+		var amount := noise_value / 100.0 * max_grain
+		var out: Image = img.duplicate()
+		for y in range(64):
+			for x in range(64):
+				var c: Color = out.get_pixel(x, y)
+				var delta := (noise_map.get_pixel(x, y).r - 0.5) * 2.0 * amount
+				out.set_pixel(x, y, Color(
+					clampf(c.r + delta, 0.0, 1.0),
+					clampf(c.g + delta, 0.0, 1.0),
+					clampf(c.b + delta, 0.0, 1.0),
+					c.a))
+		img = out
+	
 	var tex := ImageTexture.create_from_image(img)
 	for mi in model.find_children("", "MeshInstance3D", true, false):
 		var mesh := (mi as MeshInstance3D).mesh
@@ -1879,6 +1900,16 @@ func _apply_skin_textures(model: Node3D, png_path: String) -> void:
 			mat.albedo_texture = tex
 			mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
 			(mi as MeshInstance3D).set_surface_override_material(si, mat)
+
+# Create a noise map for gallery previews (same seed as SkinManager for consistency)
+func _make_gallery_noise_map() -> Image:
+	var img := Image.create(64, 64, false, Image.FORMAT_RGBA8)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 20240829  # Same seed as SkinManager.NOISE_SEED
+	for y in range(64):
+		for x in range(64):
+			img.set_pixel(x, y, Color(rng.randf(), 0.0, 0.0, 1.0))
+	return img
 
 func _load_named_skin(skin_name: String) -> void:
 	if _skin_preview == null or not is_instance_valid(_skin_preview):

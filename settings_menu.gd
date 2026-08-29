@@ -1755,6 +1755,7 @@ func _build_block_maker_page() -> Control:
 	dark_toggle.name = "BlockDarkModeToggle"
 	dark_toggle.toggle_mode = true
 	dark_toggle.button_pressed = _skin_dark_mode
+	dark_toggle.text = "DARK MODE" if not _skin_dark_mode else "LIGHT MODE"
 	dark_toggle.add_theme_font_override("font", MUNRO_FONT)
 	dark_toggle.add_theme_font_size_override("font_size", int(14 * s))
 	dark_toggle.set_anchors_preset(Control.PRESET_TOP_RIGHT)
@@ -1764,6 +1765,7 @@ func _build_block_maker_page() -> Control:
 	dark_toggle.offset_bottom = 20.0 * s + 40.0
 	dark_toggle.pressed.connect(func():
 		_skin_dark_mode = not _skin_dark_mode
+		dark_toggle.text = "DARK MODE" if not _skin_dark_mode else "LIGHT MODE"
 		_apply_block_palette()
 		_schedule_save())
 	page.add_child(dark_toggle)
@@ -1902,6 +1904,13 @@ func _build_block_maker_page() -> Control:
 	back_btn.pressed.connect(func(): _show_page("gui"))
 	page.add_child(back_btn)
 	_block_back_btn = back_btn
+
+	# Style buttons to match skin maker
+	var dark := _skin_dark_mode
+	var fg_col := Color(1, 1, 1, 1) if dark else Color.BLACK
+	for btn in [_block_undo_btn, _block_tool_btn, _block_save_btn, _block_load_btn, _block_back_btn, _block_dark_toggle, _block_uv_toggle]:
+		if btn != null:
+			_style_skin_button(btn, fg_col, dark)
 
 	_apply_block_palette()
 	return page

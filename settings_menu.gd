@@ -1129,7 +1129,6 @@ func _build_render_page() -> Control:
 # capture; the next key/button press replaces the action's events (Escape
 # cancels). Every row gets a reset to the pristine project.godot binding.
 func _build_controls_page() -> Control:
-	var s := _ui_scale()
 	var rows: Array = []
 	for cb in CONTROL_BINDINGS:
 		var action: String = cb[0]
@@ -1224,12 +1223,12 @@ func _apply_action_events(action_name: String, data: Array) -> void:
 		var seg: PackedStringArray = String(entry).split(":")
 		if seg[0] == "k" and seg.size() >= 3:
 			var ne := InputEventKey.new()
-			ne.keycode = int(seg[1])
-			ne.physical_keycode = int(seg[2])
+			ne.keycode = int(seg[1]) as Key
+			ne.physical_keycode = int(seg[2]) as Key
 			InputMap.action_add_event(action_name, ne)
 		elif seg[0] == "m" and seg.size() >= 2:
 			var ne := InputEventMouseButton.new()
-			ne.button_index = int(seg[1])
+			ne.button_index = int(seg[1]) as MouseButton
 			InputMap.action_add_event(action_name, ne)
 
 func _build_skin_maker_page() -> Control:
@@ -1401,12 +1400,12 @@ func _build_skin_maker_page() -> Control:
 	save_btn.offset_top = -100.0
 	save_btn.offset_bottom = -60.0
 	save_btn.pressed.connect(func():
-		var name := _sanitize_skin_name(name_edit.text)
+		var skin_name := _sanitize_skin_name(name_edit.text)
 		DirAccess.make_dir_recursive_absolute("user://skins")
-		if _skin_preview.save_skin("user://skins/" + name + ".png"):
-			name_edit.text = name
+		if _skin_preview.save_skin("user://skins/" + skin_name + ".png"):
+			name_edit.text = skin_name
 			# Save the noise value alongside the skin so LOAD can restore it.
-			_save_skin_sidecar(name, _skin_noise))
+			_save_skin_sidecar(skin_name, _skin_noise))
 	page.add_child(save_btn)
 	_skin_save_btn = save_btn
 

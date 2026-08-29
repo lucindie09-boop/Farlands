@@ -22,6 +22,7 @@ config/icon="res://icon.svg"
 [autoload]
 
 UIScale="*res://ui_scale.gd"
+SkinManager="*res://skin_manager.gd"
 
 [display]
 

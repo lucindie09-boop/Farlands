@@ -2,21 +2,18 @@ extends Node
 
 # Manages block texture creation for the block maker tool.
 # Similar to SkinManager but for block textures on cubes.
-# TODO: Fix painting functionality and UV mapping for proper 16x16 per-face texturing.
+# Uses a single 16x16 texture applied to all faces of the cube.
 
 const DEFAULT_BLOCK_PATH := "res://textures/blocks/stone.png"
 const CURRENT_BLOCK_PATH := "user://current_block.png"
-const ATLAS_DIM := 16  # Block textures are typically 16x16
+const ATLAS_WIDTH := 16  # Single 16x16 texture for all faces
+const ATLAS_HEIGHT := 16
 
 var image := Image.new()
 var texture: ImageTexture
 
 func _ready() -> void:
-	if FileAccess.file_exists(CURRENT_BLOCK_PATH):
-		var prev := Image.load_from_file(CURRENT_BLOCK_PATH)
-		if prev != null:
-			_set_image(prev)
-			return
+	# Always regenerate atlas for now to ensure correct size
 	_set_image(_default_image())
 
 func _exit_tree() -> void:
@@ -25,11 +22,20 @@ func _exit_tree() -> void:
 
 func _default_image() -> Image:
 	var tex := load(DEFAULT_BLOCK_PATH) as Texture2D
-	var img := tex.get_image() if tex != null else null
-	if img == null:
-		img = Image.load_from_file(DEFAULT_BLOCK_PATH)
-	if img == null:
-		img = Image.create(ATLAS_DIM, ATLAS_DIM, false, Image.FORMAT_RGBA8)
+	var src_img := tex.get_image() if tex != null else null
+	if src_img == null:
+		src_img = Image.load_from_file(DEFAULT_BLOCK_PATH)
+	
+	# Use the source texture directly (should be 16x16)
+	if src_img != null:
+		if src_img.get_width() != 16 or src_img.get_height() != 16:
+			src_img = src_img.duplicate()
+			src_img.resize(16, 16, Image.INTERPOLATE_NEAREST)
+		return src_img
+	
+	# Fallback: create a 16x16 white image
+	var img := Image.create(16, 16, false, Image.FORMAT_RGBA8)
+	img.fill(Color.WHITE)
 	return img
 
 func get_texture() -> ImageTexture:
@@ -52,8 +58,8 @@ func _set_image(img: Image) -> void:
 
 # Paint one texel on the block texture
 func set_pixel(px: int, py: int, color: Color) -> bool:
-	px = clampi(px, 0, ATLAS_DIM - 1)
-	py = clampi(py, 0, ATLAS_DIM - 1)
+	px = clampi(px, 0, ATLAS_WIDTH - 1)
+	py = clampi(py, 0, ATLAS_HEIGHT - 1)
 	if image.get_pixel(px, py).is_equal_approx(color):
 		return false
 	image.set_pixel(px, py, color)
@@ -63,10 +69,10 @@ func set_pixel(px: int, py: int, color: Color) -> bool:
 
 # Bulk fill texel rectangle
 func fill_rect(x0: int, y0: int, x1: int, y1: int, color: Color) -> void:
-	x0 = clampi(x0, 0, ATLAS_DIM - 1)
-	y0 = clampi(y0, 0, ATLAS_DIM - 1)
-	x1 = clampi(x1, 0, ATLAS_DIM - 1)
-	y1 = clampi(y1, 0, ATLAS_DIM - 1)
+	x0 = clampi(x0, 0, ATLAS_WIDTH - 1)
+	y0 = clampi(y0, 0, ATLAS_HEIGHT - 1)
+	x1 = clampi(x1, 0, ATLAS_WIDTH - 1)
+	y1 = clampi(y1, 0, ATLAS_HEIGHT - 1)
 	if x1 < x0 or y1 < y0:
 		return
 	var changed := false

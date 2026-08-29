@@ -9,6 +9,8 @@ const ZOOM_SPEED := 0.25
 const ZOOM_MIN := 8.0
 const ZOOM_MAX := 70.0
 const TEXEL := 1.0 / 16.0  # Block textures are 16x16
+const ATLAS_WIDTH := 16  # Single 16x16 texture for all faces
+const ATLAS_HEIGHT := 16
 
 var _camera: Camera3D
 var _cube: MeshInstance3D
@@ -28,6 +30,7 @@ var _box_active := false
 
 var _undo_stack := []
 var _stroke := []
+var _uv_overlay_enabled := false
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
@@ -73,19 +76,8 @@ func _setup_scene() -> void:
 	_viewport.add_child(fill)
 	
 	_cube = MeshInstance3D.new()
-	_cube.mesh = BoxMesh.new()
-	_cube.mesh.size = Vector3(1, 1, 1)
+	_cube.mesh = _build_cube_mesh()
 	_cube.scale = Vector3(4.0, 4.0, 4.0)  # Much larger scale like skin maker
-	
-	# Add collision shape for raycasting
-	var collision := StaticBody3D.new()
-	collision.collision_layer = 1
-	collision.collision_mask = 1
-	var shape := CollisionShape3D.new()
-	shape.shape = BoxShape3D.new()
-	shape.shape.size = Vector3(1, 1, 1)
-	collision.add_child(shape)
-	_cube.add_child(collision)
 	
 	_viewport.add_child(_cube)
 	
@@ -101,6 +93,12 @@ func _setup_scene() -> void:
 	_apply_block_texture()
 	_update_camera()
 
+func _build_cube_mesh() -> Mesh:
+	# Use BoxMesh with standard UVs (0-1 per face) since we use a single 16x16 texture
+	var box := BoxMesh.new()
+	box.size = Vector3(1, 1, 1)
+	return box
+
 func _apply_block_texture() -> void:
 	var block_manager := get_node_or_null("/root/BlockManager")
 	if block_manager == null:
@@ -115,6 +113,16 @@ func _apply_block_texture() -> void:
 	mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
 	mat.albedo_color = Color.WHITE  # Ensure no black overlay
 	mat.roughness = 1.0  # Ensure proper lighting
+	
+	# Add UV overlay as next pass if enabled
+	if _uv_overlay_enabled:
+		var overlay_shader := ShaderMaterial.new()
+		overlay_shader.shader = load("res://shaders/block_uv_overlay.gdshader") as Shader
+		overlay_shader.set_shader_parameter("grid_color", Color(0.0, 0.0, 0.0, 0.9))
+		overlay_shader.set_shader_parameter("cells", 16.0)
+		overlay_shader.set_shader_parameter("line_thickness", 1.5)
+		mat.next_pass = overlay_shader
+	
 	_cube.set_surface_override_material(0, mat)
 
 func _update_camera() -> void:
@@ -145,8 +153,8 @@ func _input(event: InputEvent) -> void:
 	elif event is InputEventMouseMotion:
 		var mm := event as InputEventMouseMotion
 		if _rotating:
-			_yaw += mm.relative.x * 0.3
-			_pitch = clampf(_pitch + mm.relative.y * 0.3, -89.0, 89.0)
+			_yaw += mm.relative.x * 0.15
+			_pitch = clampf(_pitch + mm.relative.y * 0.15, -89.0, 89.0)
 			_update_camera()
 		elif _zooming:
 			_dist += mm.relative.y * ZOOM_SPEED
@@ -210,29 +218,89 @@ func _handle_paint_motion(mouse_pos: Vector2) -> void:
 			_box_end = local_pos
 
 func _get_local_uv_from_mouse(mouse_pos: Vector2) -> Vector2:
-	var _viewport := get_child(0) as SubViewport
-	var ray_origin: Vector3 = _camera.project_ray_origin(mouse_pos)
-	var ray_dir: Vector3 = _camera.project_ray_normal(mouse_pos)
+	# Direct triangle raycast like skin_preview - MeshInstance3D has no physics
+	var origin := _camera.project_ray_origin(get_local_mouse_position())
+	var dir := _camera.project_ray_normal(get_local_mouse_position())
+	var best := INF
+	var best_uv := Vector2.INF
 	
-	var physics_query := PhysicsRayQueryParameters3D.create(ray_origin, ray_origin + ray_dir * 100)
-	var result: Dictionary = _viewport.world_3d.direct_space_state.intersect_ray(physics_query)
-	
-	if result.is_empty():
+	if _cube == null or _cube.mesh == null:
 		return Vector2.INF
 	
-	var collider: Node = result.get("collider")
-	if collider != _cube:
-		return Vector2.INF
+	var inv := _cube.global_transform.affine_inverse()
+	var lo := inv * origin
+	var ld := inv.basis * dir
 	
-	var uv: Vector2 = result.get("uv")
-	if uv == null:
-		return Vector2.INF
+	for surface_idx in range(_cube.mesh.get_surface_count()):
+		var arrays := _cube.mesh.surface_get_arrays(surface_idx)
+		if arrays.is_empty():
+			continue
+		var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		var uvs: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
+		var idx: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+		
+		var tri_count: int
+		if idx.size() >= 3:
+			tri_count = int(idx.size() / 3.0)
+		else:
+			tri_count = int(verts.size() / 3.0)
+		
+		for t in range(tri_count):
+			var i0: int
+			var i1: int
+			var i2: int
+			if idx.size() >= 3:
+				i0 = idx[t * 3]
+				i1 = idx[t * 3 + 1]
+				i2 = idx[t * 3 + 2]
+			else:
+				i0 = t * 3
+				i1 = t * 3 + 1
+				i2 = t * 3 + 2
+			
+			var v0 := verts[i0]
+			var v1 := verts[i1]
+			var v2 := verts[i2]
+			
+			var edge1 := v1 - v0
+			var edge2 := v2 - v0
+			var h := ld.cross(edge2)
+			var a := edge1.dot(h)
+			
+			if absf(a) < 0.00001:
+				continue
+			
+			var f := 1.0 / a
+			var ray_s := lo - v0
+			var u := f * ray_s.dot(h)
+			if u < 0.0 or u > 1.0:
+				continue
+			
+			var q := ray_s.cross(edge1)
+			var v := f * ld.dot(q)
+			if v < 0.0 or u + v > 1.0:
+				continue
+			
+			var t_param := f * edge2.dot(q)
+			if t_param < 0.0 or t_param >= best:
+				continue
+			
+			best = t_param
+			var uv0 := uvs[i0]
+			var uv1 := uvs[i1]
+			var uv2 := uvs[i2]
+			best_uv = uv0 + (uv1 - uv0) * u + (uv2 - uv0) * v
 	
-	return uv
+	return best_uv
 
 func _paint_texel(u: float, v: float) -> void:
-	var px := int(u * 16.0)
-	var py := int(v * 16.0)
+	# Map UV from 0-1 atlas space to pixel coordinates (0-95 x 0-15)
+	var px := int(u * ATLAS_WIDTH)
+	var py := int(v * ATLAS_HEIGHT)
+	
+	# Clamp to valid range
+	px = clampi(px, 0, ATLAS_WIDTH - 1)
+	py = clampi(py, 0, ATLAS_HEIGHT - 1)
 	
 	var block_manager := get_node_or_null("/root/BlockManager")
 	if block_manager == null:
@@ -244,8 +312,12 @@ func _paint_texel(u: float, v: float) -> void:
 		_apply_block_texture()
 
 func _flood_fill(start_u: float, start_v: float) -> void:
-	var start_x := int(start_u * 16.0)
-	var start_y := int(start_v * 16.0)
+	# Map UV from 0-1 atlas space to pixel coordinates
+	var start_x := int(start_u * ATLAS_WIDTH)
+	var start_y := int(start_v * ATLAS_HEIGHT)
+	
+	start_x = clampi(start_x, 0, ATLAS_WIDTH - 1)
+	start_y = clampi(start_y, 0, ATLAS_HEIGHT - 1)
 	
 	var block_manager := get_node_or_null("/root/BlockManager")
 	if block_manager == null:
@@ -259,7 +331,7 @@ func _flood_fill(start_u: float, start_v: float) -> void:
 	
 	var queue: Array = [[start_x, start_y]]
 	var visited: Dictionary = {}
-	visited[start_y * 16 + start_x] = true
+	visited[start_y * ATLAS_WIDTH + start_x] = true
 	
 	while not queue.is_empty():
 		var current: Array = queue.pop_front()
@@ -274,8 +346,8 @@ func _flood_fill(start_u: float, start_v: float) -> void:
 			for neighbor in [[x+1, y], [x-1, y], [x, y+1], [x, y-1]]:
 				var nx: int = neighbor[0]
 				var ny: int = neighbor[1]
-				if nx >= 0 and nx < 16 and ny >= 0 and ny < 16:
-					var key: int = ny * 16 + nx
+				if nx >= 0 and nx < ATLAS_WIDTH and ny >= 0 and ny < ATLAS_HEIGHT:
+					var key: int = ny * ATLAS_WIDTH + nx
 					if not visited.has(key):
 						visited[key] = true
 						queue.append([nx, ny])
@@ -286,10 +358,16 @@ func _draw_box() -> void:
 	if _box_start == Vector2.INF or _box_end == Vector2.INF:
 		return
 	
-	var x0 := int(minf(_box_start.x, _box_end.x) * 16.0)
-	var y0 := int(minf(_box_start.y, _box_end.y) * 16.0)
-	var x1 := int(maxf(_box_start.x, _box_end.x) * 16.0)
-	var y1 := int(maxf(_box_start.y, _box_end.y) * 16.0)
+	# Map UV from 0-1 atlas space to pixel coordinates
+	var x0 := int(minf(_box_start.x, _box_end.x) * ATLAS_WIDTH)
+	var y0 := int(minf(_box_start.y, _box_end.y) * ATLAS_HEIGHT)
+	var x1 := int(maxf(_box_start.x, _box_end.x) * ATLAS_WIDTH)
+	var y1 := int(maxf(_box_start.y, _box_end.y) * ATLAS_HEIGHT)
+	
+	x0 = clampi(x0, 0, ATLAS_WIDTH - 1)
+	y0 = clampi(y0, 0, ATLAS_HEIGHT - 1)
+	x1 = clampi(x1, 0, ATLAS_WIDTH - 1)
+	y1 = clampi(y1, 0, ATLAS_HEIGHT - 1)
 	
 	var block_manager := get_node_or_null("/root/BlockManager")
 	if block_manager == null:
@@ -336,10 +414,9 @@ func set_color(color: Color) -> void:
 	if block_manager != null:
 		pass  # BlockManager doesn't need color state, it's per-paint operation
 
-func set_uv_overlay(_enabled: bool) -> void:
-	# UV overlay could be implemented to show the 16x16 grid
-	# For now, just a placeholder
-	pass
+func set_uv_overlay(enabled: bool) -> void:
+	_uv_overlay_enabled = enabled
+	_apply_block_texture()
 
 func save_block(path: String) -> bool:
 	var block_manager := get_node_or_null("/root/BlockManager")

@@ -1,4 +1,5 @@
-Fix player model UV mapping
+Not in any particular order, important things that will be done soon
+
 Block break animation + hardness values - careful: decide now if hardness gates break time, since that changes the break-block code path
 Player model animations (walk/idle/etc.)
 First-person viewmodel + items/blocks in hand

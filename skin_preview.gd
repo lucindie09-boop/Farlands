@@ -351,7 +351,7 @@ func _finish_box() -> void:
 		if not cells.has(key):
 			var k: int = int(key)
 			var px := k % 64
-			var py := int(k / 64)
+			var py := k / 64
 			_model.undo_texel(px, py, _box_base.get_pixel(px, py))
 	_box_touched = cells
 	_commit_box_stroke()
@@ -369,7 +369,7 @@ func _commit_box_stroke() -> void:
 	for key in _box_touched:
 		var k: int = int(key)
 		var px := k % 64
-		var py := int(k / 64)
+		var py := k / 64
 		_stroke.append({"x": px, "y": py, "old": _box_base.get_pixel(px, py), "new": _paint_color})
 	_box_touched.clear()
 	_box_base = null

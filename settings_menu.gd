@@ -526,11 +526,12 @@ func _build_crosshair_page() -> Control:
 		var code := _export_crosshair_code()
 		if code != "":
 			DisplayServer.clipboard_set(code)
-			crosshair_hint.text = "Code copied to clipboard!")
+			crosshair_hint.text = "Code copied to clipboard!"
 		else:
-			crosshair_hint.text = "Export failed")
+			crosshair_hint.text = "Export failed"
 		# Clear hint after 3 seconds
-		get_tree().create_timer(3.0).timeout.connect(func(): crosshair_hint.text = ""))
+		get_tree().create_timer(3.0).timeout.connect(func(): crosshair_hint.text = "")
+	)
 	page.add_child(export_btn)
 
 	var import_btn := _make_button("Import", 100.0)
@@ -549,7 +550,8 @@ func _build_crosshair_page() -> Control:
 		else:
 			crosshair_hint.text = "Clipboard is empty"
 		# Clear hint after 3 seconds
-		get_tree().create_timer(3.0).timeout.connect(func(): crosshair_hint.text = ""))
+		get_tree().create_timer(3.0).timeout.connect(func(): crosshair_hint.text = "")
+	)
 	page.add_child(import_btn)
 
 	var back := _make_button("Back", 100.0)
@@ -664,7 +666,8 @@ func _build_block_outline_page() -> Control:
 		else:
 			outline_hint.text = "Export failed"
 		# Clear hint after 3 seconds
-		get_tree().create_timer(3.0).timeout.connect(func(): outline_hint.text = ""))
+		get_tree().create_timer(3.0).timeout.connect(func(): outline_hint.text = "")
+	)
 	page.add_child(export_btn)
 
 	var import_btn := _make_button("Import", 100.0)
@@ -683,7 +686,8 @@ func _build_block_outline_page() -> Control:
 		else:
 			outline_hint.text = "Clipboard is empty"
 		# Clear hint after 3 seconds
-		get_tree().create_timer(3.0).timeout.connect(func(): outline_hint.text = ""))
+		get_tree().create_timer(3.0).timeout.connect(func(): outline_hint.text = "")
+	)
 	page.add_child(import_btn)
 
 	var back := _make_button("Back", 100.0)
@@ -2409,14 +2413,14 @@ func _import_block_outline_code(code: String) -> bool:
 	return true
 
 # Helper functions for compact encoding
-func _pack_float16(value: float, min_val: float, max_val: float, scale: float) -> PackedByteArray:
-	var scaled := clampf(value, min_val, max_val) * scale
+func _pack_float16(value: float, min_val: float, max_val: float, scale_factor: float) -> PackedByteArray:
+	var scaled := clampf(value, min_val, max_val) * scale_factor
 	var uint16 := int(round(scaled))
 	return PackedByteArray([uint16 & 0xFF, (uint16 >> 8) & 0xFF])
 
-func _unpack_float16(data: PackedByteArray, idx: int, min_val: float, max_val: float, scale: float) -> float:
+func _unpack_float16(data: PackedByteArray, idx: int, min_val: float, max_val: float, scale_factor: float) -> float:
 	var uint16 := data[idx] | (data[idx + 1] << 8)
-	return clampf(float(uint16) / scale, min_val, max_val)
+	return clampf(float(uint16) / scale_factor, min_val, max_val)
 
 func _pack_color32(c: Color) -> PackedByteArray:
 	return PackedByteArray([
@@ -2483,8 +2487,8 @@ func _base32_decode(encoded: String) -> PackedByteArray:
 	# Case-insensitive: convert to uppercase for lookup
 	encoded = encoded.to_upper()
 	
-	for char in encoded:
-		var index := BASE32_CHARS.find(char)
+	for ch in encoded:
+		var index := BASE32_CHARS.find(ch)
 		if index == -1:
 			return PackedByteArray()  # Invalid character
 		

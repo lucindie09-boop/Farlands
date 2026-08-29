@@ -438,6 +438,20 @@ func _build_crosshair_page() -> Control:
 	_crosshair_header(page, 0, -102.0, "CROSS")
 	_crosshair_header(page, 1, -102.0, "DOT")
 
+	# Status hint for import/export feedback
+	var crosshair_hint := Label.new()
+	crosshair_hint.text = ""
+	crosshair_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	crosshair_hint.add_theme_font_override("font", MUNRO_FONT)
+	crosshair_hint.add_theme_font_size_override("font_size", int(10 * s))
+	crosshair_hint.add_theme_color_override("font_color", Color(1.0, 0.7, 0.3))
+	crosshair_hint.set_anchors_preset(Control.PRESET_CENTER)
+	crosshair_hint.offset_left = -260.0 * s
+	crosshair_hint.offset_right = 260.0 * s
+	crosshair_hint.offset_top = 200.0 * s
+	crosshair_hint.offset_bottom = 216.0 * s
+	page.add_child(crosshair_hint)
+
 	var controls := {}
 	controls["cross_enabled"] = _make_toggle("cross_enabled", _crosshair_val("cross_enabled"))
 	controls["cross_color"] = _make_color("cross_color", _crosshair_val("cross_color"))
@@ -512,7 +526,11 @@ func _build_crosshair_page() -> Control:
 		var code := _export_crosshair_code()
 		if code != "":
 			DisplayServer.clipboard_set(code)
-			print("Crosshair code copied to clipboard: ", code))
+			crosshair_hint.text = "Code copied to clipboard!")
+		else:
+			crosshair_hint.text = "Export failed")
+		# Clear hint after 3 seconds
+		get_tree().create_timer(3.0).timeout.connect(func(): crosshair_hint.text = ""))
 	page.add_child(export_btn)
 
 	var import_btn := _make_button("Import", 100.0)
@@ -525,9 +543,13 @@ func _build_crosshair_page() -> Control:
 		if code != "":
 			if _import_crosshair_code(code):
 				_cross_refresh_controls(controls)
-				print("Crosshair code imported successfully")
+				crosshair_hint.text = "Code imported successfully!"
 			else:
-				print("Invalid crosshair code"))
+				crosshair_hint.text = "Invalid code format"
+		else:
+			crosshair_hint.text = "Clipboard is empty"
+		# Clear hint after 3 seconds
+		get_tree().create_timer(3.0).timeout.connect(func(): crosshair_hint.text = ""))
 	page.add_child(import_btn)
 
 	var back := _make_button("Back", 100.0)
@@ -552,6 +574,20 @@ func _build_block_outline_page() -> Control:
 
 	_block_outline_header(page, 0, -102.0, "OUTLINE")
 	_block_outline_header(page, 1, -102.0, "FILL")
+
+	# Status hint for import/export feedback
+	var outline_hint := Label.new()
+	outline_hint.text = ""
+	outline_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	outline_hint.add_theme_font_override("font", MUNRO_FONT)
+	outline_hint.add_theme_font_size_override("font_size", int(10 * s))
+	outline_hint.add_theme_color_override("font_color", Color(1.0, 0.7, 0.3))
+	outline_hint.set_anchors_preset(Control.PRESET_CENTER)
+	outline_hint.offset_left = -260.0 * s
+	outline_hint.offset_right = 260.0 * s
+	outline_hint.offset_top = 200.0 * s
+	outline_hint.offset_bottom = 216.0 * s
+	page.add_child(outline_hint)
 
 	var controls := {}
 	controls["outline_enabled"] = _make_toggle_outline("outline_enabled", _block_outline_val("outline_enabled"))
@@ -624,7 +660,11 @@ func _build_block_outline_page() -> Control:
 		var code := _export_block_outline_code()
 		if code != "":
 			DisplayServer.clipboard_set(code)
-			print("Block outline code copied to clipboard: ", code))
+			outline_hint.text = "Code copied to clipboard!"
+		else:
+			outline_hint.text = "Export failed"
+		# Clear hint after 3 seconds
+		get_tree().create_timer(3.0).timeout.connect(func(): outline_hint.text = ""))
 	page.add_child(export_btn)
 
 	var import_btn := _make_button("Import", 100.0)
@@ -637,9 +677,13 @@ func _build_block_outline_page() -> Control:
 		if code != "":
 			if _import_block_outline_code(code):
 				_block_outline_refresh_controls(controls)
-				print("Block outline code imported successfully")
+				outline_hint.text = "Code imported successfully!"
 			else:
-				print("Invalid block outline code"))
+				outline_hint.text = "Invalid code format"
+		else:
+			outline_hint.text = "Clipboard is empty"
+		# Clear hint after 3 seconds
+		get_tree().create_timer(3.0).timeout.connect(func(): outline_hint.text = ""))
 	page.add_child(import_btn)
 
 	var back := _make_button("Back", 100.0)
@@ -2435,6 +2479,9 @@ func _base32_decode(encoded: String) -> PackedByteArray:
 	var data := PackedByteArray()
 	var buffer := 0
 	var bits_left := 0
+	
+	# Case-insensitive: convert to uppercase for lookup
+	encoded = encoded.to_upper()
 	
 	for char in encoded:
 		var index := BASE32_CHARS.find(char)

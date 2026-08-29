@@ -89,6 +89,7 @@ var _skin_gallery_spins: Array = []
 var _controls_defaults := {}
 var _control_buttons := {}
 var _capturing_action := ""
+var _controls_hint: Label = null
 
 var _block_outline_defaults := {
 	"outline_enabled": true,
@@ -1129,6 +1130,7 @@ func _build_render_page() -> Control:
 # capture; the next key/button press replaces the action's events (Escape
 # cancels). Every row gets a reset to the pristine project.godot binding.
 func _build_controls_page() -> Control:
+	var s := _ui_scale()
 	var rows: Array = []
 	for cb in CONTROL_BINDINGS:
 		var action: String = cb[0]
@@ -1136,16 +1138,63 @@ func _build_controls_page() -> Control:
 		_control_buttons[action] = btn
 		btn.pressed.connect(func(a := action, b := btn):
 			_capturing_action = a
-			b.text = " <Press> ")
+			b.text = " <Press> "
+			_set_controls_hint(""))
 		rows.append([cb[1], btn, func(a := action): _reset_control(a)])
-	return _build_option_page("CONTROLS", rows, "settings", 40.0)
+
+	var page := _build_option_page("CONTROLS", rows, "settings", 40.0)
+
+	# Conflict/status hint shown above the Reset All row (hidden until used).
+	var hint := Label.new()
+	hint.text = ""
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hint.add_theme_font_override("font", MUNRO_FONT)
+	hint.add_theme_font_size_override("font_size", int(10 * s))
+	hint.add_theme_color_override("font_color", Color(1.0, 0.7, 0.3))
+	hint.set_anchors_preset(Control.PRESET_CENTER)
+	hint.offset_left = -260.0 * s
+	hint.offset_right = 260.0 * s
+	hint.offset_top = 88.0 * s
+	hint.offset_bottom = 104.0 * s
+	_controls_hint = hint
+	page.add_child(hint)
+
+	# Reset All: restore every action's pristine project.godot binding.
+	var reset_all := _make_button("Reset All", 160.0)
+	reset_all.set_anchors_preset(Control.PRESET_CENTER)
+	reset_all.offset_left = -80.0 * s
+	reset_all.offset_right = 80.0 * s
+	reset_all.offset_top = 108.0 * s
+	reset_all.offset_bottom = 128.0 * s
+	reset_all.pressed.connect(_reset_all_controls)
+	page.add_child(reset_all)
+
+	return page
+
+func _set_controls_hint(text: String) -> void:
+	if _controls_hint != null:
+		_controls_hint.text = text
+
+# Restore every rebindable action to its pristine project.godot binding.
+func _reset_all_controls() -> void:
+	_capturing_action = ""
+	for cb in CONTROL_BINDINGS:
+		InputMap.action_erase_events(cb[0])
+		for e in _controls_defaults[cb[0]]:
+			InputMap.action_add_event(cb[0], e)
+		var btn: Button = _control_buttons.get(cb[0])
+		if btn != null:
+			btn.text = _binding_text(cb[0])
+	_schedule_save()
 
 # Human-readable label for an action's first binding (key name or mouse side).
 func _binding_text(action_name: String) -> String:
 	var events := InputMap.action_get_events(action_name)
 	if events.is_empty():
 		return "Unbound"
-	var e = events[0]
+	return _event_label(events[0])
+
+func _event_label(e: InputEvent) -> String:
 	if e is InputEventKey:
 		var code: int = e.keycode
 		if code == 0:
@@ -1173,17 +1222,57 @@ func _reset_control(action_name: String) -> void:
 	_schedule_save()
 
 # Apply a captured event (or null to cancel) to the armed action, then refresh
-# its button. Rebinding wipes the action's previous events.
+# its button. Rebinding wipes the action's previous events. A conflict (the
+# key/button is already bound to another action) is rejected with a hint.
 func _finish_capture(new_event: InputEvent) -> void:
 	var action := _capturing_action
 	_capturing_action = ""
 	if new_event != null and action != "":
-		InputMap.action_erase_events(action)
-		InputMap.action_add_event(action, new_event)
-		_schedule_save()
+		var other := _conflicting_action(action, new_event)
+		if other != "":
+			_set_controls_hint("%s is already bound to %s" % [_event_label(new_event), _friendly_action(other)])
+		else:
+			InputMap.action_erase_events(action)
+			InputMap.action_add_event(action, new_event)
+			_schedule_save()
 	var btn: Button = _control_buttons.get(action)
 	if btn != null:
 		btn.text = _binding_text(action)
+
+# Human-readable name of a conflicting action (from CONTROL_BINDINGS).
+func _friendly_action(action_name: String) -> String:
+	for cb in CONTROL_BINDINGS:
+		if cb[0] == action_name:
+			return cb[1]
+	return action_name
+
+# Return the name of another action whose first binding matches `new_event`'s
+# key/button (physical-key aware), or "" if the binding is free.
+func _conflicting_action(current_action: String, new_event: InputEvent) -> String:
+	var want_label := _binding_label(new_event)
+	for cb in CONTROL_BINDINGS:
+		var a: String = cb[0]
+		if a == current_action:
+			continue
+		var events := InputMap.action_get_events(a)
+		if events.is_empty():
+			continue
+		for e in events:
+			if want_label != "" and want_label == _binding_label(e):
+				return a
+	return ""
+
+# Compare two events by the same identity used in _binding_text so a new key
+# matches an existing binding even if the keycode/physical split differs.
+func _binding_label(e: InputEvent) -> String:
+	if e is InputEventKey:
+		var code: int = e.keycode
+		if code == 0:
+			code = e.physical_keycode
+		return "k:" + String.num_int64(code)
+	if e is InputEventMouseButton:
+		return "m:" + String.num_int64(e.button_index)
+	return ""
 
 # Consume the next key/button press while a binding is being captured, or the
 # Escape key to cancel. Returns true when the event was used as a capture.

@@ -48,9 +48,11 @@ A Minecraft-style voxel engine built in Godot 4 with a custom C++ GDExtension. P
 | Death screen | `death_screen.gd` | "You died!" overlay with a Respawn button; shown on the `died` signal (health reaching 0), hidden on `respawned` — respawn restores full health at the game-start spawn point |
 | Chat system | `chat.gd` | GDScript chat with autocomplete: ghost text suggestions with pulsing effect, tab cycling through completions, up/down arrow navigation, hold-to-cycle, parameter hints for commands (`/give <block> [count]`, `/tp <x> <y> <z>`), commands: `/help`, `/give` (unlimited count), `/tp`, `/fly`, `/clearchat`, `/clearinv`, `/version` |
 | Inventory drag ops | `inventory.gd` | RMB drag-place (spread 1 unit per slot), LMB drag-collect (sweep matching blocks), shift-click/drag quick-transfer (move between hotbar/main), scroll wheel quick-transfer (push/pull 1 unit), double-click gather (sweep all matching blocks); the same interactions work on the crafting grid cells, and shift-clicking the output crafts as many as possible |
-| Settings menu | `settings_menu.gd` | Adjustable settings with persistence (render — including an MSAA 3D Off/2x/4x/8x toggle that sets the root viewport's `msaa_3d` live — plus lighting, crosshair, controls) opened with Escape key; includes a **Skin Maker** page (color wheel + orbitable preview) with a dark-mode toggle |
+| Settings menu | `settings_menu.gd` | Adjustable settings with persistence (render — including an MSAA 3D Off/2x/4x/8x toggle that sets the root viewport's `msaa_3d` live — plus lighting, crosshair, controls) opened with Escape key; includes a **Skin Maker** page (color wheel + orbitable preview) with paint tools (DRAW/FILL/BOX), grayscale noise slider, skin gallery with load/delete, and a dark-mode toggle; includes **Controls rebinding** page with per-action key/button rebinds, conflict detection, and Reset All button; includes **shareable setting codes** for crosshair and block outline (CS-style base32 import/export) |
 | Texture packs | `src/render/texture_pack_manager.hpp` + `tools/pack_converter.py` | Custom texture pack system with per-block texture overrides loaded from `user://packs/` |
 | Block outline | Adjustable block outline system with pulse effects, thickness control (0.0-0.99), and fill box with separate color/opacity |
+| Crosshair | Adjustable crosshair with rotation, spacing, dot, and color-inversion modes |
+| Shareable codes | CS-style base32 export/import codes for crosshair and block outline settings; compact hyphenated format with versioning and clipboard integration |
 | Chunk persistence | `src/world/chunk_world.cpp` + `chunk_world_edits.cpp` / `chunk_world_persistence.cpp` | Async background saves: dirty chunks are snapshotted under their shard lock, then RLE-encoded + atomically written on the thread pool; per-key generation gating guarantees the newest data reaches disk; blocking flush on quit |
 
 ## Rendering Notes
@@ -176,6 +178,16 @@ Open the project root in Godot 4 and press Play. The main scene is `Main.tscn`. 
 
 Input bindings live in `project.godot` (`move_forward`, `move_back`, `move_left`, `move_right`, `jump`, `sprint`, `sneak`, `fly_toggle`, `toggle_inventory`, `toggle_chat`, `toggle_third_person`, `mouse_click_left`, `mouse_click_right`). The C++ `PlayerController` node owns all movement, look, block interaction, and inventory state — there is no player GDScript. The hotbar/inventory screens are GDScript `Control` overlays that read/write that state.
 
+### Controls Rebinding
+
+Settings → Controls page allows rebinding any action to a different key or button:
+- Click a binding row, then press the desired key/button to rebind
+- Escape cancels the rebind operation
+- Per-row Reset button restores the original `project.godot` binding
+- Reset All button restores every action to its default binding
+- Conflict detection prevents mapping two actions to the same key/button
+- Bindings are applied live to InputMap and persisted to `settings.cfg`
+
 ## Performance Tuning
 
 The `ChunkManager` node exposes these editor properties (see `src/godot_bindings/chunk_manager.cpp`):
@@ -198,17 +210,54 @@ The `ChunkManager` node exposes these editor properties (see `src/godot_bindings
 
 The `PlayerController` node exposes **sensitivity** (mouse look), **fly_speed**, and **health** (half-hearts 0–20; fall damage drains it).
 
+## Settings Menu Features
+
+The Settings menu (Escape key) includes several customization pages:
+
+### Render Settings
+- MSAA 3D toggle (Off/2x/4x/8x) — sets root viewport's `msaa_3d` live
+- GPU texture compression toggle
+- Mipmap generation toggle
+- Vertex compression toggle
+- Fog mode selection (Disabled/Edge/Linear/Exponential)
+- God rays toggle
+- Sky turbidity adjustment
+
+### Lighting Settings
+- AO color and strength
+- Darkness color
+- Contrast and saturation
+
+### Crosshair Settings
+- Rotation, spacing, dot toggle
+- Color inversion mode
+- Export/Import shareable codes (CS-style base32 format)
+
+### Block Outline Settings
+- Thickness control (0.0-0.99)
+- Pulse effects
+- Fill box with separate color/opacity
+- Export/Import shareable codes (CS-style base32 format)
+
+### Skin Maker
+- Color wheel with live hex readout
+- Paint tools: DRAW (single pixel), FILL (flood fill), BOX (inclusive box draw)
+- Grayscale noise slider (persists per skin)
+- Dark/Light mode toggle
+- Skin gallery with 3D spinning previews
+- Load and delete saved skins
+- Transparent sub-viewport with drag-orbit camera
+
+### Controls
+- Per-action key/button rebinding
+- Conflict detection
+- Per-row Reset buttons
+- Reset All button
+
 ## Notes
 
 - The player is a C++ `PlayerController` node (`src/engine/player_controller.*` + `src/godot_bindings/player_controller.*`) — fixed 20-tick/s simulation with an accumulator, vanilla-accurate jump/sprint/sneak ordering, smooth eye-height transitions, fly mode, raycast-based block break/place, and vanilla fall damage (1 half-heart per block past a 3-block safe fall, applied on landing). There is no player GDScript. The GUI layer (hotbar, full inventory screen, health bar, death screen, block-texture atlas) is GDScript (`hotbar.gd`, `inventory.gd`, `healthbar.gd`, `death_screen.gd`, `block_textures.gd`).
 - Modified chunks are saved to `user://chunks/` as versioned RLE-compressed `.chunk` files (v3 format with a CRC32 checksum; v2/v1 legacy files load transparently). Saves are asynchronous — `WorldUpdater` snapshots dirty chunks every 5s and writes them on the thread pool, and `ChunkManager::_exit_tree()` performs a blocking flush so nothing is lost on quit. The inventory persists to `user://chunks/inventory.bin` (magic `INVE`, version 1) and is written at `_exit_tree`.
 - `analyze.py` analyzes biome maps produced by the `terrain_debug` tool; it requires `Pillow`, `numpy`, and `scipy`, which aren't otherwise part of the build.
-- The LOD system is per-chunk, three-tier distance-based reduction inside the greedy mesher: full detail within `lod_distance`, stride/detail reduction between `lod_distance` and `far_lod_distance` (`lod_detail_level`), and a further reduced far tier beyond it (`far_lod_distance`/`far_lod_detail_level`). LOD-reduced chunks are cached and merged into region instances so the coarse rings cost only a handful of draw calls.
-- Frustum prioritization requires a `Camera3D` child on the player node (named `Camera3D`).
-- Non-full block shapes (slabs, stairs, walls, poles) are defined in `data/block_shapes.json` with auto-detecting placement based on the clicked face and neighboring blocks. Slabs merge into double slabs when stacked; breaking a double slab drops 2 slabs. Poles have fence-like collision boxes that extend 1.5 blocks high for proper player interaction.
-- There is no gameplay layer yet beyond movement, block break/place, inventory, 2×2 crafting, and health/fall damage (death at 0 health shows a respawn overlay that restores full health at the spawn point; inventory is kept) — no mobs or multiplayer.
-- Block IDs are positional: the order of entries in `block_definitions.json` defines save-format IDs. New blocks must always be **appended** to keep existing worlds loading correctly.
-
-## License
-
-GPL-3.0 — see `LICENSE`.
+- See [AGENTS.md](AGENTS.md) for detailed development guidelines and architecture notes.
+- See [roadmap.md](roadmap.md) for the project roadmap.

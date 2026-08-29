@@ -86,6 +86,23 @@ var _skin_gallery_grid: GridContainer
 var _skin_gallery_timer: Timer
 var _skin_gallery_spins: Array = []
 
+var _block_bg: ColorRect
+var _block_title: Label
+var _block_hex: Label
+var _block_hint: Label
+var _block_picker: ColorPicker
+var _block_preview: Control
+var _block_undo_btn: Button
+var _block_tool_btn: Button
+var _block_name_edit: LineEdit
+var _block_save_btn: Button
+var _block_load_btn: Button
+var _block_back_btn: Button
+var _block_dark_toggle: Button
+var _block_uv_toggle: Button
+var _block_tool := "DRAW"
+var _block_color := Color.WHITE
+
 var _controls_defaults := {}
 var _control_buttons := {}
 var _capturing_action := ""
@@ -293,6 +310,7 @@ func _rebuild_pages():
 	_pages["render"] = _build_render_page()
 	_pages["controls"] = _build_controls_page()
 	_pages["skin_maker"] = _build_skin_maker_page()
+	_pages["block_maker"] = _build_block_maker_page()
 	for p in _pages.values():
 		p.hide()
 		add_child(p)
@@ -306,6 +324,10 @@ func _show_page(page_name: String):
 	# reversibility base now that it does; with an identical value it's a no-op.
 	if page_name == "skin_maker" and _skin_preview != null && is_instance_valid(_skin_preview):
 		_skin_preview.set_noise(_skin_noise)
+	# The block page preview needs color/tool sync on open
+	if page_name == "block_maker" and _block_preview != null && is_instance_valid(_block_preview):
+		_block_preview.set_color(_block_color)
+		_block_preview.set_tool(_block_tool)
 
 func _build_pause_page() -> Control:
 	var s := _ui_scale()
@@ -372,9 +394,15 @@ func _build_settings_page() -> Control:
 	skin_btn.pressed.connect(func(): _show_page("skin_maker"))
 	page.add_child(skin_btn)
 
+	var block_btn := _make_button("Block Maker")
+	block_btn.offset_top = 115.0 * s
+	block_btn.offset_bottom = 135.0 * s
+	block_btn.pressed.connect(func(): _show_page("block_maker"))
+	page.add_child(block_btn)
+
 	var back := _make_button("Back")
-	back.offset_top = 115.0 * s
-	back.offset_bottom = 135.0 * s
+	back.offset_top = 145.0 * s
+	back.offset_bottom = 165.0 * s
 	back.pressed.connect(func(): _show_page("pause"))
 	page.add_child(back)
 	return page
@@ -1665,6 +1693,252 @@ func _build_skin_maker_page() -> Control:
 
 	_apply_skin_palette()
 	return page
+
+func _build_block_maker_page() -> Control:
+	var s := _ui_scale()
+	var page := Control.new()
+	page.set_anchors_preset(Control.PRESET_FULL_RECT)
+	page.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	_block_bg = ColorRect.new()
+	_block_bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_block_bg.mouse_filter = Control.MOUSE_FILTER_STOP
+	page.add_child(_block_bg)
+
+	_block_title = _make_title("BLOCK MAKER")
+	_block_title.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	_block_title.offset_top = 20.0 * s
+	_block_title.offset_bottom = 60.0 * s
+	page.add_child(_block_title)
+
+	_block_picker = ColorPicker.new()
+	_block_picker.picker_shape = 2 as ColorPicker.PickerShapeType
+	_block_picker.edit_alpha = false
+	_block_picker.color_modes_visible = false
+	_block_picker.hex_visible = false
+	_block_picker.color = Color.WHITE
+	_block_picker.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	_block_picker.offset_left = 20.0
+	_block_picker.offset_top = 20.0
+	_block_picker.offset_right = 360.0
+	_block_picker.offset_bottom = 20.0 + 478.0
+	page.add_child(_block_picker)
+
+	var hex_label := Label.new()
+	hex_label.text = "#FFFFFF"
+	hex_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hex_label.add_theme_font_override("font", MUNRO_FONT)
+	hex_label.add_theme_font_size_override("font_size", int(14 * s))
+	hex_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	hex_label.offset_left = -120.0
+	hex_label.offset_right = 120.0
+	hex_label.offset_top = 60.0 * s + 8.0
+	hex_label.offset_bottom = 60.0 * s + 38.0
+	_block_picker.color_changed.connect(func(c: Color):
+		hex_label.text = "#" + c.to_html(false)
+		_block_color = c
+		if _block_preview != null:
+			_block_preview.set_color(c))
+	page.add_child(hex_label)
+	_block_hex = hex_label
+
+	_block_preview = (preload("res://block_preview.gd") as GDScript).new()
+	_block_preview.name = "BlockPreview"
+	_block_preview.set_anchors_preset(Control.PRESET_CENTER)
+	_block_preview.offset_left = -200.0
+	_block_preview.offset_right = 200.0
+	_block_preview.offset_top = -180.0
+	_block_preview.offset_bottom = 180.0
+	page.add_child(_block_preview)
+
+	var dark_toggle := Button.new()
+	dark_toggle.name = "BlockDarkModeToggle"
+	dark_toggle.toggle_mode = true
+	dark_toggle.button_pressed = _skin_dark_mode
+	dark_toggle.add_theme_font_override("font", MUNRO_FONT)
+	dark_toggle.add_theme_font_size_override("font_size", int(14 * s))
+	dark_toggle.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	dark_toggle.offset_left = -190.0
+	dark_toggle.offset_right = -12.0
+	dark_toggle.offset_top = 20.0 * s
+	dark_toggle.offset_bottom = 20.0 * s + 40.0
+	dark_toggle.pressed.connect(func():
+		_skin_dark_mode = not _skin_dark_mode
+		_apply_block_palette()
+		_schedule_save())
+	page.add_child(dark_toggle)
+	_block_dark_toggle = dark_toggle
+
+	var uv_toggle := Button.new()
+	uv_toggle.name = "BlockUvOverlayToggle"
+	uv_toggle.toggle_mode = true
+	uv_toggle.add_theme_font_override("font", MUNRO_FONT)
+	uv_toggle.add_theme_font_size_override("font_size", int(14 * s))
+	uv_toggle.text = "UV OVERLAY"
+	uv_toggle.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	uv_toggle.offset_left = -190.0
+	uv_toggle.offset_right = -12.0
+	uv_toggle.offset_top = 20.0 * s + 48.0
+	uv_toggle.offset_bottom = 20.0 * s + 88.0
+	uv_toggle.pressed.connect(func():
+		if _block_preview != null:
+			_block_preview.set_uv_overlay(uv_toggle.button_pressed))
+	page.add_child(uv_toggle)
+	_block_uv_toggle = uv_toggle
+
+	var hint := Label.new()
+	hint.text = "ESC to exit"
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	hint.add_theme_font_override("font", MUNRO_FONT)
+	hint.add_theme_font_size_override("font_size", int(13 * s))
+	hint.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	hint.offset_left = 12.0
+	hint.offset_top = -38.0
+	hint.offset_right = 200.0
+	hint.offset_bottom = -12.0
+	page.add_child(hint)
+	_block_hint = hint
+
+	var undo_btn := Button.new()
+	undo_btn.name = "BlockUndo"
+	undo_btn.text = "UNDO"
+	undo_btn.disabled = true
+	undo_btn.add_theme_font_override("font", MUNRO_FONT)
+	undo_btn.add_theme_font_size_override("font_size", int(14 * s))
+	undo_btn.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	undo_btn.offset_left = -190.0
+	undo_btn.offset_right = -12.0
+	undo_btn.offset_top = 20.0 * s + 144.0
+	undo_btn.offset_bottom = 20.0 * s + 184.0
+	undo_btn.pressed.connect(func(): 
+		if _block_preview != null:
+			_block_preview.undo())
+	_block_preview.paint_history_changed.connect(
+		func(has_undo: bool): undo_btn.disabled = not has_undo)
+	page.add_child(undo_btn)
+	_block_undo_btn = undo_btn
+
+	var tool_btn := Button.new()
+	tool_btn.name = "BlockTool"
+	tool_btn.text = "DRAW"
+	var tool_names := ["DRAW", "FILL", "BOX"]
+	tool_btn.add_theme_font_override("font", MUNRO_FONT)
+	tool_btn.add_theme_font_size_override("font_size", int(14 * s))
+	tool_btn.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	tool_btn.offset_left = -190.0
+	tool_btn.offset_right = -12.0
+	tool_btn.offset_top = 20.0 * s + 96.0
+	tool_btn.offset_bottom = 20.0 * s + 136.0
+	tool_btn.pressed.connect(func():
+		var idx := tool_names.find(tool_btn.text)
+		idx = (idx + 1) % tool_names.size()
+		tool_btn.text = tool_names[idx]
+		_block_tool = tool_names[idx]
+		if _block_preview != null:
+			_block_preview.set_tool(_block_tool))
+	page.add_child(tool_btn)
+	_block_tool_btn = tool_btn
+
+	var name_edit := LineEdit.new()
+	name_edit.name = "BlockName"
+	name_edit.text = "myblock"
+	name_edit.placeholder_text = "block name"
+	name_edit.max_length = 32
+	name_edit.add_theme_font_override("font", MUNRO_FONT)
+	name_edit.add_theme_font_size_override("font_size", int(13 * s))
+	name_edit.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	name_edit.offset_left = -190.0
+	name_edit.offset_right = -12.0
+	name_edit.offset_top = -140.0
+	name_edit.offset_bottom = -108.0
+	page.add_child(name_edit)
+	_block_name_edit = name_edit
+
+	var save_btn := Button.new()
+	save_btn.name = "BlockSave"
+	save_btn.text = "SAVE"
+	save_btn.add_theme_font_override("font", MUNRO_FONT)
+	save_btn.add_theme_font_size_override("font_size", int(14 * s))
+	save_btn.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	save_btn.offset_left = -190.0
+	save_btn.offset_right = -12.0
+	save_btn.offset_top = -100.0
+	save_btn.offset_bottom = -60.0
+	save_btn.pressed.connect(func():
+		var block_name := _sanitize_block_name(name_edit.text)
+		DirAccess.make_dir_recursive_absolute("user://blocks")
+		if _block_preview != null and _block_preview.save_block("user://blocks/" + block_name + ".png"):
+			name_edit.text = block_name)
+	page.add_child(save_btn)
+	_block_save_btn = save_btn
+
+	var load_btn := Button.new()
+	load_btn.name = "BlockLoad"
+	load_btn.text = "LOAD"
+	load_btn.add_theme_font_override("font", MUNRO_FONT)
+	load_btn.add_theme_font_size_override("font_size", int(14 * s))
+	load_btn.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	load_btn.offset_left = -190.0
+	load_btn.offset_right = -12.0
+	load_btn.offset_top = -52.0
+	load_btn.offset_bottom = -12.0
+	load_btn.pressed.connect(func():
+		_block_name_edit.text = _sanitize_block_name(name_edit.text)
+		if _block_preview != null:
+			_block_preview.load_block("user://blocks/" + _block_name_edit.text + ".png"))
+	page.add_child(load_btn)
+	_block_load_btn = load_btn
+
+	var back_btn := Button.new()
+	back_btn.name = "BlockBack"
+	back_btn.text = "BACK"
+	back_btn.add_theme_font_override("font", MUNRO_FONT)
+	back_btn.add_theme_font_size_override("font_size", int(14 * s))
+	back_btn.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	back_btn.offset_left = 12.0
+	back_btn.offset_right = 92.0
+	back_btn.offset_top = -12.0
+	back_btn.offset_bottom = 28.0
+	back_btn.pressed.connect(func(): _show_page("gui"))
+	page.add_child(back_btn)
+	_block_back_btn = back_btn
+
+	_apply_block_palette()
+	return page
+
+func _sanitize_block_name(raw: String) -> String:
+	var cleaned := ""
+	for ch in raw.strip_edges().replace(" ", "_"):
+		if ch.is_valid_identifier() or ch == "-":
+			cleaned += ch
+	return cleaned if not cleaned.is_empty() else "myblock"
+
+func _apply_block_palette() -> void:
+	var s := _ui_scale()
+	var dark := _skin_dark_mode  # Reuse skin dark mode setting
+	var bg_col := Color(0.08, 0.08, 0.1) if dark else Color(0.95, 0.95, 0.97)
+	var fg_col := Color(1, 1, 1, 1) if dark else Color.BLACK
+	var hint_col := Color(0.7, 0.7, 0.7) if dark else Color(0.3, 0.3, 0.3)
+	var hover_col := Color(0.3, 0.3, 0.35) if dark else Color(0.75, 0.75, 0.8)
+	
+	if _block_bg:
+		_block_bg.color = bg_col
+	if _block_title:
+		_block_title.add_theme_color_override("font_color", fg_col)
+	if _block_hex:
+		_block_hex.add_theme_color_override("font_color", fg_col)
+	if _block_hint:
+		_block_hint.add_theme_color_override("font_color", hint_col)
+	if _block_picker:
+		_block_picker.theme = _make_picker_theme(s, dark)
+		_tint_picker_internals(_block_picker, fg_col, hover_col)
+	
+	# Update button colors
+	for btn in [_block_undo_btn, _block_tool_btn, _block_save_btn, _block_load_btn, _block_back_btn, _block_dark_toggle, _block_uv_toggle]:
+		if btn != null:
+			btn.add_theme_color_override("font_color", fg_col)
+			btn.add_theme_color_override("font_hover_color", fg_col)
+			btn.add_theme_color_override("font_pressed_color", fg_col)
 
 func _sanitize_skin_name(raw: String) -> String:
 	var cleaned := ""

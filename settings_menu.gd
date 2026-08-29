@@ -53,6 +53,20 @@ var _skin_hint: Label
 var _skin_picker: ColorPicker
 var _skin_preview: Control
 var _skin_toggle: Button
+var _skin_uv_toggle: Button
+var _skin_undo_btn: Button
+var _skin_tool_btn: Button
+var _skin_name_edit: LineEdit
+var _skin_save_btn: Button
+var _skin_load_btn: Button
+var _skin_noise_label: Label
+var _skin_noise_slider: HSlider
+var _skin_noise_value: Label
+var _skin_noise := 0.0
+var _skin_gallery: Control
+var _skin_gallery_grid: GridContainer
+var _skin_gallery_timer: Timer
+var _skin_gallery_spins: Array = []
 
 var _block_outline_defaults := {
 	"outline_enabled": true,
@@ -181,6 +195,7 @@ func _save_settings():
 	cfg.set_value("render", "msaa_3d", get_viewport().msaa_3d)
 	cfg.set_value("gui", "old_reset_buttons", _old_reset_buttons)
 	cfg.set_value("gui", "skin_dark_mode", _skin_dark_mode)
+	cfg.set_value("gui", "skin_noise", _skin_noise)
 	cfg.save(SETTINGS_PATH)
 
 func _load_settings():
@@ -223,6 +238,7 @@ func _load_settings():
 	get_viewport().msaa_3d = int(cfg.get_value("render", "msaa_3d", _default_msaa_3d)) as Viewport.MSAA
 	_old_reset_buttons = cfg.get_value("gui", "old_reset_buttons", _default_old_reset_buttons)
 	_skin_dark_mode = cfg.get_value("gui", "skin_dark_mode", _skin_dark_mode)
+	_skin_noise = float(cfg.get_value("gui", "skin_noise", _skin_noise))
 
 # Settings menu uses the global GUI scale with a 2/3 modifier so its default
 # look (2x when UIScale is 3.0) is preserved while still scaling with the rest.
@@ -250,6 +266,11 @@ func _show_page(page_name: String):
 	_current_page = page_name
 	for k in _pages:
 		_pages[k].visible = (k == page_name)
+	# The skin page was freshly rebuilt on open, so the preview node only exists
+	# once it enters the tree. Re-apply any stored noise against the manager's
+	# reversibility base now that it does; with an identical value it's a no-op.
+	if page_name == "skin_maker" and _skin_preview != null && is_instance_valid(_skin_preview):
+		_skin_preview.set_noise(_skin_noise)
 
 func _build_pause_page() -> Control:
 	var s := _ui_scale()
@@ -1109,7 +1130,9 @@ func _build_skin_maker_page() -> Control:
 	hex_label.offset_right = 120.0
 	hex_label.offset_top = 60.0 * s + 8.0
 	hex_label.offset_bottom = 60.0 * s + 38.0
-	_skin_picker.color_changed.connect(func(c: Color): hex_label.text = "#" + c.to_html(false))
+	_skin_picker.color_changed.connect(func(c: Color):
+		hex_label.text = "#" + c.to_html(false)
+		_skin_preview.set_paint_color(c))
 	page.add_child(hex_label)
 	_skin_hex = hex_label
 
@@ -1153,8 +1176,479 @@ func _build_skin_maker_page() -> Control:
 	page.add_child(toggle)
 	_skin_toggle = toggle
 
+	var uv_toggle := Button.new()
+	uv_toggle.name = "UvOverlayToggle"
+	uv_toggle.toggle_mode = true
+	uv_toggle.add_theme_font_override("font", MUNRO_FONT)
+	uv_toggle.add_theme_font_size_override("font_size", int(14 * s))
+	uv_toggle.text = "UV OVERLAY"
+	uv_toggle.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	uv_toggle.offset_left = -190.0
+	uv_toggle.offset_right = -12.0
+	uv_toggle.offset_top = 20.0 * s + 48.0
+	uv_toggle.offset_bottom = 20.0 * s + 88.0
+	uv_toggle.pressed.connect(func():
+		_skin_preview.set_uv_overlay(uv_toggle.button_pressed))
+	page.add_child(uv_toggle)
+	_skin_uv_toggle = uv_toggle
+
+	var undo_btn := Button.new()
+	undo_btn.name = "PaintUndo"
+	undo_btn.text = "UNDO"
+	undo_btn.disabled = true
+	undo_btn.add_theme_font_override("font", MUNRO_FONT)
+	undo_btn.add_theme_font_size_override("font_size", int(14 * s))
+	undo_btn.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	undo_btn.offset_left = -190.0
+	undo_btn.offset_right = -12.0
+	undo_btn.offset_top = 20.0 * s + 144.0
+	undo_btn.offset_bottom = 20.0 * s + 184.0
+	undo_btn.pressed.connect(func(): _skin_preview.undo_last())
+	_skin_preview.paint_history_changed.connect(
+		func(has_undo: bool): undo_btn.disabled = not has_undo)
+	page.add_child(undo_btn)
+	_skin_undo_btn = undo_btn
+
+	var tool_btn := Button.new()
+	tool_btn.name = "SkinTool"
+	tool_btn.text = "DRAW"
+	var tool_names := ["DRAW", "FILL", "BOX"]
+	tool_btn.add_theme_font_override("font", MUNRO_FONT)
+	tool_btn.add_theme_font_size_override("font_size", int(14 * s))
+	tool_btn.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	tool_btn.offset_left = -190.0
+	tool_btn.offset_right = -12.0
+	tool_btn.offset_top = 20.0 * s + 96.0
+	tool_btn.offset_bottom = 20.0 * s + 136.0
+	tool_btn.pressed.connect(func():
+		var idx := tool_names.find(tool_btn.text)
+		idx = (idx + 1) % tool_names.size()
+		tool_btn.text = tool_names[idx]
+		_skin_preview.set_tool(idx))
+	page.add_child(tool_btn)
+	_skin_tool_btn = tool_btn
+
+	var name_edit := LineEdit.new()
+	name_edit.name = "SkinName"
+	name_edit.text = "myskin"
+	name_edit.placeholder_text = "skin name"
+	name_edit.max_length = 32
+	name_edit.add_theme_font_override("font", MUNRO_FONT)
+	name_edit.add_theme_font_size_override("font_size", int(13 * s))
+	name_edit.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	name_edit.offset_left = -190.0
+	name_edit.offset_right = -12.0
+	name_edit.offset_top = -140.0
+	name_edit.offset_bottom = -108.0
+	page.add_child(name_edit)
+	_skin_name_edit = name_edit
+
+	var save_btn := Button.new()
+	save_btn.name = "SkinSave"
+	save_btn.text = "SAVE"
+	save_btn.add_theme_font_override("font", MUNRO_FONT)
+	save_btn.add_theme_font_size_override("font_size", int(14 * s))
+	save_btn.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	save_btn.offset_left = -190.0
+	save_btn.offset_right = -12.0
+	save_btn.offset_top = -100.0
+	save_btn.offset_bottom = -60.0
+	save_btn.pressed.connect(func():
+		var name := _sanitize_skin_name(name_edit.text)
+		DirAccess.make_dir_recursive_absolute("user://skins")
+		if _skin_preview.save_skin("user://skins/" + name + ".png"):
+			name_edit.text = name
+			# Save the noise value alongside the skin so LOAD can restore it.
+			_save_skin_sidecar(name, _skin_noise))
+	page.add_child(save_btn)
+	_skin_save_btn = save_btn
+
+	var load_btn := Button.new()
+	load_btn.name = "SkinLoad"
+	load_btn.text = "LOAD"
+	load_btn.add_theme_font_override("font", MUNRO_FONT)
+	load_btn.add_theme_font_size_override("font_size", int(14 * s))
+	load_btn.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	load_btn.offset_left = -190.0
+	load_btn.offset_right = -12.0
+	load_btn.offset_top = -52.0
+	load_btn.offset_bottom = -12.0
+	load_btn.pressed.connect(_open_skin_gallery)
+	page.add_child(load_btn)
+	_skin_load_btn = load_btn
+
+	var noise_row := HBoxContainer.new()
+	noise_row.name = "NoiseRow"
+	noise_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	noise_row.add_theme_constant_override("separation", int(10 * s))
+	noise_row.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	noise_row.offset_left = -200.0
+	noise_row.offset_right = 200.0
+	noise_row.offset_top = -52.0
+	noise_row.offset_bottom = -12.0
+
+	var noise_label := Label.new()
+	noise_label.text = "NOISE"
+	noise_label.add_theme_font_override("font", MUNRO_FONT)
+	noise_label.add_theme_font_size_override("font_size", int(13 * s))
+	noise_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	noise_label.custom_minimum_size = Vector2(50 * s, 0.0)
+
+	var noise_slider := HSlider.new()
+	noise_slider.min_value = 0.0
+	noise_slider.max_value = 100.0
+	noise_slider.step = 1.0
+	noise_slider.value = _skin_noise
+	noise_slider.custom_minimum_size = Vector2(120 * s, 0.0)
+	noise_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	noise_slider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+
+	var noise_value := Label.new()
+	noise_value.text = str(int(_skin_noise))
+	noise_value.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	noise_value.add_theme_font_override("font", MUNRO_FONT)
+	noise_value.add_theme_font_size_override("font_size", int(13 * s))
+	noise_value.custom_minimum_size = Vector2(32 * s, 0.0)
+
+	noise_slider.value_changed.connect(func(v: float):
+		noise_value.text = str(int(v))
+		_skin_noise = v
+		_skin_preview.set_noise(v)
+		_schedule_save())
+
+	noise_row.add_child(noise_label)
+	noise_row.add_child(noise_slider)
+	noise_row.add_child(noise_value)
+	page.add_child(noise_row)
+	_skin_noise_label = noise_label
+	_skin_noise_slider = noise_slider
+	_skin_noise_value = noise_value
+
+	page.add_child(_build_skin_gallery(s))
+
 	_apply_skin_palette()
 	return page
+
+func _sanitize_skin_name(raw: String) -> String:
+	var cleaned := ""
+	for ch in raw.strip_edges().replace(" ", "_"):
+		if ch.is_valid_identifier() or ch == "-":
+			cleaned += ch
+	return cleaned if not cleaned.is_empty() else "myskin"
+
+# Sidecar <name>.json holds the noise value a skin was saved with, so loading
+# the PNG (which has the noise baked in) also restores the matching slider.
+func _save_skin_sidecar(skin_name: String, noise: float) -> void:
+	var f := FileAccess.open("user://skins/" + skin_name + ".json", FileAccess.WRITE)
+	if f == null:
+		return
+	f.store_string(JSON.stringify({"noise": clampf(noise, 0.0, 100.0)}))
+	f.close()
+
+func _load_skin_sidecar(skin_name: String) -> float:
+	var path := "user://skins/" + skin_name + ".json"
+	if not FileAccess.file_exists(path):
+		return 0.0
+	var f := FileAccess.open(path, FileAccess.READ)
+	if f == null:
+		return 0.0
+	var json := JSON.new()
+	if json.parse(f.get_as_text()) != OK:
+		return 0.0
+	var data: Variant = json.data
+	if data is Dictionary and data.has("noise"):
+		return clampf(float(data["noise"]), 0.0, 100.0)
+	return 0.0
+
+func _list_saved_skins() -> Array:
+	var names: Array = []
+	var dir := DirAccess.open("user://skins")
+	if dir == null:
+		return names
+	dir.list_dir_begin()
+	var f := dir.get_next()
+	while f != "":
+		if not dir.current_is_dir() and f.ends_with(".png"):
+			names.append(f.get_basename())
+		f = dir.get_next()
+	names.sort()
+	return names
+
+func _open_skin_gallery() -> void:
+	if _skin_gallery == null:
+		return
+	_refresh_skin_gallery()
+	_skin_gallery.visible = true
+	if _skin_gallery_timer:
+		_skin_gallery_timer.start()
+
+func _close_skin_gallery() -> void:
+	if _skin_gallery_timer:
+		_skin_gallery_timer.stop()
+	if _skin_gallery:
+		_skin_gallery.visible = false
+
+func _refresh_skin_gallery() -> void:
+	if _skin_gallery_grid == null:
+		return
+	for c in _skin_gallery_grid.get_children():
+		c.free()
+	_skin_gallery_spins.clear()
+	var names := _list_saved_skins()
+	if names.is_empty():
+		var empty_hint := Label.new()
+		empty_hint.text = "No saved skins yet — use SAVE to create one."
+		empty_hint.add_theme_font_override("font", MUNRO_FONT)
+		empty_hint.add_theme_font_size_override("font_size", int(14 * _ui_scale()))
+		empty_hint.add_theme_color_override("font_color",
+			Color(0.75, 0.75, 0.75, 1) if _skin_dark_mode else Color(0.2, 0.2, 0.2))
+		_skin_gallery_grid.add_child(empty_hint)
+		return
+	for skin_name in names:
+		_skin_gallery_grid.add_child(_make_skin_card(_ui_scale(), skin_name))
+
+func _spin_gallery_models() -> void:
+	if _skin_gallery == null or not _skin_gallery.is_visible_in_tree():
+		return
+	for h in _skin_gallery_spins:
+		if is_instance_valid(h):
+			h.rotate_y(0.03)
+
+func _make_skin_card(s: float, skin_name: String) -> VBoxContainer:
+	var dark := _skin_dark_mode
+	var fg_col := Color(1, 1, 1, 1) if dark else Color.BLACK
+	var border_col := Color(0.35, 0.35, 0.4) if dark else Color(0.55, 0.55, 0.58)
+	var card_bg := Color(0.14, 0.14, 0.17) if dark else Color(0.99, 0.99, 0.99)
+	var hover_col := Color(0.22, 0.24, 0.3) if dark else Color(0.84, 0.88, 0.94)
+
+	var card := VBoxContainer.new()
+	card.name = "Card_" + skin_name
+	card.add_theme_constant_override("separation", int(4 * s))
+
+	var preview_btn := Button.new()
+	preview_btn.custom_minimum_size = Vector2(96 * s, 96 * s)
+	preview_btn.clip_text = true
+	preview_btn.tooltip_text = "Load " + skin_name
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = card_bg
+	sb.set_border_width_all(int(2 * s))
+	sb.border_color = border_col
+	sb.set_corner_radius_all(int(4 * s))
+	var hov := sb.duplicate()
+	hov.bg_color = hover_col
+	var pres := sb.duplicate()
+	pres.bg_color = hover_col
+	pres.border_color = fg_col
+	preview_btn.add_theme_stylebox_override("normal", sb)
+	preview_btn.add_theme_stylebox_override("hover", hov)
+	preview_btn.add_theme_stylebox_override("pressed", pres)
+	preview_btn.add_theme_stylebox_override("focus", pres)
+	card.add_child(preview_btn)
+
+	var model_box := _make_gallery_model_view(s, skin_name)
+	model_box.set_anchors_preset(Control.PRESET_FULL_RECT)
+	model_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	preview_btn.add_child(model_box)
+
+	var foot := HBoxContainer.new()
+	foot.add_theme_constant_override("separation", int(4 * s))
+	var name_btn := Button.new()
+	name_btn.text = skin_name
+	name_btn.clip_text = true
+	name_btn.flat = true
+	name_btn.tooltip_text = "Load " + skin_name
+	name_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_btn.add_theme_font_override("font", MUNRO_FONT)
+	name_btn.add_theme_font_size_override("font_size", int(12 * s))
+	name_btn.add_theme_color_override("font_color", fg_col)
+	name_btn.add_theme_color_override("font_hover_color", fg_col)
+	name_btn.add_theme_color_override("font_pressed_color", fg_col)
+	foot.add_child(name_btn)
+	var del_btn := Button.new()
+	del_btn.text = "X"
+	del_btn.flat = true
+	del_btn.custom_minimum_size = Vector2(int(24 * s), 0)
+	del_btn.tooltip_text = "Delete " + skin_name
+	del_btn.add_theme_font_override("font", MUNRO_FONT)
+	del_btn.add_theme_font_size_override("font_size", int(13 * s))
+	del_btn.add_theme_color_override("font_color", Color(1, 0.42, 0.42))
+	del_btn.add_theme_color_override("font_hover_color", Color(1, 0.6, 0.6))
+	foot.add_child(del_btn)
+	card.add_child(foot)
+
+	preview_btn.pressed.connect(func(): _load_named_skin(skin_name))
+	name_btn.pressed.connect(func(): _load_named_skin(skin_name))
+	del_btn.pressed.connect(func(): _delete_named_skin(skin_name))
+	return card
+
+func _make_gallery_model_view(s: float, skin_name: String) -> SubViewportContainer:
+	var box := SubViewportContainer.new()
+	box.stretch = true
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var vp := SubViewport.new()
+	vp.transparent_bg = true
+	vp.msaa_3d = Viewport.MSAA_2X
+	vp.size = Vector2i(int(96 * s), int(96 * s))
+	box.add_child(vp)
+	var env := Environment.new()
+	env.background_mode = Environment.BG_COLOR
+	env.background_color = Color(0.6, 0.6, 0.65)
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	env.ambient_light_color = Color.WHITE
+	env.ambient_light_energy = 0.45
+	var world := World3D.new()
+	world.environment = env
+	vp.world_3d = world
+	var sun := DirectionalLight3D.new()
+	sun.light_energy = 1.35
+	sun.rotation_degrees = Vector3(-45, -35, 0)
+	vp.add_child(sun)
+	var holder := Node3D.new()
+	holder.name = "SpinPivot"
+	vp.add_child(holder)
+	var model: Node3D = load("res://player.glb").instantiate()
+	model.scale = Vector3(0.9, 0.9, 0.9)
+	holder.add_child(model)
+	_apply_skin_textures(model, "user://skins/" + skin_name + ".png")
+	var cam := Camera3D.new()
+	cam.fov = 70.0
+	var target := Vector3(0, 15, 0)
+	var pitch := deg_to_rad(12.0)
+	var yaw := deg_to_rad(-40.0)
+	# Visible height at the target is ~1.4 * dist; 33 shows the whole ~32-block
+	# model plus some margin on a 96-tall card (9.5 framed only the torso).
+	var dist := 33.0
+	vp.add_child(cam)
+	# look_at_from_position works even before the node is inside the tree.
+	cam.look_at_from_position(
+		target + Vector3(
+			dist * cos(pitch) * sin(yaw), dist * sin(pitch), dist * cos(pitch) * cos(yaw)),
+		target, Vector3.UP)
+	cam.make_current()
+	_skin_gallery_spins.append(holder)
+	return box
+
+func _apply_skin_textures(model: Node3D, png_path: String) -> void:
+	var img := Image.load_from_file(png_path)
+	if img == null or img.is_empty():
+		return
+	var tex := ImageTexture.create_from_image(img)
+	for mi in model.find_children("", "MeshInstance3D", true, false):
+		var mesh := (mi as MeshInstance3D).mesh
+		if mesh == null:
+			continue
+		for si in range(mesh.get_surface_count()):
+			var mat := StandardMaterial3D.new()
+			mat.albedo_texture = tex
+			mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+			(mi as MeshInstance3D).set_surface_override_material(si, mat)
+
+func _load_named_skin(skin_name: String) -> void:
+	if _skin_preview == null or not is_instance_valid(_skin_preview):
+		return
+	if _skin_preview.load_skin("user://skins/" + skin_name + ".png"):
+		_skin_name_edit.text = skin_name
+		# Restore the skin's own noise value; the slider's value_changed
+		# handler re-applies it against the freshly loaded image.
+		var sv := _load_skin_sidecar(skin_name)
+		_skin_noise_slider.value = sv
+		_skin_noise_value.text = str(int(sv))
+		_close_skin_gallery()
+		_schedule_save()
+
+func _delete_named_skin(skin_name: String) -> void:
+	DirAccess.remove_absolute(ProjectSettings.globalize_path("user://skins/" + skin_name + ".png"))
+	DirAccess.remove_absolute(ProjectSettings.globalize_path("user://skins/" + skin_name + ".json"))
+	_refresh_skin_gallery()
+
+func _build_skin_gallery(s: float) -> Control:
+	var dark := _skin_dark_mode
+	var fg_col := Color(1, 1, 1, 1) if dark else Color.BLACK
+
+	var overlay := Control.new()
+	overlay.name = "SkinGallery"
+	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	overlay.visible = false
+	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.55)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	overlay.add_child(dim)
+
+	var panel := PanelContainer.new()
+	var psb := StyleBoxFlat.new()
+	psb.bg_color = Color(0.1, 0.1, 0.12) if dark else Color(0.94, 0.94, 0.93)
+	psb.set_border_width_all(int(2 * s))
+	psb.border_color = Color(0.28, 0.28, 0.3) if dark else Color(0.55, 0.55, 0.55)
+	psb.set_corner_radius_all(int(6 * s))
+	psb.content_margin_left = int(14 * s)
+	psb.content_margin_right = int(14 * s)
+	psb.content_margin_top = int(10 * s)
+	psb.content_margin_bottom = int(14 * s)
+	panel.add_theme_stylebox_override("panel", psb)
+	panel.set_anchors_preset(Control.PRESET_CENTER)
+	panel.offset_left = -330.0 * s
+	panel.offset_right = 330.0 * s
+	panel.offset_top = -252.0 * s
+	panel.offset_bottom = 252.0 * s
+	panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	panel.grow_vertical = Control.GROW_DIRECTION_BOTH
+	overlay.add_child(panel)
+
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", int(8 * s))
+	margin.add_theme_constant_override("margin_right", int(8 * s))
+	margin.add_theme_constant_override("margin_top", int(6 * s))
+	margin.add_theme_constant_override("margin_bottom", int(4 * s))
+	panel.add_child(margin)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", int(8 * s))
+	margin.add_child(vbox)
+
+	var header := HBoxContainer.new()
+	header.add_theme_constant_override("separation", int(8 * s))
+	var title := Label.new()
+	title.text = "LOAD SKIN"
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title.add_theme_font_override("font", MUNRO_FONT)
+	title.add_theme_font_size_override("font_size", int(17 * s))
+	title.add_theme_color_override("font_color", fg_col)
+	header.add_child(title)
+	var close_btn := Button.new()
+	close_btn.text = "CLOSE"
+	close_btn.add_theme_font_override("font", MUNRO_FONT)
+	close_btn.add_theme_font_size_override("font_size", int(13 * s))
+	close_btn.pressed.connect(_close_skin_gallery)
+	header.add_child(close_btn)
+	vbox.add_child(header)
+
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	vbox.add_child(scroll)
+
+	var grid := GridContainer.new()
+	grid.columns = 5
+	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	grid.add_theme_constant_override("h_separation", int(12 * s))
+	grid.add_theme_constant_override("v_separation", int(12 * s))
+	scroll.add_child(grid)
+
+	var timer := Timer.new()
+	timer.name = "GallerySpin"
+	timer.wait_time = 0.016
+	timer.one_shot = false
+	timer.autostart = false
+	timer.timeout.connect(_spin_gallery_models)
+	overlay.add_child(timer)
+
+	_skin_gallery = overlay
+	_skin_gallery_grid = grid
+	_skin_gallery_timer = timer
+	return overlay
 
 func _apply_skin_palette() -> void:
 	var s := _ui_scale()
@@ -1171,24 +1665,57 @@ func _apply_skin_palette() -> void:
 		_skin_hex.add_theme_color_override("font_color", fg_col)
 	if _skin_hint:
 		_skin_hint.add_theme_color_override("font_color", hint_col)
+	if _skin_noise_label:
+		_skin_noise_label.add_theme_color_override("font_color", hint_col)
+	if _skin_noise_value:
+		_skin_noise_value.add_theme_color_override("font_color", hint_col)
 	if _skin_picker:
 		_skin_picker.theme = _make_picker_theme(s, dark)
 		_tint_picker_internals(_skin_picker, fg_col, hover_col)
 	if _skin_toggle:
 		_skin_toggle.text = "LIGHT MODE" if dark else "DARK MODE"
-		_skin_toggle.add_theme_color_override("font_color", fg_col)
-		var sw_bg := Color(0.15, 0.15, 0.18) if dark else Color(1, 1, 1, 1)
-		var sb := StyleBoxFlat.new()
-		sb.bg_color = sw_bg
-		sb.border_color = fg_col
-		sb.set_border_width_all(1)
-		sb.set_corner_radius_all(2)
-		var sb_hover := sb.duplicate() as StyleBoxFlat
-		sb_hover.bg_color = fg_col.lerp(sw_bg, 0.5)
-		_skin_toggle.add_theme_stylebox_override("normal", sb)
-		_skin_toggle.add_theme_stylebox_override("hover", sb_hover)
-		_skin_toggle.add_theme_stylebox_override("pressed", sb_hover)
-		_skin_toggle.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+		_style_skin_button(_skin_toggle, fg_col, dark)
+	if _skin_uv_toggle:
+		_style_skin_button(_skin_uv_toggle, fg_col, dark)
+	if _skin_undo_btn:
+		_style_skin_button(_skin_undo_btn, fg_col, dark)
+	if _skin_tool_btn:
+		_style_skin_button(_skin_tool_btn, fg_col, dark)
+	if _skin_save_btn:
+		_style_skin_button(_skin_save_btn, fg_col, dark)
+	if _skin_load_btn:
+		_style_skin_button(_skin_load_btn, fg_col, dark)
+	if _skin_name_edit:
+		_skin_name_edit.add_theme_color_override("font_color", fg_col)
+		_skin_name_edit.add_theme_color_override("caret_color", fg_col)
+		_skin_name_edit.add_theme_color_override("placeholder_font_color", hint_col)
+		var le_bg := StyleBoxFlat.new()
+		le_bg.bg_color = Color(0.12, 0.12, 0.16, 1) if dark else Color(0.92, 0.92, 0.92, 1)
+		le_bg.border_color = fg_col
+		le_bg.set_border_width_all(1)
+		le_bg.set_corner_radius_all(2)
+		_skin_name_edit.add_theme_stylebox_override("normal", le_bg)
+		_skin_name_edit.add_theme_stylebox_override("focus", le_bg.duplicate())
+
+func _style_skin_button(btn: Button, fg_col: Color, dark: bool) -> void:
+	btn.add_theme_color_override("font_color", fg_col)
+	var disabled_fg := fg_col.lerp(Color(0.5, 0.5, 0.5), 0.6)
+	btn.add_theme_color_override("font_disabled_color", disabled_fg)
+	var sw_bg := Color(0.15, 0.15, 0.18) if dark else Color(1, 1, 1, 1)
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = sw_bg
+	sb.border_color = fg_col
+	sb.set_border_width_all(1)
+	sb.set_corner_radius_all(2)
+	var sb_hover := sb.duplicate() as StyleBoxFlat
+	sb_hover.bg_color = fg_col.lerp(sw_bg, 0.5)
+	var sb_disabled := sb.duplicate() as StyleBoxFlat
+	sb_disabled.bg_color = fg_col.lerp(sw_bg, 0.9)
+	btn.add_theme_stylebox_override("normal", sb)
+	btn.add_theme_stylebox_override("hover", sb_hover)
+	btn.add_theme_stylebox_override("pressed", sb_hover)
+	btn.add_theme_stylebox_override("disabled", sb_disabled)
+	btn.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
 
 func _make_picker_theme(s: float, dark: bool) -> Theme:
 	var th := Theme.new()

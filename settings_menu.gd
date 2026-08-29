@@ -8,6 +8,24 @@ const SLIDER_TRACK_TEX: Texture2D = preload("res://textures/gui/slider_button.pn
 const SLIDER_THUMB_TEX: Texture2D = preload("res://textures/gui/slider.png")
 const SETTINGS_PATH := "user://settings.cfg"
 
+# Actions exposed on the CONTROLS page. The engine keeps the pristine project
+# defaults as the per-row reset target; runtime rebinding swaps InputMap events.
+const CONTROL_BINDINGS := [
+	["move_forward", "Walk Forward"],
+	["move_back", "Walk Back"],
+	["move_left", "Strafe Left"],
+	["move_right", "Strafe Right"],
+	["jump", "Jump"],
+	["sprint", "Sprint"],
+	["sneak", "Sneak"],
+	["mouse_click_left", "Break / Attack"],
+	["mouse_click_right", "Place / Use"],
+	["fly_toggle", "Toggle Flight"],
+	["toggle_inventory", "Inventory"],
+	["toggle_chat", "Chat"],
+	["toggle_third_person", "Third Person"],
+]
+
 @onready var player_controller = get_node("/root/Main/Player")
 @onready var chunk_manager = get_node("/root/Main/ChunkManager")
 @onready var crosshair_node = get_node_or_null("/root/Main/HUD/Crosshair")
@@ -67,6 +85,10 @@ var _skin_gallery: Control
 var _skin_gallery_grid: GridContainer
 var _skin_gallery_timer: Timer
 var _skin_gallery_spins: Array = []
+
+var _controls_defaults := {}
+var _control_buttons := {}
+var _capturing_action := ""
 
 var _block_outline_defaults := {
 	"outline_enabled": true,
@@ -146,6 +168,11 @@ func _ready():
 	if block_outline_node:
 		for k in _block_outline_defaults:
 			_block_outline_defaults[k] = block_outline_node.get(k)
+	# Snapshot each controls action's pristine project.godot bindings BEFORE any
+	# saved overrides are applied, so the page's reset buttons always return to
+	# the real defaults no matter what happened this session.
+	for cb in CONTROL_BINDINGS:
+		_controls_defaults[cb[0]] = InputMap.action_get_events(cb[0]).duplicate()
 	_load_settings()
 	Engine.max_fps = _fps_cap
 	hide()
@@ -196,6 +223,8 @@ func _save_settings():
 	cfg.set_value("gui", "old_reset_buttons", _old_reset_buttons)
 	cfg.set_value("gui", "skin_dark_mode", _skin_dark_mode)
 	cfg.set_value("gui", "skin_noise", _skin_noise)
+	for cb in CONTROL_BINDINGS:
+		cfg.set_value("controls", cb[0], _serialize_action_events(cb[0]))
 	cfg.save(SETTINGS_PATH)
 
 func _load_settings():
@@ -239,6 +268,10 @@ func _load_settings():
 	_old_reset_buttons = cfg.get_value("gui", "old_reset_buttons", _default_old_reset_buttons)
 	_skin_dark_mode = cfg.get_value("gui", "skin_dark_mode", _skin_dark_mode)
 	_skin_noise = float(cfg.get_value("gui", "skin_noise", _skin_noise))
+	for cb in CONTROL_BINDINGS:
+		var saved: Array = cfg.get_value("controls", cb[0], [])
+		if not saved.is_empty():
+			_apply_action_events(cb[0], saved)
 
 # Settings menu uses the global GUI scale with a 2/3 modifier so its default
 # look (2x when UIScale is 3.0) is preserved while still scaling with the rest.
@@ -257,6 +290,7 @@ func _rebuild_pages():
 	_pages["block_outline"] = _build_block_outline_page()
 	_pages["lighting"] = _build_lighting_page()
 	_pages["render"] = _build_render_page()
+	_pages["controls"] = _build_controls_page()
 	_pages["skin_maker"] = _build_skin_maker_page()
 	for p in _pages.values():
 		p.hide()
@@ -325,15 +359,21 @@ func _build_settings_page() -> Control:
 	render_btn.pressed.connect(func(): _show_page("render"))
 	page.add_child(render_btn)
 
+	var controls_btn := _make_button("Controls")
+	controls_btn.offset_top = 55.0 * s
+	controls_btn.offset_bottom = 75.0 * s
+	controls_btn.pressed.connect(func(): _show_page("controls"))
+	page.add_child(controls_btn)
+
 	var skin_btn := _make_button("Skin Maker")
-	skin_btn.offset_top = 55.0 * s
-	skin_btn.offset_bottom = 75.0 * s
+	skin_btn.offset_top = 85.0 * s
+	skin_btn.offset_bottom = 105.0 * s
 	skin_btn.pressed.connect(func(): _show_page("skin_maker"))
 	page.add_child(skin_btn)
 
 	var back := _make_button("Back")
-	back.offset_top = 85.0 * s
-	back.offset_bottom = 105.0 * s
+	back.offset_top = 115.0 * s
+	back.offset_bottom = 135.0 * s
 	back.pressed.connect(func(): _show_page("pause"))
 	page.add_child(back)
 	return page
@@ -1084,6 +1124,113 @@ func _build_render_page() -> Control:
 		["Compression", compression_btn, compression_reset],
 		["FPS Cap", fps_cap, fps_cap_reset],
 	], "settings")
+
+# CONTROLS page: one row per rebindable action. Clicking a binding button arms
+# capture; the next key/button press replaces the action's events (Escape
+# cancels). Every row gets a reset to the pristine project.godot binding.
+func _build_controls_page() -> Control:
+	var s := _ui_scale()
+	var rows: Array = []
+	for cb in CONTROL_BINDINGS:
+		var action: String = cb[0]
+		var btn := _make_button(_binding_text(action))
+		_control_buttons[action] = btn
+		btn.pressed.connect(func(a := action, b := btn):
+			_capturing_action = a
+			b.text = " <Press> ")
+		rows.append([cb[1], btn, func(a := action): _reset_control(a)])
+	return _build_option_page("CONTROLS", rows, "settings", 40.0)
+
+# Human-readable label for an action's first binding (key name or mouse side).
+func _binding_text(action_name: String) -> String:
+	var events := InputMap.action_get_events(action_name)
+	if events.is_empty():
+		return "Unbound"
+	var e = events[0]
+	if e is InputEventKey:
+		var code: int = e.keycode
+		if code == 0:
+			code = e.physical_keycode
+		return OS.get_keycode_string(code)
+	if e is InputEventMouseButton:
+		match e.button_index:
+			MOUSE_BUTTON_LEFT:
+				return "Left Click"
+			MOUSE_BUTTON_RIGHT:
+				return "Right Click"
+			MOUSE_BUTTON_MIDDLE:
+				return "Middle Click"
+	return "Button " + String.num_int64(e.button_index)
+
+func _reset_control(action_name: String) -> void:
+	if _capturing_action == action_name:
+		_capturing_action = ""
+	InputMap.action_erase_events(action_name)
+	for e in _controls_defaults[action_name]:
+		InputMap.action_add_event(action_name, e)
+	var btn: Button = _control_buttons.get(action_name)
+	if btn != null:
+		btn.text = _binding_text(action_name)
+	_schedule_save()
+
+# Apply a captured event (or null to cancel) to the armed action, then refresh
+# its button. Rebinding wipes the action's previous events.
+func _finish_capture(new_event: InputEvent) -> void:
+	var action := _capturing_action
+	_capturing_action = ""
+	if new_event != null and action != "":
+		InputMap.action_erase_events(action)
+		InputMap.action_add_event(action, new_event)
+		_schedule_save()
+	var btn: Button = _control_buttons.get(action)
+	if btn != null:
+		btn.text = _binding_text(action)
+
+# Consume the next key/button press while a binding is being captured, or the
+# Escape key to cancel. Returns true when the event was used as a capture.
+func _capture_binding(event: InputEvent) -> bool:
+	if event is InputEventKey and event.pressed and not event.echo:
+		if event.keycode == KEY_ESCAPE or event.physical_keycode == KEY_ESCAPE:
+			_finish_capture(null)
+			return true
+		var ne := InputEventKey.new()
+		ne.keycode = event.keycode
+		ne.physical_keycode = event.physical_keycode
+		if ne.keycode == 0 and ne.physical_keycode == 0:
+			return true
+		_finish_capture(ne)
+		return true
+	if event is InputEventMouseButton and event.pressed:
+		var ne := InputEventMouseButton.new()
+		ne.button_index = event.button_index
+		_finish_capture(ne)
+		return true
+	return false
+
+# Flatten an action's bindings to config strings ("k:<keycode>:<physical>",
+# "m:<button_index>") so ConfigFile round-trips them across sessions.
+func _serialize_action_events(action_name: String) -> Array:
+	var out: Array = []
+	for e in InputMap.action_get_events(action_name):
+		if e is InputEventKey:
+			out.append("k:%d:%d" % [e.keycode, e.physical_keycode])
+		elif e is InputEventMouseButton:
+			out.append("m:%d" % e.button_index)
+	return out
+
+func _apply_action_events(action_name: String, data: Array) -> void:
+	InputMap.action_erase_events(action_name)
+	for entry in data:
+		var seg: PackedStringArray = String(entry).split(":")
+		if seg[0] == "k" and seg.size() >= 3:
+			var ne := InputEventKey.new()
+			ne.keycode = int(seg[1])
+			ne.physical_keycode = int(seg[2])
+			InputMap.action_add_event(action_name, ne)
+		elif seg[0] == "m" and seg.size() >= 2:
+			var ne := InputEventMouseButton.new()
+			ne.button_index = int(seg[1])
+			InputMap.action_add_event(action_name, ne)
 
 func _build_skin_maker_page() -> Control:
 	var s := _ui_scale()
@@ -1902,6 +2049,12 @@ func _style_undo_button(btn: Button, width: float):
 	btn.custom_minimum_size = Vector2(width, width) * s
 
 func _input(event):
+	if is_open and _capturing_action != "":
+		# A binding capture is waiting: swallow the next key/button press (or
+		# escape to cancel) so it neither closes the menu nor leaks to gameplay.
+		if _capture_binding(event):
+			get_viewport().set_input_as_handled()
+			return
 	if not event.is_action_pressed("ui_cancel"):
 		return
 	if get_viewport().is_input_handled():
@@ -1912,6 +2065,8 @@ func _input(event):
 				_close()
 			"settings":
 				_show_page("pause")
+			"controls":
+				_show_page("settings")
 			"crosshair":
 				_show_page("gui")
 			"block_outline":

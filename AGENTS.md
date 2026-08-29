@@ -61,6 +61,7 @@ A Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked streamin
 - **Texture pack system**: Custom texture packs with per-block texture overrides loaded from `user://packs/`, converter tool in `tools/pack_converter.py`
 - **Block outline system**: Adjustable block outline with pulse effects, thickness control (0.0-0.99), fill box with separate color/opacity controls
 - **Crosshair customization**: Adjustable crosshair with rotation, spacing, dot, and color-inversion modes
+- **Shareable setting codes**: Crosshair and block outline settings can be exported/imported as compact base32-encoded strings (CS-style format like `FC-ABCDE-FGHIJ-KLMNO` for crosshair, `FO-12345-67890-ABCDE-FGHIJ` for outline). Codes use hyphenated 5-character chunks, versioned format for future compatibility, and clipboard integration for easy sharing.
 
 ### Async Chunk Saving
 - **Off-main-thread writes**: `flush_dirty_chunks` deep-copies each dirty chunk under its shard lock and hands the snapshot to the thread pool for RLE encode + atomic write; periodic 5s flush is non-blocking

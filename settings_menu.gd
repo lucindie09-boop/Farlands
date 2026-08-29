@@ -490,11 +490,11 @@ func _build_crosshair_page() -> Control:
 	yd += 35.0
 	_crosshair_place(page, 1, yd, "Dynamic Contrast", controls["dot_contrast"])
 
-	var reset := _make_button("Reset")
+	var reset := _make_button("Reset", 100.0)
 	reset.offset_top = 240.0 * s
 	reset.offset_bottom = 260.0 * s
-	reset.offset_left = -210.0 * s
-	reset.offset_right = -10.0 * s
+	reset.offset_left = -160.0 * s
+	reset.offset_right = -60.0 * s
 	reset.pressed.connect(func():
 		for k in _crosshair_defaults:
 			if crosshair_node:
@@ -503,11 +503,38 @@ func _build_crosshair_page() -> Control:
 		_schedule_save())
 	page.add_child(reset)
 
-	var back := _make_button("Back")
+	var export_btn := _make_button("Export", 100.0)
+	export_btn.offset_top = 240.0 * s
+	export_btn.offset_bottom = 260.0 * s
+	export_btn.offset_left = -50.0 * s
+	export_btn.offset_right = 50.0 * s
+	export_btn.pressed.connect(func():
+		var code := _export_crosshair_code()
+		if code != "":
+			DisplayServer.clipboard_set(code)
+			print("Crosshair code copied to clipboard: ", code))
+	page.add_child(export_btn)
+
+	var import_btn := _make_button("Import", 100.0)
+	import_btn.offset_top = 240.0 * s
+	import_btn.offset_bottom = 260.0 * s
+	import_btn.offset_left = 60.0 * s
+	import_btn.offset_right = 160.0 * s
+	import_btn.pressed.connect(func():
+		var code := DisplayServer.clipboard_get()
+		if code != "":
+			if _import_crosshair_code(code):
+				_cross_refresh_controls(controls)
+				print("Crosshair code imported successfully")
+			else:
+				print("Invalid crosshair code"))
+	page.add_child(import_btn)
+
+	var back := _make_button("Back", 100.0)
 	back.offset_top = 240.0 * s
 	back.offset_bottom = 260.0 * s
-	back.offset_left = 10.0 * s
-	back.offset_right = 210.0 * s
+	back.offset_left = 170.0 * s
+	back.offset_right = 270.0 * s
 	back.pressed.connect(func(): _show_page("gui"))
 	page.add_child(back)
 	return page
@@ -575,11 +602,11 @@ func _build_block_outline_page() -> Control:
 	yf += 35.0
 	_block_outline_place(page, 1, yf, "Pulse Max", controls["fill_pulse_max_opacity"])
 
-	var reset := _make_button("Reset")
+	var reset := _make_button("Reset", 100.0)
 	reset.offset_top = 240.0 * s
 	reset.offset_bottom = 260.0 * s
-	reset.offset_left = -210.0 * s
-	reset.offset_right = -10.0 * s
+	reset.offset_left = -160.0 * s
+	reset.offset_right = -60.0 * s
 	reset.pressed.connect(func():
 		for k in _block_outline_defaults:
 			if block_outline_node:
@@ -588,11 +615,38 @@ func _build_block_outline_page() -> Control:
 		_schedule_save())
 	page.add_child(reset)
 
-	var back := _make_button("Back")
+	var export_btn := _make_button("Export", 100.0)
+	export_btn.offset_top = 240.0 * s
+	export_btn.offset_bottom = 260.0 * s
+	export_btn.offset_left = -50.0 * s
+	export_btn.offset_right = 50.0 * s
+	export_btn.pressed.connect(func():
+		var code := _export_block_outline_code()
+		if code != "":
+			DisplayServer.clipboard_set(code)
+			print("Block outline code copied to clipboard: ", code))
+	page.add_child(export_btn)
+
+	var import_btn := _make_button("Import", 100.0)
+	import_btn.offset_top = 240.0 * s
+	import_btn.offset_bottom = 260.0 * s
+	import_btn.offset_left = 60.0 * s
+	import_btn.offset_right = 160.0 * s
+	import_btn.pressed.connect(func():
+		var code := DisplayServer.clipboard_get()
+		if code != "":
+			if _import_block_outline_code(code):
+				_block_outline_refresh_controls(controls)
+				print("Block outline code imported successfully")
+			else:
+				print("Invalid block outline code"))
+	page.add_child(import_btn)
+
+	var back := _make_button("Back", 100.0)
 	back.offset_top = 240.0 * s
 	back.offset_bottom = 260.0 * s
-	back.offset_left = 10.0 * s
-	back.offset_right = 210.0 * s
+	back.offset_left = 170.0 * s
+	back.offset_right = 270.0 * s
 	back.pressed.connect(func(): _show_page("gui"))
 	page.add_child(back)
 	return page
@@ -2135,6 +2189,266 @@ func _style_undo_button(btn: Button, width: float):
 	btn.add_theme_stylebox_override("pressed", pressed)
 	btn.add_theme_stylebox_override("focus", normal)
 	btn.custom_minimum_size = Vector2(width, width) * s
+
+# Crosshair export/import (CS-style codes)
+func _export_crosshair_code() -> String:
+	if not crosshair_node:
+		return ""
+	
+	# Pack data into bytes for compact encoding
+	var data := PackedByteArray()
+	
+	# Version byte (1)
+	data.append(1)
+	
+	# Pack booleans into first byte (7 bits)
+	var bool_byte := 0
+	bool_byte |= (1 if crosshair_node.cross_enabled else 0) << 0
+	bool_byte |= (1 if crosshair_node.top_line_enabled else 0) << 1
+	bool_byte |= (1 if crosshair_node.cross_contrast else 0) << 2
+	bool_byte |= (1 if crosshair_node.dot_enabled else 0) << 3
+	bool_byte |= (1 if crosshair_node.dot_contrast else 0) << 4
+	bool_byte |= (1 if crosshair_node.cross_dot_collision else 0) << 5
+	data.append(bool_byte)
+	
+	# Floats packed as uint16 (scaled)
+	data.append_array(_pack_float16(crosshair_node.cross_length, 0.0, 40.0, 100.0))
+	data.append_array(_pack_float16(crosshair_node.cross_thickness, 0.0, 10.0, 100.0))
+	data.append_array(_pack_float16(crosshair_node.cross_opacity, 0.0, 1.0, 100.0))
+	data.append_array(_pack_float16(crosshair_node.cross_spacing, 0.0, 10.0, 100.0))
+	data.append_array(_pack_float16(crosshair_node.cross_rotation, 0.0, 360.0, 10.0))
+	data.append_array(_pack_float16(crosshair_node.dot_size, 0.0, 40.0, 100.0))
+	data.append_array(_pack_float16(crosshair_node.dot_opacity, 0.0, 1.0, 100.0))
+	data.append_array(_pack_float16(crosshair_node.dot_rotation, 0.0, 45.0, 10.0))
+	
+	# Colors as 32-bit RGBA
+	data.append_array(_pack_color32(crosshair_node.cross_color))
+	data.append_array(_pack_color32(crosshair_node.dot_color))
+	
+	# Base32 encode (more compact than hex, no overflow issues)
+	var b32 := _base32_encode(data)
+	return _format_cs_code("FC", b32)
+
+func _import_crosshair_code(code: String) -> bool:
+	if not crosshair_node:
+		return false
+	
+	# Parse CS-style format
+	var parts := code.split("-")
+	if parts.size() < 2 or not parts[0].begins_with("FC"):
+		return false
+	
+	# Convert base32 back to bytes (skip the prefix)
+	var b32 := "".join(parts.slice(1))
+	var data := _base32_decode(b32)
+	
+	if data.size() < 26:  # version(1) + bool(1) + 8*float16(16) + 2*color32(8) = 26 bytes
+		return false
+	
+	var version := data[0]
+	if version != 1:
+		return false
+	
+	var idx := 1
+	
+	# Unpack booleans
+	var bool_byte := data[idx]; idx += 1
+	crosshair_node.cross_enabled = (bool_byte & (1 << 0)) != 0
+	crosshair_node.top_line_enabled = (bool_byte & (1 << 1)) != 0
+	crosshair_node.cross_contrast = (bool_byte & (1 << 2)) != 0
+	crosshair_node.dot_enabled = (bool_byte & (1 << 3)) != 0
+	crosshair_node.dot_contrast = (bool_byte & (1 << 4)) != 0
+	crosshair_node.cross_dot_collision = (bool_byte & (1 << 5)) != 0
+	
+	# Unpack floats
+	crosshair_node.cross_length = _unpack_float16(data, idx, 0.0, 40.0, 100.0); idx += 2
+	crosshair_node.cross_thickness = _unpack_float16(data, idx, 0.0, 10.0, 100.0); idx += 2
+	crosshair_node.cross_opacity = _unpack_float16(data, idx, 0.0, 1.0, 100.0); idx += 2
+	crosshair_node.cross_spacing = _unpack_float16(data, idx, 0.0, 10.0, 100.0); idx += 2
+	crosshair_node.cross_rotation = _unpack_float16(data, idx, 0.0, 360.0, 10.0); idx += 2
+	crosshair_node.dot_size = _unpack_float16(data, idx, 0.0, 40.0, 100.0); idx += 2
+	crosshair_node.dot_opacity = _unpack_float16(data, idx, 0.0, 1.0, 100.0); idx += 2
+	crosshair_node.dot_rotation = _unpack_float16(data, idx, 0.0, 45.0, 10.0); idx += 2
+	
+	# Unpack colors
+	crosshair_node.cross_color = _unpack_color32(data, idx); idx += 4
+	crosshair_node.dot_color = _unpack_color32(data, idx); idx += 4
+	
+	_schedule_save()
+	return true
+
+# Block outline export/import (CS-style codes)
+func _export_block_outline_code() -> String:
+	if not block_outline_node:
+		return ""
+	
+	# Pack data into bytes for compact encoding
+	var data := PackedByteArray()
+	
+	# Version byte (1)
+	data.append(1)
+	
+	# Pack booleans into first byte (6 bits)
+	var bool_byte := 0
+	bool_byte |= (1 if block_outline_node.outline_enabled else 0) << 0
+	bool_byte |= (1 if block_outline_node.outline_pulse_enabled else 0) << 1
+	bool_byte |= (1 if block_outline_node.fill_enabled else 0) << 2
+	bool_byte |= (1 if block_outline_node.fill_pulse_enabled else 0) << 3
+	data.append(bool_byte)
+	
+	# Floats packed as uint16 (scaled)
+	data.append_array(_pack_float16(block_outline_node.outline_thickness, 0.0, 0.99, 100.0))
+	data.append_array(_pack_float16(block_outline_node.outline_opacity, 0.0, 1.0, 100.0))
+	data.append_array(_pack_float16(block_outline_node.outline_pulse_speed, 0.5, 10.0, 10.0))
+	data.append_array(_pack_float16(block_outline_node.outline_pulse_min_opacity, 0.0, 1.0, 100.0))
+	data.append_array(_pack_float16(block_outline_node.outline_pulse_max_opacity, 0.0, 1.0, 100.0))
+	data.append_array(_pack_float16(block_outline_node.fill_opacity, 0.0, 1.0, 100.0))
+	data.append_array(_pack_float16(block_outline_node.fill_pulse_speed, 0.5, 10.0, 10.0))
+	data.append_array(_pack_float16(block_outline_node.fill_pulse_min_opacity, 0.0, 1.0, 100.0))
+	data.append_array(_pack_float16(block_outline_node.fill_pulse_max_opacity, 0.0, 1.0, 100.0))
+	data.append_array(_pack_float16(block_outline_node.reach_distance, 0.0, 10.0, 10.0))
+	
+	# Colors as 32-bit RGBA
+	data.append_array(_pack_color32(block_outline_node.outline_color))
+	data.append_array(_pack_color32(block_outline_node.fill_color))
+	
+	# Base32 encode (more compact than hex, no overflow issues)
+	var b32 := _base32_encode(data)
+	return _format_cs_code("FO", b32)
+
+func _import_block_outline_code(code: String) -> bool:
+	if not block_outline_node:
+		return false
+	
+	# Parse CS-style format
+	var parts := code.split("-")
+	if parts.size() < 2 or not parts[0].begins_with("FO"):
+		return false
+	
+	# Convert base32 back to bytes (skip the prefix)
+	var b32 := "".join(parts.slice(1))
+	var data := _base32_decode(b32)
+	
+	if data.size() < 30:  # version(1) + bool(1) + 10*float16(20) + 2*color32(8) = 30 bytes
+		return false
+	
+	var version := data[0]
+	if version != 1:
+		return false
+	
+	var idx := 1
+	
+	# Unpack booleans
+	var bool_byte := data[idx]; idx += 1
+	block_outline_node.outline_enabled = (bool_byte & (1 << 0)) != 0
+	block_outline_node.outline_pulse_enabled = (bool_byte & (1 << 1)) != 0
+	block_outline_node.fill_enabled = (bool_byte & (1 << 2)) != 0
+	block_outline_node.fill_pulse_enabled = (bool_byte & (1 << 3)) != 0
+	
+	# Unpack floats
+	block_outline_node.outline_thickness = _unpack_float16(data, idx, 0.0, 0.99, 100.0); idx += 2
+	block_outline_node.outline_opacity = _unpack_float16(data, idx, 0.0, 1.0, 100.0); idx += 2
+	block_outline_node.outline_pulse_speed = _unpack_float16(data, idx, 0.5, 10.0, 10.0); idx += 2
+	block_outline_node.outline_pulse_min_opacity = _unpack_float16(data, idx, 0.0, 1.0, 100.0); idx += 2
+	block_outline_node.outline_pulse_max_opacity = _unpack_float16(data, idx, 0.0, 1.0, 100.0); idx += 2
+	block_outline_node.fill_opacity = _unpack_float16(data, idx, 0.0, 1.0, 100.0); idx += 2
+	block_outline_node.fill_pulse_speed = _unpack_float16(data, idx, 0.5, 10.0, 10.0); idx += 2
+	block_outline_node.fill_pulse_min_opacity = _unpack_float16(data, idx, 0.0, 1.0, 100.0); idx += 2
+	block_outline_node.fill_pulse_max_opacity = _unpack_float16(data, idx, 0.0, 1.0, 100.0); idx += 2
+	block_outline_node.reach_distance = _unpack_float16(data, idx, 0.0, 10.0, 10.0); idx += 2
+	
+	# Unpack colors
+	block_outline_node.outline_color = _unpack_color32(data, idx); idx += 4
+	block_outline_node.fill_color = _unpack_color32(data, idx); idx += 4
+	
+	_schedule_save()
+	return true
+
+# Helper functions for compact encoding
+func _pack_float16(value: float, min_val: float, max_val: float, scale: float) -> PackedByteArray:
+	var scaled := clampf(value, min_val, max_val) * scale
+	var uint16 := int(round(scaled))
+	return PackedByteArray([uint16 & 0xFF, (uint16 >> 8) & 0xFF])
+
+func _unpack_float16(data: PackedByteArray, idx: int, min_val: float, max_val: float, scale: float) -> float:
+	var uint16 := data[idx] | (data[idx + 1] << 8)
+	return clampf(float(uint16) / scale, min_val, max_val)
+
+func _pack_color32(c: Color) -> PackedByteArray:
+	return PackedByteArray([
+		int(c.r * 255),
+		int(c.g * 255),
+		int(c.b * 255),
+		int(c.a * 255)
+	])
+
+func _unpack_color32(data: PackedByteArray, idx: int) -> Color:
+	return Color(
+		data[idx] / 255.0,
+		data[idx + 1] / 255.0,
+		data[idx + 2] / 255.0,
+		data[idx + 3] / 255.0
+	)
+
+func _format_cs_code(prefix: String, encoded: String) -> String:
+	# Format like CS: PREFIX-XXXXX-XXXXX-XXXXX-XXXXX-XXXXX
+	var result := prefix + "-"
+	var chunk_size := 5
+	for i in range(0, encoded.length(), chunk_size):
+		if i > 0:
+			result += "-"
+		var end := mini(i + chunk_size, encoded.length())
+		result += encoded.substr(i, end - i)
+	return result
+
+# Base32 encoding (A-Z, 2-7) - more compact than hex, no overflow issues
+const BASE32_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+
+func _base32_encode(data: PackedByteArray) -> String:
+	if data.is_empty():
+		return ""
+	
+	var result := ""
+	var buffer := 0
+	var bits_left := 0
+	
+	for byte in data:
+		buffer = (buffer << 8) | byte
+		bits_left += 8
+		
+		while bits_left >= 5:
+			bits_left -= 5
+			var index = (buffer >> bits_left) & 0x1F
+			result += BASE32_CHARS[index]
+	
+	# Handle remaining bits
+	if bits_left > 0:
+		var index = (buffer << (5 - bits_left)) & 0x1F
+		result += BASE32_CHARS[index]
+	
+	return result
+
+func _base32_decode(encoded: String) -> PackedByteArray:
+	if encoded.is_empty():
+		return PackedByteArray()
+	
+	var data := PackedByteArray()
+	var buffer := 0
+	var bits_left := 0
+	
+	for char in encoded:
+		var index := BASE32_CHARS.find(char)
+		if index == -1:
+			return PackedByteArray()  # Invalid character
+		
+		buffer = (buffer << 5) | index
+		bits_left += 5
+		
+		while bits_left >= 8:
+			bits_left -= 8
+			data.append((buffer >> bits_left) & 0xFF)
+	
+	return data
 
 func _input(event):
 	if is_open and _capturing_action != "":

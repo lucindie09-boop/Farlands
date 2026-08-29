@@ -336,7 +336,7 @@ func set_color(color: Color) -> void:
 	if block_manager != null:
 		pass  # BlockManager doesn't need color state, it's per-paint operation
 
-func set_uv_overlay(enabled: bool) -> void:
+func set_uv_overlay(_enabled: bool) -> void:
 	# UV overlay could be implemented to show the 16x16 grid
 	# For now, just a placeholder
 	pass

@@ -2,6 +2,7 @@ extends Node
 
 # Manages block texture creation for the block maker tool.
 # Similar to SkinManager but for block textures on cubes.
+# TODO: Fix painting functionality and UV mapping for proper 16x16 per-face texturing.
 
 const DEFAULT_BLOCK_PATH := "res://textures/blocks/stone.png"
 const CURRENT_BLOCK_PATH := "user://current_block.png"

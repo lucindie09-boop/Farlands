@@ -24,13 +24,18 @@ var _painting := false
 var _last_paint_uv := Vector2.INF
 var _tool := "DRAW"  # DRAW, FILL, BOX
 var _color := Color.WHITE
-var _box_start := Vector2.INF
-var _box_end := Vector2.INF
 var _box_active := false
 
 var _undo_stack := []
 var _stroke := []
 var _uv_overlay_enabled := false
+var _last_hit_uvs := PackedVector2Array()  # Track UV corners of hit triangle for face fill
+var _box_anchor_uv := Vector2.INF  # Starting UV for box tool
+var _box_last_uv := Vector2.INF  # Last valid UV for box tool
+var _box_face_min := Vector2.INF  # Face bounds for box tool
+var _box_face_max := Vector2.INF
+var _box_base: Image = null  # Snapshot before box drag
+var _box_touched := {}  # Texels touched during box drag
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
@@ -267,14 +272,21 @@ func _apply_block_texture() -> void:
 func _update_camera() -> void:
 	if _camera == null:
 		return
+	var pitch_r := deg_to_rad(_pitch)
+	var yaw_r := deg_to_rad(_yaw)
 	_camera.position = _target + Vector3(
-		_dist * cos(_pitch) * sin(_yaw),
-		_dist * sin(_pitch),
-		_dist * cos(_pitch) * cos(_yaw))
+		_dist * cos(pitch_r) * sin(yaw_r),
+		_dist * sin(pitch_r),
+		_dist * cos(pitch_r) * cos(yaw_r))
 	_camera.look_at(_target, Vector3.UP)
 
 func _input(event: InputEvent) -> void:
 	if not is_visible_in_tree():
+		return
+	
+	if event is InputEventKey and event.pressed and event.keycode == KEY_Z \
+			and (event.ctrl_pressed or event.command_pressed):
+		undo()
 		return
 	
 	if event is InputEventMouseButton:
@@ -292,12 +304,11 @@ func _input(event: InputEvent) -> void:
 	elif event is InputEventMouseMotion:
 		var mm := event as InputEventMouseMotion
 		if _rotating:
-			_yaw += mm.relative.x * 0.15
-			_pitch = clampf(_pitch + mm.relative.y * 0.15, -89.0, 89.0)
+			_yaw -= mm.relative.x * 0.35
+			_pitch = clampf(_pitch - mm.relative.y * 0.35, -85.0, 85.0)
 			_update_camera()
 		elif _zooming:
-			_dist += mm.relative.y * ZOOM_SPEED
-			_dist = clampf(_dist, ZOOM_MIN, ZOOM_MAX)
+			_dist = clampf(_dist - mm.relative.y * ZOOM_SPEED, ZOOM_MIN, ZOOM_MAX)
 			_update_camera()
 		elif _painting:
 			_handle_paint_motion(mm.position)
@@ -323,8 +334,21 @@ func _handle_left_click() -> void:
 	elif _tool == "FILL":
 		_flood_fill(local_pos.x, local_pos.y)
 	elif _tool == "BOX":
-		_box_start = local_pos
-		_box_end = local_pos
+		_box_anchor_uv = local_pos
+		_box_last_uv = local_pos
+		var face_rect := _hit_face_rect()
+		if face_rect.size.x > 0 and face_rect.size.y > 0:
+			_box_face_min = face_rect.position
+			_box_face_max = face_rect.end
+		else:
+			# Fallback: use full texture bounds if face detection failed
+			_box_face_min = Vector2(0, 0)
+			_box_face_max = Vector2(1, 1)
+		var block_manager := get_node_or_null("/root/BlockManager")
+		if block_manager != null:
+			_box_base = block_manager.get_image().duplicate()
+		_box_touched.clear()
+		_fill_box_live(local_pos)
 		_box_active = true
 
 func _handle_left_release() -> void:
@@ -332,10 +356,14 @@ func _handle_left_release() -> void:
 	_painting = false
 	
 	if _box_active:
-		_draw_box()
+		_finish_box()
 		_box_active = false
-		_box_start = Vector2.INF
-		_box_end = Vector2.INF
+		_box_anchor_uv = Vector2.INF
+		_box_last_uv = Vector2.INF
+		_box_face_min = Vector2.INF
+		_box_face_max = Vector2.INF
+		_box_base = null
+		_box_touched.clear()
 	
 	_commit_stroke()
 
@@ -354,7 +382,7 @@ func _handle_paint_motion(mouse_pos: Vector2) -> void:
 	elif _tool == "BOX" and _box_active:
 		var local_pos := _get_local_uv_from_mouse(mouse_pos)
 		if local_pos != Vector2.INF:
-			_box_end = local_pos
+			_fill_box_live(local_pos)
 
 func _get_local_uv_from_mouse(mouse_pos: Vector2) -> Vector2:
 	# Direct triangle raycast like skin_preview - MeshInstance3D has no physics
@@ -363,12 +391,14 @@ func _get_local_uv_from_mouse(mouse_pos: Vector2) -> Vector2:
 	var best := INF
 	var best_uv := Vector2.INF
 	
-	if _cube == null or _cube.mesh == null:
+	if _cube == null or _cube.mesh == null or _camera == null:
 		return Vector2.INF
 	
 	var inv := _cube.global_transform.affine_inverse()
 	var lo := inv * origin
 	var ld := inv.basis * dir
+	
+	_last_hit_uvs.clear()
 	
 	for surface_idx in range(_cube.mesh.get_surface_count()):
 		var arrays := _cube.mesh.surface_get_arrays(surface_idx)
@@ -429,6 +459,7 @@ func _get_local_uv_from_mouse(mouse_pos: Vector2) -> Vector2:
 			var uv1 := uvs[i1]
 			var uv2 := uvs[i2]
 			best_uv = uv0 + (uv1 - uv0) * u + (uv2 - uv0) * v
+			_last_hit_uvs = [uv0, uv1, uv2]
 	
 	return best_uv
 
@@ -451,69 +482,113 @@ func _paint_texel(u: float, v: float) -> void:
 		_apply_block_texture()
 
 func _flood_fill(start_u: float, start_v: float) -> void:
-	# Map UV from 0-1 atlas space to pixel coordinates
-	var start_x := int(start_u * ATLAS_WIDTH)
-	var start_y := int(start_v * ATLAS_HEIGHT)
-	
-	start_x = clampi(start_x, 0, ATLAS_WIDTH - 1)
-	start_y = clampi(start_y, 0, ATLAS_HEIGHT - 1)
+	# Fill the entire face using UV bounds from the hit triangle (like skin_preview)
+	var rect := _hit_face_rect()
+	if rect.size.x <= 0 or rect.size.y <= 0:
+		return
 	
 	var block_manager := get_node_or_null("/root/BlockManager")
 	if block_manager == null:
 		return
 	
-	var img: Image = block_manager.get_image()
-	var target_color: Color = img.get_pixel(start_x, start_y)
+	_stroke = []
+	# Texel centres with a half-open range
+	for py in range(ATLAS_HEIGHT):
+		for px in range(ATLAS_WIDTH):
+			var c := Vector2((px + 0.5) / ATLAS_WIDTH, (py + 0.5) / ATLAS_HEIGHT)
+			if c.x >= rect.position.x and c.x < rect.end.x \
+					and c.y >= rect.position.y and c.y < rect.end.y:
+				var old_color: Color = block_manager.get_image().get_pixel(px, py)
+				if block_manager.set_pixel(px, py, _color):
+					_record_stroke_texel(px, py, old_color, _color)
 	
-	if target_color.is_equal_approx(_color):
+	_commit_stroke()
+	_apply_block_texture()
+
+func _hit_face_rect() -> Rect2:
+	# Compute bounding rectangle from hit triangle UV corners (like skin_preview)
+	if _last_hit_uvs.size() < 3:
+		return Rect2(0, 0, 0, 0)
+	
+	var mn := Vector2(INF, INF)
+	var mx := Vector2(-INF, -INF)
+	for p in _last_hit_uvs:
+		mn.x = minf(mn.x, p.x)
+		mn.y = minf(mn.y, p.y)
+		mx.x = maxf(mx.x, p.x)
+		mx.y = maxf(mx.y, p.y)
+	
+	return Rect2(mn, mx - mn)
+
+func _uv_on_box_face(uv: Vector2) -> bool:
+	# Check if UV is within the face bounds of the box anchor
+	return uv.x >= _box_face_min.x and uv.x < _box_face_max.x \
+		and uv.y >= _box_face_min.y and uv.y < _box_face_max.y
+
+func _fill_box_live(uv: Vector2) -> void:
+	# Left the face: keep the last good rectangle instead of collapsing
+	if not _uv_on_box_face(uv):
+		return
+	_box_last_uv = uv
+	var ax := clampi(int(_box_anchor_uv.x * ATLAS_WIDTH), 0, ATLAS_WIDTH - 1)
+	var ay := clampi(int(_box_anchor_uv.y * ATLAS_HEIGHT), 0, ATLAS_HEIGHT - 1)
+	var cx := clampi(int(uv.x * ATLAS_WIDTH), 0, ATLAS_WIDTH - 1)
+	var cy := clampi(int(uv.y * ATLAS_HEIGHT), 0, ATLAS_HEIGHT - 1)
+	var x0 := mini(ax, cx)
+	var x1 := maxi(ax, cx)
+	var y0 := mini(ay, cy)
+	var y1 := maxi(ay, cy)
+	
+	var block_manager := get_node_or_null("/root/BlockManager")
+	if block_manager == null:
 		return
 	
-	var queue: Array = [[start_x, start_y]]
-	var visited: Dictionary = {}
-	visited[start_y * ATLAS_WIDTH + start_x] = true
-	
-	while not queue.is_empty():
-		var current: Array = queue.pop_front()
-		var x: int = current[0]
-		var y: int = current[1]
-		
-		if img.get_pixel(x, y).is_equal_approx(target_color):
-			var old_color: Color = img.get_pixel(x, y)
-			if block_manager.set_pixel(x, y, _color):
-				_record_stroke_texel(x, y, old_color, _color)
-			
-			for neighbor in [[x+1, y], [x-1, y], [x, y+1], [x, y-1]]:
-				var nx: int = neighbor[0]
-				var ny: int = neighbor[1]
-				if nx >= 0 and nx < ATLAS_WIDTH and ny >= 0 and ny < ATLAS_HEIGHT:
-					var key: int = ny * ATLAS_WIDTH + nx
-					if not visited.has(key):
-						visited[key] = true
-						queue.append([nx, ny])
+	# Fill exactly these cells
+	for yy in range(y0, y1 + 1):
+		for xx in range(x0, x1 + 1):
+			var key := yy * ATLAS_WIDTH + xx
+			if not _box_touched.has(key):
+				var old_color: Color = block_manager.get_image().get_pixel(xx, yy)
+				if block_manager.set_pixel(xx, yy, _color):
+					_record_stroke_texel(xx, yy, old_color, _color)
+				_box_touched[key] = true
 	
 	_apply_block_texture()
 
-func _draw_box() -> void:
-	if _box_start == Vector2.INF or _box_end == Vector2.INF:
+func _finish_box() -> void:
+	if _box_base == null:
+		_box_touched.clear()
 		return
-	
-	# Map UV from 0-1 atlas space to pixel coordinates
-	var x0 := int(minf(_box_start.x, _box_end.x) * ATLAS_WIDTH)
-	var y0 := int(minf(_box_start.y, _box_end.y) * ATLAS_HEIGHT)
-	var x1 := int(maxf(_box_start.x, _box_end.x) * ATLAS_WIDTH)
-	var y1 := int(maxf(_box_start.y, _box_end.y) * ATLAS_HEIGHT)
-	
-	x0 = clampi(x0, 0, ATLAS_WIDTH - 1)
-	y0 = clampi(y0, 0, ATLAS_HEIGHT - 1)
-	x1 = clampi(x1, 0, ATLAS_WIDTH - 1)
-	y1 = clampi(y1, 0, ATLAS_HEIGHT - 1)
 	
 	var block_manager := get_node_or_null("/root/BlockManager")
 	if block_manager == null:
+		_box_touched.clear()
 		return
 	
-	block_manager.fill_rect(x0, y0, x1, y1, _color)
+	var last := _box_last_uv if _box_last_uv != Vector2.INF else _box_anchor_uv
+	var ax := clampi(int(_box_anchor_uv.x * ATLAS_WIDTH), 0, ATLAS_WIDTH - 1)
+	var ay := clampi(int(_box_anchor_uv.y * ATLAS_HEIGHT), 0, ATLAS_HEIGHT - 1)
+	var cx := clampi(int(last.x * ATLAS_WIDTH), 0, ATLAS_WIDTH - 1)
+	var cy := clampi(int(last.y * ATLAS_HEIGHT), 0, ATLAS_HEIGHT - 1)
+	var x0 := mini(ax, cx)
+	var x1 := maxi(ax, cx)
+	var y0 := mini(ay, cy)
+	var y1 := maxi(ay, cy)
+	
+	# Restore texels that were touched but fall outside final rectangle
+	for key in _box_touched:
+		var k: int = int(key)
+		var px := k % ATLAS_WIDTH
+		var py := int(k / float(ATLAS_WIDTH))
+		if px < x0 or px > x1 or py < y0 or py > y1:
+			var old_color: Color = _box_base.get_pixel(px, py)
+			if block_manager.set_pixel(px, py, old_color):
+				_record_stroke_texel(px, py, _color, old_color)
+	
+	_box_touched.clear()
+	_box_base = null
 	_apply_block_texture()
+	_commit_stroke()
 
 func _record_stroke_texel(px: int, py: int, old_color: Color, new_color: Color) -> void:
 	_stroke.append({"x": px, "y": py, "old": old_color, "new": new_color})
@@ -544,6 +619,19 @@ func undo() -> void:
 	_apply_block_texture()
 
 func set_tool(tool_name: String) -> void:
+	# Finish any in-progress box operation when switching tools
+	if _box_active:
+		_finish_box()
+		_box_active = false
+		_box_anchor_uv = Vector2.INF
+		_box_last_uv = Vector2.INF
+		_box_face_min = Vector2.INF
+		_box_face_max = Vector2.INF
+		_box_base = null
+		_box_touched.clear()
+	_painting = false
+	_rotating = false
+	_commit_stroke()
 	_tool = tool_name
 
 func set_color(color: Color) -> void:

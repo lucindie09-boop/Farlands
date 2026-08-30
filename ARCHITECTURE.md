@@ -273,8 +273,10 @@ The following code remains in the codebase but is disabled or unused:
 - `death_screen.gd` — Death overlay: "You died!" + Respawn button, shown on the `PlayerController.died` signal and hidden on `respawned`
 - `inventory.gd` - Full inventory screen with drag-drop stack movement, shift-click quick-transfer, RMB drag-place, LMB drag-collect, scroll wheel quick-transfer, double-click gather; live 2×2 crafting grid + output preview (click/drag/shift/scroll interactions mirrored on the crafting cells; shift-click output crafts as many as possible)
 - `data/recipes.json` — Crafting recipes (shaped/shapeless), resolved by block name; loaded into `RecipeBook` at startup
-- `settings_menu.gd` — Adjustable settings with persistence (render, lighting, crosshair, controls) opened with Escape key; includes a **Skin Maker** page (color wheel, hex readout, orbitable preview) with a dark-mode toggle
+- `settings_menu.gd` — Adjustable settings with persistence (render, lighting, crosshair, controls) opened with Escape key; includes a **Skin Maker** page (color wheel, hex readout, orbitable preview) with a dark-mode toggle and a **Block Maker** page (16×16 cube painter) with paint tools, noise slider, and gallery
 - `skin_preview.gd` — Transparent-background sub-viewport that orbits `player.glb` behind the skin maker; the camera orbits the model's AABB center rather than being a child of the rotating node
+- `block_manager.gd` — Autoload holding the single persistent 16×16 block texture (one `ImageTexture` shared by every cube face), with debounced saves to `user://current_block.png`, a restart-recovery noise base (`user://block_noise_base.png`), and a reversible grayscale-noise slider living on the autoload so it survives page rebuilds
+- `block_preview.gd` — Transparent-background sub-viewport behind the block maker that drag-orbits a cube; DRAW/FILL/BOX painting over primitive triangle raycasts, undo (Ctrl+Z), noise slider integration, and clamped zoom
 - `player_model.gd` — Applies the skin texture to `player.glb`'s `StandardMaterial3D` surfaces with nearest filtering (no mipmaps, avoiding smeared UV islands)
 - `player.glb` — Voxel-style player model with a tightly-packed 64×64 skin-texture atlas
 - `block_textures.gd` — Block texture atlas generation from `textures/blocks/`

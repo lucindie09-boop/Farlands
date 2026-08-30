@@ -83,6 +83,10 @@ struct BlockType {
     // Vanilla slipperiness (0.6 = stone, 0.6 = dirt, 0.98 = ice, 0.98 = packed_ice, etc.)
     float slipperiness = 0.6f;
 
+    // Break time while holding LMB, in seconds (0.5 = dirt, 1.5 = stone).
+    // -1.0 = unbreakable (bedrock, water) — never cracks or breaks.
+    float hardness = 1.0f;
+
     // Texture filename per face (populated by load_from_json, used by TextureArrayGenerator).
     // Placed last so existing aggregate initializers are unaffected.
     std::array<std::string, 6> texture_names{};

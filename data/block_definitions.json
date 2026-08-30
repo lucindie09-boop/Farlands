@@ -11,6 +11,7 @@
   },
   {
     "name": "stone",
+    "hardness": 1.5,
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, true, true, true],
     "textures": ["stone", "stone", "stone", "stone", "stone", "stone"],
@@ -21,6 +22,7 @@
   },
   {
     "name": "dirt",
+    "hardness": 0.5,
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, true, true, true],
     "textures": ["dirt", "dirt", "dirt", "dirt", "dirt", "dirt"],
@@ -31,6 +33,7 @@
   },
   {
     "name": "grass",
+    "hardness": 0.5,
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, false, true, true],
     "textures": ["grass_side", "grass_side", "grass_top", "dirt", "grass_side", "grass_side"],
@@ -41,6 +44,7 @@
   },
   {
     "name": "sand",
+    "hardness": 0.5,
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, true, true, true],
     "textures": ["sand", "sand", "sand", "sand", "sand", "sand"],
@@ -51,6 +55,7 @@
   },
   {
     "name": "surface_water",
+    "hardness": -1,
     "properties": ["Liquid", "Transparent"],
     "shape": "lowered/12",
     "visible_faces": [true, true, true, false, true, true],
@@ -62,6 +67,7 @@
   },
   {
     "name": "water",
+    "hardness": -1,
     "properties": ["Liquid", "Transparent"],
     "shape": "lowered/12",
     "visible_faces": [true, true, true, true, true, true],
@@ -73,6 +79,7 @@
   },
   {
     "name": "oak_log",
+    "hardness": 2,
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, true, true, true],
     "textures": ["wood_side", "wood_side", "wood_top", "wood_top", "wood_side", "wood_side"],
@@ -83,6 +90,7 @@
   },
   {
     "name": "leaves",
+    "hardness": 0.2,
     "properties": ["Solid", "Transparent"],
     "visible_faces": [true, true, true, true, true, true],
     "textures": ["leaves", "leaves", "leaves", "leaves", "leaves", "leaves"],
@@ -93,6 +101,7 @@
   },
   {
     "name": "bedrock",
+    "hardness": -1,
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, true, true, true],
     "textures": ["bedrock", "bedrock", "bedrock", "bedrock", "bedrock", "bedrock"],
@@ -103,6 +112,7 @@
   },
   {
     "name": "mud",
+    "hardness": 0.5,
     "properties": ["Solid", "Opaque"],
     "shape": "lowered/0625",
     "visible_faces": [true, true, true, true, true, true],
@@ -114,6 +124,7 @@
   },
   {
     "name": "wet_sand",
+    "hardness": 0.5,
     "properties": ["Solid", "Opaque"],
     "shape": "lowered/0625",
     "visible_faces": [true, true, true, true, true, true],
@@ -125,6 +136,7 @@
   },
   {
     "name": "mud_full",
+    "hardness": 0.5,
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, true, true, true],
     "textures": ["mud", "mud", "mud", "mud", "mud", "mud"],
@@ -135,6 +147,7 @@
   },
   {
     "name": "wet_sand_full",
+    "hardness": 0.5,
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, true, true, true],
     "textures": ["wet_sand", "wet_sand", "wet_sand", "wet_sand", "wet_sand", "wet_sand"],
@@ -145,6 +158,7 @@
   },
   {
     "name": "light_block",
+    "hardness": 0.5,
     "properties": ["Solid", "Opaque", "Emissive"],
     "visible_faces": [true, true, true, true, true, true],
     "textures": ["light_block", "light_block", "light_block", "light_block", "light_block", "light_block"],
@@ -155,6 +169,7 @@
   },
   {
     "name": "light_red",
+    "hardness": 0.5,
     "properties": ["Solid", "Opaque", "Emissive"],
     "visible_faces": [true, true, true, true, true, true],
     "textures": ["light_red", "light_red", "light_red", "light_red", "light_red", "light_red"],
@@ -165,6 +180,7 @@
   },
   {
     "name": "light_green",
+    "hardness": 0.5,
     "properties": ["Solid", "Opaque", "Emissive"],
     "visible_faces": [true, true, true, true, true, true],
     "textures": ["light_green", "light_green", "light_green", "light_green", "light_green", "light_green"],
@@ -175,6 +191,7 @@
   },
   {
     "name": "light_blue",
+    "hardness": 0.5,
     "properties": ["Solid", "Opaque", "Emissive"],
     "visible_faces": [true, true, true, true, true, true],
     "textures": ["light_blue", "light_blue", "light_blue", "light_blue", "light_blue", "light_blue"],
@@ -185,6 +202,7 @@
   },
   {
     "name": "snow",
+    "hardness": 0.2,
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, true, true, true],
     "textures": ["snow", "snow", "snow", "snow", "snow", "snow"],
@@ -195,6 +213,7 @@
   },
   {
     "name": "gravel",
+    "hardness": 0.6,
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, true, true, true],
     "textures": ["gravel", "gravel", "gravel", "gravel", "gravel", "gravel"],
@@ -205,6 +224,7 @@
   },
   {
     "name": "cactus",
+    "hardness": 0.4,
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, true, true, true],
     "textures": ["cactus", "cactus", "cactus", "cactus", "cactus", "cactus"],
@@ -215,6 +235,7 @@
   },
   {
     "name": "oak_slab",
+    "hardness": 2,
     "slab_family": "plank_slab",
     "shape": "slab/bottom",
     "properties": ["Solid", "Opaque"],
@@ -227,6 +248,7 @@
   },
   {
     "name": "oak_slab_top",
+    "hardness": 2,
     "slab_family": "plank_slab",
     "hidden": true,
     "shape": "slab/top",
@@ -240,6 +262,7 @@
   },
   {
     "name": "oak_stairs",
+    "hardness": 2,
     "stair_family": "oak_stair",
     "shape": "stair/n",
     "properties": ["Solid", "Opaque"],
@@ -252,6 +275,7 @@
   },
   {
     "name": "oak_pole",
+    "hardness": 2,
     "shape": "pole",
     "properties": ["Solid", "Opaque", "NoOcclusion"],
     "visible_faces": [true, true, true, true, true, true],
@@ -263,6 +287,7 @@
   },
   {
     "name": "oak_wall",
+    "hardness": 2,
     "wall_family": "oak_wall",
     "shape": "wall/n",
     "properties": ["Solid", "Opaque"],
@@ -275,6 +300,7 @@
   },
   {
     "name": "oak_double_slab",
+    "hardness": 2,
     "slab_family": "plank_slab",
     "hidden": true,
     "properties": ["Solid", "Opaque"],
@@ -287,6 +313,7 @@
   },
   {
     "name": "oak_stairs_s",
+    "hardness": 2,
     "stair_family": "oak_stair",
     "hidden": true,
     "shape": "stair/s",
@@ -300,6 +327,7 @@
   },
   {
     "name": "oak_stairs_e",
+    "hardness": 2,
     "stair_family": "oak_stair",
     "hidden": true,
     "shape": "stair/e",
@@ -313,6 +341,7 @@
   },
   {
     "name": "oak_stairs_w",
+    "hardness": 2,
     "stair_family": "oak_stair",
     "hidden": true,
     "shape": "stair/w",
@@ -326,6 +355,7 @@
   },
   {
     "name": "oak_stairs_n_up",
+    "hardness": 2,
     "stair_family": "oak_stair",
     "hidden": true,
     "shape": "stair/n_up",
@@ -339,6 +369,7 @@
   },
   {
     "name": "oak_stairs_s_up",
+    "hardness": 2,
     "stair_family": "oak_stair",
     "hidden": true,
     "shape": "stair/s_up",
@@ -352,6 +383,7 @@
   },
   {
     "name": "oak_stairs_e_up",
+    "hardness": 2,
     "stair_family": "oak_stair",
     "hidden": true,
     "shape": "stair/e_up",
@@ -365,6 +397,7 @@
   },
   {
     "name": "oak_stairs_w_up",
+    "hardness": 2,
     "stair_family": "oak_stair",
     "hidden": true,
     "shape": "stair/w_up",
@@ -378,6 +411,7 @@
   },
   {
     "name": "oak_wall_s",
+    "hardness": 2,
     "wall_family": "oak_wall",
     "hidden": true,
     "shape": "wall/s",
@@ -391,6 +425,7 @@
   },
   {
     "name": "oak_wall_e",
+    "hardness": 2,
     "wall_family": "oak_wall",
     "hidden": true,
     "shape": "wall/e",
@@ -404,6 +439,7 @@
   },
   {
     "name": "oak_wall_w",
+    "hardness": 2,
     "wall_family": "oak_wall",
     "hidden": true,
     "shape": "wall/w",
@@ -417,6 +453,7 @@
   },
   {
     "name": "oak_wall_full",
+    "hardness": 2,
     "wall_family": "oak_wall",
     "hidden": true,
     "properties": ["Solid", "Opaque"],
@@ -429,6 +466,7 @@
   },
   {
     "name": "oak_planks",
+    "hardness": 2,
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, true, true, true],
     "textures": ["oak_planks", "oak_planks", "oak_planks", "oak_planks", "oak_planks", "oak_planks"],
@@ -439,6 +477,7 @@
   },
   {
     "name": "coal_ore",
+    "hardness": 3,
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, true, true, true],
     "textures": ["coal_ore", "coal_ore", "coal_ore", "coal_ore", "coal_ore", "coal_ore"],
@@ -449,6 +488,7 @@
   },
   {
     "name": "gold_ore",
+    "hardness": 3,
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, true, true, true],
     "textures": ["gold_ore", "gold_ore", "gold_ore", "gold_ore", "gold_ore", "gold_ore"],
@@ -459,6 +499,7 @@
   },
   {
     "name": "ice",
+    "hardness": 0.5,
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, true, true, true],
     "textures": ["ice", "ice", "ice", "ice", "ice", "ice"],
@@ -469,6 +510,7 @@
   },
   {
     "name": "crafting_table",
+    "hardness": 2.5,
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, true, true, true],
     "textures": ["crafting_table_side", "crafting_table_side", "crafting_table_top", "oak_planks", "crafting_table_side", "crafting_table_side"],
@@ -479,6 +521,7 @@
   },
   {
     "name": "oak_stump",
+    "hardness": 2,
     "slab_family": "stump",
     "shape": "slab/bottom",
     "properties": ["Solid", "Opaque"],
@@ -491,6 +534,7 @@
   },
   {
     "name": "oak_stump_top",
+    "hardness": 2,
     "slab_family": "stump",
     "hidden": true,
     "shape": "slab/top",
@@ -504,6 +548,7 @@
   },
   {
     "name": "oak_stump_double",
+    "hardness": 2,
     "slab_family": "stump",
     "hidden": true,
     "properties": ["Solid", "Opaque"],
@@ -516,6 +561,7 @@
   },
   {
     "name": "stone_slab",
+    "hardness": 1.5,
     "slab_family": "stone_slab",
     "shape": "slab/bottom",
     "properties": ["Solid", "Opaque"],
@@ -528,6 +574,7 @@
   },
   {
     "name": "stone_slab_top",
+    "hardness": 1.5,
     "slab_family": "stone_slab",
     "hidden": true,
     "shape": "slab/top",
@@ -541,6 +588,7 @@
   },
   {
     "name": "stone_double_slab",
+    "hardness": 1.5,
     "slab_family": "stone_slab",
     "hidden": true,
     "properties": ["Solid", "Opaque"],
@@ -553,6 +601,7 @@
   },
   {
     "name": "stone_stairs",
+    "hardness": 1.5,
     "stair_family": "stone_stair",
     "shape": "stair/n",
     "properties": ["Solid", "Opaque"],
@@ -565,6 +614,7 @@
   },
   {
     "name": "stone_stairs_s",
+    "hardness": 1.5,
     "stair_family": "stone_stair",
     "shape": "stair/s",
     "properties": ["Solid", "Opaque"],
@@ -577,6 +627,7 @@
   },
   {
     "name": "stone_stairs_e",
+    "hardness": 1.5,
     "stair_family": "stone_stair",
     "shape": "stair/e",
     "properties": ["Solid", "Opaque"],
@@ -589,6 +640,7 @@
   },
   {
     "name": "stone_stairs_w",
+    "hardness": 1.5,
     "stair_family": "stone_stair",
     "shape": "stair/w",
     "properties": ["Solid", "Opaque"],
@@ -601,6 +653,7 @@
   },
   {
     "name": "stone_stairs_n_up",
+    "hardness": 1.5,
     "stair_family": "stone_stair",
     "shape": "stair/n_up",
     "properties": ["Solid", "Opaque"],
@@ -613,6 +666,7 @@
   },
   {
     "name": "stone_stairs_s_up",
+    "hardness": 1.5,
     "stair_family": "stone_stair",
     "shape": "stair/s_up",
     "properties": ["Solid", "Opaque"],
@@ -625,6 +679,7 @@
   },
   {
     "name": "stone_stairs_e_up",
+    "hardness": 1.5,
     "stair_family": "stone_stair",
     "shape": "stair/e_up",
     "properties": ["Solid", "Opaque"],
@@ -637,6 +692,7 @@
   },
   {
     "name": "stone_stairs_w_up",
+    "hardness": 1.5,
     "stair_family": "stone_stair",
     "shape": "stair/w_up",
     "properties": ["Solid", "Opaque"],
@@ -649,6 +705,7 @@
   },
   {
     "name": "stone_wall",
+    "hardness": 1.5,
     "wall_family": "stone_wall",
     "shape": "wall/n",
     "properties": ["Solid", "Opaque"],
@@ -661,6 +718,7 @@
   },
   {
     "name": "stone_wall_s",
+    "hardness": 1.5,
     "wall_family": "stone_wall",
     "shape": "wall/s",
     "properties": ["Solid", "Opaque"],
@@ -673,6 +731,7 @@
   },
   {
     "name": "stone_wall_e",
+    "hardness": 1.5,
     "wall_family": "stone_wall",
     "shape": "wall/e",
     "properties": ["Solid", "Opaque"],
@@ -685,6 +744,7 @@
   },
   {
     "name": "stone_wall_w",
+    "hardness": 1.5,
     "wall_family": "stone_wall",
     "shape": "wall/w",
     "properties": ["Solid", "Opaque"],
@@ -697,6 +757,7 @@
   },
   {
     "name": "stone_wall_full",
+    "hardness": 1.5,
     "wall_family": "stone_wall",
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, true, true, true],
@@ -708,6 +769,7 @@
   },
   {
     "name": "gravel_path",
+    "hardness": 0.6,
     "shape": "lowered/00625",
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, true, true, true],

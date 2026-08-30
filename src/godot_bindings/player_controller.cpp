@@ -14,6 +14,7 @@
 #include <godot_cpp/classes/input_event_mouse_motion.hpp>
 #include <godot_cpp/classes/viewport.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
+#include <algorithm>
 #include <cmath>
 
 using namespace godot;
@@ -39,6 +40,7 @@ void PlayerController::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_selected_block"), &PlayerController::get_selected_block);
     ClassDB::bind_method(D_METHOD("set_selected_block", "block_id"), &PlayerController::set_selected_block);
     ClassDB::bind_method(D_METHOD("get_block_edit_counter"), &PlayerController::get_block_edit_counter);
+    ClassDB::bind_method(D_METHOD("get_break_state"), &PlayerController::get_break_state);
     
     // Inventory API
     ClassDB::bind_method(D_METHOD("get_hotbar_slot_count", "slot"), &PlayerController::get_hotbar_slot_count);
@@ -191,6 +193,8 @@ void PlayerController::_process(double delta) {
 
     if (!collision_resolver_ || dead_) return;
 
+    update_break_progress(static_cast<float>(delta));
+
     float speed_multiplier = 1.0f;
     if (chunk_manager_) speed_multiplier = chunk_manager_->get_move_speed_multiplier();
 
@@ -339,9 +343,8 @@ void PlayerController::_input(const Ref<InputEvent>& p_event) {
         }
     }
 
-    if (p_event->is_action_pressed("mouse_click_left")) {
-        break_block();
-    }
+    // Hold-to-break: progress accumulates in _process via update_break_progress;
+    // the LMB click here only re-captures the mouse (handled above).
 
     if (p_event->is_action_pressed("mouse_click_right")) {
         place_block();
@@ -453,6 +456,102 @@ void PlayerController::break_block() {
             block_edit_counter_++;
         }
     }
+}
+
+void PlayerController::update_break_progress(float delta) {
+    if (!chunk_manager_) {
+        break_target_valid_ = false;
+        break_progress_ = 0.0f;
+        return;
+    }
+
+    Input* input = Input::get_singleton();
+    const bool mouse_captured = input && input->get_mouse_mode() == Input::MOUSE_MODE_CAPTURED;
+    const bool held = input && input->is_action_pressed("mouse_click_left");
+    const bool ui_blocked = inventory_open_ || table_menu_open_ || chat_open_ || settings_open_;
+
+    // Re-aim while LMB is held with the mouse captured and no UI open.
+    bool aiming = false;
+    Vector3i target;
+    float hardness = -1.0f;
+    BlockID collect_id = 0;
+    int collect_count = 1;
+    int block_type = 0;
+    if (held && mouse_captured && !ui_blocked) {
+        Dictionary result = chunk_manager_->raycast_from_camera(10.0);
+        if (result.get("success", false)) {
+            Vector3 pos = result["position"];
+            target = Vector3i(static_cast<int>(std::floor(pos.x)),
+                              static_cast<int>(std::floor(pos.y)),
+                              static_cast<int>(std::floor(pos.z)));
+            block_type = chunk_manager_->get_block(target.x, target.y, target.z);
+            if (block_type != 0) {
+                aiming = true;
+                const VoxelEngine::BlockRegistry& reg = VoxelEngine::BlockRegistry::get_instance();
+                collect_id = static_cast<BlockID>(block_type);
+                hardness = reg.get_block(collect_id).hardness;
+                // Mirror break_block's variant remap for the inventory gate.
+                collect_count = 1;
+                if (const auto* slab_fam = reg.get_slab_family(collect_id)) {
+                    if (collect_id == slab_fam->full) collect_count = 2;
+                    collect_id = slab_fam->bottom;
+                } else if (const auto* stair_fam = reg.get_stair_family(collect_id)) {
+                    collect_id = stair_fam->base;
+                } else if (const auto* wall_fam = reg.get_wall_family(collect_id)) {
+                    collect_id = wall_fam->base;
+                }
+            }
+        }
+    }
+
+    // A different target (or first aim) restarts progress; aiming the same block again resumes it.
+    if (aiming && (!break_target_valid_ || target != break_target_)) {
+        break_target_ = target;
+        break_progress_ = 0.0f;
+        break_target_valid_ = true;
+        break_block_id_ = block_type;
+    }
+
+    // Dropping LMB pauses mining (the crack stays); progress resumes on re-aim of the same block.
+    if (!aiming || !break_target_valid_) return;
+
+    // Inventory-full gate: no progress (matches break_block's insta-collect rule).
+    if (!inventory_.can_add_block(collect_id, collect_count)) return;
+
+    // Unbreakable blocks never crack or progress.
+    if (hardness < 0.0f) return;
+
+    break_progress_ += delta / hardness;
+    if (break_progress_ >= 1.0f) {
+        break_progress_ = 0.0f;
+        break_target_valid_ = false;
+        break_block();
+    }
+}
+
+godot::Dictionary PlayerController::get_break_state() {
+    Dictionary state;
+
+    // Invalidate the crack if the memoized block changed or vanished in the world.
+    if (break_target_valid_ && chunk_manager_) {
+        if (chunk_manager_->get_block(break_target_.x, break_target_.y, break_target_.z) != break_block_id_) {
+            break_target_valid_ = false;
+            break_progress_ = 0.0f;
+        }
+    }
+
+    // World-space overlay — stays visible behind menus (progress simply pauses
+    // while a UI is open thanks to the ui_blocked gate in update_break_progress).
+    const bool visible = break_target_valid_ && break_progress_ > 0.0f && !dead_;
+    state["active"] = visible;
+    if (visible) {
+        state["x"] = break_target_.x;
+        state["y"] = break_target_.y;
+        state["z"] = break_target_.z;
+        // Map progress [0,1) onto 10 crack stages [0,9]; stage 9 is nearly broken.
+        state["stage"] = static_cast<int>(std::floor(std::min(break_progress_ * 10.0f, 9.999f)));
+    }
+    return state;
 }
 
 void PlayerController::place_block() {

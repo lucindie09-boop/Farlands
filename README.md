@@ -48,7 +48,7 @@ A Minecraft-style voxel engine built in Godot 4 with a custom C++ GDExtension. P
 | Death screen | `death_screen.gd` | "You died!" overlay with a Respawn button; shown on the `died` signal (health reaching 0), hidden on `respawned` — respawn restores full health at the game-start spawn point |
 | Chat system | `chat.gd` | GDScript chat with autocomplete: ghost text suggestions with pulsing effect, tab cycling through completions, up/down arrow navigation, hold-to-cycle, parameter hints for commands (`/give <block> [count]`, `/tp <x> <y> <z>`), commands: `/help`, `/give` (unlimited count), `/tp`, `/fly`, `/clearchat`, `/clearinv`, `/version` |
 | Inventory drag ops | `inventory.gd` | RMB drag-place (spread 1 unit per slot), LMB drag-collect (sweep matching blocks), shift-click/drag quick-transfer (move between hotbar/main), scroll wheel quick-transfer (push/pull 1 unit), double-click gather (sweep all matching blocks); the same interactions work on the crafting grid cells, and shift-clicking the output crafts as many as possible |
-| Settings menu | `settings_menu.gd` | Adjustable settings with persistence (render — including an MSAA 3D Off/2x/4x/8x toggle that sets the root viewport's `msaa_3d` live — plus lighting, crosshair, controls) opened with Escape key; includes a **Skin Maker** page (color wheel + orbitable preview) with paint tools (DRAW/FILL/BOX), grayscale noise slider, skin gallery with load/delete, and a dark-mode toggle; includes **Controls rebinding** page with per-action key/button rebinds, conflict detection, and Reset All button; includes **shareable setting codes** for crosshair and block outline (CS-style base32 import/export) |
+| Settings menu | `settings_menu.gd` | Adjustable settings with persistence (render — including an MSAA 3D Off/2x/4x/8x toggle that sets the root viewport's `msaa_3d` live — plus lighting, crosshair, controls) opened with Escape key; includes a **Skin Maker** page (color wheel + orbitable preview) with paint tools (DRAW/FILL/BOX), grayscale noise slider, skin gallery with load/delete, and a dark-mode toggle; includes a **Block Maker** page (16×16 cube painter) with the same paint tools, grayscale noise slider, block gallery with load/delete, and an orbitable preview; includes **Controls rebinding** page with per-action key/button rebinds, conflict detection, and Reset All button; includes **shareable setting codes** for crosshair and block outline (CS-style base32 import/export) |
 | Texture packs | `src/render/texture_pack_manager.hpp` + `tools/pack_converter.py` | Custom texture pack system with per-block texture overrides loaded from `user://packs/` |
 | Block outline | Adjustable block outline system with pulse effects, thickness control (0.0-0.99), and fill box with separate color/opacity |
 | Crosshair | Adjustable crosshair with rotation, spacing, dot, and color-inversion modes |
@@ -247,6 +247,15 @@ The Settings menu (Escape key) includes several customization pages:
 - Skin gallery with 3D spinning previews
 - Load and delete saved skins
 - Transparent sub-viewport with drag-orbit camera
+
+### Block Maker
+- Single 16×16 cube texture applied to every face
+- Paint tools: DRAW (single pixel), FILL (flood fill), BOX (inclusive box draw)
+- Grayscale noise slider (persists per block, reversible)
+- Undo (Ctrl+Z) recording per-texel changes
+- Block gallery with 3D spinning previews
+- Load and delete saved blocks (`user://blocks/`)
+- Transparent sub-viewport with drag-orbit camera and clamped zoom
 
 ### Controls
 - Per-action key/button rebinding

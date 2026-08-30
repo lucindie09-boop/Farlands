@@ -1864,8 +1864,8 @@ func _build_block_maker_page() -> Control:
 	save_btn.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
 	save_btn.offset_left = -190.0
 	save_btn.offset_right = -12.0
-	save_btn.offset_top = -100.0
-	save_btn.offset_bottom = -60.0
+	save_btn.offset_top = -52.0
+	save_btn.offset_bottom = -12.0
 	save_btn.pressed.connect(func():
 		var block_name := _sanitize_block_name(name_edit.text)
 		DirAccess.make_dir_recursive_absolute("user://blocks")
@@ -1882,33 +1882,19 @@ func _build_block_maker_page() -> Control:
 	load_btn.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
 	load_btn.offset_left = -190.0
 	load_btn.offset_right = -12.0
-	load_btn.offset_top = -52.0
-	load_btn.offset_bottom = -12.0
+	load_btn.offset_top = -100.0
+	load_btn.offset_bottom = -60.0
 	load_btn.pressed.connect(func():
 		_block_name_edit.text = _sanitize_block_name(name_edit.text)
 		if _block_preview != null:
-			_block_preview.load_block("user://blocks/" + _block_name_edit.text + ".png"))
+			_block_preview.load_block("user://blocks/" + _sanitize_block_name(name_edit.text) + ".png"))
 	page.add_child(load_btn)
 	_block_load_btn = load_btn
-
-	var back_btn := Button.new()
-	back_btn.name = "BlockBack"
-	back_btn.text = "BACK"
-	back_btn.add_theme_font_override("font", MUNRO_FONT)
-	back_btn.add_theme_font_size_override("font_size", int(14 * s))
-	back_btn.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
-	back_btn.offset_left = 12.0
-	back_btn.offset_right = 92.0
-	back_btn.offset_top = -12.0
-	back_btn.offset_bottom = 28.0
-	back_btn.pressed.connect(func(): _show_page("gui"))
-	page.add_child(back_btn)
-	_block_back_btn = back_btn
 
 	# Style buttons to match skin maker
 	var dark := _skin_dark_mode
 	var fg_col := Color(1, 1, 1, 1) if dark else Color.BLACK
-	for btn in [_block_undo_btn, _block_tool_btn, _block_save_btn, _block_load_btn, _block_back_btn, _block_dark_toggle, _block_uv_toggle]:
+	for btn in [_block_undo_btn, _block_tool_btn, _block_save_btn, _block_load_btn, _block_dark_toggle, _block_uv_toggle]:
 		if btn != null:
 			_style_skin_button(btn, fg_col, dark)
 

@@ -2,7 +2,7 @@
 
 
 
-Block break animation + hardness values - careful: decide now if hardness gates break time, since that changes the break-block code path
+~~Block break animation + hardness values - careful: decide now if hardness gates break time, since that changes the break-block code path~~
 
 Player model animations (walk/idle/etc.)
 

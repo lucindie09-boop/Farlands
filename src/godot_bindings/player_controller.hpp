@@ -6,6 +6,7 @@
 #include <godot_cpp/classes/input_event.hpp>
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/packed_string_array.hpp>
+#include <godot_cpp/variant/vector3i.hpp>
 
 #include "engine/player_controller.hpp"
 #include "core/inventory.hpp"
@@ -37,6 +38,8 @@ public:
     int get_selected_block() const;
     void set_selected_block(int block_id);
     int get_block_edit_counter() const;
+    // Hold-to-break state for the crack overlay: {active, x, y, z, stage}.
+    godot::Dictionary get_break_state();
     
     // Inventory API
     int get_hotbar_slot_count(int slot) const;
@@ -103,6 +106,8 @@ protected:
 
 private:
     void update_mouse_mode();
+    // Accumulates break progress while LMB is held on a breakable block.
+    void update_break_progress(float delta);
     VoxelEngine::PlayerSim sim_;
     godot::Camera3D* camera_ = nullptr;
     VoxelEngine::CollisionResolver* collision_resolver_ = nullptr;
@@ -120,6 +125,12 @@ private:
     bool inventory_saved_ = false;
     float rendered_eye_height_ = 1.62f;
     int block_edit_counter_ = 0;
+    // Hold-to-break state. break_target_valid_ = a block is being mined (progress
+    // may be paused); progress survives releasing LMB and resets on target change.
+    bool break_target_valid_ = false;
+    godot::Vector3i break_target_;
+    int break_block_id_ = 0;
+    float break_progress_ = 0.0f;
     static constexpr int MAX_HEALTH = 20;
     int health_ = MAX_HEALTH;
     bool dead_ = false;

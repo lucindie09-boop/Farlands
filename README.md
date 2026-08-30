@@ -257,6 +257,12 @@ The Settings menu (Escape key) includes several customization pages:
 - Load and delete saved blocks (`user://blocks/`)
 - Transparent sub-viewport with drag-orbit camera and clamped zoom
 
+### Block Breaking
+- Hold LMB to break: hardness (seconds) comes from each block's `hardness` in `data/block_definitions.json` (`-1.0` = unbreakable, e.g. bedrock/water)
+- 10-stage crack overlay (`textures/animated/l0_sprite_01-10.png`) shown on the mined block like Minecraft
+- Progress pauses when you release LMB and resumes on the same block; aiming elsewhere restarts it
+- Inventory full still gate-checks before progress accumulates
+
 ### Controls
 - Per-action key/button rebinding
 - Conflict detection

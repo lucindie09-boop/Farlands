@@ -212,6 +212,11 @@ bool BlockRegistry::load_from_json(const godot::String& json_path) noexcept {
             bt.slipperiness = static_cast<float>(static_cast<double>(d["slipperiness"]));
         }
 
+        // hardness (break time in seconds; -1.0 = unbreakable)
+        if (d.has("hardness")) {
+            bt.hardness = static_cast<float>(static_cast<double>(d["hardness"]));
+        }
+
         // Resolve shape reference from block_shapes.json
         if (d.has("shape")) {
             godot::String shape_name_str = d["shape"];

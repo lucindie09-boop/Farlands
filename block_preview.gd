@@ -1,24 +1,25 @@
 extends SubViewportContainer
 
 # Drag-to-orbit preview of a cube for the block maker.
-# Similar to skin_preview but for a simple cube instead of player model.
+# Mirrors skin_preview's tools and behaviours (DRAW/FILL/BOX, orbit/zoom, undo,
+# noise, gallery save/load) but for a simple cube with a single 16x16 texture
+# applied to all faces.
 
 signal paint_history_changed(has_undo: bool)
 
 const ZOOM_SPEED := 0.25
-const ZOOM_MIN := 8.0
-const ZOOM_MAX := 70.0
+const ZOOM_MIN := 12.0
+const ZOOM_MAX := 40.0
 const TEXEL := 1.0 / 16.0  # Block textures are 16x16
 const ATLAS_WIDTH := 16  # Single 16x16 texture for all faces
 const ATLAS_HEIGHT := 16
-const UV_BREAK_DIST := 0.25  # UV distance beyond which we crossed a face boundary
 
 var _camera: Camera3D
 var _cube: MeshInstance3D
 var _target := Vector3(0, 0, 0)
 var _yaw := -35.0
 var _pitch := 14.0
-var _dist := 34.0
+var _dist := 37.0
 var _rotating := false
 var _zooming := false
 var _painting := false
@@ -83,7 +84,10 @@ func _setup_scene() -> void:
 	
 	_cube = MeshInstance3D.new()
 	_cube.mesh = _build_cube_mesh()
-	_cube.scale = Vector3(4.0, 4.0, 4.0)  # Much larger scale like skin maker
+	# Unit cube scaled to 12. Default camera distance (37) is ~90% of the way to
+	# max zoom-out, and ZOOM_MIN (12) is still farther than the cube's corner
+	# radius (~10.4) so zooming in never clips through the block.
+	_cube.scale = Vector3(12.0, 12.0, 12.0)
 	
 	_viewport.add_child(_cube)
 	
@@ -281,6 +285,27 @@ func _update_camera() -> void:
 		_dist * cos(pitch_r) * cos(yaw_r))
 	_camera.look_at(_target, Vector3.UP)
 
+func _can_start_drag() -> bool:
+	# Don't steal presses that landed on interactive controls (the colour
+	# wheel, its internal rows, or the page's buttons). Empty page space and
+	# the preview window itself are fair game for orbiting/zooming/painting.
+	var hovered := get_viewport().gui_get_hovered_control()
+	if hovered == null or hovered == self or hovered is ColorRect:
+		return true
+	# Gui hover can lag one event right after a button press: the last-pressed
+	# button is still "hovered" even though the pointer already moved onto the
+	# preview, which would refuse the very first drag. Geometry is the source
+	# of truth - if the pointer is inside the preview rect and the claimed
+	# control isn't actually under it, the press belongs to us.
+	var pos := get_global_mouse_position()
+	if get_global_rect().has_point(pos) and not hovered.get_global_rect().has_point(pos):
+		return true
+	return false
+
+# All pointer handling lives here (not _gui_input) so dragging works anywhere
+# on the block page, not just inside the preview window. Handled in _input so a
+# released button outside the window still ends the drag. The menu keeps pages
+# in the tree when hidden, so everything is gated on visibility.
 func _input(event: InputEvent) -> void:
 	if not is_visible_in_tree():
 		return
@@ -288,19 +313,28 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and event.keycode == KEY_Z \
 			and (event.ctrl_pressed or event.command_pressed):
 		undo()
+		get_viewport().set_input_as_handled()
 		return
 	
 	if event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
 		if mb.button_index == MouseButton.MOUSE_BUTTON_LEFT and mb.pressed:
-			grab_focus()
+			if not _can_start_drag():
+				return
+			get_viewport().set_input_as_handled()
 			_handle_left_click()
 		elif mb.button_index == MouseButton.MOUSE_BUTTON_LEFT and not mb.pressed:
+			if _painting or _rotating or _box_active:
+				get_viewport().set_input_as_handled()
 			_handle_left_release()
 		elif mb.button_index == MouseButton.MOUSE_BUTTON_RIGHT and mb.pressed:
-			grab_focus()
+			if not _can_start_drag():
+				return
+			get_viewport().set_input_as_handled()
 			_zooming = true
 		elif mb.button_index == MouseButton.MOUSE_BUTTON_RIGHT and not mb.pressed:
+			if _zooming:
+				get_viewport().set_input_as_handled()
 			_zooming = false
 	elif event is InputEventMouseMotion:
 		var mm := event as InputEventMouseMotion
@@ -308,21 +342,17 @@ func _input(event: InputEvent) -> void:
 			_yaw -= mm.relative.x * 0.35
 			_pitch = clampf(_pitch - mm.relative.y * 0.35, -85.0, 85.0)
 			_update_camera()
+			get_viewport().set_input_as_handled()
 		elif _zooming:
 			_dist = clampf(_dist - mm.relative.y * ZOOM_SPEED, ZOOM_MIN, ZOOM_MAX)
 			_update_camera()
+			get_viewport().set_input_as_handled()
 		elif _painting:
 			_handle_paint_motion(mm.position)
-		
-		# Update last paint UV for DRAW tool
-		if _painting and _tool == "DRAW":
-			var local_pos := _get_local_uv_from_mouse(mm.position)
-			if local_pos != Vector2.INF:
-				_last_paint_uv = local_pos
+			get_viewport().set_input_as_handled()
 
 func _handle_left_click() -> void:
-	var mouse_pos := get_viewport().get_mouse_position()
-	var local_pos := _get_local_uv_from_mouse(mouse_pos)
+	var local_pos := _get_local_uv_from_mouse(get_viewport().get_mouse_position())
 	
 	if local_pos == Vector2.INF:
 		_rotating = true
@@ -331,7 +361,11 @@ func _handle_left_click() -> void:
 	_painting = true
 	
 	if _tool == "DRAW":
-		_paint_texel(local_pos.x, local_pos.y)
+		_stroke = []
+		# A new stroke must not interpolate from the previous one's last UV, or
+		# the first paint draws a line.
+		_last_paint_uv = Vector2.INF
+		_paint_at_cursor()
 	elif _tool == "FILL":
 		_flood_fill(local_pos.x, local_pos.y)
 	elif _tool == "BOX":
@@ -363,23 +397,36 @@ func _handle_left_release() -> void:
 		_box_last_uv = Vector2.INF
 		_box_face_min = Vector2.INF
 		_box_face_max = Vector2.INF
-		_box_base = null
-		_box_touched.clear()
 	
 	_commit_stroke()
 
-func _handle_paint_motion(mouse_pos: Vector2) -> void:
+func _handle_paint_motion(_mouse_pos: Vector2) -> void:
 	if _tool == "DRAW":
-		var local_pos := _get_local_uv_from_mouse(mouse_pos)
-		if local_pos != Vector2.INF:
-			_paint_texel(local_pos.x, local_pos.y)
-			_last_paint_uv = local_pos
+		_paint_at_cursor()
 	elif _tool == "BOX" and _box_active:
-		var local_pos := _get_local_uv_from_mouse(mouse_pos)
+		var local_pos := _get_local_uv_from_mouse(_mouse_pos)
 		if local_pos != Vector2.INF:
 			_fill_box_live(local_pos)
 
-func _get_local_uv_from_mouse(mouse_pos: Vector2) -> Vector2:
+# Paint the texel under the cursor, bridging the gap from the previous sample so
+# fast drags don't skip texels. The cube maps every face onto the same 0..1 UV
+# space, so interpolation needs no atlas-island seam checks.
+func _paint_at_cursor() -> void:
+	var uv := _get_local_uv_from_mouse(get_viewport().get_mouse_position())
+	if uv == Vector2.INF:
+		_last_paint_uv = Vector2.INF
+		return
+	if _last_paint_uv != Vector2.INF and _last_paint_uv.distance_to(uv) > 0.0:
+		var step_count := maxi(1, int(ceil(_last_paint_uv.distance_to(uv) / (TEXEL * 0.5))))
+		for i in range(step_count + 1):
+			var t := float(i) / float(step_count)
+			var sample := _last_paint_uv.lerp(uv, t)
+			_paint_texel(sample.x, sample.y)
+	else:
+		_paint_texel(uv.x, uv.y)
+	_last_paint_uv = uv
+
+func _get_local_uv_from_mouse(_mouse_pos: Vector2) -> Vector2:
 	# Direct triangle raycast like skin_preview - MeshInstance3D has no physics
 	var origin := _camera.project_ray_origin(get_local_mouse_position())
 	var dir := _camera.project_ray_normal(get_local_mouse_position())
@@ -459,7 +506,7 @@ func _get_local_uv_from_mouse(mouse_pos: Vector2) -> Vector2:
 	return best_uv
 
 func _paint_texel(u: float, v: float) -> void:
-	# Map UV from 0-1 atlas space to pixel coordinates (0-95 x 0-15)
+	# Map UV from 0-1 atlas space to pixel coordinates (0-15 x 0-15)
 	var px := int(u * ATLAS_WIDTH)
 	var py := int(v * ATLAS_HEIGHT)
 	
@@ -476,7 +523,7 @@ func _paint_texel(u: float, v: float) -> void:
 		_record_stroke_texel(px, py, old_color, _color)
 		_apply_block_texture()
 
-func _flood_fill(start_u: float, start_v: float) -> void:
+func _flood_fill(_start_u: float, _start_v: float) -> void:
 	# Fill the entire face using UV bounds from the hit triangle (like skin_preview)
 	var rect := _hit_face_rect()
 	if rect.size.x <= 0 or rect.size.y <= 0:
@@ -517,9 +564,13 @@ func _hit_face_rect() -> Rect2:
 
 func _uv_on_box_face(uv: Vector2) -> bool:
 	# Check if UV is within the face bounds of the box anchor
-	return uv.x >= _box_face_min.x and uv.x < _box_face_max.x \
-		and uv.y >= _box_face_min.y and uv.y < _box_face_max.y
+	var tol := TEXEL * 0.5
+	return uv.x >= _box_face_min.x - tol and uv.x <= _box_face_max.x + tol \
+		and uv.y >= _box_face_min.y - tol and uv.y <= _box_face_max.y + tol
 
+# Live paint the rectangle between the box anchor and the cursor, CLAMPED to the
+# face that was originally clicked. Every touched texel is remembered so release
+# can trim stray cells (from pulling back) and build one undo step.
 func _fill_box_live(uv: Vector2) -> void:
 	# Left the face: keep the last good rectangle instead of collapsing
 	if not _uv_on_box_face(uv):
@@ -538,51 +589,73 @@ func _fill_box_live(uv: Vector2) -> void:
 	if block_manager == null:
 		return
 	
-	# Fill exactly these cells
+	# Fill exactly these cells: lo/hi are the texel spans' edges, which the
+	# manager's centre-based fill maps back to the same inclusive range.
+	block_manager.fill_uv_rect(
+		Vector2(float(x0) / float(ATLAS_WIDTH), float(y0) / float(ATLAS_HEIGHT)),
+		Vector2(float(x1 + 1) / float(ATLAS_WIDTH), float(y1 + 1) / float(ATLAS_HEIGHT)),
+		_color)
 	for yy in range(y0, y1 + 1):
 		for xx in range(x0, x1 + 1):
-			var key := yy * ATLAS_WIDTH + xx
-			if not _box_touched.has(key):
-				var old_color: Color = block_manager.get_image().get_pixel(xx, yy)
-				if block_manager.set_pixel(xx, yy, _color):
-					_record_stroke_texel(xx, yy, old_color, _color)
-				_box_touched[key] = true
+			_box_touched[yy * ATLAS_WIDTH + xx] = true
 	
 	_apply_block_texture()
 
+# The texel cells of the box between the anchor and `uv` (inclusive, always
+# includes the pixel that was pressed), used on release to compute the exact
+# final rectangle. Uses the same whole-texel convention as _fill_box_live.
+func _box_cell_set(uv: Vector2) -> Dictionary:
+	var ax := clampi(int(_box_anchor_uv.x * ATLAS_WIDTH), 0, ATLAS_WIDTH - 1)
+	var ay := clampi(int(_box_anchor_uv.y * ATLAS_HEIGHT), 0, ATLAS_HEIGHT - 1)
+	var cx := clampi(int(uv.x * ATLAS_WIDTH), 0, ATLAS_WIDTH - 1)
+	var cy := clampi(int(uv.y * ATLAS_HEIGHT), 0, ATLAS_HEIGHT - 1)
+	var cells := {}
+	for yy in range(mini(ay, cy), maxi(ay, cy) + 1):
+		for xx in range(mini(ax, cx), maxi(ax, cx) + 1):
+			cells[yy * ATLAS_WIDTH + xx] = true
+	return cells
+
+# Release the box: the final rectangle is exactly anchor .. release-point texel.
+# Cells that were live-painted but fall outside it (the cursor was pulled back)
+# are restored to their pre-drag colour, then one undo step records the result.
 func _finish_box() -> void:
 	if _box_base == null:
 		_box_touched.clear()
+		_box_last_uv = Vector2.INF
 		return
-	
+	var last := _box_last_uv if _box_last_uv != Vector2.INF else _box_anchor_uv
+	var cells := _box_cell_set(last)
 	var block_manager := get_node_or_null("/root/BlockManager")
 	if block_manager == null:
 		_box_touched.clear()
+		_box_last_uv = Vector2.INF
 		return
-	
-	var last := _box_last_uv if _box_last_uv != Vector2.INF else _box_anchor_uv
-	var ax := clampi(int(_box_anchor_uv.x * ATLAS_WIDTH), 0, ATLAS_WIDTH - 1)
-	var ay := clampi(int(_box_anchor_uv.y * ATLAS_HEIGHT), 0, ATLAS_HEIGHT - 1)
-	var cx := clampi(int(last.x * ATLAS_WIDTH), 0, ATLAS_WIDTH - 1)
-	var cy := clampi(int(last.y * ATLAS_HEIGHT), 0, ATLAS_HEIGHT - 1)
-	var x0 := mini(ax, cx)
-	var x1 := maxi(ax, cx)
-	var y0 := mini(ay, cy)
-	var y1 := maxi(ay, cy)
-	
-	# Restore texels that were touched but fall outside final rectangle
+	for key in _box_touched:
+		if not cells.has(key):
+			var k: int = int(key)
+			var px := k % ATLAS_WIDTH
+			var py := int(k / float(ATLAS_WIDTH))
+			block_manager.set_pixel(px, py, _box_base.get_pixel(px, py))
+	_box_touched = cells
+	_commit_box_stroke()
+	_box_last_uv = Vector2.INF
+	_apply_block_texture()
+
+# Record a single undo stroke for the box whose "old" values come from the
+# pre-drag snapshot, so live-painted texels undo to the original colour even
+# though they were already changed mid-drag.
+func _commit_box_stroke() -> void:
+	if _box_base == null:
+		_box_touched.clear()
+		return
+	_stroke = []
 	for key in _box_touched:
 		var k: int = int(key)
 		var px := k % ATLAS_WIDTH
 		var py := int(k / float(ATLAS_WIDTH))
-		if px < x0 or px > x1 or py < y0 or py > y1:
-			var old_color: Color = _box_base.get_pixel(px, py)
-			if block_manager.set_pixel(px, py, old_color):
-				_record_stroke_texel(px, py, _color, old_color)
-	
+		_stroke.append({"x": px, "y": py, "old": _box_base.get_pixel(px, py), "new": _color})
 	_box_touched.clear()
 	_box_base = null
-	_apply_block_texture()
 	_commit_stroke()
 
 func _record_stroke_texel(px: int, py: int, old_color: Color, new_color: Color) -> void:
@@ -596,6 +669,9 @@ func _commit_stroke() -> void:
 	paint_history_changed.emit(not _undo_stack.is_empty())
 
 func undo() -> void:
+	# Finalize any in-progress stroke first so the most recent paint is the one
+	# that gets undone.
+	_commit_stroke()
 	if _undo_stack.is_empty():
 		return
 	
@@ -604,7 +680,11 @@ func undo() -> void:
 	if block_manager == null:
 		return
 	
-	for entry in stroke:
+	# Revert in reverse paint order so a texel painted twice in one stroke
+	# winds up at its pre-stroke colour (forward order would leave the stale
+	# "old" value from the earlier entry).
+	for i in range(stroke.size() - 1, -1, -1):
+		var entry: Dictionary = stroke[i]
 		var px: int = entry["x"]
 		var py: int = entry["y"]
 		var old_color: Color = entry["old"]
@@ -622,8 +702,6 @@ func set_tool(tool_name: String) -> void:
 		_box_last_uv = Vector2.INF
 		_box_face_min = Vector2.INF
 		_box_face_max = Vector2.INF
-		_box_base = null
-		_box_touched.clear()
 	_painting = false
 	_rotating = false
 	_commit_stroke()
@@ -631,20 +709,31 @@ func set_tool(tool_name: String) -> void:
 
 func set_color(color: Color) -> void:
 	_color = color
-	# Update the BlockManager color too
-	var block_manager := get_node_or_null("/root/BlockManager")
-	if block_manager != null:
-		pass  # BlockManager doesn't need color state, it's per-paint operation
 
 func set_uv_overlay(enabled: bool) -> void:
 	_uv_overlay_enabled = enabled
+	_apply_block_texture()
+
+# Live noise severity (0..100). The effect and its reversibility base live in
+# BlockManager (which survives the page being rebuilt on every menu open), so
+# closing and reopening the maker leaves the slider value and the noise state
+# intact.
+func set_noise(severity: float) -> void:
+	var block_manager := get_node_or_null("/root/BlockManager")
+	if block_manager != null and block_manager.has_method("set_noise"):
+		block_manager.set_noise(severity)
 	_apply_block_texture()
 
 func save_block(path: String) -> bool:
 	var block_manager := get_node_or_null("/root/BlockManager")
 	if block_manager == null:
 		return false
-	var img: Image = block_manager.get_image()
+	# Save the CLEAN (noise-free) image so noise remains reversible.
+	var img: Image
+	if block_manager.has_method("get_clean_image"):
+		img = block_manager.get_clean_image()
+	if img == null:
+		img = block_manager.get_image()
 	if img == null:
 		return false
 	return img.save_png(path) == OK
@@ -657,6 +746,10 @@ func load_block(path: String) -> bool:
 	if img == null:
 		return false
 	block_manager.set_from_image(img)
+	# The loaded image is clean (noise-free); reset the noise base so the sidecar
+	# value can be re-applied from scratch.
+	if block_manager.has_method("reset_noise_base"):
+		block_manager.reset_noise_base()
 	_apply_block_texture()
 	_undo_stack.clear()
 	paint_history_changed.emit(false)

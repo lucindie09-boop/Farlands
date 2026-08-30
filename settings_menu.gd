@@ -97,7 +97,6 @@ var _block_tool_btn: Button
 var _block_name_edit: LineEdit
 var _block_save_btn: Button
 var _block_load_btn: Button
-var _block_back_btn: Button
 var _block_dark_toggle: Button
 var _block_uv_toggle: Button
 var _block_gallery: Control
@@ -106,6 +105,10 @@ var _block_gallery_timer: Timer
 var _block_gallery_spins: Array = []
 var _block_tool := "DRAW"
 var _block_color := Color.WHITE
+var _block_noise_label: Label
+var _block_noise_slider: HSlider
+var _block_noise_value: Label
+var _block_noise := 0.0
 
 var _controls_defaults := {}
 var _control_buttons := {}
@@ -245,6 +248,7 @@ func _save_settings():
 	cfg.set_value("gui", "old_reset_buttons", _old_reset_buttons)
 	cfg.set_value("gui", "skin_dark_mode", _skin_dark_mode)
 	cfg.set_value("gui", "skin_noise", _skin_noise)
+	cfg.set_value("gui", "block_noise", _block_noise)
 	for cb in CONTROL_BINDINGS:
 		cfg.set_value("controls", cb[0], _serialize_action_events(cb[0]))
 	cfg.save(SETTINGS_PATH)
@@ -290,6 +294,7 @@ func _load_settings():
 	_old_reset_buttons = cfg.get_value("gui", "old_reset_buttons", _default_old_reset_buttons)
 	_skin_dark_mode = cfg.get_value("gui", "skin_dark_mode", _skin_dark_mode)
 	_skin_noise = float(cfg.get_value("gui", "skin_noise", _skin_noise))
+	_block_noise = float(cfg.get_value("gui", "block_noise", _block_noise))
 	for cb in CONTROL_BINDINGS:
 		var saved: Array = cfg.get_value("controls", cb[0], [])
 		if not saved.is_empty():
@@ -332,6 +337,10 @@ func _show_page(page_name: String):
 	if page_name == "block_maker" and _block_preview != null && is_instance_valid(_block_preview):
 		_block_preview.set_color(_block_color)
 		_block_preview.set_tool(_block_tool)
+		# Re-apply any stored noise against the manager's reversibility base now
+		# that the preview exists; with an identical value it's a no-op.
+		if _block_preview.has_method("set_noise"):
+			_block_preview.set_noise(_block_noise)
 
 func _build_pause_page() -> Control:
 	var s := _ui_scale()
@@ -1888,9 +1897,59 @@ func _build_block_maker_page() -> Control:
 		var block_name := _sanitize_block_name(name_edit.text)
 		DirAccess.make_dir_recursive_absolute("user://blocks")
 		if _block_preview != null and _block_preview.save_block("user://blocks/" + block_name + ".png"):
-			name_edit.text = block_name)
+			name_edit.text = block_name
+			# Save the noise value alongside the block so LOAD can restore it.
+			_save_block_sidecar(block_name, _block_noise))
 	page.add_child(save_btn)
 	_block_save_btn = save_btn
+
+	var noise_row := HBoxContainer.new()
+	noise_row.name = "NoiseRow"
+	noise_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	noise_row.add_theme_constant_override("separation", int(10 * s))
+	noise_row.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	noise_row.offset_left = -200.0
+	noise_row.offset_right = 200.0
+	noise_row.offset_top = -52.0
+	noise_row.offset_bottom = -12.0
+
+	var noise_label := Label.new()
+	noise_label.text = "NOISE"
+	noise_label.add_theme_font_override("font", MUNRO_FONT)
+	noise_label.add_theme_font_size_override("font_size", int(13 * s))
+	noise_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	noise_label.custom_minimum_size = Vector2(50 * s, 0.0)
+
+	var noise_slider := HSlider.new()
+	noise_slider.min_value = 0.0
+	noise_slider.max_value = 100.0
+	noise_slider.step = 1.0
+	noise_slider.value = _block_noise
+	noise_slider.custom_minimum_size = Vector2(120 * s, 0.0)
+	noise_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	noise_slider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+
+	var noise_value := Label.new()
+	noise_value.text = str(int(_block_noise))
+	noise_value.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	noise_value.add_theme_font_override("font", MUNRO_FONT)
+	noise_value.add_theme_font_size_override("font_size", int(13 * s))
+	noise_value.custom_minimum_size = Vector2(32 * s, 0.0)
+
+	noise_slider.value_changed.connect(func(v: float):
+		noise_value.text = str(int(v))
+		_block_noise = v
+		if _block_preview != null and _block_preview.has_method("set_noise"):
+			_block_preview.set_noise(v)
+		_schedule_save())
+
+	noise_row.add_child(noise_label)
+	noise_row.add_child(noise_slider)
+	noise_row.add_child(noise_value)
+	page.add_child(noise_row)
+	_block_noise_label = noise_label
+	_block_noise_slider = noise_slider
+	_block_noise_value = noise_value
 
 	page.add_child(_build_block_gallery(s))
 
@@ -1910,6 +1969,30 @@ func _sanitize_block_name(raw: String) -> String:
 		if ch.is_valid_identifier() or ch == "-":
 			cleaned += ch
 	return cleaned if not cleaned.is_empty() else "myblock"
+
+# Sidecar <name>.json holds the noise value a block was saved with, so loading
+# the PNG (which has the noise baked in) also restores the matching slider.
+func _save_block_sidecar(block_name: String, noise: float) -> void:
+	var f := FileAccess.open("user://blocks/" + block_name + ".json", FileAccess.WRITE)
+	if f == null:
+		return
+	f.store_string(JSON.stringify({"noise": clampf(noise, 0.0, 100.0)}))
+	f.close()
+
+func _load_block_sidecar(block_name: String) -> float:
+	var path := "user://blocks/" + block_name + ".json"
+	if not FileAccess.file_exists(path):
+		return 0.0
+	var f := FileAccess.open(path, FileAccess.READ)
+	if f == null:
+		return 0.0
+	var json := JSON.new()
+	if json.parse(f.get_as_text()) != OK:
+		return 0.0
+	var data: Variant = json.data
+	if data is Dictionary and data.has("noise"):
+		return clampf(float(data["noise"]), 0.0, 100.0)
+	return 0.0
 
 func _apply_block_palette() -> void:
 	var s := _ui_scale()
@@ -1935,6 +2018,10 @@ func _apply_block_palette() -> void:
 		_style_skin_button(_block_dark_toggle, fg_col, dark)
 	if _block_uv_toggle:
 		_style_skin_button(_block_uv_toggle, fg_col, dark)
+	if _block_noise_label:
+		_block_noise_label.add_theme_color_override("font_color", hint_col)
+	if _block_noise_value:
+		_block_noise_value.add_theme_color_override("font_color", hint_col)
 	
 	# Update button colors
 	for btn in [_block_undo_btn, _block_tool_btn, _block_save_btn, _block_load_btn]:
@@ -2039,6 +2126,11 @@ func _make_skin_card(s: float, skin_name: String) -> VBoxContainer:
 	var card := VBoxContainer.new()
 	card.name = "Card_" + skin_name
 	card.add_theme_constant_override("separation", int(4 * s))
+	# Keep the card at its 96-wide minimum so the preview button (and with it
+	# the 96x96 viewport) stays exactly square. Without this the grid stretches
+	# each cell horizontally and the viewport's render gets squished into a
+	# wider-than-tall rect, smearing the texture on every cube face.
+	card.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 
 	var preview_btn := Button.new()
 	preview_btn.custom_minimum_size = Vector2(96 * s, 96 * s)
@@ -2105,6 +2197,14 @@ func _make_gallery_model_view(s: float, skin_name: String) -> SubViewportContain
 	vp.msaa_3d = Viewport.MSAA_2X
 	vp.size = Vector2i(int(96 * s), int(96 * s))
 	box.add_child(vp)
+	# The card button expands horizontally to fill its grid cell, so a fixed
+	# 96x96 viewport would be squished into the non-square button and every
+	# texture (and the whole scene) would render stretched. Keep the viewport
+	# resolution matched to the container so there is never any stretch.
+	box.resized.connect(func():
+		var sz := box.size
+		if sz.x > 1.0 and sz.y > 1.0:
+			vp.size = Vector2i(int(sz.x), int(sz.y)))
 	var env := Environment.new()
 	env.background_mode = Environment.BG_COLOR
 	env.background_color = Color(0.6, 0.6, 0.65)
@@ -2186,6 +2286,17 @@ func _make_gallery_noise_map() -> Image:
 	rng.seed = 20240829  # Same seed as SkinManager.NOISE_SEED
 	for y in range(64):
 		for x in range(64):
+			img.set_pixel(x, y, Color(rng.randf(), 0.0, 0.0, 1.0))
+	return img
+
+# Create a 16x16 noise map for block gallery previews (same seed as
+# BlockManager for consistency).
+func _make_block_noise_map() -> Image:
+	var img := Image.create(16, 16, false, Image.FORMAT_RGBA8)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 20240829  # Same seed as BlockManager.NOISE_SEED
+	for y in range(16):
+		for x in range(16):
 			img.set_pixel(x, y, Color(rng.randf(), 0.0, 0.0, 1.0))
 	return img
 
@@ -2354,6 +2465,10 @@ func _make_block_card(s: float, block_name: String) -> VBoxContainer:
 	var card := VBoxContainer.new()
 	card.name = "Card_" + block_name
 	card.add_theme_constant_override("separation", int(4 * s))
+	# Same as the skin cards: pinch the card to its 96-wide minimum so the
+	# preview button stays exactly square and the viewport render can never be
+	# stretched into a wider-than-tall rect (which smears the block texture).
+	card.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 
 	var preview_btn := Button.new()
 	preview_btn.custom_minimum_size = Vector2(96 * s, 96 * s)
@@ -2420,6 +2535,14 @@ func _make_block_gallery_view(s: float, block_name: String) -> SubViewportContai
 	vp.msaa_3d = Viewport.MSAA_2X
 	vp.size = Vector2i(int(96 * s), int(96 * s))
 	box.add_child(vp)
+	# Same fix as the skin gallery: the card button expands to fill its grid
+	# cell (wider than tall), and stretching a fixed 96x96 viewport into it
+	# renders every face's texture squished. Track the container's size so the
+	# render always matches it 1:1.
+	box.resized.connect(func():
+		var sz := box.size
+		if sz.x > 1.0 and sz.y > 1.0:
+			vp.size = Vector2i(int(sz.x), int(sz.y)))
 	var env := Environment.new()
 	env.background_mode = Environment.BG_COLOR
 	env.background_color = Color(0.6, 0.6, 0.65)
@@ -2438,14 +2561,36 @@ func _make_block_gallery_view(s: float, block_name: String) -> SubViewportContai
 	vp.add_child(holder)
 	var cube := MeshInstance3D.new()
 	cube.mesh = _build_cube_mesh()
-	cube.scale = Vector3(1.5, 1.5, 1.5)
+	# Unit mesh scaled up so the card framing matches the main preview cube.
+	cube.scale = Vector3(12.0, 12.0, 12.0)
 	holder.add_child(cube)
-	var tex := load("user://blocks/" + block_name + ".png") as Texture2D
-	if tex != null:
-		var mat := StandardMaterial3D.new()
-		mat.albedo_texture = tex
-		mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
-		cube.set_surface_override_material(0, mat)
+	var img := Image.load_from_file("user://blocks/" + block_name + ".png")
+	if img != null and not img.is_empty():
+		# Re-bake the saved noise into the preview like the skin gallery does.
+		var nv := _load_block_sidecar(block_name)
+		if nv > 0.0:
+			var noise_map := _make_block_noise_map()
+			var max_grain := 0.35
+			var amount := nv / 100.0 * max_grain
+			var out: Image = img.duplicate()
+			for y in range(16):
+				for x in range(16):
+					var c: Color = out.get_pixel(x, y)
+					var delta := (noise_map.get_pixel(x, y).r - 0.5) * 2.0 * amount
+					out.set_pixel(x, y, Color(
+						clampf(c.r + delta, 0.0, 1.0),
+						clampf(c.g + delta, 0.0, 1.0),
+						clampf(c.b + delta, 0.0, 1.0),
+						c.a))
+			img = out
+		var tex := ImageTexture.create_from_image(img)
+		if tex != null:
+			var mat := StandardMaterial3D.new()
+			mat.albedo_texture = tex
+			mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+			mat.albedo_color = Color.WHITE  # Ensure no black overlay
+			mat.roughness = 1.0  # Ensure proper lighting
+			cube.set_surface_override_material(0, mat)
 	var cam := Camera3D.new()
 	cam.fov = 70.0
 	var target := Vector3.ZERO
@@ -2462,45 +2607,150 @@ func _make_block_gallery_view(s: float, block_name: String) -> SubViewportContai
 	return box
 
 func _build_cube_mesh() -> ArrayMesh:
+	# Byte-for-byte copy of block_preview's cube builder: every face is built
+	# with the SAME upright UV mapping (texture top = world top), so the load
+	# gallery cube renders its texture exactly like the editor preview cube.
+	# The old generic builder here mapped 4 of the 6 faces with the texture
+	# rotated 90 degrees, which made the pattern slant along the diagonal.
 	var arrays = []
 	arrays.resize(Mesh.ARRAY_MAX)
+
 	var verts = PackedVector3Array()
 	var uvs = PackedVector2Array()
 	var normals = PackedVector3Array()
 	var indices = PackedInt32Array()
-	
-	# Simple cube with UVs 0-1 for each face
-	var cube_verts = [
-		Vector3(-0.5, -0.5, -0.5), Vector3(0.5, -0.5, -0.5), Vector3(0.5, 0.5, -0.5), Vector3(-0.5, 0.5, -0.5),
-		Vector3(-0.5, -0.5, 0.5), Vector3(0.5, -0.5, 0.5), Vector3(0.5, 0.5, 0.5), Vector3(-0.5, 0.5, 0.5)
-	]
-	var cube_faces = [
-		[0, 1, 2, 3], [4, 7, 6, 5], [0, 4, 5, 1], [2, 6, 7, 3], [0, 3, 7, 4], [1, 5, 6, 2]
-	]
-	var cube_normals = [
-		Vector3(0, 0, -1), Vector3(0, 0, 1), Vector3(0, -1, 0), Vector3(0, 1, 0), Vector3(-1, 0, 0), Vector3(1, 0, 0)
-	]
-	
-	for face_idx in range(6):
-		var face = cube_faces[face_idx]
-		var normal = cube_normals[face_idx]
-		var base := verts.size()
-		for i in range(4):
-			verts.append(cube_verts[face[i]])
-			normals.append(normal)
-			uvs.append(Vector2(float(i % 2), float(i / 2)))
-		indices.append(base + 0)
-		indices.append(base + 1)
-		indices.append(base + 2)
-		indices.append(base + 0)
-		indices.append(base + 2)
-		indices.append(base + 3)
-	
+
+	# +X face (right)
+	verts.append(Vector3(0.5, -0.5, 0.5))
+	verts.append(Vector3(0.5, 0.5, 0.5))
+	verts.append(Vector3(0.5, 0.5, -0.5))
+	verts.append(Vector3(0.5, -0.5, -0.5))
+	normals.append(Vector3(1, 0, 0))
+	normals.append(Vector3(1, 0, 0))
+	normals.append(Vector3(1, 0, 0))
+	normals.append(Vector3(1, 0, 0))
+	uvs.append(Vector2(0.0, 1.0))
+	uvs.append(Vector2(0.0, 0.0))
+	uvs.append(Vector2(1.0, 0.0))
+	uvs.append(Vector2(1.0, 1.0))
+	var base := 0
+	indices.append(base + 0)
+	indices.append(base + 1)
+	indices.append(base + 2)
+	indices.append(base + 0)
+	indices.append(base + 2)
+	indices.append(base + 3)
+
+	# -X face (left)
+	verts.append(Vector3(-0.5, -0.5, -0.5))
+	verts.append(Vector3(-0.5, 0.5, -0.5))
+	verts.append(Vector3(-0.5, 0.5, 0.5))
+	verts.append(Vector3(-0.5, -0.5, 0.5))
+	normals.append(Vector3(-1, 0, 0))
+	normals.append(Vector3(-1, 0, 0))
+	normals.append(Vector3(-1, 0, 0))
+	normals.append(Vector3(-1, 0, 0))
+	uvs.append(Vector2(0.0, 1.0))
+	uvs.append(Vector2(0.0, 0.0))
+	uvs.append(Vector2(1.0, 0.0))
+	uvs.append(Vector2(1.0, 1.0))
+	base = 4
+	indices.append(base + 0)
+	indices.append(base + 1)
+	indices.append(base + 2)
+	indices.append(base + 0)
+	indices.append(base + 2)
+	indices.append(base + 3)
+
+	# +Y face (top)
+	verts.append(Vector3(-0.5, 0.5, -0.5))
+	verts.append(Vector3(0.5, 0.5, -0.5))
+	verts.append(Vector3(0.5, 0.5, 0.5))
+	verts.append(Vector3(-0.5, 0.5, 0.5))
+	normals.append(Vector3(0, 1, 0))
+	normals.append(Vector3(0, 1, 0))
+	normals.append(Vector3(0, 1, 0))
+	normals.append(Vector3(0, 1, 0))
+	uvs.append(Vector2(0.0, 1.0))
+	uvs.append(Vector2(0.0, 0.0))
+	uvs.append(Vector2(1.0, 0.0))
+	uvs.append(Vector2(1.0, 1.0))
+	base = 8
+	indices.append(base + 0)
+	indices.append(base + 1)
+	indices.append(base + 2)
+	indices.append(base + 0)
+	indices.append(base + 2)
+	indices.append(base + 3)
+
+	# -Y face (bottom)
+	verts.append(Vector3(-0.5, -0.5, 0.5))
+	verts.append(Vector3(0.5, -0.5, 0.5))
+	verts.append(Vector3(0.5, -0.5, -0.5))
+	verts.append(Vector3(-0.5, -0.5, -0.5))
+	normals.append(Vector3(0, -1, 0))
+	normals.append(Vector3(0, -1, 0))
+	normals.append(Vector3(0, -1, 0))
+	normals.append(Vector3(0, -1, 0))
+	uvs.append(Vector2(0.0, 1.0))
+	uvs.append(Vector2(0.0, 0.0))
+	uvs.append(Vector2(1.0, 0.0))
+	uvs.append(Vector2(1.0, 1.0))
+	base = 12
+	indices.append(base + 0)
+	indices.append(base + 1)
+	indices.append(base + 2)
+	indices.append(base + 0)
+	indices.append(base + 2)
+	indices.append(base + 3)
+
+	# +Z face (front)
+	verts.append(Vector3(-0.5, -0.5, 0.5))
+	verts.append(Vector3(-0.5, 0.5, 0.5))
+	verts.append(Vector3(0.5, 0.5, 0.5))
+	verts.append(Vector3(0.5, -0.5, 0.5))
+	normals.append(Vector3(0, 0, 1))
+	normals.append(Vector3(0, 0, 1))
+	normals.append(Vector3(0, 0, 1))
+	normals.append(Vector3(0, 0, 1))
+	uvs.append(Vector2(0.0, 1.0))
+	uvs.append(Vector2(0.0, 0.0))
+	uvs.append(Vector2(1.0, 0.0))
+	uvs.append(Vector2(1.0, 1.0))
+	base = 16
+	indices.append(base + 0)
+	indices.append(base + 1)
+	indices.append(base + 2)
+	indices.append(base + 0)
+	indices.append(base + 2)
+	indices.append(base + 3)
+
+	# -Z face (back)
+	verts.append(Vector3(0.5, -0.5, -0.5))
+	verts.append(Vector3(0.5, 0.5, -0.5))
+	verts.append(Vector3(-0.5, 0.5, -0.5))
+	verts.append(Vector3(-0.5, -0.5, -0.5))
+	normals.append(Vector3(0, 0, -1))
+	normals.append(Vector3(0, 0, -1))
+	normals.append(Vector3(0, 0, -1))
+	normals.append(Vector3(0, 0, -1))
+	uvs.append(Vector2(0.0, 1.0))
+	uvs.append(Vector2(0.0, 0.0))
+	uvs.append(Vector2(1.0, 0.0))
+	uvs.append(Vector2(1.0, 1.0))
+	base = 20
+	indices.append(base + 0)
+	indices.append(base + 1)
+	indices.append(base + 2)
+	indices.append(base + 0)
+	indices.append(base + 2)
+	indices.append(base + 3)
+
 	arrays[Mesh.ARRAY_VERTEX] = verts
 	arrays[Mesh.ARRAY_TEX_UV] = uvs
 	arrays[Mesh.ARRAY_NORMAL] = normals
 	arrays[Mesh.ARRAY_INDEX] = indices
-	
+
 	var mesh = ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 	return mesh
@@ -2509,11 +2759,22 @@ func _load_named_block(block_name: String) -> void:
 	if _block_preview != null:
 		_block_preview.load_block("user://blocks/" + block_name + ".png")
 		_block_name_edit.text = block_name
+		# Restore the block's own noise value; the slider's value_changed
+		# handler re-applies it against the freshly loaded image.
+		var nv := _load_block_sidecar(block_name)
+		_block_noise = nv
+		if _block_noise_slider != null:
+			_block_noise_slider.value = nv
+		if _block_noise_value != null:
+			_block_noise_value.text = str(int(nv))
+		if _block_preview.has_method("set_noise"):
+			_block_preview.set_noise(nv)
 	_close_block_gallery()
 	_schedule_save()
 
 func _delete_named_block(block_name: String) -> void:
 	DirAccess.remove_absolute(ProjectSettings.globalize_path("user://blocks/" + block_name + ".png"))
+	DirAccess.remove_absolute(ProjectSettings.globalize_path("user://blocks/" + block_name + ".json"))
 	_refresh_block_gallery()
 
 func _build_block_gallery(s: float) -> Control:

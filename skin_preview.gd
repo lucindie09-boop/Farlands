@@ -147,9 +147,17 @@ func _can_start_drag() -> bool:
 	# wheel, its internal rows, or the page's buttons). Empty page space and
 	# the preview window itself are fair game for orbiting/zooming/painting.
 	var hovered := get_viewport().gui_get_hovered_control()
-	if hovered != null and hovered != self and not (hovered is ColorRect):
-		return false
-	return true
+	if hovered == null or hovered == self or hovered is ColorRect:
+		return true
+	# Gui hover can lag one event right after a button press: the last-pressed
+	# button is still "hovered" even though the pointer already moved onto the
+	# preview, which would refuse the very first drag. Geometry is the source
+	# of truth - if the pointer is inside the preview rect and the claimed
+	# control isn't actually under it, the press belongs to us.
+	var pos := get_global_mouse_position()
+	if get_global_rect().has_point(pos) and not hovered.get_global_rect().has_point(pos):
+		return true
+	return false
 
 # All pointer handling lives here (not _gui_input) so dragging works anywhere
 # on the skin page, not just inside the preview window. Handled in _input so a

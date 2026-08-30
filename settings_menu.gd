@@ -100,6 +100,10 @@ var _block_load_btn: Button
 var _block_back_btn: Button
 var _block_dark_toggle: Button
 var _block_uv_toggle: Button
+var _block_gallery: Control
+var _block_gallery_grid: GridContainer
+var _block_gallery_timer: Timer
+var _block_gallery_spins: Array = []
 var _block_tool := "DRAW"
 var _block_color := Color.WHITE
 
@@ -1856,24 +1860,6 @@ func _build_block_maker_page() -> Control:
 	page.add_child(name_edit)
 	_block_name_edit = name_edit
 
-	var save_btn := Button.new()
-	save_btn.name = "BlockSave"
-	save_btn.text = "SAVE"
-	save_btn.add_theme_font_override("font", MUNRO_FONT)
-	save_btn.add_theme_font_size_override("font_size", int(14 * s))
-	save_btn.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	save_btn.offset_left = -190.0
-	save_btn.offset_right = -12.0
-	save_btn.offset_top = -52.0
-	save_btn.offset_bottom = -12.0
-	save_btn.pressed.connect(func():
-		var block_name := _sanitize_block_name(name_edit.text)
-		DirAccess.make_dir_recursive_absolute("user://blocks")
-		if _block_preview != null and _block_preview.save_block("user://blocks/" + block_name + ".png"):
-			name_edit.text = block_name)
-	page.add_child(save_btn)
-	_block_save_btn = save_btn
-
 	var load_btn := Button.new()
 	load_btn.name = "BlockLoad"
 	load_btn.text = "LOAD"
@@ -1882,14 +1868,31 @@ func _build_block_maker_page() -> Control:
 	load_btn.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
 	load_btn.offset_left = -190.0
 	load_btn.offset_right = -12.0
-	load_btn.offset_top = -100.0
-	load_btn.offset_bottom = -60.0
-	load_btn.pressed.connect(func():
-		_block_name_edit.text = _sanitize_block_name(name_edit.text)
-		if _block_preview != null:
-			_block_preview.load_block("user://blocks/" + _sanitize_block_name(name_edit.text) + ".png"))
+	load_btn.offset_top = -52.0
+	load_btn.offset_bottom = -12.0
+	load_btn.pressed.connect(_open_block_gallery)
 	page.add_child(load_btn)
 	_block_load_btn = load_btn
+
+	var save_btn := Button.new()
+	save_btn.name = "BlockSave"
+	save_btn.text = "SAVE"
+	save_btn.add_theme_font_override("font", MUNRO_FONT)
+	save_btn.add_theme_font_size_override("font_size", int(14 * s))
+	save_btn.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	save_btn.offset_left = -190.0
+	save_btn.offset_right = -12.0
+	save_btn.offset_top = -100.0
+	save_btn.offset_bottom = -60.0
+	save_btn.pressed.connect(func():
+		var block_name := _sanitize_block_name(name_edit.text)
+		DirAccess.make_dir_recursive_absolute("user://blocks")
+		if _block_preview != null and _block_preview.save_block("user://blocks/" + block_name + ".png"):
+			name_edit.text = block_name)
+	page.add_child(save_btn)
+	_block_save_btn = save_btn
+
+	page.add_child(_build_block_gallery(s))
 
 	# Style buttons to match skin maker
 	var dark := _skin_dark_mode
@@ -1911,10 +1914,10 @@ func _sanitize_block_name(raw: String) -> String:
 func _apply_block_palette() -> void:
 	var s := _ui_scale()
 	var dark := _skin_dark_mode  # Reuse skin dark mode setting
-	var bg_col := Color(0.08, 0.08, 0.1) if dark else Color(0.95, 0.95, 0.97)
+	var bg_col := Color(0.08, 0.08, 0.1) if dark else Color.WHITE
 	var fg_col := Color(1, 1, 1, 1) if dark else Color.BLACK
-	var hint_col := Color(0.7, 0.7, 0.7) if dark else Color(0.3, 0.3, 0.3)
-	var hover_col := Color(0.3, 0.3, 0.35) if dark else Color(0.75, 0.75, 0.8)
+	var hover_col := Color(0.72, 0.72, 0.72, 1) if dark else Color(0.35, 0.35, 0.35, 1)
+	var hint_col := Color(0.75, 0.75, 0.75, 1) if dark else Color(0.2, 0.2, 0.2)
 	
 	if _block_bg:
 		_block_bg.color = bg_col
@@ -1927,13 +1930,16 @@ func _apply_block_palette() -> void:
 	if _block_picker:
 		_block_picker.theme = _make_picker_theme(s, dark)
 		_tint_picker_internals(_block_picker, fg_col, hover_col)
+	if _block_dark_toggle:
+		_block_dark_toggle.text = "LIGHT MODE" if dark else "DARK MODE"
+		_style_skin_button(_block_dark_toggle, fg_col, dark)
+	if _block_uv_toggle:
+		_style_skin_button(_block_uv_toggle, fg_col, dark)
 	
 	# Update button colors
-	for btn in [_block_undo_btn, _block_tool_btn, _block_save_btn, _block_load_btn, _block_back_btn, _block_dark_toggle, _block_uv_toggle]:
+	for btn in [_block_undo_btn, _block_tool_btn, _block_save_btn, _block_load_btn]:
 		if btn != null:
-			btn.add_theme_color_override("font_color", fg_col)
-			btn.add_theme_color_override("font_hover_color", fg_col)
-			btn.add_theme_color_override("font_pressed_color", fg_col)
+			_style_skin_button(btn, fg_col, dark)
 
 func _sanitize_skin_name(raw: String) -> String:
 	var cleaned := ""
@@ -2014,11 +2020,14 @@ func _refresh_skin_gallery() -> void:
 		_skin_gallery_grid.add_child(_make_skin_card(_ui_scale(), skin_name))
 
 func _spin_gallery_models() -> void:
-	if _skin_gallery == null or not _skin_gallery.is_visible_in_tree():
-		return
-	for h in _skin_gallery_spins:
-		if is_instance_valid(h):
-			h.rotate_y(0.03)
+	if _skin_gallery != null and _skin_gallery.is_visible_in_tree():
+		for h in _skin_gallery_spins:
+			if is_instance_valid(h):
+				h.rotate_y(0.03)
+	if _block_gallery != null and _block_gallery.is_visible_in_tree():
+		for h in _block_gallery_spins:
+			if is_instance_valid(h):
+				h.rotate_y(0.03)
 
 func _make_skin_card(s: float, skin_name: String) -> VBoxContainer:
 	var dark := _skin_dark_mode
@@ -2285,6 +2294,315 @@ func _build_skin_gallery(s: float) -> Control:
 	_skin_gallery = overlay
 	_skin_gallery_grid = grid
 	_skin_gallery_timer = timer
+	return overlay
+
+func _open_block_gallery() -> void:
+	if _block_gallery == null:
+		return
+	_refresh_block_gallery()
+	_block_gallery.visible = true
+	if _block_gallery_timer:
+		_block_gallery_timer.start()
+
+func _close_block_gallery() -> void:
+	if _block_gallery_timer:
+		_block_gallery_timer.stop()
+	if _block_gallery:
+		_block_gallery.visible = false
+
+func _refresh_block_gallery() -> void:
+	if _block_gallery_grid == null:
+		return
+	for c in _block_gallery_grid.get_children():
+		c.free()
+	_block_gallery_spins.clear()
+	var names := _list_saved_blocks()
+	if names.is_empty():
+		var empty_hint := Label.new()
+		empty_hint.text = "No saved blocks yet — use SAVE to create one."
+		empty_hint.add_theme_font_override("font", MUNRO_FONT)
+		empty_hint.add_theme_font_size_override("font_size", int(14 * _ui_scale()))
+		empty_hint.add_theme_color_override("font_color",
+			Color(0.75, 0.75, 0.75, 1) if _skin_dark_mode else Color(0.2, 0.2, 0.2))
+		_block_gallery_grid.add_child(empty_hint)
+		return
+	for block_name in names:
+		_block_gallery_grid.add_child(_make_block_card(_ui_scale(), block_name))
+
+func _list_saved_blocks() -> PackedStringArray:
+	var dir := DirAccess.open("user://blocks")
+	if dir == null:
+		return []
+	var names := PackedStringArray()
+	dir.list_dir_begin()
+	var file_name := dir.get_next()
+	while file_name != "":
+		if file_name.ends_with(".png"):
+			names.append(file_name.get_basename())
+		file_name = dir.get_next()
+	dir.list_dir_end()
+	names.sort()
+	return names
+
+func _make_block_card(s: float, block_name: String) -> VBoxContainer:
+	var dark := _skin_dark_mode
+	var fg_col := Color(1, 1, 1, 1) if dark else Color.BLACK
+	var border_col := Color(0.35, 0.35, 0.4) if dark else Color(0.55, 0.55, 0.58)
+	var card_bg := Color(0.14, 0.14, 0.17) if dark else Color(0.99, 0.99, 0.99)
+	var hover_col := Color(0.22, 0.24, 0.3) if dark else Color(0.84, 0.88, 0.94)
+
+	var card := VBoxContainer.new()
+	card.name = "Card_" + block_name
+	card.add_theme_constant_override("separation", int(4 * s))
+
+	var preview_btn := Button.new()
+	preview_btn.custom_minimum_size = Vector2(96 * s, 96 * s)
+	preview_btn.clip_text = true
+	preview_btn.tooltip_text = "Load " + block_name
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = card_bg
+	sb.set_border_width_all(int(2 * s))
+	sb.border_color = border_col
+	sb.set_corner_radius_all(int(4 * s))
+	var hov := sb.duplicate()
+	hov.bg_color = hover_col
+	var pres := sb.duplicate()
+	pres.bg_color = hover_col
+	pres.border_color = fg_col
+	preview_btn.add_theme_stylebox_override("normal", sb)
+	preview_btn.add_theme_stylebox_override("hover", hov)
+	preview_btn.add_theme_stylebox_override("pressed", pres)
+	preview_btn.add_theme_stylebox_override("focus", pres)
+	card.add_child(preview_btn)
+
+	var model_box := _make_block_gallery_view(s, block_name)
+	model_box.set_anchors_preset(Control.PRESET_FULL_RECT)
+	model_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	preview_btn.add_child(model_box)
+
+	var foot := HBoxContainer.new()
+	foot.add_theme_constant_override("separation", int(4 * s))
+	var name_btn := Button.new()
+	name_btn.text = block_name
+	name_btn.clip_text = true
+	name_btn.flat = true
+	name_btn.tooltip_text = "Load " + block_name
+	name_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_btn.add_theme_font_override("font", MUNRO_FONT)
+	name_btn.add_theme_font_size_override("font_size", int(12 * s))
+	name_btn.add_theme_color_override("font_color", fg_col)
+	name_btn.add_theme_color_override("font_hover_color", fg_col)
+	name_btn.add_theme_color_override("font_pressed_color", fg_col)
+	foot.add_child(name_btn)
+	var del_btn := Button.new()
+	del_btn.text = "X"
+	del_btn.flat = true
+	del_btn.custom_minimum_size = Vector2(int(24 * s), 0)
+	del_btn.tooltip_text = "Delete " + block_name
+	del_btn.add_theme_font_override("font", MUNRO_FONT)
+	del_btn.add_theme_font_size_override("font_size", int(13 * s))
+	del_btn.add_theme_color_override("font_color", Color(1, 0.42, 0.42))
+	del_btn.add_theme_color_override("font_hover_color", Color(1, 0.6, 0.6))
+	foot.add_child(del_btn)
+	card.add_child(foot)
+
+	preview_btn.pressed.connect(func(): _load_named_block(block_name))
+	name_btn.pressed.connect(func(): _load_named_block(block_name))
+	del_btn.pressed.connect(func(): _delete_named_block(block_name))
+	return card
+
+func _make_block_gallery_view(s: float, block_name: String) -> SubViewportContainer:
+	var box := SubViewportContainer.new()
+	box.stretch = true
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var vp := SubViewport.new()
+	vp.transparent_bg = true
+	vp.msaa_3d = Viewport.MSAA_2X
+	vp.size = Vector2i(int(96 * s), int(96 * s))
+	box.add_child(vp)
+	var env := Environment.new()
+	env.background_mode = Environment.BG_COLOR
+	env.background_color = Color(0.6, 0.6, 0.65)
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	env.ambient_light_color = Color.WHITE
+	env.ambient_light_energy = 0.45
+	var world := World3D.new()
+	world.environment = env
+	vp.world_3d = world
+	var sun := DirectionalLight3D.new()
+	sun.light_energy = 1.35
+	sun.rotation_degrees = Vector3(-45, -35, 0)
+	vp.add_child(sun)
+	var holder := Node3D.new()
+	holder.name = "SpinPivot"
+	vp.add_child(holder)
+	var cube := MeshInstance3D.new()
+	cube.mesh = _build_cube_mesh()
+	cube.scale = Vector3(1.5, 1.5, 1.5)
+	holder.add_child(cube)
+	var tex := load("user://blocks/" + block_name + ".png") as Texture2D
+	if tex != null:
+		var mat := StandardMaterial3D.new()
+		mat.albedo_texture = tex
+		mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+		cube.set_surface_override_material(0, mat)
+	var cam := Camera3D.new()
+	cam.fov = 70.0
+	var target := Vector3.ZERO
+	var pitch := deg_to_rad(12.0)
+	var yaw := deg_to_rad(-40.0)
+	var dist := 33.0
+	vp.add_child(cam)
+	cam.look_at_from_position(
+		target + Vector3(
+			dist * cos(pitch) * sin(yaw), dist * sin(pitch), dist * cos(pitch) * cos(yaw)),
+		target, Vector3.UP)
+	cam.make_current()
+	_block_gallery_spins.append(holder)
+	return box
+
+func _build_cube_mesh() -> ArrayMesh:
+	var arrays = []
+	arrays.resize(Mesh.ARRAY_MAX)
+	var verts = PackedVector3Array()
+	var uvs = PackedVector2Array()
+	var normals = PackedVector3Array()
+	var indices = PackedInt32Array()
+	
+	# Simple cube with UVs 0-1 for each face
+	var cube_verts = [
+		Vector3(-0.5, -0.5, -0.5), Vector3(0.5, -0.5, -0.5), Vector3(0.5, 0.5, -0.5), Vector3(-0.5, 0.5, -0.5),
+		Vector3(-0.5, -0.5, 0.5), Vector3(0.5, -0.5, 0.5), Vector3(0.5, 0.5, 0.5), Vector3(-0.5, 0.5, 0.5)
+	]
+	var cube_faces = [
+		[0, 1, 2, 3], [4, 7, 6, 5], [0, 4, 5, 1], [2, 6, 7, 3], [0, 3, 7, 4], [1, 5, 6, 2]
+	]
+	var cube_normals = [
+		Vector3(0, 0, -1), Vector3(0, 0, 1), Vector3(0, -1, 0), Vector3(0, 1, 0), Vector3(-1, 0, 0), Vector3(1, 0, 0)
+	]
+	
+	for face_idx in range(6):
+		var face = cube_faces[face_idx]
+		var normal = cube_normals[face_idx]
+		var base := verts.size()
+		for i in range(4):
+			verts.append(cube_verts[face[i]])
+			normals.append(normal)
+			uvs.append(Vector2(float(i % 2), float(i / 2)))
+		indices.append(base + 0)
+		indices.append(base + 1)
+		indices.append(base + 2)
+		indices.append(base + 0)
+		indices.append(base + 2)
+		indices.append(base + 3)
+	
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_TEX_UV] = uvs
+	arrays[Mesh.ARRAY_NORMAL] = normals
+	arrays[Mesh.ARRAY_INDEX] = indices
+	
+	var mesh = ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return mesh
+
+func _load_named_block(block_name: String) -> void:
+	if _block_preview != null:
+		_block_preview.load_block("user://blocks/" + block_name + ".png")
+		_block_name_edit.text = block_name
+	_close_block_gallery()
+	_schedule_save()
+
+func _delete_named_block(block_name: String) -> void:
+	DirAccess.remove_absolute(ProjectSettings.globalize_path("user://blocks/" + block_name + ".png"))
+	_refresh_block_gallery()
+
+func _build_block_gallery(s: float) -> Control:
+	var dark := _skin_dark_mode
+	var fg_col := Color(1, 1, 1, 1) if dark else Color.BLACK
+
+	var overlay := Control.new()
+	overlay.name = "BlockGallery"
+	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	overlay.visible = false
+	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.55)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	overlay.add_child(dim)
+
+	var panel := PanelContainer.new()
+	var psb := StyleBoxFlat.new()
+	psb.bg_color = Color(0.1, 0.1, 0.12) if dark else Color(0.94, 0.94, 0.93)
+	psb.set_border_width_all(int(2 * s))
+	psb.border_color = Color(0.28, 0.28, 0.3) if dark else Color(0.55, 0.55, 0.55)
+	psb.set_corner_radius_all(int(6 * s))
+	psb.content_margin_left = int(14 * s)
+	psb.content_margin_right = int(14 * s)
+	psb.content_margin_top = int(10 * s)
+	psb.content_margin_bottom = int(14 * s)
+	panel.add_theme_stylebox_override("panel", psb)
+	panel.set_anchors_preset(Control.PRESET_CENTER)
+	panel.offset_left = -330.0 * s
+	panel.offset_right = 330.0 * s
+	panel.offset_top = -252.0 * s
+	panel.offset_bottom = 252.0 * s
+	panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	panel.grow_vertical = Control.GROW_DIRECTION_BOTH
+	overlay.add_child(panel)
+
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", int(8 * s))
+	margin.add_theme_constant_override("margin_right", int(8 * s))
+	margin.add_theme_constant_override("margin_top", int(6 * s))
+	margin.add_theme_constant_override("margin_bottom", int(4 * s))
+	panel.add_child(margin)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", int(8 * s))
+	margin.add_child(vbox)
+
+	var header := HBoxContainer.new()
+	header.add_theme_constant_override("separation", int(8 * s))
+	var title := Label.new()
+	title.text = "LOAD BLOCK"
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title.add_theme_font_override("font", MUNRO_FONT)
+	title.add_theme_font_size_override("font_size", int(17 * s))
+	title.add_theme_color_override("font_color", fg_col)
+	header.add_child(title)
+	var close_btn := Button.new()
+	close_btn.text = "CLOSE"
+	close_btn.add_theme_font_override("font", MUNRO_FONT)
+	close_btn.add_theme_font_size_override("font_size", int(13 * s))
+	close_btn.pressed.connect(_close_block_gallery)
+	header.add_child(close_btn)
+	vbox.add_child(header)
+
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	vbox.add_child(scroll)
+
+	var grid := GridContainer.new()
+	grid.columns = 5
+	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	grid.add_theme_constant_override("h_separation", int(12 * s))
+	grid.add_theme_constant_override("v_separation", int(12 * s))
+	scroll.add_child(grid)
+
+	var timer := Timer.new()
+	timer.name = "BlockGallerySpin"
+	timer.wait_time = 0.016
+	timer.one_shot = false
+	timer.autostart = false
+	timer.timeout.connect(_spin_gallery_models)
+	overlay.add_child(timer)
+
+	_block_gallery = overlay
+	_block_gallery_grid = grid
+	_block_gallery_timer = timer
 	return overlay
 
 func _apply_skin_palette() -> void:

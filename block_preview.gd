@@ -11,6 +11,7 @@ const ZOOM_MAX := 70.0
 const TEXEL := 1.0 / 16.0  # Block textures are 16x16
 const ATLAS_WIDTH := 16  # Single 16x16 texture for all faces
 const ATLAS_HEIGHT := 16
+const UV_BREAK_DIST := 0.25  # UV distance beyond which we crossed a face boundary
 
 var _camera: Camera3D
 var _cube: MeshInstance3D
@@ -291,16 +292,16 @@ func _input(event: InputEvent) -> void:
 	
 	if event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
-		if mb.button_index == MouseButton.MOUSE_BUTTON_LEFT:
-			if mb.pressed:
-				_handle_left_click()
-			else:
-				_handle_left_release()
-		elif mb.button_index == MouseButton.MOUSE_BUTTON_RIGHT:
-			if mb.pressed:
-				_zooming = true
-			else:
-				_zooming = false
+		if mb.button_index == MouseButton.MOUSE_BUTTON_LEFT and mb.pressed:
+			grab_focus()
+			_handle_left_click()
+		elif mb.button_index == MouseButton.MOUSE_BUTTON_LEFT and not mb.pressed:
+			_handle_left_release()
+		elif mb.button_index == MouseButton.MOUSE_BUTTON_RIGHT and mb.pressed:
+			grab_focus()
+			_zooming = true
+		elif mb.button_index == MouseButton.MOUSE_BUTTON_RIGHT and not mb.pressed:
+			_zooming = false
 	elif event is InputEventMouseMotion:
 		var mm := event as InputEventMouseMotion
 		if _rotating:
@@ -371,12 +372,6 @@ func _handle_paint_motion(mouse_pos: Vector2) -> void:
 	if _tool == "DRAW":
 		var local_pos := _get_local_uv_from_mouse(mouse_pos)
 		if local_pos != Vector2.INF:
-			# Check UV break distance to prevent painting across different faces
-			if _last_paint_uv != Vector2.INF:
-				var uv_dist := local_pos.distance_to(_last_paint_uv)
-				if uv_dist > 0.1:  # Simple threshold for face separation
-					_last_paint_uv = local_pos
-					return
 			_paint_texel(local_pos.x, local_pos.y)
 			_last_paint_uv = local_pos
 	elif _tool == "BOX" and _box_active:

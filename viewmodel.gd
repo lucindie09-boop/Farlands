@@ -40,6 +40,7 @@ var _swing := 0.0
 # Real-time adjustment HUD
 var _hud_panel: Control
 var _hud_visible := false
+var _adjustment_mode := "ARM" # "ARM" or "BLOCK"
 var _rotation_x: float = 5.0
 var _rotation_y: float = -13.0
 var _rotation_z: float = 5.0
@@ -47,6 +48,15 @@ var _arm_scale: float = 1.0
 var _arm_position_x: float = 0.67
 var _arm_position_y: float = -0.01
 var _arm_position_z: float = -0.75
+
+# Block model adjustment
+var _block_rotation_x: float = 0.0
+var _block_rotation_y: float = -7.0
+var _block_rotation_z: float = 0.0
+var _block_scale: float = 0.83
+var _block_position_x: float = 0.15
+var _block_position_y: float = -0.36
+var _block_position_z: float = 0.23
 
 # Minecraft 1.8.8 decompiled ItemRenderer.java + ModelPlayer.java, empty-hand
 # arm path:
@@ -270,10 +280,16 @@ func _refresh_held_item() -> void:
 	if BlockTextures.is_item(current_display_id):
 		_item.mesh = _stick_mesh
 		_item_scale_node.scale = Vector3.ONE # already 0.4 from parent
+		# Reset block adjustments for items
+		_item_scale_node.position = Vector3.ZERO
+		_item_scale_node.rotation_degrees = Vector3.ZERO
 	else:
 		_item.mesh = _cube_mesh
-		_item_scale_node.scale = Vector3.ONE * 2.0 # renderItem 3D doubling
+		_item_scale_node.scale = Vector3.ONE * _block_scale # 0.4 total scale from parent
 		_item.rotation = Vector3.ZERO
+		# Apply block adjustments
+		_item_scale_node.position = Vector3(_block_position_x, _block_position_y, _block_position_z)
+		_item_scale_node.rotation_degrees = Vector3(_block_rotation_x, _block_rotation_y, _block_rotation_z)
 
 func _flip_arm_mesh_uvs(arm: Node3D) -> void:
 	var list: Array[Node3D] = [arm]
@@ -398,34 +414,26 @@ func _create_hud() -> void:
 	_hud_panel.visible = false
 	add_child(_hud_panel)
 	
-	var background := ColorRect.new()
-	background.color = Color(0, 0, 0, 0.8)
-	background.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	_hud_panel.add_child(background)
-	
-	# Load and display the reference texture (on top of background)
-	var htr_texture = load("res://textures/htr.png") if ResourceLoader.exists("res://textures/htr.png") else load("res://textures/htr.jpg") if ResourceLoader.exists("res://textures/htr.jpg") else null
-	if htr_texture != null:
-		var reference_image := TextureRect.new()
-		reference_image.texture = htr_texture
-		reference_image.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		reference_image.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
-		reference_image.modulate = Color(1, 1, 1, 0.3) # 30% opacity for better visibility
-		_hud_panel.add_child(reference_image)
-	
 	var label := Label.new()
-	label.text = "Arm Rotation Adjustments (F12 to toggle)"
+	label.text = "Arm & Block Adjustments (F12 to toggle, B to switch mode)"
 	label.position = Vector2(10, 10)
 	label.add_theme_font_size_override("font_size", 16)
 	_hud_panel.add_child(label)
 	
 	var instructions := Label.new()
-	instructions.text = "R/F: X rot | A/D: Y rot | W/S: Z rot | T/G: Scale | I/K/J/L/U/O: Position | P: Auto-optimize"
+	instructions.text = "R/F: X rot | A/D: Y rot | W/S: Z rot | T/G: Scale | I/K/J/L/U/O: Position | B: Switch Arm/Block"
 	instructions.position = Vector2(10, 30)
 	instructions.add_theme_font_size_override("font_size", 12)
 	_hud_panel.add_child(instructions)
 	
 	var offset_y := 60
+	var mode_label := Label.new()
+	mode_label.text = "Mode: ARM"
+	mode_label.position = Vector2(10, offset_y)
+	mode_label.name = "ModeLabel"
+	_hud_panel.add_child(mode_label)
+	offset_y += 25
+	
 	var axes = ["X Rot", "Y Rot", "Z Rot", "Scale", "Pos X", "Pos Y", "Pos Z"]
 	var values = [_rotation_x, _rotation_y, _rotation_z, _arm_scale, _arm_position_x, _arm_position_y, _arm_position_z]
 	
@@ -433,6 +441,7 @@ func _create_hud() -> void:
 		var axis_label := Label.new()
 		axis_label.text = axes[i] + " : " + str(values[i])
 		axis_label.position = Vector2(10, offset_y)
+		axis_label.name = "AxisLabel" + str(i)
 		_hud_panel.add_child(axis_label)
 		offset_y += 25
 
@@ -441,53 +450,104 @@ func _input(event: InputEvent) -> void:
 		if event.keycode == KEY_F12 and event.pressed:
 			_hud_visible = !_hud_visible
 			_hud_panel.visible = _hud_visible
+		elif event.keycode == KEY_B and event.pressed and _hud_visible:
+			_adjustment_mode = "BLOCK" if _adjustment_mode == "ARM" else "ARM"
+			_update_hud_labels()
 		elif _hud_visible:
 			var changed := false
-			if event.keycode == KEY_R and event.pressed:
-				_rotation_x -= 5.0
-				changed = true
-			elif event.keycode == KEY_F and event.pressed:
-				_rotation_x += 5.0
-				changed = true
-			elif event.keycode == KEY_A and event.pressed:
-				_rotation_y -= 1.0
-				changed = true
-			elif event.keycode == KEY_D and event.pressed:
-				_rotation_y += 1.0
-				changed = true
-			elif event.keycode == KEY_W and event.pressed:
-				_rotation_z -= 5.0
-				changed = true
-			elif event.keycode == KEY_S and event.pressed:
-				_rotation_z += 5.0
-				changed = true
-			elif event.keycode == KEY_T and event.pressed:
-				_arm_scale -= 0.01
-				changed = true
-			elif event.keycode == KEY_G and event.pressed:
-				_arm_scale += 0.01
-				changed = true
-			elif event.keycode == KEY_I and event.pressed:
-				_arm_position_x -= 0.01
-				changed = true
-			elif event.keycode == KEY_K and event.pressed:
-				_arm_position_x += 0.01
-				changed = true
-			elif event.keycode == KEY_J and event.pressed:
-				_arm_position_y -= 0.01
-				changed = true
-			elif event.keycode == KEY_L and event.pressed:
-				_arm_position_y += 0.01
-				changed = true
-			elif event.keycode == KEY_U and event.pressed:
-				_arm_position_z -= 0.01
-				changed = true
-			elif event.keycode == KEY_O and event.pressed:
-				_arm_position_z += 0.01
-				changed = true
+			
+			if _adjustment_mode == "ARM":
+				if event.keycode == KEY_R and event.pressed:
+					_rotation_x -= 5.0
+					changed = true
+				elif event.keycode == KEY_F and event.pressed:
+					_rotation_x += 5.0
+					changed = true
+				elif event.keycode == KEY_A and event.pressed:
+					_rotation_y -= 1.0
+					changed = true
+				elif event.keycode == KEY_D and event.pressed:
+					_rotation_y += 1.0
+					changed = true
+				elif event.keycode == KEY_W and event.pressed:
+					_rotation_z -= 5.0
+					changed = true
+				elif event.keycode == KEY_S and event.pressed:
+					_rotation_z += 5.0
+					changed = true
+				elif event.keycode == KEY_T and event.pressed:
+					_arm_scale -= 0.01
+					changed = true
+				elif event.keycode == KEY_G and event.pressed:
+					_arm_scale += 0.01
+					changed = true
+				elif event.keycode == KEY_I and event.pressed:
+					_arm_position_x -= 0.01
+					changed = true
+				elif event.keycode == KEY_K and event.pressed:
+					_arm_position_x += 0.01
+					changed = true
+				elif event.keycode == KEY_J and event.pressed:
+					_arm_position_y -= 0.01
+					changed = true
+				elif event.keycode == KEY_L and event.pressed:
+					_arm_position_y += 0.01
+					changed = true
+				elif event.keycode == KEY_U and event.pressed:
+					_arm_position_z -= 0.01
+					changed = true
+				elif event.keycode == KEY_O and event.pressed:
+					_arm_position_z += 0.01
+					changed = true
+			else: # BLOCK mode
+				if event.keycode == KEY_R and event.pressed:
+					_block_rotation_x -= 5.0
+					changed = true
+				elif event.keycode == KEY_F and event.pressed:
+					_block_rotation_x += 5.0
+					changed = true
+				elif event.keycode == KEY_A and event.pressed:
+					_block_rotation_y -= 1.0
+					changed = true
+				elif event.keycode == KEY_D and event.pressed:
+					_block_rotation_y += 1.0
+					changed = true
+				elif event.keycode == KEY_W and event.pressed:
+					_block_rotation_z -= 5.0
+					changed = true
+				elif event.keycode == KEY_S and event.pressed:
+					_block_rotation_z += 5.0
+					changed = true
+				elif event.keycode == KEY_T and event.pressed:
+					_block_scale -= 0.01
+					changed = true
+				elif event.keycode == KEY_G and event.pressed:
+					_block_scale += 0.01
+					changed = true
+				elif event.keycode == KEY_I and event.pressed:
+					_block_position_x -= 0.01
+					changed = true
+				elif event.keycode == KEY_K and event.pressed:
+					_block_position_x += 0.01
+					changed = true
+				elif event.keycode == KEY_J and event.pressed:
+					_block_position_y -= 0.01
+					changed = true
+				elif event.keycode == KEY_L and event.pressed:
+					_block_position_y += 0.01
+					changed = true
+				elif event.keycode == KEY_U and event.pressed:
+					_block_position_z -= 0.01
+					changed = true
+				elif event.keycode == KEY_O and event.pressed:
+					_block_position_z += 0.01
+					changed = true
 			
 			if changed:
-				_update_arm_rotation()
+				if _adjustment_mode == "ARM":
+					_update_arm_rotation()
+				else:
+					_update_block_transform()
 				_update_hud_labels()
 
 func _update_arm_rotation() -> void:
@@ -508,11 +568,31 @@ func _update_arm_rotation() -> void:
 
 func _update_hud_labels() -> void:
 	var labels = _hud_panel.find_children("", "Label", false, false)
-	if labels.size() >= 9:
-		labels[2].text = "X Rot : " + str(_rotation_x)
-		labels[3].text = "Y Rot : " + str(_rotation_y)
-		labels[4].text = "Z Rot : " + str(_rotation_z)
-		labels[5].text = "Scale : " + str(_arm_scale)
-		labels[6].text = "Pos X : " + str(_arm_position_x)
-		labels[7].text = "Pos Y : " + str(_arm_position_y)
-		labels[8].text = "Pos Z : " + str(_arm_position_z)
+	
+	# Update mode label
+	if labels.size() >= 1:
+		labels[0].text = "Mode: " + _adjustment_mode
+	
+	if labels.size() >= 8:
+		if _adjustment_mode == "ARM":
+			labels[1].text = "X Rot : " + str(_rotation_x)
+			labels[2].text = "Y Rot : " + str(_rotation_y)
+			labels[3].text = "Z Rot : " + str(_rotation_z)
+			labels[4].text = "Scale : " + str(_arm_scale)
+			labels[5].text = "Pos X : " + str(_arm_position_x)
+			labels[6].text = "Pos Y : " + str(_arm_position_y)
+			labels[7].text = "Pos Z : " + str(_arm_position_z)
+		else:
+			labels[1].text = "X Rot : " + str(_block_rotation_x)
+			labels[2].text = "Y Rot : " + str(_block_rotation_y)
+			labels[3].text = "Z Rot : " + str(_block_rotation_z)
+			labels[4].text = "Scale : " + str(_block_scale)
+			labels[5].text = "Pos X : " + str(_block_position_x)
+			labels[6].text = "Pos Y : " + str(_block_position_y)
+			labels[7].text = "Pos Z : " + str(_block_position_z)
+
+func _update_block_transform() -> void:
+	if _item_scale_node != null and _block_id > 0 and not BlockTextures.is_item(_block_id):
+		_item_scale_node.position = Vector3(_block_position_x, _block_position_y, _block_position_z)
+		_item_scale_node.rotation_degrees = Vector3(_block_rotation_x, _block_rotation_y, _block_rotation_z)
+		_item_scale_node.scale = Vector3.ONE * _block_scale

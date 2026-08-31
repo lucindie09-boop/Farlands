@@ -41,7 +41,7 @@ var _item_meshes := {} # Cache for generated item meshes
 # Real-time adjustment HUD
 var _hud_panel: Control
 var _hud_visible := false
-var _adjustment_mode := "ARM" # "ARM" or "BLOCK"
+var _adjustment_mode := "ARM" # "ARM", "BLOCK", or "ITEM"
 var _rotation_x: float = 5.0
 var _rotation_y: float = -13.0
 var _rotation_z: float = 5.0
@@ -58,6 +58,15 @@ var _block_scale: float = 0.83
 var _block_position_x: float = 0.15
 var _block_position_y: float = -0.36
 var _block_position_z: float = 0.23
+
+# Item model adjustment
+var _item_rotation_x: float = 0.0
+var _item_rotation_y: float = -692.0
+var _item_rotation_z: float = 422.0
+var _item_scale: float = 1.17
+var _item_position_x: float = 0.0
+var _item_position_y: float = 0.09
+var _item_position_z: float = 0.46
 
 # Minecraft 1.8.8 decompiled ItemRenderer.java + ModelPlayer.java, empty-hand
 # arm path:
@@ -103,10 +112,6 @@ func _ready() -> void:
 	arm_root.name = "ArmRoot"
 	arm_root.position = Vector3(_arm_position_x, _arm_position_y, _arm_position_z)
 
-	# The glb arm node carries a big baked-in offset (x -8.5/+3.5 px, y 12 px);
-	# we re-parent its mesh under a shoulder pivot and ignore that lever arm for
-	# placement. arm_pivot carries the punch rotation so the mesh keeps its scale
-	# (setting .basis directly would nuke it).
 	var mdl := PLAYER_MODEL.instantiate()
 	var arm_node := mdl.get_child(arm_index) as Node3D
 	mdl.remove_child(arm_node)
@@ -123,7 +128,6 @@ func _ready() -> void:
 	_apply_skin(arm_node)
 	_arm = arm_node
 	_update_arm_rotation()
-	# _align_to_grip(arm_root)  # Disabled - we control rotation manually now
 
 	# --- Held item (transformFirstPersonItem). ---
 	var item_root := Node3D.new()
@@ -134,38 +138,38 @@ func _ready() -> void:
 	var var45 := Node3D.new()
 	item_root.add_child(var45)
 	var45.rotation_degrees.y = 45.0
-	_swing_node = Node3D.new() # punch rotation + thrust
+	_swing_node = Node3D.new() 
 	var45.add_child(_swing_node)
-	_swing_node.position = Vector3(0.0, -0.15, 0.0) # mild equip/use dip
+	_swing_node.position = Vector3(0.0, -0.15, 0.0) 
 
 	var scale04 := Node3D.new()
 	_swing_node.add_child(scale04)
-	scale04.scale = Vector3.ONE * 0.4 # transformFirstPersonItem scale
+	scale04.scale = Vector3.ONE * 0.4 
 
 	_item_scale_node = Node3D.new()
 	scale04.add_child(_item_scale_node)
 
-	# Use StandardMaterial3D with per-pixel lighting instead of unshaded
-	# This should give us dynamic lighting without the whitening issue
+# Fixed Material Setup with Alpha Scissor and proper depth testing
 	var std_mat := StandardMaterial3D.new()
 	std_mat.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
 	std_mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
 	std_mat.cull_mode = BaseMaterial3D.CULL_BACK
-	std_mat.no_depth_test = true
+	std_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+	std_mat.alpha_scissor_threshold = 0.5
+	std_mat.no_depth_test = false
 	std_mat.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
 	std_mat.roughness = 1.0
 	std_mat.metallic = 0.0
 	_material = std_mat
 
 	_cube_mesh = _build_cube_mesh()
-	_stick_mesh = null # Will be generated dynamically from texture
+	_stick_mesh = null 
 
 	_item = MeshInstance3D.new()
 	_item.material_override = _material
 	_item.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	_item_scale_node.add_child(_item)
 	
-	# Create adjustment HUD
 	_create_hud()
 
 func _align_to_grip(root: Node3D) -> Basis:
@@ -202,6 +206,10 @@ func _process(delta: float) -> void:
 	# Equip animation: both normal equip and swap take 0.25s
 	var equip_speed = 0.25
 	_equip = move_toward(_equip, 1.0, delta / equip_speed)
+	
+	# Hide arm when holding an item or block
+	if _arm != null:
+		_arm.visible = (_block_id <= 0) # Only show arm when empty-handed
 	
 	_update_swing_hooks()
 	_refresh_held_item()
@@ -289,17 +297,15 @@ func _refresh_held_item() -> void:
 		else:
 			_item.mesh = _cube_mesh # Fallback
 		
-		_item_scale_node.scale = Vector3.ONE # already 0.4 from parent
-		# Reset block adjustments for items
-		_item_scale_node.position = Vector3.ZERO
-		_item_scale_node.rotation_degrees = Vector3.ZERO
+		_item_scale_node.scale = Vector3.ONE * _item_scale
+		# Apply item adjustments
+		_update_item_transform()
 	else:
 		_item.mesh = _cube_mesh
 		_item_scale_node.scale = Vector3.ONE * _block_scale # 0.4 total scale from parent
 		_item.rotation = Vector3.ZERO
 		# Apply block adjustments
-		_item_scale_node.position = Vector3(_block_position_x, _block_position_y, _block_position_z)
-		_item_scale_node.rotation_degrees = Vector3(_block_rotation_x, _block_rotation_y, _block_rotation_z)
+		_update_block_transform()
 
 func _flip_arm_mesh_uvs(arm: Node3D) -> void:
 	var list: Array[Node3D] = [arm]
@@ -425,13 +431,13 @@ func _create_hud() -> void:
 	add_child(_hud_panel)
 	
 	var label := Label.new()
-	label.text = "Arm & Block Adjustments (F12 to toggle, B to switch mode)"
+	label.text = "Arm/Block/Item Adjustments (F12 to toggle, B to cycle mode)"
 	label.position = Vector2(10, 10)
 	label.add_theme_font_size_override("font_size", 16)
 	_hud_panel.add_child(label)
 	
 	var instructions := Label.new()
-	instructions.text = "R/F: X rot | A/D: Y rot | W/S: Z rot | T/G: Scale | I/K/J/L/U/O: Position | B: Switch Arm/Block"
+	instructions.text = "R/F: X rot | A/D: Y rot | W/S: Z rot | T/G: Scale | I/K/J/L/U/O: Position | B: Cycle Arm/Block/Item"
 	instructions.position = Vector2(10, 30)
 	instructions.add_theme_font_size_override("font_size", 12)
 	_hud_panel.add_child(instructions)
@@ -461,7 +467,13 @@ func _input(event: InputEvent) -> void:
 			_hud_visible = !_hud_visible
 			_hud_panel.visible = _hud_visible
 		elif event.keycode == KEY_B and event.pressed and _hud_visible:
-			_adjustment_mode = "BLOCK" if _adjustment_mode == "ARM" else "ARM"
+			# Cycle through ARM -> BLOCK -> ITEM -> ARM
+			if _adjustment_mode == "ARM":
+				_adjustment_mode = "BLOCK"
+			elif _adjustment_mode == "BLOCK":
+				_adjustment_mode = "ITEM"
+			else:
+				_adjustment_mode = "ARM"
 			_update_hud_labels()
 		elif _hud_visible:
 			var changed := false
@@ -509,7 +521,7 @@ func _input(event: InputEvent) -> void:
 				elif event.keycode == KEY_O and event.pressed:
 					_arm_position_z += 0.01
 					changed = true
-			else: # BLOCK mode
+			elif _adjustment_mode == "BLOCK":
 				if event.keycode == KEY_R and event.pressed:
 					_block_rotation_x -= 5.0
 					changed = true
@@ -552,12 +564,57 @@ func _input(event: InputEvent) -> void:
 				elif event.keycode == KEY_O and event.pressed:
 					_block_position_z += 0.01
 					changed = true
+			else: # ITEM mode
+				if event.keycode == KEY_R and event.pressed:
+					_item_rotation_x -= 5.0
+					changed = true
+				elif event.keycode == KEY_F and event.pressed:
+					_item_rotation_x += 5.0
+					changed = true
+				elif event.keycode == KEY_A and event.pressed:
+					_item_rotation_y -= 1.0
+					changed = true
+				elif event.keycode == KEY_D and event.pressed:
+					_item_rotation_y += 1.0
+					changed = true
+				elif event.keycode == KEY_W and event.pressed:
+					_item_rotation_z -= 5.0
+					changed = true
+				elif event.keycode == KEY_S and event.pressed:
+					_item_rotation_z += 5.0
+					changed = true
+				elif event.keycode == KEY_T and event.pressed:
+					_item_scale -= 0.01
+					changed = true
+				elif event.keycode == KEY_G and event.pressed:
+					_item_scale += 0.01
+					changed = true
+				elif event.keycode == KEY_I and event.pressed:
+					_item_position_x -= 0.01
+					changed = true
+				elif event.keycode == KEY_K and event.pressed:
+					_item_position_x += 0.01
+					changed = true
+				elif event.keycode == KEY_J and event.pressed:
+					_item_position_y -= 0.01
+					changed = true
+				elif event.keycode == KEY_L and event.pressed:
+					_item_position_y += 0.01
+					changed = true
+				elif event.keycode == KEY_U and event.pressed:
+					_item_position_z -= 0.01
+					changed = true
+				elif event.keycode == KEY_O and event.pressed:
+					_item_position_z += 0.01
+					changed = true
 			
 			if changed:
 				if _adjustment_mode == "ARM":
 					_update_arm_rotation()
-				else:
+				elif _adjustment_mode == "BLOCK":
 					_update_block_transform()
+				else:
+					_update_item_transform()
 				_update_hud_labels()
 
 func _update_arm_rotation() -> void:
@@ -592,7 +649,7 @@ func _update_hud_labels() -> void:
 			labels[5].text = "Pos X : " + str(_arm_position_x)
 			labels[6].text = "Pos Y : " + str(_arm_position_y)
 			labels[7].text = "Pos Z : " + str(_arm_position_z)
-		else:
+		elif _adjustment_mode == "BLOCK":
 			labels[1].text = "X Rot : " + str(_block_rotation_x)
 			labels[2].text = "Y Rot : " + str(_block_rotation_y)
 			labels[3].text = "Z Rot : " + str(_block_rotation_z)
@@ -600,6 +657,14 @@ func _update_hud_labels() -> void:
 			labels[5].text = "Pos X : " + str(_block_position_x)
 			labels[6].text = "Pos Y : " + str(_block_position_y)
 			labels[7].text = "Pos Z : " + str(_block_position_z)
+		else: # ITEM
+			labels[1].text = "X Rot : " + str(_item_rotation_x)
+			labels[2].text = "Y Rot : " + str(_item_rotation_y)
+			labels[3].text = "Z Rot : " + str(_item_rotation_z)
+			labels[4].text = "Scale : " + str(_item_scale)
+			labels[5].text = "Pos X : " + str(_item_position_x)
+			labels[6].text = "Pos Y : " + str(_item_position_y)
+			labels[7].text = "Pos Z : " + str(_item_position_z)
 
 func _update_block_transform() -> void:
 	if _item_scale_node != null and _block_id > 0 and not BlockTextures.is_item(_block_id):
@@ -607,8 +672,13 @@ func _update_block_transform() -> void:
 		_item_scale_node.rotation_degrees = Vector3(_block_rotation_x, _block_rotation_y, _block_rotation_z)
 		_item_scale_node.scale = Vector3.ONE * _block_scale
 
+func _update_item_transform() -> void:
+	if _item_scale_node != null and _block_id > 0 and BlockTextures.is_item(_block_id):
+		_item_scale_node.position = Vector3(_item_position_x, _item_position_y, _item_position_z)
+		_item_scale_node.rotation_degrees = Vector3(_item_rotation_x, _item_rotation_y, _item_rotation_z)
+		_item_scale_node.scale = Vector3.ONE * _item_scale
+
 func _generate_item_mesh(texture: Texture2D) -> ArrayMesh:
-	# Generate 3D item model from texture data by extruding painted pixels
 	var mesh := ArrayMesh.new()
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
@@ -617,12 +687,10 @@ func _generate_item_mesh(texture: Texture2D) -> ArrayMesh:
 	var normals := PackedVector3Array()
 	var indices := PackedInt32Array()
 	
-	# Get texture data
 	var image := texture.get_image()
 	if image == null:
 		return mesh
 	
-	# Convert to RGBA if needed
 	if image.get_format() != Image.FORMAT_RGBA8:
 		var new_image := Image.new()
 		new_image.copy_from(image)
@@ -633,121 +701,112 @@ func _generate_item_mesh(texture: Texture2D) -> ArrayMesh:
 	var height: int = image.get_height()
 	var pixels := image.get_data()
 	
-	# Analyze pixels to find painted (non-transparent) ones
-	var painted_pixels := []
-	for y: int in range(height):
-		for x: int in range(width):
-			var pixel_index := (y * width + x) * 4
-			var alpha := pixels[pixel_index + 3]
-			if alpha > 0: # Non-transparent pixel
-				painted_pixels.append(Vector2i(x, y))
-	
-	if painted_pixels.is_empty():
-		return mesh
-	
-	# Extrude painted pixels into 3D geometry
-	var extrusion_depth := 0.08 # Thinner extrusion depth
 	var texel_size := 1.0 / maxf(width, height)
+	var extrusion_depth := 0.05
+	var pz_front = extrusion_depth / 2.0
+	var pz_back = -extrusion_depth / 2.0
 	var vertex_index := 0
 	
-	for pixel in painted_pixels:
-		var x: int = pixel.x
-		var y: int = pixel.y
-		
-		# Convert pixel coordinates to normalized UV space
-		var u = float(x) / width
-		var v = float(y) / height
-		
-		# Convert to 3D space (centered)
-		var px = (x - width / 2.0) * texel_size
-		var py = (height / 2.0 - y) * texel_size # Flip Y for texture coordinates
-		var pz_front = extrusion_depth / 2.0
-		var pz_back = -extrusion_depth / 2.0
-		
-		# Create 6 faces for each pixel (like MC's extrusion)
-		# Front face
-		verts.append_array([
-			Vector3(px - texel_size/2, py - texel_size/2, pz_front),
-			Vector3(px - texel_size/2, py + texel_size/2, pz_front),
-			Vector3(px + texel_size/2, py + texel_size/2, pz_front),
-			Vector3(px + texel_size/2, py - texel_size/2, pz_front)
-		])
-		normals.append_array([Vector3.FORWARD, Vector3.FORWARD, Vector3.FORWARD, Vector3.FORWARD])
-		uvs.append_array([
-			Vector2(u, v + texel_size),
-			Vector2(u, v),
-			Vector2(u + texel_size, v),
-			Vector2(u + texel_size, v + texel_size)
-		])
-		indices.append_array([vertex_index, vertex_index + 1, vertex_index + 2, vertex_index, vertex_index + 2, vertex_index + 3])
-		vertex_index += 4
-		
-		# Back face
-		verts.append_array([
-			Vector3(px + texel_size/2, py - texel_size/2, pz_back),
-			Vector3(px + texel_size/2, py + texel_size/2, pz_back),
-			Vector3(px - texel_size/2, py + texel_size/2, pz_back),
-			Vector3(px - texel_size/2, py - texel_size/2, pz_back)
-		])
-		normals.append_array([Vector3.BACK, Vector3.BACK, Vector3.BACK, Vector3.BACK])
-		uvs.append_array([
-			Vector2(u + texel_size, v + texel_size),
-			Vector2(u + texel_size, v),
-			Vector2(u, v),
-			Vector2(u, v + texel_size)
-		])
-		indices.append_array([vertex_index, vertex_index + 1, vertex_index + 2, vertex_index, vertex_index + 2, vertex_index + 3])
-		vertex_index += 4
-		
-		# Top face - use pixel's own center color
-		verts.append_array([
-			Vector3(px - texel_size/2, py + texel_size/2, pz_front),
-			Vector3(px - texel_size/2, py + texel_size/2, pz_back),
-			Vector3(px + texel_size/2, py + texel_size/2, pz_back),
-			Vector3(px + texel_size/2, py + texel_size/2, pz_front)
-		])
-		normals.append_array([Vector3.UP, Vector3.UP, Vector3.UP, Vector3.UP])
-		var center_uv := Vector2(u + texel_size/2, v + texel_size/2) # Sample from pixel center
-		uvs.append_array([center_uv, center_uv, center_uv, center_uv])
-		indices.append_array([vertex_index, vertex_index + 1, vertex_index + 2, vertex_index, vertex_index + 2, vertex_index + 3])
-		vertex_index += 4
-		
-		# Bottom face - use pixel's own center color
-		verts.append_array([
-			Vector3(px - texel_size/2, py - texel_size/2, pz_back),
-			Vector3(px - texel_size/2, py - texel_size/2, pz_front),
-			Vector3(px + texel_size/2, py - texel_size/2, pz_front),
-			Vector3(px + texel_size/2, py - texel_size/2, pz_back)
-		])
-		normals.append_array([Vector3.DOWN, Vector3.DOWN, Vector3.DOWN, Vector3.DOWN])
-		uvs.append_array([center_uv, center_uv, center_uv, center_uv])
-		indices.append_array([vertex_index, vertex_index + 1, vertex_index + 2, vertex_index, vertex_index + 2, vertex_index + 3])
-		vertex_index += 4
-		
-		# Right face - use pixel's own center color
-		verts.append_array([
-			Vector3(px + texel_size/2, py - texel_size/2, pz_front),
-			Vector3(px + texel_size/2, py + texel_size/2, pz_front),
-			Vector3(px + texel_size/2, py + texel_size/2, pz_back),
-			Vector3(px + texel_size/2, py - texel_size/2, pz_back)
-		])
-		normals.append_array([Vector3.RIGHT, Vector3.RIGHT, Vector3.RIGHT, Vector3.RIGHT])
-		uvs.append_array([center_uv, center_uv, center_uv, center_uv])
-		indices.append_array([vertex_index, vertex_index + 1, vertex_index + 2, vertex_index, vertex_index + 2, vertex_index + 3])
-		vertex_index += 4
-		
-		# Left face - use pixel's own center color
-		verts.append_array([
-			Vector3(px - texel_size/2, py - texel_size/2, pz_back),
-			Vector3(px - texel_size/2, py + texel_size/2, pz_back),
-			Vector3(px - texel_size/2, py + texel_size/2, pz_front),
-			Vector3(px - texel_size/2, py - texel_size/2, pz_front)
-		])
-		normals.append_array([Vector3.LEFT, Vector3.LEFT, Vector3.LEFT, Vector3.LEFT])
-		uvs.append_array([center_uv, center_uv, center_uv, center_uv])
-		indices.append_array([vertex_index, vertex_index + 1, vertex_index + 2, vertex_index, vertex_index + 2, vertex_index + 3])
-		vertex_index += 4
+	var is_solid = func(px_x: int, px_y: int) -> bool:
+		if px_x < 0 or px_x >= width or px_y < 0 or px_y >= height:
+			return false
+		return pixels[(px_y * width + px_x) * 4 + 3] > 0
 	
+	for y: int in range(height):
+		for x: int in range(width):
+			if not is_solid.call(x, y):
+				continue
+			
+			var u = float(x) / width
+			var v = float(y) / height
+			var px = (x - width / 2.0) * texel_size
+			var py = (height / 2.0 - y) * texel_size
+			
+			# 1. Front Face
+			verts.append_array([
+				Vector3(px - texel_size/2, py - texel_size/2, pz_front),
+				Vector3(px - texel_size/2, py + texel_size/2, pz_front),
+				Vector3(px + texel_size/2, py + texel_size/2, pz_front),
+				Vector3(px + texel_size/2, py - texel_size/2, pz_front)
+			])
+			normals.append_array([Vector3.BACK, Vector3.BACK, Vector3.BACK, Vector3.BACK])
+			uvs.append_array([
+				Vector2(u, v + texel_size),
+				Vector2(u, v),
+				Vector2(u + texel_size, v),
+				Vector2(u + texel_size, v + texel_size)
+			])
+			indices.append_array([vertex_index, vertex_index + 1, vertex_index + 2, vertex_index, vertex_index + 2, vertex_index + 3])
+			vertex_index += 4
+			
+			# 2. Back Face
+			verts.append_array([
+				Vector3(px + texel_size/2, py - texel_size/2, pz_back),
+				Vector3(px + texel_size/2, py + texel_size/2, pz_back),
+				Vector3(px - texel_size/2, py + texel_size/2, pz_back),
+				Vector3(px - texel_size/2, py - texel_size/2, pz_back)
+			])
+			normals.append_array([Vector3.FORWARD, Vector3.FORWARD, Vector3.FORWARD, Vector3.FORWARD])
+			uvs.append_array([
+				Vector2(u + texel_size, v + texel_size),
+				Vector2(u + texel_size, v),
+				Vector2(u, v),
+				Vector2(u, v + texel_size)
+			])
+			indices.append_array([vertex_index, vertex_index + 1, vertex_index + 2, vertex_index, vertex_index + 2, vertex_index + 3])
+			vertex_index += 4
+			
+			var center_uv := Vector2(u + texel_size/2, v + texel_size/2)
+			
+			# 3. Outer Silhouette Rims
+			if not is_solid.call(x, y - 1): # Top Edge
+				verts.append_array([
+					Vector3(px - texel_size/2, py + texel_size/2, pz_front),
+					Vector3(px - texel_size/2, py + texel_size/2, pz_back),
+					Vector3(px + texel_size/2, py + texel_size/2, pz_back),
+					Vector3(px + texel_size/2, py + texel_size/2, pz_front)
+				])
+				normals.append_array([Vector3.UP, Vector3.UP, Vector3.UP, Vector3.UP])
+				uvs.append_array([center_uv, center_uv, center_uv, center_uv])
+				indices.append_array([vertex_index, vertex_index + 1, vertex_index + 2, vertex_index, vertex_index + 2, vertex_index + 3])
+				vertex_index += 4
+				
+			if not is_solid.call(x, y + 1): # Bottom Edge
+				verts.append_array([
+					Vector3(px - texel_size/2, py - texel_size/2, pz_back),
+					Vector3(px - texel_size/2, py - texel_size/2, pz_front),
+					Vector3(px + texel_size/2, py - texel_size/2, pz_front),
+					Vector3(px + texel_size/2, py - texel_size/2, pz_back)
+				])
+				normals.append_array([Vector3.DOWN, Vector3.DOWN, Vector3.DOWN, Vector3.DOWN])
+				uvs.append_array([center_uv, center_uv, center_uv, center_uv])
+				indices.append_array([vertex_index, vertex_index + 1, vertex_index + 2, vertex_index, vertex_index + 2, vertex_index + 3])
+				vertex_index += 4
+				
+			if not is_solid.call(x + 1, y): # Right Edge
+				verts.append_array([
+					Vector3(px + texel_size/2, py - texel_size/2, pz_front),
+					Vector3(px + texel_size/2, py + texel_size/2, pz_front),
+					Vector3(px + texel_size/2, py + texel_size/2, pz_back),
+					Vector3(px + texel_size/2, py - texel_size/2, pz_back)
+				])
+				normals.append_array([Vector3.RIGHT, Vector3.RIGHT, Vector3.RIGHT, Vector3.RIGHT])
+				uvs.append_array([center_uv, center_uv, center_uv, center_uv])
+				indices.append_array([vertex_index, vertex_index + 1, vertex_index + 2, vertex_index, vertex_index + 2, vertex_index + 3])
+				vertex_index += 4
+				
+			if not is_solid.call(x - 1, y): # Left Edge
+				verts.append_array([
+					Vector3(px - texel_size/2, py - texel_size/2, pz_back),
+					Vector3(px - texel_size/2, py + texel_size/2, pz_back),
+					Vector3(px - texel_size/2, py + texel_size/2, pz_front),
+					Vector3(px - texel_size/2, py - texel_size/2, pz_front)
+				])
+				normals.append_array([Vector3.LEFT, Vector3.LEFT, Vector3.LEFT, Vector3.LEFT])
+				uvs.append_array([center_uv, center_uv, center_uv, center_uv])
+				indices.append_array([vertex_index, vertex_index + 1, vertex_index + 2, vertex_index, vertex_index + 2, vertex_index + 3])
+				vertex_index += 4
+
 	arrays[Mesh.ARRAY_VERTEX] = verts
 	arrays[Mesh.ARRAY_TEX_UV] = uvs
 	arrays[Mesh.ARRAY_NORMAL] = normals

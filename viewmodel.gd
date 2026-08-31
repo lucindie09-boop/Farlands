@@ -28,7 +28,7 @@ var _arm: Node3D
 var _swing_node: Node3D
 var _item_scale_node: Node3D
 var _item: MeshInstance3D
-var _material: StandardMaterial3D
+var _material: Material
 var _cube_mesh: ArrayMesh
 var _stick_mesh: BoxMesh
 var _block_id := -2
@@ -38,13 +38,13 @@ var _swing := 0.0
 # Real-time adjustment HUD
 var _hud_panel: Control
 var _hud_visible := false
-var _rotation_x: float = 0.0
-var _rotation_y: float = 0.0
-var _rotation_z: float = 0.0
-var _arm_scale: float = 0.47
-var _arm_position_x: float = MC_SHOULDER.x
-var _arm_position_y: float = MC_SHOULDER.y
-var _arm_position_z: float = MC_SHOULDER.z
+var _rotation_x: float = 5.0
+var _rotation_y: float = -13.0
+var _rotation_z: float = 5.0
+var _arm_scale: float = 1.0
+var _arm_position_x: float = 0.67
+var _arm_position_y: float = -0.01
+var _arm_position_z: float = -0.75
 
 # Minecraft 1.8.8 decompiled ItemRenderer.java + ModelPlayer.java, empty-hand
 # arm path:
@@ -74,9 +74,8 @@ const MC_ARM_BASIS := Basis(
 # Shoulder pivot, eye-space metres (camera child: +x=right, +y=up, +z=toward
 # viewer). The right arm's shoulder sits to the right of center; the arm then
 # extends down-left-toward the camera (per the matrix above), reading as the
-# diagonal MC held-arm in the lower-right of the screen. MC's own translations
-# (block units off-camera) don't map to these metres.
-const MC_SHOULDER := Vector3(0.55, 0.10, -0.55)
+# diagonal MC held-arm in the lower-right of the screen.
+const MC_SHOULDER := Vector3(0.67, -0.01, -0.75)
 
 func _ready() -> void:
 	_player = get_node_or_null("/root/Main/Player")
@@ -102,18 +101,15 @@ func _ready() -> void:
 	_arm_pivot = Node3D.new()
 	arm_root.add_child(_arm_pivot)
 	_arm_pivot.add_child(arm_node)
-	# player.glb arm box spans y 0..12 px (shoulder at +y). Shift it DOWN by its
-	# full height (scaled) so the SHOULDER sits exactly on the pivot -- matching
-	# Minecraft, which pivots the arm at the shoulder (arm then hangs down). The
-	# old code left the pivot at the arm's hand/wrist, so any rotation swung the
-	# arm around the wrong end and the pose never matched.
 	arm_node.position = Vector3(0, -12.0, 0) * MODEL_SCALE * _arm_scale
 	arm_node.scale = Vector3.ONE * MODEL_SCALE * _arm_scale
 	arm_node.rotation_degrees = Vector3.ZERO
 	_arm_pivot.basis = MC_ARM_BASIS
 
+	_flip_arm_mesh_uvs(arm_node)
 	_apply_skin(arm_node)
 	_arm = arm_node
+	_update_arm_rotation()
 	# _align_to_grip(arm_root)  # Disabled - we control rotation manually now
 
 	# --- Held item (transformFirstPersonItem). ---
@@ -136,14 +132,17 @@ func _ready() -> void:
 	_item_scale_node = Node3D.new()
 	scale04.add_child(_item_scale_node)
 
-	_material = StandardMaterial3D.new()
-	_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	_material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
-	_material.cull_mode = BaseMaterial3D.CULL_BACK
-	# Viewmodels must always draw over terrain: disable the depth *test* (nearest
-	# fragment wins) while keeping depth *writes* so nothing behind the arm can
-	# paint over it either.
-	_material.no_depth_test = true
+	# Use StandardMaterial3D with per-pixel lighting instead of unshaded
+	# This should give us dynamic lighting without the whitening issue
+	var std_mat := StandardMaterial3D.new()
+	std_mat.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
+	std_mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+	std_mat.cull_mode = BaseMaterial3D.CULL_BACK
+	std_mat.no_depth_test = true
+	std_mat.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
+	std_mat.roughness = 1.0
+	std_mat.metallic = 0.0
+	_material = std_mat
 
 	_cube_mesh = _build_cube_mesh()
 	_stick_mesh = BoxMesh.new()
@@ -222,7 +221,11 @@ func _refresh_held_item() -> void:
 	if tex == null:
 		_item.visible = false
 		return
-	_material.albedo_texture = tex
+	
+	var std_mat := _material as StandardMaterial3D
+	if std_mat != null:
+		std_mat.albedo_texture = tex
+	
 	_item.visible = true
 	if BlockTextures.is_item(id):
 		_item.mesh = _stick_mesh
@@ -232,10 +235,51 @@ func _refresh_held_item() -> void:
 		_item_scale_node.scale = Vector3.ONE * 2.0 # renderItem 3D doubling
 		_item.rotation = Vector3.ZERO
 
+func _flip_arm_mesh_uvs(arm: Node3D) -> void:
+	var list: Array[Node3D] = [arm]
+	for child in arm.find_children("", "MeshInstance3D", true, false):
+		list.append(child)
+	for n in list:
+		var mi := n as MeshInstance3D
+		if mi == null or mi.mesh == null:
+			continue
+		var old_mesh := mi.mesh
+		var new_mesh := ArrayMesh.new()
+		for s in range(old_mesh.get_surface_count()):
+			var arrays := old_mesh.surface_get_arrays(s)
+			var uvs: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV].duplicate()
+			var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+			var positions: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+			
+			var top_indices: Array[int] = []
+			var bot_indices: Array[int] = []
+			
+			for i in range(uvs.size()):
+				var norm := normals[i]
+				if norm.y > 0.5:
+					top_indices.append(i)
+				elif norm.y < -0.5:
+					bot_indices.append(i)
+				else:
+					# Side faces: vertically invert V along sleeve (span 20..32 px)
+					uvs[i].y = (52.0 / 64.0) - uvs[i].y
+			
+			# Swap top face and bottom face UVs by matching XZ positions
+			for ti in top_indices:
+				var tp := positions[ti]
+				for bi in bot_indices:
+					var bp := positions[bi]
+					if is_equal_approx(tp.x, bp.x) and is_equal_approx(tp.z, bp.z):
+						var temp := uvs[ti]
+						uvs[ti] = uvs[bi]
+						uvs[bi] = temp
+						break
+			
+			arrays[Mesh.ARRAY_TEX_UV] = uvs
+			new_mesh.add_surface_from_arrays(old_mesh.surface_get_primitive_type(s), arrays)
+		mi.mesh = new_mesh
+
 func _apply_skin(arm: Node3D) -> void:
-	# Always drive the arm with our own StandardMaterial3D, ignoring whatever the
-	# glb surfaces carry (a ShaderMaterial there would keep depth testing on and
-	# look flat). Unshaded + nearest + no_depth_test => visible over terrain.
 	var mgr := get_node_or_null("/root/SkinManager")
 	var tex: Texture2D = mgr.get_texture() if mgr != null else null
 	var list: Array[Node3D] = [arm]
@@ -246,14 +290,20 @@ func _apply_skin(arm: Node3D) -> void:
 		if mi == null or mi.mesh == null:
 			continue
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		var mat := StandardMaterial3D.new()
-		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
-		mat.no_depth_test = true
+		
+		# Use StandardMaterial3D with per-pixel lighting
+		var std_mat := StandardMaterial3D.new()
+		std_mat.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
+		std_mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+		std_mat.no_depth_test = true
+		std_mat.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
+		std_mat.roughness = 1.0
+		std_mat.metallic = 0.0
 		if tex != null:
-			mat.albedo_texture = tex
+			std_mat.albedo_texture = tex
+		
 		for s in range(mi.mesh.get_surface_count()):
-			mi.set_surface_override_material(s, mat)
+			mi.set_surface_override_material(s, std_mat)
 
 func _build_cube_mesh() -> ArrayMesh:
 	# Same layout as the Block Maker / block-break overlay cube: texture-top =
@@ -360,10 +410,10 @@ func _input(event: InputEvent) -> void:
 				_rotation_x += 5.0
 				changed = true
 			elif event.keycode == KEY_A and event.pressed:
-				_rotation_y -= 5.0
+				_rotation_y -= 1.0
 				changed = true
 			elif event.keycode == KEY_D and event.pressed:
-				_rotation_y += 5.0
+				_rotation_y += 1.0
 				changed = true
 			elif event.keycode == KEY_W and event.pressed:
 				_rotation_z -= 5.0
@@ -404,23 +454,25 @@ func _update_arm_rotation() -> void:
 	if _arm_pivot != null:
 		# The source pose is the exact MC_ARM_BASIS matrix (avoids Godot's
 		# Euler-order ambiguity). The F12 HUD rotation keys apply a small euler
-		# delta on top, defaulting to no-op so the arm matches MC.
+		# delta on top.
 		_arm_pivot.basis = MC_ARM_BASIS.rotated(Vector3.RIGHT, deg_to_rad(_rotation_x))
 		_arm_pivot.basis = _arm_pivot.basis.rotated(Vector3.UP, deg_to_rad(_rotation_y))
 		_arm_pivot.basis = _arm_pivot.basis.rotated(Vector3.BACK, deg_to_rad(_rotation_z))
 	if _arm != null:
+		_arm.position = Vector3(0, -12.0, 0) * MODEL_SCALE * _arm_scale
 		_arm.scale = Vector3.ONE * MODEL_SCALE * _arm_scale
-	var arm_root = _arm.get_parent().get_parent()
-	if arm_root != null:
-		arm_root.position = Vector3(_arm_position_x, _arm_position_y, _arm_position_z)
+		if _arm.get_parent() != null and _arm.get_parent().get_parent() != null:
+			var arm_root = _arm.get_parent().get_parent() as Node3D
+			if arm_root != null:
+				arm_root.position = Vector3(_arm_position_x, _arm_position_y, _arm_position_z)
 
 func _update_hud_labels() -> void:
 	var labels = _hud_panel.find_children("", "Label", false, false)
-	if labels.size() >= 8:
-		labels[1].text = "X Rot : " + str(_rotation_x)
-		labels[2].text = "Y Rot : " + str(_rotation_y)
-		labels[3].text = "Z Rot : " + str(_rotation_z)
-		labels[4].text = "Scale : " + str(_arm_scale)
-		labels[5].text = "Pos X : " + str(_arm_position_x)
-		labels[6].text = "Pos Y : " + str(_arm_position_y)
-		labels[7].text = "Pos Z : " + str(_arm_position_z)
+	if labels.size() >= 9:
+		labels[2].text = "X Rot : " + str(_rotation_x)
+		labels[3].text = "Y Rot : " + str(_rotation_y)
+		labels[4].text = "Z Rot : " + str(_rotation_z)
+		labels[5].text = "Scale : " + str(_arm_scale)
+		labels[6].text = "Pos X : " + str(_arm_position_x)
+		labels[7].text = "Pos Y : " + str(_arm_position_y)
+		labels[8].text = "Pos Z : " + str(_arm_position_z)

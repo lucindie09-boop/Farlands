@@ -4,7 +4,7 @@ extends Control
 # edge. Sized off the hotbar's on-screen width so the row spans ~40% of the
 # bar -- hearts render as 9-texel sprites on a 10-texel pitch (1 texel of
 # space between), and the resulting 99-texel span maps onto the 40% fraction.
-# Health is in half-hearts (0..20, Minecraft convention), polled from
+# Health is in half-hearts (0..20, vanilla convention), polled from
 # PlayerController.get_health(); fall damage drains it.
 
 const HEART_COUNT = 10

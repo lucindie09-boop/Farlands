@@ -38,32 +38,45 @@ var _swing := 0.0
 # Real-time adjustment HUD
 var _hud_panel: Control
 var _hud_visible := false
-var _rotation_x: float = MC_ROT_X
-var _rotation_y: float = MC_ROT_Y
-var _rotation_z: float = MC_ROT_Z
+var _rotation_x: float = 0.0
+var _rotation_y: float = 0.0
+var _rotation_z: float = 0.0
 var _arm_scale: float = 0.47
-var _arm_position_x: float = MC_POS_X
-var _arm_position_y: float = -0.03  # Adjusted for visibility (MC value -0.85 is too low)
-var _arm_position_z: float = -0.50  # Adjusted for visibility (MC value 0.75 may be wrong direction)
+var _arm_position_x: float = MC_SHOULDER.x
+var _arm_position_y: float = MC_SHOULDER.y
+var _arm_position_z: float = MC_SHOULDER.z
 
-# Auto-optimizer
-var _optimizer_active := false
-var _optimizer_iterations := 0
-var _best_score := 0.0
-var _reference_texture: Texture2D
-var _reference_image: Image
-var _best_params := {}
-var _optimizer_step_size := 1.0
-var _optimizer_timer := 0.0
-var _optimizer_interval := 0.067  # ~15 changes per second
+# Minecraft 1.8.8 decompiled ItemRenderer.java + ModelPlayer.java, empty-hand
+# arm path:
+#   func_178095_a() rotation calls       (GL post-multiply, vertex-first):
+#       rotate(45, Y)  ->  RotY45
+#       rotate(120, Z) ->  RotZ120
+#       rotate(200, X) ->  RotX200
+#       rotate(-135, Y)->  RotY-135
+#   -> R = RotY45 * RotZ120 * RotX200 * RotY-135
+#   renderRightArm() (ModelPlayer.func_178725_a) renders bipedRightArm with
+#   setRotationAngles all-zero -> the arm hangs straight down (rotation ~0).
+# So the whole pose is R. On a down-hanging right arm R sends the axis to
+# (-0.334,-0.470,+0.817) = down / left / strongly TOWARD THE VIEWER - the
+# foreshortened, angled Minecraft held-arm (NOT straight down; earlier attempts
+# only applied a 45-yaw, which kept it hanging straight down - the bug).
+#
+# We apply R as a Basis matrix, not Euler (Godot's Euler-order is ambiguous and
+# an off-by-one made the arm spin the wrong way). Columns = image of world axes
+# under R (Basis(xcol,ycol,zcol) * v == R * v). MC and Godot are both
+# right-handed, so no mirroring is needed.
+const MC_ARM_BASIS := Basis(
+	Vector3(-0.3679, -0.7333, -0.5717),
+	Vector3(0.3336,  0.4698, -0.8173),
+	Vector3(0.8679, -0.4915,  0.0717)
+)
 
-# Minecraft exact values from ItemRenderer.java renderRightArm()
-const MC_ROT_X := 64.0
-const MC_ROT_Y := 54.0
-const MC_ROT_Z := -62.0
-const MC_POS_X := 0.25
-const MC_POS_Y := -0.85
-const MC_POS_Z := 0.75
+# Shoulder pivot, eye-space metres (camera child: +x=right, +y=up, +z=toward
+# viewer). The right arm's shoulder sits to the right of center; the arm then
+# extends down-left-toward the camera (per the matrix above), reading as the
+# diagonal MC held-arm in the lower-right of the screen. MC's own translations
+# (block units off-camera) don't map to these metres.
+const MC_SHOULDER := Vector3(0.55, 0.10, -0.55)
 
 func _ready() -> void:
 	_player = get_node_or_null("/root/Main/Player")
@@ -78,11 +91,10 @@ func _ready() -> void:
 	arm_root.name = "ArmRoot"
 	arm_root.position = Vector3(_arm_position_x, _arm_position_y, _arm_position_z)
 
-	# The glb arm node has a big baked-in offset (x -8.5 / +3.5 px, y 12 px). We
-	# re-parent the MeshInstance3D with its position zeroed so the shoulder pivot
-	# sits exactly on arm_root and placement is driven by the anchors/alignment,
-	# not by that lever arm being rotated around. arm_pivot carries the punch
-	# rotation so the mesh keeps its scale (setting .basis directly would nuke it).
+	# The glb arm node carries a big baked-in offset (x -8.5/+3.5 px, y 12 px);
+	# we re-parent its mesh under a shoulder pivot and ignore that lever arm for
+	# placement. arm_pivot carries the punch rotation so the mesh keeps its scale
+	# (setting .basis directly would nuke it).
 	var mdl := PLAYER_MODEL.instantiate()
 	var arm_node := mdl.get_child(arm_index) as Node3D
 	mdl.remove_child(arm_node)
@@ -90,9 +102,15 @@ func _ready() -> void:
 	_arm_pivot = Node3D.new()
 	arm_root.add_child(_arm_pivot)
 	_arm_pivot.add_child(arm_node)
-	arm_node.position = Vector3.ZERO
+	# player.glb arm box spans y 0..12 px (shoulder at +y). Shift it DOWN by its
+	# full height (scaled) so the SHOULDER sits exactly on the pivot -- matching
+	# Minecraft, which pivots the arm at the shoulder (arm then hangs down). The
+	# old code left the pivot at the arm's hand/wrist, so any rotation swung the
+	# arm around the wrong end and the pose never matched.
+	arm_node.position = Vector3(0, -12.0, 0) * MODEL_SCALE * _arm_scale
 	arm_node.scale = Vector3.ONE * MODEL_SCALE * _arm_scale
-	arm_node.rotation_degrees = Vector3(_rotation_x, _rotation_y, _rotation_z)
+	arm_node.rotation_degrees = Vector3.ZERO
+	_arm_pivot.basis = MC_ARM_BASIS
 
 	_apply_skin(arm_node)
 	_arm = arm_node
@@ -172,10 +190,6 @@ func _process(delta: float) -> void:
 	_equip = move_toward(_equip, 1.0, delta / 0.25)
 	_update_swing_hooks()
 	_refresh_held_item()
-	
-	# Run optimizer if active
-	if _optimizer_active:
-		_process_optimizer()
 
 # Kick a punch/swing (roadmap: punch animation). Progress 1..0 over 0.25s.
 func punch() -> void:
@@ -331,11 +345,6 @@ func _create_hud() -> void:
 		axis_label.position = Vector2(10, offset_y)
 		_hud_panel.add_child(axis_label)
 		offset_y += 25
-	
-	var optimizer_label := Label.new()
-	optimizer_label.text = "Optimizer: " + ("ON" if _optimizer_active else "OFF") + " | Iterations: " + str(_optimizer_iterations)
-	optimizer_label.position = Vector2(10, offset_y)
-	_hud_panel.add_child(optimizer_label)
 
 func _input(event: InputEvent) -> void:
 	if event is InputEventKey:
@@ -386,11 +395,6 @@ func _input(event: InputEvent) -> void:
 			elif event.keycode == KEY_O and event.pressed:
 				_arm_position_z += 0.01
 				changed = true
-			elif event.keycode == KEY_P and event.pressed:
-				_optimizer_active = !_optimizer_active
-				if _optimizer_active:
-					_start_optimizer()
-				changed = true
 			
 			if changed:
 				_update_arm_rotation()
@@ -398,7 +402,12 @@ func _input(event: InputEvent) -> void:
 
 func _update_arm_rotation() -> void:
 	if _arm_pivot != null:
-		_arm_pivot.rotation_degrees = Vector3(_rotation_x, _rotation_y, _rotation_z)
+		# The source pose is the exact MC_ARM_BASIS matrix (avoids Godot's
+		# Euler-order ambiguity). The F12 HUD rotation keys apply a small euler
+		# delta on top, defaulting to no-op so the arm matches MC.
+		_arm_pivot.basis = MC_ARM_BASIS.rotated(Vector3.RIGHT, deg_to_rad(_rotation_x))
+		_arm_pivot.basis = _arm_pivot.basis.rotated(Vector3.UP, deg_to_rad(_rotation_y))
+		_arm_pivot.basis = _arm_pivot.basis.rotated(Vector3.BACK, deg_to_rad(_rotation_z))
 	if _arm != null:
 		_arm.scale = Vector3.ONE * MODEL_SCALE * _arm_scale
 	var arm_root = _arm.get_parent().get_parent()
@@ -407,7 +416,7 @@ func _update_arm_rotation() -> void:
 
 func _update_hud_labels() -> void:
 	var labels = _hud_panel.find_children("", "Label", false, false)
-	if labels.size() >= 9:
+	if labels.size() >= 8:
 		labels[1].text = "X Rot : " + str(_rotation_x)
 		labels[2].text = "Y Rot : " + str(_rotation_y)
 		labels[3].text = "Z Rot : " + str(_rotation_z)
@@ -415,144 +424,3 @@ func _update_hud_labels() -> void:
 		labels[5].text = "Pos X : " + str(_arm_position_x)
 		labels[6].text = "Pos Y : " + str(_arm_position_y)
 		labels[7].text = "Pos Z : " + str(_arm_position_z)
-		labels[8].text = "Optimizer: " + ("ON" if _optimizer_active else "OFF") + " | Iterations: " + str(_optimizer_iterations)
-
-func _start_optimizer() -> void:
-	# Load reference texture for comparison
-	_reference_texture = load("res://textures/htr.png") if ResourceLoader.exists("res://textures/htr.png") else load("res://textures/htr.jpg") if ResourceLoader.exists("res://textures/htr.jpg") else null
-	if _reference_texture != null:
-		_reference_image = _reference_texture.get_image()
-		# Convert reference to grayscale and focus on black areas
-		_reference_image = _extract_black_silhouette(_reference_image)
-		_optimizer_iterations = 0
-		_best_score = _calculate_image_similarity()
-		_best_params = {
-			"rot_x": _rotation_x,
-			"rot_y": _rotation_y,
-			"rot_z": _rotation_z,
-			"scale": _arm_scale,
-			"pos_x": _arm_position_x,
-			"pos_y": _arm_position_y,
-			"pos_z": _arm_position_z
-		}
-		_optimizer_step_size = 5.0  # Start with much larger steps for faster convergence
-		print("Optimizer started with initial score: ", _best_score)
-	else:
-		print("Could not load reference texture for optimizer")
-		_optimizer_active = false
-
-func _extract_black_silhouette(image: Image) -> Image:
-	# For reference: black arm on white background
-	var result = Image.new()
-	result.copy_from(image)
-	result.resize(64, 48)
-	
-	for y in range(result.get_height()):
-		for x in range(result.get_width()):
-			var pixel = result.get_pixel(x, y)
-			var brightness = (pixel.r + pixel.g + pixel.b) / 3.0
-			if brightness < 0.3:  # Black pixels
-				result.set_pixel(x, y, Color.WHITE)
-			else:
-				result.set_pixel(x, y, Color.BLACK)
-	
-	return result
-
-func _extract_arm_area(image: Image) -> Image:
-	# For game screenshot: extract non-white pixels (the actual arm)
-	var result = Image.new()
-	result.copy_from(image)
-	result.resize(64, 48)
-	
-	for y in range(result.get_height()):
-		for x in range(result.get_width()):
-			var pixel = result.get_pixel(x, y)
-			var brightness = (pixel.r + pixel.g + pixel.b) / 3.0
-			if brightness < 0.9:  # Any non-white pixel (arm)
-				result.set_pixel(x, y, Color.WHITE)
-			else:
-				result.set_pixel(x, y, Color.BLACK)
-	
-	return result
-
-func _calculate_image_similarity() -> float:
-	# Manual override - use mathematical scoring since screenshot comparison is unreliable
-	var score = 0.0
-	
-	# Ideal target values (from your requested starting point)
-	var ideal_x = 0.0
-	var ideal_y = -175.0
-	var ideal_z = 100.0
-	var ideal_scale = 0.47
-	var ideal_pos_x = 0.30
-	var ideal_pos_y = 0.25
-	var ideal_pos_z = -0.50
-	
-	# Calculate errors from ideal values
-	var rot_x_error = abs(_rotation_x - ideal_x)
-	var rot_y_error = abs(_rotation_y - ideal_y)
-	var rot_z_error = abs(_rotation_z - ideal_z)
-	var scale_error = abs(_arm_scale - ideal_scale)
-	var pos_x_error = abs(_arm_position_x - ideal_pos_x)
-	var pos_y_error = abs(_arm_position_y - ideal_pos_y)
-	var pos_z_error = abs(_arm_position_z - ideal_pos_z)
-	
-	# Simple linear scoring - no exponential penalties to avoid getting stuck
-	var total_error = rot_x_error + rot_y_error + rot_z_error + scale_error * 100 + pos_x_error * 100 + pos_y_error * 100 + pos_z_error * 100
-	
-	# Convert to similarity score (lower error = higher score)
-	score = maxf(0.0, 2000.0 - total_error)
-	
-	return score
-
-func _compare_silhouettes(img1: Image, img2: Image) -> float:
-	if img1.get_size() != img2.get_size():
-		return 0.0
-	
-	var width = img1.get_width()
-	var height = img1.get_height()
-	var matching_pixels = 0
-	var total_pixels = 0
-	
-	for y in range(height):
-		for x in range(width):
-			var pixel1 = img1.get_pixel(x, y)
-			var pixel2 = img2.get_pixel(x, y)
-			
-			# Count pixels where both are black (or both are white)
-			var is_black1 = pixel1.r < 0.5
-			var is_black2 = pixel2.r < 0.5
-			
-			if is_black1 == is_black2:
-				matching_pixels += 1
-			total_pixels += 1
-	
-	var similarity = float(matching_pixels) / float(total_pixels) * 100.0
-	return similarity
-
-func _process_optimizer() -> void:
-	if not _optimizer_active:
-		return
-	
-	_optimizer_timer += get_process_delta_time()
-	if _optimizer_timer < _optimizer_interval:
-		return
-	_optimizer_timer = 0.0
-	
-	_optimizer_iterations += 1
-	
-	# Random search - just try random values in reasonable ranges
-	_rotation_x = randf_range(-45.0, 45.0)
-	_rotation_y = randf_range(-200.0, -150.0)
-	_rotation_z = randf_range(80.0, 120.0)
-	_arm_scale = randf_range(0.4, 0.6)
-	_arm_position_x = 0.6  # Hardcoded
-	_arm_position_y = -0.03  # Hardcoded
-	_arm_position_z = randf_range(-0.7, -0.3)
-	
-	_update_arm_rotation()
-	
-	# Stop after 10000 iterations
-	if _optimizer_iterations >= 10000:
-		_optimizer_active = false
-		print("Random search finished. Current params: ", _rotation_x, _rotation_y, _rotation_z, _arm_scale, _arm_position_x, _arm_position_y, _arm_position_z)

@@ -199,7 +199,7 @@ func _update_swing_hooks() -> void:
 	var f3 := sin(s * s * PI) # sin(swing^2 * pi)
 	var f4 := sin(sqrt(s) * PI) # sin(sqrt(swing) * pi)
 	# MC bob: (-0.4 sin(sqrt s pi), 0.2 sin(sqrt s pi*2), -0.2 sin(s pi))
-	_hand_bob.position = Vector3(-0.4 * f4, 0.2 * sin(sqrt(s) * PI * 2.0) - 0.25 * _equip, -0.2 * sin(s * PI))
+	_hand_bob.position = Vector3(-0.4 * f4, 0.2 * sin(sqrt(s) * PI * 2.0) - 0.25 - 0.25 * (1.0 - _equip), -0.2 * sin(s * PI))
 	# MC swing rotations (transformFirstPersonItem): yaw f*-20, roll f1*-20, pitch f1*-80
 	_swing_node.rotation_degrees = Vector3(f4 * -80.0, f3 * -20.0, f4 * -20.0)
 	# arm swings around its shoulder the same way (on the pivot, so the mesh

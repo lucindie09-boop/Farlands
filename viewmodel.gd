@@ -37,6 +37,9 @@ var _equip := 0.0
 var _is_swapping := false
 var _swing := 0.0
 var _item_meshes := {} # Cache for generated item meshes
+var _last_cam_rot: Vector3 = Vector3.ZERO
+var _item_sway_offset: Vector3 = Vector3.ZERO
+var _mouse_delta: Vector2 = Vector2.ZERO
 
 # Real-time adjustment HUD
 var _hud_panel: Control
@@ -211,16 +214,34 @@ func _process(delta: float) -> void:
 	if _arm != null:
 		var active_display_id = _block_id
 		if _is_swapping:
-			# During a swap, keep the old item's visibility rules for the first half, 
-			# and switch to the new item's rules for the second half.
 			active_display_id = _prev_block_id if (_equip < 0.5) else _block_id
-		
-		# Only show the arm if the currently rendered hand/item slot is empty (<= 0)
 		_arm.visible = (active_display_id <= 0)
 	# ----------------------------------
 	
+# --- SCALED MINECRAFT-STYLE VIEWMODEL LAG (~1.5x Stronger) ---
+	var target_sway = Vector3(
+		clampf(_mouse_delta.y * 0.018, -0.27, 0.27),  # Vertical lag (~1.5x)
+		clampf(_mouse_delta.x * 0.0135, -0.22, 0.22), # Horizontal lag (~1.5x)
+		clampf(-_mouse_delta.x * 0.006, -0.10, 0.10)  # Counter roll tilt (~1.5x)
+	)
+	
+	# Smoothly glide toward the target sway using an organic damping speed
+	_item_sway_offset = _item_sway_offset.lerp(target_sway, 1.0 - exp(-12.0 * delta))
+	
+	# Clear out mouse delta frame-by-frame
+	_mouse_delta = Vector2.ZERO
+	
+	# Apply sway rotation to your hand container node
+	if _hand_bob != null:
+		_hand_bob.rotation = _item_sway_offset
+	# -------------------------------------------------------
+	
 	_update_swing_hooks()
 	_refresh_held_item()
+
+# Helper for framerate-independent lerp smoothing
+func drip_speed(delta: float, speed: float) -> float:
+	return 1.0 - exp(-speed * delta)
 
 # Kick a punch/swing (roadmap: punch animation). Progress 1..0 over 0.25s.
 func punch() -> void:
@@ -624,6 +645,10 @@ func _input(event: InputEvent) -> void:
 				else:
 					_update_item_transform()
 				_update_hud_labels()
+				
+	# Capture raw mouse motion for the viewmodel sway effect
+	if event is InputEventMouseMotion:
+		_mouse_delta = event.relative
 
 func _update_arm_rotation() -> void:
 	if _arm_pivot != null:

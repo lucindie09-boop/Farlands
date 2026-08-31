@@ -207,9 +207,17 @@ func _process(delta: float) -> void:
 	var equip_speed = 0.25
 	_equip = move_toward(_equip, 1.0, delta / equip_speed)
 	
-	# Hide arm when holding an item or block
+	# --- FIXED ARM VISIBILITY LOGIC ---
 	if _arm != null:
-		_arm.visible = (_block_id <= 0) # Only show arm when empty-handed
+		var active_display_id = _block_id
+		if _is_swapping:
+			# During a swap, keep the old item's visibility rules for the first half, 
+			# and switch to the new item's rules for the second half.
+			active_display_id = _prev_block_id if (_equip < 0.5) else _block_id
+		
+		# Only show the arm if the currently rendered hand/item slot is empty (<= 0)
+		_arm.visible = (active_display_id <= 0)
+	# ----------------------------------
 	
 	_update_swing_hooks()
 	_refresh_held_item()

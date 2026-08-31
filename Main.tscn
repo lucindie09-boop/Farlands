@@ -9,12 +9,13 @@
 [ext_resource type="Script" uid="uid://g3lh0j0xb0jf" path="res://settings_menu.gd" id="8_settings"]
 [ext_resource type="Script" uid="uid://cg56m76b43332" path="res://crosshair.gd" id="9_crosshair"]
 [ext_resource type="Script" uid="uid://xebno2le0tgp" path="res://block_outline.gd" id="10_outline"]
-[ext_resource type="Script" path="res://block_break_overlay.gd" id="16_breakoverlay"]
 [ext_resource type="Script" uid="uid://byak67cusfoxc" path="res://healthbar.gd" id="11_healthbar"]
 [ext_resource type="Script" uid="uid://b3eee8l30k8qd" path="res://death_screen.gd" id="12_deathscreen"]
 [ext_resource type="Script" uid="uid://csimhtsb21lnr" path="res://crafting_table_menu.gd" id="13_tablemenu"]
-[ext_resource type="PackedScene" path="res://player.glb" id="14_playermodel"]
-[ext_resource type="Script" path="res://player_model.gd" id="15_playerskin"]
+[ext_resource type="PackedScene" uid="uid://b0f43px1ro63d" path="res://player.glb" id="14_playermodel"]
+[ext_resource type="Script" uid="uid://cs38nfukfohid" path="res://player_model.gd" id="15_playerskin"]
+[ext_resource type="Script" uid="uid://ceyf2rk1ue46s" path="res://block_break_overlay.gd" id="16_breakoverlay"]
+[ext_resource type="Script" uid="uid://dbeyx08uuwwe7" path="res://viewmodel.gd" id="18_viewmodel"]
 
 [sub_resource type="Environment" id="Environment_uu6xs"]
 background_mode = 2
@@ -26,8 +27,8 @@ reflected_light_source = 1
 glow_levels/2 = 1.0
 glow_levels/3 = 1.0
 glow_levels/4 = 0.0
-glow_intensity = 0.8
-glow_bloom = 0.25
+glow_intensity = 0.0
+glow_bloom = 0.0
 glow_blend_mode = 0
 glow_hdr_luminance_cap = 16.0
 fog_mode = 1
@@ -46,8 +47,12 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 280, 0)
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.62, 0)
 fov = 81.7
 
-[node name="PlayerModel" parent="Player" instance=ExtResource("14_playermodel")]
+[node name="Viewmodel" type="Node3D" parent="Player/Camera3D" unique_id=135246796]
+script = ExtResource("18_viewmodel")
+
+[node name="PlayerModel" parent="Player" unique_id=106842341 instance=ExtResource("14_playermodel")]
 transform = Transform3D(-0.05625, 0, 0, 0, 0.05625, 0, 0, 0, -0.05625, 0, 0, -0.0844)
+visible = false
 script = ExtResource("15_playerskin")
 
 [node name="HUD" type="CanvasLayer" parent="." unique_id=386916972]

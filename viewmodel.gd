@@ -41,7 +41,7 @@ var _hud_visible := false
 var _rotation_x: float = 0.0
 var _rotation_y: float = 0.0
 var _rotation_z: float = 0.0
-var _arm_scale: float = 1.01
+var _arm_scale: float = 0.47
 var _arm_position_x: float = MC_SHOULDER.x
 var _arm_position_y: float = MC_SHOULDER.y
 var _arm_position_z: float = MC_SHOULDER.z
@@ -65,25 +65,18 @@ var _arm_position_z: float = MC_SHOULDER.z
 # an off-by-one made the arm spin the wrong way). Columns = image of world axes
 # under R (Basis(xcol,ycol,zcol) * v == R * v). MC and Godot are both
 # right-handed, so no mirroring is needed.
-#
-# The source matrix is exact, but mapping it onto player.glb (a longer arm with
-# no material above the shoulder pivot, unlike MC's inset-box arm) plus Godot's
-# eye-space/camera leaves a small rig-mapping residual. Tuning the F12 HUD from
-# this base by X=-10deg, Z=+5deg with the placement/scale defaults below produced
-# the closest match, so that delta is folded into the stored matrix below.
 const MC_ARM_BASIS := Basis(
-	Vector3(-0.3510, -0.6827, -0.6408),
-	Vector3( 0.2092,  0.6098, -0.7644),
-	Vector3( 0.9126, -0.4025, -0.0713)
+	Vector3(-0.3679, -0.7333, -0.5717),
+	Vector3(0.3336,  0.4698, -0.8173),
+	Vector3(0.8679, -0.4915,  0.0717)
 )
 
 # Shoulder pivot, eye-space metres (camera child: +x=right, +y=up, +z=toward
 # viewer). The right arm's shoulder sits to the right of center; the arm then
 # extends down-left-toward the camera (per the matrix above), reading as the
 # diagonal MC held-arm in the lower-right of the screen. MC's own translations
-# (block units off-camera) don't map to these metres, so this is the tuned
-# equivalent.
-const MC_SHOULDER := Vector3(0.58, -0.33, -0.54)
+# (block units off-camera) don't map to these metres.
+const MC_SHOULDER := Vector3(0.55, 0.10, -0.55)
 
 func _ready() -> void:
 	_player = get_node_or_null("/root/Main/Player")

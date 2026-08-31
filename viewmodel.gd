@@ -36,6 +36,7 @@ var _prev_block_id := -2
 var _equip := 0.0
 var _is_swapping := false
 var _swing := 0.0
+var _item_meshes := {} # Cache for generated item meshes
 
 # Real-time adjustment HUD
 var _hud_panel: Control
@@ -157,8 +158,7 @@ func _ready() -> void:
 	_material = std_mat
 
 	_cube_mesh = _build_cube_mesh()
-	_stick_mesh = BoxMesh.new()
-	_stick_mesh.size = Vector3(0.125, 0.75, 0.125)
+	_stick_mesh = null # Will be generated dynamically from texture
 
 	_item = MeshInstance3D.new()
 	_item.material_override = _material
@@ -278,7 +278,17 @@ func _refresh_held_item() -> void:
 	
 	_item.visible = true
 	if BlockTextures.is_item(current_display_id):
-		_item.mesh = _stick_mesh
+		# Generate or get cached item mesh
+		if not _item_meshes.has(current_display_id):
+			var item_tex := BlockTextures.get_texture(current_display_id)
+			if item_tex != null:
+				_item_meshes[current_display_id] = _generate_item_mesh(item_tex)
+		
+		if _item_meshes.has(current_display_id):
+			_item.mesh = _item_meshes[current_display_id]
+		else:
+			_item.mesh = _cube_mesh # Fallback
+		
 		_item_scale_node.scale = Vector3.ONE # already 0.4 from parent
 		# Reset block adjustments for items
 		_item_scale_node.position = Vector3.ZERO
@@ -596,3 +606,152 @@ func _update_block_transform() -> void:
 		_item_scale_node.position = Vector3(_block_position_x, _block_position_y, _block_position_z)
 		_item_scale_node.rotation_degrees = Vector3(_block_rotation_x, _block_rotation_y, _block_rotation_z)
 		_item_scale_node.scale = Vector3.ONE * _block_scale
+
+func _generate_item_mesh(texture: Texture2D) -> ArrayMesh:
+	# Generate 3D item model from texture data by extruding painted pixels
+	var mesh := ArrayMesh.new()
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	var verts := PackedVector3Array()
+	var uvs := PackedVector2Array()
+	var normals := PackedVector3Array()
+	var indices := PackedInt32Array()
+	
+	# Get texture data
+	var image := texture.get_image()
+	if image == null:
+		return mesh
+	
+	# Convert to RGBA if needed
+	if image.get_format() != Image.FORMAT_RGBA8:
+		var new_image := Image.new()
+		new_image.copy_from(image)
+		new_image.convert(Image.FORMAT_RGBA8)
+		image = new_image
+	
+	var width: int = image.get_width()
+	var height: int = image.get_height()
+	var pixels := image.get_data()
+	
+	# Analyze pixels to find painted (non-transparent) ones
+	var painted_pixels := []
+	for y: int in range(height):
+		for x: int in range(width):
+			var pixel_index := (y * width + x) * 4
+			var alpha := pixels[pixel_index + 3]
+			if alpha > 0: # Non-transparent pixel
+				painted_pixels.append(Vector2i(x, y))
+	
+	if painted_pixels.is_empty():
+		return mesh
+	
+	# Extrude painted pixels into 3D geometry
+	var extrusion_depth := 0.08 # Thinner extrusion depth
+	var texel_size := 1.0 / maxf(width, height)
+	var vertex_index := 0
+	
+	for pixel in painted_pixels:
+		var x: int = pixel.x
+		var y: int = pixel.y
+		
+		# Convert pixel coordinates to normalized UV space
+		var u = float(x) / width
+		var v = float(y) / height
+		
+		# Convert to 3D space (centered)
+		var px = (x - width / 2.0) * texel_size
+		var py = (height / 2.0 - y) * texel_size # Flip Y for texture coordinates
+		var pz_front = extrusion_depth / 2.0
+		var pz_back = -extrusion_depth / 2.0
+		
+		# Create 6 faces for each pixel (like MC's extrusion)
+		# Front face
+		verts.append_array([
+			Vector3(px - texel_size/2, py - texel_size/2, pz_front),
+			Vector3(px - texel_size/2, py + texel_size/2, pz_front),
+			Vector3(px + texel_size/2, py + texel_size/2, pz_front),
+			Vector3(px + texel_size/2, py - texel_size/2, pz_front)
+		])
+		normals.append_array([Vector3.FORWARD, Vector3.FORWARD, Vector3.FORWARD, Vector3.FORWARD])
+		uvs.append_array([
+			Vector2(u, v + texel_size),
+			Vector2(u, v),
+			Vector2(u + texel_size, v),
+			Vector2(u + texel_size, v + texel_size)
+		])
+		indices.append_array([vertex_index, vertex_index + 1, vertex_index + 2, vertex_index, vertex_index + 2, vertex_index + 3])
+		vertex_index += 4
+		
+		# Back face
+		verts.append_array([
+			Vector3(px + texel_size/2, py - texel_size/2, pz_back),
+			Vector3(px + texel_size/2, py + texel_size/2, pz_back),
+			Vector3(px - texel_size/2, py + texel_size/2, pz_back),
+			Vector3(px - texel_size/2, py - texel_size/2, pz_back)
+		])
+		normals.append_array([Vector3.BACK, Vector3.BACK, Vector3.BACK, Vector3.BACK])
+		uvs.append_array([
+			Vector2(u + texel_size, v + texel_size),
+			Vector2(u + texel_size, v),
+			Vector2(u, v),
+			Vector2(u, v + texel_size)
+		])
+		indices.append_array([vertex_index, vertex_index + 1, vertex_index + 2, vertex_index, vertex_index + 2, vertex_index + 3])
+		vertex_index += 4
+		
+		# Top face - use pixel's own center color
+		verts.append_array([
+			Vector3(px - texel_size/2, py + texel_size/2, pz_front),
+			Vector3(px - texel_size/2, py + texel_size/2, pz_back),
+			Vector3(px + texel_size/2, py + texel_size/2, pz_back),
+			Vector3(px + texel_size/2, py + texel_size/2, pz_front)
+		])
+		normals.append_array([Vector3.UP, Vector3.UP, Vector3.UP, Vector3.UP])
+		var center_uv := Vector2(u + texel_size/2, v + texel_size/2) # Sample from pixel center
+		uvs.append_array([center_uv, center_uv, center_uv, center_uv])
+		indices.append_array([vertex_index, vertex_index + 1, vertex_index + 2, vertex_index, vertex_index + 2, vertex_index + 3])
+		vertex_index += 4
+		
+		# Bottom face - use pixel's own center color
+		verts.append_array([
+			Vector3(px - texel_size/2, py - texel_size/2, pz_back),
+			Vector3(px - texel_size/2, py - texel_size/2, pz_front),
+			Vector3(px + texel_size/2, py - texel_size/2, pz_front),
+			Vector3(px + texel_size/2, py - texel_size/2, pz_back)
+		])
+		normals.append_array([Vector3.DOWN, Vector3.DOWN, Vector3.DOWN, Vector3.DOWN])
+		uvs.append_array([center_uv, center_uv, center_uv, center_uv])
+		indices.append_array([vertex_index, vertex_index + 1, vertex_index + 2, vertex_index, vertex_index + 2, vertex_index + 3])
+		vertex_index += 4
+		
+		# Right face - use pixel's own center color
+		verts.append_array([
+			Vector3(px + texel_size/2, py - texel_size/2, pz_front),
+			Vector3(px + texel_size/2, py + texel_size/2, pz_front),
+			Vector3(px + texel_size/2, py + texel_size/2, pz_back),
+			Vector3(px + texel_size/2, py - texel_size/2, pz_back)
+		])
+		normals.append_array([Vector3.RIGHT, Vector3.RIGHT, Vector3.RIGHT, Vector3.RIGHT])
+		uvs.append_array([center_uv, center_uv, center_uv, center_uv])
+		indices.append_array([vertex_index, vertex_index + 1, vertex_index + 2, vertex_index, vertex_index + 2, vertex_index + 3])
+		vertex_index += 4
+		
+		# Left face - use pixel's own center color
+		verts.append_array([
+			Vector3(px - texel_size/2, py - texel_size/2, pz_back),
+			Vector3(px - texel_size/2, py + texel_size/2, pz_back),
+			Vector3(px - texel_size/2, py + texel_size/2, pz_front),
+			Vector3(px - texel_size/2, py - texel_size/2, pz_front)
+		])
+		normals.append_array([Vector3.LEFT, Vector3.LEFT, Vector3.LEFT, Vector3.LEFT])
+		uvs.append_array([center_uv, center_uv, center_uv, center_uv])
+		indices.append_array([vertex_index, vertex_index + 1, vertex_index + 2, vertex_index, vertex_index + 2, vertex_index + 3])
+		vertex_index += 4
+	
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_TEX_UV] = uvs
+	arrays[Mesh.ARRAY_NORMAL] = normals
+	arrays[Mesh.ARRAY_INDEX] = indices
+	
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return mesh

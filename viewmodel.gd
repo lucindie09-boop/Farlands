@@ -32,7 +32,9 @@ var _material: Material
 var _cube_mesh: ArrayMesh
 var _stick_mesh: BoxMesh
 var _block_id := -2
+var _prev_block_id := -2
 var _equip := 0.0
+var _is_swapping := false
 var _swing := 0.0
 
 # Real-time adjustment HUD
@@ -186,7 +188,11 @@ func _process(delta: float) -> void:
 		return
 	if _swing > 0.0:
 		_swing = maxf(_swing - delta / 0.25, 0.0)
-	_equip = move_toward(_equip, 1.0, delta / 0.25)
+	
+	# Equip animation: both normal equip and swap take 0.25s
+	var equip_speed = 0.25
+	_equip = move_toward(_equip, 1.0, delta / equip_speed)
+	
 	_update_swing_hooks()
 	_refresh_held_item()
 
@@ -198,10 +204,29 @@ func _update_swing_hooks() -> void:
 	var s := _swing
 	var f3 := sin(s * s * PI) # sin(swing^2 * pi)
 	var f4 := sin(sqrt(s) * PI) # sin(sqrt(swing) * pi)
+	
+	# Equip animation logic
+	var equip_offset: float
+	if _is_swapping:
+		# Swap animation: first half unequip (go down), second half equip (come up)
+		if _equip < 0.5:
+			# Unequip phase: old item goes from -0.25 down to below
+			var unequip_progress = _equip * 2.0 # 0.0 to 1.0 during first half
+			equip_offset = -0.25 - 0.5 * unequip_progress
+		else:
+			# Equip phase: new item comes from below up to -0.25
+			var equip_progress = (_equip - 0.5) * 2.0 # 0.0 to 1.0 during second half
+			equip_offset = -0.75 + 0.5 * equip_progress
+	else:
+		# Normal equip: item comes from below up to -0.25
+		equip_offset = -0.75 + 0.5 * _equip
+	
 	# MC bob: (-0.4 sin(sqrt s pi), 0.2 sin(sqrt s pi*2), -0.2 sin(s pi))
-	_hand_bob.position = Vector3(-0.4 * f4, 0.2 * sin(sqrt(s) * PI * 2.0) - 0.25 - 0.25 * (1.0 - _equip), -0.2 * sin(s * PI))
+	_hand_bob.position = Vector3(-0.4 * f4, 0.2 * sin(sqrt(s) * PI * 2.0) + equip_offset, -0.2 * sin(s * PI))
+	
 	# MC swing rotations (transformFirstPersonItem): yaw f*-20, roll f1*-20, pitch f1*-80
 	_swing_node.rotation_degrees = Vector3(f4 * -80.0, f3 * -20.0, f4 * -20.0)
+	
 	# arm swings around its shoulder the same way (on the pivot, so the mesh
 	# scale/basis from _ready is never touched) - DISABLED for manual control
 	# _arm_pivot.basis = Basis.IDENTITY.rotated(Vector3.RIGHT, deg_to_rad(f4 * -80.0))
@@ -211,13 +236,28 @@ func _refresh_held_item() -> void:
 		return
 	var slot := int(_player.get_selected_hotbar_slot())
 	var id := int(_player.get_hotbar_slot_block_id(slot))
+	
+	# Detect item change
 	if id != _block_id:
+		_prev_block_id = _block_id
 		_block_id = id
-		_equip = 0.0 # re-equip slide on slot change
-	if id <= 0:
+		_equip = 0.0 # start equip animation
+		_is_swapping = (_prev_block_id != -2) # only swap if we had a previous item
+	
+	# Reset swap flag when animation completes
+	if _equip >= 1.0:
+		_is_swapping = false
+	
+	# Determine which item to show based on equip progress
+	var current_display_id: int = id
+	if _is_swapping and _equip < 0.5:
+		current_display_id = _prev_block_id
+	
+	if current_display_id <= 0:
 		_item.visible = false
 		return
-	var tex := BlockTextures.get_texture(id)
+	
+	var tex := BlockTextures.get_texture(current_display_id)
 	if tex == null:
 		_item.visible = false
 		return
@@ -227,7 +267,7 @@ func _refresh_held_item() -> void:
 		std_mat.albedo_texture = tex
 	
 	_item.visible = true
-	if BlockTextures.is_item(id):
+	if BlockTextures.is_item(current_display_id):
 		_item.mesh = _stick_mesh
 		_item_scale_node.scale = Vector3.ONE # already 0.4 from parent
 	else:

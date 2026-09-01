@@ -36,7 +36,9 @@ var _block_id := -2
 var _prev_block_id := -2
 var _equip := 0.0
 var _is_swapping := false
-var _swing := 0.0
+var _swing := 0.0          # punch/break swing progress (1 -> 0)
+var _swing_place := 0.0    # place swing progress (1 -> 0)
+var _swing_strength := 1.0 # 1.0 = full punch reach, 0.75 = weaker place reach
 var _item_meshes := {} # Cache for generated item meshes
 # Removed unused variable _last_cam_rot to clear the warning error
 var _item_sway_offset: Vector3 = Vector3.ZERO
@@ -129,6 +131,8 @@ const PEAK_POS_BLOCK := Vector3(-0.65, -0.02, -0.16)
 
 func _ready() -> void:
 	_player = get_node_or_null("/root/Main/Player")
+	if _player != null and _player.has_signal("block_placed"):
+		_player.block_placed.connect(place)
 
 	# Shared container that gets the swing bob and equip nudge.
 	_hand_bob = Node3D.new()
@@ -243,9 +247,19 @@ func _process(delta: float) -> void:
 		return
 	if _swing > 0.0:
 		_swing = maxf(_swing - delta / 0.225, 0.0)
-		# Loop the punch while the player holds to break a block.
-		if _swing <= 0.0 and _is_breaking():
-			_swing = 1.0
+	# Loop the punch while the player holds to break a block. Checked even when
+	# the swing has already settled at 0, so holding LMB on empty air first (which
+	# lets it expire) then hovering over a block still starts the loop.
+	if _swing <= 0.0 and _is_breaking():
+		_swing = 1.0
+	if _swing_place > 0.0:
+		_swing_place = maxf(_swing_place - delta / 0.225, 0.0)
+	# The active swing is whichever timer is further along; the place stroke
+	# reaches a weaker endpoint (0.75x) than a full punch.
+	if _swing_place > _swing:
+		_swing_strength = 0.75
+	else:
+		_swing_strength = 1.0
 	
 	# Equip animation: both normal equip and swap take 0.25s
 	var equip_speed = 0.25
@@ -288,6 +302,10 @@ func drip_speed(delta: float, speed: float) -> float:
 func punch() -> void:
 	_swing = 1.0
 
+# Kick a place motion: same swing as the punch but with a weaker (0.5x) endpoint.
+func place() -> void:
+	_swing_place = 1.0
+
 # True while the player is actively holding to break a block (LMB held on a
 # breakable target), so the punch animation loops instead of playing once.
 func _is_breaking() -> bool:
@@ -297,7 +315,10 @@ func _is_breaking() -> bool:
 	return state is Dictionary and state.get("active", false)
 
 func _update_swing_hooks() -> void:
-	var swing_progress := _swing  # 1 -> 0 over the punch (MC swingProgress)
+	# The active swing is the closer-to-rest (larger) punch/place timer, so a
+	# quick place right after a punch doesn't discard the punch's remaining motion.
+	var swing_progress := maxf(_swing, _swing_place)  # 1 -> 0 (MC swingProgress)
+	var strength := _swing_strength
 
 	# Equip animation: both normal equip and swap animate height over 0.25s
 	var equip_offset: float
@@ -316,8 +337,9 @@ func _update_swing_hooks() -> void:
 
 	# Punch depth: 0 at rest, peaks at the punch's midpoint, returns to 0 when it
 	# settles -- a there-and-back sweep that reaches the peak pose then springs
-	# back to rest (not stuck holding the extended pose).
-	var s := sin(swing_progress * PI)
+	# back to rest (not stuck holding the extended pose). Multiplied by the swing
+	# strength so a place stroke reaches a weaker (0.5x) endpoint than a full punch.
+	var s := sin(swing_progress * PI) * strength
 
 	# Full cycle angle over the punch: 0 at rest, PI at the peak, TAU at rest.
 	# sin(angle) drives the perpendicular bulge so it swings to ONE side on the

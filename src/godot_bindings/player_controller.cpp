@@ -89,6 +89,7 @@ void PlayerController::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_third_person"), &PlayerController::get_third_person);
 
     ADD_SIGNAL(MethodInfo("crafting_table_used"));
+    ADD_SIGNAL(MethodInfo("block_placed"));
     ADD_SIGNAL(MethodInfo("died"));
     ADD_SIGNAL(MethodInfo("respawned"));
 
@@ -727,6 +728,9 @@ void PlayerController::place_block() {
 
         // Consume from inventory
         inventory_.consume_block(block_to_place, 1);
+
+        // Notify that a block actually landed (drives the place swing animation).
+        emit_signal("block_placed");
 
         // Increment edit counter to invalidate block outline
         block_edit_counter_++;

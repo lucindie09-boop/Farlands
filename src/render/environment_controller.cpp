@@ -106,7 +106,7 @@ void EnvironmentController::update_shader_parameters() {
 
     material_manager.update_fog_parameters(fog_begin, fog_end, fog_color,
                                            fog_controller.get_shader_fog_density(), 0.012f, 200.0f, fog_color,
-                                           fog_scatter, sun_color,
+                                           0.35f, fog_scatter, sun_color,
                                            fog_mode);
 }
 

@@ -59,7 +59,7 @@ void MaterialManager::update_shader_parameters(float sky_intensity, const Color&
 
 void MaterialManager::update_fog_parameters(float fog_begin, float fog_end, const Color& fog_color,
                                             float fog_density, float height_fog_density, float sea_level,
-                                            const Color& aerial_color, float fog_scatter, const Color& fog_scatter_color,
+                                            const Color& aerial_color, float aerial_strength, float fog_scatter, const Color& fog_scatter_color,
                                             int fog_mode) {
     Ref<ShaderMaterial> material = get_material();
     if (material.is_valid()) {
@@ -72,6 +72,22 @@ void MaterialManager::update_fog_parameters(float fog_begin, float fog_end, cons
         material->set_shader_parameter("fog_scatter_color", fog_scatter_color);
         material->set_shader_parameter("fog_mode", fog_mode);
         material->set_shader_parameter("fog_color", Vector3(fog_color.r, fog_color.g, fog_color.b));
+        material->set_shader_parameter("aerial_color", Vector3(aerial_color.r, aerial_color.g, aerial_color.b));
+        material->set_shader_parameter("aerial_strength", aerial_strength);
+    }
+    Ref<ShaderMaterial> water_mat = get_water_material();
+    if (water_mat.is_valid()) {
+        water_mat->set_shader_parameter("fog_begin", fog_begin);
+        water_mat->set_shader_parameter("fog_end", fog_end);
+        water_mat->set_shader_parameter("fog_density", fog_density);
+        water_mat->set_shader_parameter("height_fog_density", height_fog_density);
+        water_mat->set_shader_parameter("sea_level", sea_level);
+        water_mat->set_shader_parameter("fog_scatter", fog_scatter);
+        water_mat->set_shader_parameter("fog_scatter_color", fog_scatter_color);
+        water_mat->set_shader_parameter("fog_mode", fog_mode);
+        water_mat->set_shader_parameter("fog_color", Vector3(fog_color.r, fog_color.g, fog_color.b));
+        water_mat->set_shader_parameter("aerial_color", Vector3(aerial_color.r, aerial_color.g, aerial_color.b));
+        water_mat->set_shader_parameter("aerial_strength", aerial_strength);
     }
 }
 

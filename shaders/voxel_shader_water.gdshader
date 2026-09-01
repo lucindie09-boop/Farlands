@@ -184,17 +184,22 @@ void fragment(){
     float light_amount = clamp(max(max(combinedLight.r, combinedLight.g), combinedLight.b), 0.0, 1.0);
     lit_color += color.rgb * darkness_color * (1.0 - light_amount);
 
+    // Apply water color tint BEFORE fog so fog blends with water-tinted color
+    lit_color *= water_color.rgb;
+
     // ========= FOG =========
 	float fog_amount = 0.0;
 	float dist_factor = 0.0;
+	vec3 finalFogColor = fog_color;
+	vec3 scatter = vec3(0.0);
 
 	if (fog_mode > 0 && fog_density > 0.001) {
     	float dist = max(fog_distance - fog_begin, 0.0);
     	float fog_range = max(fog_end - fog_begin, 1.0);
     	
     	if (fog_mode == 1) {
-    		// Edge fog - linear starting 50 blocks before end
-    		float edge_start = fog_end - 50.0;
+    		// Edge fog - linear starting at 75% of render distance
+    		float edge_start = fog_end * 0.75;
     		float edge_range = max(fog_end - edge_start, 1.0);
     		float edge_dist = max(fog_distance - edge_start, 0.0);
     		float x = clamp(edge_dist / edge_range, 0.0, 1.0);
@@ -231,52 +236,51 @@ void fragment(){
     	h3 = h3 * h3 * h3;
     	fog_amount += h3 * 0.18 * dist_factor;
     	fog_amount = clamp(fog_amount, 0.0, 1.0);
+
+    	// ========= TURBIDITY (Rayleigh/Mie haze) =========
+    	float haze = clamp(sky_turbidity * 1.4 - 0.2, 0.0, 1.0);
+    	haze *= smoothstep(0.0, 0.35, sky_light_intensity);
+
+    	// ========= SUN SCATTERING =========
+    	vec3 view_norm = normalize(view_direction);
+    	float sunDot = max(dot(view_norm, sun_dir_norm), 0.0);
+    	float sd2 = sunDot * sunDot;
+    	float sd4 = sd2 * sd2;
+    	float sd8 = sd4 * sd4;
+    	float sd16 = sd8 * sd8;
+    	float sd64 = sd16 * sd16;
+    	sd64 = sd64 * sd64;
+    	float sunGlow = sd4 * 0.25 + sd16 + sd64 * 0.4;
+
+    	scatter = fog_scatter_color * sunGlow * fog_scatter * sky_light_intensity;
+    	scatter *= dist_factor * (1.0 + haze * 0.4);
+
+    	// Horizon + zenith haze modulation
+    	vec3 haze_color = mix(vec3(1.0, 1.0, 1.0), fog_scatter_color, 0.3);
+    	vec3 turb_horizon = mix(fog_color, haze_color, haze * 0.55);
+
+    	// Zenith desaturation: aerosols overwhelm Rayleigh, sky pales overhead
+    	float z_luma = dot(zenith_color, vec3(0.299, 0.587, 0.114));
+    	vec3 pale_zenith = mix(zenith_color, vec3(z_luma) * vec3(1.0, 1.0, 1.0), haze * 0.60);
+
+    	// ========= SKY GRADIENT =========
+    	float up2 = max(view_direction.y, 0.0);
+    	float skyBlend = 1.0 - (1.0 - up2) * sqrt(1.0 - up2);
+
+    	float sun_elevation = sun_dir_norm.y;
+    	float sun_vis = smoothstep(-0.08, 0.08, sun_elevation);
+
+    	// Sun glow widens with turbidity (wider Mie forward lobe)
+    	float sun_glow_width = mix(1.0, 2.2, haze);
+    	float sd2w = sd2;
+    	float sd4w = sd4;
+    	for (int i = 0; i < 2; i++) { sd2w = sd2w * sd2; sd4w = sd4w * sd4; }
+    	float sun_glow_turb = sd4 * 0.25 + sd2w * 0.15 + sd4w * 0.08;
+
+    	vec3 warmFog = mix(fog_color, fog_scatter_color, 0.05);
+    	finalFogColor = mix(finalFogColor, warmFog, sun_glow_turb * sun_vis * sun_glow_width * 0.2);
+    	finalFogColor += scatter * (1.0 - fog_amount) * 0.3;
 	}
-
-    // ========= TURBIDITY (Rayleigh/Mie haze) =========
-	float haze = clamp(sky_turbidity * 1.4 - 0.2, 0.0, 1.0);
-	haze *= smoothstep(0.0, 0.35, sky_light_intensity);
-
-    // ========= SUN SCATTERING =========
-    vec3 view_norm = normalize(view_direction);
-    float sunDot = max(dot(view_norm, sun_dir_norm), 0.0);
-    float sd2 = sunDot * sunDot;
-    float sd4 = sd2 * sd2;
-    float sd8 = sd4 * sd4;
-    float sd16 = sd8 * sd8;
-    float sd64 = sd16 * sd16;
-    sd64 = sd64 * sd64;
-    float sunGlow = sd4 * 0.25 + sd16 + sd64 * 0.4;
-
-    vec3 scatter = fog_scatter_color * sunGlow * fog_scatter * sky_light_intensity;
-    scatter *= dist_factor * (1.0 + haze * 0.4);
-
-	// Horizon + zenith haze modulation
-	vec3 haze_color = mix(vec3(1.0, 1.0, 1.0), fog_scatter_color, 0.3);
-	vec3 turb_horizon = mix(fog_color, haze_color, haze * 0.55);
-
-	// Zenith desaturation: aerosols overwhelm Rayleigh, sky pales overhead
-	float z_luma = dot(zenith_color, vec3(0.299, 0.587, 0.114));
-	vec3 pale_zenith = mix(zenith_color, vec3(z_luma) * vec3(1.0, 1.0, 1.0), haze * 0.60);
-
-	// ========= SKY GRADIENT =========
-	float up2 = max(view_direction.y, 0.0);
-	float skyBlend = 1.0 - (1.0 - up2) * sqrt(1.0 - up2);
-	vec3 finalFogColor = fog_color;
-
-	float sun_elevation = sun_dir_norm.y;
-	float sun_vis = smoothstep(-0.08, 0.08, sun_elevation);
-
-	// Sun glow widens with turbidity (wider Mie forward lobe)
-	float sun_glow_width = mix(1.0, 2.2, haze);
-	float sd2w = sd2;
-	float sd4w = sd4;
-	for (int i = 0; i < 2; i++) { sd2w = sd2w * sd2; sd4w = sd4w * sd4; }
-	float sun_glow_turb = sd4 * 0.25 + sd2w * 0.15 + sd4w * 0.08;
-
-	vec3 warmFog = mix(fog_color, fog_scatter_color, 0.05);
-	finalFogColor = mix(finalFogColor, warmFog, sun_glow_turb * sun_vis * sun_glow_width * 0.2);
-	finalFogColor += scatter * (1.0 - fog_amount) * 0.3;
 
     // ========= AERIAL PERSPECTIVE =========
     float aerial = fog_amount * fog_amount * aerial_strength;
@@ -319,6 +323,6 @@ void fragment(){
     float edge_fade = mix(near_edge_fade, 1.0, distance_restore);
 
     float base_alpha = water_color.a * edge_fade;
-    ALBEDO = final_color * water_color.rgb;
+    ALBEDO = final_color;
     ALPHA = mix(base_alpha, 1.0, fog_amount);
 }

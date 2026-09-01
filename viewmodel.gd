@@ -243,6 +243,9 @@ func _process(delta: float) -> void:
 		return
 	if _swing > 0.0:
 		_swing = maxf(_swing - delta / 0.225, 0.0)
+		# Loop the punch while the player holds to break a block.
+		if _swing <= 0.0 and _is_breaking():
+			_swing = 1.0
 	
 	# Equip animation: both normal equip and swap take 0.25s
 	var equip_speed = 0.25
@@ -284,6 +287,14 @@ func drip_speed(delta: float, speed: float) -> float:
 # Kick a punch/swing (roadmap: punch animation). Progress 1..0 over 0.25s.
 func punch() -> void:
 	_swing = 1.0
+
+# True while the player is actively holding to break a block (LMB held on a
+# breakable target), so the punch animation loops instead of playing once.
+func _is_breaking() -> bool:
+	if _player == null:
+		return false
+	var state = _player.get_break_state()
+	return state is Dictionary and state.get("active", false)
 
 func _update_swing_hooks() -> void:
 	var swing_progress := _swing  # 1 -> 0 over the punch (MC swingProgress)

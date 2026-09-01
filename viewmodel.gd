@@ -72,6 +72,11 @@ var _item_position_x: float = 0.0
 var _item_position_y: float = 0.09
 var _item_position_z: float = 0.46
 
+# Broadcast swing progress/angle (computed in _update_swing_hooks) so
+# _update_item_transform can swing the held item toward its own peak pose.
+var _swing_s: float = 0.0
+var _swing_angle: float = 0.0
+
 # Minecraft 1.8.8 decompiled ItemRenderer.java + ModelPlayer.java, empty-hand
 # arm path:
 #   func_178095_a() rotation calls       (GL post-multiply, vertex-first):
@@ -107,6 +112,20 @@ const MC_SHOULDER := Vector3(0.67, -0.01, -0.75)
 # hand along a semicircular arc from the resting pose to this peak pose.
 const PEAK_ROT := Vector3(0.0, 58.0, -10.0)
 const PEAK_POS := Vector3(0.19, 0.26, -0.75)
+
+# Peak-punch pose for the HELD ITEM, manually calculated with the F12 HUD.
+# Kept as the RAW HUD readouts (not normalized) because they're close to the
+# item's resting rotations (_item_rotation_* = 0, -692, 422), so interpolating
+# to these raw values gives a small, natural swing. It hangs from a different
+# base than the hand, so it has its own end point on the same curve.
+const PEAK_ROT_ITEM := Vector3(-20.0, -660.0, 372.0)
+const PEAK_POS_ITEM := Vector3(-0.66, -0.03, -0.16)
+
+# Peak-punch pose for the HELD BLOCK, read from the F12 BLOCK-mode HUD
+# (_block_rotation_* / _block_position_*, rest = 0, -7, 0 / 0.15, -0.36, 0.23).
+# Fill in with the values found via the F12 HUD, same as PEAK_ROT_ITEM/PEAK_POS_ITEM.
+const PEAK_ROT_BLOCK := Vector3(0.0, -7.0, 0.0)
+const PEAK_POS_BLOCK := Vector3(0.15, -0.36, 0.23)
 
 func _ready() -> void:
 	_player = get_node_or_null("/root/Main/Player")
@@ -315,11 +334,17 @@ func _update_swing_hooks() -> void:
 	# Apply to arm (rotation + position)
 	_update_arm_animation(current_rot, current_pos)
 
-	# Apply to held item (position matches shoulder, rotation is the delta)
+	# Broadcast the swing state so _update_item_transform (which runs every frame
+	# and owns _item_scale_node in F12 ITEM space) can drive the held item toward
+	# its own tuned peak pose exactly.
+	_swing_s = s
+	_swing_angle = angle
+
+	# The item swing is applied on _item_scale_node inside _update_item_transform;
+	# leave the _swing_node pivot at its resting shoulder so it doesn't stack.
 	if _swing_node != null:
-		_swing_node.position = current_pos
-		var delta := current_rot - rest_rot
-		_swing_node.rotation_degrees = delta
+		_swing_node.position = rest_pos
+		_swing_node.rotation_degrees = Vector3.ZERO
 
 func _update_arm_animation(current_rot: Vector3, current_pos: Vector3) -> void:
 	if _arm_pivot == null:
@@ -759,14 +784,45 @@ func _update_hud_labels() -> void:
 
 func _update_block_transform() -> void:
 	if _item_scale_node != null and _block_id > 0 and not BlockTextures.is_item(_block_id):
-		_item_scale_node.position = Vector3(_block_position_x, _block_position_y, _block_position_z)
-		_item_scale_node.rotation_degrees = Vector3(_block_rotation_x, _block_rotation_y, _block_rotation_z)
+		var b_rest_rot := Vector3(_block_rotation_x, _block_rotation_y, _block_rotation_z)
+		var b_rest_pos := Vector3(_block_position_x, _block_position_y, _block_position_z)
+		var s := _swing_s
+		var angle := _swing_angle
+
+		# Mirror the held-item swing: interpolate the block's resting pose toward
+		# its tuned peak (F12 BLOCK mode) on the same 's' curve, plus the same
+		# two-sided perpendicular arc. Set PEAK_ROT_BLOCK/PEAK_POS_BLOCK to the
+		# values found in the F12 HUD.
+		var straight := b_rest_pos.lerp(PEAK_POS_BLOCK, s)
+		var dir := PEAK_POS_BLOCK - b_rest_pos
+		var perp := Vector3(-dir.z, 0.2, dir.x).normalized()
+		var b_pos := straight + perp * (sin(angle) * 0.15)
+		var b_rot := b_rest_rot.lerp(PEAK_ROT_BLOCK, s)
+
+		_item_scale_node.position = b_pos
+		_item_scale_node.rotation_degrees = b_rot
 		_item_scale_node.scale = Vector3.ONE * _block_scale
 
 func _update_item_transform() -> void:
 	if _item_scale_node != null and _block_id > 0 and BlockTextures.is_item(_block_id):
-		_item_scale_node.position = Vector3(_item_position_x, _item_position_y, _item_position_z)
-		_item_scale_node.rotation_degrees = Vector3(_item_rotation_x, _item_rotation_y, _item_rotation_z)
+		var i_rest_rot := Vector3(_item_rotation_x, _item_rotation_y, _item_rotation_z)
+		var i_rest_pos := Vector3(_item_position_x, _item_position_y, _item_position_z)
+		var s := _swing_s
+		var angle := _swing_angle
+
+		# Interpolate the item's resting pose toward its tuned peak on the same
+		# 's' curve as the arm, plus a perpendicular arc (sin(angle) two-sided) so
+		# it sweeps to one side on the way out, is 0 at the peak, sweeps the other
+		# side on the way back. This is applied in F12 ITEM space, so at s=1 the
+		# item reaches PEAK_POS_ITEM / PEAK_ROT_ITEM exactly.
+		var straight := i_rest_pos.lerp(PEAK_POS_ITEM, s)
+		var dir := PEAK_POS_ITEM - i_rest_pos
+		var perp := Vector3(-dir.z, 0.2, dir.x).normalized()
+		var i_pos := straight + perp * (sin(angle) * 0.15)
+		var i_rot := i_rest_rot.lerp(PEAK_ROT_ITEM, s)
+
+		_item_scale_node.position = i_pos
+		_item_scale_node.rotation_degrees = i_rot
 		_item_scale_node.scale = Vector3.ONE * _item_scale
 
 func _generate_item_mesh(texture: Texture2D) -> ArrayMesh:

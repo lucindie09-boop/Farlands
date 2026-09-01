@@ -6,11 +6,11 @@
 
 Player model animations (walk/idle/etc.)
 
-First-person viewmodel + items/blocks in hand
+~~First-person viewmodel + items/blocks in hand~~
 
 Isometric icon snapshots (bundle with #4, same render pipeline) - cache the icons, don't re-render every frame
 
-Punch animation
+~~Punch animation~~
 
 Spawnable dummy + combat calc + knockback - careful: sketch a minimal Entity base class first so the dummy isn't thrown away later
 

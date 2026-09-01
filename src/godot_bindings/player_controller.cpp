@@ -83,6 +83,7 @@ void PlayerController::_bind_methods() {
     ClassDB::bind_method(D_METHOD("is_dead"), &PlayerController::is_dead);
     ClassDB::bind_method(D_METHOD("die"), &PlayerController::die);
     ClassDB::bind_method(D_METHOD("respawn"), &PlayerController::respawn);
+    ClassDB::bind_method(D_METHOD("is_on_floor"), &PlayerController::is_on_floor);
 
     ClassDB::bind_method(D_METHOD("toggle_third_person"), &PlayerController::toggle_third_person);
     ClassDB::bind_method(D_METHOD("set_third_person", "on"), &PlayerController::set_third_person);
@@ -111,6 +112,8 @@ float PlayerController::get_fly_speed() const { return fly_speed_; }
 int PlayerController::get_health() const { return health_; }
 
 bool PlayerController::is_dead() const { return dead_; }
+
+bool PlayerController::is_on_floor() const { return sim_.is_on_floor(); }
 
 void PlayerController::set_health(int value) {
     health_ = CLAMP(value, 0, MAX_HEALTH);

@@ -289,26 +289,28 @@ func _update_swing_hooks() -> void:
 	# back to rest (not stuck holding the extended pose).
 	var s := sin(swing_progress * PI)
 
+	# Full cycle angle over the punch: 0 at rest, PI at the peak, TAU at rest.
+	# sin(angle) drives the perpendicular bulge so it swings to ONE side on the
+	# way out (+), is 0 at the peak, then swings to the OTHER side on the way
+	# back (-) -- tracing both arcs of the circle instead of retracing one.
+	var angle := (1.0 - swing_progress) * TAU
+
 	# Interpolate arm rotation and shoulder position from rest to peak.
 	# Rest = current HUD tuning values; Peak = manually verified punch pose.
 	var rest_rot := Vector3(_rotation_x, _rotation_y, _rotation_z)
 	var rest_pos := Vector3(_arm_position_x, _arm_position_y, _arm_position_z)
 
-	# Semicircular arc from the rest pose to the peak pose. The hand travels
-	# along the straight rest->peak line (t) and bulges outward perpendicular to
-	# it by sin(t*PI), sweeping a smooth half-circle that starts and ends on the
-	# two endpoints (0 at both t=0 and t=1, max at the midpoint).
+	# Smooth rotation: blend toward the peak rotation on the same 's' curve.
+	var current_rot := rest_rot.lerp(PEAK_ROT, s)
+
+	# Arcing motion: base linear rest->peak (equal to PEAK_POS at s=1), plus a
+	# perpendicular bulge that is 0 at rest and peak but pushes to opposite sides
+	# on the out and return strokes (sin(angle)).
 	var straight := rest_pos.lerp(PEAK_POS, s)
 	var dir := PEAK_POS - rest_pos
-	dir.y = 0.0
-	dir = dir.normalized()
-	var perp := Vector3(-dir.y, dir.x, 0.0)  # perpendicular in the X-Y screen plane
-	var bulge := 0.12
-	var current_pos := straight + perp * sin(s * PI) * bulge
-
-	# Rotation blends toward the peak pose along the same depth, staying stable
-	# through the arc.
-	var current_rot := rest_rot.lerp(PEAK_ROT, s)
+	var perp := Vector3(-dir.z, 0.2, dir.x).normalized()
+	var arc_offset := perp * (sin(angle) * 0.15)
+	var current_pos := straight + arc_offset
 
 	# Apply to arm (rotation + position)
 	_update_arm_animation(current_rot, current_pos)

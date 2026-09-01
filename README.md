@@ -161,8 +161,8 @@ Open the project root in Godot 4 and press Play. The main scene is `Main.tscn`. 
 | W/A/S/D | Move |
 | Mouse | Look (click the window to capture the mouse) |
 | Space | Jump / ascend in flight |
-| Left click | Break block (collects into inventory) |
-| Right click | Place block (consumes from the selected hotbar slot) |
+| Left click | Break block (collects into inventory) + punch animation |
+| Right click | Place block (consumes from the selected hotbar slot) + place animation |
 | Shift | Sprint |
 | Ctrl | Sneak / descend in flight |
 | F | Toggle fly mode |
@@ -257,10 +257,16 @@ The Settings menu (Escape key) includes several customization pages:
 - Load and delete saved blocks (`user://blocks/`)
 - Transparent sub-viewport with drag-orbit camera and clamped zoom
 
+### First-Person Viewmodel
+- First-person hand + held item/block rendered from the `Camera3D` (`viewmodel.gd`): an explicit shoulder→grip arm, with the held item (F12 ITEM mode) and held block (F12 BLOCK mode) on a per-mode rest pose
+- Minecraft-style punch on left click (0.225s): the depth curve is reshaped by a cubic smoothstep and the arm sweeps a two-sided circular arc out to the peak pose and back
+- Punch loops while holding to break; a separate weaker place animation fires on right-click block placement
+- Walk bobbing: hand/item/block bob driven by walk distance (10% strength), decaying to rest when airborne
+
 ### Block Breaking
 - Hold LMB to break: hardness (seconds) comes from each block's `hardness` in `data/block_definitions.json` (`-1.0` = unbreakable, e.g. bedrock/water)
 - 10-stage crack overlay (`textures/animated/l0_sprite_01-10.png`) shown on the mined block like Minecraft
-- Progress pauses when you release LMB and resumes on the same block; aiming elsewhere restarts it
+- Progress resets when you release LMB or lose the block target (the crack vanishes); a punch animation loops on the viewmodel while breaking
 - Inventory full still gate-checks before progress accumulates
 
 ### Controls

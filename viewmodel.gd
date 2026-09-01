@@ -124,8 +124,8 @@ const PEAK_POS_ITEM := Vector3(-0.66, -0.03, -0.16)
 # Peak-punch pose for the HELD BLOCK, read from the F12 BLOCK-mode HUD
 # (_block_rotation_* / _block_position_*, rest = 0, -7, 0 / 0.15, -0.36, 0.23).
 # Fill in with the values found via the F12 HUD, same as PEAK_ROT_ITEM/PEAK_POS_ITEM.
-const PEAK_ROT_BLOCK := Vector3(0.0, -7.0, 0.0)
-const PEAK_POS_BLOCK := Vector3(0.15, -0.36, 0.23)
+const PEAK_ROT_BLOCK := Vector3(-70.0, 30.0, 45.0)
+const PEAK_POS_BLOCK := Vector3(-0.65, -0.02, -0.16)
 
 func _ready() -> void:
 	_player = get_node_or_null("/root/Main/Player")

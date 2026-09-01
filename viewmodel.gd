@@ -40,9 +40,12 @@ var _swing := 0.0          # punch/break swing progress (1 -> 0)
 var _swing_place := 0.0    # place swing progress (1 -> 0)
 var _swing_strength := 1.0 # 1.0 = full punch reach, 0.75 = weaker place reach
 var _item_meshes := {} # Cache for generated item meshes
+var _shaped_block_meshes := {} # Cache for shaped block meshes
+var _block_defs: Array = []  # Block definitions for shape lookup
 # Removed unused variable _last_cam_rot to clear the warning error
 var _item_sway_offset: Vector3 = Vector3.ZERO
 var _mouse_delta: Vector2 = Vector2.ZERO
+var _block_shapes: Dictionary = {}  # shape_name -> shape data
 
 # Walk bobbing (vanilla bobView): _walk_dist accumulates distance walked,
 # _bob is the amplitude envelope that ramps up with movement, _last_pos tracks
@@ -143,6 +146,9 @@ func _ready() -> void:
 	_player = get_node_or_null("/root/Main/Player")
 	if _player != null and _player.has_signal("block_placed"):
 		_player.block_placed.connect(place)
+	
+	_load_block_definitions()
+	_load_block_shapes()
 
 	# Shared container that gets the swing bob and equip nudge.
 	_hand_bob = Node3D.new()
@@ -211,7 +217,7 @@ func _ready() -> void:
 	std_mat.cull_mode = BaseMaterial3D.CULL_BACK
 	std_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
 	std_mat.alpha_scissor_threshold = 0.5
-	std_mat.no_depth_test = true
+	std_mat.no_depth_test = false  # Enable depth testing to prevent see-through
 	std_mat.render_priority = 5
 	std_mat.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
 	std_mat.roughness = 1.0
@@ -501,11 +507,36 @@ func _refresh_held_item() -> void:
 		# Apply item adjustments
 		_update_item_transform()
 	else:
-		_item.mesh = _cube_mesh
-		_item_scale_node.scale = Vector3.ONE * _block_scale # 0.4 total scale from parent
-		_item.rotation = Vector3.ZERO
-		# Apply block adjustments
-		_update_block_transform()
+		# Check if block has a custom shape
+		var block_def = _block_defs[current_display_id] if current_display_id >= 0 and current_display_id < _block_defs.size() else {}
+		var shape = block_def.get("shape", "") if block_def else ""
+		
+		if not shape.is_empty():
+			# Remap shape variant to face towards camera for viewmodel
+			var viewmodel_shape = _remap_shape_for_viewmodel(shape)
+			
+			# Generate or get cached shaped block mesh
+			if not _shaped_block_meshes.has(viewmodel_shape):
+				var shape_mesh = _build_shaped_block_mesh(viewmodel_shape)
+				if shape_mesh != null:
+					_shaped_block_meshes[viewmodel_shape] = shape_mesh
+			
+			if _shaped_block_meshes.has(viewmodel_shape):
+				_item.mesh = _shaped_block_meshes[viewmodel_shape]
+				_item_scale_node.scale = Vector3.ONE * _block_scale
+				_item.rotation = Vector3.ZERO
+				_update_block_transform()
+			else:
+				_item.mesh = _cube_mesh
+				_item_scale_node.scale = Vector3.ONE * _block_scale
+				_item.rotation = Vector3.ZERO
+				_update_block_transform()
+		else:
+			_item.mesh = _cube_mesh
+			_item_scale_node.scale = Vector3.ONE * _block_scale # 0.4 total scale from parent
+			_item.rotation = Vector3.ZERO
+			# Apply block adjustments
+			_update_block_transform()
 
 func _flip_arm_mesh_uvs(arm: Node3D) -> void:
 	var list: Array[Node3D] = [arm]
@@ -1054,6 +1085,154 @@ func _generate_item_mesh(texture: Texture2D) -> ArrayMesh:
 	arrays[Mesh.ARRAY_TEX_UV] = uvs
 	arrays[Mesh.ARRAY_NORMAL] = normals
 	arrays[Mesh.ARRAY_INDEX] = indices
+	
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return mesh
+
+# Load block definitions from block_definitions.json
+func _load_block_definitions() -> void:
+	var file := FileAccess.open("res://data/block_definitions.json", FileAccess.READ)
+	if file == null:
+		print("Failed to load block_definitions.json")
+		return
+	
+	var json_text := file.get_as_text()
+	file.close()
+	
+	var json := JSON.new()
+	var parse_result := json.parse(json_text)
+	if parse_result != OK:
+		print("Failed to parse block_definitions.json: " + json.get_error_message())
+		return
+	
+	_block_defs = json.data
+
+# Remap shape variant to face towards camera for viewmodel
+func _remap_shape_for_viewmodel(shape: String) -> String:
+	var parts = shape.split("/")
+	if parts.size() < 2:
+		return shape
+	
+	var shape_type = parts[0]
+	var variant = parts[1]
+	
+	# Map stairs to face east (towards camera)
+	if shape_type == "stair":
+		return "stair/e"
+	
+	# Slabs, walls, and poles don't need remapping
+	return shape
+
+# Load block shapes from block_shapes.json
+func _load_block_shapes() -> void:
+	var file := FileAccess.open("res://data/block_shapes.json", FileAccess.READ)
+	if file == null:
+		print("Failed to load block_shapes.json")
+		return
+	
+	var json_text := file.get_as_text()
+	file.close()
+	
+	var json := JSON.new()
+	var parse_result := json.parse(json_text)
+	if parse_result != OK:
+		print("Failed to parse block_shapes.json: " + json.get_error_message())
+		return
+	
+	_block_shapes = json.data
+	print("Loaded " + str(_block_shapes.size()) + " block shapes")
+
+# Build a shaped block mesh for the viewmodel
+func _build_shaped_block_mesh(shape_key: String) -> ArrayMesh:
+	# Parse shape type and variant (e.g., "slab/bottom" -> type="slab", variant="bottom")
+	var parts = shape_key.split("/")
+	var shape_type = parts[0]
+	var shape_variant = parts[1] if parts.size() > 1 else ""
+	
+	if not _block_shapes.has(shape_type):
+		print("Shape type not found: " + shape_type)
+		return null
+	
+	var shape_data = _block_shapes[shape_type]
+	var variant_data
+	
+	# If shape has no variant, use the shape data directly
+	if shape_variant.is_empty():
+		variant_data = shape_data
+	else:
+		if not shape_data.has(shape_variant):
+			print("Shape variant not found: " + shape_variant + " for type: " + shape_type)
+			return null
+		variant_data = shape_data[shape_variant]
+	
+	var selection_boxes = variant_data.get("selection_boxes", [])
+	
+	if selection_boxes.is_empty():
+		print("No selection boxes for shape: " + shape_type)
+		return null
+	
+	var mesh = ArrayMesh.new()
+	
+	# Collect all faces from all boxes into single arrays
+	var all_verts = PackedVector3Array()
+	var all_uvs = PackedVector2Array()
+	var all_normals = PackedVector3Array()
+	var all_indices = PackedInt32Array()
+	var vertex_offset := 0
+	
+	# Build a cube for each selection box
+	for box in selection_boxes:
+		if box.size() < 6:
+			continue
+		
+		var min_x = box[0]
+		var min_y = box[1]
+		var min_z = box[2]
+		var max_x = box[3]
+		var max_y = box[4]
+		var max_z = box[5]
+		
+		# Build the 6 faces of this box with proper winding (clockwise when viewed from outside for viewmodel)
+		var box_faces = [
+			# +X face (right)
+			{"normal": Vector3(1, 0, 0), "verts": [Vector3(max_x, min_y, min_z), Vector3(max_x, max_y, min_z), Vector3(max_x, max_y, max_z), Vector3(max_x, min_y, max_z)]},
+			# -X face (left)
+			{"normal": Vector3(-1, 0, 0), "verts": [Vector3(min_x, min_y, min_z), Vector3(min_x, max_y, min_z), Vector3(min_x, max_y, max_z), Vector3(min_x, min_y, max_z)]},
+			# +Y face (top) - reversed winding
+			{"normal": Vector3(0, 1, 0), "verts": [Vector3(min_x, max_y, min_z), Vector3(max_x, max_y, min_z), Vector3(max_x, max_y, max_z), Vector3(min_x, max_y, max_z)]},
+			# -Y face (bottom)
+			{"normal": Vector3(0, -1, 0), "verts": [Vector3(min_x, min_y, max_z), Vector3(max_x, min_y, max_z), Vector3(max_x, min_y, min_z), Vector3(min_x, min_y, min_z)]},
+			# +Z face (front)
+			{"normal": Vector3(0, 0, 1), "verts": [Vector3(max_x, min_y, min_z), Vector3(max_x, max_y, min_z), Vector3(min_x, max_y, min_z), Vector3(min_x, min_y, min_z)]},
+			# -Z face (back) - reversed winding
+			{"normal": Vector3(0, 0, -1), "verts": [Vector3(min_x, min_y, max_z), Vector3(min_x, max_y, max_z), Vector3(max_x, max_y, max_z), Vector3(max_x, min_y, max_z)]},
+		]
+		
+		for face in box_faces:
+			for v in face.verts:
+				all_verts.append(v)
+				all_normals.append(face.normal)
+			
+			all_uvs.append(Vector2(0.0, 1.0))
+			all_uvs.append(Vector2(0.0, 0.0))
+			all_uvs.append(Vector2(1.0, 0.0))
+			all_uvs.append(Vector2(1.0, 1.0))
+			
+			all_indices.append(vertex_offset + 0)
+			all_indices.append(vertex_offset + 1)
+			all_indices.append(vertex_offset + 2)
+			all_indices.append(vertex_offset + 0)
+			all_indices.append(vertex_offset + 2)
+			all_indices.append(vertex_offset + 3)
+			
+			vertex_offset += 4
+	
+	var arrays = []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = all_verts
+	arrays[Mesh.ARRAY_TEX_UV] = all_uvs
+	arrays[Mesh.ARRAY_NORMAL] = all_normals
+	arrays[Mesh.ARRAY_INDEX] = all_indices
 	
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 	return mesh

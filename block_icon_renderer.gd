@@ -4,7 +4,7 @@ extends Node
 # Caches rendered textures so each block is only rendered once.
 # Uses orthographic camera at Minecraft's dimetric angle (45° yaw, ~30° pitch).
 
-const ICON_SIZE := 64  # Output icon resolution
+const ICON_SIZE := 300  # Output icon resolution
 const BLOCK_SCALE := 1.0  # Scale of block in viewport
 
 var _viewport: SubViewport
@@ -124,16 +124,13 @@ func get_block_icon(block_id: int) -> ImageTexture:
 	if block_id < 0 or block_id >= _block_defs.size():
 		return null
 	
-	# Check cache
+	# Check cache first - this is the primary path
 	if _icon_cache.has(block_id):
 		return _icon_cache[block_id]
 	
-	# Render new icon synchronously
-	var icon := _render_block_icon_sync(block_id)
-	if icon != null:
-		_icon_cache[block_id] = icon
-	
-	return icon
+	# If not in cache, it means pre-rendering hasn't finished yet
+	# Return null to let UI fall back to BlockTextures
+	return null
 
 # Render a single block icon (synchronous)
 func _render_block_icon_sync(block_id: int) -> ImageTexture:

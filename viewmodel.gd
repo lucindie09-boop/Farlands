@@ -212,6 +212,7 @@ func _ready() -> void:
 	std_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
 	std_mat.alpha_scissor_threshold = 0.5
 	std_mat.no_depth_test = true
+	std_mat.render_priority = 5
 	std_mat.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
 	std_mat.roughness = 1.0
 	std_mat.metallic = 0.0
@@ -567,6 +568,7 @@ func _apply_skin(arm: Node3D) -> void:
 		std_mat.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
 		std_mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
 		std_mat.no_depth_test = true
+		std_mat.render_priority = 5
 		std_mat.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
 		std_mat.roughness = 1.0
 		std_mat.metallic = 0.0

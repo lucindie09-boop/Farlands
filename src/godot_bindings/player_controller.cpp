@@ -88,6 +88,7 @@ void PlayerController::_bind_methods() {
     ClassDB::bind_method(D_METHOD("toggle_third_person"), &PlayerController::toggle_third_person);
     ClassDB::bind_method(D_METHOD("set_third_person", "on"), &PlayerController::set_third_person);
     ClassDB::bind_method(D_METHOD("get_third_person"), &PlayerController::get_third_person);
+    ClassDB::bind_method(D_METHOD("update_player_animation", "is_walking"), &PlayerController::update_player_animation);
 
     ADD_SIGNAL(MethodInfo("crafting_table_used"));
     ADD_SIGNAL(MethodInfo("block_placed"));
@@ -263,6 +264,10 @@ void PlayerController::_process(double delta) {
         set_health(health_ - fall_damage);
     }
 
+    // Update player animation based on movement
+    bool is_walking = pi.wish_direction.length_squared() > 0.01f && sim_.is_on_floor();
+    update_player_animation(is_walking);
+
     float partial = sim_.get_accumulator_fraction();
     set_global_position(sim_.get_render_position(partial));
     if (camera_) {
@@ -410,6 +415,13 @@ void PlayerController::set_third_person(bool on) {
 
 bool PlayerController::get_third_person() const {
     return third_person_;
+}
+
+void PlayerController::update_player_animation(bool is_walking) {
+    if (model_) {
+        // Call the GDScript method on the PlayerModel node
+        model_->call("set_animation_state", is_walking);
+    }
 }
 
 void PlayerController::teleport_to(const Vector3& pos) {

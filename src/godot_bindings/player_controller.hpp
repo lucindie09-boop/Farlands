@@ -104,6 +104,9 @@ public:
     void set_third_person(bool on);
     bool get_third_person() const;
 
+    // Player animation API
+    void update_player_animation(bool is_walking);
+
 protected:
     static void _bind_methods();
 

@@ -8,7 +8,7 @@ Player model animations (walk/idle/etc.)
 
 ~~First-person viewmodel + items/blocks in hand~~
 
-Isometric icon snapshots (bundle with #4, same render pipeline) - cache the icons, don't re-render every frame
+~~Isometric icon snapshots (bundle with #4, same render pipeline) - cache the icons, don't re-render every frame~~
 
 ~~Punch animation~~
 

@@ -24,6 +24,7 @@ config/icon="res://icon.svg"
 UIScale="*res://ui_scale.gd"
 SkinManager="*res://skin_manager.gd"
 BlockManager="*res://block_manager.gd"
+BlockIconRenderer="*res://block_icon_renderer.gd"
 
 [display]
 

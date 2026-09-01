@@ -35,7 +35,7 @@ var _tab_cycle_delay: float = 0.1875
 var _up_held: bool = false
 var _up_hold_time: float = 0.0
 
-const COMMANDS := ["/help", "/give", "/tp", "/fly", "/clearchat", "/clearinv", "/version", "/texturepack"]
+const COMMANDS := ["/help", "/give", "/tp", "/fly", "/clearchat", "/clearinv", "/version", "/texturepack", "/testicons"]
 
 func _chat_scale() -> float:
 	return 1.0  # Chat is not affected by the global GUI scale
@@ -488,6 +488,7 @@ func _run_command(raw: String):
 			_add_message("/clearinv - clear your inventory", COLOR_SYSTEM)
 			_add_message("/version - show the engine version", COLOR_SYSTEM)
 			_add_message("/texturepack [name] - list packs, activate one, or clear with 'off'", COLOR_SYSTEM)
+			_add_message("/testicons - test block icon rendering (saves to user://)", COLOR_SYSTEM)
 		"/give":
 			if parts.size() < 2:
 				_add_message("Usage: /give <block> [count]", COLOR_ERROR)
@@ -569,6 +570,13 @@ func _run_command(raw: String):
 					for p in packs:
 						_add_message("  - %s" % p, COLOR_SYSTEM)
 					_add_message("Use /texturepack <name> to activate, /texturepack off to clear.", COLOR_SYSTEM)
+		"/testicons":
+			var renderer = get_node_or_null("/root/BlockIconRenderer")
+			if renderer == null:
+				_add_message("BlockIconRenderer not found!", COLOR_ERROR)
+			else:
+				renderer.test_render_icons()
+				_add_message("Block icon test complete. Check user:// for saved PNG files.", COLOR_SUCCESS)
 		_:
 			_add_message("Unknown command: %s (type /help)" % parts[0], COLOR_ERROR)
 

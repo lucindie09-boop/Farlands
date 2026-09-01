@@ -185,12 +185,22 @@ func _draw():
 	if _is_holding():
 		var mouse_pos = get_local_mouse_position()
 		var drag_size = 48.0
-		var block_texture = BlockTextures.get_texture(held_block_id)
-		if block_texture:
-			draw_texture_rect(block_texture, Rect2(mouse_pos.x - drag_size/2, mouse_pos.y - drag_size/2, drag_size, drag_size), false)
+		
+		# Try to get isometric block icon from BlockIconRenderer
+		var icon_renderer = get_node_or_null("/root/BlockIconRenderer")
+		var block_icon = null
+		if icon_renderer != null:
+			block_icon = icon_renderer.get_block_icon(held_block_id)
+		
+		if block_icon:
+			draw_texture_rect(block_icon, Rect2(mouse_pos.x - drag_size/2, mouse_pos.y - drag_size/2, drag_size, drag_size), false)
 		else:
-			var block_color = _get_block_color(held_block_id)
-			draw_rect(Rect2(mouse_pos.x - drag_size/2, mouse_pos.y - drag_size/2, drag_size, drag_size), block_color)
+			var block_texture = BlockTextures.get_texture(held_block_id)
+			if block_texture:
+				draw_texture_rect(block_texture, Rect2(mouse_pos.x - drag_size/2, mouse_pos.y - drag_size/2, drag_size, drag_size), false)
+			else:
+				var block_color = _get_block_color(held_block_id)
+				draw_rect(Rect2(mouse_pos.x - drag_size/2, mouse_pos.y - drag_size/2, drag_size, drag_size), block_color)
 		if held_count > 1:
 			_draw_item_count(str(held_count), mouse_pos.x + drag_size / 2, mouse_pos.y + drag_size / 2, drag_size)
 
@@ -213,20 +223,32 @@ func _draw_slot(x, y, width, height, slot_index, is_hotbar):
 	
 	# Draw block icon if slot has blocks
 	if block_id > 0 && count > 0:
-		# Try to get actual block texture
-		var block_texture = BlockTextures.get_texture(block_id)
-		if block_texture:
-			var icon_size = width * 0.8
+		# Try to get isometric block icon from BlockIconRenderer
+		var icon_renderer = get_node_or_null("/root/BlockIconRenderer")
+		var block_icon = null
+		if icon_renderer != null:
+			block_icon = icon_renderer.get_block_icon(block_id)
+		
+		if block_icon:
+			var icon_size = width * 0.9
 			var icon_x = x + (width - icon_size) / 2.0
 			var icon_y = y + (height - icon_size) / 2.0
-			draw_texture_rect(block_texture, Rect2(icon_x, icon_y, icon_size, icon_size), false)
+			draw_texture_rect(block_icon, Rect2(icon_x, icon_y, icon_size, icon_size), false)
 		else:
-			# Fallback to colored rectangle
-			var block_color = _get_block_color(block_id)
-			var icon_size = width * 0.7
-			var icon_x = x + (width - icon_size) / 2.0
-			var icon_y = y + (height - icon_size) / 2.0
-			draw_rect(Rect2(icon_x, icon_y, icon_size, icon_size), block_color)
+			# Fallback to block texture
+			var block_texture = BlockTextures.get_texture(block_id)
+			if block_texture:
+				var icon_size = width * 0.8
+				var icon_x = x + (width - icon_size) / 2.0
+				var icon_y = y + (height - icon_size) / 2.0
+				draw_texture_rect(block_texture, Rect2(icon_x, icon_y, icon_size, icon_size), false)
+			else:
+				# Fallback to colored rectangle
+				var block_color = _get_block_color(block_id)
+				var icon_size = width * 0.7
+				var icon_x = x + (width - icon_size) / 2.0
+				var icon_y = y + (height - icon_size) / 2.0
+				draw_rect(Rect2(icon_x, icon_y, icon_size, icon_size), block_color)
 		
 		# Draw count text
 		if count > 1:
@@ -240,15 +262,26 @@ func _draw_craft_cell(x, y, width, height, cslot, block_id, count, hover_tex: Te
 	
 	# Draw block icon if the cell has items
 	if block_id > 0 and count > 0:
-		var block_texture = BlockTextures.get_texture(block_id)
-		if block_texture:
-			var icon_size = width * 0.8
-			draw_texture_rect(block_texture,
+		# Try to get isometric block icon from BlockIconRenderer
+		var icon_renderer = get_node_or_null("/root/BlockIconRenderer")
+		var block_icon = null
+		if icon_renderer != null:
+			block_icon = icon_renderer.get_block_icon(block_id)
+		
+		if block_icon:
+			var icon_size = width * 0.9
+			draw_texture_rect(block_icon,
 					Rect2(x + (width - icon_size) / 2.0, y + (height - icon_size) / 2.0, icon_size, icon_size), false)
 		else:
-			var block_color = _get_block_color(block_id)
-			var icon_size = width * 0.7
-			draw_rect(Rect2(x + (width - icon_size) / 2.0, y + (height - icon_size) / 2.0, icon_size, icon_size), block_color)
+			var block_texture = BlockTextures.get_texture(block_id)
+			if block_texture:
+				var icon_size = width * 0.8
+				draw_texture_rect(block_texture,
+						Rect2(x + (width - icon_size) / 2.0, y + (height - icon_size) / 2.0, icon_size, icon_size), false)
+			else:
+				var block_color = _get_block_color(block_id)
+				var icon_size = width * 0.7
+				draw_rect(Rect2(x + (width - icon_size) / 2.0, y + (height - icon_size) / 2.0, icon_size, icon_size), block_color)
 		if count > 1:
 			_draw_item_count(str(count), x + width, y + height, width)
 

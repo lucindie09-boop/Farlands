@@ -142,13 +142,17 @@ func _draw():
 		
 		# Draw block icon if slot has blocks
 		if block_id > 0 and count > 0:
-			# Try to get actual block texture
-			var block_texture = BlockTextures.get_texture(block_id)
-			if block_texture:
-				var icon_size = fill_size * 0.8
+			# Try to get isometric block icon from BlockIconRenderer
+			var icon_renderer = get_node_or_null("/root/BlockIconRenderer")
+			var block_icon = null
+			if icon_renderer != null:
+				block_icon = icon_renderer.get_block_icon(block_id)
+			
+			if block_icon:
+				var icon_size = fill_size * 0.9
 				var icon_x = fill_x + (fill_size - icon_size) / 2.0
 				var icon_y = fill_y + (fill_size - icon_size) / 2.0
-				draw_texture_rect(block_texture, Rect2(icon_x, icon_y, icon_size, icon_size), false)
+				draw_texture_rect(block_icon, Rect2(icon_x, icon_y, icon_size, icon_size), false)
 			else:
 				# Fallback to colored rectangle
 				var block_color = _get_block_color(block_id)

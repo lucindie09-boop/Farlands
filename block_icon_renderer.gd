@@ -105,16 +105,22 @@ func _setup_viewport() -> void:
 	_block_mesh.scale = Vector3.ONE * BLOCK_SCALE
 	_viewport.add_child(_block_mesh)
 	
-	# Create perspective camera for now (easier to debug)
+	# Create orthographic camera for isometric view
 	_camera = Camera3D.new()
-	_camera.projection = Camera3D.PROJECTION_PERSPECTIVE
-	_camera.fov = 40.0
+	_camera.projection = Camera3D.PROJECTION_ORTHOGONAL
+	_camera.size = 1.75
 	_camera.near = 0.1
 	_camera.far = 100.0
 	
-	# Position camera to look at the block from an angle
-	_camera.position = Vector3(2.0, 1.5, 2.0)
-	# Use look_at_from_position since we're not in tree yet
+	# Position camera for dimetric isometric view (45° yaw, ~30° pitch)
+	var distance = 3.0
+	var yaw = deg_to_rad(45)
+	var pitch = deg_to_rad(30)
+	_camera.position = Vector3(
+		distance * cos(pitch) * sin(yaw),
+		distance * sin(pitch),
+		distance * cos(pitch) * cos(yaw)
+	)
 	_camera.look_at_from_position(_camera.position, Vector3.ZERO, Vector3.UP)
 	_camera.make_current()
 	_viewport.add_child(_camera)
@@ -150,6 +156,11 @@ func _render_block_icon_sync(block_id: int) -> ImageTexture:
 	
 	_block_mesh.mesh = mesh
 	_block_mesh.material_override = null  # Clear any previous material override
+	
+	# Center the mesh based on its AABB so all blocks appear at the same distance
+	var aabb = mesh.get_aabb()
+	var center_offset = aabb.get_center() - Vector3(0.5, 0.5, 0.5)
+	_block_mesh.position = -center_offset
 	
 	# Apply textures
 	_apply_block_textures(block_def)
@@ -194,6 +205,11 @@ func _render_block_icon(block_id: int) -> ImageTexture:
 	
 	_block_mesh.mesh = mesh
 	_block_mesh.material_override = null  # Clear any previous material override
+	
+	# Center the mesh based on its AABB so all blocks appear at the same distance
+	var aabb = mesh.get_aabb()
+	var center_offset = aabb.get_center() - Vector3(0.5, 0.5, 0.5)
+	_block_mesh.position = -center_offset
 	
 	# Apply textures
 	_apply_block_textures(block_def)

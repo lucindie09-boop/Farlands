@@ -23,6 +23,7 @@ const MODEL_SCALE := 0.05625 # player.glb px -> meters (0.9 / 16)
 
 var _player: Node
 var _hand_bob: Node3D
+var _arm_root: Node3D
 var _arm_pivot: Node3D
 var _arm: Node3D
 var _swing_node: Node3D
@@ -102,6 +103,11 @@ const MC_ARM_BASIS := Basis(
 # diagonal MC held-arm in the lower-right of the screen.
 const MC_SHOULDER := Vector3(0.67, -0.01, -0.75)
 
+# Peak-punch pose: manually verified with the F12 HUD. The animation lerps
+# between HUD rest values and these peaks, then back.
+const PEAK_ROT := Vector3(0.0, 58.0, -10.0)
+const PEAK_POS := Vector3(0.19, 0.26, -0.75)
+
 func _ready() -> void:
 	_player = get_node_or_null("/root/Main/Player")
 
@@ -114,6 +120,7 @@ func _ready() -> void:
 	_hand_bob.add_child(arm_root)
 	arm_root.name = "ArmRoot"
 	arm_root.position = Vector3(_arm_position_x, _arm_position_y, _arm_position_z)
+	_arm_root = arm_root
 
 	var mdl := PLAYER_MODEL.instantiate()
 	var arm_node := mdl.get_child(arm_index) as Node3D
@@ -133,20 +140,32 @@ func _ready() -> void:
 	_update_arm_rotation()
 
 	# --- Held item (transformFirstPersonItem). ---
+	# The punch/swing must pivot about the SHOULDER (matching the arm's pivot),
+	# not about the hand -- otherwise the held block spins about its own center
+	# instead of arcing the way a real arm held at the shoulder would.
+	var arm_shoulder := Vector3(_arm_position_x, _arm_position_y, _arm_position_z)
+
+	var swing_pivot := Node3D.new()
+	_hand_bob.add_child(swing_pivot)
+	swing_pivot.name = "SwingPivot"
+	swing_pivot.position = arm_shoulder
+	_swing_node = swing_pivot
+
 	var item_root := Node3D.new()
-	_hand_bob.add_child(item_root)
+	swing_pivot.add_child(item_root)
 	item_root.name = "ItemRoot"
-	item_root.position = hold_from
+	item_root.position = Vector3(
+		hold_from.x - arm_shoulder.x,
+		hold_from.y - arm_shoulder.y - 0.15,
+		hold_from.z - arm_shoulder.z
+	)
 
 	var var45 := Node3D.new()
 	item_root.add_child(var45)
 	var45.rotation_degrees.y = 45.0
-	_swing_node = Node3D.new() 
-	var45.add_child(_swing_node)
-	_swing_node.position = Vector3(0.0, -0.15, 0.0) 
 
 	var scale04 := Node3D.new()
-	_swing_node.add_child(scale04)
+	var45.add_child(scale04)
 	scale04.scale = Vector3.ONE * 0.4 
 
 	_item_scale_node = Node3D.new()
@@ -248,55 +267,57 @@ func punch() -> void:
 	_swing = 1.0
 
 func _update_swing_hooks() -> void:
-	var swing_progress := 1.0 - _swing
-	
-	# --- Authentic ModelBiped.java Swing Easing Curve ---
+	var swing_progress := _swing  # 1 -> 0 over the punch (MC swingProgress)
+
+	# MC double-squared easing: sharp acceleration, smooth settle.
 	var f := 1.0 - swing_progress
 	f = f * f
 	f = f * f
-	f = f * f # Double-squared easing
-	var eased_swing := 1.0 - f
-	
-	var f1 := sin(eased_swing * PI)
-	var f3 := sin(swing_progress * swing_progress * PI)
-	var f4 := sin(sqrt(swing_progress) * PI)
-	
-	# Equip animation logic
+	var amp := 1.0 - f  # 0 at rest, peaks mid-swing, 0 at end
+
+	# Equip animation: both normal equip and swap animate height over 0.25s
 	var equip_offset: float
 	if _is_swapping:
 		if _equip < 0.5:
-			var unequip_progress = _equip * 2.0 
+			var unequip_progress = _equip * 2.0
 			equip_offset = -0.25 - 0.5 * unequip_progress
 		else:
-			var equip_progress = (_equip - 0.5) * 2.0 
+			var equip_progress = (_equip - 0.5) * 2.0
 			equip_offset = -0.75 + 0.5 * equip_progress
 	else:
 		equip_offset = -0.75 + 0.5 * _equip
-	
-	# Hand bob positioning
-	_hand_bob.position = Vector3(-0.4 * f4, 0.2 * sin(sqrt(swing_progress) * PI * 2.0) + equip_offset, -0.2 * sin(swing_progress * PI))
-	
-	# Swing node rotations matching ModelBiped transform calculations
-	_swing_node.rotation_degrees = Vector3(
-		rad_to_deg(-f1 * 1.2),
-		f3 * -20.0,
-		f4 * -20.0 + sin(swing_progress * PI) * -23.0
-	)
-	
-	# Optional body twisting / arm tracking hook if you want limb reactivity
-	_update_arm_animation(swing_progress, eased_swing)
 
-func _update_arm_animation(swing_progress: float, eased_swing: float) -> void:
+	# Equip-only vertical bob (shoulder position handles the swing motion)
+	_hand_bob.position = Vector3(0.0, equip_offset, 0.0)
+
+	# Interpolate arm rotation and shoulder position from rest to peak.
+	# Rest = current HUD tuning values; Peak = manually verified punch pose.
+	var rest_rot := Vector3(_rotation_x, _rotation_y, _rotation_z)
+	var rest_pos := Vector3(_arm_position_x, _arm_position_y, _arm_position_z)
+	var current_rot := rest_rot.lerp(PEAK_ROT, amp)
+	var current_pos := rest_pos.lerp(PEAK_POS, amp)
+
+	# Apply to arm (rotation + position)
+	_update_arm_animation(current_rot, current_pos)
+
+	# Apply to held item (position matches shoulder, rotation is the delta)
+	if _swing_node != null:
+		_swing_node.position = current_pos
+		var delta := current_rot - rest_rot
+		_swing_node.rotation_degrees = delta
+
+func _update_arm_animation(current_rot: Vector3, current_pos: Vector3) -> void:
 	if _arm_pivot == null:
 		return
-	
-	# Minecraft biped body/arm attack twisting component
-	var body_twist = sin(sqrt(eased_swing) * PI * 2.0) * 0.2
-	
-	# Apply base rotation combined with the dynamic swing offset
-	_arm_pivot.basis = MC_ARM_BASIS.rotated(Vector3.RIGHT, deg_to_rad(_rotation_x))
-	_arm_pivot.basis = _arm_pivot.basis.rotated(Vector3.UP, deg_to_rad(_rotation_y) + body_twist)
-	_arm_pivot.basis = _arm_pivot.basis.rotated(Vector3.BACK, deg_to_rad(_rotation_z))
+
+	# Build pose: MC arm basis + interpolated HUD rotation values
+	_arm_pivot.basis = MC_ARM_BASIS.rotated(Vector3.RIGHT, deg_to_rad(-current_rot.x))
+	_arm_pivot.basis = _arm_pivot.basis.rotated(Vector3.UP, deg_to_rad(current_rot.y))
+	_arm_pivot.basis = _arm_pivot.basis.rotated(Vector3.BACK, deg_to_rad(current_rot.z))
+
+	# Shoulder position follows the animation
+	if _arm_root != null:
+		_arm_root.position = current_pos
 
 func _refresh_held_item() -> void:
 	if _player == null:
@@ -679,16 +700,14 @@ func _update_arm_rotation() -> void:
 		# The source pose is the exact MC_ARM_BASIS matrix (avoids Godot's
 		# Euler-order ambiguity). The F12 HUD rotation keys apply a small euler
 		# delta on top.
-		_arm_pivot.basis = MC_ARM_BASIS.rotated(Vector3.RIGHT, deg_to_rad(_rotation_x))
+		_arm_pivot.basis = MC_ARM_BASIS.rotated(Vector3.RIGHT, deg_to_rad(-_rotation_x))
 		_arm_pivot.basis = _arm_pivot.basis.rotated(Vector3.UP, deg_to_rad(_rotation_y))
 		_arm_pivot.basis = _arm_pivot.basis.rotated(Vector3.BACK, deg_to_rad(_rotation_z))
 	if _arm != null:
 		_arm.position = Vector3(0, -12.0, 0) * MODEL_SCALE * _arm_scale
 		_arm.scale = Vector3.ONE * MODEL_SCALE * _arm_scale
-		if _arm.get_parent() != null and _arm.get_parent().get_parent() != null:
-			var arm_root = _arm.get_parent().get_parent() as Node3D
-			if arm_root != null:
-				arm_root.position = Vector3(_arm_position_x, _arm_position_y, _arm_position_z)
+	if _arm_root != null:
+		_arm_root.position = Vector3(_arm_position_x, _arm_position_y, _arm_position_z)
 
 func _update_hud_labels() -> void:
 	var labels = _hud_panel.find_children("", "Label", false, false)

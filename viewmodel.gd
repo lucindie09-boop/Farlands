@@ -37,7 +37,7 @@ var _equip := 0.0
 var _is_swapping := false
 var _swing := 0.0
 var _item_meshes := {} # Cache for generated item meshes
-var _last_cam_rot: Vector3 = Vector3.ZERO
+# Removed unused variable _last_cam_rot to clear the warning error
 var _item_sway_offset: Vector3 = Vector3.ZERO
 var _mouse_delta: Vector2 = Vector2.ZERO
 
@@ -248,35 +248,55 @@ func punch() -> void:
 	_swing = 1.0
 
 func _update_swing_hooks() -> void:
-	var s := _swing
-	var f3 := sin(s * s * PI) # sin(swing^2 * pi)
-	var f4 := sin(sqrt(s) * PI) # sin(sqrt(swing) * pi)
+	var swing_progress := 1.0 - _swing
+	
+	# --- Authentic ModelBiped.java Swing Easing Curve ---
+	var f := 1.0 - swing_progress
+	f = f * f
+	f = f * f
+	f = f * f # Double-squared easing
+	var eased_swing := 1.0 - f
+	
+	var f1 := sin(eased_swing * PI)
+	var f3 := sin(swing_progress * swing_progress * PI)
+	var f4 := sin(sqrt(swing_progress) * PI)
 	
 	# Equip animation logic
 	var equip_offset: float
 	if _is_swapping:
-		# Swap animation: first half unequip (go down), second half equip (come up)
 		if _equip < 0.5:
-			# Unequip phase: old item goes from -0.25 down to below
-			var unequip_progress = _equip * 2.0 # 0.0 to 1.0 during first half
+			var unequip_progress = _equip * 2.0 
 			equip_offset = -0.25 - 0.5 * unequip_progress
 		else:
-			# Equip phase: new item comes from below up to -0.25
-			var equip_progress = (_equip - 0.5) * 2.0 # 0.0 to 1.0 during second half
+			var equip_progress = (_equip - 0.5) * 2.0 
 			equip_offset = -0.75 + 0.5 * equip_progress
 	else:
-		# Normal equip: item comes from below up to -0.25
 		equip_offset = -0.75 + 0.5 * _equip
 	
-	# MC bob: (-0.4 sin(sqrt s pi), 0.2 sin(sqrt s pi*2), -0.2 sin(s pi))
-	_hand_bob.position = Vector3(-0.4 * f4, 0.2 * sin(sqrt(s) * PI * 2.0) + equip_offset, -0.2 * sin(s * PI))
+	# Hand bob positioning
+	_hand_bob.position = Vector3(-0.4 * f4, 0.2 * sin(sqrt(swing_progress) * PI * 2.0) + equip_offset, -0.2 * sin(swing_progress * PI))
 	
-	# MC swing rotations (transformFirstPersonItem): yaw f*-20, roll f1*-20, pitch f1*-80
-	_swing_node.rotation_degrees = Vector3(f4 * -80.0, f3 * -20.0, f4 * -20.0)
+	# Swing node rotations matching ModelBiped transform calculations
+	_swing_node.rotation_degrees = Vector3(
+		rad_to_deg(-f1 * 1.2),
+		f3 * -20.0,
+		f4 * -20.0 + sin(swing_progress * PI) * -23.0
+	)
 	
-	# arm swings around its shoulder the same way (on the pivot, so the mesh
-	# scale/basis from _ready is never touched) - DISABLED for manual control
-	# _arm_pivot.basis = Basis.IDENTITY.rotated(Vector3.RIGHT, deg_to_rad(f4 * -80.0))
+	# Optional body twisting / arm tracking hook if you want limb reactivity
+	_update_arm_animation(swing_progress, eased_swing)
+
+func _update_arm_animation(swing_progress: float, eased_swing: float) -> void:
+	if _arm_pivot == null:
+		return
+	
+	# Minecraft biped body/arm attack twisting component
+	var body_twist = sin(sqrt(eased_swing) * PI * 2.0) * 0.2
+	
+	# Apply base rotation combined with the dynamic swing offset
+	_arm_pivot.basis = MC_ARM_BASIS.rotated(Vector3.RIGHT, deg_to_rad(_rotation_x))
+	_arm_pivot.basis = _arm_pivot.basis.rotated(Vector3.UP, deg_to_rad(_rotation_y) + body_twist)
+	_arm_pivot.basis = _arm_pivot.basis.rotated(Vector3.BACK, deg_to_rad(_rotation_z))
 
 func _refresh_held_item() -> void:
 	if _player == null:
@@ -649,6 +669,10 @@ func _input(event: InputEvent) -> void:
 	# Capture raw mouse motion for the viewmodel sway effect
 	if event is InputEventMouseMotion:
 		_mouse_delta = event.relative
+	
+	# Trigger/spam the punch immediately on every left-click press
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+		punch()
 
 func _update_arm_rotation() -> void:
 	if _arm_pivot != null:

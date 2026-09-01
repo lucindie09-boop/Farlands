@@ -168,9 +168,15 @@ func _ready() -> void:
 	_arm_pivot = Node3D.new()
 	arm_root.add_child(_arm_pivot)
 	_arm_pivot.add_child(arm_node)
-	arm_node.position = Vector3(0, -12.0, 0) * MODEL_SCALE * _arm_scale
-	arm_node.scale = Vector3.ONE * MODEL_SCALE * _arm_scale
+	# Scale only the mesh, not the node position, to preserve pivot alignment
+	arm_node.position = Vector3(0, -12.0, 0) * MODEL_SCALE
+	arm_node.scale = Vector3.ONE * MODEL_SCALE
 	arm_node.rotation_degrees = Vector3.ZERO
+	# Apply scale to mesh instances instead of the node
+	for mesh_instance in arm_node.find_children("", "MeshInstance3D", true, false):
+		var mi := mesh_instance as MeshInstance3D
+		if mi != null:
+			mi.scale = Vector3.ONE * _arm_scale
 	_arm_pivot.basis = MC_ARM_BASIS
 
 	_flip_arm_mesh_uvs(arm_node)
@@ -871,8 +877,13 @@ func _update_arm_rotation() -> void:
 		_arm_pivot.basis = _arm_pivot.basis.rotated(Vector3.UP, deg_to_rad(_rotation_y))
 		_arm_pivot.basis = _arm_pivot.basis.rotated(Vector3.BACK, deg_to_rad(_rotation_z))
 	if _arm != null:
-		_arm.position = Vector3(0, -12.0, 0) * MODEL_SCALE * _arm_scale
-		_arm.scale = Vector3.ONE * MODEL_SCALE * _arm_scale
+		_arm.position = Vector3(0, -12.0, 0) * MODEL_SCALE
+		_arm.scale = Vector3.ONE * MODEL_SCALE
+		# Update mesh instance scales
+		for mesh_instance in _arm.find_children("", "MeshInstance3D", true, false):
+			var mi := mesh_instance as MeshInstance3D
+			if mi != null:
+				mi.scale = Vector3.ONE * _arm_scale
 	if _arm_root != null:
 		_arm_root.position = Vector3(_arm_position_x, _arm_position_y, _arm_position_z)
 

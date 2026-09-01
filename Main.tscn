@@ -12,7 +12,7 @@
 [ext_resource type="Script" uid="uid://byak67cusfoxc" path="res://healthbar.gd" id="11_healthbar"]
 [ext_resource type="Script" uid="uid://b3eee8l30k8qd" path="res://death_screen.gd" id="12_deathscreen"]
 [ext_resource type="Script" uid="uid://csimhtsb21lnr" path="res://crafting_table_menu.gd" id="13_tablemenu"]
-[ext_resource type="PackedScene" uid="uid://b0f43px1ro63d" path="res://player2.glb" id="14_playermodel"]
+[ext_resource type="PackedScene" uid="uid://b0f43px1ro63d" path="res://player.glb" id="14_playermodel"]
 [ext_resource type="Script" uid="uid://cs38nfukfohid" path="res://player_model.gd" id="15_playerskin"]
 [ext_resource type="Script" uid="uid://ceyf2rk1ue46s" path="res://block_break_overlay.gd" id="16_breakoverlay"]
 [ext_resource type="Script" uid="uid://dbeyx08uuwwe7" path="res://viewmodel.gd" id="18_viewmodel"]

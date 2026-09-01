@@ -211,7 +211,7 @@ func _ready() -> void:
 	std_mat.cull_mode = BaseMaterial3D.CULL_BACK
 	std_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
 	std_mat.alpha_scissor_threshold = 0.5
-	std_mat.no_depth_test = false
+	std_mat.no_depth_test = true
 	std_mat.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
 	std_mat.roughness = 1.0
 	std_mat.metallic = 0.0

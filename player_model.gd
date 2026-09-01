@@ -20,68 +20,37 @@ func _manager():
 
 func _ready():
 	apply_skin_texture()
-	_anim_player = $AnimationPlayer
-	_setup_animations()
-
-func _setup_animations():
-	if _anim_player == null:
-		return
-	
-	# Create an animation library
-	var anim_library = AnimationLibrary.new()
-	
-	# Create idle animation - subtle breathing/bobbing
-	var idle_anim = Animation.new()
-	idle_anim.loop = true
-	idle_anim.length = 2.0
-	
-	# Add track for root position (subtle bobbing)
-	var root_track = idle_anim.add_track(Animation.TYPE_POSITION_3D)
-	idle_anim.track_set_path(root_track, ".")
-	idle_anim.track_insert_key(root_track, 0.0, Vector3.ZERO)
-	idle_anim.track_insert_key(root_track, 1.0, Vector3(0, 0.02, 0))
-	idle_anim.track_insert_key(root_track, 2.0, Vector3.ZERO)
-	
-	anim_library.add_animation("idle", idle_anim)
-	
-	# Create walk animation - more pronounced bobbing
-	var walk_anim = Animation.new()
-	walk_anim.loop = true
-	walk_anim.length = 0.6
-	
-	# Add track for root position (walking bobbing)
-	var walk_track = walk_anim.add_track(Animation.TYPE_POSITION_3D)
-	walk_anim.track_set_path(walk_track, ".")
-	walk_anim.track_insert_key(walk_track, 0.0, Vector3.ZERO)
-	walk_anim.track_insert_key(walk_track, 0.15, Vector3(0, 0.05, 0))
-	walk_anim.track_insert_key(walk_track, 0.3, Vector3.ZERO)
-	walk_anim.track_insert_key(walk_track, 0.45, Vector3(0, 0.05, 0))
-	walk_anim.track_insert_key(walk_track, 0.6, Vector3.ZERO)
-	
-	# Add track for root rotation (subtle sway)
-	var rot_track = walk_anim.add_track(Animation.TYPE_ROTATION_3D)
-	walk_anim.track_set_path(rot_track, ".")
-	walk_anim.track_insert_key(rot_track, 0.0, Quaternion.IDENTITY)
-	walk_anim.track_insert_key(rot_track, 0.15, Quaternion.from_euler(Vector3(0, 0.05, 0)))
-	walk_anim.track_insert_key(rot_track, 0.3, Quaternion.IDENTITY)
-	walk_anim.track_insert_key(rot_track, 0.45, Quaternion.from_euler(Vector3(0, -0.05, 0)))
-	walk_anim.track_insert_key(rot_track, 0.6, Quaternion.IDENTITY)
-	
-	anim_library.add_animation("walk", walk_anim)
-	
-	# Add the library to the AnimationPlayer with a name
-	_anim_player.add_animation_library("player_animations", anim_library)
-	_anim_player.play("player_animations/idle")
+	_anim_player = get_node_or_null("AnimationPlayer")
+	if _anim_player != null:
+		# Load Idle animation from Animations folder
+		var idle_anim = load("res://Animations/Idle.anim")
+		if idle_anim != null:
+			# Fix track paths to match actual node names
+			var fixed_anim = idle_anim.duplicate()
+			for track_idx in fixed_anim.get_track_count():
+				var track_path = fixed_anim.track_get_path(track_idx)
+				var path_str = str(track_path)
+				# Replace arm_001 with arm2, leg_001 with leg2
+				path_str = path_str.replace("arm_001", "arm2")
+				path_str = path_str.replace("leg_001", "leg2")
+				fixed_anim.track_set_path(track_idx, NodePath(path_str))
+			
+			# Godot 4 uses AnimationLibrary
+			var library = AnimationLibrary.new()
+			library.add_animation("Idle", fixed_anim)
+			_anim_player.add_animation_library("default", library)
+			print("Loaded and fixed Idle animation from Animations folder")
+			_anim_player.play("default/Idle")
+		else:
+			print("Failed to load Idle.anim")
 
 func set_animation_state(is_walking: bool) -> void:
 	if _anim_player == null:
 		return
 	
-	var current_anim = _anim_player.current_animation
-	var target_anim = "player_animations/walk" if is_walking else "player_animations/idle"
-	
-	if current_anim != target_anim:
-		_anim_player.play(target_anim)
+	# TODO: Add walk animation and switch between Idle and walk
+	if _anim_player.has_animation("default/Idle"):
+		_anim_player.play("default/Idle")
 
 func set_uv_overlay(enabled: bool) -> void:
 	uv_overlay_enabled = enabled

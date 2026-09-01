@@ -44,6 +44,16 @@ var _item_meshes := {} # Cache for generated item meshes
 var _item_sway_offset: Vector3 = Vector3.ZERO
 var _mouse_delta: Vector2 = Vector2.ZERO
 
+# Walk bobbing (vanilla bobView): _walk_dist accumulates distance walked,
+# _bob is the amplitude envelope that ramps up with movement, _last_pos tracks
+# the previous frame's player position to measure horizontal speed.
+var _walk_dist := 0.0
+var _bob := 0.0
+var _last_pos := Vector3.ZERO
+var _has_last_pos := false
+var _bob_offset := Vector3.ZERO
+var _bob_rotation := Vector3.ZERO
+
 # Real-time adjustment HUD
 var _hud_panel: Control
 var _hud_visible := false
@@ -286,11 +296,47 @@ func _process(delta: float) -> void:
 	# Clear out mouse delta frame-by-frame
 	_mouse_delta = Vector2.ZERO
 	
-	# Apply sway rotation to your hand container node
+	# Apply sway rotation plus the walk-bob rotation to the hand container
 	if _hand_bob != null:
-		_hand_bob.rotation = _item_sway_offset
+		_hand_bob.rotation = _item_sway_offset + _bob_rotation * PI / 180.0
 	# -------------------------------------------------------
-	
+
+	# --- Walk bobbing (vanilla bobView formula) ---
+	# Track horizontal distance walked and a bob amplitude that ramps up with
+	# movement and dies down when idle, then offset the hand container by a
+	# single-frequency sin/cos bob. A plain -cos vertical term slows to a stop at
+	# its apex (naturally resting midair) and shares the horizontal frequency, so
+	# the bob never folds to double speed; the shared amplitude multiplier is a
+	# pure width knob independent of the cadence.
+	var p: Vector3 = _player.global_position
+	if _has_last_pos:
+		var horiz := Vector2(p.x - _last_pos.x, p.z - _last_pos.z)
+		var dist := horiz.length()
+		_walk_dist += dist
+		var speed := dist / maxf(delta, 0.0001) # blocks/sec
+		# Only bob on the ground: while airborne (jumping/falling) the target
+		# amplitude is 0 so the hand settles instead of bobbing through the air.
+		var grounded: bool = _player.is_on_floor()
+		var target_bob := clampf(speed / 4.3, 0.0, 1.0) if grounded else 0.0
+		_bob = lerpf(_bob, target_bob, 1.0 - exp(-10.0 * delta))
+	_last_pos = p
+	_has_last_pos = true
+
+	var bob_radians := _walk_dist * PI * 0.6
+	var bob_off := Vector3(
+		sin(bob_radians) * _bob * 0.5,
+		-abs(cos(bob_radians) * _bob),
+		0.0
+	) * 0.1
+	var bob_rot := Vector3(
+		cos(bob_radians - 0.2) * _bob * 5.0,
+		0.0,
+		sin(bob_radians) * _bob * 3.0
+	) * 0.1
+	_bob_offset = bob_off
+	_bob_rotation = bob_rot
+	# ----------------------------------------------
+
 	_update_swing_hooks()
 	_refresh_held_item()
 
@@ -332,8 +378,9 @@ func _update_swing_hooks() -> void:
 	else:
 		equip_offset = -0.75 + 0.5 * _equip
 
-	# Equip-only vertical bob (shoulder position handles the swing motion)
-	_hand_bob.position = Vector3(0.0, equip_offset, 0.0)
+	# Equip-only vertical bob (shoulder position handles the swing motion), plus
+	# the walk bob offset.
+	_hand_bob.position = Vector3(0.0, equip_offset, 0.0) + _bob_offset
 
 	# Punch depth: 0 at rest, peaks at the punch's midpoint, returns to 0 when it
 	# settles -- a there-and-back sweep that reaches the peak pose then springs

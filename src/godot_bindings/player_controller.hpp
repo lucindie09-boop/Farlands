@@ -90,6 +90,9 @@ public:
     bool is_dead() const;
     void die();
     void respawn();
+
+    // Ground state (true while on the floor) — used to pause walk bobbing midair.
+    bool is_on_floor() const;
     
     void set_sensitivity(float s);
     float get_sensitivity() const;

@@ -1185,12 +1185,12 @@ func _build_shaped_block_mesh(shape_key: String) -> ArrayMesh:
 		if box.size() < 6:
 			continue
 		
-		var min_x = box[0]
-		var min_y = box[1]
-		var min_z = box[2]
-		var max_x = box[3]
-		var max_y = box[4]
-		var max_z = box[5]
+		var min_x = box[0] - 0.5
+		var min_y = box[1] - 0.5
+		var min_z = box[2] - 0.5
+		var max_x = box[3] - 0.5
+		var max_y = box[4] - 0.5
+		var max_z = box[5] - 0.5
 		
 		# Build the 6 faces of this box with proper winding (clockwise when viewed from outside for viewmodel)
 		var box_faces = [

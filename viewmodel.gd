@@ -764,8 +764,13 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion:
 		_mouse_delta = event.relative
 	
-	# Trigger/spam the punch immediately on every left-click press
-	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+	# Trigger/spam the punch immediately on every left-click press, but never
+	# while a UI is open (mouse released = inventory/chat/settings/crafting) --
+	# clicking slots must not make the hand punch.
+	if (
+		event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed
+		and Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED
+	):
 		punch()
 
 func _update_arm_rotation() -> void:

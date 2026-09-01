@@ -318,6 +318,7 @@ void fragment(){
     float distance_restore = smoothstep(1.0, 6.0, fog_distance);
     float edge_fade = mix(near_edge_fade, 1.0, distance_restore);
 
+    float base_alpha = water_color.a * edge_fade;
     ALBEDO = final_color * water_color.rgb;
-    ALPHA = water_color.a * edge_fade;
+    ALPHA = mix(base_alpha, 1.0, fog_amount);
 }

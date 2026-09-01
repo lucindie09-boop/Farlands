@@ -512,8 +512,13 @@ void PlayerController::update_break_progress(float delta) {
         break_block_id_ = block_type;
     }
 
-    // Dropping LMB pauses mining (the crack stays); progress resumes on re-aim of the same block.
-    if (!aiming || !break_target_valid_) return;
+    // Releasing LMB (or losing the breakable target) drops mining progress; the
+    // crack vanishes and the swing stops. Progress only builds while actively aimed.
+    if (!aiming || !break_target_valid_) {
+        break_progress_ = 0.0f;
+        break_target_valid_ = false;
+        return;
+    }
 
     // Inventory-full gate: no progress (matches break_block's insta-collect rule).
     if (!inventory_.can_add_block(collect_id, collect_count)) return;

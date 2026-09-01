@@ -103,8 +103,8 @@ const MC_ARM_BASIS := Basis(
 # diagonal MC held-arm in the lower-right of the screen.
 const MC_SHOULDER := Vector3(0.67, -0.01, -0.75)
 
-# Peak-punch pose: manually verified with the F12 HUD. The animation lerps
-# between HUD rest values and these peaks, then back.
+# Peak-punch pose, manually verified with the F12 HUD. The animation sweeps the
+# hand along a semicircular arc from the resting pose to this peak pose.
 const PEAK_ROT := Vector3(0.0, 58.0, -10.0)
 const PEAK_POS := Vector3(0.19, 0.26, -0.75)
 
@@ -269,12 +269,6 @@ func punch() -> void:
 func _update_swing_hooks() -> void:
 	var swing_progress := _swing  # 1 -> 0 over the punch (MC swingProgress)
 
-	# MC double-squared easing: sharp acceleration, smooth settle.
-	var f := 1.0 - swing_progress
-	f = f * f
-	f = f * f
-	var amp := 1.0 - f  # 0 at rest, peaks mid-swing, 0 at end
-
 	# Equip animation: both normal equip and swap animate height over 0.25s
 	var equip_offset: float
 	if _is_swapping:
@@ -290,12 +284,31 @@ func _update_swing_hooks() -> void:
 	# Equip-only vertical bob (shoulder position handles the swing motion)
 	_hand_bob.position = Vector3(0.0, equip_offset, 0.0)
 
+	# Punch depth: 0 at rest, peaks at the punch's midpoint, returns to 0 when it
+	# settles -- a there-and-back sweep that reaches the peak pose then springs
+	# back to rest (not stuck holding the extended pose).
+	var s := sin(swing_progress * PI)
+
 	# Interpolate arm rotation and shoulder position from rest to peak.
 	# Rest = current HUD tuning values; Peak = manually verified punch pose.
 	var rest_rot := Vector3(_rotation_x, _rotation_y, _rotation_z)
 	var rest_pos := Vector3(_arm_position_x, _arm_position_y, _arm_position_z)
-	var current_rot := rest_rot.lerp(PEAK_ROT, amp)
-	var current_pos := rest_pos.lerp(PEAK_POS, amp)
+
+	# Semicircular arc from the rest pose to the peak pose. The hand travels
+	# along the straight rest->peak line (t) and bulges outward perpendicular to
+	# it by sin(t*PI), sweeping a smooth half-circle that starts and ends on the
+	# two endpoints (0 at both t=0 and t=1, max at the midpoint).
+	var straight := rest_pos.lerp(PEAK_POS, s)
+	var dir := PEAK_POS - rest_pos
+	dir.y = 0.0
+	dir = dir.normalized()
+	var perp := Vector3(-dir.y, dir.x, 0.0)  # perpendicular in the X-Y screen plane
+	var bulge := 0.12
+	var current_pos := straight + perp * sin(s * PI) * bulge
+
+	# Rotation blends toward the peak pose along the same depth, staying stable
+	# through the arc.
+	var current_rot := rest_rot.lerp(PEAK_ROT, s)
 
 	# Apply to arm (rotation + position)
 	_update_arm_animation(current_rot, current_pos)

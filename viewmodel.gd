@@ -344,6 +344,11 @@ func _process(delta: float) -> void:
 func drip_speed(delta: float, speed: float) -> float:
 	return 1.0 - exp(-speed * delta)
 
+# Cubic smoothstep remap: 0 -> 1 with zero slope at both ends (ease in/out).
+func smoothstep_01(x: float) -> float:
+	var t := clampf(x, 0.0, 1.0)
+	return t * t * (3.0 - 2.0 * t)
+
 # Kick a punch/swing (roadmap: punch animation). Progress 1..0 over 0.25s.
 func punch() -> void:
 	_swing = 1.0
@@ -385,8 +390,12 @@ func _update_swing_hooks() -> void:
 	# Punch depth: 0 at rest, peaks at the punch's midpoint, returns to 0 when it
 	# settles -- a there-and-back sweep that reaches the peak pose then springs
 	# back to rest (not stuck holding the extended pose). Multiplied by the swing
-	# strength so a place stroke reaches a weaker (0.5x) endpoint than a full punch.
-	var s := sin(swing_progress * PI) * strength
+	# strength so a place stroke reaches a weaker (0.75x) endpoint than a full
+	# punch. The raw sine is reshaped by a cubic smoothstep (x*x*(3-2x)) so the
+	# depth eases in/out and holds slightly longer at the peak -- a flatter,
+	# more deliberate hold than a pure sine.
+	var s_raw := sin(swing_progress * PI)
+	var s := smoothstep_01(s_raw) * strength
 
 	# Full cycle angle over the punch: 0 at rest, PI at the peak, TAU at rest.
 	# sin(angle) drives the perpendicular bulge so it swings to ONE side on the

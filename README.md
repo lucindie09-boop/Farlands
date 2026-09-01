@@ -43,10 +43,11 @@ A Minecraft-style voxel engine built in Godot 4 with a custom C++ GDExtension. P
 | Inventory | `src/core/inventory.hpp/cpp` | 9-slot hotbar + 27-slot main storage, 64 stack limit, add/consume/can_add logic, persisted to `user://chunks/inventory.bin` |
 | Crafting | `src/core/crafting.hpp/cpp` + `data/recipes.json` | RecipeBook with shapeless (multiset) and shaped (trim + mirror) matching over the 2×2 grid; atomic all-or-nothing crafting; recipes loaded from JSON at startup |
 | Crafting table UI | `crafting_table_menu.gd` | 3×3 crafting table menu: a single atlas (`textures/gui/crafting_table.png`) carries both the 36-slot inventory and the 3×3 grid; opens when the player right-clicks a `crafting_table` block (on the `crafting_table_used` signal), closes on Escape/E, with availability-gated recipe preview and atomic craft wired to the C++ RecipeBook |
-| Inventory UI | `inventory.gd` / `hotbar.gd` | GDScript `Control` overlays: E toggles the full inventory, mouse wheel cycles the hotbar, click-to-hold / drag-drop stack movement, pixel-color-keyed hover/selection highlights, live 2×2 crafting grid + output preview wired to the C++ RecipeBook |
+| Inventory UI | `inventory.gd` / `hotbar.gd` | GDScript `Control` overlays: E toggles the full inventory, mouse wheel cycles the hotbar, click-to-hold / drag-drop stack movement, pixel-color-keyed hover/selection highlights, live 2×2 crafting grid + output preview wired to the C++ RecipeBook. Uses isometric 3D block icons (300×300) rendered by `BlockIconRenderer` at Minecraft's dimetric angle with support for custom block shapes (slabs, stairs, walls, poles) |
+| Block Icon Renderer | `block_icon_renderer.gd` | Autoload singleton that renders 3D isometric block icons for inventory UI using a SubViewport with orthographic camera at Minecraft's dimetric angle (45° yaw, 30° pitch). Pre-renders all blocks asynchronously at startup and caches results. Supports custom block shapes by building meshes from `data/block_shapes.json` selection boxes. Icons are 300×300 resolution with AABB centering so all blocks appear at consistent distance. Integrated into hotbar, inventory slots, crafting cells, and drag operations with fallback to BlockTextures during initial load. `/testicons` command saves test renders to `user://` |
 | Healthbar | `healthbar.gd` | 10 hearts (`heart_full/half/empty.png`) above the hotbar's left edge, spanning ~40% of its width; full/half/empty sprites resolved from the half-heart health polled off `PlayerController.get_health()` |
 | Death screen | `death_screen.gd` | "You died!" overlay with a Respawn button; shown on the `died` signal (health reaching 0), hidden on `respawned` — respawn restores full health at the game-start spawn point |
-| Chat system | `chat.gd` | GDScript chat with autocomplete: ghost text suggestions with pulsing effect, tab cycling through completions, up/down arrow navigation, hold-to-cycle, parameter hints for commands (`/give <block> [count]`, `/tp <x> <y> <z>`), commands: `/help`, `/give` (unlimited count), `/tp`, `/fly`, `/clearchat`, `/clearinv`, `/version` |
+| Chat system | `chat.gd` | GDScript chat with autocomplete: ghost text suggestions with pulsing effect, tab cycling through completions, up/down arrow navigation, hold-to-cycle, parameter hints for commands (`/give <block> [count]`, `/tp <x> <y> <z>`), commands: `/help`, `/give` (unlimited count), `/tp`, `/fly`, `/clearchat`, `/clearinv`, `/version`, `/testicons` |
 | Inventory drag ops | `inventory.gd` | RMB drag-place (spread 1 unit per slot), LMB drag-collect (sweep matching blocks), shift-click/drag quick-transfer (move between hotbar/main), scroll wheel quick-transfer (push/pull 1 unit), double-click gather (sweep all matching blocks); the same interactions work on the crafting grid cells, and shift-clicking the output crafts as many as possible |
 | Settings menu | `settings_menu.gd` | Adjustable settings with persistence (render — including an MSAA 3D Off/2x/4x/8x toggle that sets the root viewport's `msaa_3d` live — plus lighting, crosshair, controls) opened with Escape key; includes a **Skin Maker** page (color wheel + orbitable preview) with paint tools (DRAW/FILL/BOX), grayscale noise slider, skin gallery with load/delete, and a dark-mode toggle; includes a **Block Maker** page (16×16 cube painter) with the same paint tools, grayscale noise slider, block gallery with load/delete, and an orbitable preview; includes **Controls rebinding** page with per-action key/button rebinds, conflict detection, and Reset All button; includes **shareable setting codes** for crosshair and block outline (CS-style base32 import/export) |
 | Texture packs | `src/render/texture_pack_manager.hpp` + `tools/pack_converter.py` | Custom texture pack system with per-block texture overrides loaded from `user://packs/` |
@@ -215,70 +216,50 @@ The `PlayerController` node exposes **sensitivity** (mouse look), **fly_speed**,
 The Settings menu (Escape key) includes several customization pages:
 
 ### Render Settings
-- MSAA 3D toggle (Off/2x/4x/8x) — sets root viewport's `msaa_3d` live
-- GPU texture compression toggle
-- Mipmap generation toggle
-- Vertex compression toggle
-- Fog mode selection (Disabled/Edge/Linear/Exponential)
+- MSAA 3D (Off/2x/4x/8x)
+- Fog mode (Disabled/Edge/Linear/Exponential)
 - God rays toggle
-- Sky turbidity adjustment
+- Sky turbidity
+- AO color/strength
+- Darkness color
+- Contrast
+- Saturation
 
 ### Lighting Settings
-- AO color and strength
-- Darkness color
-- Contrast and saturation
+- Ambient light intensity
+- Sun light intensity
+- Player light toggle/level
 
 ### Crosshair Settings
-- Rotation, spacing, dot toggle
-- Color inversion mode
-- Export/Import shareable codes (CS-style base32 format)
+- Rotation
+- Spacing
+- Dot visibility
+- Color inversion
+- Export/import shareable codes
 
 ### Block Outline Settings
-- Thickness control (0.0-0.99)
-- Pulse effects
-- Fill box with separate color/opacity
-- Export/Import shareable codes (CS-style base32 format)
+- Thickness
+- Pulse effect
+- Fill color/opacity
+- Export/import shareable codes
 
-### Skin Maker
-- Color wheel with live hex readout
-- Paint tools: DRAW (single pixel), FILL (flood fill), BOX (inclusive box draw)
-- Grayscale noise slider (persists per skin)
-- Dark/Light mode toggle
-- Skin gallery with 3D spinning previews
-- Load and delete saved skins
-- Transparent sub-viewport with drag-orbit camera
-
-### Block Maker
-- Single 16×16 cube texture applied to every face
-- Paint tools: DRAW (single pixel), FILL (flood fill), BOX (inclusive box draw)
-- Grayscale noise slider (persists per block, reversible)
-- Undo (Ctrl+Z) recording per-texel changes
-- Block gallery with 3D spinning previews
-- Load and delete saved blocks (`user://blocks/`)
-- Transparent sub-viewport with drag-orbit camera and clamped zoom
-
-### First-Person Viewmodel
-- First-person hand + held item/block rendered from the `Camera3D` (`viewmodel.gd`): an explicit shoulder→grip arm, with the held item (F12 ITEM mode) and held block (F12 BLOCK mode) on a per-mode rest pose
-- Minecraft-style punch on left click (0.225s): the depth curve is reshaped by a cubic smoothstep and the arm sweeps a two-sided circular arc out to the peak pose and back
-- Punch loops while holding to break; a separate weaker place animation fires on right-click block placement
-- Walk bobbing: hand/item/block bob driven by walk distance (10% strength), decaying to rest when airborne
-
-### Block Breaking
-- Hold LMB to break: hardness (seconds) comes from each block's `hardness` in `data/block_definitions.json` (`-1.0` = unbreakable, e.g. bedrock/water)
-- 10-stage crack overlay (`textures/animated/l0_sprite_01-10.png`) shown on the mined block like Minecraft
-- Progress resets when you release LMB or lose the block target (the crack vanishes); a punch animation loops on the viewmodel while breaking
-- Inventory full still gate-checks before progress accumulates
-
-### Controls
+### Controls Settings
 - Per-action key/button rebinding
 - Conflict detection
-- Per-row Reset buttons
-- Reset All button
+- Reset per-binding
+- Reset All
 
-## Notes
+### Skin Maker
+- Color wheel picker
+- Paint tools (DRAW/FILL/BOX)
+- Grayscale noise slider
+- Skin gallery (load/delete)
+- Dark mode toggle
+- 3D orbitable preview
 
-- The player is a C++ `PlayerController` node (`src/engine/player_controller.*` + `src/godot_bindings/player_controller.*`) — fixed 20-tick/s simulation with an accumulator, vanilla-accurate jump/sprint/sneak ordering, smooth eye-height transitions, fly mode, raycast-based block break/place, and vanilla fall damage (1 half-heart per block past a 3-block safe fall, applied on landing). There is no player GDScript. The GUI layer (hotbar, full inventory screen, health bar, death screen, block-texture atlas) is GDScript (`hotbar.gd`, `inventory.gd`, `healthbar.gd`, `death_screen.gd`, `block_textures.gd`).
-- Modified chunks are saved to `user://chunks/` as versioned RLE-compressed `.chunk` files (v3 format with a CRC32 checksum; v2/v1 legacy files load transparently). Saves are asynchronous — `WorldUpdater` snapshots dirty chunks every 5s and writes them on the thread pool, and `ChunkManager::_exit_tree()` performs a blocking flush so nothing is lost on quit. The inventory persists to `user://chunks/inventory.bin` (magic `INVE`, version 1) and is written at `_exit_tree`.
-- `analyze.py` analyzes biome maps produced by the `terrain_debug` tool; it requires `Pillow`, `numpy`, and `scipy`, which aren't otherwise part of the build.
-- See [AGENTS.md](AGENTS.md) for detailed development guidelines and architecture notes.
-- See [roadmap.md](roadmap.md) for the project roadmap.
+### Block Maker
+- 16×16 cube painter
+- Paint tools (DRAW/FILL/BOX)
+- Grayscale noise slider
+- Block gallery (load/delete)
+- 3D orbitable preview

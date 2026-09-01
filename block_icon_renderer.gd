@@ -25,8 +25,8 @@ func _pre_render_all_icons_async() -> void:
 	# Pre-render all block icons in the background
 	for block_id in range(_block_defs.size()):
 		var block_def = _block_defs[block_id]
-		# Skip air and transparent blocks
-		if "Transparent" in block_def.get("properties", []):
+		# Skip air blocks (but render transparent blocks like leaves)
+		if block_def.get("name", "") == "air":
 			continue
 		# Render and cache
 		if not _icon_cache.has(block_id):
@@ -145,8 +145,8 @@ func _render_block_icon_sync(block_id: int) -> ImageTexture:
 	
 	var block_def = _block_defs[block_id]
 	
-	# Skip air and invisible blocks
-	if "Transparent" in block_def.get("properties", []):
+	# Skip air blocks (but render transparent blocks like leaves for icons)
+	if block_def.get("name", "") == "air":
 		return null
 	
 	# Build block mesh
@@ -189,8 +189,8 @@ func _render_block_icon(block_id: int) -> ImageTexture:
 	
 	var block_def = _block_defs[block_id]
 	
-	# Skip air and invisible blocks
-	if "Transparent" in block_def.get("properties", []):
+	# Skip air blocks (but render transparent blocks like leaves for icons)
+	if block_def.get("name", "") == "air":
 		return null
 	
 	print("Rendering block " + str(block_id) + ": " + block_def.get("name", "unknown"))

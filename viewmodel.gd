@@ -242,7 +242,7 @@ func _process(delta: float) -> void:
 	if not visible:
 		return
 	if _swing > 0.0:
-		_swing = maxf(_swing - delta / 0.25, 0.0)
+		_swing = maxf(_swing - delta / 0.225, 0.0)
 	
 	# Equip animation: both normal equip and swap take 0.25s
 	var equip_speed = 0.25

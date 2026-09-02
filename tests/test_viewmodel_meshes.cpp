@@ -108,10 +108,12 @@ TEST_CASE("viewmodel sprite: 1x1 solid texel has front+back plus all four rims")
     CHECK(g.uvs[1] == doctest::Approx(1.0f));
     CHECK(g.uvs[6] == doctest::Approx(1.0f));
     CHECK(g.uvs[7] == doctest::Approx(1.0f));
-    // Front normal points away from the viewer (-Z), back +Z.
+    // The original GDScript used Vector3.BACK (0,0,+1, toward the viewer) on
+    // the front quad and Vector3.FORWARD (0,0,-1) on the back quad; the mesh is
+    // per-pixel lit, so these normals must stay outward-facing.
     CHECK(g.normals[0] == doctest::Approx(0.0f));
-    CHECK(g.normals[2] == doctest::Approx(-1.0f));
-    CHECK(g.normals[4 * 3 + 2] == doctest::Approx(1.0f));
+    CHECK(g.normals[2] == doctest::Approx(1.0f));
+    CHECK(g.normals[4 * 3 + 2] == doctest::Approx(-1.0f));
     // Extrusion depth 0.05 -> front z +0.025, back z -0.025.
     CHECK(std::abs(g.verts[6]) - 0.025f < 1e-6f);
     CHECK(std::abs(g.verts[4 * 3 + 2] + 0.025f) < 1e-6f);

@@ -2,10 +2,9 @@
 
 #include <algorithm>
 #include <cmath>
-#include <cstdio>
+#include <cstring>
 #include <limits>
-#include <set>
-#include <string>
+#include <unordered_set>
 
 namespace VoxelEngine {
 
@@ -16,6 +15,19 @@ constexpr float kEdgeMinDistSq = 0.001f * 0.001f;
 
 struct Rect {
     float u0, u1, v0, v1;
+};
+
+struct EdgeKey {
+    int32_t v[6];
+    bool operator==(const EdgeKey& o) const { return std::memcmp(v, o.v, sizeof(v)) == 0; }
+};
+
+struct EdgeKeyHash {
+    size_t operator()(const EdgeKey& k) const {
+        uint64_t h = 1469598103934665603ULL;
+        for (int32_t x : k.v) { h ^= (uint32_t)x; h *= 1099511628211ULL; }
+        return (size_t)h;
+    }
 };
 
 // Godot-style is_equal_approx (scaled relative tolerance). Only used to pick a
@@ -57,10 +69,14 @@ public:
             b = p0;
         }
 
-        char key[160];
-        std::snprintf(key, sizeof(key), "%.6f_%.6f_%.6f_%.6f_%.6f_%.6f",
-                      a[0], a[1], a[2], b[0], b[1], b[2]);
-        if (!edge_set_.insert(std::string(key)).second) {
+        // Quantize floats to integers for fast hash-based dedup.
+        // Using 1e5 scale gives ~0.00001 precision, sufficient for block coordinates.
+        EdgeKey key;
+        for (int i = 0; i < 3; ++i) {
+            key.v[i] = static_cast<int32_t>(a[i] * 1e5f);
+            key.v[i + 3] = static_cast<int32_t>(b[i] * 1e5f);
+        }
+        if (!edge_set_.insert(key).second) {
             return;
         }
 
@@ -176,7 +192,7 @@ private:
     }
 
     float half_;
-    std::set<std::string> edge_set_;
+    std::unordered_set<EdgeKey, EdgeKeyHash> edge_set_;
     std::vector<float> verts_;
     std::vector<uint32_t> indices_;
 };

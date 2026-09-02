@@ -117,8 +117,11 @@ MeshGeometry build_sprite_mesh(const uint8_t* rgba, int width, int height) {
         return rgba[(py * width + px) * 4 + 3] > 0;
     };
 
-    const float back[3] = {0.0f, 0.0f, -1.0f};
-    const float fwd[3] = {0.0f, 0.0f, 1.0f};
+    // Godot semantics: BACK = (0,0,+1) faces the viewer, FORWARD = (0,0,-1)
+    // faces away. The original GDScript used Vector3.BACK on the front quad and
+    // Vector3.FORWARD on the back quad; keep those exact normals.
+    const float back[3] = {0.0f, 0.0f, 1.0f};
+    const float fwd[3] = {0.0f, 0.0f, -1.0f};
     const float up[3] = {0.0f, 1.0f, 0.0f};
     const float down[3] = {0.0f, -1.0f, 0.0f};
     const float right[3] = {1.0f, 0.0f, 0.0f};

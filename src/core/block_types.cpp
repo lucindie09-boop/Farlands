@@ -151,6 +151,9 @@ bool BlockRegistry::load_from_json(const godot::String& json_path) noexcept {
         name_storage.push_back(name_str.utf8().get_data());
         bt.name = name_storage.back().c_str();
 
+        // hidden (placement-only variants are kept out of the inventory /give list)
+        hidden_[i] = d.get("hidden", false).booleanize();
+
         // properties
         godot::Array props = d["properties"];
         for (int p = 0; p < static_cast<int>(props.size()); ++p) {

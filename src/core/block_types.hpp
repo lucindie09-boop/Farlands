@@ -200,6 +200,13 @@ public:
     // block_definitions.json "name" fields). Returns AIR (0) when unknown.
     [[nodiscard]] BlockID get_block_id_by_name(const char* name) const noexcept;
 
+    // Whether the block is flagged "hidden" in block_definitions.json
+    // (placement-only variants like stair orientations are hidden from the
+    // inventory /give list; their ids still exist in the positional save format).
+    [[nodiscard]] bool is_hidden(BlockID id) const noexcept {
+        return id < MAX_BLOCK_TYPES && hidden_[id];
+    }
+
     void initialize_default_blocks() noexcept;
     bool load_shapes_from_json(const godot::String& json_path) noexcept;
     bool load_from_json(const godot::String& json_path) noexcept;
@@ -216,6 +223,9 @@ private:
     std::vector<std::string> family_names_;
     std::unordered_map<std::string, size_t> family_index_;
     std::array<BlockID, MAX_BLOCK_TYPES> slab_family_map_{};
+
+    // "hidden" flag per block id, parsed from block_definitions.json.
+    std::array<bool, MAX_BLOCK_TYPES> hidden_{};
 
     // Stair family lookup: maps block id → 1-indexed family (0 = not in any).
     std::vector<StairFamily> stair_families_;

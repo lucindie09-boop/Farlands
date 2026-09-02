@@ -46,147 +46,19 @@ func _process(_delta):
 	_mesh.visible = true
 
 func _build_cube_mesh() -> ArrayMesh:
-	# Same layout as the Block Maker's cube: texture-top = world-top on every
-	# face, so the crack pattern is centered and oriented identically across
-	# all six faces (a BoxMesh rotates the top/bottom UVs).
+	# Shared cube geometry (C++ ViewmodelMeshes binding): texture-top = world-top
+	# on every face, so the crack pattern is centered and oriented identically
+	# across all six faces (a BoxMesh rotates the top/bottom UVs).
+	var data := ViewmodelMeshes.build_cube_mesh()
+	if data.is_empty():
+		return ArrayMesh.new()
 	var arrays = []
 	arrays.resize(Mesh.ARRAY_MAX)
 
-	var verts = PackedVector3Array()
-	var uvs = PackedVector2Array()
-	var normals = PackedVector3Array()
-	var indices = PackedInt32Array()
-
-	# +X face (right)
-	verts.append(Vector3(0.5, -0.5, 0.5))
-	verts.append(Vector3(0.5, 0.5, 0.5))
-	verts.append(Vector3(0.5, 0.5, -0.5))
-	verts.append(Vector3(0.5, -0.5, -0.5))
-	normals.append(Vector3(1, 0, 0))
-	normals.append(Vector3(1, 0, 0))
-	normals.append(Vector3(1, 0, 0))
-	normals.append(Vector3(1, 0, 0))
-	uvs.append(Vector2(0.0, 1.0))
-	uvs.append(Vector2(0.0, 0.0))
-	uvs.append(Vector2(1.0, 0.0))
-	uvs.append(Vector2(1.0, 1.0))
-	var base := 0
-	indices.append(base + 0)
-	indices.append(base + 1)
-	indices.append(base + 2)
-	indices.append(base + 0)
-	indices.append(base + 2)
-	indices.append(base + 3)
-
-	# -X face (left)
-	verts.append(Vector3(-0.5, -0.5, -0.5))
-	verts.append(Vector3(-0.5, 0.5, -0.5))
-	verts.append(Vector3(-0.5, 0.5, 0.5))
-	verts.append(Vector3(-0.5, -0.5, 0.5))
-	normals.append(Vector3(-1, 0, 0))
-	normals.append(Vector3(-1, 0, 0))
-	normals.append(Vector3(-1, 0, 0))
-	normals.append(Vector3(-1, 0, 0))
-	uvs.append(Vector2(0.0, 1.0))
-	uvs.append(Vector2(0.0, 0.0))
-	uvs.append(Vector2(1.0, 0.0))
-	uvs.append(Vector2(1.0, 1.0))
-	base = 4
-	indices.append(base + 0)
-	indices.append(base + 1)
-	indices.append(base + 2)
-	indices.append(base + 0)
-	indices.append(base + 2)
-	indices.append(base + 3)
-
-	# +Y face (top)
-	verts.append(Vector3(-0.5, 0.5, -0.5))
-	verts.append(Vector3(0.5, 0.5, -0.5))
-	verts.append(Vector3(0.5, 0.5, 0.5))
-	verts.append(Vector3(-0.5, 0.5, 0.5))
-	normals.append(Vector3(0, 1, 0))
-	normals.append(Vector3(0, 1, 0))
-	normals.append(Vector3(0, 1, 0))
-	normals.append(Vector3(0, 1, 0))
-	uvs.append(Vector2(0.0, 1.0))
-	uvs.append(Vector2(0.0, 0.0))
-	uvs.append(Vector2(1.0, 0.0))
-	uvs.append(Vector2(1.0, 1.0))
-	base = 8
-	indices.append(base + 0)
-	indices.append(base + 1)
-	indices.append(base + 2)
-	indices.append(base + 0)
-	indices.append(base + 2)
-	indices.append(base + 3)
-
-	# -Y face (bottom)
-	verts.append(Vector3(-0.5, -0.5, 0.5))
-	verts.append(Vector3(0.5, -0.5, 0.5))
-	verts.append(Vector3(0.5, -0.5, -0.5))
-	verts.append(Vector3(-0.5, -0.5, -0.5))
-	normals.append(Vector3(0, -1, 0))
-	normals.append(Vector3(0, -1, 0))
-	normals.append(Vector3(0, -1, 0))
-	normals.append(Vector3(0, -1, 0))
-	uvs.append(Vector2(0.0, 1.0))
-	uvs.append(Vector2(0.0, 0.0))
-	uvs.append(Vector2(1.0, 0.0))
-	uvs.append(Vector2(1.0, 1.0))
-	base = 12
-	indices.append(base + 0)
-	indices.append(base + 1)
-	indices.append(base + 2)
-	indices.append(base + 0)
-	indices.append(base + 2)
-	indices.append(base + 3)
-
-	# +Z face (front)
-	verts.append(Vector3(-0.5, -0.5, 0.5))
-	verts.append(Vector3(-0.5, 0.5, 0.5))
-	verts.append(Vector3(0.5, 0.5, 0.5))
-	verts.append(Vector3(0.5, -0.5, 0.5))
-	normals.append(Vector3(0, 0, 1))
-	normals.append(Vector3(0, 0, 1))
-	normals.append(Vector3(0, 0, 1))
-	normals.append(Vector3(0, 0, 1))
-	uvs.append(Vector2(0.0, 1.0))
-	uvs.append(Vector2(0.0, 0.0))
-	uvs.append(Vector2(1.0, 0.0))
-	uvs.append(Vector2(1.0, 1.0))
-	base = 16
-	indices.append(base + 0)
-	indices.append(base + 1)
-	indices.append(base + 2)
-	indices.append(base + 0)
-	indices.append(base + 2)
-	indices.append(base + 3)
-
-	# -Z face (back)
-	verts.append(Vector3(0.5, -0.5, -0.5))
-	verts.append(Vector3(0.5, 0.5, -0.5))
-	verts.append(Vector3(-0.5, 0.5, -0.5))
-	verts.append(Vector3(-0.5, -0.5, -0.5))
-	normals.append(Vector3(0, 0, -1))
-	normals.append(Vector3(0, 0, -1))
-	normals.append(Vector3(0, 0, -1))
-	normals.append(Vector3(0, 0, -1))
-	uvs.append(Vector2(0.0, 1.0))
-	uvs.append(Vector2(0.0, 0.0))
-	uvs.append(Vector2(1.0, 0.0))
-	uvs.append(Vector2(1.0, 1.0))
-	base = 20
-	indices.append(base + 0)
-	indices.append(base + 1)
-	indices.append(base + 2)
-	indices.append(base + 0)
-	indices.append(base + 2)
-	indices.append(base + 3)
-
-	arrays[Mesh.ARRAY_VERTEX] = verts
-	arrays[Mesh.ARRAY_TEX_UV] = uvs
-	arrays[Mesh.ARRAY_NORMAL] = normals
-	arrays[Mesh.ARRAY_INDEX] = indices
+	arrays[Mesh.ARRAY_VERTEX] = data["verts"]
+	arrays[Mesh.ARRAY_TEX_UV] = data["uvs"]
+	arrays[Mesh.ARRAY_NORMAL] = data["normals"]
+	arrays[Mesh.ARRAY_INDEX] = data["indices"]
 
 	var mesh = ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)

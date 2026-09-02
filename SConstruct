@@ -55,6 +55,8 @@ shared_sources = [
     "src/core/inventory.cpp",
     "src/core/crafting.cpp",
     "src/core/item_registry.cpp",
+    "src/core/skin_pixel_math.cpp",
+    "src/core/viewmodel_meshes.cpp",
     "src/core/edit_map.cpp",
     "src/mesh/mesh_builder.cpp",
     "src/mesh/mesh_builder_faces.cpp",
@@ -68,6 +70,7 @@ shared_sources = [
     "src/engine/player_controller.cpp",
     "src/render/texture_pack_manager.cpp",
     "src/render/minecraft_pack_converter.cpp",
+    "src/render/block_outline_mesh.cpp",
 ]
 # Remove any non-existent .cpp files (like crc32.cpp which is header-only)
 shared_sources = [s for s in shared_sources if os.path.exists(str(s))]

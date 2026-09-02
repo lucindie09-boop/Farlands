@@ -2256,17 +2256,9 @@ func _apply_skin_textures(model: Node3D, png_path: String) -> void:
 		var noise_map := _make_gallery_noise_map()
 		var max_grain := 0.35
 		var amount := noise_value / 100.0 * max_grain
-		var out: Image = img.duplicate()
-		for y in range(64):
-			for x in range(64):
-				var c: Color = out.get_pixel(x, y)
-				var delta := (noise_map.get_pixel(x, y).r - 0.5) * 2.0 * amount
-				out.set_pixel(x, y, Color(
-					clampf(c.r + delta, 0.0, 1.0),
-					clampf(c.g + delta, 0.0, 1.0),
-					clampf(c.b + delta, 0.0, 1.0),
-					c.a))
-		img = out
+		var out := SkinPixels.apply_gray_noise(img, noise_map, amount)
+		if out != null:
+			img = out
 	
 	var tex := ImageTexture.create_from_image(img)
 	for mi in model.find_children("", "MeshInstance3D", true, false):
@@ -2281,24 +2273,12 @@ func _apply_skin_textures(model: Node3D, png_path: String) -> void:
 
 # Create a noise map for gallery previews (same seed as SkinManager for consistency)
 func _make_gallery_noise_map() -> Image:
-	var img := Image.create(64, 64, false, Image.FORMAT_RGBA8)
-	var rng := RandomNumberGenerator.new()
-	rng.seed = 20240829  # Same seed as SkinManager.NOISE_SEED
-	for y in range(64):
-		for x in range(64):
-			img.set_pixel(x, y, Color(rng.randf(), 0.0, 0.0, 1.0))
-	return img
+	return SkinPixels.make_noise_map(64, 20240829)
 
 # Create a 16x16 noise map for block gallery previews (same seed as
 # BlockManager for consistency).
 func _make_block_noise_map() -> Image:
-	var img := Image.create(16, 16, false, Image.FORMAT_RGBA8)
-	var rng := RandomNumberGenerator.new()
-	rng.seed = 20240829  # Same seed as BlockManager.NOISE_SEED
-	for y in range(16):
-		for x in range(16):
-			img.set_pixel(x, y, Color(rng.randf(), 0.0, 0.0, 1.0))
-	return img
+	return SkinPixels.make_noise_map(16, 20240829)
 
 func _load_named_skin(skin_name: String) -> void:
 	if _skin_preview == null or not is_instance_valid(_skin_preview):
@@ -2572,17 +2552,9 @@ func _make_block_gallery_view(s: float, block_name: String) -> SubViewportContai
 			var noise_map := _make_block_noise_map()
 			var max_grain := 0.35
 			var amount := nv / 100.0 * max_grain
-			var out: Image = img.duplicate()
-			for y in range(16):
-				for x in range(16):
-					var c: Color = out.get_pixel(x, y)
-					var delta := (noise_map.get_pixel(x, y).r - 0.5) * 2.0 * amount
-					out.set_pixel(x, y, Color(
-						clampf(c.r + delta, 0.0, 1.0),
-						clampf(c.g + delta, 0.0, 1.0),
-						clampf(c.b + delta, 0.0, 1.0),
-						c.a))
-			img = out
+			var out := SkinPixels.apply_gray_noise(img, noise_map, amount)
+			if out != null:
+				img = out
 		var tex := ImageTexture.create_from_image(img)
 		if tex != null:
 			var mat := StandardMaterial3D.new()
@@ -2607,149 +2579,21 @@ func _make_block_gallery_view(s: float, block_name: String) -> SubViewportContai
 	return box
 
 func _build_cube_mesh() -> ArrayMesh:
-	# Byte-for-byte copy of block_preview's cube builder: every face is built
+	# Shared cube geometry (C++ ViewmodelMeshes binding): every face is built
 	# with the SAME upright UV mapping (texture top = world top), so the load
 	# gallery cube renders its texture exactly like the editor preview cube.
-	# The old generic builder here mapped 4 of the 6 faces with the texture
-	# rotated 90 degrees, which made the pattern slant along the diagonal.
+	# (The old generic builder here mapped 4 of the 6 faces with the texture
+	# rotated 90 degrees, which made the pattern slant along the diagonal.)
+	var data := ViewmodelMeshes.build_cube_mesh()
+	if data.is_empty():
+		return ArrayMesh.new()
 	var arrays = []
 	arrays.resize(Mesh.ARRAY_MAX)
 
-	var verts = PackedVector3Array()
-	var uvs = PackedVector2Array()
-	var normals = PackedVector3Array()
-	var indices = PackedInt32Array()
-
-	# +X face (right)
-	verts.append(Vector3(0.5, -0.5, 0.5))
-	verts.append(Vector3(0.5, 0.5, 0.5))
-	verts.append(Vector3(0.5, 0.5, -0.5))
-	verts.append(Vector3(0.5, -0.5, -0.5))
-	normals.append(Vector3(1, 0, 0))
-	normals.append(Vector3(1, 0, 0))
-	normals.append(Vector3(1, 0, 0))
-	normals.append(Vector3(1, 0, 0))
-	uvs.append(Vector2(0.0, 1.0))
-	uvs.append(Vector2(0.0, 0.0))
-	uvs.append(Vector2(1.0, 0.0))
-	uvs.append(Vector2(1.0, 1.0))
-	var base := 0
-	indices.append(base + 0)
-	indices.append(base + 1)
-	indices.append(base + 2)
-	indices.append(base + 0)
-	indices.append(base + 2)
-	indices.append(base + 3)
-
-	# -X face (left)
-	verts.append(Vector3(-0.5, -0.5, -0.5))
-	verts.append(Vector3(-0.5, 0.5, -0.5))
-	verts.append(Vector3(-0.5, 0.5, 0.5))
-	verts.append(Vector3(-0.5, -0.5, 0.5))
-	normals.append(Vector3(-1, 0, 0))
-	normals.append(Vector3(-1, 0, 0))
-	normals.append(Vector3(-1, 0, 0))
-	normals.append(Vector3(-1, 0, 0))
-	uvs.append(Vector2(0.0, 1.0))
-	uvs.append(Vector2(0.0, 0.0))
-	uvs.append(Vector2(1.0, 0.0))
-	uvs.append(Vector2(1.0, 1.0))
-	base = 4
-	indices.append(base + 0)
-	indices.append(base + 1)
-	indices.append(base + 2)
-	indices.append(base + 0)
-	indices.append(base + 2)
-	indices.append(base + 3)
-
-	# +Y face (top)
-	verts.append(Vector3(-0.5, 0.5, -0.5))
-	verts.append(Vector3(0.5, 0.5, -0.5))
-	verts.append(Vector3(0.5, 0.5, 0.5))
-	verts.append(Vector3(-0.5, 0.5, 0.5))
-	normals.append(Vector3(0, 1, 0))
-	normals.append(Vector3(0, 1, 0))
-	normals.append(Vector3(0, 1, 0))
-	normals.append(Vector3(0, 1, 0))
-	uvs.append(Vector2(0.0, 1.0))
-	uvs.append(Vector2(0.0, 0.0))
-	uvs.append(Vector2(1.0, 0.0))
-	uvs.append(Vector2(1.0, 1.0))
-	base = 8
-	indices.append(base + 0)
-	indices.append(base + 1)
-	indices.append(base + 2)
-	indices.append(base + 0)
-	indices.append(base + 2)
-	indices.append(base + 3)
-
-	# -Y face (bottom)
-	verts.append(Vector3(-0.5, -0.5, 0.5))
-	verts.append(Vector3(0.5, -0.5, 0.5))
-	verts.append(Vector3(0.5, -0.5, -0.5))
-	verts.append(Vector3(-0.5, -0.5, -0.5))
-	normals.append(Vector3(0, -1, 0))
-	normals.append(Vector3(0, -1, 0))
-	normals.append(Vector3(0, -1, 0))
-	normals.append(Vector3(0, -1, 0))
-	uvs.append(Vector2(0.0, 1.0))
-	uvs.append(Vector2(0.0, 0.0))
-	uvs.append(Vector2(1.0, 0.0))
-	uvs.append(Vector2(1.0, 1.0))
-	base = 12
-	indices.append(base + 0)
-	indices.append(base + 1)
-	indices.append(base + 2)
-	indices.append(base + 0)
-	indices.append(base + 2)
-	indices.append(base + 3)
-
-	# +Z face (front)
-	verts.append(Vector3(-0.5, -0.5, 0.5))
-	verts.append(Vector3(-0.5, 0.5, 0.5))
-	verts.append(Vector3(0.5, 0.5, 0.5))
-	verts.append(Vector3(0.5, -0.5, 0.5))
-	normals.append(Vector3(0, 0, 1))
-	normals.append(Vector3(0, 0, 1))
-	normals.append(Vector3(0, 0, 1))
-	normals.append(Vector3(0, 0, 1))
-	uvs.append(Vector2(0.0, 1.0))
-	uvs.append(Vector2(0.0, 0.0))
-	uvs.append(Vector2(1.0, 0.0))
-	uvs.append(Vector2(1.0, 1.0))
-	base = 16
-	indices.append(base + 0)
-	indices.append(base + 1)
-	indices.append(base + 2)
-	indices.append(base + 0)
-	indices.append(base + 2)
-	indices.append(base + 3)
-
-	# -Z face (back)
-	verts.append(Vector3(0.5, -0.5, -0.5))
-	verts.append(Vector3(0.5, 0.5, -0.5))
-	verts.append(Vector3(-0.5, 0.5, -0.5))
-	verts.append(Vector3(-0.5, -0.5, -0.5))
-	normals.append(Vector3(0, 0, -1))
-	normals.append(Vector3(0, 0, -1))
-	normals.append(Vector3(0, 0, -1))
-	normals.append(Vector3(0, 0, -1))
-	uvs.append(Vector2(0.0, 1.0))
-	uvs.append(Vector2(0.0, 0.0))
-	uvs.append(Vector2(1.0, 0.0))
-	uvs.append(Vector2(1.0, 1.0))
-	base = 20
-	indices.append(base + 0)
-	indices.append(base + 1)
-	indices.append(base + 2)
-	indices.append(base + 0)
-	indices.append(base + 2)
-	indices.append(base + 3)
-
-	arrays[Mesh.ARRAY_VERTEX] = verts
-	arrays[Mesh.ARRAY_TEX_UV] = uvs
-	arrays[Mesh.ARRAY_NORMAL] = normals
-	arrays[Mesh.ARRAY_INDEX] = indices
+	arrays[Mesh.ARRAY_VERTEX] = data["verts"]
+	arrays[Mesh.ARRAY_TEX_UV] = data["uvs"]
+	arrays[Mesh.ARRAY_NORMAL] = data["normals"]
+	arrays[Mesh.ARRAY_INDEX] = data["indices"]
 
 	var mesh = ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)

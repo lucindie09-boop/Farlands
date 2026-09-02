@@ -64,9 +64,17 @@ public:
             return;
         }
 
-        // Cross-section perpendiculars around the edge direction.
+        // Cross-section perpendiculars around the edge direction. The original
+        // GDScript normalized the direction first (dir = (p1-p0).normalized());
+        // get_perpendiculars()'s axis-aligned fallback (std::abs(y) > 0.99f)
+        // only makes sense for a unit-length direction. Without this, an edge
+        // parallel to up but shorter than 0.99 (the vertical edges of a
+        // half-height slab or partial-height wall) missed the fallback, left
+        // dir x up as an exact zero vector, and the whole quad collapsed to a
+        // zero-thickness line.
+        const float dlen = std::sqrt(dx * dx + dy * dy + dz * dz);
         float r[3], u[3];
-        get_perpendiculars(dx, dy, dz, r, u);
+        get_perpendiculars(dx / dlen, dy / dlen, dz / dlen, r, u);
 
         const float p0r0 = p0[0] - r[0] * half_ - u[0] * half_;
         const float p0r1 = p0[1] - r[1] * half_ - u[1] * half_;

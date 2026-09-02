@@ -34,6 +34,12 @@ public:
     [[nodiscard]] BlockID get_item_id_by_name(const char* name) const noexcept;
     // nullptr when the id is not an item.
     [[nodiscard]] const char* get_item_name(BlockID id) const noexcept;
+    // nullptr when the id is not an item. Returns the texture filename, which
+    // defaults to the item name when items.json omits it.
+    [[nodiscard]] const char* get_item_texture(BlockID id) const noexcept;
+    [[nodiscard]] size_t get_item_count() const noexcept {
+        return items_.size();
+    }
     [[nodiscard]] bool is_item(BlockID id) const noexcept {
         return id >= FIRST_ITEM_ID && static_cast<size_t>(id - FIRST_ITEM_ID) < items_.size();
     }

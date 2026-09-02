@@ -146,18 +146,9 @@ func fill_rect(x0: int, y0: int, x1: int, y1: int, color: Color) -> void:
 func apply_gray_noise(base: Image, noise_map: Image, amount: float) -> void:
 	if base == null or noise_map == null:
 		return
-	var out: Image = base.duplicate()
+	var out := SkinPixels.apply_gray_noise(base, noise_map, amount)
 	if out == null:
 		return
-	for y in range(ATLAS_HEIGHT):
-		for x in range(ATLAS_WIDTH):
-			var c: Color = out.get_pixel(x, y)
-			var delta := (noise_map.get_pixel(x, y).r - 0.5) * 2.0 * amount
-			out.set_pixel(x, y, Color(
-				clampf(c.r + delta, 0.0, 1.0),
-				clampf(c.g + delta, 0.0, 1.0),
-				clampf(c.b + delta, 0.0, 1.0),
-				c.a))
 	image = out
 	texture.update(image)
 	_schedule_save()
@@ -192,13 +183,7 @@ func set_noise(severity: float) -> void:
 	noise_severity = severity
 
 func _make_noise_map() -> Image:
-	var img := Image.create(ATLAS_WIDTH, ATLAS_HEIGHT, false, Image.FORMAT_RGBA8)
-	var rng := RandomNumberGenerator.new()
-	rng.seed = NOISE_SEED
-	for y in range(ATLAS_HEIGHT):
-		for x in range(ATLAS_WIDTH):
-			img.set_pixel(x, y, Color(rng.randf(), 0.0, 0.0, 1.0))
-	return img
+	return SkinPixels.make_noise_map(ATLAS_WIDTH, NOISE_SEED)
 
 func _try_load_noise_base() -> Image:
 	if FileAccess.file_exists(NOISE_BASE_PATH):
@@ -212,10 +197,11 @@ func _try_load_noise_base() -> Image:
 # the box-fill tool). Texels are picked by CENTRE position so clamping the rect
 # to a face boundary never bleeds a neighbouring texel.
 func fill_uv_rect(lo: Vector2, hi: Vector2, color: Color) -> void:
-	var x0 := clampi(int(ceil(lo.x * ATLAS_WIDTH - 0.5)), 0, ATLAS_WIDTH - 1)
-	var x1 := clampi(int(ceil(hi.x * ATLAS_WIDTH - 0.5)) - 1, 0, ATLAS_WIDTH - 1)
-	var y0 := clampi(int(ceil(lo.y * ATLAS_HEIGHT - 0.5)), 0, ATLAS_HEIGHT - 1)
-	var y1 := clampi(int(ceil(hi.y * ATLAS_HEIGHT - 0.5)) - 1, 0, ATLAS_HEIGHT - 1)
+	var bounds := SkinPixels.uv_texel_bounds(lo.x, lo.y, hi.x, hi.y, ATLAS_WIDTH)
+	var x0 := bounds[0]
+	var y0 := bounds[1]
+	var x1 := bounds[2]
+	var y1 := bounds[3]
 	if x1 < x0 or y1 < y0:
 		return
 	var changed := false

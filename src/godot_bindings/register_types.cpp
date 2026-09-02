@@ -1,6 +1,10 @@
 #include "godot_bindings/register_types.hpp"
+#include "godot_bindings/block_outline_builder.hpp"
+#include "godot_bindings/block_textures.hpp"
 #include "godot_bindings/chunk_manager.hpp"
 #include "godot_bindings/player_controller.hpp"
+#include "godot_bindings/skin_pixels.hpp"
+#include "godot_bindings/viewmodel_meshes.hpp"
 #include "render/texture_array_generator.hpp"
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/core/defs.hpp>
@@ -16,6 +20,10 @@ void initialize_chunk_module(ModuleInitializationLevel p_level) {
     
     ClassDB::register_class<VoxelEngine::ChunkManager>();
     ClassDB::register_class<::PlayerController>();
+    ClassDB::register_class<::BlockTextures>();
+    ClassDB::register_class<::BlockOutlineBuilder>();
+    ClassDB::register_class<::SkinPixels>();
+    ClassDB::register_class<::ViewmodelMeshes>();
 }
 
 void terminate_chunk_module(ModuleInitializationLevel p_level) {

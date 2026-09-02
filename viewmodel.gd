@@ -617,45 +617,17 @@ func _apply_skin(arm: Node3D) -> void:
 
 func _build_cube_mesh() -> ArrayMesh:
 	# Same layout as the Block Maker / block-break overlay cube: texture-top =
-	# world-top on every face.
+	# world-top on every face. Geometry lives in C++ (ViewmodelMeshes) so the
+	# three copied builders can't drift.
+	var data := ViewmodelMeshes.build_cube_mesh()
+	if data.is_empty():
+		return ArrayMesh.new()
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
-	var verts := PackedVector3Array()
-	var uvs := PackedVector2Array()
-	var normals := PackedVector3Array()
-	var indices := PackedInt32Array()
-
-	var FACE_DEFS := [
-		[Vector3(1, 0, 0), [Vector3(0.5, -0.5, 0.5), Vector3(0.5, 0.5, 0.5), Vector3(0.5, 0.5, -0.5), Vector3(0.5, -0.5, -0.5)]],
-		[Vector3(-1, 0, 0), [Vector3(-0.5, -0.5, -0.5), Vector3(-0.5, 0.5, -0.5), Vector3(-0.5, 0.5, 0.5), Vector3(-0.5, -0.5, 0.5)]],
-		[Vector3(0, 1, 0), [Vector3(-0.5, 0.5, -0.5), Vector3(0.5, 0.5, -0.5), Vector3(0.5, 0.5, 0.5), Vector3(-0.5, 0.5, 0.5)]],
-		[Vector3(0, -1, 0), [Vector3(-0.5, -0.5, 0.5), Vector3(0.5, -0.5, 0.5), Vector3(0.5, -0.5, -0.5), Vector3(-0.5, -0.5, -0.5)]],
-		[Vector3(0, 0, 1), [Vector3(-0.5, -0.5, 0.5), Vector3(-0.5, 0.5, 0.5), Vector3(0.5, 0.5, 0.5), Vector3(0.5, -0.5, 0.5)]],
-		[Vector3(0, 0, -1), [Vector3(0.5, -0.5, -0.5), Vector3(0.5, 0.5, -0.5), Vector3(-0.5, 0.5, -0.5), Vector3(-0.5, -0.5, -0.5)]],
-	]
-
-	var FACE_UVS := [Vector2(0.0, 1.0), Vector2(0.0, 0.0), Vector2(1.0, 0.0), Vector2(1.0, 1.0)]
-
-	var base := 0
-	for face in FACE_DEFS:
-		var normal: Vector3 = face[0]
-		var quad: Array = face[1]
-		for i in range(4):
-			verts.append(quad[i])
-			normals.append(normal)
-			uvs.append(FACE_UVS[i])
-		indices.append(base + 0)
-		indices.append(base + 1)
-		indices.append(base + 2)
-		indices.append(base + 0)
-		indices.append(base + 2)
-		indices.append(base + 3)
-		base += 4
-
-	arrays[Mesh.ARRAY_VERTEX] = verts
-	arrays[Mesh.ARRAY_TEX_UV] = uvs
-	arrays[Mesh.ARRAY_NORMAL] = normals
-	arrays[Mesh.ARRAY_INDEX] = indices
+	arrays[Mesh.ARRAY_VERTEX] = data["verts"]
+	arrays[Mesh.ARRAY_TEX_UV] = data["uvs"]
+	arrays[Mesh.ARRAY_NORMAL] = data["normals"]
+	arrays[Mesh.ARRAY_INDEX] = data["indices"]
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 	return mesh
@@ -964,139 +936,18 @@ func _update_item_transform() -> void:
 		_item_scale_node.scale = Vector3.ONE * _item_scale
 
 func _generate_item_mesh(texture: Texture2D) -> ArrayMesh:
-	var mesh := ArrayMesh.new()
+	# Extruded-sprite geometry (front/back faces + silhouette rims) is built
+	# in C++ from the texture's alpha field.
+	var data := ViewmodelMeshes.build_item_mesh(texture)
+	if data.is_empty():
+		return ArrayMesh.new()
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
-	var verts := PackedVector3Array()
-	var uvs := PackedVector2Array()
-	var normals := PackedVector3Array()
-	var indices := PackedInt32Array()
-	
-	var image := texture.get_image()
-	if image == null:
-		return mesh
-	
-	if image.get_format() != Image.FORMAT_RGBA8:
-		var new_image := Image.new()
-		new_image.copy_from(image)
-		new_image.convert(Image.FORMAT_RGBA8)
-		image = new_image
-	
-	var width: int = image.get_width()
-	var height: int = image.get_height()
-	var pixels := image.get_data()
-	
-	var texel_size := 1.0 / maxf(width, height)
-	var extrusion_depth := 0.05
-	var pz_front = extrusion_depth / 2.0
-	var pz_back = -extrusion_depth / 2.0
-	var vertex_index := 0
-	
-	var is_solid = func(px_x: int, px_y: int) -> bool:
-		if px_x < 0 or px_x >= width or px_y < 0 or px_y >= height:
-			return false
-		return pixels[(px_y * width + px_x) * 4 + 3] > 0
-	
-	for y: int in range(height):
-		for x: int in range(width):
-			if not is_solid.call(x, y):
-				continue
-			
-			var u = float(x) / width
-			var v = float(y) / height
-			var px = (x - width / 2.0) * texel_size
-			var py = (height / 2.0 - y) * texel_size
-			
-			# 1. Front Face
-			verts.append_array([
-				Vector3(px - texel_size/2, py - texel_size/2, pz_front),
-				Vector3(px - texel_size/2, py + texel_size/2, pz_front),
-				Vector3(px + texel_size/2, py + texel_size/2, pz_front),
-				Vector3(px + texel_size/2, py - texel_size/2, pz_front)
-			])
-			normals.append_array([Vector3.BACK, Vector3.BACK, Vector3.BACK, Vector3.BACK])
-			uvs.append_array([
-				Vector2(u, v + texel_size),
-				Vector2(u, v),
-				Vector2(u + texel_size, v),
-				Vector2(u + texel_size, v + texel_size)
-			])
-			indices.append_array([vertex_index, vertex_index + 1, vertex_index + 2, vertex_index, vertex_index + 2, vertex_index + 3])
-			vertex_index += 4
-			
-			# 2. Back Face
-			verts.append_array([
-				Vector3(px + texel_size/2, py - texel_size/2, pz_back),
-				Vector3(px + texel_size/2, py + texel_size/2, pz_back),
-				Vector3(px - texel_size/2, py + texel_size/2, pz_back),
-				Vector3(px - texel_size/2, py - texel_size/2, pz_back)
-			])
-			normals.append_array([Vector3.FORWARD, Vector3.FORWARD, Vector3.FORWARD, Vector3.FORWARD])
-			uvs.append_array([
-				Vector2(u + texel_size, v + texel_size),
-				Vector2(u + texel_size, v),
-				Vector2(u, v),
-				Vector2(u, v + texel_size)
-			])
-			indices.append_array([vertex_index, vertex_index + 1, vertex_index + 2, vertex_index, vertex_index + 2, vertex_index + 3])
-			vertex_index += 4
-			
-			var center_uv := Vector2(u + texel_size/2, v + texel_size/2)
-			
-			# 3. Outer Silhouette Rims
-			if not is_solid.call(x, y - 1): # Top Edge
-				verts.append_array([
-					Vector3(px - texel_size/2, py + texel_size/2, pz_front),
-					Vector3(px - texel_size/2, py + texel_size/2, pz_back),
-					Vector3(px + texel_size/2, py + texel_size/2, pz_back),
-					Vector3(px + texel_size/2, py + texel_size/2, pz_front)
-				])
-				normals.append_array([Vector3.UP, Vector3.UP, Vector3.UP, Vector3.UP])
-				uvs.append_array([center_uv, center_uv, center_uv, center_uv])
-				indices.append_array([vertex_index, vertex_index + 1, vertex_index + 2, vertex_index, vertex_index + 2, vertex_index + 3])
-				vertex_index += 4
-				
-			if not is_solid.call(x, y + 1): # Bottom Edge
-				verts.append_array([
-					Vector3(px - texel_size/2, py - texel_size/2, pz_back),
-					Vector3(px - texel_size/2, py - texel_size/2, pz_front),
-					Vector3(px + texel_size/2, py - texel_size/2, pz_front),
-					Vector3(px + texel_size/2, py - texel_size/2, pz_back)
-				])
-				normals.append_array([Vector3.DOWN, Vector3.DOWN, Vector3.DOWN, Vector3.DOWN])
-				uvs.append_array([center_uv, center_uv, center_uv, center_uv])
-				indices.append_array([vertex_index, vertex_index + 1, vertex_index + 2, vertex_index, vertex_index + 2, vertex_index + 3])
-				vertex_index += 4
-				
-			if not is_solid.call(x + 1, y): # Right Edge
-				verts.append_array([
-					Vector3(px + texel_size/2, py - texel_size/2, pz_front),
-					Vector3(px + texel_size/2, py + texel_size/2, pz_front),
-					Vector3(px + texel_size/2, py + texel_size/2, pz_back),
-					Vector3(px + texel_size/2, py - texel_size/2, pz_back)
-				])
-				normals.append_array([Vector3.RIGHT, Vector3.RIGHT, Vector3.RIGHT, Vector3.RIGHT])
-				uvs.append_array([center_uv, center_uv, center_uv, center_uv])
-				indices.append_array([vertex_index, vertex_index + 1, vertex_index + 2, vertex_index, vertex_index + 2, vertex_index + 3])
-				vertex_index += 4
-				
-			if not is_solid.call(x - 1, y): # Left Edge
-				verts.append_array([
-					Vector3(px - texel_size/2, py - texel_size/2, pz_back),
-					Vector3(px - texel_size/2, py + texel_size/2, pz_back),
-					Vector3(px - texel_size/2, py + texel_size/2, pz_front),
-					Vector3(px - texel_size/2, py - texel_size/2, pz_front)
-				])
-				normals.append_array([Vector3.LEFT, Vector3.LEFT, Vector3.LEFT, Vector3.LEFT])
-				uvs.append_array([center_uv, center_uv, center_uv, center_uv])
-				indices.append_array([vertex_index, vertex_index + 1, vertex_index + 2, vertex_index, vertex_index + 2, vertex_index + 3])
-				vertex_index += 4
-
-	arrays[Mesh.ARRAY_VERTEX] = verts
-	arrays[Mesh.ARRAY_TEX_UV] = uvs
-	arrays[Mesh.ARRAY_NORMAL] = normals
-	arrays[Mesh.ARRAY_INDEX] = indices
-	
+	arrays[Mesh.ARRAY_VERTEX] = data["verts"]
+	arrays[Mesh.ARRAY_TEX_UV] = data["uvs"]
+	arrays[Mesh.ARRAY_NORMAL] = data["normals"]
+	arrays[Mesh.ARRAY_INDEX] = data["indices"]
+	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 	return mesh
 
@@ -1182,68 +1033,28 @@ func _build_shaped_block_mesh(shape_key: String) -> ArrayMesh:
 		print("No selection boxes for shape: " + shape_type)
 		return null
 	
-	var mesh = ArrayMesh.new()
-	
-	# Collect all faces from all boxes into single arrays
-	var all_verts = PackedVector3Array()
-	var all_uvs = PackedVector2Array()
-	var all_normals = PackedVector3Array()
-	var all_indices = PackedInt32Array()
-	var vertex_offset := 0
-	
-	# Build a cube for each selection box
+	# Payload matches the C++ binding exactly: one PackedFloat32Array per box,
+	# six 0..1 floats each (min x/y/z then max x/y/z).
+	var boxes := []
 	for box in selection_boxes:
 		if box.size() < 6:
 			continue
-		
-		var min_x = box[0] - 0.5
-		var min_y = box[1] - 0.5
-		var min_z = box[2] - 0.5
-		var max_x = box[3] - 0.5
-		var max_y = box[4] - 0.5
-		var max_z = box[5] - 0.5
-		
-		# Build the 6 faces of this box with proper winding (clockwise when viewed from outside for viewmodel)
-		var box_faces = [
-			# +X face (right)
-			{"normal": Vector3(1, 0, 0), "verts": [Vector3(max_x, min_y, min_z), Vector3(max_x, max_y, min_z), Vector3(max_x, max_y, max_z), Vector3(max_x, min_y, max_z)]},
-			# -X face (left)
-			{"normal": Vector3(-1, 0, 0), "verts": [Vector3(min_x, min_y, min_z), Vector3(min_x, max_y, min_z), Vector3(min_x, max_y, max_z), Vector3(min_x, min_y, max_z)]},
-			# +Y face (top) - reversed winding
-			{"normal": Vector3(0, 1, 0), "verts": [Vector3(min_x, max_y, min_z), Vector3(max_x, max_y, min_z), Vector3(max_x, max_y, max_z), Vector3(min_x, max_y, max_z)]},
-			# -Y face (bottom)
-			{"normal": Vector3(0, -1, 0), "verts": [Vector3(min_x, min_y, max_z), Vector3(max_x, min_y, max_z), Vector3(max_x, min_y, min_z), Vector3(min_x, min_y, min_z)]},
-			# +Z face (front)
-			{"normal": Vector3(0, 0, 1), "verts": [Vector3(max_x, min_y, min_z), Vector3(max_x, max_y, min_z), Vector3(min_x, max_y, min_z), Vector3(min_x, min_y, min_z)]},
-			# -Z face (back) - reversed winding
-			{"normal": Vector3(0, 0, -1), "verts": [Vector3(min_x, min_y, max_z), Vector3(min_x, max_y, max_z), Vector3(max_x, max_y, max_z), Vector3(max_x, min_y, max_z)]},
-		]
-		
-		for face in box_faces:
-			for v in face.verts:
-				all_verts.append(v)
-				all_normals.append(face.normal)
-			
-			all_uvs.append(Vector2(0.0, 1.0))
-			all_uvs.append(Vector2(0.0, 0.0))
-			all_uvs.append(Vector2(1.0, 0.0))
-			all_uvs.append(Vector2(1.0, 1.0))
-			
-			all_indices.append(vertex_offset + 0)
-			all_indices.append(vertex_offset + 1)
-			all_indices.append(vertex_offset + 2)
-			all_indices.append(vertex_offset + 0)
-			all_indices.append(vertex_offset + 2)
-			all_indices.append(vertex_offset + 3)
-			
-			vertex_offset += 4
+		var b := PackedFloat32Array()
+		for i in range(6):
+			b.append(float(box[i]))
+		boxes.append(b)
+	
+	var data := ViewmodelMeshes.build_shaped_mesh(boxes)
+	if data.is_empty():
+		return null
 	
 	var arrays = []
 	arrays.resize(Mesh.ARRAY_MAX)
-	arrays[Mesh.ARRAY_VERTEX] = all_verts
-	arrays[Mesh.ARRAY_TEX_UV] = all_uvs
-	arrays[Mesh.ARRAY_NORMAL] = all_normals
-	arrays[Mesh.ARRAY_INDEX] = all_indices
+	arrays[Mesh.ARRAY_VERTEX] = data["verts"]
+	arrays[Mesh.ARRAY_TEX_UV] = data["uvs"]
+	arrays[Mesh.ARRAY_NORMAL] = data["normals"]
+	arrays[Mesh.ARRAY_INDEX] = data["indices"]
 	
+	var mesh = ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 	return mesh

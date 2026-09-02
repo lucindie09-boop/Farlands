@@ -35,6 +35,13 @@ const char* ItemRegistry::get_item_name(BlockID id) const noexcept {
     return items_[static_cast<size_t>(id - FIRST_ITEM_ID)].name.c_str();
 }
 
+const char* ItemRegistry::get_item_texture(BlockID id) const noexcept {
+    if (!is_item(id)) {
+        return nullptr;
+    }
+    return items_[static_cast<size_t>(id - FIRST_ITEM_ID)].texture.c_str();
+}
+
 #ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
 
 bool ItemRegistry::load_from_json(const godot::String& json_path) noexcept {

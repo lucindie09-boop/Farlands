@@ -1,6 +1,8 @@
 #include "doctest.h"
 #include "render/block_outline_mesh.hpp"
 
+#include <algorithm>
+#include <cmath>
 #include <limits>
 
 using namespace VoxelEngine;
@@ -21,6 +23,35 @@ bool index_in_range(const OutlineMeshData& d) {
     const uint32_t count = static_cast<uint32_t>(d.verts.size() / 3);
     for (uint32_t i : d.indices) {
         if (i >= count) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool all_triangles_nondegenerate(const OutlineMeshData& d) {
+    // Every emitted triangle must have measurably non-zero area. A collapsed
+    // edge quad degenerates to a line (all corner verts coincident along the
+    // edge), which this catches as a zero-area triangle.
+    constexpr float kMinAreaSq = 1e-10f;
+    for (size_t i = 0; i + 2 < d.indices.size(); i += 3) {
+        const uint32_t ia = d.indices[i];
+        const uint32_t ib = d.indices[i + 1];
+        const uint32_t ic = d.indices[i + 2];
+        const float ax = d.verts[ia * 3 + 0];
+        const float ay = d.verts[ia * 3 + 1];
+        const float az = d.verts[ia * 3 + 2];
+        const float bx = d.verts[ib * 3 + 0] - ax;
+        const float by = d.verts[ib * 3 + 1] - ay;
+        const float bz = d.verts[ib * 3 + 2] - az;
+        const float cx = d.verts[ic * 3 + 0] - ax;
+        const float cy = d.verts[ic * 3 + 1] - ay;
+        const float cz = d.verts[ic * 3 + 2] - az;
+        const float crx = by * cz - bz * cy;
+        const float cry = bz * cx - bx * cz;
+        const float crz = bx * cy - by * cx;
+        const float area_sq = 0.25f * (crx * crx + cry * cry + crz * crz);
+        if (area_sq < kMinAreaSq) {
             return false;
         }
     }
@@ -75,6 +106,21 @@ TEST_CASE("block outline: stacked slab union keeps both perimeters") {
     CHECK(d.verts.size() > 12 * 8 * 3);
     CHECK(d.indices.size() == (d.verts.size() / 3 / 8) * 24);
     CHECK(index_in_range(d));
+}
+
+TEST_CASE("block outline: short (non-unit) edges stay non-degenerate") {
+    // Regression: the vertical edges of a half-height slab run (0,±0.5,0),
+    // not unit length. Their perpendicular basis must not depend on the raw
+    // delta length — a unit cube is unaffected (edge length 1.0), but a slab's
+    // four vertical edges collapsed to zero-thickness lines before the
+    // direction normalization fix.
+    const OutlineMeshData full = build_outline_mesh({cube(0, 0, 0, 1, 1, 1)}, 0.1f);
+    const OutlineMeshData half = build_outline_mesh({cube(0, 0, 0, 1, 0.5f, 1)}, 0.1f);
+    CHECK(all_triangles_nondegenerate(full));
+    CHECK(all_triangles_nondegenerate(half));
+    // A slab still has the same 12 unique edges as the cube it is half of.
+    CHECK(half.verts.size() == full.verts.size());
+    CHECK(half.indices.size() == full.indices.size());
 }
 
 TEST_CASE("block outline: thickness scales the extrusion") {

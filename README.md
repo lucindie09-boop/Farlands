@@ -149,7 +149,7 @@ CI (`.github/workflows/build.yml`) runs on every push and pull request:
 - **Static-analysis job** — clang-tidy across all of `src/` with `bugprone-*`, `concurrency-*`, and `performance-*` checks; findings in project sources fail the job.
 - **Coverage job** — lcov coverage report uploaded to Codecov.
 
-The project has **225 test cases / 163,385 assertions** across 24 doctest files, including 27 tests in `test_concurrency.cpp` (shard locking, deadlock prevention, PaletteStorage, cross-chunk writers, thread-pool work stealing).
+The project has **255 test cases / 172,121 assertions** across 30 doctest files, including 27 tests in `test_concurrency.cpp` (shard locking, deadlock prevention, PaletteStorage, cross-chunk writers, thread-pool work stealing).
 
 ## Running
 

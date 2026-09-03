@@ -205,7 +205,7 @@ Two layers mirroring the ChunkManager/VoxelEngineController pattern:
 - **Crafting integration** — `RecipeBook` (`src/core/crafting.*`) loads recipes from `data/recipes.json` in `load_world_configs()` and is exposed through two ClassDB bindings: `match_recipe(grid_ids, grid_counts)` previews the output slot (gated on ingredient availability so the preview disappears once the grid runs dry), and `craft_recipe(grid_ids, grid_counts)` atomically verifies + deducts the grid and returns the new counts plus the result. The 2×2 grid lives GUI-side in `inventory.gd` (contents persist across open/close); crafting-area geometry is measured from the color-coded slot pixels in the atlas (`#7e7d7e` inputs, `#7e7d7f` output vs. `#7e7d7d` regular slots).
 - **Chat integration** — `PlayerController` provides chat state management (`set_chat_open`, `is_chat_open`) and inventory clearing (`clear_inventory`). The chat system (`chat.gd`) features advanced autocomplete with ghost text suggestions, tab cycling, and parameter hints.
 - **Lifecycle hooks** — `PlayerController::_ready()` caches the `ChunkManager` pointer (no per-call tree lookups) and loads the saved inventory; `_exit_tree()` saves the inventory while every node is still allocated, guarded by `inventory_saved_` so the destructor's fallback save is a no-op.
-- **Viewmodel & animation** — First-person hand + held item/block live in `viewmodel.gd` (child of `Camera3D`, eye space). The punch (0.225s) drives an arm depth curve reshaped by a cubic smoothstep plus a two-sided circular arc sweep; the held item/block swings are applied inside `_update_item_transform`/`_update_block_transform` on `_item_scale_node` (these own that node each frame, so parent-pivot offsets can't hit the tuned poses). The punch **loops while breaking** (`get_break_state()["active"]`) and is gated on captured mouse so UI clicks never swing. A separate weaker **place animation** (75% endpoint) fires only on the C++ `block_placed` signal (verified land + inventory consumed). Walk bobbing (`_walk_dist*PI*0.6`) uses a `_bob` envelope that decays to zero when airborne, driven by the `PlayerController::is_on_floor()` binding (wraps `sim_.is_on_floor()`).
+- **Viewmodel & animation** — First-person hand + held item/block live in thin `viewmodel.gd` glue (child of `Camera3D`, eye space), while the per-frame math and mesh geometry are native. `ViewmodelPose` (`src/core/viewmodel_math.*`) owns the walk bob (`step_walk_bob`), mouse sway (`step_sway`), punch/place swing + equip pose (`compute_swing_pose`), held item/block swing transform (`compute_swing_transform`), and `smoothstep_01`. `ViewmodelMeshes` (`src/core/viewmodel_meshes.*`) builds the held-block cube, shaped-block selection boxes, and extruded-sprite item meshes (also reused by `block_break_overlay.gd`, `block_preview.gd`, and the block gallery). The punch (0.225s) drives an arm depth curve reshaped by a cubic smoothstep plus a two-sided circular arc sweep; it **loops while breaking** (`get_break_state()["active"]`) and is gated on captured mouse so UI clicks never swing. A separate weaker **place animation** (75% endpoint) fires only on the C++ `block_placed` signal (verified land + inventory consumed). Walk bobbing (`_walk_dist*PI*0.6`) uses a `_bob` envelope that decays to zero when airborne, driven by the `PlayerController::is_on_floor()` binding (wraps `sim_.is_on_floor()`). Peak pose constants (`PEAK_ROT`/`PEAK_POS`, etc.) stay in `viewmodel.gd` and are passed in as Vector3 pairs so they remain the single source of truth.
 - **Block break progress** — `update_break_progress` accumulates `delta / hardness` while LMB is held on the raycast target; releasing LMB or losing the target resets `break_progress_`/`break_target_valid_` (so the crack and looping punch stop). `get_break_state()` exposes `{active, x/y/z, stage 0-9}` to `block_break_overlay.gd`.
 
 No `CharacterBody3D`, `move_and_slide`, or `CollisionShape3D` — all collision goes through `CollisionResolver` against the chunk map.
@@ -281,9 +281,9 @@ The following code remains in the codebase but is disabled or unused:
 - `block_preview.gd` — Transparent-background sub-viewport behind the block maker that drag-orbits a cube; DRAW/FILL/BOX painting over primitive triangle raycasts, undo (Ctrl+Z), noise slider integration, and clamped zoom
 - `player_model.gd` — Applies the skin texture to `player.glb`'s `StandardMaterial3D` surfaces with nearest filtering (no mipmaps, avoiding smeared UV islands)
 - `player.glb` — Voxel-style player model with a tightly-packed 64×64 skin-texture atlas
-- `viewmodel.gd` — First-person hand + held item/block (child of `Camera3D`): punch/swing + place animations, looping break punch, walk bobbing
+- `viewmodel.gd` — Thin first-person hand + held item/block glue (child of `Camera3D`): node tree, `_input`, F12 HUD, and peak-pose constants. Per-frame animation math lives in `ViewmodelPose` and held-mesh geometry in `ViewmodelMeshes` (both native C++)
 - `block_break_overlay.gd` — Draws the 10-stage crack overlay (`textures/animated/l0_sprite_01..10.png`) on the mined block, driven by `get_break_state()`
-- `block_textures.gd` — Block texture atlas generation from `textures/blocks/`
+- `block_textures.gd` — ~~Block texture atlas generation from `textures/blocks/`~~ ported to the native `BlockTextures` GDExtension binding (registered in `src/godot_bindings/register_types.cpp`); the GDScript file has been deleted
 
 ### Engine
 - `src/engine/collision_resolver.hpp/cpp` — Binary-search collision, step-up
@@ -297,8 +297,13 @@ The following code remains in the codebase but is disabled or unused:
 - `src/render/world_render_stats.hpp` — `WorldRenderStats` snapshot consumed by `PerfReport`
 
 ### Godot bindings
+- `src/godot_bindings/register_types.cpp` — Registers every GDExtension class/static binding (`BlockTextures`, `BlockOutline`, `BlockOutlineBuilder`, `ViewmodelPose`, `ViewmodelMeshes`, `SkinPixels`, `ChunkManager`, `PlayerController`, ...)
 - `src/godot_bindings/chunk_manager.cpp` — Inspector properties, camera/frustum entry point, block API, `flush_dirty_chunks`, `_exit_tree` quit flush
 - `src/godot_bindings/player_controller.cpp` — `PlayerController` node: input, mouse look, fly mode, break/place, inventory bindings, chat bindings, health bindings, `_exit_tree` inventory save
+- `src/godot_bindings/block_outline.hpp/cpp` — Native `BlockOutline` `Node3D` (replaces `block_outline.gd`): 16 exposed settings, raycast throttling, pulse animation, material/geometry management; mesh built by the tested `BlockOutlineBuilder`/`block_outline_mesh.cpp` core
+- `src/godot_bindings/viewmodel_pose.hpp/cpp` — `ViewmodelPose` static binding over the `src/core/viewmodel_math.*` per-frame animation math (bob/sway/swing)
+- `src/godot_bindings/viewmodel_meshes.hpp/cpp` — `ViewmodelMeshes` static binding over `src/core/viewmodel_meshes.*` held-block/shaped-box/sprite geometry
+- `src/godot_bindings/skin_pixels.hpp/cpp` — `SkinPixels` static binding: native pixel/noise helpers (noise map, gray noise, UV-to-texel bounds) used by `skin_manager.gd` and the settings galleries
 
 ### Lighting
 - `src/lighting/light_propagator.hpp/cpp` — Public wrappers + `_locked` variants
@@ -318,7 +323,7 @@ The following code remains in the codebase but is disabled or unused:
   - `textures/Archive/` — Archived/deprecated textures (old versions kept for reference)
 
 ### Testing
-- `tests/` — 24 test files, 225 test cases / 163,385 assertions, auto-discovered via `Glob("tests/*.cpp")`
+- `tests/` — 30 test files, 255 test cases / 172,121 assertions, auto-discovered via `Glob("tests/*.cpp")`
 - `tests/test_concurrency.cpp` — 27 tests for shard locking, deadlock prevention, PaletteStorage, cross-chunk writers, and thread-pool work stealing
 - `tests/test_inventory.cpp` — Inventory add/consume/edge-case tests
 - `tests/test_crafting.cpp` — Shapeless/shaped matching (trim, mirror, offset, rotation/partial misses) + atomic craft_item tests (success, insufficient ingredients, full inventory rejection)
@@ -327,5 +332,8 @@ The following code remains in the codebase but is disabled or unused:
 - `tests/test_player_controller.cpp` — PlayerSim movement/sprint/sneak/collision tests, fall damage (safe jump landing, 7.5-block drop → 4 half-hearts, teleport reset clearing pending damage)
 - `tests/test_soak.cpp` — Multi-threaded fly-through-the-world stress test
 - `tests/test_persistence.cpp`, `tests/test_collision_resolver.cpp`, `tests/test_density_field.cpp` — format, collision, and terrain tests
+- `tests/test_viewmodel_math.cpp` — 10 byte-for-byte cases pinning the viewmodel bob/sway/swing math
+- `tests/test_viewmodel_meshes.cpp` — 5 byte-for-byte cases for the held-block/shaped-box/sprite mesh geometry (locked against an independent Python port)
+- `tests/test_block_outline_mesh.cpp` — Outline mesh union/dedup/thickness cases for the native `BlockOutline`
 - `tools/benchmark.cpp` — 5 hot paths + memory, with `--check <baseline>` regression mode
 - `tools/fuzz_*.cpp` — libFuzzer harnesses (`fuzz_palette`, `fuzz_chunk_load`, `fuzz_chunk_recovery`, `fuzz_light_propagation`, `fuzz_mesh_builder`)

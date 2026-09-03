@@ -8,7 +8,6 @@
 [ext_resource type="Script" uid="uid://dpp1manu5wtsx" path="res://chat.gd" id="7_chat"]
 [ext_resource type="Script" uid="uid://g3lh0j0xb0jf" path="res://settings_menu.gd" id="8_settings"]
 [ext_resource type="Script" uid="uid://cg56m76b43332" path="res://crosshair.gd" id="9_crosshair"]
-[ext_resource type="Script" uid="uid://xebno2le0tgp" path="res://block_outline.gd" id="10_outline"]
 [ext_resource type="Script" uid="uid://byak67cusfoxc" path="res://healthbar.gd" id="11_healthbar"]
 [ext_resource type="Script" uid="uid://b3eee8l30k8qd" path="res://death_screen.gd" id="12_deathscreen"]
 [ext_resource type="Script" uid="uid://csimhtsb21lnr" path="res://crafting_table_menu.gd" id="13_tablemenu"]
@@ -146,8 +145,7 @@ grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("12_deathscreen")
 
-[node name="BlockOutline" type="Node3D" parent="." unique_id=135246793]
-script = ExtResource("10_outline")
+[node name="BlockOutline" type="BlockOutline" parent="." unique_id=135246793]
 
 [node name="BlockBreakOverlay" type="Node3D" parent="." unique_id=135246794]
 script = ExtResource("16_breakoverlay")

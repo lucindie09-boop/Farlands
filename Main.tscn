@@ -168,6 +168,7 @@ environment = SubResource("Environment_uu6xs")
 [node name="ChunkManager" type="ChunkManager" parent="." unique_id=318602554]
 render_distance = 32
 player_position = Vector3(0, 280, 0)
+biome_size = 0.25
 smooth_lighting = true
 lod_distance = 6
 fog_density = 0.1

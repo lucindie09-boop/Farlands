@@ -12,6 +12,8 @@ Player model animations (walk/idle/etc.)
 
 ~~Punch animation~~
 
+~~Phase 1 GDScript→C++ migration - port hot-path per-frame logic to native bindings: BlockTextures (texture atlas), BlockOutline (node), ViewmodelMeshes (held item/block/sprite meshes), ViewmodelPose (bob/sway/swing math), SkinPixels (pixel/noise helpers). SkinManager's stateful autoload logic (persistent ImageTexture + debounced save + noise state machine) remains GDScript for now~~
+
 Spawnable dummy + combat calc + knockback - careful: sketch a minimal Entity base class first so the dummy isn't thrown away later
 
 Flesh out entity system (flow-field pathfinding, droppable item entities) - careful: decide if block breaks still insta-pickup or now drop as world items

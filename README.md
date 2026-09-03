@@ -2,7 +2,7 @@
 
 ![Farlands gameplay](screenshots/gameplay.png)
 
-A Minecraft-style voxel engine built in Godot 4 with a custom C++ GDExtension. Procedural terrain generation (signed 3D density field with overhangs and shelves), chunked world streaming, greedy meshing with per-chunk incremental rebuilds, colored block lighting, day/night cycle, three-tier distance-based mesh LOD with LOD-reduced chunks merged into regions to cap draw calls, frustum-prioritized chunk loading, async background chunk saving, and a C++ inventory system (hotbar + 27-slot storage) wired into block break/place with a GDScript GUI, plus data-driven 2×2 crafting (`data/recipes.json`). Ships with a C++ player controller with Minecraft-accurate fixed-timestep physics.
+A Minecraft-style voxel engine built in Godot 4 with a custom C++ GDExtension. Procedural terrain generation (signed 3D density field with overhangs and shelves, continental-scale elevation noise, and sub-block surface jitter to break uniform terrain staircases), chunked world streaming, greedy meshing with per-chunk incremental rebuilds, colored block lighting, day/night cycle, three-tier distance-based mesh LOD with LOD-reduced chunks merged into regions to cap draw calls, frustum-prioritized chunk loading, async background chunk saving, and a C++ inventory system (hotbar + 27-slot storage) wired into block break/place with a GDScript GUI, plus data-driven 2×2 crafting (`data/recipes.json`). Ships with a C++ player controller with Minecraft-accurate fixed-timestep physics.
 
 ## Architecture
 
@@ -29,7 +29,7 @@ A Minecraft-style voxel engine built in Godot 4 with a custom C++ GDExtension. P
 | Mesh builder | `src/mesh/mesh_builder.hpp/cpp` (+ `mesh_builder_solid.cpp`, `mesh_builder_faces.cpp`, `mesh_builder_greedy.cpp`) | Greedy + standard face culling, neighbor-aware, thread-local instances, solid-block fast path, full rebuilds and incremental partial remeshes |
 | Mesh manager | `src/mesh/mesh_manager.hpp` + `mesh_manager.cpp`/`_worker`/`_upload`/`_rebuild`/`_far`/`_lifecycle` (`mesh_manager_internal.hpp` shares the build task) | Upload dedup, lazy RID creation, instance budget capping, three-tier LOD (stride/detail) with LOD-reduced chunks merged into region instances, nearest-first budget-capped completion |
 | Lighting | `src/lighting/light_propagator.cpp` | Async block-light propagation on worker threads, sky-light columns, overlap-safe per-channel light removal |
-| Terrain gen | `src/worldgen/chunk_generator.hpp/cpp` | Signed 3D density field over a macro heightmap (overhangs/shelves), 4×4×4 shape lattice, biome-based macro surface, chunk-level generation fast paths, continental-scale elevation noise (~1000 block wavelength) with elevation-based weirdness amplification (1-2x multiplier), continentalness warp for wavy coastlines, widened beach biome band for proper shoreline coverage |
+| Terrain gen | `src/worldgen/chunk_generator.hpp/cpp` | Signed 3D density field over a macro heightmap (overhangs/shelves), 4×4×4 shape lattice, biome-based macro surface, chunk-level generation fast paths, continental-scale elevation noise (~1000 block wavelength) with elevation-based weirdness amplification (1-2x multiplier), continentalness warp for wavy coastlines, widened beach biome band for proper shoreline coverage, sub-block surface jitter to break uniform terrain staircases (land-only high-frequency vertical offset before rounding) |
 | Vegetation | `src/worldgen/vegetation_generator.hpp/cpp` | Tree placement (oak/spruce) with variant-weighted per biome, minimum spacing, deferred cross-chunk writes |
 | Vegetation config | `src/worldgen/vegetation_config.hpp` + `data/vegetation.json` | Forest/plains/desert knobs, tree density/variants loaded from JSON |
 | Biome config | `src/worldgen/biome_config.hpp` + `data/biomes.json` | Per-biome materials, climate thresholds, tree variants loaded from JSON |
@@ -76,7 +76,7 @@ The terrain generation system is data-driven through JSON configuration files:
 
 - **`data/biomes.json`** — Biome definitions with per-biome materials, climate thresholds, tree density, and tree variant weights
 - **`data/vegetation.json`** — Vegetation parameters for forest/plains/desert biomes (tree density, min/max counts, spacing, cactus settings)
-- **`data/terrain_config.json`** — Macro height centers, climate scales, and terrain amplitude parameters
+- **`data/terrain_config.json`** — Macro height centers, climate scales, terrain amplitude parameters, and surface jitter settings (scale/amplitude for breaking uniform terrain staircases)
 - **`data/block_shapes.json`** — Shared shape registry for non-full blocks (slabs, stairs, walls, poles) with selection/collision boxes
 - **`data/recipes.json`** — Crafting recipes (shaped/shapeless) resolved by block name against `block_definitions.json`; grid size and per-recipe results
 

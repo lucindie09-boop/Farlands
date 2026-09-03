@@ -149,11 +149,12 @@ Async persistence shares the same pool: the main thread snapshots dirty chunks o
 - **Signed 3D density field** over a macro heightmap: `density = (surface_y - y) + shape_noise * strength * surface_band` (positive = solid). The 3D fBm deforms only a band around the macro surface, producing overhangs, shelves, and arches.
 - **4×4×4 world-aligned shape lattice**: the 3D shape noise is sampled once per lattice node and trilinearly interpolated per voxel, so chunk grids and single-point field queries stay bit-identical and lattice nodes land on shared world coordinates across chunk boundaries (no seams).
 - **Chunk-level fast paths**: after the exact macro column pass, chunks entirely above/below the per-chunk height band fill plain water/air or stone over bedrock and skip all lattice/density/material work (~7× on deep-chunk generation).
-- **Continental-scale elevation noise**: Additive-only ~1000 block wavelength noise for large-scale terrain variation
+- **Continental-scale elevation noise**: Signed/re-centered ~1000 block wavelength noise for large-scale terrain variation (amplitude + bias loaded from `data/terrain_config.json`)
 - **Elevation-based weirdness amplification**: Terrain features become 1-2x more dramatic at higher elevations
 - **Continentalness warp**: Wavy coastlines through continental-scale warping
 - **Widened beach biome band**: Proper shoreline coverage with expanded beach biome
 - **Improved water placement**: Better near-water detection and ocean floor terrain
+- **Sub-block surface jitter**: Gentle slopes discretize into perfectly regular 1-up/1-up staircases (visible where the 3D shape field is weak). A small high-frequency vertical offset to the macro height (applied before rounding, land-only so the sea surface stays flat) breaks these into irregular steps (1 up, flat, 2 up) instead of a machine-made look. Parameters: `surface_jitter_scale` and `surface_jitter_amplitude` in `data/terrain_config.json`.
 - **Data-driven worldgen**: Surfaces, climate thresholds, tree density/variants, and macro height centers all load from JSON configs at startup (`data/biomes.json`, `data/vegetation.json`, `data/terrain_config.json`).
 - **Per-biome amplitude scaling**: Height-center `scale_m` is applied as a terrain amplitude multiplier — plains are genuinely flat, desert low/dry, forest hilly.
 - Vegetation uses the real density surface with an underwater rejection guard; an isolated-singleton removal pass clears lone floating voxels the density field occasionally produces.

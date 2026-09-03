@@ -148,13 +148,16 @@ private:
                                                  z * params.climate_humidity_scale) + 1.0f) * 0.5f);
     }
 
-    // Continental-scale elevation — [0,1], purely additive (never removes).
-    // Squared so low values collapse to near-zero (terrain unchanged) and
-    // only genuine peaks add visible height.
+    // Continental-scale elevation — signed field re-centered by elevation_bias
+    // (roughly [-1,1]). The macro height therefore oscillates both above and
+    // below its base, giving real rolling terrain at ~1000-block wavelength.
+    // The old `max(raw, 0)^2` collapsed ~half the field to exactly 0 (and
+    // squared the rest toward 0), producing flat, featureless plateaus. Clamped
+    // so the extreme noise tails don't over-amplify; bias keeps most land
+    // above sea level.
     float sample_elevation(float x, float z) const {
         float raw = elevation_noise.fbm(x, z, 2, 0.5f, params.elevation_scale);
-        float pos = std::max(0.0f, raw);
-        return pos * pos;
+        return std::clamp(raw + params.elevation_bias, -1.0f, 1.0f);
     }
 
     // Grid-based land biome lookup from temperature/humidity.

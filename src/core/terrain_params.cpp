@@ -33,6 +33,12 @@ bool TerrainParams::load_from_json(const godot::String& json_path) noexcept {
     if (root.has("elevation_bias")) {
         elevation_bias = static_cast<float>(static_cast<double>(root["elevation_bias"]));
     }
+    if (root.has("surface_jitter_scale")) {
+        surface_jitter_scale = static_cast<float>(static_cast<double>(root["surface_jitter_scale"]));
+    }
+    if (root.has("surface_jitter_amplitude")) {
+        surface_jitter_amplitude = static_cast<float>(static_cast<double>(root["surface_jitter_amplitude"]));
+    }
     if (root.has("climate_temp_base_scale")) {
         climate_temp_base_scale = static_cast<float>(static_cast<double>(root["climate_temp_base_scale"]));
     }

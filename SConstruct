@@ -57,6 +57,7 @@ shared_sources = [
     "src/core/item_registry.cpp",
     "src/core/skin_pixel_math.cpp",
     "src/core/viewmodel_meshes.cpp",
+    "src/core/viewmodel_math.cpp",
     "src/core/edit_map.cpp",
     "src/mesh/mesh_builder.cpp",
     "src/mesh/mesh_builder_faces.cpp",

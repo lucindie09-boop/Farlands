@@ -6,6 +6,7 @@
 #include "godot_bindings/player_controller.hpp"
 #include "godot_bindings/skin_pixels.hpp"
 #include "godot_bindings/viewmodel_meshes.hpp"
+#include "godot_bindings/viewmodel_pose.hpp"
 #include "render/texture_array_generator.hpp"
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/core/defs.hpp>
@@ -26,6 +27,7 @@ void initialize_chunk_module(ModuleInitializationLevel p_level) {
     ClassDB::register_class<::BlockOutline>();
     ClassDB::register_class<::SkinPixels>();
     ClassDB::register_class<::ViewmodelMeshes>();
+    ClassDB::register_class<::ViewmodelPose>();
 }
 
 void terminate_chunk_module(ModuleInitializationLevel p_level) {

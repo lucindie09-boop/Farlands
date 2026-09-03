@@ -297,70 +297,35 @@ func _process(delta: float) -> void:
 	# ----------------------------------
 	
 # --- SCALED MINECRAFT-STYLE VIEWMODEL LAG (~1.5x Stronger) ---
-	var target_sway = Vector3(
-		clampf(_mouse_delta.y * 0.018, -0.27, 0.27),  # Vertical lag (~1.5x)
-		clampf(_mouse_delta.x * 0.0135, -0.22, 0.22), # Horizontal lag (~1.5x)
-		clampf(-_mouse_delta.x * 0.006, -0.10, 0.10)  # Counter roll tilt (~1.5x)
-	)
-	
-	# Smoothly glide toward the target sway using an organic damping speed
-	_item_sway_offset = _item_sway_offset.lerp(target_sway, 1.0 - exp(-12.0 * delta))
-	
+	# Sway math (clamp + exponential lerp) lives in C++ (ViewmodelPose.step_sway).
+	_item_sway_offset = ViewmodelPose.step_sway(delta, _mouse_delta, _item_sway_offset)
+
 	# Clear out mouse delta frame-by-frame
 	_mouse_delta = Vector2.ZERO
-	
+
 	# Apply sway rotation plus the walk-bob rotation to the hand container
 	if _hand_bob != null:
 		_hand_bob.rotation = _item_sway_offset + _bob_rotation * PI / 180.0
 	# -------------------------------------------------------
 
-	# --- Walk bobbing (vanilla bobView formula) ---
+	# --- Walk bobbing (vanilla bobView) ---
 	# Track horizontal distance walked and a bob amplitude that ramps up with
 	# movement and dies down when idle, then offset the hand container by a
-	# single-frequency sin/cos bob. A plain -cos vertical term slows to a stop at
-	# its apex (naturally resting midair) and shares the horizontal frequency, so
-	# the bob never folds to double speed; the shared amplitude multiplier is a
-	# pure width knob independent of the cadence.
+	# single-frequency sin/cos bob.
+	# The bob math (distance accumulation, envelope lerp, sin/cos offsets) lives
+	# in C++ (ViewmodelPose.step_walk_bob).
 	var p: Vector3 = _player.global_position
-	if _has_last_pos:
-		var horiz := Vector2(p.x - _last_pos.x, p.z - _last_pos.z)
-		var dist := horiz.length()
-		_walk_dist += dist
-		var speed := dist / maxf(delta, 0.0001) # blocks/sec
-		# Only bob on the ground: while airborne (jumping/falling) the target
-		# amplitude is 0 so the hand settles instead of bobbing through the air.
-		var grounded: bool = _player.is_on_floor()
-		var target_bob := clampf(speed / 4.3, 0.0, 1.0) if grounded else 0.0
-		_bob = lerpf(_bob, target_bob, 1.0 - exp(-10.0 * delta))
-	_last_pos = p
-	_has_last_pos = true
-
-	var bob_radians := _walk_dist * PI * 0.6
-	var bob_off := Vector3(
-		sin(bob_radians) * _bob * 0.5,
-		-abs(cos(bob_radians) * _bob),
-		0.0
-	) * 0.1
-	var bob_rot := Vector3(
-		cos(bob_radians - 0.2) * _bob * 5.0,
-		0.0,
-		sin(bob_radians) * _bob * 3.0
-	) * 0.1
-	_bob_offset = bob_off
-	_bob_rotation = bob_rot
+	var bob_data := ViewmodelPose.step_walk_bob(delta, p, _last_pos, _has_last_pos, _player.is_on_floor(), _walk_dist, _bob)
+	_walk_dist = bob_data["walk_dist"]
+	_bob = bob_data["bob"]
+	_bob_offset = bob_data["bob_offset"]
+	_bob_rotation = bob_data["bob_rotation"]
+	_last_pos = bob_data["last_pos"]
+	_has_last_pos = bob_data["has_last_pos"]
 	# ----------------------------------------------
 
 	_update_swing_hooks()
 	_refresh_held_item()
-
-# Helper for framerate-independent lerp smoothing
-func drip_speed(delta: float, speed: float) -> float:
-	return 1.0 - exp(-speed * delta)
-
-# Cubic smoothstep remap: 0 -> 1 with zero slope at both ends (ease in/out).
-func smoothstep_01(x: float) -> float:
-	var t := clampf(x, 0.0, 1.0)
-	return t * t * (3.0 - 2.0 * t)
 
 # Kick a punch/swing (roadmap: punch animation). Progress 1..0 over 0.25s.
 func punch() -> void:
@@ -381,71 +346,32 @@ func _is_breaking() -> bool:
 func _update_swing_hooks() -> void:
 	# The active swing is the closer-to-rest (larger) punch/place timer, so a
 	# quick place right after a punch doesn't discard the punch's remaining motion.
-	var swing_progress := maxf(_swing, _swing_place)  # 1 -> 0 (MC swingProgress)
-	var strength := _swing_strength
-
-	# Equip animation: both normal equip and swap animate height over 0.25s
-	var equip_offset: float
-	if _is_swapping:
-		if _equip < 0.5:
-			var unequip_progress = _equip * 2.0
-			equip_offset = -0.25 - 0.5 * unequip_progress
-		else:
-			var equip_progress = (_equip - 0.5) * 2.0
-			equip_offset = -0.75 + 0.5 * equip_progress
-	else:
-		equip_offset = -0.75 + 0.5 * _equip
+	# All the swing/equip math (depth curve, arm rotation + shoulder arc, equip
+	# offset, swing_s/angle broadcast) lives in C++ (ViewmodelPose.compute_swing_pose).
+	var pose := ViewmodelPose.compute_swing_pose(
+		_swing, _swing_place, _swing_strength, _equip, _is_swapping,
+		_rotation_x, _rotation_y, _rotation_z,
+		_arm_position_x, _arm_position_y, _arm_position_z,
+		_bob_offset, PEAK_ROT, PEAK_POS
+	)
 
 	# Equip-only vertical bob (shoulder position handles the swing motion), plus
 	# the walk bob offset.
-	_hand_bob.position = Vector3(0.0, equip_offset, 0.0) + _bob_offset
+	_hand_bob.position = pose["hand_bob_pos"]
 
-	# Punch depth: 0 at rest, peaks at the punch's midpoint, returns to 0 when it
-	# settles -- a there-and-back sweep that reaches the peak pose then springs
-	# back to rest (not stuck holding the extended pose). Multiplied by the swing
-	# strength so a place stroke reaches a weaker (0.75x) endpoint than a full
-	# punch. The raw sine is reshaped by a cubic smoothstep (x*x*(3-2x)) so the
-	# depth eases in/out and holds slightly longer at the peak -- a flatter,
-	# more deliberate hold than a pure sine.
-	var s_raw := sin(swing_progress * PI)
-	var s := smoothstep_01(s_raw) * strength
-
-	# Full cycle angle over the punch: 0 at rest, PI at the peak, TAU at rest.
-	# sin(angle) drives the perpendicular bulge so it swings to ONE side on the
-	# way out (+), is 0 at the peak, then swings to the OTHER side on the way
-	# back (-) -- tracing both arcs of the circle instead of retracing one.
-	var angle := (1.0 - swing_progress) * TAU
-
-	# Interpolate arm rotation and shoulder position from rest to peak.
-	# Rest = current HUD tuning values; Peak = manually verified punch pose.
-	var rest_rot := Vector3(_rotation_x, _rotation_y, _rotation_z)
-	var rest_pos := Vector3(_arm_position_x, _arm_position_y, _arm_position_z)
-
-	# Smooth rotation: blend toward the peak rotation on the same 's' curve.
-	var current_rot := rest_rot.lerp(PEAK_ROT, s)
-
-	# Arcing motion: base linear rest->peak (equal to PEAK_POS at s=1), plus a
-	# perpendicular bulge that is 0 at rest and peak but pushes to opposite sides
-	# on the out and return strokes (sin(angle)).
-	var straight := rest_pos.lerp(PEAK_POS, s)
-	var dir := PEAK_POS - rest_pos
-	var perp := Vector3(-dir.z, 0.2, dir.x).normalized()
-	var arc_offset := perp * (sin(angle) * 0.15)
-	var current_pos := straight + arc_offset
-
-	# Apply to arm (rotation + position)
-	_update_arm_animation(current_rot, current_pos)
+	# Apply to arm (rotation + position): MC arm basis + HUD rotation delta.
+	_update_arm_animation(pose["arm_rot"], pose["arm_pos"])
 
 	# Broadcast the swing state so _update_item_transform (which runs every frame
 	# and owns _item_scale_node in F12 ITEM space) can drive the held item toward
 	# its own tuned peak pose exactly.
-	_swing_s = s
-	_swing_angle = angle
+	_swing_s = pose["swing_s"]
+	_swing_angle = pose["swing_angle"]
 
 	# The item swing is applied on _item_scale_node inside _update_item_transform;
 	# leave the _swing_node pivot at its resting shoulder so it doesn't stack.
 	if _swing_node != null:
-		_swing_node.position = rest_pos
+		_swing_node.position = pose["swing_node_pos"]
 		_swing_node.rotation_degrees = Vector3.ZERO
 
 func _update_arm_animation(current_rot: Vector3, current_pos: Vector3) -> void:
@@ -894,45 +820,37 @@ func _update_hud_labels() -> void:
 
 func _update_block_transform() -> void:
 	if _item_scale_node != null and _block_id > 0 and not BlockTextures.is_item(_block_id):
-		var b_rest_rot := Vector3(_block_rotation_x, _block_rotation_y, _block_rotation_z)
-		var b_rest_pos := Vector3(_block_position_x, _block_position_y, _block_position_z)
-		var s := _swing_s
-		var angle := _swing_angle
-
 		# Mirror the held-item swing: interpolate the block's resting pose toward
 		# its tuned peak (F12 BLOCK mode) on the same 's' curve, plus the same
-		# two-sided perpendicular arc. Set PEAK_ROT_BLOCK/PEAK_POS_BLOCK to the
-		# values found in the F12 HUD.
-		var straight := b_rest_pos.lerp(PEAK_POS_BLOCK, s)
-		var dir := PEAK_POS_BLOCK - b_rest_pos
-		var perp := Vector3(-dir.z, 0.2, dir.x).normalized()
-		var b_pos := straight + perp * (sin(angle) * 0.15)
-		var b_rot := b_rest_rot.lerp(PEAK_ROT_BLOCK, s)
+		# two-sided perpendicular arc. The swing interpolation math lives in C++
+		# (ViewmodelPose.compute_swing_transform).
+		var tf := ViewmodelPose.compute_swing_transform(
+			_swing_s, _swing_angle,
+			_block_position_x, _block_position_y, _block_position_z,
+			_block_rotation_x, _block_rotation_y, _block_rotation_z,
+			PEAK_POS_BLOCK, PEAK_ROT_BLOCK
+		)
 
-		_item_scale_node.position = b_pos
-		_item_scale_node.rotation_degrees = b_rot
+		_item_scale_node.position = tf["position"]
+		_item_scale_node.rotation_degrees = tf["rotation_degrees"]
 		_item_scale_node.scale = Vector3.ONE * _block_scale
 
 func _update_item_transform() -> void:
 	if _item_scale_node != null and _block_id > 0 and BlockTextures.is_item(_block_id):
-		var i_rest_rot := Vector3(_item_rotation_x, _item_rotation_y, _item_rotation_z)
-		var i_rest_pos := Vector3(_item_position_x, _item_position_y, _item_position_z)
-		var s := _swing_s
-		var angle := _swing_angle
-
 		# Interpolate the item's resting pose toward its tuned peak on the same
-		# 's' curve as the arm, plus a perpendicular arc (sin(angle) two-sided) so
-		# it sweeps to one side on the way out, is 0 at the peak, sweeps the other
-		# side on the way back. This is applied in F12 ITEM space, so at s=1 the
-		# item reaches PEAK_POS_ITEM / PEAK_ROT_ITEM exactly.
-		var straight := i_rest_pos.lerp(PEAK_POS_ITEM, s)
-		var dir := PEAK_POS_ITEM - i_rest_pos
-		var perp := Vector3(-dir.z, 0.2, dir.x).normalized()
-		var i_pos := straight + perp * (sin(angle) * 0.15)
-		var i_rot := i_rest_rot.lerp(PEAK_ROT_ITEM, s)
+		# 's' curve as the arm, plus a perpendicular arc (sin(angle) two-sided).
+		# This is applied in F12 ITEM space, so at s=1 the item reaches
+		# PEAK_POS_ITEM / PEAK_ROT_ITEM exactly. The swing math lives in C++
+		# (ViewmodelPose.compute_swing_transform).
+		var tf := ViewmodelPose.compute_swing_transform(
+			_swing_s, _swing_angle,
+			_item_position_x, _item_position_y, _item_position_z,
+			_item_rotation_x, _item_rotation_y, _item_rotation_z,
+			PEAK_POS_ITEM, PEAK_ROT_ITEM
+		)
 
-		_item_scale_node.position = i_pos
-		_item_scale_node.rotation_degrees = i_rot
+		_item_scale_node.position = tf["position"]
+		_item_scale_node.rotation_degrees = tf["rotation_degrees"]
 		_item_scale_node.scale = Vector3.ONE * _item_scale
 
 func _generate_item_mesh(texture: Texture2D) -> ArrayMesh:

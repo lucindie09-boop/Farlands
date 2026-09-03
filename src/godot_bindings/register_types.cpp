@@ -1,4 +1,5 @@
 #include "godot_bindings/register_types.hpp"
+#include "godot_bindings/block_outline.hpp"
 #include "godot_bindings/block_outline_builder.hpp"
 #include "godot_bindings/block_textures.hpp"
 #include "godot_bindings/chunk_manager.hpp"
@@ -22,6 +23,7 @@ void initialize_chunk_module(ModuleInitializationLevel p_level) {
     ClassDB::register_class<::PlayerController>();
     ClassDB::register_class<::BlockTextures>();
     ClassDB::register_class<::BlockOutlineBuilder>();
+    ClassDB::register_class<::BlockOutline>();
     ClassDB::register_class<::SkinPixels>();
     ClassDB::register_class<::ViewmodelMeshes>();
 }

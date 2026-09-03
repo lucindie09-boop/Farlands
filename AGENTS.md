@@ -92,7 +92,7 @@ A Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked streamin
 - **4×4×4 world-aligned shape lattice**: Ensures bit-identical results across chunk boundaries
 - **Chunk-level fast paths**: Chunks entirely above/below height band skip all lattice/density work (~7× speedup on deep chunks)
 - **Biome-based macro surface**: Multiple biomes with distinct terrain characteristics
-- **Continental-scale elevation noise**: Additive-only ~1000 block wavelength noise for large-scale terrain variation
+- **Continental-scale elevation noise**: ~1000 block wavelength noise for large-scale terrain variation. Signed/re-centered (`elevation_bias`) so the macro height rolls continuously both above and below its base — the old additive-only `max(raw,0)^2` collapsed ~half the field to flat and caused long featureless 1000-block plateaus. Amplitude + bias load from `data/terrain_config.json`
 - **Elevation-based weirdness amplification**: Terrain features become 1-2x more dramatic at higher elevations
 - **Continentalness warp**: Wavy coastlines through continental-scale warping
 - **Widened beach biome band**: Proper shoreline coverage with expanded beach biome

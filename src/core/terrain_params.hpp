@@ -59,6 +59,11 @@ struct TerrainParams {
 
     float elevation_scale = 0.001f;
     float elevation_amplitude = 100.0f;
+    // Positive re-centering of the signed continental-elevation field. The
+    // macro base sits only a few blocks above sea level, so a field centered
+    // at 0 would flood ~half the map; the bias keeps most land above water
+    // while still letting basins dip and ridges rise for 1000-block rolling.
+    float elevation_bias = 0.35f;
 
     // Voronoi height centers over land biomes (indexed with the same order as
     // the hardcoded table: plains, forest, desert).

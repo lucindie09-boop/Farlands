@@ -1,7 +1,8 @@
 {
   "height_base_y": 208.0,
   "elevation_scale": 0.001,
-  "elevation_amplitude": 100.0,
+  "elevation_amplitude": 60.0,
+  "elevation_bias": 0.35,
   "climate_temp_base_scale": 0.00015,
   "climate_humidity_base_scale": 0.00020,
   "height_centers": [

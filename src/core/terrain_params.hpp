@@ -65,6 +65,15 @@ struct TerrainParams {
     // while still letting basins dip and ridges rise for 1000-block rolling.
     float elevation_bias = 0.35f;
 
+    // Sub-block surface jitter. Gentle slopes discretize into a perfectly
+    // regular 1-up/1-up staircase (most visible where the 3D shape field is
+    // weak). Adding a vertical offset to the macro height before it is rounded
+    // makes the ramp break into irregular steps (1 up, flat, 2 up) instead of a
+    // machine-made look. A few blocks of low-frequency amplitude are needed to
+    // actually break long mechanical runs on both cardinal and diagonal slopes.
+    float surface_jitter_scale = 0.09f;
+    float surface_jitter_amplitude = 4.0f;
+
     // Voronoi height centers over land biomes (indexed with the same order as
     // the hardcoded table: plains, forest, desert).
     std::array<HeightCenter, 3> height_centers{

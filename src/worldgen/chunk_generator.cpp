@@ -54,6 +54,18 @@ ChunkGenerator::ColumnSample ChunkGenerator::sample_column(int32_t world_x, int3
         water_level = params.sea_level;
     }
 
+    // Sub-block surface jitter: break the uniform staircase. A gentle macro
+    // slope rounds to perfectly regular 1-up steps; adding a small high-freq
+    // vertical offset (before the final clamp/round) makes adjacent columns
+    // land on irregular steps (1 up, flat, 2 up) instead of a machine-made
+    // ramp. Land-only — water columns are placed from water_level, which is
+    // left untouched, so the sea surface stays flat.
+    if (water_level < 0.0f && params.surface_jitter_amplitude > 0.0f) {
+        float jit = terrain_noise.noise_2d(x * params.surface_jitter_scale + 9000.0f,
+                                           z * params.surface_jitter_scale + 9000.0f);
+        height += jit * params.surface_jitter_amplitude;
+    }
+
     height = std::max(static_cast<float>(params.bedrock_height) + 1.0f, height);
     if (water_level >= 0.0f) {
         water_level = std::max(params.sea_level, water_level);

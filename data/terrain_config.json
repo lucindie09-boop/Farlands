@@ -3,6 +3,8 @@
   "elevation_scale": 0.001,
   "elevation_amplitude": 60.0,
   "elevation_bias": 0.35,
+  "surface_jitter_scale": 0.09,
+  "surface_jitter_amplitude": 4.0,
   "climate_temp_base_scale": 0.00015,
   "climate_humidity_base_scale": 0.00020,
   "height_centers": [

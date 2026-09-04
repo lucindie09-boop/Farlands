@@ -196,6 +196,7 @@ Open the project root in Godot 4 and press Play. The main scene is `Main.tscn`. 
 | Ctrl | Sneak / descend in flight |
 | F | Toggle fly mode |
 | F5 | Toggle third-person camera |
+| K | Spawn/remove an animated pose clone of the player on the aimed block (debug: shows a cube at each mesh pivot) |
 | 1–9 | Select hotbar slot |
 | E | Toggle inventory |
 | Mouse wheel | Cycle hotbar selection (while the inventory is closed) |
@@ -205,7 +206,7 @@ Open the project root in Godot 4 and press Play. The main scene is `Main.tscn`. 
 | Tab | Accept autocomplete / cycle through completions (hold to auto-cycle) |
 | Up/Down arrows | Cycle through completions (when chat is open and completions are available) |
 
-Input bindings live in `project.godot` (`move_forward`, `move_back`, `move_left`, `move_right`, `jump`, `sprint`, `sneak`, `fly_toggle`, `toggle_inventory`, `toggle_chat`, `toggle_third_person`, `mouse_click_left`, `mouse_click_right`). The C++ `PlayerController` node owns all movement, look, block interaction, and inventory state — there is no player GDScript. The hotbar/inventory screens are GDScript `Control` overlays that read/write that state.
+Input bindings live in `project.godot` (`move_forward`, `move_back`, `move_left`, `move_right`, `jump`, `sprint`, `sneak`, `fly_toggle`, `toggle_inventory`, `toggle_chat`, `toggle_third_person`, `mouse_click_left`, `mouse_click_right`, `pose_clone_toggle`). The C++ `PlayerController` node owns all movement, look, block interaction, and inventory state — there is no player GDScript. The hotbar/inventory screens are GDScript `Control` overlays that read/write that state.
 
 ### Controls Rebinding
 

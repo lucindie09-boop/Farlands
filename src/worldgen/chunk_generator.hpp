@@ -255,18 +255,13 @@ private:
         float warp_x = wx1 + wx2;
         float warp_z = wz1 + wz2;
 
-        // Broad low-frequency terrain with a ridged component. More octaves and
-        // higher persistence than the old recipe give the surface real
-        // mid-frequency relief so it no longer reads as a plain Perlin blob
-        // field; the ridged component adds linear ridge/canyon structure.
-        const float ridged_w = params.terrain_ridged_weight;
-        const float fbm_w = 1.0f - ridged_w;
-        float per_noise_val = terrain_noise.fbm(x + warp_x, z + warp_z, params.terrain_octaves, params.terrain_persistence, 0.0064f) * fbm_w
-                            + terrain_noise.ridged_noise(x + 4000.0f + warp_x, z + 4000.0f + warp_z, 3, 0.55f, 0.016f) * ridged_w;
+        // Broad low-frequency terrain with light ridged detail
+        float per_noise_val = terrain_noise.fbm(x + warp_x, z + warp_z, 4, 0.52f, 0.0064f) * 0.85f
+                            + terrain_noise.ridged_noise(x + 4000.0f + warp_x, z + 4000.0f + warp_z, 3, 0.55f, 0.016f) * 0.15f;
 
         // Fixed-amplitude local detail, scaled by the roughness envelope so
         // flat zones stay smooth while hilly zones retain micro variation.
-        float detail = terrain_noise.fbm(x * 1.6f + warp_x * 0.4f, z * 1.6f + warp_z * 0.4f, 3, 0.5f, 0.018f) * params.terrain_detail_amplitude * detail_amp;
+        float detail = terrain_noise.fbm(x * 1.6f + warp_x * 0.4f, z * 1.6f + warp_z * 0.4f, 3, 0.5f, 0.018f) * 5.0f * detail_amp;
 
         return base + per_noise_val * terrain_amplitude + detail;
     }

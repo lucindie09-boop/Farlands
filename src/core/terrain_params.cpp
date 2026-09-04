@@ -51,18 +51,6 @@ bool TerrainParams::load_from_json(const godot::String& json_path) noexcept {
     if (root.has("roughness_detail_min")) {
         roughness_detail_min = static_cast<float>(static_cast<double>(root["roughness_detail_min"]));
     }
-    if (root.has("terrain_octaves")) {
-        terrain_octaves = static_cast<int>(static_cast<double>(root["terrain_octaves"]));
-    }
-    if (root.has("terrain_persistence")) {
-        terrain_persistence = static_cast<float>(static_cast<double>(root["terrain_persistence"]));
-    }
-    if (root.has("terrain_ridged_weight")) {
-        terrain_ridged_weight = static_cast<float>(static_cast<double>(root["terrain_ridged_weight"]));
-    }
-    if (root.has("terrain_detail_amplitude")) {
-        terrain_detail_amplitude = static_cast<float>(static_cast<double>(root["terrain_detail_amplitude"]));
-    }
     if (root.has("climate_temp_base_scale")) {
         climate_temp_base_scale = static_cast<float>(static_cast<double>(root["climate_temp_base_scale"]));
     }

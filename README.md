@@ -2,7 +2,7 @@
 
 ![Farlands gameplay](screenshots/gameplay.png)
 
-A Minecraft-style voxel engine built in Godot 4 with a custom C++ GDExtension. Procedural terrain generation (signed 3D density field with overhangs and shelves, continental-scale elevation noise, and sub-block surface jitter to break uniform terrain staircases), chunked world streaming, greedy meshing with per-chunk incremental rebuilds, colored block lighting, day/night cycle, three-tier distance-based mesh LOD with LOD-reduced chunks merged into regions to cap draw calls, frustum-prioritized chunk loading, async background chunk saving, and a C++ inventory system (hotbar + 27-slot storage) wired into block break/place with a GDScript GUI, plus data-driven 2×2 crafting (`data/recipes.json`). Ships with a C++ player controller with Minecraft-accurate fixed-timestep physics.
+A Minecraft-style voxel engine built in Godot 4 with a custom C++ GDExtension. Procedural terrain generation (a stacked-noise macro surface with domain warp and ~500/150-block relief fields, wrapped by a signed 3D density field that adds overhangs and shelves in strength-gated "weirdness" zones, plus height-based oceans that flood any column below sea level), chunked world streaming, greedy meshing with per-chunk incremental rebuilds, colored block lighting, day/night cycle, three-tier distance-based mesh LOD with LOD-reduced chunks merged into regions to cap draw calls, frustum-prioritized chunk loading, async background chunk saving, and a C++ inventory system (hotbar + 27-slot storage) wired into block break/place with a GDScript GUI, plus data-driven 2×2 crafting (`data/recipes.json`). Ships with a C++ player controller with Minecraft-accurate fixed-timestep physics.
 
 ## Architecture
 
@@ -29,11 +29,11 @@ A Minecraft-style voxel engine built in Godot 4 with a custom C++ GDExtension. P
 | Mesh builder | `src/mesh/mesh_builder.hpp/cpp` (+ `mesh_builder_solid.cpp`, `mesh_builder_faces.cpp`, `mesh_builder_greedy.cpp`) | Greedy + standard face culling, neighbor-aware, thread-local instances, solid-block fast path, full rebuilds and incremental partial remeshes |
 | Mesh manager | `src/mesh/mesh_manager.hpp` + `mesh_manager.cpp`/`_worker`/`_upload`/`_rebuild`/`_far`/`_lifecycle` (`mesh_manager_internal.hpp` shares the build task) | Upload dedup, lazy RID creation, instance budget capping, three-tier LOD (stride/detail) with LOD-reduced chunks merged into region instances, nearest-first budget-capped completion |
 | Lighting | `src/lighting/light_propagator.cpp` | Async block-light propagation on worker threads, sky-light columns, overlap-safe per-channel light removal |
-| Terrain gen | `src/worldgen/chunk_generator.hpp/cpp` | Signed 3D density field over a macro heightmap (overhangs/shelves), 4×4×4 shape lattice, biome-based macro surface, chunk-level generation fast paths, continental-scale elevation noise (~1000 block wavelength) with elevation-based weirdness amplification (1-2x multiplier), continentalness warp for wavy coastlines, widened beach biome band for proper shoreline coverage, sub-block surface jitter to break uniform terrain staircases (land-only high-frequency vertical offset before rounding) |
+| Terrain gen | `src/worldgen/chunk_generator.hpp/cpp` | Stacked-noise macro surface (12k base + 1k detail + ridged flow + 500/150-block lattice relief, domain-warped; tuning in `data/terrain_config.json`), height-based oceans (below-sea columns fill to sea level), signed 3D density field around the macro surface (overhangs/shelves in strength-gated zones), 4×4×4 shape lattice, chunk-level fast paths — see [Terrain Generation](#terrain-generation) |
 | Vegetation | `src/worldgen/vegetation_generator.hpp/cpp` | Tree placement (oak/spruce) with variant-weighted per biome, minimum spacing, deferred cross-chunk writes |
 | Vegetation config | `src/worldgen/vegetation_config.hpp` + `data/vegetation.json` | Forest/plains/desert knobs, tree density/variants loaded from JSON |
 | Biome config | `src/worldgen/biome_config.hpp` + `data/biomes.json` | Per-biome materials, climate thresholds, tree variants loaded from JSON |
-| Terrain config | `src/core/terrain_params.cpp` + `data/terrain_config.json` | Macro height centers, climate scales loaded from JSON |
+| Terrain config | `src/core/terrain_params.cpp` + `data/terrain_config.json` | Macro-surface tuning loaded from JSON: base height, domain-warp amplitudes, mid/small relief fields, shape-strength range, weirdness thresholds |
 | Collision | `src/engine/collision_resolver.cpp` | Custom binary-search AABB voxel grid query (no Godot physics nodes), step-up support |
 | Day/night | `src/world/day_night_cycle.hpp` | Shader-driven sky-light intensity + color blending |
 | Player sim | `src/engine/player_controller.hpp/cpp` | Minecraft-accurate fixed 20-tick/s physics: vanilla jump/sprint/sneak ordering, accumulator, smooth eye-height transitions, fall-distance tracking with vanilla landing damage (1 half-heart per block past 3) |
@@ -70,13 +70,35 @@ A Minecraft-style voxel engine built in Godot 4 with a custom C++ GDExtension. P
 - GPU compression option for texture arrays to reduce VRAM usage (S3TC/BC1-BC3).
 - Vertex compression (24 bytes per vertex, -40% VRAM) with fixed-point positions.
 
+## Terrain Generation
+
+Terrain is built in three stages — a macro surface from stacked noise layers, a height-based water post-pass, then a strength-gated 3D density field wrapped around that surface (full diagram in [ARCHITECTURE.md](ARCHITECTURE.md#terrain-generation)):
+
+```
+ noise layers @ warped point → macro height per column
+   base 12k ±500 · detail 1k ±100 · ridged flow ×16
+   + 500-block relief (±90) + 150-block relief (±25)
+        │ surface < sea_level (200)?  →  Ocean: water fills to sea level
+        ▼
+ weirdness fBm (~42-block lobes) → strength 5..50
+        ▼
+ density = (height − y) + shape · strength · band(9→28)
+   shape = 3-octave fBm on a 4³ world lattice (~38-block features)
+        ▼
+ per-chunk: fast paths → density/material pass → cleanup → vegetation
+```
+
+- **Height decides water, not continentalness** — the macro surface is the same continuous noise field everywhere; any column that ends below sea level simply becomes Ocean (floor preserved as the sea bed, water filled to sea level). Coasts are seamless by construction.
+- **Strength-gated 3D shaping** — a low-frequency 2D "weirdness" mask picks where the signed 3D shape field is strong enough to produce overhangs/shelves; everywhere else the terrain is plain macro surface.
+- **All tuning is data-driven** (`data/terrain_config.json` → `TerrainParams`); temperature/humidity climate samplers are currently flat stubs, so land is Plains and water is Ocean.
+
 ## Worldgen Config Data
 
 The terrain generation system is data-driven through JSON configuration files:
 
-- **`data/biomes.json`** — Biome definitions with per-biome materials, climate thresholds, tree density, and tree variant weights
+- **`data/biomes.json`** — Per-biome surface materials (Ocean/Beach/Plains/Forest/Desert) and tree density/variant weights; climate thresholds load but are dormant while the climate samplers are flat
 - **`data/vegetation.json`** — Vegetation parameters for forest/plains/desert biomes (tree density, min/max counts, spacing, cactus settings)
-- **`data/terrain_config.json`** — Macro height centers, climate scales, terrain amplitude parameters, and surface jitter settings (scale/amplitude for breaking uniform terrain staircases)
+- **`data/terrain_config.json`** — Macro-surface tuning: `height_base_y`, domain-warp amplitudes, mid/small relief field spacing/frequency/amplitude, shape-strength range, weirdness thresholds
 - **`data/block_shapes.json`** — Shared shape registry for non-full blocks (slabs, stairs, walls, poles) with selection/collision boxes
 - **`data/recipes.json`** — Crafting recipes (shaped/shapeless) resolved by block name against `block_definitions.json`; grid size and per-recipe results
 
@@ -149,7 +171,7 @@ CI (`.github/workflows/build.yml`) runs on every push and pull request:
 - **Static-analysis job** — clang-tidy across all of `src/` with `bugprone-*`, `concurrency-*`, and `performance-*` checks; findings in project sources fail the job.
 - **Coverage job** — lcov coverage report uploaded to Codecov.
 
-The project has **255 test cases / 172,121 assertions** across 30 doctest files, including 27 tests in `test_concurrency.cpp` (shard locking, deadlock prevention, PaletteStorage, cross-chunk writers, thread-pool work stealing).
+The project has **255 test cases / 181,721 assertions** across 30 doctest files, including 27 tests in `test_concurrency.cpp` (shard locking, deadlock prevention, PaletteStorage, cross-chunk writers, thread-pool work stealing).
 
 ## Running
 

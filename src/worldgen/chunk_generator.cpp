@@ -15,26 +15,26 @@ ChunkGenerator::ColumnSample ChunkGenerator::sample_column(int32_t world_x, int3
     float cont = sample_continentalness(x, z);
     float temperature = sample_temperature(x, z);
     float humidity = sample_humidity(x, z);
-    
-    bool is_land = cont >= params.land_threshold;
-    float height = 0.0f;
-    float water_level = -1.0f;
-    BiomeType biome = BiomeType::Plains;
 
-    // Simplified height - single noise layer only
+    // Height comes purely from the noise stack — the full macro surface is
+    // evaluated everywhere, with no continentalness gating and no sea-level
+    // flattening while the noise runs.
     float land_height = sample_land_shape(x, z, temperature, humidity);
     float saved_land_height = land_height;
+    float height = land_height;
 
-    float cont_from_coast = params.land_threshold - cont;
-    float depth = 0.0f;
-    // Simplified ocean - flat sea level
-    float ocean_height = params.sea_level;
-
-    // Simplified blending - just use land height everywhere
-    height = land_height;
-
-    biome = biome_from_climate(temperature, humidity, cont);
-    if (!is_land) {
+    // Oceans are a post-pass over the completed height field, not a terrain
+    // input: any column whose surface ended up below sea level simply fills
+    // with water up to sea level. The noisy height is kept as the sea bed, so
+    // land and ocean floor are one continuous surface (no shelf logic, no
+    // continentalness involvement).
+    const bool is_land = land_height >= params.sea_level;
+    float water_level = -1.0f;
+    BiomeType biome;
+    if (is_land) {
+        biome = biome_from_climate(temperature, humidity, cont);
+    } else {
+        biome = BiomeType::Ocean;
         water_level = params.sea_level;
     }
 

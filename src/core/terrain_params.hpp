@@ -74,6 +74,28 @@ struct TerrainParams {
     float surface_jitter_scale = 0.09f;
     float surface_jitter_amplitude = 4.0f;
 
+    // Low-frequency "roughness" field that splits the world into distinct
+    // flat vs hilly regions. It scales the main terrain amplitude between
+    // roughness_min (flat zones) and roughness_max (hilly zones), and also
+    // scales the fixed local detail so flat zones have near-zero micro
+    // variation. roughness_scale controls the wavelength (~1/scale blocks).
+    float roughness_scale = 0.0004f;
+    float roughness_min = 1.0f;
+    float roughness_max = 32.0f;
+    float roughness_detail_min = 0.05f;
+
+    // Main terrain noise recipe (de-blob knobs). The old fBm (4 octaves at
+    // persistence 0.52) was very smooth — a single ~156-block undulation that
+    // reads as blobs. More octaves + slightly higher persistence put real
+    // mid-frequency relief back into the surface so it no longer looks like a
+    // plain Perlin field. terrain_ridged_weight blends in a ridged (ridge/canyon)
+    // component whose linear structure breaks circular blobs.
+    int terrain_octaves = 6;
+    float terrain_persistence = 0.56f;
+    float terrain_ridged_weight = 0.25f;
+    // High-frequency micro texture on top of the macro shape.
+    float terrain_detail_amplitude = 5.0f;
+
     // Voronoi height centers over land biomes (indexed with the same order as
     // the hardcoded table: plains, forest, desert).
     std::array<HeightCenter, 3> height_centers{

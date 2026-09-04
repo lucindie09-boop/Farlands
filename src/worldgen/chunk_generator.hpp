@@ -93,7 +93,7 @@ private:
     float sample_erosion(float x, float z) const {
         // Medium-scale erosion noise (4k-8k block scale)
         // Using 4 octaves for good detail without being too expensive
-        return erosion_noise.fbm(x * 0.00015f, z * 0.00015f, 4, 0.5f, 1.0f);
+        return erosion_noise.fbm(x * 0.00025f, z * 0.00025f, 4, 0.5f, 1.0f);
     }
 
     // Simplified biome - single biome only
@@ -118,17 +118,21 @@ private:
 
         // Base noise function with 12000-block wavelength and 500 amplitude
         auto h_at = [&](float px, float pz) -> float {
-            float base_height = 512.0f + terrain_noise.noise_2d(px * 0.0000833f, pz * 0.0000833f) * 500.0f;
-            
-            // Sample erosion noise to modulate terrain roughness
-            float erosion = sample_erosion(px, pz);
+            // Sample erosion on same 4-block lattice for performance
+            int32_t ex = lattice_base(static_cast<int32_t>(std::floor(px)), 4);
+            int32_t ez = lattice_base(static_cast<int32_t>(std::floor(pz)), 4);
+            float erosion = sample_erosion(static_cast<float>(ex), static_cast<float>(ez));
             
             // Normalize erosion to [0,1] range
             float erosion_norm = (erosion + 1.0f) * 0.5f;
             
+            // Erosion modulates base amplitude - smooth areas flatter, rugged areas more extreme
+            float amplitude_scale = lerp(0.5f, 1.5f, erosion_norm);
+            float base_height = 512.0f + terrain_noise.noise_2d(px * 0.0000833f, pz * 0.0000833f) * 500.0f * amplitude_scale;
+            
             // Add detail noise scaled by erosion - smooth areas get less detail, rugged areas get more
-            float detail_scale = lerp(0.1f, 0.4f, erosion_norm);
-            float detail = terrain_noise.noise_2d(px * 0.001f, pz * 0.001f) * 50.0f * detail_scale;
+            float detail_scale = lerp(0.2f, 1.0f, erosion_norm);
+            float detail = terrain_noise.noise_2d(px * 0.001f, pz * 0.001f) * 100.0f * detail_scale;
             
             return base_height + detail;
         };

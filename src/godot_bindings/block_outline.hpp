@@ -8,6 +8,12 @@
 #include <godot_cpp/variant/color.hpp>
 #include <godot_cpp/variant/vector3.hpp>
 
+// Forward declarations
+class PlayerController;
+namespace VoxelEngine {
+class ChunkManager;
+}
+
 class BlockOutline : public godot::Node3D {
     // NOLINTBEGIN(bugprone-unhandled-self-assignment) — GDCLASS macro generates operator=
     GDCLASS(BlockOutline, godot::Node3D)
@@ -46,12 +52,16 @@ private:
     // --- Internal state ---
     godot::MeshInstance3D* outline_mesh_ = nullptr;
     godot::MeshInstance3D* fill_mesh_ = nullptr;
-    godot::StandardMaterial3D* outline_material_ = nullptr;
-    godot::StandardMaterial3D* fill_material_ = nullptr;
+    godot::Ref<godot::StandardMaterial3D> outline_material_;
+    godot::Ref<godot::StandardMaterial3D> fill_material_;
     float current_thickness_ = -1.0f;
     float pulse_time_ = 0.0f;
     int current_block_id_ = -1;
     godot::Array current_boxes_;
+
+    // Cached node references (resolved once in _ready())
+    PlayerController* player_controller_ = nullptr;
+    VoxelEngine::ChunkManager* chunk_manager_ = nullptr;
 
     // Throttling
     godot::Vector3 last_camera_position_;

@@ -106,6 +106,9 @@ struct TerrainParams {
     // Biome size multiplier (1.0 = default, >1 = larger biomes)
     float biome_size = 1.0f;
 
+    // Local elevation amplitude multiplier (controls strength of ~250-block range features)
+    float local_elevation_amplitude = 0.25f;
+
     // Loads non-persisted macro-surface tuning from JSON. Missing file or keys
     // keep the existing values; returns false only if the file could not load.
     bool load_from_json(const godot::String& json_path) noexcept;

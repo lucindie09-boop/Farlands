@@ -17,31 +17,33 @@ BlockOutline::BlockOutline() = default;
 BlockOutline::~BlockOutline() = default;
 
 void BlockOutline::_ready() {
+    // Cache node references once instead of per-frame lookups
+    player_controller_ = Object::cast_to<PlayerController>(get_node_or_null(NodePath("/root/Main/Player")));
+    chunk_manager_ = Object::cast_to<VoxelEngine::ChunkManager>(get_node_or_null(NodePath("/root/Main/ChunkManager")));
+
     create_fill();
     create_materials();
 }
 
 void BlockOutline::_process(double delta) {
-    auto* player = Object::cast_to<PlayerController>(get_node_or_null(NodePath("/root/Main/Player")));
-    auto* cm = Object::cast_to<VoxelEngine::ChunkManager>(get_node_or_null(NodePath("/root/Main/ChunkManager")));
-    if (!player || !cm) {
+    if (!player_controller_ || !chunk_manager_) {
         if (outline_mesh_) outline_mesh_->set_visible(false);
         if (fill_mesh_) fill_mesh_->set_visible(false);
         return;
     }
 
-    if (player->is_chat_open() || player->is_inventory_open() || player->is_settings_open()) {
+    if (player_controller_->is_chat_open() || player_controller_->is_inventory_open() || player_controller_->is_settings_open()) {
         if (outline_mesh_) outline_mesh_->set_visible(false);
         if (fill_mesh_) fill_mesh_->set_visible(false);
         return;
     }
 
-    auto* camera = Object::cast_to<Camera3D>(player->get_node_or_null(NodePath("Camera3D")));
+    auto* camera = Object::cast_to<Camera3D>(player_controller_->get_node_or_null(NodePath("Camera3D")));
     if (!camera) return;
 
     const Vector3 current_position = camera->get_global_position();
     const Vector3 current_rotation = camera->get_global_rotation();
-    const int current_edit_counter = player->get_block_edit_counter();
+    const int current_edit_counter = player_controller_->get_block_edit_counter();
 
     const bool position_changed = current_position.distance_to(last_camera_position_) > POSITION_THRESHOLD;
     const bool rotation_changed =
@@ -63,7 +65,7 @@ void BlockOutline::_process(double delta) {
     last_camera_rotation_ = current_rotation;
     last_block_edit_counter_ = current_edit_counter;
 
-    Dictionary result = cm->raycast_from_camera(reach_distance_);
+    Dictionary result = chunk_manager_->raycast_from_camera(reach_distance_);
     if (result.is_empty() || !result.get("success", false)) {
         if (outline_mesh_) outline_mesh_->set_visible(false);
         if (fill_mesh_) fill_mesh_->set_visible(false);
@@ -88,7 +90,7 @@ void BlockOutline::_process(double delta) {
     const int block_id = static_cast<int>(result.get("block_id", 0));
     if (block_id != current_block_id_) {
         current_block_id_ = block_id;
-        current_boxes_ = cm->get_selection_boxes(block_id);
+        current_boxes_ = chunk_manager_->get_selection_boxes(block_id);
         rebuild_outline_mesh();
         update_fill_for_boxes();
     } else if (outline_thickness_ != current_thickness_) {
@@ -126,7 +128,9 @@ void BlockOutline::rebuild_outline_mesh() {
     outline_mesh_ = memnew(MeshInstance3D);
     outline_mesh_->set_mesh(Ref<Mesh>(mesh));
     outline_mesh_->set_cast_shadows_setting(GeometryInstance3D::SHADOW_CASTING_SETTING_OFF);
-    outline_mesh_->set_material_override(outline_material_);
+    if (outline_material_.is_valid()) {
+        outline_mesh_->set_material_override(outline_material_);
+    }
     add_child(outline_mesh_);
 }
 
@@ -157,7 +161,7 @@ void BlockOutline::update_fill_for_boxes() {
 }
 
 void BlockOutline::create_materials() {
-    outline_material_ = memnew(StandardMaterial3D);
+    outline_material_.instantiate();
     outline_material_->set_shading_mode(BaseMaterial3D::SHADING_MODE_UNSHADED);
     Color oc = outline_color_;
     oc.a = outline_opacity_;
@@ -166,7 +170,7 @@ void BlockOutline::create_materials() {
     outline_material_->set_transparency(BaseMaterial3D::TRANSPARENCY_ALPHA);
     outline_material_->set_render_priority(10);
 
-    fill_material_ = memnew(StandardMaterial3D);
+    fill_material_.instantiate();
     fill_material_->set_shading_mode(BaseMaterial3D::SHADING_MODE_UNSHADED);
     fill_material_->set_cull_mode(BaseMaterial3D::CULL_BACK);
     fill_material_->set_transparency(BaseMaterial3D::TRANSPARENCY_ALPHA);
@@ -175,7 +179,7 @@ void BlockOutline::create_materials() {
     fill_material_->set_albedo(fc);
     fill_material_->set_render_priority(9);
 
-    if (fill_mesh_ && fill_mesh_->get_mesh().is_valid()) {
+    if (fill_mesh_ && fill_mesh_->get_mesh().is_valid() && fill_material_.is_valid()) {
         fill_mesh_->get_mesh()->surface_set_material(0, fill_material_);
     }
 }
@@ -191,7 +195,9 @@ void BlockOutline::update_materials() {
     }
     Color oc = outline_color_;
     oc.a = std::clamp(current_outline_opacity, 0.0f, 1.0f);
-    outline_material_->set_albedo(oc);
+    if (outline_material_.is_valid()) {
+        outline_material_->set_albedo(oc);
+    }
 
     float current_fill_opacity = fill_opacity_;
     if (fill_pulse_enabled_) {
@@ -200,7 +206,9 @@ void BlockOutline::update_materials() {
     }
     Color fc = fill_color_;
     fc.a = std::clamp(current_fill_opacity, 0.0f, 1.0f);
-    fill_material_->set_albedo(fc);
+    if (fill_material_.is_valid()) {
+        fill_material_->set_albedo(fc);
+    }
 }
 
 void BlockOutline::_bind_methods() {

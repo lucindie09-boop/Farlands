@@ -265,8 +265,8 @@ private:
         // macro term collapses to a smooth gradient. This is the signal that
         // stops a 50-block region looking like a single Perlin sample.
         float chunk_rough = terrain_noise.fbm(
-            x * params.chunk_roughness_scale + warp_x * 0.3f,
-            z * params.chunk_roughness_scale + warp_z * 0.3f,
+            x + warp_x * 0.3f,
+            z + warp_z * 0.3f,
             3, 0.5f, params.chunk_roughness_scale) * params.chunk_roughness_amplitude;
 
         // Local detail, raised to a frequency (scale*1.6 ~0.047 -> ~21-block

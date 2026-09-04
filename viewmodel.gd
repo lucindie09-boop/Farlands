@@ -920,7 +920,7 @@ func _load_block_shapes() -> void:
 		return
 	
 	_block_shapes = json.data
-	print("Loaded " + str(_block_shapes.size()) + " block shapes")
+	# print("Loaded " + str(_block_shapes.size()) + " block shapes")
 
 # Build a shaped block mesh for the viewmodel
 func _build_shaped_block_mesh(shape_key: String) -> ArrayMesh:

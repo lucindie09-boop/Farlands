@@ -13,6 +13,7 @@
   "chunk_roughness_amplitude": 3.0,
   "climate_temp_base_scale": 0.00015,
   "climate_humidity_base_scale": 0.00020,
+  "local_elevation_amplitude": 0.55,
   "height_centers": [
     {"temp": 0.50, "hum": 0.35, "base_off": 6.0, "scale_m": 0.12},
     {"temp": 0.50, "hum": 0.78, "base_off": 4.0, "scale_m": 1.00},

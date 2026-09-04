@@ -143,6 +143,12 @@ private:
     // Spacing ~48 blocks = a 16x16 grid over ~768 blocks (the user's coarse idea).
     static constexpr int32_t ELEVATION_LATTICE_SPACING = 48;
 
+    // Finer world-aligned elevation lattice. Uses an 8x8 grid point sampling over
+    // a ~250 block range for local terrain variation instead of the 1000-block
+    // continental scale. The lattice is world-anchored (lattice_base) so no seams.
+    // Spacing ~31 blocks = an 8x8 grid over ~250 blocks.
+    static constexpr int32_t LOCAL_ELEVATION_LATTICE_SPACING = 31;
+
     // -------------------------------------------------------------------------
     // Noise sampling
     // -------------------------------------------------------------------------
@@ -178,6 +184,19 @@ private:
         const int32_t ix = lattice_base(static_cast<int32_t>(std::floor(x)), ELEVATION_LATTICE_SPACING);
         const int32_t iz = lattice_base(static_cast<int32_t>(std::floor(z)), ELEVATION_LATTICE_SPACING);
         float raw = elevation_noise.fbm(static_cast<float>(ix), static_cast<float>(iz), 2, 0.5f, params.elevation_scale);
+        return std::clamp(raw + params.elevation_bias, -1.0f, 1.0f);
+    }
+
+    // Local-scale elevation — similar to continental elevation but operates on
+    // a ~250-block range with 8x8 grid sampling instead of 16x16. Provides
+    // medium-scale terrain variation between the continental features and the
+    // micro terrain. Uses the same world-anchored lattice approach for consistency.
+    float sample_local_elevation(float x, float z) const {
+        // Finer world-aligned lattice: 8x8 grid over ~250 blocks
+        const int32_t ix = lattice_base(static_cast<int32_t>(std::floor(x)), LOCAL_ELEVATION_LATTICE_SPACING);
+        const int32_t iz = lattice_base(static_cast<int32_t>(std::floor(z)), LOCAL_ELEVATION_LATTICE_SPACING);
+        // Use a different frequency scale for local variation (4x higher than continental)
+        float raw = elevation_noise.fbm(static_cast<float>(ix), static_cast<float>(iz), 2, 0.5f, params.elevation_scale * 4.0f);
         return std::clamp(raw + params.elevation_bias, -1.0f, 1.0f);
     }
 
@@ -262,11 +281,15 @@ private:
             float elevation = sample_elevation(px, pz);
             base += elevation * params.elevation_amplitude;
 
+            // Local elevation — medium-scale variation (~250-block range, 4x4 grid)
+            float local_elevation = sample_local_elevation(px, pz);
+            base += local_elevation * (params.elevation_amplitude * params.local_elevation_amplitude);
+
             // Terrain amplitude control — flat/hilly zone split.
             float roughness = smoothstep(0.2f, 0.75f,
                 terrain_noise.fbm(px + 7000.0f, pz + 7000.0f, 3, 0.50f, params.roughness_scale));
             float bi_loc = lerp(params.roughness_min, params.roughness_max, roughness) * scale_m;
-            return base + bi_loc * 0.0f; // per_noise_val disabled during test
+            return base + bi_loc;
         };
 
         const float h00 = h_at(x0, z0), h10 = h_at(x1, z0);

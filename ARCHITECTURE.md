@@ -149,15 +149,57 @@ Async persistence shares the same pool: the main thread snapshots dirty chunks o
 - **Signed 3D density field** over a macro heightmap: `density = (surface_y - y) + shape_noise * strength * surface_band` (positive = solid). The 3D fBm deforms only a band around the macro surface, producing overhangs, shelves, and arches.
 - **4×4×4 world-aligned shape lattice**: the 3D shape noise is sampled once per lattice node and trilinearly interpolated per voxel, so chunk grids and single-point field queries stay bit-identical and lattice nodes land on shared world coordinates across chunk boundaries (no seams).
 - **Chunk-level fast paths**: after the exact macro column pass, chunks entirely above/below the per-chunk height band fill plain water/air or stone over bedrock and skip all lattice/density/material work (~7× on deep-chunk generation).
-- **Continental-scale elevation noise**: Signed/re-centered ~1000 block wavelength noise for large-scale terrain variation (amplitude + bias loaded from `data/terrain_config.json`)
-- **Elevation-based weirdness amplification**: Terrain features become 1-2x more dramatic at higher elevations
-- **Continentalness warp**: Wavy coastlines through continental-scale warping
-- **Widened beach biome band**: Proper shoreline coverage with expanded beach biome
-- **Improved water placement**: Better near-water detection and ocean floor terrain
-- **Sub-block surface jitter**: Gentle slopes discretize into perfectly regular 1-up/1-up staircases (visible where the 3D shape field is weak). A small high-frequency vertical offset to the macro height (applied before rounding, land-only so the sea surface stays flat) breaks these into irregular steps (1 up, flat, 2 up) instead of a machine-made look. Parameters: `surface_jitter_scale` and `surface_jitter_amplitude` in `data/terrain_config.json`.
-- **Data-driven worldgen**: Surfaces, climate thresholds, tree density/variants, and macro height centers all load from JSON configs at startup (`data/biomes.json`, `data/vegetation.json`, `data/terrain_config.json`).
-- **Per-biome amplitude scaling**: Height-center `scale_m` is applied as a terrain amplitude multiplier — plains are genuinely flat, desert low/dry, forest hilly.
-- Vegetation uses the real density surface with an underwater rejection guard; an isolated-singleton removal pass clears lone floating voxels the density field occasionally produces.
+
+Terrain is produced in three stages — a macro surface from stacked noise layers, a height-based water post-pass, then a strength-gated 3D density field wrapped around that surface:
+
+```
+ MACRO SURFACE ── noise layers summed at a domain-warped sample point
+ (sampled once per 4×4 world-aligned lattice node, bilinearly interpolated
+  per column; one continuous field, so chunk seams cannot appear)
+
+    domain warp   ~500-block field, two recursive octaves (amps 18/30/10/16)
+    layers summed at the warped point:
+      base       12,000-block octave    height_base_y (512) ± 500
+      detail     ~1,000-block octave    ± 100
+      flow       ~300-block ridged fBm  × 16 (3 octaves)
+      mid-relief   ~500-block lattice field   (amplitude 90,  8-block nodes)
+      small-relief ~150-block lattice field   (amplitude 25,  2-block nodes)
+             │
+             ▼  per-column macro height
+ OCEAN POST-PASS ── height decides water; continentalness is not involved
+      surface < sea_level (200) → Ocean biome, water fills to sea level;
+      the noisy surface stays as the sea bed, so coasts are seamless
+             │
+             ▼
+ WEIRDNESS MASK ── 2D fBm with ~42-block lobes, smoothstepped 0.10 → 0.75
+      (most of the world at minimum strength; only the tail of each lobe
+       ramps up)   →   strength = lerp(5, 50, weirdness)
+             │
+             ▼
+ 3D DENSITY ── density = (macro_height − y) + shape · strength · surface_band
+      shape = 3-octave fBm (~38-block features, y ×1.35, ~250-block
+              horizontal domain warp) on a 4³ world lattice, trilinearly
+              interpolated per voxel
+      surface_band fades the shaping fully out 9 → 28 blocks from the macro
+      surface (so the 3D field can never leave DENSITY_MARGIN = 30 of it)
+             │
+             ▼
+ PER-CHUNK MATERIALIZATION (32³ chunk, three passes)
+      1  macro columns + weirdness, chunk-level fast paths:
+           chunk entirely above terrain → air + per-column water surface
+           chunk entirely below terrain → stone over bedrock, no density work
+      2  density lattice pass → material pass: biome topsoil only near the
+         macro surface, stone below (bedrock 0-5)
+      3  cleanup: isolated-voxel removal, thin solid-sheet fix, water
+         flood-fill below the water surface; vegetation on the real
+         density surface, rejected underwater
+```
+
+- **Macro surface layers**: all tuning is data-driven (`data/terrain_config.json` → `TerrainParams`); the layer defaults are `height_base_y` 512, a ±500-block 12,000-block octave, ±100-block detail, ×16 ridged flow, plus the two bilinearly-lerped relief fields (mid ~500-block / amplitude 90 on 8-block nodes, small ~150-block / amplitude 25 on 2-block nodes). Domain-warp amplitudes (18/30/10/16) and frequencies are the flowing-ridge dials.
+- **Height-based oceans**: water is a post-pass over the finished height field, never a terrain input — any column whose surface ends below `sea_level` (200) becomes Ocean biome and fills with water to sea level; its noisy height is kept as the sea bed, so land and ocean floor are one continuous surface and coasts have no cliffs by construction. Shoreline material swaps come from a per-chunk 2-pass Manhattan distance transform seeded from the *actual* density surface (not the macro heightmap).
+- **Weirdness gating**: a 2D fBm (`weirdness_scale` 0.024 → ~42-block lobes) through `smoothstep(0.10, 0.75)` picks where the 3D shaping is strong: `strength = lerp(shape_strength_min 5, shape_strength_max 50, weirdness)`.
+- **Biome selection**: climate samplers are currently flat stubs (temperature/humidity/continentalness all 0.5), so worldgen emits **Plains** on land and **Ocean** below sea level. The `BiomeConfig` tables (Ocean/Beach/Plains/Forest/Desert surfaces + tree variants from `data/biomes.json`) still drive per-biome surface blocks and vegetation weights.
+- Vegetation uses the real density surface with an underwater rejection guard; an isolated-singleton removal pass clears lone floating voxels the density field occasionally produces, and thin-solid-sheet/water-flood-fill cleanup keeps underwater columns clean.
 
 ## Rendering
 
@@ -231,7 +273,6 @@ The following code remains in the codebase but is disabled or unused:
 - **Cave system**: `kCavesEnabled = false` in `ChunkGenerator` - cave carving code exists but is globally disabled
 - **is_occluder() method**: Defined in `ChunkNeighborAccessor` but never called anywhere in the codebase
 - **mountain_scale parameter**: Read from save files in persistence but ignored in current terrain generation
-- **Domain warp**: Anisotropic domain warp code still present in terrain generation but its impact is minimal with current parameters (provides flowing terrain ridges)
 
 ## Key Files
 
@@ -263,7 +304,7 @@ The following code remains in the codebase but is disabled or unused:
 - `src/world/day_night_cycle.hpp` — Sky-light cycle
 
 ### Worldgen
-- `src/worldgen/chunk_generator.hpp/cpp` — Signed 3D density field, 4×4×4 shape lattice, biome-based macro surface, chunk-level fast paths
+- `src/worldgen/chunk_generator.hpp/cpp` — Stacked-noise macro surface, height-based oceans, signed 3D density field with 4×4×4 shape lattice, chunk-level fast paths (see Terrain Generation above)
 - `src/worldgen/vegetation_generator.hpp/cpp` — Tree placement with variant-weighted per biome, minimum spacing, deferred cross-chunk writes
 - `src/worldgen/biome_config.hpp` — Biome config loaded from `data/biomes.json`
 - `src/worldgen/vegetation_config.hpp` — Vegetation config loaded from `data/vegetation.json`
@@ -315,7 +356,7 @@ The following code remains in the codebase but is disabled or unused:
 - `data/block_shapes.json` — Shared shape registry for non-full blocks (slabs, stairs, walls, poles)
 - `data/biomes.json` — Biome definitions with per-biome materials, climate thresholds, tree density, and tree variant weights
 - `data/vegetation.json` — Vegetation parameters for forest/plains/desert biomes
-- `data/terrain_config.json` — Macro height centers, climate scales, and terrain amplitude parameters
+- `data/terrain_config.json` — Macro-surface tuning: `height_base_y`, domain-warp amplitudes, mid/small relief fields, shape-strength range, weirdness thresholds
 - `textures/` — Asset organization:
   - `textures/blocks/` — Block textures (bedrock, dirt, grass, stone, sand, water, etc.)
   - `textures/gui/` — UI textures (hotbar, inventory background, effects)
@@ -324,7 +365,7 @@ The following code remains in the codebase but is disabled or unused:
   - `textures/Archive/` — Archived/deprecated textures (old versions kept for reference)
 
 ### Testing
-- `tests/` — 30 test files, 255 test cases / 172,121 assertions, auto-discovered via `Glob("tests/*.cpp")`
+- `tests/` — 30 test files, 255 test cases / 181,721 assertions, auto-discovered via `Glob("tests/*.cpp")`
 - `tests/test_concurrency.cpp` — 27 tests for shard locking, deadlock prevention, PaletteStorage, cross-chunk writers, and thread-pool work stealing
 - `tests/test_inventory.cpp` — Inventory add/consume/edge-case tests
 - `tests/test_crafting.cpp` — Shapeless/shaped matching (trim, mirror, offset, rotation/partial misses) + atomic craft_item tests (success, insufficient ingredients, full inventory rejection)

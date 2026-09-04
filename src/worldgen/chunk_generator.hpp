@@ -84,13 +84,11 @@ private:
     // DENSITY_MARGIN bounds how far the real surface can sit from the macro
     // heightmap. Displacement = shape * strength * surface_band, and the band
     // is exactly zero at distance SURFACE_BAND_OUTER — so no matter how large
-    // SHAPE_STRENGTH_MAX grows, the surface never leaves SURFACE_BAND_OUTER
+    // the shape strength grows, the surface never leaves SURFACE_BAND_OUTER
     // of the macro height. 30 = OUTER + small slack.
     static constexpr float DENSITY_MARGIN      = 30.0f;
     static constexpr float SURFACE_BAND_INNER  = 9.0f;
     static constexpr float SURFACE_BAND_OUTER  = 28.0f;
-    static constexpr float SHAPE_STRENGTH_MIN  = 5.0f;
-    static constexpr float SHAPE_STRENGTH_MAX  = 50.0f;
     // Optional: read the 3D shape field through a light 2D domain warp (the
     // same recursive scheme as the macro height warp, at much smaller scale)
     // so the craggy micro-detail curves with the terrain instead of reading
@@ -98,32 +96,13 @@ private:
     static constexpr bool kShapeDomainWarpEnabled = true;
     static constexpr float SHAPE_FREQUENCY     = 0.026f; // ~38-block horizontal feature scale
     static constexpr float SHAPE_Y_ANISOTROPY  = 1.35f;  // ~0.035 effective vertical scale
-    // Medium-scale "~500-block" relief field: noise is sampled on a coarse
-    // world-anchored lattice with nodes every MID_LATTICE_SPACING blocks (64
-    // nodes across ~512 blocks — the "64x64 grid" for the 500x500 area) and
-    // bilinearly interpolated between the nodes, giving smooth rolling relief
-    // at ~500-block wavelength. Added to the macro height between the
-    // continental/detail layers and the micro flow/weirdness shaping.
-    static constexpr int32_t MID_LATTICE_SPACING = 8;   // 64 nodes across ~512 blocks
-    static constexpr float MID_FREQUENCY         = 0.002f; // ~1/freq = 500-block features
-    static constexpr float MID_AMPLITUDE         = 90.0f;  // vertical relief, blocks
-
-    // "~150-block" relief field: same coarse-lattice + bilinear-lerp scheme,
-    // filling the band between the 500-block field and the micro flow detail.
-    // Nodes every 2 blocks (75 across the 150-block feature) keep it smooth.
-    static constexpr int32_t SMALL_LATTICE_SPACING = 2;  // nodes every 2 blocks
-    static constexpr float SMALL_FREQUENCY         = 0.0066667f; // ~1/freq = 150-block features
-    static constexpr float SMALL_AMPLITUDE         = 25.0f;      // vertical relief, blocks
-
-    // Weirdness field frequency: ~1/SCALE blocks per base octave (~42 here).
-    // LOW sits above the raw fBm median (0.0), so ~55% of the world maps to
-    // the minimum strength and only the upper tail of each lobe rises through
-    // the ramp. Measured over a 4096x4096 window: weirdness >= 0.5 covers
-    // ~1.6% of the world and >= 0.7 ~0.4% (zones ~6-20 blocks wide) — strong
-    // terrain comes in rare compact pockets, not common rough ground.
-    static constexpr float WEIRDNESS_SCALE     = 0.024f;
-    static constexpr float WEIRDNESS_LOW       = 0.10f;
-    static constexpr float WEIRDNESS_HIGH      = 0.75f;
+    // Remaining tuning — macro/base height, domain-warp amplitudes, the
+    // medium (~500-block) and small (~150-block) relief fields, the shape
+    // strength range and the weirdness mask thresholds — lives in
+    // TerrainParams and loads from data/terrain_config.json (see
+    // TerrainParams::load_from_json). Only structural invariants stay
+    // constexpr here: the density band, lattice spacing, shape field
+    // frequency/anisotropy and the domain-warp enable flag.
 
     // The 3D shape noise is stored on a 4x4x4 world-aligned lattice and
     // trilinearly interpolated per voxel. SPACING divides the chunk size, so
@@ -204,16 +183,16 @@ private:
         // different amplitudes (anisotropic) so landforms get a directional
         // grain. Amplitudes are in blocks (~500-block warp field wavelength).
         auto h_at = [&](float px, float pz) -> float {
-            float wx1 = terrain_noise.noise_2d(px * 0.002f, pz * 0.002f) * 18.0f;
-            float wz1 = terrain_noise.noise_2d((px + 5000.0f) * 0.002f, (pz + 5000.0f) * 0.002f) * 30.0f;
-            float wx2 = terrain_noise.noise_2d((px + wx1) * 0.0018f, (pz + wz1) * 0.0018f) * 10.0f;
-            float wz2 = terrain_noise.noise_2d((px + wx1 + 5000.0f) * 0.0018f, (pz + wz1 + 5000.0f) * 0.0018f) * 16.0f;
+            float wx1 = terrain_noise.noise_2d(px * 0.002f, pz * 0.002f) * params.macro_warp_amp_x1;
+            float wz1 = terrain_noise.noise_2d((px + 5000.0f) * 0.002f, (pz + 5000.0f) * 0.002f) * params.macro_warp_amp_z1;
+            float wx2 = terrain_noise.noise_2d((px + wx1) * 0.0018f, (pz + wz1) * 0.0018f) * params.macro_warp_amp_x2;
+            float wz2 = terrain_noise.noise_2d((px + wx1 + 5000.0f) * 0.0018f, (pz + wz1 + 5000.0f) * 0.0018f) * params.macro_warp_amp_z2;
             const float sx = px + wx1 + wx2;
             const float sz = pz + wz1 + wz2;
 
             // Single noise layer (terrain_noise): 12000-block base plus
             // ~1000-block detail, both sampled through the warped domain.
-            float base_height = 512.0f + terrain_noise.noise_2d(sx * 0.0000833f, sz * 0.0000833f) * 500.0f;
+            float base_height = params.height_base_y + terrain_noise.noise_2d(sx * 0.0000833f, sz * 0.0000833f) * 500.0f;
             float detail = terrain_noise.noise_2d(sx * 0.001f, sz * 0.001f) * 100.0f;
 
             // Light mid-frequency ridged detail, also warped. This is the
@@ -233,34 +212,34 @@ private:
     // 150-block-scale relief: coarse lattice + bilinear lerp, world-anchored
     // (lattice_base) so every chunk reads the same global nodes — no seams.
     float sample_small_relief(float x, float z) const {
-        constexpr int32_t SP = SMALL_LATTICE_SPACING;
+        const int32_t SP = static_cast<int32_t>(params.small_lattice_spacing);
         const int32_t nx0 = lattice_base(static_cast<int32_t>(std::floor(x)), SP);
         const int32_t nz0 = lattice_base(static_cast<int32_t>(std::floor(z)), SP);
         const float fx = (x - static_cast<float>(nx0)) / static_cast<float>(SP);
         const float fz = (z - static_cast<float>(nz0)) / static_cast<float>(SP);
         const auto n_at = [&](float px, float pz) {
-            return terrain_noise.noise_2d(px * SMALL_FREQUENCY, pz * SMALL_FREQUENCY);
+            return terrain_noise.noise_2d(px * params.small_frequency, pz * params.small_frequency);
         };
         const float v00 = n_at(nx0, nz0), v10 = n_at(nx0 + SP, nz0);
         const float v01 = n_at(nx0, nz0 + SP), v11 = n_at(nx0 + SP, nz0 + SP);
-        return SMALL_AMPLITUDE * lerp(lerp(v00, v10, fx), lerp(v01, v11, fx), fz);
+        return params.small_amplitude * lerp(lerp(v00, v10, fx), lerp(v01, v11, fx), fz);
     }
 
     // 500-block-scale relief (64x64 lattice samples per ~500-block area,
     // bilinearly lerped between nodes). The lattice is world-anchored
     // (lattice_base) so every chunk reads the same global nodes — no seams.
     float sample_mid_relief(float x, float z) const {
-        constexpr int32_t SP = MID_LATTICE_SPACING;
+        const int32_t SP = static_cast<int32_t>(params.mid_lattice_spacing);
         const int32_t nx0 = lattice_base(static_cast<int32_t>(std::floor(x)), SP);
         const int32_t nz0 = lattice_base(static_cast<int32_t>(std::floor(z)), SP);
         const float fx = (x - static_cast<float>(nx0)) / static_cast<float>(SP);
         const float fz = (z - static_cast<float>(nz0)) / static_cast<float>(SP);
         const auto n_at = [&](float px, float pz) {
-            return terrain_noise.noise_2d(px * MID_FREQUENCY, pz * MID_FREQUENCY);
+            return terrain_noise.noise_2d(px * params.mid_frequency, pz * params.mid_frequency);
         };
         const float v00 = n_at(nx0, nz0), v10 = n_at(nx0 + SP, nz0);
         const float v01 = n_at(nx0, nz0 + SP), v11 = n_at(nx0 + SP, nz0 + SP);
-        return MID_AMPLITUDE * lerp(lerp(v00, v10, fx), lerp(v01, v11, fx), fz);
+        return params.mid_amplitude * lerp(lerp(v00, v10, fx), lerp(v01, v11, fx), fz);
     }
 
     // Large-region mask deciding where terrain becomes volumetric/unusual.
@@ -271,8 +250,8 @@ private:
     // the mask is purely the smoothstep field now.
     float sample_weirdness(float x, float z) const {
         float raw = weirdness_noise.fbm(
-            x + 12000.0f, z - 12000.0f, 3, 0.5f, WEIRDNESS_SCALE);
-        return smoothstep(WEIRDNESS_LOW, WEIRDNESS_HIGH, raw);
+            x + 12000.0f, z - 12000.0f, 3, 0.5f, params.weirdness_scale);
+        return smoothstep(params.weirdness_low, params.weirdness_high, raw);
     }
 
     // Signed, normalized 3D fBm (FastNoise::fbm_3d already normalizes by the
@@ -283,11 +262,12 @@ private:
     float sample_shape_3d(float x, float y, float z) const {
         if (kShapeDomainWarpEnabled) {
             // Displace the sample point in the horizontal plane before reading
-            // the field. ~250-block warp wavelength with ~8/12-block anisotropic
-            // amplitudes vs the ~38-block shape features: small enough to shear
-            // and orient the craggy detail without smearing it into blobs.
-            float wx1 = density_noise.noise_2d(x * 0.004f, z * 0.004f) * 8.0f;
-            float wz1 = density_noise.noise_2d((x + 5000.0f) * 0.004f, (z + 5000.0f) * 0.004f) * 12.0f;
+            // the field. ~250-block warp wavelength with anisotropic amplitudes
+            // (params.shape_warp_amp_x/z) vs the ~38-block shape features:
+            // small enough to shear and orient the craggy detail without
+            // smearing it into blobs.
+            float wx1 = density_noise.noise_2d(x * 0.004f, z * 0.004f) * params.shape_warp_amp_x;
+            float wz1 = density_noise.noise_2d((x + 5000.0f) * 0.004f, (z + 5000.0f) * 0.004f) * params.shape_warp_amp_z;
             x += wx1;
             z += wz1;
         }
@@ -328,7 +308,7 @@ private:
         // Existing terrain remains the macro surface.
         const float delta = column.height - static_cast<float>(world_y);
         const float shape_strength =
-            lerp(SHAPE_STRENGTH_MIN, SHAPE_STRENGTH_MAX, clamp01(weirdness));
+            lerp(params.shape_strength_min, params.shape_strength_max, clamp01(weirdness));
         // Centred (signed) 3D shape noise — NOT a ridged/absolute field, which
         // would shift the average height instead of displacing the boundary.
         const float shape = sample_shape_3d_interp(world_x, world_y, world_z);

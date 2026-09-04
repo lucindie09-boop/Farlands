@@ -257,7 +257,7 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
         for (int32_t z = 0; z < CHUNK_DEPTH; z++) {
             const ChunkColumn& col = columns[x][z];
             const float shape_strength =
-                lerp(SHAPE_STRENGTH_MIN, SHAPE_STRENGTH_MAX, col.weirdness);
+                lerp(params.shape_strength_min, params.shape_strength_max, col.weirdness);
 
             // Local lattice cell for this voxel. world_x_start is a multiple of
             // SPACING, so the fractional coordinates derived from local (x, ly,

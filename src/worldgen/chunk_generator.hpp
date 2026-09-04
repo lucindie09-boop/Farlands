@@ -26,6 +26,7 @@ private:
     static constexpr bool kCavesEnabled = false;
     FastNoise terrain_noise;
     FastNoise cave_noise;
+    FastNoise erosion_noise;
 
     TerrainParams params;
     BiomeConfig biome_config;
@@ -45,6 +46,7 @@ public:
         float cont;              // continentalness value (0-1)
         float temperature;
         float humidity;
+        float erosion;           // erosion value (-1 to 1, roughness)
     };
 
 private:
@@ -86,6 +88,14 @@ private:
         return 0.5f; // Disabled - flat humidity
     }
 
+    // Erosion noise - controls terrain roughness (smooth vs rugged)
+    // Higher values = more rugged/jagged terrain, lower values = smooth rolling hills
+    float sample_erosion(float x, float z) const {
+        // Medium-scale erosion noise (4k-8k block scale)
+        // Using 4 octaves for good detail without being too expensive
+        return erosion_noise.fbm(x * 0.00015f, z * 0.00015f, 4, 0.5f, 1.0f);
+    }
+
     // Simplified biome - single biome only
     BiomeType land_biome_from_grid(float temperature, float humidity) const {
         return BiomeType::Plains;
@@ -106,9 +116,21 @@ private:
         const float x0 = static_cast<float>(cix),        x1 = static_cast<float>(cix + SPACING);
         const float z0 = static_cast<float>(ciz),        z1 = static_cast<float>(ciz + SPACING);
 
-        // Noise function with 12000-block wavelength and 500 amplitude
+        // Base noise function with 12000-block wavelength and 500 amplitude
         auto h_at = [&](float px, float pz) -> float {
-            return 512.0f + terrain_noise.noise_2d(px * 0.0000833f, pz * 0.0000833f) * 500.0f;
+            float base_height = 512.0f + terrain_noise.noise_2d(px * 0.0000833f, pz * 0.0000833f) * 500.0f;
+            
+            // Sample erosion noise to modulate terrain roughness
+            float erosion = sample_erosion(px, pz);
+            
+            // Normalize erosion to [0,1] range
+            float erosion_norm = (erosion + 1.0f) * 0.5f;
+            
+            // Add detail noise scaled by erosion - smooth areas get less detail, rugged areas get more
+            float detail_scale = lerp(0.1f, 0.4f, erosion_norm);
+            float detail = terrain_noise.noise_2d(px * 0.001f, pz * 0.001f) * 50.0f * detail_scale;
+            
+            return base_height + detail;
         };
 
         const float h00 = h_at(x0, z0), h10 = h_at(x1, z0);
@@ -181,6 +203,7 @@ float max_water_h = -1.0f;
     ChunkGenerator(const TerrainParams& p = TerrainParams())
         : terrain_noise(p.seed)
         , cave_noise(p.seed + 2000)
+        , erosion_noise(p.seed + 3000)
         , params(p)
         , rng(p.seed)
     {
@@ -241,6 +264,7 @@ float max_water_h = -1.0f;
         bool near_water = false;
         float temperature = 0.0f;
         float humidity = 0.0f;
+        float erosion = 0.0f;     // cached erosion value for this column
         float weirdness = 0.0f;  // cached 3D-shaping mask for this column
         int32_t surface_y = -1;  // topmost density surface inside this chunk, -1 if none
     };
@@ -263,6 +287,7 @@ float max_water_h = -1.0f;
         if (seed_changed) {
             terrain_noise = FastNoise(p.seed);
             cave_noise = FastNoise(p.seed + 2000);
+            erosion_noise = FastNoise(p.seed + 3000);
             rng.seed(p.seed);
         }
     }

@@ -106,12 +106,31 @@ private:
         const float x0 = static_cast<float>(cix),        x1 = static_cast<float>(cix + SPACING);
         const float z0 = static_cast<float>(ciz),        z1 = static_cast<float>(ciz + SPACING);
 
-        // Base noise function with 12000-block wavelength and 500 amplitude
+        // Domain warp: displace the sample point with a low-frequency noise
+        // field before reading the terrain, so contour lines and ridges flow
+        // instead of reading as isotropic noise blobs. Two warp octaves, the
+        // second offset by the first (recursive warping); x/z warped by
+        // different amplitudes (anisotropic) so landforms get a directional
+        // grain. Amplitudes are in blocks (~500-block warp field wavelength).
         auto h_at = [&](float px, float pz) -> float {
-            // Single noise layer: 12000-block base plus ~1000-block detail
-            float base_height = 512.0f + terrain_noise.noise_2d(px * 0.0000833f, pz * 0.0000833f) * 500.0f;
-            float detail = terrain_noise.noise_2d(px * 0.001f, pz * 0.001f) * 100.0f;
-            return base_height + detail;
+            float wx1 = terrain_noise.noise_2d(px * 0.002f, pz * 0.002f) * 18.0f;
+            float wz1 = terrain_noise.noise_2d((px + 5000.0f) * 0.002f, (pz + 5000.0f) * 0.002f) * 30.0f;
+            float wx2 = terrain_noise.noise_2d((px + wx1) * 0.0018f, (pz + wz1) * 0.0018f) * 10.0f;
+            float wz2 = terrain_noise.noise_2d((px + wx1 + 5000.0f) * 0.0018f, (pz + wz1 + 5000.0f) * 0.0018f) * 16.0f;
+            const float sx = px + wx1 + wx2;
+            const float sz = pz + wz1 + wz2;
+
+            // Single noise layer (terrain_noise): 12000-block base plus
+            // ~1000-block detail, both sampled through the warped domain.
+            float base_height = 512.0f + terrain_noise.noise_2d(sx * 0.0000833f, sz * 0.0000833f) * 500.0f;
+            float detail = terrain_noise.noise_2d(sx * 0.001f, sz * 0.001f) * 100.0f;
+
+            // Light mid-frequency ridged detail, also warped. This is the
+            // wavelength band (~300-block, down to ~80) where the +/-50-block
+            // warp actually bends contours into flowing ridges instead of
+            // smearing features 10x larger than the displacement.
+            float flow = terrain_noise.fbm(sx * 0.0032f, sz * 0.0032f, 3, 0.5f, 1.0f) * 16.0f;
+            return base_height + detail + flow;
         };
 
         const float h00 = h_at(x0, z0), h10 = h_at(x1, z0);

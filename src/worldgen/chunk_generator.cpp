@@ -60,12 +60,18 @@ ChunkGenerator::ColumnSample ChunkGenerator::sample_column(int32_t world_x, int3
     // land on irregular steps (1 up, flat, 2 up) instead of a machine-made
     // ramp. Land-only — water columns are placed from water_level, which is
     // left untouched, so the sea surface stays flat.
+    // Gated to coastal areas only (continentalness near land_threshold) to
+    // avoid unwanted blobby patterns inland where terrain is naturally rugged.
     if (water_level < 0.0f && params.surface_jitter_amplitude > 0.0f) {
-        // TEMP: jitter disabled during coarse-lattice elevation test so the
-        // hard lattice mesas are visible rather than re-smoothed per-block.
-        float jit = 0.0f; // terrain_noise.noise_2d(x * params.surface_jitter_scale + 9000.0f,
-                          // z * params.surface_jitter_scale + 9000.0f);
-        height += jit * params.surface_jitter_amplitude;
+        const float coast_distance = std::abs(cont - params.land_threshold);
+        const float coast_range = 0.025f; // Apply jitter only very close to coastline
+        if (coast_distance < coast_range) {
+            // Fade jitter as we move inland
+            const float fade = 1.0f - (coast_distance / coast_range);
+            float jit = terrain_noise.noise_2d(x * params.surface_jitter_scale + 9000.0f,
+                                               z * params.surface_jitter_scale + 9000.0f);
+            height += jit * params.surface_jitter_amplitude * fade;
+        }
     }
 
     height = std::max(static_cast<float>(params.bedrock_height) + 1.0f, height);

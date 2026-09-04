@@ -193,7 +193,7 @@ func _render_block_icon(block_id: int) -> ImageTexture:
 	if block_def.get("name", "") == "air":
 		return null
 	
-	print("Rendering block " + str(block_id) + ": " + block_def.get("name", "unknown"))
+	# print("Rendering block " + str(block_id) + ": " + block_def.get("name", "unknown"))
 	
 	# Build block mesh
 	var mesh := _build_block_mesh(block_def)
@@ -201,7 +201,7 @@ func _render_block_icon(block_id: int) -> ImageTexture:
 		print("Failed to build mesh for block " + str(block_id))
 		return null
 	
-	print("Mesh has " + str(mesh.get_surface_count()) + " surfaces")
+	# print("Mesh has " + str(mesh.get_surface_count()) + " surfaces")
 	
 	_block_mesh.mesh = mesh
 	_block_mesh.material_override = null  # Clear any previous material override
@@ -246,7 +246,7 @@ func _render_block_icon(block_id: int) -> ImageTexture:
 	if is_blank:
 		print("Warning: Rendered image appears blank for block " + str(block_id))
 	
-	print("Successfully rendered icon for block " + str(block_id) + ", size: " + str(img.get_width()) + "x" + str(img.get_height()))
+	# print("Successfully rendered icon for block " + str(block_id) + ", size: " + str(img.get_width()) + "x" + str(img.get_height()))
 	return ImageTexture.create_from_image(img)
 
 # Build a block mesh from block definition
@@ -333,7 +333,7 @@ func _build_shaped_mesh(shape: String, _block_def: Dictionary) -> ArrayMesh:
 	if parts.size() >= 2:
 		shape_variant = parts[1]
 	
-	print("Building shaped mesh: " + shape_type + "/" + shape_variant)
+	# print("Building shaped mesh: " + shape_type + "/" + shape_variant)
 	
 	if not _block_shapes.has(shape_type):
 		print("Shape type not found: " + shape_type)
@@ -353,7 +353,7 @@ func _build_shaped_mesh(shape: String, _block_def: Dictionary) -> ArrayMesh:
 	
 	var selection_boxes = variant_data.get("selection_boxes", [])
 	
-	print("Selection boxes: " + str(selection_boxes))
+	# print("Selection boxes: " + str(selection_boxes))
 	
 	if selection_boxes.is_empty():
 		print("No selection boxes for shape")
@@ -380,7 +380,7 @@ func _build_shaped_mesh(shape: String, _block_def: Dictionary) -> ArrayMesh:
 		var max_y = box[4]
 		var max_z = box[5]
 		
-		print("Building box: min(" + str(min_x) + "," + str(min_y) + "," + str(min_z) + ") max(" + str(max_x) + "," + str(max_y) + "," + str(max_z) + ")")
+		# print("Building box: min(" + str(min_x) + "," + str(min_y) + "," + str(min_z) + ") max(" + str(max_x) + "," + str(max_y) + "," + str(max_z) + ")")
 		
 		# Build the 6 faces of this box with proper winding (counter-clockwise when viewed from outside)
 		var box_faces = [
@@ -417,7 +417,7 @@ func _build_shaped_mesh(shape: String, _block_def: Dictionary) -> ArrayMesh:
 			
 			vertex_offset += 4
 	
-	print("Total vertices: " + str(all_verts.size()) + ", Total indices: " + str(all_indices.size()))
+	# print("Total vertices: " + str(all_verts.size()) + ", Total indices: " + str(all_indices.size()))
 	
 	var arrays = []
 	arrays.resize(Mesh.ARRAY_MAX)

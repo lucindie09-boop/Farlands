@@ -236,14 +236,15 @@ void PlayerSim::tick(const PlayerInput& input, CollisionResolver& cr, float step
     velocity_.y -= GRAVITY;
     velocity_.y *= VERTICAL_DRAG;
 
-    if (g_engine_running) {
-        godot::UtilityFunctions::print(
-            godot::vformat("pos=(%.2f,%.2f,%.2f) vel=(%.3f,%.3f,%.3f) floor=%d sprint=%d/%d yaw=%.2f wish=(%.3f,%.3f)",
-               position_.x, position_.y, position_.z,
-               velocity_.x, velocity_.y, velocity_.z,
-               (int)on_floor_, (int)sprint_active_, (int)prev_sprint_active_, input.yaw,
-               input.wish_direction.x, input.wish_direction.z));
-    }
+    // Per-tick state dump removed (was spamming the console every tick).
+    // if (g_engine_running) {
+    //     godot::UtilityFunctions::print(
+    //         godot::vformat("pos=(%.2f,%.2f,%.2f) vel=(%.3f,%.3f,%.3f) floor=%d sprint=%d/%d yaw=%.2f wish=(%.3f,%.3f)",
+    //            position_.x, position_.y, position_.z,
+    //            velocity_.x, velocity_.y, velocity_.z,
+    //            (int)on_floor_, (int)sprint_active_, (int)prev_sprint_active_, input.yaw,
+    //            input.wish_direction.x, input.wish_direction.z));
+    // }
 }
 
 } // namespace VoxelEngine

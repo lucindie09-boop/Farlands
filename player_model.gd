@@ -39,7 +39,7 @@ func _ready():
 			var library = AnimationLibrary.new()
 			library.add_animation("Idle", fixed_anim)
 			_anim_player.add_animation_library("default", library)
-			print("Loaded and fixed Idle animation from Animations folder")
+			# print("Loaded and fixed Idle animation from Animations folder")
 			_anim_player.play("default/Idle")
 		else:
 			print("Failed to load Idle.anim")

@@ -16,11 +16,6 @@ ChunkGenerator::ColumnSample ChunkGenerator::sample_column(int32_t world_x, int3
     float temperature = sample_temperature(x, z);
     float humidity = sample_humidity(x, z);
     
-    // Sample erosion on 4-block lattice for performance
-    int32_t ex = lattice_base(world_x, 4);
-    int32_t ez = lattice_base(world_z, 4);
-    float erosion = sample_erosion(static_cast<float>(ex), static_cast<float>(ez));
-    
     bool is_land = cont >= params.land_threshold;
     float height = 0.0f;
     float water_level = -1.0f;
@@ -48,7 +43,7 @@ ChunkGenerator::ColumnSample ChunkGenerator::sample_column(int32_t world_x, int3
         water_level = std::max(params.sea_level, water_level);
     }
 
-    return ColumnSample{biome, height, water_level, false, saved_land_height, cont, temperature, humidity, erosion};
+    return ColumnSample{biome, height, water_level, false, saved_land_height, cont, temperature, humidity};
 }
 
 BlockID ChunkGenerator::get_surface_block(BiomeType biome, int32_t y, bool has_surface_water, bool near_water) const {
@@ -151,7 +146,6 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
                 : -1;
             columns[x][z].temperature  = col.temperature;
             columns[x][z].humidity     = col.humidity;
-            columns[x][z].erosion     = col.erosion;
             columns[x][z].weirdness    = 0.0f; // Disabled - no weirdness
             min_height = std::min(min_height, col.height);
             max_height = std::max(max_height, col.height);

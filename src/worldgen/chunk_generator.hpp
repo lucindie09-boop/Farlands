@@ -26,13 +26,6 @@ private:
     static constexpr bool kCavesEnabled = false;
     FastNoise terrain_noise;
     FastNoise cave_noise;
-    FastNoise continental_noise;
-    FastNoise temp_noise;
-    FastNoise humidity_noise;
-    FastNoise density_noise;
-    FastNoise density_warp_noise;
-    FastNoise weirdness_noise;
-    FastNoise elevation_noise;
 
     TerrainParams params;
     BiomeConfig biome_config;
@@ -71,240 +64,39 @@ private:
         return a + (b - a) * t;
     }
 
-    // Largest lattice node coordinate <= v (floor division, negative-safe).
-    static constexpr int32_t lattice_base(int32_t v) {
-        const int32_t q = v / SHAPE_LATTICE_SPACING;
-        const int32_t r = v % SHAPE_LATTICE_SPACING;
-        return (r < 0 ? q - 1 : q) * SHAPE_LATTICE_SPACING;
-    }
-
-    // Same but for an arbitrary spacing (used by the coarse elevation lattice).
-    static constexpr int32_t lattice_base(int32_t v, int32_t spacing) {
-        const int32_t q = v / spacing;
-        const int32_t r = v % spacing;
-        return (r < 0 ? q - 1 : q) * spacing;
-    }
-
-    // Trilinear interpolation over the 8 corners of a lattice cell. Corner
-    // order and lerp order are fixed so every consumer (chunk lattice, single
-    // point queries) computes bit-identical values.
-    static float trilinear_interp(
-        float v000, float v100, float v010, float v110,
-        float v001, float v101, float v011, float v111,
-        float fx, float fy, float fz) {
-        const float x00 = lerp(v000, v100, fx);
-        const float x01 = lerp(v010, v110, fx);
-        const float x10 = lerp(v001, v101, fx);
-        const float x11 = lerp(v011, v111, fx);
-        const float y0 = lerp(x00, x01, fy);
-        const float y1 = lerp(x10, x11, fy);
-        return lerp(y0, y1, fz);
-    }
-
-    // Density from its components (macro delta + 3D shape displacement).
-    static float density_from_shape(float delta, float shape_strength, float shape) {
-        const float surface_distance = std::abs(delta);
-        const float surface_band =
-            1.0f - smoothstep(SURFACE_BAND_INNER, SURFACE_BAND_OUTER, surface_distance);
-        return delta + shape * shape_strength * surface_band;
-    }
-
-    // -------------------------------------------------------------------------
-    // Signed 3D density field
-    //
-    // The macro heightmap stays the base surface (density = surface_y - y);
-    // a normalized 3D fBm field deforms only a band around that surface. The
-    // "weirdness" mask (very low frequency 2D) decides where the deformation
-    // is strong enough to produce overhangs/shelves vs. mostly-plain terrain.
-    // -------------------------------------------------------------------------
-    static constexpr float DENSITY_MARGIN      = 12.0f; // max 3D displacement + headroom
-    static constexpr float SURFACE_BAND_INNER  = 9.0f;
-    static constexpr float SURFACE_BAND_OUTER  = 28.0f;
-    static constexpr float SHAPE_STRENGTH_MIN  = 1.5f;
-    static constexpr float SHAPE_STRENGTH_MAX  = 10.0f;
-    static constexpr float SHAPE_FREQUENCY     = 0.026f; // ~38-block horizontal feature scale
-    static constexpr float SHAPE_Y_ANISOTROPY  = 1.35f;  // ~0.035 effective vertical scale
-    static constexpr float WEIRDNESS_SCALE     = 0.0012f;
-    static constexpr float WEIRDNESS_LOW       = -0.20f;
-    static constexpr float WEIRDNESS_HIGH      = 0.55f;
-
-    // The 3D shape noise is stored on a 4x4x4 world-aligned lattice and
-    // trilinearly interpolated per voxel. SPACING divides the chunk size, so
-    // lattice nodes always land on the same world coordinates on both sides of
-    // a chunk boundary — the interpolated field is mathematically identical
-    // across chunk seams. Only the noise sampling is coarse; the density field
-    // and the final block grid stay full resolution.
-    static constexpr int32_t SHAPE_LATTICE_SPACING = 4;
-    // Coarse world-aligned elevation lattice. Elevation is sampled only on these
-    // grid nodes and the nearest node's value is returned per column, producing
-    // a terraced macro-height (flat-topped mesas with hard walls) instead of the
-    // smooth round blobs of per-block Perlin. The lattice is world-anchored
-    // (lattice_base) so chunk generation reads the SAME global grid — no seams.
-    // Spacing ~48 blocks = a 16x16 grid over ~768 blocks (the user's coarse idea).
-    static constexpr int32_t ELEVATION_LATTICE_SPACING = 48;
-
-    // Finer world-aligned elevation lattice. Uses an 8x8 grid point sampling over
-    // a ~250 block range for local terrain variation instead of the 1000-block
-    // continental scale. The lattice is world-anchored (lattice_base) so no seams.
-    // Spacing ~31 blocks = an 8x8 grid over ~250 blocks.
-    static constexpr int32_t LOCAL_ELEVATION_LATTICE_SPACING = 31;
-
     // -------------------------------------------------------------------------
     // Noise sampling
     // -------------------------------------------------------------------------
     float sample_continentalness(float x, float z) const {
-        float raw = continental_noise.noise_2d(x * params.continentalness_scale,
-                                                z * params.continentalness_scale);
-        return clamp01((raw + 1.0f) * 0.5f);
+        return 0.5f; // Disabled - flat continentalness
     }
 
     float sample_temperature(float x, float z) const {
-        return clamp01((temp_noise.noise_2d(x * params.climate_temp_scale,
-                                             z * params.climate_temp_scale) + 1.0f) * 0.5f);
+        return 0.5f; // Disabled - flat temperature
     }
 
     float sample_humidity(float x, float z) const {
-        return clamp01((humidity_noise.noise_2d(x * params.climate_humidity_scale,
-                                                 z * params.climate_humidity_scale) + 1.0f) * 0.5f);
+        return 0.5f; // Disabled - flat humidity
     }
 
-    // Continental-scale elevation — signed field re-centered by elevation_bias
-    // (roughly [-1,1]). The macro height therefore oscillates both above and
-    // below its base, giving real rolling terrain at ~1000-block wavelength.
-    // The old `max(raw, 0)^2` collapsed ~half the field to exactly 0 (and
-    // squared the rest toward 0), producing flat, featureless plateaus. Clamped
-    // so the extreme noise tails don't over-amplify; bias keeps most land
-    // above sea level.
-    float sample_elevation(float x, float z) const {
-        // Coarse world-aligned lattice: return the noise sampled at the NEAREST
-        // lattice node. Each ~48-block cell keeps a constant elevation, giving
-        // flat-topped mesas with hard walls instead of smooth round blobs. The
-        // lattice is world-anchored (lattice_base) so every chunk reads the
-        // same global grid — no seams between chunks.
-        const int32_t ix = lattice_base(static_cast<int32_t>(std::floor(x)), ELEVATION_LATTICE_SPACING);
-        const int32_t iz = lattice_base(static_cast<int32_t>(std::floor(z)), ELEVATION_LATTICE_SPACING);
-        float raw = elevation_noise.fbm(static_cast<float>(ix), static_cast<float>(iz), 2, 0.5f, params.elevation_scale);
-        return std::clamp(raw + params.elevation_bias, -1.0f, 1.0f);
-    }
-
-    // Local-scale elevation — similar to continental elevation but operates on
-    // a ~250-block range with 8x8 grid sampling instead of 16x16. Provides
-    // medium-scale terrain variation between the continental features and the
-    // micro terrain. Uses the same world-anchored lattice approach for consistency.
-    float sample_local_elevation(float x, float z) const {
-        // Finer world-aligned lattice: 8x8 grid over ~250 blocks
-        const int32_t ix = lattice_base(static_cast<int32_t>(std::floor(x)), LOCAL_ELEVATION_LATTICE_SPACING);
-        const int32_t iz = lattice_base(static_cast<int32_t>(std::floor(z)), LOCAL_ELEVATION_LATTICE_SPACING);
-        // Use a different frequency scale for local variation (4x higher than continental)
-        float raw = elevation_noise.fbm(static_cast<float>(ix), static_cast<float>(iz), 2, 0.5f, params.elevation_scale * 4.0f);
-        return std::clamp(raw + params.elevation_bias, -1.0f, 1.0f);
-    }
-
-    // Grid-based land biome lookup from temperature/humidity.
-    //
-    // Thresholds were chosen empirically (not guessed) by sampling this exact
-    // noise implementation across a wide area and measuring its real
-    // distribution: single-octave value/gradient noise here comes out roughly
-    // bell-curved around 0.5 with stddev ~0.15, NOT uniform across [0,1].
-    // A nearest-center Voronoi pick (the old approach) with an off-center
-    // biome point therefore starves that biome almost entirely, because the
-    // point only "wins" in a rarely-sampled tail of the distribution.
-    //
-    // Using tertile thresholds instead (measured ~0.43 / ~0.57 splits the
-    // sampled data into even thirds) guarantees each temperature/humidity
-    // bin gets a fair, predictable share of land regardless of biome_size,
-    // since biome_size only rescales noise frequency, not its distribution.
-    // Thresholds live in data/biomes.json (BiomeConfig).
+    // Simplified biome - single biome only
     BiomeType land_biome_from_grid(float temperature, float humidity) const {
-        bool hot  = temperature >= biome_config.temp_hot_min;
-        bool dry  = humidity < biome_config.hum_dry_max;
-
-        if (hot) {
-            return dry ? BiomeType::Desert : BiomeType::Forest;
-        }
-        // cold or temperate
-        return dry ? BiomeType::Plains : BiomeType::Forest;
+        return BiomeType::Plains;
     }
 
     BiomeType biome_from_climate(float temperature, float humidity, float cont) const {
-        float beach_t = smoothstep(params.land_threshold, params.land_threshold + params.beach_width, cont);
-        if (beach_t < 0.9f && cont >= params.land_threshold - params.beach_width) {
-            return BiomeType::Beach;
-        }
-        if (cont < params.ocean_threshold) {
-            return BiomeType::Ocean;
-        }
-        return land_biome_from_grid(temperature, humidity);
+        return BiomeType::Plains;
     }
 
-    // Continuous Voronoi-weighted blend of all land-biome height parameters.
-    // All biomes share the same noise recipe; differentiation comes from
-    // base_off and scale_m per biome center (data/terrain_config.json).
-    // Uses fixed base-frequency climate for Voronoi weights so biome boundaries
-    // in the height field remain smooth regardless of biome_size.
+    // Single noise layer controlling height - minimal terrain
     float sample_land_shape(float x, float z, float /*temperature*/, float /*humidity*/) const {
-        // Coarse-lattice test (user's 16x16-grid idea): sample the macro height
-        // on a coarse WORLD-ALIGNED lattice and bilinear-interpolate between the
-        // corner values, so the terrain is smooth between coarse points instead
-        // of hard mesa walls. World-anchored (lattice_base) so no chunk seams.
-        const int32_t SP = ELEVATION_LATTICE_SPACING;
-        const int32_t cix = lattice_base(static_cast<int32_t>(std::floor(x)), SP);
-        const int32_t ciz = lattice_base(static_cast<int32_t>(std::floor(z)), SP);
-        const float fx = (x - static_cast<float>(cix)) / static_cast<float>(SP);
-        const float fz = (z - static_cast<float>(ciz)) / static_cast<float>(SP);
-        const float x0 = static_cast<float>(cix),        x1 = static_cast<float>(cix + SP);
-        const float z0 = static_cast<float>(ciz),        z1 = static_cast<float>(ciz + SP);
-
-        // Single-point macro height (all the original macro terms).
-        auto h_at = [&](float px, float pz) -> float {
-            // Sample climate at the base frequency for smooth height blending
-            float blend_temp = clamp01((temp_noise.noise_2d(px * params.climate_temp_base_scale,
-                                                            pz * params.climate_temp_base_scale) + 1.0f) * 0.5f);
-            float blend_hum  = clamp01((humidity_noise.noise_2d(px * params.climate_humidity_base_scale,
-                                                                pz * params.climate_humidity_base_scale) + 1.0f) * 0.5f);
-
-            const size_t num_biomes = params.height_centers.size();
-            float w_total = 0.0f, w_base = 0.0f, w_scale = 0.0f;
-            for (size_t i = 0; i < num_biomes; i++) {
-                const HeightCenter& c = params.height_centers[i];
-                float dsq = (blend_temp - c.temp) * (blend_temp - c.temp)
-                          + (blend_hum  - c.hum)  * (blend_hum  - c.hum);
-                float w = 1.0f / (dsq + 0.0001f);
-                w_base  += w * c.base_off;
-                w_scale += w * c.scale_m;
-                w_total += w;
-            }
-            float base = params.height_base_y + w_base / w_total;
-            float scale_m = w_scale / w_total;
-
-            // Elevation — additive only, pushes terrain UP over large scales
-            float elevation = sample_elevation(px, pz);
-            base += elevation * params.elevation_amplitude;
-
-            // Local elevation — medium-scale variation (~250-block range, 4x4 grid)
-            float local_elevation = sample_local_elevation(px, pz);
-            base += local_elevation * (params.elevation_amplitude * params.local_elevation_amplitude);
-
-            // Terrain amplitude control — flat/hilly zone split.
-            float roughness = smoothstep(0.2f, 0.75f,
-                terrain_noise.fbm(px + 7000.0f, pz + 7000.0f, 3, 0.50f, params.roughness_scale));
-            float bi_loc = lerp(params.roughness_min, params.roughness_max, roughness) * scale_m;
-            return base + bi_loc;
-        };
-
-        const float h00 = h_at(x0, z0), h10 = h_at(x1, z0);
-        const float h01 = h_at(x0, z1), h11 = h_at(x1, z1);
-        return lerp(lerp(h00, h10, fx), lerp(h01, h11, fx), fz);
+        return params.height_base_y + terrain_noise.noise_2d(x * 0.01f, z * 0.01f) * 50.0f;
     }
 
     // Large-region mask deciding where terrain becomes volumetric/unusual.
     // Changes over hundreds of blocks, so the transition feels geological.
     float sample_weirdness(float x, float z) const {
-        float raw = weirdness_noise.fbm(
-            x + 12000.0f, z - 12000.0f, 3, 0.5f, WEIRDNESS_SCALE);
-        float base_w = smoothstep(WEIRDNESS_LOW, WEIRDNESS_HIGH, raw);
-        float elev = sample_elevation(x, z);
-        return base_w * (1.0f + elev);
+        return 0.0f; // Disabled - no unusual terrain features
     }
 
     // Signed, normalized 3D fBm (FastNoise::fbm_3d already normalizes by the
@@ -313,8 +105,7 @@ private:
     // without making the horizontal terrain too busy. This is the LATTICE NODE
     // sampler — call sample_shape_3d_interp for the actual field.
     float sample_shape_3d(float x, float y, float z) const {
-        return density_noise.fbm_3d(
-            x, y * SHAPE_Y_ANISOTROPY, z, 3, 0.5f, SHAPE_FREQUENCY);
+        return 0.0f; // Disabled - no 3D shape field
     }
 
     // Canonical 3D shape field query: trilinear interpolation of the
@@ -322,38 +113,15 @@ private:
     // lattice once per chunk, so single-point queries agree bit-for-bit with
     // the generated block grid (no seam can appear between the two paths).
     float sample_shape_3d_interp(int32_t world_x, int32_t world_y, int32_t world_z) const {
-        constexpr int32_t SP = SHAPE_LATTICE_SPACING;
-        const int32_t x0 = lattice_base(world_x);
-        const int32_t y0 = lattice_base(world_y);
-        const int32_t z0 = lattice_base(world_z);
-        const float inv_sp = 1.0f / static_cast<float>(SP);
-        const float fx = static_cast<float>(world_x - x0) * inv_sp;
-        const float fy = static_cast<float>(world_y - y0) * inv_sp;
-        const float fz = static_cast<float>(world_z - z0) * inv_sp;
-        return trilinear_interp(
-            sample_shape_3d(x0,         y0,         z0),
-            sample_shape_3d(x0 + SP,    y0,         z0),
-            sample_shape_3d(x0,         y0 + SP,    z0),
-            sample_shape_3d(x0 + SP,    y0 + SP,    z0),
-            sample_shape_3d(x0,         y0,         z0 + SP),
-            sample_shape_3d(x0 + SP,    y0,         z0 + SP),
-            sample_shape_3d(x0,         y0 + SP,    z0 + SP),
-            sample_shape_3d(x0 + SP,    y0 + SP,    z0 + SP),
-            fx, fy, fz);
+        return 0.0f; // Disabled - no 3D shape field
     }
 
     // Signed density at a world point. >0 solid, <=0 air. `weirdness` is
     // cached per column by the chunk generator (see generate_chunk).
     float sample_terrain_density(int32_t world_x, int32_t world_y, int32_t world_z,
                                  const ColumnSample& column, float weirdness) const {
-        // Existing terrain remains the macro surface.
-        const float delta = column.height - static_cast<float>(world_y);
-        const float shape_strength =
-            lerp(SHAPE_STRENGTH_MIN, SHAPE_STRENGTH_MAX, weirdness);
-        // Centred (signed) 3D shape noise — NOT a ridged/absolute field, which
-        // would shift the average height instead of displacing the boundary.
-        const float shape = sample_shape_3d_interp(world_x, world_y, world_z);
-        return density_from_shape(delta, shape_strength, shape);
+        // Simplified density - just the height delta, no 3D shape
+        return column.height - static_cast<float>(world_y);
     }
 
     // -------------------------------------------------------------------------
@@ -390,13 +158,6 @@ float max_water_h = -1.0f;
     ChunkGenerator(const TerrainParams& p = TerrainParams())
         : terrain_noise(p.seed)
         , cave_noise(p.seed + 2000)
-        , continental_noise(p.seed + 6000)
-        , temp_noise(p.seed + 4000)
-        , humidity_noise(p.seed + 5000)
-        , density_noise(p.seed + 7000)
-        , density_warp_noise(p.seed + 8000)
-        , weirdness_noise(p.seed + 9000)
-        , elevation_noise(p.seed + 10000)
         , params(p)
         , rng(p.seed)
     {
@@ -477,16 +238,8 @@ float max_water_h = -1.0f;
         bool seed_changed = (p.seed != params.seed);
         params = p;
         if (seed_changed) {
-            terrain_noise     = FastNoise(p.seed);
-            cave_noise        = FastNoise(p.seed + 2000);
-            continental_noise = FastNoise(p.seed + 6000);
-            temp_noise        = FastNoise(p.seed + 4000);
-            humidity_noise    = FastNoise(p.seed + 5000);
-            density_noise     = FastNoise(p.seed + 7000);
-            density_warp_noise = FastNoise(p.seed + 8000);
-            weirdness_noise   = FastNoise(p.seed + 9000);
-            elevation_noise   = FastNoise(p.seed + 10000);
-
+            terrain_noise = FastNoise(p.seed);
+            cave_noise = FastNoise(p.seed + 2000);
             rng.seed(p.seed);
         }
     }

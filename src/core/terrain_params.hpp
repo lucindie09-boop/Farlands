@@ -1,6 +1,5 @@
 #ifndef FARLANDS_TERRAIN_PARAMS_HPP
 #define FARLANDS_TERRAIN_PARAMS_HPP
-#include <array>
 #include <cstdint>
 
 namespace godot {
@@ -9,23 +8,14 @@ class String;
 
 namespace VoxelEngine {
 
-// One land-biome height center used by the Voronoi-weighted macro surface
-// blend. `temp`/`hum` locate the center in climate space; `base_off` shifts
-// the surface height and `scale_m` scales terrain amplitude near it.
-struct HeightCenter {
-    float temp    = 0.5f;
-    float hum     = 0.5f;
-    float base_off = 0.0f;
-    float scale_m = 1.0f;
-};
-
 // -------------------------------------------------------------------------
 // Terrain generation parameters — kept in its own header so that
 // world scheduling code (WorldUpdater, ChunkWorld) does not have to
 // include the heavy chunk_generator.hpp / noise.hpp transitively.
 //
-// Fields not persisted to world.meta (macro surface tuning) load from
-// data/terrain_config.json at startup.
+// The macro-surface tuning fields load from data/terrain_config.json at
+// startup (see load_from_json); the persisted fields below it (sea level,
+// thresholds, climate scales, biome_size) round-trip through world.meta.
 // -------------------------------------------------------------------------
 struct TerrainParams {
     int32_t seed = 12345;
@@ -44,7 +34,9 @@ struct TerrainParams {
     float beach_width = 0.003f;
     int32_t subsurface_cover_depth = 4;
 
-    // Climate noise scales (lower = broader regions).
+    // Climate noise scales (lower = broader regions). Consumed by
+    // WorldUpdater::set_biome_size (climate_*_scale = base / biome_size);
+    // the resulting scales feed the climate samplers in chunk_generator.
     float climate_temp_scale = 0.00015f;
     float climate_humidity_scale = 0.00020f;
 
@@ -55,62 +47,48 @@ struct TerrainParams {
     float climate_humidity_base_scale = 0.00020f;
 
     // Macro surface base height (sea_level + margin).
-    float height_base_y = 208.0f;
+    float height_base_y = 512.0f;
 
-    float elevation_scale = 0.001f;
-    float elevation_amplitude = 100.0f;
-    // Positive re-centering of the signed continental-elevation field. The
-    // macro base sits only a few blocks above sea level, so a field centered
-    // at 0 would flood ~half the map; the bias keeps most land above water
-    // while still letting basins dip and ridges rise for 1000-block rolling.
-    float elevation_bias = 0.35f;
+    // Domain warp amplitudes (blocks) for the macro height field: two warp
+    // octaves, x/z warped by different amounts so landforms get a directional
+    // grain. Frequencies are fixed in chunk_generator (0.002 / 0.0018).
+    float macro_warp_amp_x1 = 18.0f;
+    float macro_warp_amp_z1 = 30.0f;
+    float macro_warp_amp_x2 = 10.0f;
+    float macro_warp_amp_z2 = 16.0f;
 
-    // Sub-block surface jitter. Gentle slopes discretize into a perfectly
-    // regular 1-up/1-up staircase (most visible where the 3D shape field is
-    // weak). Adding a vertical offset to the macro height before it is rounded
-    // makes the ramp break into irregular steps (1 up, flat, 2 up) instead of a
-    // machine-made look. A few blocks of low-frequency amplitude are needed to
-    // actually break long mechanical runs on both cardinal and diagonal slopes.
-    float surface_jitter_scale = 0.09f;
-    float surface_jitter_amplitude = 4.0f;
+    // 3D shape field domain warp amplitudes (blocks, horizontal plane only).
+    float shape_warp_amp_x = 8.0f;
+    float shape_warp_amp_z = 12.0f;
 
-    // Low-frequency "roughness" field that splits the world into distinct
-    // flat vs hilly regions. It scales the main terrain amplitude between
-    // roughness_min (flat zones) and roughness_max (hilly zones), and also
-    // scales the fixed local detail so flat zones have near-zero micro
-    // variation. roughness_scale controls the wavelength (~1/scale blocks).
-    float roughness_scale = 0.0004f;
-    float roughness_min = 1.0f;
-    float roughness_max = 32.0f;
-    float roughness_detail_min = 0.05f;
+    // Medium-scale (~500-block) relief field: coarse world-anchored lattice
+    // with nodes every mid_lattice_spacing blocks, bilinearly interpolated.
+    float mid_lattice_spacing = 8.0f;
+    float mid_frequency = 0.002f;      // ~1/freq = 500-block features
+    float mid_amplitude = 90.0f;       // vertical relief, blocks
 
-    // Chunk-scale surface roughness. Every other noise layer feeding the height
-    // field (elevation, macro terrain, amplitude, warp) has a wavelength of
-    // hundreds-to-thousands of blocks, so inside a single chunk they all read
-    // as one smooth gradient. This term runs at a much higher frequency
-    // (chunk_roughness_scale ~0.02 -> a ~50-block period, ~1+ cycle per chunk)
-    // so the surface shows real local texture. Its amplitude is deliberately
-    // NOT multiplied by scale_m / terrain_amplitude so it survives in every
-    // biome, including flat height centers (Plains scale_m=0.12).
-    float chunk_roughness_scale = 0.02f;
-    float chunk_roughness_amplitude = 3.0f;
+    // Small-scale (~150-block) relief field, same scheme.
+    float small_lattice_spacing = 2.0f;
+    float small_frequency = 0.0066667f; // ~1/freq = 150-block features
+    float small_amplitude = 25.0f;      // vertical relief, blocks
 
-    // Voronoi height centers over land biomes (indexed with the same order as
-    // the hardcoded table: plains, forest, desert).
-    std::array<HeightCenter, 3> height_centers{
-        HeightCenter{0.50f, 0.35f,   6.0f, 0.12f},
-        HeightCenter{0.50f, 0.78f,   4.0f, 1.00f},
-        HeightCenter{0.78f, 0.22f, -12.0f, 0.37f}
-    };
+    // 3D shape strength range: strength = lerp(min, max, weirdness).
+    float shape_strength_min = 5.0f;
+    float shape_strength_max = 50.0f;
+
+    // Weirdness mask: 2D fBm at weirdness_scale (~1/scale block base octave),
+    // smoothstepped between LOW and HIGH so most of the world maps to the
+    // minimum strength and only the upper tail of each lobe rises through
+    // the ramp.
+    float weirdness_scale = 0.024f;
+    float weirdness_low = 0.10f;
+    float weirdness_high = 0.75f;
 
     // Biome size multiplier (1.0 = default, >1 = larger biomes)
     float biome_size = 1.0f;
 
-    // Local elevation amplitude multiplier (controls strength of ~250-block range features)
-    float local_elevation_amplitude = 0.25f;
-
-    // Loads non-persisted macro-surface tuning from JSON. Missing file or keys
-    // keep the existing values; returns false only if the file could not load.
+    // Loads macro-surface tuning from JSON. Missing file or keys keep the
+    // existing values; returns false only if the file could not load.
     bool load_from_json(const godot::String& json_path) noexcept;
 };
 

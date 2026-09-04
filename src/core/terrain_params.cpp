@@ -1,14 +1,10 @@
 #include "core/terrain_params.hpp"
 #include "core/json_config.hpp"
 
-#include <algorithm>
-
 #ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
 #include <godot_cpp/core/error_macros.hpp>
 #include <godot_cpp/variant/string.hpp>
 #include <godot_cpp/variant/variant.hpp>
-#include <godot_cpp/variant/array.hpp>
-#include <godot_cpp/variant/dictionary.hpp>
 #endif
 
 namespace VoxelEngine {
@@ -24,66 +20,62 @@ bool TerrainParams::load_from_json(const godot::String& json_path) noexcept {
     if (root.has("height_base_y")) {
         height_base_y = static_cast<float>(static_cast<double>(root["height_base_y"]));
     }
-    if (root.has("elevation_scale")) {
-        elevation_scale = static_cast<float>(static_cast<double>(root["elevation_scale"]));
+    if (root.has("macro_warp_amp_x1")) {
+        macro_warp_amp_x1 = static_cast<float>(static_cast<double>(root["macro_warp_amp_x1"]));
     }
-    if (root.has("elevation_amplitude")) {
-        elevation_amplitude = static_cast<float>(static_cast<double>(root["elevation_amplitude"]));
+    if (root.has("macro_warp_amp_z1")) {
+        macro_warp_amp_z1 = static_cast<float>(static_cast<double>(root["macro_warp_amp_z1"]));
     }
-    if (root.has("elevation_bias")) {
-        elevation_bias = static_cast<float>(static_cast<double>(root["elevation_bias"]));
+    if (root.has("macro_warp_amp_x2")) {
+        macro_warp_amp_x2 = static_cast<float>(static_cast<double>(root["macro_warp_amp_x2"]));
     }
-    if (root.has("surface_jitter_scale")) {
-        surface_jitter_scale = static_cast<float>(static_cast<double>(root["surface_jitter_scale"]));
+    if (root.has("macro_warp_amp_z2")) {
+        macro_warp_amp_z2 = static_cast<float>(static_cast<double>(root["macro_warp_amp_z2"]));
     }
-    if (root.has("surface_jitter_amplitude")) {
-        surface_jitter_amplitude = static_cast<float>(static_cast<double>(root["surface_jitter_amplitude"]));
+    if (root.has("shape_warp_amp_x")) {
+        shape_warp_amp_x = static_cast<float>(static_cast<double>(root["shape_warp_amp_x"]));
     }
-    if (root.has("roughness_scale")) {
-        roughness_scale = static_cast<float>(static_cast<double>(root["roughness_scale"]));
+    if (root.has("shape_warp_amp_z")) {
+        shape_warp_amp_z = static_cast<float>(static_cast<double>(root["shape_warp_amp_z"]));
     }
-    if (root.has("roughness_min")) {
-        roughness_min = static_cast<float>(static_cast<double>(root["roughness_min"]));
+    if (root.has("mid_lattice_spacing")) {
+        mid_lattice_spacing = static_cast<float>(static_cast<double>(root["mid_lattice_spacing"]));
     }
-    if (root.has("roughness_max")) {
-        roughness_max = static_cast<float>(static_cast<double>(root["roughness_max"]));
+    if (root.has("mid_frequency")) {
+        mid_frequency = static_cast<float>(static_cast<double>(root["mid_frequency"]));
     }
-    if (root.has("roughness_detail_min")) {
-        roughness_detail_min = static_cast<float>(static_cast<double>(root["roughness_detail_min"]));
+    if (root.has("mid_amplitude")) {
+        mid_amplitude = static_cast<float>(static_cast<double>(root["mid_amplitude"]));
     }
-    if (root.has("chunk_roughness_scale")) {
-        chunk_roughness_scale = static_cast<float>(static_cast<double>(root["chunk_roughness_scale"]));
+    if (root.has("small_lattice_spacing")) {
+        small_lattice_spacing = static_cast<float>(static_cast<double>(root["small_lattice_spacing"]));
     }
-    if (root.has("chunk_roughness_amplitude")) {
-        chunk_roughness_amplitude = static_cast<float>(static_cast<double>(root["chunk_roughness_amplitude"]));
+    if (root.has("small_frequency")) {
+        small_frequency = static_cast<float>(static_cast<double>(root["small_frequency"]));
     }
-    if (root.has("local_elevation_amplitude")) {
-        local_elevation_amplitude = static_cast<float>(static_cast<double>(root["local_elevation_amplitude"]));
+    if (root.has("small_amplitude")) {
+        small_amplitude = static_cast<float>(static_cast<double>(root["small_amplitude"]));
+    }
+    if (root.has("shape_strength_min")) {
+        shape_strength_min = static_cast<float>(static_cast<double>(root["shape_strength_min"]));
+    }
+    if (root.has("shape_strength_max")) {
+        shape_strength_max = static_cast<float>(static_cast<double>(root["shape_strength_max"]));
+    }
+    if (root.has("weirdness_scale")) {
+        weirdness_scale = static_cast<float>(static_cast<double>(root["weirdness_scale"]));
+    }
+    if (root.has("weirdness_low")) {
+        weirdness_low = static_cast<float>(static_cast<double>(root["weirdness_low"]));
+    }
+    if (root.has("weirdness_high")) {
+        weirdness_high = static_cast<float>(static_cast<double>(root["weirdness_high"]));
     }
     if (root.has("climate_temp_base_scale")) {
         climate_temp_base_scale = static_cast<float>(static_cast<double>(root["climate_temp_base_scale"]));
     }
     if (root.has("climate_humidity_base_scale")) {
         climate_humidity_base_scale = static_cast<float>(static_cast<double>(root["climate_humidity_base_scale"]));
-    }
-
-    if (root.has("height_centers")) {
-        godot::Array centers = root["height_centers"];
-        // Fixed-size contract: exactly 3 centers in a fixed, order-dependent
-        // position (index 0/1/2 blend by distance in chunk_generator.cpp).
-        // Extra JSON entries are ignored; warn so a 4th entry is not silently
-        // dead config.
-        if (centers.size() > static_cast<int64_t>(height_centers.size())) {
-            WARN_PRINT("terrain_config.json height_centers has more than 3 entries; extras are ignored (exactly 3, order-fixed)");
-        }
-        const size_t count = std::min(static_cast<size_t>(centers.size()), height_centers.size());
-        for (size_t i = 0; i < count; ++i) {
-            godot::Dictionary c = centers[static_cast<int>(i)];
-            if (c.has("temp"))     height_centers[i].temp     = static_cast<float>(static_cast<double>(c["temp"]));
-            if (c.has("hum"))      height_centers[i].hum      = static_cast<float>(static_cast<double>(c["hum"]));
-            if (c.has("base_off")) height_centers[i].base_off = static_cast<float>(static_cast<double>(c["base_off"]));
-            if (c.has("scale_m"))  height_centers[i].scale_m  = static_cast<float>(static_cast<double>(c["scale_m"]));
-        }
     }
 
     return true;

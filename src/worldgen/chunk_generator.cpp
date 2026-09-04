@@ -2,6 +2,7 @@
 #include "core/chunk_data.hpp"
 #include "worldgen/vegetation_generator.hpp"
 #include <vector>
+#include <cmath>
 
 namespace VoxelEngine {
 
@@ -14,7 +15,12 @@ ChunkGenerator::ColumnSample ChunkGenerator::sample_column(int32_t world_x, int3
     float cont = sample_continentalness(x, z);
     float temperature = sample_temperature(x, z);
     float humidity = sample_humidity(x, z);
-    float erosion = sample_erosion(x, z);
+    
+    // Sample erosion on 4-block lattice for performance
+    int32_t ex = lattice_base(world_x, 4);
+    int32_t ez = lattice_base(world_z, 4);
+    float erosion = sample_erosion(static_cast<float>(ex), static_cast<float>(ez));
+    
     bool is_land = cont >= params.land_threshold;
     float height = 0.0f;
     float water_level = -1.0f;

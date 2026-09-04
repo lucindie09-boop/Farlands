@@ -146,6 +146,33 @@ int main(int argc, char** argv) {
     }
 
     write_bmp_rgb24(out, w, h, img);
+
+    // Dump raw per-column heights as JSON (strip the .bmp suffix for the grid
+    // name) so the exact relief can be inspected numerically.
+    {
+        std::string base = out;
+        if (base.size() > 4 && base.substr(base.size() - 4) == ".bmp")
+            base = base.substr(0, base.size() - 4);
+        const std::string path = base + "_grid.json";
+        std::string js = "{\n  \"size\": " + std::to_string(size) + ",\n";
+        js += "  \"center_x\": " + std::to_string(cx) + ",\n";
+        js += "  \"center_z\": " + std::to_string(cz) + ",\n";
+        js += "  \"min_height\": " + std::to_string(min_ht) + ",\n";
+        js += "  \"max_height\": " + std::to_string(max_ht) + ",\n";
+        js += "  \"heights\": [\n";
+        for (int lz = 0; lz < size; lz++) {
+            js += "    [";
+            for (int lx = 0; lx < size; lx++) {
+                js += std::to_string(height[static_cast<size_t>(lz) * size + lx]);
+                if (lx < size - 1) js += ", ";
+            }
+            js += (lz < size - 1) ? "],\n" : "]\n";
+        }
+        js += "  ]\n}\n";
+        FILE* f = fopen(path.c_str(), "wb");
+        if (f) { fwrite(js.data(), 1, js.size(), f); fclose(f); }
+    }
+
     std::printf("size=%d center=(%d,%d) px/block=%d min=%d max=%d  wrote %s\n",
                 size, cx, cz, ppb, min_ht, max_ht, out.c_str());
     return 0;

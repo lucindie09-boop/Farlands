@@ -84,6 +84,17 @@ struct TerrainParams {
     float roughness_max = 32.0f;
     float roughness_detail_min = 0.05f;
 
+    // Chunk-scale surface roughness. Every other noise layer feeding the height
+    // field (elevation, macro terrain, amplitude, warp) has a wavelength of
+    // hundreds-to-thousands of blocks, so inside a single chunk they all read
+    // as one smooth gradient. This term runs at a much higher frequency
+    // (chunk_roughness_scale ~0.02 -> a ~50-block period, ~1+ cycle per chunk)
+    // so the surface shows real local texture. Its amplitude is deliberately
+    // NOT multiplied by scale_m / terrain_amplitude so it survives in every
+    // biome, including flat height centers (Plains scale_m=0.12).
+    float chunk_roughness_scale = 0.02f;
+    float chunk_roughness_amplitude = 3.0f;
+
     // Voronoi height centers over land biomes (indexed with the same order as
     // the hardcoded table: plains, forest, desert).
     std::array<HeightCenter, 3> height_centers{

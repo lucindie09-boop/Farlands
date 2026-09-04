@@ -51,6 +51,12 @@ bool TerrainParams::load_from_json(const godot::String& json_path) noexcept {
     if (root.has("roughness_detail_min")) {
         roughness_detail_min = static_cast<float>(static_cast<double>(root["roughness_detail_min"]));
     }
+    if (root.has("chunk_roughness_scale")) {
+        chunk_roughness_scale = static_cast<float>(static_cast<double>(root["chunk_roughness_scale"]));
+    }
+    if (root.has("chunk_roughness_amplitude")) {
+        chunk_roughness_amplitude = static_cast<float>(static_cast<double>(root["chunk_roughness_amplitude"]));
+    }
     if (root.has("climate_temp_base_scale")) {
         climate_temp_base_scale = static_cast<float>(static_cast<double>(root["climate_temp_base_scale"]));
     }

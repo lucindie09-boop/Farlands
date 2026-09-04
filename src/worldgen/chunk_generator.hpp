@@ -259,11 +259,23 @@ private:
         float per_noise_val = terrain_noise.fbm(x + warp_x, z + warp_z, 4, 0.52f, 0.0064f) * 0.85f
                             + terrain_noise.ridged_noise(x + 4000.0f + warp_x, z + 4000.0f + warp_z, 3, 0.55f, 0.016f) * 0.15f;
 
-        // Fixed-amplitude local detail, scaled by the roughness envelope so
-        // flat zones stay smooth while hilly zones retain micro variation.
-        float detail = terrain_noise.fbm(x * 1.6f + warp_x * 0.4f, z * 1.6f + warp_z * 0.4f, 3, 0.5f, 0.018f) * 5.0f * detail_amp;
+        // Chunk-scale surface roughness. Runs at ~50-block wavelength (1+ cycle
+        // per chunk) with an amplitude NOT scaled by terrain_amplitude/scale_m,
+        // so it reads as real local texture even in flat biomes where every
+        // macro term collapses to a smooth gradient. This is the signal that
+        // stops a 50-block region looking like a single Perlin sample.
+        float chunk_rough = terrain_noise.fbm(
+            x * params.chunk_roughness_scale + warp_x * 0.3f,
+            z * params.chunk_roughness_scale + warp_z * 0.3f,
+            3, 0.5f, params.chunk_roughness_scale) * params.chunk_roughness_amplitude;
 
-        return base + per_noise_val * terrain_amplitude + detail;
+        // Local detail, raised to a frequency (scale*1.6 ~0.047 -> ~21-block
+        // period) that completes multiple cycles per column, so it stops being
+        // a slow drift. Still scaled by the roughness envelope so flat zones
+        // stay smooth but hilly zones get pronounced micro relief.
+        float detail = terrain_noise.fbm(x * 3.0f + warp_x * 0.3f, z * 3.0f + warp_z * 0.3f, 3, 0.5f, 0.016f) * 2.0f * detail_amp;
+
+        return base + per_noise_val * terrain_amplitude + chunk_rough + detail;
     }
 
     // Large-region mask deciding where terrain becomes volumetric/unusual.

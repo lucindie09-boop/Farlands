@@ -163,7 +163,7 @@ void ChunkWorld::save_world_metadata(const TerrainParams& params) {
 
     // Header: magic + version
     file->store_32(0x574F524C); // "WORL" magic
-    file->store_32(2);           // metadata version
+    file->store_32(3);           // metadata version (v3: dormant continentalness/ocean params removed)
 
     // Terrain params
     file->store_32(params.seed);
@@ -171,13 +171,6 @@ void ChunkWorld::save_world_metadata(const TerrainParams& params) {
     file->store_32(params.bedrock_height);
     file->store_float(params.cave_threshold);
     file->store_float(params.cave_scale);
-    file->store_float(params.continentalness_scale);
-    file->store_float(params.ocean_threshold);
-    file->store_float(params.land_threshold);
-    file->store_float(params.shelf_width);
-    file->store_float(params.shelf_depth);
-    file->store_float(params.deep_ocean_depth);
-    file->store_float(params.beach_width);
     file->store_32(params.subsurface_cover_depth);
     file->store_float(params.climate_temp_scale);
     file->store_float(params.climate_humidity_scale);
@@ -207,7 +200,7 @@ bool ChunkWorld::load_world_metadata(TerrainParams& out_params, int32_t& out_ver
     }
 
     int32_t meta_version = file->get_32();
-    if (meta_version < 1 || meta_version > 2) {
+    if (meta_version < 1 || meta_version > 3) {
         file->close();
         return false;
     }
@@ -224,13 +217,14 @@ bool ChunkWorld::load_world_metadata(TerrainParams& out_params, int32_t& out_ver
     out_params.bedrock_height = file->get_32();
     out_params.cave_threshold = file->get_float();
     out_params.cave_scale = file->get_float();
-    out_params.continentalness_scale = file->get_float();
-    out_params.ocean_threshold = file->get_float();
-    out_params.land_threshold = file->get_float();
-    out_params.shelf_width = file->get_float();
-    out_params.shelf_depth = file->get_float();
-    out_params.deep_ocean_depth = file->get_float();
-    out_params.beach_width = file->get_float();
+    if (meta_version <= 2) {
+        // Dormant continentalness/ocean params, removed in metadata v3:
+        // continentalness_scale, ocean_threshold, land_threshold, shelf_width,
+        // shelf_depth, deep_ocean_depth, beach_width.
+        for (int i = 0; i < 7; i++) {
+            file->get_float();
+        }
+    }
     out_params.subsurface_cover_depth = file->get_32();
     out_params.climate_temp_scale = file->get_float();
     out_params.climate_humidity_scale = file->get_float();

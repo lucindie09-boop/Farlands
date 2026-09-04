@@ -14,8 +14,9 @@ namespace VoxelEngine {
 // include the heavy chunk_generator.hpp / noise.hpp transitively.
 //
 // The macro-surface tuning fields load from data/terrain_config.json at
-// startup (see load_from_json); the persisted fields below it (sea level,
-// thresholds, climate scales, biome_size) round-trip through world.meta.
+// startup (see load_from_json); the persisted fields below it (seed, sea
+// level, bedrock height, cave/sub-surface params, climate scales, biome_size)
+// round-trip through world.meta.
 // -------------------------------------------------------------------------
 struct TerrainParams {
     int32_t seed = 12345;
@@ -25,13 +26,6 @@ struct TerrainParams {
     float cave_threshold = 0.4f;
     float cave_scale = 0.05f;
 
-    float continentalness_scale = 0.00010f;
-    float ocean_threshold = 0.48f;
-    float land_threshold = 0.48f;
-    float shelf_width = 0.025f;
-    float shelf_depth = 18.0f;
-    float deep_ocean_depth = 48.0f;
-    float beach_width = 0.003f;
     int32_t subsurface_cover_depth = 4;
 
     // Climate noise scales (lower = broader regions). Consumed by

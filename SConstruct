@@ -99,6 +99,12 @@ debug_env.Append(LIBS=[])
 debug_prog = debug_env.Program("bin/terrain_debug", ["tools/terrain_debug.cpp"] + terrain_tool_objects + [chunk_data_object])
 Alias("debug", debug_prog)
 
+# Voxelized heightmap renderer (standalone executable).
+hmap_env = env.Clone()
+hmap_env.Append(LIBS=[])
+hmap_prog = hmap_env.Program("bin/heightmap_voxel", ["tools/heightmap_voxel.cpp"] + terrain_tool_objects + [chunk_data_object])
+Alias("heightmap_voxel", hmap_prog)
+
 # Performance benchmark (standalone executable)
 bench_env = env.Clone()
 bench_env.Append(CPPPATH=["src/"])

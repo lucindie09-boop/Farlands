@@ -154,12 +154,20 @@ func _draw():
 				var icon_y = fill_y + (fill_size - icon_size) / 2.0
 				draw_texture_rect(block_icon, Rect2(icon_x, icon_y, icon_size, icon_size), false)
 			else:
-				# Fallback to colored rectangle
-				var block_color = _get_block_color(block_id)
-				var icon_size = fill_size * 0.7
-				var icon_x = fill_x + (fill_size - icon_size) / 2.0
-				var icon_y = fill_y + (fill_size - icon_size) / 2.0
-				draw_rect(Rect2(icon_x, icon_y, icon_size, icon_size), block_color)
+				# Fallback to block texture (items like the stick have no iso icon)
+				var block_texture = BlockTextures.get_texture(block_id)
+				if block_texture:
+					var icon_size = fill_size * 0.8
+					var icon_x = fill_x + (fill_size - icon_size) / 2.0
+					var icon_y = fill_y + (fill_size - icon_size) / 2.0
+					draw_texture_rect(block_texture, Rect2(icon_x, icon_y, icon_size, icon_size), false)
+				else:
+					# Fallback to colored rectangle
+					var block_color = _get_block_color(block_id)
+					var icon_size = fill_size * 0.7
+					var icon_x = fill_x + (fill_size - icon_size) / 2.0
+					var icon_y = fill_y + (fill_size - icon_size) / 2.0
+					draw_rect(Rect2(icon_x, icon_y, icon_size, icon_size), block_color)
 			
 			# Draw count text
 			if count > 1:

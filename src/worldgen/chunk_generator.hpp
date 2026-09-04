@@ -64,6 +64,13 @@ private:
         return a + (b - a) * t;
     }
 
+    // Largest lattice node coordinate <= v (floor division, negative-safe).
+    static constexpr int32_t lattice_base(int32_t v, int32_t spacing) {
+        const int32_t q = v / spacing;
+        const int32_t r = v % spacing;
+        return (r < 0 ? q - 1 : q) * spacing;
+    }
+
     // -------------------------------------------------------------------------
     // Noise sampling
     // -------------------------------------------------------------------------
@@ -90,7 +97,23 @@ private:
 
     // Single noise layer controlling height - minimal terrain
     float sample_land_shape(float x, float z, float /*temperature*/, float /*humidity*/) const {
-        return params.height_base_y + terrain_noise.noise_2d(x * 0.01f, z * 0.01f) * 50.0f;
+        // Sample on 4-block lattice for performance (3000x3000 grid over 12000x12000 area)
+        constexpr int32_t SPACING = 4;
+        const int32_t cix = lattice_base(static_cast<int32_t>(std::floor(x)), SPACING);
+        const int32_t ciz = lattice_base(static_cast<int32_t>(std::floor(z)), SPACING);
+        const float fx = (x - static_cast<float>(cix)) / static_cast<float>(SPACING);
+        const float fz = (z - static_cast<float>(ciz)) / static_cast<float>(SPACING);
+        const float x0 = static_cast<float>(cix),        x1 = static_cast<float>(cix + SPACING);
+        const float z0 = static_cast<float>(ciz),        z1 = static_cast<float>(ciz + SPACING);
+
+        // Noise function with 12000-block wavelength and 500 amplitude
+        auto h_at = [&](float px, float pz) -> float {
+            return 512.0f + terrain_noise.noise_2d(px * 0.0000833f, pz * 0.0000833f) * 500.0f;
+        };
+
+        const float h00 = h_at(x0, z0), h10 = h_at(x1, z0);
+        const float h01 = h_at(x0, z1), h11 = h_at(x1, z1);
+        return lerp(lerp(h00, h10, fx), lerp(h01, h11, fx), fz);
     }
 
     // Large-region mask deciding where terrain becomes volumetric/unusual.

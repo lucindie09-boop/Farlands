@@ -90,18 +90,18 @@ ChunkGenerator::HeightRange ChunkGenerator::get_chunk_height_range(int32_t chunk
 
 // Real topmost air-to-solid transition for a column, scanning down from above
 // the maximum possible density displacement.
-// Real topmost air-to-solid transition for a column, scanning down from above
-// the maximum possible density displacement.
 int32_t ChunkGenerator::find_surface_y(int32_t world_x, int32_t world_z) const {
     ColumnSample column = sample_column(world_x, world_z);
     const float weirdness = sample_weirdness(
         static_cast<float>(world_x), static_cast<float>(world_z));
 
+    // The density surface can only exist within DENSITY_MARGIN of the macro
+    // heightmap (see sample_terrain_density), so scan exactly that band.
     const int32_t start_y =
-        static_cast<int32_t>(std::ceil(column.height + 14.0f));
+        static_cast<int32_t>(std::ceil(column.height + DENSITY_MARGIN));
 
     for (int32_t y = start_y;
-         y >= static_cast<int32_t>(column.height - 32.0f);
+         y >= static_cast<int32_t>(std::ceil(column.height - DENSITY_MARGIN));
          --y) {
         const float here = sample_terrain_density(world_x, y, world_z, column, weirdness);
         const float above = sample_terrain_density(world_x, y + 1, world_z, column, weirdness);
@@ -158,9 +158,10 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
 
     // ---- Chunk-level fast path ----
     // The 3D density surface can only exist within DENSITY_MARGIN of the macro
-    // heightmap (max displacement is SHAPE_STRENGTH_MAX < DENSITY_MARGIN).
-    // Chunks entirely outside that band need no lattice, density buffer, or
-    // material pass.
+    // heightmap (displacement = shape * strength * surface_band, and the band
+    // is exactly zero beyond SURFACE_BAND_OUTER < DENSITY_MARGIN regardless of
+    // strength). Chunks entirely outside that band need no lattice, density
+    // buffer, or material pass.
     const bool above_terrain = static_cast<float>(world_y_start) >= max_height + DENSITY_MARGIN;
     const bool below_terrain = static_cast<float>(world_y_end) <= min_height - DENSITY_MARGIN;
 

@@ -1,6 +1,12 @@
 # Farlands
 
-![Farlands gameplay](screenshots/gameplay.png)
+**Old terrain**
+
+![Farlands gameplay — old terrain](screenshots/gameplay.png)
+
+**New terrain**
+
+![Farlands gameplay — new terrain](screenshots/gameplay_new.png)
 
 A Minecraft-style voxel engine built in Godot 4 with a custom C++ GDExtension. Procedural terrain generation (a stacked-noise macro surface with domain warp and ~500/150-block relief fields, wrapped by a signed 3D density field that adds overhangs and shelves in strength-gated "weirdness" zones, plus height-based oceans that flood any column below sea level), chunked world streaming, greedy meshing with per-chunk incremental rebuilds, colored block lighting, day/night cycle, three-tier distance-based mesh LOD with LOD-reduced chunks merged into regions to cap draw calls, frustum-prioritized chunk loading, async background chunk saving, and a C++ inventory system (hotbar + 27-slot storage) wired into block break/place with a GDScript GUI, plus data-driven 2×2 crafting (`data/recipes.json`). Ships with a C++ player controller with Minecraft-accurate fixed-timestep physics.
 

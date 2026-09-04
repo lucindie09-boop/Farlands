@@ -9,6 +9,8 @@
   "roughness_min": 1.0,
   "roughness_max": 32.0,
   "roughness_detail_min": 0.05,
+  "chunk_roughness_scale": 0.02,
+  "chunk_roughness_amplitude": 3.0,
   "climate_temp_base_scale": 0.00015,
   "climate_humidity_base_scale": 0.00020,
   "height_centers": [

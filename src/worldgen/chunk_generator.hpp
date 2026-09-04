@@ -108,6 +108,13 @@ private:
     static constexpr float MID_FREQUENCY         = 0.002f; // ~1/freq = 500-block features
     static constexpr float MID_AMPLITUDE         = 90.0f;  // vertical relief, blocks
 
+    // "~150-block" relief field: same coarse-lattice + bilinear-lerp scheme,
+    // filling the band between the 500-block field and the micro flow detail.
+    // Nodes every 2 blocks (75 across the 150-block feature) keep it smooth.
+    static constexpr int32_t SMALL_LATTICE_SPACING = 2;  // nodes every 2 blocks
+    static constexpr float SMALL_FREQUENCY         = 0.0066667f; // ~1/freq = 150-block features
+    static constexpr float SMALL_AMPLITUDE         = 25.0f;      // vertical relief, blocks
+
     // Weirdness field frequency: ~1/SCALE blocks per base octave (~42 here).
     // LOW sits above the raw fBm median (0.0), so ~55% of the world maps to
     // the minimum strength and only the upper tail of each lobe rises through
@@ -214,12 +221,29 @@ private:
             // warp actually bends contours into flowing ridges instead of
             // smearing features 10x larger than the displacement.
             float flow = terrain_noise.fbm(sx * 0.0032f, sz * 0.0032f, 3, 0.5f, 1.0f) * 16.0f;
-            return base_height + detail + flow + sample_mid_relief(px, pz);
+            return base_height + detail + flow
+                 + sample_mid_relief(px, pz) + sample_small_relief(px, pz);
         };
 
         const float h00 = h_at(x0, z0), h10 = h_at(x1, z0);
         const float h01 = h_at(x0, z1), h11 = h_at(x1, z1);
         return lerp(lerp(h00, h10, fx), lerp(h01, h11, fx), fz);
+    }
+
+    // 150-block-scale relief: coarse lattice + bilinear lerp, world-anchored
+    // (lattice_base) so every chunk reads the same global nodes — no seams.
+    float sample_small_relief(float x, float z) const {
+        constexpr int32_t SP = SMALL_LATTICE_SPACING;
+        const int32_t nx0 = lattice_base(static_cast<int32_t>(std::floor(x)), SP);
+        const int32_t nz0 = lattice_base(static_cast<int32_t>(std::floor(z)), SP);
+        const float fx = (x - static_cast<float>(nx0)) / static_cast<float>(SP);
+        const float fz = (z - static_cast<float>(nz0)) / static_cast<float>(SP);
+        const auto n_at = [&](float px, float pz) {
+            return terrain_noise.noise_2d(px * SMALL_FREQUENCY, pz * SMALL_FREQUENCY);
+        };
+        const float v00 = n_at(nx0, nz0), v10 = n_at(nx0 + SP, nz0);
+        const float v01 = n_at(nx0, nz0 + SP), v11 = n_at(nx0 + SP, nz0 + SP);
+        return SMALL_AMPLITUDE * lerp(lerp(v00, v10, fx), lerp(v01, v11, fx), fz);
     }
 
     // 500-block-scale relief (64x64 lattice samples per ~500-block area,

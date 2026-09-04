@@ -98,6 +98,16 @@ private:
     static constexpr bool kShapeDomainWarpEnabled = true;
     static constexpr float SHAPE_FREQUENCY     = 0.026f; // ~38-block horizontal feature scale
     static constexpr float SHAPE_Y_ANISOTROPY  = 1.35f;  // ~0.035 effective vertical scale
+    // Medium-scale "~500-block" relief field: noise is sampled on a coarse
+    // world-anchored lattice with nodes every MID_LATTICE_SPACING blocks (64
+    // nodes across ~512 blocks — the "64x64 grid" for the 500x500 area) and
+    // bilinearly interpolated between the nodes, giving smooth rolling relief
+    // at ~500-block wavelength. Added to the macro height between the
+    // continental/detail layers and the micro flow/weirdness shaping.
+    static constexpr int32_t MID_LATTICE_SPACING = 8;   // 64 nodes across ~512 blocks
+    static constexpr float MID_FREQUENCY         = 0.002f; // ~1/freq = 500-block features
+    static constexpr float MID_AMPLITUDE         = 90.0f;  // vertical relief, blocks
+
     // Weirdness field frequency: ~1/SCALE blocks per base octave (~42 here).
     // LOW sits above the raw fBm median (0.0), so ~55% of the world maps to
     // the minimum strength and only the upper tail of each lobe rises through
@@ -204,12 +214,29 @@ private:
             // warp actually bends contours into flowing ridges instead of
             // smearing features 10x larger than the displacement.
             float flow = terrain_noise.fbm(sx * 0.0032f, sz * 0.0032f, 3, 0.5f, 1.0f) * 16.0f;
-            return base_height + detail + flow;
+            return base_height + detail + flow + sample_mid_relief(px, pz);
         };
 
         const float h00 = h_at(x0, z0), h10 = h_at(x1, z0);
         const float h01 = h_at(x0, z1), h11 = h_at(x1, z1);
         return lerp(lerp(h00, h10, fx), lerp(h01, h11, fx), fz);
+    }
+
+    // 500-block-scale relief (64x64 lattice samples per ~500-block area,
+    // bilinearly lerped between nodes). The lattice is world-anchored
+    // (lattice_base) so every chunk reads the same global nodes — no seams.
+    float sample_mid_relief(float x, float z) const {
+        constexpr int32_t SP = MID_LATTICE_SPACING;
+        const int32_t nx0 = lattice_base(static_cast<int32_t>(std::floor(x)), SP);
+        const int32_t nz0 = lattice_base(static_cast<int32_t>(std::floor(z)), SP);
+        const float fx = (x - static_cast<float>(nx0)) / static_cast<float>(SP);
+        const float fz = (z - static_cast<float>(nz0)) / static_cast<float>(SP);
+        const auto n_at = [&](float px, float pz) {
+            return terrain_noise.noise_2d(px * MID_FREQUENCY, pz * MID_FREQUENCY);
+        };
+        const float v00 = n_at(nx0, nz0), v10 = n_at(nx0 + SP, nz0);
+        const float v01 = n_at(nx0, nz0 + SP), v11 = n_at(nx0 + SP, nz0 + SP);
+        return MID_AMPLITUDE * lerp(lerp(v00, v10, fx), lerp(v01, v11, fx), fz);
     }
 
     // Large-region mask deciding where terrain becomes volumetric/unusual.

@@ -105,6 +105,20 @@ hmap_env.Append(LIBS=[])
 hmap_prog = hmap_env.Program("bin/heightmap_voxel", ["tools/heightmap_voxel.cpp"] + terrain_tool_objects + [chunk_data_object])
 Alias("heightmap_voxel", hmap_prog)
 
+# Elevation domain-warp sweep (standalone, renders BMPs for visual comparison).
+warp_env = env.Clone()
+warp_env.Append(CPPPATH=["src/"])
+warp_env.Append(LIBS=[])
+warp_prog = warp_env.Program("bin/elevation_warp_sweep", ["tools/elevation_warp_sweep.cpp"])
+Alias("warp_sweep", warp_prog)
+
+# Coarse-lattice elevation sweep (standalone, renders BMPs for visual comparison).
+cl_env = env.Clone()
+cl_env.Append(CPPPATH=["src/"])
+cl_env.Append(LIBS=[])
+cl_prog = cl_env.Program("bin/coarse_lattice_sweep", ["tools/coarse_lattice_sweep.cpp"])
+Alias("coarse_sweep", cl_prog)
+
 # Performance benchmark (standalone executable)
 bench_env = env.Clone()
 bench_env.Append(CPPPATH=["src/"])

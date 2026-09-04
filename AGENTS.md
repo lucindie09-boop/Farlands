@@ -10,7 +10,7 @@ A Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked streamin
 - Block IDs are positional (entry order = save-format ID): **always append** new blocks to `block_definitions.json`, never insert mid-list — inserting shifts every later ID and corrupts existing worlds
 - Crafting recipes live in `data/recipes.json` — shaped (`pattern`+`key`) and shapeless entries resolved by block name
 - Block shapes live in `data/block_shapes.json` — shared shape registry for non-full blocks (slabs, stairs, walls, poles)
-- Worldgen tuning is data-driven: `data/terrain_config.json` (macro surface + height centers), `data/biomes.json` (per-biome materials/trees + climate thresholds), `data/vegetation.json` (forest/plains/desert feature knobs)
+- Worldgen tuning is data-driven: `data/terrain_config.json` (macro-surface layers: base height, warp amps, relief fields, strength range, weirdness thresholds), `data/biomes.json` (per-biome surface materials + tree variants; climate thresholds load but are dormant while climate samplers are flat stubs), `data/vegetation.json` (forest/plains/desert feature knobs)
 
 ## Major Completed Work
 
@@ -88,30 +88,26 @@ A Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked streamin
 - **Cross-chunk canopy persistence**: `apply_pending_placements` marks the receiving neighbor chunk dirty so deferred tree-canopy writes survive reload
 
 ### Terrain Generation
-- **Signed 3D density field**: Overhangs, shelves, and arches via 3D fBm deformation around macro heightmap surface
+- **Signed 3D density field**: Overhangs, shelves, and arches via 3D fBm deformation around the macro heightmap surface
 - **4×4×4 world-aligned shape lattice**: Ensures bit-identical results across chunk boundaries
 - **Chunk-level fast paths**: Chunks entirely above/below height band skip all lattice/density work (~7× speedup on deep chunks)
-- **Biome-based macro surface**: Multiple biomes with distinct terrain characteristics
-- **Continental-scale elevation noise**: ~1000 block wavelength noise for large-scale terrain variation. Signed/re-centered (`elevation_bias`) so the macro height rolls continuously both above and below its base — the old additive-only `max(raw,0)^2` collapsed ~half the field to flat and caused long featureless 1000-block plateaus. Amplitude + bias load from `data/terrain_config.json`
-- **Elevation-based weirdness amplification**: Terrain features become 1-2x more dramatic at higher elevations
-- **Continentalness warp**: Wavy coastlines through continental-scale warping
-- **Sub-block surface jitter**: Gentle slopes discretize into a perfectly regular 1-up/1-up staircase (visible where the 3D shape field is weak). A small high-frequency vertical offset to the macro height (`surface_jitter_scale`/`surface_jitter_amplitude` in `data/terrain_config.json`, land-only so the sea surface stays flat) breaks these into irregular steps (1 up, flat, 2 up). Low frequency (scale ~0.09) breaks both cardinal and diagonal slopes; diagonals (height climbing along both axes) need the same few blocks of amplitude as cardinals (higher frequencies leave diagonals nearly static). Measured boring-runs: cardinal 805→482, diagonal 460→233 at the shipped A4/s.09
-- **Widened beach biome band**: Proper shoreline coverage with expanded beach biome
-- **Improved water placement**: Better near-water detection and ocean floor terrain
-- **Data-driven worldgen**: Surfaces, climate thresholds, tree density/variants, and macro height centers all load from JSON configs at startup (see "Worldgen Config Data" below)
-- **Per-biome amplitude scaling**: Height-center `scale_m` is applied as a terrain amplitude multiplier (was previously dead config) — plains are genuinely flat, desert low/dry, forest hilly
+- **Stacked-noise macro surface**: The per-column height comes from layers summed at a domain-warped sample point — a 12,000-block base octave (`height_base_y` ± 500), ~1,000-block detail (±100), ×16 ridged flow, and bilinearly-lerped ~500-block (amplitude 90, 8-block nodes) and ~150-block (amplitude 25, 2-block nodes) relief fields — sampled on a 4×4 world-aligned lattice so the whole field is one continuous surface (no chunk seams). Domain-warp amplitudes (18/30/10/16 across two recursive octaves) give landforms their flowing ridges. All tuning loads from `data/terrain_config.json`
+- **Height-based oceans**: Water is a post-pass over the finished height field, not a terrain input — any column whose surface ends below `sea_level` (200) becomes Ocean biome and fills with water to sea level. The noisy surface is kept as the sea bed, so land and ocean floor are one continuous surface and coasts are seamless by construction; continentalness is not involved
+- **Weirdness-gated 3D shaping**: A 2D fBm (~42-block lobes, `weirdness_scale` 0.024) through `smoothstep(0.10, 0.75)` picks where shaping is strong; `strength = lerp(5, 50, weirdness)` scales the signed 3D shape field, and a surface band fades it fully out 9→28 blocks from the macro surface (density can never leave `DENSITY_MARGIN` 30 of it)
+- **Near-water shoreline handling**: Per-chunk 2-pass Manhattan distance transform seeded from the actual density surface swaps in per-biome wet materials next to real water
+- **Data-driven worldgen**: Macro-surface layers load from `data/terrain_config.json`; per-biome surfaces/tree variants load from `data/biomes.json` (climate thresholds and the Beach/Forest/Desert tables are defined but currently dormant — temperature/humidity samplers are flat stubs, so worldgen emits Plains on land and Ocean below sea level)
 
 ### Worldgen Config Data
 - **`data/biomes.json`** → `BiomeConfig` (`src/worldgen/biome_config.hpp`): hosts the `BiomeType` enum (Ocean/Beach/Plains/Forest/Desert), per-biome surface/subsurface + near-water block names (resolved via `BlockRegistry::get_block_id_by_name`), `tree_density`, `tree_variants` weights, and climate-grid thresholds (`temp_cold_max`/`temp_hot_min`/`hum_dry_max`/`hum_humid_min`)
 - **`data/vegetation.json`** → `VegetationConfig` (`src/worldgen/vegetation_config.hpp`): forest (chunk tree chance, min/max trees, column chance, spacing, boulders), plains (single-tree chance), desert (cactus density + min/max heights)
-- **`data/terrain_config.json`** → `TerrainParams::load_from_json` (`src/core/terrain_params.cpp`): `height_base_y`, fixed-base climate scales (`climate_temp_base_scale`/`climate_humidity_base_scale`), and the 3 Voronoi height centers (`temp`/`hum`/`base_off`/`scale_m`)
+- **`data/terrain_config.json`** → `TerrainParams::load_from_json` (`src/core/terrain_params.cpp`): `height_base_y`, macro warp amplitudes (`macro_warp_amp_x1/z1/x2/z2`), shape-warp amps (`shape_warp_amp_x/z`), the mid/small relief fields (`*_lattice_spacing`/`*_frequency`/`*_amplitude`), shape-strength range (`shape_strength_min`/`shape_strength_max`), and the weirdness mask (`weirdness_scale`/`weirdness_low`/`weirdness_high`)
 - **`data/block_shapes.json`** → Shared shape registry for non-full blocks (slabs, stairs, walls, poles) with selection/collision boxes
 - **`data/recipes.json`** → `RecipeBook::load_from_json` (`src/core/crafting.cpp`): `grid_size` plus shaped (`pattern` + `key`, `' '` = empty) and shapeless (`ingredients`) entries; results resolved by block name; unknown names/ragged rows skip that recipe with a WARN_PRINT
 - Loaded in `VoxelEngineController::load_world_configs()` at startup; missing files/keys fall back to built-in defaults that mirror the old hardcoded values
 - Config threads to generation workers via `WorldUpdater` → `ChunkWorld::generate_chunk` (captured per call) → the `thread_local ChunkGenerator`
 
 ### Testing & CI
-- **255 test cases / 172,121 assertions** across 30 doctest files
+- **255 test cases / 181,721 assertions** across 30 doctest files
 - **Cross-platform CI**: 5-leg matrix (ubuntu plain/TSan/ASan+UBSan, macos plain, windows plain) plus fuzz, static-analysis, and coverage jobs
 - **Concurrency tests**: 27 tests for shard locking, deadlock prevention, PaletteStorage, cross-chunk writers, and thread-pool work stealing
 - **Integration soak tests**: Concurrent pipeline simulation with Phase 4 unload to exercise unload vs active work races

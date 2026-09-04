@@ -81,11 +81,16 @@ private:
     // "weirdness" mask (very low frequency 2D) decides where the deformation
     // is strong enough to produce overhangs/shelves vs. mostly-plain terrain.
     // -------------------------------------------------------------------------
-    static constexpr float DENSITY_MARGIN      = 12.0f; // max 3D displacement + headroom
+    // DENSITY_MARGIN bounds how far the real surface can sit from the macro
+    // heightmap. Displacement = shape * strength * surface_band, and the band
+    // is exactly zero at distance SURFACE_BAND_OUTER — so no matter how large
+    // SHAPE_STRENGTH_MAX grows, the surface never leaves SURFACE_BAND_OUTER
+    // of the macro height. 30 = OUTER + small slack.
+    static constexpr float DENSITY_MARGIN      = 30.0f;
     static constexpr float SURFACE_BAND_INNER  = 9.0f;
     static constexpr float SURFACE_BAND_OUTER  = 28.0f;
     static constexpr float SHAPE_STRENGTH_MIN  = 1.5f;
-    static constexpr float SHAPE_STRENGTH_MAX  = 7.5f;
+    static constexpr float SHAPE_STRENGTH_MAX  = 50.0f;
     // Optional: read the 3D shape field through a light 2D domain warp (the
     // same recursive scheme as the macro height warp, at much smaller scale)
     // so the craggy micro-detail curves with the terrain instead of reading
@@ -93,12 +98,15 @@ private:
     static constexpr bool kShapeDomainWarpEnabled = true;
     static constexpr float SHAPE_FREQUENCY     = 0.026f; // ~38-block horizontal feature scale
     static constexpr float SHAPE_Y_ANISOTROPY  = 1.35f;  // ~0.035 effective vertical scale
-    // Weirdness field frequency: ~1/SCALE blocks per base octave. Tuned so
-    // strong zones are compact pockets (~tens of blocks), not huge rough
-    // plateaus, and WEIRDNESS_HIGH keeps only lobe peaks at full strength.
-    static constexpr float WEIRDNESS_SCALE     = 0.005f;
-    static constexpr float WEIRDNESS_LOW       = -0.20f;
-    static constexpr float WEIRDNESS_HIGH      = 0.60f;
+    // Weirdness field frequency: ~1/SCALE blocks per base octave (~42 here).
+    // LOW sits above the raw fBm median (0.0), so ~55% of the world maps to
+    // the minimum strength and only the upper tail of each lobe rises through
+    // the ramp. Measured over a 4096x4096 window: weirdness >= 0.5 covers
+    // ~1.6% of the world and >= 0.7 ~0.4% (zones ~6-20 blocks wide) — strong
+    // terrain comes in rare compact pockets, not common rough ground.
+    static constexpr float WEIRDNESS_SCALE     = 0.024f;
+    static constexpr float WEIRDNESS_LOW       = 0.10f;
+    static constexpr float WEIRDNESS_HIGH      = 0.75f;
 
     // The 3D shape noise is stored on a 4x4x4 world-aligned lattice and
     // trilinearly interpolated per voxel. SPACING divides the chunk size, so
@@ -262,8 +270,8 @@ private:
     }
 
     // Signed density at a world point. >0 solid, <=0 air. `weirdness` is
-    // cached per column by the chunk generator (see generate_chunk); it is
-    // clamped here so the strength never exceeds the DENSITY_MARGIN budget.
+    // cached per column by the chunk generator (see generate_chunk) and
+    // clamped to [0,1] here so strength stays in [SHAPE_STRENGTH_MIN, MAX].
     float sample_terrain_density(int32_t world_x, int32_t world_y, int32_t world_z,
                                  const ColumnSample& column, float weirdness) const {
         // Existing terrain remains the macro surface.

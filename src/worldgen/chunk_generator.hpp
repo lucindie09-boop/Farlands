@@ -89,7 +89,7 @@ private:
     static constexpr float DENSITY_MARGIN      = 30.0f;
     static constexpr float SURFACE_BAND_INNER  = 9.0f;
     static constexpr float SURFACE_BAND_OUTER  = 28.0f;
-    static constexpr float SHAPE_STRENGTH_MIN  = 1.5f;
+    static constexpr float SHAPE_STRENGTH_MIN  = 5.0f;
     static constexpr float SHAPE_STRENGTH_MAX  = 50.0f;
     // Optional: read the 3D shape field through a light 2D domain warp (the
     // same recursive scheme as the macro height warp, at much smaller scale)

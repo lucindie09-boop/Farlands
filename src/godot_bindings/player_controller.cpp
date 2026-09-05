@@ -108,6 +108,8 @@ void PlayerController::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_third_person_view", "view"), &PlayerController::set_third_person_view);
     ClassDB::bind_method(D_METHOD("get_third_person_view"), &PlayerController::get_third_person_view);
     ClassDB::bind_method(D_METHOD("update_player_animation", "is_walking"), &PlayerController::update_player_animation);
+    ClassDB::bind_method(D_METHOD("get_aim_origin"), &PlayerController::get_aim_origin);
+    ClassDB::bind_method(D_METHOD("get_aim_direction"), &PlayerController::get_aim_direction);
 
     ADD_SIGNAL(MethodInfo("crafting_table_used"));
     ADD_SIGNAL(MethodInfo("block_placed"));
@@ -184,7 +186,6 @@ void PlayerController::_ready() {
     }
     if (model_) {
         model_->set_visible(third_person_view_ > 0);
-        head_ = Object::cast_to<Node3D>(model_->get_node_or_null("head"));
     }
 
     Node* cm_node = get_node_or_null(NodePath("/root/Main/ChunkManager"));
@@ -432,6 +433,18 @@ int PlayerController::get_third_person_view() const {
     return third_person_view_;
 }
 
+godot::Vector3 PlayerController::get_aim_origin() const {
+    return get_global_position() + godot::Vector3(0.0f, sim_.get_eye_height(), 0.0f);
+}
+
+godot::Vector3 PlayerController::get_aim_direction() const {
+    // Look direction = player yaw (on this node's basis) applied to the
+    // pitch-rotated forward; matches the first-person camera's orientation.
+    const godot::Vector3 local =
+        godot::Vector3(0, 0, -1).rotated(godot::Vector3(1, 0, 0), pitch_);
+    return get_global_transform().basis.xform(local).normalized();
+}
+
 void PlayerController::update_camera_transform(float eye_height, float delta) {
     if (!camera_) return;
     const Vector3 local_forward = Vector3(0, 0, -1).rotated(Vector3(1, 0, 0), pitch_);
@@ -458,24 +471,19 @@ void PlayerController::update_camera_transform(float eye_height, float delta) {
     const float dist = camera_clear_distance(eye_world, dir_world, kThirdPersonOffset);
     camera_->set_global_position(eye_world + dir_world * dist);
 
-    // Minecraft aims the third-person camera at the player's head so the
-    // crosshair stays glued to it while the head rotates (there, the eye lies
-    // on the head's rotation axis). Our head rotates about its baked pivot —
-    // the cube's center axis — which sits 1.5 glb units off the eye's z, so
-    // aim at that axis (the head node's x/z at eye height) instead of the eye,
-    // or the crosshair would circle the head as it turns. This also handles
-    // the front view automatically (the aim direction points back at the head).
-    Vector3 aim_world = eye_world;
-    if (head_) {
-        const Vector3 hp = head_->get_global_position();
-        aim_world.x = hp.x;
-        aim_world.z = hp.z;
+    // Minecraft's third-person camera uses the player's look rotation directly
+    // (the front view adds 180 to the pitch), NOT an aim-at-player direction:
+    // the camera sits exactly on the look ray, so its forward is parallel to
+    // the eye-ray that block targeting uses and the crosshair/outline always
+    // agree with first person. Aim-derived rotations were also the cause of
+    // the near-vertical "lock": looking straight down/up the horizontal
+    // component of the aim direction vanishes, so the camera's yaw got driven
+    // by the body's lagging yaw instead of the mouse.
+    if (third_person_view_ == 1) {
+        camera_->set_rotation(Vector3(pitch_, 0.0f, 0.0f));
+    } else {
+        camera_->set_rotation(Vector3(-pitch_, kPi, 0.0f));
     }
-    const Vector3 local_dir =
-        g.basis.inverse().xform(aim_world - camera_->get_global_position()).normalized();
-    const float aim_pitch = std::asin(std::clamp(local_dir.y, -1.0f, 1.0f));
-    const float aim_yaw = std::atan2(-local_dir.x, -local_dir.z);
-    camera_->set_rotation(Vector3(aim_pitch, aim_yaw, 0.0f));
 }
 
 float PlayerController::camera_clear_distance(const Vector3& eye_world, const Vector3& dir,

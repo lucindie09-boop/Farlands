@@ -108,6 +108,12 @@ public:
     void set_third_person_view(int view);
     int get_third_person_view() const;
 
+    // Block-targeting ray — Minecraft's Entity.rayTrace: the player's eye
+    // position and look direction, independent of the camera, so every view
+    // (first person, behind, in front) targets the same block.
+    godot::Vector3 get_aim_origin() const;
+    godot::Vector3 get_aim_direction() const;
+
     // Player animation API
     void update_player_animation(bool is_walking);
 
@@ -151,9 +157,6 @@ private:
     // renderYawOffset): the body eases toward the travel direction while the
     // head stays glued to the camera, so the head visibly turns in third person.
     godot::Node3D* model_pivot_ = nullptr;
-    // The head mesh node; its world x/z mark the head's rotation axis, which
-    // the third-person camera aims at so the crosshair stays on the head.
-    godot::Node3D* head_ = nullptr;
     float body_yaw_ = 0.0f;
     godot::Vector3 spawn_point_;
 

@@ -228,17 +228,36 @@ Dictionary ChunkManager::raycast_from_camera(double max_distance) {
     Node3D* player = Object::cast_to<Node3D>(player_node);
     if (!player) return result;
 
-    Camera3D* camera = nullptr;
-    if (cached_camera) {
-        camera = cached_camera;
-    } else {
-        camera = Object::cast_to<Camera3D>(player->get_node_or_null(NodePath("Camera3D")));
-        if (camera) cached_camera = camera;
+    // Minecraft targets blocks from the player's EYE along the LOOK direction
+    // (Entity.rayTrace uses getPositionEyes + getLook), never from the camera:
+    // the third-person camera sits 4 blocks back, so a camera-based ray
+    // diverges from the eye-ray and flips which block is targeted at close
+    // range. Ask the PlayerController for the eye ray; fall back to the camera
+    // for scenes without one (e.g. the editor).
+    Vector3 ray_origin;
+    Vector3 ray_dir;
+    bool have_eye_ray = false;
+    if (player->has_method("get_aim_origin") && player->has_method("get_aim_direction")) {
+        const Variant origin_v = player->call("get_aim_origin");
+        const Variant dir_v = player->call("get_aim_direction");
+        if (origin_v.get_type() == Variant::VECTOR3 && dir_v.get_type() == Variant::VECTOR3) {
+            ray_origin = origin_v;
+            ray_dir = dir_v;
+            have_eye_ray = true;
+        }
     }
-    if (!camera) return result;
-
-    Vector3 ray_origin = camera->get_global_position();
-    Vector3 ray_dir = -camera->get_global_transform().basis.get_column(2).normalized();
+    if (!have_eye_ray) {
+        Camera3D* camera = nullptr;
+        if (cached_camera) {
+            camera = cached_camera;
+        } else {
+            camera = Object::cast_to<Camera3D>(player->get_node_or_null(NodePath("Camera3D")));
+            if (camera) cached_camera = camera;
+        }
+        if (!camera) return result;
+        ray_origin = camera->get_global_position();
+        ray_dir = -camera->get_global_transform().basis.get_column(2).normalized();
+    }
 
     RaycastResult rr = controller->get_block_editor().raycast_from_ray(ray_origin, ray_dir, max_distance);
     if (!rr.success) return result;

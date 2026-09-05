@@ -22,6 +22,13 @@ const PIVOT_SHADER: Shader = preload("res://shaders/pose_pivot_marker.gdshader")
 # a slight sink so the model's feet sit on the stand point.
 const MODEL_SCALE := 0.05625
 const MODEL_Y_OFFSET := -0.0844
+# The glb's geometry (and every part's pivot axis) is centered on glb z=1.5
+# while the node origin sits at z=0, so the model lies 1.5 glb units toward
+# its face from the origin. Offsetting the origin +0.0844 (1.5 * scale) puts
+# the rotation axis exactly on the host's x/z — same centering Main.tscn now
+# applies to the live PlayerModel — so the eye line, the crosshair and the
+# head's rotation axis all coincide like Minecraft's ModelBiped.
+const MODEL_Z_OFFSET := 0.0844
 # Marker size in glb units (world size = this * MODEL_SCALE).
 const PIVOT_MARKER_GLB := 2.0
 
@@ -96,9 +103,9 @@ func _clone_model_transform() -> Transform3D:
 		if src_model == null:
 			src_model = scene_root.get_node_or_null("Player/PlayerModel")
 	if src_model != null:
-		return Transform3D(src_model.global_transform.basis, Vector3(0, MODEL_Y_OFFSET, 0))
+		return Transform3D(src_model.global_transform.basis, Vector3(0, MODEL_Y_OFFSET, MODEL_Z_OFFSET))
 	var basis := Basis(Vector3(-MODEL_SCALE, 0, 0), Vector3(0, MODEL_SCALE, 0), Vector3(0, 0, -MODEL_SCALE))
-	return Transform3D(basis, Vector3(0, MODEL_Y_OFFSET, 0))
+	return Transform3D(basis, Vector3(0, MODEL_Y_OFFSET, MODEL_Z_OFFSET))
 
 # Where Godot thinks each part's pivot is: the MeshInstance3D's origin — the
 # point Godot rotates that node around. mi.position is the glb node translation

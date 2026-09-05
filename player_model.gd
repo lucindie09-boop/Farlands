@@ -49,21 +49,61 @@ func _ready():
 func _process(_delta: float) -> void:
 	_track_head_look()
 
-# Minecraft-style head look: the head follows the camera's yaw+pitch. The
-# model's face sits on the glb's +Z, while Godot's camera forward is -Z, so a
-# 180-degree yaw offset is folded in; unwinding the parent's global transform
-# makes the head rotate correctly regardless of the model's scale, export flip
-# or the player's yaw. Runs on the real (third-person) model and the pose
-# clone alike, and Idle.anim only animates the arms, so nothing fights it.
+# Minecraft-style head look: the head follows the player's LOOK direction
+# (mouse yaw+pitch), never the camera. The camera is placed on the look ray in
+# every view, so in the back view (mode 1) its forward coincides with the look
+# ray and copying it was harmless — but the front view (mode 2) camera is
+# yaw-flipped 180 degrees to look back at the face, so copying IT spun the
+# head a full 180 and showed the back of the head. ModelBiped drives the head
+# from rotationYawHead/rotationPitch instead, so we rebuild the look basis
+# from the controller's yaw (its world basis) + pitch (the aim direction) and
+# fold in the 180-degree offset that maps the model's +Z face onto the look
+# ray. Unwinding the parent's global transform makes it work regardless of the
+# model's scale, export flip, body-yaw lag or the player's yaw. Runs on the
+# real (third-person) model and the pose clone alike; Idle.anim only animates
+# the arms, so nothing fights it.
+func _look_controller() -> Node:
+	# The live model lives under PlayerController's ModelPivot, so its ancestor
+	# chain has the controller. The pose clone is a detached copy under a plain
+	# Node3D — it has no controller of its own, so fall back to the scene's
+	# live Player node (whose look all these heads mirror).
+	var n: Node = self
+	while n != null:
+		if n.has_method("get_aim_direction"):
+			return n
+		n = n.get_parent()
+	var scene_root := get_tree().current_scene
+	if scene_root != null:
+		var player := scene_root.get_node_or_null("Player")
+		if player != null and player.has_method("get_aim_direction"):
+			return player
+	return null
+
 func _track_head_look() -> void:
 	if _head == null:
 		return
-	var cam := get_viewport().get_camera_3d()
-	if cam == null:
-		return
+	var ctrl := _look_controller()
 	var parent_q: Quaternion = _head.get_parent().global_transform.basis.get_rotation_quaternion()
-	var cam_q: Quaternion = cam.global_transform.basis.get_rotation_quaternion()
-	_head.quaternion = parent_q.inverse() * cam_q * Quaternion(Vector3.UP, PI)
+	if ctrl != null:
+		# Pitch from the aim direction expressed in the controller's own frame:
+		# aim = ctrl_basis * rotX(pitch) * (0,0,-1), so local.y == sin(pitch) and
+		# look_q = ctrl_q * rotX(pitch) reproduces the exact basis the camera gets
+		# in modes 0/1 — view-independent by construction.
+		var ctrl_q: Quaternion = (ctrl as Node3D).global_transform.basis.get_rotation_quaternion()
+		var dir: Vector3 = ctrl.get_aim_direction()
+		var local: Vector3 = (ctrl_q.inverse() * dir).normalized()
+		var pitch := asin(clampf(local.y, -1.0, 1.0))
+		var look_q: Quaternion = ctrl_q * Quaternion(Vector3.RIGHT, pitch)
+		_head.quaternion = parent_q.inverse() * look_q * Quaternion(Vector3.UP, PI)
+	else:
+		# No gameplay controller (skin-maker preview, menu screens): follow the
+		# viewport camera as before — those cameras orbit the model and never
+		# get the yaw-flipped front-view treatment, so copying is correct here.
+		var cam := get_viewport().get_camera_3d()
+		if cam == null:
+			return
+		var cam_q: Quaternion = cam.global_transform.basis.get_rotation_quaternion()
+		_head.quaternion = parent_q.inverse() * cam_q * Quaternion(Vector3.UP, PI)
 
 func set_animation_state(is_walking: bool) -> void:
 	if _anim_player == null:

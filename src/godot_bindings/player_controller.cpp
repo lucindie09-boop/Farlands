@@ -36,9 +36,6 @@ constexpr float kMaxLookPitch = kPi / 2.0f; // ±90°, matching Minecraft
 // tighter and more responsive).
 constexpr float kBodyTurnPerTick = 0.3f;
 constexpr float kBodyMaxYaw = 35.0f * kPi / 180.0f;
-// First-person walk bob: ~0.07-block vertical bob at ~6 rad/s at full speed.
-constexpr float kBobAmplitude = 0.07f;
-constexpr float kBobSpeed = 6.0f;
 
 float wrap_pi(float a) {
     return std::remainder(a, kTwoPi);
@@ -187,6 +184,7 @@ void PlayerController::_ready() {
     }
     if (model_) {
         model_->set_visible(third_person_view_ > 0);
+        head_ = Object::cast_to<Node3D>(model_->get_node_or_null("head"));
     }
 
     Node* cm_node = get_node_or_null(NodePath("/root/Main/ChunkManager"));
@@ -254,7 +252,7 @@ void PlayerController::_process(double delta) {
         set_global_position(pos);
         sim_.reset(pos);
         rendered_eye_height_ = 1.62f;
-        update_camera_transform(1.62f, 0.0f, static_cast<float>(delta));
+        update_camera_transform(1.62f, static_cast<float>(delta));
         return;
     }
 
@@ -323,10 +321,7 @@ void PlayerController::_process(double delta) {
         }
     }
 
-    // Walk amount drives the first-person bob (0..1); no bob in third person.
-    const float walk_amount = (pi.wish_direction.length_squared() > 0.01f && sim_.is_on_floor())
-        ? std::min(1.0f, pi.wish_direction.length()) : 0.0f;
-    update_camera_transform(sim_.get_eye_height(), walk_amount, static_cast<float>(delta));
+    update_camera_transform(sim_.get_eye_height(), static_cast<float>(delta));
 }
 
 void PlayerController::_input(const Ref<InputEvent>& p_event) {
@@ -430,30 +425,23 @@ void PlayerController::set_third_person_view(int view) {
     }
     // Reposition the camera immediately for a smooth transition; _process
     // keeps it up to date every frame after this.
-    update_camera_transform(rendered_eye_height_, 0.0f, 1.0f / 60.0f);
+    update_camera_transform(rendered_eye_height_, 1.0f / 60.0f);
 }
 
 int PlayerController::get_third_person_view() const {
     return third_person_view_;
 }
 
-void PlayerController::update_camera_transform(float eye_height, float walk_amount, float delta) {
+void PlayerController::update_camera_transform(float eye_height, float delta) {
     if (!camera_) return;
     const Vector3 local_forward = Vector3(0, 0, -1).rotated(Vector3(1, 0, 0), pitch_);
 
     if (third_person_view_ == 0) {
-        // First person: smooth eye-height blend plus a Minecraft-style walk bob
-        // (subtle vertical bob that also sways the viewmodel, a camera child).
+        // First person: steady eye-height blend, no walk bob.
         const float target = eye_height;
         rendered_eye_height_ += (target - rendered_eye_height_)
             * static_cast<float>(1.0 - std::pow(0.0001, delta));
-        walk_amount = std::clamp(walk_amount, 0.0f, 1.0f);
-        if (walk_amount > 0.0f) {
-            walk_phase_ += delta * kBobSpeed * walk_amount;
-        }
-        const float bob_target = std::sin(walk_phase_) * kBobAmplitude * walk_amount;
-        walk_bob_ += (bob_target - walk_bob_) * std::min(1.0f, static_cast<float>(delta) * 10.0f);
-        camera_->set_position(Vector3(0, rendered_eye_height_ + walk_bob_, 0));
+        camera_->set_position(Vector3(0, rendered_eye_height_, 0));
         camera_->set_rotation(Vector3(pitch_, 0.0f, 0.0f));
         return;
     }
@@ -469,11 +457,25 @@ void PlayerController::update_camera_transform(float eye_height, float walk_amou
     const Vector3 dir_world = g.basis.xform(local_forward).normalized() * dir_sign;
     const float dist = camera_clear_distance(eye_world, dir_world, kThirdPersonOffset);
     camera_->set_global_position(eye_world + dir_world * dist);
-    if (third_person_view_ == 1) {
-        camera_->set_rotation(Vector3(pitch_, 0.0f, 0.0f));  // forward, past the player
-    } else {
-        camera_->set_rotation(Vector3(pitch_, kPi, 0.0f));   // back toward the player
+
+    // Minecraft aims the third-person camera at the player's head so the
+    // crosshair stays glued to it while the head rotates (there, the eye lies
+    // on the head's rotation axis). Our head rotates about its baked pivot —
+    // the cube's center axis — which sits 1.5 glb units off the eye's z, so
+    // aim at that axis (the head node's x/z at eye height) instead of the eye,
+    // or the crosshair would circle the head as it turns. This also handles
+    // the front view automatically (the aim direction points back at the head).
+    Vector3 aim_world = eye_world;
+    if (head_) {
+        const Vector3 hp = head_->get_global_position();
+        aim_world.x = hp.x;
+        aim_world.z = hp.z;
     }
+    const Vector3 local_dir =
+        g.basis.inverse().xform(aim_world - camera_->get_global_position()).normalized();
+    const float aim_pitch = std::asin(std::clamp(local_dir.y, -1.0f, 1.0f));
+    const float aim_yaw = std::atan2(-local_dir.x, -local_dir.z);
+    camera_->set_rotation(Vector3(aim_pitch, aim_yaw, 0.0f));
 }
 
 float PlayerController::camera_clear_distance(const Vector3& eye_world, const Vector3& dir,

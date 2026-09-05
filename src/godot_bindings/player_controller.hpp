@@ -151,17 +151,16 @@ private:
     // renderYawOffset): the body eases toward the travel direction while the
     // head stays glued to the camera, so the head visibly turns in third person.
     godot::Node3D* model_pivot_ = nullptr;
+    // The head mesh node; its world x/z mark the head's rotation axis, which
+    // the third-person camera aims at so the crosshair stays on the head.
+    godot::Node3D* head_ = nullptr;
     float body_yaw_ = 0.0f;
-    // First-person walk bob state (phase + eased current bob height).
-    float walk_phase_ = 0.0f;
-    float walk_bob_ = 0.0f;
     godot::Vector3 spawn_point_;
 
     // Position/orient the camera for the current view (0/1/2) with
     // Minecraft-style block collision (pull the third-person camera in before
-    // it clips through terrain) and first-person walk bob. walk_amount is 0..1
-    // and drives the bob amplitude in first person only.
-    void update_camera_transform(float eye_height, float walk_amount, float delta);
+    // it clips through terrain).
+    void update_camera_transform(float eye_height, float delta);
     // Maximum camera distance along dir (from eye_world) that stays clear of
     // solid blocks; returns the pulled-in distance if the ray hits terrain.
     float camera_clear_distance(const godot::Vector3& eye_world,

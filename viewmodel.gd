@@ -128,8 +128,12 @@ const MC_SHOULDER := Vector3(0.67, -0.01, -0.75)
 
 # Peak-punch pose, manually verified with the F12 HUD. The animation sweeps the
 # hand along a semicircular arc from the resting pose to this peak pose.
-const PEAK_ROT := Vector3(0.0, 58.0, -10.0)
-const PEAK_POS := Vector3(0.19, 0.26, -0.75)
+# Re-aimed on the crosshair by freezing the pose, promoting it to the F12 base
+# and nudging until the fist sat at screen center — a pure rest-delta remap
+# wasn't enough because the arm scale change (1.17x) and Euler composition
+# move the fist differently for the same pivot translation.
+const PEAK_ROT := Vector3(10.0, 30.0, -5.0)
+const PEAK_POS := Vector3(0.1, 0.19, -1.59)
 
 # Peak-punch pose for the HELD ITEM, manually calculated with the F12 HUD.
 # Kept as the RAW HUD readouts (not normalized) because they're close to the

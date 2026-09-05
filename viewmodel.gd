@@ -45,6 +45,9 @@ var _block_defs: Array = []  # Block definitions for shape lookup
 # Removed unused variable _last_cam_rot to clear the warning error
 var _item_sway_offset: Vector3 = Vector3.ZERO
 var _mouse_delta: Vector2 = Vector2.ZERO
+# When true, pins every viewmodel animation (sway, bob, swing, equip) to its
+# rest value so the F12 HUD shows the exact tuned pose — handy while re-tuning.
+var _freeze_animations := false
 var _block_shapes: Dictionary = {}  # shape_name -> shape data
 
 # Walk bobbing (vanilla bobView): _walk_dist accumulates distance walked,
@@ -61,13 +64,13 @@ var _bob_rotation := Vector3.ZERO
 var _hud_panel: Control
 var _hud_visible := false
 var _adjustment_mode := "ARM" # "ARM", "BLOCK", or "ITEM"
-var _rotation_x: float = 5.0
-var _rotation_y: float = -13.0
-var _rotation_z: float = 5.0
-var _arm_scale: float = 1.0
-var _arm_position_x: float = 0.67
-var _arm_position_y: float = -0.01
-var _arm_position_z: float = -0.75
+var _rotation_x: float = 10.0
+var _rotation_y: float = -16.0
+var _rotation_z: float = 0.0
+var _arm_scale: float = 1.17
+var _arm_position_x: float = 1.41
+var _arm_position_y: float = -0.1
+var _arm_position_z: float = -1.59
 
 # Block model adjustment
 var _block_rotation_x: float = 0.0
@@ -170,13 +173,11 @@ func _ready() -> void:
 	_arm_pivot.add_child(arm_node)
 	# Scale only the mesh, not the node position, to preserve pivot alignment
 	arm_node.position = Vector3(0, -12.0, 0) * MODEL_SCALE
-	arm_node.scale = Vector3.ONE * MODEL_SCALE
 	arm_node.rotation_degrees = Vector3.ZERO
-	# Apply scale to mesh instances instead of the node
-	for mesh_instance in arm_node.find_children("", "MeshInstance3D", true, false):
-		var mi := mesh_instance as MeshInstance3D
-		if mi != null:
-			mi.scale = Vector3.ONE * _arm_scale
+	# The glb part node IS the MeshInstance3D (no child meshes), so _arm_scale
+	# must multiply the node's own scale — its origin is the shoulder pivot,
+	# so scaling grows the arm naturally from the joint.
+	arm_node.scale = Vector3.ONE * MODEL_SCALE * _arm_scale
 	_arm_pivot.basis = MC_ARM_BASIS
 
 	_flip_arm_mesh_uvs(arm_node)
@@ -267,6 +268,27 @@ func _process(delta: float) -> void:
 		return
 	visible = not _player.get_third_person() and not _player.is_dead()
 	if not visible:
+		return
+	if _freeze_animations:
+		# Reconfiguration mode: pin every animation at rest and just apply the
+		# tuned pose, so the F12 HUD adjustments show up without motion noise.
+		_swing = 0.0
+		_swing_place = 0.0
+		_swing_strength = 1.0
+		_equip = 1.0
+		_is_swapping = false
+		_item_sway_offset = Vector3.ZERO
+		_mouse_delta = Vector2.ZERO
+		_bob = 0.0
+		_bob_offset = Vector3.ZERO
+		_bob_rotation = Vector3.ZERO
+		_has_last_pos = false
+		if _hand_bob != null:
+			_hand_bob.rotation = Vector3.ZERO
+		if _arm != null:
+			_arm.visible = _block_id <= 0
+		_update_swing_hooks()
+		_refresh_held_item()
 		return
 	if _swing > 0.0:
 		_swing = maxf(_swing - delta / 0.225, 0.0)
@@ -776,12 +798,10 @@ func _update_arm_rotation() -> void:
 		_arm_pivot.basis = _arm_pivot.basis.rotated(Vector3.BACK, deg_to_rad(_rotation_z))
 	if _arm != null:
 		_arm.position = Vector3(0, -12.0, 0) * MODEL_SCALE
-		_arm.scale = Vector3.ONE * MODEL_SCALE
-		# Update mesh instance scales
-		for mesh_instance in _arm.find_children("", "MeshInstance3D", true, false):
-			var mi := mesh_instance as MeshInstance3D
-			if mi != null:
-				mi.scale = Vector3.ONE * _arm_scale
+		# The arm node (a glb MeshInstance3D) scales itself — see _ready. The
+		# old per-child-MeshInstance loop found no children, so _arm_scale did
+		# nothing.
+		_arm.scale = Vector3.ONE * MODEL_SCALE * _arm_scale
 	if _arm_root != null:
 		_arm_root.position = Vector3(_arm_position_x, _arm_position_y, _arm_position_z)
 

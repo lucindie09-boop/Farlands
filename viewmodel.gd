@@ -153,6 +153,10 @@ func _ready() -> void:
 	_player = get_node_or_null("/root/Main/Player")
 	if _player != null and _player.has_signal("block_placed"):
 		_player.block_placed.connect(place)
+	# Using a crafting table (right-click opens the 3x3 menu) also swings the
+	# hand like a place — same weaker 75% endpoint stroke.
+	if _player != null and _player.has_signal("crafting_table_used"):
+		_player.crafting_table_used.connect(place)
 	
 	_load_block_definitions()
 	_load_block_shapes()

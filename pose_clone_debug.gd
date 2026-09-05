@@ -8,8 +8,10 @@ extends Node
 ## fresh player.glb instance carrying player_model.gd with an AnimationPlayer
 ## child — so the Idle animation loads and plays through the same code path as
 ## the real model. Pivot markers are parented to each MeshInstance3D, so they
-## sit at the node origin (the Blockbench pivot: leg/leg2 y=0, torso/arm/arm2
-## y=12, head y=24 in glb units) and follow the animation if a part moves.
+## sit at the node origin and follow the animation if a part moves. The glb
+## was re-baked by tools/rebake_player_pivots.py so those origins sit on the
+## true Blockbench pivots (arm/arm2 tops at y=24, leg/leg2 tops at y=12,
+## torso y=18, head y=28 in glb units).
 
 const PLAYER_SCENE: PackedScene = preload("res://player.glb")
 const PLAYER_MODEL_SCRIPT: Script = preload("res://player_model.gd")

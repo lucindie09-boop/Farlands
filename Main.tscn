@@ -49,7 +49,7 @@ fov = 81.7
 script = ExtResource("18_viewmodel")
 
 [node name="PlayerModel" parent="Player" unique_id=106842341 instance=ExtResource("14_playermodel")]
-transform = Transform3D(-0.05625, 0, 0, 0, 0.05625, 0, 0, 0, -0.05625, 0, 0, -0.0844)
+transform = Transform3D(-0.05625, 0, 0, 0, 0.05625, 0, 0, 0, -0.05625, 0, 0, 0.0844)
 visible = false
 script = ExtResource("15_playerskin")
 

@@ -20,8 +20,15 @@ centered on each cube's top/center where the joint visually is:
                                        neck and rotates in place like ModelBiped, which
                                        centers the head box on its pivot axis)
 
-This script is idempotent: it uses each node's CURRENT translation as the
-origin to shift from, so it can be re-run after editing the PIVOTS table.
+It also insets every face island's UVs by half a texel (see
+inset_all_uvs) so nearest sampling at a face edge can never round into the
+skin atlas's transparent gutters — the alpha-masked material would otherwise
+discard those edge fragments, which reads as hairline see-through at the
+model's edges.
+
+Both steps are idempotent: the pivot shift uses each node's CURRENT
+translation as the origin to shift from, and the UV inset skips itself once
+the UVs leave the 1/64 texel grid.
 
 Usage:  python tools/rebake_player_pivots.py [path-to-player.glb]
 """
@@ -46,6 +53,71 @@ PIVOTS = {
 COMP_SIZE = {5120: 1, 5121: 1, 5122: 2, 5123: 2, 5125: 4, 5126: 4}
 COMP_COUNT = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4,
               "MAT2": 4, "MAT3": 9, "MAT4": 16}
+
+
+# Half-texel UV inset: every face island's UV rect is pulled in by half a
+# texel (0.5/64) on all four sides, so nearest sampling at a face's edge can
+# never round into the neighbouring transparent gutter texel of the skin
+# atlas. Blockbench writes UV corners exactly on the 1/64 texel grid, and at
+# the exact island boundary nearest sampling ties with the adjacent gutter —
+# the alpha-masked glb material discards those fragments, which reads as
+# hairline see-through at the model's edges. Positions and pivots are
+# untouched. Idempotent: once UVs leave the 1/64 grid this step has already
+# run, so it skips itself (re-running would keep pulling the islands inwards).
+def inset_all_uvs(j: dict, bin_chunk: bytearray) -> None:
+    half = 0.5 / 64.0
+
+    # Idempotency guard: skip if any UV is already off the 1/64 grid.
+    for mesh in j["meshes"]:
+        prim = mesh["primitives"][0]
+        acc = j["accessors"][prim["attributes"]["TEXCOORD_0"]]
+        bv = j["bufferViews"][acc["bufferView"]]
+        base = bv["byteOffset"] + acc.get("byteOffset", 0)
+        for v in range(acc["count"]):
+            u, w = struct.unpack_from("<2f", bin_chunk, base + v * 8)
+            if abs(u * 64.0 - round(u * 64.0)) > 1e-4 or \
+                    abs(w * 64.0 - round(w * 64.0)) > 1e-4:
+                print("UVs already inset (off the 1/64 grid) — skipping inset step")
+                return
+
+    for mesh_idx, mesh in enumerate(j["meshes"]):
+        prim = mesh["primitives"][0]
+        uv_acc = j["accessors"][prim["attributes"]["TEXCOORD_0"]]
+        idx_acc = j["accessors"][prim["indices"]]
+        uvb = j["bufferViews"][uv_acc["bufferView"]]
+        ivb = j["bufferViews"][idx_acc["bufferView"]]
+        ubase = uvb["byteOffset"] + uv_acc.get("byteOffset", 0)
+        ibase = ivb["byteOffset"] + idx_acc.get("byteOffset", 0)
+        assert uv_acc["componentType"] == 5126 and uv_acc["type"] == "VEC2"
+        assert idx_acc["componentType"] == 5123, "expected uint16 indices"
+        assert uv_acc["count"] == 24 and idx_acc["count"] == 36, \
+            "expected a Blockbench box: 24 vertices, 36 indices"
+
+        node = next(n for n in j["nodes"] if n.get("mesh") == mesh_idx)
+        insetted = 0
+        for f in range(6):
+            idxs = [struct.unpack_from("<H", bin_chunk, ibase + 2 * i)[0]
+                    for i in range(f * 6, f * 6 + 6)]
+            verts = list(dict.fromkeys(idxs))
+            assert len(verts) == 4, "expected a quad face"
+            uvs = [struct.unpack_from("<2f", bin_chunk, ubase + 8 * v)
+                   for v in verts]
+            u_min = min(p[0] for p in uvs)
+            u_max = max(p[0] for p in uvs)
+            v_min = min(p[1] for p in uvs)
+            v_max = max(p[1] for p in uvs)
+            for v, (u, w) in zip(verts, uvs):
+                nu = (u_min + half) if abs(u - u_min) < 1e-9 else (u_max - half)
+                nw = (v_min + half) if abs(w - v_min) < 1e-9 else (v_max - half)
+                struct.pack_into("<2f", bin_chunk, ubase + 8 * v, nu, nw)
+                insetted += 1
+        # Recompute the accessor bounds from the insetted vertices.
+        all_uvs = [struct.unpack_from("<2f", bin_chunk, ubase + 8 * v)
+                   for v in range(uv_acc["count"])]
+        uv_acc["min"] = [min(p[0] for p in all_uvs), min(p[1] for p in all_uvs)]
+        uv_acc["max"] = [max(p[0] for p in all_uvs), max(p[1] for p in all_uvs)]
+        print(f"mesh {mesh_idx} ({node['name']}): insetted {insetted} face UVs "
+              f"by 0.5/64 texel")
 
 
 def main() -> None:
@@ -92,6 +164,8 @@ def main() -> None:
         acc["max"] = maxs
         print(f"mesh {mesh_idx} ({node['name']}): origin {old_t} -> {new_p}, "
               f"vertices shifted by {shift}")
+
+    inset_all_uvs(j, bin_chunk)
 
     # Reassemble the glb (JSON chunk is re-serialized; BIN chunk rewritten).
     new_json = json.dumps(j, separators=(",", ":")).encode("utf-8")

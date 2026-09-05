@@ -14,6 +14,15 @@ const CURRENT_SKIN_PATH := "user://current_skin.png"
 const NOISE_BASE_PATH := "user://skin_noise_base.png"
 const ATLAS_DIM := 64
 
+# 8-neighbour offsets used by _padded_image's gutter bleed (cardinal +
+# diagonal): a face-CORNER boundary tie can round into a diagonal gutter texel
+# too, so those get bled as well. A typed member constant avoids any
+# loop-variable inference ambiguity in the analyzer.
+const NEIGHBOR_OFFSETS: Array[Vector2i] = [
+	Vector2i(-1, 0), Vector2i(1, 0), Vector2i(0, -1), Vector2i(0, 1),
+	Vector2i(-1, -1), Vector2i(1, -1), Vector2i(-1, 1), Vector2i(1, 1),
+]
+
 const NOISE_SEED := 20240829
 const MAX_GRAIN := 0.35
 
@@ -61,6 +70,38 @@ func get_texture() -> ImageTexture:
 func get_image() -> Image:
 	return image
 
+# The GPU-sampled copy of the skin: EVERY transparent texel is filled from its
+# nearest opaque neighbour, pass by pass, so the entire atlas ends up opaque —
+# not just the gutters adjacent to an island. Blockbench writes UV corners on
+# exact 1/64 texel boundaries and the glb material is alpha-masked, so without
+# this a face-edge pixel whose UV rounds into a transparent gutter texel
+# (cardinal at edges, DIAGONAL at face corners) gets discarded — hairline
+# see-through at the model's edges. Combined with the player material being
+# fully opaque (player_model.gd), no sampling outcome can ever discard a
+# fragment. Reading from `padded` (not `image`) lets the fill propagate outward
+# one texel per pass. The working `image` stays clean: painting, undo and
+# saving all use the unpadded grid, and only this copy is sampled.
+func _padded_image() -> Image:
+	var padded: Image = image.duplicate()
+	var filled := true
+	while filled:
+		filled = false
+		for y in range(ATLAS_DIM):
+			for x in range(ATLAS_DIM):
+				if padded.get_pixel(x, y).a >= 0.05:
+					continue
+				for off in NEIGHBOR_OFFSETS:
+					var nx: int = x + off.x
+					var ny: int = y + off.y
+					if nx < 0 or ny < 0 or nx >= ATLAS_DIM or ny >= ATLAS_DIM:
+						continue
+					var c: Color = padded.get_pixel(nx, ny)
+					if c.a >= 0.05:
+						padded.set_pixel(x, y, c)
+						filled = true
+						break
+	return padded
+
 # Get the clean (noise-free) image for saving. Returns noise_base if noise is
 # active, otherwise the current image. This ensures saved skins can have noise
 # re-applied or adjusted later without losing the base colors.
@@ -87,9 +128,9 @@ func set_from_image(img: Image) -> void:
 func _set_image(img: Image) -> void:
 	image = img
 	if texture == null:
-		texture = ImageTexture.create_from_image(image)
+		texture = ImageTexture.create_from_image(_padded_image())
 	else:
-		texture.update(image)
+		texture.update(_padded_image())
 
 # Paint one texel. Returns true when the pixel actually changed; callers read
 # the old colour from get_image() beforehand (for undo stroke recording). While
@@ -101,7 +142,7 @@ func set_pixel(px: int, py: int, color: Color) -> bool:
 	if image.get_pixel(px, py).is_equal_approx(color):
 		return false
 	image.set_pixel(px, py, color)
-	texture.update(image)
+	texture.update(_padded_image())
 	if noise_severity > 0.0 and noise_base != null:
 		noise_base.set_pixel(px, py, color)
 	_schedule_save()
@@ -118,7 +159,7 @@ func apply_gray_noise(base: Image, noise_map: Image, amount: float) -> void:
 	if out == null:
 		return
 	image = out
-	texture.update(image)
+	texture.update(_padded_image())
 	_schedule_save()
 
 # Set live noise severity (0..100). The effect always redraws from the clean
@@ -181,7 +222,7 @@ func fill_uv_rect(lo: Vector2, hi: Vector2, color: Color) -> void:
 					noise_base.set_pixel(x, y, color)
 				changed = true
 	if changed:
-		texture.update(image)
+		texture.update(_padded_image())
 		_schedule_save()
 
 func _schedule_save() -> void:

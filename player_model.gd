@@ -163,6 +163,21 @@ func apply_skin_texture():
 				# neighboring UV islands, causing the smeared/aliased look on
 				# angled or minified (side) faces.
 				material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+				# The glb exports doubleSided (no culling), which leaves the
+				# coplanar faces at every part junction (arm-torso at x=-4,
+				# head-torso and legs-torso at y=24/12) fighting over the same
+				# depth — visible shimmering/see-through seams. All six parts
+				# are closed cubes with consistent winding, so backface culling
+				# is correct and resolves each junction to its outward face.
+				material.cull_mode = BaseMaterial3D.CULL_BACK
+				# The skin atlas is fully padded (SkinManager._padded_image
+				# fills EVERY transparent texel), so every sampled texel is
+				# opaque — the glb's alpha mask (alphaMode MASK) is then pure
+				# downside: it can only DISCARD edge pixels whose UV rounds into
+				# what used to be a transparent gutter texel, which is exactly
+				# the hairline see-through at the model's edges. An opaque
+				# material makes a discard impossible.
+				material.transparency = BaseMaterial3D.TRANSPARENCY_DISABLED
 				# Create an override material if one doesn't exist
 				if mesh_instance.get_surface_override_material(surface_index) == null:
 					mesh_instance.set_surface_override_material(surface_index, material)

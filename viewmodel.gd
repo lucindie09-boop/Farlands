@@ -451,6 +451,15 @@ func _refresh_held_item() -> void:
 	var std_mat := _material as StandardMaterial3D
 	if std_mat != null:
 		std_mat.albedo_texture = tex
+		# Blocks use fully-opaque textures, so the alpha scissor is pure
+		# downside — it can only DISCARD edge pixels whose UV rounds onto a
+		# texel boundary, which reads as see-through cracks at the block's
+		# edges. Items keep the scissor: their sprite textures need the alpha
+		# test for their transparent silhouette.
+		if BlockTextures.is_item(current_display_id):
+			std_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+		else:
+			std_mat.transparency = BaseMaterial3D.TRANSPARENCY_DISABLED
 	
 	_item.visible = true
 	if BlockTextures.is_item(current_display_id):

@@ -195,7 +195,7 @@ Open the project root in Godot 4 and press Play. The main scene is `Main.tscn`. 
 | Shift | Sprint |
 | Ctrl | Sneak / descend in flight |
 | F | Toggle fly mode |
-| F5 | Toggle third-person camera |
+| F5 | Cycle camera view: behind player → front of player → first person |
 | K | Spawn/remove an animated pose clone of the player on the aimed block (debug: shows a cube at each mesh pivot) |
 | 1–9 | Select hotbar slot |
 | E | Toggle inventory |

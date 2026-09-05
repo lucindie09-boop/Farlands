@@ -11,7 +11,7 @@ extends Node
 ## sit at the node origin and follow the animation if a part moves. The glb
 ## was re-baked by tools/rebake_player_pivots.py so those origins sit on the
 ## true Blockbench pivots (arm/arm2 tops at y=24, leg/leg2 tops at y=12,
-## torso y=18, head y=28 in glb units).
+## torso y=18, head at the neck y=24 in glb units).
 
 const PLAYER_SCENE: PackedScene = preload("res://player.glb")
 const PLAYER_MODEL_SCRIPT: Script = preload("res://player_model.gd")
@@ -88,9 +88,15 @@ func _despawn() -> void:
 # with the feet placed exactly on the stand point.
 func _clone_model_transform() -> Transform3D:
 	var scene_root := get_tree().current_scene
-	var src_model := scene_root.get_node_or_null("Player/PlayerModel") if scene_root else null
-	if src_model is Node3D:
-		return Transform3D((src_model as Node3D).global_transform.basis, Vector3(0, MODEL_Y_OFFSET, 0))
+	# The live model now lives under PlayerController's ModelPivot wrapper
+	# (body-yaw lag); fall back to the old path just in case.
+	var src_model: Node3D = null
+	if scene_root:
+		src_model = scene_root.get_node_or_null("Player/ModelPivot/PlayerModel")
+		if src_model == null:
+			src_model = scene_root.get_node_or_null("Player/PlayerModel")
+	if src_model != null:
+		return Transform3D(src_model.global_transform.basis, Vector3(0, MODEL_Y_OFFSET, 0))
 	var basis := Basis(Vector3(-MODEL_SCALE, 0, 0), Vector3(0, MODEL_SCALE, 0), Vector3(0, 0, -MODEL_SCALE))
 	return Transform3D(basis, Vector3(0, MODEL_Y_OFFSET, 0))
 

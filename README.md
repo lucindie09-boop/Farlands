@@ -43,6 +43,7 @@ A Minecraft-style voxel engine built in Godot 4 with a custom C++ GDExtension. P
 | Collision | `src/engine/collision_resolver.cpp` | Custom binary-search AABB voxel grid query (no Godot physics nodes), step-up support |
 | Day/night | `src/world/day_night_cycle.hpp` | Shader-driven sky-light intensity + color blending |
 | Player sim | `src/engine/player_controller.hpp/cpp` | Minecraft-accurate fixed 20-tick/s physics: vanilla jump/sprint/sneak ordering, accumulator, smooth eye-height transitions, fall-distance tracking with vanilla landing damage (1 half-heart per block past 3) |
+| Player camera & body | `src/godot_bindings/player_controller.cpp`, `player_model.gd`, `pose_clone_debug.gd` | F5 cycles first person → behind → in front (face view); the third-person cameras sit on the look ray 4 blocks out and pull in before solid terrain. Block targeting always casts from the player's eye along the look direction (`get_aim_origin`/`get_aim_direction`) so every view aims at the same block. The body lives under a `ModelPivot` applying Minecraft's `renderYawOffset` body-yaw lag (torso faces travel direction, head leads up to ±35°) while `player_model.gd` drives the head from the aim direction; `player.glb` pivots are baked onto the true joints by `tools/rebake_player_pivots.py`. K spawns an animated pose clone with a marker at each mesh pivot |
 | LOD | `lod_distance` / `lod_detail_level` / `far_lod_distance` / `far_lod_detail_level` (`mesh_manager.cpp`) | Three tiers — full detail, mid stride/detail reduction, and far tier with its own detail level; LOD-reduced chunks merged into regions; capped remesh-per-frame |
 | Frame budgets | `src/core/frame_budgets.hpp` | Tiered budgets for generate/light/mesh/upload (idle/active/loading) |
 | Performance timers | `src/core/performance_timer.hpp` | Scoped frame-by-frame profiling |
@@ -195,7 +196,7 @@ Open the project root in Godot 4 and press Play. The main scene is `Main.tscn`. 
 | Shift | Sprint |
 | Ctrl | Sneak / descend in flight |
 | F | Toggle fly mode |
-| F5 | Cycle camera view: behind player → front of player → first person |
+| F5 | Cycle camera view: first person → behind the player → in front of the player (looking at your face) |
 | K | Spawn/remove an animated pose clone of the player on the aimed block (debug: shows a cube at each mesh pivot) |
 | 1–9 | Select hotbar slot |
 | E | Toggle inventory |
@@ -207,6 +208,8 @@ Open the project root in Godot 4 and press Play. The main scene is `Main.tscn`. 
 | Up/Down arrows | Cycle through completions (when chat is open and completions are available) |
 
 Input bindings live in `project.godot` (`move_forward`, `move_back`, `move_left`, `move_right`, `jump`, `sprint`, `sneak`, `fly_toggle`, `toggle_inventory`, `toggle_chat`, `toggle_third_person`, `mouse_click_left`, `mouse_click_right`, `pose_clone_toggle`). The C++ `PlayerController` node owns all movement, look, block interaction, and inventory state — there is no player GDScript. The hotbar/inventory screens are GDScript `Control` overlays that read/write that state.
+
+The F5 back/front cameras sit on your look ray 4 blocks out and slide in before any solid block, so they never clip through terrain; the in-front view looks back at your face. Block targeting casts from your eye along the look direction in every view (like Minecraft's `Entity.rayTrace`), so the crosshair, block outline, and the player's head all agree with first person. In third person the body lags behind your look Minecraft-style: the torso eases toward your movement direction (dragged along once your head leads it by more than ~35°) while the head tracks your aim continuously.
 
 ### Controls Rebinding
 

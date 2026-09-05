@@ -16,7 +16,7 @@ centered on each cube's top/center where the joint visually is:
     leg1/leg2 tops   (-2/2, 12, 1.5)   (dead-center on the leg cubes)
     torso center     (0, 18, 0)        (z=0 per Blockbench; cubes are z 1.5)
     arm1/arm2 tops   (-5.5/5.5, 24, 1.5)  (dead-center: cubes span x -7..-4 / 4..7)
-    head center      (0, 28, 0)        (z=0 per Blockbench)
+    head neck        (0, 24, 0)        (bottom of head cube, so it tilts at the neck)
 
 This script is idempotent: it uses each node's CURRENT translation as the
 origin to shift from, so it can be re-run after editing the PIVOTS table.
@@ -38,7 +38,7 @@ PIVOTS = {
     2: (0.0, 18.0, 0.0),      # torso
     3: (-5.5, 24.0, 1.5),     # arm
     4: (5.5, 24.0, 1.5),      # arm2
-    5: (0.0, 28.0, 0.0),      # head
+    5: (0.0, 24.0, 0.0),      # head (neck joint)
 }
 
 COMP_SIZE = {5120: 1, 5121: 1, 5122: 2, 5123: 2, 5125: 4, 5126: 4}

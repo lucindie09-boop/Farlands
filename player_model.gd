@@ -14,6 +14,7 @@ var _uv_overlay_mat: ShaderMaterial
 var _paint_image: Image
 var _paint_texture: ImageTexture
 var _anim_player: AnimationPlayer
+var _head: Node3D = null
 
 func _manager():
 	return get_node_or_null("/root/SkinManager")
@@ -43,6 +44,26 @@ func _ready():
 			_anim_player.play("default/Idle")
 		else:
 			print("Failed to load Idle.anim")
+	_head = find_child("head", true, false)
+
+func _process(_delta: float) -> void:
+	_track_head_look()
+
+# Minecraft-style head look: the head follows the camera's yaw+pitch. The
+# model's face sits on the glb's +Z, while Godot's camera forward is -Z, so a
+# 180-degree yaw offset is folded in; unwinding the parent's global transform
+# makes the head rotate correctly regardless of the model's scale, export flip
+# or the player's yaw. Runs on the real (third-person) model and the pose
+# clone alike, and Idle.anim only animates the arms, so nothing fights it.
+func _track_head_look() -> void:
+	if _head == null:
+		return
+	var cam := get_viewport().get_camera_3d()
+	if cam == null:
+		return
+	var parent_q: Quaternion = _head.get_parent().global_transform.basis.get_rotation_quaternion()
+	var cam_q: Quaternion = cam.global_transform.basis.get_rotation_quaternion()
+	_head.quaternion = parent_q.inverse() * cam_q * Quaternion(Vector3.UP, PI)
 
 func set_animation_state(is_walking: bool) -> void:
 	if _anim_player == null:

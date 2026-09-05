@@ -21,8 +21,28 @@ using namespace godot;
 using namespace VoxelEngine;
 
 namespace {
-// Third-person camera is same as first-person but offset backward along look direction
-constexpr float kThirdPersonOffset = 3.0f;
+// Minecraft's third-person camera sits 4 blocks back (thirdPersonView uses 4.0
+// for both the back and front views) and is pulled in when it would clip
+// through solid terrain. The front view mirrors the offset along the look dir.
+constexpr float kThirdPersonOffset = 4.0f;
+constexpr float kCameraStep = 0.25f;    // camera-collision sampling step, blocks
+constexpr float kCameraMinDist = 0.25f; // never push the camera into the player
+constexpr float kPi = 3.14159265358979f;
+constexpr float kTwoPi = 6.28318530718f;
+constexpr float kMaxLookPitch = kPi / 2.0f; // ±90°, matching Minecraft
+// Body yaw (renderYawOffset): eases 0.3 of the remaining gap per 20 Hz tick and
+// is clamped to ±35° from the look yaw — the dead zone the head can lead the
+// body by before the torso is dragged along (Minecraft uses ±75°; 35° reads
+// tighter and more responsive).
+constexpr float kBodyTurnPerTick = 0.3f;
+constexpr float kBodyMaxYaw = 35.0f * kPi / 180.0f;
+// First-person walk bob: ~0.07-block vertical bob at ~6 rad/s at full speed.
+constexpr float kBobAmplitude = 0.07f;
+constexpr float kBobSpeed = 6.0f;
+
+float wrap_pi(float a) {
+    return std::remainder(a, kTwoPi);
+}
 } // namespace
 
 PlayerController::PlayerController() = default;
@@ -88,6 +108,8 @@ void PlayerController::_bind_methods() {
     ClassDB::bind_method(D_METHOD("toggle_third_person"), &PlayerController::toggle_third_person);
     ClassDB::bind_method(D_METHOD("set_third_person", "on"), &PlayerController::set_third_person);
     ClassDB::bind_method(D_METHOD("get_third_person"), &PlayerController::get_third_person);
+    ClassDB::bind_method(D_METHOD("set_third_person_view", "view"), &PlayerController::set_third_person_view);
+    ClassDB::bind_method(D_METHOD("get_third_person_view"), &PlayerController::get_third_person_view);
     ClassDB::bind_method(D_METHOD("update_player_animation", "is_walking"), &PlayerController::update_player_animation);
 
     ADD_SIGNAL(MethodInfo("crafting_table_used"));
@@ -150,11 +172,21 @@ void PlayerController::_ready() {
         camera_->set_position(Vector3(0, 1.62f, 0));
     }
 
-    // The visual body (player.glb) is parented under this node so it always
-    // follows the player's position/rotation. Hidden in first person.
-    model_ = Object::cast_to<Node3D>(get_node_or_null(NodePath("PlayerModel")));
+    // The visual body (player.glb) follows the player's position; hidden in
+    // first person. It lives under a ModelPivot wrapper so the body can lag
+    // behind the look direction (Minecraft's renderYawOffset) while the head
+    // stays glued to the camera.
+    if (model_pivot_ == nullptr) {
+        model_pivot_ = memnew(godot::Node3D);
+        model_pivot_->set_name("ModelPivot");
+        add_child(model_pivot_);
+    }
+    model_ = Object::cast_to<Node3D>(find_child("PlayerModel", true, false));
+    if (model_ && model_->get_parent() != model_pivot_) {
+        model_->reparent(model_pivot_);
+    }
     if (model_) {
-        model_->set_visible(false);
+        model_->set_visible(third_person_view_ > 0);
     }
 
     Node* cm_node = get_node_or_null(NodePath("/root/Main/ChunkManager"));
@@ -222,16 +254,7 @@ void PlayerController::_process(double delta) {
         set_global_position(pos);
         sim_.reset(pos);
         rendered_eye_height_ = 1.62f;
-        if (camera_) {
-            if (third_person_) {
-                // Third-person fly mode: same offset logic
-                Vector3 forward = Vector3(0, 0, -1).rotated(Vector3(1, 0, 0), pitch_);
-                Vector3 third_person_pos = Vector3(0, 1.62f, 0) - forward * kThirdPersonOffset;
-                camera_->set_position(third_person_pos);
-            } else {
-                camera_->set_position(Vector3(0, 1.62f, 0));
-            }
-        }
+        update_camera_transform(1.62f, 0.0f, static_cast<float>(delta));
         return;
     }
 
@@ -270,38 +293,40 @@ void PlayerController::_process(double delta) {
 
     float partial = sim_.get_accumulator_fraction();
     set_global_position(sim_.get_render_position(partial));
-    if (camera_) {
-        float eye_height = sim_.get_eye_height();
-        
-        if (third_person_) {
-            // Third-person: position camera 3 blocks back along the look direction
-            // First-person position in local space
-            Vector3 first_person_pos = Vector3(0, eye_height, 0);
-            
-            // Look direction with pitch applied
-            Vector3 forward = Vector3(0, 0, -1).rotated(Vector3(1, 0, 0), pitch_);
-            
-            // Third-person position is first-person position minus forward direction * offset
-            Vector3 third_person_pos = first_person_pos - forward * kThirdPersonOffset;
-            
-            camera_->set_position(third_person_pos);
-            
-            // Camera rotation matches first-person (pitch only, no yaw since it's a child)
-            Vector3 cam_rot = camera_->get_rotation();
-            cam_rot.x = pitch_;
-            cam_rot.y = 0.0f;
-            camera_->set_rotation(cam_rot);
-        } else {
-            // First-person: normal behavior
-            float target_eye = eye_height;
-            rendered_eye_height_ += (target_eye - rendered_eye_height_) * static_cast<float>(1.0 - std::pow(0.0001, delta));
-            camera_->set_position(Vector3(0, rendered_eye_height_, 0));
-            
-            Vector3 cam_rot = camera_->get_rotation();
-            cam_rot.x = pitch_;
-            camera_->set_rotation(cam_rot);
+
+    // Minecraft-style body yaw (renderYawOffset): while walking the body eases
+    // toward the travel direction; standing still it holds, so the head turns
+    // up to ±75° before dragging the body along. Applied to the model pivot —
+    // the camera and the head's camera-tracking stay on the true look dir.
+    {
+        const float look_yaw = get_rotation().y;
+        const float wish_len = pi.wish_direction.length();
+        // Body turn follows horizontal movement whether on the ground or
+        // midair (Minecraft gates func_110146_f on movement only; the
+        // on-ground check there only drives the limb-swing speed).
+        if (wish_len > 0.01f) {
+            // pi.wish_direction is already a world-space XZ direction (built
+            // from the player's world basis columns above), so it must NOT be
+            // rotated by the player's basis again — that double-rotation made
+            // the torso face the wrong way whenever the player was turned.
+            const Vector3 world_wish = pi.wish_direction;
+            const float travel_yaw = std::atan2(-world_wish.x, -world_wish.z);
+            const float ease = 1.0f - std::pow(1.0f - kBodyTurnPerTick,
+                                               static_cast<float>(delta) * 20.0f);
+            body_yaw_ += wrap_pi(travel_yaw - body_yaw_) * ease;
+        }
+        const float look_diff = wrap_pi(look_yaw - body_yaw_);
+        if (look_diff > kBodyMaxYaw) body_yaw_ = look_yaw - kBodyMaxYaw;
+        else if (look_diff < -kBodyMaxYaw) body_yaw_ = look_yaw + kBodyMaxYaw;
+        if (model_pivot_) {
+            model_pivot_->set_rotation(Vector3(0, wrap_pi(body_yaw_ - look_yaw), 0));
         }
     }
+
+    // Walk amount drives the first-person bob (0..1); no bob in third person.
+    const float walk_amount = (pi.wish_direction.length_squared() > 0.01f && sim_.is_on_floor())
+        ? std::min(1.0f, pi.wish_direction.length()) : 0.0f;
+    update_camera_transform(sim_.get_eye_height(), walk_amount, static_cast<float>(delta));
 }
 
 void PlayerController::_input(const Ref<InputEvent>& p_event) {
@@ -343,13 +368,10 @@ void PlayerController::_input(const Ref<InputEvent>& p_event) {
     if (mm.is_valid()) {
         rotate_y(-mm->get_relative().x * sensitivity_);
         pitch_ -= mm->get_relative().y * sensitivity_;
-        pitch_ = CLAMP(pitch_, -1.4f, 1.4f);
-        if (camera_) {
-            Vector3 cam_rot = camera_->get_rotation();
-            cam_rot.x = pitch_;
-            cam_rot.y = 0.0f;
-            camera_->set_rotation(cam_rot);
-        }
+        // Minecraft clamps the look to ±90° (straight up / straight down).
+        pitch_ = CLAMP(pitch_, -kMaxLookPitch, kMaxLookPitch);
+        // Camera rotation/position is applied every frame in _process, which
+        // knows the current view mode (first / back / front).
     }
 
     // Hold-to-break: progress accumulates in _process via update_break_progress;
@@ -386,35 +408,88 @@ bool PlayerController::get_fly_mode() const {
 }
 
 void PlayerController::toggle_third_person() {
-    set_third_person(!third_person_);
+    // Minecraft's F5 cycles: first -> behind player -> in front of player.
+    set_third_person_view((third_person_view_ + 1) % 3);
 }
 
 void PlayerController::set_third_person(bool on) {
-    if (third_person_ == on) return;
-    third_person_ = on;
-    if (model_) {
-        model_->set_visible(on);
-    }
-    // Immediately update camera position for smooth transition
-    if (camera_) {
-        if (on) {
-            // Set third-person position based on current pitch
-            Vector3 forward = Vector3(0, 0, -1).rotated(Vector3(1, 0, 0), pitch_);
-            Vector3 third_person_pos = Vector3(0, rendered_eye_height_, 0) - forward * kThirdPersonOffset;
-            camera_->set_position(third_person_pos);
-        } else {
-            camera_->set_position(Vector3(0, rendered_eye_height_, 0));
-        }
-        
-        // Reset rotation to ensure clean state
-        Vector3 cam_rot = camera_->get_rotation();
-        cam_rot.y = 0.0f;
-        camera_->set_rotation(cam_rot);
-    }
+    set_third_person_view(on ? 1 : 0);
 }
 
 bool PlayerController::get_third_person() const {
-    return third_person_;
+    return third_person_view_ > 0;
+}
+
+void PlayerController::set_third_person_view(int view) {
+    if (view < 0) view = 0;
+    if (view > 2) view = 2;
+    if (third_person_view_ == view) return;
+    third_person_view_ = view;
+    if (model_) {
+        model_->set_visible(view > 0);
+    }
+    // Reposition the camera immediately for a smooth transition; _process
+    // keeps it up to date every frame after this.
+    update_camera_transform(rendered_eye_height_, 0.0f, 1.0f / 60.0f);
+}
+
+int PlayerController::get_third_person_view() const {
+    return third_person_view_;
+}
+
+void PlayerController::update_camera_transform(float eye_height, float walk_amount, float delta) {
+    if (!camera_) return;
+    const Vector3 local_forward = Vector3(0, 0, -1).rotated(Vector3(1, 0, 0), pitch_);
+
+    if (third_person_view_ == 0) {
+        // First person: smooth eye-height blend plus a Minecraft-style walk bob
+        // (subtle vertical bob that also sways the viewmodel, a camera child).
+        const float target = eye_height;
+        rendered_eye_height_ += (target - rendered_eye_height_)
+            * static_cast<float>(1.0 - std::pow(0.0001, delta));
+        walk_amount = std::clamp(walk_amount, 0.0f, 1.0f);
+        if (walk_amount > 0.0f) {
+            walk_phase_ += delta * kBobSpeed * walk_amount;
+        }
+        const float bob_target = std::sin(walk_phase_) * kBobAmplitude * walk_amount;
+        walk_bob_ += (bob_target - walk_bob_) * std::min(1.0f, static_cast<float>(delta) * 10.0f);
+        camera_->set_position(Vector3(0, rendered_eye_height_ + walk_bob_, 0));
+        camera_->set_rotation(Vector3(pitch_, 0.0f, 0.0f));
+        return;
+    }
+
+    // Third person (back or front view): the camera sits kThirdPersonOffset
+    // along the look direction from the eye, pulled in before any solid block
+    // so it never clips through terrain. Back view looks forward past the
+    // player's back; front view mirrors the offset (in front of the player,
+    // looking back at them), matching Minecraft's thirdPersonView 1 and 2.
+    const float dir_sign = (third_person_view_ == 1) ? -1.0f : 1.0f;
+    const Transform3D g = get_global_transform();
+    const Vector3 eye_world = g.xform(Vector3(0.0f, eye_height, 0.0f));
+    const Vector3 dir_world = g.basis.xform(local_forward).normalized() * dir_sign;
+    const float dist = camera_clear_distance(eye_world, dir_world, kThirdPersonOffset);
+    camera_->set_global_position(eye_world + dir_world * dist);
+    if (third_person_view_ == 1) {
+        camera_->set_rotation(Vector3(pitch_, 0.0f, 0.0f));  // forward, past the player
+    } else {
+        camera_->set_rotation(Vector3(pitch_, kPi, 0.0f));   // back toward the player
+    }
+}
+
+float PlayerController::camera_clear_distance(const Vector3& eye_world, const Vector3& dir,
+                                              float max_dist) const {
+    if (!collision_resolver_) return max_dist;
+    float t = kCameraMinDist;
+    while (t < max_dist) {
+        const Vector3 p = eye_world + dir * t;
+        if (collision_resolver_->is_solid_at(static_cast<int32_t>(std::floor(p.x)),
+                                             static_cast<int32_t>(std::floor(p.y)),
+                                             static_cast<int32_t>(std::floor(p.z)))) {
+            return std::max(t - kCameraStep, kCameraMinDist);
+        }
+        t += kCameraStep;
+    }
+    return max_dist;
 }
 
 void PlayerController::update_player_animation(bool is_walking) {

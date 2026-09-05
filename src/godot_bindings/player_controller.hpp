@@ -99,10 +99,14 @@ public:
     void set_fly_speed(float s);
     float get_fly_speed() const;
 
-    // Third-person camera API (F5 toggles it)
+    // Third-person camera API. view: 0 = first person, 1 = behind the
+    // player, 2 = in front of the player (F5 cycles 0 -> 1 -> 2 -> 0, matching
+    // Minecraft's thirdPersonView). The bool overloads stay for compatibility.
     void toggle_third_person();
     void set_third_person(bool on);
     bool get_third_person() const;
+    void set_third_person_view(int view);
+    int get_third_person_view() const;
 
     // Player animation API
     void update_player_animation(bool is_walking);
@@ -141,9 +145,27 @@ private:
     int health_ = MAX_HEALTH;
     bool dead_ = false;
     bool needs_spawn_calc_ = true;
-    bool third_person_ = false;
+    int third_person_view_ = 0;
     godot::Node3D* model_ = nullptr;
+    // Carries the player model's smoothed body yaw (Minecraft's
+    // renderYawOffset): the body eases toward the travel direction while the
+    // head stays glued to the camera, so the head visibly turns in third person.
+    godot::Node3D* model_pivot_ = nullptr;
+    float body_yaw_ = 0.0f;
+    // First-person walk bob state (phase + eased current bob height).
+    float walk_phase_ = 0.0f;
+    float walk_bob_ = 0.0f;
     godot::Vector3 spawn_point_;
+
+    // Position/orient the camera for the current view (0/1/2) with
+    // Minecraft-style block collision (pull the third-person camera in before
+    // it clips through terrain) and first-person walk bob. walk_amount is 0..1
+    // and drives the bob amplitude in first person only.
+    void update_camera_transform(float eye_height, float walk_amount, float delta);
+    // Maximum camera distance along dir (from eye_world) that stays clear of
+    // solid blocks; returns the pulled-in distance if the ray hits terrain.
+    float camera_clear_distance(const godot::Vector3& eye_world,
+                                const godot::Vector3& dir, float max_dist) const;
 };
 
 #endif // FARLANDS_PLAYER_CONTROLLER_NODE_HPP

@@ -36,12 +36,6 @@ TerrainParams make_params() {
     return p;
 }
 
-BiomeConfig make_biomes() {
-    BiomeConfig biomes;
-    biomes.reset_defaults();
-    return biomes;
-}
-
 // Finds a column whose surface band sits comfortably mid-world so both the
 // below-surface and above-surface assertions are in-world.
 struct MidColumn {
@@ -72,19 +66,17 @@ MidColumn find_mid_column(const ChunkGenerator& gen) {
 TEST_CASE("solid fast paths mark underground chunks fully solid") {
     BlockRegistry::get_instance().initialize_default_blocks();
     TerrainParams params = make_params();
-    BiomeConfig biomes = make_biomes();
-    VegetationConfig veg;
+    ChunkGenerator gen(params);
 
     // Whole chunk below the bedrock layer → all-bedrock fast path → solid.
     ChunkData bedrock;
-    CHECK(ChunkGenerator::generate_fast_path(bedrock, 0, 1, 0, params, biomes, veg, false));
+    CHECK(gen.generate_fast_path(bedrock, 0, 1, 0));
     CHECK(bedrock.fully_solid());
     CHECK_FALSE(bedrock.is_all_air());
 
     // Deep underground chunk (entirely below the column's lowest possible
     // surface, above bedrock) → solid-subsurface fast path → must be marked
     // fully solid so buried-chunk mesh culling skips it.
-    ChunkGenerator gen(params);
     MidColumn mid = find_mid_column(gen);
     CHECK(mid.found);
     if (!mid.found) return;
@@ -95,7 +87,7 @@ TEST_CASE("solid fast paths mark underground chunks fully solid") {
     if (fast_cy * CHUNK_HEIGHT <= params.bedrock_height) return;
 
     ChunkData solid;
-    CHECK(ChunkGenerator::generate_fast_path(solid, mid.cx, fast_cy, mid.cz, params, biomes, veg, false));
+    CHECK(gen.generate_fast_path(solid, mid.cx, fast_cy, mid.cz));
     CHECK(solid.fully_solid());
     CHECK_FALSE(solid.is_all_air());
 
@@ -104,13 +96,13 @@ TEST_CASE("solid fast paths mark underground chunks fully solid") {
     const int32_t high_cy = static_cast<int32_t>(std::ceil((mid.range.max_h + 1.0f) / CHUNK_HEIGHT));
     CHECK(high_cy * CHUNK_HEIGHT < WORLD_HEIGHT_Y);
     if (high_cy * CHUNK_HEIGHT >= WORLD_HEIGHT_Y) return;
-    CHECK(ChunkGenerator::generate_fast_path(air, mid.cx, high_cy, mid.cz, params, biomes, veg, false));
+    CHECK(gen.generate_fast_path(air, mid.cx, high_cy, mid.cz));
     CHECK(air.is_all_air());
     CHECK_FALSE(air.fully_solid());
 
     // Out-of-world → handled, cleared, never solid.
     ChunkData out;
-    CHECK(ChunkGenerator::generate_fast_path(out, mid.cx, -1, mid.cz, params, biomes, veg, false));
+    CHECK(gen.generate_fast_path(out, mid.cx, -1, mid.cz));
     CHECK(out.is_all_air());
     CHECK_FALSE(out.fully_solid());
 }

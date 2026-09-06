@@ -87,6 +87,12 @@ void BiomeConfig::reset_defaults() {
     for (auto& h : preferred_height) {
         h = 0.0f;  // reference data; data/biomes.json supplies the real values
     }
+    for (auto& t : preferred_temperature) {
+        t = 0.5f;  // climate samplers are flat 0.5 stubs, so 0.5 is neutral
+    }
+    for (auto& h : preferred_humidity) {
+        h = 0.5f;
+    }
 }
 
 bool BiomeConfig::load(const godot::String& json_path, BiomeConfig& out) {
@@ -157,6 +163,12 @@ bool BiomeConfig::load(const godot::String& json_path, BiomeConfig& out) {
             }
             if (b.has("preferred_height")) {
                 out.preferred_height[ix] = static_cast<float>(static_cast<double>(b["preferred_height"]));
+            }
+            if (b.has("preferred_temperature")) {
+                out.preferred_temperature[ix] = static_cast<float>(static_cast<double>(b["preferred_temperature"]));
+            }
+            if (b.has("preferred_humidity")) {
+                out.preferred_humidity[ix] = static_cast<float>(static_cast<double>(b["preferred_humidity"]));
             }
             if (b.has("tree_density")) {
                 out.vegetation[ix].tree_density = static_cast<float>(static_cast<double>(b["tree_density"]));

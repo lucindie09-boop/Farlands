@@ -103,7 +103,7 @@ Terrain is built in three stages — a macro surface from stacked noise layers, 
 
 The terrain generation system is data-driven through JSON configuration files:
 
-- **`data/biomes.json`** — Per-biome surface materials (Ocean/Hills), height/weirdness amplification knobs, `preferred_height` (reference data for future biome selection), and tree density/variant weights; climate thresholds load but are dormant while the climate samplers are flat
+- **`data/biomes.json`** — Per-biome surface materials (Ocean/Hills), height/weirdness amplification knobs, `preferred_height`/`preferred_temperature`/`preferred_humidity` (reference data for future biome selection), and tree density/variant weights; climate thresholds load but are dormant while the climate samplers are flat
 - **`data/vegetation.json`** — Vegetation parameters for the hills biome (sparse single-tree chance, spacing)
 - **`data/terrain_config.json`** — Macro-surface tuning: `height_base_y`, domain-warp amplitudes, mid/small relief field spacing/frequency/amplitude, shape-strength range, weirdness thresholds
 - **`data/block_shapes.json`** — Shared shape registry for non-full blocks (slabs, stairs, walls, poles) with selection/collision boxes

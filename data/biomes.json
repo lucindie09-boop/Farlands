@@ -16,6 +16,8 @@
       "weirdness_amplification": 1.0,
       "min_weirdness_amplification": 1.1,
       "preferred_height": 547.0,
+      "preferred_temperature": 0.5,
+      "preferred_humidity": 0.5,
       "tree_density": 1.0,
       "tree_variants": {"oak": 1.0, "spruce": 0.0}
     },
@@ -27,7 +29,9 @@
       "height_amplification": 1.0,
       "weirdness_amplification": 1.0,
       "min_weirdness_amplification": 1.0,
-      "preferred_height": 191.8
+      "preferred_height": 191.8,
+      "preferred_temperature": 0.5,
+      "preferred_humidity": 0.5
     }
   }
 }

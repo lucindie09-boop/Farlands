@@ -35,6 +35,8 @@ TEST_CASE("biome amplification: defaults are neutral") {
         CHECK(bc.amplification[static_cast<size_t>(i)].weirdness == 1.0f);
         CHECK(bc.amplification[static_cast<size_t>(i)].min_weirdness == 1.0f);
         CHECK(bc.preferred_height[static_cast<size_t>(i)] == 0.0f);
+        CHECK(bc.preferred_temperature[static_cast<size_t>(i)] == 0.5f);
+        CHECK(bc.preferred_humidity[static_cast<size_t>(i)] == 0.5f);
     }
 }
 

@@ -83,11 +83,14 @@ struct BiomeConfig {
     std::array<BiomeVegetation, static_cast<size_t>(BiomeType::Count)> vegetation;
     std::array<BiomeAmplification, static_cast<size_t>(BiomeType::Count)> amplification;
 
-    // Preferred column height for the biome. Reference data for future
-    // biome-selection / terrain-blending logic; NOT consumed by generation.
-    // Values are measured height percentiles of the current terrain
-    // (see data/biomes.json).
+    // Preferred climate profile for the biome — reference data for future
+    // biome-selection logic; NOT consumed by generation. Values live in
+    // data/biomes.json: preferred_height is a measured height percentile of
+    // the current terrain, preferred_temperature / preferred_humidity are the
+    // climate values the biome would target (0.5 = current flat sampler).
     std::array<float, static_cast<size_t>(BiomeType::Count)> preferred_height;
+    std::array<float, static_cast<size_t>(BiomeType::Count)> preferred_temperature;
+    std::array<float, static_cast<size_t>(BiomeType::Count)> preferred_humidity;
 
     BiomeConfig();
 

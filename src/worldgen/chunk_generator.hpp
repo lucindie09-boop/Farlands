@@ -380,12 +380,14 @@ float max_water_h = -1.0f;
 
     // Signed density at a world point (macro surface + 3D deformation).
     // >0 solid, <=0 air. Unlike the cached-weirdness overload used by the
-    // chunk generator, this recomputes the weirdness mask per call.
+    // chunk generator, this recomputes the weirdness mask per call (scaled by
+    // the column biome's amplification).
     float sample_terrain_density(int32_t world_x, int32_t world_y, int32_t world_z,
                                  const ColumnSample& column) const {
         return sample_terrain_density(
             world_x, world_y, world_z, column,
-            sample_weirdness(static_cast<float>(world_x), static_cast<float>(world_z)));
+            clamp01(sample_weirdness(static_cast<float>(world_x), static_cast<float>(world_z)) *
+                    biome_config.amplification[static_cast<size_t>(column.biome)].weirdness));
     }
 
     // Real topmost air-to-solid transition for a column. The macro heightmap
@@ -394,12 +396,20 @@ float max_water_h = -1.0f;
     int32_t find_surface_y(int32_t world_x, int32_t world_z) const;
 
     // Cheaper than sample_column: only land shape, no biome/lake evaluation.
+    // Mirrors sample_column's per-biome height amplification so the scheduler's
+    // surface estimate tracks the generated surface when it is tuned.
     float quick_height_estimate(int32_t world_x, int32_t world_z) const {
         float x = static_cast<float>(world_x);
         float z = static_cast<float>(world_z);
         float t = sample_temperature(x, z);
         float h = sample_humidity(x, z);
-        return sample_land_shape(x, z, t, h);
+        const float cont = sample_continentalness(x, z);
+        const float raw = sample_land_shape(x, z, t, h);
+        const BiomeType biome = (raw >= params.sea_level)
+            ? biome_from_climate(t, h, cont)
+            : BiomeType::Ocean;
+        return params.sea_level + (raw - params.sea_level) *
+               biome_config.amplification[static_cast<size_t>(biome)].height;
     }
 
     bool is_cave(int32_t x, int32_t y, int32_t z) const {

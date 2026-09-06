@@ -45,6 +45,21 @@ struct BiomeVegetation {
     std::array<float, 2> tree_variants{1.0f, 0.0f};
 };
 
+// Per-biome terrain amplification knobs (1.0 = neutral, worldgen unchanged).
+//
+// height:    scales a column's displacement around sea level — < 1 flattens
+//            toward sea level, > 1 exaggerates relief. Applied AFTER biome
+//            classification (land/ocean split stays where the raw height put
+//            it). Feeds sample_column and the scheduler's quick_height_estimate.
+// weirdness: scales the 3D-shaping weirdness mask — 0 pins every column to
+//            the minimum shaping strength, > 1 pushes more columns toward the
+//            maximum (saturated masks). Feeds the density field in
+//            generate_chunk, find_surface_y and single-point density queries.
+struct BiomeAmplification {
+    float height    = 1.0f;
+    float weirdness = 1.0f;
+};
+
 // One entry per BiomeType value (index == static_cast<int>(BiomeType)).
 struct BiomeConfig {
     // Block placed on ocean floors / under surface water.
@@ -59,6 +74,7 @@ struct BiomeConfig {
 
     std::array<BiomeSurface, static_cast<size_t>(BiomeType::Count)> surfaces;
     std::array<BiomeVegetation, static_cast<size_t>(BiomeType::Count)> vegetation;
+    std::array<BiomeAmplification, static_cast<size_t>(BiomeType::Count)> amplification;
 
     BiomeConfig();
 

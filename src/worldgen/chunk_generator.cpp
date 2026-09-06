@@ -192,6 +192,86 @@ BlockID ChunkGenerator::get_chunk_subsurface_block(int32_t chunk_x, int32_t chun
     return get_subsurface_block(col.biome, false);
 }
 
+bool ChunkGenerator::generate_fast_path(ChunkData& chunk, int32_t chunk_x, int32_t chunk_y, int32_t chunk_z,
+                                        const TerrainParams& params, const BiomeConfig& biomes,
+                                        const VegetationConfig& veg_config, bool vegetation_enabled) {
+    const int32_t world_y_start = chunk_y * CHUNK_HEIGHT;
+    const int32_t world_y_end = world_y_start + CHUNK_HEIGHT;
+
+    if (world_y_start >= WORLD_HEIGHT_Y || world_y_end <= 0) {
+        chunk.clear();
+        chunk.propagate_sky_light(nullptr);
+        chunk.compute_fully_solid();
+        return true;
+    }
+
+    ChunkGenerator generator(params);
+    generator.set_biome_config(biomes);
+    generator.set_vegetation_config(veg_config);
+
+    // Fast estimation: skip chunks that are entirely air or entirely solid.
+    auto height_range = generator.get_chunk_height_range(chunk_x, chunk_z);
+    float margin = 3.0f; // safety margin for intra-chunk height variation
+    float top_content_h = std::max(height_range.max_h, height_range.max_water_h);
+
+    // Entirely above surface: all air
+    if (world_y_start > static_cast<int32_t>(top_content_h + margin)) {
+        chunk.clear();
+        chunk.propagate_sky_light(nullptr); // sky light = 15 for all air
+        chunk.compute_fully_solid();
+        return true;
+    }
+
+    // Entirely below surface (and below bedrock): all bedrock
+    if (world_y_end <= params.bedrock_height) {
+        chunk.fill_blocks(BlockIDs::BEDROCK);
+        chunk.propagate_sky_light(nullptr); // first block is opaque → all light = 0
+        // Without this flag every underground chunk gets a box mesh — the
+        // buried-chunk culling relies on fully_solid() to skip invisible chunks.
+        chunk.compute_fully_solid();
+        return true;
+    }
+
+    // Caves only form inside [bedrock_height+3, sea_level+10]
+    // (see ChunkGenerator::is_cave). A chunk overlapping that range is
+    // not automatically solid even when it sits below the surface.
+    const int32_t cave_min_y = params.bedrock_height + 3;
+    const int32_t cave_max_y = static_cast<int32_t>(params.sea_level) + 10;
+    const bool may_contain_caves =
+        world_y_end > cave_min_y && world_y_start < cave_max_y;
+
+    // Entirely below surface but above bedrock: all solid subsurface block.
+    if (!may_contain_caves && world_y_end < static_cast<int32_t>(height_range.min_h - margin)) {
+        BlockID solid_block = generator.get_chunk_subsurface_block(chunk_x, chunk_z);
+        chunk.fill_blocks(solid_block);
+        chunk.propagate_sky_light(nullptr); // first block is opaque → all light = 0
+        // Without this flag every underground chunk gets a box mesh.
+        chunk.compute_fully_solid();
+        return true;
+    }
+
+    return false;
+}
+
+bool chunk_would_be_fully_solid(const ChunkGenerator& gen, int32_t cx, int32_t cy, int32_t cz) {
+    const int32_t world_y_start = cy * CHUNK_HEIGHT;
+    const int32_t world_y_end = world_y_start + CHUNK_HEIGHT;
+    // Out-of-world chunks are never treated as opaque so boundary faces at
+    // the world edges still render.
+    if (world_y_start >= WORLD_HEIGHT_Y || world_y_end <= 0) {
+        return false;
+    }
+    // Entirely below the bedrock layer: bedrock, which is opaque.
+    if (world_y_end <= gen.get_params().bedrock_height) {
+        return true;
+    }
+    // The chunk is entirely below every column's lowest possible surface
+    // (macro height − density margin), so full generation would produce
+    // solid blocks throughout (the density band is exactly zero there).
+    const ChunkGenerator::HeightRange range = gen.get_chunk_height_range(cx, cz);
+    return static_cast<float>(world_y_end) < range.min_h;
+}
+
 void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t chunk_y, int32_t chunk_z,
                                     const CrossChunkWriter& cross_writer, bool vegetation_enabled) {
     ScopedTimer timer(perf_timer, TimerID::GenerateChunk);

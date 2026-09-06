@@ -86,6 +86,14 @@ public:
                             int32_t max_radius_blocks, int32_t& out_x, int32_t& out_z,
                             float& out_height);
 
+    // True when the chunk at (cx, cy, cz) would be entirely solid if it were
+    // generated — every column's surface sits above the chunk's top, so the
+    // density field has no air there. Used by mesh culling to treat an
+    // ungenerated underground neighbor as opaque instead of rendering a box
+    // wall into the void. Out-of-world chunks return false so boundary faces
+    // at the world edges still render.
+    bool chunk_would_be_solid(int32_t cx, int32_t cy, int32_t cz);
+
     int32_t get_last_player_chunk_x() const { return last_player_chunk_x; }
     int32_t get_last_player_chunk_y() const { return last_player_chunk_y; }
     int32_t get_last_player_chunk_z() const { return last_player_chunk_z; }
@@ -152,6 +160,18 @@ private:
     // Scan runs when player changes chunks, or every kUnloadScanSkipFrames frames otherwise.
     int32_t unload_scan_skip_counter   = 0;
     static constexpr int32_t kUnloadScanSkipFrames = 15;
+
+    // Columns within this Chebyshev radius (chunks) of the player generate
+    // their FULL column — the near-surface band PLUS the solid underground
+    // fill from the surface down to the world floor. Everywhere else only the
+    // near-surface band generates. The fill exists so rock under the player is
+    // genuinely solid: without it, the band ends in open void and its
+    // underside + the rock mass's side walls render as floating chunk-border
+    // faces when seen from underground. The radius stays well under the render
+    // distance because only near geometry is visible (player light / fog
+    // margin) — beyond it the band-only columns' undersides are too far to
+    // see, so they keep the cheap band-only window.
+    static constexpr int32_t kUndergroundFillRadius = 8;
 
     // Resumable cursor for the unload scan (bucket index into ChunkMap's
     // internal unordered_map). Persisted across frames so the scan actually

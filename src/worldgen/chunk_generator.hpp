@@ -350,6 +350,16 @@ float max_water_h = -1.0f;
     HeightRange get_chunk_height_range(int32_t chunk_x, int32_t chunk_z) const;
     BlockID get_chunk_subsurface_block(int32_t chunk_x, int32_t chunk_z) const;
 
+    // -------------------------------------------------------------------------
+    // Fast uniform-chunk fill (all air / all bedrock / all solid subsurface)
+    // -------------------------------------------------------------------------
+    // Shared with the generation worker (ChunkWorld) so the fully-solid
+    // bookkeeping is identical everywhere. Returns true when the chunk was
+    // handled by a fast path; false when full generation is required.
+    static bool generate_fast_path(ChunkData& chunk, int32_t chunk_x, int32_t chunk_y, int32_t chunk_z,
+                                   const TerrainParams& params, const BiomeConfig& biomes,
+                                   const VegetationConfig& veg_config, bool vegetation_enabled);
+
     // Debug accessors (expose private members for standalone tools)
     float sample_continentalness_debug(float x, float z) const {
         return sample_continentalness(x, z);
@@ -500,6 +510,15 @@ float max_water_h = -1.0f;
         return perf_timer;
     }
 };
+
+// True when the chunk at (cx, cy, cz) would be entirely solid if it were
+// generated: the whole chunk sits below every column's lowest possible
+// surface (macro height − density margin), so the density field has no air
+// inside it — and chunks below the bedrock layer are bedrock, also solid.
+// Out-of-world chunks return false so boundary faces at the world edges still
+// render. Used by mesh culling to treat an ungenerated underground neighbor
+// as opaque instead of rendering a box wall into the void.
+bool chunk_would_be_fully_solid(const ChunkGenerator& gen, int32_t cx, int32_t cy, int32_t cz);
 
 } // namespace VoxelEngine
 

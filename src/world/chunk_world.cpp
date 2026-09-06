@@ -31,49 +31,11 @@ bool ChunkWorld::generate_chunk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_
             generator.set_biome_config(biomes);
             generator.set_vegetation_config(veg_config);
 
-            int32_t world_y_start = cy * CHUNK_HEIGHT;
-            int32_t world_y_end = world_y_start + CHUNK_HEIGHT;
-
-if (world_y_start >= WORLD_HEIGHT_Y || world_y_end <= 0) {
-chunk_data->clear();
-chunk_data->propagate_sky_light(nullptr);
-chunk_data->compute_fully_solid();
-return chunk_data;
-}
-
-            // Fast estimation: skip chunks that are entirely air or entirely solid
-            auto height_range = generator.get_chunk_height_range(cx, cz);
-            float margin = 3.0f; // safety margin for intra-chunk height variation
-float top_content_h = std::max(height_range.max_h, height_range.max_water_h);
-
-            // Entirely above surface: all air
-            if (world_y_start > static_cast<int32_t>(top_content_h + margin)) {
-                chunk_data->clear();
-                chunk_data->propagate_sky_light(nullptr); // sky light = 15 for all air
-                chunk_data->compute_fully_solid();
-                return chunk_data;
-            }
-
-            // Entirely below surface (and below bedrock): all bedrock
-            if (world_y_end <= params.bedrock_height) {
-                chunk_data->fill_blocks(BlockIDs::BEDROCK);
-                chunk_data->propagate_sky_light(nullptr); // first block is opaque → all light = 0
-                return chunk_data;
-            }
-
-            // Caves only form inside [bedrock_height+3, sea_level+10]
-            // (see ChunkGenerator::is_cave). A chunk overlapping that range is
-            // not automatically solid even when it sits below the surface.
-            const int32_t cave_min_y = params.bedrock_height + 3;
-            const int32_t cave_max_y = static_cast<int32_t>(params.sea_level) + 10;
-            const bool may_contain_caves =
-                world_y_end > cave_min_y && world_y_start < cave_max_y;
-
-            // Entirely below surface but above bedrock: all solid subsurface block.
-            if (!may_contain_caves && world_y_end < static_cast<int32_t>(height_range.min_h - margin)) {
-                BlockID solid_block = generator.get_chunk_subsurface_block(cx, cz);
-                chunk_data->fill_blocks(solid_block);
-                chunk_data->propagate_sky_light(nullptr); // first block is opaque → all light = 0
+            // Uniform-chunk fast paths (all air / all bedrock / all solid
+            // subsurface) live in ChunkGenerator::generate_fast_path so the
+            // fully-solid bookkeeping is shared and testable. Handled chunks
+            // skip the lattice/density/material passes below.
+            if (ChunkGenerator::generate_fast_path(*chunk_data, cx, cy, cz, params, biomes, veg_config, vegetation_enabled)) {
                 return chunk_data;
             }
 

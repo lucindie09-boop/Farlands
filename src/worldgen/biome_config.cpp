@@ -80,6 +80,10 @@ void BiomeConfig::reset_defaults() {
     }
     vegetation[static_cast<size_t>(BiomeType::Hills)].tree_density  = 1.0f;
     vegetation[static_cast<size_t>(BiomeType::Hills)].tree_variants = {1.0f, 0.0f};
+
+    for (auto& a : amplification) {
+        a = BiomeAmplification{};  // 1.0 / 1.0 = neutral
+    }
 }
 
 bool BiomeConfig::load(const godot::String& json_path, BiomeConfig& out) {
@@ -138,6 +142,12 @@ bool BiomeConfig::load(const godot::String& json_path, BiomeConfig& out) {
             if (b.has("near_water_subsurface")) {
                 godot::String name = b["near_water_subsurface"];
                 out.surfaces[ix].near_water_subsurface = resolve_block(name.utf8().get_data(), out.surfaces[ix].near_water_subsurface);
+            }
+            if (b.has("height_amplification")) {
+                out.amplification[ix].height = static_cast<float>(static_cast<double>(b["height_amplification"]));
+            }
+            if (b.has("weirdness_amplification")) {
+                out.amplification[ix].weirdness = static_cast<float>(static_cast<double>(b["weirdness_amplification"]));
             }
             if (b.has("tree_density")) {
                 out.vegetation[ix].tree_density = static_cast<float>(static_cast<double>(b["tree_density"]));

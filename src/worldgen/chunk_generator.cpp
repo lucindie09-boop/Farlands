@@ -102,6 +102,12 @@ ChunkGenerator::ColumnSample ChunkGenerator::sample_column(int32_t world_x, int3
         water_level = params.sea_level;
     }
 
+    // Per-biome height amplification scales the column's displacement around
+    // sea level (1.0 = neutral). Applied AFTER biome classification so the
+    // land/ocean split stays exactly where the raw height put it.
+    height = params.sea_level + (height - params.sea_level) *
+             biome_config.amplification[static_cast<size_t>(biome)].height;
+
     height = std::max(static_cast<float>(params.bedrock_height) + 1.0f, height);
     if (water_level >= 0.0f) {
         water_level = std::max(params.sea_level, water_level);
@@ -156,8 +162,9 @@ ChunkGenerator::HeightRange ChunkGenerator::get_chunk_height_range(int32_t chunk
 // the maximum possible density displacement.
 int32_t ChunkGenerator::find_surface_y(int32_t world_x, int32_t world_z) const {
     ColumnSample column = sample_column(world_x, world_z);
-    const float weirdness = sample_weirdness(
-        static_cast<float>(world_x), static_cast<float>(world_z));
+    const float weirdness = clamp01(
+        sample_weirdness(static_cast<float>(world_x), static_cast<float>(world_z)) *
+        biome_config.amplification[static_cast<size_t>(column.biome)].weirdness);
 
     // The density surface can only exist within DENSITY_MARGIN of the macro
     // heightmap (see sample_terrain_density), so scan exactly that band.
@@ -214,7 +221,9 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
                 : -1;
             columns[x][z].temperature  = col.temperature;
             columns[x][z].humidity     = col.humidity;
-            columns[x][z].weirdness    = sample_weirdness(static_cast<float>(wx), static_cast<float>(wz));
+            columns[x][z].weirdness    = clamp01(
+                sample_weirdness(static_cast<float>(wx), static_cast<float>(wz)) *
+                biome_config.amplification[static_cast<size_t>(col.biome)].weirdness);
             min_height = std::min(min_height, col.height);
             max_height = std::max(max_height, col.height);
         }

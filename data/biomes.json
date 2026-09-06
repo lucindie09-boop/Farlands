@@ -1,11 +1,25 @@
 {
   "underwater_surface": "sand",
-  "temp_cold_max": 0.43,
-  "temp_hot_min": 0.57,
-  "hum_dry_max": 0.43,
-  "hum_humid_min": 0.57,
-  "biomes": [
-    {"index": 0, "name": "ocean", "surface": "sand", "subsurface": "sand", "near_water_surface": "sand", "near_water_subsurface": "sand"},
-    {"index": 1, "name": "hills", "surface": "grass", "subsurface": "dirt", "near_water_surface": "mud", "near_water_subsurface": "dirt", "tree_density": 1.0, "tree_variants": {"oak": 1.0, "spruce": 0.0}}
-  ]
+  "climate": {
+    "temp_cold_max": 0.43,
+    "temp_hot_min": 0.57,
+    "hum_dry_max": 0.43,
+    "hum_humid_min": 0.57
+  },
+  "biomes": {
+    "hills": {
+      "surface": "grass",
+      "subsurface": "dirt",
+      "near_water_surface": "mud",
+      "near_water_subsurface": "dirt",
+      "tree_density": 1.0,
+      "tree_variants": {"oak": 1.0, "spruce": 0.0}
+    },
+    "ocean": {
+      "surface": "sand",
+      "subsurface": "sand",
+      "near_water_surface": "sand",
+      "near_water_subsurface": "sand"
+    }
+  }
 }

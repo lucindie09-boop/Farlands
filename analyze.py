@@ -7,10 +7,9 @@ arr = np.array(Image.open("bin/biome_mega.bmp"))
 OCEAN = [20,60,140]
 LAND  = [60,160,60]
 LAKE  = [40,100,180]
-BEACH = [220,200,140]
 
-# Land = land + beach + lakes (lakes are on land, not coast)
-land = np.all(arr == LAND, axis=2) | np.all(arr == BEACH, axis=2) | np.all(arr == LAKE, axis=2)
+# Land = land + lakes (lakes are on land, not coast)
+land = np.all(arr == LAND, axis=2) | np.all(arr == LAKE, axis=2)
 total = arr.shape[0] * arr.shape[1]
 pct = np.sum(land) / total * 100
 print(f"Land+lakes coverage: {pct:.1f}%")

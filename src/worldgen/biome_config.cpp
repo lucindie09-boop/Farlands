@@ -41,12 +41,9 @@ bool iequals(const char* a, const char* b) {
 
 const char* biome_name(BiomeType b) {
     switch (b) {
-        case BiomeType::Ocean:  return "ocean";
-        case BiomeType::Beach:  return "beach";
-        case BiomeType::Plains: return "plains";
-        case BiomeType::Forest: return "forest";
-        case BiomeType::Desert: return "desert";
-        default:                return "unknown";
+        case BiomeType::Ocean: return "ocean";
+        case BiomeType::Hills: return "hills";
+        default:               return "unknown";
     }
 }
 
@@ -75,22 +72,14 @@ void BiomeConfig::reset_defaults() {
 
     surfaces[static_cast<size_t>(BiomeType::Ocean)] =
         {BlockIDs::SAND, BlockIDs::SAND, BlockIDs::SAND, BlockIDs::SAND};
-    surfaces[static_cast<size_t>(BiomeType::Beach)] =
-        {BlockIDs::SAND, BlockIDs::SAND, BlockIDs::WET_SAND, BlockIDs::WET_SAND_FULL};
-    surfaces[static_cast<size_t>(BiomeType::Plains)] =
+    surfaces[static_cast<size_t>(BiomeType::Hills)] =
         {BlockIDs::GRASS, BlockIDs::DIRT, BlockIDs::MUD, BlockIDs::DIRT};
-    surfaces[static_cast<size_t>(BiomeType::Forest)] =
-        {BlockIDs::GRASS, BlockIDs::DIRT, BlockIDs::MUD, BlockIDs::DIRT};
-    surfaces[static_cast<size_t>(BiomeType::Desert)] =
-        {BlockIDs::SAND, BlockIDs::SAND, BlockIDs::SAND, BlockIDs::SAND};
 
     for (auto& v : vegetation) {
         v = BiomeVegetation{};
     }
-    vegetation[static_cast<size_t>(BiomeType::Plains)].tree_density  = 1.0f;
-    vegetation[static_cast<size_t>(BiomeType::Plains)].tree_variants = {1.0f, 0.0f};
-    vegetation[static_cast<size_t>(BiomeType::Forest)].tree_density  = 1.0f;
-    vegetation[static_cast<size_t>(BiomeType::Forest)].tree_variants = {0.5f, 0.5f};
+    vegetation[static_cast<size_t>(BiomeType::Hills)].tree_density  = 1.0f;
+    vegetation[static_cast<size_t>(BiomeType::Hills)].tree_variants = {1.0f, 0.0f};
 }
 
 bool BiomeConfig::load(const godot::String& json_path, BiomeConfig& out) {

@@ -155,9 +155,9 @@ public:
     BlockEditor& get_block_editor() { return block_editor; }
 
     // Locates the nearest column of the named biome (case-insensitive:
-    // ocean/beach/plains/forest/desert) within max_radius_blocks of
-    // (center_x, center_z). Returns {found: bool, x, y, z} where y is the
-    // macro surface height at the hit (the sea bed for ocean columns).
+    // ocean/hills) within max_radius_blocks of (center_x, center_z).
+    // Returns {found: bool, x, y, z} where y is the macro surface height at
+    // the hit (the sea bed for ocean columns).
     godot::Dictionary find_biome(const godot::String& biome_name, int32_t center_x,
                                  int32_t center_z, int32_t max_radius_blocks);
 

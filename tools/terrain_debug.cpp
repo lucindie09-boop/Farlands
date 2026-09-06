@@ -206,11 +206,7 @@ int main() {
                 uint8_t r, g, b;
                 switch (col.biome) {
                     case VoxelEngine::BiomeType::Ocean:         r=40;  g=100; b=180;  break;
-                    case VoxelEngine::BiomeType::Beach:         r=220; g=200; b=140;  break;
-
-                    case VoxelEngine::BiomeType::Plains:        r=60;  g=160; b=60;   break;
-                    case VoxelEngine::BiomeType::Forest:        r=30;  g=120; b=40;   break;
-                    case VoxelEngine::BiomeType::Desert:        r=200; g=180; b=100;  break;
+                    case VoxelEngine::BiomeType::Hills:         r=60;  g=160; b=60;   break;
 
                     default:                                    r=255; g=0;   b=255;  break;
                 }
@@ -247,11 +243,7 @@ int main() {
                 uint8_t r, g, b;
                 switch (col.biome) {
                     case VoxelEngine::BiomeType::Ocean:         r=40;  g=100; b=180;  break;
-                    case VoxelEngine::BiomeType::Beach:         r=220; g=200; b=140;  break;
-
-                    case VoxelEngine::BiomeType::Plains:        r=60;  g=160; b=60;   break;
-                    case VoxelEngine::BiomeType::Forest:        r=30;  g=120; b=40;   break;
-                    case VoxelEngine::BiomeType::Desert:        r=200; g=180; b=100;  break;
+                    case VoxelEngine::BiomeType::Hills:         r=60;  g=160; b=60;   break;
 
                     default:                                    r=255; g=0;   b=255;  break;
                 }
@@ -276,11 +268,7 @@ int main() {
                 uint8_t r, g, b;
                 switch (col.biome) {
                     case VoxelEngine::BiomeType::Ocean:         r=40;  g=100; b=180;  break;
-                    case VoxelEngine::BiomeType::Beach:         r=220; g=200; b=140;  break;
-
-                    case VoxelEngine::BiomeType::Plains:        r=60;  g=160; b=60;   break;
-                    case VoxelEngine::BiomeType::Forest:        r=30;  g=120; b=40;   break;
-                    case VoxelEngine::BiomeType::Desert:        r=200; g=180; b=100;  break;
+                    case VoxelEngine::BiomeType::Hills:         r=60;  g=160; b=60;   break;
 
                     default:                                    r=255; g=0;   b=255;  break;
                 }

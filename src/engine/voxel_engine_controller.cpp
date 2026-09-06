@@ -340,6 +340,26 @@ void VoxelEngineController::flush_dirty_chunks(bool wait_for_completion, double 
     chunk_world.flush_dirty_chunks(wait_for_completion, timeout_sec);
 }
 
+Dictionary VoxelEngineController::find_biome(const String& biome_name, int32_t center_x,
+                                            int32_t center_z, int32_t max_radius_blocks) {
+    Dictionary result;
+    BiomeType target;
+    if (!biome_from_name(biome_name.utf8().get_data(), target)) {
+        result["found"] = false;
+        return result;
+    }
+    int32_t out_x = 0;
+    int32_t out_z = 0;
+    float out_height = 0.0f;
+    const bool found = world_updater.find_nearest_biome(
+        target, center_x, center_z, max_radius_blocks, out_x, out_z, out_height);
+    result["found"] = found;
+    result["x"] = out_x;
+    result["y"] = static_cast<int32_t>(std::round(out_height));
+    result["z"] = out_z;
+    return result;
+}
+
 void VoxelEngineController::set_auto_update(bool enabled) { auto_update = enabled; }
 bool VoxelEngineController::get_auto_update() const { return auto_update; }
 

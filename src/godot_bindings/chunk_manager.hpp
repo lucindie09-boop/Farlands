@@ -95,6 +95,12 @@ public:
     godot::String get_block_name(int block_id);
     godot::Array get_selection_boxes(int block_id);
 
+    // Nearest column of the named biome (ocean/beach/plains/forest/desert)
+    // within max_radius blocks of (center_x, center_z).
+    // Returns {found: bool, x, y, z}.
+    godot::Dictionary find_biome(const godot::String& biome_name, int32_t center_x,
+                                 int32_t center_z, int32_t max_radius);
+
     godot::Dictionary resolve_voxel_collision(const godot::Vector3& position, const godot::Vector3& motion, const godot::Vector3& size);
 
     VoxelEngine::CollisionResolver* get_collision_resolver();

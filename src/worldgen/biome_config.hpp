@@ -70,6 +70,13 @@ struct BiomeConfig {
     static bool load(const godot::String& json_path, BiomeConfig& out);
 };
 
+// Canonical biome name (index == static_cast<int>(BiomeType)), matching the
+// "name" field in data/biomes.json.
+const char* biome_name(BiomeType b);
+
+// Case-insensitive name -> enum lookup. Returns false for unknown names.
+bool biome_from_name(const char* name, BiomeType& out);
+
 } // namespace VoxelEngine
 
 #endif // FARLANDS_BIOME_CONFIG_HPP

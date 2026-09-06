@@ -78,6 +78,14 @@ public:
     void clear();
     void reset();
 
+    // Nearest column of the given biome within max_radius_blocks of
+    // (center_x, center_z), using the internal height-estimator generator so
+    // the search agrees with chunk generation. Returns true and fills
+    // out_x / out_z / out_height (macro surface height at the hit).
+    bool find_nearest_biome(BiomeType target, int32_t center_x, int32_t center_z,
+                            int32_t max_radius_blocks, int32_t& out_x, int32_t& out_z,
+                            float& out_height);
+
     int32_t get_last_player_chunk_x() const { return last_player_chunk_x; }
     int32_t get_last_player_chunk_y() const { return last_player_chunk_y; }
     int32_t get_last_player_chunk_z() const { return last_player_chunk_z; }

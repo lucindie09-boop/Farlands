@@ -45,7 +45,8 @@ struct BiomeVegetation {
     std::array<float, 2> tree_variants{1.0f, 0.0f};
 };
 
-// Per-biome terrain amplification knobs (1.0 = neutral, worldgen unchanged).
+// Per-biome terrain amplification knobs (1.0 / 0.0 = neutral, worldgen
+// unchanged).
 //
 // height:    scales a column's displacement around sea level — < 1 flattens
 //            toward sea level, > 1 exaggerates relief. Applied AFTER biome
@@ -55,9 +56,14 @@ struct BiomeVegetation {
 //            the minimum shaping strength, > 1 pushes more columns toward the
 //            maximum (saturated masks). Feeds the density field in
 //            generate_chunk, find_surface_y and single-point density queries.
+// min_weirdness: floor for the amplified mask — every column's shaping mask
+//            is at least this value, so the biome never drops below a baseline
+//            level of 3D shaping. 0 = no floor. Applied as
+//            max(raw_mask * weirdness, min_weirdness) then clamped to [0, 1].
 struct BiomeAmplification {
-    float height    = 1.0f;
-    float weirdness = 1.0f;
+    float height        = 1.0f;
+    float weirdness     = 1.0f;
+    float min_weirdness = 0.0f;
 };
 
 // One entry per BiomeType value (index == static_cast<int>(BiomeType)).

@@ -216,16 +216,16 @@ void WorldUpdater::update_unload(int32_t active_render_distance, int32_t pcx, in
         unload_scan_skip_counter = 0;
         int32_t unload_hrd  = active_render_distance + 2;
         int32_t unload_hrd2 = unload_hrd * unload_hrd;
-int32_t unload_vrd = active_render_distance + 2;
 
+        // Unload is purely horizontal: chunks stay loaded no matter how far
+        // above or below the player they are (no vertical render distance).
         chunk_world->get_chunk_map().for_each_limited_resumable([&](uint64_t key, const std::unique_ptr<ChunkRenderData>&) {
             int32_t cx = 0, cy = 0, cz = 0;
             ChunkMap::decode_chunk_key(key, cx, cy, cz);
             int32_t dx = cx - pcx;
             int32_t dz = cz - pcz;
             int32_t horiz_dist2 = dx * dx + dz * dz;
-int32_t dy = cy - pcy;
-            if (horiz_dist2 > unload_hrd2 || std::abs(dy) > unload_vrd) {
+            if (horiz_dist2 > unload_hrd2) {
                 queue_unload(key);
             } else {
                 unload_pending.erase(key);
@@ -237,7 +237,6 @@ int32_t dy = cy - pcy;
         int32_t unload_hrd = active_render_distance + 2;
         int32_t unload_hrd2 = unload_hrd * unload_hrd;
         int32_t unloads_this_frame = 0;
-int32_t unload_vrd = active_render_distance + 2;
         const bool frustum_active = frustum.is_initialized();
         // Frustum-aware unload: prefer unloading non-visible chunks first.
         // Collect visible chunks and defer them, unload non-visible chunks now.
@@ -251,8 +250,7 @@ int32_t unload_vrd = active_render_distance + 2;
                 int32_t dx = cx - pcx;
                 int32_t dz = cz - pcz;
                 int32_t horiz_dist2 = dx * dx + dz * dz;
-int32_t dy = cy - pcy;
-                if (horiz_dist2 > unload_hrd2 || std::abs(dy) > unload_vrd) {
+                if (horiz_dist2 > unload_hrd2) {
                     // Beyond render distance: unload now, non-visible first
                     if (frustum_active && frustum.is_chunk_visible(cx, cy, cz)) {
                         // Visible beyond render distance: defer if budget available
@@ -422,14 +420,20 @@ void WorldUpdater::initialize_view_distance(int32_t horizontal_rd) {
     height_estimator->set_biome_config(biome_config);
     height_estimator->set_vegetation_config(vegetation_config);
     column_height_cache.reserve(65536);
-    // Vertical range covers terrain variation up to ~500-block mountain peaks.
-    constexpr int32_t VERTICAL_BUFFER = 10;
+    // No vertical render distance: the candidate column spans the full world
+    // height (WORLD_HEIGHT_Y / CHUNK_HEIGHT chunk slices, player-relative
+    // with margin), so terrain anywhere within the horizontal disc is
+    // reachable regardless of how far above or below the player it sits.
+    // The per-column near-surface filter in the sweep (surface height
+    // +/- 32 blocks) is what actually bounds generation, not a fixed
+    // vertical window around the player.
+    constexpr int32_t kWorldChunkSlices = WORLD_HEIGHT_Y / CHUNK_HEIGHT;
     current_render_distance = horizontal_rd;
     pre_sorted_offsets.clear();
     unload_queue.clear();
 
     for (int32_t x = -horizontal_rd; x <= horizontal_rd; ++x) {
-        for (int32_t y = -VERTICAL_BUFFER; y <= VERTICAL_BUFFER; ++y) {
+        for (int32_t y = -kWorldChunkSlices; y <= kWorldChunkSlices; ++y) {
             for (int32_t z = -horizontal_rd; z <= horizontal_rd; ++z) {
                 int32_t horiz_dist2 = x * x + z * z;
                 if (horiz_dist2 <= (horizontal_rd * horizontal_rd)) {

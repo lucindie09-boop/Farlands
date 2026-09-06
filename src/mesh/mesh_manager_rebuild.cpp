@@ -16,12 +16,13 @@ void MeshManager::rebuild_rendering_server_mesh(int32_t chunk_x, int32_t chunk_y
     if (!render_data || !render_data->is_mesh_dirty) return;
     if (!thread_pool || !chunk_scheduler || !chunk_map) return;
 
-    // Skip mesh builds for chunks beyond render distance + 2 (allows unload to proceed)
+    // Skip mesh builds for chunks beyond render distance + 2 (allows unload to proceed).
+    // Horizontal-only: no vertical render distance, so any chunk within the
+    // horizontal disc is meshable regardless of height.
     if (mesh_render_distance > 0 && last_player_chunk_x != INT32_MIN) {
         int32_t dx = chunk_x - last_player_chunk_x;
         int32_t dz = chunk_z - last_player_chunk_z;
-        int32_t dy = std::abs(chunk_y - last_player_chunk_y);
-        if (dx*dx + dz*dz > (mesh_render_distance + 2) * (mesh_render_distance + 2) || dy > 10) {
+        if (dx*dx + dz*dz > (mesh_render_distance + 2) * (mesh_render_distance + 2)) {
             render_data->is_mesh_dirty = false;
             render_data->dirty_subchunks = 0;
             render_data->reset_dirty_bbox();

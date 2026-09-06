@@ -119,7 +119,10 @@ void MeshManager::reprioritize(int32_t player_cx, int32_t player_cy, int32_t pla
         return;
     }
 
-    const int32_t vert_range = 10;
+    // The transition shells are Chebyshev rings around the player, so the
+    // scan must reach the outermost tier start vertically as well as
+    // horizontally (no vertical render distance cap).
+    const int32_t vert_range = std::max(lod_distance, far_lod_distance) + 1;
     int32_t queued = 0;
     constexpr int32_t kMaxLodRemeshPerFrame = 512;
 
@@ -287,14 +290,13 @@ void MeshManager::process_queue(int32_t max_immediate, int32_t max_rebuilds, dou
 
     int32_t mesh_rd_sq = mesh_render_distance ? mesh_render_distance * mesh_render_distance : INT32_MAX;
     int32_t pcx = last_player_chunk_x;
-    int32_t pcy = last_player_chunk_y;
     int32_t pcz = last_player_chunk_z;
         mesh_queue.process(
-            [this, mesh_rd_sq, pcx, pcy, pcz](int32_t cx, int32_t cy, int32_t cz) {
+            [this, mesh_rd_sq, pcx, pcz](int32_t cx, int32_t cy, int32_t cz) {
                 int32_t dx = cx - pcx;
-                int32_t dy = cy - pcy;
                 int32_t dz = cz - pcz;
-                if (dx*dx + dz*dz > mesh_rd_sq || std::abs(dy) > 10) {
+                // Horizontal-only: no vertical render distance.
+                if (dx*dx + dz*dz > mesh_rd_sq) {
                     return;
                 }
                 rebuild_chunk_mesh(cx, cy, cz, async_epoch ? async_epoch->load(std::memory_order_acquire) : 0);

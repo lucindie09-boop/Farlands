@@ -8,7 +8,7 @@
 
 ![Farlands gameplay — new terrain](screenshots/gameplay_new.png)
 
-A Minecraft-style voxel engine built in Godot 4 with a custom C++ GDExtension. Procedural terrain generation (a stacked-noise macro surface with domain warp and ~500/150-block relief fields, wrapped by a signed 3D density field that adds overhangs and shelves in strength-gated "weirdness" zones, plus height-based oceans that flood any column below sea level), chunked world streaming, greedy meshing with per-chunk incremental rebuilds, colored block lighting, day/night cycle, three-tier distance-based mesh LOD with LOD-reduced chunks merged into regions to cap draw calls, frustum-prioritized chunk loading, async background chunk saving, and a C++ inventory system (hotbar + 27-slot storage) wired into block break/place with a GDScript GUI, plus data-driven 2×2 crafting (`data/recipes.json`). Ships with a C++ player controller with Minecraft-accurate fixed-timestep physics.
+A Minecraft-style voxel engine built in Godot 4 with a custom C++ GDExtension. Procedural terrain generation (a stacked-noise macro surface with domain warp and ~500/150-block relief fields, wrapped by a signed 3D density field that adds overhangs and shelves in strength-gated "weirdness" zones, plus height-based oceans that flood any column below sea level), chunked world streaming, greedy meshing with per-chunk incremental rebuilds, colored block lighting, day/night cycle, three-tier distance-based mesh LOD with LOD-reduced chunks merged into regions to cap draw calls, frustum-prioritized chunk loading, async background chunk saving, and a C++ inventory system (hotbar + 27-slot storage) wired into block break/place with a GDScript GUI, plus data-driven 2×2 crafting (`data/recipes.json`). Ships with a C++ player controller with Minecraft-accurate fixed-timestep physics and a punchable combat dummy (K key) with vanilla 1.8.8 knockback.
 
 ## Architecture
 
@@ -43,7 +43,7 @@ A Minecraft-style voxel engine built in Godot 4 with a custom C++ GDExtension. P
 | Collision | `src/engine/collision_resolver.cpp` | Custom binary-search AABB voxel grid query (no Godot physics nodes), step-up support |
 | Day/night | `src/world/day_night_cycle.hpp` | Shader-driven sky-light intensity + color blending |
 | Player sim | `src/engine/player_controller.hpp/cpp` | Minecraft-accurate fixed 20-tick/s physics: vanilla jump/sprint/sneak ordering, accumulator, smooth eye-height transitions, fall-distance tracking with vanilla landing damage (1 half-heart per block past 3) |
-| Player camera & body | `src/godot_bindings/player_controller.cpp`, `player_model.gd`, `pose_clone_debug.gd` | F5 cycles first person → behind → in front (face view); the third-person cameras sit on the look ray 4 blocks out and pull in before solid terrain. Block targeting always casts from the player's eye along the look direction (`get_aim_origin`/`get_aim_direction`) so every view aims at the same block. The body lives under a `ModelPivot` applying vanilla's body-yaw lag (torso faces travel direction, head leads up to ±35°) while `player_model.gd` drives the head from the aim direction; `player.glb` pivots are baked onto the true joints by `tools/rebake_player_pivots.py`. K spawns an animated pose clone with a marker at each mesh pivot |
+| Player camera & body | `src/godot_bindings/player_controller.cpp`, `player_model.gd`, `pose_clone_debug.gd` | F5 cycles first person → behind → in front (face view); the third-person cameras sit on the look ray 4 blocks out and pull in before solid terrain. Block targeting always casts from the player's eye along the look direction (`get_aim_origin`/`get_aim_direction`) so every view aims at the same block. The body lives under a `ModelPivot` applying vanilla's body-yaw lag (torso faces travel direction, head leads up to ±35°) while `player_model.gd` drives the head from the aim direction; `player.glb` pivots are baked onto the true joints by `tools/rebake_player_pivots.py`. K spawns a rigid, punchable physics dummy on the aimed block (vanilla 1.8.8 gravity/drag/knockback) with a marker at each mesh pivot |
 | LOD | `lod_distance` / `lod_detail_level` / `far_lod_distance` / `far_lod_detail_level` (`mesh_manager.cpp`) | Three tiers — full detail, mid stride/detail reduction, and far tier with its own detail level; LOD-reduced chunks merged into regions; capped remesh-per-frame |
 | Frame budgets | `src/core/frame_budgets.hpp` | Tiered budgets for generate/light/mesh/upload (idle/active/loading) |
 | Performance timers | `src/core/performance_timer.hpp` | Scoped frame-by-frame profiling |
@@ -178,7 +178,7 @@ CI (`.github/workflows/build.yml`) runs on every push and pull request:
 - **Static-analysis job** — clang-tidy across all of `src/` with `bugprone-*`, `concurrency-*`, and `performance-*` checks; findings in project sources fail the job.
 - **Coverage job** — lcov coverage report uploaded to Codecov.
 
-The project has **255 test cases / 181,721 assertions** across 30 doctest files, including 27 tests in `test_concurrency.cpp` (shard locking, deadlock prevention, PaletteStorage, cross-chunk writers, thread-pool work stealing).
+The project has **255 test cases / 181,725 assertions** across 30 doctest files, including 27 tests in `test_concurrency.cpp` (shard locking, deadlock prevention, PaletteStorage, cross-chunk writers, thread-pool work stealing).
 
 ## Running
 
@@ -191,13 +191,13 @@ Open the project root in Godot 4 and press Play. The main scene is `Main.tscn`. 
 | W/A/S/D | Move |
 | Mouse | Look (click the window to capture the mouse) |
 | Space | Jump / ascend in flight |
-| Left click | Break block (collects into inventory) + punch animation |
+| Left click | Break block (collects into inventory) + punch animation; punches the K-key dummy when it's under the crosshair (vanilla knockback) |
 | Right click | Place block (consumes from the selected hotbar slot) + place animation |
 | Shift | Sprint |
 | Ctrl | Sneak / descend in flight |
 | F | Toggle fly mode |
 | F5 | Cycle camera view: first person → behind the player → in front of the player (looking at your face) |
-| K | Spawn/remove an animated pose clone of the player on the aimed block (debug: shows a cube at each mesh pivot) |
+| K | Spawn/remove a rigid physics dummy of the player on the aimed block — no animations, falls with vanilla gravity/drag, punchable with left click (debug: shows a cube at each mesh pivot) |
 | 1–9 | Select hotbar slot |
 | E | Toggle inventory |
 | Mouse wheel | Cycle hotbar selection (while the inventory is closed) |

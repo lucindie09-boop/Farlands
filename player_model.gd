@@ -9,6 +9,9 @@ const ATLAS_DIM := 64
 
 var uv_overlay_enabled := false
 var paint_color := Color.WHITE
+# When true the head never rotates (set by the K-key pose clone so the dummy
+# is fully frozen instead of tracking the player's aim).
+var skip_head_look := false
 
 var _uv_overlay_mat: ShaderMaterial
 var _paint_image: Image
@@ -47,6 +50,8 @@ func _ready():
 	_head = find_child("head", true, false)
 
 func _process(_delta: float) -> void:
+	if skip_head_look:
+		return
 	_track_head_look()
 
 # Minecraft-style head look: the head follows the player's LOOK direction

@@ -1,21 +1,29 @@
 extends Node
 ## Debug helper: press the bound action (pose_clone_toggle, default K) while
 ## aiming at a block to spawn a standing clone of the player model on top of
-## that block with its animation playing, plus a small bright cube at the
-## pivot point of each of the model's meshes. Press again to remove the clone.
+## that block with NO animation (no AnimationPlayer child, so player_model.gd
+## never loads or plays Idle.anim — a frozen dummy), plus a small bright cube
+## at the pivot point of each of the model's meshes. Press again to remove the
+## clone.
 ##
-## The clone is built exactly like Main.tscn builds Player/PlayerModel — a
-## fresh player.glb instance carrying player_model.gd with an AnimationPlayer
-## child — so the Idle animation loads and plays through the same code path as
-## the real model. Pivot markers are parented to each MeshInstance3D, so they
-## sit at the node origin and follow the animation if a part moves. The glb
-## was re-baked by tools/rebake_player_pivots.py so those origins sit on the
-## true Blockbench pivots (arm/arm2 tops at y=24, leg/leg2 tops at y=12,
-## torso y=18, head at the neck y=24 in glb units).
+## The clone is a physics dummy (dummy.gd): it falls with vanilla gravity/drag
+## and gets knocked back with the vanilla combat knockback when you left-click
+## it within punch reach (see PlayerController::try_punch_dummy).
+##
+## The clone is built like Main.tscn builds Player/PlayerModel — a fresh
+## player.glb instance carrying player_model.gd — but without the
+## AnimationPlayer, so the Idle animation never loads or plays. Pivot markers
+## are parented to each MeshInstance3D, so they sit at the node origin and
+## follow the animation if a part moves. The glb was re-baked by
+## tools/rebake_player_pivots.py so those origins sit on the true Blockbench
+## pivots (arm/arm2 tops at y=24, leg/leg2 tops at y=12, torso y=18, head at
+## the neck y=24 in glb units).
 
 const PLAYER_SCENE: PackedScene = preload("res://player.glb")
 const PLAYER_MODEL_SCRIPT: Script = preload("res://player_model.gd")
 const PIVOT_SHADER: Shader = preload("res://shaders/pose_pivot_marker.gdshader")
+# Vanilla-accurate physics (gravity/drag/knockback) — see dummy.gd.
+const DUMMY_SCRIPT: Script = preload("res://dummy.gd")
 
 # Matches the transform Main.tscn applies to Player/PlayerModel: the glb is
 # 0.05625-scaled (1 glb unit = 1/17.78 blocks) with a 180-degree yaw flip and
@@ -68,16 +76,24 @@ func _spawn() -> void:
 
 	var host := Node3D.new()
 	host.name = "PoseClone"
+	# The dummy is a physics body (dummy.gd: vanilla gravity/drag + knockback), so
+	# left-clicking it in game punches it instead of mining the block behind.
+	# PlayerController finds it through the pose_clone group.
+	host.set_script(DUMMY_SCRIPT)
+	host.add_to_group("pose_clone")
+	# Position BEFORE add_child: dummy.gd's _ready snapshots this as its tick
+	# position, and the interpolation then renders around it every frame.
+	host.position = Vector3(bx + 0.5, feet_y, bz + 0.5)
 	scene_root.add_child(host)
-	host.global_position = Vector3(bx + 0.5, feet_y, bz + 0.5)
 	_clone = host
 
 	var model := PLAYER_SCENE.instantiate()
 	model.set_script(PLAYER_MODEL_SCRIPT)
 	model.transform = _clone_model_transform()
-	var anim_player := AnimationPlayer.new()
-	anim_player.name = "AnimationPlayer"
-	model.add_child(anim_player)
+	# No AnimationPlayer child on purpose: player_model.gd only loads and plays
+	# Idle.anim when an AnimationPlayer exists, so the clone stays frozen.
+	# Skip head tracking too so the dummy is completely rigid.
+	model.skip_head_look = true
 	host.add_child(model)
 
 	_add_pivot_markers(model)

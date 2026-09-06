@@ -124,6 +124,18 @@ private:
     void update_mouse_mode();
     // Accumulates break progress while LMB is held on a breakable block.
     void update_break_progress(float delta);
+
+    // --- Pose-clone dummy punching (vanilla 1.8.8) ---
+    // Distance along the aim ray to the spawned pose-clone dummy's vanilla-sized
+    // (0.6 x 1.8 x 0.6) AABB within punch reach, or -1 when none is hit.
+    float dummy_aim_hit_t() const;
+    // True when the dummy is under the crosshair closer than the aimed block,
+    // so LMB should punch it instead of mining (vanilla entity precedence).
+    bool dummy_blocks_break_aim() const;
+    // Punch the dummy: viewmodel swing + vanilla knockback. Returns true on a hit.
+    bool try_punch_dummy();
+    // Re-attack interval while holding LMB on the dummy (vanilla attack cadence).
+    float punch_cooldown_ = 0.0f;
     VoxelEngine::PlayerSim sim_;
     godot::Camera3D* camera_ = nullptr;
     VoxelEngine::CollisionResolver* collision_resolver_ = nullptr;

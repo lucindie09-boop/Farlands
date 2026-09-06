@@ -17,8 +17,9 @@ bool MeshManager::is_chunk_within_render_distance(int32_t cx, int32_t cy, int32_
     }
     const int32_t dx = cx - last_player_chunk_x;
     const int32_t dz = cz - last_player_chunk_z;
-    const int32_t dy = std::abs(cy - last_player_chunk_y);
-    return (dx * dx + dz * dz) <= (mesh_render_distance * mesh_render_distance) && dy <= 10;
+    // Horizontal-only: no vertical render distance, so chunks stay visible
+    // however far above or below the player they are.
+    return (dx * dx + dz * dz) <= (mesh_render_distance * mesh_render_distance);
 }
 
 bool MeshManager::should_use_far_region_for_chunk(int32_t cx, int32_t cy, int32_t cz) const {

@@ -166,8 +166,8 @@ void MeshManager::process_completed_meshes(uint64_t epoch, double budget_ms, int
             render_data->mesh_content_hash = completed.mesh_content_hash;
         }
 
-        // 4.4 Instance budget cap: don't create instances for chunks beyond render distance
-        // Uses same 2D horizontal distance + vertical buffer logic as the LOD classifier
+        // 4.4 Instance budget cap: don't create instances for chunks beyond render distance.
+        // Horizontal-only check (no vertical render distance).
         const bool cache_for_far_region = completed.detail_level < 1.0f;
         if (cache_for_far_region) {
             auto far_cache = std::make_shared<CachedFarChunkMesh>();

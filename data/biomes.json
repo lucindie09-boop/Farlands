@@ -14,7 +14,7 @@
       "near_water_subsurface": "dirt",
       "height_amplification": 1.0,
       "weirdness_amplification": 1.0,
-      "min_weirdness_amplification": 0.1,
+      "min_weirdness_amplification": 1.1,
       "tree_density": 1.0,
       "tree_variants": {"oak": 1.0, "spruce": 0.0}
     },
@@ -25,7 +25,7 @@
       "near_water_subsurface": "sand",
       "height_amplification": 1.0,
       "weirdness_amplification": 1.0,
-      "min_weirdness_amplification": 0.0
+      "min_weirdness_amplification": 1.0
     }
   }
 }

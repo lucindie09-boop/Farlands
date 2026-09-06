@@ -149,6 +149,9 @@ bool BiomeConfig::load(const godot::String& json_path, BiomeConfig& out) {
             if (b.has("weirdness_amplification")) {
                 out.amplification[ix].weirdness = static_cast<float>(static_cast<double>(b["weirdness_amplification"]));
             }
+            if (b.has("min_weirdness_amplification")) {
+                out.amplification[ix].min_weirdness = static_cast<float>(static_cast<double>(b["min_weirdness_amplification"]));
+            }
             if (b.has("tree_density")) {
                 out.vegetation[ix].tree_density = static_cast<float>(static_cast<double>(b["tree_density"]));
             }

@@ -254,6 +254,15 @@ private:
         return smoothstep(params.weirdness_low, params.weirdness_high, raw);
     }
 
+    // Weirdness mask for a column: the raw 2D mask scaled by the biome's
+    // amplification, floored at the biome's minimum, then clamped to [0, 1]
+    // so the shaping strength stays within [shape_strength_min, max].
+    float amplified_weirdness(float raw_mask, BiomeType biome) const {
+        const BiomeAmplification& a =
+            biome_config.amplification[static_cast<size_t>(biome)];
+        return clamp01(std::max(raw_mask * a.weirdness, a.min_weirdness));
+    }
+
     // Signed, normalized 3D fBm (FastNoise::fbm_3d already normalizes by the
     // amplitude sum so octave-count changes do not shift overall height).
     // Anisotropic: vertical frequency is higher so the field produces shelves
@@ -386,8 +395,9 @@ float max_water_h = -1.0f;
                                  const ColumnSample& column) const {
         return sample_terrain_density(
             world_x, world_y, world_z, column,
-            clamp01(sample_weirdness(static_cast<float>(world_x), static_cast<float>(world_z)) *
-                    biome_config.amplification[static_cast<size_t>(column.biome)].weirdness));
+            amplified_weirdness(sample_weirdness(static_cast<float>(world_x),
+                                                 static_cast<float>(world_z)),
+                                column.biome));
     }
 
     // Real topmost air-to-solid transition for a column. The macro heightmap

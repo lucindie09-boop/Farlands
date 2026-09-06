@@ -27,12 +27,13 @@ bool find_seed_column(ChunkGenerator& gen, BiomeType target, int32_t& wx, int32_
 // Biome amplification defaults
 // =========================================================================
 
-TEST_CASE("biome amplification: defaults are neutral (1.0 on both knobs)") {
+TEST_CASE("biome amplification: defaults are neutral") {
     BiomeConfig bc;
     bc.reset_defaults();
     for (int i = 0; i < static_cast<int>(BiomeType::Count); ++i) {
         CHECK(bc.amplification[static_cast<size_t>(i)].height == 1.0f);
         CHECK(bc.amplification[static_cast<size_t>(i)].weirdness == 1.0f);
+        CHECK(bc.amplification[static_cast<size_t>(i)].min_weirdness == 0.0f);
     }
 }
 
@@ -144,4 +145,70 @@ TEST_CASE("biome amplification: weirdness scales the shaping mask") {
         }
     }
     CHECK(found_diff);
+}
+
+// =========================================================================
+// min_weirdness_amplification: floor for the amplified shaping mask
+// =========================================================================
+
+TEST_CASE("biome amplification: min weirdness floors the shaping mask") {
+    TerrainParams params;
+
+    // Baseline: neutral (amp 1, no floor).
+    ChunkGenerator gen_default(params);
+
+    // Floored at 0.5 with the multiplier pinned to 0: every Hills column gets
+    // exactly 0.5 (0 * 1 floored to 0.5).
+    BiomeConfig bc_floor;
+    bc_floor.reset_defaults();
+    bc_floor.amplification[static_cast<size_t>(BiomeType::Hills)].weirdness = 0.0f;
+    bc_floor.amplification[static_cast<size_t>(BiomeType::Hills)].min_weirdness = 0.5f;
+    ChunkGenerator gen_floor(params);
+    gen_floor.set_biome_config(bc_floor);
+
+    // (a) Where the raw mask is below the floor the floor raises the mask:
+    // densities must differ from the neutral generator. Pick a zero-mask
+    // Hills column (deterministic).
+    bool found_zero_mask = false;
+    for (int32_t z = -512; z <= 512 && !found_zero_mask; z += 16) {
+        for (int32_t x = -512; x <= 512 && !found_zero_mask; x += 16) {
+            if (gen_default.get_biome(x, z) != BiomeType::Hills) continue;
+            if (gen_default.sample_weirdness_debug(static_cast<float>(x), static_cast<float>(z)) != 0.0f) continue;
+            auto col = gen_default.sample_column_debug(x, z);
+            const int32_t y = static_cast<int32_t>(std::round(col.height));
+            bool differs = false;
+            for (int32_t dy = -6; dy <= 6 && !differs; dy += 2) {
+                if (gen_floor.sample_terrain_density(x, y + dy, z, col) !=
+                    gen_default.sample_terrain_density(x, y + dy, z, col)) {
+                    differs = true;
+                }
+            }
+            CHECK(differs);
+            found_zero_mask = true;
+        }
+    }
+    CHECK(found_zero_mask);
+
+    // (b) With neutral amplification the floor is invisible above its value:
+    // max(raw, 0.5) == raw for raw > 0.5, so densities must match the neutral
+    // generator exactly.
+    BiomeConfig bc_floor_neutral;
+    bc_floor_neutral.reset_defaults();
+    bc_floor_neutral.amplification[static_cast<size_t>(BiomeType::Hills)].min_weirdness = 0.5f;
+    ChunkGenerator gen_floor_neutral(params);
+    gen_floor_neutral.set_biome_config(bc_floor_neutral);
+
+    bool found_above_floor = false;
+    for (int32_t z = -512; z <= 512 && !found_above_floor; z += 16) {
+        for (int32_t x = -512; x <= 512 && !found_above_floor; x += 16) {
+            if (gen_default.get_biome(x, z) != BiomeType::Hills) continue;
+            if (gen_default.sample_weirdness_debug(static_cast<float>(x), static_cast<float>(z)) < 0.75f) continue;
+            auto col = gen_default.sample_column_debug(x, z);
+            const int32_t y = static_cast<int32_t>(std::round(col.height));
+            CHECK(gen_floor_neutral.sample_terrain_density(x, y, z, col) ==
+                  gen_default.sample_terrain_density(x, y, z, col));
+            found_above_floor = true;
+        }
+    }
+    CHECK(found_above_floor);
 }

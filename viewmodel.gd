@@ -95,9 +95,8 @@ var _item_position_z: float = 0.46
 var _swing_s: float = 0.0
 var _swing_angle: float = 0.0
 
-# Vanilla 1.8.8 empty-hand
-# arm path:
-#   rotation calls       (GL post-multiply, vertex-first):
+# Vanilla 1.8.8 empty-hand arm pose (the first-person item rendering's arm
+# rotation chain, GL post-multiply / vertex-first):
 #       rotate(45, Y)  ->  RotY45
 #       rotate(120, Z) ->  RotZ120
 #       rotate(200, X) ->  RotX200

@@ -12,10 +12,12 @@
 #include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/classes/input_event_key.hpp>
 #include <godot_cpp/classes/input_event_mouse_motion.hpp>
+#include <godot_cpp/classes/scene_tree.hpp>
 #include <godot_cpp/classes/viewport.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 using namespace godot;
 using namespace VoxelEngine;
@@ -36,9 +38,45 @@ constexpr float kMaxLookPitch = kPi / 2.0f; // ±90°, matching vanilla
 // tighter and more responsive).
 constexpr float kBodyTurnPerTick = 0.3f;
 constexpr float kBodyMaxYaw = 35.0f * kPi / 180.0f;
+// Punch reach — vanilla survival attack reach (3.0 blocks; creative is 5.0).
+// Block mining keeps its own (10-block) range, so this only gates punching
+// the pose-clone dummy.
+constexpr float kPunchReach = 3.0f;
+// vanilla player collision box: 0.6 wide, 1.8 tall, origin at the feet. Matches
+// dummy.gd's physics size and the dummy host node (position = feet center).
+constexpr float kDummyHalfWidth = 0.3f;
+constexpr float kDummyHeight = 1.8f;
+// Vanilla attack cadence: while LMB is held the player re-attacks every
+// 10 ticks (0.5 s at 20 tps); the dummy's hurt-resistance gate then
+// throttles actual knockback to the same ~10-tick cadence.
+constexpr float kPunchInterval = 0.5f;
 
 float wrap_pi(float a) {
     return std::remainder(a, kTwoPi);
+}
+
+// Slab-method ray vs AABB intersection. Returns t along dir at entry, or -1.
+float ray_aabb_hit(const Vector3& origin, const Vector3& dir,
+                   const Vector3& box_min, const Vector3& box_max) {
+    float tmin = -std::numeric_limits<float>::max();
+    float tmax = std::numeric_limits<float>::max();
+    for (int axis = 0; axis < 3; ++axis) {
+        const float o = origin[axis];
+        const float d = dir[axis];
+        const float lo = box_min[axis];
+        const float hi = box_max[axis];
+        if (std::fabs(d) < 1e-8f) {
+            if (o < lo || o > hi) return -1.0f;
+        } else {
+            float t1 = (lo - o) / d;
+            float t2 = (hi - o) / d;
+            if (t1 > t2) std::swap(t1, t2);
+            tmin = std::max(tmin, t1);
+            tmax = std::min(tmax, t2);
+            if (tmin > tmax) return -1.0f;
+        }
+    }
+    return tmin;
 }
 } // namespace
 
@@ -371,7 +409,13 @@ void PlayerController::_input(const Ref<InputEvent>& p_event) {
     }
 
     // Hold-to-break: progress accumulates in _process via update_break_progress;
-    // the LMB click here only re-captures the mouse (handled above).
+    // the LMB click here only re-captures the mouse (handled above) and punches
+    // the pose-clone dummy when it's under the crosshair (Minecraft attack).
+    if (p_event->is_action_pressed("mouse_click_left")) {
+        if (try_punch_dummy()) {
+            punch_cooldown_ = kPunchInterval;
+        }
+    }
 
     if (p_event->is_action_pressed("mouse_click_right")) {
         place_block();
@@ -443,6 +487,59 @@ godot::Vector3 PlayerController::get_aim_direction() const {
     const godot::Vector3 local =
         godot::Vector3(0, 0, -1).rotated(godot::Vector3(1, 0, 0), pitch_);
     return get_global_transform().basis.xform(local).normalized();
+}
+
+float PlayerController::dummy_aim_hit_t() const {
+    SceneTree* tree = get_tree();
+    if (!tree) return -1.0f;
+    Node* dummy = tree->get_first_node_in_group("pose_clone");
+    if (!dummy) return -1.0f;
+    Node3D* dummy3d = Object::cast_to<Node3D>(dummy);
+    if (!dummy3d) return -1.0f;
+    const Vector3 pos = dummy3d->get_global_position();
+    const Vector3 box_min = pos - Vector3(kDummyHalfWidth, 0.0f, kDummyHalfWidth);
+    const Vector3 box_max = pos + Vector3(kDummyHalfWidth, kDummyHeight, kDummyHalfWidth);
+    const float t = ray_aabb_hit(get_aim_origin(), get_aim_direction(), box_min, box_max);
+    return (t >= 0.0f && t <= kPunchReach) ? t : -1.0f;
+}
+
+bool PlayerController::dummy_blocks_break_aim() const {
+    const float t = dummy_aim_hit_t();
+    if (t < 0.0f) return false;
+    // Vanilla entity precedence: the nearer of the entity and the block along
+    // the aim ray wins the click. No block hit (or a block farther away than
+    // the dummy) means the dummy absorbs it.
+    if (!chunk_manager_) return true;
+    const Dictionary result = chunk_manager_->raycast_from_camera(10.0);
+    if (!result.get("success", false)) return true;
+    const Vector3 hit_point = result["hit_point"];
+    const float block_dist = (hit_point - get_aim_origin()).length();
+    return t <= block_dist;
+}
+
+bool PlayerController::try_punch_dummy() {
+    if (!dummy_blocks_break_aim()) return false;
+    SceneTree* tree = get_tree();
+    if (!tree) return false;
+    Node* dummy = tree->get_first_node_in_group("pose_clone");
+    if (!dummy) return false;
+    // First-person arm swing (viewmodel.gd punch()).
+    Node* viewmodel = get_node_or_null(NodePath("Camera3D/Viewmodel"));
+    if (viewmodel) viewmodel->call("punch");
+    // Base vanilla 1.8.8 knockback — the dummy computes the direction and
+    // velocity from its own and the attacker's positions.
+    // Sprint bonus (vanilla 1.8.8): a sprinting attacker adds facing * 0.5
+    // (+0.1 up) on top — the victim inherits the attacker's forward momentum.
+    // Uses the sim's sprint state (sprint key + forward + grounded).
+    Vector3 extra;
+    if (sim_.get_state() == MoveState::SPRINTING) {
+        Vector3 fwd = get_aim_direction();
+        fwd.y = 0.0f;
+        if (fwd.length_squared() > 0.001f) fwd = fwd.normalized();
+        extra = fwd * 0.5f + Vector3(0.0f, 0.1f, 0.0f);
+    }
+    dummy->call("apply_knockback", get_global_position(), extra);
+    return true;
 }
 
 void PlayerController::update_camera_transform(float eye_height, float delta) {
@@ -571,6 +668,22 @@ void PlayerController::update_break_progress(float delta) {
     const bool held = input && input->is_action_pressed("mouse_click_left");
     const bool ui_blocked = inventory_open_ || table_menu_open_ || chat_open_ || settings_open_;
 
+    // When the dummy is under the crosshair (closer than the block), LMB keeps
+    // punching it at the vanilla swing interval instead of mining (vanilla: the
+    // entity absorbs the click). Also gates the re-aim below so the crack
+    // overlay and break_block never target the block behind the dummy.
+    const bool punch_targeted =
+        held && mouse_captured && !ui_blocked && dummy_blocks_break_aim();
+    if (punch_targeted) {
+        punch_cooldown_ -= delta;
+        if (punch_cooldown_ <= 0.0f) {
+            try_punch_dummy();
+            punch_cooldown_ = kPunchInterval;
+        }
+    } else {
+        punch_cooldown_ = 0.0f;
+    }
+
     // Re-aim while LMB is held with the mouse captured and no UI open.
     bool aiming = false;
     Vector3i target;
@@ -578,7 +691,7 @@ void PlayerController::update_break_progress(float delta) {
     BlockID collect_id = 0;
     int collect_count = 1;
     int block_type = 0;
-    if (held && mouse_captured && !ui_blocked) {
+    if (held && mouse_captured && !ui_blocked && !punch_targeted) {
         Dictionary result = chunk_manager_->raycast_from_camera(10.0);
         if (result.get("success", false)) {
             Vector3 pos = result["position"];

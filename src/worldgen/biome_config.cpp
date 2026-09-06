@@ -23,7 +23,44 @@ BlockID resolve_block(const char* name, BlockID fallback) {
     return (id == BlockIDs::AIR) ? fallback : id;
 }
 
+// ASCII case-insensitive compare (no locale / platform dependencies).
+bool iequals(const char* a, const char* b) {
+    while (*a != '\0' && *b != '\0') {
+        char ca = *a;
+        char cb = *b;
+        if (ca >= 'A' && ca <= 'Z') ca = static_cast<char>(ca + ('a' - 'A'));
+        if (cb >= 'A' && cb <= 'Z') cb = static_cast<char>(cb + ('a' - 'A'));
+        if (ca != cb) return false;
+        ++a;
+        ++b;
+    }
+    return *a == *b;
+}
+
 } // namespace
+
+const char* biome_name(BiomeType b) {
+    switch (b) {
+        case BiomeType::Ocean:  return "ocean";
+        case BiomeType::Beach:  return "beach";
+        case BiomeType::Plains: return "plains";
+        case BiomeType::Forest: return "forest";
+        case BiomeType::Desert: return "desert";
+        default:                return "unknown";
+    }
+}
+
+bool biome_from_name(const char* name, BiomeType& out) {
+    if (name == nullptr) return false;
+    for (int i = 0; i < static_cast<int>(BiomeType::Count); ++i) {
+        const BiomeType b = static_cast<BiomeType>(i);
+        if (iequals(name, biome_name(b))) {
+            out = b;
+            return true;
+        }
+    }
+    return false;
+}
 
 BiomeConfig::BiomeConfig() {
     reset_defaults();

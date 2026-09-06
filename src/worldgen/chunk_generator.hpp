@@ -367,6 +367,17 @@ float max_water_h = -1.0f;
         return sample_column(world_x, world_z).height;
     }
 
+    // Searches outward from (center_x, center_z) for the nearest column whose
+    // biome is `target`, within max_radius_blocks. Phase 1 walks concentric
+    // 16-block rings outward (early exit on the first hit); phase 2 refines
+    // the hit with a fine 4-block scan of the surrounding area and keeps the
+    // closest matching column to the requested center. Returns true and fills
+    // out_x / out_z (the found column) and out_height (its macro surface
+    // height — sea bed for ocean columns).
+    bool find_nearest_biome(BiomeType target, int32_t center_x, int32_t center_z,
+                            int32_t max_radius_blocks, int32_t& out_x, int32_t& out_z,
+                            float& out_height) const;
+
     // Signed density at a world point (macro surface + 3D deformation).
     // >0 solid, <=0 air. Unlike the cached-weirdness overload used by the
     // chunk generator, this recomputes the weirdness mask per call.

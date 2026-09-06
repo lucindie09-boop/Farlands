@@ -149,9 +149,17 @@ public:
     void flush_dirty_chunks(bool wait_for_completion = false, double timeout_sec = 5.0);
 
     ChunkWorld& get_chunk_world() { return chunk_world; }
+    WorldUpdater& get_world_updater() { return world_updater; }
     EnvironmentController& get_environment_controller() { return environment_controller; }
     CollisionResolver& get_collision_resolver() { return collision_resolver; }
     BlockEditor& get_block_editor() { return block_editor; }
+
+    // Locates the nearest column of the named biome (case-insensitive:
+    // ocean/beach/plains/forest/desert) within max_radius_blocks of
+    // (center_x, center_z). Returns {found: bool, x, y, z} where y is the
+    // macro surface height at the hit (the sea bed for ocean columns).
+    godot::Dictionary find_biome(const godot::String& biome_name, int32_t center_x,
+                                 int32_t center_z, int32_t max_radius_blocks);
 
     // Loaded once at startup from res://data/recipes.json.
     const RecipeBook& get_recipe_book() const { return recipe_book; }

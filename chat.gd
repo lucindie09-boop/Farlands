@@ -35,7 +35,8 @@ var _tab_cycle_delay: float = 0.1875
 var _up_held: bool = false
 var _up_hold_time: float = 0.0
 
-const COMMANDS := ["/help", "/give", "/tp", "/fly", "/clearchat", "/clearinv", "/version", "/texturepack", "/testicons"]
+const COMMANDS := ["/help", "/give", "/tp", "/fly", "/locatebiome", "/clearchat", "/clearinv", "/version", "/texturepack", "/testicons"]
+const BIOME_NAMES := ["ocean", "beach", "plains", "forest", "desert"]
 
 func _chat_scale() -> float:
 	return 1.0  # Chat is not affected by the global GUI scale
@@ -328,6 +329,9 @@ func _get_command_param_hint(cmd: String, arg_count: int) -> String:
 		"/fly":
 			if arg_count == 1:
 				return "[speed]"
+		"/locatebiome":
+			if arg_count == 1:
+				return "<biome>"
 		"/texturepack":
 			if arg_count == 1:
 				return "<name>"
@@ -427,6 +431,10 @@ func _tab_candidates(prefix: String, word: String) -> Array[String]:
 			for b in BlockTextures.get_block_names():
 				if b.begins_with(word):
 					out.append(b)
+		elif parts.size() == 1 and parts[0].to_lower() == "/locatebiome":
+			for b in BIOME_NAMES:
+				if b.begins_with(word):
+					out.append(b)
 	# For other parameters, return empty so we can show parameter hints instead
 	return out
 
@@ -484,6 +492,7 @@ func _run_command(raw: String):
 			_add_message("/give <block> [count] - add blocks to your inventory", COLOR_SYSTEM)
 			_add_message("/tp <x> <y> <z> - teleport to a position", COLOR_SYSTEM)
 			_add_message("/fly [speed] - toggle flying (optional speed multiplier)", COLOR_SYSTEM)
+			_add_message("/locatebiome <biome> - find the nearest biome (ocean/beach/plains/forest/desert)", COLOR_SYSTEM)
 			_add_message("/clearchat - clear the chat", COLOR_SYSTEM)
 			_add_message("/clearinv - clear your inventory", COLOR_SYSTEM)
 			_add_message("/version - show the engine version", COLOR_SYSTEM)
@@ -540,6 +549,24 @@ func _run_command(raw: String):
 			else:
 				player_controller.set_fly_mode(not player_controller.get_fly_mode())
 				_add_message("Flight %s" % ("enabled" if player_controller.get_fly_mode() else "disabled"), COLOR_SUCCESS)
+		"/locatebiome":
+			if parts.size() < 2:
+				_add_message("Usage: /locatebiome <biome>", COLOR_ERROR)
+				return
+			var biome_name := parts[1].to_lower()
+			if not biome_name in BIOME_NAMES:
+				_add_message("Unknown biome: %s (ocean, beach, plains, forest, desert)" % parts[1], COLOR_ERROR)
+				return
+			var chunk_manager := get_node_or_null("/root/Main/ChunkManager")
+			if chunk_manager == null:
+				_add_message("World not available.", COLOR_ERROR)
+				return
+			var pos: Vector3 = player_controller.global_position
+			var result: Dictionary = chunk_manager.find_biome(biome_name, int(pos.x), int(pos.z), 3000)
+			if result.get("found", false):
+				_add_message("The nearest %s is at (%d, %d, %d)" % [biome_name, int(result["x"]), int(result["y"]), int(result["z"])], COLOR_SUCCESS)
+			else:
+				_add_message("Could not find %s within 3000 blocks." % biome_name, COLOR_ERROR)
 		"/clearchat":
 			messages.clear()
 			_add_message("Chat cleared.", COLOR_SYSTEM)

@@ -304,6 +304,11 @@ Array ChunkManager::get_selection_boxes(int block_id) {
     return result;
 }
 
+Dictionary ChunkManager::find_biome(const String& biome_name, int32_t center_x,
+                                    int32_t center_z, int32_t max_radius) {
+    return controller->find_biome(biome_name, center_x, center_z, max_radius);
+}
+
 Dictionary ChunkManager::resolve_voxel_collision(const godot::Vector3& position, const godot::Vector3& motion, const godot::Vector3& size) {
     auto result = controller->resolve_voxel_collision(position, motion, size);
     Dictionary dict;
@@ -482,6 +487,7 @@ void ChunkManager::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_block", "world_x", "world_y", "world_z"), &ChunkManager::get_block);
     ClassDB::bind_method(D_METHOD("get_block_name", "block_id"), &ChunkManager::get_block_name);
     ClassDB::bind_method(D_METHOD("get_selection_boxes", "block_id"), &ChunkManager::get_selection_boxes);
+    ClassDB::bind_method(D_METHOD("find_biome", "biome_name", "center_x", "center_z", "max_radius"), &ChunkManager::find_biome);
     ClassDB::bind_method(D_METHOD("resolve_voxel_collision", "position", "motion", "size"), &ChunkManager::resolve_voxel_collision);
 
     ClassDB::bind_method(D_METHOD("save_world_metadata"), &ChunkManager::save_world_metadata);

@@ -375,6 +375,18 @@ void WorldUpdater::queue_unload(uint64_t key) {
     }
 }
 
+bool WorldUpdater::find_nearest_biome(BiomeType target, int32_t center_x, int32_t center_z,
+                                      int32_t max_radius_blocks, int32_t& out_x, int32_t& out_z,
+                                      float& out_height) {
+    if (!height_estimator) {
+        height_estimator = std::make_unique<ChunkGenerator>(terrain_params);
+        height_estimator->set_biome_config(biome_config);
+        height_estimator->set_vegetation_config(vegetation_config);
+    }
+    return height_estimator->find_nearest_biome(target, center_x, center_z,
+                                                max_radius_blocks, out_x, out_z, out_height);
+}
+
 float WorldUpdater::get_column_surface_height(int32_t cx, int32_t cz) {
     uint64_t key = (static_cast<uint64_t>(static_cast<uint32_t>(cx)) << 32)
                  | static_cast<uint64_t>(static_cast<uint32_t>(cz));

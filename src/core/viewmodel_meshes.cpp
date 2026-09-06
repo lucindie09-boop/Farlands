@@ -138,29 +138,31 @@ MeshGeometry build_sprite_mesh(const uint8_t* rgba, int width, int height) {
             const float py = (h_half - static_cast<float>(y)) * texel_size;
             const float hw = texel_size / 2.0f;
 
-            const float front[4][3] = {
-                    {px - hw, py - hw, pz_front}, {px - hw, py + hw, pz_front},
-                    {px + hw, py + hw, pz_front}, {px + hw, py - hw, pz_front},
-            };
-            const float front_uv[4][2] = {
-                    {u, v + texel_size}, {u, v}, {u + texel_size, v}, {u + texel_size, v + texel_size},
-            };
-            push_quad(g, front, back, front_uv);
-
-            const float back_verts[4][3] = {
-                    {px + hw, py - hw, pz_back}, {px + hw, py + hw, pz_back},
-                    {px - hw, py + hw, pz_back}, {px - hw, py - hw, pz_back},
-            };
-            const float back_uv[4][2] = {
-                    {u + texel_size, v + texel_size}, {u + texel_size, v}, {u, v}, {u, v + texel_size},
-            };
-            push_quad(g, back_verts, fwd, back_uv);
-
+            // Every quad (front, back, and rims) samples its OWN texel's
+            // centre. A quad's footprint IS the texel's cell, so under nearest
+            // filtering the result is identical to a full-rect UV — but a
+            // full-rect UV sits exactly on texel boundaries, where nearest
+            // sampling can round into a neighbouring (possibly transparent)
+            // texel and the alpha scissor discards the fragment: hairline
+            // see-through at the sprite's silhouette. Centre-pinning makes
+            // boundary rounding impossible.
             const float center_uv[2] = {u + texel_size / 2.0f, v + texel_size / 2.0f};
             const float center_uvs[4][2] = {
                     {center_uv[0], center_uv[1]}, {center_uv[0], center_uv[1]},
                     {center_uv[0], center_uv[1]}, {center_uv[0], center_uv[1]},
             };
+
+            const float front[4][3] = {
+                    {px - hw, py - hw, pz_front}, {px - hw, py + hw, pz_front},
+                    {px + hw, py + hw, pz_front}, {px + hw, py - hw, pz_front},
+            };
+            push_quad(g, front, back, center_uvs);
+
+            const float back_verts[4][3] = {
+                    {px + hw, py - hw, pz_back}, {px + hw, py + hw, pz_back},
+                    {px - hw, py + hw, pz_back}, {px - hw, py - hw, pz_back},
+            };
+            push_quad(g, back_verts, fwd, center_uvs);
 
             if (!solid(x, y - 1)) {
                 const float q[4][3] = {

@@ -255,12 +255,15 @@ private:
     }
 
     // Weirdness mask for a column: the raw 2D mask scaled by the biome's
-    // amplification, floored at the biome's minimum, then clamped to [0, 1]
-    // so the shaping strength stays within [shape_strength_min, max].
+    // amplification, never allowed below the biome's minimum mask floor, then
+    // clamped to [0, 1] so the shaping strength stays within
+    // [shape_strength_min, max]. The floor is expressed as an offset above
+    // neutral: 1.0 = no floor, 1.1 floors the mask at 0.1.
     float amplified_weirdness(float raw_mask, BiomeType biome) const {
         const BiomeAmplification& a =
             biome_config.amplification[static_cast<size_t>(biome)];
-        return clamp01(std::max(raw_mask * a.weirdness, a.min_weirdness));
+        const float floor_mask = std::max(0.0f, a.min_weirdness - 1.0f);
+        return clamp01(std::max(raw_mask * a.weirdness, floor_mask));
     }
 
     // Signed, normalized 3D fBm (FastNoise::fbm_3d already normalizes by the

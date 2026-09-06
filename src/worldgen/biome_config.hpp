@@ -56,14 +56,15 @@ struct BiomeVegetation {
 //            the minimum shaping strength, > 1 pushes more columns toward the
 //            maximum (saturated masks). Feeds the density field in
 //            generate_chunk, find_surface_y and single-point density queries.
-// min_weirdness: floor for the amplified mask — every column's shaping mask
-//            is at least this value, so the biome never drops below a baseline
-//            level of 3D shaping. 0 = no floor. Applied as
-//            max(raw_mask * weirdness, min_weirdness) then clamped to [0, 1].
+// min_weirdness: floor for the amplified shaping MASK, expressed as an offset
+//            above neutral (1.0 = no floor; each +0.1 raises the floor by
+//            0.1, so 1.1 floors the mask at 0.1). Values at or below 1.0 are
+//            inert. Applied as clamp01(max(raw_mask * weirdness,
+//            min_weirdness - 1.0)).
 struct BiomeAmplification {
     float height        = 1.0f;
     float weirdness     = 1.0f;
-    float min_weirdness = 0.0f;
+    float min_weirdness = 1.0f;
 };
 
 // One entry per BiomeType value (index == static_cast<int>(BiomeType)).

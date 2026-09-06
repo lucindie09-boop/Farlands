@@ -103,11 +103,20 @@ TEST_CASE("viewmodel sprite: 1x1 solid texel has front+back plus all four rims")
     CHECK(vert_count(g) == 24);
     CHECK(index_count(g) == 36);
     CHECK(static_cast<int>(g.uvs.size() / 2) == 24);
-    // Single pixel spans the whole sprite, so front-face UVs are the full rect.
-    CHECK(g.uvs[0] == doctest::Approx(0.0f));
-    CHECK(g.uvs[1] == doctest::Approx(1.0f));
-    CHECK(g.uvs[6] == doctest::Approx(1.0f));
-    CHECK(g.uvs[7] == doctest::Approx(1.0f));
+    // Front and back faces are pinned to the texel centre (like the rims): a
+    // quad samples only its own texel, so nearest filtering can never round
+    // into a neighbouring texel at the sprite's silhouette — the fix for the
+    // hairline see-through on held items (the alpha scissor can no longer
+    // discard an edge fragment).
+    CHECK(g.uvs[0] == doctest::Approx(0.5f));
+    CHECK(g.uvs[1] == doctest::Approx(0.5f));
+    CHECK(g.uvs[6] == doctest::Approx(0.5f));
+    CHECK(g.uvs[7] == doctest::Approx(0.5f));
+    // Back face (verts 4-7, uvs 8-15) is centred too.
+    CHECK(g.uvs[8] == doctest::Approx(0.5f));
+    CHECK(g.uvs[9] == doctest::Approx(0.5f));
+    CHECK(g.uvs[14] == doctest::Approx(0.5f));
+    CHECK(g.uvs[15] == doctest::Approx(0.5f));
     // The original GDScript used Vector3.BACK (0,0,+1, toward the viewer) on
     // the front quad and Vector3.FORWARD (0,0,-1) on the back quad; the mesh is
     // per-pixel lit, so these normals must stay outward-facing.

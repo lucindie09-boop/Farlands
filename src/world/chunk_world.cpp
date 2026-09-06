@@ -34,8 +34,9 @@ bool ChunkWorld::generate_chunk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_
             // Uniform-chunk fast paths (all air / all bedrock / all solid
             // subsurface) live in ChunkGenerator::generate_fast_path so the
             // fully-solid bookkeeping is shared and testable. Handled chunks
-            // skip the lattice/density/material passes below.
-            if (ChunkGenerator::generate_fast_path(*chunk_data, cx, cy, cz, params, biomes, veg_config, vegetation_enabled)) {
+            // skip the lattice/density/material passes below. The member call
+            // reuses this configured generator (no per-call construction).
+            if (generator.generate_fast_path(*chunk_data, cx, cy, cz)) {
                 return chunk_data;
             }
 

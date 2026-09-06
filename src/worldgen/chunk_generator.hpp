@@ -353,12 +353,13 @@ float max_water_h = -1.0f;
     // -------------------------------------------------------------------------
     // Fast uniform-chunk fill (all air / all bedrock / all solid subsurface)
     // -------------------------------------------------------------------------
-    // Shared with the generation worker (ChunkWorld) so the fully-solid
-    // bookkeeping is identical everywhere. Returns true when the chunk was
-    // handled by a fast path; false when full generation is required.
-    static bool generate_fast_path(ChunkData& chunk, int32_t chunk_x, int32_t chunk_y, int32_t chunk_z,
-                                   const TerrainParams& params, const BiomeConfig& biomes,
-                                   const VegetationConfig& veg_config, bool vegetation_enabled);
+    // Uses this generator's configured params / biome config, so callers that
+    // keep a configured instance (the worker's thread-local generator) get the
+    // fast paths without constructing a fresh generator per chunk. Shared with
+    // the generation worker (ChunkWorld) so the fully-solid bookkeeping is
+    // identical everywhere. Returns true when the chunk was handled by a fast
+    // path; false when full generation is required.
+    bool generate_fast_path(ChunkData& chunk, int32_t chunk_x, int32_t chunk_y, int32_t chunk_z);
 
     // Debug accessors (expose private members for standalone tools)
     float sample_continentalness_debug(float x, float z) const {

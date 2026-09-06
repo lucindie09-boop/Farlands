@@ -192,9 +192,7 @@ BlockID ChunkGenerator::get_chunk_subsurface_block(int32_t chunk_x, int32_t chun
     return get_subsurface_block(col.biome, false);
 }
 
-bool ChunkGenerator::generate_fast_path(ChunkData& chunk, int32_t chunk_x, int32_t chunk_y, int32_t chunk_z,
-                                        const TerrainParams& params, const BiomeConfig& biomes,
-                                        const VegetationConfig& veg_config, bool vegetation_enabled) {
+bool ChunkGenerator::generate_fast_path(ChunkData& chunk, int32_t chunk_x, int32_t chunk_y, int32_t chunk_z) {
     const int32_t world_y_start = chunk_y * CHUNK_HEIGHT;
     const int32_t world_y_end = world_y_start + CHUNK_HEIGHT;
 
@@ -205,12 +203,10 @@ bool ChunkGenerator::generate_fast_path(ChunkData& chunk, int32_t chunk_x, int32
         return true;
     }
 
-    ChunkGenerator generator(params);
-    generator.set_biome_config(biomes);
-    generator.set_vegetation_config(veg_config);
-
     // Fast estimation: skip chunks that are entirely air or entirely solid.
-    auto height_range = generator.get_chunk_height_range(chunk_x, chunk_z);
+    // Runs against this generator's configured params / biome config — no
+    // per-call construction (callers keep a configured instance).
+    auto height_range = get_chunk_height_range(chunk_x, chunk_z);
     float margin = 3.0f; // safety margin for intra-chunk height variation
     float top_content_h = std::max(height_range.max_h, height_range.max_water_h);
 
@@ -242,7 +238,7 @@ bool ChunkGenerator::generate_fast_path(ChunkData& chunk, int32_t chunk_x, int32
 
     // Entirely below surface but above bedrock: all solid subsurface block.
     if (!may_contain_caves && world_y_end < static_cast<int32_t>(height_range.min_h - margin)) {
-        BlockID solid_block = generator.get_chunk_subsurface_block(chunk_x, chunk_z);
+        BlockID solid_block = get_chunk_subsurface_block(chunk_x, chunk_z);
         chunk.fill_blocks(solid_block);
         chunk.propagate_sky_light(nullptr); // first block is opaque → all light = 0
         // Without this flag every underground chunk gets a box mesh.

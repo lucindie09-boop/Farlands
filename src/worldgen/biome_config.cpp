@@ -84,6 +84,9 @@ void BiomeConfig::reset_defaults() {
     for (auto& a : amplification) {
         a = BiomeAmplification{};  // 1.0 / 1.0 = neutral
     }
+    for (auto& h : preferred_height) {
+        h = 0.0f;  // reference data; data/biomes.json supplies the real values
+    }
 }
 
 bool BiomeConfig::load(const godot::String& json_path, BiomeConfig& out) {
@@ -151,6 +154,9 @@ bool BiomeConfig::load(const godot::String& json_path, BiomeConfig& out) {
             }
             if (b.has("min_weirdness_amplification")) {
                 out.amplification[ix].min_weirdness = static_cast<float>(static_cast<double>(b["min_weirdness_amplification"]));
+            }
+            if (b.has("preferred_height")) {
+                out.preferred_height[ix] = static_cast<float>(static_cast<double>(b["preferred_height"]));
             }
             if (b.has("tree_density")) {
                 out.vegetation[ix].tree_density = static_cast<float>(static_cast<double>(b["tree_density"]));

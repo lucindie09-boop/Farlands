@@ -83,6 +83,12 @@ struct BiomeConfig {
     std::array<BiomeVegetation, static_cast<size_t>(BiomeType::Count)> vegetation;
     std::array<BiomeAmplification, static_cast<size_t>(BiomeType::Count)> amplification;
 
+    // Preferred column height for the biome. Reference data for future
+    // biome-selection / terrain-blending logic; NOT consumed by generation.
+    // Values are measured height percentiles of the current terrain
+    // (see data/biomes.json).
+    std::array<float, static_cast<size_t>(BiomeType::Count)> preferred_height;
+
     BiomeConfig();
 
     void reset_defaults();

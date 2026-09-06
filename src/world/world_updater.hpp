@@ -123,9 +123,18 @@ private:
 
     double dirty_flush_accumulator = 0.0;
 
-    // Surface-aware generation: cached per-column height estimates.
+    // Surface-aware generation: cached per-column generation bounds. land_h is
+    // the macro terrain height (the sea bed for ocean columns); top_h is the
+    // highest content the column can reach — max(land_h, water level) — so
+    // deep-ocean water columns (floor far below the sea surface) still get
+    // their upper water chunks generated instead of being skipped by a filter
+    // that only knows the terrain height.
+    struct ColumnSurfaceBounds {
+        float land_h = 0.0f;
+        float top_h  = 0.0f;
+    };
     std::unique_ptr<ChunkGenerator> height_estimator;
-    std::unordered_map<uint64_t, float> column_height_cache;
+    std::unordered_map<uint64_t, ColumnSurfaceBounds> column_height_cache;
     std::deque<uint64_t> column_height_fifo;
 
     Frustum frustum;
@@ -150,7 +159,7 @@ private:
     // entries forever. See ChunkMap::for_each_limited_resumable.
     size_t unload_scan_bucket_cursor = 0;
 
-    float get_column_surface_height(int32_t cx, int32_t cz);
+    ColumnSurfaceBounds get_column_surface_bounds(int32_t cx, int32_t cz);
     void invalidate_height_cache();
 
     void initialize_view_distance(int32_t horizontal_rd);

@@ -147,11 +147,18 @@ void WorldUpdater::update_generation(bool is_editor, int32_t active_render_dista
 
             int32_t chunk_bottom = cy * CHUNK_HEIGHT;
             int32_t chunk_top    = (cy + 1) * CHUNK_HEIGHT;
-            float   surface_h    = get_column_surface_height(cx, cz);
+            ColumnSurfaceBounds surface = get_column_surface_bounds(cx, cz);
             bool near_player = std::abs(offset.x) <= 1 && std::abs(offset.z) <= 1 && std::abs(offset.y) <= 1;
             if (!near_player) {
-                if (static_cast<float>(chunk_top)   < surface_h - 32.0f) continue;
-                if (static_cast<float>(chunk_bottom) > surface_h + 32.0f) continue;
+                // Generate chunks in [land height - 32, top of content + 32]. The
+                // top bound is the WATER SURFACE for ocean columns (max of terrain
+                // and water level), so deep oceans — floor far below sea level —
+                // generate their upper water chunks too. Filtering against the
+                // terrain height alone skipped every chunk more than 32 blocks
+                // above the sea bed, leaving the water column half-missing until
+                // the 3x3 near-player exception kicked in.
+                if (static_cast<float>(chunk_top)   < surface.land_h - 32.0f) continue;
+                if (static_cast<float>(chunk_bottom) > surface.top_h  + 32.0f) continue;
             }
 
             if (generate_chunk(cx, cy, cz, epoch)) {
@@ -196,11 +203,13 @@ void WorldUpdater::update_generation(bool is_editor, int32_t active_render_dista
 
             int32_t chunk_bottom = cy * CHUNK_HEIGHT;
             int32_t chunk_top    = (cy + 1) * CHUNK_HEIGHT;
-            float   surface_h    = get_column_surface_height(cx, cz);
+            ColumnSurfaceBounds surface = get_column_surface_bounds(cx, cz);
             bool near_player = std::abs(offset.x) <= 1 && std::abs(offset.z) <= 1 && std::abs(offset.y) <= 1;
             if (!near_player) {
-                if (static_cast<float>(chunk_top)   < surface_h - 32.0f) continue;
-                if (static_cast<float>(chunk_bottom) > surface_h + 32.0f) continue;
+                // See the frustum pass above: the top bound includes the water
+                // surface so deep-ocean water columns generate fully.
+                if (static_cast<float>(chunk_top)   < surface.land_h - 32.0f) continue;
+                if (static_cast<float>(chunk_bottom) > surface.top_h  + 32.0f) continue;
             }
 
             if (generate_chunk(cx, cy, cz, epoch)) {
@@ -385,7 +394,7 @@ bool WorldUpdater::find_nearest_biome(BiomeType target, int32_t center_x, int32_
                                                 max_radius_blocks, out_x, out_z, out_height);
 }
 
-float WorldUpdater::get_column_surface_height(int32_t cx, int32_t cz) {
+WorldUpdater::ColumnSurfaceBounds WorldUpdater::get_column_surface_bounds(int32_t cx, int32_t cz) {
     uint64_t key = (static_cast<uint64_t>(static_cast<uint32_t>(cx)) << 32)
                  | static_cast<uint64_t>(static_cast<uint32_t>(cz));
     auto it = column_height_cache.find(key);
@@ -398,12 +407,15 @@ float WorldUpdater::get_column_surface_height(int32_t cx, int32_t cz) {
         column_height_fifo.pop_front();
         column_height_cache.erase(oldest);
     }
-    float h = height_estimator->get_terrain_height(
+    auto col = height_estimator->sample_column_debug(
         cx * CHUNK_WIDTH + CHUNK_WIDTH / 2,
         cz * CHUNK_DEPTH + CHUNK_DEPTH / 2);
-    column_height_cache[key] = h;
+    ColumnSurfaceBounds b;
+    b.land_h = col.height;
+    b.top_h  = (col.water_level >= 0.0f) ? std::max(col.height, col.water_level) : col.height;
+    column_height_cache[key] = b;
     column_height_fifo.push_back(key);
-    return h;
+    return b;
 }
 
 void WorldUpdater::invalidate_height_cache() {

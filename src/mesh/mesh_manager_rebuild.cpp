@@ -84,16 +84,24 @@ void MeshManager::rebuild_rendering_server_mesh(int32_t chunk_x, int32_t chunk_y
     }
 
     if (render_data->data && render_data->data->fully_solid()) {
-        const auto neighbor_fully_solid = [](ChunkRenderData* n) {
-            return n && n->data && n->data->fully_solid();
+        // A missing neighbor is treated as opaque when it would itself be
+        // entirely solid if generated (deep underground). That keeps fully
+        // buried chunks from rendering box walls into the ungenerated void
+        // below the surface band — the "random chunk borders underground"
+        // artifact. Real neighbors still require real solid data, so chunks
+        // next to actual air (cliffs, excavations, world edges) keep
+        // rendering their faces.
+        const auto neighbor_solid = [this](ChunkRenderData* n, int32_t nx, int32_t ny, int32_t nz) {
+            if (n && n->data) return n->data->fully_solid();
+            return chunk_would_be_solid_fn_ && chunk_would_be_solid_fn_(nx, ny, nz);
         };
         const bool buried =
-            neighbor_fully_solid(d_x_neg) &&
-            neighbor_fully_solid(d_x_pos) &&
-            neighbor_fully_solid(d_y_pos) &&
-            neighbor_fully_solid(d_z_neg) &&
-            neighbor_fully_solid(d_z_pos) &&
-            (neighbor_fully_solid(d_y_neg) || chunk_y == 0);
+            neighbor_solid(d_x_neg, chunk_x - 1, chunk_y,     chunk_z) &&
+            neighbor_solid(d_x_pos, chunk_x + 1, chunk_y,     chunk_z) &&
+            neighbor_solid(d_y_pos, chunk_x,     chunk_y + 1, chunk_z) &&
+            neighbor_solid(d_z_neg, chunk_x,     chunk_y,     chunk_z - 1) &&
+            neighbor_solid(d_z_pos, chunk_x,     chunk_y,     chunk_z + 1) &&
+            (neighbor_solid(d_y_neg, chunk_x, chunk_y - 1, chunk_z) || chunk_y == 0);
         if (buried) {
             if (render_data->mesh_rid.is_valid()) {
                 RenderingServer* rs = RenderingServer::get_singleton();
@@ -104,6 +112,16 @@ void MeshManager::rebuild_rendering_server_mesh(int32_t chunk_x, int32_t chunk_y
                 RenderingServer* rs = RenderingServer::get_singleton();
                 rs->free_rid(render_data->instance_rid);
                 render_data->instance_rid = RID();
+            }
+            // Drop stale LOD/far caches referencing this chunk so the detail
+            // sweeps and far regions don't keep drawing the old box geometry.
+            const uint64_t key = chunk_map->get_chunk_key(chunk_x, chunk_y, chunk_z);
+            active_full_detail_chunks_.erase(key);
+            active_mid_detail_chunks_.erase(key);
+            active_far_detail_chunks_.erase(key);
+            if (render_data->far_mesh_cache) {
+                render_data->far_mesh_cache.reset();
+                mark_far_region_dirty_for_chunk(chunk_x, chunk_y, chunk_z);
             }
             render_data->is_mesh_dirty = false;
             render_data->dirty_subchunks = 0;

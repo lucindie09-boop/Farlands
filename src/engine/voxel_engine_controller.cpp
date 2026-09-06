@@ -67,6 +67,12 @@ VoxelEngineController::VoxelEngineController()
     world_updater.set_far_lod_distance(far_lod_distance);
     world_updater.set_far_lod_detail_level(far_lod_detail_level);
     mesh_manager.set_mesh_render_distance(render_distance);
+    // Buried-chunk mesh culling asks the world updater whether an ungenerated
+    // neighbor would be solid (deep underground) so it can skip rendering box
+    // walls into the void instead of drawing them.
+    mesh_manager.set_chunk_would_be_solid_fn([this](int32_t cx, int32_t cy, int32_t cz) {
+        return world_updater.chunk_would_be_solid(cx, cy, cz);
+    });
 }
 
 VoxelEngineController::~VoxelEngineController() {

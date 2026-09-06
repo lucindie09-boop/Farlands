@@ -79,6 +79,7 @@ void WorldUpdater::update(bool is_editor, uint64_t epoch, uint64_t& chunks_proce
 void WorldUpdater::update_generation(bool is_editor, int32_t active_render_distance, uint64_t epoch,
                                      int32_t pcx, int32_t pcy, int32_t pcz, bool chunk_changed) {
     ScopedTimer t(*perf_timer, TimerID::ChunkLoadUnload);
+    constexpr int32_t kWorldChunkSlices = WORLD_HEIGHT_Y / CHUNK_HEIGHT;
     if (pre_sorted_offsets.empty() ||
         current_render_distance != active_render_distance) {
         initialize_view_distance(active_render_distance);
@@ -148,18 +149,23 @@ void WorldUpdater::update_generation(bool is_editor, int32_t active_render_dista
             int32_t chunk_bottom = cy * CHUNK_HEIGHT;
             int32_t chunk_top    = (cy + 1) * CHUNK_HEIGHT;
             ColumnSurfaceBounds surface = get_column_surface_bounds(cx, cz);
-            bool near_player = std::abs(offset.x) <= 1 && std::abs(offset.z) <= 1 && std::abs(offset.y) <= 1;
-            if (!near_player) {
-                // Generate chunks in [land height - 32, top of content + 32]. The
-                // top bound is the WATER SURFACE for ocean columns (max of terrain
-                // and water level), so deep oceans — floor far below sea level —
-                // generate their upper water chunks too. Filtering against the
-                // terrain height alone skipped every chunk more than 32 blocks
-                // above the sea bed, leaving the water column half-missing until
-                // the 3x3 near-player exception kicked in.
-                if (static_cast<float>(chunk_top)   < surface.land_h - 32.0f) continue;
-                if (static_cast<float>(chunk_bottom) > surface.top_h  + 32.0f) continue;
-            }
+            // Columns near the player generate their WHOLE column (the
+            // near-surface band plus solid underground fill down to the world
+            // floor) so rock under the player is genuinely solid — without the
+            // fill, the band ends in open void and its underside renders as
+            // floating chunk-border faces when seen from below. Sky above the
+            // content (+32) is skipped there too. Far columns generate only
+            // the band: [land height - 32, top of content + 32] (top bound is
+            // the WATER SURFACE for oceans, so deep-ocean water columns fill
+            // to the surface). Beyond the fill radius the band undersides are
+            // too far to be visible through fog/light, so they stay cheap.
+            const bool fill_column = std::abs(offset.x) <= kUndergroundFillRadius &&
+                                     std::abs(offset.z) <= kUndergroundFillRadius;
+            if (static_cast<float>(chunk_bottom) > surface.top_h + 32.0f) continue;
+            if (!fill_column && static_cast<float>(chunk_top) < surface.land_h - 32.0f) continue;
+            // World bounds: never generate chunks outside [0, kSlices) — the
+            // fill path no longer has a bottom height filter to catch them.
+            if (cy < 0 || cy >= kWorldChunkSlices) continue;
 
             if (generate_chunk(cx, cy, cz, epoch)) {
                 ++frustum_generations;
@@ -204,13 +210,16 @@ void WorldUpdater::update_generation(bool is_editor, int32_t active_render_dista
             int32_t chunk_bottom = cy * CHUNK_HEIGHT;
             int32_t chunk_top    = (cy + 1) * CHUNK_HEIGHT;
             ColumnSurfaceBounds surface = get_column_surface_bounds(cx, cz);
-            bool near_player = std::abs(offset.x) <= 1 && std::abs(offset.z) <= 1 && std::abs(offset.y) <= 1;
-            if (!near_player) {
-                // See the frustum pass above: the top bound includes the water
-                // surface so deep-ocean water columns generate fully.
-                if (static_cast<float>(chunk_top)   < surface.land_h - 32.0f) continue;
-                if (static_cast<float>(chunk_bottom) > surface.top_h  + 32.0f) continue;
-            }
+            // Same window as the frustum pass above: full column (band +
+            // underground fill) within kUndergroundFillRadius of the player,
+            // near-surface band only beyond it. Sky above content is skipped.
+            const bool fill_column = std::abs(offset.x) <= kUndergroundFillRadius &&
+                                     std::abs(offset.z) <= kUndergroundFillRadius;
+            if (static_cast<float>(chunk_bottom) > surface.top_h + 32.0f) continue;
+            if (!fill_column && static_cast<float>(chunk_top) < surface.land_h - 32.0f) continue;
+            // World bounds: never generate chunks outside [0, kSlices) — the
+            // fill path no longer has a bottom height filter to catch them.
+            if (cy < 0 || cy >= kWorldChunkSlices) continue;
 
             if (generate_chunk(cx, cy, cz, epoch)) {
                 ++generations_this_frame;
@@ -394,7 +403,21 @@ bool WorldUpdater::find_nearest_biome(BiomeType target, int32_t center_x, int32_
                                                 max_radius_blocks, out_x, out_z, out_height);
 }
 
+bool WorldUpdater::chunk_would_be_solid(int32_t cx, int32_t cy, int32_t cz) {
+    if (!height_estimator) {
+        height_estimator = std::make_unique<ChunkGenerator>(terrain_params);
+        height_estimator->set_biome_config(biome_config);
+        height_estimator->set_vegetation_config(vegetation_config);
+    }
+    return chunk_would_be_fully_solid(*height_estimator, cx, cy, cz);
+}
+
 WorldUpdater::ColumnSurfaceBounds WorldUpdater::get_column_surface_bounds(int32_t cx, int32_t cz) {
+    if (!height_estimator) {
+        height_estimator = std::make_unique<ChunkGenerator>(terrain_params);
+        height_estimator->set_biome_config(biome_config);
+        height_estimator->set_vegetation_config(vegetation_config);
+    }
     uint64_t key = (static_cast<uint64_t>(static_cast<uint32_t>(cx)) << 32)
                  | static_cast<uint64_t>(static_cast<uint32_t>(cz));
     auto it = column_height_cache.find(key);

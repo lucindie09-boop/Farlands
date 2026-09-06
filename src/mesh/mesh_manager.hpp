@@ -11,6 +11,7 @@
 #include "render/world_render_stats.hpp"
 #include <godot_cpp/classes/shader_material.hpp>
 #include <chrono>
+#include <functional>
 #include <memory>
 #include <cstdint>
 #include <mutex>
@@ -73,6 +74,14 @@ public:
     void mark_all_chunks_dirty();
     [[nodiscard]] bool has_pending_mesh_work() const;
     WorldRenderStats gather_render_stats();
+
+    // Optional predicate: "would the chunk at (cx, cy, cz) be entirely solid
+    // if generated?" Used by buried-chunk culling to treat ungenerated
+    // underground neighbors as opaque instead of rendering box walls into
+    // the void. Set by the engine controller; may be null.
+    void set_chunk_would_be_solid_fn(std::function<bool(int32_t, int32_t, int32_t)> fn) {
+        chunk_would_be_solid_fn_ = std::move(fn);
+    }
 
     void set_lod_distance(int32_t d) { lod_distance = d; }
     int32_t get_lod_distance() const { return lod_distance; }
@@ -157,6 +166,8 @@ private:
     static constexpr int32_t kFarRegionSizeXZ = 8;
 
     float compute_chunk_detail_level(int32_t cx, int32_t cy, int32_t cz) const;
+
+    std::function<bool(int32_t, int32_t, int32_t)> chunk_would_be_solid_fn_;
 };
 
 } // namespace VoxelEngine

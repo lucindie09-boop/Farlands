@@ -68,7 +68,7 @@ struct BiomeConfig {
 };
 
 // Canonical biome name (index == static_cast<int>(BiomeType)), matching the
-// "name" field in data/biomes.json.
+// biome keys in data/biomes.json.
 const char* biome_name(BiomeType b);
 
 // Case-insensitive name -> enum lookup. Returns false for unknown names.

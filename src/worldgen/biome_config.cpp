@@ -96,19 +96,32 @@ bool BiomeConfig::load(const godot::String& json_path, BiomeConfig& out) {
         godot::String name = root["underwater_surface"];
         out.underwater_surface = resolve_block(name.utf8().get_data(), out.underwater_surface);
     }
-    if (root.has("temp_cold_max"))  out.temp_cold_max  = static_cast<float>(static_cast<double>(root["temp_cold_max"]));
-    if (root.has("temp_hot_min"))   out.temp_hot_min   = static_cast<float>(static_cast<double>(root["temp_hot_min"]));
-    if (root.has("hum_dry_max"))    out.hum_dry_max    = static_cast<float>(static_cast<double>(root["hum_dry_max"]));
-    if (root.has("hum_humid_min"))  out.hum_humid_min  = static_cast<float>(static_cast<double>(root["hum_humid_min"]));
+
+    // Climate-grid thresholds. Dormant while the temperature/humidity samplers
+    // are flat stubs (see chunk_generator), but kept here so the grid can be
+    // tuned without recompiling once they exist.
+    if (root.has("climate")) {
+        godot::Dictionary c = root["climate"];
+        if (c.has("temp_cold_max")) out.temp_cold_max = static_cast<float>(static_cast<double>(c["temp_cold_max"]));
+        if (c.has("temp_hot_min"))  out.temp_hot_min  = static_cast<float>(static_cast<double>(c["temp_hot_min"]));
+        if (c.has("hum_dry_max"))   out.hum_dry_max   = static_cast<float>(static_cast<double>(c["hum_dry_max"]));
+        if (c.has("hum_humid_min")) out.hum_humid_min = static_cast<float>(static_cast<double>(c["hum_humid_min"]));
+    }
 
     if (root.has("biomes")) {
-        godot::Array biomes = root["biomes"];
-        for (int i = 0; i < static_cast<int>(biomes.size()); ++i) {
-            godot::Dictionary b = biomes[i];
-            if (!b.has("index")) continue;
-            const int64_t idx = b["index"];
-            if (idx < 0 || idx >= static_cast<int64_t>(BiomeType::Count)) continue;
-            const size_t ix = static_cast<size_t>(idx);
+        // Keyed by biome name (see biome_name) — the name IS the identity, so
+        // there is no index to keep in sync with the BiomeType enum.
+        godot::Dictionary biomes = root["biomes"];
+        godot::Array names = biomes.keys();
+        for (int i = 0; i < static_cast<int>(names.size()); ++i) {
+            godot::String name = names[i];
+            BiomeType biome;
+            if (!biome_from_name(name.utf8().get_data(), biome)) {
+                WARN_PRINT("biomes.json: skipping unknown biome name \"" + name + "\"");
+                continue;
+            }
+            const size_t ix = static_cast<size_t>(biome);
+            godot::Dictionary b = biomes[name];
 
             if (b.has("surface")) {
                 godot::String name = b["surface"];

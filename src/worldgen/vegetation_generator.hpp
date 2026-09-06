@@ -6,9 +6,9 @@
 
 namespace VoxelEngine {
 
-// Places trees / boulders / cacti on the density surface of a freshly
-// generated chunk. Which feature set a column gets depends on its biome
-// (BiomeConfig::vegetation) and the global knobs in VegetationConfig.
+// Places trees on the density surface of a freshly generated chunk. Which
+// feature set a column gets depends on its biome (BiomeConfig::vegetation)
+// and the global knobs in VegetationConfig.
 class VegetationGenerator {
 public:
     using CrossChunkWriter = ChunkGenerator::CrossChunkWriter;
@@ -43,13 +43,6 @@ private:
                              int32_t surface_y, int32_t world_y_start, int32_t world_y_end,
                              uint32_t seed, int32_t chunk_x, int32_t chunk_z,
                              const CrossChunkWriter& cross_writer);
-    static void place_cactus(ChunkData& chunk, int32_t local_x, int32_t local_z,
-                             int32_t surface_y, int32_t world_y_start, int32_t world_y_end,
-                             const DesertVegConfig& cfg);
-    static void place_boulder(ChunkData& chunk, int32_t local_x, int32_t local_z,
-                              int32_t surface_y, int32_t world_y_start, int32_t world_y_end,
-                              uint32_t seed, int32_t chunk_x, int32_t chunk_z,
-                              int32_t radius, const CrossChunkWriter& cross_writer);
 };
 
 } // namespace VoxelEngine

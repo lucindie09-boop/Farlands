@@ -156,13 +156,13 @@ private:
         return 0.5f; // Disabled - flat humidity
     }
 
-    // Simplified biome - single biome only
+    // Simplified biome - single land biome only
     BiomeType land_biome_from_grid(float temperature, float humidity) const {
-        return BiomeType::Plains;
+        return BiomeType::Hills;
     }
 
     BiomeType biome_from_climate(float temperature, float humidity, float cont) const {
-        return BiomeType::Plains;
+        return BiomeType::Hills;
     }
 
     // Single noise layer controlling height - minimal terrain
@@ -420,7 +420,7 @@ float max_water_h = -1.0f;
     struct ChunkColumn {
         ColumnSample sample{};   // full macro column sample (height/water/temp/...)
         int32_t height = 0;
-        BiomeType biome = BiomeType::Plains;
+        BiomeType biome = BiomeType::Hills;
         int32_t water_level = -1;
         bool near_water = false;
         float temperature = 0.0f;

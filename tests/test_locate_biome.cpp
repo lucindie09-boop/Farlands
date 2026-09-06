@@ -47,8 +47,8 @@ TEST_CASE("biome names: round-trip through biome_name / biome_from_name") {
     BiomeType parsed;
     CHECK(biome_from_name("OCEAN", parsed));
     CHECK(parsed == BiomeType::Ocean);
-    CHECK(biome_from_name("Plains", parsed));
-    CHECK(parsed == BiomeType::Plains);
+    CHECK(biome_from_name("Hills", parsed));
+    CHECK(parsed == BiomeType::Hills);
 
     // Unknown names are rejected.
     CHECK_FALSE(biome_from_name("mushroom", parsed));
@@ -60,19 +60,19 @@ TEST_CASE("biome names: round-trip through biome_name / biome_from_name") {
 // find_nearest_biome — deterministic single-biome worlds
 // =========================================================================
 
-TEST_CASE("locate biome: all-land world is entirely plains") {
+TEST_CASE("locate biome: all-land world is entirely hills") {
     TerrainParams params;
-    params.sea_level = -100000.0f;  // every column sits above sea level -> Plains
+    params.sea_level = -100000.0f;  // every column sits above sea level -> Hills
     ChunkGenerator gen(params);
 
     int32_t x = 0, z = 0;
     float h = 0.0f;
 
     // Center is already the target biome: found at distance zero.
-    CHECK(gen.find_nearest_biome(BiomeType::Plains, 123, -456, 1000, x, z, h));
+    CHECK(gen.find_nearest_biome(BiomeType::Hills, 123, -456, 1000, x, z, h));
     CHECK(x == 123);
     CHECK(z == -456);
-    CHECK(gen.get_biome(x, z) == BiomeType::Plains);
+    CHECK(gen.get_biome(x, z) == BiomeType::Hills);
     CHECK(std::abs(h - gen.get_terrain_height(x, z)) < 0.01f);
 
     // Oceans do not exist in an all-land world.
@@ -92,8 +92,8 @@ TEST_CASE("locate biome: all-ocean world is entirely ocean") {
     CHECK(z == 88);
     CHECK(gen.get_biome(x, z) == BiomeType::Ocean);
 
-    // Plains do not exist in an all-ocean world.
-    CHECK_FALSE(gen.find_nearest_biome(BiomeType::Plains, 0, 0, 1000, x, z, h));
+    // Hills do not exist in an all-ocean world.
+    CHECK_FALSE(gen.find_nearest_biome(BiomeType::Hills, 0, 0, 1000, x, z, h));
 }
 
 // =========================================================================
@@ -106,7 +106,7 @@ TEST_CASE("locate biome: default world crosses land <-> ocean boundaries") {
 
     int32_t land_x = 0, land_z = 0;
     int32_t ocean_x = 0, ocean_z = 0;
-    if (!find_seed_column(gen, BiomeType::Plains, land_x, land_z) ||
+    if (!find_seed_column(gen, BiomeType::Hills, land_x, land_z) ||
         !find_seed_column(gen, BiomeType::Ocean, ocean_x, ocean_z)) {
         MESSAGE("Default world lacks both biomes inside the probe window; skipping cross-search");
         return;
@@ -116,10 +116,10 @@ TEST_CASE("locate biome: default world crosses land <-> ocean boundaries") {
     float h = 0.0f;
     const int64_t radius = 8192;
 
-    // From the middle of the ocean, the nearest plains must be found and the
-    // result must actually be plains.
-    CHECK(gen.find_nearest_biome(BiomeType::Plains, ocean_x, ocean_z, radius, x, z, h));
-    CHECK(gen.get_biome(x, z) == BiomeType::Plains);
+    // From the middle of the ocean, the nearest hills must be found and the
+    // result must actually be hills.
+    CHECK(gen.find_nearest_biome(BiomeType::Hills, ocean_x, ocean_z, radius, x, z, h));
+    CHECK(gen.get_biome(x, z) == BiomeType::Hills);
 
     // From the middle of the land, the nearest ocean must be found and the
     // result must actually be ocean. It can be no farther than a loose bound

@@ -22,12 +22,9 @@ namespace VoxelEngine {
 // values so the JSON file is purely an override surface.
 // ---------------------------------------------------------------------------
 enum class BiomeType : uint8_t {
-    Ocean   = 0,
-    Beach   = 1,
-    Plains  = 2,
-    Forest  = 3,
-    Desert  = 4,
-    Count   = 5
+    Ocean = 0,
+    Hills = 1,
+    Count = 2
 };
 
 // Per-biome surface materials (resolved block IDs from block_definitions.json).

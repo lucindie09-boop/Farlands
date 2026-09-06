@@ -30,28 +30,10 @@ bool VegetationConfig::load(const godot::String& json_path) {
 
     tree_trunk_height = read_int(root, "tree_trunk_height", tree_trunk_height);
 
-    if (root.has("forest")) {
-        godot::Dictionary f = root["forest"];
-        forest.chunk_chance_pct      = read_int(f, "chunk_chance_pct", forest.chunk_chance_pct);
-        forest.min_trees             = read_int(f, "min_trees", forest.min_trees);
-        forest.max_trees             = read_int(f, "max_trees", forest.max_trees);
-        forest.column_chance_pct     = read_int(f, "column_chance_pct", forest.column_chance_pct);
-        forest.spacing_radius        = read_int(f, "spacing_radius", forest.spacing_radius);
-        forest.boulder_chance_per_10000 = read_int(f, "boulder_chance_per_10000", forest.boulder_chance_per_10000);
-        forest.boulder_radius        = read_int(f, "boulder_radius", forest.boulder_radius);
-    }
-
-    if (root.has("plains")) {
-        godot::Dictionary p = root["plains"];
-        plains.chunk_chance_pct = read_int(p, "chunk_chance_pct", plains.chunk_chance_pct);
-        plains.spacing_radius   = read_int(p, "spacing_radius", plains.spacing_radius);
-    }
-
-    if (root.has("desert")) {
-        godot::Dictionary d = root["desert"];
-        desert.cactus_chance_per_1000 = read_int(d, "cactus_chance_per_1000", desert.cactus_chance_per_1000);
-        desert.min_height             = read_int(d, "min_height", desert.min_height);
-        desert.max_height             = read_int(d, "max_height", desert.max_height);
+    if (root.has("hills")) {
+        godot::Dictionary h = root["hills"];
+        hills.chunk_chance_pct = read_int(h, "chunk_chance_pct", hills.chunk_chance_pct);
+        hills.spacing_radius   = read_int(h, "spacing_radius", hills.spacing_radius);
     }
 
     return true;

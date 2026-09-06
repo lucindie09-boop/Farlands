@@ -37,7 +37,7 @@ A Minecraft-style voxel engine built in Godot 4 with a custom C++ GDExtension. P
 | Lighting | `src/lighting/light_propagator.cpp` | Async block-light propagation on worker threads, sky-light columns, overlap-safe per-channel light removal |
 | Terrain gen | `src/worldgen/chunk_generator.hpp/cpp` | Stacked-noise macro surface (12k base + 1k detail + ridged flow + 500/150-block lattice relief, domain-warped; tuning in `data/terrain_config.json`), height-based oceans (below-sea columns fill to sea level), signed 3D density field around the macro surface (overhangs/shelves in strength-gated zones), 4×4×4 shape lattice, chunk-level fast paths — see [Terrain Generation](#terrain-generation) |
 | Vegetation | `src/worldgen/vegetation_generator.hpp/cpp` | Tree placement (oak/spruce) with variant-weighted per biome, minimum spacing, deferred cross-chunk writes |
-| Vegetation config | `src/worldgen/vegetation_config.hpp` + `data/vegetation.json` | Forest/plains/desert knobs, tree density/variants loaded from JSON |
+| Vegetation config | `src/worldgen/vegetation_config.hpp` + `data/vegetation.json` | Hills sparse-tree knobs, tree density/variants loaded from JSON |
 | Biome config | `src/worldgen/biome_config.hpp` + `data/biomes.json` | Per-biome materials, climate thresholds, tree variants loaded from JSON |
 | Terrain config | `src/core/terrain_params.cpp` + `data/terrain_config.json` | Macro-surface tuning loaded from JSON: base height, domain-warp amplitudes, mid/small relief fields, shape-strength range, weirdness thresholds |
 | Collision | `src/engine/collision_resolver.cpp` | Custom binary-search AABB voxel grid query (no Godot physics nodes), step-up support |
@@ -97,14 +97,14 @@ Terrain is built in three stages — a macro surface from stacked noise layers, 
 
 - **Height decides water, not continentalness** — the macro surface is the same continuous noise field everywhere; any column that ends below sea level simply becomes Ocean (floor preserved as the sea bed, water filled to sea level). Coasts are seamless by construction.
 - **Strength-gated 3D shaping** — a low-frequency 2D "weirdness" mask picks where the signed 3D shape field is strong enough to produce overhangs/shelves; everywhere else the terrain is plain macro surface.
-- **All tuning is data-driven** (`data/terrain_config.json` → `TerrainParams`); temperature/humidity climate samplers are currently flat stubs, so land is Plains and water is Ocean.
+- **All tuning is data-driven** (`data/terrain_config.json` → `TerrainParams`); temperature/humidity climate samplers are currently flat stubs, so land is Hills and water is Ocean.
 
 ## Worldgen Config Data
 
 The terrain generation system is data-driven through JSON configuration files:
 
-- **`data/biomes.json`** — Per-biome surface materials (Ocean/Beach/Plains/Forest/Desert) and tree density/variant weights; climate thresholds load but are dormant while the climate samplers are flat
-- **`data/vegetation.json`** — Vegetation parameters for forest/plains/desert biomes (tree density, min/max counts, spacing, cactus settings)
+- **`data/biomes.json`** — Per-biome surface materials (Ocean/Hills) and tree density/variant weights; climate thresholds load but are dormant while the climate samplers are flat
+- **`data/vegetation.json`** — Vegetation parameters for the hills biome (sparse single-tree chance, spacing)
 - **`data/terrain_config.json`** — Macro-surface tuning: `height_base_y`, domain-warp amplitudes, mid/small relief field spacing/frequency/amplitude, shape-strength range, weirdness thresholds
 - **`data/block_shapes.json`** — Shared shape registry for non-full blocks (slabs, stairs, walls, poles) with selection/collision boxes
 - **`data/recipes.json`** — Crafting recipes (shaped/shapeless) resolved by block name against `block_definitions.json`; grid size and per-recipe results

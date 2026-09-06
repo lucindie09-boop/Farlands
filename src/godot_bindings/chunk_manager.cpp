@@ -9,6 +9,8 @@
 #include <godot_cpp/classes/directional_light3d.hpp>
 #include <godot_cpp/classes/environment.hpp>
 #include <godot_cpp/classes/engine.hpp>
+#include <godot_cpp/classes/editor_interface.hpp>
+#include <godot_cpp/classes/sub_viewport.hpp>
 #include <godot_cpp/classes/node3d.hpp>
 #include <godot_cpp/classes/viewport.hpp>
 #include <godot_cpp/variant/string.hpp>
@@ -84,18 +86,42 @@ void ChunkManager::_process(double delta) {
     if (is_editor && !controller->get_editor_enabled()) return;
 
     godot::Vector3 player_pos;
-    godot::Camera3D* cam = Object::cast_to<godot::Camera3D>(get_viewport()->get_camera_3d());
-    if (cam) {
-        player_pos = cam->get_global_position();
-        cached_camera = cam;
-    } else if (cached_player) {
-        player_pos = cached_player->get_global_position();
-    } else if (!player_path.is_empty()) {
-        Node* player_node = get_node_or_null(player_path);
-        Node3D* player = Object::cast_to<Node3D>(player_node);
-        if (player) {
-            cached_player = player;
-            player_pos = player->get_global_position();
+    godot::Camera3D* cam = nullptr;
+    if (is_editor) {
+        // Editor preview: follow the editor's 3D viewport camera so toggling
+        // editor_enabled generates the world around wherever the camera is.
+        // The root viewport has no active camera in the editor (the 3D editor
+        // camera lives in its own SubViewport), so a plain
+        // get_viewport()->get_camera_3d() returns null and generation would
+        // otherwise anchor at the world origin, deep underground.
+        if (EditorInterface* editor = EditorInterface::get_singleton()) {
+            if (SubViewport* viewport_3d = editor->get_editor_viewport_3d()) {
+                cam = viewport_3d->get_camera_3d();
+            }
+        }
+        if (cam) {
+            player_pos = cam->get_global_position();
+            cached_camera = cam;
+        } else {
+            // No editor camera available (e.g. 2D view focused): fall back to
+            // the player_position property (set in the scene, e.g. 0/280/0).
+            cached_camera = nullptr;
+            player_pos = controller->get_player_position();
+        }
+    } else {
+        cam = Object::cast_to<godot::Camera3D>(get_viewport()->get_camera_3d());
+        if (cam) {
+            player_pos = cam->get_global_position();
+            cached_camera = cam;
+        } else if (cached_player) {
+            player_pos = cached_player->get_global_position();
+        } else if (!player_path.is_empty()) {
+            Node* player_node = get_node_or_null(player_path);
+            Node3D* player = Object::cast_to<Node3D>(player_node);
+            if (player) {
+                cached_player = player;
+                player_pos = player->get_global_position();
+            }
         }
     }
 

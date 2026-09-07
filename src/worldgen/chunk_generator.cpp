@@ -76,11 +76,13 @@ ChunkGenerator::ColumnSample ChunkGenerator::sample_column(int32_t world_x, int3
     const float x = static_cast<float>(world_x);
     const float z = static_cast<float>(world_z);
     return sample_column_with_climate(world_x, world_z,
-                                      sample_temperature(x, z), sample_humidity(x, z));
+                                      sample_temperature(x, z), sample_humidity(x, z),
+                                      blend_amplification_at(world_x, world_z));
 }
 
 ChunkGenerator::ColumnSample ChunkGenerator::sample_column_with_climate(
-        int32_t world_x, int32_t world_z, float temperature, float humidity) const {
+        int32_t world_x, int32_t world_z, float temperature, float humidity,
+        const BiomeAmplification& blended) const {
     float x = static_cast<float>(world_x);
     float z = static_cast<float>(world_z);
 
@@ -108,11 +110,13 @@ ChunkGenerator::ColumnSample ChunkGenerator::sample_column_with_climate(
         water_level = params.sea_level;
     }
 
-    // Per-biome height amplification scales the column's displacement around
-    // sea level (1.0 = neutral). Applied AFTER biome classification so the
-    // land/ocean split stays exactly where the raw height put it.
-    height = params.sea_level + (height - params.sea_level) *
-             biome_config.amplification[static_cast<size_t>(biome)].height;
+    // Height amplification scales the column's displacement around sea level
+    // (1.0 = neutral): the blended field on land (ramps across biome borders),
+    // the ocean biome's own knob on the seabed. Applied AFTER biome
+    // classification so the land/ocean split stays exactly where the raw
+    // height put it.
+    const BiomeAmplification& amp = amplification_for(biome, blended);
+    height = params.sea_level + (height - params.sea_level) * amp.height;
 
     height = std::max(static_cast<float>(params.bedrock_height) + 1.0f, height);
     if (water_level >= 0.0f) {
@@ -148,6 +152,72 @@ float ChunkGenerator::interp_climate_lattice(const float lat[CLIMATE_LATTICE_NOD
     const float v00 = lat[ix][iz],     v10 = lat[ix + 1][iz];
     const float v01 = lat[ix][iz + 1], v11 = lat[ix + 1][iz + 1];
     return lerp(lerp(v00, v10, fx), lerp(v01, v11, fx), fz);
+}
+
+void ChunkGenerator::build_amp_lattice(int32_t chunk_x, int32_t chunk_z,
+                                       const float temp_lat[CLIMATE_LATTICE_NODES][CLIMATE_LATTICE_NODES],
+                                       const float hum_lat[CLIMATE_LATTICE_NODES][CLIMATE_LATTICE_NODES],
+                                       BiomeAmplification amp_lat[CLIMATE_LATTICE_NODES][CLIMATE_LATTICE_NODES]) const {
+    const int32_t world_x_start = chunk_x * CHUNK_WIDTH;
+    const int32_t world_z_start = chunk_z * CHUNK_DEPTH;
+
+    // Blend windows extend up to climate_blend_radius_nodes nodes beyond the
+    // chunk; biome values inside come from the cached climate lattice, just
+    // outside from the raw samplers (bit-identical node values).
+    const int32_t R = std::min(std::max(params.climate_blend_radius_nodes, 0),
+                               CLIMATE_BLEND_MAX_RADIUS);
+    const int32_t EXT = CLIMATE_LATTICE_NODES + 2 * R;
+    BiomeType bio_grid[2 * CLIMATE_BLEND_MAX_RADIUS + CLIMATE_LATTICE_NODES]
+                      [2 * CLIMATE_BLEND_MAX_RADIUS + CLIMATE_LATTICE_NODES];
+    for (int32_t j = 0; j < EXT; ++j) {
+        for (int32_t i = 0; i < EXT; ++i) {
+            const int32_t nxi = i - R;   // node index, 0..8 inside the chunk
+            const int32_t nzj = j - R;
+            const int32_t wx = world_x_start + nxi * CLIMATE_LATTICE_SPACING;
+            const int32_t wz = world_z_start + nzj * CLIMATE_LATTICE_SPACING;
+            if (nxi >= 0 && nxi < CLIMATE_LATTICE_NODES &&
+                nzj >= 0 && nzj < CLIMATE_LATTICE_NODES) {
+                bio_grid[i][j] = biome_from_climate(
+                    temp_lat[nxi][nzj], hum_lat[nxi][nzj],
+                    sample_continentalness(static_cast<float>(wx), static_cast<float>(wz)));
+            } else {
+                bio_grid[i][j] = biome_from_climate(
+                    sample_temperature_raw(static_cast<float>(wx), static_cast<float>(wz)),
+                    sample_humidity_raw(static_cast<float>(wx), static_cast<float>(wz)),
+                    sample_continentalness(static_cast<float>(wx), static_cast<float>(wz)));
+            }
+        }
+    }
+
+    for (int32_t j = 0; j < CLIMATE_LATTICE_NODES; ++j) {
+        for (int32_t i = 0; i < CLIMATE_LATTICE_NODES; ++i) {
+            amp_lat[i][j] = blend_amplitudes([&](int32_t di, int32_t dj) {
+                return bio_grid[i + R + di][j + R + dj];
+            });
+        }
+    }
+}
+
+BiomeAmplification ChunkGenerator::interp_amp_lattice(
+        const BiomeAmplification lat[CLIMATE_LATTICE_NODES][CLIMATE_LATTICE_NODES],
+        int32_t wx, int32_t wz, int32_t wx0, int32_t wz0) {
+    const int32_t ix = (wx - wx0) / CLIMATE_LATTICE_SPACING;
+    const int32_t iz = (wz - wz0) / CLIMATE_LATTICE_SPACING;
+    const float fx = static_cast<float>(wx - wx0 - ix * CLIMATE_LATTICE_SPACING) /
+                     static_cast<float>(CLIMATE_LATTICE_SPACING);
+    const float fz = static_cast<float>(wz - wz0 - iz * CLIMATE_LATTICE_SPACING) /
+                     static_cast<float>(CLIMATE_LATTICE_SPACING);
+    const BiomeAmplification& v00 = lat[ix][iz];
+    const BiomeAmplification& v10 = lat[ix + 1][iz];
+    const BiomeAmplification& v01 = lat[ix][iz + 1];
+    const BiomeAmplification& v11 = lat[ix + 1][iz + 1];
+    BiomeAmplification out;
+    out.height = lerp(lerp(v00.height, v10.height, fx), lerp(v01.height, v11.height, fx), fz);
+    out.weirdness = lerp(lerp(v00.weirdness, v10.weirdness, fx),
+                         lerp(v01.weirdness, v11.weirdness, fx), fz);
+    out.min_weirdness = lerp(lerp(v00.min_weirdness, v10.min_weirdness, fx),
+                             lerp(v01.min_weirdness, v11.min_weirdness, fx), fz);
+    return out;
 }
 
 BlockID ChunkGenerator::get_surface_block(BiomeType biome, int32_t y, bool has_surface_water, bool near_water) const {
@@ -195,10 +265,13 @@ ChunkGenerator::HeightRange ChunkGenerator::get_chunk_height_range(int32_t chunk
 // Real topmost air-to-solid transition for a column, scanning down from above
 // the maximum possible density displacement.
 int32_t ChunkGenerator::find_surface_y(int32_t world_x, int32_t world_z) const {
-    ColumnSample column = sample_column(world_x, world_z);
-    const float weirdness = amplified_weirdness(
-        sample_weirdness(static_cast<float>(world_x), static_cast<float>(world_z)),
-        column.biome);
+    const float x = static_cast<float>(world_x);
+    const float z = static_cast<float>(world_z);
+    const BiomeAmplification blended = blend_amplification_at(world_x, world_z);
+    ColumnSample column = sample_column_with_climate(
+        world_x, world_z, sample_temperature(x, z), sample_humidity(x, z), blended);
+    const BiomeAmplification& amp = amplification_for(column.biome, blended);
+    const float weirdness = amplified_weirdness(sample_weirdness(x, z), amp);
 
     // The density surface can only exist within DENSITY_MARGIN of the macro
     // heightmap (see sample_terrain_density), so scan exactly that band.
@@ -323,16 +396,25 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
     float hum_lat[CLIMATE_LATTICE_NODES][CLIMATE_LATTICE_NODES];
     build_climate_lattice(chunk_x, chunk_z, temp_lat, hum_lat);
 
+    // Amplification blend lattice: effective per-node knobs after the
+    // border blend (see blend_amplitudes). Cheap — the biome windows reuse
+    // the cached climate lattice plus raw samples only just outside the chunk.
+    BiomeAmplification amp_lat[CLIMATE_LATTICE_NODES][CLIMATE_LATTICE_NODES];
+    build_amp_lattice(chunk_x, chunk_z, temp_lat, hum_lat, amp_lat);
+
     float min_height = 1e9f;
     float max_height = -1e9f;
     for (int32_t x = 0; x < CHUNK_WIDTH; x++) {
         for (int32_t z = 0; z < CHUNK_DEPTH; z++) {
             int32_t wx = world_x_start + x;
             int32_t wz = world_z_start + z;
+            const BiomeAmplification blended =
+                interp_amp_lattice(amp_lat, wx, wz, world_x_start, world_z_start);
             ColumnSample col = sample_column_with_climate(
                 wx, wz,
                 interp_climate_lattice(temp_lat, wx, wz, world_x_start, world_z_start),
-                interp_climate_lattice(hum_lat, wx, wz, world_x_start, world_z_start));
+                interp_climate_lattice(hum_lat, wx, wz, world_x_start, world_z_start),
+                blended);
             columns[x][z].sample       = col;
             columns[x][z].height       = static_cast<int32_t>(std::round(col.height));
             columns[x][z].biome        = col.biome;
@@ -343,7 +425,7 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
             columns[x][z].humidity     = col.humidity;
             columns[x][z].weirdness    = amplified_weirdness(
                 sample_weirdness(static_cast<float>(wx), static_cast<float>(wz)),
-                col.biome);
+                amplification_for(col.biome, blended));
             min_height = std::min(min_height, col.height);
             max_height = std::max(max_height, col.height);
         }

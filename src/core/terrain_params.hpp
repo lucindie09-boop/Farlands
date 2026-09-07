@@ -52,6 +52,14 @@ struct TerrainParams {
     float climate_warp_amp_x2 = 8.0f;
     float climate_warp_amp_z2 = 12.0f;
 
+    // Amplification blend radius, in 4-block climate-lattice nodes. Each
+    // lattice node's effective per-biome knobs (height / weirdness /
+    // min_weirdness) are a weighted average over the biome nodes within this
+    // radius, so terrain parameters ramp smoothly across biome borders
+    // instead of stepping at the boundary line. 0 disables blending (each
+    // column uses its own biome's knobs exactly).
+    int32_t climate_blend_radius_nodes = 2;
+
     // Macro surface base height (sea_level + margin).
     float height_base_y = 512.0f;
 

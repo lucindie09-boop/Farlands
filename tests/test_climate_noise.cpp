@@ -111,6 +111,14 @@ TEST_CASE("climate noise: chunk-cached lattice matches the per-call samplers") {
             const int32_t wx = wx0 + x, wz = wz0 + z;
             CHECK(gen.sample_temperature_lattice_debug(cx, cz, wx, wz) ==
                   gen.sample_temperature_debug(static_cast<float>(wx), static_cast<float>(wz)));
+            // Same guarantee for the amplification blend: the chunk-cached
+            // blend lattice (generate_chunk's path) and the per-call sampler
+            // must be bit-identical, or chunk borders would step.
+            const BiomeAmplification lat = gen.blend_amplification_lattice_debug(cx, cz, wx, wz);
+            const BiomeAmplification dir = gen.blend_amplification_debug(wx, wz);
+            CHECK(lat.height == dir.height);
+            CHECK(lat.weirdness == dir.weirdness);
+            CHECK(lat.min_weirdness == dir.min_weirdness);
         }
     }
 }

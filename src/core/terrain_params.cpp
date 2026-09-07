@@ -89,6 +89,10 @@ bool TerrainParams::load_from_json(const godot::String& json_path) noexcept {
     if (root.has("climate_warp_amp_z2")) {
         climate_warp_amp_z2 = static_cast<float>(static_cast<double>(root["climate_warp_amp_z2"]));
     }
+    if (root.has("climate_blend_radius_nodes")) {
+        climate_blend_radius_nodes =
+            static_cast<int32_t>(static_cast<double>(root["climate_blend_radius_nodes"]));
+    }
 
     return true;
 #else

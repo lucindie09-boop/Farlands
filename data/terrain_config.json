@@ -22,5 +22,6 @@
   "climate_warp_amp_x1": 10.0,
   "climate_warp_amp_z1": 15.0,
   "climate_warp_amp_x2": 8.0,
-  "climate_warp_amp_z2": 12.0
+  "climate_warp_amp_z2": 12.0,
+  "climate_blend_radius_nodes": 2
 }

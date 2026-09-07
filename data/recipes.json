@@ -88,6 +88,54 @@
       "pattern": ["P", "P"],
       "key": { "P": "pine_planks" },
       "result": { "block": "stick", "count": 4 }
+    },
+    {
+      "type": "shaped",
+      "pattern": ["PPP"],
+      "key": { "P": "spruce_planks" },
+      "result": { "block": "spruce_slab", "count": 6 }
+    },
+    {
+      "type": "shaped",
+      "pattern": ["P", "P", "P"],
+      "key": { "P": "spruce_planks" },
+      "result": { "block": "spruce_wall", "count": 6 }
+    },
+    {
+      "type": "shaped",
+      "pattern": ["P  ", "PP ", "PPP"],
+      "key": { "P": "spruce_planks" },
+      "result": { "block": "spruce_stairs", "count": 4 }
+    },
+    {
+      "type": "shaped",
+      "pattern": ["P", "P"],
+      "key": { "P": "spruce_planks" },
+      "result": { "block": "stick", "count": 4 }
+    },
+    {
+      "type": "shaped",
+      "pattern": ["PPP"],
+      "key": { "P": "holly_planks" },
+      "result": { "block": "holly_slab", "count": 6 }
+    },
+    {
+      "type": "shaped",
+      "pattern": ["P", "P", "P"],
+      "key": { "P": "holly_planks" },
+      "result": { "block": "holly_wall", "count": 6 }
+    },
+    {
+      "type": "shaped",
+      "pattern": ["P  ", "PP ", "PPP"],
+      "key": { "P": "holly_planks" },
+      "result": { "block": "holly_stairs", "count": 4 }
+    },
+    {
+      "type": "shaped",
+      "pattern": ["P", "P"],
+      "key": { "P": "holly_planks" },
+      "result": { "block": "stick", "count": 4 }
     }
   ]
 }

@@ -430,12 +430,19 @@ WorldUpdater::ColumnSurfaceBounds WorldUpdater::get_column_surface_bounds(int32_
         column_height_fifo.pop_front();
         column_height_cache.erase(oldest);
     }
-    auto col = height_estimator->sample_column_debug(
-        cx * CHUNK_WIDTH + CHUNK_WIDTH / 2,
-        cz * CHUNK_DEPTH + CHUNK_DEPTH / 2);
+    // Rigorous content bounds over the WHOLE chunk area (all 4-block lattice
+    // nodes, not just the center column). On steep terrain a biome border or
+    // mountain wall can cross a chunk while the center column sits far below
+    // the local high side — a single center sample then understates the top,
+    // and the scheduler permanently skips chunks that genuinely contain the
+    // wall, leaving invisible-solid holes (no mesh, no data to place into).
+    // This range already pads by DENSITY_MARGIN, so it bounds every column's
+    // real content; land_h is the lowest possible surface (everything below is
+    // solid rock), top_h the highest (air above, with water to sea level).
+    const ChunkGenerator::HeightRange range = height_estimator->get_chunk_height_range(cx, cz);
     ColumnSurfaceBounds b;
-    b.land_h = col.height;
-    b.top_h  = (col.water_level >= 0.0f) ? std::max(col.height, col.water_level) : col.height;
+    b.land_h = range.min_h;
+    b.top_h  = std::max(range.max_h, range.max_water_h);
     column_height_cache[key] = b;
     column_height_fifo.push_back(key);
     return b;

@@ -75,14 +75,16 @@ bool ChunkGenerator::find_nearest_biome(BiomeType target, int32_t center_x, int3
 ChunkGenerator::ColumnSample ChunkGenerator::sample_column(int32_t world_x, int32_t world_z) const {
     const float x = static_cast<float>(world_x);
     const float z = static_cast<float>(world_z);
-    return sample_column_with_climate(world_x, world_z,
-                                      sample_temperature(x, z), sample_humidity(x, z),
+    const float t = sample_temperature(x, z);
+    const float h = sample_humidity(x, z);
+    return sample_column_with_climate(world_x, world_z, t, h,
+                                      sample_land_shape(x, z, t, h),
                                       blend_amplification_at(world_x, world_z));
 }
 
 ChunkGenerator::ColumnSample ChunkGenerator::sample_column_with_climate(
         int32_t world_x, int32_t world_z, float temperature, float humidity,
-        const BiomeAmplification& blended) const {
+        float land_height, const BiomeAmplification& blended) const {
     float x = static_cast<float>(world_x);
     float z = static_cast<float>(world_z);
 
@@ -91,7 +93,6 @@ ChunkGenerator::ColumnSample ChunkGenerator::sample_column_with_climate(
     // Height comes purely from the noise stack — the full macro surface is
     // evaluated everywhere, with no continentalness gating and no sea-level
     // flattening while the noise runs.
-    float land_height = sample_land_shape(x, z, temperature, humidity);
     float saved_land_height = land_height;
     float height = land_height;
 
@@ -137,6 +138,19 @@ void ChunkGenerator::build_climate_lattice(int32_t chunk_x, int32_t chunk_z,
             const float z = static_cast<float>(wz0 + j * CLIMATE_LATTICE_SPACING);
             temp_lat[i][j] = sample_temperature_raw(x, z);
             hum_lat[i][j] = sample_humidity_raw(x, z);
+        }
+    }
+}
+
+void ChunkGenerator::build_land_shape_lattice(int32_t chunk_x, int32_t chunk_z,
+                                              float land_lat[CLIMATE_LATTICE_NODES][CLIMATE_LATTICE_NODES]) const {
+    const int32_t wx0 = chunk_x * CHUNK_WIDTH;
+    const int32_t wz0 = chunk_z * CHUNK_DEPTH;
+    for (int32_t i = 0; i < CLIMATE_LATTICE_NODES; ++i) {
+        for (int32_t j = 0; j < CLIMATE_LATTICE_NODES; ++j) {
+            const float x = static_cast<float>(wx0 + i * CLIMATE_LATTICE_SPACING);
+            const float z = static_cast<float>(wz0 + j * CLIMATE_LATTICE_SPACING);
+            land_lat[i][j] = sample_land_shape_raw(x, z);
         }
     }
 }
@@ -237,28 +251,57 @@ BlockID ChunkGenerator::get_subsurface_block(BiomeType biome, bool near_water) c
 // Fast chunk content estimation (for surface-aware generation)
 // -------------------------------------------------------------------------
 ChunkGenerator::HeightRange ChunkGenerator::get_chunk_height_range(int32_t chunk_x, int32_t chunk_z) const {
-    int32_t wx_start = chunk_x * CHUNK_WIDTH;
-    int32_t wz_start = chunk_z * CHUNK_DEPTH;
-    float min_h = 10000.0f;
-    float max_h = -10000.0f;
-    float max_water_h = -1.0f;
-    // Sample corners and center for a good estimate
-    for (int32_t x : {0, CHUNK_WIDTH - 1}) {
-        for (int32_t z : {0, CHUNK_DEPTH - 1}) {
-            ColumnSample col = sample_column(wx_start + x, wz_start + z);
-            min_h = std::min(min_h, col.height);
-            max_h = std::max(max_h, col.height);
-            if (col.water_level > max_water_h) max_water_h = col.water_level;
+    // Lattice-based: the land-shape and blended-amplification fields are
+    // evaluated once on the chunk's 4-block nodes (81 each) and combined per
+    // cell. This is ~2x cheaper than the old 5 per-column queries (which each
+    // paid the border-blend neighborhood) and covers every column instead of
+    // just the corners, so the fast-path classification is both faster and
+    // tighter. The final column height is sea + (raw - sea) * amp with both
+    // fields bilinearly interpolated between nodes, so within each cell the
+    // product is bounded by every (raw x amp) combo of the cell's four
+    // corners; ocean columns use the fixed ocean amp. The 3D density
+    // shaping can still push the real surface up to DENSITY_MARGIN above or
+    // below the macro heightmap, so the range is padded by that.
+    float land_lat[CLIMATE_LATTICE_NODES][CLIMATE_LATTICE_NODES];
+    float temp_lat[CLIMATE_LATTICE_NODES][CLIMATE_LATTICE_NODES];
+    float hum_lat[CLIMATE_LATTICE_NODES][CLIMATE_LATTICE_NODES];
+    build_land_shape_lattice(chunk_x, chunk_z, land_lat);
+    build_climate_lattice(chunk_x, chunk_z, temp_lat, hum_lat);
+    BiomeAmplification amp_lat[CLIMATE_LATTICE_NODES][CLIMATE_LATTICE_NODES];
+    build_amp_lattice(chunk_x, chunk_z, temp_lat, hum_lat, amp_lat);
+
+    const BiomeAmplification& ocean_amp =
+        biome_config.amplification[static_cast<size_t>(BiomeType::Ocean)];
+    float min_h = 1e9f;
+    float max_h = -1e9f;
+    bool any_ocean_node = false;
+    for (int32_t i = 0; i < CLIMATE_LATTICE_NODES - 1; ++i) {
+        for (int32_t j = 0; j < CLIMATE_LATTICE_NODES - 1; ++j) {
+            const float r0 = land_lat[i][j],         r1 = land_lat[i + 1][j];
+            const float r2 = land_lat[i][j + 1],     r3 = land_lat[i + 1][j + 1];
+            const float a0 = amp_lat[i][j].height,   a1 = amp_lat[i + 1][j].height;
+            const float a2 = amp_lat[i][j + 1].height, a3 = amp_lat[i + 1][j + 1].height;
+            const float r[4] = {r0, r1, r2, r3};
+            const float a[4] = {a0, a1, a2, a3};
+            for (int ci = 0; ci < 4; ++ci) {
+                const float d = r[ci] - params.sea_level;
+                // Land columns: interpolated amp lies within the corner amps.
+                for (int cj = 0; cj < 4; ++cj) {
+                    const float h = params.sea_level + d * a[cj];
+                    min_h = std::min(min_h, h);
+                    max_h = std::max(max_h, h);
+                }
+                // Ocean columns (raw below sea level): fixed ocean amp.
+                const float ho = params.sea_level + d * ocean_amp.height;
+                min_h = std::min(min_h, ho);
+                max_h = std::max(max_h, ho);
+            }
+            if (std::min(std::min(r0, r1), std::min(r2, r3)) < params.sea_level) {
+                any_ocean_node = true;
+            }
         }
     }
-    // Center sample
-    ColumnSample center = sample_column(wx_start + CHUNK_WIDTH / 2, wz_start + CHUNK_DEPTH / 2);
-    min_h = std::min(min_h, center.height);
-    max_h = std::max(max_h, center.height);
-    if (center.water_level > max_water_h) max_water_h = center.water_level;
-
-    // 3D density shaping can push the real surface up to DENSITY_MARGIN above
-    // or below the macro heightmap, so pad the range conservatively.
+    const float max_water_h = any_ocean_node ? params.sea_level : -1.0f;
     return HeightRange{min_h - DENSITY_MARGIN, max_h + DENSITY_MARGIN, max_water_h};
 }
 
@@ -267,9 +310,11 @@ ChunkGenerator::HeightRange ChunkGenerator::get_chunk_height_range(int32_t chunk
 int32_t ChunkGenerator::find_surface_y(int32_t world_x, int32_t world_z) const {
     const float x = static_cast<float>(world_x);
     const float z = static_cast<float>(world_z);
+    const float t = sample_temperature(x, z);
+    const float h = sample_humidity(x, z);
     const BiomeAmplification blended = blend_amplification_at(world_x, world_z);
     ColumnSample column = sample_column_with_climate(
-        world_x, world_z, sample_temperature(x, z), sample_humidity(x, z), blended);
+        world_x, world_z, t, h, sample_land_shape(x, z, t, h), blended);
     const BiomeAmplification& amp = amplification_for(column.biome, blended);
     const float weirdness = amplified_weirdness(sample_weirdness(x, z), amp);
 
@@ -402,6 +447,12 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
     BiomeAmplification amp_lat[CLIMATE_LATTICE_NODES][CLIMATE_LATTICE_NODES];
     build_amp_lattice(chunk_x, chunk_z, temp_lat, hum_lat, amp_lat);
 
+    // Land-shape lattice: the macro height is evaluated once per 4-block
+    // node (81 evaluations) instead of 4 per column (~4096), mirroring the
+    // climate lattice. Bit-identical to the per-call sampler.
+    float land_lat[CLIMATE_LATTICE_NODES][CLIMATE_LATTICE_NODES];
+    build_land_shape_lattice(chunk_x, chunk_z, land_lat);
+
     float min_height = 1e9f;
     float max_height = -1e9f;
     for (int32_t x = 0; x < CHUNK_WIDTH; x++) {
@@ -414,6 +465,7 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
                 wx, wz,
                 interp_climate_lattice(temp_lat, wx, wz, world_x_start, world_z_start),
                 interp_climate_lattice(hum_lat, wx, wz, world_x_start, world_z_start),
+                interp_climate_lattice(land_lat, wx, wz, world_x_start, world_z_start),
                 blended);
             columns[x][z].sample       = col;
             columns[x][z].height       = static_cast<int32_t>(std::round(col.height));

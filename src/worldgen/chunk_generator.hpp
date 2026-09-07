@@ -227,6 +227,13 @@ private:
     void build_climate_lattice(int32_t chunk_x, int32_t chunk_z,
                                float temp_lat[CLIMATE_LATTICE_NODES][CLIMATE_LATTICE_NODES],
                                float hum_lat[CLIMATE_LATTICE_NODES][CLIMATE_LATTICE_NODES]) const;
+    // Chunk-level land-shape lattice: the raw macro height is evaluated once
+    // per 4-block node (9x9 = 81 evaluations per chunk instead of 4 per
+    // column) and every column interpolates from it, mirroring the climate
+    // lattice. Node values and interpolation are bit-identical to the
+    // per-call sample_land_shape.
+    void build_land_shape_lattice(int32_t chunk_x, int32_t chunk_z,
+                                  float land_lat[CLIMATE_LATTICE_NODES][CLIMATE_LATTICE_NODES]) const;
     static float interp_climate_lattice(const float lat[CLIMATE_LATTICE_NODES][CLIMATE_LATTICE_NODES],
                                         int32_t wx, int32_t wz, int32_t wx0, int32_t wz0);
     // Amplification blend lattice for a chunk: blended knobs at every 4-block
@@ -269,9 +276,45 @@ private:
         return land_biome_from_grid(temperature, humidity);
     }
 
-    // Single noise layer controlling height - minimal terrain
+    // Raw macro surface height at a world point: the full noise stack
+    // (12000-block base + ~1000-block detail + ridged flow + the two relief
+    // fields), read through the recursive anisotropic domain warp. This is
+    // the per-lattice-node evaluation; sample_land_shape interpolates it on
+    // the 4-block lattice, and the chunk generator caches it on a per-chunk
+    // lattice (81 evaluations instead of 4 per column).
+    float sample_land_shape_raw(float x, float z) const {
+        // Domain warp: displace the sample point with a low-frequency noise
+        // field before reading the terrain, so contour lines and ridges flow
+        // instead of reading as isotropic noise blobs. Two warp octaves, the
+        // second offset by the first (recursive warping); x/z warped by
+        // different amplitudes (anisotropic) so landforms get a directional
+        // grain. Amplitudes are in blocks (~500-block warp field wavelength).
+        float wx1 = terrain_noise.noise_2d(x * 0.002f, z * 0.002f) * params.macro_warp_amp_x1;
+        float wz1 = terrain_noise.noise_2d((x + 5000.0f) * 0.002f, (z + 5000.0f) * 0.002f) * params.macro_warp_amp_z1;
+        float wx2 = terrain_noise.noise_2d((x + wx1) * 0.0018f, (z + wz1) * 0.0018f) * params.macro_warp_amp_x2;
+        float wz2 = terrain_noise.noise_2d((x + wx1 + 5000.0f) * 0.0018f, (z + wz1 + 5000.0f) * 0.0018f) * params.macro_warp_amp_z2;
+        const float sx = x + wx1 + wx2;
+        const float sz = z + wz1 + wz2;
+
+        // Single noise layer (terrain_noise): 12000-block base plus
+        // ~1000-block detail, both sampled through the warped domain.
+        float base_height = params.height_base_y + terrain_noise.noise_2d(sx * 0.0000833f, sz * 0.0000833f) * 500.0f;
+        float detail = terrain_noise.noise_2d(sx * 0.001f, sz * 0.001f) * 100.0f;
+
+        // Light mid-frequency ridged detail, also warped. This is the
+        // wavelength band (~300-block, down to ~80) where the +/-50-block
+        // warp actually bends contours into flowing ridges instead of
+        // smearing features 10x larger than the displacement.
+        float flow = terrain_noise.fbm(sx * 0.0032f, sz * 0.0032f, 3, 0.5f, 1.0f) * 16.0f;
+        return base_height + detail + flow
+             + sample_mid_relief(x, z) + sample_small_relief(x, z);
+    }
+
+    // Single noise layer controlling height - minimal terrain. Sampled on
+    // the 4-block lattice (temperature/humidity are unused inputs), the same
+    // lattice idiom as the climate fields, so the chunk-cached lattice path
+    // and the per-call path are bit-identical.
     float sample_land_shape(float x, float z, float /*temperature*/, float /*humidity*/) const {
-        // Sample on 4-block lattice for performance (3000x3000 grid over 12000x12000 area)
         constexpr int32_t SPACING = 4;
         const int32_t cix = lattice_base(static_cast<int32_t>(std::floor(x)), SPACING);
         const int32_t ciz = lattice_base(static_cast<int32_t>(std::floor(z)), SPACING);
@@ -279,37 +322,8 @@ private:
         const float fz = (z - static_cast<float>(ciz)) / static_cast<float>(SPACING);
         const float x0 = static_cast<float>(cix),        x1 = static_cast<float>(cix + SPACING);
         const float z0 = static_cast<float>(ciz),        z1 = static_cast<float>(ciz + SPACING);
-
-        // Domain warp: displace the sample point with a low-frequency noise
-        // field before reading the terrain, so contour lines and ridges flow
-        // instead of reading as isotropic noise blobs. Two warp octaves, the
-        // second offset by the first (recursive warping); x/z warped by
-        // different amplitudes (anisotropic) so landforms get a directional
-        // grain. Amplitudes are in blocks (~500-block warp field wavelength).
-        auto h_at = [&](float px, float pz) -> float {
-            float wx1 = terrain_noise.noise_2d(px * 0.002f, pz * 0.002f) * params.macro_warp_amp_x1;
-            float wz1 = terrain_noise.noise_2d((px + 5000.0f) * 0.002f, (pz + 5000.0f) * 0.002f) * params.macro_warp_amp_z1;
-            float wx2 = terrain_noise.noise_2d((px + wx1) * 0.0018f, (pz + wz1) * 0.0018f) * params.macro_warp_amp_x2;
-            float wz2 = terrain_noise.noise_2d((px + wx1 + 5000.0f) * 0.0018f, (pz + wz1 + 5000.0f) * 0.0018f) * params.macro_warp_amp_z2;
-            const float sx = px + wx1 + wx2;
-            const float sz = pz + wz1 + wz2;
-
-            // Single noise layer (terrain_noise): 12000-block base plus
-            // ~1000-block detail, both sampled through the warped domain.
-            float base_height = params.height_base_y + terrain_noise.noise_2d(sx * 0.0000833f, sz * 0.0000833f) * 500.0f;
-            float detail = terrain_noise.noise_2d(sx * 0.001f, sz * 0.001f) * 100.0f;
-
-            // Light mid-frequency ridged detail, also warped. This is the
-            // wavelength band (~300-block, down to ~80) where the +/-50-block
-            // warp actually bends contours into flowing ridges instead of
-            // smearing features 10x larger than the displacement.
-            float flow = terrain_noise.fbm(sx * 0.0032f, sz * 0.0032f, 3, 0.5f, 1.0f) * 16.0f;
-            return base_height + detail + flow
-                 + sample_mid_relief(px, pz) + sample_small_relief(px, pz);
-        };
-
-        const float h00 = h_at(x0, z0), h10 = h_at(x1, z0);
-        const float h01 = h_at(x0, z1), h11 = h_at(x1, z1);
+        const float h00 = sample_land_shape_raw(x0, z0), h10 = sample_land_shape_raw(x1, z0);
+        const float h01 = sample_land_shape_raw(x0, z1), h11 = sample_land_shape_raw(x1, z1);
         return lerp(lerp(h00, h10, fx), lerp(h01, h11, fx), fz);
     }
 
@@ -371,6 +385,24 @@ private:
     // into Hills — big relief does not bulge flat terrain all the way to the
     // boundary line.
     // -------------------------------------------------------------------------
+    // Inverse-distance weight for a window offset (|di|, |dj|) in lattice
+    // nodes. The weight depends only on the squared distance, so a small
+    // table covers every offset — no sqrt per window entry.
+    static float blend_weight(int32_t di, int32_t dj) {
+        struct Table { float w[CLIMATE_BLEND_MAX_RADIUS + 1][CLIMATE_BLEND_MAX_RADIUS + 1]; };
+        static const Table kTable = [] {
+            Table t;
+            for (int32_t i = 0; i <= CLIMATE_BLEND_MAX_RADIUS; ++i) {
+                for (int32_t j = 0; j <= CLIMATE_BLEND_MAX_RADIUS; ++j) {
+                    const double d2 = static_cast<double>(i * i + j * j) * 16.0 + 0.2;
+                    t.w[i][j] = static_cast<float>(1.0 / std::sqrt(d2));
+                }
+            }
+            return t;
+        }();
+        return kTable.w[di < 0 ? -di : di][dj < 0 ? -dj : dj];
+    }
+
     // Accumulate the blend over a window whose biome at lattice-node offset
     // (di, dj) is returned by `biome_at`. Both the chunk path (cached climate
     // lattice) and the single-point path (raw samplers) feed the same node
@@ -388,8 +420,7 @@ private:
             for (int32_t di = -R; di <= R; ++di) {
                 const BiomeAmplification& a =
                     biome_config.amplification[static_cast<size_t>(biome_at(di, dj))];
-                const double d2 = static_cast<double>(di * di + dj * dj) * 16.0 + 0.2;
-                const double w = 1.0 / std::sqrt(d2);
+                const double w = static_cast<double>(blend_weight(di, dj));
                 const double wh = (a.height > center.height) ? w * 0.5 : w;
                 const double ww = (a.weirdness > center.weirdness) ? w * 0.5 : w;
                 h_num += wh * static_cast<double>(a.height);
@@ -533,12 +564,12 @@ private:
     // Per-column terrain evaluation 
     // -------------------------------------------------------------------------
     ColumnSample sample_column(int32_t world_x, int32_t world_z) const;
-    // Column evaluation with pre-supplied climate values (lattice-interpolated
-    // by the caller, e.g. generate_chunk's chunk-cached lattice) and the
-    // blended amplification knobs at this column (also lattice-cached by the
-    // chunk path).
+    // Column evaluation with pre-supplied climate values, macro land height
+    // and blended amplification knobs (all lattice-interpolated by the
+    // caller, e.g. generate_chunk's chunk-cached lattices).
     ColumnSample sample_column_with_climate(int32_t world_x, int32_t world_z,
                                             float temperature, float humidity,
+                                            float land_height,
                                             const BiomeAmplification& blended) const;
 
     // -------------------------------------------------------------------------
@@ -594,6 +625,19 @@ float max_water_h = -1.0f;
     }
     float sample_humidity_debug(float x, float z) const {
         return sample_humidity(x, z);
+    }
+    float sample_land_shape_debug(float x, float z) const {
+        return sample_land_shape(x, z, 0.0f, 0.0f);  // temp/humidity are unused
+    }
+    // Debug: macro land height read through the chunk-cached lattice path
+    // (what generate_chunk uses), for cross-checking against the per-call
+    // sampler.
+    float sample_land_shape_lattice_debug(int32_t chunk_x, int32_t chunk_z,
+                                          int32_t wx, int32_t wz) const {
+        float land_lat[CLIMATE_LATTICE_NODES][CLIMATE_LATTICE_NODES];
+        build_land_shape_lattice(chunk_x, chunk_z, land_lat);
+        return interp_climate_lattice(land_lat, wx, wz,
+                                      chunk_x * CHUNK_WIDTH, chunk_z * CHUNK_DEPTH);
     }
     // Debug: blended amplification knobs at a column (per-call path).
     BiomeAmplification blend_amplification_debug(int32_t world_x, int32_t world_z) const {

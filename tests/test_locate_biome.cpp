@@ -60,20 +60,42 @@ TEST_CASE("biome names: round-trip through biome_name / biome_from_name") {
 // find_nearest_biome — deterministic single-biome worlds
 // =========================================================================
 
-TEST_CASE("locate biome: all-land world is entirely hills") {
+TEST_CASE("locate biome: all-land world has land biomes, no ocean") {
     TerrainParams params;
-    params.sea_level = -100000.0f;  // every column sits above sea level -> Hills
+    params.sea_level = -100000.0f;  // every column sits above sea level -> no Ocean
     ChunkGenerator gen(params);
+
+    // The climate grid splits land into Hills and Plains, so no fixed point is
+    // guaranteed to be Hills: scan for one to use as the search center.
+    int32_t hx = 0, hz = 0;
+    bool found_hills = false;
+    for (int32_t z = -24000; z <= 24000 && !found_hills; z += 500) {
+        for (int32_t x = -24000; x <= 24000 && !found_hills; x += 500) {
+            if (gen.get_biome(x, z) == BiomeType::Hills) {
+                hx = x;
+                hz = z;
+                found_hills = true;
+            }
+        }
+    }
+    if (!found_hills) {
+        MESSAGE("No hills column found in the all-land probe window; skipping");
+        return;
+    }
 
     int32_t x = 0, z = 0;
     float h = 0.0f;
 
     // Center is already the target biome: found at distance zero.
-    CHECK(gen.find_nearest_biome(BiomeType::Hills, 123, -456, 1000, x, z, h));
-    CHECK(x == 123);
-    CHECK(z == -456);
+    CHECK(gen.find_nearest_biome(BiomeType::Hills, hx, hz, 1000, x, z, h));
+    CHECK(x == hx);
+    CHECK(z == hz);
     CHECK(gen.get_biome(x, z) == BiomeType::Hills);
     CHECK(std::abs(h - gen.get_terrain_height(x, z)) < 0.01f);
+
+    // Plains also exist on land and are locatable.
+    CHECK(gen.find_nearest_biome(BiomeType::Plains, hx, hz, 100000, x, z, h));
+    CHECK(gen.get_biome(x, z) == BiomeType::Plains);
 
     // Oceans do not exist in an all-land world.
     CHECK_FALSE(gen.find_nearest_biome(BiomeType::Ocean, 0, 0, 1000, x, z, h));

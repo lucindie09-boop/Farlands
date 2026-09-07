@@ -9,8 +9,10 @@ using namespace VoxelEngine;
 namespace {
 
 bool find_seed_column(ChunkGenerator& gen, BiomeType target, int32_t& wx, int32_t& wz) {
-    for (int32_t z = -2048; z <= 2048; z += 32) {
-        for (int32_t x = -2048; x <= 2048; x += 32) {
+    // Wide window (coarse step): climate features span ~8000 blocks, so a
+    // small window can sit entirely inside one climate band and miss a target.
+    for (int32_t z = -24000; z <= 24000; z += 500) {
+        for (int32_t x = -24000; x <= 24000; x += 500) {
             if (gen.get_biome(x, z) == target) {
                 wx = x;
                 wz = z;
@@ -106,26 +108,34 @@ TEST_CASE("biome amplification: ocean seabed depth scales around sea level") {
 TEST_CASE("biome amplification: weirdness scales the shaping mask") {
     TerrainParams params;
 
-    // Pin both the multiplier and its floor to 0 so the effective factor is
-    // truly 0 (with the neutral min of 1.0, max(0, 1) would stay at 1).
-    BiomeConfig bc0;
-    bc0.reset_defaults();
-    bc0.amplification[static_cast<size_t>(BiomeType::Hills)].weirdness = 0.0f;
-    bc0.amplification[static_cast<size_t>(BiomeType::Hills)].min_weirdness = 0.0f;
-    ChunkGenerator gen0(params);
-    gen0.set_biome_config(bc0);
-
+    // The knob is per-biome, but land is now split between Hills and Plains by
+    // the climate grid — so apply it to whatever land biome each scanned
+    // column actually has, never assuming Hills.
     ChunkGenerator gen1(params);  // neutral defaults
+
+    auto amp0_gen = [&](BiomeType b) {
+        // Pin both the multiplier and its floor to 0 so the effective factor
+        // is truly 0 (with the neutral min of 1.0, max(0, 1) would stay at 1).
+        BiomeConfig bc;
+        bc.reset_defaults();
+        bc.amplification[static_cast<size_t>(b)].weirdness = 0.0f;
+        bc.amplification[static_cast<size_t>(b)].min_weirdness = 0.0f;
+        ChunkGenerator gen0(params);
+        gen0.set_biome_config(bc);
+        return gen0;
+    };
 
     // (a) Where the raw mask is exactly zero the knob is invisible: both
     // generators must produce identical density (0 * amp == 0).
     bool found_zero_mask = false;
-    for (int32_t z = -512; z <= 512 && !found_zero_mask; z += 16) {
-        for (int32_t x = -512; x <= 512 && !found_zero_mask; x += 16) {
-            if (gen1.get_biome(x, z) != BiomeType::Hills) continue;
+    for (int32_t z = -2048; z <= 2048 && !found_zero_mask; z += 32) {
+        for (int32_t x = -2048; x <= 2048 && !found_zero_mask; x += 32) {
+            const BiomeType b = gen1.get_biome(x, z);
+            if (b == BiomeType::Ocean) continue;
             if (gen1.sample_weirdness_debug(static_cast<float>(x), static_cast<float>(z)) != 0.0f) continue;
             auto col = gen1.sample_column_debug(x, z);
             const int32_t y = static_cast<int32_t>(std::round(col.height));
+            const ChunkGenerator gen0 = amp0_gen(b);
             CHECK(gen0.sample_terrain_density(x, y, z, col) ==
                   gen1.sample_terrain_density(x, y, z, col));
             found_zero_mask = true;
@@ -136,12 +146,14 @@ TEST_CASE("biome amplification: weirdness scales the shaping mask") {
     // (b) Where shaping is active the knob must actually change the density
     // field (amp 0 pins to minimum strength, neutral keeps the full mask).
     bool found_diff = false;
-    for (int32_t z = -512; z <= 512 && !found_diff; z += 16) {
-        for (int32_t x = -512; x <= 512 && !found_diff; x += 16) {
-            if (gen1.get_biome(x, z) != BiomeType::Hills) continue;
+    for (int32_t z = -2048; z <= 2048 && !found_diff; z += 32) {
+        for (int32_t x = -2048; x <= 2048 && !found_diff; x += 32) {
+            const BiomeType b = gen1.get_biome(x, z);
+            if (b == BiomeType::Ocean) continue;
             if (gen1.sample_weirdness_debug(static_cast<float>(x), static_cast<float>(z)) < 0.75f) continue;
             auto col = gen1.sample_column_debug(x, z);
             const int32_t y = static_cast<int32_t>(std::round(col.height));
+            const ChunkGenerator gen0 = amp0_gen(b);
             for (int32_t dy = -8; dy <= 8 && !found_diff; dy += 2) {
                 if (gen0.sample_terrain_density(x, y + dy, z, col) !=
                     gen1.sample_terrain_density(x, y + dy, z, col)) {
@@ -161,26 +173,27 @@ TEST_CASE("biome amplification: min weirdness floors the mask above 1.0") {
     TerrainParams params;
     ChunkGenerator gen_default(params);  // amp 1, min 1 (no floor)
 
+    // Same per-biome treatment as the weirdness test: apply the knobs to the
+    // land biome each scanned column actually has.
+    auto make_gen = [&](BiomeType b, float amp, float min) {
+        BiomeConfig bc;
+        bc.reset_defaults();
+        bc.amplification[static_cast<size_t>(b)].weirdness = amp;
+        bc.amplification[static_cast<size_t>(b)].min_weirdness = min;
+        ChunkGenerator g(params);
+        g.set_biome_config(bc);
+        return g;
+    };
+
     // (a) A minimum at or below 1.0 is inert (no floor): amp 0.5 with min 1.0
     // behaves bit-identically to amp 0.5 with min 0.0.
-    BiomeConfig bc_a;
-    bc_a.reset_defaults();
-    bc_a.amplification[static_cast<size_t>(BiomeType::Hills)].weirdness = 0.5f;
-    bc_a.amplification[static_cast<size_t>(BiomeType::Hills)].min_weirdness = 1.0f;
-    ChunkGenerator gen_a(params);
-    gen_a.set_biome_config(bc_a);
-
-    BiomeConfig bc_b;
-    bc_b.reset_defaults();
-    bc_b.amplification[static_cast<size_t>(BiomeType::Hills)].weirdness = 0.5f;
-    bc_b.amplification[static_cast<size_t>(BiomeType::Hills)].min_weirdness = 0.0f;
-    ChunkGenerator gen_b(params);
-    gen_b.set_biome_config(bc_b);
-
     bool compared = false;
-    for (int32_t z = -512; z <= 512 && !compared; z += 16) {
-        for (int32_t x = -512; x <= 512 && !compared; x += 16) {
-            if (gen_a.get_biome(x, z) != BiomeType::Hills) continue;
+    for (int32_t z = -2048; z <= 2048 && !compared; z += 32) {
+        for (int32_t x = -2048; x <= 2048 && !compared; x += 32) {
+            const BiomeType b = gen_default.get_biome(x, z);
+            if (b == BiomeType::Ocean) continue;
+            const ChunkGenerator gen_a = make_gen(b, 0.5f, 1.0f);
+            const ChunkGenerator gen_b = make_gen(b, 0.5f, 0.0f);
             auto col = gen_a.sample_column_debug(x, z);
             const int32_t y = static_cast<int32_t>(std::round(col.height));
             for (int32_t dy = -6; dy <= 6; dy += 2) {
@@ -193,28 +206,19 @@ TEST_CASE("biome amplification: min weirdness floors the mask above 1.0") {
     CHECK(compared);
 
     // 1.1 floors the mask at 0.1 (the old 0.1 behavior); 1.2 floors it at 0.2.
-    BiomeConfig bc_11;
-    bc_11.reset_defaults();
-    bc_11.amplification[static_cast<size_t>(BiomeType::Hills)].min_weirdness = 1.1f;
-    ChunkGenerator gen_11(params);
-    gen_11.set_biome_config(bc_11);
-
-    BiomeConfig bc_12;
-    bc_12.reset_defaults();
-    bc_12.amplification[static_cast<size_t>(BiomeType::Hills)].min_weirdness = 1.2f;
-    ChunkGenerator gen_12(params);
-    gen_12.set_biome_config(bc_12);
-
-    // (b) Where the raw mask is zero the floor binds: the 1.1 generator must
-    // differ from the default (floor 0.1 > mask 0) and from the 1.2 generator
-    // (0.1 vs 0.2 floors).
     bool found_zero_mask = false;
-    for (int32_t z = -512; z <= 512 && !found_zero_mask; z += 16) {
-        for (int32_t x = -512; x <= 512 && !found_zero_mask; x += 16) {
-            if (gen_11.get_biome(x, z) != BiomeType::Hills) continue;
-            if (gen_11.sample_weirdness_debug(static_cast<float>(x), static_cast<float>(z)) != 0.0f) continue;
+    for (int32_t z = -2048; z <= 2048 && !found_zero_mask; z += 32) {
+        for (int32_t x = -2048; x <= 2048 && !found_zero_mask; x += 32) {
+            const BiomeType b = gen_default.get_biome(x, z);
+            if (b == BiomeType::Ocean) continue;
+            if (gen_default.sample_weirdness_debug(static_cast<float>(x), static_cast<float>(z)) != 0.0f) continue;
+            const ChunkGenerator gen_11 = make_gen(b, 1.0f, 1.1f);
+            const ChunkGenerator gen_12 = make_gen(b, 1.0f, 1.2f);
             auto col = gen_11.sample_column_debug(x, z);
             const int32_t y = static_cast<int32_t>(std::round(col.height));
+            // (b) Where the raw mask is zero the floor binds: the 1.1
+            // generator must differ from the default (floor 0.1 > mask 0) and
+            // from the 1.2 generator (0.1 vs 0.2 floors).
             bool differs_from_default = false;
             bool differs_from_12 = false;
             for (int32_t dy = -6; dy <= 6; dy += 2) {
@@ -236,10 +240,13 @@ TEST_CASE("biome amplification: min weirdness floors the mask above 1.0") {
     // multiplier would always differ here, so this pins the semantics to
     // "mask floor", not "factor floor".
     bool found_above = false;
-    for (int32_t z = -512; z <= 512 && !found_above; z += 16) {
-        for (int32_t x = -512; x <= 512 && !found_above; x += 16) {
-            if (gen_11.get_biome(x, z) != BiomeType::Hills) continue;
-            if (gen_11.sample_weirdness_debug(static_cast<float>(x), static_cast<float>(z)) < 0.4f) continue;
+    for (int32_t z = -2048; z <= 2048 && !found_above; z += 32) {
+        for (int32_t x = -2048; x <= 2048 && !found_above; x += 32) {
+            const BiomeType b = gen_default.get_biome(x, z);
+            if (b == BiomeType::Ocean) continue;
+            if (gen_default.sample_weirdness_debug(static_cast<float>(x), static_cast<float>(z)) < 0.4f) continue;
+            const ChunkGenerator gen_11 = make_gen(b, 1.0f, 1.1f);
+            const ChunkGenerator gen_12 = make_gen(b, 1.0f, 1.2f);
             auto col = gen_11.sample_column_debug(x, z);
             const int32_t y = static_cast<int32_t>(std::round(col.height));
             for (int32_t dy = -6; dy <= 6; dy += 2) {

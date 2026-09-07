@@ -30,16 +30,21 @@ void VegetationGenerator::generate_vegetation(
             if (surface_y < world_y_start || surface_y >= world_y_end)
                 continue;
 
-            BiomeType biome = columns[x][z].biome;
-            const BiomeVegetation& veg = biomes.vegetation[static_cast<size_t>(biome)];
+            const BiomeVegetation& veg = biomes.vegetation[static_cast<size_t>(columns[x][z].biome)];
 
-            if (biome == BiomeType::Hills && veg.tree_density > 0.0f) {
-                // Per-chunk sparse tree: some hills chunks get exactly one tree.
-                // Only triggers on the first column (0,0) to ensure one tree per
-                // qualifying chunk.
+            // Any biome whose tree_density is nonzero can carry sparse trees;
+            // the per-biome density scales the shared per-chunk chance (e.g.
+            // Hills 1.0 keeps the historical 25%; Plains 0.3 -> ~7%).
+            if (veg.tree_density > 0.0f) {
+                // Per-chunk sparse tree: some qualifying chunks get exactly one
+                // tree. Only triggers on the first column (0,0) to ensure one
+                // tree per qualifying chunk.
                 if (x == 0 && z == 0) {
                     uint32_t ch = hash_pos(chunk_x * CHUNK_WIDTH, chunk_z * CHUNK_DEPTH);
-                    if ((ch % 100u) < static_cast<uint32_t>(std::max(0, hills_cfg.chunk_chance_pct))) {
+                    const uint32_t chance_pct = static_cast<uint32_t>(
+                        std::max(0.0f, std::min(1.0f, veg.tree_density)) *
+                        static_cast<float>(hills_cfg.chunk_chance_pct));
+                    if ((ch % 100u) < chance_pct) {
                         // Pick a random column within the chunk for the single tree
                         int32_t tx = static_cast<int32_t>(ch >> 8) % CHUNK_WIDTH;
                         int32_t tz = static_cast<int32_t>(ch >> 16) % CHUNK_DEPTH;

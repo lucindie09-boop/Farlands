@@ -119,6 +119,11 @@ TEST_CASE("climate noise: chunk-cached lattice matches the per-call samplers") {
             CHECK(lat.height == dir.height);
             CHECK(lat.weirdness == dir.weirdness);
             CHECK(lat.min_weirdness == dir.min_weirdness);
+            // Same guarantee for the macro land height: generate_chunk reads
+            // it from a per-chunk lattice now (81 nodes), the per-call
+            // sampler from its own 4-corner evaluation — must be bit-identical.
+            CHECK(gen.sample_land_shape_lattice_debug(cx, cz, wx, wz) ==
+                  gen.sample_land_shape_debug(static_cast<float>(wx), static_cast<float>(wz)));
         }
     }
 }

@@ -30,6 +30,7 @@ private:
     FastNoise weirdness_noise;  // seed+9000: very-low-frequency 2D shaping gate
     FastNoise temp_noise;          // seed+3000: low-frequency 2D temperature field (~8000-block features)
     FastNoise humidity_noise;      // seed+4000: low-frequency 2D humidity field (~8000-block features)
+    FastNoise climate_warp_noise;  // seed+5000: low-frequency 2D displacement for climate sampling
 
     TerrainParams params;
     BiomeConfig biome_config;
@@ -150,17 +151,37 @@ private:
         return 0.5f; // Disabled - flat continentalness
     }
 
-    // Raw climate value at a world point (the coarse field alone); used as
-    // the lattice corner samples below.
+    // Recursive climate domain warp, mirroring the macro height warp: two
+    // octaves, the second read through the first's displacement, with x and z
+    // displaced by different amplitudes (anisotropic) so biome shapes get a
+    // directional grain instead of isotropic blobs. Frequencies are fixed
+    // (~25-block meander plus a ~10-block fine octave). Returns the
+    // displaced sample point.
+    void warp_climate_point(float x, float z, float& out_x, float& out_z) const {
+        float wx1 = climate_warp_noise.noise_2d(x * 0.04f, z * 0.04f) * params.climate_warp_amp_x1;
+        float wz1 = climate_warp_noise.noise_2d((x + 5000.0f) * 0.04f, (z + 5000.0f) * 0.04f) * params.climate_warp_amp_z1;
+        float wx2 = climate_warp_noise.noise_2d((x + wx1) * 0.1f, (z + wz1) * 0.1f) * params.climate_warp_amp_x2;
+        float wz2 = climate_warp_noise.noise_2d((x + wx1 + 5000.0f) * 0.1f, (z + wz1 + 5000.0f) * 0.1f) * params.climate_warp_amp_z2;
+        out_x = x + wx1 + wx2;
+        out_z = z + wz1 + wz2;
+    }
+
+    // Raw climate value at a world point; used as the lattice corner samples
+    // below. The coarse field is read at a domain-warped position so its
+    // contours flow and meander instead of drawing smooth lines.
     float sample_temperature_raw(float x, float z) const {
         // One coarse feature spans ~1/scale blocks (0.000125 -> ~8000).
-        return clamp01((temp_noise.noise_2d(x * params.climate_temp_scale,
-                                            z * params.climate_temp_scale) + 1.0f) * 0.5f);
+        float wx, wz;
+        warp_climate_point(x, z, wx, wz);
+        return clamp01((temp_noise.noise_2d(wx * params.climate_temp_scale,
+                                            wz * params.climate_temp_scale) + 1.0f) * 0.5f);
     }
 
     float sample_humidity_raw(float x, float z) const {
-        return clamp01((humidity_noise.noise_2d(x * params.climate_humidity_scale,
-                                                z * params.climate_humidity_scale) + 1.0f) * 0.5f);
+        float wx, wz;
+        warp_climate_point(x, z, wx, wz);
+        return clamp01((humidity_noise.noise_2d(wx * params.climate_humidity_scale,
+                                                wz * params.climate_humidity_scale) + 1.0f) * 0.5f);
     }
 
     // The climate fields are sampled on a 4-block world-aligned lattice (one
@@ -469,6 +490,7 @@ float max_water_h = -1.0f;
         , weirdness_noise(p.seed + 9000)
         , temp_noise(p.seed + 3000)
         , humidity_noise(p.seed + 4000)
+        , climate_warp_noise(p.seed + 5000)
         , params(p)
         , rng(p.seed)
     {
@@ -577,6 +599,7 @@ float max_water_h = -1.0f;
             weirdness_noise   = FastNoise(p.seed + 9000);
             temp_noise        = FastNoise(p.seed + 3000);
             humidity_noise    = FastNoise(p.seed + 4000);
+            climate_warp_noise = FastNoise(p.seed + 5000);
             rng.seed(p.seed);
         }
     }

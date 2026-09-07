@@ -77,6 +77,18 @@ bool TerrainParams::load_from_json(const godot::String& json_path) noexcept {
     if (root.has("climate_humidity_base_scale")) {
         climate_humidity_base_scale = static_cast<float>(static_cast<double>(root["climate_humidity_base_scale"]));
     }
+    if (root.has("climate_warp_amp_x1")) {
+        climate_warp_amp_x1 = static_cast<float>(static_cast<double>(root["climate_warp_amp_x1"]));
+    }
+    if (root.has("climate_warp_amp_z1")) {
+        climate_warp_amp_z1 = static_cast<float>(static_cast<double>(root["climate_warp_amp_z1"]));
+    }
+    if (root.has("climate_warp_amp_x2")) {
+        climate_warp_amp_x2 = static_cast<float>(static_cast<double>(root["climate_warp_amp_x2"]));
+    }
+    if (root.has("climate_warp_amp_z2")) {
+        climate_warp_amp_z2 = static_cast<float>(static_cast<double>(root["climate_warp_amp_z2"]));
+    }
 
     return true;
 #else

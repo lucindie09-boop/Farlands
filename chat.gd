@@ -36,7 +36,7 @@ var _up_held: bool = false
 var _up_hold_time: float = 0.0
 
 const COMMANDS := ["/help", "/give", "/tp", "/fly", "/locatebiome", "/clearchat", "/clearinv", "/version", "/texturepack", "/testicons"]
-const BIOME_NAMES := ["ocean", "hills"]
+const BIOME_NAMES := ["ocean", "hills", "plains"]
 
 func _chat_scale() -> float:
 	return 1.0  # Chat is not affected by the global GUI scale
@@ -492,7 +492,7 @@ func _run_command(raw: String):
 			_add_message("/give <block> [count] - add blocks to your inventory", COLOR_SYSTEM)
 			_add_message("/tp <x> <y> <z> - teleport to a position", COLOR_SYSTEM)
 			_add_message("/fly [speed] - toggle flying (optional speed multiplier)", COLOR_SYSTEM)
-			_add_message("/locatebiome <biome> - find the nearest biome (ocean/hills)", COLOR_SYSTEM)
+			_add_message("/locatebiome <biome> - find the nearest biome (ocean/hills/plains)", COLOR_SYSTEM)
 			_add_message("/clearchat - clear the chat", COLOR_SYSTEM)
 			_add_message("/clearinv - clear your inventory", COLOR_SYSTEM)
 			_add_message("/version - show the engine version", COLOR_SYSTEM)
@@ -555,7 +555,7 @@ func _run_command(raw: String):
 				return
 			var biome_name := parts[1].to_lower()
 			if not biome_name in BIOME_NAMES:
-				_add_message("Unknown biome: %s (ocean, hills)" % parts[1], COLOR_ERROR)
+				_add_message("Unknown biome: %s (ocean, hills, plains)" % parts[1], COLOR_ERROR)
 				return
 			var chunk_manager := get_node_or_null("/root/Main/ChunkManager")
 			if chunk_manager == null:

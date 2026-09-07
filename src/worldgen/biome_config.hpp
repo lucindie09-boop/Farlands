@@ -24,7 +24,8 @@ namespace VoxelEngine {
 enum class BiomeType : uint8_t {
     Ocean = 0,
     Hills = 1,
-    Count = 2
+    Plains = 2,
+    Count = 3
 };
 
 // Per-biome surface materials (resolved block IDs from block_definitions.json).

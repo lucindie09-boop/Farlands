@@ -7,6 +7,20 @@
     "hum_humid_min": 0.57
   },
   "biomes": {
+    "plains": {
+      "surface": "grass",
+      "subsurface": "dirt",
+      "near_water_surface": "mud",
+      "near_water_subsurface": "dirt",
+      "height_amplification": 0.6,
+      "weirdness_amplification": 0.5,
+      "min_weirdness_amplification": 1.0,
+      "preferred_height": 260.0,
+      "preferred_temperature": 0.5,
+      "preferred_humidity": 0.4,
+      "tree_density": 0.3,
+      "tree_variants": {"oak": 1.0, "spruce": 0.0}
+    },
     "hills": {
       "surface": "grass",
       "subsurface": "dirt",

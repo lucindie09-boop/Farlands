@@ -164,14 +164,15 @@ private:
     }
 
     // 3x3 (temperature x humidity) land-biome grid, indexed [temp][hum] with
-    // 0 = cold/dry, 1 = neutral, 2 = hot/humid. Every cell currently maps to
-    // Hills - the only land biome - so the thresholds are live but the table
-    // is degenerate; adding a biome is a cell entry here plus a BiomeType
-    // enum value and data/biomes.json entry.
+    // 0 = cold/dry, 1 = neutral, 2 = hot/humid. Cold and hot bands stay
+    // Hills; the temperate (neutral-temperature) band is Plains. Adding a
+    // biome is a cell entry here plus a BiomeType enum value and a
+    // data/biomes.json entry.
     static constexpr BiomeType kLandBiomeGrid[3][3] = {
-        {BiomeType::Hills, BiomeType::Hills, BiomeType::Hills},
-        {BiomeType::Hills, BiomeType::Hills, BiomeType::Hills},
-        {BiomeType::Hills, BiomeType::Hills, BiomeType::Hills},
+        //              dry             neutral         humid
+        /* cold     */ {BiomeType::Hills,  BiomeType::Hills,  BiomeType::Hills},
+        /* neutral  */ {BiomeType::Plains, BiomeType::Plains, BiomeType::Plains},
+        /* hot      */ {BiomeType::Hills,  BiomeType::Hills,  BiomeType::Hills},
     };
 
     BiomeType land_biome_from_grid(float temperature, float humidity) const {
@@ -400,6 +401,9 @@ float max_water_h = -1.0f;
     }
     float sample_humidity_debug(float x, float z) const {
         return sample_humidity(x, z);
+    }
+    BiomeType biome_from_climate_debug(float temperature, float humidity, float cont) const {
+        return biome_from_climate(temperature, humidity, cont);
     }
 
     ChunkGenerator(const TerrainParams& p = TerrainParams())

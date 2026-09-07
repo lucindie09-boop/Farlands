@@ -198,7 +198,7 @@ Terrain is produced in three stages — a macro surface from stacked noise layer
 - **Macro surface layers**: all tuning is data-driven (`data/terrain_config.json` → `TerrainParams`); the layer defaults are `height_base_y` 512, a ±500-block 12,000-block octave, ±100-block detail, ×16 ridged flow, plus the two bilinearly-lerped relief fields (mid ~500-block / amplitude 90 on 8-block nodes, small ~150-block / amplitude 25 on 2-block nodes). Domain-warp amplitudes (18/30/10/16) and frequencies are the flowing-ridge dials.
 - **Height-based oceans**: water is a post-pass over the finished height field, never a terrain input — any column whose surface ends below `sea_level` (200) becomes Ocean biome and fills with water to sea level; its noisy height is kept as the sea bed, so land and ocean floor are one continuous surface and coasts have no cliffs by construction. Shoreline material swaps come from a per-chunk 2-pass Manhattan distance transform seeded from the *actual* density surface (not the macro heightmap).
 - **Weirdness gating**: a 2D fBm (`weirdness_scale` 0.024 → ~42-block lobes) through `smoothstep(0.10, 0.75)` picks where the 3D shaping is strong: `strength = lerp(shape_strength_min 5, shape_strength_max 50, weirdness)`.
-- **Biome selection**: temperature/humidity samplers are live low-frequency 2D fields (~8000-block features at default `biome_size` 1, scales `climate_*_base_scale` in `data/terrain_config.json`), but the 3×3 climate-grid lookup currently maps every cell to **Hills** (continentalness is still a flat 0.5 stub, so ocean is decided by height). Worldgen emits **Hills** on land and **Ocean** below sea level. The `BiomeConfig` tables (Ocean/Hills surfaces + tree variants from `data/biomes.json`) drive per-biome surface blocks and vegetation weights.
+- **Biome selection**: temperature/humidity samplers are live low-frequency 2D fields (~8000-block features at default `biome_size` 1, scales `climate_*_base_scale` in `data/terrain_config.json`). The 3×3 climate grid maps the temperate (neutral-temperature) band to **Plains** and the cold/hot bands to **Hills**; continentalness is still a flat 0.5 stub, so ocean is decided by height. Worldgen emits **Plains**/**Hills** on land and **Ocean** below sea level. The `BiomeConfig` tables (surfaces + tree variants from `data/biomes.json`) drive per-biome surface blocks and vegetation weights.
 - Vegetation uses the real density surface with an underwater rejection guard; an isolated-singleton removal pass clears lone floating voxels the density field occasionally produces, and thin-solid-sheet/water-flood-fill cleanup keeps underwater columns clean.
 
 ## Rendering
@@ -263,10 +263,10 @@ The following experimental features were attempted but removed or reverted:
 - **Cloud layer system**: Removed atmospheric cloud layer with fbm noise
 - **Lighting preset system**: Reverted Main/Spooky preset system with separate visual sky
 - **Occluder boxes**: Reverted Godot occluder boxes for fully-solid chunks
-- **Complex biome systems**: Removed Tundra/Taiga/Savanna/StonePlateau biomes in favor of the current 2-biome JSON system (Ocean/Hills)
+- **Complex biome systems**: Removed Tundra/Taiga/Savanna/StonePlateau biomes in favor of the current JSON system (Ocean/Hills/Plains)
 - **Erosion-driven mountains**: Removed experimental mountain generation systems
 - **3D DDA collision**: Reverted to binary-search AABB collision
-- **11-biome climate system**: Simplified from 11 biomes to the current 2-biome system (Ocean/Hills)
+- **11-biome climate system**: Simplified from 11 biomes to the current JSON system (Ocean/Hills/Plains)
 
 ## Legacy/Disabled Code
 

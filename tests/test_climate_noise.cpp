@@ -62,6 +62,74 @@ TEST_CASE("climate noise: fields are not flat and vary at ~8000-block scale") {
     CHECK(max_delta_h < 0.01f);
 }
 
+TEST_CASE("climate grid: temperate band maps to Plains, extremes to Hills") {
+    TerrainParams params;
+    ChunkGenerator gen(params);
+
+    // Boundaries: 0.43 / 0.57 split cold/neutral/hot (and dry/neutral/humid).
+    const float t_neutral = 0.5f;
+
+    // Cold and hot bands stay Hills regardless of humidity.
+    CHECK(gen.biome_from_climate_debug(0.20f, 0.5f, 0.5f) == BiomeType::Hills);
+    CHECK(gen.biome_from_climate_debug(0.20f, 0.9f, 0.5f) == BiomeType::Hills);
+    CHECK(gen.biome_from_climate_debug(0.80f, 0.1f, 0.5f) == BiomeType::Hills);
+    CHECK(gen.biome_from_climate_debug(0.80f, 0.9f, 0.5f) == BiomeType::Hills);
+
+    // Neutral-temperature band is Plains at any humidity.
+    CHECK(gen.biome_from_climate_debug(t_neutral, 0.2f, 0.5f) == BiomeType::Plains);
+    CHECK(gen.biome_from_climate_debug(t_neutral, 0.5f, 0.5f) == BiomeType::Plains);
+    CHECK(gen.biome_from_climate_debug(t_neutral, 0.8f, 0.5f) == BiomeType::Plains);
+
+    // Exact threshold edges: <= cold_max is cold, < hot_min is neutral.
+    CHECK(gen.biome_from_climate_debug(0.43f, 0.5f, 0.5f) == BiomeType::Hills);
+    CHECK(gen.biome_from_climate_debug(0.569f, 0.5f, 0.5f) == BiomeType::Plains);
+    CHECK(gen.biome_from_climate_debug(0.57f, 0.5f, 0.5f) == BiomeType::Hills);
+}
+
+TEST_CASE("climate grid: sample_column routes through the grid and Plains/Hills appear in the world") {
+    TerrainParams params;
+    ChunkGenerator gen(params);
+
+    // For land columns, sample_column's biome must equal the grid lookup of
+    // its own sampled climate values; ocean stays height-decided.
+    for (int32_t z = -4000; z <= 4000; z += 250) {
+        for (int32_t x = -4000; x <= 4000; x += 250) {
+            const auto col = gen.sample_column_debug(x, z);
+            if (col.biome == BiomeType::Ocean) {
+                CHECK(col.height < params.sea_level);
+                continue;
+            }
+            CHECK(col.height >= params.sea_level);
+            CHECK(col.biome == gen.biome_from_climate_debug(col.temperature, col.humidity, col.cont));
+        }
+    }
+
+    // Plains and Hills both actually occur as land biomes. Find a neutral-
+    // temperature land column (Plains) and a cold one (Hills).
+    bool found_plains = false, found_hills = false;
+    for (int32_t z = -24000; z <= 24000 && !(found_plains && found_hills); z += 500) {
+        for (int32_t x = -24000; x <= 24000 && !(found_plains && found_hills); x += 500) {
+            const float t = gen.sample_temperature_debug(static_cast<float>(x), static_cast<float>(z));
+            if (!found_plains && t > 0.43f && t < 0.57f) {
+                const auto col = gen.sample_column_debug(x, z);
+                if (col.biome != BiomeType::Ocean) {
+                    CHECK(col.biome == BiomeType::Plains);
+                    found_plains = true;
+                }
+            }
+            if (!found_hills && t <= 0.43f) {
+                const auto col = gen.sample_column_debug(x, z);
+                if (col.biome != BiomeType::Ocean) {
+                    CHECK(col.biome == BiomeType::Hills);
+                    found_hills = true;
+                }
+            }
+        }
+    }
+    CHECK(found_plains);
+    CHECK(found_hills);
+}
+
 TEST_CASE("climate noise: deterministic per seed, differs across seeds") {
     TerrainParams params;
     ChunkGenerator gen(params);

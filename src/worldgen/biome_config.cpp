@@ -41,9 +41,10 @@ bool iequals(const char* a, const char* b) {
 
 const char* biome_name(BiomeType b) {
     switch (b) {
-        case BiomeType::Ocean: return "ocean";
-        case BiomeType::Hills: return "hills";
-        default:               return "unknown";
+        case BiomeType::Ocean:  return "ocean";
+        case BiomeType::Hills:  return "hills";
+        case BiomeType::Plains: return "plains";
+        default:                return "unknown";
     }
 }
 
@@ -73,6 +74,8 @@ void BiomeConfig::reset_defaults() {
     surfaces[static_cast<size_t>(BiomeType::Ocean)] =
         {BlockIDs::SAND, BlockIDs::SAND, BlockIDs::SAND, BlockIDs::SAND};
     surfaces[static_cast<size_t>(BiomeType::Hills)] =
+        {BlockIDs::GRASS, BlockIDs::DIRT, BlockIDs::MUD, BlockIDs::DIRT};
+    surfaces[static_cast<size_t>(BiomeType::Plains)] =
         {BlockIDs::GRASS, BlockIDs::DIRT, BlockIDs::MUD, BlockIDs::DIRT};
 
     for (auto& v : vegetation) {
@@ -110,9 +113,8 @@ bool BiomeConfig::load(const godot::String& json_path, BiomeConfig& out) {
         out.underwater_surface = resolve_block(name.utf8().get_data(), out.underwater_surface);
     }
 
-    // Climate-grid thresholds. Dormant while the temperature/humidity samplers
-    // are flat stubs (see chunk_generator), but kept here so the grid can be
-    // tuned without recompiling once they exist.
+    // Climate-grid thresholds splitting the sampled temperature/humidity
+    // distributions into cold/neutral/hot and dry/neutral/humid bands.
     if (root.has("climate")) {
         godot::Dictionary c = root["climate"];
         if (c.has("temp_cold_max")) out.temp_cold_max = static_cast<float>(static_cast<double>(c["temp_cold_max"]));

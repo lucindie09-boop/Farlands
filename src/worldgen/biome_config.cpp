@@ -88,7 +88,7 @@ void BiomeConfig::reset_defaults() {
         h = 0.0f;  // reference data; data/biomes.json supplies the real values
     }
     for (auto& t : preferred_temperature) {
-        t = 0.5f;  // climate samplers are flat 0.5 stubs, so 0.5 is neutral
+        t = 0.5f;  // 0.5 = neutral climate in the [0,1] sampler range
     }
     for (auto& h : preferred_humidity) {
         h = 0.5f;

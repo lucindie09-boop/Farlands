@@ -28,6 +28,8 @@ private:
     FastNoise cave_noise;
     FastNoise density_noise;    // seed+7000: signed 3D shape field (see sample_shape_3d)
     FastNoise weirdness_noise;  // seed+9000: very-low-frequency 2D shaping gate
+    FastNoise temp_noise;       // seed+3000: low-frequency 2D temperature field (~8000-block features)
+    FastNoise humidity_noise;   // seed+4000: low-frequency 2D humidity field (~8000-block features)
 
     TerrainParams params;
     BiomeConfig biome_config;
@@ -149,20 +151,42 @@ private:
     }
 
     float sample_temperature(float x, float z) const {
-        return 0.5f; // Disabled - flat temperature
+        // One noise feature spans ~1/scale blocks (0.000125 -> ~8000).
+        float raw = temp_noise.noise_2d(x * params.climate_temp_scale,
+                                        z * params.climate_temp_scale);
+        return clamp01((raw + 1.0f) * 0.5f);
     }
 
     float sample_humidity(float x, float z) const {
-        return 0.5f; // Disabled - flat humidity
+        float raw = humidity_noise.noise_2d(x * params.climate_humidity_scale,
+                                            z * params.climate_humidity_scale);
+        return clamp01((raw + 1.0f) * 0.5f);
     }
 
-    // Simplified biome - single land biome only
+    // 3x3 (temperature x humidity) land-biome grid, indexed [temp][hum] with
+    // 0 = cold/dry, 1 = neutral, 2 = hot/humid. Every cell currently maps to
+    // Hills - the only land biome - so the thresholds are live but the table
+    // is degenerate; adding a biome is a cell entry here plus a BiomeType
+    // enum value and data/biomes.json entry.
+    static constexpr BiomeType kLandBiomeGrid[3][3] = {
+        {BiomeType::Hills, BiomeType::Hills, BiomeType::Hills},
+        {BiomeType::Hills, BiomeType::Hills, BiomeType::Hills},
+        {BiomeType::Hills, BiomeType::Hills, BiomeType::Hills},
+    };
+
     BiomeType land_biome_from_grid(float temperature, float humidity) const {
-        return BiomeType::Hills;
+        const int ti = temperature <= biome_config.temp_cold_max ? 0
+                     : temperature >= biome_config.temp_hot_min ? 2 : 1;
+        const int hi = humidity <= biome_config.hum_dry_max ? 0
+                     : humidity >= biome_config.hum_humid_min ? 2 : 1;
+        return kLandBiomeGrid[ti][hi];
     }
 
     BiomeType biome_from_climate(float temperature, float humidity, float cont) const {
-        return BiomeType::Hills;
+        // Continentalness gates land vs ocean in the full system; the sampler
+        // is flat (0.5) so ocean is decided by height in sample_column, and
+        // land biomes come from the climate grid.
+        return land_biome_from_grid(temperature, humidity);
     }
 
     // Single noise layer controlling height - minimal terrain
@@ -371,12 +395,20 @@ float max_water_h = -1.0f;
     float sample_weirdness_debug(float x, float z) const {
         return sample_weirdness(x, z);
     }
+    float sample_temperature_debug(float x, float z) const {
+        return sample_temperature(x, z);
+    }
+    float sample_humidity_debug(float x, float z) const {
+        return sample_humidity(x, z);
+    }
 
     ChunkGenerator(const TerrainParams& p = TerrainParams())
         : terrain_noise(p.seed)
         , cave_noise(p.seed + 2000)
         , density_noise(p.seed + 7000)
         , weirdness_noise(p.seed + 9000)
+        , temp_noise(p.seed + 3000)
+        , humidity_noise(p.seed + 4000)
         , params(p)
         , rng(p.seed)
     {
@@ -483,6 +515,8 @@ float max_water_h = -1.0f;
             cave_noise        = FastNoise(p.seed + 2000);
             density_noise     = FastNoise(p.seed + 7000);
             weirdness_noise   = FastNoise(p.seed + 9000);
+            temp_noise        = FastNoise(p.seed + 3000);
+            humidity_noise    = FastNoise(p.seed + 4000);
             rng.seed(p.seed);
         }
     }

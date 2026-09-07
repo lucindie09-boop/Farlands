@@ -87,7 +87,8 @@ struct BiomeConfig {
     // biome-selection logic; NOT consumed by generation. Values live in
     // data/biomes.json: preferred_height is a measured height percentile of
     // the current terrain, preferred_temperature / preferred_humidity are the
-    // climate values the biome would target (0.5 = current flat sampler).
+    // climate values the biome would target (0.5 = neutral in the [0,1]
+    // sampler range).
     std::array<float, static_cast<size_t>(BiomeType::Count)> preferred_height;
     std::array<float, static_cast<size_t>(BiomeType::Count)> preferred_temperature;
     std::array<float, static_cast<size_t>(BiomeType::Count)> preferred_humidity;

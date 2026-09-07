@@ -3,6 +3,10 @@
 		{
 			"name": "stick",
 			"texture": "stick"
+		},
+		{
+			"name": "cactus_pickaxe",
+			"texture": "cactus_pickaxe"
 		}
 	]
 }

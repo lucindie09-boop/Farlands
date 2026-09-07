@@ -97,7 +97,7 @@ Terrain is built in three stages — a macro surface from stacked noise layers, 
 
 - **Height decides water, not continentalness** — the macro surface is the same continuous noise field everywhere; any column that ends below sea level simply becomes Ocean (floor preserved as the sea bed, water filled to sea level). Coasts are seamless by construction.
 - **Strength-gated 3D shaping** — a low-frequency 2D "weirdness" mask picks where the signed 3D shape field is strong enough to produce overhangs/shelves; everywhere else the terrain is plain macro surface.
-- **All tuning is data-driven** (`data/terrain_config.json` → `TerrainParams`); temperature/humidity climate samplers are live (~8000-block climate features), so the temperate band of land is Plains, the cold/hot bands are Hills, and water is Ocean.
+- **All tuning is data-driven** (`data/terrain_config.json` → `TerrainParams`); temperature/humidity climate samplers are live (~8000-block climate features, sampled on a 4-block lattice) — the temperate band of land is Plains, the cold/hot bands are Hills, and water is Ocean.
 
 ## Worldgen Config Data
 

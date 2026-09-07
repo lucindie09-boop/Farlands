@@ -28,8 +28,8 @@ private:
     FastNoise cave_noise;
     FastNoise density_noise;    // seed+7000: signed 3D shape field (see sample_shape_3d)
     FastNoise weirdness_noise;  // seed+9000: very-low-frequency 2D shaping gate
-    FastNoise temp_noise;       // seed+3000: low-frequency 2D temperature field (~8000-block features)
-    FastNoise humidity_noise;   // seed+4000: low-frequency 2D humidity field (~8000-block features)
+    FastNoise temp_noise;          // seed+3000: low-frequency 2D temperature field (~8000-block features)
+    FastNoise humidity_noise;      // seed+4000: low-frequency 2D humidity field (~8000-block features)
 
     TerrainParams params;
     BiomeConfig biome_config;
@@ -150,18 +150,61 @@ private:
         return 0.5f; // Disabled - flat continentalness
     }
 
+    // Raw climate value at a world point (the coarse field alone); used as
+    // the lattice corner samples below.
+    float sample_temperature_raw(float x, float z) const {
+        // One coarse feature spans ~1/scale blocks (0.000125 -> ~8000).
+        return clamp01((temp_noise.noise_2d(x * params.climate_temp_scale,
+                                            z * params.climate_temp_scale) + 1.0f) * 0.5f);
+    }
+
+    float sample_humidity_raw(float x, float z) const {
+        return clamp01((humidity_noise.noise_2d(x * params.climate_humidity_scale,
+                                                z * params.climate_humidity_scale) + 1.0f) * 0.5f);
+    }
+
+    // The climate fields are sampled on a 4-block world-aligned lattice (one
+    // evaluation per 4 blocks) and bilinearly interpolated between nodes, so
+    // every chunk reads the same global lattice nodes (no seams) and biome
+    // borders follow piecewise-linear contours.
     float sample_temperature(float x, float z) const {
-        // One noise feature spans ~1/scale blocks (0.000125 -> ~8000).
-        float raw = temp_noise.noise_2d(x * params.climate_temp_scale,
-                                        z * params.climate_temp_scale);
-        return clamp01((raw + 1.0f) * 0.5f);
+        constexpr int32_t SPACING = 4;
+        const int32_t cix = lattice_base(static_cast<int32_t>(std::floor(x)), SPACING);
+        const int32_t ciz = lattice_base(static_cast<int32_t>(std::floor(z)), SPACING);
+        const float fx = (x - static_cast<float>(cix)) / static_cast<float>(SPACING);
+        const float fz = (z - static_cast<float>(ciz)) / static_cast<float>(SPACING);
+        const float x0 = static_cast<float>(cix),        x1 = static_cast<float>(cix + SPACING);
+        const float z0 = static_cast<float>(ciz),        z1 = static_cast<float>(ciz + SPACING);
+        const float v00 = sample_temperature_raw(x0, z0), v10 = sample_temperature_raw(x1, z0);
+        const float v01 = sample_temperature_raw(x0, z1), v11 = sample_temperature_raw(x1, z1);
+        return lerp(lerp(v00, v10, fx), lerp(v01, v11, fx), fz);
     }
 
     float sample_humidity(float x, float z) const {
-        float raw = humidity_noise.noise_2d(x * params.climate_humidity_scale,
-                                            z * params.climate_humidity_scale);
-        return clamp01((raw + 1.0f) * 0.5f);
+        constexpr int32_t SPACING = 4;
+        const int32_t cix = lattice_base(static_cast<int32_t>(std::floor(x)), SPACING);
+        const int32_t ciz = lattice_base(static_cast<int32_t>(std::floor(z)), SPACING);
+        const float fx = (x - static_cast<float>(cix)) / static_cast<float>(SPACING);
+        const float fz = (z - static_cast<float>(ciz)) / static_cast<float>(SPACING);
+        const float x0 = static_cast<float>(cix),        x1 = static_cast<float>(cix + SPACING);
+        const float z0 = static_cast<float>(ciz),        z1 = static_cast<float>(ciz + SPACING);
+        const float v00 = sample_humidity_raw(x0, z0), v10 = sample_humidity_raw(x1, z0);
+        const float v01 = sample_humidity_raw(x0, z1), v11 = sample_humidity_raw(x1, z1);
+        return lerp(lerp(v00, v10, fx), lerp(v01, v11, fx), fz);
     }
+
+    // Chunk-level climate lattice: the raw fields are evaluated once per
+    // 4-block node (9x9 per 32-block chunk) and every column interpolates
+    // from the lattice, so a full chunk costs ~160 raw evaluations instead
+    // of one per-call lattice per column. Node values and interpolation are
+    // bit-identical to the per-call samplers above.
+    static constexpr int32_t CLIMATE_LATTICE_SPACING = 4;
+    static constexpr int32_t CLIMATE_LATTICE_NODES = CHUNK_WIDTH / CLIMATE_LATTICE_SPACING + 1;
+    void build_climate_lattice(int32_t chunk_x, int32_t chunk_z,
+                               float temp_lat[CLIMATE_LATTICE_NODES][CLIMATE_LATTICE_NODES],
+                               float hum_lat[CLIMATE_LATTICE_NODES][CLIMATE_LATTICE_NODES]) const;
+    static float interp_climate_lattice(const float lat[CLIMATE_LATTICE_NODES][CLIMATE_LATTICE_NODES],
+                                        int32_t wx, int32_t wz, int32_t wx0, int32_t wz0);
 
     // 3x3 (temperature x humidity) land-biome grid, indexed [temp][hum] with
     // 0 = cold/dry, 1 = neutral, 2 = hot/humid. Cold and hot bands stay
@@ -356,6 +399,10 @@ private:
     // Per-column terrain evaluation 
     // -------------------------------------------------------------------------
     ColumnSample sample_column(int32_t world_x, int32_t world_z) const;
+    // Column evaluation with pre-supplied climate values (lattice-interpolated
+    // by the caller, e.g. generate_chunk's chunk-cached lattice).
+    ColumnSample sample_column_with_climate(int32_t world_x, int32_t world_z,
+                                            float temperature, float humidity) const;
 
     // -------------------------------------------------------------------------
     // Block selection helpers
@@ -392,6 +439,15 @@ float max_water_h = -1.0f;
     }
     ColumnSample sample_column_debug(int32_t world_x, int32_t world_z) const {
         return sample_column(world_x, world_z);
+    }
+    // Debug: climate values read through the chunk-cached lattice path (what
+    // generate_chunk uses), for cross-checking against the per-call samplers.
+    float sample_temperature_lattice_debug(int32_t chunk_x, int32_t chunk_z,
+                                           int32_t wx, int32_t wz) const {
+        float temp_lat[CLIMATE_LATTICE_NODES][CLIMATE_LATTICE_NODES];
+        float hum_lat[CLIMATE_LATTICE_NODES][CLIMATE_LATTICE_NODES];
+        build_climate_lattice(chunk_x, chunk_z, temp_lat, hum_lat);
+        return interp_climate_lattice(temp_lat, wx, wz, chunk_x * CHUNK_WIDTH, chunk_z * CHUNK_DEPTH);
     }
     float sample_weirdness_debug(float x, float z) const {
         return sample_weirdness(x, z);

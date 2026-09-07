@@ -73,12 +73,18 @@ bool ChunkGenerator::find_nearest_biome(BiomeType target, int32_t center_x, int3
 }
 
 ChunkGenerator::ColumnSample ChunkGenerator::sample_column(int32_t world_x, int32_t world_z) const {
+    const float x = static_cast<float>(world_x);
+    const float z = static_cast<float>(world_z);
+    return sample_column_with_climate(world_x, world_z,
+                                      sample_temperature(x, z), sample_humidity(x, z));
+}
+
+ChunkGenerator::ColumnSample ChunkGenerator::sample_column_with_climate(
+        int32_t world_x, int32_t world_z, float temperature, float humidity) const {
     float x = static_cast<float>(world_x);
     float z = static_cast<float>(world_z);
 
     float cont = sample_continentalness(x, z);
-    float temperature = sample_temperature(x, z);
-    float humidity = sample_humidity(x, z);
 
     // Height comes purely from the noise stack — the full macro surface is
     // evaluated everywhere, with no continentalness gating and no sea-level
@@ -114,6 +120,34 @@ ChunkGenerator::ColumnSample ChunkGenerator::sample_column(int32_t world_x, int3
     }
 
     return ColumnSample{biome, height, water_level, false, saved_land_height, cont, temperature, humidity};
+}
+
+void ChunkGenerator::build_climate_lattice(int32_t chunk_x, int32_t chunk_z,
+                                           float temp_lat[CLIMATE_LATTICE_NODES][CLIMATE_LATTICE_NODES],
+                                           float hum_lat[CLIMATE_LATTICE_NODES][CLIMATE_LATTICE_NODES]) const {
+    const int32_t wx0 = chunk_x * CHUNK_WIDTH;
+    const int32_t wz0 = chunk_z * CHUNK_DEPTH;
+    for (int32_t i = 0; i < CLIMATE_LATTICE_NODES; ++i) {
+        for (int32_t j = 0; j < CLIMATE_LATTICE_NODES; ++j) {
+            const float x = static_cast<float>(wx0 + i * CLIMATE_LATTICE_SPACING);
+            const float z = static_cast<float>(wz0 + j * CLIMATE_LATTICE_SPACING);
+            temp_lat[i][j] = sample_temperature_raw(x, z);
+            hum_lat[i][j] = sample_humidity_raw(x, z);
+        }
+    }
+}
+
+float ChunkGenerator::interp_climate_lattice(const float lat[CLIMATE_LATTICE_NODES][CLIMATE_LATTICE_NODES],
+                                             int32_t wx, int32_t wz, int32_t wx0, int32_t wz0) {
+    const int32_t ix = (wx - wx0) / CLIMATE_LATTICE_SPACING;
+    const int32_t iz = (wz - wz0) / CLIMATE_LATTICE_SPACING;
+    const float fx = static_cast<float>(wx - wx0 - ix * CLIMATE_LATTICE_SPACING) /
+                     static_cast<float>(CLIMATE_LATTICE_SPACING);
+    const float fz = static_cast<float>(wz - wz0 - iz * CLIMATE_LATTICE_SPACING) /
+                     static_cast<float>(CLIMATE_LATTICE_SPACING);
+    const float v00 = lat[ix][iz],     v10 = lat[ix + 1][iz];
+    const float v01 = lat[ix][iz + 1], v11 = lat[ix + 1][iz + 1];
+    return lerp(lerp(v00, v10, fx), lerp(v01, v11, fx), fz);
 }
 
 BlockID ChunkGenerator::get_surface_block(BiomeType biome, int32_t y, bool has_surface_water, bool near_water) const {
@@ -282,13 +316,23 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
     ChunkColumn columns[CHUNK_WIDTH][CHUNK_DEPTH];
 
     // ---- Geometry pass (1/3): macro columns + cached weirdness mask ----
+    // The climate fields are evaluated once on the chunk's 4-block lattice
+    // (~160 raw evaluations) and every column interpolates from it instead of
+    // running the per-call samplers (bit-identical values at shared nodes).
+    float temp_lat[CLIMATE_LATTICE_NODES][CLIMATE_LATTICE_NODES];
+    float hum_lat[CLIMATE_LATTICE_NODES][CLIMATE_LATTICE_NODES];
+    build_climate_lattice(chunk_x, chunk_z, temp_lat, hum_lat);
+
     float min_height = 1e9f;
     float max_height = -1e9f;
     for (int32_t x = 0; x < CHUNK_WIDTH; x++) {
         for (int32_t z = 0; z < CHUNK_DEPTH; z++) {
             int32_t wx = world_x_start + x;
             int32_t wz = world_z_start + z;
-            ColumnSample col = sample_column(wx, wz);
+            ColumnSample col = sample_column_with_climate(
+                wx, wz,
+                interp_climate_lattice(temp_lat, wx, wz, world_x_start, world_z_start),
+                interp_climate_lattice(hum_lat, wx, wz, world_x_start, world_z_start));
             columns[x][z].sample       = col;
             columns[x][z].height       = static_cast<int32_t>(std::round(col.height));
             columns[x][z].biome        = col.biome;

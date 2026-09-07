@@ -9,9 +9,10 @@ using namespace VoxelEngine;
 // Temperature / humidity climate samplers
 //
 // Samplers read low-frequency 2D simplex fields (one feature per
-// ~1/scale blocks, ~8000 at the default scale) mapped to [0,1]. The land
-// biome grid currently maps every climate cell to Hills, so these tests pin
-// the sampler contract only: bounded, non-flat, deterministic per seed.
+// ~1/scale blocks, ~8000 at the default scale) mapped to [0,1], sampled on
+// a 4-block lattice with bilinear interpolation. These tests pin the
+// sampler contract: bounded, non-flat, small per-block change,
+// deterministic per seed.
 // =========================================================================
 
 TEST_CASE("climate noise: samplers stay in [0,1]") {
@@ -60,6 +61,57 @@ TEST_CASE("climate noise: fields are not flat and vary at ~8000-block scale") {
     }
     CHECK(max_delta_t < 0.01f);
     CHECK(max_delta_h < 0.01f);
+}
+
+TEST_CASE("climate noise: fields are sampled on a 4-block lattice") {
+    TerrainParams params;
+    ChunkGenerator gen(params);
+
+    // Pick a cell whose corner is an exact 4-block lattice node.
+    constexpr float NX = 1236.0f, NZ = -4588.0f;
+    const float c00 = gen.sample_temperature_debug(NX, NZ);
+    const float c10 = gen.sample_temperature_debug(NX + 4.0f, NZ);
+    const float c01 = gen.sample_temperature_debug(NX, NZ + 4.0f);
+    const float c11 = gen.sample_temperature_debug(NX + 4.0f, NZ + 4.0f);
+
+    // Bilinear interpolation: the cell midpoint equals the mean of the four
+    // corners, and the per-block change along an edge is constant.
+    const float mid = gen.sample_temperature_debug(NX + 2.0f, NZ + 2.0f);
+    CHECK(std::abs(mid - (c00 + c10 + c01 + c11) * 0.25f) < 1e-5f);
+
+    const float d0 = gen.sample_temperature_debug(NX + 1.0f, NZ) - c00;
+    const float d1 = gen.sample_temperature_debug(NX + 2.0f, NZ) - gen.sample_temperature_debug(NX + 1.0f, NZ);
+    const float d2 = gen.sample_temperature_debug(NX + 3.0f, NZ) - gen.sample_temperature_debug(NX + 2.0f, NZ);
+    const float d3 = c10 - gen.sample_temperature_debug(NX + 3.0f, NZ);
+    CHECK(std::abs(d0 - d1) < 1e-5f);
+    CHECK(std::abs(d1 - d2) < 1e-5f);
+    CHECK(std::abs(d2 - d3) < 1e-5f);
+
+    // Same structure for humidity.
+    const float h00 = gen.sample_humidity_debug(NX, NZ);
+    const float h10 = gen.sample_humidity_debug(NX + 4.0f, NZ);
+    const float h01 = gen.sample_humidity_debug(NX, NZ + 4.0f);
+    const float h11 = gen.sample_humidity_debug(NX + 4.0f, NZ + 4.0f);
+    const float hmid = gen.sample_humidity_debug(NX + 2.0f, NZ + 2.0f);
+    CHECK(std::abs(hmid - (h00 + h10 + h01 + h11) * 0.25f) < 1e-5f);
+}
+
+TEST_CASE("climate noise: chunk-cached lattice matches the per-call samplers") {
+    TerrainParams params;
+    ChunkGenerator gen(params);
+
+    // generate_chunk reads climate from a per-chunk 4-block lattice; one-off
+    // queries (height estimation, /locatebiome, tools) read the per-call
+    // samplers. Both must agree exactly at every column of a chunk.
+    const int32_t cx = 7, cz = -11;
+    const int32_t wx0 = cx * CHUNK_WIDTH, wz0 = cz * CHUNK_DEPTH;
+    for (int32_t x = 0; x < CHUNK_WIDTH; x += 3) {
+        for (int32_t z = 0; z < CHUNK_DEPTH; z += 3) {
+            const int32_t wx = wx0 + x, wz = wz0 + z;
+            CHECK(gen.sample_temperature_lattice_debug(cx, cz, wx, wz) ==
+                  gen.sample_temperature_debug(static_cast<float>(wx), static_cast<float>(wz)));
+        }
+    }
 }
 
 TEST_CASE("climate grid: temperate band maps to Plains, extremes to Hills") {

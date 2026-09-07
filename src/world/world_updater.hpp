@@ -131,12 +131,13 @@ private:
 
     double dirty_flush_accumulator = 0.0;
 
-    // Surface-aware generation: cached per-column generation bounds. land_h is
-    // the macro terrain height (the sea bed for ocean columns); top_h is the
-    // highest content the column can reach — max(land_h, water level) — so
-    // deep-ocean water columns (floor far below the sea surface) still get
-    // their upper water chunks generated instead of being skipped by a filter
-    // that only knows the terrain height.
+    // Surface-aware generation: cached per-column content bounds, derived from
+    // the generator's rigorous chunk height range (all lattice nodes over the
+    // 16x16 chunk area, padded by the density margin). land_h is the lowest
+    // column surface in the chunk — everything below it is solid rock, so the
+    // scheduler can skip chunks entirely below it. top_h is the highest
+    // content the chunk can reach — macro surface or water level for ocean
+    // chunks — so chunks entirely above it are air and can be skipped.
     struct ColumnSurfaceBounds {
         float land_h = 0.0f;
         float top_h  = 0.0f;

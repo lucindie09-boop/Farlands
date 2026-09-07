@@ -111,6 +111,12 @@ blend_env.Append(LIBS=[])
 blend_prog = blend_env.Program("bin/blend_measure", ["tools/blend_measure.cpp"] + terrain_tool_objects + [chunk_data_object])
 Alias("blend_measure", blend_prog)
 
+# Generation-scheduler window check (standalone executable).
+sched_env = env.Clone()
+sched_env.Append(LIBS=[])
+sched_prog = sched_env.Program("bin/sched_window_check", ["tools/sched_window_check.cpp"] + terrain_tool_objects + [chunk_data_object])
+Alias("sched_window_check", sched_prog)
+
 # Elevation domain-warp sweep (standalone, renders BMPs for visual comparison).
 warp_env = env.Clone()
 warp_env.Append(CPPPATH=["src/"])

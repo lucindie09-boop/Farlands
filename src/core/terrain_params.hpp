@@ -31,14 +31,15 @@ struct TerrainParams {
     // Climate noise scales (lower = broader regions). Consumed by
     // WorldUpdater::set_biome_size (climate_*_scale = base / biome_size);
     // the resulting scales feed the climate samplers in chunk_generator.
-    float climate_temp_scale = 0.00015f;
-    float climate_humidity_scale = 0.00020f;
+    // 1/scale = one climate feature per ~8000 blocks at biome_size 1.
+    float climate_temp_scale = 0.000125f;
+    float climate_humidity_scale = 0.000125f;
 
     // Fixed base-frequency climate scales for the macro surface height blend.
     // Kept separate so biome boundaries (climate_temp_scale, scaled by
     // biome_size) can move without blurring the height field.
-    float climate_temp_base_scale = 0.00015f;
-    float climate_humidity_base_scale = 0.00020f;
+    float climate_temp_base_scale = 0.000125f;
+    float climate_humidity_base_scale = 0.000125f;
 
     // Macro surface base height (sea_level + margin).
     float height_base_y = 512.0f;

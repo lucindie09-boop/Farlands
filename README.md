@@ -97,13 +97,13 @@ Terrain is built in three stages — a macro surface from stacked noise layers, 
 
 - **Height decides water, not continentalness** — the macro surface is the same continuous noise field everywhere; any column that ends below sea level simply becomes Ocean (floor preserved as the sea bed, water filled to sea level). Coasts are seamless by construction.
 - **Strength-gated 3D shaping** — a low-frequency 2D "weirdness" mask picks where the signed 3D shape field is strong enough to produce overhangs/shelves; everywhere else the terrain is plain macro surface.
-- **All tuning is data-driven** (`data/terrain_config.json` → `TerrainParams`); temperature/humidity climate samplers are currently flat stubs, so land is Hills and water is Ocean.
+- **All tuning is data-driven** (`data/terrain_config.json` → `TerrainParams`); temperature/humidity climate samplers are live (~8000-block climate features), but every climate-grid cell currently maps to Hills, so land is Hills and water is Ocean.
 
 ## Worldgen Config Data
 
 The terrain generation system is data-driven through JSON configuration files:
 
-- **`data/biomes.json`** — Per-biome surface materials (Ocean/Hills), height/weirdness amplification knobs, `preferred_height`/`preferred_temperature`/`preferred_humidity` (reference data for future biome selection), and tree density/variant weights; climate thresholds load but are dormant while the climate samplers are flat
+- **`data/biomes.json`** — Per-biome surface materials (Ocean/Hills), height/weirdness amplification knobs, `preferred_height`/`preferred_temperature`/`preferred_humidity` (reference data for future biome selection), and tree density/variant weights; climate thresholds feed the 3×3 temperature×humidity land-biome grid (every cell currently maps to Hills)
 - **`data/vegetation.json`** — Vegetation parameters for the hills biome (sparse single-tree chance, spacing)
 - **`data/terrain_config.json`** — Macro-surface tuning: `height_base_y`, domain-warp amplitudes, mid/small relief field spacing/frequency/amplitude, shape-strength range, weirdness thresholds
 - **`data/block_shapes.json`** — Shared shape registry for non-full blocks (slabs, stairs, walls, poles) with selection/collision boxes

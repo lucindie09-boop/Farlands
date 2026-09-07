@@ -221,11 +221,26 @@ private:
     // bit-identical to the per-call samplers above.
     static constexpr int32_t CLIMATE_LATTICE_SPACING = 4;
     static constexpr int32_t CLIMATE_LATTICE_NODES = CHUNK_WIDTH / CLIMATE_LATTICE_SPACING + 1;
+    // Blend windows are clamped to this half-extent (in nodes) so the chunk
+    // path's fixed-size biome grid and the single-point path always agree.
+    static constexpr int32_t CLIMATE_BLEND_MAX_RADIUS = 4;
     void build_climate_lattice(int32_t chunk_x, int32_t chunk_z,
                                float temp_lat[CLIMATE_LATTICE_NODES][CLIMATE_LATTICE_NODES],
                                float hum_lat[CLIMATE_LATTICE_NODES][CLIMATE_LATTICE_NODES]) const;
     static float interp_climate_lattice(const float lat[CLIMATE_LATTICE_NODES][CLIMATE_LATTICE_NODES],
                                         int32_t wx, int32_t wz, int32_t wx0, int32_t wz0);
+    // Amplification blend lattice for a chunk: blended knobs at every 4-block
+    // node, windows fed from the cached climate lattice inside the chunk and
+    // the raw samplers just outside it (identical node values either way).
+    // Shared by generate_chunk and the debug accessor so the chunk path and
+    // single-point queries can never drift.
+    void build_amp_lattice(int32_t chunk_x, int32_t chunk_z,
+                           const float temp_lat[CLIMATE_LATTICE_NODES][CLIMATE_LATTICE_NODES],
+                           const float hum_lat[CLIMATE_LATTICE_NODES][CLIMATE_LATTICE_NODES],
+                           BiomeAmplification amp_lat[CLIMATE_LATTICE_NODES][CLIMATE_LATTICE_NODES]) const;
+    static BiomeAmplification interp_amp_lattice(
+        const BiomeAmplification lat[CLIMATE_LATTICE_NODES][CLIMATE_LATTICE_NODES],
+        int32_t wx, int32_t wz, int32_t wx0, int32_t wz0);
 
     // 3x3 (temperature x humidity) land-biome grid, indexed [temp][hum] with
     // 0 = cold/dry, 1 = neutral, 2 = hot/humid. Cold and hot bands stay
@@ -343,14 +358,112 @@ private:
         return smoothstep(params.weirdness_low, params.weirdness_high, raw);
     }
 
-    // Weirdness mask for a column: the raw 2D mask scaled by the biome's
-    // amplification, never allowed below the biome's minimum mask floor, then
-    // clamped to [0, 1] so the shaping strength stays within
-    // [shape_strength_min, max]. The floor is expressed as an offset above
-    // neutral: 1.0 = no floor, 1.1 floors the mask at 0.1.
-    float amplified_weirdness(float raw_mask, BiomeType biome) const {
-        const BiomeAmplification& a =
-            biome_config.amplification[static_cast<size_t>(biome)];
+    // -------------------------------------------------------------------------
+    // Amplification blending across biome borders
+    //
+    // Each 4-block climate-lattice node's effective knobs (height /
+    // weirdness / min_weirdness) are a weighted average over the biome nodes
+    // within climate_blend_radius_nodes (2 nodes = 8 blocks at the default):
+    // inverse-distance weights so the ramp is strongest right at the border
+    // and fades out a couple of nodes into each biome. A neighbor that is
+    // MORE extreme than the node contributes at half weight, so e.g. Hills'
+    // strong knobs bleed less into Plains than Plains' neutral knobs bleed
+    // into Hills — big relief does not bulge flat terrain all the way to the
+    // boundary line.
+    // -------------------------------------------------------------------------
+    // Accumulate the blend over a window whose biome at lattice-node offset
+    // (di, dj) is returned by `biome_at`. Both the chunk path (cached climate
+    // lattice) and the single-point path (raw samplers) feed the same node
+    // values, so the loop order and arithmetic here make them bit-identical.
+    template <typename BiomeAt>
+    BiomeAmplification blend_amplitudes(BiomeAt biome_at) const {
+        const int32_t R = std::min(std::max(params.climate_blend_radius_nodes, 0),
+                                   CLIMATE_BLEND_MAX_RADIUS);
+        const BiomeAmplification& center =
+            biome_config.amplification[static_cast<size_t>(biome_at(0, 0))];
+        double h_num = 0.0, h_den = 0.0;
+        double w_num = 0.0, w_den = 0.0;
+        double m_num = 0.0;
+        for (int32_t dj = -R; dj <= R; ++dj) {
+            for (int32_t di = -R; di <= R; ++di) {
+                const BiomeAmplification& a =
+                    biome_config.amplification[static_cast<size_t>(biome_at(di, dj))];
+                const double d2 = static_cast<double>(di * di + dj * dj) * 16.0 + 0.2;
+                const double w = 1.0 / std::sqrt(d2);
+                const double wh = (a.height > center.height) ? w * 0.5 : w;
+                const double ww = (a.weirdness > center.weirdness) ? w * 0.5 : w;
+                h_num += wh * static_cast<double>(a.height);
+                h_den += wh;
+                w_num += ww * static_cast<double>(a.weirdness);
+                w_den += ww;
+                m_num += ww * static_cast<double>(a.min_weirdness);
+            }
+        }
+        BiomeAmplification out;
+        out.height = static_cast<float>(h_num / h_den);
+        out.weirdness = static_cast<float>(w_num / w_den);
+        out.min_weirdness = static_cast<float>(m_num / w_den);
+        return out;
+    }
+
+    // Climate biome at a 4-block lattice node (world coords, multiples of
+    // CLIMATE_LATTICE_SPACING), evaluated from the raw samplers. This is the
+    // node value the chunk path caches, so both paths agree bit-for-bit.
+    BiomeType biome_at_node_raw(int32_t nx, int32_t nz) const {
+        return biome_from_climate(
+            sample_temperature_raw(static_cast<float>(nx), static_cast<float>(nz)),
+            sample_humidity_raw(static_cast<float>(nx), static_cast<float>(nz)),
+            sample_continentalness(static_cast<float>(nx), static_cast<float>(nz)));
+    }
+
+    // Blended knobs at a single lattice node (single-point path).
+    BiomeAmplification blend_amplification_node(int32_t nx, int32_t nz) const {
+        return blend_amplitudes([&](int32_t di, int32_t dj) {
+            return biome_at_node_raw(nx + di * CLIMATE_LATTICE_SPACING,
+                                     nz + dj * CLIMATE_LATTICE_SPACING);
+        });
+    }
+
+    // Blended knobs at an arbitrary column: the four surrounding lattice
+    // nodes are blended and bilinearly interpolated, mirroring the climate
+    // samplers' lattice structure.
+    BiomeAmplification blend_amplification_at(int32_t world_x, int32_t world_z) const {
+        constexpr int32_t SP = CLIMATE_LATTICE_SPACING;
+        const int32_t x0 = lattice_base(world_x, SP);
+        const int32_t z0 = lattice_base(world_z, SP);
+        const float fx = static_cast<float>(world_x - x0) / static_cast<float>(SP);
+        const float fz = static_cast<float>(world_z - z0) / static_cast<float>(SP);
+        const BiomeAmplification v00 = blend_amplification_node(x0, z0);
+        const BiomeAmplification v10 = blend_amplification_node(x0 + SP, z0);
+        const BiomeAmplification v01 = blend_amplification_node(x0, z0 + SP);
+        const BiomeAmplification v11 = blend_amplification_node(x0 + SP, z0 + SP);
+        BiomeAmplification out;
+        out.height = lerp(lerp(v00.height, v10.height, fx), lerp(v01.height, v11.height, fx), fz);
+        out.weirdness = lerp(lerp(v00.weirdness, v10.weirdness, fx),
+                             lerp(v01.weirdness, v11.weirdness, fx), fz);
+        out.min_weirdness = lerp(lerp(v00.min_weirdness, v10.min_weirdness, fx),
+                                 lerp(v01.min_weirdness, v11.min_weirdness, fx), fz);
+        return out;
+    }
+
+    // Effective knobs for a column: the blended field on land; ocean columns
+    // keep the ocean biome's own knobs (the blend field is climate-derived
+    // and never contains ocean, so overriding keeps the seabed exactly where
+    // the ocean config puts it).
+    const BiomeAmplification& amplification_for(BiomeType biome,
+                                                const BiomeAmplification& blended) const {
+        return (biome == BiomeType::Ocean)
+            ? biome_config.amplification[static_cast<size_t>(BiomeType::Ocean)]
+            : blended;
+    }
+
+    // Weirdness mask for a column: the raw 2D mask scaled by the column's
+    // amplification knobs (blended across borders on land), never allowed
+    // below the minimum mask floor, then clamped to [0, 1] so the shaping
+    // strength stays within [shape_strength_min, max]. The floor is
+    // expressed as an offset above neutral: 1.0 = no floor, 1.1 floors the
+    // mask at 0.1.
+    float amplified_weirdness(float raw_mask, const BiomeAmplification& a) const {
         const float floor_mask = std::max(0.0f, a.min_weirdness - 1.0f);
         return clamp01(std::max(raw_mask * a.weirdness, floor_mask));
     }
@@ -421,9 +534,12 @@ private:
     // -------------------------------------------------------------------------
     ColumnSample sample_column(int32_t world_x, int32_t world_z) const;
     // Column evaluation with pre-supplied climate values (lattice-interpolated
-    // by the caller, e.g. generate_chunk's chunk-cached lattice).
+    // by the caller, e.g. generate_chunk's chunk-cached lattice) and the
+    // blended amplification knobs at this column (also lattice-cached by the
+    // chunk path).
     ColumnSample sample_column_with_climate(int32_t world_x, int32_t world_z,
-                                            float temperature, float humidity) const;
+                                            float temperature, float humidity,
+                                            const BiomeAmplification& blended) const;
 
     // -------------------------------------------------------------------------
     // Block selection helpers
@@ -479,6 +595,23 @@ float max_water_h = -1.0f;
     float sample_humidity_debug(float x, float z) const {
         return sample_humidity(x, z);
     }
+    // Debug: blended amplification knobs at a column (per-call path).
+    BiomeAmplification blend_amplification_debug(int32_t world_x, int32_t world_z) const {
+        return blend_amplification_at(world_x, world_z);
+    }
+    // Debug: blended amplification read through the chunk-cached lattice path
+    // (what generate_chunk uses), for cross-checking against the per-call
+    // sampler.
+    BiomeAmplification blend_amplification_lattice_debug(int32_t chunk_x, int32_t chunk_z,
+                                                         int32_t wx, int32_t wz) const {
+        float temp_lat[CLIMATE_LATTICE_NODES][CLIMATE_LATTICE_NODES];
+        float hum_lat[CLIMATE_LATTICE_NODES][CLIMATE_LATTICE_NODES];
+        build_climate_lattice(chunk_x, chunk_z, temp_lat, hum_lat);
+        BiomeAmplification amp_lat[CLIMATE_LATTICE_NODES][CLIMATE_LATTICE_NODES];
+        build_amp_lattice(chunk_x, chunk_z, temp_lat, hum_lat, amp_lat);
+        return interp_amp_lattice(amp_lat, wx, wz,
+                                  chunk_x * CHUNK_WIDTH, chunk_z * CHUNK_DEPTH);
+    }
     BiomeType biome_from_climate_debug(float temperature, float humidity, float cont) const {
         return biome_from_climate(temperature, humidity, cont);
     }
@@ -518,14 +651,15 @@ float max_water_h = -1.0f;
     // Signed density at a world point (macro surface + 3D deformation).
     // >0 solid, <=0 air. Unlike the cached-weirdness overload used by the
     // chunk generator, this recomputes the weirdness mask per call (scaled by
-    // the column biome's amplification).
+    // the column's amplification, blended across biome borders on land).
     float sample_terrain_density(int32_t world_x, int32_t world_y, int32_t world_z,
                                  const ColumnSample& column) const {
+        const BiomeAmplification blended = blend_amplification_at(world_x, world_z);
         return sample_terrain_density(
             world_x, world_y, world_z, column,
             amplified_weirdness(sample_weirdness(static_cast<float>(world_x),
                                                  static_cast<float>(world_z)),
-                                column.biome));
+                                amplification_for(column.biome, blended)));
     }
 
     // Real topmost air-to-solid transition for a column. The macro heightmap
@@ -534,8 +668,9 @@ float max_water_h = -1.0f;
     int32_t find_surface_y(int32_t world_x, int32_t world_z) const;
 
     // Cheaper than sample_column: only land shape, no biome/lake evaluation.
-    // Mirrors sample_column's per-biome height amplification so the scheduler's
-    // surface estimate tracks the generated surface when it is tuned.
+    // Mirrors sample_column's height amplification (blended across biome
+    // borders on land) so the scheduler's surface estimate tracks the
+    // generated surface when it is tuned.
     float quick_height_estimate(int32_t world_x, int32_t world_z) const {
         float x = static_cast<float>(world_x);
         float z = static_cast<float>(world_z);
@@ -546,8 +681,11 @@ float max_water_h = -1.0f;
         const BiomeType biome = (raw >= params.sea_level)
             ? biome_from_climate(t, h, cont)
             : BiomeType::Ocean;
-        return params.sea_level + (raw - params.sea_level) *
-               biome_config.amplification[static_cast<size_t>(biome)].height;
+        const BiomeAmplification blended = blend_amplification_at(world_x, world_z);
+        const float amp = (biome == BiomeType::Ocean)
+            ? biome_config.amplification[static_cast<size_t>(BiomeType::Ocean)].height
+            : blended.height;
+        return params.sea_level + (raw - params.sea_level) * amp;
     }
 
     bool is_cave(int32_t x, int32_t y, int32_t z) const {

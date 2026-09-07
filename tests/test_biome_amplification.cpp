@@ -23,6 +23,30 @@ bool find_seed_column(ChunkGenerator& gen, BiomeType target, int32_t& wx, int32_
     return false;
 }
 
+// A column whose whole amplification-blend window (2 nodes = 8 blocks at the
+// default radius) is the target biome: the blended knobs there equal the
+// biome's own knobs exactly, which is what the exact-height expectations in
+// the amplification tests assume.
+bool find_isolated_column(ChunkGenerator& gen, BiomeType target, int32_t& wx, int32_t& wz) {
+    for (int32_t z = -24000; z <= 24000; z += 500) {
+        for (int32_t x = -24000; x <= 24000; x += 500) {
+            if (gen.get_biome(x, z) != target) continue;
+            bool isolated = true;
+            for (int32_t dz = -8; dz <= 8 && isolated; dz += 4) {
+                for (int32_t dx = -8; dx <= 8 && isolated; dx += 4) {
+                    if (gen.get_biome(x + dx, z + dz) != target) isolated = false;
+                }
+            }
+            if (isolated) {
+                wx = x;
+                wz = z;
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 } // namespace
 
 // =========================================================================
@@ -51,8 +75,8 @@ TEST_CASE("biome amplification: hills height scales around sea level") {
     ChunkGenerator baseline(params);
 
     int32_t hx = 0, hz = 0;
-    if (!find_seed_column(baseline, BiomeType::Hills, hx, hz)) {
-        MESSAGE("No hills column found in the probe window; skipping");
+    if (!find_isolated_column(baseline, BiomeType::Hills, hx, hz)) {
+        MESSAGE("No isolated hills column found in the probe window; skipping");
         return;
     }
     const float raw = baseline.get_terrain_height(hx, hz);
@@ -257,4 +281,103 @@ TEST_CASE("biome amplification: min weirdness floors the mask above 1.0") {
         }
     }
     CHECK(found_above);
+}
+
+// =========================================================================
+// Amplification blending across biome borders
+// =========================================================================
+
+TEST_CASE("biome amplification: knobs blend smoothly across biome borders") {
+    TerrainParams params;
+    BiomeConfig bc;
+    bc.reset_defaults();
+    // Distinct knobs for a clean measurement: Plains neutral, Hills strong.
+    bc.amplification[static_cast<size_t>(BiomeType::Plains)].height = 1.0f;
+    bc.amplification[static_cast<size_t>(BiomeType::Hills)].height = 2.0f;
+    ChunkGenerator gen(params);
+    gen.set_biome_config(bc);
+
+    // Find a Plains lattice node with a Hills node 4 or 8 blocks away along
+    // an axis (both nodes, so the blend at each is a pure node blend).
+    bool found = false;
+    int32_t px = 0, pz = 0, hx = 0, hz = 0;
+    for (int32_t z = -2048; z <= 2048 && !found; z += 64) {
+        for (int32_t x = -2048; x <= 2048 && !found; x += 64) {
+            if (gen.get_biome(x, z) != BiomeType::Plains) continue;
+            for (int32_t dir = 0; dir < 4 && !found; ++dir) {
+                const int32_t sx = (dir == 0) ? 1 : (dir == 1) ? -1 : 0;
+                const int32_t sz = (dir == 2) ? 1 : (dir == 3) ? -1 : 0;
+                for (int32_t d = 4; d <= 8 && !found; d += 4) {
+                    if (gen.get_biome(x + sx * d, z + sz * d) == BiomeType::Hills) {
+                        px = x;
+                        pz = z;
+                        hx = x + sx * d;
+                        hz = z + sz * d;
+                        found = true;
+                    }
+                }
+            }
+        }
+    }
+    if (!found) {
+        MESSAGE("No plains/hills border pair found in the probe window; skipping");
+        return;
+    }
+
+    const BiomeAmplification at_plains = gen.blend_amplification_debug(px, pz);
+    const BiomeAmplification at_hills = gen.blend_amplification_debug(hx, hz);
+
+    // Each side is pulled toward the other: Plains rises above its 1.0,
+    // Hills drops below its 2.0, and both stay strictly between.
+    CHECK(at_plains.height > 1.0f);
+    CHECK(at_plains.height < 2.0f);
+    CHECK(at_hills.height > 1.0f);
+    CHECK(at_hills.height < 2.0f);
+
+    // Asymmetry: the more-extreme biome bleeds at half weight, so Hills'
+    // pull on Plains (as a share of the 1.0 gap) is weaker than Plains' pull
+    // on Hills.
+    const float share_from_hills = (at_plains.height - 1.0f) / (2.0f - 1.0f);
+    const float share_from_plains = (2.0f - at_hills.height) / (2.0f - 1.0f);
+    CHECK(share_from_hills < share_from_plains);
+
+    // Radius 0 disables blending: each node uses its own biome's knobs
+    // exactly.
+    TerrainParams p0 = params;
+    p0.climate_blend_radius_nodes = 0;
+    ChunkGenerator gen0(p0);
+    gen0.set_biome_config(bc);
+    const BiomeAmplification at_plains0 = gen0.blend_amplification_debug(px, pz);
+    const BiomeAmplification at_hills0 = gen0.blend_amplification_debug(hx, hz);
+    CHECK(at_plains0.height == 1.0f);
+    CHECK(at_hills0.height == 2.0f);
+}
+
+// =========================================================================
+// Amplification blend: ocean columns keep the ocean biome's own knobs
+// =========================================================================
+
+TEST_CASE("biome amplification: ocean columns ignore the land blend") {
+    TerrainParams params;
+    ChunkGenerator baseline(params);
+
+    int32_t ox = 0, oz = 0;
+    if (!find_seed_column(baseline, BiomeType::Ocean, ox, oz)) {
+        MESSAGE("No ocean column found in the probe window; skipping");
+        return;
+    }
+
+    // Land biomes with extreme knobs around the ocean column must not change
+    // its effective height knob: the seabed always uses Ocean's own amp.
+    BiomeConfig bc;
+    bc.reset_defaults();
+    bc.amplification[static_cast<size_t>(BiomeType::Plains)].height = 4.0f;
+    bc.amplification[static_cast<size_t>(BiomeType::Hills)].height = 4.0f;
+    ChunkGenerator gen(params);
+    gen.set_biome_config(bc);
+
+    const float raw = baseline.get_terrain_height(ox, oz);
+    const float expected = params.sea_level + (raw - params.sea_level) * 1.0f;
+    CHECK(std::abs(gen.get_terrain_height(ox, oz) - expected) < 0.01f);
+    CHECK(gen.get_biome(ox, oz) == BiomeType::Ocean);
 }

@@ -171,8 +171,8 @@ void ChunkGenerator::build_amp_lattice(int32_t chunk_x, int32_t chunk_z,
     const int32_t R = std::min(std::max(params.climate_blend_radius_nodes, 0),
                                CLIMATE_BLEND_MAX_RADIUS);
     const int32_t EXT = CLIMATE_LATTICE_NODES + 2 * R;
-    BiomeType bio_grid[2 * CLIMATE_BLEND_MAX_RADIUS + CLIMATE_LATTICE_NODES]
-                      [2 * CLIMATE_BLEND_MAX_RADIUS + CLIMATE_LATTICE_NODES];
+    constexpr int32_t MAX_EXT = 2 * CLIMATE_BLEND_MAX_RADIUS + CLIMATE_LATTICE_NODES;
+    BiomeType bio_grid[MAX_EXT][MAX_EXT];
     for (int32_t j = 0; j < EXT; ++j) {
         for (int32_t i = 0; i < EXT; ++i) {
             const int32_t nxi = i - R;   // node index, 0..8 inside the chunk
@@ -193,11 +193,64 @@ void ChunkGenerator::build_amp_lattice(int32_t chunk_x, int32_t chunk_z,
         }
     }
 
+    // Per-node window means via a separable 2D prefix sum over the three
+    // knob channels: each (2R+1)^2 window is then O(1) (4 corner reads)
+    // instead of O((2R+1)^2), so raising the radius no longer multiplies the
+    // per-chunk window work. Values agree with the single-point path to
+    // within float rounding (same node values, different summation order).
+    // The bio grid is indexed [i][j] = [x][z], so prefixes are laid out
+    // x-major to match the window reads.
+    if (R == 0) {
+        // Radius 0 = the node's own biome exactly (no prefix arithmetic).
+        for (int32_t j = 0; j < CLIMATE_LATTICE_NODES; ++j) {
+            for (int32_t i = 0; i < CLIMATE_LATTICE_NODES; ++i) {
+                const size_t ix = static_cast<size_t>(bio_grid[i + R][j + R]);
+                amp_lat[i][j] = biome_config.amplification[ix];
+            }
+        }
+        return;
+    }
+
+    const int32_t W = EXT + 1;
+    const int32_t window = 2 * R + 1;
+    const double inv_window = 1.0 / (static_cast<double>(window) * static_cast<double>(window));
+    std::vector<double> ph(static_cast<size_t>(W) * W, 0.0);
+    std::vector<double> pw(static_cast<size_t>(W) * W, 0.0);
+    std::vector<double> pm(static_cast<size_t>(W) * W, 0.0);
+    for (int32_t j = 0; j < EXT; ++j) {
+        for (int32_t i = 0; i < EXT; ++i) {
+            const BiomeAmplification& a =
+                biome_config.amplification[static_cast<size_t>(bio_grid[i][j])];
+            const size_t idx = static_cast<size_t>(j + 1) * W + static_cast<size_t>(i + 1);
+            ph[idx] = ph[static_cast<size_t>(j) * W + static_cast<size_t>(i + 1)]
+                    + ph[static_cast<size_t>(j + 1) * W + static_cast<size_t>(i)]
+                    - ph[static_cast<size_t>(j) * W + static_cast<size_t>(i)]
+                    + static_cast<double>(a.height);
+            pw[idx] = pw[static_cast<size_t>(j) * W + static_cast<size_t>(i + 1)]
+                    + pw[static_cast<size_t>(j + 1) * W + static_cast<size_t>(i)]
+                    - pw[static_cast<size_t>(j) * W + static_cast<size_t>(i)]
+                    + static_cast<double>(a.weirdness);
+            pm[idx] = pm[static_cast<size_t>(j) * W + static_cast<size_t>(i + 1)]
+                    + pm[static_cast<size_t>(j + 1) * W + static_cast<size_t>(i)]
+                    - pm[static_cast<size_t>(j) * W + static_cast<size_t>(i)]
+                    + static_cast<double>(a.min_weirdness);
+        }
+    }
     for (int32_t j = 0; j < CLIMATE_LATTICE_NODES; ++j) {
         for (int32_t i = 0; i < CLIMATE_LATTICE_NODES; ++i) {
-            amp_lat[i][j] = blend_amplitudes([&](int32_t di, int32_t dj) {
-                return bio_grid[i + R + di][j + R + dj];
-            });
+            const size_t x1 = static_cast<size_t>(i);
+            const size_t y1 = static_cast<size_t>(j);
+            const size_t x2 = x1 + static_cast<size_t>(window);
+            const size_t y2 = y1 + static_cast<size_t>(window);
+            const auto at = [&](size_t x, size_t y) {
+                return y * static_cast<size_t>(W) + x;
+            };
+            const double sh = ph[at(x2, y2)] - ph[at(x1, y2)] - ph[at(x2, y1)] + ph[at(x1, y1)];
+            const double sw = pw[at(x2, y2)] - pw[at(x1, y2)] - pw[at(x2, y1)] + pw[at(x1, y1)];
+            const double sm = pm[at(x2, y2)] - pm[at(x1, y2)] - pm[at(x2, y1)] + pm[at(x1, y1)];
+            amp_lat[i][j].height     = static_cast<float>(sh * inv_window);
+            amp_lat[i][j].weirdness  = static_cast<float>(sw * inv_window);
+            amp_lat[i][j].min_weirdness = static_cast<float>(sm * inv_window);
         }
     }
 }

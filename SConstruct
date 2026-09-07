@@ -105,6 +105,12 @@ hmap_env.Append(LIBS=[])
 hmap_prog = hmap_env.Program("bin/heightmap_voxel", ["tools/heightmap_voxel.cpp"] + terrain_tool_objects + [chunk_data_object])
 Alias("heightmap_voxel", hmap_prog)
 
+# Biome-border blend profile (standalone executable).
+blend_env = env.Clone()
+blend_env.Append(LIBS=[])
+blend_prog = blend_env.Program("bin/blend_measure", ["tools/blend_measure.cpp"] + terrain_tool_objects + [chunk_data_object])
+Alias("blend_measure", blend_prog)
+
 # Elevation domain-warp sweep (standalone, renders BMPs for visual comparison).
 warp_env = env.Clone()
 warp_env.Append(CPPPATH=["src/"])

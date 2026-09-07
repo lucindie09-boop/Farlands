@@ -41,6 +41,17 @@ struct TerrainParams {
     float climate_temp_base_scale = 0.000125f;
     float climate_humidity_base_scale = 0.000125f;
 
+    // Climate domain warp (same scheme as the macro height warp): two
+    // recursive octaves displace the temperature/humidity sample coordinates
+    // so biome boundaries flow and meander instead of reading as smooth
+    // contour lines. Amplitudes in blocks; x/z warped by different amounts
+    // (anisotropic) so shapes get directional grain. Frequencies are fixed
+    // in chunk_generator (0.0005 / 0.00045, ~2000-block warp features).
+    float climate_warp_amp_x1 = 10.0f;
+    float climate_warp_amp_z1 = 15.0f;
+    float climate_warp_amp_x2 = 8.0f;
+    float climate_warp_amp_z2 = 12.0f;
+
     // Macro surface base height (sea_level + margin).
     float height_base_y = 512.0f;
 

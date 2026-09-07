@@ -18,5 +18,9 @@
   "weirdness_low": 0.10,
   "weirdness_high": 0.75,
   "climate_temp_base_scale": 0.000125,
-  "climate_humidity_base_scale": 0.000125
+  "climate_humidity_base_scale": 0.000125,
+  "climate_warp_amp_x1": 10.0,
+  "climate_warp_amp_z1": 15.0,
+  "climate_warp_amp_x2": 8.0,
+  "climate_warp_amp_z2": 12.0
 }

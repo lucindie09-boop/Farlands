@@ -90,41 +90,29 @@ ChunkGenerator::ColumnSample ChunkGenerator::sample_column_with_climate(
     float x = static_cast<float>(world_x);
     float z = static_cast<float>(world_z);
 
-    float cont = sample_continentalness(x, z);
+    const float cont = sample_continentalness(x, z);
+    const float saved_land_height = land_height;
 
-    // Height comes purely from the noise stack — the full macro surface is
-    // evaluated everywhere, with no continentalness gating and no sea-level
-    // flattening while the noise runs.
-    float saved_land_height = land_height;
-    float height = land_height;
-
-    // Oceans are a post-pass over the completed height field, not a terrain
-    // input: any column whose surface ended up below sea level simply fills
-    // with water up to sea level. The noisy height is kept as the sea bed, so
-    // land and ocean floor are one continuous surface (no shelf logic, no
-    // continentalness involvement).
-    const bool is_land = land_height >= params.sea_level;
-    float water_level = -1.0f;
-    BiomeType biome;
-    if (is_land) {
-        biome = biome_from_climate(temperature, humidity, cont);
-    } else {
-        biome = BiomeType::Ocean;
-        water_level = params.sea_level;
-    }
-
-    // Height amplification scales the column's displacement around sea level
-    // (1.0 = neutral): the blended field on land (ramps across biome borders),
-    // the ocean biome's own knob on the seabed. Applied AFTER biome
-    // classification so the land/ocean split stays exactly where the raw
-    // height put it.
-    const BiomeAmplification& amp = amplification_for(biome, blended);
-    height = params.sea_level + (height - params.sea_level) * amp.height;
-
+    // Biomes are selected and shape the terrain FIRST: the climate grid picks
+    // a land biome everywhere (ocean never enters the grid), and the column's
+    // height is that biome's amplification of the macro surface around sea
+    // level (1.0 = neutral; the blended field ramps across borders when
+    // blending is enabled). Oceans are the LAST stage below.
+    const BiomeType land_biome = biome_from_climate(temperature, humidity, cont);
+    const BiomeAmplification& amp = amplification_for(land_biome, blended);
+    float height = params.sea_level + (land_height - params.sea_level) * amp.height;
     height = std::max(static_cast<float>(params.bedrock_height) + 1.0f, height);
-    if (water_level >= 0.0f) {
-        water_level = std::max(params.sea_level, water_level);
-    }
+
+    // Oceans are the last step in the generation scheme: any column whose
+    // terrain, after the land biome altered it, still sits below sea level
+    // becomes an ocean biome — water fills up to sea level and the biome
+    // switches to the ocean set (water + sand surfaces). The sea bed keeps
+    // the height the land biome gave it, so the floor is shaped by the
+    // climate: temperate (plains) basins shelf out shallow, cold/hot (hills)
+    // basins drop steeply.
+    const bool ocean = height < params.sea_level;
+    const BiomeType biome = ocean ? BiomeType::Ocean : land_biome;
+    const float water_level = ocean ? params.sea_level : -1.0f;
 
     return ColumnSample{biome, height, water_level, false, saved_land_height, cont, temperature, humidity};
 }

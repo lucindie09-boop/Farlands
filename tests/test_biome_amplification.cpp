@@ -60,7 +60,7 @@ TEST_CASE("biome amplification: defaults are neutral") {
         CHECK(bc.amplification[static_cast<size_t>(i)].height == 1.0f);
         CHECK(bc.amplification[static_cast<size_t>(i)].weirdness == 1.0f);
         CHECK(bc.amplification[static_cast<size_t>(i)].min_weirdness == 1.0f);
-        CHECK(bc.preferred_height[static_cast<size_t>(i)] == 0.0f);
+        CHECK(bc.preferred_continentalness[static_cast<size_t>(i)] == 0.5f);
         CHECK(bc.preferred_temperature[static_cast<size_t>(i)] == 0.5f);
         CHECK(bc.preferred_humidity[static_cast<size_t>(i)] == 0.5f);
     }
@@ -102,26 +102,41 @@ TEST_CASE("biome amplification: hills height scales around sea level") {
     CHECK(amp_half.get_biome(hx, hz) == BiomeType::Hills);
 }
 
-TEST_CASE("biome amplification: ocean seabed depth scales around sea level") {
+TEST_CASE("biome amplification: ocean seabed is shaped by the climate land biome, not the ocean knob") {
     TerrainParams params;
     ChunkGenerator baseline(params);
 
+    // Find an ocean column with a moderate floor so no bedrock clamp or
+    // pathological knob can interfere with the exact expectation.
     int32_t ox = 0, oz = 0;
-    if (!find_seed_column(baseline, BiomeType::Ocean, ox, oz)) {
-        MESSAGE("No ocean column found in the probe window; skipping");
+    bool found = false;
+    for (int32_t z = -24000; z <= 24000 && !found; z += 500) {
+        for (int32_t x = -24000; x <= 24000 && !found; x += 500) {
+            if (baseline.get_biome(x, z) != BiomeType::Ocean) continue;
+            const float raw = baseline.get_terrain_height(x, z);
+            if (raw > params.sea_level - 150.0f && raw < params.sea_level - 5.0f) {
+                ox = x; oz = z; found = true;
+            }
+        }
+    }
+    if (!found) {
+        MESSAGE("No moderate ocean column found in the probe window; skipping");
         return;
     }
+    // Neutral config: every biome knob is 1.0, so the floor equals the raw macro.
     const float raw = baseline.get_terrain_height(ox, oz);
-    CHECK(raw < params.sea_level);
 
+    // Lowering the ocean biome's own height knob must NOT move the seabed: the
+    // floor was shaped first by the land biome the climate grid picked, and the
+    // ocean override only comes last (biome + water), keeping that height.
     BiomeConfig bc;
     bc.reset_defaults();
     bc.amplification[static_cast<size_t>(BiomeType::Ocean)].height = 0.5f;
     ChunkGenerator amp_half(params);
     amp_half.set_biome_config(bc);
 
-    const float expected = params.sea_level + (raw - params.sea_level) * 0.5f;
-    CHECK(std::abs(amp_half.get_terrain_height(ox, oz) - expected) < 0.01f);
+    // Neutral land knobs => the floor stays at the raw macro height.
+    CHECK(std::abs(amp_half.get_terrain_height(ox, oz) - raw) < 0.01f);
     CHECK(amp_half.get_biome(ox, oz) == BiomeType::Ocean);
 }
 
@@ -354,21 +369,35 @@ TEST_CASE("biome amplification: knobs blend smoothly across biome borders") {
 }
 
 // =========================================================================
-// Amplification blend: ocean columns keep the ocean biome's own knobs
+// Amplification blend: ocean seabed follows the climate land blend
 // =========================================================================
 
-TEST_CASE("biome amplification: ocean columns ignore the land blend") {
+TEST_CASE("biome amplification: ocean columns use the climate land blend for their floor") {
     TerrainParams params;
     ChunkGenerator baseline(params);
 
+    // Moderate floor (raw just under sea level) so extreme land knobs can't
+    // drive the floor below the bedrock clamp.
     int32_t ox = 0, oz = 0;
-    if (!find_seed_column(baseline, BiomeType::Ocean, ox, oz)) {
-        MESSAGE("No ocean column found in the probe window; skipping");
+    bool found = false;
+    for (int32_t z = -24000; z <= 24000 && !found; z += 500) {
+        for (int32_t x = -24000; x <= 24000 && !found; x += 500) {
+            if (baseline.get_biome(x, z) != BiomeType::Ocean) continue;
+            const float raw = baseline.get_terrain_height(x, z);
+            if (raw > params.sea_level - 45.0f && raw < params.sea_level - 5.0f) {
+                ox = x; oz = z; found = true;
+            }
+        }
+    }
+    if (!found) {
+        MESSAGE("No moderate ocean column found in the probe window; skipping");
         return;
     }
+    const float raw = baseline.get_terrain_height(ox, oz);
+    CHECK(raw < params.sea_level);
 
-    // Land biomes with extreme knobs around the ocean column must not change
-    // its effective height knob: the seabed always uses Ocean's own amp.
+    // Land biomes with extreme knobs now reach into ocean basins: the floor
+    // scales with the blended land field, NOT the ocean's own (neutral) amp.
     BiomeConfig bc;
     bc.reset_defaults();
     bc.amplification[static_cast<size_t>(BiomeType::Plains)].height = 4.0f;
@@ -376,8 +405,9 @@ TEST_CASE("biome amplification: ocean columns ignore the land blend") {
     ChunkGenerator gen(params);
     gen.set_biome_config(bc);
 
-    const float raw = baseline.get_terrain_height(ox, oz);
-    const float expected = params.sea_level + (raw - params.sea_level) * 1.0f;
+    const float land_knob = gen.blend_amplification_debug(ox, oz).height;
+    CHECK(land_knob > 1.0f);  // the blend picked up the extreme land knobs
+    const float expected = params.sea_level + (raw - params.sea_level) * land_knob;
     CHECK(std::abs(gen.get_terrain_height(ox, oz) - expected) < 0.01f);
     CHECK(gen.get_biome(ox, oz) == BiomeType::Ocean);
 }

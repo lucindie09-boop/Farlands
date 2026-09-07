@@ -41,7 +41,7 @@ static double time_one(F&& f) {
 
 int main() {
     std::mt19937 rng(4242);
-    for (int32_t radius : {0, 2, 8}) {
+    for (int32_t radius : {0, 2, 8, 20}) {
         ChunkGenerator gen(game_params(radius, 4242));
         gen.set_biome_config(game_biomes());
         const int n = 300;

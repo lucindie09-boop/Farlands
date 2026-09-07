@@ -231,13 +231,15 @@ private:
     // bit-identical to the per-call samplers above.
     static constexpr int32_t CLIMATE_LATTICE_SPACING = 4;
     static constexpr int32_t CLIMATE_LATTICE_NODES = CHUNK_WIDTH / CLIMATE_LATTICE_SPACING + 1;
-    // Blend windows are clamped to this half-extent (in nodes) so the chunk
-    // path's fixed-size biome grid and the single-point path always agree.
-    // The clamp bounds cost: the chunk path samples raw climate over a
-    // (2R + 9)^2 ring per chunk, so R=8 keeps that at ~600 evaluations;
-    // each node of radius is ~4 blocks of transition on each side of a
-    // border (full plateau-to-plateau band of 2R*4 blocks).
-    static constexpr int32_t CLIMATE_BLEND_MAX_RADIUS = 8;
+    // Blend windows are clamped to this half-extent (in nodes). Each node of
+    // radius is ~4 blocks of transition on each side of a border (full
+    // plateau-to-plateau band of 2R*4 blocks), so 20 = a ~160-block ramp.
+    // The per-node window means are computed with a separable 2D prefix pass
+    // (O(1) per node); the remaining cost is classifying the (2R+5)^2-biome
+    // grid the windows read from once per chunk (~2000 raw climate samples
+    // at R=20). The single-point path shares the same clamp so both paths
+    // always agree.
+    static constexpr int32_t CLIMATE_BLEND_MAX_RADIUS = 20;
     void build_climate_lattice(int32_t chunk_x, int32_t chunk_z,
                                float temp_lat[CLIMATE_LATTICE_NODES][CLIMATE_LATTICE_NODES],
                                float hum_lat[CLIMATE_LATTICE_NODES][CLIMATE_LATTICE_NODES]) const;
@@ -403,11 +405,12 @@ private:
     // is why large radii still produced a sharp height step there.
     // -------------------------------------------------------------------------
     // Accumulate the blend over a window whose biome at lattice-node offset
-    // (di, dj) is returned by `biome_at`. Both the chunk path (cached climate
-    // lattice) and the single-point path (raw samplers) feed the same node
-    // values, so the loop order and arithmetic here make them bit-identical.
-    // A window of radius 0 contains only the center node, so the blended
-    // knobs reduce exactly to that node's own biome (no smearing).
+    // (di, dj) is returned by `biome_at`. Used by the single-point path
+    // (raw samplers). The chunk path computes the same window means with a
+    // separable 2D prefix pass over its cached biome grid; both feed the same
+    // node values so the two paths agree to within float rounding. A window
+    // of radius 0 contains only the center node, so the blended knobs reduce
+    // exactly to that node's own biome (no smearing).
     template <typename BiomeAt>
     BiomeAmplification blend_amplitudes(BiomeAt biome_at) const {
         const int32_t R = std::min(std::max(params.climate_blend_radius_nodes, 0),

@@ -485,9 +485,30 @@ void WorldUpdater::initialize_view_distance(int32_t horizontal_rd) {
         }
     }
 
+    // Generation priority: the candidate list spans the full world height
+    // (no vertical render distance), but per column only the ~2-4 slices
+    // inside the surface band can ever generate — the rest are sky/solid
+    // and fail the sweep's filter. The sweep has a bounded per-frame check
+    // budget, so ordering decides whether that budget hits real terrain or
+    // wasted vertical checks. Pure 3D distance (x²+y²+z²) ranked a sky
+    // chunk 20 slices above the player equal to a surface chunk 20 columns
+    // away, letting vertical waste crowd out useful work. Instead:
+    //   primary   = horizontal distance — rings expand outward at the
+    //               player's level, matching what is actually visible;
+    //   secondary = vertical distance from the player's slice — same-level
+    //               chunks first, then nearer above/below. A tall mountain
+    //               still generates when its ring is reached, but only
+    //               after every column's same-height work at that ring.
     std::sort(pre_sorted_offsets.begin(), pre_sorted_offsets.end(),
         [](const ChunkPos& a, const ChunkPos& b) {
-            return (a.x * a.x + a.y * a.y + a.z * a.z) < (b.x * b.x + b.y * b.y + b.z * b.z);
+            const int64_t ha = static_cast<int64_t>(a.x) * a.x + static_cast<int64_t>(a.z) * a.z;
+            const int64_t hb = static_cast<int64_t>(b.x) * b.x + static_cast<int64_t>(b.z) * b.z;
+            if (ha != hb) return ha < hb;
+            const int64_t va = static_cast<int64_t>(a.y) * a.y;
+            const int64_t vb = static_cast<int64_t>(b.y) * b.y;
+            if (va != vb) return va < vb;
+            if (a.x != b.x) return a.x < b.x;
+            return a.z < b.z;
         }
     );
 }

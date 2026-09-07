@@ -334,12 +334,12 @@ TEST_CASE("biome amplification: knobs blend smoothly across biome borders") {
     CHECK(at_hills.height > 1.0f);
     CHECK(at_hills.height < 2.0f);
 
-    // Asymmetry: the more-extreme biome bleeds at half weight, so Hills'
-    // pull on Plains (as a share of the 1.0 gap) is weaker than Plains' pull
-    // on Hills.
+    // Uniform window average: each side is pulled toward the other equally
+    // (no extreme-biome half-weight rule), so the two sides give up close to
+    // the same share of the 1.0 gap.
     const float share_from_hills = (at_plains.height - 1.0f) / (2.0f - 1.0f);
     const float share_from_plains = (2.0f - at_hills.height) / (2.0f - 1.0f);
-    CHECK(share_from_hills < share_from_plains);
+    CHECK(std::abs(share_from_hills - share_from_plains) < 0.05f);
 
     // Radius 0 disables blending: each node uses its own biome's knobs
     // exactly.

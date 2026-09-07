@@ -79,7 +79,9 @@ ChunkGenerator::ColumnSample ChunkGenerator::sample_column(int32_t world_x, int3
     const float h = sample_humidity(x, z);
     return sample_column_with_climate(world_x, world_z, t, h,
                                       sample_land_shape(x, z, t, h),
-                                      blend_amplification_at(world_x, world_z));
+                                      params.climate_blend_radius_nodes > 0
+                                          ? blend_amplification_at(world_x, world_z)
+                                          : BiomeAmplification{});
 }
 
 ChunkGenerator::ColumnSample ChunkGenerator::sample_column_with_climate(
@@ -272,6 +274,21 @@ ChunkGenerator::HeightRange ChunkGenerator::get_chunk_height_range(int32_t chunk
 
     const BiomeAmplification& ocean_amp =
         biome_config.amplification[static_cast<size_t>(BiomeType::Ocean)];
+    // With blending disabled every column uses its own biome's knobs (no
+    // field interpolation), so a land biome can appear anywhere inside a
+    // cell, not only at its corners. The column knobs then range over all
+    // land biomes; include those extremes per cell so the range stays a safe
+    // bound (slightly looser, never tighter than reality).
+    const bool zero_blend = params.climate_blend_radius_nodes <= 0;
+    float land_amp_lo = 1e9f, land_amp_hi = -1e9f;
+    if (zero_blend) {
+        for (int32_t b = 0; b < static_cast<int32_t>(BiomeType::Count); ++b) {
+            if (static_cast<BiomeType>(b) == BiomeType::Ocean) continue;
+            const float h = biome_config.amplification[static_cast<size_t>(b)].height;
+            land_amp_lo = std::min(land_amp_lo, h);
+            land_amp_hi = std::max(land_amp_hi, h);
+        }
+    }
     float min_h = 1e9f;
     float max_h = -1e9f;
     bool any_ocean_node = false;
@@ -283,6 +300,18 @@ ChunkGenerator::HeightRange ChunkGenerator::get_chunk_height_range(int32_t chunk
             const float a2 = amp_lat[i][j + 1].height, a3 = amp_lat[i + 1][j + 1].height;
             const float r[4] = {r0, r1, r2, r3};
             const float a[4] = {a0, a1, a2, a3};
+            if (zero_blend) {
+                const float rmin = std::min(std::min(r0, r1), std::min(r2, r3));
+                const float rmax = std::max(std::max(r0, r1), std::max(r2, r3));
+                const float dlo = rmin - params.sea_level;
+                const float dhi = rmax - params.sea_level;
+                if (dhi >= 0.0f) {
+                    max_h = std::max(max_h, params.sea_level + dhi * land_amp_hi);
+                }
+                if (dlo >= 0.0f) {
+                    min_h = std::min(min_h, params.sea_level + dlo * land_amp_lo);
+                }
+            }
             for (int ci = 0; ci < 4; ++ci) {
                 const float d = r[ci] - params.sea_level;
                 // Land columns: interpolated amp lies within the corner amps.
@@ -444,8 +473,14 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
     // Amplification blend lattice: effective per-node knobs after the
     // border blend (see blend_amplitudes). Cheap — the biome windows reuse
     // the cached climate lattice plus raw samples only just outside the chunk.
+    // With blending disabled (radius 0) it is skipped entirely: every column
+    // uses its own biome's knobs (amplification_for), so the lattice would
+    // only be wasted work.
+    const bool blend_enabled = params.climate_blend_radius_nodes > 0;
     BiomeAmplification amp_lat[CLIMATE_LATTICE_NODES][CLIMATE_LATTICE_NODES];
-    build_amp_lattice(chunk_x, chunk_z, temp_lat, hum_lat, amp_lat);
+    if (blend_enabled) {
+        build_amp_lattice(chunk_x, chunk_z, temp_lat, hum_lat, amp_lat);
+    }
 
     // Land-shape lattice: the macro height is evaluated once per 4-block
     // node (81 evaluations) instead of 4 per column (~4096), mirroring the
@@ -459,8 +494,9 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
         for (int32_t z = 0; z < CHUNK_DEPTH; z++) {
             int32_t wx = world_x_start + x;
             int32_t wz = world_z_start + z;
-            const BiomeAmplification blended =
-                interp_amp_lattice(amp_lat, wx, wz, world_x_start, world_z_start);
+            const BiomeAmplification blended = blend_enabled
+                ? interp_amp_lattice(amp_lat, wx, wz, world_x_start, world_z_start)
+                : BiomeAmplification{};
             ColumnSample col = sample_column_with_climate(
                 wx, wz,
                 interp_climate_lattice(temp_lat, wx, wz, world_x_start, world_z_start),

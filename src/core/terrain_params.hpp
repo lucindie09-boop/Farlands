@@ -54,10 +54,11 @@ struct TerrainParams {
 
     // Amplification blend radius, in 4-block climate-lattice nodes. Each
     // lattice node's effective per-biome knobs (height / weirdness /
-    // min_weirdness) are a weighted average over the biome nodes within this
-    // radius, so terrain parameters ramp smoothly across biome borders
-    // instead of stepping at the boundary line. 0 disables blending (each
-    // column uses its own biome's knobs exactly).
+    // min_weirdness) are the arithmetic mean over the biome nodes within this
+    // radius, ramping linearly from one biome's plateau to the next across
+    // the whole window (each node of radius ~4 blocks of transition per
+    // side). 0 disables blending — every column uses its own biome's knobs
+    // exactly, so borders step cleanly with no lattice smear.
     int32_t climate_blend_radius_nodes = 2;
 
     // Macro surface base height (sea_level + margin).

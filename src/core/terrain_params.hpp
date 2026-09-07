@@ -46,7 +46,7 @@ struct TerrainParams {
     // so biome boundaries flow and meander instead of reading as smooth
     // contour lines. Amplitudes in blocks; x/z warped by different amounts
     // (anisotropic) so shapes get directional grain. Frequencies are fixed
-    // in chunk_generator (0.0005 / 0.00045, ~2000-block warp features).
+    // in chunk_generator (0.04 / 0.1, ~25-block and ~10-block warp features).
     float climate_warp_amp_x1 = 10.0f;
     float climate_warp_amp_z1 = 15.0f;
     float climate_warp_amp_x2 = 8.0f;

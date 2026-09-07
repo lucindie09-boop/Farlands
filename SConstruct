@@ -117,6 +117,12 @@ sched_env.Append(LIBS=[])
 sched_prog = sched_env.Program("bin/sched_window_check", ["tools/sched_window_check.cpp"] + terrain_tool_objects + [chunk_data_object])
 Alias("sched_window_check", sched_prog)
 
+# Per-column scheduler-bounds cost probe (standalone executable).
+tcost_env = env.Clone()
+tcost_env.Append(LIBS=[])
+tcost_prog = tcost_env.Program("bin/time_column_cost", ["tools/time_column_cost.cpp"] + terrain_tool_objects + [chunk_data_object])
+Alias("time_column_cost", tcost_prog)
+
 # Elevation domain-warp sweep (standalone, renders BMPs for visual comparison).
 warp_env = env.Clone()
 warp_env.Append(CPPPATH=["src/"])

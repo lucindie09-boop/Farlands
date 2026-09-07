@@ -8,7 +8,7 @@
 
 ![Farlands gameplay — new terrain](screenshots/gameplay_new.png)
 
-A Minecraft-style voxel engine built in Godot 4 with a custom C++ GDExtension. Procedural terrain generation (a stacked-noise macro surface with domain warp and ~500/150-block relief fields, wrapped by a signed 3D density field that adds overhangs and shelves in strength-gated "weirdness" zones, plus height-based oceans that flood any column below sea level), chunked world streaming, greedy meshing with per-chunk incremental rebuilds, colored block lighting, day/night cycle, three-tier distance-based mesh LOD with LOD-reduced chunks merged into regions to cap draw calls, frustum-prioritized chunk loading, async background chunk saving, and a C++ inventory system (hotbar + 27-slot storage) wired into block break/place with a GDScript GUI, plus data-driven 2×2 crafting (`data/recipes.json`). Ships with a C++ player controller with Minecraft-accurate fixed-timestep physics and a punchable combat dummy (K key) with vanilla 1.8.8 knockback.
+A Minecraft-style voxel engine built in Godot 4 with a custom C++ GDExtension. Procedural terrain generation (a stacked-noise macro surface with domain warp and ~500/150-block relief fields, wrapped by a signed 3D density field that adds overhangs and shelves in strength-gated "weirdness" zones, plus oceans that flood the below-sea remnants of biome-shaped terrain), chunked world streaming, greedy meshing with per-chunk incremental rebuilds, colored block lighting, day/night cycle, three-tier distance-based mesh LOD with LOD-reduced chunks merged into regions to cap draw calls, frustum-prioritized chunk loading, async background chunk saving, and a C++ inventory system (hotbar + 27-slot storage) wired into block break/place with a GDScript GUI, plus data-driven 2×2 crafting (`data/recipes.json`). Ships with a C++ player controller with Minecraft-accurate fixed-timestep physics and a punchable combat dummy (K key) with vanilla 1.8.8 knockback.
 
 ## Architecture
 
@@ -79,13 +79,14 @@ A Minecraft-style voxel engine built in Godot 4 with a custom C++ GDExtension. P
 
 ## Terrain Generation
 
-Terrain is built in three stages — a macro surface from stacked noise layers, a height-based water post-pass, then a strength-gated 3D density field wrapped around that surface (full diagram in [ARCHITECTURE.md](ARCHITECTURE.md#terrain-generation)):
+Terrain is built in three stages — a macro surface from stacked noise layers, a biome-shaping pass whose below-sea remnants become ocean, then a strength-gated 3D density field wrapped around that surface (full diagram in [ARCHITECTURE.md](ARCHITECTURE.md#terrain-generation)):
 
 ```
  noise layers @ warped point → macro height per column
    base 12k ±500 · detail 1k ±100 · ridged flow ×16
    + 500-block relief (±90) + 150-block relief (±25)
-        │ surface < sea_level (200)?  →  Ocean: water fills to sea level
+        │ climate grid → land biome (Plains/Hills); its height knob shapes
+        │ the column; still below sea_level (200)? → Ocean last, water to sea
         ▼
  weirdness fBm (~42-block lobes) → strength 5..50
         ▼
@@ -95,7 +96,7 @@ Terrain is built in three stages — a macro surface from stacked noise layers, 
  per-chunk: fast paths → density/material pass → cleanup → vegetation
 ```
 
-- **Height decides water, not continentalness** — the macro surface is the same continuous noise field everywhere; any column that ends below sea level simply becomes Ocean (floor preserved as the sea bed, water filled to sea level). Coasts are seamless by construction.
+- **Biomes first, oceans last** — every column first gets a land biome from the climate grid (Plains/Hills) and that biome's height knob alters its terrain; columns that still end below sea level become Ocean last (water filled to sea level, sand surfaces, sea bed keeps the land biome's shape). Coasts are seamless by construction. Continentalness (the 12000-block base layer, normalized [0,1]) is sampled and carried per column for future preferred-profile biome selection — it never gates water.
 - **Strength-gated 3D shaping** — a low-frequency 2D "weirdness" mask picks where the signed 3D shape field is strong enough to produce overhangs/shelves; everywhere else the terrain is plain macro surface.
 - **All tuning is data-driven** (`data/terrain_config.json` → `TerrainParams`); temperature/humidity climate samplers are live (~8000-block climate features, read through a recursive anisotropic domain warp so biome boundaries flow, sampled on a 4-block lattice) — the temperate band of land is Plains, the cold/hot bands are Hills, and water is Ocean. Per-biome height/weirdness amplification knobs are blended across borders (uniform window average over the climate lattice — radius 0 means each column keeps its own biome's knobs exactly — `climate_blend_radius_nodes` in the terrain config), so relief ramps smoothly at biome boundaries instead of stepping.
 
@@ -103,7 +104,7 @@ Terrain is built in three stages — a macro surface from stacked noise layers, 
 
 The terrain generation system is data-driven through JSON configuration files:
 
-- **`data/biomes.json`** — Per-biome surface materials (Ocean/Hills/Plains), height/weirdness amplification knobs, `preferred_height`/`preferred_temperature`/`preferred_humidity` (reference data for future biome selection), and tree density/variant weights; climate thresholds feed the 3×3 temperature×humidity land-biome grid (temperate band → Plains, cold/hot → Hills)
+- **`data/biomes.json`** — Per-biome surface materials (Ocean/Hills/Plains), height/weirdness amplification knobs, `preferred_continentalness`/`preferred_temperature`/`preferred_humidity` (reference data for future biome selection), and tree density/variant weights; climate thresholds feed the 3×3 temperature×humidity land-biome grid (temperate band → Plains, cold/hot → Hills)
 - **`data/vegetation.json`** — Vegetation parameters for the hills biome (sparse single-tree chance, spacing)
 - **`data/terrain_config.json`** — Macro-surface tuning: `height_base_y`, domain-warp amplitudes, mid/small relief field spacing/frequency/amplitude, shape-strength range, weirdness thresholds, climate warp amps, amplification blend radius
 - **`data/block_shapes.json`** — Shared shape registry for non-full blocks (slabs, stairs, walls, poles) with selection/collision boxes

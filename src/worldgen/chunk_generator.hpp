@@ -147,8 +147,18 @@ private:
     // -------------------------------------------------------------------------
     // Noise sampling
     // -------------------------------------------------------------------------
+    // Continentalness: how "inland vs basin" a column is, [0,1]. This is the
+    // 12000-block base layer of the macro height stack — the layer that sets
+    // the broad elevation, so continents sit high and ocean basins low. The
+    // raw base noise is read directly (no domain warp: displacement is <1% of
+    // a 12000-block feature) and normalized around 0.5; the current sea-level
+    // margin puts the coast near cont ~0.39. Generation does not gate on it
+    // (land biomes come from the climate grid and oceans are the final
+    // below-sea stage) — it is carried in ColumnSample so biome selection can
+    // compare a column against each biome's preferred_continentalness.
     float sample_continentalness(float x, float z) const {
-        return 0.5f; // Disabled - flat continentalness
+        const float raw = terrain_noise.noise_2d(x * 0.0000833f, z * 0.0000833f);
+        return clamp01(raw * 0.5f + 0.5f);
     }
 
     // Recursive climate domain warp, mirroring the macro height warp: two
@@ -274,9 +284,12 @@ private:
     }
 
     BiomeType biome_from_climate(float temperature, float humidity, float cont) const {
-        // Continentalness gates land vs ocean in the full system; the sampler
-        // is flat (0.5) so ocean is decided by height in sample_column, and
-        // land biomes come from the climate grid.
+        // Land-biome selection: the 3x3 temperature x humidity grid. Ocean
+        // never appears here — ocean biomes are the final below-sea stage in
+        // sample_column_with_climate, after this land biome has shaped the
+        // terrain. cont is sampled and carried (real value, from the 12000-
+        // block base layer) so selection can later compare against each
+        // biome's preferred_continentalness.
         return land_biome_from_grid(temperature, humidity);
     }
 
@@ -461,10 +474,11 @@ private:
     // Effective knobs for a column: with blending disabled (radius 0) every
     // column uses its own biome's knobs exactly — the interpolated blend
     // field is ignored so a border is a clean step, not a 4-block lerp. With
-    // blending enabled, land uses the blended field (ramps across borders)
-    // while ocean columns keep the ocean biome's own knobs (the blend field
-    // is climate-derived and never contains ocean, so overriding keeps the
-    // seabed exactly where the ocean config puts it).
+    // blending enabled, land biomes use the blended field (ramps across
+    // borders). Ocean columns still take the ocean biome's own knobs for the
+    // 3D shaping (the blend field is climate-derived and never contains
+    // ocean); the ocean's macro seabed height is no longer set here — it
+    // keeps the height the land biome gave it before the ocean override.
     const BiomeAmplification& amplification_for(BiomeType biome,
                                                 const BiomeAmplification& blended) const {
         const size_t ix = static_cast<size_t>(biome);

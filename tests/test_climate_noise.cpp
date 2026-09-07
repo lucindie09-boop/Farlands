@@ -312,3 +312,43 @@ TEST_CASE("climate noise: deterministic per seed, differs across seeds") {
     CHECK(gen3.sample_temperature_debug(1234.0f, -5678.0f) != t);
     CHECK(gen3.sample_humidity_debug(1234.0f, -5678.0f) != h);
 }
+// =========================================================================
+// Continentalness: the 12000-block base layer, normalized to [0,1]
+// =========================================================================
+
+TEST_CASE("continentalness: bounded, non-flat, smooth, deterministic") {
+    TerrainParams params;
+    ChunkGenerator gen(params);
+
+    float lo = 1e9f, hi = -1e9f;
+    for (int32_t z = -24000; z <= 24000; z += 2000) {
+        for (int32_t x = -24000; x <= 24000; x += 2000) {
+            const float c = gen.sample_column_debug(x, z).cont;
+            CHECK(c >= 0.0f);
+            CHECK(c <= 1.0f);
+            lo = std::min(lo, c);
+            hi = std::max(hi, c);
+        }
+    }
+    // Not the flat 0.5 stub: continents vs basins differ meaningfully.
+    CHECK(hi - lo > 0.2f);
+
+    // 12000-block feature scale: a 64-block step barely moves the value.
+    for (int32_t z = -8000; z <= 8000; z += 4000) {
+        for (int32_t x = -8000; x <= 8000; x += 4000) {
+            const float c = gen.sample_column_debug(x, z).cont;
+            const float c2 = gen.sample_column_debug(x + 64, z + 64).cont;
+            CHECK(std::abs(c - c2) < 0.1f);
+        }
+    }
+
+    // Deterministic per seed; differs across seeds.
+    ChunkGenerator gen2(params);
+    CHECK(gen2.sample_column_debug(1234, -5678).cont ==
+          gen.sample_column_debug(1234, -5678).cont);
+    TerrainParams other = params;
+    other.seed = params.seed + 1;
+    ChunkGenerator gen3(other);
+    CHECK(gen3.sample_column_debug(1234, -5678).cont !=
+          gen.sample_column_debug(1234, -5678).cont);
+}

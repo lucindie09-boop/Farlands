@@ -163,6 +163,18 @@ bool BiomeConfig::load(const godot::String& json_path, BiomeConfig& out) {
             if (b.has("min_weirdness_amplification")) {
                 out.amplification[ix].min_weirdness = static_cast<float>(static_cast<double>(b["min_weirdness_amplification"]));
             }
+            if (b.has("weirdness_size_amplification")) {
+                float size = static_cast<float>(static_cast<double>(b["weirdness_size_amplification"]));
+                // Clamped to [0, 2]: the density margin the chunk scheduler
+                // pads by scales with the widest band in the config, so an
+                // unbounded value would inflate every height range.
+                if (!(size >= 0.0f)) size = 0.0f;  // also catches NaN
+                if (size > 2.0f) {
+                    WARN_PRINT("biomes.json: weirdness_size_amplification above 2.0 is clamped (biome \"" + name + "\")");
+                    size = 2.0f;
+                }
+                out.amplification[ix].weirdness_size = size;
+            }
             if (b.has("preferred_continentalness")) {
                 out.preferred_continentalness[ix] = static_cast<float>(static_cast<double>(b["preferred_continentalness"]));
             }

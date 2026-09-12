@@ -15,6 +15,7 @@
       "height_amplification": 0.4,
       "weirdness_amplification": 0.6,
       "min_weirdness_amplification": 1.0,
+      "weirdness_size_amplification": 1.0,
       "preferred_continentalness": 0.5,
       "preferred_temperature": 0.5,
       "preferred_humidity": 0.4,
@@ -29,6 +30,7 @@
       "height_amplification": 1.0,
       "weirdness_amplification": 1.0,
       "min_weirdness_amplification": 1.1,
+      "weirdness_size_amplification": 1.0,
       "preferred_continentalness": 0.7,
       "preferred_temperature": 0.5,
       "preferred_humidity": 0.5,
@@ -43,6 +45,7 @@
       "height_amplification": 1.0,
       "weirdness_amplification": 1.0,
       "min_weirdness_amplification": 1.0,
+      "weirdness_size_amplification": 1.0,
       "preferred_continentalness": 0.2,
       "preferred_temperature": 0.5,
       "preferred_humidity": 0.5

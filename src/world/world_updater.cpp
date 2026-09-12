@@ -436,7 +436,7 @@ WorldUpdater::ColumnSurfaceBounds WorldUpdater::get_column_surface_bounds(int32_
     // the local high side — a single center sample then understates the top,
     // and the scheduler permanently skips chunks that genuinely contain the
     // wall, leaving invisible-solid holes (no mesh, no data to place into).
-    // This range already pads by DENSITY_MARGIN, so it bounds every column's
+    // This range already pads by ChunkGenerator::density_margin(), so it bounds every column's
     // real content; land_h is the lowest possible surface (everything below is
     // solid rock), top_h the highest (air above, with water to sea level).
     const ChunkGenerator::HeightRange range = height_estimator->get_chunk_height_range(cx, cz);

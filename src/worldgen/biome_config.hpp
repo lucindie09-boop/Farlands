@@ -62,10 +62,21 @@ struct BiomeVegetation {
 //            0.1, so 1.1 floors the mask at 0.1). Values at or below 1.0 are
 //            inert. Applied as clamp01(max(raw_mask * weirdness,
 //            min_weirdness - 1.0)).
+// weirdness_size: SIZE of a weirdness zone, scaling both halves of the 3D
+//            shape envelope — how far terrain is displaced (the strength
+//            range) and how many blocks around the macro surface may be
+//            altered (the inner/outer surface band). 1.0 = neutral (strength
+//            range 5..50, band 9/28 blocks). 0 = the zone alters nothing (no
+//            band, no displacement); 2 = twice the reach and twice the
+//            displacement. Clamped to [0, 2] on load, because the density
+//            margin that chunk scheduling pads by grows with the widest band
+//            in the config. Unlike `weirdness`, which only moves a column
+//            along the fixed strength ramp, this changes the envelope itself.
 struct BiomeAmplification {
-    float height        = 1.0f;
-    float weirdness     = 1.0f;
-    float min_weirdness = 1.0f;
+    float height         = 1.0f;
+    float weirdness      = 1.0f;
+    float min_weirdness  = 1.0f;
+    float weirdness_size = 1.0f;
 };
 
 // One entry per BiomeType value (index == static_cast<int>(BiomeType)).

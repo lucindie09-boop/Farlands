@@ -26,9 +26,10 @@ TEST_CASE("density field: signed surface reproduces the macro terrain") {
             int32_t surface = gen.find_surface_y(x, z);
 
             // Surface must stay within the deformation band around the macro
-            // height: find_surface_y scans +/-DENSITY_MARGIN (30), which is
-            // beyond SURFACE_BAND_OUTER (28) — the hard envelope of the 3D
-            // displacement no matter how large SHAPE_STRENGTH_MAX gets.
+            // height: find_surface_y scans +/-density_margin() (30 at the
+            // neutral weirdness_size 1.0), which is beyond SURFACE_BAND_OUTER
+            // (28) — the hard envelope of the 3D displacement no matter how
+            // large the shape strength gets.
             CHECK(surface >= static_cast<int32_t>(std::ceil(col.height - 30.0f)));
             CHECK(surface <= static_cast<int32_t>(std::ceil(col.height + 30.0f)));
 

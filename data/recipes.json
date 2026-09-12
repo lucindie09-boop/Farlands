@@ -136,6 +136,12 @@
       "pattern": ["P", "P"],
       "key": { "P": "holly_planks" },
       "result": { "block": "stick", "count": 4 }
+    },
+    {
+      "type": "shaped",
+      "pattern": ["CCC", " S ", " S "],
+      "key": { "C": "cactus", "S": "stick" },
+      "result": { "block": "cactus_pickaxe", "count": 1 }
     }
   ]
 }

@@ -6,7 +6,8 @@
 		},
 		{
 			"name": "cactus_pickaxe",
-			"texture": "cactus_pickaxe"
+			"texture": "cactus_pickaxe",
+			"tool": { "class": "pickaxe", "tier": 1, "speed": 3.0 }
 		}
 	]
 }

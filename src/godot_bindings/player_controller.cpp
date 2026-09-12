@@ -2,6 +2,7 @@
 #include "godot_bindings/chunk_manager.hpp"
 #include "engine/collision_resolver.hpp"
 #include "core/item_registry.hpp"
+#include "core/mining.hpp"
 #include "core/chunk_coords.hpp"
 #include "world/chunk_world.hpp"
 #include "engine/voxel_engine_controller.hpp"
@@ -740,7 +741,11 @@ void PlayerController::update_break_progress(float delta) {
     // Unbreakable blocks never crack or progress.
     if (hardness < 0.0f) return;
 
-    break_progress_ += delta / hardness;
+    // Tool speed: the selected hotbar tool multiplies break rate when its class
+    // matches this block's preferred tool (see mining_speed_multiplier).
+    const float tool_speed = mining_speed_multiplier(
+        static_cast<BlockID>(break_block_id_), inventory_.get_selected_block());
+    break_progress_ += delta * tool_speed / hardness;
     if (break_progress_ >= 1.0f) {
         break_progress_ = 0.0f;
         break_target_valid_ = false;

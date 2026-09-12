@@ -42,6 +42,13 @@ const char* ItemRegistry::get_item_texture(BlockID id) const noexcept {
     return items_[static_cast<size_t>(id - FIRST_ITEM_ID)].texture.c_str();
 }
 
+const ItemToolStats* ItemRegistry::get_item_tool(BlockID id) const noexcept {
+    if (!is_item(id)) {
+        return nullptr;
+    }
+    return &items_[static_cast<size_t>(id - FIRST_ITEM_ID)].tool;
+}
+
 #ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
 
 bool ItemRegistry::load_from_json(const godot::String& json_path) noexcept {
@@ -66,6 +73,20 @@ bool ItemRegistry::load_from_json(const godot::String& json_path) noexcept {
         ItemDef def;
         def.name = name.utf8().get_data();
         def.texture = godot::String(entry.get("texture", name)).utf8().get_data();
+
+        // Optional "tool" stats: {"class": "pickaxe", "tier": 1, "speed": 2.0}.
+        // Missing/empty class leaves the item a plain non-tool object.
+        if (entry.has("tool")) {
+            const godot::Dictionary tool = entry["tool"];
+            const godot::String tool_class = tool.get("class", godot::String());
+            if (!tool_class.is_empty()) {
+                def.tool.tool_class = tool_class.utf8().get_data();
+                def.tool.tier = static_cast<int32_t>(static_cast<int64_t>(tool.get("tier", 0)));
+                float speed = static_cast<float>(static_cast<double>(tool.get("speed", 1.0)));
+                if (!(speed >= 1.0f)) speed = 1.0f;  // also catches NaN
+                def.tool.speed = speed;
+            }
+        }
         items_.push_back(std::move(def));
     }
     return true;

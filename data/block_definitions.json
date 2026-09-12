@@ -11,6 +11,7 @@
   },
   {
     "name": "stone",
+    "preferred_tool": "pickaxe",
     "hardness": 1.5,
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, true, true, true],
@@ -22,6 +23,7 @@
   },
   {
     "name": "dirt",
+    "preferred_tool": "shovel",
     "hardness": 0.5,
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, true, true, true],
@@ -33,6 +35,7 @@
   },
   {
     "name": "grass",
+    "preferred_tool": "shovel",
     "hardness": 0.5,
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, false, true, true],
@@ -44,6 +47,7 @@
   },
   {
     "name": "sand",
+    "preferred_tool": "shovel",
     "hardness": 0.5,
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, true, true, true],
@@ -79,6 +83,7 @@
   },
   {
     "name": "oak_log",
+    "preferred_tool": "axe",
     "hardness": 2,
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, true, true, true],
@@ -112,6 +117,7 @@
   },
   {
     "name": "mud",
+    "preferred_tool": "shovel",
     "hardness": 0.5,
     "properties": ["Solid", "Opaque"],
     "shape": "lowered/0625",
@@ -124,6 +130,7 @@
   },
   {
     "name": "wet_sand",
+    "preferred_tool": "shovel",
     "hardness": 0.5,
     "properties": ["Solid", "Opaque"],
     "shape": "lowered/0625",
@@ -136,6 +143,7 @@
   },
   {
     "name": "mud_full",
+    "preferred_tool": "shovel",
     "hardness": 0.5,
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, true, true, true],
@@ -147,6 +155,7 @@
   },
   {
     "name": "wet_sand_full",
+    "preferred_tool": "shovel",
     "hardness": 0.5,
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, true, true, true],
@@ -202,6 +211,7 @@
   },
   {
     "name": "snow",
+    "preferred_tool": "shovel",
     "hardness": 0.2,
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, true, true, true],
@@ -213,6 +223,7 @@
   },
   {
     "name": "gravel",
+    "preferred_tool": "shovel",
     "hardness": 0.6,
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, true, true, true],
@@ -235,6 +246,7 @@
   },
   {
     "name": "oak_slab",
+    "preferred_tool": "axe",
     "hardness": 2,
     "slab_family": "plank_slab",
     "shape": "slab/bottom",
@@ -248,6 +260,7 @@
   },
   {
     "name": "oak_slab_top",
+    "preferred_tool": "axe",
     "hardness": 2,
     "slab_family": "plank_slab",
     "hidden": true,
@@ -262,6 +275,7 @@
   },
   {
     "name": "oak_stairs",
+    "preferred_tool": "axe",
     "hardness": 2,
     "stair_family": "oak_stair",
     "shape": "stair/n",
@@ -275,6 +289,7 @@
   },
   {
     "name": "oak_pole",
+    "preferred_tool": "axe",
     "hardness": 2,
     "shape": "pole",
     "properties": ["Solid", "Opaque", "NoOcclusion"],
@@ -287,6 +302,7 @@
   },
   {
     "name": "oak_wall",
+    "preferred_tool": "axe",
     "hardness": 2,
     "wall_family": "oak_wall",
     "shape": "wall/n",
@@ -300,6 +316,7 @@
   },
   {
     "name": "oak_double_slab",
+    "preferred_tool": "axe",
     "hardness": 2,
     "slab_family": "plank_slab",
     "hidden": true,
@@ -313,6 +330,7 @@
   },
   {
     "name": "oak_stairs_s",
+    "preferred_tool": "axe",
     "hardness": 2,
     "stair_family": "oak_stair",
     "hidden": true,
@@ -327,6 +345,7 @@
   },
   {
     "name": "oak_stairs_e",
+    "preferred_tool": "axe",
     "hardness": 2,
     "stair_family": "oak_stair",
     "hidden": true,
@@ -341,6 +360,7 @@
   },
   {
     "name": "oak_stairs_w",
+    "preferred_tool": "axe",
     "hardness": 2,
     "stair_family": "oak_stair",
     "hidden": true,
@@ -355,6 +375,7 @@
   },
   {
     "name": "oak_stairs_n_up",
+    "preferred_tool": "axe",
     "hardness": 2,
     "stair_family": "oak_stair",
     "hidden": true,
@@ -369,6 +390,7 @@
   },
   {
     "name": "oak_stairs_s_up",
+    "preferred_tool": "axe",
     "hardness": 2,
     "stair_family": "oak_stair",
     "hidden": true,
@@ -383,6 +405,7 @@
   },
   {
     "name": "oak_stairs_e_up",
+    "preferred_tool": "axe",
     "hardness": 2,
     "stair_family": "oak_stair",
     "hidden": true,
@@ -397,6 +420,7 @@
   },
   {
     "name": "oak_stairs_w_up",
+    "preferred_tool": "axe",
     "hardness": 2,
     "stair_family": "oak_stair",
     "hidden": true,
@@ -411,6 +435,7 @@
   },
   {
     "name": "oak_wall_s",
+    "preferred_tool": "axe",
     "hardness": 2,
     "wall_family": "oak_wall",
     "hidden": true,
@@ -425,6 +450,7 @@
   },
   {
     "name": "oak_wall_e",
+    "preferred_tool": "axe",
     "hardness": 2,
     "wall_family": "oak_wall",
     "hidden": true,
@@ -439,6 +465,7 @@
   },
   {
     "name": "oak_wall_w",
+    "preferred_tool": "axe",
     "hardness": 2,
     "wall_family": "oak_wall",
     "hidden": true,
@@ -453,6 +480,7 @@
   },
   {
     "name": "oak_wall_full",
+    "preferred_tool": "axe",
     "hardness": 2,
     "wall_family": "oak_wall",
     "hidden": true,
@@ -466,6 +494,7 @@
   },
   {
     "name": "oak_planks",
+    "preferred_tool": "axe",
     "hardness": 2,
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, true, true, true],
@@ -477,6 +506,8 @@
   },
   {
     "name": "coal_ore",
+    "preferred_tool": "pickaxe",
+    "min_tier": 1,
     "hardness": 3,
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, true, true, true],
@@ -488,6 +519,8 @@
   },
   {
     "name": "gold_ore",
+    "preferred_tool": "pickaxe",
+    "min_tier": 1,
     "hardness": 3,
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, true, true, true],
@@ -499,6 +532,7 @@
   },
   {
     "name": "ice",
+    "preferred_tool": "pickaxe",
     "hardness": 0.5,
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, true, true, true],
@@ -521,6 +555,7 @@
   },
   {
     "name": "oak_stump",
+    "preferred_tool": "axe",
     "hardness": 2,
     "slab_family": "stump",
     "shape": "slab/bottom",
@@ -534,6 +569,7 @@
   },
   {
     "name": "oak_stump_top",
+    "preferred_tool": "axe",
     "hardness": 2,
     "slab_family": "stump",
     "hidden": true,
@@ -548,6 +584,7 @@
   },
   {
     "name": "oak_stump_double",
+    "preferred_tool": "axe",
     "hardness": 2,
     "slab_family": "stump",
     "hidden": true,
@@ -561,6 +598,7 @@
   },
   {
     "name": "stone_slab",
+    "preferred_tool": "pickaxe",
     "hardness": 1.5,
     "slab_family": "stone_slab",
     "shape": "slab/bottom",
@@ -574,6 +612,7 @@
   },
   {
     "name": "stone_slab_top",
+    "preferred_tool": "pickaxe",
     "hardness": 1.5,
     "slab_family": "stone_slab",
     "hidden": true,
@@ -588,6 +627,7 @@
   },
   {
     "name": "stone_double_slab",
+    "preferred_tool": "pickaxe",
     "hardness": 1.5,
     "slab_family": "stone_slab",
     "hidden": true,
@@ -601,6 +641,7 @@
   },
   {
     "name": "stone_stairs",
+    "preferred_tool": "pickaxe",
     "hardness": 1.5,
     "stair_family": "stone_stair",
     "shape": "stair/n",
@@ -614,6 +655,7 @@
   },
   {
     "name": "stone_stairs_s",
+    "preferred_tool": "pickaxe",
     "hardness": 1.5,
     "stair_family": "stone_stair",
     "shape": "stair/s",
@@ -627,6 +669,7 @@
   },
   {
     "name": "stone_stairs_e",
+    "preferred_tool": "pickaxe",
     "hardness": 1.5,
     "stair_family": "stone_stair",
     "shape": "stair/e",
@@ -640,6 +683,7 @@
   },
   {
     "name": "stone_stairs_w",
+    "preferred_tool": "pickaxe",
     "hardness": 1.5,
     "stair_family": "stone_stair",
     "shape": "stair/w",
@@ -653,6 +697,7 @@
   },
   {
     "name": "stone_stairs_n_up",
+    "preferred_tool": "pickaxe",
     "hardness": 1.5,
     "stair_family": "stone_stair",
     "shape": "stair/n_up",
@@ -666,6 +711,7 @@
   },
   {
     "name": "stone_stairs_s_up",
+    "preferred_tool": "pickaxe",
     "hardness": 1.5,
     "stair_family": "stone_stair",
     "shape": "stair/s_up",
@@ -679,6 +725,7 @@
   },
   {
     "name": "stone_stairs_e_up",
+    "preferred_tool": "pickaxe",
     "hardness": 1.5,
     "stair_family": "stone_stair",
     "shape": "stair/e_up",
@@ -692,6 +739,7 @@
   },
   {
     "name": "stone_stairs_w_up",
+    "preferred_tool": "pickaxe",
     "hardness": 1.5,
     "stair_family": "stone_stair",
     "shape": "stair/w_up",
@@ -705,6 +753,7 @@
   },
   {
     "name": "stone_wall",
+    "preferred_tool": "pickaxe",
     "hardness": 1.5,
     "wall_family": "stone_wall",
     "shape": "wall/n",
@@ -718,6 +767,7 @@
   },
   {
     "name": "stone_wall_s",
+    "preferred_tool": "pickaxe",
     "hardness": 1.5,
     "wall_family": "stone_wall",
     "shape": "wall/s",
@@ -731,6 +781,7 @@
   },
   {
     "name": "stone_wall_e",
+    "preferred_tool": "pickaxe",
     "hardness": 1.5,
     "wall_family": "stone_wall",
     "shape": "wall/e",
@@ -744,6 +795,7 @@
   },
   {
     "name": "stone_wall_w",
+    "preferred_tool": "pickaxe",
     "hardness": 1.5,
     "wall_family": "stone_wall",
     "shape": "wall/w",
@@ -757,6 +809,7 @@
   },
   {
     "name": "stone_wall_full",
+    "preferred_tool": "pickaxe",
     "hardness": 1.5,
     "wall_family": "stone_wall",
     "properties": ["Solid", "Opaque"],
@@ -769,6 +822,7 @@
   },
   {
     "name": "gravel_path",
+    "preferred_tool": "shovel",
     "hardness": 0.6,
     "shape": "lowered/00625",
     "properties": ["Solid", "Opaque"],
@@ -781,6 +835,7 @@
   },
   {
     "name": "pine_planks",
+    "preferred_tool": "axe",
     "hardness": 2,
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, true, true, true],
@@ -792,6 +847,7 @@
   },
   {
     "name": "pine_slab",
+    "preferred_tool": "axe",
     "hardness": 2,
     "slab_family": "pine_plank_slab",
     "shape": "slab/bottom",
@@ -805,6 +861,7 @@
   },
   {
     "name": "pine_slab_top",
+    "preferred_tool": "axe",
     "hardness": 2,
     "slab_family": "pine_plank_slab",
     "hidden": true,
@@ -819,6 +876,7 @@
   },
   {
     "name": "pine_double_slab",
+    "preferred_tool": "axe",
     "hardness": 2,
     "slab_family": "pine_plank_slab",
     "hidden": true,
@@ -832,6 +890,7 @@
   },
   {
     "name": "pine_stairs",
+    "preferred_tool": "axe",
     "hardness": 2,
     "stair_family": "pine_stair",
     "shape": "stair/n",
@@ -845,6 +904,7 @@
   },
   {
     "name": "pine_stairs_s",
+    "preferred_tool": "axe",
     "hardness": 2,
     "stair_family": "pine_stair",
     "hidden": true,
@@ -859,6 +919,7 @@
   },
   {
     "name": "pine_stairs_e",
+    "preferred_tool": "axe",
     "hardness": 2,
     "stair_family": "pine_stair",
     "hidden": true,
@@ -873,6 +934,7 @@
   },
   {
     "name": "pine_stairs_w",
+    "preferred_tool": "axe",
     "hardness": 2,
     "stair_family": "pine_stair",
     "hidden": true,
@@ -887,6 +949,7 @@
   },
   {
     "name": "pine_stairs_n_up",
+    "preferred_tool": "axe",
     "hardness": 2,
     "stair_family": "pine_stair",
     "hidden": true,
@@ -901,6 +964,7 @@
   },
   {
     "name": "pine_stairs_s_up",
+    "preferred_tool": "axe",
     "hardness": 2,
     "stair_family": "pine_stair",
     "hidden": true,
@@ -915,6 +979,7 @@
   },
   {
     "name": "pine_stairs_e_up",
+    "preferred_tool": "axe",
     "hardness": 2,
     "stair_family": "pine_stair",
     "hidden": true,
@@ -929,6 +994,7 @@
   },
   {
     "name": "pine_stairs_w_up",
+    "preferred_tool": "axe",
     "hardness": 2,
     "stair_family": "pine_stair",
     "hidden": true,
@@ -943,6 +1009,7 @@
   },
   {
     "name": "pine_pole",
+    "preferred_tool": "axe",
     "hardness": 2,
     "shape": "pole",
     "properties": ["Solid", "Opaque", "NoOcclusion"],
@@ -955,6 +1022,7 @@
   },
   {
     "name": "pine_wall",
+    "preferred_tool": "axe",
     "hardness": 2,
     "wall_family": "pine_wall",
     "shape": "wall/n",
@@ -968,6 +1036,7 @@
   },
   {
     "name": "pine_wall_s",
+    "preferred_tool": "axe",
     "hardness": 2,
     "wall_family": "pine_wall",
     "hidden": true,
@@ -982,6 +1051,7 @@
   },
   {
     "name": "pine_wall_e",
+    "preferred_tool": "axe",
     "hardness": 2,
     "wall_family": "pine_wall",
     "hidden": true,
@@ -996,6 +1066,7 @@
   },
   {
     "name": "pine_wall_w",
+    "preferred_tool": "axe",
     "hardness": 2,
     "wall_family": "pine_wall",
     "hidden": true,
@@ -1010,6 +1081,7 @@
   },
   {
     "name": "pine_wall_full",
+    "preferred_tool": "axe",
     "hardness": 2,
     "wall_family": "pine_wall",
     "hidden": true,
@@ -1023,6 +1095,7 @@
   },
   {
     "name": "spruce_planks",
+    "preferred_tool": "axe",
     "hardness": 2,
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, true, true, true],
@@ -1034,6 +1107,7 @@
   },
   {
     "name": "spruce_slab",
+    "preferred_tool": "axe",
     "hardness": 2,
     "slab_family": "spruce_plank_slab",
     "shape": "slab/bottom",
@@ -1047,6 +1121,7 @@
   },
   {
     "name": "spruce_slab_top",
+    "preferred_tool": "axe",
     "hardness": 2,
     "slab_family": "spruce_plank_slab",
     "hidden": true,
@@ -1061,6 +1136,7 @@
   },
   {
     "name": "spruce_double_slab",
+    "preferred_tool": "axe",
     "hardness": 2,
     "slab_family": "spruce_plank_slab",
     "hidden": true,
@@ -1074,6 +1150,7 @@
   },
   {
     "name": "spruce_stairs",
+    "preferred_tool": "axe",
     "hardness": 2,
     "stair_family": "spruce_stair",
     "shape": "stair/n",
@@ -1087,6 +1164,7 @@
   },
   {
     "name": "spruce_stairs_s",
+    "preferred_tool": "axe",
     "hardness": 2,
     "stair_family": "spruce_stair",
     "hidden": true,
@@ -1101,6 +1179,7 @@
   },
   {
     "name": "spruce_stairs_e",
+    "preferred_tool": "axe",
     "hardness": 2,
     "stair_family": "spruce_stair",
     "hidden": true,
@@ -1115,6 +1194,7 @@
   },
   {
     "name": "spruce_stairs_w",
+    "preferred_tool": "axe",
     "hardness": 2,
     "stair_family": "spruce_stair",
     "hidden": true,
@@ -1129,6 +1209,7 @@
   },
   {
     "name": "spruce_stairs_n_up",
+    "preferred_tool": "axe",
     "hardness": 2,
     "stair_family": "spruce_stair",
     "hidden": true,
@@ -1143,6 +1224,7 @@
   },
   {
     "name": "spruce_stairs_s_up",
+    "preferred_tool": "axe",
     "hardness": 2,
     "stair_family": "spruce_stair",
     "hidden": true,
@@ -1157,6 +1239,7 @@
   },
   {
     "name": "spruce_stairs_e_up",
+    "preferred_tool": "axe",
     "hardness": 2,
     "stair_family": "spruce_stair",
     "hidden": true,
@@ -1171,6 +1254,7 @@
   },
   {
     "name": "spruce_stairs_w_up",
+    "preferred_tool": "axe",
     "hardness": 2,
     "stair_family": "spruce_stair",
     "hidden": true,
@@ -1185,6 +1269,7 @@
   },
   {
     "name": "spruce_pole",
+    "preferred_tool": "axe",
     "hardness": 2,
     "shape": "pole",
     "properties": ["Solid", "Opaque", "NoOcclusion"],
@@ -1197,6 +1282,7 @@
   },
   {
     "name": "spruce_wall",
+    "preferred_tool": "axe",
     "hardness": 2,
     "wall_family": "spruce_wall",
     "shape": "wall/n",
@@ -1210,6 +1296,7 @@
   },
   {
     "name": "spruce_wall_s",
+    "preferred_tool": "axe",
     "hardness": 2,
     "wall_family": "spruce_wall",
     "hidden": true,
@@ -1224,6 +1311,7 @@
   },
   {
     "name": "spruce_wall_e",
+    "preferred_tool": "axe",
     "hardness": 2,
     "wall_family": "spruce_wall",
     "hidden": true,
@@ -1238,6 +1326,7 @@
   },
   {
     "name": "spruce_wall_w",
+    "preferred_tool": "axe",
     "hardness": 2,
     "wall_family": "spruce_wall",
     "hidden": true,
@@ -1252,6 +1341,7 @@
   },
   {
     "name": "spruce_wall_full",
+    "preferred_tool": "axe",
     "hardness": 2,
     "wall_family": "spruce_wall",
     "hidden": true,
@@ -1265,6 +1355,7 @@
   },
   {
     "name": "holly_planks",
+    "preferred_tool": "axe",
     "hardness": 2,
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, true, true, true],
@@ -1276,6 +1367,7 @@
   },
   {
     "name": "holly_slab",
+    "preferred_tool": "axe",
     "hardness": 2,
     "slab_family": "holly_plank_slab",
     "shape": "slab/bottom",
@@ -1289,6 +1381,7 @@
   },
   {
     "name": "holly_slab_top",
+    "preferred_tool": "axe",
     "hardness": 2,
     "slab_family": "holly_plank_slab",
     "hidden": true,
@@ -1303,6 +1396,7 @@
   },
   {
     "name": "holly_double_slab",
+    "preferred_tool": "axe",
     "hardness": 2,
     "slab_family": "holly_plank_slab",
     "hidden": true,
@@ -1316,6 +1410,7 @@
   },
   {
     "name": "holly_stairs",
+    "preferred_tool": "axe",
     "hardness": 2,
     "stair_family": "holly_stair",
     "shape": "stair/n",
@@ -1329,6 +1424,7 @@
   },
   {
     "name": "holly_stairs_s",
+    "preferred_tool": "axe",
     "hardness": 2,
     "stair_family": "holly_stair",
     "hidden": true,
@@ -1343,6 +1439,7 @@
   },
   {
     "name": "holly_stairs_e",
+    "preferred_tool": "axe",
     "hardness": 2,
     "stair_family": "holly_stair",
     "hidden": true,
@@ -1357,6 +1454,7 @@
   },
   {
     "name": "holly_stairs_w",
+    "preferred_tool": "axe",
     "hardness": 2,
     "stair_family": "holly_stair",
     "hidden": true,
@@ -1371,6 +1469,7 @@
   },
   {
     "name": "holly_stairs_n_up",
+    "preferred_tool": "axe",
     "hardness": 2,
     "stair_family": "holly_stair",
     "hidden": true,
@@ -1385,6 +1484,7 @@
   },
   {
     "name": "holly_stairs_s_up",
+    "preferred_tool": "axe",
     "hardness": 2,
     "stair_family": "holly_stair",
     "hidden": true,
@@ -1399,6 +1499,7 @@
   },
   {
     "name": "holly_stairs_e_up",
+    "preferred_tool": "axe",
     "hardness": 2,
     "stair_family": "holly_stair",
     "hidden": true,
@@ -1413,6 +1514,7 @@
   },
   {
     "name": "holly_stairs_w_up",
+    "preferred_tool": "axe",
     "hardness": 2,
     "stair_family": "holly_stair",
     "hidden": true,
@@ -1427,6 +1529,7 @@
   },
   {
     "name": "holly_pole",
+    "preferred_tool": "axe",
     "hardness": 2,
     "shape": "pole",
     "properties": ["Solid", "Opaque", "NoOcclusion"],
@@ -1439,6 +1542,7 @@
   },
   {
     "name": "holly_wall",
+    "preferred_tool": "axe",
     "hardness": 2,
     "wall_family": "holly_wall",
     "shape": "wall/n",
@@ -1452,6 +1556,7 @@
   },
   {
     "name": "holly_wall_s",
+    "preferred_tool": "axe",
     "hardness": 2,
     "wall_family": "holly_wall",
     "hidden": true,
@@ -1466,6 +1571,7 @@
   },
   {
     "name": "holly_wall_e",
+    "preferred_tool": "axe",
     "hardness": 2,
     "wall_family": "holly_wall",
     "hidden": true,
@@ -1480,6 +1586,7 @@
   },
   {
     "name": "holly_wall_w",
+    "preferred_tool": "axe",
     "hardness": 2,
     "wall_family": "holly_wall",
     "hidden": true,
@@ -1494,6 +1601,7 @@
   },
   {
     "name": "holly_wall_full",
+    "preferred_tool": "axe",
     "hardness": 2,
     "wall_family": "holly_wall",
     "hidden": true,

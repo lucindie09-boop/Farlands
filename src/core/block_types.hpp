@@ -87,6 +87,15 @@ struct BlockType {
     // -1.0 = unbreakable (bedrock, water) — never cracks or breaks.
     float hardness = 1.0f;
 
+    // Tool class this block is mined fastest with ("pickaxe", "axe", "shovel",
+    // ...). Empty = no preference, bare-hand speed. Parsed from
+    // block_definitions.json.
+    std::string preferred_tool;
+    // Minimum tool tier needed to actually receive the preferred-tool speed
+    // bonus (0 = any tier). A matching-class tool below this tier mines at
+    // bare-hand speed instead.
+    int32_t min_tier = 0;
+
     // Texture filename per face (populated by load_from_json, used by TextureArrayGenerator).
     // Placed last so existing aggregate initializers are unaffected.
     std::array<std::string, 6> texture_names{};

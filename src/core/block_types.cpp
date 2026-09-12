@@ -220,6 +220,17 @@ bool BlockRegistry::load_from_json(const godot::String& json_path) noexcept {
             bt.hardness = static_cast<float>(static_cast<double>(d["hardness"]));
         }
 
+        // preferred_tool (tool class mined fastest against this block; "" = none)
+        if (d.has("preferred_tool")) {
+            bt.preferred_tool = godot::String(d["preferred_tool"]).utf8().get_data();
+        }
+
+        // min_tier (tool tier required for the preferred-tool speed bonus)
+        if (d.has("min_tier")) {
+            bt.min_tier = static_cast<int32_t>(static_cast<int64_t>(d["min_tier"]));
+            if (bt.min_tier < 0) bt.min_tier = 0;
+        }
+
         // Resolve shape reference from block_shapes.json
         if (d.has("shape")) {
             godot::String shape_name_str = d["shape"];

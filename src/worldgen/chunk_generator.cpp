@@ -217,6 +217,7 @@ void ChunkGenerator::build_amp_lattice(int32_t chunk_x, int32_t chunk_z,
     std::vector<double> ph(static_cast<size_t>(W) * W, 0.0);
     std::vector<double> pw(static_cast<size_t>(W) * W, 0.0);
     std::vector<double> pm(static_cast<size_t>(W) * W, 0.0);
+    std::vector<double> ps(static_cast<size_t>(W) * W, 0.0);
     for (int32_t j = 0; j < EXT; ++j) {
         for (int32_t i = 0; i < EXT; ++i) {
             const BiomeAmplification& a =
@@ -234,6 +235,10 @@ void ChunkGenerator::build_amp_lattice(int32_t chunk_x, int32_t chunk_z,
                     + pm[static_cast<size_t>(j + 1) * W + static_cast<size_t>(i)]
                     - pm[static_cast<size_t>(j) * W + static_cast<size_t>(i)]
                     + static_cast<double>(a.min_weirdness);
+            ps[idx] = ps[static_cast<size_t>(j) * W + static_cast<size_t>(i + 1)]
+                    + ps[static_cast<size_t>(j + 1) * W + static_cast<size_t>(i)]
+                    - ps[static_cast<size_t>(j) * W + static_cast<size_t>(i)]
+                    + static_cast<double>(a.weirdness_size);
         }
     }
     for (int32_t j = 0; j < CLIMATE_LATTICE_NODES; ++j) {
@@ -248,9 +253,11 @@ void ChunkGenerator::build_amp_lattice(int32_t chunk_x, int32_t chunk_z,
             const double sh = ph[at(x2, y2)] - ph[at(x1, y2)] - ph[at(x2, y1)] + ph[at(x1, y1)];
             const double sw = pw[at(x2, y2)] - pw[at(x1, y2)] - pw[at(x2, y1)] + pw[at(x1, y1)];
             const double sm = pm[at(x2, y2)] - pm[at(x1, y2)] - pm[at(x2, y1)] + pm[at(x1, y1)];
+            const double ss = ps[at(x2, y2)] - ps[at(x1, y2)] - ps[at(x2, y1)] + ps[at(x1, y1)];
             amp_lat[i][j].height     = static_cast<float>(sh * inv_window);
             amp_lat[i][j].weirdness  = static_cast<float>(sw * inv_window);
             amp_lat[i][j].min_weirdness = static_cast<float>(sm * inv_window);
+            amp_lat[i][j].weirdness_size = static_cast<float>(ss * inv_window);
         }
     }
 }
@@ -274,6 +281,8 @@ BiomeAmplification ChunkGenerator::interp_amp_lattice(
                          lerp(v01.weirdness, v11.weirdness, fx), fz);
     out.min_weirdness = lerp(lerp(v00.min_weirdness, v10.min_weirdness, fx),
                              lerp(v01.min_weirdness, v11.min_weirdness, fx), fz);
+    out.weirdness_size = lerp(lerp(v00.weirdness_size, v10.weirdness_size, fx),
+                              lerp(v01.weirdness_size, v11.weirdness_size, fx), fz);
     return out;
 }
 
@@ -303,8 +312,9 @@ ChunkGenerator::HeightRange ChunkGenerator::get_chunk_height_range(int32_t chunk
     // fields bilinearly interpolated between nodes, so within each cell the
     // product is bounded by every (raw x amp) combo of the cell's four
     // corners; ocean columns use the fixed ocean amp. The 3D density
-    // shaping can still push the real surface up to DENSITY_MARGIN above or
-    // below the macro heightmap, so the range is padded by that.
+    // shaping can still push the real surface up to density_margin() above or
+    // below the macro heightmap (the widest surface band any biome's
+    // weirdness_size can produce), so the range is padded by that.
     float land_lat[CLIMATE_LATTICE_NODES][CLIMATE_LATTICE_NODES];
     float temp_lat[CLIMATE_LATTICE_NODES][CLIMATE_LATTICE_NODES];
     float hum_lat[CLIMATE_LATTICE_NODES][CLIMATE_LATTICE_NODES];
@@ -372,7 +382,8 @@ ChunkGenerator::HeightRange ChunkGenerator::get_chunk_height_range(int32_t chunk
         }
     }
     const float max_water_h = any_ocean_node ? params.sea_level : -1.0f;
-    return HeightRange{min_h - DENSITY_MARGIN, max_h + DENSITY_MARGIN, max_water_h};
+    const float margin = density_margin();
+    return HeightRange{min_h - margin, max_h + margin, max_water_h};
 }
 
 // Real topmost air-to-solid transition for a column, scanning down from above
@@ -387,17 +398,23 @@ int32_t ChunkGenerator::find_surface_y(int32_t world_x, int32_t world_z) const {
         world_x, world_z, t, h, sample_land_shape(x, z, t, h), blended);
     const BiomeAmplification& amp = amplification_for(column.biome, blended);
     const float weirdness = amplified_weirdness(sample_weirdness(x, z), amp);
+    const ShapeEnvelope env = shape_envelope(weirdness, amp.weirdness_size);
 
-    // The density surface can only exist within DENSITY_MARGIN of the macro
-    // heightmap (see sample_terrain_density), so scan exactly that band.
+    // The density surface can only exist within this column's surface band of
+    // the macro heightmap (see sample_terrain_density), so scan exactly that
+    // band — plus the slack, which keeps a size-0 envelope (band of zero)
+    // scannable instead of collapsing to a single sample.
+    const float scan_margin = env.band_outer + DENSITY_MARGIN_SLACK;
     const int32_t start_y =
-        static_cast<int32_t>(std::ceil(column.height + DENSITY_MARGIN));
+        static_cast<int32_t>(std::ceil(column.height + scan_margin));
 
     for (int32_t y = start_y;
-         y >= static_cast<int32_t>(std::ceil(column.height - DENSITY_MARGIN));
+         y >= static_cast<int32_t>(std::ceil(column.height - scan_margin));
          --y) {
-        const float here = sample_terrain_density(world_x, y, world_z, column, weirdness);
-        const float above = sample_terrain_density(world_x, y + 1, world_z, column, weirdness);
+        const float here = sample_terrain_density(world_x, y, world_z, column, weirdness,
+                                                  amp.weirdness_size);
+        const float above = sample_terrain_density(world_x, y + 1, world_z, column, weirdness,
+                                                   amp.weirdness_size);
         if (here > 0.0f && above <= 0.0f) {
             return y;
         }
@@ -552,22 +569,25 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
                 : -1;
             columns[x][z].temperature  = col.temperature;
             columns[x][z].humidity     = col.humidity;
+            const BiomeAmplification& col_amp = amplification_for(col.biome, blended);
             columns[x][z].weirdness    = amplified_weirdness(
                 sample_weirdness(static_cast<float>(wx), static_cast<float>(wz)),
-                amplification_for(col.biome, blended));
+                col_amp);
+            columns[x][z].weirdness_size = std::max(col_amp.weirdness_size, 0.0f);
             min_height = std::min(min_height, col.height);
             max_height = std::max(max_height, col.height);
         }
     }
 
     // ---- Chunk-level fast path ----
-    // The 3D density surface can only exist within DENSITY_MARGIN of the macro
-    // heightmap (displacement = shape * strength * surface_band, and the band
-    // is exactly zero beyond SURFACE_BAND_OUTER < DENSITY_MARGIN regardless of
-    // strength). Chunks entirely outside that band need no lattice, density
-    // buffer, or material pass.
-    const bool above_terrain = static_cast<float>(world_y_start) >= max_height + DENSITY_MARGIN;
-    const bool below_terrain = static_cast<float>(world_y_end) <= min_height - DENSITY_MARGIN;
+    // The 3D density surface can only exist within density_margin() of the
+    // macro heightmap (displacement = shape * strength * surface_band, and the
+    // band is exactly zero beyond the widest biome band in the config,
+    // regardless of strength). Chunks entirely outside that band need no
+    // lattice, density buffer, or material pass.
+    const float shape_margin = density_margin();
+    const bool above_terrain = static_cast<float>(world_y_start) >= max_height + shape_margin;
+    const bool below_terrain = static_cast<float>(world_y_end) <= min_height - shape_margin;
 
     if (above_terrain) {
         // No solids possible. Shallow-ocean chunks still carry the sea surface
@@ -660,8 +680,8 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
     for (int32_t x = 0; x < CHUNK_WIDTH; x++) {
         for (int32_t z = 0; z < CHUNK_DEPTH; z++) {
             const ChunkColumn& col = columns[x][z];
-            const float shape_strength =
-                lerp(params.shape_strength_min, params.shape_strength_max, col.weirdness);
+            const ShapeEnvelope shape_env =
+                shape_envelope(col.weirdness, col.weirdness_size);
 
             // Local lattice cell for this voxel. world_x_start is a multiple of
             // SPACING, so the fractional coordinates derived from local (x, ly,
@@ -686,7 +706,7 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
 
                 dens(x, ly, z) = density_from_shape(
                     col.sample.height - static_cast<float>(world_y_start + ly),
-                    shape_strength, shape);
+                    shape_env.strength, shape, shape_env.band_inner, shape_env.band_outer);
             }
         }
     }

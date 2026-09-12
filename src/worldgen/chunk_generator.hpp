@@ -84,14 +84,17 @@ private:
     // "weirdness" mask (very low frequency 2D) decides where the deformation
     // is strong enough to produce overhangs/shelves vs. mostly-plain terrain.
     // -------------------------------------------------------------------------
-    // DENSITY_MARGIN bounds how far the real surface can sit from the macro
+    // The surface band bounds how far the real surface can sit from the macro
     // heightmap. Displacement = shape * strength * surface_band, and the band
-    // is exactly zero at distance SURFACE_BAND_OUTER — so no matter how large
-    // the shape strength grows, the surface never leaves SURFACE_BAND_OUTER
-    // of the macro height. 30 = OUTER + small slack.
-    static constexpr float DENSITY_MARGIN      = 30.0f;
+    // is exactly zero at distance band_outer — so no matter how large the
+    // shape strength grows, the surface never leaves the band of the macro
+    // height. Both the strength and the band are scaled per column by the
+    // biome's weirdness_size knob (see shape_envelope), so the reach is
+    // SURFACE_BAND_OUTER * size; density_margin() is that worst case plus
+    // slack and is what chunk scheduling pads every height range by.
     static constexpr float SURFACE_BAND_INNER  = 9.0f;
     static constexpr float SURFACE_BAND_OUTER  = 28.0f;
+    static constexpr float DENSITY_MARGIN_SLACK = 2.0f;
     // Optional: read the 3D shape field through a light 2D domain warp (the
     // same recursive scheme as the macro height warp, at much smaller scale)
     // so the craggy micro-detail curves with the terrain instead of reading
@@ -137,11 +140,43 @@ private:
     }
 
     // Density from its components (macro delta + 3D shape displacement).
-    static float density_from_shape(float delta, float shape_strength, float shape) {
+    // band_inner/band_outer are the caller's per-column envelope (see
+    // shape_envelope): the displacement fades to zero by band_outer, so the
+    // surface can never leave that band no matter how large the strength is.
+    static float density_from_shape(float delta, float shape_strength, float shape,
+                                   float band_inner, float band_outer) {
         const float surface_distance = std::abs(delta);
-        const float surface_band =
-            1.0f - smoothstep(SURFACE_BAND_INNER, SURFACE_BAND_OUTER, surface_distance);
+        float surface_band;
+        if (band_outer <= band_inner) {
+            // Degenerate envelope (weirdness_size 0): a hard cutoff at
+            // band_outer, since smoothstep would divide by zero here.
+            surface_band = (surface_distance < band_outer) ? 1.0f : 0.0f;
+        } else {
+            surface_band = 1.0f - smoothstep(band_inner, band_outer, surface_distance);
+        }
         return delta + shape * shape_strength * surface_band;
+    }
+
+    // Per-column 3D-shaping envelope. weirdness_size scales BOTH halves of
+    // the shape: how far terrain is displaced (strength) and how many blocks
+    // around the macro surface may be altered (the inner/outer band). 1.0 is
+    // the neutral envelope from params + SURFACE_BAND_INNER/OUTER; 0 means
+    // the zone alters nothing.
+    struct ShapeEnvelope {
+        float strength   = 0.0f;
+        float band_inner = 0.0f;
+        float band_outer = 0.0f;
+    };
+
+    [[nodiscard]] ShapeEnvelope shape_envelope(float weirdness,
+                                              float weirdness_size) const {
+        const float size = std::max(weirdness_size, 0.0f);
+        ShapeEnvelope e;
+        e.strength = lerp(params.shape_strength_min, params.shape_strength_max,
+                          clamp01(weirdness)) * size;
+        e.band_inner = SURFACE_BAND_INNER * size;
+        e.band_outer = SURFACE_BAND_OUTER * size;
+        return e;
     }
 
     // -------------------------------------------------------------------------
@@ -395,7 +430,7 @@ private:
     // Amplification blending across biome borders
     //
     // Each 4-block climate-lattice node's effective knobs (height /
-    // weirdness / min_weirdness) are the arithmetic mean over the biome nodes
+    // weirdness / min_weirdness / weirdness_size) are the arithmetic mean over the biome nodes
     // within climate_blend_radius_nodes (each node of radius = ~4 blocks of
     // transition on each side of a border). A uniform average makes the knobs
     // ramp linearly from one biome's plateau to the next across the whole
@@ -415,7 +450,7 @@ private:
     BiomeAmplification blend_amplitudes(BiomeAt biome_at) const {
         const int32_t R = std::min(std::max(params.climate_blend_radius_nodes, 0),
                                    CLIMATE_BLEND_MAX_RADIUS);
-        double h_sum = 0.0, w_sum = 0.0, m_sum = 0.0;
+        double h_sum = 0.0, w_sum = 0.0, m_sum = 0.0, s_sum = 0.0;
         double n = 0.0;
         for (int32_t dj = -R; dj <= R; ++dj) {
             for (int32_t di = -R; di <= R; ++di) {
@@ -424,6 +459,7 @@ private:
                 h_sum += static_cast<double>(a.height);
                 w_sum += static_cast<double>(a.weirdness);
                 m_sum += static_cast<double>(a.min_weirdness);
+                s_sum += static_cast<double>(a.weirdness_size);
                 n += 1.0;
             }
         }
@@ -431,6 +467,7 @@ private:
         out.height = static_cast<float>(h_sum / n);
         out.weirdness = static_cast<float>(w_sum / n);
         out.min_weirdness = static_cast<float>(m_sum / n);
+        out.weirdness_size = static_cast<float>(s_sum / n);
         return out;
     }
 
@@ -471,6 +508,8 @@ private:
                              lerp(v01.weirdness, v11.weirdness, fx), fz);
         out.min_weirdness = lerp(lerp(v00.min_weirdness, v10.min_weirdness, fx),
                                  lerp(v01.min_weirdness, v11.min_weirdness, fx), fz);
+        out.weirdness_size = lerp(lerp(v00.weirdness_size, v10.weirdness_size, fx),
+                                  lerp(v01.weirdness_size, v11.weirdness_size, fx), fz);
         return out;
     }
 
@@ -553,17 +592,18 @@ private:
 
     // Signed density at a world point. >0 solid, <=0 air. `weirdness` is
     // cached per column by the chunk generator (see generate_chunk) and
-    // clamped to [0,1] here so strength stays in [SHAPE_STRENGTH_MIN, MAX].
+    // clamped to [0,1] here so strength stays in [SHAPE_STRENGTH_MIN, MAX];
+    // `weirdness_size` is that column's envelope scale (1.0 = neutral).
     float sample_terrain_density(int32_t world_x, int32_t world_y, int32_t world_z,
-                                 const ColumnSample& column, float weirdness) const {
+                                 const ColumnSample& column, float weirdness,
+                                 float weirdness_size) const {
         // Existing terrain remains the macro surface.
         const float delta = column.height - static_cast<float>(world_y);
-        const float shape_strength =
-            lerp(params.shape_strength_min, params.shape_strength_max, clamp01(weirdness));
+        const ShapeEnvelope env = shape_envelope(weirdness, weirdness_size);
         // Centred (signed) 3D shape noise — NOT a ridged/absolute field, which
         // would shift the average height instead of displacing the boundary.
         const float shape = sample_shape_3d_interp(world_x, world_y, world_z);
-        return density_from_shape(delta, shape_strength, shape);
+        return density_from_shape(delta, env.strength, shape, env.band_inner, env.band_outer);
     }
 
     // -------------------------------------------------------------------------
@@ -594,6 +634,20 @@ public:
 float max_water_h = -1.0f;
     };
     HeightRange get_chunk_height_range(int32_t chunk_x, int32_t chunk_z) const;
+
+    // Bounds how far the 3D shape can push the real surface from the macro
+    // heightmap: the widest surface band in the biome config, plus slack.
+    // Every height range is padded by this, and the fully-above/below chunk
+    // fast paths trust it, so it must never be smaller than the largest
+    // per-column shape_envelope().band_outer. Neutral config (every
+    // weirdness_size = 1.0) gives SURFACE_BAND_OUTER + slack = 30.
+    [[nodiscard]] float density_margin() const {
+        float outer = SURFACE_BAND_OUTER;
+        for (const BiomeAmplification& a : biome_config.amplification) {
+            outer = std::max(outer, SURFACE_BAND_OUTER * std::max(a.weirdness_size, 0.0f));
+        }
+        return outer + DENSITY_MARGIN_SLACK;
+    }
     BlockID get_chunk_subsurface_block(int32_t chunk_x, int32_t chunk_z) const;
 
     // -------------------------------------------------------------------------
@@ -706,11 +760,12 @@ float max_water_h = -1.0f;
     float sample_terrain_density(int32_t world_x, int32_t world_y, int32_t world_z,
                                  const ColumnSample& column) const {
         const BiomeAmplification blended = blend_amplification_at(world_x, world_z);
+        const BiomeAmplification& amp = amplification_for(column.biome, blended);
         return sample_terrain_density(
             world_x, world_y, world_z, column,
             amplified_weirdness(sample_weirdness(static_cast<float>(world_x),
-                                                 static_cast<float>(world_z)),
-                                amplification_for(column.biome, blended)));
+                                                 static_cast<float>(world_z)), amp),
+            amp.weirdness_size);
     }
 
     // Real topmost air-to-solid transition for a column. The macro heightmap
@@ -763,6 +818,7 @@ float max_water_h = -1.0f;
         float temperature = 0.0f;
         float humidity = 0.0f;
         float weirdness = 0.0f;  // cached 3D-shaping mask for this column
+        float weirdness_size = 1.0f;  // cached shape envelope scale (1.0 = neutral)
         int32_t surface_y = -1;  // topmost density surface inside this chunk, -1 if none
     };
 

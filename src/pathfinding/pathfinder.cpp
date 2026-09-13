@@ -116,7 +116,13 @@ NavPath Pathfinder::search(const NavQuery& query) const {
         ++expansions;
 
         const NavNode cur = node_from_key(top.key);
-        if (cur.x == goal.x && cur.z == goal.z && (!query.exact_goal_y || cur.y == goal.y)) {
+        // The column alone is not the goal: a column can hold more than one
+        // standable surface (the ground under a floating staircase is in the same
+        // column as the step above it), and accepting any of them ends a route
+        // under its target. Nodes are anchored to their column's surface, so an
+        // arrival that genuinely reached the goal lands on the goal's own cell.
+        if (cur.x == goal.x && cur.z == goal.z &&
+            std::abs(cur.y - goal.y) <= query.goal_y_slack) {
             found = true;
             found_key = top.key;
             break;

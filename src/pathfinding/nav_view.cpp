@@ -55,6 +55,15 @@ NavView::Column NavView::compute_column(int32_t x, int32_t z, int32_t hint_y) co
         load_buffer(x, z, lowest, std::min(box_.max_y, start + kClearanceReach));
     }
 
+    // The top of a collision too thin to be a surface in its own right. The agent
+    // still walks over it, so the surface it ends up on is never *below* this:
+    // reporting the ground under a sub-block detail instead would leave that
+    // detail inside the agent's body, and the column would read as blocked. That
+    // is exactly how a 1/16-high block like gravel_path turned every path in the
+    // world into an obstacle.
+    float raised_top = -1.0f;
+    int32_t raised_cell = 0;
+
     bool liquid_passed = false;
     for (int32_t y = start; y >= lowest; --y) {
         const Cell c = sampler_(x, y, z);
@@ -70,19 +79,37 @@ NavView::Column NavView::compute_column(int32_t x, int32_t z, int32_t hint_y) co
                 liquid_passed = true;
                 break;
             case CellClass::Partial:
-            case CellClass::Solid:
-                if (c.hi >= costs_.min_stand_top) {
-                    col.found = true;
-                    col.surface_cell = y;
-                    col.surface_top = static_cast<float>(y) + c.hi;
-                    col.liquid = liquid_passed;
-                    col.clearance = body_fits(x, z, col.surface_top);
-                    return col;
+            case CellClass::Solid: {
+                const float block_top = static_cast<float>(y) + c.hi;
+                if (c.hi < costs_.min_stand_top) {
+                    // Thinner than anything an agent stands on by itself (a decal,
+                    // a lip). Keep looking down for real ground, but remember it.
+                    if (block_top > raised_top) {
+                        raised_top = block_top;
+                        raised_cell = y;
+                    }
+                    break;
                 }
-                // Collision too low to stand on (snow layer, fence top): keep
-                // looking down for real ground.
-                break;
+                const bool raised = raised_top > block_top;
+                col.found = true;
+                col.surface_cell = raised ? raised_cell : y;
+                col.surface_top = raised ? raised_top : block_top;
+                col.liquid = liquid_passed;
+                col.clearance = body_fits(x, z, col.surface_top);
+                return col;
+            }
         }
+    }
+
+    // Nothing but sub-block detail in the whole scan: the agent stands on the
+    // highest of it, which is what an unloaded-thin-platform or a lone decal
+    // over a void amounts to.
+    if (raised_top > static_cast<float>(lowest)) {
+        col.found = true;
+        col.surface_cell = raised_cell;
+        col.surface_top = raised_top;
+        col.liquid = liquid_passed;
+        col.clearance = body_fits(x, z, raised_top);
     }
     return col;
 }

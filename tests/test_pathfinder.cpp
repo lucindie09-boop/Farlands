@@ -193,6 +193,20 @@ TEST_CASE("Pathfinder climbs to a goal above a walkable space instead of stoppin
 
     CHECK(beside_path.found);
     CHECK(beside_path.nodes.back() == beside.goal);
+
+    // The brute-force reference has to agree, on the same graph with the same
+    // costs. This is the case that pins ITS goal rule: a Dijkstra that accepted
+    // the goal's column alone stops on the ground under the flight, nineteen
+    // blocks below the target, and reports a far cheaper "optimum" than the only
+    // real route — which would make the optimality comparisons above and below
+    // meaningless, and would fail a correct planner.
+    MoveGenerator beside_gen(beside_view, NavCosts{});
+    const float beside_cost = nt::path_cost(beside_view, beside_gen, beside_path.nodes);
+    CHECK(beside_cost > 0.0f);
+    const nt::DijkstraResult beside_best =
+        nt::dijkstra_cost(beside_view, beside_gen, beside.start, beside.goal);
+    CHECK(beside_best.cost > 0.0f);
+    CHECK(beside_cost == doctest::Approx(beside_best.cost).epsilon(1e-3f));
 }
 
 TEST_CASE("Pathfinder returns a usable partial route when the clock runs out") {
@@ -311,6 +325,41 @@ TEST_CASE("Pathfinder matches brute-force Dijkstra over a winding maze") {
     NavView view = nt::make_view(w, 24);
     Pathfinder finder(view, NavCosts{});
     MoveGenerator gen(view, NavCosts{});
+
+    NavQuery q;
+    q.start = NavNode{0, 10, 0};
+    q.goal = NavNode{15, 10, 0};
+    q.max_expansions = 200000;
+    const NavPath path = finder.search(q);
+
+    CHECK(path.found);
+    const float astar_cost = nt::path_cost(view, gen, path.nodes);
+    CHECK(astar_cost > 0.0f);
+
+    const nt::DijkstraResult best = nt::dijkstra_cost(view, gen, q.start, q.goal);
+    CHECK(best.cost > 0.0f);
+    CHECK(astar_cost == doctest::Approx(best.cost).epsilon(1e-3f));
+}
+
+TEST_CASE("Pathfinder matches brute-force Dijkstra under a rescaled cost table") {
+    // The search's estimate of the remaining distance has to be expressed in the
+    // cost table's own units. With the orthogonal unit hardcoded to 1.0, a table
+    // whose walk term is smaller makes every estimate a multiple of the true
+    // distance — an overestimate, which costs A* its optimality while still
+    // returning a legal route. Comparing against Dijkstra on the same graph and
+    // the same costs is what catches that.
+    nt::World w;
+    w.default_ground = 10;
+    for (int32_t z = -8; z <= 4; ++z) w.set_ground(5, z, 12);    // wall, gap above z=4
+    for (int32_t z = -4; z <= 8; ++z) w.set_ground(10, z, 12);   // wall, gap below z=-4
+
+    NavCosts costs;
+    costs.walk = 0.25f;
+    costs.diagonal = 0.35f;
+
+    NavView view = nt::make_view(w, 24);
+    Pathfinder finder(view, costs);
+    MoveGenerator gen(view, costs);
 
     NavQuery q;
     q.start = NavNode{0, 10, 0};

@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <utility>
 
 namespace VoxelEngine {
@@ -12,10 +13,20 @@ namespace nav {
 
 namespace {
 
-// Slack around the two endpoints for the planner's window. A route that has to
-// detour around an obstacle stays inside this, and the window costs nothing
-// unless the search actually visits a column inside it.
-constexpr int32_t kBoxPad = 32;
+// Slack around the two endpoints for the planner's window. A route has to be able
+// to leave the straight line between its ends — around a wall, up the only
+// staircase, out of a dead end — so the window grows with how far apart the ends
+// are. Widening it is nearly free: columns are resolved lazily, and ungenerated
+// chunks stop the search inside it anyway. A fixed 32 was a real failure mode:
+// a wall with its only gap 40 blocks off the line read as "no route".
+constexpr int32_t kMinBoxPad = 32;
+constexpr int32_t kMaxBoxPad = 128;
+
+int32_t search_pad(const NavNode& from, const NavNode& to) {
+    const int32_t separation =
+        std::max(std::abs(from.x - to.x), std::abs(from.z - to.z));
+    return std::clamp(separation / 2 + 16, kMinBoxPad, kMaxBoxPad);
+}
 
 double now_ms() {
     using clock = std::chrono::steady_clock;
@@ -24,13 +35,12 @@ double now_ms() {
 
 } // namespace
 
-PathService::PathService(const ChunkMap& map, ThreadPool& pool)
-    : map_(map), pool_(pool), state_(std::make_shared<State>()) {}
+PathService::PathService(const ChunkMap& map) : map_(map), state_(std::make_shared<State>()) {}
 
 PathService::~PathService() = default;
 
-uint64_t PathService::submit(const NavNode& from, const NavNode& to, int32_t max_expansions,
-                             double max_ms) {
+uint64_t PathService::submit(ThreadPool& pool, const NavNode& from, const NavNode& to,
+                             int32_t max_expansions, double max_ms) {
     const uint64_t id = state_->next_id.fetch_add(1, std::memory_order_relaxed);
 
     NavQuery query;
@@ -43,7 +53,7 @@ uint64_t PathService::submit(const NavNode& from, const NavNode& to, int32_t max
     auto source = std::make_shared<ChunkMapNavSource>(map_);
     std::shared_ptr<State> state = state_;
     state->pending.fetch_add(1, std::memory_order_relaxed);
-    pool_.fire_and_forget([state, id, source, query]() {
+    pool.fire_and_forget([state, id, source, query]() {
         run(state, id, source, query);
     });
     return id;
@@ -53,10 +63,11 @@ void PathService::run(const std::shared_ptr<State>& state, uint64_t id,
                       std::shared_ptr<ChunkMapNavSource> source, NavQuery query) {
     const double start_ms = now_ms();
 
-    const int32_t min_x = std::min(query.start.x, query.goal.x) - kBoxPad;
-    const int32_t max_x = std::max(query.start.x, query.goal.x) + kBoxPad;
-    const int32_t min_z = std::min(query.start.z, query.goal.z) - kBoxPad;
-    const int32_t max_z = std::max(query.start.z, query.goal.z) + kBoxPad;
+    const int32_t pad = search_pad(query.start, query.goal);
+    const int32_t min_x = std::min(query.start.x, query.goal.x) - pad;
+    const int32_t max_x = std::max(query.start.x, query.goal.x) + pad;
+    const int32_t min_z = std::min(query.start.z, query.goal.z) - pad;
+    const int32_t max_z = std::max(query.start.z, query.goal.z) + pad;
     const NavBox box{min_x, 0, min_z, max_x, WORLD_HEIGHT_Y - 1, max_z};
 
     const NavCosts costs;

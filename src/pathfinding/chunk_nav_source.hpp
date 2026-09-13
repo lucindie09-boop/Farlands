@@ -9,7 +9,8 @@
 //  * sample()      — one cell, one locked accessor call. Correct and simple, but
 //                    a column scan of thirty cells takes thirty shared_lock
 //                    acquisitions, each contending with chunk generation and
-//                    meshing on the same shard.
+//                    meshing on the same shard. (Residency is answered from
+//                    under that same lock, so a cell never costs two.)
 //  * read_column() — a whole column range in one pass: the shards of the chunks
 //                    the range touches are locked once (lock_keys, ascending
 //                    order), every cell is classified through the
@@ -55,16 +56,24 @@ class ChunkMapNavSource {
 public:
     explicit ChunkMapNavSource(const ChunkMap& map) : map_(map) {}
 
-    // One cell. Takes and releases a shared shard lock for that cell alone.
+    // One cell. Takes and releases one shared shard lock for that cell alone,
+    // and answers residency from under it, so the counter charges a sampled cell
+    // exactly what it costs — one acquisition, the same unit read_column spends
+    // per column. Asking the map for residency separately would take a second
+    // lock on the first cell of every chunk, which is what the counter used to
+    // hide.
     [[nodiscard]] Cell sample(int32_t x, int32_t y, int32_t z) {
         if (y < 0 || y >= WORLD_HEIGHT_Y) return Cell{CellClass::Unknown, 0.0f, 0.0f};
         ++cells_read_;
-        ++lock_acquisitions_;  // the locked accessor below takes one
 
         int32_t cx, cy, cz, lx, ly, lz;
         world_to_chunk_local(x, y, z, cx, cy, cz, lx, ly, lz);
-        if (!resident(cx, cy, cz)) return Cell{CellClass::Unknown, 0.0f, 0.0f};
-        return classify_block(static_cast<BlockID>(map_.get_block_world(x, y, z)));
+        const uint64_t key = map_.get_chunk_key(cx, cy, cz);
+        const uint64_t keys[1] = {key};
+        auto lock = map_.lock_keys(keys);
+        ++lock_acquisitions_;
+        if (!resident_while_locked(key)) return Cell{CellClass::Unknown, 0.0f, 0.0f};
+        return classify_block(static_cast<BlockID>(map_.get_block_world_fast(x, y, z)));
     }
 
     // Every cell of (x, z) in [y_lo, y_hi], written to out[y - y_lo]. The whole
@@ -133,16 +142,6 @@ private:
         const auto it = residency_.find(key);
         if (it != residency_.end()) return it->second != 0;
         const bool loaded = map_.contains_fast(key);
-        residency_.emplace(key, loaded ? 1 : 0);
-        return loaded;
-    }
-
-    // Same verdict for the per-cell path, which does not hold a lock yet.
-    [[nodiscard]] bool resident(int32_t cx, int32_t cy, int32_t cz) {
-        const uint64_t key = map_.get_chunk_key(cx, cy, cz);
-        const auto it = residency_.find(key);
-        if (it != residency_.end()) return it->second != 0;
-        const bool loaded = map_.has_loaded_chunk(cx, cy, cz);
         residency_.emplace(key, loaded ? 1 : 0);
         return loaded;
     }

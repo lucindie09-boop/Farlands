@@ -56,7 +56,15 @@ struct NavCosts {
     float liquid = 0.6f;           // extra when either end of a move is in liquid
     float max_rise = 1.0f;         // a single move may climb at most this much
     float max_drop = 3.0f;         // a single move may descend at most this much
-    float min_stand_top = 0.5f;    // a surface must reach this high in its cell to stand on
+    // A collision this tall within its cell counts as a surface the agent stands
+    // on, rather than as an obstruction it has to walk around. It is a sixteenth
+    // of a block because that is what the real sub-block details are: gravel_path
+    // (shape `lowered/00625`) has a collision 0.0625 high, and at a half-block
+    // threshold the column scan skipped it, found the ground beneath, and then the
+    // body check saw the same block as an obstruction — making every path block in
+    // the world impassable. Standing on top of it is both walkable and what the
+    // player sees. A collision thinner than this is treated as decoration.
+    float min_stand_top = 0.0625f;
     float body_height = 1.8f;      // agent height used for clearance checks
     float epsilon = 1e-4f;
 };

@@ -63,7 +63,7 @@ var _bob_rotation := Vector3.ZERO
 # Real-time adjustment HUD
 var _hud_panel: Control
 var _hud_visible := false
-var _adjustment_mode := "ARM" # "ARM", "BLOCK", or "ITEM"
+var _adjustment_mode := "ARM" # "ARM", "BLOCK", "ITEM", or "ITEM2"
 var _rotation_x: float = 10.0
 var _rotation_y: float = -16.0
 var _rotation_z: float = 0.0
@@ -81,14 +81,52 @@ var _block_position_x: float = 0.15
 var _block_position_y: float = -0.36
 var _block_position_z: float = 0.23
 
-# Item model adjustment
-var _item_rotation_x: float = 0.0
-var _item_rotation_y: float = -692.0
-var _item_rotation_z: float = 422.0
-var _item_scale: float = 1.17
-var _item_position_x: float = 0.0
-var _item_position_y: float = 0.09
-var _item_position_z: float = 0.46
+# --- Held-item resting positions --------------------------------------------
+# A "resting position" is the rest pose plus the peak pose the swing
+# interpolates toward. There is one per item TYPE rather than per item: "ITEM"
+# is the default for every item, and "ITEM2" is for sprites whose artwork sits a
+# quarter turn round on the sprite plane (the water bucket). Which type an item
+# uses comes from the optional "pose" field in data/items.json ("item2");
+# anything without one is ITEM.
+#
+# ITEM2 is BUILT FROM ITEM in _ready(), with its Z term lowered by
+# ITEM2_Z_DELTA — derived rather than copied, so re-tuning ITEM carries to
+# ITEM2 and the two types can never drift apart. Re-tune either with the F12 HUD
+# (B cycles through the modes) and paste the printed values back here.
+#
+# The ITEM values are the raw F12 HUD readouts, deliberately not normalized:
+# the peak is close to the rest rotations, so interpolating between the two
+# gives a small, natural swing.
+const ITEM2_Z_DELTA := -90.0
+
+var _item_poses := {
+	"ITEM": {
+		"rot": Vector3(0.0, -692.0, 422.0),
+		"pos": Vector3(0.0, 0.09, 0.46),
+		"scale": 1.17,
+		"peak_rot": Vector3(-20.0, -660.0, 372.0),
+		"peak_pos": Vector3(-0.66, -0.03, -0.16),
+	},
+}
+
+# The resting position the HELD item renders with, and the per-item override
+# table read from items.json. Keyed by item id at load time, but named in the
+# file: item ids are positional, so a name is the stable way to refer to an item.
+var _item_pose_name := "ITEM"
+var _item_pose_by_id := {}
+
+# F12 key -> [value index, delta] shared by the ITEM and ITEM2 HUD modes. Index
+# 0..6 is rot xyz, scale, pos xyz — the order the HUD prints. Both modes edit
+# through this one table so neither can drift from the other.
+const ITEM_POSE_KEYS := {
+	KEY_R: [0, -5.0], KEY_F: [0, 5.0],
+	KEY_A: [1, -1.0], KEY_D: [1, 1.0],
+	KEY_W: [2, -5.0], KEY_S: [2, 5.0],
+	KEY_T: [3, -0.01], KEY_G: [3, 0.01],
+	KEY_I: [4, -0.01], KEY_K: [4, 0.01],
+	KEY_J: [5, -0.01], KEY_L: [5, 0.01],
+	KEY_U: [6, -0.01], KEY_O: [6, 0.01],
+}
 
 # Broadcast swing progress/angle (computed in _update_swing_hooks) so
 # _update_item_transform can swing the held item toward its own peak pose.
@@ -134,17 +172,10 @@ const MC_SHOULDER := Vector3(0.67, -0.01, -0.75)
 const PEAK_ROT := Vector3(10.0, 30.0, -5.0)
 const PEAK_POS := Vector3(0.1, 0.19, -1.59)
 
-# Peak-punch pose for the HELD ITEM, manually calculated with the F12 HUD.
-# Kept as the RAW HUD readouts (not normalized) because they're close to the
-# item's resting rotations (_item_rotation_* = 0, -692, 422), so interpolating
-# to these raw values gives a small, natural swing. It hangs from a different
-# base than the hand, so it has its own end point on the same curve.
-const PEAK_ROT_ITEM := Vector3(-20.0, -660.0, 372.0)
-const PEAK_POS_ITEM := Vector3(-0.66, -0.03, -0.16)
-
 # Peak-punch pose for the HELD BLOCK, read from the F12 BLOCK-mode HUD
 # (_block_rotation_* / _block_position_*, rest = 0, -7, 0 / 0.15, -0.36, 0.23).
-# Fill in with the values found via the F12 HUD, same as PEAK_ROT_ITEM/PEAK_POS_ITEM.
+# Fill in with the values found via the F12 HUD, same as the item peak poses in
+# _item_poses above.
 const PEAK_ROT_BLOCK := Vector3(-70.0, 30.0, 45.0)
 const PEAK_POS_BLOCK := Vector3(-0.65, -0.02, -0.16)
 
@@ -157,8 +188,21 @@ func _ready() -> void:
 	if _player != null and _player.has_signal("crafting_table_used"):
 		_player.crafting_table_used.connect(place)
 	
+	# ITEM2 is ITEM with its Z term lowered: one definition, so re-tuning ITEM (or
+	# its peak) can never leave ITEM2 stale. Built before _create_hud(), which
+	# reads the table for its initial labels.
+	var item_pose: Dictionary = _item_poses["ITEM"]
+	_item_poses["ITEM2"] = {
+		"rot": item_pose["rot"] + Vector3(0.0, 0.0, ITEM2_Z_DELTA),
+		"pos": item_pose["pos"],
+		"scale": item_pose["scale"],
+		"peak_rot": item_pose["peak_rot"] + Vector3(0.0, 0.0, ITEM2_Z_DELTA),
+		"peak_pos": item_pose["peak_pos"],
+	}
+
 	_load_block_definitions()
 	_load_block_shapes()
+	_load_item_poses()
 
 	# Shared container that gets the swing bob and equip nudge.
 	_hand_bob = Node3D.new()
@@ -426,6 +470,9 @@ func _refresh_held_item() -> void:
 	if id != _block_id:
 		_prev_block_id = _block_id
 		_block_id = id
+		# Which resting position this item declares (items.json "pose"). Keyed off
+		# _block_id because that is the id _update_item_transform renders.
+		_item_pose_name = _item_pose_by_id.get(id, "ITEM")
 		_equip = 0.0 # start equip animation
 		_is_swapping = (_prev_block_id != -2) # only swap if we had a previous item
 	
@@ -473,7 +520,7 @@ func _refresh_held_item() -> void:
 		else:
 			_item.mesh = _cube_mesh # Fallback
 		
-		_item_scale_node.scale = Vector3.ONE * _item_scale
+		_item_scale_node.scale = Vector3.ONE * float(_item_poses[_item_pose_name]["scale"])
 		# Apply item adjustments
 		_update_item_transform()
 	else:
@@ -611,7 +658,7 @@ func _create_hud() -> void:
 	_hud_panel.add_child(label)
 	
 	var instructions := Label.new()
-	instructions.text = "R/F: X rot | A/D: Y rot | W/S: Z rot | T/G: Scale | I/K/J/L/U/O: Position | B: Cycle Arm/Block/Item"
+	instructions.text = "R/F: X rot | A/D: Y rot | W/S: Z rot | T/G: Scale | I/K/J/L/U/O: Position | B: Cycle Arm/Block/Item/Item2"
 	instructions.position = Vector2(10, 30)
 	instructions.add_theme_font_size_override("font_size", 12)
 	_hud_panel.add_child(instructions)
@@ -641,11 +688,13 @@ func _input(event: InputEvent) -> void:
 			_hud_visible = !_hud_visible
 			_hud_panel.visible = _hud_visible
 		elif event.keycode == KEY_B and event.pressed and _hud_visible:
-			# Cycle through ARM -> BLOCK -> ITEM -> ARM
+			# Cycle through ARM -> BLOCK -> ITEM -> ITEM2 -> ARM
 			if _adjustment_mode == "ARM":
 				_adjustment_mode = "BLOCK"
 			elif _adjustment_mode == "BLOCK":
 				_adjustment_mode = "ITEM"
+			elif _adjustment_mode == "ITEM":
+				_adjustment_mode = "ITEM2"
 			else:
 				_adjustment_mode = "ARM"
 			_update_hud_labels()
@@ -738,49 +787,9 @@ func _input(event: InputEvent) -> void:
 				elif event.keycode == KEY_O and event.pressed:
 					_block_position_z += 0.01
 					changed = true
-			else: # ITEM mode
-				if event.keycode == KEY_R and event.pressed:
-					_item_rotation_x -= 5.0
-					changed = true
-				elif event.keycode == KEY_F and event.pressed:
-					_item_rotation_x += 5.0
-					changed = true
-				elif event.keycode == KEY_A and event.pressed:
-					_item_rotation_y -= 1.0
-					changed = true
-				elif event.keycode == KEY_D and event.pressed:
-					_item_rotation_y += 1.0
-					changed = true
-				elif event.keycode == KEY_W and event.pressed:
-					_item_rotation_z -= 5.0
-					changed = true
-				elif event.keycode == KEY_S and event.pressed:
-					_item_rotation_z += 5.0
-					changed = true
-				elif event.keycode == KEY_T and event.pressed:
-					_item_scale -= 0.01
-					changed = true
-				elif event.keycode == KEY_G and event.pressed:
-					_item_scale += 0.01
-					changed = true
-				elif event.keycode == KEY_I and event.pressed:
-					_item_position_x -= 0.01
-					changed = true
-				elif event.keycode == KEY_K and event.pressed:
-					_item_position_x += 0.01
-					changed = true
-				elif event.keycode == KEY_J and event.pressed:
-					_item_position_y -= 0.01
-					changed = true
-				elif event.keycode == KEY_L and event.pressed:
-					_item_position_y += 0.01
-					changed = true
-				elif event.keycode == KEY_U and event.pressed:
-					_item_position_z -= 0.01
-					changed = true
-				elif event.keycode == KEY_O and event.pressed:
-					_item_position_z += 0.01
-					changed = true
+			elif _adjustment_mode == "ITEM" or _adjustment_mode == "ITEM2":
+				if event.pressed:
+					changed = _edit_item_pose(event.keycode)
 			
 			if changed:
 				if _adjustment_mode == "ARM":
@@ -845,14 +854,67 @@ func _update_hud_labels() -> void:
 			labels[5].text = "Pos X : " + str(_block_position_x)
 			labels[6].text = "Pos Y : " + str(_block_position_y)
 			labels[7].text = "Pos Z : " + str(_block_position_z)
-		else: # ITEM
-			labels[1].text = "X Rot : " + str(_item_rotation_x)
-			labels[2].text = "Y Rot : " + str(_item_rotation_y)
-			labels[3].text = "Z Rot : " + str(_item_rotation_z)
-			labels[4].text = "Scale : " + str(_item_scale)
-			labels[5].text = "Pos X : " + str(_item_position_x)
-			labels[6].text = "Pos Y : " + str(_item_position_y)
-			labels[7].text = "Pos Z : " + str(_item_position_z)
+		else: # ITEM or ITEM2
+			var pose: Dictionary = _item_poses[_adjustment_mode]
+			var rot: Vector3 = pose["rot"]
+			var pos: Vector3 = pose["pos"]
+			labels[1].text = "X Rot : " + str(rot.x)
+			labels[2].text = "Y Rot : " + str(rot.y)
+			labels[3].text = "Z Rot : " + str(rot.z)
+			labels[4].text = "Scale : " + str(pose["scale"])
+			labels[5].text = "Pos X : " + str(pos.x)
+			labels[6].text = "Pos Y : " + str(pos.y)
+			labels[7].text = "Pos Z : " + str(pos.z)
+
+# Applies an F12 key to the item resting position currently selected in the HUD.
+# Returns true when the key edited something. ITEM and ITEM2 share this, so the
+# mode only decides which resting position is edited.
+func _edit_item_pose(keycode: Key) -> bool:
+	if not ITEM_POSE_KEYS.has(keycode):
+		return false
+	var spec: Array = ITEM_POSE_KEYS[keycode]
+	var pose: Dictionary = _item_poses[_adjustment_mode]
+	var delta := float(spec[1])
+	match int(spec[0]):
+		0: pose["rot"] = pose["rot"] + Vector3(delta, 0.0, 0.0)
+		1: pose["rot"] = pose["rot"] + Vector3(0.0, delta, 0.0)
+		2: pose["rot"] = pose["rot"] + Vector3(0.0, 0.0, delta)
+		3: pose["scale"] = pose["scale"] + delta
+		4: pose["pos"] = pose["pos"] + Vector3(delta, 0.0, 0.0)
+		5: pose["pos"] = pose["pos"] + Vector3(0.0, delta, 0.0)
+		6: pose["pos"] = pose["pos"] + Vector3(0.0, 0.0, delta)
+	return true
+
+# Reads the optional "pose" field from data/items.json and resolves each entry to
+# its item id, so a held item can pick its resting position. Entries are matched
+# by NAME, not by id: item ids are positional (FIRST_ITEM_ID + index), so they
+# shift whenever an entry is inserted rather than appended.
+func _load_item_poses() -> void:
+	var file := FileAccess.open("res://data/items.json", FileAccess.READ)
+	if file == null:
+		return
+
+	var json_text := file.get_as_text()
+	file.close()
+
+	var json := JSON.new()
+	if json.parse(json_text) != OK:
+		print("Failed to parse items.json: " + json.get_error_message())
+		return
+
+	if not (json.data is Dictionary):
+		return
+	for entry in json.data.get("items", []):
+		var pose := String(entry.get("pose", "")).to_upper()
+		if pose.is_empty():
+			continue
+		if not _item_poses.has(pose):
+			print("items.json: '%s' asks for unknown pose '%s'; known are %s"
+				% [entry.get("name", "?"), pose, str(_item_poses.keys())])
+			continue
+		var id := BlockTextures.get_block_id_by_name(String(entry.get("name", "")))
+		if id > 0:
+			_item_pose_by_id[id] = pose
 
 func _update_block_transform() -> void:
 	if _item_scale_node != null and _block_id > 0 and not BlockTextures.is_item(_block_id):
@@ -873,21 +935,24 @@ func _update_block_transform() -> void:
 
 func _update_item_transform() -> void:
 	if _item_scale_node != null and _block_id > 0 and BlockTextures.is_item(_block_id):
-		# Interpolate the item's resting pose toward its tuned peak on the same
+		# Interpolate the item resting position toward its tuned peak on the same
 		# 's' curve as the arm, plus a perpendicular arc (sin(angle) two-sided).
-		# This is applied in F12 ITEM space, so at s=1 the item reaches
-		# PEAK_POS_ITEM / PEAK_ROT_ITEM exactly. The swing math lives in C++
+		# This is applied in F12 ITEM space, so at s=1 the item reaches the peak
+		# pose exactly. The swing math lives in C++
 		# (ViewmodelPose.compute_swing_transform).
+		var pose: Dictionary = _item_poses[_item_pose_name]
+		var rot: Vector3 = pose["rot"]
+		var pos: Vector3 = pose["pos"]
 		var tf := ViewmodelPose.compute_swing_transform(
 			_swing_s, _swing_angle,
-			_item_position_x, _item_position_y, _item_position_z,
-			_item_rotation_x, _item_rotation_y, _item_rotation_z,
-			PEAK_POS_ITEM, PEAK_ROT_ITEM
+			pos.x, pos.y, pos.z,
+			rot.x, rot.y, rot.z,
+			pose["peak_pos"], pose["peak_rot"]
 		)
 
 		_item_scale_node.position = tf["position"]
 		_item_scale_node.rotation_degrees = tf["rotation_degrees"]
-		_item_scale_node.scale = Vector3.ONE * _item_scale
+		_item_scale_node.scale = Vector3.ONE * float(pose["scale"])
 
 func _generate_item_mesh(texture: Texture2D) -> ArrayMesh:
 	# Extruded-sprite geometry (front/back faces + silhouette rims) is built

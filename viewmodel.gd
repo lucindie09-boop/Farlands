@@ -34,6 +34,12 @@ var _cube_mesh: ArrayMesh
 var _stick_mesh: BoxMesh
 var _block_id := -2
 var _prev_block_id := -2
+# The id ACTUALLY on screen this frame. It differs from _block_id for the first
+# half of a swap, when the outgoing item is still the one being drawn — so the
+# pose and the transform must be taken from THIS, not from _block_id, or the
+# outgoing item gets rendered with the incoming item's resting position (a
+# bucket -> stick swap turned the bucket a quarter turn during the unequip).
+var _display_id := -2
 var _equip := 0.0
 var _is_swapping := false
 var _swing := 0.0          # punch/break swing progress (1 -> 0)
@@ -109,10 +115,9 @@ var _item_poses := {
 	},
 }
 
-# The resting position the HELD item renders with, and the per-item override
-# table read from items.json. Keyed by item id at load time, but named in the
-# file: item ids are positional, so a name is the stable way to refer to an item.
-var _item_pose_name := "ITEM"
+# Per-item resting-position overrides, read from items.json. Keyed by item id at
+# load time but named in the file: item ids are positional, so a name is the
+# stable way to refer to an item. A missing entry means the default ITEM pose.
 var _item_pose_by_id := {}
 
 # F12 key -> [value index, delta] shared by the ITEM and ITEM2 HUD modes. Index
@@ -470,9 +475,6 @@ func _refresh_held_item() -> void:
 	if id != _block_id:
 		_prev_block_id = _block_id
 		_block_id = id
-		# Which resting position this item declares (items.json "pose"). Keyed off
-		# _block_id because that is the id _update_item_transform renders.
-		_item_pose_name = _item_pose_by_id.get(id, "ITEM")
 		_equip = 0.0 # start equip animation
 		_is_swapping = (_prev_block_id != -2) # only swap if we had a previous item
 	
@@ -480,10 +482,12 @@ func _refresh_held_item() -> void:
 	if _equip >= 1.0:
 		_is_swapping = false
 	
-	# Determine which item to show based on equip progress
+	# Determine which item to show based on equip progress, and remember it: the
+	# pose and transform below follow what is drawn, not what is being swapped in.
 	var current_display_id: int = id
 	if _is_swapping and _equip < 0.5:
 		current_display_id = _prev_block_id
+	_display_id = current_display_id
 	
 	if current_display_id <= 0:
 		_item.visible = false
@@ -520,7 +524,7 @@ func _refresh_held_item() -> void:
 		else:
 			_item.mesh = _cube_mesh # Fallback
 		
-		_item_scale_node.scale = Vector3.ONE * float(_item_poses[_item_pose_name]["scale"])
+		_item_scale_node.scale = Vector3.ONE * float(_item_poses[_item_pose_for(_display_id)]["scale"])
 		# Apply item adjustments
 		_update_item_transform()
 	else:
@@ -866,6 +870,11 @@ func _update_hud_labels() -> void:
 			labels[6].text = "Pos Y : " + str(pos.y)
 			labels[7].text = "Pos Z : " + str(pos.z)
 
+# The resting position a held item renders with: the one it names in items.json
+# ("pose"), or ITEM for anything that names none.
+func _item_pose_for(id: int) -> String:
+	return _item_pose_by_id.get(id, "ITEM")
+
 # Applies an F12 key to the item resting position currently selected in the HUD.
 # Returns true when the key edited something. ITEM and ITEM2 share this, so the
 # mode only decides which resting position is edited.
@@ -917,7 +926,7 @@ func _load_item_poses() -> void:
 			_item_pose_by_id[id] = pose
 
 func _update_block_transform() -> void:
-	if _item_scale_node != null and _block_id > 0 and not BlockTextures.is_item(_block_id):
+	if _item_scale_node != null and _display_id > 0 and not BlockTextures.is_item(_display_id):
 		# Mirror the held-item swing: interpolate the block's resting pose toward
 		# its tuned peak (F12 BLOCK mode) on the same 's' curve, plus the same
 		# two-sided perpendicular arc. The swing interpolation math lives in C++
@@ -934,13 +943,13 @@ func _update_block_transform() -> void:
 		_item_scale_node.scale = Vector3.ONE * _block_scale
 
 func _update_item_transform() -> void:
-	if _item_scale_node != null and _block_id > 0 and BlockTextures.is_item(_block_id):
+	if _item_scale_node != null and _display_id > 0 and BlockTextures.is_item(_display_id):
 		# Interpolate the item resting position toward its tuned peak on the same
 		# 's' curve as the arm, plus a perpendicular arc (sin(angle) two-sided).
 		# This is applied in F12 ITEM space, so at s=1 the item reaches the peak
 		# pose exactly. The swing math lives in C++
 		# (ViewmodelPose.compute_swing_transform).
-		var pose: Dictionary = _item_poses[_item_pose_name]
+		var pose: Dictionary = _item_poses[_item_pose_for(_display_id)]
 		var rot: Vector3 = pose["rot"]
 		var pos: Vector3 = pose["pos"]
 		var tf := ViewmodelPose.compute_swing_transform(

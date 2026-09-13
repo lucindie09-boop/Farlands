@@ -60,7 +60,8 @@ uint64_t PathService::submit(ThreadPool& pool, const NavNode& from, const NavNod
 }
 
 void PathService::run(const std::shared_ptr<State>& state, uint64_t id,
-                      std::shared_ptr<ChunkMapNavSource> source, NavQuery query) {
+                      const std::shared_ptr<ChunkMapNavSource>& source,
+                      const NavQuery& query) {
     const double start_ms = now_ms();
 
     const int32_t pad = search_pad(query.start, query.goal);

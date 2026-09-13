@@ -13,6 +13,16 @@
 			"name": "water_bucket",
 			"texture": "water_bucket",
 			"pose": "item2"
+		},
+		{
+			"name": "acid_bucket",
+			"texture": "acid_bucket",
+			"pose": "item2"
+		},
+		{
+			"name": "lava_bucket",
+			"texture": "lava_bucket",
+			"pose": "item2"
 		}
 	]
 }

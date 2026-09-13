@@ -142,9 +142,13 @@ struct NavQuery {
     double max_ms = 0.0;
     // Heuristic weight. 1.0 is optimal; above 1.0 trades optimality for speed.
     float weight = 1.0f;
-    // A ground agent cares about reaching the goal's column, so by default the
-    // search stops there rather than requiring the exact feet cell.
-    bool exact_goal_y = false;
+    // How far the arriving node may sit vertically from the goal's own anchoring.
+    // 0 (the default) means it must be standing on the surface the goal resolved
+    // to, which is what an arriving agent always is. Do NOT loosen this to mean
+    // "anywhere in the goal's column": a column can hold several standable
+    // surfaces, so a column-only test is satisfied by the ground underneath a
+    // floating staircase — a route that stops twenty blocks below its target.
+    int32_t goal_y_slack = 0;
 };
 
 struct NavPath {

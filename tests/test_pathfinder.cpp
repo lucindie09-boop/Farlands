@@ -150,6 +150,51 @@ TEST_CASE("A route cut short by the budget is still a legal chain of moves") {
     CHECK(nt::path_cost(view, gen, path.nodes) > 0.0f);
 }
 
+TEST_CASE("Pathfinder climbs to a goal above a walkable space instead of stopping under it") {
+    // A staircase of floating one-block steps over open ground. The goal column
+    // holds two standable surfaces: the step, and the ground under it. A goal
+    // test that only compares columns declares victory on the ground, twenty
+    // blocks below the target, which is what "it refuses to climb the stairs"
+    // looks like from in game.
+    nt::World w;
+    w.default_ground = 1;
+    constexpr int32_t kSteps = 20;
+    for (int32_t k = 1; k <= kSteps; ++k) {
+        w.set_cell(k, k - 1, 0, CellClass::Solid, 0.0f, 1.0f);
+    }
+
+    NavView view = nt::make_view(w, 32);
+    Pathfinder finder(view, NavCosts{});
+    MoveGenerator gen(view, NavCosts{});
+
+    NavQuery q;
+    q.start = NavNode{0, 1, 0};  // at the foot of the flight
+    q.goal = NavNode{kSteps, kSteps, 0};
+    const NavPath path = finder.search(q);
+
+    CHECK(path.found);
+    CHECK(path.nodes.front() == q.start);
+    CHECK(path.nodes.back() == q.goal);
+    int32_t peak = 0;
+    for (const NavNode& n : path.nodes) peak = std::max(peak, n.y);
+    CHECK(peak == kSteps);
+    CHECK(nt::path_cost(view, gen, path.nodes) > 0.0f);
+
+    // Now start beside the middle of the flight, on the ground. Walking to the
+    // goal's column at ground level is now far cheaper than going back down to
+    // the bottom and climbing — so a goal test that only compares columns is
+    // satisfied nineteen blocks below the target.
+    NavQuery beside = q;
+    beside.start = NavNode{kSteps / 2, 1, 2};
+
+    NavView beside_view = nt::make_view(w, 32);
+    Pathfinder beside_finder(beside_view, NavCosts{});
+    const NavPath beside_path = beside_finder.search(beside);
+
+    CHECK(beside_path.found);
+    CHECK(beside_path.nodes.back() == beside.goal);
+}
+
 TEST_CASE("Pathfinder returns a usable partial route when the clock runs out") {
     nt::World w;
     w.default_ground = 10;

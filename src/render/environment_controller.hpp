@@ -1,5 +1,6 @@
 #ifndef FARLANDS_ENVIRONMENT_CONTROLLER_HPP
 #define FARLANDS_ENVIRONMENT_CONTROLLER_HPP
+#include <algorithm>
 #include <cstdint>
 
 #include <godot_cpp/variant/vector3.hpp>

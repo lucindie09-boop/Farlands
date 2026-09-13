@@ -4,10 +4,11 @@
 #include "core/chunk_map.hpp"
 #include <godot_cpp/variant/vector3.hpp>
 #include "lighting/light_propagation.hpp"
-#include <cstdint>
-#include <vector>
 #include <array>
+#include <cmath>
+#include <cstdint>
 #include <functional>
+#include <vector>
 
 namespace VoxelEngine {
 

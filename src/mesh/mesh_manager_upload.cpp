@@ -1,5 +1,7 @@
 ﻿#include "mesh/mesh_manager_internal.hpp"
 
+#include <algorithm>
+
 #include <godot_cpp/classes/rendering_server.hpp>
 #include <godot_cpp/classes/node3d.hpp>
 #include <godot_cpp/classes/world3d.hpp>

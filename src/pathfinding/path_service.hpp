@@ -25,6 +25,7 @@
 #include "pathfinding/nav_types.hpp"
 
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <mutex>

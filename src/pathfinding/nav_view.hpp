@@ -31,10 +31,12 @@
 #include "pathfinding/nav_types.hpp"
 
 #include <climits>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace VoxelEngine {

@@ -21,11 +21,13 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <memory>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 using namespace VoxelEngine;

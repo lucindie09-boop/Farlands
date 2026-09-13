@@ -3,6 +3,8 @@
 #include "godot_bindings/chunk_manager.hpp"
 #include "godot_bindings/player_controller.hpp"
 
+#include <algorithm>
+
 #include <godot_cpp/classes/camera3d.hpp>
 #include <godot_cpp/classes/array_mesh.hpp>
 #include <godot_cpp/classes/geometry_instance3d.hpp>

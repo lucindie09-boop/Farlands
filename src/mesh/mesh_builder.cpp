@@ -1,5 +1,6 @@
 #include "mesh/mesh_builder.hpp"
 #include <algorithm>
+#include <cmath>
 
 namespace VoxelEngine {
 

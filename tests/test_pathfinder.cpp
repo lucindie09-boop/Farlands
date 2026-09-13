@@ -1,0 +1,219 @@
+#include "doctest.h"
+#include "nav_test_world.hpp"
+#include "pathfinding/pathfinder.hpp"
+
+#include <algorithm>
+
+using namespace VoxelEngine::nav;
+namespace nt = navtest;
+
+TEST_CASE("Pathfinder walks a straight line across level ground") {
+    nt::World w;
+    w.default_ground = 10;
+    NavView view = nt::make_view(w, 32);
+    Pathfinder finder(view, NavCosts{});
+    MoveGenerator gen(view, NavCosts{});
+
+    NavQuery q;
+    q.start = NavNode{0, 10, 0};
+    q.goal = NavNode{20, 10, 0};
+    const NavPath path = finder.search(q);
+
+    CHECK(path.found);
+    CHECK_FALSE(path.truncated);
+    CHECK(path.nodes.size() == 21);
+    CHECK(path.nodes.front() == q.start);
+    CHECK(path.nodes.back() == q.goal);
+    CHECK(nt::path_cost(view, gen, path.nodes) == doctest::Approx(20.0f));
+    for (const NavNode& n : path.nodes) CHECK(n.z == 0);
+    // An exact heuristic on open ground keeps the expansion count tiny.
+    CHECK(path.stats.expansions <= 60);
+}
+
+TEST_CASE("Pathfinder routes through a gap instead of climbing the wall") {
+    nt::World w;
+    w.default_ground = 10;
+    for (int32_t z = -20; z <= 20; ++z) w.set_ground(10, z, 12);
+    w.set_ground(10, 0, 10);  // the doorway
+
+    NavView view = nt::make_view(w, 32);
+    Pathfinder finder(view, NavCosts{});
+
+    NavQuery q;
+    q.start = NavNode{0, 10, 0};
+    q.goal = NavNode{20, 10, 0};
+    const NavPath path = finder.search(q);
+
+    CHECK(path.found);
+    const bool through_door = std::any_of(path.nodes.begin(), path.nodes.end(),
+        [](const NavNode& n) { return n.x == 10 && n.z == 0; });
+    CHECK(through_door);
+}
+
+TEST_CASE("Pathfinder descends a trench and climbs back out one block at a time") {
+    nt::World w;
+    w.default_ground = 10;
+    for (int32_t z = -8; z <= 8; ++z) {
+        w.set_ground(5, z, 9);
+        w.set_ground(6, z, 8);
+        w.set_ground(7, z, 9);
+    }
+    NavView view = nt::make_view(w, 24);
+    Pathfinder finder(view, NavCosts{});
+    MoveGenerator gen(view, NavCosts{});
+
+    NavQuery q;
+    q.start = NavNode{0, 10, 0};
+    q.goal = NavNode{12, 10, 0};
+    const NavPath path = finder.search(q);
+
+    CHECK(path.found);
+    bool crossed_trench = false;
+    int32_t deepest = 99;
+    for (const NavNode& n : path.nodes) {
+        if (n.x >= 5 && n.x <= 7) crossed_trench = true;
+        deepest = std::min(deepest, n.y);
+    }
+    CHECK(crossed_trench);
+    CHECK(deepest == 8);  // it walks the bottom of the trench
+    // Every step in and out is a legal single drop / step up.
+    CHECK(nt::path_cost(view, gen, path.nodes) > 0.0f);
+}
+
+TEST_CASE("Pathfinder reports an unreachable goal as no route") {
+    nt::World w;
+    w.default_ground = 10;
+    for (int32_t x = 18; x <= 22; ++x)
+        for (int32_t z = -2; z <= 2; ++z)
+            w.set_ground(x, z, 12);
+    w.set_ground(20, 0, 10);  // a two-deep well, unreachable from level ground
+
+    NavView view = nt::make_view(w, 32);
+    Pathfinder finder(view, NavCosts{});
+
+    NavQuery q;
+    q.start = NavNode{0, 10, 0};
+    q.goal = NavNode{20, 10, 0};
+    const NavPath path = finder.search(q);
+
+    CHECK_FALSE(path.found);
+    CHECK_FALSE(path.truncated);
+    CHECK(path.stats.budget_exhausted == false);
+    CHECK(finder.last_error() == "no route to the goal column");
+    CHECK_FALSE(path.nodes.empty());
+    CHECK(path.nodes.front() == q.start);
+}
+
+TEST_CASE("Pathfinder truncates to a best-effort run when the budget runs out") {
+    nt::World w;
+    w.default_ground = 10;
+    NavView view = nt::make_view(w, 64);
+    Pathfinder finder(view, NavCosts{});
+
+    NavQuery q;
+    q.start = NavNode{0, 10, 0};
+    q.goal = NavNode{60, 10, 0};
+    q.max_expansions = 1;
+    const NavPath path = finder.search(q);
+
+    CHECK_FALSE(path.found);
+    CHECK(path.truncated);
+    CHECK(path.stats.budget_exhausted);
+    CHECK_FALSE(path.nodes.empty());
+    CHECK(path.nodes.front() == q.start);
+    CHECK(finder.last_error() == "expansion budget exhausted");
+}
+
+TEST_CASE("Pathfinder refuses to start or finish on a broken column") {
+    nt::World w;
+    w.default_ground = 10;
+    w.add_unresident(4, 0);
+    NavView view = nt::make_view(w, 16);
+    Pathfinder finder(view, NavCosts{});
+
+    NavQuery q;
+    q.start = NavNode{0, 10, 0};
+    q.goal = NavNode{4, 10, 0};
+    const NavPath path = finder.search(q);
+    CHECK_FALSE(path.found);
+    CHECK(finder.last_error() == "goal column has no navigable surface");
+
+    NavQuery q2;
+    q2.start = NavNode{4, 10, 0};
+    q2.goal = NavNode{0, 10, 0};
+    const NavPath path2 = finder.search(q2);
+    CHECK_FALSE(path2.found);
+    CHECK(finder.last_error() == "start column has no navigable surface");
+}
+
+TEST_CASE("Pathfinder returns an identical route for identical queries") {
+    nt::World w;
+    w.default_ground = 10;
+    for (int32_t z = -12; z <= 12; ++z) w.set_ground(6, z, 12);
+    w.set_ground(6, 0, 10);
+
+    NavQuery q;
+    q.start = NavNode{0, 10, 0};
+    q.goal = NavNode{14, 10, 0};
+
+    NavView view_a = nt::make_view(w, 24);
+    Pathfinder finder_a(view_a, NavCosts{});
+    const NavPath path_a = finder_a.search(q);
+
+    NavView view_b = nt::make_view(w, 24);
+    Pathfinder finder_b(view_b, NavCosts{});
+    const NavPath path_b = finder_b.search(q);
+
+    CHECK(path_a.found);
+    CHECK(path_b.found);
+    CHECK(path_a.nodes.size() == path_b.nodes.size());
+    if (path_a.nodes.size() == path_b.nodes.size()) {
+        for (size_t i = 0; i < path_a.nodes.size(); ++i) {
+            CHECK(path_a.nodes[i] == path_b.nodes[i]);
+        }
+    }
+}
+
+TEST_CASE("Pathfinder matches brute-force Dijkstra over a winding maze") {
+    nt::World w;
+    w.default_ground = 10;
+    for (int32_t z = -8; z <= 4; ++z) w.set_ground(5, z, 12);    // wall, gap above z=4
+    for (int32_t z = -4; z <= 8; ++z) w.set_ground(10, z, 12);   // wall, gap below z=-4
+
+    NavView view = nt::make_view(w, 24);
+    Pathfinder finder(view, NavCosts{});
+    MoveGenerator gen(view, NavCosts{});
+
+    NavQuery q;
+    q.start = NavNode{0, 10, 0};
+    q.goal = NavNode{15, 10, 0};
+    q.max_expansions = 200000;
+    const NavPath path = finder.search(q);
+
+    CHECK(path.found);
+    const float astar_cost = nt::path_cost(view, gen, path.nodes);
+    CHECK(astar_cost > 0.0f);
+
+    const nt::DijkstraResult best = nt::dijkstra_cost(view, gen, q.start, q.goal);
+    CHECK(best.cost > 0.0f);
+    CHECK(astar_cost == doctest::Approx(best.cost).epsilon(1e-3f));
+}
+
+TEST_CASE("Pathfinder snaps both ends onto their column surfaces") {
+    nt::World w;
+    w.default_ground = 10;
+    NavView view = nt::make_view(w, 16);
+    Pathfinder finder(view, NavCosts{});
+
+    // A goal handed in mid-air (a falling entity, a target above ground) still
+    // resolves to the column's surface.
+    NavQuery q;
+    q.start = NavNode{0, 25, 0};
+    q.goal = NavNode{6, 18, 0};
+    const NavPath path = finder.search(q);
+
+    CHECK(path.found);
+    CHECK(path.nodes.front().y == 10);
+    CHECK(path.nodes.back().y == 10);
+    CHECK(path.nodes.back().x == 6);
+}

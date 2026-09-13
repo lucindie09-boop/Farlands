@@ -41,6 +41,7 @@ A Minecraft-style voxel engine built in Godot 4 with a custom C++ GDExtension. P
 | Biome config | `src/worldgen/biome_config.hpp` + `data/biomes.json` | Per-biome materials, climate thresholds, tree variants loaded from JSON |
 | Terrain config | `src/core/terrain_params.cpp` + `data/terrain_config.json` | Macro-surface tuning loaded from JSON: base height, domain-warp amplitudes, mid/small relief fields, shape-strength range, weirdness thresholds |
 | Collision | `src/engine/collision_resolver.cpp` | Custom binary-search AABB voxel grid query (no Godot physics nodes), step-up support |
+| Pathfinding | `src/pathfinding/` — `nav_types.hpp`, `nav_view.hpp/cpp`, `move_generator.hpp`, `pathfinder.hpp/cpp`, `path_smoother.hpp/cpp` | Ground-route planner with no Godot dependencies: lazy memoised column surfaces (topmost standable surface + body clearance, unresident chunks never traversable), movement primitives as edges (walk/diagonal/step-up/drop/hop) with one cost table, budgeted deterministic A*, and string-pull smoothing. Probed by `bin/path_cost` over real generated terrain |
 | Day/night | `src/world/day_night_cycle.hpp` | Shader-driven sky-light intensity + color blending |
 | Player sim | `src/engine/player_controller.hpp/cpp` | Minecraft-accurate fixed 20-tick/s physics: vanilla jump/sprint/sneak ordering, accumulator, smooth eye-height transitions, fall-distance tracking with vanilla landing damage (1 half-heart per block past 3) |
 | Player camera & body | `src/godot_bindings/player_controller.cpp`, `player_model.gd`, `pose_clone_debug.gd` | F5 cycles first person → behind → in front (face view); the third-person cameras sit on the look ray 4 blocks out and pull in before solid terrain. Block targeting always casts from the player's eye along the look direction (`get_aim_origin`/`get_aim_direction`) so every view aims at the same block. The body lives under a `ModelPivot` applying vanilla's body-yaw lag (torso faces travel direction, head leads up to ±35°) while `player_model.gd` drives the head from the aim direction; `player.glb` pivots are baked onto the true joints by `tools/rebake_player_pivots.py`. K spawns a rigid, punchable physics dummy on the aimed block (vanilla 1.8.8 gravity/drag/knockback) with a marker at each mesh pivot |
@@ -170,6 +171,7 @@ scons
 scons debug    # terrain_debug executable
 scons bench    # benchmark executable (supports --check <baseline>)
 scons test     # builds the doctest suite (see tests/)
+scons path_cost # planner cost over real terrain (bin/path_cost [seed] [max_distance])
 scons fuzz     # libFuzzer harnesses (Linux/macOS, clang required)
 ```
 

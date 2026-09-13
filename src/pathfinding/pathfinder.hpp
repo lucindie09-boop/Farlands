@@ -1,0 +1,63 @@
+#ifndef FARLANDS_NAV_PATHFINDER_HPP
+#define FARLANDS_NAV_PATHFINDER_HPP
+
+// -----------------------------------------------------------------------------
+// A* over the ground movement graph.
+//
+// Nodes are feet cells; edges come from MoveGenerator. The open set is a binary
+// heap ordered by f and then by node key, so an identical query always returns
+// an identical route. The heuristic is the octile distance over columns plus
+// the vertical climb/descend penalties, which stays admissible against the move
+// costs (a climb costs step_up per block, a drop costs fall per block, and both
+// are additive on top of the horizontal leg).
+//
+// The search is budgeted: when the expansion cap runs out it returns the
+// best-effort run toward the frontier node closest to the goal, flagged with
+// NavPath::truncated, so a caller always gets something usable.
+// -----------------------------------------------------------------------------
+
+#include "pathfinding/move_generator.hpp"
+#include "pathfinding/nav_view.hpp"
+
+#include <cstdint>
+#include <string>
+
+namespace VoxelEngine {
+namespace nav {
+
+struct NavQuery {
+    NavNode start{};
+    NavNode goal{};
+
+    // Expansion cap. Reaching it returns a truncated (partial) route.
+    int32_t max_expansions = 20000;
+    // Heuristic weight. 1.0 is optimal; above 1.0 trades optimality for speed.
+    float weight = 1.0f;
+    // A ground agent cares about reaching the goal's column, so by default the
+    // search stops there rather than requiring the exact feet cell.
+    bool exact_goal_y = false;
+};
+
+class Pathfinder {
+public:
+    Pathfinder(const NavView& view, NavCosts costs = NavCosts())
+        : view_(view), costs_(costs), generator_(view, costs_) {}
+
+    [[nodiscard]] NavPath search(const NavQuery& query) const;
+
+    [[nodiscard]] float heuristic(const NavNode& a, const NavNode& b) const;
+
+    // Why the last search came back without a complete route (empty on success).
+    [[nodiscard]] const std::string& last_error() const noexcept { return last_error_; }
+
+private:
+    const NavView& view_;
+    NavCosts costs_;
+    MoveGenerator generator_;
+    mutable std::string last_error_;
+};
+
+} // namespace nav
+} // namespace VoxelEngine
+
+#endif // FARLANDS_NAV_PATHFINDER_HPP

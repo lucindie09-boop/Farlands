@@ -113,8 +113,16 @@ A Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked streamin
 - Loaded in `VoxelEngineController::load_world_configs()` at startup; missing files/keys fall back to built-in defaults that mirror the old hardcoded values
 - Config threads to generation workers via `WorldUpdater` → `ChunkWorld::generate_chunk` (captured per call) → the `thread_local ChunkGenerator`
 
+### Pathfinding (`src/pathfinding/`)
+- **Ground-route planner with no Godot dependencies** — `nav_types.hpp` (cell classes, the cost model, packed node keys), `nav_view.hpp/cpp` (lazy memoised column surfaces), `move_generator.hpp` (the movement primitives), `pathfinder.hpp/cpp` (budgeted deterministic A*), `path_smoother.hpp/cpp` (string-pull). Covered standalone by `tests/test_nav_view|test_move_generator|test_pathfinder|test_path_smoother.cpp`; timing probe is `scons path_cost` (real generated terrain)
+- **Unknown is never traversable**: a cell in an unresident chunk must sample as `CellClass::Unknown`. A raw block query returns AIR for a missing chunk, which would otherwise read as walkable emptiness
+- **Nodes are feet cells, not positions**: vertical movement is an edge kind (step up / drop / hop), which keeps the search 2.5D. `NavView::Column` resolves the topmost standable surface in the window plus whether the body (1.8 blocks) fits on it — a standable block above the ground is simply a *higher surface*, not an obstruction, so what actually blocks a column is a collision the agent cannot stand on sitting in its body's span
+- **Column results are memoised per (x, z, hint)**: the downward scan starts just above the querying node's feet, so a column read from a low vantage cannot see a taller surface above it — the hint is part of the cache key on purpose
+- **`NavPath::truncated` means the expansion budget ran out** (a best-effort run to the frontier node nearest the goal). That is different from `found == false, truncated == false`, which means the search exhausted the whole reachable graph and there is genuinely no route; `Pathfinder::last_error()` says which
+- **All costs live in `NavCosts`**: a level orthogonal step is 1.0, a diagonal √2, climbing `step_up` per block, dropping `fall` per block (at most `max_drop` = 3 per move), hopping a one-cell gap a flat `jump` = 2.0, liquid +0.6. The A* heuristic (octile over columns plus the same vertical terms) is admissible against those move costs. Measured on live terrain (seed 1337): a 192-block cross-country route is ~2,000 expansions / ~2.3 ms on one core, so the single-tier A* is enough at mob-relevant ranges
+
 ### Testing & CI
-- **255 test cases / 181,725 assertions** across 30 doctest files
+- **314 test cases / 212,419 assertions** across 34 doctest files
 - **Cross-platform CI**: 5-leg matrix (ubuntu plain/TSan/ASan+UBSan, macos plain, windows plain) plus fuzz, static-analysis, and coverage jobs
 - **Concurrency tests**: 27 tests for shard locking, deadlock prevention, PaletteStorage, cross-chunk writers, and thread-pool work stealing
 - **Integration soak tests**: Concurrent pipeline simulation with Phase 4 unload to exercise unload vs active work races

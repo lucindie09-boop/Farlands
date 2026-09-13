@@ -72,6 +72,9 @@ shared_sources = [
     "src/render/texture_pack_manager.cpp",
     "src/render/minecraft_pack_converter.cpp",
     "src/render/block_outline_mesh.cpp",
+    "src/pathfinding/nav_view.cpp",
+    "src/pathfinding/pathfinder.cpp",
+    "src/pathfinding/path_smoother.cpp",
 ]
 # Remove any non-existent .cpp files (like crc32.cpp which is header-only)
 shared_sources = [s for s in shared_sources if os.path.exists(str(s))]
@@ -122,6 +125,18 @@ tcost_env = env.Clone()
 tcost_env.Append(LIBS=[])
 tcost_prog = tcost_env.Program("bin/time_column_cost", ["tools/time_column_cost.cpp"] + terrain_tool_objects + [chunk_data_object])
 Alias("time_column_cost", tcost_prog)
+
+# Planner cost on real generated terrain (standalone executable).
+path_env = env.Clone()
+path_env.Append(CPPPATH=["src/"])
+path_env.Append(LIBS=[])
+nav_tool_objects = [shared_obj_by_src[n] for n in [
+    "nav_view", "pathfinder", "path_smoother",
+]]
+path_prog = path_env.Program("bin/path_cost",
+                             ["tools/path_cost.cpp"] + terrain_tool_objects +
+                             [chunk_data_object] + nav_tool_objects)
+Alias("path_cost", path_prog)
 
 # Elevation domain-warp sweep (standalone, renders BMPs for visual comparison).
 warp_env = env.Clone()

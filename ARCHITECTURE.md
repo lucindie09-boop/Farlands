@@ -342,6 +342,11 @@ The following code remains in the codebase but is disabled or unused:
 
 ### Engine
 - `src/engine/collision_resolver.hpp/cpp` — Binary-search collision, step-up
+- `src/pathfinding/nav_types.hpp` — Planner cell classes, `NavCosts`, packed node keys, `NavPath`/`NavStats`
+- `src/pathfinding/nav_view.hpp/cpp` — Lazy memoised view of the world: per-column topmost standable surface, body clearance, liquid flag; unresident chunks resolve to `Unknown` and are never traversable
+- `src/pathfinding/move_generator.hpp` — Movement primitives between columns (walk, diagonal, step up, drop, hop across a one-cell gap) with their legality rules and costs
+- `src/pathfinding/pathfinder.hpp/cpp` — Budgeted deterministic A* over the movement graph (octile + vertical heuristic; `truncated` = budget exhausted, not "no route")
+- `src/pathfinding/path_smoother.hpp/cpp` — String-pull smoothing over an exact 8-connected walkability test
 - `src/engine/player_controller.hpp/cpp` — `PlayerSim` (fixed-timestep simulation, fall-distance tracking + landing damage)
 - `src/engine/voxel_engine_controller.hpp/cpp` — Bridges `ChunkManager` state to the world
 

@@ -8,6 +8,11 @@
 			"name": "cactus_pickaxe",
 			"texture": "cactus_pickaxe",
 			"tool": { "class": "pickaxe", "tier": 1, "speed": 3.0 }
+		},
+		{
+			"name": "water_bucket",
+			"texture": "water_bucket",
+			"pose": "item2"
 		}
 	]
 }

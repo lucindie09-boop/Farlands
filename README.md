@@ -111,7 +111,7 @@ The terrain generation system is data-driven through JSON configuration files:
 - **`data/terrain_config.json`** — Macro-surface tuning: `height_base_y`, domain-warp amplitudes, mid/small relief field spacing/frequency/amplitude, shape-strength range, weirdness thresholds, climate warp amps, amplification blend radius
 - **`data/block_shapes.json`** — Shared shape registry for non-full blocks (slabs, stairs, walls, poles) with selection/collision boxes
 - **`data/recipes.json`** — Crafting recipes (shaped/shapeless) resolved by block name against `block_definitions.json`; grid size and per-recipe results
-- **`data/items.json`** — Non-placeable items (entry order = id, starting at 1024) with an optional `"tool"` object (`class`/`tier`/`speed`) granting a break-speed bonus against blocks whose `preferred_tool` matches
+- **`data/items.json`** — Non-placeable items (entry order = id, starting at 1024; append rather than insert so existing ids keep their meaning) with an optional `"tool"` object (`class`/`tier`/`speed`) granting a break-speed bonus against blocks whose `preferred_tool` matches, and an optional `"pose"` naming the held-item resting position to render with ("item" by default, "item2" for sprites rotated a quarter turn, e.g. the water bucket). Items are non-placeable and have no in-world use action — a functional item needs that hook in `PlayerController`, not just an entry here
 
 These configs are loaded at startup via `VoxelEngineController::load_world_configs()` and threaded to generation workers. Missing files or keys fall back to built-in defaults.
 

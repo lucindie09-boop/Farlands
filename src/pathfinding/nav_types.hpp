@@ -122,6 +122,23 @@ struct NavStats {
     bool budget_exhausted = false;
 };
 
+// A planning request: where the agent is and where it wants to end up, both as
+// feet cells. The search re-anchors both ends onto their column's surface, so a
+// caller may pass an airborne position (a falling entity, a target above
+// ground).
+struct NavQuery {
+    NavNode start{};
+    NavNode goal{};
+
+    // Expansion cap. Reaching it returns a truncated (partial) route.
+    int32_t max_expansions = 20000;
+    // Heuristic weight. 1.0 is optimal; above 1.0 trades optimality for speed.
+    float weight = 1.0f;
+    // A ground agent cares about reaching the goal's column, so by default the
+    // search stops there rather than requiring the exact feet cell.
+    bool exact_goal_y = false;
+};
+
 struct NavPath {
     bool found = false;
     // The expansion budget ran out; the path is the best-effort run to the

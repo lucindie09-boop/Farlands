@@ -13,6 +13,7 @@
 #include "core/block_types.hpp"
 #include "core/chunk_data.hpp"
 #include "core/chunk_coords.hpp"
+#include "pathfinding/block_class.hpp"
 #include "pathfinding/nav_view.hpp"
 #include "pathfinding/pathfinder.hpp"
 #include "pathfinding/path_smoother.hpp"
@@ -63,34 +64,9 @@ uint64_t pack_chunk(int32_t cx, int32_t cy, int32_t cz) {
     return (ux << 42) | (uy << 21) | uz;
 }
 
-// Classifies a block into a nav cell.
-//
-// Note this does NOT consult BlockType::is_full_cube(): the default block set
-// registers every block as a full cube (including air), because that flag is
-// only recomputed from the real shapes once data/block_definitions.json loads
-// under the game runtime. Collision boxes and the Solid property are accurate
-// in both paths, so the shape comes from those.
-nav::Cell classify(BlockID id) {
-    if (id == BlockIDs::AIR) return nav::Cell{nav::CellClass::Air, 0.0f, 0.0f};
-    const BlockRegistry& reg = BlockRegistry::get_instance();
-    const BlockType& bt = reg.get_block_fast(id);
-    if (HasProperty(bt.properties, BlockProperty::Liquid)) {
-        return nav::Cell{nav::CellClass::Liquid, 0.0f, 0.0f};
-    }
-    const auto& boxes = bt.get_collision_boxes();
-    if (boxes.empty()) {
-        return HasProperty(bt.properties, BlockProperty::Solid)
-                   ? nav::Cell{nav::CellClass::Solid, 0.0f, 1.0f}
-                   : nav::Cell{nav::CellClass::Air, 0.0f, 0.0f};
-    }
-    float lo = 1.0f;
-    float hi = 0.0f;
-    for (const auto& b : boxes) {
-        lo = std::min(lo, b.min[1]);
-        hi = std::max(hi, b.max[1]);
-    }
-    return nav::Cell{nav::CellClass::Partial, lo, hi};
-}
+// Block -> nav cell conversion is shared with the in-game source (see
+// pathfinding/block_class.hpp) so the probe and the game cannot drift.
+using nav::classify_block;
 
 struct NavWorld {
     std::unordered_map<uint64_t, std::unique_ptr<ChunkData>> chunks;
@@ -107,7 +83,7 @@ struct NavWorld {
         if (cd == nullptr) return nav::Cell{nav::CellClass::Unknown, 0.0f, 0.0f};
         int32_t cx, cy, cz, lx, ly, lz;
         world_to_chunk_local(wx, wy, wz, cx, cy, cz, lx, ly, lz);
-        return classify(cd->get_block(lx, ly, lz));
+        return classify_block(cd->get_block(lx, ly, lz));
     }
 };
 

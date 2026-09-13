@@ -25,6 +25,9 @@ namespace VoxelEngine {
 class VoxelEngineController;
 class CollisionResolver;
 class Inventory;
+namespace nav {
+class PathService;
+}
 }
 
 namespace VoxelEngine {
@@ -101,6 +104,20 @@ public:
                                  int32_t center_z, int32_t max_radius);
 
     godot::Dictionary resolve_voxel_collision(const godot::Vector3& position, const godot::Vector3& motion, const godot::Vector3& size);
+
+    // Debug pathfinding. request_path queues a ground route between two feet
+    // positions on a worker thread and returns its job id (0 when the planner
+    // is unavailable); poll_paths drains every result finished since the last
+    // call, each carrying its id plus the route as support-block coordinates.
+    // `max_expansions` caps the search (it returns a partial route instead of
+    // failing when the cap is hit).
+    int64_t request_path(const godot::Vector3& from, const godot::Vector3& to,
+                         int32_t max_expansions = 20000);
+
+    godot::Array poll_paths();
+
+    // Jobs still running. Cheap enough to poll per frame.
+    int32_t get_pending_paths() const;
 
     VoxelEngine::CollisionResolver* get_collision_resolver();
 
@@ -198,6 +215,8 @@ private:
     void update_environment();
 
     std::unique_ptr<VoxelEngineController> controller;
+    // Created on first use: it needs the controller's thread pool and chunk map.
+    std::unique_ptr<VoxelEngine::nav::PathService> path_service;
     godot::NodePath player_path = godot::NodePath("../Player");
     godot::Node3D* cached_player = nullptr;
     godot::Camera3D* cached_camera = nullptr;

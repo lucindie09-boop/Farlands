@@ -25,6 +25,18 @@ const PIVOT_SHADER: Shader = preload("res://shaders/pose_pivot_marker.gdshader")
 # Vanilla-accurate physics (gravity/drag/knockback) — see dummy.gd.
 const DUMMY_SCRIPT: Script = preload("res://dummy.gd")
 
+# --- path debug -------------------------------------------------------------
+# P asks the engine's planner (worker thread) for a ground route from the clone
+# to the player and draws it as translucent red cubes on the blocks the route
+# stands on. L toggles between the raw A* grid path and the string-pulled
+# waypoints; P again clears. The clone is not moved — this only visualises the
+# route the planner found. Results come back through ChunkManager.poll_paths(),
+# matched by job id.
+const PATH_ACTION := "pose_clone_path"
+const PATH_TOGGLE_ACTION := "pose_clone_path_toggle"
+const PATH_COLOR_RAW := Color(1.0, 0.22, 0.12, 0.40)
+const PATH_COLOR_WAYPOINTS := Color(0.25, 1.0, 0.4, 0.5)
+
 # Matches the transform Main.tscn applies to Player/PlayerModel: the glb is
 # 0.05625-scaled (1 glb unit = 1/17.78 blocks) with a 180-degree yaw flip and
 # a slight sink so the model's feet sit on the stand point.
@@ -42,6 +54,15 @@ const PIVOT_MARKER_GLB := 2.0
 
 var _clone: Node3D = null
 
+# Path debug state: the job being awaited (0 = idle), the two point sets the
+# engine returned, and the overlay instance built from the selected set.
+var _path_job := 0
+var _overlay: MultiMeshInstance3D = null
+var _overlay_mat: StandardMaterial3D = null
+var _path_nodes: Array = []
+var _path_waypoints: Array = []
+var _show_waypoints := false
+
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("pose_clone_toggle") and not event.is_echo():
 		# Gameplay only: releasing the mouse (chat/inventory/menu open, dead)
@@ -52,6 +73,113 @@ func _unhandled_input(event: InputEvent) -> void:
 			_despawn()
 		else:
 			_spawn()
+		return
+	if event.is_action_pressed(PATH_ACTION) and not event.is_echo():
+		if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
+			return
+		_plan_path()
+		return
+	if event.is_action_pressed(PATH_TOGGLE_ACTION) and not event.is_echo():
+		if _path_nodes.is_empty() and _path_waypoints.is_empty():
+			return
+		_show_waypoints = not _show_waypoints
+		_rebuild_overlay()
+
+# The planner runs on a worker thread, so results are polled each frame and
+# matched by job id.
+func _process(_delta: float) -> void:
+	if _path_job == 0:
+		return
+	var chunk_manager := _chunk_manager()
+	if chunk_manager == null:
+		_path_job = 0
+		return
+	for result in chunk_manager.poll_paths():
+		if int(result.get("id", 0)) != _path_job:
+			continue
+		_path_job = 0
+		_path_nodes = result.get("nodes", PackedVector3Array())
+		_path_waypoints = result.get("waypoints", PackedVector3Array())
+		_show_waypoints = false
+		_rebuild_overlay()
+		var detail := ""
+		if not bool(result.get("found", false)):
+			detail = "  error=\"%s\"" % result.get("error", "")
+		print("Path: found=%s truncated=%s grid=%d waypoints=%d expansions=%d columns=%d %.2f ms%s"
+			% [result.get("found", false), result.get("truncated", false),
+			   _path_nodes.size(), _path_waypoints.size(),
+			   int(result.get("expansions", 0)), int(result.get("columns", 0)),
+			   float(result.get("ms", 0.0)), detail])
+
+func _chunk_manager() -> Node:
+	var scene_root := get_tree().current_scene
+	if scene_root == null:
+		return null
+	return scene_root.get_node_or_null("ChunkManager")
+
+func _plan_path() -> void:
+	var chunk_manager := _chunk_manager()
+	if chunk_manager == null:
+		return
+	# Second press clears the route.
+	if _path_job != 0 or _overlay != null:
+		_clear_path()
+		return
+	if _clone == null:
+		print("Path: spawn the dummy first (K)")
+		return
+	if not chunk_manager.has_method("request_path"):
+		print("Path: planner binding not available")
+		return
+	var player := get_tree().current_scene.get_node_or_null("Player") as Node3D
+	if player == null:
+		return
+	_path_job = int(chunk_manager.request_path(_clone.global_position, player.global_position))
+	print("Path: planning %s -> %s (job %d)"
+		% [_clone.global_position, player.global_position, _path_job])
+
+func _clear_path() -> void:
+	_path_job = 0
+	_path_nodes = []
+	_path_waypoints = []
+	if _overlay != null:
+		_overlay.queue_free()
+		_overlay = null
+		_overlay_mat = null
+
+# One MultiMeshInstance3D of centred cubes, one per route node.
+func _rebuild_overlay() -> void:
+	var points: Array = _path_waypoints if _show_waypoints else _path_nodes
+	if points.is_empty():
+		_clear_path()
+		return
+	var scene_root := get_tree().current_scene
+	if scene_root == null:
+		return
+	if _overlay == null:
+		_overlay = MultiMeshInstance3D.new()
+		_overlay.name = "PathOverlay"
+		var multimesh := MultiMesh.new()
+		multimesh.transform_format = MultiMesh.TRANSFORM_3D
+		var cube := BoxMesh.new()
+		cube.size = Vector3.ONE * 1.02
+		_overlay_mat = StandardMaterial3D.new()
+		_overlay_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		_overlay_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		_overlay_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+		cube.material = _overlay_mat
+		multimesh.mesh = cube
+		_overlay.multimesh = multimesh
+		scene_root.add_child(_overlay)
+	_overlay_mat.albedo_color = PATH_COLOR_WAYPOINTS if _show_waypoints else PATH_COLOR_RAW
+	var multimesh: MultiMesh = _overlay.multimesh
+	multimesh.instance_count = points.size()
+	for i in points.size():
+		# Nodes are block cells; the cube is centred on the cell.
+		var cell: Vector3 = points[i]
+		multimesh.set_instance_transform(i, Transform3D(Basis(), cell + Vector3(0.5, 0.5, 0.5)))
+	print("Path overlay: %d %s cubes" % [points.size(), "waypoint" if _show_waypoints else "grid"])
+
 
 func _spawn() -> void:
 	var scene_root := get_tree().current_scene
@@ -103,6 +231,7 @@ func _spawn() -> void:
 func _despawn() -> void:
 	if _clone == null:
 		return
+	_clear_path()
 	_clone.queue_free()
 	_clone = null
 	print("Pose clone removed")

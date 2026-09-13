@@ -25,19 +25,8 @@
 namespace VoxelEngine {
 namespace nav {
 
-struct NavQuery {
-    NavNode start{};
-    NavNode goal{};
-
-    // Expansion cap. Reaching it returns a truncated (partial) route.
-    int32_t max_expansions = 20000;
-    // Heuristic weight. 1.0 is optimal; above 1.0 trades optimality for speed.
-    float weight = 1.0f;
-    // A ground agent cares about reaching the goal's column, so by default the
-    // search stops there rather than requiring the exact feet cell.
-    bool exact_goal_y = false;
-};
-
+// NavQuery lives in nav_types.hpp so callers that only queue a plan (the async
+// service, the Godot binding) do not need to pull in the search itself.
 class Pathfinder {
 public:
     Pathfinder(const NavView& view, NavCosts costs = NavCosts())

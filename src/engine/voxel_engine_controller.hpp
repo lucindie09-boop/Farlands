@@ -149,6 +149,11 @@ public:
     void flush_dirty_chunks(bool wait_for_completion = false, double timeout_sec = 5.0);
 
     ChunkWorld& get_chunk_world() { return chunk_world; }
+
+    // The pool the generation/mesh pipeline runs on. Borrowed by callers that
+    // want to schedule their own work (the debug path planner); null before
+    // initialize() or after shutdown().
+    ThreadPool* get_thread_pool() { return thread_pool.get(); }
     WorldUpdater& get_world_updater() { return world_updater; }
     EnvironmentController& get_environment_controller() { return environment_controller; }
     CollisionResolver& get_collision_resolver() { return collision_resolver; }

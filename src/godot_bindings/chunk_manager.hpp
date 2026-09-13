@@ -111,11 +111,12 @@ public:
     // call, each carrying its id plus the route as support-block coordinates.
     // Either cap being hit returns a truncated partial route instead of failing,
     // and both are overridable per call: `max_expansions` bounds the work,
-    // `max_ms` the wall-clock time (0 disables the time cap). The default time
-    // cap is what keeps a long chase from occupying a worker for tens of
-    // milliseconds when the chunk map is contended.
+    // `max_ms` the wall-clock time (0 disables the time cap). The time cap is a
+    // ceiling for a contended machine, deliberately above what a cross-country
+    // route costs (a few milliseconds), so it does not cut long routes short; the
+    // expansion cap is the real work bound.
     int64_t request_path(const godot::Vector3& from, const godot::Vector3& to,
-                         int32_t max_expansions = 20000, double max_ms = 16.0);
+                         int32_t max_expansions = 20000, double max_ms = 32.0);
 
     godot::Array poll_paths();
 

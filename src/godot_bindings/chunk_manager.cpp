@@ -343,7 +343,7 @@ int64_t ChunkManager::request_path(const Vector3& from, const Vector3& to, int32
     if (pool == nullptr) return 0;
     if (!path_service) {
         path_service = std::make_unique<nav::PathService>(
-            controller->get_chunk_world().get_chunk_map(), *pool);
+            controller->get_chunk_world().get_chunk_map());
     }
     // Positions arrive as continuous feet coordinates; the planner works in
     // whole cells and re-anchors both ends onto their column's surface.
@@ -353,7 +353,10 @@ int64_t ChunkManager::request_path(const Vector3& from, const Vector3& to, int32
     const nav::NavNode goal{static_cast<int32_t>(std::floor(to.x)),
                             static_cast<int32_t>(std::floor(to.y)),
                             static_cast<int32_t>(std::floor(to.z))};
-    return static_cast<int64_t>(path_service->submit(start, goal, max_expansions, max_ms));
+    // The pool is passed in per call: clear_editor_chunks() tears the engine's
+    // pool down and builds a new one, so a service holding a reference would
+    // queue into freed memory after a runtime reset.
+    return static_cast<int64_t>(path_service->submit(*pool, start, goal, max_expansions, max_ms));
 }
 
 Array ChunkManager::poll_paths() {
@@ -582,7 +585,7 @@ void ChunkManager::_bind_methods() {
     ClassDB::bind_method(D_METHOD("find_biome", "biome_name", "center_x", "center_z", "max_radius"), &ChunkManager::find_biome);
     ClassDB::bind_method(D_METHOD("resolve_voxel_collision", "position", "motion", "size"), &ChunkManager::resolve_voxel_collision);
     ClassDB::bind_method(D_METHOD("request_path", "from", "to", "max_expansions", "max_ms"),
-                         &ChunkManager::request_path, DEFVAL(20000), DEFVAL(16.0));
+                         &ChunkManager::request_path, DEFVAL(20000), DEFVAL(32.0));
     ClassDB::bind_method(D_METHOD("poll_paths"), &ChunkManager::poll_paths);
     ClassDB::bind_method(D_METHOD("get_pending_paths"), &ChunkManager::get_pending_paths);
 

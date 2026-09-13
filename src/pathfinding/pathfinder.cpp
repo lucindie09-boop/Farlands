@@ -41,7 +41,16 @@ float Pathfinder::heuristic(const NavNode& a, const NavNode& b) const {
     const float dz = static_cast<float>(std::abs(a.z - b.z));
     const float min_d = std::min(dx, dz);
     const float max_d = std::max(dx, dz);
-    float h = max_d + (costs_.diagonal - 1.0f) * min_d;  // octile over columns
+    // Octile over columns, expressed in the cost table's own units: the unit
+    // orthogonal step is costs_.walk, not a hardcoded 1.0. Hardcoding it made
+    // any cost table whose walk term is not exactly 1.0 overestimate the true
+    // distance, and an overestimating heuristic silently costs A* its
+    // optimality — the route still comes back, it is just not the cheap one.
+    const float unit = costs_.walk;
+    float h = unit * max_d + (costs_.diagonal - unit) * min_d;
+    // Vertical is a deliberate lower bound on the climb/descent surcharge: a
+    // move that also travels horizontally pays the horizontal term too, so
+    // leaving it out can only undershoot.
     const int32_t dy = b.y - a.y;
     if (dy > 0) h += costs_.step_up * static_cast<float>(dy);
     else h += costs_.fall * static_cast<float>(-dy);

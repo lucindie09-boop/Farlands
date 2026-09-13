@@ -109,8 +109,11 @@ struct DijkstraResult {
 };
 
 // Brute-force Dijkstra over the same graph, used to check A*'s optimality. It
-// uses the planner's own goal test (reach the goal column) and re-anchors both
-// ends the same way.
+// re-anchors both ends the same way the planner does and, critically, uses the
+// planner's own goal test — the goal's own SURFACE CELL, not merely its column.
+// A column-only test here would disagree with the search: it would accept the
+// ground underneath a floating staircase, report a shorter "optimum" than the
+// real route, and so fail a correct planner (or, worse, agree with a broken one).
 inline DijkstraResult dijkstra_cost(const NavView& view, const MoveGenerator& gen,
                                     const NavNode& start, const NavNode& goal,
                                     int32_t budget = 200000) {
@@ -137,7 +140,7 @@ inline DijkstraResult dijkstra_cost(const NavView& view, const MoveGenerator& ge
         ++out.expansions;
 
         const NavNode cur = VoxelEngine::nav::node_from_key(key);
-        if (cur.x == g.x && cur.z == g.z) {
+        if (cur.x == g.x && cur.z == g.z && cur.y == g.y) {
             out.cost = d;
             return out;
         }

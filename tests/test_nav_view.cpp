@@ -50,22 +50,32 @@ TEST_CASE("NavView refuses columns whose chunk is not resident") {
     CHECK_FALSE(col->clearance);
 }
 
-TEST_CASE("NavView requires headroom for the body") {
-    // A standable block above the ground is simply a higher surface — the
-    // agent would stand on top of it. What actually blocks a column is a
-    // collision the agent cannot stand on sitting in its body's span (a snow
-    // layer under a ceiling, a low overhang).
+TEST_CASE("NavView stands the agent on the topmost collision in a column") {
+    // A thin plate over open air is that column's surface: the agent stands on
+    // top of it. What that means for a route is that the column cannot be entered
+    // from the ground below, because the step up is taller than max_rise — the
+    // model holds one surface per column, so it does not represent walking
+    // underneath an overhang at all.
     nt::World w;
     w.default_ground = 10;
-    w.set_cell(3, 11, 0, CellClass::Partial, 0.0f, 0.25f);  // thin obstruction at chest height
+    w.set_cell(3, 11, 0, CellClass::Partial, 0.0f, 0.25f);  // plate at chest height
     NavView view = nt::make_view(w, 8);
+    MoveGenerator gen(view, NavCosts{});
 
     const NavView::Column* col = view.column(3, 0, 10);
     CHECK(col != nullptr);
     if (col == nullptr) return;
     CHECK(col->found);
-    CHECK(col->surface_top == doctest::Approx(10.0f));
-    CHECK_FALSE(col->clearance);
+    CHECK(col->surface_top == doctest::Approx(11.25f));
+    CHECK(col->clearance);
+
+    // ...and it is out of reach from the ground beside it, so no route passes
+    // through this column at ground level.
+    const NavView::Column* beside = view.column(2, 0, 10);
+    CHECK(beside != nullptr);
+    if (beside == nullptr) return;
+    NavMove step;
+    CHECK_FALSE(gen.step(NavNode{2, view.feet_cell(beside->surface_top), 0}, *beside, 1, 0, step));
 
     // A two-block-high pillar is a surface the agent stands on, not an
     // obstruction it stands beside.
@@ -130,17 +140,31 @@ TEST_CASE("NavView clamps the window: sky above, unknown below") {
     CHECK(view.sample(99, 10, 0).cls == CellClass::Unknown);  // outside horizontally
 }
 
-TEST_CASE("NavView only accepts a surface high enough in its cell") {
-    nt::World w;
-    w.default_ground = 10;
-    // A layer thinner than the standable threshold must not be walkable; the
-    // ground below it is.
-    w.set_cell(4, 10, 0, CellClass::Partial, 0.0f, 0.25f);
-    NavView view = nt::make_view(w, 8);
+TEST_CASE("NavView walks over a sub-block detail instead of being blocked by it") {
+    // The two real cases: gravel_path's collision is 0.0625 high (it is the
+    // standable threshold itself), and a detail thinner than that is decoration
+    // the agent walks over. Either way the surface ends up on top of the detail —
+    // reporting the ground beneath it instead would leave the detail inside the
+    // agent's body and the column would read as blocked.
+    nt::World path;
+    path.default_ground = 10;
+    path.set_cell(4, 10, 0, CellClass::Partial, 0.0f, 0.0625f);  // a path block
+    NavView path_view = nt::make_view(path, 8);
+    const NavView::Column* paved = path_view.column(4, 0, 10);
+    CHECK(paved != nullptr);
+    if (paved == nullptr) return;
+    CHECK(paved->found);
+    CHECK(paved->surface_top == doctest::Approx(10.0625f));
+    CHECK(paved->clearance);
 
-    const NavView::Column* col = view.column(4, 0, 10);
-    CHECK(col != nullptr);
-    if (col == nullptr) return;
-    CHECK(col->found);
-    CHECK(col->surface_top == doctest::Approx(10.0f));  // the ground, not the thin layer
+    nt::World thin;
+    thin.default_ground = 10;
+    thin.set_cell(4, 10, 0, CellClass::Partial, 0.0f, 0.03125f);  // thinner than a surface
+    NavView thin_view = nt::make_view(thin, 8);
+    const NavView::Column* decal = thin_view.column(4, 0, 10);
+    CHECK(decal != nullptr);
+    if (decal == nullptr) return;
+    CHECK(decal->found);
+    CHECK(decal->surface_top == doctest::Approx(10.03125f));  // stands on the detail
+    CHECK(decal->clearance);
 }

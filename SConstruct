@@ -75,6 +75,7 @@ shared_sources = [
     "src/pathfinding/nav_view.cpp",
     "src/pathfinding/pathfinder.cpp",
     "src/pathfinding/path_smoother.cpp",
+    "src/pathfinding/path_service.cpp",
 ]
 # Remove any non-existent .cpp files (like crc32.cpp which is header-only)
 shared_sources = [s for s in shared_sources if os.path.exists(str(s))]

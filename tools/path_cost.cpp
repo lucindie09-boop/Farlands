@@ -225,6 +225,36 @@ int main(int argc, char** argv) {
         if (!path.found) printf("    (%s)\n", finder.last_error().c_str());
     }
 
+    // Anytime behaviour: the same long query with a deadline too tight to finish
+    // must come back with a usable partial route instead of nothing — one that
+    // still starts where the agent is standing — and must have stopped because
+    // the clock ran out, not because the map ran out.
+    int deadline_failures = 0;
+    const int32_t tight_distance = std::min(192, max_distance);
+    if (tight_distance > 32) {
+        nav::NavQuery tight;
+        tight.start = nav::NavNode{0, gen.find_surface_y(0, 0), 0};
+        tight.goal = nav::NavNode{tight_distance, gen.find_surface_y(tight_distance, 0), 0};
+        tight.max_expansions = 200000;
+        tight.max_ms = 0.5;
+
+        const nav::NavView::Column* sc =
+            view.column(tight.start.x, tight.start.z, tight.start.y);
+        const nav::NavNode feet{tight.start.x, view.feet_cell(sc->surface_top), tight.start.z};
+
+        const double t0 = now_ms();
+        const nav::NavPath part = finder.search(tight);
+        const double part_ms = now_ms() - t0;
+        const bool usable = !part.nodes.empty() && part.nodes.front() == feet;
+        if (!part.truncated || !part.stats.time_exhausted || !usable) ++deadline_failures;
+
+        printf("\ndeadline 0.5 ms on a %d-block query: truncated=%s timed_out=%s found=%s "
+               "expansions=%zu partial_nodes=%zu starts_at_agent=%s in %.2f ms\n",
+               tight_distance, part.truncated ? "yes" : "no",
+               part.stats.time_exhausted ? "yes" : "no", part.found ? "yes" : "no",
+               part.stats.expansions, part.nodes.size(), usable ? "yes" : "no", part_ms);
+    }
+
     // The smoothed legs must all be genuinely walkable — a smoother that
     // shortens a route past an obstacle would show up here.
     nav::NavQuery sanity;
@@ -239,9 +269,9 @@ int main(int argc, char** argv) {
             if (!smoother.leg_walkable(wpts[i - 1], wpts[i])) ++broken_legs;
         }
     }
-    printf("\nsanity: found=%s legs=%s broken_legs=%d\n",
+    printf("\nsanity: found=%s legs=%s broken_legs=%d deadline_failures=%d\n",
            full.found ? "yes" : "no",
            full.found ? "ok" : "n/a",
-           broken_legs);
-    return broken_legs == 0 ? 0 : 1;
+           broken_legs, deadline_failures);
+    return (broken_legs == 0 && deadline_failures == 0) ? 0 : 1;
 }

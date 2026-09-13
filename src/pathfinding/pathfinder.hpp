@@ -11,9 +11,11 @@
 // costs (a climb costs step_up per block, a drop costs fall per block, and both
 // are additive on top of the horizontal leg).
 //
-// The search is budgeted: when the expansion cap runs out it returns the
+// The search is budgeted twice over: an expansion cap and an optional
+// wall-clock cap (NavQuery::max_ms). When either runs out it returns the
 // best-effort run toward the frontier node closest to the goal, flagged with
-// NavPath::truncated, so a caller always gets something usable.
+// NavPath::truncated, so a caller always gets a usable prefix of a route
+// instead of nothing.
 // -----------------------------------------------------------------------------
 
 #include "pathfinding/move_generator.hpp"

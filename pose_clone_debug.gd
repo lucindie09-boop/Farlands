@@ -29,13 +29,16 @@ const DUMMY_SCRIPT: Script = preload("res://dummy.gd")
 # P asks the engine's planner (worker thread) for a ground route from the clone
 # to the player and draws it as translucent red cubes on the blocks the route
 # stands on. L toggles between the raw A* grid path and the string-pulled
-# waypoints; P again clears. The clone is not moved — this only visualises the
-# route the planner found. Results come back through ChunkManager.poll_paths(),
-# matched by job id.
+# waypoints; P again clears. A route the planner could not finish inside its
+# budget (a partial, best-effort run toward the goal) is drawn amber instead of
+# red, so a truncated route is never mistaken for a complete one. The clone is
+# not moved — this only visualises the route the planner found. Results come
+# back through ChunkManager.poll_paths(), matched by job id.
 const PATH_ACTION := "pose_clone_path"
 const PATH_TOGGLE_ACTION := "pose_clone_path_toggle"
 const PATH_COLOR_RAW := Color(1.0, 0.22, 0.12, 0.40)
 const PATH_COLOR_WAYPOINTS := Color(0.25, 1.0, 0.4, 0.5)
+const PATH_COLOR_PARTIAL := Color(1.0, 0.72, 0.15, 0.5)
 
 # Matches the transform Main.tscn applies to Player/PlayerModel: the glb is
 # 0.05625-scaled (1 glb unit = 1/17.78 blocks) with a 180-degree yaw flip and
@@ -61,6 +64,7 @@ var _overlay: MultiMeshInstance3D = null
 var _overlay_mat: StandardMaterial3D = null
 var _path_nodes: Array = []
 var _path_waypoints: Array = []
+var _path_truncated := false
 var _show_waypoints := false
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -100,15 +104,20 @@ func _process(_delta: float) -> void:
 		_path_job = 0
 		_path_nodes = result.get("nodes", PackedVector3Array())
 		_path_waypoints = result.get("waypoints", PackedVector3Array())
+		_path_truncated = bool(result.get("truncated", false))
 		_show_waypoints = false
 		_rebuild_overlay()
 		var detail := ""
 		if not bool(result.get("found", false)):
 			detail = "  error=\"%s\"" % result.get("error", "")
-		print("Path: found=%s truncated=%s grid=%d waypoints=%d expansions=%d columns=%d %.2f ms%s"
+		# cells vs locks is the in-game read cost: one shard lock per chunk
+		# visited, not per block classified.
+		print("Path: found=%s truncated=%s timed_out=%s grid=%d waypoints=%d expansions=%d columns=%d cells=%d locks=%d %.2f ms%s"
 			% [result.get("found", false), result.get("truncated", false),
+			   result.get("time_exhausted", false),
 			   _path_nodes.size(), _path_waypoints.size(),
 			   int(result.get("expansions", 0)), int(result.get("columns", 0)),
+			   int(result.get("cells", 0)), int(result.get("locks", 0)),
 			   float(result.get("ms", 0.0)), detail])
 
 func _chunk_manager() -> Node:
@@ -142,6 +151,7 @@ func _clear_path() -> void:
 	_path_job = 0
 	_path_nodes = []
 	_path_waypoints = []
+	_path_truncated = false
 	if _overlay != null:
 		_overlay.queue_free()
 		_overlay = null
@@ -171,14 +181,19 @@ func _rebuild_overlay() -> void:
 		multimesh.mesh = cube
 		_overlay.multimesh = multimesh
 		scene_root.add_child(_overlay)
-	_overlay_mat.albedo_color = PATH_COLOR_WAYPOINTS if _show_waypoints else PATH_COLOR_RAW
+	if _path_truncated:
+		_overlay_mat.albedo_color = PATH_COLOR_PARTIAL
+	else:
+		_overlay_mat.albedo_color = PATH_COLOR_WAYPOINTS if _show_waypoints else PATH_COLOR_RAW
 	var multimesh: MultiMesh = _overlay.multimesh
 	multimesh.instance_count = points.size()
 	for i in points.size():
 		# Nodes are block cells; the cube is centred on the cell.
 		var cell: Vector3 = points[i]
 		multimesh.set_instance_transform(i, Transform3D(Basis(), cell + Vector3(0.5, 0.5, 0.5)))
-	print("Path overlay: %d %s cubes" % [points.size(), "waypoint" if _show_waypoints else "grid"])
+	print("Path overlay: %d %s cubes%s"
+		% [points.size(), "waypoint" if _show_waypoints else "grid",
+		   " (partial — budget ran out)" if _path_truncated else ""])
 
 
 func _spawn() -> void:

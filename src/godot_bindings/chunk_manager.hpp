@@ -109,10 +109,13 @@ public:
     // positions on a worker thread and returns its job id (0 when the planner
     // is unavailable); poll_paths drains every result finished since the last
     // call, each carrying its id plus the route as support-block coordinates.
-    // `max_expansions` caps the search (it returns a partial route instead of
-    // failing when the cap is hit).
+    // Either cap being hit returns a truncated partial route instead of failing,
+    // and both are overridable per call: `max_expansions` bounds the work,
+    // `max_ms` the wall-clock time (0 disables the time cap). The default time
+    // cap is what keeps a long chase from occupying a worker for tens of
+    // milliseconds when the chunk map is contended.
     int64_t request_path(const godot::Vector3& from, const godot::Vector3& to,
-                         int32_t max_expansions = 20000);
+                         int32_t max_expansions = 20000, double max_ms = 16.0);
 
     godot::Array poll_paths();
 

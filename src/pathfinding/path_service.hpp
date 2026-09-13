@@ -31,11 +31,17 @@ namespace nav {
 struct PathResult {
     uint64_t id = 0;
     bool found = false;
-    bool truncated = false;      // the expansion budget ran out (partial route)
-    bool budget_exhausted = false;
+    bool truncated = false;      // a budget ran out (partial route)
+    bool budget_exhausted = false;  // ...the expansion cap
+    bool time_exhausted = false;    // ...the wall-clock cap
     std::string error;           // why it failed, empty on success
     double search_ms = 0.0;
     NavStats stats;
+
+    // How the world view was read: cells classified, and chunk shard locks
+    // taken to classify them. Far apart is the point — see ChunkMapNavSource.
+    size_t cells_read = 0;
+    size_t lock_acquisitions = 0;
 
     // Each entry is the BLOCK a node stands on (the support block), which is
     // what a debug overlay highlights; `waypoints` is the same route after
@@ -53,7 +59,10 @@ public:
     PathService& operator=(const PathService&) = delete;
 
     // Queues a plan between two feet positions. Returns the job id (never 0).
-    uint64_t submit(const NavNode& from, const NavNode& to, int32_t max_expansions = 20000);
+    // `max_ms` bounds the search in wall-clock time (0 disables it); either cap
+    // running out yields a truncated but usable partial route.
+    uint64_t submit(const NavNode& from, const NavNode& to, int32_t max_expansions = 20000,
+                    double max_ms = 0.0);
 
     // Every plan finished since the previous call.
     std::vector<PathResult> poll();

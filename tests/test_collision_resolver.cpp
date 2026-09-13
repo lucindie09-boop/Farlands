@@ -1,4 +1,5 @@
 #include "doctest.h"
+#include "chunk_map_fixture.hpp"
 #include "engine/collision_resolver.hpp"
 #include "core/chunk_map.hpp"
 #include "core/chunk_types.hpp"
@@ -8,20 +9,7 @@
 using namespace VoxelEngine;
 using namespace godot;
 
-// godot::RID default-constructs via GDExtension bindings that are only
-// initialised inside the Godot runtime.  In a standalone test binary those
-// pointers are null, so constructing ChunkRenderData (which embeds two RIDs)
-// immediately SIGSEGVs.  Workaround: allocate the struct with ::operator new,
-// zero the memory (RID opaque bytes = 0 is a valid "null" RID), then
-// placement-new only the data member that we actually need.
-static std::unique_ptr<ChunkRenderData> make_test_chunk(std::unique_ptr<ChunkData> data) {
-    void* buf = ::operator new(sizeof(ChunkRenderData));
-    std::memset(buf, 0, sizeof(ChunkRenderData));
-    auto* rd = reinterpret_cast<ChunkRenderData*>(buf);
-    new (&rd->data) std::unique_ptr<ChunkData>(std::move(data));
-    rd->is_mesh_dirty = false;
-    return std::unique_ptr<ChunkRenderData>(rd);
-}
+using chunktest::make_test_chunk;
 
 TEST_CASE("CollisionResolver empty world") {
     BlockRegistry::get_instance().initialize_default_blocks();

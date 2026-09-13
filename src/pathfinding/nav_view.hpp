@@ -19,14 +19,23 @@
 // the memo key includes the hint. That makes a column queried from a low
 // vantage and again from a high one resolve twice, which is correct — a scan
 // started below a tall wall cannot see its top.
+//
+// A source may also offer a ranged reader (read_column). When it does, resolving
+// a column prefetches exactly the window the scan and its clearance check touch,
+// in one call: the number of map locks a search takes then scales with columns
+// rather than with cells, and nothing is held between calls. Sampled cells come
+// from that buffer, everything else from the per-cell sampler, so the reader is
+// a pure optimisation — the sampler alone is always enough.
 // -----------------------------------------------------------------------------
 
 #include "pathfinding/nav_types.hpp"
 
+#include <climits>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <unordered_map>
+#include <vector>
 
 namespace VoxelEngine {
 namespace nav {
@@ -37,6 +46,10 @@ public:
     // CellClass::Unknown for cells whose chunk is not resident.
     using Sampler = std::function<Cell(int32_t x, int32_t y, int32_t z)>;
 
+    // Fills out[y - y_lo] for every y in [y_lo, y_hi] of one column. Must agree
+    // with the sampler cell for cell, and must not hold a lock when it returns.
+    using Reader = std::function<void(int32_t x, int32_t z, int32_t y_lo, int32_t y_hi, Cell* out)>;
+
     struct Column {
         bool found = false;        // a standable surface exists in the window
         bool unknown = false;      // an unresident chunk was hit before reaching ground
@@ -46,8 +59,12 @@ public:
         bool liquid = false;       // the feet stand inside liquid
     };
 
-    NavView(NavBox box, Sampler sampler, NavCosts costs = NavCosts())
-        : box_(box), sampler_(std::move(sampler)), costs_(costs) {}
+    NavView(NavBox box, Sampler sampler, NavCosts costs = NavCosts(), Reader reader = {})
+        : box_(box), sampler_(std::move(sampler)), reader_(std::move(reader)), costs_(costs) {}
+
+    // True when a ranged reader is available (it need not be used: columns whose
+    // buffer has been overwritten still fall back to the sampler).
+    [[nodiscard]] bool has_reader() const noexcept { return static_cast<bool>(reader_); }
 
     [[nodiscard]] const NavBox& box() const noexcept { return box_; }
     [[nodiscard]] const NavCosts& costs() const noexcept { return costs_; }
@@ -67,6 +84,7 @@ public:
         }
         if (y > box_.max_y) return Cell{CellClass::Air, 0.0f, 0.0f};
         if (y < box_.min_y) return Cell{CellClass::Unknown, 0.0f, 0.0f};
+        if (buffered(x, y, z)) return buffer_[static_cast<size_t>(y - buffer_lo_)];
         return sampler_(x, y, z);
     }
 
@@ -88,9 +106,27 @@ public:
 private:
     [[nodiscard]] Column compute_column(int32_t x, int32_t z, int32_t hint_y) const;
 
+    // Prefetches [lowest, highest] of one column through the reader, and makes it
+    // the buffer the sampler answers from until another column overwrites it.
+    void load_buffer(int32_t x, int32_t z, int32_t lowest, int32_t highest) const;
+
+    [[nodiscard]] bool buffered(int32_t x, int32_t y, int32_t z) const noexcept {
+        return buffer_lo_ <= buffer_hi_ && x == buffer_x_ && z == buffer_z_ &&
+               y >= buffer_lo_ && y <= buffer_hi_;
+    }
+
     NavBox box_;
     Sampler sampler_;
+    Reader reader_;
     NavCosts costs_;
+
+    // Cells prefetched through the reader for one column. `buffer_lo_ > buffer_hi_`
+    // means empty, which is how the sampler falls back to the per-cell path.
+    mutable int32_t buffer_x_ = INT32_MIN;
+    mutable int32_t buffer_z_ = INT32_MIN;
+    mutable int32_t buffer_lo_ = 0;
+    mutable int32_t buffer_hi_ = -1;
+    mutable std::vector<Cell> buffer_;
 
     mutable std::unordered_map<uint64_t, Column> columns_;
     mutable size_t columns_resolved_ = 0;

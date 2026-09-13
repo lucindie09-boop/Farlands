@@ -11,7 +11,20 @@ namespace {
 // reported as a hole. Deep enough for a cliff face inside the window, shallow
 // enough that a void column never costs a full-column walk.
 constexpr int32_t kMaxColumnScan = 64;
+// Above the scan start, only the clearance check looks, and it reaches just over
+// one body height from the surface it stands on.
+constexpr int32_t kClearanceReach = 4;
 } // namespace
+
+void NavView::load_buffer(int32_t x, int32_t z, int32_t lowest, int32_t highest) const {
+    buffer_x_ = x;
+    buffer_z_ = z;
+    buffer_lo_ = lowest;
+    buffer_hi_ = highest;
+    if (highest < lowest) return;
+    buffer_.resize(static_cast<size_t>(highest - lowest) + 1);
+    reader_(x, z, lowest, highest, buffer_.data());
+}
 
 const NavView::Column* NavView::column(int32_t x, int32_t z, int32_t hint_y) const {
     const int32_t hint = std::clamp(hint_y, box_.min_y, box_.max_y);
@@ -33,6 +46,14 @@ NavView::Column NavView::compute_column(int32_t x, int32_t z, int32_t hint_y) co
     const int32_t rise = static_cast<int32_t>(std::ceil(costs_.max_rise));
     const int32_t start = std::min(box_.max_y, hint_y + rise + 1);
     const int32_t lowest = std::max(box_.min_y, start - kMaxColumnScan);
+
+    // One ranged read covers the whole walk plus the clearance check above it, so
+    // the scan below costs no further map locks. Cells the buffer does not hold
+    // (a clearance check for a column resolved earlier) still go through the
+    // sampler, so this is a pure optimisation.
+    if (reader_) {
+        load_buffer(x, z, lowest, std::min(box_.max_y, start + kClearanceReach));
+    }
 
     bool liquid_passed = false;
     for (int32_t y = start; y >= lowest; --y) {

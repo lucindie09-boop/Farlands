@@ -2,6 +2,7 @@
 
 #include "engine/voxel_engine_controller.hpp"
 #include "world/block_editor.hpp"
+#include "pathfinding/path_service.hpp"
 
 #include <godot_cpp/classes/rendering_server.hpp>
 #include <godot_cpp/classes/world3d.hpp>
@@ -335,6 +336,66 @@ Dictionary ChunkManager::find_biome(const String& biome_name, int32_t center_x,
     return controller->find_biome(biome_name, center_x, center_z, max_radius);
 }
 
+int64_t ChunkManager::request_path(const Vector3& from, const Vector3& to, int32_t max_expansions) {
+    if (!controller) return 0;
+    ThreadPool* pool = controller->get_thread_pool();
+    if (pool == nullptr) return 0;
+    if (!path_service) {
+        path_service = std::make_unique<nav::PathService>(
+            controller->get_chunk_world().get_chunk_map(), *pool);
+    }
+    // Positions arrive as continuous feet coordinates; the planner works in
+    // whole cells and re-anchors both ends onto their column's surface.
+    const nav::NavNode start{static_cast<int32_t>(std::floor(from.x)),
+                             static_cast<int32_t>(std::floor(from.y)),
+                             static_cast<int32_t>(std::floor(from.z))};
+    const nav::NavNode goal{static_cast<int32_t>(std::floor(to.x)),
+                            static_cast<int32_t>(std::floor(to.y)),
+                            static_cast<int32_t>(std::floor(to.z))};
+    return static_cast<int64_t>(path_service->submit(start, goal, max_expansions));
+}
+
+Array ChunkManager::poll_paths() {
+    Array out;
+    if (!path_service) return out;
+    for (const nav::PathResult& result : path_service->poll()) {
+        Dictionary entry;
+        entry["id"] = static_cast<int64_t>(result.id);
+        entry["found"] = result.found;
+        entry["truncated"] = result.truncated;
+        entry["budget_exhausted"] = result.budget_exhausted;
+        entry["error"] = String(result.error.c_str());
+        entry["ms"] = result.search_ms;
+        entry["expansions"] = static_cast<int64_t>(result.stats.expansions);
+        entry["columns"] = static_cast<int64_t>(result.stats.columns_resolved);
+        // Block cells, not centres — the caller places an overlay cube per cell.
+        PackedVector3Array nodes;
+        nodes.resize(static_cast<int64_t>(result.nodes.size()));
+        for (size_t i = 0; i < result.nodes.size(); ++i) {
+            nodes.set(static_cast<int64_t>(i),
+                      Vector3(static_cast<real_t>(result.nodes[i].x),
+                              static_cast<real_t>(result.nodes[i].y),
+                              static_cast<real_t>(result.nodes[i].z)));
+        }
+        PackedVector3Array waypoints;
+        waypoints.resize(static_cast<int64_t>(result.waypoints.size()));
+        for (size_t i = 0; i < result.waypoints.size(); ++i) {
+            waypoints.set(static_cast<int64_t>(i),
+                          Vector3(static_cast<real_t>(result.waypoints[i].x),
+                                  static_cast<real_t>(result.waypoints[i].y),
+                                  static_cast<real_t>(result.waypoints[i].z)));
+        }
+        entry["nodes"] = nodes;
+        entry["waypoints"] = waypoints;
+        out.append(entry);
+    }
+    return out;
+}
+
+int32_t ChunkManager::get_pending_paths() const {
+    return path_service ? static_cast<int32_t>(path_service->pending()) : 0;
+}
+
 Dictionary ChunkManager::resolve_voxel_collision(const godot::Vector3& position, const godot::Vector3& motion, const godot::Vector3& size) {
     auto result = controller->resolve_voxel_collision(position, motion, size);
     Dictionary dict;
@@ -515,6 +576,9 @@ void ChunkManager::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_selection_boxes", "block_id"), &ChunkManager::get_selection_boxes);
     ClassDB::bind_method(D_METHOD("find_biome", "biome_name", "center_x", "center_z", "max_radius"), &ChunkManager::find_biome);
     ClassDB::bind_method(D_METHOD("resolve_voxel_collision", "position", "motion", "size"), &ChunkManager::resolve_voxel_collision);
+    ClassDB::bind_method(D_METHOD("request_path", "from", "to", "max_expansions"), &ChunkManager::request_path, DEFVAL(20000));
+    ClassDB::bind_method(D_METHOD("poll_paths"), &ChunkManager::poll_paths);
+    ClassDB::bind_method(D_METHOD("get_pending_paths"), &ChunkManager::get_pending_paths);
 
     ClassDB::bind_method(D_METHOD("save_world_metadata"), &ChunkManager::save_world_metadata);
     ClassDB::bind_method(D_METHOD("load_world_metadata"), &ChunkManager::load_world_metadata);

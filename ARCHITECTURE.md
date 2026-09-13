@@ -346,6 +346,9 @@ The following code remains in the codebase but is disabled or unused:
 - `src/pathfinding/nav_view.hpp/cpp` — Lazy memoised view of the world: per-column topmost standable surface, body clearance, liquid flag; unresident chunks resolve to `Unknown` and are never traversable
 - `src/pathfinding/move_generator.hpp` — Movement primitives between columns (walk, diagonal, step up, drop, hop across a one-cell gap) with their legality rules and costs
 - `src/pathfinding/pathfinder.hpp/cpp` — Budgeted deterministic A* over the movement graph (octile + vertical heuristic; `truncated` = budget exhausted, not "no route")
+- `src/pathfinding/block_class.hpp` — The single block→nav-cell conversion (air / air-passable liquid / partial shape / full solid), deliberately not trusting `BlockType::is_full_cube()`
+- `src/pathfinding/chunk_nav_source.hpp` — Samples the live `ChunkMap` for the planner (thread-safe per-call accessors + a per-instance chunk-residency cache; unresident chunks report Unknown)
+- `src/pathfinding/path_service.hpp/cpp` — Async job runner: queues searches on the engine `ThreadPool`, returns finished `PathResult`s (support-block coordinates) to the main thread by job id
 - `src/pathfinding/path_smoother.hpp/cpp` — String-pull smoothing over an exact 8-connected walkability test
 - `src/engine/player_controller.hpp/cpp` — `PlayerSim` (fixed-timestep simulation, fall-distance tracking + landing damage)
 - `src/engine/voxel_engine_controller.hpp/cpp` — Bridges `ChunkManager` state to the world

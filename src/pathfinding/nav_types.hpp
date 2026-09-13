@@ -119,7 +119,10 @@ enum class MoveKind : uint8_t {
 struct NavStats {
     size_t expansions = 0;
     size_t columns_resolved = 0;
+    // The expansion cap was reached (the wall-clock budget, when set, was not).
     bool budget_exhausted = false;
+    // The wall-clock budget ran out first.
+    bool time_exhausted = false;
 };
 
 // A planning request: where the agent is and where it wants to end up, both as
@@ -132,6 +135,11 @@ struct NavQuery {
 
     // Expansion cap. Reaching it returns a truncated (partial) route.
     int32_t max_expansions = 20000;
+    // Wall-clock cap in milliseconds, checked every 64 expansions; 0 disables it.
+    // Reaching it returns the same best-effort partial route as the expansion
+    // cap, but bounded in time instead of in work, so a caller can promise a
+    // latency on a machine (or a contended chunk map) slower than expected.
+    double max_ms = 0.0;
     // Heuristic weight. 1.0 is optimal; above 1.0 trades optimality for speed.
     float weight = 1.0f;
     // A ground agent cares about reaching the goal's column, so by default the
@@ -141,8 +149,8 @@ struct NavQuery {
 
 struct NavPath {
     bool found = false;
-    // The expansion budget ran out; the path is the best-effort run to the
-    // frontier node closest to the goal (not a complete route).
+    // A budget ran out (expansions or time); the path is the best-effort run to
+    // the frontier node closest to the goal (not a complete route).
     bool truncated = false;
     std::vector<NavNode> nodes;
     NavStats stats;

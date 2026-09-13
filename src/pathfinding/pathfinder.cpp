@@ -1,6 +1,7 @@
 #include "pathfinding/pathfinder.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <queue>
 #include <unordered_map>
@@ -51,6 +52,11 @@ NavPath Pathfinder::search(const NavQuery& query) const {
     NavPath path;
     last_error_.clear();
 
+    // Started before the endpoints are resolved: their column scans are part of
+    // the query's cost, so the budget has to cover them too.
+    const auto start_time = std::chrono::steady_clock::now();
+    const double budget_ms = query.max_ms;
+
     const NavView::Column* start_col = view_.column(query.start.x, query.start.z, query.start.y);
     if (start_col == nullptr || !start_col->found || start_col->unknown || !start_col->clearance) {
         last_error_ = "start column has no navigable surface";
@@ -83,9 +89,23 @@ NavPath Pathfinder::search(const NavQuery& query) const {
     float best_h = start_h;
     uint64_t found_key = 0;
     bool found = false;
+    bool time_up = false;
     size_t expansions = 0;
 
     while (!open.empty()) {
+        // The clock is read every 64 expansions — a call per expansion would cost
+        // more than it saves, and 64 expansions of overrun is well under a
+        // millisecond even on a slow machine.
+        if (budget_ms > 0.0 && (expansions & 63u) == 0u) {
+            const double elapsed_ms = std::chrono::duration<double, std::milli>(
+                                          std::chrono::steady_clock::now() - start_time)
+                                          .count();
+            if (elapsed_ms >= budget_ms) {
+                time_up = true;
+                break;
+            }
+        }
+
         const Open top = open.top();
         open.pop();
 
@@ -134,14 +154,17 @@ NavPath Pathfinder::search(const NavQuery& query) const {
         if (static_cast<int32_t>(expansions) >= budget) break;
     }
 
-    // Stats first: `truncated` specifically means the expansion budget ran out,
-    // which is different from a search that explored the whole reachable graph
-    // and genuinely found no route.
+    // Stats first: `truncated` means a budget ran out, which is different from a
+    // search that explored the whole reachable graph and genuinely found no
+    // route. `found` and `time_up` are mutually exclusive — the goal test breaks
+    // out of the loop before the next budget check.
     path.stats.expansions = expansions;
     path.stats.columns_resolved = view_.columns_resolved() - columns_before;
-    path.stats.budget_exhausted = (!found && static_cast<int32_t>(expansions) >= budget);
+    path.stats.time_exhausted = time_up;
+    path.stats.budget_exhausted =
+        (!found && !time_up && static_cast<int32_t>(expansions) >= budget);
     path.found = found;
-    path.truncated = path.stats.budget_exhausted;
+    path.truncated = !found && (path.stats.budget_exhausted || time_up);
 
     const uint64_t end_key = found ? found_key : best_key;
 
@@ -162,8 +185,9 @@ NavPath Pathfinder::search(const NavQuery& query) const {
     path.nodes = std::move(reversed);
 
     if (!found) {
-        last_error_ = path.stats.budget_exhausted ? "expansion budget exhausted"
-                                                  : "no route to the goal column";
+        if (time_up) last_error_ = "time budget exhausted";
+        else if (path.stats.budget_exhausted) last_error_ = "expansion budget exhausted";
+        else last_error_ = "no route to the goal column";
     }
     return path;
 }

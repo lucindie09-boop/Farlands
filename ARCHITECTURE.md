@@ -343,11 +343,11 @@ The following code remains in the codebase but is disabled or unused:
 ### Engine
 - `src/engine/collision_resolver.hpp/cpp` — Binary-search collision, step-up
 - `src/pathfinding/nav_types.hpp` — Planner cell classes, `NavCosts`, packed node keys, `NavPath`/`NavStats`
-- `src/pathfinding/nav_view.hpp/cpp` — Lazy memoised view of the world: per-column topmost standable surface, body clearance, liquid flag; unresident chunks resolve to `Unknown` and are never traversable
+- `src/pathfinding/nav_view.hpp/cpp` — Lazy memoised view of the world: per-column topmost standable surface, body clearance, liquid flag; unresident chunks resolve to `Unknown` and are never traversable. Takes an optional ranged `Reader` and prefetches each resolved column's scan window into a buffer, so a scan costs one map lock instead of one per cell; cells the buffer does not hold fall back to the per-cell sampler
 - `src/pathfinding/move_generator.hpp` — Movement primitives between columns (walk, diagonal, step up, drop, hop across a one-cell gap) with their legality rules and costs
-- `src/pathfinding/pathfinder.hpp/cpp` — Budgeted deterministic A* over the movement graph (octile + vertical heuristic; `truncated` = budget exhausted, not "no route")
+- `src/pathfinding/pathfinder.hpp/cpp` — Budgeted deterministic A* over the movement graph (octile + vertical heuristic). Two caps: `max_expansions` and an optional `max_ms` wall clock, checked every 64 expansions; `truncated` = a cap ran out (not "no route"), and either way the partial route is a legal chain of moves starting at the agent
 - `src/pathfinding/block_class.hpp` — The single block→nav-cell conversion (air / air-passable liquid / partial shape / full solid), deliberately not trusting `BlockType::is_full_cube()`
-- `src/pathfinding/chunk_nav_source.hpp` — Samples the live `ChunkMap` for the planner (thread-safe per-call accessors + a per-instance chunk-residency cache; unresident chunks report Unknown)
+- `src/pathfinding/chunk_nav_source.hpp` — Reads the live `ChunkMap` for the planner. `sample()` = one locked accessor per cell; `read_column()` = a whole column range under one `lock_keys` (ascending shard order), released before returning. Every lock is scoped to a single call: holding one across calls stalls generation writes on that shard and can deadlock. Unresident chunks report Unknown and stay that way for the life of the source
 - `src/pathfinding/path_service.hpp/cpp` — Async job runner: queues searches on the engine `ThreadPool`, returns finished `PathResult`s (support-block coordinates) to the main thread by job id
 - `src/pathfinding/path_smoother.hpp/cpp` — String-pull smoothing over an exact 8-connected walkability test
 - `src/engine/player_controller.hpp/cpp` — `PlayerSim` (fixed-timestep simulation, fall-distance tracking + landing damage)

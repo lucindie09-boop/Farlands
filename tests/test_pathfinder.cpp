@@ -119,9 +119,92 @@ TEST_CASE("Pathfinder truncates to a best-effort run when the budget runs out") 
     CHECK_FALSE(path.found);
     CHECK(path.truncated);
     CHECK(path.stats.budget_exhausted);
+    CHECK_FALSE(path.stats.time_exhausted);
     CHECK_FALSE(path.nodes.empty());
     CHECK(path.nodes.front() == q.start);
     CHECK(finder.last_error() == "expansion budget exhausted");
+}
+
+TEST_CASE("A route cut short by the budget is still a legal chain of moves") {
+    nt::World w;
+    w.default_ground = 10;
+    for (int32_t z = -8; z <= 4; ++z) w.set_ground(5, z, 12);  // wall, gap above z=4
+    for (int32_t z = -4; z <= 8; ++z) w.set_ground(10, z, 12);
+
+    NavView view = nt::make_view(w, 24);
+    Pathfinder finder(view, NavCosts{});
+    MoveGenerator gen(view, NavCosts{});
+
+    // A handful of expansions into a maze: the run is cut off, but what it
+    // returns has to be walkable from where the agent is standing.
+    NavQuery q;
+    q.start = NavNode{0, 10, 0};
+    q.goal = NavNode{15, 10, 0};
+    q.max_expansions = 4;
+    const NavPath path = finder.search(q);
+
+    CHECK_FALSE(path.found);
+    CHECK(path.truncated);
+    CHECK(path.nodes.size() > 1);
+    CHECK(path.nodes.front() == q.start);
+    CHECK(nt::path_cost(view, gen, path.nodes) > 0.0f);
+}
+
+TEST_CASE("Pathfinder returns a usable partial route when the clock runs out") {
+    nt::World w;
+    w.default_ground = 10;
+    NavView view = nt::make_view(w, 64);
+    Pathfinder finder(view, NavCosts{});
+
+    NavQuery q;
+    q.start = NavNode{0, 10, 0};
+    q.goal = NavNode{60, 10, 0};
+    // 100 nanoseconds: the budget is already spent by the time the search has
+    // resolved its two endpoint columns, so it stops before its first expansion.
+    q.max_ms = 1e-4;
+    const NavPath path = finder.search(q);
+
+    CHECK_FALSE(path.found);
+    CHECK(path.truncated);
+    CHECK(path.stats.time_exhausted);
+    CHECK_FALSE(path.stats.budget_exhausted);
+    // Still something the caller can use: it starts where the agent stands.
+    CHECK_FALSE(path.nodes.empty());
+    CHECK(path.nodes.front() == q.start);
+    CHECK(finder.last_error() == "time budget exhausted");
+}
+
+TEST_CASE("A budget the search never reaches leaves the route untouched") {
+    nt::World w;
+    w.default_ground = 10;
+    for (int32_t z = -12; z <= 12; ++z) w.set_ground(6, z, 12);
+    w.set_ground(6, 0, 10);
+
+    NavQuery unbudgeted;
+    unbudgeted.start = NavNode{0, 10, 0};
+    unbudgeted.goal = NavNode{14, 10, 0};
+
+    NavQuery budgeted = unbudgeted;
+    budgeted.max_ms = 5000.0;
+
+    NavView view_a = nt::make_view(w, 24);
+    Pathfinder finder_a(view_a, NavCosts{});
+    const NavPath path_a = finder_a.search(unbudgeted);
+
+    NavView view_b = nt::make_view(w, 24);
+    Pathfinder finder_b(view_b, NavCosts{});
+    const NavPath path_b = finder_b.search(budgeted);
+
+    CHECK(path_a.found);
+    CHECK(path_b.found);
+    CHECK_FALSE(path_b.truncated);
+    CHECK_FALSE(path_b.stats.time_exhausted);
+    CHECK(path_a.nodes.size() == path_b.nodes.size());
+    if (path_a.nodes.size() == path_b.nodes.size()) {
+        for (size_t i = 0; i < path_a.nodes.size(); ++i) {
+            CHECK(path_a.nodes[i] == path_b.nodes[i]);
+        }
+    }
 }
 
 TEST_CASE("Pathfinder refuses to start or finish on a broken column") {

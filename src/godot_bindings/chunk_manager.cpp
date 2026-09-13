@@ -336,7 +336,8 @@ Dictionary ChunkManager::find_biome(const String& biome_name, int32_t center_x,
     return controller->find_biome(biome_name, center_x, center_z, max_radius);
 }
 
-int64_t ChunkManager::request_path(const Vector3& from, const Vector3& to, int32_t max_expansions) {
+int64_t ChunkManager::request_path(const Vector3& from, const Vector3& to, int32_t max_expansions,
+                                   double max_ms) {
     if (!controller) return 0;
     ThreadPool* pool = controller->get_thread_pool();
     if (pool == nullptr) return 0;
@@ -352,7 +353,7 @@ int64_t ChunkManager::request_path(const Vector3& from, const Vector3& to, int32
     const nav::NavNode goal{static_cast<int32_t>(std::floor(to.x)),
                             static_cast<int32_t>(std::floor(to.y)),
                             static_cast<int32_t>(std::floor(to.z))};
-    return static_cast<int64_t>(path_service->submit(start, goal, max_expansions));
+    return static_cast<int64_t>(path_service->submit(start, goal, max_expansions, max_ms));
 }
 
 Array ChunkManager::poll_paths() {
@@ -364,10 +365,14 @@ Array ChunkManager::poll_paths() {
         entry["found"] = result.found;
         entry["truncated"] = result.truncated;
         entry["budget_exhausted"] = result.budget_exhausted;
+        entry["time_exhausted"] = result.time_exhausted;
         entry["error"] = String(result.error.c_str());
         entry["ms"] = result.search_ms;
         entry["expansions"] = static_cast<int64_t>(result.stats.expansions);
         entry["columns"] = static_cast<int64_t>(result.stats.columns_resolved);
+        // World-view cost: cells classified and the shard locks taken for them.
+        entry["cells"] = static_cast<int64_t>(result.cells_read);
+        entry["locks"] = static_cast<int64_t>(result.lock_acquisitions);
         // Block cells, not centres — the caller places an overlay cube per cell.
         PackedVector3Array nodes;
         nodes.resize(static_cast<int64_t>(result.nodes.size()));
@@ -576,7 +581,8 @@ void ChunkManager::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_selection_boxes", "block_id"), &ChunkManager::get_selection_boxes);
     ClassDB::bind_method(D_METHOD("find_biome", "biome_name", "center_x", "center_z", "max_radius"), &ChunkManager::find_biome);
     ClassDB::bind_method(D_METHOD("resolve_voxel_collision", "position", "motion", "size"), &ChunkManager::resolve_voxel_collision);
-    ClassDB::bind_method(D_METHOD("request_path", "from", "to", "max_expansions"), &ChunkManager::request_path, DEFVAL(20000));
+    ClassDB::bind_method(D_METHOD("request_path", "from", "to", "max_expansions", "max_ms"),
+                         &ChunkManager::request_path, DEFVAL(20000), DEFVAL(16.0));
     ClassDB::bind_method(D_METHOD("poll_paths"), &ChunkManager::poll_paths);
     ClassDB::bind_method(D_METHOD("get_pending_paths"), &ChunkManager::get_pending_paths);
 

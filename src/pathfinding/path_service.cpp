@@ -29,13 +29,15 @@ PathService::PathService(const ChunkMap& map, ThreadPool& pool)
 
 PathService::~PathService() = default;
 
-uint64_t PathService::submit(const NavNode& from, const NavNode& to, int32_t max_expansions) {
+uint64_t PathService::submit(const NavNode& from, const NavNode& to, int32_t max_expansions,
+                             double max_ms) {
     const uint64_t id = state_->next_id.fetch_add(1, std::memory_order_relaxed);
 
     NavQuery query;
     query.start = from;
     query.goal = to;
     query.max_expansions = std::max(1, max_expansions);
+    query.max_ms = std::max(0.0, max_ms);
     query.weight = 1.0f;
 
     auto source = std::make_shared<ChunkMapNavSource>(map_);
@@ -58,9 +60,15 @@ void PathService::run(const std::shared_ptr<State>& state, uint64_t id,
     const NavBox box{min_x, 0, min_z, max_x, WORLD_HEIGHT_Y - 1, max_z};
 
     const NavCosts costs;
-    NavView view(box, [source](int32_t x, int32_t y, int32_t z) {
-        return source->sample(x, y, z);
-    }, costs);
+    // The per-cell sampler is the fallback; the ranged reader is what a column
+    // resolution actually uses, so a plan's map locks scale with columns
+    // resolved rather than with cells classified.
+    NavView view(box,
+                 [source](int32_t x, int32_t y, int32_t z) { return source->sample(x, y, z); },
+                 costs,
+                 [source](int32_t x, int32_t z, int32_t y_lo, int32_t y_hi, Cell* out) {
+                     source->read_column(x, z, y_lo, y_hi, out);
+                 });
 
     Pathfinder finder(view, costs);
     NavPath path = finder.search(query);
@@ -71,9 +79,12 @@ void PathService::run(const std::shared_ptr<State>& state, uint64_t id,
     result.found = path.found;
     result.truncated = path.truncated;
     result.budget_exhausted = path.stats.budget_exhausted;
+    result.time_exhausted = path.stats.time_exhausted;
     result.error = finder.last_error();
     result.search_ms = search_ms;
     result.stats = path.stats;
+    result.cells_read = source->cells_read();
+    result.lock_acquisitions = source->lock_acquisitions();
 
     // Emit support blocks: the block under each node's feet is what an overlay
     // wants to highlight, and what an agent needs to stand on.

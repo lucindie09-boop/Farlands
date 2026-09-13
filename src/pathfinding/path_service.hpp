@@ -88,8 +88,13 @@ private:
         std::atomic<uint64_t> next_id{1};
     };
 
+    // The source and the query are borrowed for the duration of the call: both
+    // only ever get READ here, and the source's shared_ptr is copied onto the
+    // view's lambdas that need to outlive it, so neither needs its own copy of
+    // the argument (clang-tidy: performance-unnecessary-value-param).
     static void run(const std::shared_ptr<State>& state, uint64_t id,
-                    std::shared_ptr<ChunkMapNavSource> source, NavQuery query);
+                    const std::shared_ptr<ChunkMapNavSource>& source,
+                    const NavQuery& query);
 
     // Borrowed; outlives the service. The pool is not stored — see submit().
     const ChunkMap& map_;

@@ -695,13 +695,21 @@ void BlockRegistry::initialize_default_blocks() noexcept {
     // depends on these particular values either — it resolves states by name
     // (fluids/fluid_state_table.hpp) — which is why the test registry and the
     // game registry can number them differently and still agree on behaviour.
+    // The surface of a flowing cell drops with its depth — the reference's
+    // liquid height, offset = (depth + 1) / 9 rounded to hundredths — which is
+    // what makes a stream slope down instead of sitting at one flat height.
+    // Depth 0 is not in this table: a source keeps the established 0.12 of the
+    // `water` block above, and a falling cell is FULL height (offset 0), because
+    // water in a column is only ever full strength.
+    static constexpr float kRunoffOffset[8] = { 0.0f, 0.22f, 0.33f, 0.44f, 0.56f, 0.67f, 0.78f, 0.89f };
     const auto fluid_state = [&](const char* name, FluidKind kind, uint8_t depth, bool falling) {
         BlockType bt{};
         bt.name = name;
         bt.properties = BlockProperty::Liquid | BlockProperty::Transparent;
         bt.visible_faces = {true, true, true, true, true, true};
         bt.light_pattern = LightEmissionPattern::Diamond;
-        bt.top_face_offset = 0.12f;
+        bt.top_face_offset =
+            (falling || depth >= 8) ? 0.0f : kRunoffOffset[depth];
         bt.slipperiness = 0.6f;
         bt.hardness = -1.0f;  // unbreakable, like water
         bt.full_cube_ = true;

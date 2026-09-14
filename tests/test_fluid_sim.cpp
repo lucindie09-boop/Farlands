@@ -189,7 +189,11 @@ TEST_CASE("fluid: each depth is its own height, and a falling cell is full") {
         // Strictly lower than the depth that feeds it, or the slope is lost.
         CHECK(runoff.top_face_offset > previous);
         previous = runoff.top_face_offset;
-        // Still the fast mesh path: a lowered top face the greedy flush can emit.
+        // The shape is still a bottom-anchored column of exactly that height — what
+        // the flag describes. Whether a given emitter draws it is a separate
+        // question: liquids always go through the fluid surface pass, which is why
+        // the offset above is now the cell's nominal surface rather than the one
+        // height its top face renders at.
         CHECK(runoff.greedy_mergeable);
     }
 

@@ -139,6 +139,14 @@ String PerfReport::build(
         }
     }
 
+    // The liquid surface pass, a slice of build_mesh rather than a phase of its
+    // own. It is called out because it is the one pass whose cost scales with how
+    // much WATER is in view instead of how much terrain is.
+    if (MeshBuilder::get_perf_timer().get_count(TimerID::FluidMesh) > 0) {
+        report += "    fluid_mesh:   avg=" +
+                  String::num(MeshBuilder::get_perf_timer().get_avg(TimerID::FluidMesh), 3) + "ms\n";
+    }
+
     double alloc_avg = MeshBuilder::get_perf_timer().get_avg(TimerID::MeshArrayAlloc);
     if (MeshBuilder::get_perf_timer().get_count(TimerID::MeshArrayAlloc) > 0) {
         report += "    array_alloc:  avg=" + String::num(alloc_avg, 3) + "ms\n";

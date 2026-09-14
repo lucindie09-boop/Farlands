@@ -275,6 +275,16 @@ BlockID MeshBuilder::solid_at(int32_t y, int32_t zi, int32_t xi) const {
 // -------------------------------------------------------------------------
 bool MeshBuilder::should_cull_aabb_face(const float self_min[3], const float self_max[3],
                                          FaceDirection dir, const BlockType& neighbor_type) const {
+    // A transparent neighbour never covers a face, however full its box is: you see
+    // the far face THROUGH it. Without this, a block that is only full-height but
+    // drawn with transparency hides the faces of everything it touches — a column
+    // of falling water (`water_fallen`) takes the side off a slab, and a leaf block
+    // takes the face off any partial block next to it. Note this is the path the
+    // per-AABB emitters use directly; the full-cube emitters go through
+    // should_cull_against_neighbor, which already returns false for a transparent
+    // neighbour unless the two blocks hold the same substance.
+    if (HasProperty(neighbor_type.properties, BlockProperty::Transparent)) return false;
+
     if (neighbor_type.is_full_cube()) {
         // Full cube only covers the face if the face reaches the cell boundary.
         // A wall back face at z=0.5, pole side at x=0.625, stair internal face etc.
@@ -372,6 +382,9 @@ void MeshBuilder::emit_faces(const ChunkData& chunk, const BlockRegistry& regist
                         }
                         const BlockID block_id = solid_at(y, z + 1, x + 1);
                         if (block_id == BlockIDs::AIR) continue;
+                        // Liquids are drawn by the fluid pass, never here (see
+                        // is_fluid_drawn).
+                        if (is_fluid_drawn(block_id, registry)) continue;
                         const BlockType& bt = registry.get_block_fast(block_id);
                         if (bt.greedy_mergeable) continue;
                         for (const auto& box : bt.selection_boxes) {
@@ -412,6 +425,9 @@ void MeshBuilder::emit_faces(const ChunkData& chunk, const BlockRegistry& regist
                         }
                         const BlockID block_id = solid_at(y, z + 1, x + 1);
                         if (block_id == BlockIDs::AIR) continue;
+                        // Liquids are drawn by the fluid pass, never here (see
+                        // is_fluid_drawn).
+                        if (is_fluid_drawn(block_id, registry)) continue;
 
                         const BlockType& bt = registry.get_block_fast(block_id);
 
@@ -475,6 +491,15 @@ void MeshBuilder::emit_faces(const ChunkData& chunk, const BlockRegistry& regist
                 }
             }
         }
+    }
+
+    // Liquids last and separately: a liquid surface is a quad with four
+    // independent corner heights (see mesh_fluid.hpp), which neither the greedy
+    // passes nor the per-AABB path can produce — so those two skip every liquid
+    // (is_fluid_drawn) and this pass draws them all.
+    {
+        ScopedTimer fluid_timer(perf_timer, TimerID::FluidMesh);
+        passive_fluid_mesh(chunk, accessor, registry);
     }
 }
 

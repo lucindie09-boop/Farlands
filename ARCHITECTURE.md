@@ -230,7 +230,7 @@ Per-biome amplification knobs (`height`/`weirdness`/`min_weirdness`/`weirdness_s
 
 ### Mesh Surfaces
 - Primary surface: opaque terrain with greedy meshing
-- Secondary surface: translucent water with edge fade, tint, shimmer, flowing texture animation, and separate blend-mix surface
+- Secondary surface: translucent water with edge fade, tint, shimmer, flowing texture animation, and separate blend-mix surface. Its geometry is the per-corner surface from `mesh_fluid.hpp` / `mesh_builder_fluid.cpp` (a liquid cell's four corners take independent heights, so a pool's rim slopes and a waterfall's sides reach the cell boundary), which is why liquids are excluded from the greedy and per-AABB emitters — one merged quad carries one top height, and that is what used to render every pool as a stepped box
 - Emissive textures: second `Texture2DArray` for per-face glow maps
 - Far regions: LOD-reduced chunk meshes merged into region instances (`far_regions`, `far_mesh_cache` in `mesh_manager.*`/`chunk_render_data.hpp`) so the coarse ring costs a handful of draw calls
 - Vertex compression: 24 bytes per vertex (-40% VRAM) with fixed-point positions
@@ -305,7 +305,8 @@ The following code remains in the codebase but is disabled or unused:
 
 ### Mesh
 - `src/mesh/mesh_manager.hpp` + `mesh_manager.cpp` / `mesh_manager_worker.cpp` / `mesh_manager_upload.cpp` / `mesh_manager_rebuild.cpp` / `mesh_manager_far.cpp` / `mesh_manager_lifecycle.cpp` / `mesh_manager_internal.hpp` — Per-chunk mesh builds, upload, instance management, three-tier LOD, far-region merging, nearest-first completion
-- `src/mesh/mesh_builder.cpp` / `mesh_builder_solid.cpp` / `mesh_builder_greedy.cpp` / `mesh_builder_faces.cpp` — Greedy meshing, incremental partial remeshes
+- `src/mesh/mesh_builder.cpp` / `mesh_builder_solid.cpp` / `mesh_builder_greedy.cpp` / `mesh_builder_faces.cpp` / `mesh_builder_fluid.cpp` — Greedy meshing, incremental partial remeshes, and the liquid surface pass
+- `src/mesh/mesh_fluid.hpp` — The liquid surface rule, pure and header-only: per-corner heights, the surface family a block belongs to, and whether a face shows against a given neighbour. No chunk, no mesh builder, no registry scan, so `tests/test_fluid_surface.cpp` drives it over a map of cells
 - `src/mesh/chunk_neighbor_accessor.hpp/cpp` — 26 neighbor pointers for mesh building
 - `src/mesh/chunk_render_data.hpp` — `ChunkRenderData` (per-chunk render state stored in the chunk map), `CachedFarChunkMesh`, `CompletedMesh`
 - `src/mesh/mesh_types.hpp` — Mesh types, light checksum grid for incremental rebuilds

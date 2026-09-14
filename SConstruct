@@ -72,6 +72,7 @@ shared_sources = [
     "src/render/texture_pack_manager.cpp",
     "src/render/minecraft_pack_converter.cpp",
     "src/render/block_outline_mesh.cpp",
+    "src/fluids/fluid_rules.cpp",
     "src/pathfinding/nav_view.cpp",
     "src/pathfinding/pathfinder.cpp",
     "src/pathfinding/path_smoother.cpp",

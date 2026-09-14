@@ -52,6 +52,7 @@
     "collision_boxes": [[0.375, 0, 0.375, 0.625, 1.5, 0.625]]
   },
   "crucible": {
+    "_comment": "No collision_boxes on purpose: the VISIBLE model is the collision, so a body can stand inside the vessel on the inner floor plate (0.1875) instead of on the rim. Legs/floor/walls are all solid, so a body outside it is still blocked by the walls.",
     "selection_boxes": [
       [0, 0, 0, 0.0625, 0.125, 0.0625],
       [0.9375, 0, 0, 1, 0.125, 0.0625],
@@ -62,8 +63,7 @@
       [0.9375, 0.1875, 0, 1, 1, 1],
       [0.0625, 0.1875, 0, 0.9375, 1, 0.0625],
       [0.0625, 0.1875, 0.9375, 0.9375, 1, 1]
-    ],
-    "collision_boxes": [[0, 0, 0, 1, 1, 1]]
+    ]
   },
   "lowered": {
     "0625": {

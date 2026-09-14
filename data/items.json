@@ -39,6 +39,31 @@
 			"name": "iron_hammer",
 			"texture": "iron_hammer",
 			"tool": { "class": "hammer", "tier": 3, "speed": 5.0 }
+		},
+		{
+			"name": "wooden_hammer",
+			"texture": "wooden_hammer",
+			"tool": { "class": "hammer", "tier": 1, "speed": 2.0 }
+		},
+		{
+			"name": "wooden_pickaxe",
+			"texture": "wooden_pickaxe",
+			"tool": { "class": "pickaxe", "tier": 1, "speed": 2.0 }
+		},
+		{
+			"name": "stone_pickaxe",
+			"texture": "stone_pickaxe",
+			"tool": { "class": "pickaxe", "tier": 1, "speed": 3.0 }
+		},
+		{
+			"name": "copper_pickaxe",
+			"texture": "copper_pickaxe",
+			"tool": { "class": "pickaxe", "tier": 2, "speed": 4.0 }
+		},
+		{
+			"name": "iron_pickaxe",
+			"texture": "iron_pickaxe",
+			"tool": { "class": "pickaxe", "tier": 3, "speed": 5.0 }
 		}
 	]
 }

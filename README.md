@@ -27,7 +27,7 @@ A Minecraft-style voxel engine built in Godot 4 with a custom C++ GDExtension. P
 |--------|---------|-------|
 | Chunk data | `src/core/chunk_data.hpp/cpp` | 32×32×32 chunks, palette-compressed blocks + light (8 × 16³ sections each) |
 | Block types | `src/core/block_types.hpp/cpp` | Registry singleton loaded from `data/block_definitions.json` — the single source of truth for block properties, per-face textures, and emissive maps |
-| Block shapes | `data/block_shapes.json` | Shared shape registry for non-full blocks (slabs, stairs, walls, poles, and the multi-box crucible model) with selection/collision boxes and auto-detecting placement; a shape is an arbitrary list of AABBs, and its collision boxes may differ from its visible ones |
+| Block shapes | `data/block_shapes.json` | Shared shape registry for non-full blocks (slabs, stairs, walls, poles, and the multi-box crucible model) with selection boxes, optional collision boxes, and auto-detecting placement; a shape is an arbitrary list of AABBs, and collision defaults to the visible boxes |
 | Chunk map | `src/core/chunk_map.hpp` | 64-shard `shared_mutex` map, ordered multi-shard locking (`lock_keys`/`lock_all`), resumable bucket-cursor iteration |
 | Frustum utility | `src/core/frustum.hpp` | AABB-in-frustum test, used by generation, mesh, unload, and LOD priority |
 | World updater | `src/world/world_updater.hpp/cpp` | Per-frame budgeted scheduling (generate → light → mesh → upload); two-phase generation (`update_generation`): a frustum-priority pass first, then a distance-sorted sweep |

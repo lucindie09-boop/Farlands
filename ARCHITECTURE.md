@@ -138,7 +138,7 @@ Async persistence shares the same pool: the main thread snapshots dirty chunks o
 - Do not hardcode block properties in C++
 
 ### Block Shapes
-- **Non-full block shapes**: Slabs, stairs, walls, and poles defined in `data/block_shapes.json`. A shape is an arbitrary list of AABBs, so a model is data rather than code: the crucible is 9 boxes (4 legs, a floor plate, 4 open-topped walls) and declares a full-cube collision separate from its visible boxes so nothing can drop into its cavity. A `shape` name that does not resolve leaves the block a full cube (error log only), and per-AABB emission never emits Bottom faces
+- **Non-full block shapes**: Slabs, stairs, walls, and poles defined in `data/block_shapes.json`. A shape is an arbitrary list of AABBs, so a model is data rather than code: the crucible is 9 boxes (4 legs, a floor plate, 4 open-topped walls). `collision_boxes` is optional and defaults to the visible boxes, so the crucible's walls stop a body while its open top lets one stand inside on the inner floor plate; the pole is the counter-example that overrides it (1.5-high collision under a 1-block-tall stick). A `shape` name that does not resolve leaves the block a full cube (error log only), and per-AABB emission never emits Bottom faces
 - **Selection and collision boxes**: Each shape variant has explicit selection boxes (for raycast) and collision boxes (for physics)
 - **Auto-detecting placement**: Slabs, stairs, and walls automatically orient based on clicked face and neighboring blocks
 - **Double-slab merging**: Two stacked slabs of the same type merge into a double slab; breaking drops 2 slabs

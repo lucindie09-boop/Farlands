@@ -286,6 +286,7 @@ The following code remains in the codebase but is disabled or unused:
 - **Cave system**: `kCavesEnabled = false` in `ChunkGenerator` - cave carving code exists but is globally disabled
 - **is_occluder() method**: Defined in `ChunkNeighborAccessor` but never called anywhere in the codebase
 - **mountain_scale parameter**: Read from save files in persistence but ignored in current terrain generation
+- **Fluid flow**: `src/fluids/fluid_rules.hpp/cpp` implements the flow rules and is covered by 13 tests, but nothing drives it yet — no block declares a fluid state, and no tick loop calls `tick()`. A poured water bucket is still one still block
 
 ## Key Files
 
@@ -357,6 +358,10 @@ The following code remains in the codebase but is disabled or unused:
 - `src/pathfinding/path_smoother.hpp/cpp` — String-pull smoothing over an exact 8-connected walkability test
 - `src/engine/player_controller.hpp/cpp` — `PlayerSim` (fixed-timestep simulation, fall-distance tracking + landing damage)
 - `src/engine/voxel_engine_controller.hpp/cpp` — Bridges `ChunkManager` state to the world
+
+### Fluids
+- `src/fluids/fluid_rules.hpp` — The flow rules and their whole interface: `FluidKind`, `FluidCell` (source / runoff depth / falling), `FluidTraits` per kind, the `FluidWorld` query interface the rules ask, and `FluidStep` (what this cell becomes, plus the writes it pushes outward). The header carries the rule list as prose because the rules ARE the specification
+- `src/fluids/fluid_rules.cpp` — `tick()`: recompute the cell from its neighbours, the falling rule (fed from above, which can revive a cell that has no side supply at all), the two-sources-over-something-solid source rule, dry-up, and the push outward — down first, else sideways toward the directions with the shortest distance to a drop. That search is bounded to 4 steps and short-circuits entirely when a neighbour can drop straight off, which keeps it constant and world-size independent (~1400 reads in the worst case, measured by `tests/test_fluid_rules.cpp`)
 
 ### Rendering
 - `src/render/environment_controller.cpp` — Sky/fog/player-light parameter pushes

@@ -99,11 +99,17 @@ struct BlockType {
     // Block a HAMMER leaves behind instead of this one (block_definitions.json
     // "crush_result"; 0 = AIR = not crushable). This one field is the hammer's
     // whole contract: a block that names a crush_result is mined faster by a
-    // hammer (see mining.hpp) and drops that block in its place, so stone
-    // becomes gravel and gravel becomes sand. Resolved from its name AFTER
-    // every block is registered, because the target block is usually defined
-    // later in the file than the block naming it.
+    // hammer (see mining.hpp) and drops that block in its place, so cobblestone
+    // becomes gravel and gravel becomes sand.
     BlockID crush_result = 0;
+
+    // Block this one yields when broken, whatever the tool (block_definitions.json
+    // "drops"; 0 = AIR = drop this block itself). Deliberately separate from
+    // crush_result: `drops` is what ANY break yields (stone -> cobblestone),
+    // while crush_result is what only a hammer makes of it. Like crush_result
+    // it is resolved from its NAME after every block is registered, because the
+    // target is normally declared later in the file than the block naming it.
+    BlockID drops = 0;
 
     // Texture filename per face (populated by load_from_json, used by TextureArrayGenerator).
     // Placed last so existing aggregate initializers are unaffected.

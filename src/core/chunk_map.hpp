@@ -71,6 +71,12 @@ public:
 #endif
             locks_.clear();
         }
+
+#ifdef DEBUG_ENABLED
+        // How many shards this lock actually holds. A lock's extent is otherwise
+        // invisible from the outside, so tests read it here (debug builds only).
+        [[nodiscard]] size_t shard_count() const noexcept { return locks_.size(); }
+#endif
     };
 
     // RAII lock that holds unique_locks (exclusive) on one or more shards.
@@ -160,14 +166,15 @@ public:
         return sl;
     }
 
-    template<size_t N>
-    ShardLock lock_keys(const uint64_t (&keys)[N]) const {
+    // Locks exactly `count` of `keys`. A caller that fills an array only partly
+    // must use this form: the array overload below locks its whole extent, so a
+    // half-filled array would read uninitialised entries and take shards that
+    // have nothing to do with the request.
+    ShardLock lock_keys(const uint64_t* keys, size_t count) const {
         ShardLock sl;
-        if constexpr (N == 0) {
-            return sl;
-        }
+        if (count == 0) return sl;
         bool seen[kNumShards] = {};
-        for (size_t i = 0; i < N; ++i) {
+        for (size_t i = 0; i < count; ++i) {
             seen[key_to_shard(keys[i])] = true;
         }
         sl.locks_.reserve(kNumShards);
@@ -181,6 +188,11 @@ public:
             }
         }
         return sl;
+    }
+
+    template<size_t N>
+    ShardLock lock_keys(const uint64_t (&keys)[N]) const {
+        return lock_keys(keys, N);
     }
 
     ExclusiveShardLock lock_keys_exclusive(const std::vector<uint64_t>& keys) const {

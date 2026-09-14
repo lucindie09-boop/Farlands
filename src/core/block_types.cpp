@@ -361,19 +361,24 @@ bool BlockRegistry::load_from_json(const godot::String& json_path) noexcept {
         godot::Dictionary d = blocks_arr[i];
         BlockType* bt = get_block_mutable(static_cast<BlockID>(i));
         if (bt == nullptr) continue;
-        const auto resolve_ref = [&](const char* field, BlockID& out) {
-            if (!d.has(field)) return;
+        // The message is built inside and printed outside: ERR_PRINT expands to
+        // __FUNCTION__, which inside a lambda names its call operator, so the log
+        // would say "operator()" rather than where this actually went wrong.
+        const auto resolve_ref = [&](const char* field, BlockID& out) -> godot::String {
+            if (!d.has(field)) return godot::String();
             const godot::String target_name = d[field];
             const BlockID target = get_block_id_by_name(target_name.utf8().get_data());
             if (target == 0) {
-                ERR_PRINT("BlockRegistry: unknown " + godot::String(field) + " \"" + target_name +
-                          "\" for block \"" + godot::String(d["name"]) + "\"");
-                return;
+                return "BlockRegistry: unknown " + godot::String(field) + " \"" + target_name +
+                       "\" for block \"" + godot::String(d["name"]) + "\"";
             }
             out = target;
+            return godot::String();
         };
-        resolve_ref("drops", bt->drops);
-        resolve_ref("crush_result", bt->crush_result);
+        const godot::String drops_error = resolve_ref("drops", bt->drops);
+        if (!drops_error.is_empty()) ERR_PRINT(drops_error);
+        const godot::String crush_error = resolve_ref("crush_result", bt->crush_result);
+        if (!crush_error.is_empty()) ERR_PRINT(crush_error);
     }
 
     // Build slab families from "slab_family" fields.  Each family name

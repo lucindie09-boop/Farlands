@@ -229,6 +229,8 @@ A Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked streamin
 - `update_block_light_incremental` — 54 keys (origin + center 3×3×3)
 - `PlayerLight::update` — vector of up to 54 keys (old+new chunk 3×3×3)
 - `MeshBuildTask::execute` — 27 keys (center + 26 neighbors), **shared** `lock_keys` held for the whole data read
+- `ChunkFluidWorld::read_window` — up to 8 keys (an 11×11×3 window spans at most 2 chunks per axis), passed as **array + count**
+- **`lock_keys` has two forms and they are not interchangeable**: the array template locks its whole extent (`lock_keys(uint64_t[8])` takes all 8 shards), while `lock_keys(keys, count)` locks only what was filled. A caller that fills part of a fixed array — the fluid window fills 1 to 8 slots — must pass the count: the array form reads the untouched slots (undefined values) and takes shards nothing asked for, which the analyzer reports as "argument is an uninitialised value"
 
 ### LOD System Details
 - Three tiers: full detail → mid stride/detail reduction → far tier with its own detail level

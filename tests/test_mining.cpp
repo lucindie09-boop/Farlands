@@ -20,6 +20,13 @@ BlockType make_block(const char* preferred, int32_t min_tier) {
     return b;
 }
 
+// A block that a hammer crushes into `crush_result`.
+BlockType make_crushable(const char* preferred, int32_t min_tier, BlockID crush_result) {
+    BlockType b = make_block(preferred, min_tier);
+    b.crush_result = crush_result;
+    return b;
+}
+
 } // namespace
 
 TEST_CASE("mining: defaults are neutral") {
@@ -90,4 +97,77 @@ TEST_CASE("mining: registry lookup only rewards real item tools") {
     neutral.name = "test_tool_neutral";
     const BlockID neutral_id = reg.register_block(neutral);
     CHECK(mining_speed_multiplier(neutral_id, ItemRegistry::FIRST_ITEM_ID) == doctest::Approx(1.0f));
+}
+
+TEST_CASE("mining: a hammer is fast on the blocks it can crush, and only those") {
+    // Stone is the real shape of this: it prefers the pickaxe, and a hammer
+    // still out-mines it because crushing it is what the hammer is for.
+    const BlockType stone = make_crushable("pickaxe", 0, BlockIDs::GRAVEL);
+    const ItemToolStats hammer = make_tool("hammer", 1, 3.0f);
+
+    CHECK(is_crushable(stone));
+    CHECK(is_hammer(hammer));
+    CHECK(tool_mining_speed(hammer, stone) == doctest::Approx(3.0f));
+    // ...and the block's own preferred tool keeps its bonus.
+    CHECK(tool_mining_speed(make_tool("pickaxe", 1, 3.0f), stone) == doctest::Approx(3.0f));
+
+    // An ordinary block is none of the hammer's business.
+    const BlockType planks = make_block("axe", 0);
+    CHECK_FALSE(is_crushable(planks));
+    CHECK(tool_mining_speed(hammer, planks) == doctest::Approx(1.0f));
+    CHECK(tool_mining_speed(make_tool("axe", 0, 1.25f), planks) == doctest::Approx(1.25f));
+
+    // A block can also name the hammer outright, with nothing to crush.
+    const BlockType named = make_block("hammer", 0);
+    CHECK(tool_mining_speed(hammer, named) == doctest::Approx(3.0f));
+    CHECK(tool_mining_speed(make_tool("pickaxe", 1, 3.0f), named) == doctest::Approx(1.0f));
+
+    // The tier gate still applies to a hammer like any other tool class.
+    const BlockType tough = make_crushable("pickaxe", 2, BlockIDs::SAND);
+    CHECK(tool_mining_speed(make_tool("hammer", 1, 3.0f), tough) == doctest::Approx(1.0f));
+    CHECK(tool_mining_speed(make_tool("hammer", 2, 4.0f), tough) == doctest::Approx(4.0f));
+}
+
+TEST_CASE("mining: only a hammer crushes, and only a block that names a result") {
+    const BlockType stone = make_crushable("pickaxe", 0, BlockIDs::GRAVEL);
+    const ItemToolStats hammer = make_tool("hammer", 1, 3.0f);
+    const ItemToolStats pickaxe = make_tool("pickaxe", 9, 9.0f);
+
+    CHECK(crushed_block(stone, &hammer) == BlockIDs::GRAVEL);
+    // Bare hand, a non-tool, and any other tool class leave the block alone —
+    // even a much stronger pickaxe.
+    CHECK(crushed_block(stone, nullptr) == BlockIDs::AIR);
+    CHECK(crushed_block(stone, &ItemToolStats{}) == BlockIDs::AIR);
+    CHECK(crushed_block(stone, &pickaxe) == BlockIDs::AIR);
+    // A hammer on a block with no crush_result has nothing to produce.
+    const BlockType plain = make_block("pickaxe", 0);
+    CHECK(crushed_block(plain, &hammer) == BlockIDs::AIR);
+}
+
+TEST_CASE("mining: the crush decides what a break yields") {
+    BlockRegistry& reg = BlockRegistry::get_instance();
+    reg.initialize_default_blocks();
+
+    // A real registered block carrying a crush_result, since the standalone
+    // test build loads no items.json (so no held id can be a hammer here).
+    const BlockID source = reg.register_block(make_crushable("pickaxe", 0, BlockIDs::GRAVEL));
+    const ItemToolStats hammer = make_tool("hammer", 1, 3.0f);
+
+    const BlockDrop crushed = block_drop(source, &hammer);
+    CHECK(crushed.id == BlockIDs::GRAVEL);
+    CHECK(crushed.count == 1);
+
+    // Without a hammer the block yields itself, unchanged.
+    const BlockDrop bare = block_drop(source, nullptr);
+    CHECK(bare.id == source);
+    CHECK(bare.count == 1);
+
+    // The held-id wrapper is the same rule, and an empty hand never crushes.
+    CHECK(resolve_block_drop(source, BlockIDs::AIR).id == source);
+    CHECK(resolve_block_drop(source, ItemRegistry::FIRST_ITEM_ID).id == source);
+
+    // Air never yields anything.
+    const BlockDrop nothing = resolve_block_drop(BlockIDs::AIR, BlockIDs::AIR);
+    CHECK(nothing.id == BlockIDs::AIR);
+    CHECK(nothing.count == 0);
 }

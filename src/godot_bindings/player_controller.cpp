@@ -628,28 +628,20 @@ void PlayerController::break_block() {
         
         // Get the block type before breaking
         int block_type = cm->get_block(bx, by, bz);
-        
-        // Remap block variants to base IDs for inventory consistency
-        BlockID collect_id = static_cast<BlockID>(block_type);
-        int collect_count = 1;
-        if (const auto* slab_fam = VoxelEngine::BlockRegistry::get_instance().get_slab_family(collect_id)) {
-            // Halves drop as the bottom variant; a merged full block drops both halves
-            if (collect_id == slab_fam->full)
-                collect_count = 2;
-            collect_id = slab_fam->bottom;
-        } else if (const auto* stair_fam = VoxelEngine::BlockRegistry::get_instance().get_stair_family(collect_id)) {
-            collect_id = stair_fam->base;
-        } else if (const auto* wall_fam = VoxelEngine::BlockRegistry::get_instance().get_wall_family(collect_id)) {
-            collect_id = wall_fam->base;
-        }
-        
+
+        // What this break yields: variant collapse plus the hammer's crush.
+        // resolve_block_drop is also what the hold-to-break gate above checks,
+        // so the gate and the collect cannot disagree about the drop.
+        const VoxelEngine::BlockDrop drop = VoxelEngine::resolve_block_drop(
+            static_cast<BlockID>(block_type), inventory_.get_selected_block());
+
         // Only break if we can add it to inventory (and it's not air)
-        if (block_type != 0 && inventory_.can_add_block(collect_id, collect_count)) {
+        if (block_type != 0 && inventory_.can_add_block(drop.id, drop.count)) {
             // Break the block
             cm->set_block(bx, by, bz, 0);
 
             // Add to inventory
-            inventory_.add_block(collect_id, collect_count);
+            inventory_.add_block(drop.id, drop.count);
 
             // Increment edit counter to invalidate block outline
             block_edit_counter_++;
@@ -703,18 +695,13 @@ void PlayerController::update_break_progress(float delta) {
             if (block_type != 0) {
                 aiming = true;
                 const VoxelEngine::BlockRegistry& reg = VoxelEngine::BlockRegistry::get_instance();
-                collect_id = static_cast<BlockID>(block_type);
-                hardness = reg.get_block(collect_id).hardness;
-                // Mirror break_block's variant remap for the inventory gate.
-                collect_count = 1;
-                if (const auto* slab_fam = reg.get_slab_family(collect_id)) {
-                    if (collect_id == slab_fam->full) collect_count = 2;
-                    collect_id = slab_fam->bottom;
-                } else if (const auto* stair_fam = reg.get_stair_family(collect_id)) {
-                    collect_id = stair_fam->base;
-                } else if (const auto* wall_fam = reg.get_wall_family(collect_id)) {
-                    collect_id = wall_fam->base;
-                }
+                hardness = reg.get_block(static_cast<BlockID>(block_type)).hardness;
+                // Same drop rule as break_block, crush included, so the gate
+                // checks room for exactly what the break will hand over.
+                const VoxelEngine::BlockDrop drop = VoxelEngine::resolve_block_drop(
+                    static_cast<BlockID>(block_type), inventory_.get_selected_block());
+                collect_id = drop.id;
+                collect_count = drop.count;
             }
         }
     }

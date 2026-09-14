@@ -142,6 +142,13 @@
       "pattern": ["CCC", " S ", " S "],
       "key": { "C": "cactus", "S": "stick" },
       "result": { "block": "cactus_pickaxe", "count": 1 }
+    },
+    {
+      "type": "shaped",
+      "_comment": "Only the stone hammer has a material to build from — copper and iron hammers wait for their ingots to exist as items. 'f' is the head material, '/' the stick, and a space (not '-') is an empty cell, the only empty marker the loader accepts.",
+      "pattern": [" f ", " /f", "/  "],
+      "key": { "f": "stone", "/": "stick" },
+      "result": { "block": "stone_hammer", "count": 1 }
     }
   ]
 }

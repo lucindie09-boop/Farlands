@@ -49,6 +49,13 @@ const ItemToolStats* ItemRegistry::get_item_tool(BlockID id) const noexcept {
     return &items_[static_cast<size_t>(id - FIRST_ITEM_ID)].tool;
 }
 
+const ItemUseAction* ItemRegistry::get_item_use(BlockID id) const noexcept {
+    if (!is_item(id)) {
+        return nullptr;
+    }
+    return &items_[static_cast<size_t>(id - FIRST_ITEM_ID)].use;
+}
+
 #ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
 
 bool ItemRegistry::load_from_json(const godot::String& json_path) noexcept {
@@ -85,6 +92,28 @@ bool ItemRegistry::load_from_json(const godot::String& json_path) noexcept {
                 float speed = static_cast<float>(static_cast<double>(tool.get("speed", 1.0)));
                 if (!(speed >= 1.0f)) speed = 1.0f;  // also catches NaN
                 def.tool.speed = speed;
+            }
+        }
+        // Optional "use" action: {"kind": "pour", "block": "water"}. Missing
+        // leaves the item inert in the world (it can still be held and given).
+        if (entry.has("use")) {
+            const godot::Dictionary use = entry["use"];
+            const godot::String kind = use.get("kind", godot::String());
+            if (kind.is_empty()) {
+                WARN_PRINT("items.json entry " + name + ": \"use\" has no kind, ignored");
+            } else if (kind == "pour") {
+                def.use.kind = "pour";
+                const godot::String target = use.get("block", godot::String());
+                def.use.block_name = target.utf8().get_data();
+                def.use.block = BlockRegistry::get_instance()
+                                    .get_block_id_by_name(def.use.block_name.c_str());
+                if (def.use.block == BlockIDs::AIR) {
+                    ERR_PRINT("items.json entry " + name + ": use.block \"" + target
+                              + "\" is not a known block, so right-clicking it does nothing");
+                }
+            } else {
+                ERR_PRINT("items.json entry " + name + ": unknown use kind \"" + kind
+                          + "\", ignored");
             }
         }
         items_.push_back(std::move(def));

@@ -217,6 +217,8 @@ Open the project root in Godot 4 and press Play. The main scene is `Main.tscn`. 
 
 Input bindings live in `project.godot` (`move_forward`, `move_back`, `move_left`, `move_right`, `jump`, `sprint`, `sneak`, `fly_toggle`, `toggle_inventory`, `toggle_chat`, `toggle_third_person`, `mouse_click_left`, `mouse_click_right`, `pose_clone_toggle`). The C++ `PlayerController` node owns all movement, look, block interaction, and inventory state — there is no player GDScript. The hotbar/inventory screens are GDScript `Control` overlays that read/write that state.
 
+Liquids are passable and swimmable: water never stops a body (worldgen oceans included — you fall in, and the third-person cameras look straight through it), and while any part of the body is inside a liquid it sinks slowly (~1.6 blocks/s), accelerates and moves at a fraction of land speed, rises while jump is held, gets lifted when it swims into a bank, and takes no fall damage on entry. The one thing water does not do yet is flow: a poured bucket of spreading water is the next piece of work.
+
 The F5 back/front cameras sit on your look ray 4 blocks out and slide in before any solid block, so they never clip through terrain; the in-front view looks back at your face. Block targeting casts from your eye along the look direction in every view (like vanilla's eye-ray trace), so the crosshair, block outline, and the player's head all agree with first person. In third person the body lags behind your look Minecraft-style: the torso eases toward your movement direction (dragged along once your head leads it by more than ~35°) while the head tracks your aim continuously.
 
 ### Controls Rebinding

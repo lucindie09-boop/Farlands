@@ -143,6 +143,24 @@ struct BlockType {
     [[nodiscard]] const std::vector<BlockAABB>& get_collision_boxes() const noexcept {
         return collision_boxes.empty() ? selection_boxes : collision_boxes;
     }
+
+    // A liquid cell, whatever shape it is drawn with.
+    [[nodiscard]] bool is_liquid() const noexcept {
+        return HasProperty(properties, BlockProperty::Liquid);
+    }
+
+    // True when a body is STOPPED by this block. A liquid's shape is a surface,
+    // not a wall: water is drawn 14/16 tall so the surface has a height, but a
+    // body swims through it, so collision must not treat that shape as solid.
+    //
+    // This is the single place that answer lives, because three callers have to
+    // agree: the collision resolver, the pathfinder's cell classification and
+    // the sneak edge-guard. Before it existed the collider called a liquid box
+    // solid while the pathfinder called the same cell passable, and the visible
+    // symptom is a poured bucket becoming a walkable step (see AGENTS.md).
+    [[nodiscard]] bool stops_bodies() const noexcept {
+        return !is_liquid();
+    }
 };
 
 // -----------------------------------------------------------------------------

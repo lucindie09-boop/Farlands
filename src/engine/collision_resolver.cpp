@@ -218,6 +218,11 @@ bool CollisionResolver::is_aabb_solid_fast(const AABB& aabb) const {
                 BlockID bid = static_cast<BlockID>(chunk_map_->get_block_world_fast(x, y, z));
                 if (bid == BlockIDs::AIR) continue;
                 const BlockType& bt = registry.get_block_fast(bid);
+                // A liquid's shape is a surface height, not a wall: a body swims
+                // through it. Skipping before the full-cube test covers both
+                // registries, since the built-in defaults describe water as a
+                // full cube while the JSON gives it a lowered shape.
+                if (!bt.stops_bodies()) continue;
                 if (bt.is_full_cube()) return true;
                 for (const auto& box : bt.get_collision_boxes()) {
                     AABB cell_aabb(
@@ -241,7 +246,20 @@ bool CollisionResolver::is_aabb_solid(const AABB& aabb) const {
 
 bool CollisionResolver::is_solid_at(int32_t wx, int32_t wy, int32_t wz) const {
     if (!chunk_map_) return false;
-    return chunk_map_->is_block_solid(wx, wy, wz);
+    const BlockID id = static_cast<BlockID>(chunk_map_->get_block_world(wx, wy, wz));
+    if (id == BlockIDs::AIR) return false;
+    // "Solid" here means "stops a body", not "is not air": both callers want to
+    // know what the body collides with (the sneak edge-guard above a drop and the
+    // third-person camera's clear distance), and a liquid is neither footing nor
+    // a camera wall.
+    return BlockRegistry::get_instance().get_block(id).stops_bodies();
+}
+
+bool CollisionResolver::is_liquid_at(int32_t wx, int32_t wy, int32_t wz) const {
+    if (!chunk_map_) return false;
+    const BlockID id = static_cast<BlockID>(chunk_map_->get_block_world(wx, wy, wz));
+    if (id == BlockIDs::AIR) return false;
+    return BlockRegistry::get_instance().get_block(id).is_liquid();
 }
 
 float CollisionResolver::get_slipperiness_at(int32_t wx, int32_t wy, int32_t wz) const {

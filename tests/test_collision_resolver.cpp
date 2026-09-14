@@ -252,6 +252,45 @@ TEST_CASE("a body cannot walk into a hollow block from the side") {
     CHECK(sideways.position.z + size.z * 0.5f <= 3.01f);
 }
 
+// A liquid's shape is a surface height, not a wall. Note that the two registries
+// describe water differently — the built-in defaults make it a full cube while
+// data/block_shapes.json gives it a lowered shape — so the answer has to hold for
+// both. This fixture uses the built-in defaults, the stricter of the two.
+TEST_CASE("liquids do not stop bodies") {
+    BlockRegistry::get_instance().initialize_default_blocks();
+    ChunkMap cm;
+    {
+        auto d = std::make_unique<ChunkData>();
+        for (int x = 0; x < 8; ++x)
+            for (int z = 0; z < 8; ++z)
+                d->set_block(x, 0, z, BlockIDs::STONE);   // floor, top at y=1.0
+        for (int y = 1; y <= 4; ++y)
+            d->set_block(2, y, 2, BlockIDs::WATER);      // a 4-deep water column
+        cm.insert(cm.get_chunk_key(0, 0, 0), make_test_chunk(std::move(d)));
+    }
+    CollisionResolver cr(&cm);
+
+    CHECK(cr.is_liquid_at(2, 3, 2) == true);
+    CHECK(cr.is_solid_at(2, 3, 2) == false);   // swum through, not stood on
+    CHECK(cr.is_solid_at(2, 0, 2) == true);    // the floor under it still stops a body
+    CHECK(cr.is_liquid_at(2, 0, 2) == false);
+    // The raw non-air query is deliberately unchanged: "is a block here" and
+    // "does it stop a body" are different questions, and callers that want the
+    // first (worldgen, terrain queries) keep asking it.
+    CHECK(cm.is_block_solid(2, 3, 2) == true);
+
+    // Same for the AABB path, which is what the swept collision actually uses.
+    CHECK(cr.is_aabb_solid(AABB(Vector3(2.2f, 2.2f, 2.2f), Vector3(0.6f, 0.6f, 0.6f))) == false);
+    CHECK(cr.is_aabb_solid(AABB(Vector3(2.2f, 0.2f, 2.2f), Vector3(0.6f, 0.6f, 0.6f))) == true);
+
+    // A body dropped in falls through the water and lands on the floor beneath.
+    auto result = cr.resolve(Vector3(2.5f, 8.0f, 2.5f), Vector3(0.0f, -10.0f, 0.0f),
+                             Vector3(0.6f, 1.8f, 0.6f));
+    CHECK(result.collided_y == true);
+    CHECK(result.position.y == doctest::Approx(1.0f).epsilon(0.01f));
+    CHECK(result.on_floor == true);
+}
+
 TEST_CASE("CollisionResolver no collision in open air") {
     BlockRegistry::get_instance().initialize_default_blocks();
     ChunkMap cm;

@@ -64,6 +64,105 @@ TEST_CASE("culling: two adjacent leaves both render (transparent same-type)") {
     CHECK(mb.get_vertex_count() >= one_leaf_verts);
 }
 
+// A full cube that is drawn with TRANSPARENCY hides nothing, however completely it
+// fills its cell. Two paths used to miss that: the vertical greedy "surrounded"
+// shortcut (which only asked for full cubes) and the per-AABB culling test (which
+// only asked the same). `water_fallen` is where it showed up in play, because it is
+// the one liquid at full height — the runoff states are lowered, so they fail the
+// offset test either way — and a shaft full of falling water lost the walls' faces.
+TEST_CASE("culling: a falling-water column does not hide the shaft walls") {
+    BlockRegistry::get_instance().initialize_default_blocks();
+    const BlockID fallen = BlockRegistry::get_instance().get_block_id_by_name("water_fallen");
+    CHECK(fallen != BlockIDs::AIR);
+
+    ChunkData chunk;
+    chunk.fill_blocks(BlockIDs::AIR);
+    // A block of rock with a 1-wide shaft through it, filled with a column of water.
+    // Every wall cell is then surrounded laterally by three stone and the water: all
+    // four are non-air full cubes, which is exactly what the shortcut looked for.
+    for (int32_t y = 10; y <= 20; ++y) {
+        for (int32_t z = 10; z <= 20; ++z) {
+            for (int32_t x = 10; x <= 20; ++x) {
+                const bool shaft = (x == 15 && z == 15);
+                chunk.set_block(x, y, z, shaft ? fallen : BlockIDs::STONE);
+            }
+        }
+    }
+    chunk.compute_section_flags();
+
+    MeshBuilder mb;
+    mb.set_greedy_enabled(true);
+    mb.build_mesh(chunk);
+
+    // The wall's face toward the shaft is drawn across all 11 cells of it; its
+    // three faces into the rock are not. Measured as COVERAGE (the quads' own y
+    // extent, summed) rather than as a quad count, because side faces merge along Y
+    // into one quad anchored at the bottom of the run — and whether that merge
+    // happens here is not what this test is about.
+    int toward_water = 0;
+    int into_rock = 0;
+    for (const CachedQuad& q : mb.get_quads()) {
+        if (q.x != 14 || q.z != 15) continue;         // the wall column
+        if (q.y < 10 || q.y > 20) continue;           // the shaft's span
+        if (q.direction == FaceDirection::Right) toward_water += q.ey;
+        if (q.direction == FaceDirection::Left || q.direction == FaceDirection::Front ||
+            q.direction == FaceDirection::Back) {
+            into_rock += q.ey;
+        }
+    }
+    CHECK(toward_water == 11);
+    CHECK(into_rock == 0);
+}
+
+TEST_CASE("culling: a partial block keeps its face against a transparent full cube") {
+    BlockRegistry& reg = BlockRegistry::get_instance();
+    reg.initialize_default_blocks();
+    const BlockID fallen = reg.get_block_id_by_name("water_fallen");
+
+    // A half-height slab. The built-in registry has no shapes (block_shapes.json is
+    // only loaded by the game), so the box is described here.
+    BlockType slab{};
+    slab.name = "test_half_slab";
+    slab.properties = BlockProperty::Solid | BlockProperty::Opaque;
+    slab.visible_faces = {true, true, true, true, true, true};
+    BlockAABB box{};
+    box.min[0] = 0.0f; box.min[1] = 0.0f; box.min[2] = 0.0f;
+    box.max[0] = 1.0f; box.max[1] = 0.5f; box.max[2] = 1.0f;
+    slab.selection_boxes = {box};
+    slab.full_cube_ = false;
+    slab.greedy_mergeable = false;
+    const BlockID slab_id = reg.register_block(slab);
+    if (slab_id == BlockIDs::AIR) {
+        CHECK(false);
+        return;
+    }
+
+    const auto slab_faces_toward = [&](BlockID neighbor) {
+        ChunkData chunk;
+        chunk.fill_blocks(BlockIDs::AIR);
+        chunk.set_block(15, 15, 15, slab_id);
+        chunk.set_block(16, 15, 15, neighbor);
+        chunk.compute_section_flags();
+        MeshBuilder mb;
+        mb.set_greedy_enabled(true);
+        mb.build_mesh(chunk);
+        int faces = 0;
+        for (const CachedQuad& q : mb.get_quads()) {
+            if (q.x == 15 && q.y == 15 && q.z == 15 &&
+                q.direction == FaceDirection::Right) {
+                ++faces;
+            }
+        }
+        return faces;
+    };
+
+    // The slab's side reaches the cell boundary, so a full cube of water beside it
+    // would cover it — but water is transparent, so the face is still drawn.
+    CHECK(slab_faces_toward(fallen) == 1);
+    // The negative control: an opaque full cube really does hide it.
+    CHECK(slab_faces_toward(BlockIDs::STONE) == 0);
+}
+
 TEST_CASE("boundary: null neighbor produces faces at chunk edge") {
     BlockRegistry::get_instance().initialize_default_blocks();
     ChunkData chunk;

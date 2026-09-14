@@ -6,6 +6,7 @@
 #include "core/block_types.hpp"
 #include "mesh/mesh_types.hpp"
 #include "mesh/chunk_neighbor_accessor.hpp"
+#include "mesh/mesh_fluid.hpp"
 #include "core/performance_timer.hpp"
 #include "mesh/ambient_occlusion.hpp"
 #include <vector>
@@ -382,6 +383,14 @@ GreedyVerticalStatsSnapshot greedy_v_stats_local{};
 
     static void apply_special_block_offsets(float corners[4][3], BlockID block_id, FaceDirection dir);
 
+    // True when a block is drawn by the fluid surface pass instead of the generic
+    // emitters. Liquids are: their surface has four independent corner heights
+    // (see mesh_fluid.hpp), which neither a merged run nor a per-AABB face can
+    // express. Every primitive emitter has to skip them, or they are drawn twice.
+    static bool is_fluid_drawn(BlockID id, const BlockRegistry& registry) noexcept {
+        return mesh_fluid::family_of(id, registry.get_block_fast(id)) != FluidKind::None;
+    }
+
     static int compute_face_rotation(int32_t x, int32_t y, int32_t z, FaceDirection dir) {
         int32_t wx = x + static_cast<int32_t>(dir) * 7;
         int32_t wz = z + y * 3;
@@ -452,6 +461,19 @@ const BlockRegistry& registry) const;
     void add_greedy_face(const ChunkData& chunk, const ChunkNeighborAccessor& accessor,
                          const Face& face, uint16_t face_light_key, int rotation,
                          const float ao[4], const BlockRegistry& registry);
+
+    // One liquid face: the four vertices take their Y from the cell's corner
+    // heights, so a top face slopes and a side face's top edge follows the same
+    // two corners (see mesh_fluid.hpp for the rule). `z_span` > 1 is a merged run
+    // of flat cells, which is the only way liquid faces ever merge.
+    void add_fluid_quad(int32_t x, int32_t y, int32_t z, FaceDirection direction,
+                        BlockID block_id, const mesh_fluid::Corners& corners,
+                        int32_t z_span, uint16_t light_key, const BlockRegistry& registry);
+
+    // The whole liquid pass: per-corner surfaces, sides that follow them, and flat
+    // runs merged back into one quad (see mesh_builder_fluid.cpp).
+    void passive_fluid_mesh(const ChunkData& chunk, const ChunkNeighborAccessor& accessor,
+                            const BlockRegistry& registry);
 
     // -------------------------------------------------------------------------
     // Partial-remesh and shared build helpers (defined in .cpp)

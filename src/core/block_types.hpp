@@ -194,6 +194,12 @@ struct BlockType {
     // True for full cubes or bottom-anchored full-XZ columns whose height is
     // 1 - top_face_offset (water, mud, wet_sand). Slabs, walls, poles, and
     // multi-box stairs are excluded — they emit via per-AABB geometry.
+    //
+    // This describes the SHAPE, not who draws it: liquids are always drawn by the
+    // fluid surface pass (mesh_fluid.hpp), whatever this says, because their
+    // surface has four independent corner heights and a merged run has one. See
+    // MeshBuilder::is_fluid_drawn, which is the exclusion every generic emitter
+    // makes.
     bool greedy_mergeable = true;
 
     [[nodiscard]] bool is_full_cube() const noexcept { return full_cube_; }

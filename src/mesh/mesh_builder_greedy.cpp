@@ -7,6 +7,15 @@ namespace VoxelEngine {
 
 static constexpr uint8_t kLightMergeThreshold = 2;
 
+// Does a block hide the faces of the cells around it? Full height, filling the
+// cell, and OPAQUE. A full cube drawn with transparency does not: a falling-water
+// column (`water_fallen`, the only liquid at full height) or a leaf block leaves
+// the faces behind it visible, so a shaft wall with water in it keeps its sides.
+static inline bool covers_faces(const BlockType& n) noexcept {
+    return n.is_full_cube() && n.top_face_offset == 0.0f &&
+           !HasProperty(n.properties, BlockProperty::Transparent);
+}
+
 static inline bool lights_similar_enough(uint16_t a, uint16_t b) {
     uint8_t dr = (unpack_r(a) > unpack_r(b)) ? (unpack_r(a) - unpack_r(b)) : (unpack_r(b) - unpack_r(a));
     uint8_t dg = (unpack_g(a) > unpack_g(b)) ? (unpack_g(a) - unpack_g(b)) : (unpack_g(b) - unpack_g(a));
@@ -101,7 +110,12 @@ void MeshBuilder::passive_greedy_mesh_horizontal(const ChunkData& chunk, const C
 
                     // Non-mergeable blocks can't participate in greedy merging,
                     // except at LOD stride > 1 where they are treated as full cubes.
-                    if (stride_xz_ <= 1 && !registry.get_block_fast(block_id).greedy_mergeable) {
+                    // Liquids are not mergeable either, whatever their shape: a merged
+                    // run carries ONE top height and a liquid surface has four (see
+                    // is_fluid_drawn / mesh_fluid.hpp). They are flushed and skipped
+                    // here, and drawn by passive_fluid_mesh.
+                    if (stride_xz_ <= 1 && (is_fluid_drawn(block_id, registry) ||
+                                            !registry.get_block_fast(block_id).greedy_mergeable)) {
                         flush_horizontal_merge(chunk, accessor, merge_start, z, y, x, direction,
                                                current_block, current_light_key, current_rotation, current_ao, registry);
                         merge_start = -1;
@@ -295,7 +309,12 @@ void MeshBuilder::passive_greedy_mesh_vertical(const ChunkData& chunk, const Chu
 
                     // Non-mergeable blocks can't participate in greedy merging,
                     // except at LOD stride > 1 where they are treated as full cubes.
-                    if (stride_xz_ <= 1 && !registry.get_block_fast(block_id).greedy_mergeable) {
+                    // Liquids are not mergeable either, whatever their shape: a merged
+                    // run carries ONE top height and a liquid surface has four (see
+                    // is_fluid_drawn / mesh_fluid.hpp). They are flushed and skipped
+                    // here, and drawn by passive_fluid_mesh.
+                    if (stride_xz_ <= 1 && (is_fluid_drawn(block_id, registry) ||
+                                            !registry.get_block_fast(block_id).greedy_mergeable)) {
                         for (int d = 0; d < kDirCount; d++) {
                             auto& dst = dirs[d];
                             flush_vertical_merge(chunk, accessor, dst.merge_start, y, x, z,
@@ -322,14 +341,8 @@ void MeshBuilder::passive_greedy_mesh_vertical(const ChunkData& chunk, const Chu
                             const BlockType& n_xpos = registry.get_block_fast(solid_at(y, z + 1, sx1));
                             const BlockType& n_zneg = registry.get_block_fast(solid_at(y, sz0, x + 1));
                             const BlockType& n_zpos = registry.get_block_fast(solid_at(y, sz1, x + 1));
-                            if (n_xneg.is_full_cube()
-                                && n_xpos.is_full_cube()
-                                && n_zneg.is_full_cube()
-                                && n_zpos.is_full_cube()
-                                && n_xneg.top_face_offset == 0.0f
-                                && n_xpos.top_face_offset == 0.0f
-                                && n_zneg.top_face_offset == 0.0f
-                                && n_zpos.top_face_offset == 0.0f) {
+                            if (covers_faces(n_xneg) && covers_faces(n_xpos)
+                                && covers_faces(n_zneg) && covers_faces(n_zpos)) {
                                 for (int d = 0; d < kDirCount; d++) {
                                     auto& dst = dirs[d];
                                     flush_vertical_merge(chunk, accessor, dst.merge_start, y, x, z,

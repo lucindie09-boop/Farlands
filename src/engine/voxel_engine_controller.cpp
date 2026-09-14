@@ -33,6 +33,12 @@ VoxelEngineController::VoxelEngineController()
             registry.initialize_default_blocks();
         }
     });
+    // Fluid states are resolved out of whatever registry just loaded (see
+    // fluids/fluid_state_table.hpp), so this has to happen after it and before
+    // anything can tick. A registry with no fluid states leaves the simulation
+    // disabled rather than broken.
+    fluid_state_table.build_from(BlockRegistry::get_instance());
+
     // Note: reserve(5000) is a placeholder. Real reserve happens in set_render_distance()
     // where the actual render distance value is known.
     chunk_world.get_chunk_map().reserve(5000);
@@ -54,6 +60,13 @@ VoxelEngineController::VoxelEngineController()
     chunk_world.set_owner(nullptr);
     world_updater.set_chunk_world(&chunk_world);
     world_updater.set_mesh_manager(&mesh_manager);
+    world_updater.set_fluid_state_table(&fluid_state_table);
+    // Every edit that lands in an edit map wakes the fluid simulation, which is
+    // how a player's block change (and a chunk coming back with water in it)
+    // gets fluid to re-evaluate. The simulation is the only listener.
+    chunk_world.set_edit_listener([this](int32_t x, int32_t y, int32_t z) {
+        world_updater.notify_block_edit(x, y, z);
+    });
     world_updater.set_thread_pool(thread_pool.get());
     world_updater.set_performance_timer(&perf_timer);
     world_updater.set_material_manager(&environment_controller.get_material_manager());

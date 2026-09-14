@@ -77,6 +77,8 @@
 //     written into.
 // -----------------------------------------------------------------------------
 
+#include "core/block_types.hpp"   // FluidKind, BlockID — the storage half
+
 #include <array>
 #include <cstdint>
 #include <optional>
@@ -84,14 +86,9 @@
 namespace VoxelEngine {
 namespace fluids {
 
-// Which fluid a cell holds. How far it spreads and how fast it ticks differ per
-// kind (see traits_for), so the rules never hardcode water's numbers.
-enum class FluidKind : uint8_t {
-    None = 0,   // not a fluid
-    Water = 1,
-    Lava = 2,   // no traits yet — traits_for returns null, so it does not flow
-    Acid = 3    // no traits yet
-};
+// `FluidKind` (which fluid a cell holds) lives in core/block_types.hpp, because
+// a block definition carries it; how far a kind spreads and how fast it ticks
+// is here (see traits_for).
 
 // One cell's whole fluid state. It is small and trivially copyable because the
 // driver stores and compares these: the state is the entire interface between

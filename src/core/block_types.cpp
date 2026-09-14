@@ -3,6 +3,7 @@
 #include <vector>
 #include <deque>
 #include <string>
+#include <string_view>
 #include <cstring>
 
 #ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
@@ -15,6 +16,29 @@
 #endif
 
 namespace VoxelEngine {
+
+// Fluid kind names, as block_definitions.json spells them. Deliberately a
+// string table in one place: the loader, the state table and any diagnostic all
+// have to agree, and a new fluid is one line here plus its traits in
+// src/fluids/fluid_rules.cpp.
+const char* fluid_kind_name(FluidKind kind) noexcept {
+    switch (kind) {
+        case FluidKind::Water: return "water";
+        case FluidKind::Lava:  return "lava";
+        case FluidKind::Acid:  return "acid";
+        case FluidKind::None:  break;
+    }
+    return "none";
+}
+
+FluidKind fluid_kind_from_name(const char* name) noexcept {
+    if (name == nullptr) return FluidKind::None;
+    const std::string_view s(name);
+    if (s == "water") return FluidKind::Water;
+    if (s == "lava")  return FluidKind::Lava;
+    if (s == "acid")  return FluidKind::Acid;
+    return FluidKind::None;
+}
 
 #ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
 namespace {
@@ -229,6 +253,30 @@ bool BlockRegistry::load_from_json(const godot::String& json_path) noexcept {
         if (d.has("min_tier")) {
             bt.min_tier = static_cast<int32_t>(static_cast<int64_t>(d["min_tier"]));
             if (bt.min_tier < 0) bt.min_tier = 0;
+        }
+
+        // fluid (which fluid state this block IS; see fluids/fluid_state_table.hpp)
+        if (d.has("fluid")) {
+            godot::Dictionary fd = d["fluid"];
+            if (fd.has("kind")) {
+                const godot::String kind_name = fd["kind"];
+                bt.fluid_kind = fluid_kind_from_name(kind_name.utf8().get_data());
+                if (bt.fluid_kind == FluidKind::None) {
+                    ERR_PRINT("BlockRegistry: unknown fluid kind \"" + kind_name +
+                              "\" for block \"" + name_str + "\"");
+                }
+            }
+            if (fd.has("depth")) {
+                const int64_t depth = static_cast<int64_t>(fd["depth"]);
+                bt.fluid_depth = static_cast<uint8_t>(depth < 0 ? 0 : (depth > 255 ? 255 : depth));
+            }
+            if (fd.has("falling")) {
+                bt.fluid_falling = fd.get("falling", false).booleanize();
+            }
+            if (bt.fluid_kind == FluidKind::None) {
+                ERR_PRINT("BlockRegistry: block \"" + name_str +
+                          "\" has a \"fluid\" entry but no usable \"kind\"");
+            }
         }
 
         // Resolve shape reference from block_shapes.json
@@ -508,6 +556,15 @@ void BlockRegistry::initialize_default_blocks() noexcept {
         bt.top_face_offset = 0.12f;
         bt.slipperiness = 0.6f;
         bt.full_cube_ = true;
+        // Deliberately NOT a fluid state. The flowing simulation is the dynamic
+        // water a player pours, and generated ocean is not part of it: left out
+        // of the state table, the ocean never ticks, so it neither spills runoff
+        // along its shores when something nearby is edited nor drains through a
+        // channel. It is still a wall to the flow (see blocks_fluid), so a poured
+        // bucket pools against the sea instead of writing ocean cells away.
+        // Giving this a `fluid` state is what would make oceans live — one line
+        // in block_definitions.json — and the spill along every flat shore at sea
+        // level is the cost of it.
         register_block(bt);
     }
 
@@ -521,6 +578,9 @@ void BlockRegistry::initialize_default_blocks() noexcept {
         bt.top_face_offset = 0.12f;
         bt.slipperiness = 0.6f;
         bt.full_cube_ = true;
+        // A source: this is the block a poured bucket places, and the block a
+        // pool settles into.
+        bt.fluid_kind = FluidKind::Water;
         register_block(bt);
     }
 
@@ -629,6 +689,35 @@ void BlockRegistry::initialize_default_blocks() noexcept {
     solid("snow");
     solid("gravel");
     solid("cactus");
+
+    // Fluid states. APPENDED, never inserted: ids are positional, so a new
+    // entry here would re-point every id after it. Nothing in the fluid system
+    // depends on these particular values either — it resolves states by name
+    // (fluids/fluid_state_table.hpp) — which is why the test registry and the
+    // game registry can number them differently and still agree on behaviour.
+    const auto fluid_state = [&](const char* name, FluidKind kind, uint8_t depth, bool falling) {
+        BlockType bt{};
+        bt.name = name;
+        bt.properties = BlockProperty::Liquid | BlockProperty::Transparent;
+        bt.visible_faces = {true, true, true, true, true, true};
+        bt.light_pattern = LightEmissionPattern::Diamond;
+        bt.top_face_offset = 0.12f;
+        bt.slipperiness = 0.6f;
+        bt.hardness = -1.0f;  // unbreakable, like water
+        bt.full_cube_ = true;
+        bt.fluid_kind = kind;
+        bt.fluid_depth = depth;
+        bt.fluid_falling = falling;
+        register_block(bt);
+    };
+    fluid_state("water_runoff_1", FluidKind::Water, 1, false);
+    fluid_state("water_runoff_2", FluidKind::Water, 2, false);
+    fluid_state("water_runoff_3", FluidKind::Water, 3, false);
+    fluid_state("water_runoff_4", FluidKind::Water, 4, false);
+    fluid_state("water_runoff_5", FluidKind::Water, 5, false);
+    fluid_state("water_runoff_6", FluidKind::Water, 6, false);
+    fluid_state("water_runoff_7", FluidKind::Water, 7, false);
+    fluid_state("water_fallen", FluidKind::Water, 0, true);
 }
 
 } // namespace VoxelEngine

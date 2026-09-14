@@ -46,6 +46,25 @@ enum class LightEmissionPattern : uint8_t {
 };
 
 // -----------------------------------------------------------------------------
+// Fluid state (the storage half; the behaviour is in src/fluids/)
+// -----------------------------------------------------------------------------
+// Which fluid a block IS, when it is one (block_definitions.json "fluid"). A
+// block that says it is water at depth 2 is water that has flowed two steps
+// from a source. This lives in core because it is part of a block definition,
+// exactly like `drops` is; the rules that read it are src/fluids/fluid_rules.*
+// and they never see a block id at all — they resolve states by name through
+// the registry (see fluids/fluid_state_table.hpp).
+enum class FluidKind : uint8_t {
+    None = 0,   // not a fluid
+    Water = 1,
+    Lava = 2,   // declared but with no traits yet, so it does not flow
+    Acid = 3
+};
+
+[[nodiscard]] const char* fluid_kind_name(FluidKind kind) noexcept;
+[[nodiscard]] FluidKind fluid_kind_from_name(const char* name) noexcept;
+
+// -----------------------------------------------------------------------------
 // Block Collision AABB
 // -----------------------------------------------------------------------------
 struct BlockAABB {
@@ -130,6 +149,46 @@ struct BlockType {
     // Cached flag: true when selection_boxes is a single full cube [0,0,0,1,1,1].
     // Checked on hot paths (greedy meshing, collision, AO) for zero-overhead fast path.
     bool full_cube_ = true;
+
+    // Fluid state (block_definitions.json "fluid": {"kind": "water", "depth":
+    // 0, "falling": false}). `fluid_kind == FluidKind::None` for anything that
+    // is not a fluid. depth 0 means full strength (a source, or a falling
+    // cell); 1..7 is runoff that many steps from a source.
+    FluidKind fluid_kind = FluidKind::None;
+    uint8_t fluid_depth = 0;
+    bool fluid_falling = false;
+
+    // True when this block is a fluid at all.
+    [[nodiscard]] bool is_fluid_state() const noexcept { return fluid_kind != FluidKind::None; }
+
+    // True when fluid cannot occupy this cell or pass through it. Air, liquids
+    // and anything without collision let fluid through; a solid fills at least
+    // part of the cell, so fluid goes around it and sits on top rather than
+    // inside. This is the single answer the flow rules ask about a cell
+    // (FluidWorld::blocked), so the flow rules and the collider cannot disagree
+    // about what is in the way.
+    //
+    // Deliberately NOT `is_full_cube()` on its own, and deliberately not a plain
+    // "is it air" test either: in the built-in default registry (what the tests
+    // and headless tools run on) `full_cube_` is TRUE for air, because it is only
+    // recomputed from real shapes once block_definitions.json loads. Classifying
+    // on that flag alone makes air solid, so nothing ever flows — the same trap
+    // pathfinding/block_class.hpp exists to avoid. `Solid` is the property that
+    // actually separates air and fluids from everything else.
+    [[nodiscard]] bool blocks_fluid() const noexcept {
+        // A liquid the simulation owns lets flow through and into it (its own
+        // cells are read with FluidWorld::fluid_at instead) ...
+        if (is_fluid_state()) return false;
+        // ...but a liquid it does not own is a mass it may not displace. That is
+        // generated ocean water: not a fluid state (see block_types.cpp), "liquid"
+        // in every other sense, and a wall here. Without this a poured bucket at
+        // the waterline would write runoff over ocean cells, which would then find
+        // no supply of their own and delete themselves — holes in the sea.
+        if (is_liquid()) return true;
+        if (!HasProperty(properties, BlockProperty::Solid)) return false;
+        if (full_cube_) return true;
+        return !get_collision_boxes().empty();
+    }
 
     // Cached flag: true when the block can participate in greedy meshing.
     // True for full cubes or bottom-anchored full-XZ columns whose height is

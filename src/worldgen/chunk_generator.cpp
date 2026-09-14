@@ -605,8 +605,15 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
                 const int32_t end = std::min(world_y_end - 1, water_top);
                 for (int32_t wy = world_y_start; wy <= end; wy++) {
                     int32_t ly = wy - world_y_start;
+                    // Generated water is the INERT water block, surface and body
+                    // alike: surface_water is deliberately not a fluid state (see
+                    // core/block_types.cpp), so a sea or a lake never ticks. Only
+                    // water a player pours flows, and it pools against the sea
+                    // rather than merging with it — the flowing simulation is the
+                    // bucket's, not the world's. Giving both blocks the same
+                    // texture, shape and height is why the body can be one id.
                     above_terrain_buffer[static_cast<size_t>(x) + static_cast<size_t>(ly) * CHUNK_WIDTH + static_cast<size_t>(z) * CHUNK_WIDTH * CHUNK_HEIGHT] =
-                        (wy == water_top) ? BlockIDs::SURFACE_WATER : BlockIDs::WATER;
+                        BlockIDs::SURFACE_WATER;
                 }
             }
         }
@@ -837,8 +844,8 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
                         ? std::min(col.surface_y, macro_h)
                         : macro_h;
                     if (wy > ref_surface && wy <= water_top) {
-                        BlockID water_block = (wy == water_top) ? BlockIDs::SURFACE_WATER : BlockIDs::WATER;
-                        dense(x, ly, z) = water_block;
+                        // Inert generated water, as above.
+                        dense(x, ly, z) = BlockIDs::SURFACE_WATER;
                     } else {
                         dense(x, ly, z) = BlockIDs::AIR;
                     }
@@ -906,7 +913,7 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
                 if (dens(x, ly, z) <= 0.0f) continue;
                 if (dens(x, ly + 1, z) > 0.0f) continue;
                 if (dens(x, ly - 1, z) > 0.0f) continue;
-                dense(x, ly, z) = BlockIDs::WATER;
+                dense(x, ly, z) = BlockIDs::SURFACE_WATER;
             }
         }
     }
@@ -931,7 +938,7 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
                 if (wy >= wt) continue;
                 BlockID& bid = dense(x, ly, z);
                 if (bid == BlockIDs::AIR) {
-                    bid = BlockIDs::WATER;
+                    bid = BlockIDs::SURFACE_WATER;
                 } else if (bid != BlockIDs::WATER && bid != BlockIDs::SURFACE_WATER) {
                     break;
                 }

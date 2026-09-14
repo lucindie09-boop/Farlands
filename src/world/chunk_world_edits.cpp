@@ -165,22 +165,58 @@ void ChunkWorld::apply_vegetation_placements(uint64_t key, int32_t chunk_x, int3
     }
 }
 
-void ChunkWorld::add_block_edit(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, int32_t local_x, int32_t local_y, int32_t local_z, BlockID block_id) {
+void ChunkWorld::add_block_edit(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, int32_t local_x, int32_t local_y, int32_t local_z, BlockID block_id, bool notify) {
     uint64_t key = chunk_map.get_chunk_key(chunk_x, chunk_y, chunk_z);
-    std::lock_guard<std::mutex> lock(edit_maps_mutex);
-    chunk_edit_maps[key].set_block(local_x, local_y, local_z, block_id);
+    {
+        std::lock_guard<std::mutex> lock(edit_maps_mutex);
+        chunk_edit_maps[key].set_block(local_x, local_y, local_z, block_id);
+    }
     mark_chunk_dirty(chunk_x, chunk_y, chunk_z);
+
+    // Outside the edit-map lock on purpose: the listener reads the chunk map,
+    // and taking a chunk lock while holding the edit-map lock is exactly the
+    // lock order that deadlocks against a caller that does the reverse.
+    if (notify && edit_listener) {
+        edit_listener(chunk_x * CHUNK_WIDTH + local_x,
+                      chunk_y * CHUNK_HEIGHT + local_y,
+                      chunk_z * CHUNK_DEPTH + local_z);
+    }
 }
 
 void ChunkWorld::apply_edit_map_to_chunk(uint64_t key, int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, ChunkData& chunk_data) {
-    (void)chunk_x;
-    (void)chunk_y;
-    (void)chunk_z;
-    std::lock_guard<std::mutex> lock(edit_maps_mutex);
-    auto it = chunk_edit_maps.find(key);
-    if (it != chunk_edit_maps.end()) {
-        // Pure shared apply logic (see core/edit_map.*) — also exercised by tests.
-        VoxelEngine::apply_edit_map_to_chunk(it->second, chunk_data);
+    // Positions to wake once the edit-map lock is released. Local coordinates
+    // packed three to an int so this stays allocation-light on a hot path.
+    std::vector<int32_t> fluid_cells;
+    {
+        std::lock_guard<std::mutex> lock(edit_maps_mutex);
+        auto it = chunk_edit_maps.find(key);
+        if (it != chunk_edit_maps.end()) {
+            // Pure shared apply logic (see core/edit_map.*) — also exercised by tests.
+            VoxelEngine::apply_edit_map_to_chunk(it->second, chunk_data);
+
+            // Seed the fluid simulation from what the map records. This is the
+            // whole of "a flood survives a reload": the fluid states ARE the
+            // work list, so a chunk that comes back with water in it wakes that
+            // water and its neighbours and the flow carries on from where it
+            // stopped, with nothing saved about schedules.
+            const BlockRegistry& registry = BlockRegistry::get_instance();
+            for (const auto& entry : it->second.edits) {
+                if (!registry.get_block(entry.second).is_fluid_state()) continue;
+                int32_t local_x = 0, local_y = 0, local_z = 0;
+                EditMap::unpack_coord(entry.first, local_x, local_y, local_z);
+                fluid_cells.push_back(local_x);
+                fluid_cells.push_back(local_y);
+                fluid_cells.push_back(local_z);
+            }
+        }
+    }
+
+    if (edit_listener) {
+        for (size_t i = 0; i + 2 < fluid_cells.size(); i += 3) {
+            edit_listener(chunk_x * CHUNK_WIDTH + fluid_cells[i],
+                          chunk_y * CHUNK_HEIGHT + fluid_cells[i + 1],
+                          chunk_z * CHUNK_DEPTH + fluid_cells[i + 2]);
+        }
     }
 }
 

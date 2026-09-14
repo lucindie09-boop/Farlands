@@ -4,6 +4,7 @@
 #include "core/terrain_params.hpp"
 #include "core/frame_budgets.hpp"
 #include "core/frustum.hpp"
+#include "fluids/fluid_sim.hpp"
 #include "worldgen/biome_config.hpp"
 #include "worldgen/vegetation_config.hpp"
 #include <godot_cpp/variant/vector3.hpp>
@@ -70,6 +71,15 @@ public:
     }
     const Frustum& get_frustum() const { return frustum; }
 
+    // Fluid simulation. The state table must be built (from the loaded block
+    // registry) before the first update; a world with no fluid states leaves the
+    // simulation disabled and every entry point a no-op.
+    void set_fluid_state_table(fluids::FluidStateTable* table);
+    void notify_block_edit(int32_t x, int32_t y, int32_t z) {
+        fluid_sim.notify_block_changed(x, y, z);
+    }
+    [[nodiscard]] const fluids::FluidSim& get_fluid_sim() const { return fluid_sim; }
+
     void update(bool is_editor, uint64_t epoch, uint64_t& chunks_processed_total, double delta);
     bool generate_chunk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, uint64_t epoch);
     void try_unload(uint64_t key);
@@ -100,6 +110,22 @@ public:
     double get_initial_loading_duration() const { return budgets.loading_duration; }
 
 private:
+    // Puts a tick's fluid writes back where they belong: into the edit map (what
+    // survives a save) and into the remesh queue. The blocks themselves and the
+    // render-dirty flags are already applied by the simulation's chunk adapter;
+    // this is only the part that needs game-side objects.
+    class FluidSink final : public fluids::FluidWriteSink {
+    public:
+        explicit FluidSink(WorldUpdater* owner) : owner_(owner) {}
+        void on_chunk_updated(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z,
+                              const std::vector<fluids::FluidWriteRecord>& writes) override;
+    private:
+        WorldUpdater* owner_;
+    };
+
+    fluids::FluidSim fluid_sim;
+    FluidSink fluid_sink{ this };
+
     ChunkWorld* chunk_world = nullptr;
     MeshManager* mesh_manager = nullptr;
     ThreadPool* thread_pool = nullptr;

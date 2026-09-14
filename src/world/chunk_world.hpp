@@ -16,6 +16,7 @@
 #include <godot_cpp/variant/string.hpp>
 #include <cmath>
 #include <deque>
+#include <functional>
 #include <unordered_set>
 #include <unordered_map>
 #include <mutex>
@@ -56,8 +57,21 @@ public:
     void queue_vegetation_placement(int32_t world_x, int32_t world_y, int32_t world_z, BlockID block_id);
     void apply_vegetation_placements(uint64_t key, int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, ChunkRenderData& render_data);
     
+    // Every block edit that lands in an edit map reports the world position it
+    // edited here: player edits, vegetation, pending placements, and the fluid
+    // simulation's own writes. The fluid simulation uses it to wake the edited
+    // cell and its neighbours; nothing else listens. Always called on the main
+    // thread, and never while the edit-map lock is held (a listener reads the
+    // world, and reading the world under that lock is how a deadlock starts).
+    void set_edit_listener(std::function<void(int32_t, int32_t, int32_t)> listener) {
+        edit_listener = std::move(listener);
+    }
+
     // Edit map methods
-    void add_block_edit(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, int32_t local_x, int32_t local_y, int32_t local_z, BlockID block_id);
+    // `notify` is false for a write the FLUID SIMULATION already knows about:
+    // it schedules what it writes itself, so telling it again would only mean
+    // seven block reads per cell for nothing.
+    void add_block_edit(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, int32_t local_x, int32_t local_y, int32_t local_z, BlockID block_id, bool notify = true);
     void apply_edit_map_to_chunk(uint64_t key, int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, ChunkData& chunk_data);
     bool load_edit_map_from_disk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, EditMap& out_edit_map, const BlockRegistry& registry);
     void save_edit_map_to_disk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, const EditMap& edit_map);
@@ -118,6 +132,7 @@ private:
     std::mutex pending_placement_mutex;
     std::unordered_map<uint64_t, std::vector<PendingBlockPlacement>> pending_vegetation_placements;
     std::mutex vegetation_placement_mutex;
+    std::function<void(int32_t, int32_t, int32_t)> edit_listener;
     std::mutex file_access_mutex;
     std::atomic<uint64_t> async_epoch{0};
 

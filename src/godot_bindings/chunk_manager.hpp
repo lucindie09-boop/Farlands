@@ -120,6 +120,11 @@ public:
 
     godot::Array poll_paths();
 
+    // The flow simulation's ticking: last tick's cells/writes/milliseconds, the
+    // work still queued, and how many cells were left alone this tick because a
+    // chunk their window needs is not loaded.
+    godot::Dictionary get_fluid_stats();
+
     // Jobs still running. Cheap enough to poll per frame.
     int32_t get_pending_paths() const;
 

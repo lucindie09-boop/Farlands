@@ -16,6 +16,27 @@ using namespace godot;
 WorldUpdater::WorldUpdater() = default;
 WorldUpdater::~WorldUpdater() = default;
 
+void WorldUpdater::set_fluid_state_table(fluids::FluidStateTable* table) {
+    // No fluid states in this registry (a test registry, or a data file without
+    // any) means no simulation at all, and every fluid entry point stays a no-op.
+    if (table == nullptr || !table->any() || chunk_world == nullptr) return;
+    fluid_sim.set_context(chunk_world->get_chunk_map(), BlockRegistry::get_instance(), *table, &fluid_sink);
+}
+
+void WorldUpdater::FluidSink::on_chunk_updated(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z,
+                                               const std::vector<fluids::FluidWriteRecord>& writes) {
+    for (const fluids::FluidWriteRecord& write : writes) {
+        // notify=false: the simulation already scheduled everything it wrote. It
+        // has to, because that is what makes the flood advance at all.
+        owner_->chunk_world->add_block_edit(chunk_x, chunk_y, chunk_z, write.local_x, write.local_y,
+                                            write.local_z, write.block, /*notify=*/false);
+    }
+    if (owner_->mesh_manager != nullptr) {
+        // One remesh per chunk per tick, rather than one per cell.
+        owner_->mesh_manager->queue_dirty_chunk(chunk_x, chunk_y, chunk_z);
+    }
+}
+
 void WorldUpdater::set_seed(int32_t s) { terrain_params.seed = s; if (height_estimator) height_estimator->set_params(terrain_params); invalidate_height_cache(); }
 void WorldUpdater::set_sea_level(float level) { terrain_params.sea_level = level; if (height_estimator) height_estimator->set_params(terrain_params); invalidate_height_cache(); }
 void WorldUpdater::set_biome_size(float size) {
@@ -72,6 +93,10 @@ void WorldUpdater::update(bool is_editor, uint64_t epoch, uint64_t& chunks_proce
 
     update_generation(is_editor, active_render_distance, epoch, player_chunk_x, player_chunk_y, player_chunk_z, chunk_changed);
     update_unload(active_render_distance, player_chunk_x, player_chunk_y, player_chunk_z, chunk_changed);
+    // Fluids tick after generation/unload (so the cells it looks at are the ones
+    // that exist now) and before the mesh budgets (so the chunks it dirties can
+    // remesh this same frame).
+    fluid_sim.advance(delta);
     process_mesh_budgets(is_editor, epoch, chunks_processed_total, active_render_distance, delta);
     flush_dirty(delta);
 }
@@ -514,6 +539,10 @@ void WorldUpdater::initialize_view_distance(int32_t horizontal_rd) {
 }
 
 void WorldUpdater::clear() {
+    // Nothing to carry over a world reload: the fluid states themselves are the
+    // record of a flood (they are in the edit maps), so the schedule is derived
+    // again when those chunks load.
+    fluid_sim.clear();
     pre_sorted_offsets.clear();
     unload_queue.clear();
     unload_pending.clear();

@@ -138,6 +138,42 @@ BlockID resolve_name(const godot::String& name) {
     return id;
 }
 
+// A key entry may name one ingredient or LIST several that any of which fills
+// the cell (e.g. every plank type). Matching is deliberately id-exact — the
+// preview gate and the consumption path both compare ids — so the loader
+// EXPANDS such a recipe into one concrete recipe per combination instead of
+// teaching the matcher about tags. A symbol keeps ONE choice across the whole
+// pattern (a pickaxe is oak throughout, never oak head on a pine handle),
+// which is why the expansion is over symbols and not over cells.
+constexpr int64_t kMaxShapedVariants = 32;
+
+// Trims empty border rows/columns so matching only sees the core.
+void trim_shaped_borders(CraftingRecipe& recipe) {
+    while (recipe.shape_height > 0) {
+        bool empty = true;
+        for (int32_t c = 0; c < recipe.shape_width; ++c) {
+            if (recipe.shaped_cells[c] != BlockIDs::AIR) empty = false;
+        }
+        if (!empty) break;
+        recipe.shaped_cells.erase(
+            recipe.shaped_cells.begin(),
+            recipe.shaped_cells.begin() + recipe.shape_width);
+        --recipe.shape_height;
+    }
+    while (recipe.shape_width > 0) {
+        bool empty = true;
+        for (int32_t r = 0; r < recipe.shape_height; ++r) {
+            if (recipe.shaped_cells[static_cast<size_t>(r) * recipe.shape_width] != BlockIDs::AIR) empty = false;
+        }
+        if (!empty) break;
+        for (int32_t r = recipe.shape_height - 1; r >= 0; --r) {
+            recipe.shaped_cells.erase(
+                recipe.shaped_cells.begin() + static_cast<ptrdiff_t>(r) * recipe.shape_width);
+        }
+        --recipe.shape_width;
+    }
+}
+
 } // namespace
 
 bool RecipeBook::load_from_json(const godot::String& json_path) noexcept {
@@ -184,11 +220,27 @@ bool RecipeBook::load_from_json(const godot::String& json_path) noexcept {
                 continue;
             }
             const int64_t raw_w = static_cast<godot::String>(pattern[0]).length();
-            recipe.type = CraftingRecipe::Type::Shaped;
-            recipe.shape_height = static_cast<int32_t>(pattern.size());
-            recipe.shape_width = static_cast<int32_t>(raw_w);
-            recipe.shaped_cells.reserve(static_cast<size_t>(raw_w * pattern.size()));
+            // The grid is at most 3x3 (the crafting table), so a wider or taller
+            // pattern could never be filled — report it instead of loading a
+            // recipe that silently never matches.
+            if (raw_w <= 0 || raw_w > 3 || pattern.size() > 3) {
+                WARN_PRINT("recipes.json entry " + godot::String::num_int64(i) + ": pattern is not 1..3 cells on a side, skipped");
+                continue;
+            }
+
+            // Pass 1: resolve each DISTINCT key symbol to the list of ids it
+            // accepts, and remember which symbol each cell holds.
+            std::vector<std::pair<char, std::vector<BlockID>>> symbols;
+            std::vector<int32_t> cell_symbol;
+            cell_symbol.reserve(static_cast<size_t>(raw_w * pattern.size()));
             bool ok = true;
+            auto symbol_slot = [&symbols](char ch) {
+                for (size_t s = 0; s < symbols.size(); ++s) {
+                    if (symbols[s].first == ch) return static_cast<int32_t>(s);
+                }
+                symbols.emplace_back(ch, std::vector<BlockID>{});
+                return static_cast<int32_t>(symbols.size() - 1);
+            };
             for (int64_t r = 0; r < pattern.size() && ok; ++r) {
                 const godot::String row = pattern[static_cast<int>(r)];
                 if (row.length() != raw_w) {
@@ -199,46 +251,79 @@ bool RecipeBook::load_from_json(const godot::String& json_path) noexcept {
                 for (int64_t c = 0; c < raw_w; ++c) {
                     const char ch = row.utf8().get_data()[c];
                     if (ch == ' ') {
-                        recipe.shaped_cells.push_back(BlockIDs::AIR);
+                        cell_symbol.push_back(-1);
                         continue;
                     }
-                    const godot::String name = key.get(
-                        godot::String::chr(static_cast<char32_t>(ch)), godot::String());
-                    const BlockID id = resolve_name(name);
-                    if (id == BlockIDs::AIR) {
-                        WARN_PRINT("recipes.json entry " + godot::String::num_int64(i) + ": unknown ingredient '" + name + "', skipped");
-                        ok = false;
-                        break;
+                    const int32_t slot = symbol_slot(ch);
+                    if (!symbols[static_cast<size_t>(slot)].second.empty()) {
+                        cell_symbol.push_back(slot);
+                        continue;  // already resolved by an earlier cell
                     }
-                    recipe.shaped_cells.push_back(id);
+                    const godot::Variant value = key.get(
+                        godot::String::chr(static_cast<char32_t>(ch)), godot::String());
+                    std::vector<BlockID> ids;
+                    if (value.get_type() == godot::Variant::ARRAY) {
+                        const godot::Array names = value;
+                        for (int64_t k = 0; k < names.size() && ok; ++k) {
+                            const godot::String name = names[static_cast<int>(k)];
+                            const BlockID id = resolve_name(name);
+                            if (id == BlockIDs::AIR) {
+                                WARN_PRINT("recipes.json entry " + godot::String::num_int64(i) + ": unknown ingredient '" + name + "', skipped");
+                                ok = false;
+                                break;
+                            }
+                            ids.push_back(id);
+                        }
+                        if (ok && ids.empty()) {
+                            WARN_PRINT("recipes.json entry " + godot::String::num_int64(i) + ": key '" + godot::String::chr(static_cast<char32_t>(ch)) + "' accepts no ingredients, skipped");
+                            ok = false;
+                        }
+                    } else {
+                        const godot::String name = value;
+                        const BlockID id = resolve_name(name);
+                        if (id == BlockIDs::AIR) {
+                            WARN_PRINT("recipes.json entry " + godot::String::num_int64(i) + ": unknown ingredient '" + name + "', skipped");
+                            ok = false;
+                        } else {
+                            ids.push_back(id);
+                        }
+                    }
+                    if (!ok) break;
+                    symbols[static_cast<size_t>(slot)].second = std::move(ids);
+                    cell_symbol.push_back(slot);
                 }
             }
             if (!ok) continue;
 
-            // Trim empty border rows/columns so matching only sees the core.
-            while (recipe.shape_height > 0) {
-                bool empty = true;
-                for (int32_t c = 0; c < recipe.shape_width; ++c) {
-                    if (recipe.shaped_cells[c] != BlockIDs::AIR) empty = false;
-                }
-                if (!empty) break;
-                recipe.shaped_cells.erase(
-                    recipe.shaped_cells.begin(),
-                    recipe.shaped_cells.begin() + recipe.shape_width);
-                --recipe.shape_height;
+            // Pass 2: one concrete recipe per combination of symbol choices.
+            int64_t variants = 1;
+            for (const auto& symbol : symbols) {
+                variants *= static_cast<int64_t>(symbol.second.size());
             }
-            while (recipe.shape_width > 0) {
-                bool empty = true;
-                for (int32_t r = 0; r < recipe.shape_height; ++r) {
-                    if (recipe.shaped_cells[static_cast<size_t>(r) * recipe.shape_width] != BlockIDs::AIR) empty = false;
-                }
-                if (!empty) break;
-                for (int32_t r = recipe.shape_height - 1; r >= 0; --r) {
-                    recipe.shaped_cells.erase(
-                        recipe.shaped_cells.begin() + static_cast<ptrdiff_t>(r) * recipe.shape_width);
-                }
-                --recipe.shape_width;
+            if (variants > kMaxShapedVariants) {
+                WARN_PRINT("recipes.json entry " + godot::String::num_int64(i) + ": " + godot::String::num_int64(variants) + " ingredient combinations exceed the limit, skipped");
+                continue;
             }
+            std::vector<size_t> pick(symbols.size(), 0);
+            for (int64_t v = 0; v < variants; ++v) {
+                CraftingRecipe variant;
+                variant.type = CraftingRecipe::Type::Shaped;
+                variant.shape_height = static_cast<int32_t>(pattern.size());
+                variant.shape_width = static_cast<int32_t>(raw_w);
+                variant.result = recipe.result;
+                variant.shaped_cells.reserve(cell_symbol.size());
+                for (int32_t slot : cell_symbol) {
+                    variant.shaped_cells.push_back(
+                        slot < 0 ? BlockIDs::AIR : symbols[static_cast<size_t>(slot)].second[pick[static_cast<size_t>(slot)]]);
+                }
+                trim_shaped_borders(variant);
+                add_recipe(std::move(variant));
+                for (size_t s = 0; s < pick.size(); ++s) {
+                    if (++pick[s] < symbols[s].second.size()) break;
+                    pick[s] = 0;
+                }
+            }
+            continue;
         } else {
             recipe.type = CraftingRecipe::Type::Shapeless;
             const godot::Array ingredients = entry.get("ingredients", godot::Array());

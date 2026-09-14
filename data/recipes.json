@@ -149,6 +149,19 @@
       "pattern": [" f ", " /f", "/  "],
       "key": { "f": "cobblestone", "/": "stick" },
       "result": { "block": "stone_hammer", "count": 1 }
+    },
+    {
+      "type": "shaped",
+      "_comment": "The wooden tools. A key entry may LIST several ingredients, any of which fills the cell: the loader expands the recipe into one concrete recipe per combination, so matching stays exact and a tool is always ONE wood type throughout (oak head on a pine handle matches nothing). 3 cells a side, so these are crafting-table recipes like the stone hammer above.",
+      "pattern": ["PPP", " S ", " S "],
+      "key": { "P": ["oak_planks", "pine_planks", "spruce_planks", "holly_planks"], "S": "stick" },
+      "result": { "block": "wooden_pickaxe", "count": 1 }
+    },
+    {
+      "type": "shaped",
+      "pattern": [" f ", " /f", "/  "],
+      "key": { "f": ["oak_planks", "pine_planks", "spruce_planks", "holly_planks"], "/": "stick" },
+      "result": { "block": "wooden_hammer", "count": 1 }
     }
   ]
 }

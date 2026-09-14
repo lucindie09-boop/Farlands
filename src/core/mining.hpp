@@ -91,7 +91,9 @@ struct BlockDrop {
 //      (slab halves drop the bottom variant, a merged full slab drops both,
 //      stairs and walls drop their base block),
 //   2. a hammer crushing a block that names a crush_result yields that block
-//      instead.
+//      instead (cobblestone -> gravel),
+//   3. otherwise the block's own `drops` stands, if it names one
+//      (stone -> cobblestone).
 // Takes tool stats rather than a held id so the whole rule is reachable from
 // tests, which run without items.json (items only load under the game runtime).
 [[nodiscard]] inline BlockDrop block_drop(BlockID block, const ItemToolStats* tool) noexcept {
@@ -115,18 +117,23 @@ struct BlockDrop {
         drop.id = wall_fam->base;
     }
 
-    // Crushing is keyed on the block that was actually broken, not on the item
-    // a variant collapses to: a slab of a crushable block is still a slab, and
-    // crush_result is declared on the full block. The hammer's tier does not
-    // gate the crush — tier only scales the break speed — so a hammer always
-    // transforms what it is fast against.
+    // The block's own rules are keyed on the block that was actually broken,
+    // not on the item a variant collapses to: a slab of a crushable block is
+    // still a slab, and both fields are declared on the full block. The
+    // hammer's tier does not gate the crush — tier only scales the break speed —
+    // so a hammer always transforms what it is fast against.
     const BlockType& bt = reg.get_block(block);
-    if (is_crushable(bt)) {
-        const BlockID crushed = crushed_block(bt, tool);
-        if (crushed != BlockIDs::AIR) {
-            drop.id = crushed;
-            drop.count = 1;  // one block in, one block out
-        }
+    const BlockID crushed = crushed_block(bt, tool);
+    if (crushed != BlockIDs::AIR) {
+        // A crush overrides the ordinary drop: cobblestone yields cobblestone
+        // by hand and gravel to a hammer.
+        drop.id = crushed;
+        drop.count = 1;  // one block in, one block out
+        return drop;
+    }
+    if (bt.drops != BlockIDs::AIR) {
+        drop.id = bt.drops;
+        drop.count = 1;
     }
     return drop;
 }

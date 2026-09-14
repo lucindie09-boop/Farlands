@@ -144,6 +144,39 @@ TEST_CASE("mining: only a hammer crushes, and only a block that names a result")
     CHECK(crushed_block(plain, &hammer) == BlockIDs::AIR);
 }
 
+TEST_CASE("mining: a block's own drop stands, unless a hammer crushes it") {
+    BlockRegistry& reg = BlockRegistry::get_instance();
+    reg.initialize_default_blocks();
+
+    // The real shape of this: stone yields cobblestone to anything, and
+    // cobblestone yields gravel to a hammer.
+    const BlockID stone = reg.register_block(make_block("pickaxe", 0));
+    const BlockID cobble = reg.register_block(make_crushable("pickaxe", 0, BlockIDs::GRAVEL));
+    CHECK(stone != BlockIDs::AIR);
+    CHECK(cobble != BlockIDs::AIR);
+    if (BlockType* stone_bt = reg.get_block_mutable(stone)) {
+        stone_bt->drops = cobble;
+    }
+
+    const ItemToolStats hammer = make_tool("hammer", 1, 3.0f);
+    const ItemToolStats pickaxe = make_tool("pickaxe", 1, 3.0f);
+
+    // Stone yields cobblestone whatever is held — a hammer included, since
+    // stone names no crush_result of its own.
+    CHECK(block_drop(stone, nullptr).id == cobble);
+    CHECK(block_drop(stone, &pickaxe).id == cobble);
+    CHECK(block_drop(stone, &hammer).id == cobble);
+
+    // Cobblestone yields itself, and gravel to a hammer.
+    CHECK(block_drop(cobble, nullptr).id == cobble);
+    CHECK(block_drop(cobble, &pickaxe).id == cobble);
+    CHECK(block_drop(cobble, &hammer).id == BlockIDs::GRAVEL);
+
+    // Substituting the drop keeps it one block: stone never yields 2 of them.
+    CHECK(block_drop(stone, nullptr).count == 1);
+    CHECK(block_drop(cobble, &hammer).count == 1);
+}
+
 TEST_CASE("mining: the crush decides what a break yields") {
     BlockRegistry& reg = BlockRegistry::get_instance();
     reg.initialize_default_blocks();

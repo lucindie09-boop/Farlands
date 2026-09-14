@@ -40,6 +40,18 @@ public:
     static constexpr float JUMP_VELOCITY = 0.42f;
     static constexpr float SPRINT_JUMP_BOOST = 0.2f;
     static constexpr float STEP_HEIGHT = 0.6f;
+
+    // --- Liquid movement (a body sinks slowly and swims up) ---
+    // A liquid is swum through rather than stood on, so these replace the
+    // airborne numbers while the feet are inside a liquid cell. Tuned to the
+    // reference feel: sinking about 1.6 blocks/s, moving at ~1/5 land speed,
+    // and rising while jump is held. Without them a body falls through water at
+    // full speed and walks on the bottom, i.e. water reads as air.
+    static constexpr float WATER_SINK = 0.02f;        // downward pull per tick (vs GRAVITY 0.08)
+    static constexpr float WATER_DRAG = 0.8f;         // per-tick retention (vs VERTICAL_DRAG 0.98 air, 0.91 ground)
+    static constexpr float WATER_ACCEL = 0.02f;       // horizontal acceleration (vs GROUND_ACCEL 0.1)
+    static constexpr float WATER_RISE = 0.04f;        // upward impulse per tick while jump is held
+    static constexpr float WATER_LEDGE_BOOST = 0.3f;  // upward kick when swimming into a wall
     // Vanilla fall damage: landings further than 3 blocks hurt, 1 half-heart
     // per extra block (floor(fall_distance - 3)).
     static constexpr float SAFE_FALL_DISTANCE = 3.0f;
@@ -66,6 +78,8 @@ public:
     void snap_render_position() { prev_position_ = position_; }
     MoveState get_state() const { return state_; }
     bool is_on_floor() const { return on_floor_; }
+    // True when this tick's feet are inside a liquid cell.
+    bool is_in_water() const { return in_water_; }
     float get_eye_height() const;
     godot::Vector3 get_velocity() const { return velocity_; }
     godot::Vector3 get_position() const { return position_; }
@@ -83,6 +97,7 @@ private:
     godot::Vector3 velocity_;
     MoveState state_ = MoveState::AIRBORNE;
     bool on_floor_ = false;
+    bool in_water_ = false;
     bool jump_queued_ = false;
     bool sprint_active_ = false;
     bool prev_sprint_active_ = false;

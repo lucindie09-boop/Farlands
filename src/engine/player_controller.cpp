@@ -19,6 +19,7 @@ void PlayerSim::reset(const Vector3& initial_pos) {
     velocity_ = Vector3();
     state_ = MoveState::AIRBORNE;
     on_floor_ = false;
+    in_water_ = false;
     sprint_active_ = false;
     prev_sprint_active_ = false;
     accumulator_ = 0.0f;
@@ -70,6 +71,26 @@ void PlayerSim::accumulate_and_tick(double frame_delta, const PlayerInput& input
 void PlayerSim::tick(const PlayerInput& input, CollisionResolver& cr, float step_height, float speed_multiplier) {
     prev_position_ = position_;   // snapshot for interpolation — once per tick, not per frame
 
+    // --- Liquid state, sampled once at the start of the tick ---
+    // ANY part of the body inside a liquid counts, not just the feet. The case
+    // that needs the second sample is a body standing ON something under water: on
+    // a submerged slab or stair the cell its feet occupy holds the block itself,
+    // so a feet-only test would report the body dry — standing there with its head
+    // under water, unaffected by drag and able to breathe. Two samples (foot level,
+    // head level) cover the 1.8-tall body, which spans at most three cells.
+    //
+    // Sampling before anything moves means the tick that enters the water already
+    // feels it, which is what stops a body plunging in at full speed for one tick
+    // and what cancels the fall damage on the way in. The body height comes from
+    // this tick's *starting* state, which only differs by 0.3 while sneaking.
+    {
+        const float body_h = (state_ == MoveState::SNEAKING) ? SNEAKING_SIZE.y : STANDING_SIZE.y;
+        const int32_t ix = static_cast<int32_t>(std::floor(position_.x));
+        const int32_t iz = static_cast<int32_t>(std::floor(position_.z));
+        in_water_ = cr.is_liquid_at(ix, static_cast<int32_t>(std::floor(position_.y + 0.1f)), iz)
+                 || cr.is_liquid_at(ix, static_cast<int32_t>(std::floor(position_.y + body_h - 0.1f)), iz);
+    }
+
     // --- Sprint state machine (vanilla: sticky flag, one-tick stale for airborne) ---
     prev_sprint_active_ = sprint_active_;
     bool sneaking = input.sneak_held && on_floor_;
@@ -110,9 +131,15 @@ void PlayerSim::tick(const PlayerInput& input, CollisionResolver& cr, float step
         slipperiness = cr.get_slipperiness_at(fx, fy, fz);
     }
 
-    // --- Jump (applied BEFORE friction, matching the vanilla tick order) ---
+    // --- Jump / swim up (applied BEFORE friction, matching the vanilla tick order) ---
     bool want_jump = jump_queued_ || input.jump_pressed;
-    if (want_jump && on_floor_) {
+    if (in_water_) {
+        // Swimming up: a small upward impulse every tick the jump control is
+        // held, which is what makes a body float back to the surface instead of
+        // being stuck at the bottom of a pool.
+        if (want_jump) velocity_.y += WATER_RISE;
+        jump_queued_ = false;
+    } else if (want_jump && on_floor_) {
         velocity_.y = JUMP_VELOCITY;
         jump_queued_ = false;
         if (sprint_active_) {
@@ -126,7 +153,12 @@ void PlayerSim::tick(const PlayerInput& input, CollisionResolver& cr, float step
     }
 
     // --- Horizontal friction (applied AFTER jump, matching vanilla travel() order) ---
-    if (on_floor_) {
+    if (in_water_) {
+        // Water drag replaces both the ground and the air case: being in a
+        // liquid is what matters, not whether a floor is under the feet.
+        velocity_.x *= WATER_DRAG;
+        velocity_.z *= WATER_DRAG;
+    } else if (on_floor_) {
         float ground_friction = slipperiness * 0.91f;
         velocity_.x *= ground_friction;
         velocity_.z *= ground_friction;
@@ -138,7 +170,9 @@ void PlayerSim::tick(const PlayerInput& input, CollisionResolver& cr, float step
     // --- Horizontal acceleration ---
     // wish_direction is already camera-relative and XZ-normalized from the caller
     float accel;
-    if (on_floor_) {
+    if (in_water_) {
+        accel = WATER_ACCEL * move_multiplier;
+    } else if (on_floor_) {
         accel = GROUND_ACCEL * move_multiplier
               * std::pow(DEFAULT_SLIPPERINESS / slipperiness, 3.0f);
     } else {
@@ -214,6 +248,14 @@ void PlayerSim::tick(const PlayerInput& input, CollisionResolver& cr, float step
     // Sprint cancels on horizontal wall collision
     if (result.collided_x || result.collided_z) sprint_active_ = false;
 
+    // --- Swim up out of the water onto a ledge ---
+    // Horizontal collision while swimming and holding jump lifts the body. A
+    // pool walled with full blocks is otherwise a trap: the surface cannot be
+    // climbed from the inside, so no amount of swimming gets you out.
+    if (in_water_ && want_jump && (result.collided_x || result.collided_z)) {
+        velocity_.y = WATER_LEDGE_BOOST;
+    }
+
     on_floor_ = result.on_floor;
 
     // --- Fall damage tracking (vanilla: landings over 3 blocks hurt) ---
@@ -224,7 +266,12 @@ void PlayerSim::tick(const PlayerInput& input, CollisionResolver& cr, float step
     if (fallen > 0.0f) {
         fall_distance_ += fallen;
     }
-    if (on_floor_) {
+    if (in_water_) {
+        // Water breaks a fall without hurting: the distance is forgotten rather
+        // than converted into damage, so jumping off a cliff into deep water is
+        // safe (matching the reference).
+        fall_distance_ = 0.0f;
+    } else if (on_floor_) {
         if (fall_distance_ > SAFE_FALL_DISTANCE) {
             pending_fall_damage_ +=
                 static_cast<int>(std::floor(fall_distance_ - SAFE_FALL_DISTANCE));
@@ -232,9 +279,14 @@ void PlayerSim::tick(const PlayerInput& input, CollisionResolver& cr, float step
         fall_distance_ = 0.0f;
     }
 
-    // --- Gravity + vertical drag (applied AFTER move, matching vanilla tick order) ---
-    velocity_.y -= GRAVITY;
-    velocity_.y *= VERTICAL_DRAG;
+    // --- Vertical motion (applied AFTER move, matching vanilla tick order) ---
+    if (in_water_) {
+        velocity_.y -= WATER_SINK;
+        velocity_.y *= WATER_DRAG;
+    } else {
+        velocity_.y -= GRAVITY;
+        velocity_.y *= VERTICAL_DRAG;
+    }
 
     // Per-tick state dump removed (was spamming the console every tick).
     // if (g_engine_running) {

@@ -93,6 +93,7 @@ void PlayerController::_bind_methods() {
     ClassDB::bind_method(D_METHOD("toggle_fly_mode"), &PlayerController::toggle_fly_mode);
     ClassDB::bind_method(D_METHOD("break_block"), &PlayerController::break_block);
     ClassDB::bind_method(D_METHOD("place_block"), &PlayerController::place_block);
+    ClassDB::bind_method(D_METHOD("use_item"), &PlayerController::use_item);
     ClassDB::bind_method(D_METHOD("get_selected_block"), &PlayerController::get_selected_block);
     ClassDB::bind_method(D_METHOD("set_selected_block", "block_id"), &PlayerController::set_selected_block);
     ClassDB::bind_method(D_METHOD("get_block_edit_counter"), &PlayerController::get_block_edit_counter);
@@ -140,6 +141,7 @@ void PlayerController::_bind_methods() {
     ClassDB::bind_method(D_METHOD("die"), &PlayerController::die);
     ClassDB::bind_method(D_METHOD("respawn"), &PlayerController::respawn);
     ClassDB::bind_method(D_METHOD("is_on_floor"), &PlayerController::is_on_floor);
+    ClassDB::bind_method(D_METHOD("is_in_water"), &PlayerController::is_in_water);
 
     ClassDB::bind_method(D_METHOD("toggle_third_person"), &PlayerController::toggle_third_person);
     ClassDB::bind_method(D_METHOD("set_third_person", "on"), &PlayerController::set_third_person);
@@ -175,6 +177,8 @@ int PlayerController::get_health() const { return health_; }
 bool PlayerController::is_dead() const { return dead_; }
 
 bool PlayerController::is_on_floor() const { return sim_.is_on_floor(); }
+
+bool PlayerController::is_in_water() const { return sim_.is_in_water(); }
 
 void PlayerController::set_health(int value) {
     health_ = CLAMP(value, 0, MAX_HEALTH);
@@ -419,7 +423,7 @@ void PlayerController::_input(const Ref<InputEvent>& p_event) {
     }
 
     if (p_event->is_action_pressed("mouse_click_right")) {
-        place_block();
+        use_item();
     }
 
     if (p_event->is_action_pressed("fly_toggle")) {
@@ -940,6 +944,61 @@ void PlayerController::place_block() {
         // Increment edit counter to invalidate block outline
         block_edit_counter_++;
     }
+}
+
+void PlayerController::use_item() {
+    // A held item with a use action does that; everything else is a placement.
+    // Items stay out of voxels either way (their ids live above the block
+    // registry, so place_block() refuses them).
+    const VoxelEngine::BlockID held = inventory_.get_selected_block();
+    const VoxelEngine::ItemUseAction* use =
+        VoxelEngine::ItemRegistry::get_instance().get_item_use(held);
+    if (use != nullptr && use->has_use()) {
+        if (use->is_pour()) {
+            pour_fluid_at_aim(use->block);
+        }
+        return;
+    }
+    place_block();
+}
+
+bool PlayerController::pour_fluid_at_aim(VoxelEngine::BlockID fluid_block) {
+    // A pour target of AIR means items.json named a block that does not exist;
+    // that already printed a warning at load, so this is just the guard.
+    if (fluid_block == VoxelEngine::BlockIDs::AIR) return false;
+
+    Node* cm_node = get_node_or_null(NodePath("/root/Main/ChunkManager"));
+    if (!cm_node) return false;
+    ChunkManager* cm = Object::cast_to<ChunkManager>(cm_node);
+    if (!cm) return false;
+
+    // Aim at the cell a block would be placed in, so a pour and a placement
+    // always agree on where the crosshair is pointing.
+    Dictionary result = cm->raycast_from_camera(10.0);
+    if (!result.get("success", false)) return false;
+    Vector3 place_pos = result["place_position"];
+    int bx = static_cast<int>(std::floor(place_pos.x));
+    int by = static_cast<int>(std::floor(place_pos.y));
+    int bz = static_cast<int>(std::floor(place_pos.z));
+
+    // Same two guards the block path uses: never write into the body, and only
+    // into a free cell (a pour has no shape-merging cases, so an occupied cell is
+    // simply refused).
+    Vector3 ppos = get_global_position();
+    int px = static_cast<int>(std::floor(ppos.x));
+    int py = static_cast<int>(std::floor(ppos.y));
+    int pz = static_cast<int>(std::floor(ppos.z));
+    if (bx == px && bz == pz && (by == py || by == py + 1)) return false;
+    if (cm->get_block(bx, by, bz) != 0) return false;
+
+    cm->set_block(bx, by, bz, fluid_block);
+    if (static_cast<VoxelEngine::BlockID>(cm->get_block(bx, by, bz)) != fluid_block) return false;
+
+    // Same feedback as a placement (drives the place swing), and the outline's
+    // edit counter so the crosshair target refreshes.
+    emit_signal("block_placed");
+    block_edit_counter_++;
+    return true;
 }
 
 int PlayerController::get_selected_block() const { return inventory_.get_selected_block(); }

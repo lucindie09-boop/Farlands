@@ -261,6 +261,9 @@ Two layers mirroring the ChunkManager/VoxelEngineController pattern:
 - **Hammer crushing** — a block's optional `crush_result` (`data/block_definitions.json`, resolved to an id in a `load_from_json` post-pass) is the hammer's whole contract: a hammer-class tool is fast against any block that names one, and `resolve_block_drop()` yields that block instead of the broken one. Crushing is keyed on the block actually broken and is not tier-gated (tier only scales speed). Cobblestone → gravel, gravel → sand.
 - **Block drops** — a block's optional `drops` names what it yields when broken, whatever the tool; it is separate from `crush_result` (a crush wins) and both resolve in the same post-pass. Stone → cobblestone, so stone blocks themselves are no longer obtainable by mining.
 
+- **Liquids are passable** — `BlockType::stops_bodies()` (false for any block with the `Liquid` property) is the single answer used by `CollisionResolver::is_aabb_solid_fast`, the sneak edge-guard and the camera's `is_solid_at` clear distance; `chunk_map.is_block_solid()` stays a raw non-air query. A liquid's shape is a surface height, not a wall, so a body falls into water instead of standing on it and the camera looks through it.
+- **Water movement** — `PlayerSim::tick` samples the liquid state once per tick at foot and head level (any submerged part of the body counts, so standing on a submerged slab is wet) and, when wet, replaces gravity with a slow sink, horizontal friction with water drag, scales acceleration to 1/5, rises while jump is held, lifts the body when it swims into a wall, and zeroes the tracked fall distance so water landings never hurt. `WATER_*` constants live in `src/engine/player_controller.hpp`; `PlayerController::is_in_water()` exposes the state.
+
 No `CharacterBody3D`, `move_and_slide`, or `CollisionShape3D` — all collision goes through `CollisionResolver` against the chunk map.
 
 ## Removed/Experimental Features

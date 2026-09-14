@@ -26,6 +26,25 @@ struct ItemToolStats {
     [[nodiscard]] bool is_tool() const noexcept { return !tool_class.empty(); }
 };
 
+// Optional in-world use action on an item (items.json "use" object). An item
+// with no "use" entry does nothing when right-clicked; see
+// PlayerController::use_item(). `kind` selects the behaviour — "pour" writes a
+// fluid source into the cell the crosshair is against — and `block` is what it
+// writes, resolved from `block_name` at load time.
+//
+// Resolution happens here rather than at use because blocks are loaded before
+// items (VoxelEngineController), and it is deliberately NOT resolved lazily: a
+// name that does not resolve is a data mistake and has to be visible at startup
+// rather than silently doing nothing the first time someone right-clicks.
+struct ItemUseAction {
+    std::string kind;        // "pour", or empty for an item with no in-world use
+    std::string block_name;  // the target as written in items.json
+    BlockID block = 0;       // resolved block id; AIR = the name did not resolve
+
+    [[nodiscard]] bool has_use() const noexcept { return !kind.empty(); }
+    [[nodiscard]] bool is_pour() const noexcept { return kind == "pour"; }
+};
+
 // Non-placeable inventory objects (sticks, tools, ...) living in their own ID
 // space above the block registry: item ids start at FIRST_ITEM_ID, so a single
 // Inventory slot id can address either without changing any storage or stack
@@ -52,6 +71,9 @@ public:
     // nullptr when the id is not an item. The returned stats report
     // is_tool() == false for plain items with no "tool" entry.
     [[nodiscard]] const ItemToolStats* get_item_tool(BlockID id) const noexcept;
+    // nullptr when the id is not an item. The returned action reports
+    // has_use() == false for an item with no "use" entry.
+    [[nodiscard]] const ItemUseAction* get_item_use(BlockID id) const noexcept;
     [[nodiscard]] size_t get_item_count() const noexcept {
         return items_.size();
     }
@@ -64,6 +86,7 @@ private:
         std::string name;
         std::string texture;
         ItemToolStats tool;
+        ItemUseAction use;
     };
     std::deque<ItemDef> items_;  // deque: name pointers stay valid on growth
 };

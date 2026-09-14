@@ -35,6 +35,9 @@ public:
     void toggle_fly_mode();
     void break_block();
     void place_block();
+    // Right-click entry point: a held item with a "use" action (data/items.json)
+    // does that instead of placing, anything else falls through to place_block().
+    void use_item();
     int get_selected_block() const;
     void set_selected_block(int block_id);
     int get_block_edit_counter() const;
@@ -93,6 +96,7 @@ public:
 
     // Ground state (true while on the floor) — used to pause walk bobbing midair.
     bool is_on_floor() const;
+    bool is_in_water() const;
     
     void set_sensitivity(float s);
     float get_sensitivity() const;
@@ -134,6 +138,9 @@ private:
     bool dummy_blocks_break_aim() const;
     // Punch the dummy: viewmodel swing + vanilla knockback. Returns true on a hit.
     bool try_punch_dummy();
+    // Writes `fluid_block` into the cell the crosshair is against (the cell a block
+    // would be placed in). Returns true when it actually landed.
+    bool pour_fluid_at_aim(VoxelEngine::BlockID fluid_block);
     // Re-attack interval while holding LMB on the dummy (vanilla attack cadence).
     float punch_cooldown_ = 0.0f;
     VoxelEngine::PlayerSim sim_;

@@ -27,7 +27,10 @@ public:
                             float step_height = 0.0f) const;
     bool is_aabb_solid(const godot::AABB& aabb) const;
     bool is_aabb_solid_fast(const godot::AABB& aabb) const;
+    // True when the cell stops a body. Liquids are NOT solid (see BlockType::stops_bodies).
     bool is_solid_at(int32_t wx, int32_t wy, int32_t wz) const;
+    // True when the cell holds a liquid, whatever state it is drawn in.
+    bool is_liquid_at(int32_t wx, int32_t wy, int32_t wz) const;
     float get_slipperiness_at(int32_t wx, int32_t wy, int32_t wz) const;
 
 private:

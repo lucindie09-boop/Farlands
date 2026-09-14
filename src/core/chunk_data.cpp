@@ -12,7 +12,8 @@ ChunkData::ChunkData(const ChunkData& other)
       is_empty(other.is_empty),
       is_fully_solid(other.is_fully_solid),
       block_count(other.block_count),
-      emissive_count(other.emissive_count) {
+      emissive_count(other.emissive_count),
+      liquid_cells(other.liquid_cells) {
     std::memcpy(section_block_count, other.section_block_count, sizeof(section_block_count));
 }
 
@@ -23,6 +24,7 @@ ChunkData& ChunkData::operator=(const ChunkData& other) {
         is_fully_solid = other.is_fully_solid;
         block_count    = other.block_count;
         emissive_count = other.emissive_count;
+        liquid_cells   = other.liquid_cells;
         std::memcpy(section_block_count, other.section_block_count, sizeof(section_block_count));
     }
     return *this;
@@ -33,12 +35,14 @@ ChunkData::ChunkData(ChunkData&& other) noexcept
       is_empty(other.is_empty),
       is_fully_solid(other.is_fully_solid),
       block_count(other.block_count),
-      emissive_count(other.emissive_count) {
+      emissive_count(other.emissive_count),
+      liquid_cells(other.liquid_cells) {
     std::memcpy(section_block_count, other.section_block_count, sizeof(section_block_count));
     other.is_empty = true;
     other.is_fully_solid = false;
     other.block_count = 0;
     other.emissive_count = 0;
+    other.liquid_cells = 0;
     std::memset(other.section_block_count, 0, sizeof(other.section_block_count));
 }
 
@@ -49,11 +53,13 @@ ChunkData& ChunkData::operator=(ChunkData&& other) noexcept {
         is_fully_solid = other.is_fully_solid;
         block_count    = other.block_count;
         emissive_count = other.emissive_count;
+        liquid_cells   = other.liquid_cells;
         std::memcpy(section_block_count, other.section_block_count, sizeof(section_block_count));
         other.is_empty = true;
         other.is_fully_solid = false;
         other.block_count = 0;
         other.emissive_count = 0;
+        other.liquid_cells = 0;
         std::memset(other.section_block_count, 0, sizeof(other.section_block_count));
     }
     return *this;
@@ -98,6 +104,7 @@ void ChunkData::clear() noexcept {
     is_fully_solid = false;
     block_count    = 0;
     emissive_count = 0;
+    liquid_cells   = 0;
     std::memset(section_block_count, 0, sizeof(section_block_count));
 }
 
@@ -109,6 +116,7 @@ void ChunkData::fill_blocks(BlockID block_id) noexcept {
         is_fully_solid = false;
         block_count = 0;
         emissive_count = 0;
+        liquid_cells = 0;
         std::memset(section_block_count, 0, sizeof(section_block_count));
         return;
     }
@@ -119,6 +127,7 @@ void ChunkData::fill_blocks(BlockID block_id) noexcept {
 
     const auto& registry = BlockRegistry::get_instance();
     const auto& block_type = registry.get_block(block_id);
+    liquid_cells = block_type.draws_fluid_surface() ? CHUNK_VOLUME : 0;
     is_fully_solid = HasProperty(block_type.properties, BlockProperty::Solid) &&
                      HasProperty(block_type.properties, BlockProperty::Opaque);
 
@@ -132,13 +141,15 @@ void ChunkData::set_data(const BlockID* data, uint32_t /*count*/) {
 
     block_count    = 0;
     emissive_count = 0;
+    liquid_cells   = 0;
     std::memset(section_block_count, 0, sizeof(section_block_count));
 
-    // Count blocks and emissive from sections
+    // Count blocks, emissive and liquid from sections
     for (int si = 0; si < PaletteStorage::NUM_SECTIONS; ++si) {
         storage->for_each_block(si, [&](int x, int y, int z, BlockID id) {
             ++block_count;
             if (is_emissive_block(id)) ++emissive_count;
+            if (is_liquid_surface_block(id)) ++liquid_cells;
             ++section_block_count[y / SECTION_HEIGHT];
         });
     }

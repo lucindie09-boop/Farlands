@@ -329,10 +329,19 @@ private:
     bool     is_fully_solid = false;
     uint32_t block_count = 0;
     uint32_t emissive_count = 0;
+    // Cells the liquid surface pass has to draw (see BlockType::draws_fluid_surface).
+    // Maintained beside block_count on every write path, so "does this chunk hold
+    // liquid" is an O(1) question: the renderer asks it to check that a chunk with
+    // liquid in its data actually has liquid geometry on the GPU.
+    uint32_t liquid_cells = 0;
     uint32_t section_block_count[CHUNK_SECTIONS];
 
     [[nodiscard]] static inline bool is_emissive_block(BlockID id) noexcept {
         return HasProperty(BlockRegistry::get_instance().get_block_fast(id).properties, BlockProperty::Emissive);
+    }
+
+    [[nodiscard]] static inline bool is_liquid_surface_block(BlockID id) noexcept {
+        return BlockRegistry::get_instance().get_block_fast(id).draws_fluid_surface();
     }
 
 public:
@@ -370,6 +379,8 @@ public:
         storage->set_block(x, y, z, block_id);
         if (is_emissive_block(old) && emissive_count > 0) --emissive_count;
         if (is_emissive_block(block_id)) ++emissive_count;
+        if (is_liquid_surface_block(old) && liquid_cells > 0) --liquid_cells;
+        if (is_liquid_surface_block(block_id)) ++liquid_cells;
         if (old == BlockIDs::AIR && block_id != BlockIDs::AIR) ++block_count;
         else if (old != BlockIDs::AIR && block_id == BlockIDs::AIR) --block_count;
         is_empty = (block_count == 0);
@@ -398,6 +409,7 @@ public:
     [[nodiscard]] bool fully_solid() const noexcept { return is_fully_solid; }
     [[nodiscard]] uint32_t get_block_count() const noexcept { return block_count; }
     [[nodiscard]] uint32_t get_emissive_count() const noexcept { return emissive_count; }
+    [[nodiscard]] uint32_t liquid_count() const noexcept { return liquid_cells; }
 
     // Light Access (all go through paletted light sections)
 

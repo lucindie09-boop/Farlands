@@ -124,8 +124,10 @@ void MeshBuilder::add_fluid_quad(int32_t x, int32_t y, int32_t z, FaceDirection 
 void MeshBuilder::passive_fluid_mesh(const ChunkData& chunk, const ChunkNeighborAccessor& accessor,
                                      const BlockRegistry& registry) {
     // A corner height is a sub-block quantity: at a 2-block stride it means
-    // nothing, so liquids are only drawn at full detail. (The per-AABB pass makes
-    // the same call for the same reason.)
+    // nothing, so liquids are only drawn at full detail. At LOD the generic
+    // emitters take over and draw each liquid cell as a plain box into the same
+    // water buffer (see emit_faces), which is the box approximation the far
+    // regions show.
     if (stride_xz_ != 1) return;
 
     const auto lookup = [&](int32_t lx, int32_t ly, int32_t lz) {

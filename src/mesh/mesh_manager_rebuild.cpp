@@ -74,6 +74,8 @@ void MeshManager::rebuild_rendering_server_mesh(int32_t chunk_x, int32_t chunk_y
         render_data->reset_dirty_bbox();
         render_data->cached_quads.clear();
         render_data->light_checksums = {};
+        render_data->uploaded_solid_vertices = 0;
+        render_data->uploaded_water_vertices = 0;
 
         render_data->last_built_version = render_data->mesh_version;
         ChunkRenderData* neighbors[6] = { d_x_neg, d_x_pos, d_y_neg, d_y_pos, d_z_neg, d_z_pos };
@@ -128,6 +130,8 @@ void MeshManager::rebuild_rendering_server_mesh(int32_t chunk_x, int32_t chunk_y
             render_data->reset_dirty_bbox();
             render_data->cached_quads.clear();
             render_data->light_checksums = {};
+            render_data->uploaded_solid_vertices = 0;
+            render_data->uploaded_water_vertices = 0;
 
             render_data->last_built_version = render_data->mesh_version;
             ChunkRenderData* neighbors[6] = { d_x_neg, d_x_pos, d_y_neg, d_y_pos, d_z_neg, d_z_pos };

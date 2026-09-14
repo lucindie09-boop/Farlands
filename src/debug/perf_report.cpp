@@ -65,6 +65,22 @@ String PerfReport::build(
               "  Far cached:      " + String::num_int64(render_stats.cached_far_chunks) + "\n";
     report += "  Region members:  " + String::num_int64(render_stats.active_region_member_chunks) +
               "  Partial cache:   " + String::num_int64(render_stats.regions_partial_missing_cache) + "\n";
+    // Both should sit at 0. A non-zero first value means water is missing on
+    // screen right now (a chunk with liquid in its data and no liquid geometry
+    // uploaded); the second is how many chunks have been remeshed to repair
+    // that, which is the only way an intermittent drop shows up from inside the
+    // game. See note_liquid_geometry in mesh_manager_upload.cpp.
+    report += "  Liquid missing:  " + String::num_int64(render_stats.chunks_with_liquid_but_no_water_mesh) +
+              "  Liquid repairs:  " + String::num_int64(render_stats.liquid_geometry_repairs) + "\n";
+    // Cumulative upload bookkeeping. `water-only skips` must stay 0: it counts
+    // uploads the content hash called unchanged while the water mesh differed —
+    // water that exists in the world and not on screen.
+    report += "  Mesh uploads:    " + String::num_int64(render_stats.mesh_uploads) +
+              "  Dedup skips:     " + String::num_int64(render_stats.mesh_upload_dedup_skips) +
+              "  Water-only skips: " + String::num_int64(render_stats.mesh_upload_swallowed_water_changes) + "\n";
+    // Also 0: chunks that have geometry, are in range and are not covered by a far
+    // region, but have no instance drawing them.
+    report += "  Unrendered:      " + String::num_int64(render_stats.chunks_with_geometry_but_no_instance) + "\n";
 
     report += "--- per-frame breakdown ---\n";
     report += "  player_pos_update: avg=" + String::num(perf_timer.get_avg(TimerID::PlayerPosUpdate), 3) + "ms\n";

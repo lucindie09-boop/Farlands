@@ -1,6 +1,7 @@
 ﻿#include "mesh/mesh_manager_internal.hpp"
 
 #include "core/hash_utils.hpp"
+#include "mesh/mesh_content_hash.hpp"
 #include <godot_cpp/variant/vector3.hpp>
 #include <godot_cpp/variant/packed_vector3_array.hpp>
 #include <godot_cpp/variant/packed_byte_array.hpp>
@@ -253,14 +254,13 @@ void MeshBuildTask::execute() {
         PackedBuiltMeshData packed_mesh = pack_vertex_array(builder.get_vertices(), builder.get_indices());
         PackedBuiltMeshData water_mesh = pack_vertex_array(builder.get_water_vertices(), builder.get_water_indices());
 
-        // Content hash for upload deduplication (opaque only; water always uploaded)
-        uint64_t content_hash;
-        if (builder.get_vertices().empty() || builder.get_indices().empty()) {
-            content_hash = 0;
-        } else {
-            content_hash = fnv1a_hash_bytes(builder.get_vertices().data(), builder.get_vertices().size() * sizeof(Vertex));
-            content_hash = fnv1a_hash_bytes(builder.get_indices().data(), builder.get_indices().size() * sizeof(uint32_t), content_hash);
-        }
+        // Content hash for upload deduplication. Both surfaces go into it: the
+        // upload adds them together, so hashing the opaque mesh alone skipped the
+        // whole upload whenever only the water changed — which is what flowing
+        // water does, being transparent. See mesh/mesh_content_hash.hpp.
+        const uint64_t content_hash = mesh_content_hash(
+            builder.get_vertices(), builder.get_indices(),
+            builder.get_water_vertices(), builder.get_water_indices());
 
         if (async_epoch && epoch != async_epoch->load(std::memory_order_acquire)) {
             render_data->pending_mesh_builds.fetch_sub(1, std::memory_order_relaxed);

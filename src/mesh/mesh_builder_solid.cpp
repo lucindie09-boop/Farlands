@@ -425,9 +425,14 @@ void MeshBuilder::emit_faces(const ChunkData& chunk, const BlockRegistry& regist
                         }
                         const BlockID block_id = solid_at(y, z + 1, x + 1);
                         if (block_id == BlockIDs::AIR) continue;
-                        // Liquids are drawn by the fluid pass, never here (see
-                        // is_fluid_drawn).
-                        if (is_fluid_drawn(block_id, registry)) continue;
+                        // Liquids are drawn by the fluid pass at full detail, so
+                        // this path must not draw them too. At LOD stride > 1 the
+                        // fluid pass does not run at all (a corner height means
+                        // nothing at that scale), and THIS path is then the only
+                        // thing that draws water — so the skip has to be tied to
+                        // the stride. Unguarded, it left LOD chunks with no water
+                        // geometry whatsoever.
+                        if (stride_xz_ <= 1 && is_fluid_drawn(block_id, registry)) continue;
 
                         const BlockType& bt = registry.get_block_fast(block_id);
 
@@ -495,8 +500,11 @@ void MeshBuilder::emit_faces(const ChunkData& chunk, const BlockRegistry& regist
 
     // Liquids last and separately: a liquid surface is a quad with four
     // independent corner heights (see mesh_fluid.hpp), which neither the greedy
-    // passes nor the per-AABB path can produce — so those two skip every liquid
-    // (is_fluid_drawn) and this pass draws them all.
+    // passes nor the per-AABB path can produce — so at FULL detail those two skip
+    // every liquid (is_fluid_drawn) and this pass draws them all. At LOD stride >
+    // 1 this pass does not run (a corner height means nothing at that scale) and
+    // the generic emitters draw liquids as plain boxes into the water buffer
+    // instead, which is why their skip is tied to the stride.
     {
         ScopedTimer fluid_timer(perf_timer, TimerID::FluidMesh);
         passive_fluid_mesh(chunk, accessor, registry);

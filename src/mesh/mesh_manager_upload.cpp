@@ -13,6 +13,42 @@
 namespace VoxelEngine {
 
 using namespace godot;
+
+// ---------------------------------------------------------------------------
+// Liquid geometry invariant
+// ---------------------------------------------------------------------------
+// A chunk whose data holds liquid has to have liquid geometry on the GPU. A cell
+// the fluid surface pass draws — a fluid state, or generated ocean water, both
+// counted exactly by ChunkData::liquid_count — is otherwise a cell you can swim
+// in and outline but cannot see, until some unrelated edit happens to dirty the
+// chunk and the next build gets it right. That was a real, reported bug, and the
+// paths that can produce it are hard to enumerate (a partial rebuild, an LOD
+// transition, an upload the dedup skipped, an unloaded neighbour at first
+// build). So the renderer asserts the invariant where it can see both sides of
+// it — the data and what actually reached the GPU — and repairs the chunk by
+// remeshing it once.
+//
+// `uploaded_solid_vertices > 0` is the qualifier that makes this a bug detector
+// rather than a streaming-progress meter: it means the chunk has geometry on
+// screen (so it is resident, built and visible) and that geometry is missing the
+// liquid. A chunk that has not been built yet, or one deep inside the sea whose
+// every face is culled by the water around it, has no opaque geometry either and
+// stays quiet.
+//
+// `liquid_check_version` makes it once per mesh_version: a chunk that genuinely
+// cannot produce liquid geometry would otherwise rebuild forever. The repair is
+// counted so the performance report shows it.
+void MeshManager::note_liquid_geometry(int32_t cx, int32_t cy, int32_t cz, ChunkRenderData& render_data) {
+    const ChunkData* data = render_data.data.get();
+    if (data == nullptr || data->liquid_count() == 0) return;
+    if (render_data.uploaded_solid_vertices == 0) return;
+    if (render_data.uploaded_water_vertices != 0) return;
+    if (render_data.liquid_check_version == render_data.mesh_version) return;
+    render_data.liquid_check_version = render_data.mesh_version;
+    ++liquid_geometry_repairs;
+    queue_dirty_chunk(cx, cy, cz);
+}
+
 void MeshManager::process_completed_meshes(uint64_t epoch, double budget_ms, int32_t max_uploads,
                                            const Ref<ShaderMaterial>& material,
                                            const Ref<ShaderMaterial>& water_material) {
@@ -91,6 +127,12 @@ void MeshManager::process_completed_meshes(uint64_t epoch, double budget_ms, int
             if (had_far_cache) {
                 mark_far_region_dirty_for_chunk(completed.chunk_x, completed.chunk_y, completed.chunk_z);
             }
+            // Nothing is on the GPU any more, so the mirror of it must go too — a
+            // stale count here would hide a chunk that produced no geometry at
+            // all from note_liquid_geometry.
+            render_data->uploaded_solid_vertices = 0;
+            render_data->uploaded_water_vertices = 0;
+            note_liquid_geometry(completed.chunk_x, completed.chunk_y, completed.chunk_z, *render_data);
             uploads_this_frame++;
             continue;
         }
@@ -99,7 +141,22 @@ void MeshManager::process_completed_meshes(uint64_t epoch, double budget_ms, int
         const bool content_unchanged = render_data->mesh_content_hash != 0 &&
                                        render_data->mesh_content_hash == completed.mesh_content_hash;
 
+        if (content_unchanged) {
+            ++mesh_upload_dedup_skips;
+            // With the hash covering both surfaces this must never happen (see
+            // mesh/mesh_content_hash.hpp). Counted rather than assumed, because
+            // it is exactly the failure the hash fix was for: a skipped upload
+            // that carried a different water mesh, i.e. water the player cannot
+            // see. Vertex count is enough — the question is only whether the
+            // liquid surface changed at all.
+            if (render_data->uploaded_water_vertices !=
+                static_cast<uint32_t>(completed.water_mesh_data.vertices.size())) {
+                ++mesh_upload_swallowed_water_changes;
+            }
+        }
+
         if (!content_unchanged) {
+            ++mesh_uploads;
             // Reuse mesh RID instead of creating a new one every frame
             if (!render_data->mesh_rid.is_valid()) {
                 render_data->mesh_rid = rs->mesh_create();
@@ -166,6 +223,12 @@ void MeshManager::process_completed_meshes(uint64_t epoch, double budget_ms, int
 
             render_data->material_set = true;
             render_data->mesh_content_hash = completed.mesh_content_hash;
+            // The GPU now holds exactly these two surfaces. (A deduplicated
+            // upload leaves both alone, because the RID did not change either.)
+            render_data->uploaded_solid_vertices =
+                static_cast<uint32_t>(completed.mesh_data.vertices.size());
+            render_data->uploaded_water_vertices =
+                static_cast<uint32_t>(completed.water_mesh_data.vertices.size());
         }
 
         // 4.4 Instance budget cap: don't create instances for chunks beyond render distance.
@@ -217,6 +280,7 @@ void MeshManager::process_completed_meshes(uint64_t epoch, double budget_ms, int
             queue_dirty_chunk(completed.chunk_x, completed.chunk_y - 1, completed.chunk_z);
         }
 
+        note_liquid_geometry(completed.chunk_x, completed.chunk_y, completed.chunk_z, *render_data);
         uploads_this_frame++;
     }
 

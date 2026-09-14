@@ -359,6 +359,26 @@ int64_t ChunkManager::request_path(const Vector3& from, const Vector3& to, int32
     return static_cast<int64_t>(path_service->submit(*pool, start, goal, max_expansions, max_ms));
 }
 
+Dictionary ChunkManager::get_fluid_stats() {
+    // A window onto the flow simulation's ticking: how much work it did on its
+    // last tick and how much is still queued. A flood that looks stuck is either
+    // pending > 0 (still working through its cells, one budget slice a tick) or
+    // 0 with no cells ticked (settled, and waiting to be woken by an edit).
+    const fluids::FluidSim& sim = controller->get_fluid_sim();
+    const fluids::FluidSim::Stats& stats = sim.stats();
+    Dictionary out;
+    out["enabled"] = sim.enabled();
+    out["ticks"] = static_cast<int64_t>(stats.ticks);
+    out["cells_ticked"] = static_cast<int64_t>(stats.cells_ticked);
+    out["last_tick_cells"] = stats.last_tick_cells;
+    out["last_tick_writes"] = stats.last_tick_writes;
+    out["last_tick_ms"] = stats.last_tick_ms;
+    out["pending"] = static_cast<int64_t>(stats.pending);
+    out["frozen"] = stats.frozen;
+    out["settled"] = stats.settled;
+    return out;
+}
+
 Array ChunkManager::poll_paths() {
     Array out;
     if (!path_service) return out;
@@ -587,6 +607,7 @@ void ChunkManager::_bind_methods() {
     ClassDB::bind_method(D_METHOD("request_path", "from", "to", "max_expansions", "max_ms"),
                          &ChunkManager::request_path, DEFVAL(20000), DEFVAL(32.0));
     ClassDB::bind_method(D_METHOD("poll_paths"), &ChunkManager::poll_paths);
+    ClassDB::bind_method(D_METHOD("get_fluid_stats"), &ChunkManager::get_fluid_stats);
     ClassDB::bind_method(D_METHOD("get_pending_paths"), &ChunkManager::get_pending_paths);
 
     ClassDB::bind_method(D_METHOD("save_world_metadata"), &ChunkManager::save_world_metadata);

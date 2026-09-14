@@ -36,8 +36,8 @@
 namespace fluid_test {
 
 using VoxelEngine::fluids::CellWrite;
+using VoxelEngine::FluidKind;
 using VoxelEngine::fluids::FluidCell;
-using VoxelEngine::fluids::FluidKind;
 using VoxelEngine::fluids::FluidStep;
 
 class FluidTestWorld final : public VoxelEngine::fluids::FluidWorld {

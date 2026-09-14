@@ -286,7 +286,7 @@ The following code remains in the codebase but is disabled or unused:
 - **Cave system**: `kCavesEnabled = false` in `ChunkGenerator` - cave carving code exists but is globally disabled
 - **is_occluder() method**: Defined in `ChunkNeighborAccessor` but never called anywhere in the codebase
 - **mountain_scale parameter**: Read from save files in persistence but ignored in current terrain generation
-- **Fluid flow**: `src/fluids/fluid_rules.hpp/cpp` implements the flow rules and is covered by 13 tests, but nothing drives it yet — no block declares a fluid state, and no tick loop calls `tick()`. A poured water bucket is still one still block
+- **Generated water is inert**: `surface_water` (what worldgen fills every sea, lake and cave pool with) declares no fluid state, so it never enters the flow simulation. Only water a player pours flows
 
 ## Key Files
 
@@ -315,7 +315,7 @@ The following code remains in the codebase but is disabled or unused:
 - `src/world/chunk_world.cpp` + `chunk_world_edits.cpp` / `chunk_world_persistence.cpp` — Edit application (block edits, pending/vegetation placements, unload/clear) and save/load (async `flush_dirty_chunks`, generation + epoch gated `enqueue_chunk_save` / `save_chunk_snapshot`, `write_chunk_file_locked`, inventory save/load). All hot paths use `lock_keys_exclusive()`
 - `src/world/block_editor.cpp` — `place_block` with targeted locking
 - `src/world/player_light.hpp` — Player light with targeted locking
-- `src/world/world_updater.hpp/cpp` — Frustum integration, budgets, periodic dirty flush
+- `src/world/world_updater.hpp/cpp` — Frustum integration, budgets, periodic dirty flush, and the fluid step: `update()` runs generation → unload → `fluid_sim.advance(delta)` → mesh budgets, so the cells it looks at are the ones that exist now and the chunks it dirties can remesh the same frame. Its `FluidSink` is what turns a tick's writes into persisted edits (with `notify=false`: the simulation schedules what it wrote itself) and one remesh request per chunk
 - `src/world/chunk_scheduler.hpp` — Completion queues, `poll_completed_mesh_nearest`
 - `src/world/day_night_cycle.hpp` — Sky-light cycle
 
@@ -362,6 +362,9 @@ The following code remains in the codebase but is disabled or unused:
 ### Fluids
 - `src/fluids/fluid_rules.hpp` — The flow rules and their whole interface: `FluidKind`, `FluidCell` (source / runoff depth / falling), `FluidTraits` per kind, the `FluidWorld` query interface the rules ask, and `FluidStep` (what this cell becomes, plus the writes it pushes outward). The header carries the rule list as prose because the rules ARE the specification
 - `src/fluids/fluid_rules.cpp` — `tick()`: recompute the cell from its neighbours, the falling rule (fed from above, which can revive a cell that has no side supply at all), the two-sources-over-something-solid source rule, dry-up, and the push outward — down first, else sideways toward the directions with the shortest distance to a drop. That search is bounded to 4 steps and short-circuits entirely when a neighbour can drop straight off, which keeps it constant and world-size independent (~1400 reads in the worst case, measured by `tests/test_fluid_rules.cpp`)
+- `src/fluids/fluid_state_table.hpp/cpp` — The only place a fluid state meets a block id: built by SCANNING the registry for blocks that declare a `fluid` state, never from a hardcoded id list, because the JSON the game loads and the C++ defaults the tests run on number the same states differently
+- `src/fluids/chunk_fluid.hpp/cpp` — The chunk-side adapter: `read_window()` copies an 11×11×3 window under one ranged `lock_keys` and reports whether every chunk it needed was resident (a missing chunk reads as air, so judging against one would pour fluid into space that gets regenerated over it and would delete the water at the edge of loaded space); `apply_writes()` groups a tick's writes by chunk and takes ONE exclusive lock, one mesh-dirty and one `FluidWriteSink` call per chunk
+- `src/fluids/fluid_sim.hpp/cpp` — The 20 Hz tick driver: a due-ordered pending set (earliest tick per cell wins), a per-tick cell budget, catch-up capped at two ticks a frame, and "recompute; if the cell did not change, stop asking it" instead of the reference's flowing/settled block pair. Nothing about the schedule is saved — a chunk that loads is seeded from the fluid states in its edit map, so a flood survives a reload. `WorldUpdater` advances it and `world_updater.hpp`'s `FluidSink` puts its writes back into the edit map and the remesh queue
 
 ### Rendering
 - `src/render/environment_controller.cpp` — Sky/fog/player-light parameter pushes

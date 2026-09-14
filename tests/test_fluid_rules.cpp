@@ -7,7 +7,7 @@
 
 using fluid_test::FluidTestWorld;
 using VoxelEngine::fluids::FluidCell;
-using VoxelEngine::fluids::FluidKind;
+using VoxelEngine::FluidKind;
 using VoxelEngine::fluids::FluidStep;
 
 // -----------------------------------------------------------------------------

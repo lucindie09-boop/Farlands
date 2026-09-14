@@ -10,6 +10,7 @@
 
 #include "core/chunk_types.hpp"
 #include "core/inventory.hpp"
+#include "fluids/fluid_state_table.hpp"
 #include "core/crafting.hpp"
 #include "core/frustum.hpp"
 #include "core/performance_timer.hpp"
@@ -59,6 +60,12 @@ public:
     void generate_chunk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z);
 
     godot::String get_performance_report();
+
+    // The flow simulation, for stats and probes. Const: callers read it, they do
+    // not drive it (WorldUpdater::update owns that).
+    [[nodiscard]] const VoxelEngine::fluids::FluidSim& get_fluid_sim() const {
+        return world_updater.get_fluid_sim();
+    }
     void print_debug_info(double delta);
 
     void set_seed(int32_t s);
@@ -187,6 +194,9 @@ private:
     LightPropagator light_propagator;
     WorldUpdater world_updater;
     BlockEditor block_editor;
+    // Built once from whatever block registry loaded, then handed to the world
+    // updater. It is the only place fluid states and block ids meet.
+    VoxelEngine::fluids::FluidStateTable fluid_state_table;
     RecipeBook recipe_book;
     CollisionResolver collision_resolver{&chunk_world.get_chunk_map()};
     EnvironmentController environment_controller;

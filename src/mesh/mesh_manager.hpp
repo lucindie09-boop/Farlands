@@ -60,6 +60,10 @@ public:
     // the lock covering cx/cy/cz before calling; never acquires its own).
     void queue_dirty_chunk_fast(int32_t cx, int32_t cy, int32_t cz);
     void queue_immediate_dirty_chunk(int32_t cx, int32_t cy, int32_t cz);
+    // Invariant check run on every applied mesh: a chunk whose data holds liquid
+    // must have liquid geometry on the GPU. Repairs (one remesh per mesh_version)
+    // and counts the case where it does not. See mesh_manager_upload.cpp.
+    void note_liquid_geometry(int32_t cx, int32_t cy, int32_t cz, ChunkRenderData& render_data);
     void mark_chunk_urgent(int32_t cx, int32_t cy, int32_t cz);
     void reprioritize(int32_t player_cx, int32_t player_cy, int32_t player_cz, const Frustum* frustum = nullptr);
     void mark_chunks_dirty_for_light(int32_t center_cx, int32_t center_cy, int32_t center_cz);
@@ -163,6 +167,18 @@ private:
     mutable std::mutex completed_far_region_meshes_mutex;
     std::atomic<int32_t> completed_far_region_mesh_count{0};
     int32_t far_regions_partial_missing_cache_last = 0;
+    // Chunks remeshed because their data held liquid while the GPU held no liquid
+    // geometry for them. Main-thread only (upload path).
+    int32_t liquid_geometry_repairs = 0;
+    // Upload bookkeeping, cumulative (upload path, main thread):
+    //   uploads   — meshes handed to the RenderingServer
+    //   skips     — uploads the content hash judged unchanged
+    //   swallowed — skips where the WATER mesh differed anyway, i.e. the change
+    //               the user could not see. Must stay 0: the hash covers both
+    //               surfaces precisely so a liquid-only change is never skipped.
+    int32_t mesh_uploads = 0;
+    int32_t mesh_upload_dedup_skips = 0;
+    int32_t mesh_upload_swallowed_water_changes = 0;
     static constexpr int32_t kFarRegionSizeXZ = 8;
 
     float compute_chunk_detail_level(int32_t cx, int32_t cy, int32_t cz) const;

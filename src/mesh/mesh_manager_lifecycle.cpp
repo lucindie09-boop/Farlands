@@ -95,6 +95,26 @@ WorldRenderStats MeshManager::gather_render_stats() {
             }
         }
 
+        // The liquid invariant, checked against the live state rather than at
+        // upload time (see note_liquid_geometry). Non-zero means water is missing
+        // somewhere; liquid_geometry_repairs is how many remeshes that took.
+        if (render_data->data && render_data->data->liquid_count() > 0 &&
+            render_data->uploaded_solid_vertices > 0 &&
+            render_data->uploaded_water_vertices == 0) {
+            ++stats.chunks_with_liquid_but_no_water_mesh;
+        }
+
+        // Geometry on the GPU that nothing draws: within the render distance, not
+        // covered by a far region, and with no instance of its own. The far-region
+        // handoff is the only thing that can hide a chunk legitimately, and it
+        // does so as a member of an active region — so this should be 0 too.
+        if (is_chunk_within_render_distance(cx, cy, cz) &&
+            !is_far_region_active_for_chunk(cx, cy, cz) &&
+            !render_data->instance_rid.is_valid() &&
+            (render_data->uploaded_solid_vertices > 0 || render_data->uploaded_water_vertices > 0)) {
+            ++stats.chunks_with_geometry_but_no_instance;
+        }
+
         if (render_data->mesh_rid.is_valid()) {
             ++stats.mesh_rids;
             ++stats.chunk_mesh_rids;
@@ -126,6 +146,10 @@ WorldRenderStats MeshManager::gather_render_stats() {
     }
 
     stats.regions_partial_missing_cache = far_regions_partial_missing_cache_last;
+    stats.liquid_geometry_repairs = liquid_geometry_repairs;
+    stats.mesh_uploads = mesh_uploads;
+    stats.mesh_upload_dedup_skips = mesh_upload_dedup_skips;
+    stats.mesh_upload_swallowed_water_changes = mesh_upload_swallowed_water_changes;
 
     return stats;
 }

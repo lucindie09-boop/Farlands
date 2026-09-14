@@ -68,8 +68,21 @@ struct ChunkRenderData {
         dirty_max_z = std::numeric_limits<int32_t>::min();
     }
 
-    // Content hash for upload deduplication (0 = unset/first upload)
+    // Content hash for upload deduplication (0 = unset/first upload). Covers
+    // both the opaque and the water mesh (see MeshBuildTask::execute).
     uint64_t mesh_content_hash = 0;
+
+    // What the GPU actually holds for this chunk, per surface. Written on every
+    // real upload and left alone on a deduplicated one (the mesh RID did not
+    // change either), so this is a mirror of the GPU, not of the last build.
+    // The water count is what catches "this chunk has liquid in its data and no
+    // liquid geometry on screen".
+    uint32_t uploaded_solid_vertices = 0;
+    uint32_t uploaded_water_vertices = 0;
+
+    // Last mesh_version the liquid-geometry invariant was checked at, so a
+    // genuinely water-free build cannot trigger an endless rebuild loop.
+    uint32_t liquid_check_version = 0;
 
     // Whether the shader material has been set on this mesh RID (avoids redundant RS calls)
     bool material_set = false;

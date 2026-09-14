@@ -214,6 +214,19 @@ struct BlockType {
         return HasProperty(properties, BlockProperty::Liquid);
     }
 
+    // True when this cell has to be drawn by the liquid surface pass
+    // (mesh_builder_fluid.cpp) rather than the generic emitters: a declared
+    // fluid state, or generated ocean water, which is kept out of the fluid
+    // state table on purpose but is liquid to look at. The same rule as
+    // mesh_fluid::family_of returning anything but None — a unit test asserts
+    // the two agree for every registered block, so this cannot drift. Used to
+    // count a chunk's liquid cells exactly (ChunkData::liquid_count), which is
+    // what the renderer's "this chunk has liquid, so it must have liquid
+    // geometry on the GPU" invariant is checked against.
+    //
+    // Defined after BlockIDs below, because generated ocean water is named by id.
+    [[nodiscard]] bool draws_fluid_surface() const noexcept;
+
     // True when a body is STOPPED by this block. A liquid's shape is a surface,
     // not a wall: water is drawn 14/16 tall so the surface has a height, but a
     // body swims through it, so collision must not treat that shape as solid.
@@ -409,6 +422,12 @@ namespace BlockIDs {
     constexpr BlockID OAK_STUMP      = 43;
     constexpr BlockID OAK_STUMP_TOP   = 44;
     constexpr BlockID OAK_STUMP_DOUBLE = 45;
+}
+
+// BlockType::draws_fluid_surface, out of line because the cell it names —
+// generated ocean water — is identified by id.
+inline bool BlockType::draws_fluid_surface() const noexcept {
+    return is_fluid_state() || id == BlockIDs::SURFACE_WATER;
 }
 
 } // namespace VoxelEngine

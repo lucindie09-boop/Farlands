@@ -58,7 +58,12 @@ void MeshBuilder::add_aabb_face(const ChunkData& chunk, const ChunkNeighborAcces
                                 int32_t x, int32_t y, int32_t z,
                                 FaceDirection direction, BlockID block_id, const BlockRegistry& registry,
                                 const float aabb_min[3], const float aabb_max[3]) {
-    const bool is_water = block_id == BlockIDs::SURFACE_WATER || block_id == BlockIDs::WATER;
+    // Every liquid family, not just the two natural-water ids: at LOD stride > 1
+    // this path is what draws liquids (the fluid pass is full-detail only), so a
+    // runoff or falling water cell that was left out of this test ended up in the
+    // OPAQUE buffer and rendered with the terrain material — grey blocks where the
+    // water is.
+    const bool is_water = is_fluid_drawn(block_id, registry);
     auto& dest_vertices = is_water ? water_vertices : vertices;
     auto& dest_indices = is_water ? water_indices : indices;
     uint32_t vertex_count = static_cast<uint32_t>(dest_vertices.size());
@@ -224,7 +229,12 @@ void MeshBuilder::add_aabb_face(const ChunkData& chunk, const ChunkNeighborAcces
 void MeshBuilder::add_face(const ChunkData& chunk, const ChunkNeighborAccessor& accessor,
                            int32_t x, int32_t y, int32_t z,
                            FaceDirection direction, BlockID block_id, const BlockRegistry& registry) {
-    const bool is_water = block_id == BlockIDs::SURFACE_WATER || block_id == BlockIDs::WATER;
+    // Every liquid family, not just the two natural-water ids: at LOD stride > 1
+    // this path is what draws liquids (the fluid pass is full-detail only), so a
+    // runoff or falling water cell that was left out of this test ended up in the
+    // OPAQUE buffer and rendered with the terrain material — grey blocks where the
+    // water is.
+    const bool is_water = is_fluid_drawn(block_id, registry);
     auto& dest_vertices = is_water ? water_vertices : vertices;
     auto& dest_indices = is_water ? water_indices : indices;
     uint32_t vertex_count = static_cast<uint32_t>(dest_vertices.size());
@@ -372,7 +382,12 @@ light_keys[0] = light_keys[1] = light_keys[2] = light_keys[3] = light_key;
 
 void MeshBuilder::add_greedy_face(const ChunkData& chunk, const ChunkNeighborAccessor& accessor,
                                   const Face& face, uint16_t face_light_key, int rotation, const float ao[4], const BlockRegistry& registry) {
-    const bool is_water = face.block_id == BlockIDs::SURFACE_WATER || face.block_id == BlockIDs::WATER;
+    // Every liquid family, not just the two natural-water ids: at LOD stride > 1
+    // this path is what draws liquids (the fluid pass is full-detail only), so a
+    // runoff or falling water cell that was left out of this test ended up in the
+    // OPAQUE buffer and rendered with the terrain material — grey blocks where the
+    // water is.
+    const bool is_water = is_fluid_drawn(face.block_id, registry);
     auto& dest_vertices = is_water ? water_vertices : vertices;
     auto& dest_indices = is_water ? water_indices : indices;
     uint32_t vertex_count = static_cast<uint32_t>(dest_vertices.size());

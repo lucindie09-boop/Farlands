@@ -12,7 +12,8 @@
 		{
 			"name": "water_bucket",
 			"texture": "water_bucket",
-			"pose": "item2"
+			"pose": "item2",
+			"use": { "kind": "pour", "block": "water" }
 		},
 		{
 			"name": "acid_bucket",

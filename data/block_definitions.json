@@ -11,6 +11,8 @@
   },
   {
     "name": "stone",
+    "_comment": "TODO: once a cobblestone block exists, this crush_result belongs on cobblestone (cobblestone -> gravel); plain stone is standing in for it until then.",
+    "crush_result": "gravel",
     "preferred_tool": "pickaxe",
     "hardness": 1.5,
     "properties": ["Solid", "Opaque"],
@@ -223,6 +225,7 @@
   },
   {
     "name": "gravel",
+    "crush_result": "sand",
     "preferred_tool": "shovel",
     "hardness": 0.6,
     "properties": ["Solid", "Opaque"],

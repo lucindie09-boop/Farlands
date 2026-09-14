@@ -305,6 +305,25 @@ bool BlockRegistry::load_from_json(const godot::String& json_path) noexcept {
         register_block(bt);
     }
 
+    // Resolve "crush_result" names to block ids. This runs as a pass of its
+    // own (like the families below) because the crush target is normally
+    // defined later in the file than the block that crushes into it, so the id
+    // does not exist yet while that block's own entry is being parsed.
+    for (int i = 0; i < static_cast<int>(blocks_arr.size()); ++i) {
+        godot::Dictionary d = blocks_arr[i];
+        if (!d.has("crush_result")) continue;
+        const godot::String target_name = d["crush_result"];
+        const BlockID target = get_block_id_by_name(target_name.utf8().get_data());
+        if (target == 0) {
+            ERR_PRINT("BlockRegistry: unknown crush_result \"" + target_name +
+                      "\" for block \"" + godot::String(d["name"]) + "\"");
+            continue;
+        }
+        if (BlockType* bt = get_block_mutable(static_cast<BlockID>(i))) {
+            bt->crush_result = target;
+        }
+    }
+
     // Build slab families from "slab_family" fields.  Each family name
     // collects three ids (bottom/top/full) so the placement code can work
     // generically without hardcoding any block ids.

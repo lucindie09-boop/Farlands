@@ -137,7 +137,10 @@ TEST_CASE("mining: only a hammer crushes, and only a block that names a result")
     // Bare hand, a non-tool, and any other tool class leave the block alone —
     // even a much stronger pickaxe.
     CHECK(crushed_block(stone, nullptr) == BlockIDs::AIR);
-    CHECK(crushed_block(stone, &ItemToolStats{}) == BlockIDs::AIR);
+    // A pointer to a defaulted tool, so the hammer check is about the class
+    // rather than about the pointer being null.
+    const ItemToolStats bare{};
+    CHECK(crushed_block(stone, &bare) == BlockIDs::AIR);
     CHECK(crushed_block(stone, &pickaxe) == BlockIDs::AIR);
     // A hammer on a block with no crush_result has nothing to produce.
     const BlockType plain = make_block("pickaxe", 0);

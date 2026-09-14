@@ -127,7 +127,7 @@ private:
     [[nodiscard]] uint64_t delay_ticks_for(FluidKind kind) const noexcept;
 
     [[nodiscard]] static int64_t pack(int32_t x, int32_t y, int32_t z) noexcept;
-    [[nodiscard]] static void unpack(int64_t key, int32_t& x, int32_t& y, int32_t& z) noexcept;
+    static void unpack(int64_t key, int32_t& x, int32_t& y, int32_t& z) noexcept;
 
     Config config_;
     Stats stats_;

@@ -113,6 +113,13 @@ private:
 
     [[nodiscard]] static CellSample sample(const BlockRegistry& registry, BlockID id) noexcept;
 
+    // Flat index into window_ for a local cell (py, pz, px), widened before the
+    // products so the row length is applied in size_t rather than to an int.
+    [[nodiscard]] static constexpr size_t window_index(int py, int pz, int px) noexcept {
+        return static_cast<size_t>(py) * kWidth * kWidth + static_cast<size_t>(pz) * kWidth +
+               static_cast<size_t>(px);
+    }
+
     const BlockRegistry* registry_ = nullptr;
     const FluidStateTable* table_ = nullptr;
     int32_t origin_x_ = 0;

@@ -41,7 +41,7 @@ bool ChunkFluidWorld::read_window(const ChunkMap& map, int32_t x, int32_t y, int
         }
     }
 
-    auto lock = map.lock_keys(keys);
+    auto lock = map.lock_keys(keys, static_cast<size_t>(key_count));
     const BlockRegistry& registry = *registry_;
 
     for (int py = 0; py < kLayers; ++py) {
@@ -50,7 +50,7 @@ bool ChunkFluidWorld::read_window(const ChunkMap& map, int32_t x, int32_t y, int
                 const int32_t wx = origin_x_ + px;
                 const int32_t wy = origin_y_ + py;
                 const int32_t wz = origin_z_ + pz;
-                CellSample& out = window_[static_cast<size_t>((py * kWidth + pz) * kWidth + px)];
+                CellSample& out = window_[window_index(py, pz, px)];
 
                 if (wy < 0 || wy >= WORLD_HEIGHT_Y) {
                     // Outside the world is a wall, not air: bedrock under the
@@ -84,7 +84,7 @@ FluidCell ChunkFluidWorld::fluid_at(int x, int y, int z) const {
     if (px < 0 || py < 0 || pz < 0 || px >= kWidth || py >= kLayers || pz >= kWidth) {
         return FluidCell{};
     }
-    return window_[static_cast<size_t>((py * kWidth + pz) * kWidth + px)].fluid;
+    return window_[window_index(py, pz, px)].fluid;
 }
 
 bool ChunkFluidWorld::blocked(int x, int y, int z) const {
@@ -96,7 +96,7 @@ bool ChunkFluidWorld::blocked(int x, int y, int z) const {
         // answer if it ever does, because it stops fluid rather than releasing it.
         return true;
     }
-    return window_[static_cast<size_t>((py * kWidth + pz) * kWidth + px)].blocks;
+    return window_[window_index(py, pz, px)].blocks;
 }
 
 int ChunkFluidWorld::apply_writes(const ChunkMap& map, FluidWriteSink* sink,

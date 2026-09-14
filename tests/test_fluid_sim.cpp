@@ -167,6 +167,43 @@ TEST_CASE("fluid: the state table finds the states a registry declares") {
 }
 
 // -----------------------------------------------------------------------------
+// The water has shapes: each depth sits lower than the one feeding it.
+// -----------------------------------------------------------------------------
+
+TEST_CASE("fluid: each depth is its own height, and a falling cell is full") {
+    BlockRegistry::get_instance().initialize_default_blocks();
+    const BlockRegistry& registry = BlockRegistry::get_instance();
+
+    // The reference's liquid height: the surface of a cell at depth d sits at
+    // 1 - (d + 1) / 9, so a stream steps down as it runs. Without this every
+    // water state renders as the same block and a stream looks like a flat sheet
+    // of tiles. The source keeps the project's established 0.12 offset.
+    CHECK(registry.get_block(registry_block("water")).top_face_offset == doctest::Approx(0.12f));
+    const float expected[8] = { 0.0f, 0.22f, 0.33f, 0.44f, 0.56f, 0.67f, 0.78f, 0.89f };
+    float previous = 0.12f;
+    for (int depth = 1; depth <= 7; ++depth) {
+        const BlockType& runoff =
+            registry.get_block(registry_block(("water_runoff_" + std::to_string(depth)).c_str()));
+        CHECK(runoff.is_fluid_state());
+        CHECK(runoff.top_face_offset == doctest::Approx(expected[depth]));
+        // Strictly lower than the depth that feeds it, or the slope is lost.
+        CHECK(runoff.top_face_offset > previous);
+        previous = runoff.top_face_offset;
+        // Still the fast mesh path: a lowered top face the greedy flush can emit.
+        CHECK(runoff.greedy_mergeable);
+    }
+
+    // A falling cell is a column: full height, never a shallow block. It also has
+    // no lowered top at all, so nothing offsets its face away from the block edge.
+    const BlockType& falling = registry.get_block(registry_block("water_fallen"));
+    CHECK(falling.is_fluid_state());
+    CHECK(falling.fluid_falling);
+    CHECK(falling.top_face_offset == 0.0f);
+    CHECK(falling.is_full_cube());
+    CHECK(falling.greedy_mergeable);
+}
+
+// -----------------------------------------------------------------------------
 // The chunk adapter: a window is either complete or unusable.
 // -----------------------------------------------------------------------------
 

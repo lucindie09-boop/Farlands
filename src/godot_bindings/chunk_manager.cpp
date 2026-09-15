@@ -3,6 +3,8 @@
 #include "engine/voxel_engine_controller.hpp"
 #include "world/block_editor.hpp"
 #include "pathfinding/path_service.hpp"
+#include "render/texture_array_generator.hpp"
+#include "render/texture_pack_manager.hpp"
 
 #include <godot_cpp/classes/rendering_server.hpp>
 #include <godot_cpp/classes/world3d.hpp>
@@ -505,6 +507,139 @@ void ChunkManager::set_mipmaps_enabled(bool enabled) { controller->set_mipmaps_e
 bool ChunkManager::get_mipmaps_enabled() const { return controller->get_mipmaps_enabled(); }
 void ChunkManager::set_mipmap_bias(double bias) { controller->set_mipmap_bias(bias); }
 double ChunkManager::get_mipmap_bias() const { return controller->get_mipmap_bias(); }
+namespace {
+// The lab's generated frames are RGBA8 and whatever resolution the user picked;
+// an array layer is fixed at the pack's base resolution with the array's format
+// and mipmap state. This copies the frame onto that shape (never mutating the
+// caller's image, which the lab keeps for its preview).
+//
+// `want_mipmaps` cannot come from the array: Godot 4.7's TextureLayered returns
+// NULL from get_layer_data() even for a freshly built array, so there is nothing
+// to inspect. It comes from the generator's own mipmap flag instead, which is the
+// flag that built the array in the first place.
+godot::Ref<godot::Image> fit_frame_to_array(const godot::Ref<godot::Image>& frame,
+                                            const godot::Ref<godot::Texture2DArray>& array,
+                                            bool want_mipmaps) {
+    if (frame.is_null() || frame->is_empty() || array.is_null()) return godot::Ref<godot::Image>();
+    const int width = array->get_width();
+    const int height = array->get_height();
+    if (width <= 0 || height <= 0) return godot::Ref<godot::Image>();
+
+    godot::Ref<godot::Image> out = godot::Image::create(width, height, false, godot::Image::FORMAT_RGBA8);
+    if (out.is_null()) return godot::Ref<godot::Image>();
+    if (frame->get_format() != godot::Image::FORMAT_RGBA8) {
+        // copy_from() requires a matching format, so convert the source first.
+        godot::Ref<godot::Image> converted = frame->duplicate();
+        if (converted.is_null()) return godot::Ref<godot::Image>();
+        converted->convert(godot::Image::FORMAT_RGBA8);
+        if (converted->get_width() != width || converted->get_height() != height) {
+            converted->resize(width, height, godot::Image::INTERPOLATE_NEAREST);
+        }
+        out->copy_from(converted);
+    } else {
+        out->copy_from(frame);
+        if (out->get_width() != width || out->get_height() != height) {
+            out->resize(width, height, godot::Image::INTERPOLATE_NEAREST);
+        }
+    }
+
+    // A mipmapped array layer rejects a frame without mipmaps.
+    if (want_mipmaps && !out->has_mipmaps()) {
+        out->generate_mipmaps();
+    }
+    return out;
+}
+} // namespace
+
+Dictionary ChunkManager::get_texture_layer_info(const String& texture_name) {
+    Ref<Texture2DArray> array = TextureArrayGenerator::get_instance().get_texture_array();
+    // find_texture_layer reads the table built by the generate call above.
+    const int layer = TextureArrayGenerator::find_texture_layer(texture_name);
+    Dictionary out;
+    out["found"] = layer >= 0;
+    out["index"] = layer;
+    out["layers"] = array.is_valid() ? array->get_layers() : 0;
+    if (array.is_valid()) {
+        out["width"] = array->get_width();
+        out["height"] = array->get_height();
+        out["format"] = static_cast<int>(array->get_format());
+        out["mipmaps"] = TextureArrayGenerator::is_mipmaps_enabled();
+        // A compressed array cannot take an uncompressed frame; the lab says so
+        // up front, and rebuilds uncompressed, instead of pushing frames that
+        // Godot silently drops on the format mismatch.
+        out["writable"] = array->get_format() == Image::FORMAT_RGBA8;
+    } else {
+        out["width"] = 0;
+        out["height"] = 0;
+        out["format"] = -1;
+        out["mipmaps"] = false;
+        out["writable"] = false;
+    }
+    return out;
+}
+
+Ref<Image> ChunkManager::get_texture_layer_image(const String& texture_name) {
+    // NOTE: Godot 4.7's TextureLayered::get_layer_data() returns null here even
+    // for an array built from images in this same process, so this is best
+    // effort — it answers non-null only on builds that keep the CPU copies.
+    // Nothing in the engine depends on it; fit_texture_frame() is the verifiable
+    // half of the live-preview path.
+    Ref<Texture2DArray> array = TextureArrayGenerator::get_instance().get_texture_array();
+    if (array.is_null() || array->get_layers() <= 0) return Ref<Image>();
+    const int layer = TextureArrayGenerator::find_texture_layer(texture_name);
+    if (layer < 0) return Ref<Image>();
+    return array->get_layer_data(layer);
+}
+
+Ref<Image> ChunkManager::fit_texture_frame(const String& texture_name, const Ref<Image>& frame) {
+    Ref<Texture2DArray> array = TextureArrayGenerator::get_instance().get_texture_array();
+    if (array.is_null() || array->get_layers() <= 0) return Ref<Image>();
+    if (TextureArrayGenerator::find_texture_layer(texture_name) < 0) return Ref<Image>();
+    if (array->get_format() != Image::FORMAT_RGBA8) return Ref<Image>();
+    return fit_frame_to_array(frame, array, TextureArrayGenerator::is_mipmaps_enabled());
+}
+
+bool ChunkManager::push_texture_frame(const String& texture_name, const Ref<Image>& frame) {
+    TextureArrayGenerator& generator = TextureArrayGenerator::get_instance();
+    Ref<Texture2DArray> array = generator.get_texture_array();
+    if (array.is_null() || array->get_layers() <= 0) return false;
+    const int layer = TextureArrayGenerator::find_texture_layer(texture_name);
+    if (layer < 0) return false;
+    if (array->get_format() != Image::FORMAT_RGBA8) {
+        WARN_PRINT("push_texture_frame: texture array is compressed; disable texture compression to preview animated textures.");
+        return false;
+    }
+    const Ref<Image> fitted = fit_frame_to_array(frame, array, TextureArrayGenerator::is_mipmaps_enabled());
+    if (fitted.is_null()) return false;
+    array->update_layer(fitted, layer);
+    return true;
+}
+
+bool ChunkManager::restore_texture_layer(const String& texture_name) {
+    Ref<Texture2DArray> array = TextureArrayGenerator::get_instance().get_texture_array();
+    if (array.is_null() || array->get_layers() <= 0) return false;
+    const int layer = TextureArrayGenerator::find_texture_layer(texture_name);
+    if (layer < 0) return false;
+
+    // Resolution order matches the array build: active pack override first, then
+    // the built-in set. Pack PNGs live outside the import system.
+    const String path = TexturePackManager::get_instance().resolve(texture_name);
+    Ref<Image> original;
+    if (path.begins_with("user://")) {
+        original = Image::load_from_file(path);
+    } else if (ResourceLoader* loader = ResourceLoader::get_singleton(); loader != nullptr) {
+        const Ref<Texture2D> texture = loader->load(path);
+        if (texture.is_valid()) {
+            original = texture->get_image();
+        }
+    }
+    if (original.is_null() || original->is_empty()) return false;
+    const Ref<Image> fitted = fit_frame_to_array(original, array, TextureArrayGenerator::is_mipmaps_enabled());
+    if (fitted.is_null()) return false;
+    array->update_layer(fitted, layer);
+    return true;
+}
+
 void ChunkManager::set_textures_enabled(bool enabled) { controller->set_textures_enabled(enabled); }
 bool ChunkManager::get_textures_enabled() const { return controller->get_textures_enabled(); }
 void ChunkManager::set_compression_enabled(bool enabled) { controller->set_compression_enabled(enabled); }
@@ -608,6 +743,11 @@ void ChunkManager::_bind_methods() {
                          &ChunkManager::request_path, DEFVAL(20000), DEFVAL(32.0));
     ClassDB::bind_method(D_METHOD("poll_paths"), &ChunkManager::poll_paths);
     ClassDB::bind_method(D_METHOD("get_fluid_stats"), &ChunkManager::get_fluid_stats);
+    ClassDB::bind_method(D_METHOD("get_texture_layer_info", "texture_name"), &ChunkManager::get_texture_layer_info);
+    ClassDB::bind_method(D_METHOD("get_texture_layer_image", "texture_name"), &ChunkManager::get_texture_layer_image);
+    ClassDB::bind_method(D_METHOD("fit_texture_frame", "texture_name", "frame"), &ChunkManager::fit_texture_frame);
+    ClassDB::bind_method(D_METHOD("push_texture_frame", "texture_name", "frame"), &ChunkManager::push_texture_frame);
+    ClassDB::bind_method(D_METHOD("restore_texture_layer", "texture_name"), &ChunkManager::restore_texture_layer);
     ClassDB::bind_method(D_METHOD("get_pending_paths"), &ChunkManager::get_pending_paths);
 
     ClassDB::bind_method(D_METHOD("save_world_metadata"), &ChunkManager::save_world_metadata);

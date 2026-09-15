@@ -2,6 +2,7 @@
 #define FARLANDS_CHUNK_MANAGER_HPP
 #include <godot_cpp/classes/node3d.hpp>
 #include <godot_cpp/classes/camera3d.hpp>
+#include <godot_cpp/classes/ref.hpp>
 #include <godot_cpp/variant/vector3.hpp>
 #include <godot_cpp/variant/color.hpp>
 #include <godot_cpp/variant/node_path.hpp>
@@ -19,6 +20,7 @@ class Node;
 class Node3D;
 class WorldEnvironment;
 class DirectionalLight3D;
+class Image;
 }
 
 namespace VoxelEngine {
@@ -190,6 +192,33 @@ void toggle_day_night_cycle();
     double get_fog_density() const;
     void set_fog_mode(int32_t mode);
     int32_t get_fog_mode() const;
+
+    // --- Liquid Texture Lab live preview ----------------------------------
+    // The lab generates an animated strip in C++ and then hands the world one
+    // frame at a time; these three are the whole interface for that. The layer
+    // is looked up by texture name ("water", "lava", "acid"), so a name the
+    // active block set does not use reports found=false instead of writing over
+    // the fallback layer.
+    //
+    // Shape/state of the layer that push_texture_frame would write into.
+    godot::Dictionary get_texture_layer_info(const godot::String& texture_name);
+    // The layer's current pixels (null when the array has no such layer).
+    // Best effort only: Godot 4.7 answers null even for an array it just built.
+    godot::Ref<godot::Image> get_texture_layer_image(const godot::String& texture_name);
+    // The frame as it would actually be pushed: RGBA8, the array's resolution,
+    // with mipmaps if the array has them. null when the name has no layer or the
+    // array is compressed. This is the half of the live path that is worth
+    // testing — update_layer() itself is Godot's.
+    godot::Ref<godot::Image> fit_texture_frame(const godot::String& texture_name, const godot::Ref<godot::Image>& frame);
+    // Overwrites that layer with `frame`. The frame is converted to RGBA8,
+    // resized to the array's resolution and given mipmaps if the array has
+    // them, so any lab resolution lands safely. false when the name has no
+    // layer or the array is compressed (a compressed layer cannot take an
+    // uncompressed frame).
+    bool push_texture_frame(const godot::String& texture_name, const godot::Ref<godot::Image>& frame);
+    // Puts the original image back: the active texture pack's override if there
+    // is one, else the built-in PNG.
+    bool restore_texture_layer(const godot::String& texture_name);
 
     void set_mipmaps_enabled(bool enabled);
     bool get_mipmaps_enabled() const;

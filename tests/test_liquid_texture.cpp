@@ -15,12 +15,15 @@ using namespace VoxelEngine::liquid;
 namespace {
 
 // A settings set with the random re-ignition switched off: every step is then
-// pure arithmetic, which is what the kernel tests need.
+// pure arithmetic, which is what the kernel tests need. Looping is off too, so
+// a test about the shift, the grain or the ramp sees the frames it asked for
+// and not the seam morph on top of them.
 Settings quiet(Style style, int resolution = 8) {
     Settings s = style_settings(style, resolution);
     s.excite_chance = 0.0f;
     s.warmup_steps = 0;
     s.seed = 4242u;
+    s.loop = false;
     return clamped(s);
 }
 
@@ -93,6 +96,7 @@ TEST_CASE("liquid animation animates") {
     for (const Style style : {Style::Water, Style::Lava, Style::Acid}) {
         Settings s = style_settings(style, 12);
         s.frames = 4;
+        s.loop = false;  // a looping strip's last frame IS the first: see the loop tests
         const Strip strip = generate(s);
         int differing = 0;
         for (int f = 1; f < strip.frames; ++f) {
@@ -242,6 +246,106 @@ TEST_CASE("flow shift scrolls the animation downward, wrapping") {
     for (int c = 0; c < n; ++c) {
         CHECK(pixel(strip2, 3, 0, c) == pixel(strip2, 0, n - 1, c));
     }
+}
+
+TEST_CASE("a looping strip ends on its own first frame") {
+    for (const Style style : {Style::Water, Style::Lava, Style::Acid}) {
+        Settings s = style_settings(style, 12);
+        s.frames = 12;
+        s.loop = true;
+        s.loop_window = 4;
+        const Strip strip = generate(s);
+
+        CHECK(strip.looped);
+        // The last frame is the first frame, byte for byte, through the ramp.
+        CHECK(frames_equal(strip, 0, strip, strip.frames - 1));
+        // ...and the strip is not degenerate: the frames before it moved.
+        int differing = 0;
+        for (int f = 1; f < strip.frames - 1; ++f) {
+            if (!frames_equal(strip, 0, strip, f)) ++differing;
+        }
+        CHECK(differing >= strip.frames - 3);
+    }
+}
+
+TEST_CASE("looping spreads the seam instead of moving it") {
+    // The point of the morph window: with a bare duplicate (or no loop at all)
+    // the wrap is one huge step. A comparable step inside the strip is the
+    // measure of what a frame-to-frame change should look like.
+    Settings loopy = style_settings(Style::Water, 16);
+    loopy.frames = 16;
+    loopy.loop = true;
+    // The shipped default window: wide enough that the seam step is no larger
+    // than a normal frame-to-frame step. (The assert below is what says so.)
+    const Strip looped = generate(loopy);
+
+    Settings open = loopy;
+    open.loop = false;
+    const Strip unlooped = generate(open);
+
+    // The step into the last frame (the image the player repeats), versus the
+    // wrap the user saw before: frame N-1 back to frame 0.
+    const int seam = frame_difference(looped, looped.frames - 2, looped.frames - 1);
+    const int old_pop = frame_difference(unlooped, unlooped.frames - 2, 0);
+    CHECK(seam < old_pop);
+
+    int worst_inside = 0;
+    for (int f = 1; f < looped.frames - 1; ++f) {
+        worst_inside = std::max(worst_inside, frame_difference(looped, f - 1, f));
+    }
+    // Measured with the shipped defaults: the step into the repeated frame is 5
+    // (worst normal step inside the strip: 6) where the wrap used to be 36.
+    CHECK(seam <= worst_inside);
+
+    // A window of one is the bare duplicate: still looped, still ends on frame
+    // 0, but the pop simply lands one frame earlier.
+    Settings bare = loopy;
+    bare.loop_window = 1;
+    const Strip duplicated = generate(bare);
+    CHECK(duplicated.looped);
+    CHECK(frames_equal(duplicated, 0, duplicated, duplicated.frames - 1));
+    CHECK(frame_difference(duplicated, duplicated.frames - 2, duplicated.frames - 1) > seam);
+
+    // A window as long as the strip still loops.
+    Settings long_window = loopy;
+    long_window.loop_window = 64;
+    const Strip wide = generate(long_window);
+    CHECK(wide.looped);
+    CHECK(frames_equal(wide, 0, wide, wide.frames - 1));
+
+    // Single-frame and loop-off strips report themselves honestly.
+    Settings tiny = loopy;
+    tiny.frames = 1;
+    CHECK(!generate(tiny).looped);
+    CHECK(!unlooped.looped);
+}
+
+TEST_CASE("interpolation past the seam heads for index 1, not 0") {
+    // Index 0 is the last frame's own image on a looping strip, so a sub-frame
+    // that blended towards it would freeze the tail for the whole window.
+    Settings s = style_settings(Style::Acid, 8);
+    s.frames = 6;
+    s.loop = true;
+    s.interpolate = 3;
+    const Strip strip = generate(s);
+
+    // Last group of sub-frames: from frame 0's image (the last frame) towards
+    // frame 1's image, so they must not all equal each other or the last frame.
+    const int last = strip.frames - 1;
+    CHECK(!frames_equal(strip, last, strip, last - 1));
+    CHECK(!frames_equal(strip, last - 1, strip, last - 2));
+
+    Settings no_blend = s;
+    no_blend.interpolate = 1;
+    const Strip plain = generate(no_blend);
+    // The sampled frames are the same either way; only sub-frames were added.
+    CHECK(frames_equal(strip, 0, plain, 0));
+    CHECK(frames_equal(strip, 3, plain, 1));
+    // The cycle closes at the last group's first sub-frame (the strip's own
+    // first image); the sub-frames after it head for index 1, which is the frame
+    // the player shows next.
+    CHECK(frames_equal(strip, 0, strip, strip.frames - 3));
+    CHECK(frames_equal(strip, strip.frames - 3, plain, plain.frames - 1));
 }
 
 TEST_CASE("shipped presets put their pattern inside the ramp") {

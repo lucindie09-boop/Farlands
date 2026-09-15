@@ -63,6 +63,11 @@ const CHECK_ROWS := [
 	["flow_box", "2x2 flow window"],
 	["wrap", "Wrap (torus, no seams)"],
 ]
+# The loop rows get their own section: they are about the strip as a whole, not
+# about the automaton.
+const LOOP_CHECKS := [
+	["loop", "Loop (last frame repeats the first)"],
+]
 const KERNELS := ["row", "box", "warp", "plus"]
 const TARGETS := ["water", "lava", "acid"]
 const THUMBNAILS := 8
@@ -93,6 +98,9 @@ var _seed_edit: LineEdit = null
 
 var _strip: Image = null
 var _frames: Array[Image] = []
+# Mirrors Strips::looped: the last frame repeats the first, so playback has to
+# wrap to index 1 instead of showing index 0 twice in a row.
+var _looped := false
 var _live_tex: ImageTexture = null
 var _tiled_tex: ImageTexture = null
 var _sheet_tex: ImageTexture = null
@@ -104,6 +112,7 @@ var _dirty := true
 var _dirty_delay := 0.0
 var _refreshing := false
 var _live := false
+var _described: Dictionary = {}
 var _compression_flipped := false
 var _compression_was := false
 var _last_ms := 0.0
@@ -151,7 +160,7 @@ func _process(delta: float) -> void:
 		var guard := 0
 		while _accum >= hold and guard < 64:
 			_accum -= hold
-			_frame = (_frame + 1) % _frames.size()
+			_advance()
 			guard += 1
 	if _open:
 		_update_previews()
@@ -159,6 +168,15 @@ func _process(delta: float) -> void:
 			_report_live_target()
 	if _live:
 		_push_frame()
+
+# One playback step. A looping strip's last frame is the first frame's image, so
+# the frame after it is index 1: showing index 0 again would hold the image for
+# two frame times in a row (a visible hitch at the seam).
+func _advance() -> void:
+	var next := _frame + 1
+	if next >= _frames.size():
+		next = 1 if _looped and _frames.size() > 1 else 0
+	_frame = next
 
 # ---------------------------------------------------------------------------
 # Panel
@@ -339,6 +357,11 @@ func _build_settings_column() -> Control:
 	for row in CHECK_ROWS:
 		_add_check_row(page, row[0], row[1])
 
+	_section(page, "LOOP")
+	for row in LOOP_CHECKS:
+		_add_check_row(page, row[0], row[1])
+	_add_int_row(page, "loop_window", "Blend window (frames)", 1, 32, 1)
+
 	# Ramp ------------------------------------------------------------------
 	_section(page, "RAMP")
 	var stops_row := HBoxContainer.new()
@@ -424,7 +447,7 @@ func _build_footer(footer: HBoxContainer) -> void:
 		if _frames.is_empty():
 			return
 		_playing = false
-		_frame = (_frame + 1) % _frames.size()
+		_advance()
 		_update_previews()
 		_refresh_play_button())
 	_footer_button(footer, "Regenerate", func():
@@ -585,6 +608,8 @@ func _regenerate() -> void:
 		return
 	_slice_frames()
 	_frame = 0
+	_described = LiquidTextureGen.describe(request)
+	_looped = bool(_described.get("looped", false))
 	_measure_flatness()
 	_update_sheet()
 	_update_thumbs()
@@ -692,12 +717,13 @@ func _tile_image(image: Image, times: int) -> Image:
 	return out
 
 func _report_status() -> void:
-	var recorded: Dictionary = LiquidTextureGen.describe(settings)
-	_status.text = ("%s  %dx%d  %d frames (strip %dx%d)  %0.1f ms\nflat top %0.1f%%   flat bottom %0.1f%%" % [
+	var described: Dictionary = _described if not _described.is_empty() else LiquidTextureGen.describe(settings)
+	_status.text = ("%s  %dx%d  %d frames (strip %dx%d)%s  %0.1f ms\nflat top %0.1f%%   flat bottom %0.1f%%" % [
 		settings.get("style", "?"),
-		int(recorded.get("resolution", 0)), int(recorded.get("resolution", 0)),
-		int(recorded.get("strip_frames", 0)),
-		int(recorded.get("strip_width", 0)), int(recorded.get("strip_height", 0)),
+		int(described.get("resolution", 0)), int(described.get("resolution", 0)),
+		int(described.get("strip_frames", 0)),
+		int(described.get("strip_width", 0)), int(described.get("strip_height", 0)),
+		"  loop" if _looped else "  no loop",
 		_last_ms, _flat_high * 100.0, _flat_low * 100.0])
 
 # ---------------------------------------------------------------------------
@@ -869,7 +895,7 @@ func _refresh_widgets() -> void:
 		_refresh_slider(row[0], true)
 	for row in FLOAT_ROWS:
 		_refresh_slider(row[0], false)
-	for row in CHECK_ROWS:
+	for row in CHECK_ROWS + LOOP_CHECKS:
 		if _checks.has(row[0]):
 			_checks[row[0]].set_pressed_no_signal(bool(settings.get(row[0], false)))
 	if _kernel_pick:

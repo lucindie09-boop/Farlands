@@ -46,7 +46,9 @@ namespace {
 [[nodiscard]] Settings settings_from(const Dictionary& d) {
     Style style = Style::Water;
     const String style_name = static_cast<String>(d.get("style", String("water")));
-    VoxelEngine::liquid::style_from_name(std::string(style_name.utf8().get_data()), style);
+    if (!VoxelEngine::liquid::style_from_name(std::string(style_name.utf8().get_data()), style)) {
+        style = Style::Water;  // unknown name: take the water preset and move on
+    }
 
     Settings s = VoxelEngine::liquid::style_settings(style, ival(d, "resolution", 16));
     s.resolution = ival(d, "resolution", s.resolution);
@@ -73,6 +75,8 @@ namespace {
     s.grain = num(d, "grain", s.grain);
     s.shift_rows = ival(d, "shift_rows", s.shift_rows);
     s.shift_period = ival(d, "shift_period", s.shift_period);
+    s.loop = flag(d, "loop", s.loop);
+    s.loop_window = ival(d, "loop_window", s.loop_window);
 
     // The ramp travels as 16 floats (four RGBA stops); only the first
     // ramp_stops of them are read.
@@ -117,6 +121,8 @@ namespace {
     d["grain"] = s.grain;
     d["shift_rows"] = s.shift_rows;
     d["shift_period"] = s.shift_period;
+    d["loop"] = s.loop;
+    d["loop_window"] = s.loop_window;
     PackedFloat32Array ramp;
     ramp.resize(VoxelEngine::liquid::kMaxRampStops * 4);
     for (int stop = 0; stop < VoxelEngine::liquid::kMaxRampStops; ++stop) {
@@ -140,7 +146,9 @@ PackedStringArray LiquidTextureGen::style_names() {
 
 Dictionary LiquidTextureGen::default_settings(const String& style, int32_t resolution) {
     Style parsed = Style::Water;
-    VoxelEngine::liquid::style_from_name(std::string(style.utf8().get_data()), parsed);
+    if (!VoxelEngine::liquid::style_from_name(std::string(style.utf8().get_data()), parsed)) {
+        parsed = Style::Water;
+    }
     return settings_to_dict(VoxelEngine::liquid::style_settings(parsed, resolution), parsed);
 }
 
@@ -148,12 +156,17 @@ Dictionary LiquidTextureGen::describe(const Dictionary& settings) {
     const Settings clamped = settings_from(settings);
     Style style = Style::Water;
     const String style_name = static_cast<String>(settings.get("style", String("water")));
-    VoxelEngine::liquid::style_from_name(std::string(style_name.utf8().get_data()), style);
+    if (!VoxelEngine::liquid::style_from_name(std::string(style_name.utf8().get_data()), style)) {
+        style = Style::Water;
+    }
     Dictionary d = settings_to_dict(clamped, style);
     // The strip shape after interpolation, which is what the caller will get.
     d["strip_frames"] = clamped.frames * clamped.interpolate;
     d["strip_width"] = clamped.resolution;
     d["strip_height"] = clamped.resolution * clamped.frames * clamped.interpolate;
+    // Whether the last frame repeats the first (so a player must wrap to index
+    // 1, not 0, after it) — a single-frame strip cannot loop.
+    d["looped"] = clamped.loop && clamped.frames >= 2;
     return d;
 }
 

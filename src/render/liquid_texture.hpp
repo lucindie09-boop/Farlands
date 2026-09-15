@@ -117,6 +117,22 @@ struct Settings {
     // `shift_period` frames (the classic "flowing water/lava" translation).
     int shift_rows = 0;
     int shift_period = 4;
+
+    // Seamless looping. With `loop` on, the strip's LAST frame is the first
+    // frame's image, so a player that wraps back to the start shows a repeat
+    // rather than a jump. The automaton is not periodic, so the frames leading
+    // up to the seam are morphed into the run that led into frame 0 over
+    // `loop_window` frames (load-bearing: a bare duplicate would simply move
+    // the pop one frame earlier).
+    //
+    // The window is the knob that trades a longer "arriving" tail for a smaller
+    // seam step: the tail converges on the head by 1/window of the gap each
+    // frame, so a window near the field's own decorrelation time (5-8 frames
+    // for these kernels) makes the seam step no larger than a normal frame.
+    // A looping player should advance from the last frame to index 1 — see
+    // Strip::looped.
+    bool loop = true;
+    int loop_window = 8;
 };
 
 // Forces every field into its legal range. Anything the caller sends is
@@ -142,6 +158,7 @@ struct Settings {
     s.ramp_curve = std::clamp(s.ramp_curve, 0.1f, 8.0f);
     s.shift_rows = std::clamp(s.shift_rows, -kMaxShiftRows, kMaxShiftRows);
     s.shift_period = std::clamp(s.shift_period, 1, 64);
+    s.loop_window = std::clamp(s.loop_window, 1, 64);
     for (std::array<float, 4>& stop : s.ramp) {
         for (float& channel : stop) {
             channel = std::clamp(channel, 0.0f, 1.0f);
@@ -439,6 +456,12 @@ struct Strip {
     int frame_size = 0;         // == width
     int frames = 0;             // rows of the strip (frames * interpolate)
     int height = 0;             // == frame_size * frames
+    // The cycle closes: with interpolate == 1 the last frame IS the first
+    // frame's image, and with interpolate > 1 the last sub-frames are already
+    // blending towards index 1. Either way a looping player must advance from
+    // the last frame to index 1, not 0 (index 0 has just played), or it will
+    // hold one image for two frame times at the seam.
+    bool looped = false;
     std::vector<std::uint8_t> pixels;  // RGBA8, row major, frames stacked vertically
 
     [[nodiscard]] const std::uint8_t* frame_data(int frame) const {
@@ -509,6 +532,24 @@ inline void render_into(const Settings& s, const std::vector<float>& field, std:
     Generator gen(s);
     gen.warm_up(s.warmup_steps);
 
+    const bool loop = s.loop && base_frames >= 2;
+    const int window = loop ? std::min(s.loop_window, base_frames) : 0;
+
+    // A looping strip needs the frames immediately BEFORE frame 0 as well: they
+    // are what the tail morphs into, so the motion arriving at the seam is the
+    // motion that led into the start rather than a rewind to it.
+    std::vector<std::vector<float>> pre;
+    if (loop && window > 1) {
+        pre.reserve(static_cast<size_t>(window - 1));
+        for (int i = 0; i < window - 1; ++i) {
+            pre.push_back(gen.surface());
+            gen.advance(s.steps_per_frame);
+            if (s.shift_rows != 0 && ((i + 1) % s.shift_period) == 0) {
+                gen.shift(s.shift_rows);
+            }
+        }
+    }
+
     std::vector<std::vector<float>> fields;
     fields.reserve(static_cast<size_t>(base_frames));
     for (int f = 0; f < base_frames; ++f) {
@@ -516,6 +557,26 @@ inline void render_into(const Settings& s, const std::vector<float>& field, std:
         gen.advance(s.steps_per_frame);
         if (s.shift_rows != 0 && ((f + 1) % s.shift_period) == 0) {
             gen.shift(s.shift_rows);
+        }
+    }
+
+    // Close the cycle: over the last `window` frames the strip is morphed into
+    // the run that led into frame 0, ending exactly on it (weight 1 on the last
+    // frame), so `frames_equal(strip, 0, strip, frames - 1)` holds and the seam
+    // is a repeat instead of a jump.
+    if (loop) {
+        strip.looped = true;
+        std::vector<float> morphed(fields[0].size(), 0.0f);
+        for (int j = 0; j < window; ++j) {
+            const size_t index = static_cast<size_t>(base_frames - window + j);
+            const float t = static_cast<float>(j + 1) / static_cast<float>(window);
+            const std::vector<float>& source = fields[index];
+            const std::vector<float>& target =
+                (j < window - 1 && !pre.empty()) ? pre[static_cast<size_t>(j)] : fields[0];
+            for (size_t c = 0; c < source.size(); ++c) {
+                morphed[c] = source[c] + (target[c] - source[c]) * t;
+            }
+            fields[index] = morphed;
         }
     }
 
@@ -529,7 +590,12 @@ inline void render_into(const Settings& s, const std::vector<float>& field, std:
             } else {
                 const float t = static_cast<float>(k) / static_cast<float>(interp);
                 const std::vector<float>& a = fields[static_cast<size_t>(f)];
-                const std::vector<float>& b = fields[static_cast<size_t>((f + 1) % base_frames)];
+                // The frame after the last one is index 1 on a looping strip:
+                // index 0 is the last frame's own image, so blending towards it
+                // would freeze the tail. Without looping, the strip simply
+                // wraps to 0 as it always did.
+                const int next = (f + 1 < base_frames) ? (f + 1) : (loop ? 1 : 0);
+                const std::vector<float>& b = fields[static_cast<size_t>(next)];
                 blended.resize(a.size());
                 for (size_t i = 0; i < a.size(); ++i) {
                     blended[i] = a[i] + (b[i] - a[i]) * t;

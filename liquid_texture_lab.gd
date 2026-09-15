@@ -187,6 +187,11 @@ func _show_lab() -> void:
 	if _layer == null:
 		_build_ui()
 	_refresh_widgets()
+	# Every open, not just after a save: the saved strips live in a directory that
+	# outlives the process, so the picker has to be filled from disk on the first
+	# open of a session or nothing saved earlier can be loaded at all. It also
+	# picks up files another run left behind.
+	_refresh_load_list(_name_edit.text.strip_edges() if _name_edit else "")
 	_dirty = true
 	_dirty_delay = 0.0
 	_open = true
@@ -874,7 +879,7 @@ func _delete() -> void:
 	_live_label.text = "deleted %s" % name
 	_refresh_load_list()
 
-func _refresh_load_list() -> void:
+func _refresh_load_list(prefer_name: String = "") -> void:
 	if _load_pick == null:
 		return
 	_load_pick.clear()
@@ -884,6 +889,12 @@ func _refresh_load_list() -> void:
 	for file_name in directory.get_files():
 		if file_name.ends_with(".json"):
 			_load_pick.add_item(file_name.get_basename())
+	# Land on the strip the name box is showing, if it is one of them, so opening
+	# the panel does not silently point the Load button at a different file.
+	for index in _load_pick.item_count:
+		if _load_pick.get_item_text(index) == prefer_name:
+			_load_pick.selected = index
+			return
 
 # ---------------------------------------------------------------------------
 # Widget sync

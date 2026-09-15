@@ -58,6 +58,11 @@ public:
     [[nodiscard]] godot::Ref<godot::Texture2DArray> get_emissive_texture_array();
     [[nodiscard]] int get_texture_index(const godot::String& texture_name);
     [[nodiscard]] int get_emissive_texture_index(const godot::String& texture_name);
+    // Layer index for a texture name, or -1 when the array holds no such layer.
+    // This is NOT get_texture_index(): that one answers 0 for "unknown", which
+    // is indistinguishable from the fallback layer, so a caller that WRITES
+    // into the array (the Liquid Texture Lab) must use this one or it repaints
+    [[nodiscard]] static int find_texture_layer(const godot::String& texture_name);
     [[nodiscard]] int get_block_texture_index(const godot::String& block_name, const godot::String& face);
 
     // Whether generated arrays call Image::generate_mipmaps(). Toggling after
@@ -560,6 +565,14 @@ inline int TextureArrayGenerator::get_texture_index(const godot::String& texture
     }
 
     return 0;
+}
+
+inline int TextureArrayGenerator::find_texture_layer(const godot::String& texture_name) {
+    const auto it = s_global_texture_name_to_index.find(texture_name);
+    if (it != s_global_texture_name_to_index.end()) {
+        return it->second;
+    }
+    return -1;
 }
 
 inline int TextureArrayGenerator::get_emissive_texture_index(const godot::String& texture_name) {

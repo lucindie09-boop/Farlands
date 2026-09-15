@@ -176,6 +176,7 @@ scons test     # builds the doctest suite (see tests/)
 scons path_cost # planner cost over real terrain (bin/path_cost [seed] [max_distance])
 # in game: K spawns the punchable dummy, P plans a route from it to the player
 # (red cubes on the blocks the route walks on), L toggles grid/waypoints
+# in game: O opens the Liquid Texture Lab (animated water/lava/acid authoring)
 scons fuzz     # libFuzzer harnesses (Linux/macOS, clang required)
 ```
 
@@ -187,7 +188,7 @@ CI (`.github/workflows/build.yml`) runs on every push and pull request:
 - **Static-analysis job** — clang-tidy across all of `src/` with `bugprone-*`, `concurrency-*`, and `performance-*` checks; findings in project sources fail the job.
 - **Coverage job** — lcov coverage report uploaded to Codecov.
 
-The project has **255 test cases / 181,725 assertions** across 30 doctest files, including 27 tests in `test_concurrency.cpp` (shard locking, deadlock prevention, PaletteStorage, cross-chunk writers, thread-pool work stealing).
+The project has **401 test cases / 214,203 assertions** across 46 doctest files, including 27 tests in `test_concurrency.cpp` (shard locking, deadlock prevention, PaletteStorage, cross-chunk writers, thread-pool work stealing).
 
 ## Running
 

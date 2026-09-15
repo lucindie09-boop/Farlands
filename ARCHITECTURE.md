@@ -240,6 +240,16 @@ Per-biome amplification knobs (`height`/`weirdness`/`min_weirdness`/`weirdness_s
 - Far regions: LOD-reduced chunk meshes merged into region instances (`far_regions`, `far_mesh_cache` in `mesh_manager.*`/`chunk_render_data.hpp`) so the coarse ring costs a handful of draw calls
 - Vertex compression: 24 bytes per vertex (-40% VRAM) with fixed-point positions
 
+### Procedural liquid textures (`src/render/liquid_texture.hpp`)
+- Animated water/lava/acid sprites are generated, not drawn: a three-field cellular automaton over an N×N grid of floats (`surface` = the visible height that becomes the pixel colour, `flow` = momentum the surface pushes into, `surge` = a decaying energy source re-ignited by a per-cell dice roll) stepped once per frame and mapped through a colour ramp. That is how the classic block game produced its still-water and still-lava sprites before textures became image files; the field names, kernels, defaults and colours here are ours (see the file header)
+- Three kernels (`row` 3×1, `box` 3×3, `warp` 3×3 with a sine-wandering window, `plus` 5-point) and per-style presets. **The divisor must exceed the number of cells the kernel sums** (row→3.3, box→9.9) or the surface amplifies itself every step until a frame is one flat ramp stop and the animation stops animating; the suite pins both the flattening and the field-inside-the-ramp calibration of every preset
+- The surge is deliberately not floored at zero: it settles at a small negative mean, which is what stops `flow` (which *is* floored) from integrating forever
+- Output is one vertical strip, `resolution` wide and `resolution * frames` tall, frames stacked downward — the shape the classic resource-pack format used. `interpolate` emits cross-faded sub-frames that are blended in field space before the ramp, so a blend never invents palette entries
+- `LiquidTextureGen` (static binding) is the GDScript face: settings travel as a Dictionary whose keys are the field names, `default_settings(style, resolution)` returns a complete one, `describe()` echoes the clamped values the generator would really use, and `generate_strip()` returns the `Image`
+- Live preview writes frames into the world's texture-array layer (`ChunkManager::push_texture_frame` → `Texture2DArray::update_layer`), which is why `TextureArrayGenerator::find_texture_layer()` exists separately from `get_texture_index()`: the latter answers 0 for "unknown", i.e. the fallback layer, so a writer using it would repaint stone. A GPU-compressed array cannot take a raw RGBA frame, so the lab rebuilds uncompressed for the duration of the preview and restores the user's setting afterwards
+- `ChunkManager::fit_texture_frame()` is the verifiable half of that path (RGBA8, snapped to the array's resolution, mipmaps matched to the generator's flag). `get_texture_layer_image()` is best effort: Godot 4.7's `TextureLayered::get_layer_data()` answers null even for an array built in the same process, so nothing depends on it
+- `tests/test_liquid_texture.cpp` covers the automaton (kernel wrapping, torus translation equivariance, flattening, scroll translation, determinism, interpolation, grain, posterization, clamping, ramp calibration); `.freebuff/probe_liquid_lab.gd` drives the real tool against the real world and the real texture array
+
 ## Collision
 
 - Binary-search AABB approach (3D DDA variant was tried and reverted)
@@ -340,6 +350,7 @@ The following code remains in the codebase but is disabled or unused:
 - `inventory.gd` - Full inventory screen with drag-drop stack movement, shift-click quick-transfer, RMB drag-place, LMB drag-collect, scroll wheel quick-transfer, double-click gather; live 2×2 crafting grid + output preview (click/drag/shift/scroll interactions mirrored on the crafting cells; shift-click output crafts as many as possible)
 - `data/recipes.json` — Crafting recipes (shaped/shapeless), resolved by block name; loaded into `RecipeBook` at startup. A shaped `key` entry may list several acceptable ingredients, expanded at load into one concrete recipe per combination (per symbol, so all cells of a symbol are the same ingredient) — the matcher, the preview gate and the consumption path stay id-exact
 - `settings_menu.gd` — Adjustable settings with persistence (render, lighting, crosshair, controls) opened with Escape key; includes a **Skin Maker** page (color wheel, hex readout, orbitable preview) with a dark-mode toggle and a **Block Maker** page (16×16 cube painter) with paint tools, noise slider, and gallery
+- `liquid_texture_lab.gd` — Liquid Texture Lab (O key, autoload): procedural animated-texture authoring for water/lava/acid — style presets, every automaton and ramp knob as a slider, live animated preview plus a 3×3 tiled seam check and frame thumbnails, save/load as a vertical strip PNG + settings JSON in `user://liquids/`, and a **Live** mode that pushes frames into the running world's texture-array layer for the chosen liquid (turning texture compression off for the duration, since a compressed layer cannot take an RGBA frame)
 - `skin_preview.gd` — Transparent-background sub-viewport that orbits `player.glb` behind the skin maker; the camera orbits the model's AABB center rather than being a child of the rotating node
 - `block_manager.gd` — Autoload holding the single persistent 16×16 block texture (one `ImageTexture` shared by every cube face), with debounced saves to `user://current_block.png`, a restart-recovery noise base (`user://block_noise_base.png`), and a reversible grayscale-noise slider living on the autoload so it survives page rebuilds
 - `block_preview.gd` — Transparent-background sub-viewport behind the block maker that drag-orbits a cube; DRAW/FILL/BOX painting over primitive triangle raycasts, undo (Ctrl+Z), noise slider integration, and clamped zoom
@@ -375,7 +386,8 @@ The following code remains in the codebase but is disabled or unused:
 ### Rendering
 - `src/render/environment_controller.cpp` — Sky/fog/player-light parameter pushes
 - `src/render/material_manager.hpp/cpp` — Terrain + water materials, texture arrays
-- `src/render/texture_array_generator.hpp` — Diffuse + emissive `Texture2DArray` generation
+- `src/render/texture_array_generator.hpp` — Diffuse + emissive `Texture2DArray` generation; `find_texture_layer()` reports "no such layer" as -1 (the writer's lookup) and `get_texture_index()` keeps its 0 fallback (the mesh path's)
+- `src/render/liquid_texture.hpp` — Pure procedural animated-liquid generator (three-field automaton, style presets, colour ramp, vertical frame strip), no Godot types, so the lab, the animator and the tests run the same code
 - `src/render/world_render_stats.hpp` — `WorldRenderStats` snapshot consumed by `PerfReport`
 
 ### Godot bindings
@@ -385,6 +397,7 @@ The following code remains in the codebase but is disabled or unused:
 - `src/godot_bindings/block_outline.hpp/cpp` — Native `BlockOutline` `Node3D` (replaces `block_outline.gd`): 16 exposed settings, raycast throttling, pulse animation, material/geometry management; mesh built by the tested `BlockOutlineBuilder`/`block_outline_mesh.cpp` core
 - `src/godot_bindings/viewmodel_pose.hpp/cpp` — `ViewmodelPose` static binding over the `src/core/viewmodel_math.*` per-frame animation math (bob/sway/swing)
 - `src/godot_bindings/viewmodel_meshes.hpp/cpp` — `ViewmodelMeshes` static binding over `src/core/viewmodel_meshes.*` held-block/shaped-box/sprite geometry
+- `src/godot_bindings/liquid_texture_gen.hpp/cpp` — `LiquidTextureGen` static binding over `src/render/liquid_texture.hpp`: `style_names()`, `default_settings(style, resolution)`, `describe(settings)`, `generate_strip(settings)`
 - `src/godot_bindings/skin_pixels.hpp/cpp` — `SkinPixels` static binding: native pixel/noise helpers (noise map, gray noise, UV-to-texel bounds) used by `skin_manager.gd` and the settings galleries
 
 ### Lighting

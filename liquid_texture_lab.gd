@@ -15,16 +15,24 @@ extends Node
 ## so a seam that would show up on a big pool is obvious; the thumbnails are
 ## frames 0..7.
 ##
-## Two ways out of the tool:
+## Three ways out of the tool:
 ##   Save      writes user://liquids/<name>.png (the vertical strip) plus a
 ##             <name>.json sidecar holding every setting, and Load restores them
 ##             exactly, so a texture can be reproduced and re-tuned later.
 ##   Live      pushes the current frame into the world's texture array layer for
-##             the chosen liquid (water exists today; lava/acid need a block that
-##             uses textures/lava.png or textures/acid.png). That is
+##             the chosen liquid (all three exist: water, lava and acid are real
+##             blocks using textures/<liquid>.png). That is
 ##             ChunkManager.push_texture_frame -> Texture2DArray.update_layer, so
 ##             the world animates without rebuilding the array; the layer is
-##             restored from disk when Live is switched off.
+##             restored from disk when Live is switched off. While Live owns a
+##             liquid, the world animator is paused for it (see below).
+##   Bind      saves the strip as <liquid>.json/.png for the chosen liquid, which
+##             is the file LiquidAnimator (liquid_animator.gd) picks up: that node
+##             animates water, lava and acid in the world whenever the game runs,
+##             panel or no panel.
+##
+## "World anim" is the LiquidAnimator's own switch, shown here because this is
+## where you would look for it.
 ##
 ## Legal note that also applies here: only the *approach* (a three-field
 ## automaton mapped through a colour ramp, and the classic 16x16 liquid look) is
@@ -84,6 +92,12 @@ var _live_toggle: CheckButton = null
 var _play_button: Button = null
 var _target_pick: OptionButton = null
 var _live_label: Label = null
+var _world_toggle: CheckButton = null
+var _world_label: Label = null
+# The liquid Live has taken the layer of, so the animator can be handed it back
+# when Live moves to another liquid or stops.
+var _live_owner := ""
+var _world_report := 0.0
 
 var _live_preview: TextureRect = null
 var _sheet_preview: TextureRect = null
@@ -166,6 +180,12 @@ func _process(delta: float) -> void:
 		_update_previews()
 		if _live:
 			_report_live_target()
+		# The world animator runs on its own clock, so its readout is refreshed a
+		# few times a second rather than every frame.
+		_world_report -= delta
+		if _world_report <= 0.0:
+			_world_report = 0.25
+			_report_world()
 	if _live:
 		_push_frame()
 
@@ -430,6 +450,8 @@ func _build_preview_column() -> Control:
 	column.add_child(_status)
 	_live_label = _label("", 13, Color(0.95, 0.85, 0.6))
 	column.add_child(_live_label)
+	_world_label = _label("", 13, Color(0.6, 0.9, 0.7))
+	column.add_child(_world_label)
 	return column
 
 func _preview_rect(size: int) -> TextureRect:
@@ -481,13 +503,23 @@ func _build_footer(footer: HBoxContainer) -> void:
 	_target_pick.add_theme_font_override("font", MUNRO_FONT)
 	for target in TARGETS:
 		_target_pick.add_item(target)
-	_target_pick.item_selected.connect(func(_index: int): _report_live_target())
+	_target_pick.item_selected.connect(func(_index: int):
+		_set_live_owner(_live_target() if _live else "")
+		_report_live_target())
 	footer.add_child(_target_pick)
 	_live_toggle = CheckButton.new()
 	_live_toggle.text = "Live"
 	_live_toggle.add_theme_font_override("font", MUNRO_FONT)
 	_live_toggle.toggled.connect(_set_live)
 	footer.add_child(_live_toggle)
+	_footer_button(footer, "Bind to world", func(): _bind_to_world())
+
+	footer.add_child(_label("  "))
+	_world_toggle = CheckButton.new()
+	_world_toggle.text = "World anim"
+	_world_toggle.add_theme_font_override("font", MUNRO_FONT)
+	_world_toggle.toggled.connect(_set_world_animation)
+	footer.add_child(_world_toggle)
 	_footer_button(footer, "Close", func(): _hide_lab())
 
 func _footer_button(parent: Node, text: String, action: Callable) -> Button:
@@ -735,6 +767,25 @@ func _report_status() -> void:
 # Live application to the world
 # ---------------------------------------------------------------------------
 
+# The animator is an autoload, but this panel is also built by probes that never
+# start a game, so every call goes through here and tolerates its absence.
+func _animator() -> Node:
+	return get_node_or_null("/root/LiquidAnimator")
+
+# Live writes frames into one layer at a time; the animator would be writing to
+# the same layer, so hand it over for as long as Live owns that liquid.
+func _set_live_owner(target: String) -> void:
+	var animator := _animator()
+	if _live_owner != "" and _live_owner != target:
+		if animator != null:
+			animator.call("resume", _live_owner)
+		_live_owner = ""
+	if target != "":
+		if animator != null:
+			animator.call("pause", target)
+		_live_owner = target
+	_report_world()
+
 func _live_target() -> String:
 	if _target_pick == null:
 		return "water"
@@ -742,6 +793,7 @@ func _live_target() -> String:
 
 func _set_live(enabled: bool) -> void:
 	_live = enabled
+	_set_live_owner(_live_target() if enabled else "")
 	var manager := _chunk_manager()
 	if manager == null:
 		_live = false
@@ -805,6 +857,67 @@ func _push_frame() -> void:
 		var manager := _chunk_manager()
 		if manager != null:
 			manager.push_texture_frame(_live_target(), _frames[_frame % _frames.size()])
+
+# ---------------------------------------------------------------------------
+# World animation (LiquidAnimator)
+# ---------------------------------------------------------------------------
+
+# Binding saves the current strip under the LIQUID's own name, which is the file
+# the animator loads for that liquid — so what animates in the world from now on
+# is exactly what the panel is showing, and it survives a restart.
+func _bind_to_world() -> void:
+	if _strip == null:
+		return
+	var target := _live_target()
+	DirAccess.make_dir_recursive_absolute(SAVE_DIR)
+	var base := SAVE_DIR + "/" + target
+	var error := _strip.save_png(base + ".png")
+	if error != OK:
+		_live_label.text = "bind failed: %s" % error
+		return
+	var file := FileAccess.open(base + ".json", FileAccess.WRITE)
+	if file == null:
+		_live_label.text = "bind failed: settings file"
+		return
+	file.store_string(JSON.stringify(settings, "  "))
+	file.close()
+	if _name_edit:
+		_name_edit.text = target
+	var animator := _animator()
+	if animator != null:
+		animator.call("reload", target)
+	_refresh_load_list(target)
+	_live_label.text = "bound %s -> the world animator (user://liquids/%s.json)" % [target, target]
+	_report_world()
+
+func _set_world_animation(value: bool) -> void:
+	var animator := _animator()
+	if animator != null:
+		animator.call("set_enabled", value)
+	_report_world()
+
+func _report_world() -> void:
+	if _world_label == null:
+		return
+	var animator := _animator()
+	if animator == null:
+		_world_label.text = "world: animator not running"
+		return
+	var status: Dictionary = animator.call("get_status")
+	var target := _live_target()
+	var entry: Dictionary = status.get(target, {})
+	var running := bool(status.get("enabled", false))
+	if entry.is_empty() or not running:
+		_world_label.text = "world: %s paused (animator off)" % target
+		return
+	var source := String(entry.get("source", ""))
+	if not bool(entry.get("animating", false)):
+		_world_label.text = "world: %s idle (%s)" % [target, String(entry.get("note", "?"))]
+		return
+	_world_label.text = "world: %s <- %s, %d frames, frame %d/%d%s" % [
+		target, "preset" if source == "preset" else source,
+		int(entry.get("frames", 0)), int(entry.get("frame", 0)) + 1, int(entry.get("frames", 0)),
+		"" if bool(entry.get("paused", false)) == false else "  [Live owns it]"]
 
 func _report_live_target() -> void:
 	var manager := _chunk_manager()
@@ -921,8 +1034,12 @@ func _refresh_widgets() -> void:
 		if ramp.size() >= (index + 1) * 4:
 			picker.color = Color(ramp[index * 4], ramp[index * 4 + 1], ramp[index * 4 + 2], ramp[index * 4 + 3])
 		picker.visible = index < stops
+	if _world_toggle:
+		var animator := _animator()
+		_world_toggle.set_pressed_no_signal(bool(animator.call("is_enabled")) if animator != null else false)
 	_refreshing = false
 	_report_live_target()
+	_report_world()
 
 func _refresh_slider(key: String, is_int: bool) -> void:
 	if not _sliders.has(key):

@@ -731,6 +731,42 @@ void BlockRegistry::initialize_default_blocks() noexcept {
     fluid_state("water_runoff_6", FluidKind::Water, 6, false);
     fluid_state("water_runoff_7", FluidKind::Water, 7, false);
     fluid_state("water_fallen", FluidKind::Water, 0, true);
+
+    // The other two fluids, appended for the same reason as everything else
+    // here. Their sources are registered next to their runoff because both
+    // halves are the same block with a fluid state on it, and the state table
+    // (fluids/fluid_state_table.hpp) finds every one of them by scanning this
+    // registry — the same scan the game's JSON goes through.
+    const auto fluid_source = [&](const char* name, FluidKind kind) {
+        BlockType bt{};
+        bt.name = name;
+        bt.properties = BlockProperty::Liquid | BlockProperty::Transparent;
+        bt.visible_faces = {true, true, true, true, true, true};
+        bt.light_pattern = LightEmissionPattern::Diamond;
+        bt.top_face_offset = 0.12f;
+        bt.slipperiness = 0.6f;
+        bt.hardness = -1.0f;
+        bt.full_cube_ = true;
+        bt.fluid_kind = kind;
+        register_block(bt);
+    };
+    // Lava stops at depth three (see fluid_rules.cpp), so it has no states
+    // deeper than that to store — a depth nothing can reach needs no block.
+    fluid_source("lava", FluidKind::Lava);
+    fluid_state("lava_runoff_1", FluidKind::Lava, 1, false);
+    fluid_state("lava_runoff_2", FluidKind::Lava, 2, false);
+    fluid_state("lava_runoff_3", FluidKind::Lava, 3, false);
+    fluid_state("lava_fallen", FluidKind::Lava, 0, true);
+
+    fluid_source("acid", FluidKind::Acid);
+    fluid_state("acid_runoff_1", FluidKind::Acid, 1, false);
+    fluid_state("acid_runoff_2", FluidKind::Acid, 2, false);
+    fluid_state("acid_runoff_3", FluidKind::Acid, 3, false);
+    fluid_state("acid_runoff_4", FluidKind::Acid, 4, false);
+    fluid_state("acid_runoff_5", FluidKind::Acid, 5, false);
+    fluid_state("acid_runoff_6", FluidKind::Acid, 6, false);
+    fluid_state("acid_runoff_7", FluidKind::Acid, 7, false);
+    fluid_state("acid_fallen", FluidKind::Acid, 0, true);
 }
 
 } // namespace VoxelEngine

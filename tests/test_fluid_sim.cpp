@@ -133,11 +133,13 @@ TEST_CASE("fluid: the state table finds the states a registry declares") {
     fluids::FluidStateTable table;
     const int found = table.build_from(BlockRegistry::get_instance());
 
-    // Nine blocks declare a water state: water is the source, plus seven runoff
-    // depths and the falling column. surface_water is deliberately NOT one of
-    // them — generated ocean is not part of the flowing simulation (see
-    // block_definitions.json), so nothing about it can tick.
-    CHECK(found == 9);
+    // Twenty-three blocks declare a state: nine of water (the source, seven
+    // runoff depths and the falling column), five of lava (it stops at depth
+    // three, and a depth nothing can reach needs no block) and nine of acid.
+    // surface_water is deliberately NOT one of them — generated ocean is not
+    // part of the flowing simulation (see block_definitions.json), so nothing
+    // about it can tick.
+    CHECK(found == 23);
     CHECK(table.any());
     CHECK_FALSE(table.is_fluid(registry_block("surface_water")));
 
@@ -159,8 +161,28 @@ TEST_CASE("fluid: the state table finds the states a registry declares") {
     CHECK(table.state_of(falling).falling);
     CHECK(falling != source);  // a source and a falling column are different blocks
 
-    // A state this registry has no block for cannot be written, and says so.
-    CHECK(table.block_for(FluidCell{ FluidKind::Lava, 0, false }) == BlockIDs::AIR);
+    // The other two substances are found by the same scan, so a poured bucket of
+    // either has a block to write and a state to write into it.
+    const BlockID lava = table.block_for(FluidCell{ FluidKind::Lava, 0, false });
+    CHECK(lava != BlockIDs::AIR);
+    CHECK(table.state_of(lava).kind == FluidKind::Lava);
+    CHECK(table.state_of(lava).is_source());
+    // Lava's spread stops at depth three, so there is no deeper state to ask for.
+    CHECK(table.block_for(FluidCell{ FluidKind::Lava, 3, false }) != BlockIDs::AIR);
+    CHECK(table.block_for(FluidCell{ FluidKind::Lava, 4, false }) == BlockIDs::AIR);
+    CHECK(table.block_for(FluidCell{ FluidKind::Lava, 0, true }) != BlockIDs::AIR);
+
+    const BlockID acid = table.block_for(FluidCell{ FluidKind::Acid, 0, false });
+    CHECK(acid != BlockIDs::AIR);
+    CHECK(table.state_of(acid).kind == FluidKind::Acid);
+    for (uint8_t depth = 1; depth <= 7; ++depth) {
+        CHECK(table.block_for(FluidCell{ FluidKind::Acid, depth, false }) != BlockIDs::AIR);
+    }
+    // Three kinds, three sources, three different blocks.
+    CHECK(lava != source);
+    CHECK(acid != source);
+    CHECK(acid != lava);
+
     CHECK_FALSE(table.is_fluid(BlockIDs::STONE));
     CHECK_FALSE(table.is_fluid(BlockIDs::AIR));
     CHECK_FALSE(table.state_of(BlockIDs::STONE).present());
@@ -437,6 +459,82 @@ TEST_CASE("fluid: a tick writes each chunk once, not once per cell") {
             CHECK(fixture.table.is_fluid(record.block));
         }
     }
+}
+
+TEST_CASE("fluid: lava flows on its own clock and stops at its own depth") {
+    SimFixture fixture;
+    fixture.build_three_by_three();
+    fixture.sim.configure(FluidSim::Config{ 20.0, 4096, 100, 1.0 });
+
+    const BlockID source = fixture.table.block_for(FluidCell{ FluidKind::Lava, 0, false });
+    CHECK(source != BlockIDs::AIR);
+    fixture.map.get_chunk_data(0, 0, 0)->set_block(8, 1, 8, source);
+    fixture.sim.notify_block_changed(8, 1, 8);
+
+    // Five ticks is a quarter of a second, which is exactly when WATER would
+    // move; to lava it is nothing. Ticks rather than seconds here, because the
+    // subject is the per-kind delay and not the wall clock's rounding.
+    fixture.sim.run_ticks(5);
+    CHECK_FALSE(fixture.cell_at(9, 1, 8).present());
+
+    // Twenty ticks, one second: the first ring, as lava at depth one.
+    fixture.sim.run_ticks(15);
+    CHECK(fixture.cell_at(9, 1, 8).present());
+    CHECK(fixture.cell_at(9, 1, 8).kind == FluidKind::Lava);
+    CHECK(fixture.cell_at(9, 1, 8).depth == 1);
+
+    // And it stops where lava stops: three cells out. There is no block for a
+    // fourth depth and no rule that would ask for one.
+    CHECK(fixture.sim.run_to_settled() > 0);
+    CHECK(fixture.cell_at(8, 1, 8).is_source());
+    CHECK(fixture.cell_at(8, 1, 8).kind == FluidKind::Lava);
+    CHECK(fixture.cell_at(11, 1, 8).depth == 3);
+    CHECK(fixture.cell_at(11, 1, 8).kind == FluidKind::Lava);
+    CHECK_FALSE(fixture.cell_at(12, 1, 8).present());
+    CHECK_FALSE(fixture.cell_at(8, 1, 12).present());
+    CHECK(fixture.count_fluid() == 25);  // a diamond of radius 3
+}
+
+TEST_CASE("fluid: a splash of acid drains where the same water would have pooled") {
+    // The rule acid is missing, end to end: two sources with one cell between
+    // them. Water turns that cell into a spring and the pool lives forever; acid
+    // leaves it as runoff, so when the two sources go the whole thing dries up.
+    auto pour_pair = [](FluidKind kind, SimFixture& fixture) {
+        fixture.build_three_by_three();
+        fixture.sim.configure(FluidSim::Config{ 20.0, 4096, 200, 1.0 });
+        const BlockID source = fixture.table.block_for(FluidCell{ kind, 0, false });
+        fixture.map.get_chunk_data(0, 0, 0)->set_block(5, 1, 7, source);
+        fixture.map.get_chunk_data(0, 0, 0)->set_block(7, 1, 7, source);
+        fixture.sim.notify_block_changed(5, 1, 7);
+        fixture.sim.notify_block_changed(7, 1, 7);
+        CHECK(fixture.sim.run_to_settled() > 0);
+    };
+
+    SimFixture water;
+    pour_pair(FluidKind::Water, water);
+    CHECK(water.cell_at(6, 1, 7).is_source());
+
+    SimFixture acid;
+    pour_pair(FluidKind::Acid, acid);
+    CHECK_FALSE(acid.cell_at(6, 1, 7).is_source());
+    CHECK(acid.cell_at(6, 1, 7).present());
+
+    // Take the two sources away: the water pool stands (the middle spring now
+    // feeds it), while the acid has nothing left holding it up.
+    water.map.get_chunk_data(0, 0, 0)->set_block(5, 1, 7, BlockIDs::AIR);
+    water.map.get_chunk_data(0, 0, 0)->set_block(7, 1, 7, BlockIDs::AIR);
+    water.sim.notify_block_changed(5, 1, 7);
+    water.sim.notify_block_changed(7, 1, 7);
+    CHECK(water.sim.run_to_settled() > 0);
+    CHECK(water.cell_at(6, 1, 7).is_source());
+    CHECK(water.count_fluid() > 1);
+
+    acid.map.get_chunk_data(0, 0, 0)->set_block(5, 1, 7, BlockIDs::AIR);
+    acid.map.get_chunk_data(0, 0, 0)->set_block(7, 1, 7, BlockIDs::AIR);
+    acid.sim.notify_block_changed(5, 1, 7);
+    acid.sim.notify_block_changed(7, 1, 7);
+    CHECK(acid.sim.run_to_settled() > 0);
+    CHECK(acid.count_fluid() == 0);
 }
 
 TEST_CASE("fluid: the same scene floods the same way twice") {

@@ -18,12 +18,14 @@
 		{
 			"name": "acid_bucket",
 			"texture": "acid_bucket",
-			"pose": "item2"
+			"pose": "item2",
+			"use": { "kind": "pour", "block": "acid" }
 		},
 		{
 			"name": "lava_bucket",
 			"texture": "lava_bucket",
-			"pose": "item2"
+			"pose": "item2",
+			"use": { "kind": "pour", "block": "lava" }
 		},
 		{
 			"name": "stone_hammer",

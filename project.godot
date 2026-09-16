@@ -26,6 +26,7 @@ SkinManager="*res://skin_manager.gd"
 BlockManager="*res://block_manager.gd"
 BlockIconRenderer="*res://block_icon_renderer.gd"
 PoseCloneDebug="*res://pose_clone_debug.gd"
+LiquidAnimator="*res://liquid_animator.gd"
 LiquidTextureLab="*res://liquid_texture_lab.gd"
 
 [display]

@@ -133,6 +133,12 @@ struct FluidTraits {
     int tick_delay = 5;
     // How far the drop-seeking search may look, in steps.
     int search_distance = 4;
+    // Whether two side sources over something solid conjure a source in this
+    // cell (rule 5 in the header). That is what makes a poured pool feed itself
+    // and what lets two spring blocks a gap apart fill the gap between them.
+    // Water and lava have it; acid does not, so a splash of acid spends itself
+    // and drains rather than becoming an endless supply.
+    bool sources_pair_into_source = true;
 };
 
 // Traits for a kind, or null when that fluid does not flow yet.

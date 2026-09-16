@@ -7,9 +7,32 @@ namespace fluids {
 
 const FluidTraits* traits_for(FluidKind kind) noexcept {
     // Water is the fluid the whole system was designed around, so the struct's
-    // defaults are its numbers; a kind listed here would carry its own.
+    // defaults are its numbers.
     static const FluidTraits kWater{};
-    return kind == FluidKind::Water ? &kWater : nullptr;
+
+    // Lava: the slow, shallow cousin of water — three cells deep instead of
+    // seven, and a second between one cell and the next, so a poured pool
+    // creeps outward and then sits there. It also looks less far for a drop. It
+    // keeps the source-pair rule, which is what stops a wide pool draining away
+    // again.
+    //                       decay, depth, tick delay, search, pools
+    static const FluidTraits kLava{ 1, 3, 20, 3, true };
+
+    // Acid: water's depth, but quicker cell to cell, and it looks one step
+    // further for a drop than water does — it would rather run for the drain
+    // than pool where it landed. It is also the one substance that does NOT
+    // pool from source pairs: two buckets of acid do not conjure a third
+    // source, so a splash spends itself and drains.
+    //                       decay, depth, tick delay, search, pools
+    static const FluidTraits kAcid{ 1, 7, 3, 5, false };
+
+    switch (kind) {
+        case FluidKind::Water: return &kWater;
+        case FluidKind::Lava: return &kLava;
+        case FluidKind::Acid: return &kAcid;
+        case FluidKind::None: break;
+    }
+    return nullptr;
 }
 
 namespace {
@@ -173,7 +196,7 @@ FluidStep tick(const FluidWorld& world, int x, int y, int z) noexcept {
         // Two side sources over something to sit on turn this cell into a source
         // itself. This runs last, so it beats both verdicts above — which is how
         // a poured pool becomes self-sustaining.
-        if (sources >= 2 && current.kind == FluidKind::Water &&
+        if (sources >= 2 && traits->sources_pair_into_source &&
             (world.blocked(x, y - 1, z) || source_at(world, x, y - 1, z, current.kind))) {
             step.next = FluidCell{ current.kind, 0, false };
             dry = false;

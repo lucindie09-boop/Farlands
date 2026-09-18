@@ -566,3 +566,52 @@ TEST_CASE("fluid: the same scene floods the same way twice") {
     CHECK(first == second);
     CHECK(first.find('S') != std::string::npos);
 }
+
+TEST_CASE("fluid: a flood front advances at the same rate in every direction") {
+    SimFixture fixture;
+    fixture.build_three_by_three();
+    const int32_t sx = 8;
+    const int32_t sz = 8;
+    fixture.put_source(sx, sz);
+    fixture.sim.configure(FluidSim::Config{ 20.0, 4096, 100, 1.0 });
+
+    // How far the flood has reached along a direction: the last step out that
+    // holds any fluid at all.
+    const auto reach = [&](int32_t dx, int32_t dz) {
+        int last = 0;
+        for (int step = 1; step <= 8; ++step) {
+            if (fixture.cell_at(sx + dx * step, 1, sz + dz * step).present()) last = step;
+        }
+        return last;
+    };
+
+    // Water moves one cell per 5 ticks, so after 5*step ticks the front must sit
+    // exactly `step` cells out in ALL FOUR directions, with the depth equal to
+    // the distance. Checking one axis (as the test above does) is not enough:
+    // a spreading cell wakes +x, -x, +z, -z in that order, so the cells that
+    // come last in a tick are the ones a same-tick write lands on — and when
+    // that write replaced their pending tick instead of adding one, only the
+    // north/south fronts fell a whole delay behind, for good. A flood has to
+    // spread as a diamond, and it has to grow at one rate.
+    for (int step = 1; step <= 5; ++step) {
+        fixture.sim.run_ticks(5);
+        CHECK(reach(1, 0) == step);
+        CHECK(reach(-1, 0) == step);
+        CHECK(reach(0, 1) == step);
+        CHECK(reach(0, -1) == step);
+        CHECK(fixture.cell_at(sx + step, 1, sz).depth == step);
+        CHECK(fixture.cell_at(sx - step, 1, sz).depth == step);
+        CHECK(fixture.cell_at(sx, 1, sz + step).depth == step);
+        CHECK(fixture.cell_at(sx, 1, sz - step).depth == step);
+    }
+
+    // And it still settles: the front stops at seven, the pool is the same
+    // diamond whatever order it grew in, and the queue drains.
+    CHECK(fixture.sim.run_to_settled() > 0);
+    CHECK(fixture.sim.pending_count() == 0);
+    CHECK(reach(1, 0) == 7);
+    CHECK(reach(-1, 0) == 7);
+    CHECK(reach(0, 1) == 7);
+    CHECK(reach(0, -1) == 7);
+    CHECK(fixture.count_fluid() == 113);
+}

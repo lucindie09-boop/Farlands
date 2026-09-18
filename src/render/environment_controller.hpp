@@ -42,6 +42,8 @@ public:
     bool get_player_light_enabled() const { return player_light.get_enabled(); }
     void set_player_light_level(int32_t level) { player_light.set_level(static_cast<uint8_t>(std::clamp(level, 0, 15))); }
     int32_t get_player_light_level() const { return static_cast<int32_t>(player_light.get_level()); }
+    void set_player_light_color(const godot::Color& color) { player_light.set_color(color); }
+    godot::Color get_player_light_color() const { return player_light.get_color(); }
 
     void set_day_night_cycle_enabled(bool enabled) { day_night.set_enabled(enabled); update_shader_parameters(); }
     bool get_day_night_cycle_enabled() const { return day_night.get_enabled(); }

@@ -141,6 +141,13 @@ private:
     // Writes `fluid_block` into the cell the crosshair is against (the cell a block
     // would be placed in). Returns true when it actually landed.
     bool pour_fluid_at_aim(VoxelEngine::BlockID fluid_block);
+    // Empties the fluid SOURCE the crosshair is on into the held container,
+    // swapping it for that fluid's filled bucket. Returns true when it landed.
+    bool fill_bucket_at_aim();
+    // The selected slot's item owns the player's dynamic light while it lights
+    // one (items.json "light"); otherwise the light goes back to whatever the
+    // scene's own toggle said before the item took it over.
+    void update_held_light();
     // Re-attack interval while holding LMB on the dummy (vanilla attack cadence).
     float punch_cooldown_ = 0.0f;
     VoxelEngine::PlayerSim sim_;
@@ -160,6 +167,12 @@ private:
     bool inventory_saved_ = false;
     float rendered_eye_height_ = 1.62f;
     int block_edit_counter_ = 0;
+    // The held item currently driving the dynamic light, or AIR when the
+    // selected slot does not light. `light_manual_enabled_` is the scene's own
+    // player_light_enabled as it was when that item took the light over, so
+    // putting the item away restores the setting instead of clobbering it.
+    VoxelEngine::BlockID light_item_ = 0;
+    bool light_manual_enabled_ = false;
     // Hold-to-break state. break_target_valid_ = a block is being mined (progress
     // may be paused); progress survives releasing LMB and resets on target change.
     bool break_target_valid_ = false;

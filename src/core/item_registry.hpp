@@ -26,23 +26,40 @@ struct ItemToolStats {
     [[nodiscard]] bool is_tool() const noexcept { return !tool_class.empty(); }
 };
 
+// Optional held-item light (items.json "light" object). While an item with one
+// of these is in the selected hotbar slot, it drives the player's dynamic light
+// (see PlayerController::update_held_light): level and colour come from here and
+// the light is forced on. `level` is the usual 0-15 light scale; the colour is a
+// plain linear RGB triple rather than a godot::Color so the registry stays
+// usable in fuzz builds, which have no godot dependency.
+struct ItemLight {
+    int32_t level = 0;   // 0-15, clamped on read by the light itself
+    float r = 1.0f;
+    float g = 1.0f;
+    float b = 1.0f;
+};
+
 // Optional in-world use action on an item (items.json "use" object). An item
 // with no "use" entry does nothing when right-clicked; see
-// PlayerController::use_item(). `kind` selects the behaviour — "pour" writes a
-// fluid source into the cell the crosshair is against — and `block` is what it
-// writes, resolved from `block_name` at load time.
+// PlayerController::use_item(). `kind` selects the behaviour:
+//   "pour" — write the fluid source named by `block` into the cell the crosshair
+//            is against.
+//   "fill" — pick up the fluid SOURCE the crosshair is on, emptying the cell.
+// `block` is what a pour writes, resolved from `block_name` at load time; a fill
+// has no block and leaves it AIR.
 //
 // Resolution happens here rather than at use because blocks are loaded before
 // items (VoxelEngineController), and it is deliberately NOT resolved lazily: a
 // name that does not resolve is a data mistake and has to be visible at startup
 // rather than silently doing nothing the first time someone right-clicks.
 struct ItemUseAction {
-    std::string kind;        // "pour", or empty for an item with no in-world use
+    std::string kind;        // "pour"/"fill", or empty for an item with no in-world use
     std::string block_name;  // the target as written in items.json
     BlockID block = 0;       // resolved block id; AIR = the name did not resolve
 
     [[nodiscard]] bool has_use() const noexcept { return !kind.empty(); }
     [[nodiscard]] bool is_pour() const noexcept { return kind == "pour"; }
+    [[nodiscard]] bool is_fill() const noexcept { return kind == "fill"; }
 };
 
 // Non-placeable inventory objects (sticks, tools, ...) living in their own ID
@@ -74,6 +91,9 @@ public:
     // nullptr when the id is not an item. The returned action reports
     // has_use() == false for an item with no "use" entry.
     [[nodiscard]] const ItemUseAction* get_item_use(BlockID id) const noexcept;
+    // nullptr when the id is not an item, or when the item lights nothing. The
+    // returned light reports level 0 for an item with no "light" entry.
+    [[nodiscard]] const ItemLight* get_item_light(BlockID id) const noexcept;
     [[nodiscard]] size_t get_item_count() const noexcept {
         return items_.size();
     }
@@ -87,6 +107,8 @@ private:
         std::string texture;
         ItemToolStats tool;
         ItemUseAction use;
+        ItemLight light;
+        bool has_light = false;
     };
     std::deque<ItemDef> items_;  // deque: name pointers stay valid on growth
 };

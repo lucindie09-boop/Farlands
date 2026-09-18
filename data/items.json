@@ -66,6 +66,23 @@
 			"name": "iron_pickaxe",
 			"texture": "iron_pickaxe",
 			"tool": { "class": "pickaxe", "tier": 3, "speed": 5.0 }
+		},
+		{
+			"name": "torch",
+			"texture": "torch",
+			"pose": "item2",
+			"light": { "level": 14, "color": [1.0, 0.83, 0.6] }
+		},
+		{
+			"name": "bucket",
+			"texture": "bucket",
+			"pose": "item2",
+			"use": { "kind": "fill" }
+		},
+		{
+			"name": "iron_ingot",
+			"texture": "iron_ingot",
+			"pose": "item2"
 		}
 	]
 }

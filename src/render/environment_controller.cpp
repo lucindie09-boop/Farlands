@@ -13,11 +13,14 @@ void EnvironmentController::update(double delta, double runtime_elapsed, const g
     day_night.update(delta);
     update_shader_parameters();
 
+    // The colour is whatever the light is set to, not a constant: a held torch
+    // owns both the level and the tint (see PlayerController::update_held_light),
+    // so the glow around the player matches the item being carried.
     material_manager.update_player_light(
         player_pos,
         8.0f,
         player_light.get_enabled() ? player_light.get_level() / 15.0f : 0.0f,
-        godot::Color(1.0f, 0.9f, 0.7f)
+        player_light.get_color()
     );
 }
 

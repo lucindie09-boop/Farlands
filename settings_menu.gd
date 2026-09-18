@@ -3,7 +3,6 @@ extends Control
 const MUNRO_FONT: Font = preload("res://fonts/munro.ttf")
 const BUTTON_TEX: Texture2D = preload("res://textures/gui/button.png")
 const BUTTON_SQUARE_TEX: Texture2D = preload("res://textures/gui/button_square.png")
-const UNDO_TEX: Texture2D = preload("res://textures/gui/undo_button.png")
 const SLIDER_TRACK_TEX: Texture2D = preload("res://textures/gui/slider_button.png")
 const SLIDER_THUMB_TEX: Texture2D = preload("res://textures/gui/slider.png")
 const SETTINGS_PATH := "user://settings.cfg"
@@ -21,8 +20,8 @@ const UNIT_FONT := 8.0            # the interface font's height: EVERY label
 const UNIT_BUTTON_W := 200.0      # a full-width button: menu rows and footer actions
 const UNIT_BUTTON_H := 20.0       # every widget's height, sliders included
 const UNIT_OPTION_W := 150.0      # one option in the two-column list
-const UNIT_UNDO_W := 20.0         # the per-row reset square
-const UNIT_RESET_W := 60.0        # ...or the older "Reset" text button
+const UNIT_UNDO_W := 60.0         # a per-row reset button (new style)
+const UNIT_RESET_W := 60.0        # a per-row reset button (old style)
 const UNIT_ROW_GAP := 2.0         # between an option and its reset
 const UNIT_HEADING_H := 20.0      # one section heading's row
 const UNIT_GAP := 4.0             # between two rows
@@ -351,8 +350,10 @@ func _rebuild_pages():
 			p.queue_free()
 	_pages.clear()
 	_pages["pause"] = _build_pause_page()
-	# One settings page: every category is a section of it.
+	# One settings page for the general categories; controls is its own page.
 	_pages["settings"] = _build_settings_page()
+	_pages["controls"] = _build_controls_page()
+	_pages["tools"] = _build_tools_page()
 	_pages["skin_maker"] = _build_skin_maker_page()
 	_pages["block_maker"] = _build_block_maker_page()
 	for p in _pages.values():
@@ -388,7 +389,7 @@ func _build_pause_page() -> Control:
 
 	var column := VBoxContainer.new()
 	var col_w := UNIT_BUTTON_W * u
-	var col_h := (UNIT_BUTTON_H * 2.0 + UNIT_GAP) * u
+	var col_h := (UNIT_BUTTON_H * 4.0 + UNIT_GAP * 3.0) * u
 	column.anchor_left = 0.5
 	column.anchor_right = 0.5
 	column.anchor_top = 0.5
@@ -406,40 +407,71 @@ func _build_pause_page() -> Control:
 	var settings := _make_widget_button("Settings")
 	settings.pressed.connect(func(): _show_page("settings"))
 	column.add_child(settings)
+	var controls := _make_widget_button("Controls")
+	controls.pressed.connect(func(): _show_page("controls"))
+	column.add_child(controls)
+	var tools := _make_widget_button("Tools")
+	tools.pressed.connect(func(): _show_page("tools"))
+	column.add_child(tools)
 	page.add_child(column)
 	return page
 
-# Escape opens straight into the settings: every category sits on this one
-# scrolling page, each under its own title, the way the reference's screen lists
-# its groups. There are no category buttons — what used to be a page per category
-# is now a section of this one.
+# Escape opens straight into the settings: the general options sit on this one
+# scrolling page under their category titles. Controls and Tools each have
+# their own page, reached from their own buttons on the pause menu.
 func _build_settings_page() -> Control:
 	var sections: Array = []
-	sections.append(["GUI", [], "category"])
-	sections.append_array(_build_gui_sections())
-	sections.append(["Lighting", [], "category"])
-	sections.append_array(_build_lighting_sections())
-	sections.append(["Video Settings", [], "category"])
-	sections.append_array(_build_render_sections())
-	sections.append(["Controls", [], "category"])
-	sections.append_array(_build_controls_sections())
-	sections.append(["Crosshair", [], "category"])
-	sections.append_array(_build_crosshair_sections())
-	sections.append(["Block Outline", [], "category"])
-	sections.append_array(_build_block_outline_sections())
+	sections.append_array(_category("General", _build_general_sections()))
+	sections.append_array(_category("Block Outline", _build_block_outline_sections()))
+	sections.append_array(_category("Crosshair", _build_crosshair_sections()))
+	sections.append_array(_category("Advanced Rendering", _build_lighting_sections()))
+	sections.append_array(_category("Render", _build_render_sections()))
 
-	# The two editors are not settings, but they are reached from here.
-	sections.append(["Editors", [], "category"])
+	return _build_scrolling_page("Settings", sections,
+		[["Back", func(): _show_page("pause")], ["Done", _close]], UNIT_OPTION_W,
+		2, Color(0, 0, 0, 0))
+
+# Tools is its own page on the pause menu: the two editors are not settings,
+# so they are not on the settings list.
+func _build_tools_page() -> Control:
 	var skin_btn := _make_widget_button("Skin Maker")
 	skin_btn.pressed.connect(func(): _show_page("skin_maker"))
 	var block_btn := _make_widget_button("Block Maker")
 	block_btn.pressed.connect(func(): _show_page("block_maker"))
-	sections.append(["", [["", skin_btn, null], ["", block_btn, null]]])
+	return _build_scrolling_page("Tools",
+		[["", [["", skin_btn, null], ["", block_btn, null]]]],
+		[["Back", func(): _show_page("pause")], ["Done", _close]], UNIT_BUTTON_W, 1,
+		Color(0, 0, 0, 0))
 
-	return _build_scrolling_page("Settings", sections,
-		[["Back", func(): _show_page("pause")], ["Done", _close]], UNIT_OPTION_W + 20.0)
+# Flatten an area's sections into one category heading followed by its rows.
+func _category(title: String, grouped: Array) -> Array:
+	var rows: Array = []
+	for section in grouped:
+		rows.append_array(section[1])
+	return [[title, rows, "category"]]
 
-func _build_gui_sections() -> Array:
+# Zip two row lists into one grid's worth of rows so the first list reads as
+# the left column and the second as the right: the grid fills row-major, so
+# head-to-tail would alternate them instead.
+func _interleave(left: Array, right: Array) -> Array:
+	var rows: Array = []
+	for i in range(maxi(left.size(), right.size())):
+		if i < left.size():
+			rows.append(left[i])
+		if i < right.size():
+			rows.append(right[i])
+	return rows
+
+# Controls has its own page, entered from the pause menu: one row per rebindable
+# action, the conflict hint at the end, Reset All below the rows it resets.
+func _build_controls_page() -> Control:
+	var sections: Array = []
+	sections.append_array(_category("Controls", _build_controls_sections()))
+	return _build_scrolling_page("Controls", sections,
+		[["Back", func(): _show_page("pause")], ["Done", _close]], UNIT_OPTION_W + 20.0,
+		2, Color(0, 0, 0, 0))
+
+func _build_general_sections() -> Array:
 	var scale_btn := _make_widget_button("", 180.0)
 	var scale_values := [1.0, 2.0, 3.0, 4.0]
 	_row_value(scale_btn, str(int(round(UIScale.value))) + "x")
@@ -556,8 +588,7 @@ func _build_crosshair_sections() -> Array:
 
 	return [
 		["", [["", preview, null, "span"]]],
-		["Cross", cross_rows],
-		["Dot", dot_rows],
+		["", _interleave(cross_rows, dot_rows)],
 		["Preset", [
 			["", export_btn, null],
 			["", import_btn, null],
@@ -2745,7 +2776,7 @@ func _flat_style(color: Color) -> StyleBoxFlat:
 # above — see _build_settings_page().
 # -----------------------------------------------------------------------------
 func _build_scrolling_page(title_text: String, sections: Array, actions: Array,
-		option_w := UNIT_OPTION_W, columns := 2) -> Control:
+		option_w := UNIT_OPTION_W, columns := 2, content_bg := BOX_COLOR) -> Control:
 	var u := _ui_scale()
 	var page := Control.new()
 	page.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -2766,8 +2797,8 @@ func _build_scrolling_page(title_text: String, sections: Array, actions: Array,
 	var footer_h := (UNIT_BUTTON_H + UNIT_MARGIN * 2.0) * u
 
 	# --- the title bar, and the action bar that mirrors it at the bottom
-	page.add_child(_bar(u, true, bar_h))
-	page.add_child(_bar(u, false, footer_h))
+	page.add_child(_bar(true, bar_h))
+	page.add_child(_bar(false, footer_h))
 
 	var title := Label.new()
 	title.text = title_text
@@ -2797,7 +2828,7 @@ func _build_scrolling_page(title_text: String, sections: Array, actions: Array,
 	# --- the content box: a fixed column, centred, between the two bars
 	var box := Panel.new()
 	var box_style := StyleBoxFlat.new()
-	box_style.bg_color = BOX_COLOR
+	box_style.bg_color = content_bg
 	box_style.border_color = BOX_BORDER_COLOR
 	box_style.set_border_width_all(maxi(1, int(round(u))))
 	box.add_theme_stylebox_override("panel", box_style)
@@ -2854,6 +2885,7 @@ func _build_scrolling_page(title_text: String, sections: Array, actions: Array,
 			heading.custom_minimum_size = Vector2(grid_w * u, UNIT_HEADING_H * u)
 			heading.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 			heading.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			heading.set_meta("is_heading", true)
 			body.add_child(heading)
 
 		var rows: Array = section[1]
@@ -2900,11 +2932,7 @@ func _make_row_cell(row: Array, cell_w: float, reset_w: float, row_gap: float, o
 
 	var reset: Variant = row[2] if row.size() > 2 else null
 	if reset != null:
-		var rb: Button
-		if _old_reset_buttons:
-			rb = _make_widget_button("Reset", UNIT_RESET_W)
-		else:
-			rb = _make_undo_button(UNIT_UNDO_W, false)
+		var rb := _make_widget_button("Reset", UNIT_RESET_W)
 		rb.custom_minimum_size = Vector2(reset_w * u, UNIT_BUTTON_H * u)
 		rb.pressed.connect(reset)
 		cell.add_child(rb)
@@ -2942,7 +2970,7 @@ func _apply_row_label(control: Control, label: String) -> void:
 	_row_value(control, String(control.get_meta("row_value", control.text)))
 
 # A full-width strip: the title bar when `top`, the action bar otherwise.
-func _bar(u: float, top: bool, height: float) -> ColorRect:
+func _bar(top: bool, height: float) -> ColorRect:
 	var bar := ColorRect.new()
 	bar.color = BAR_COLOR
 	bar.set_anchors_preset(Control.PRESET_TOP_WIDE if top else Control.PRESET_BOTTOM_WIDE)
@@ -3043,14 +3071,6 @@ func _style_button(btn: Button, width: float):
 	btn.clip_text = true
 	btn.custom_minimum_size = Vector2(width, UNIT_BUTTON_H) * s
 
-func _make_undo_button(width := UNIT_BUTTON_W, centered := true) -> Button:
-	var btn := Button.new()
-	btn.text = ""
-	_style_undo_button(btn, width)
-	if centered:
-		btn.set_anchors_preset(Control.PRESET_CENTER)
-	return btn
-
 # -----------------------------------------------------------------------------
 # "Label: value" inside the widget
 #
@@ -3077,22 +3097,6 @@ func _row_value(control: Control, value: String) -> void:
 			target.text = text
 	else:
 		control.text = text
-
-func _style_undo_button(btn: Button, width: float):
-	var s := _ui_scale()
-	var normal := StyleBoxTexture.new()
-	normal.texture = UNDO_TEX
-	var hover := StyleBoxTexture.new()
-	hover.texture = UNDO_TEX
-	hover.modulate_color = Color(1.2, 1.2, 1.2)
-	var pressed := StyleBoxTexture.new()
-	pressed.texture = UNDO_TEX
-	pressed.modulate_color = Color(0.75, 0.75, 0.75)
-	btn.add_theme_stylebox_override("normal", normal)
-	btn.add_theme_stylebox_override("hover", hover)
-	btn.add_theme_stylebox_override("pressed", pressed)
-	btn.add_theme_stylebox_override("focus", normal)
-	btn.custom_minimum_size = Vector2(width, width) * s
 
 # Crosshair export/import (CS-style codes)
 func _export_crosshair_code() -> String:
@@ -3372,10 +3376,9 @@ func _input(event):
 		match _current_page:
 			"pause":
 				_close()
-			"settings":
-				_show_page("pause")
 			_:
-				_show_page("settings")
+				# Settings, Controls and the editors all step back to the menu.
+				_show_page("pause")
 		get_viewport().set_input_as_handled()
 	elif not player_controller.is_chat_open() and not player_controller.is_inventory_open() \
 			and not player_controller.is_table_menu_open():

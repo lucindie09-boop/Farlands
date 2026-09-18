@@ -224,11 +224,19 @@ void PlayerController::_ready() {
         add_child(model_pivot_);
     }
     model_ = Object::cast_to<Node3D>(find_child("PlayerModel", true, false));
-    if (model_ && model_->get_parent() != model_pivot_) {
-        model_->reparent(model_pivot_);
-    }
     if (model_) {
+        if (model_->get_parent() != model_pivot_) {
+            model_->reparent(model_pivot_);
+        }
         model_->set_visible(third_person_view_ > 0);
+    } else {
+        // Every third-person path keys off model_, so a missing node degrades to
+        // "F5 shows an empty world" with no error anywhere. An editor re-save of
+        // Main.tscn can drop the node without touching anything else, so say so
+        // loudly instead of letting the body vanish in silence.
+        WARN_PRINT("PlayerController: no \"PlayerModel\" node under the scene — "
+                   "third person will show no body. Main.tscn should instance "
+                   "player.glb as Player/PlayerModel with player_model.gd attached.");
     }
 
     Node* cm_node = get_node_or_null(NodePath("/root/Main/ChunkManager"));

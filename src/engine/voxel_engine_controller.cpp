@@ -408,6 +408,9 @@ bool VoxelEngineController::get_player_light_enabled() const { return environmen
 void VoxelEngineController::set_player_light_level(int32_t level) { environment_controller.set_player_light_level(level); }
 int32_t VoxelEngineController::get_player_light_level() const { return environment_controller.get_player_light_level(); }
 
+void VoxelEngineController::set_player_light_color(const godot::Color& color) { environment_controller.set_player_light_color(color); }
+godot::Color VoxelEngineController::get_player_light_color() const { return environment_controller.get_player_light_color(); }
+
 void VoxelEngineController::set_day_time(double t) { environment_controller.set_day_time(t); }
 double  VoxelEngineController::get_day_time() const { return environment_controller.get_day_time(); }
 

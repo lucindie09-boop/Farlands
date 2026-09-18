@@ -150,6 +150,9 @@ bool get_smooth_lighting() const;
     void set_player_light_level(int32_t level);
     int32_t get_player_light_level() const;
 
+    void set_player_light_color(const godot::Color& color);
+    godot::Color get_player_light_color() const;
+
 void set_day_time(double t);
 double get_day_time() const;
 void set_time(double t);

@@ -22,6 +22,12 @@ namespace VoxelEngine {
 // -------------------------------------------------------------------------
 class PlayerLight {
 public:
+    // The level and colour a light has before any held item claims it. Named so
+    // that handing the light back after a torch is put away restores exactly the
+    // state the scene started with rather than a copied guess.
+    static constexpr uint8_t DEFAULT_LEVEL = 12;
+    static godot::Color default_color() { return godot::Color(1.0f, 0.9f, 0.7f); }
+
     using LightPropagateRemove = std::function<void(int32_t, int32_t, int32_t, std::vector<LightNode>&, std::vector<LightNode>&)>;
     using LightPropagateAdd = std::function<void(int32_t, int32_t, int32_t, std::vector<LightNode>&)>;
     using MarkDirtyFn = std::function<void(int32_t, int32_t, int32_t)>;
@@ -143,10 +149,16 @@ public:
     bool get_enabled() const { return enabled; }
     void set_level(uint8_t l) { level = l; }
     uint8_t get_level() const { return level; }
+    // Colour of the light as pushed to the world shaders. Warm white by
+    // default — the value the shader uniforms used before this was settable —
+    // so a held item that lights nothing changes no pixels.
+    void set_color(const godot::Color& c) { color = c; }
+    godot::Color get_color() const { return color; }
 
 private:
     bool enabled = true;
-    uint8_t level = 12;
+    uint8_t level = DEFAULT_LEVEL;
+    godot::Color color = default_color();
     int32_t last_x = INT32_MIN;
     int32_t last_y = INT32_MIN;
     int32_t last_z = INT32_MIN;

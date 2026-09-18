@@ -11,6 +11,17 @@
 
 namespace VoxelEngine {
 
+namespace {
+
+// A light colour is a fraction of full strength per channel; a fat-fingered 4.0
+// would blow out every surface it touches, so it is clamped rather than trusted.
+inline float clamp01(float v) noexcept {
+    if (!(v > 0.0f)) return 0.0f;  // also catches NaN
+    return v > 1.0f ? 1.0f : v;
+}
+
+} // namespace
+
 ItemRegistry& ItemRegistry::get_instance() {
     static ItemRegistry instance;
     return instance;
@@ -54,6 +65,14 @@ const ItemUseAction* ItemRegistry::get_item_use(BlockID id) const noexcept {
         return nullptr;
     }
     return &items_[static_cast<size_t>(id - FIRST_ITEM_ID)].use;
+}
+
+const ItemLight* ItemRegistry::get_item_light(BlockID id) const noexcept {
+    if (!is_item(id)) {
+        return nullptr;
+    }
+    const ItemDef& def = items_[static_cast<size_t>(id - FIRST_ITEM_ID)];
+    return def.has_light ? &def.light : nullptr;
 }
 
 #ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
@@ -111,9 +130,49 @@ bool ItemRegistry::load_from_json(const godot::String& json_path) noexcept {
                     ERR_PRINT("items.json entry " + name + ": use.block \"" + target
                               + "\" is not a known block, so right-clicking it does nothing");
                 }
+            } else if (kind == "fill") {
+                // A fill has no target block: it takes what is already in the
+                // world. A "block" alongside it would be ignored, so say so.
+                def.use.kind = "fill";
+                if (use.has("block")) {
+                    WARN_PRINT("items.json entry " + name
+                               + ": \"use\" fills the held container, so its \"block\" is unused");
+                }
             } else {
                 ERR_PRINT("items.json entry " + name + ": unknown use kind \"" + kind
                           + "\", ignored");
+            }
+        }
+        // Optional held-item light: {"level": 14, "color": [1.0, 0.83, 0.6]}.
+        // A colour is optional and defaults to warm white, so a torch can be
+        // added with a level alone. Level 0 means "inert": it would force the
+        // dynamic light on at zero strength, i.e. a light that lights nothing, so
+        // it is treated as no light at all rather than silently disabling it.
+        if (entry.has("light")) {
+            const godot::Dictionary light = entry["light"];
+            const int64_t level = static_cast<int64_t>(light.get("level", 0));
+            if (level <= 0) {
+                WARN_PRINT("items.json entry " + name + ": \"light\" level "
+                           + godot::String::num_int64(level) + " lights nothing, ignored");
+            } else {
+                const int64_t clamped = level > 15 ? 15 : level;
+                if (clamped != level) {
+                    WARN_PRINT("items.json entry " + name + ": \"light\" level "
+                               + godot::String::num_int64(level) + " exceeds 15, clamped");
+                }
+                def.light.level = static_cast<int32_t>(clamped);
+                if (light.has("color")) {
+                    const godot::Array rgb = light["color"];
+                    if (rgb.size() >= 3) {
+                        def.light.r = clamp01(static_cast<float>(static_cast<double>(rgb[0])));
+                        def.light.g = clamp01(static_cast<float>(static_cast<double>(rgb[1])));
+                        def.light.b = clamp01(static_cast<float>(static_cast<double>(rgb[2])));
+                    } else {
+                        WARN_PRINT("items.json entry " + name
+                                   + ": \"light\" color needs 3 components, using the default");
+                    }
+                }
+                def.has_light = true;
             }
         }
         items_.push_back(std::move(def));

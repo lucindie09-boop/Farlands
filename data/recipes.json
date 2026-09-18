@@ -145,10 +145,30 @@
     },
     {
       "type": "shaped",
-      "_comment": "Only the stone hammer has a material to build from — copper and iron hammers wait for their ingots to exist as items. The head is COBBLESTONE, which is what mining stone yields; mining stone no longer drops stone itself. 'f' is the head material, '/' the stick, and a space (not '-') is an empty cell, the only empty marker the loader accepts.",
+      "_comment": "The stone hammer's head is COBBLESTONE, which is what mining stone yields; mining stone no longer drops stone itself. Copper hammers wait for their ingot to exist as an item. 'f' is the head material, '/' the stick, and a space (not '-') is an empty cell, the only empty marker the loader accepts.",
       "pattern": [" f ", " /f", "/  "],
       "key": { "f": "cobblestone", "/": "stick" },
       "result": { "block": "stone_hammer", "count": 1 }
+    },
+    {
+      "type": "shaped",
+      "_comment": "The iron tools, built from the ingot the iron_ingot item provides. Shapes are the stone hammer's and the wooden pickaxe's: the hammer's head is the 'f' cell and the pickaxe is three ingots over two sticks.",
+      "pattern": [" f ", " /f", "/  "],
+      "key": { "f": "iron_ingot", "/": "stick" },
+      "result": { "block": "iron_hammer", "count": 1 }
+    },
+    {
+      "type": "shaped",
+      "pattern": ["III", " S ", " S "],
+      "key": { "I": "iron_ingot", "S": "stick" },
+      "result": { "block": "iron_pickaxe", "count": 1 }
+    },
+    {
+      "type": "shaped",
+      "_comment": "The empty bucket, the third thing the iron ingot buys: three ingots in a V, the classic shape, because an empty bucket has no other way to exist and the fill/pour loop needs one.",
+      "pattern": ["I I", " I "],
+      "key": { "I": "iron_ingot" },
+      "result": { "block": "bucket", "count": 1 }
     },
     {
       "type": "shaped",

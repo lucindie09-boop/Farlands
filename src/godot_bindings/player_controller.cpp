@@ -270,6 +270,11 @@ void PlayerController::_process(double delta) {
         if (needs_spawn_calc_) return;  // chunks not loaded yet, try next frame
     }
 
+    // The held item can light the player independently of movement, so this runs
+    // before the frozen/dead early-outs: the light must follow a hotbar switch
+    // and must be back in the right state when the player respawns.
+    update_held_light();
+
     if (!collision_resolver_ || dead_) return;
 
     update_break_progress(static_cast<float>(delta));
@@ -956,10 +961,50 @@ void PlayerController::use_item() {
     if (use != nullptr && use->has_use()) {
         if (use->is_pour()) {
             pour_fluid_at_aim(use->block);
+        } else if (use->is_fill()) {
+            fill_bucket_at_aim();
         }
         return;
     }
     place_block();
+}
+
+void PlayerController::update_held_light() {
+    if (!chunk_manager_) return;
+
+    // get_item_light returns nullptr for a non-item and for an item that lights
+    // nothing, which is the whole test: only a light item takes the light over.
+    const VoxelEngine::BlockID held = inventory_.get_selected_block();
+    const VoxelEngine::ItemLight* light =
+        VoxelEngine::ItemRegistry::get_instance().get_item_light(held);
+
+    if (light != nullptr) {
+        if (light_item_ != held) {
+            // A light item took the light over: remember what the scene's own
+            // toggle was before answering for it, so it can be handed back.
+            if (light_item_ == VoxelEngine::BlockIDs::AIR) {
+                light_manual_enabled_ = chunk_manager_->get_player_light_enabled();
+            }
+            light_item_ = held;
+            chunk_manager_->set_player_light_level(light->level);
+            chunk_manager_->set_player_light_color(
+                Color(light->r, light->g, light->b));
+        }
+        if (!chunk_manager_->get_player_light_enabled()) {
+            chunk_manager_->set_player_light_enabled(true);
+        }
+        return;
+    }
+
+    if (light_item_ != VoxelEngine::BlockIDs::AIR) {
+        // Put away. The item's light goes out — both the setting it forced and
+        // the level/colour it wrote — and the toggle that was live before it is
+        // what governs again.
+        light_item_ = VoxelEngine::BlockIDs::AIR;
+        chunk_manager_->set_player_light_enabled(light_manual_enabled_);
+        chunk_manager_->set_player_light_level(VoxelEngine::PlayerLight::DEFAULT_LEVEL);
+        chunk_manager_->set_player_light_color(VoxelEngine::PlayerLight::default_color());
+    }
 }
 
 bool PlayerController::pour_fluid_at_aim(VoxelEngine::BlockID fluid_block) {
@@ -993,6 +1038,97 @@ bool PlayerController::pour_fluid_at_aim(VoxelEngine::BlockID fluid_block) {
 
     cm->set_block(bx, by, bz, fluid_block);
     if (static_cast<VoxelEngine::BlockID>(cm->get_block(bx, by, bz)) != fluid_block) return false;
+
+    // Same feedback as a placement (drives the place swing), and the outline's
+    // edit counter so the crosshair target refreshes.
+    emit_signal("block_placed");
+    block_edit_counter_++;
+    return true;
+}
+
+bool PlayerController::fill_bucket_at_aim() {
+    Node* cm_node = get_node_or_null(NodePath("/root/Main/ChunkManager"));
+    if (!cm_node) return false;
+    ChunkManager* cm = Object::cast_to<ChunkManager>(cm_node);
+    if (!cm) return false;
+
+    Dictionary result = cm->raycast_from_camera(10.0);
+    if (!result.get("success", false)) return false;
+
+    const Vector3 hit_pos = result["position"];
+    const Vector3 front_pos = result["place_position"];
+    const int32_t hit_x = static_cast<int32_t>(std::floor(hit_pos.x));
+    const int32_t hit_y = static_cast<int32_t>(std::floor(hit_pos.y));
+    const int32_t hit_z = static_cast<int32_t>(std::floor(hit_pos.z));
+    const int32_t front_x = static_cast<int32_t>(std::floor(front_pos.x));
+    const int32_t front_y = static_cast<int32_t>(std::floor(front_pos.y));
+    const int32_t front_z = static_cast<int32_t>(std::floor(front_pos.z));
+
+    const VoxelEngine::BlockRegistry& registry = VoxelEngine::BlockRegistry::get_instance();
+    // A source a bucket can take: a declared fluid state at depth 0 that is not
+    // the falling column (a fall is full strength but it is not a source, and
+    // taking one would only leave a hole the column refills). Generated ocean
+    // water is refused because it is not a fluid state at all — the simulation
+    // never ticks it, so the hole would be permanent.
+    const auto pickable_at = [&](int32_t x, int32_t y, int32_t z,
+                                 VoxelEngine::BlockID& out_source,
+                                 VoxelEngine::FluidKind& out_kind) {
+        const int raw = cm->get_block(x, y, z);
+        if (raw <= 0) return false;
+        const VoxelEngine::BlockType& bt =
+            registry.get_block_fast(static_cast<VoxelEngine::BlockID>(raw));
+        if (!bt.is_fluid_state() || bt.fluid_depth != 0 || bt.fluid_falling) return false;
+        out_source = static_cast<VoxelEngine::BlockID>(raw);
+        out_kind = bt.fluid_kind;
+        return true;
+    };
+
+    // Two cells can be the one under the crosshair, and both are needed. A
+    // fluid is a short block, so looking steeply down lands on the fluid itself;
+    // looking flat across a pool passes over its surface and hits the floor
+    // under it, where the source is the free cell in front of that floor's face.
+    VoxelEngine::BlockID source = VoxelEngine::BlockIDs::AIR;
+    VoxelEngine::FluidKind kind = VoxelEngine::FluidKind::None;
+    int32_t bx = hit_x, by = hit_y, bz = hit_z;
+    if (!pickable_at(hit_x, hit_y, hit_z, source, kind)) {
+        if (!pickable_at(front_x, front_y, front_z, source, kind)) return false;
+        bx = front_x;
+        by = front_y;
+        bz = front_z;
+    }
+
+    // What the empty container becomes, by name, so the mapping stays in data:
+    // water -> water_bucket. No matching item means there is nothing to hand
+    // back, so the pickup is refused rather than spilling the fluid.
+    std::string filled_name(VoxelEngine::fluid_kind_name(kind));
+    filled_name += "_bucket";
+    const VoxelEngine::BlockID filled =
+        VoxelEngine::ItemRegistry::get_instance().get_item_id_by_name(filled_name.c_str());
+    if (filled == VoxelEngine::BlockIDs::AIR) {
+        WARN_PRINT("bucket pickup: no item named \"" + String(filled_name.c_str())
+                   + "\" for that fluid, so nothing was taken");
+        return false;
+    }
+
+    // Room for the swap first: emptying the cell and only then discovering the
+    // filled bucket does not fit would lose the fluid.
+    const VoxelEngine::BlockID held = inventory_.get_selected_block();
+    const int slot = inventory_.get_selected_slot();
+    const int held_count = inventory_.get_hotbar_slot(slot).count;
+    if (held_count > 1 && !inventory_.can_add_block(filled, 1)) return false;
+
+    // Empty the cell. The edit notifies the fluid simulation (see
+    // ChunkWorld::add_block_edit), so the neighbours wake and settle: a gap in a
+    // stream is filled back in by the water around it.
+    cm->set_block(bx, by, bz, 0);
+    if (cm->get_block(bx, by, bz) != 0) return false;
+
+    if (held_count > 1) {
+        inventory_.set_hotbar_slot(slot, held, held_count - 1);
+        inventory_.add_block(filled, 1);
+    } else {
+        inventory_.set_hotbar_slot(slot, filled, 1);
+    }
 
     // Same feedback as a placement (drives the place swing), and the outline's
     // edit counter so the crosshair target refreshes.

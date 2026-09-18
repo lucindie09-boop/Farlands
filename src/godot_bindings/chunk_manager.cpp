@@ -459,6 +459,9 @@ bool ChunkManager::get_player_light_enabled() const { return controller->get_pla
 void ChunkManager::set_player_light_level(int32_t level) { controller->set_player_light_level(level); }
 int32_t ChunkManager::get_player_light_level() const { return controller->get_player_light_level(); }
 
+void ChunkManager::set_player_light_color(const Color& color) { controller->set_player_light_color(color); }
+Color ChunkManager::get_player_light_color() const { return controller->get_player_light_color(); }
+
 void ChunkManager::set_day_time(double t) { controller->set_day_time(t); }
 double ChunkManager::get_day_time() const { return controller->get_day_time(); }
 void ChunkManager::set_time(double t) { controller->set_time(t); }
@@ -817,6 +820,7 @@ BIND_PROP(Variant::BOOL, smooth_lighting, "enabled");
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "far_lod_detail_level", PROPERTY_HINT_RANGE, "0.125,1.0,0.005"), "set_far_lod_detail_level", "get_far_lod_detail_level");
     BIND_PROP(Variant::BOOL,    player_light_enabled,      "enabled");
     BIND_PROP(Variant::INT,     player_light_level,        "level");
+    BIND_PROP(Variant::COLOR,   player_light_color,        "color");
 BIND_PROP(Variant::FLOAT, day_time, "time");
     BIND_PROP(Variant::BOOL,    day_night_cycle_enabled,   "enabled");
     BIND_PROP(Variant::FLOAT,   day_duration,              "duration");

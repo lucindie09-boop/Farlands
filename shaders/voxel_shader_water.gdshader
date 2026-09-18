@@ -51,6 +51,10 @@ uniform float sky_turbidity=0.35;
 // Water appearance
 uniform vec4 water_color=vec4(1.0,1.0,1.0,0.85);
 uniform float water_edge_fade=0.3;
+// Per-substance alpha: vertex custom1.a carries the fluid kind
+// (1=water, 2=lava, 3=acid). Lava is opaque; water and acid share
+// water_color.a (the 0.85 = 30% transparent base).
+uniform float lava_alpha=1.0;
 
 varying vec3 world_position;
 varying vec3 world_normal;
@@ -184,8 +188,9 @@ void fragment(){
     float light_amount = clamp(max(max(combinedLight.r, combinedLight.g), combinedLight.b), 0.0, 1.0);
     lit_color += color.rgb * darkness_color * (1.0 - light_amount);
 
-    // Apply water color tint BEFORE fog so fog blends with water-tinted color
-    lit_color *= water_color.rgb;
+    // No tint: every liquid's colour comes from its own texture layer as
+    // authored. (The old path multiplied water_color.rgb — a blue wash — into
+    // all liquid geometry, flattening lava and acid and recolouring water.)
 
     // ========= FOG =========
 	float fog_amount = 0.0;
@@ -323,6 +328,10 @@ void fragment(){
     float edge_fade = mix(near_edge_fade, 1.0, distance_restore);
 
     float base_alpha = water_color.a * edge_fade;
+    // Lava reads as a hot liquid only when it is opaque; water and acid keep
+    // the shared translucent base.
+    float fluid_kind = floor(custom1_attr.a * 255.0 + 0.5);
+    base_alpha = mix(base_alpha, lava_alpha, step(1.5, fluid_kind) * step(fluid_kind, 2.5));
     ALBEDO = final_color;
     ALPHA = mix(base_alpha, 1.0, fog_amount);
 }

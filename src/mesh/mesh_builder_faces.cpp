@@ -181,7 +181,12 @@ void MeshBuilder::add_aabb_face(const ChunkData& chunk, const ChunkNeighborAcces
         v.v = invert_v ? (1.0f - base_v) : base_v;
         v.texture_index = static_cast<uint16_t>(texture_idx);
         v.ao = AmbientOcclusion::pack_vertex_ao(ao[i], direction);
-        v.emissive_index = static_cast<uint8_t>(emissive_idx);
+        // For liquid faces the water shader reads this channel as the fluid
+        // kind (Water=1, Lava=2, Acid=3) to pick per-substance alpha; for
+        // solids the water shader never sees it, so this only matters when
+        // the LOD box path draws a liquid here.
+        v.emissive_index = static_cast<uint8_t>(is_water
+            ? static_cast<int>(block_type.fluid_kind) : emissive_idx);
         v.light_r = static_cast<uint8_t>(kBlockBrightness[unpack_r(light_keys[i])] * 255.0f);
         v.light_g = static_cast<uint8_t>(kBlockBrightness[unpack_g(light_keys[i])] * 255.0f);
         v.light_b = static_cast<uint8_t>(kBlockBrightness[unpack_b(light_keys[i])] * 255.0f);
@@ -338,7 +343,12 @@ light_keys[0] = light_keys[1] = light_keys[2] = light_keys[3] = light_key;
         }
         v.texture_index = static_cast<uint16_t>(texture_idx);
         v.ao = AmbientOcclusion::pack_vertex_ao(ao[i], direction);
-        v.emissive_index = static_cast<uint8_t>(emissive_idx);
+        // For liquid faces the water shader reads this channel as the fluid
+        // kind (Water=1, Lava=2, Acid=3) to pick per-substance alpha; for
+        // solids the water shader never sees it, so this only matters when
+        // the LOD box path draws a liquid here.
+        v.emissive_index = static_cast<uint8_t>(is_water
+            ? static_cast<int>(block_type.fluid_kind) : emissive_idx);
         v.light_r = static_cast<uint8_t>(kBlockBrightness[unpack_r(light_keys[i])] * 255.0f);
         v.light_g = static_cast<uint8_t>(kBlockBrightness[unpack_g(light_keys[i])] * 255.0f);
         v.light_b = static_cast<uint8_t>(kBlockBrightness[unpack_b(light_keys[i])] * 255.0f);
@@ -489,7 +499,10 @@ bool flip = (ao[0] + ao[2]) < (ao[1] + ao[3]);
         }
         v.texture_index = static_cast<uint16_t>(texture_idx);
         v.ao = AmbientOcclusion::pack_vertex_ao(ao[i], face.direction);
-        v.emissive_index = static_cast<uint8_t>(emissive_idx);
+        // Same fluid-kind channel as the other emitters: the greedy face path
+        // is what draws liquids at LOD stride > 1.
+        v.emissive_index = static_cast<uint8_t>(is_water
+            ? static_cast<int>(block_type.fluid_kind) : emissive_idx);
         v.light_r = static_cast<uint8_t>(kBlockBrightness[unpack_r(corner_light[i])] * 255.0f);
         v.light_g = static_cast<uint8_t>(kBlockBrightness[unpack_g(corner_light[i])] * 255.0f);
         v.light_b = static_cast<uint8_t>(kBlockBrightness[unpack_b(corner_light[i])] * 255.0f);

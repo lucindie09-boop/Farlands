@@ -86,7 +86,9 @@ void MeshBuilder::add_fluid_quad(int32_t x, int32_t y, int32_t z, FaceDirection 
         // Liquids are not occluded: a surface that slopes cannot carry corner AO,
         // and the old path made the same call for every liquid face.
         v.ao = AmbientOcclusion::pack_vertex_ao(1.0f, dir);
-        v.emissive_index = static_cast<uint8_t>(emissive_idx);
+        // The water shader leaves this channel free; it carries the fluid kind
+        // (Water=1, Lava=2, Acid=3) so each substance can pick its own alpha.
+        v.emissive_index = static_cast<uint8_t>(block_type.fluid_kind);
         v.light_r = static_cast<uint8_t>(kBlockBrightness[unpack_r(light_key)] * 255.0f);
         v.light_g = static_cast<uint8_t>(kBlockBrightness[unpack_g(light_key)] * 255.0f);
         v.light_b = static_cast<uint8_t>(kBlockBrightness[unpack_b(light_key)] * 255.0f);

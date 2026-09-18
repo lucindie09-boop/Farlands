@@ -8,6 +8,44 @@ const SLIDER_TRACK_TEX: Texture2D = preload("res://textures/gui/slider_button.pn
 const SLIDER_THUMB_TEX: Texture2D = preload("res://textures/gui/slider.png")
 const SETTINGS_PATH := "user://settings.cfg"
 
+# -----------------------------------------------------------------------------
+# The metrics. Every size the menu draws is one of these, in interface units:
+# one unit is _ui_scale() screen pixels, and at GUI scale 2 (what the reference
+# interface calls Normal) a standard button is UNIT_BUTTON_W x UNIT_BUTTON_H
+# units = 400x40 screen pixels with 16-pixel text. Widgets are 20 units tall and
+# text is 8 units tall — the same 20/8 the reference layout uses — which is what
+# the sizes written out at each call site had drifted away from: the buttons were
+# drawn at two thirds of that while their labels stayed full size.
+# -----------------------------------------------------------------------------
+const UNIT_FONT := 8.0            # the interface font's height: EVERY label
+const UNIT_BUTTON_W := 200.0      # a full-width button: menu rows and footer actions
+const UNIT_BUTTON_H := 20.0       # every widget's height, sliders included
+const UNIT_OPTION_W := 150.0      # one option in the two-column list
+const UNIT_UNDO_W := 20.0         # the per-row reset square
+const UNIT_RESET_W := 60.0        # ...or the older "Reset" text button
+const UNIT_ROW_GAP := 2.0         # between an option and its reset
+const UNIT_HEADING_H := 20.0      # one section heading's row
+const UNIT_GAP := 4.0             # between two rows
+const UNIT_COL_GAP := 8.0         # between the two columns
+const UNIT_MARGIN := 8.0          # around the content box and inside the bars
+const UNIT_BAR_H := 20.0          # the title bar and the action bar
+const UNIT_BOX_PAD := 4.0         # inside the content box's border
+const UNIT_SCROLLBAR_W := 6.0
+
+# The reference screen's colours: a darker bar top and bottom, a slightly
+# lighter box between them, and headings in the teal it labels its sections with.
+const BAR_COLOR := Color(0.04, 0.05, 0.07, 0.9)
+const BOX_COLOR := Color(0.05, 0.06, 0.08, 0.75)
+const BOX_BORDER_COLOR := Color(0.32, 0.35, 0.4, 0.9)
+const HEADING_COLOR := Color(0.38, 0.85, 0.78)
+# A category heading is one step brighter than a group heading: the merged
+# settings page uses it for each settings area, exactly like the reference's
+# Video Settings marks its groups, but ours sits above its groups.
+const CATEGORY_COLOR := Color(0.92, 0.94, 0.97)
+const SCROLL_TRACK_COLOR := Color(0.0, 0.0, 0.0, 0.45)
+const SCROLL_GRABBER_COLOR := Color(0.78, 0.8, 0.85, 0.9)
+const HINT_COLOR := Color(1.0, 0.7, 0.3)
+
 # Actions exposed on the CONTROLS page. The engine keeps the pristine project
 # defaults as the per-row reset target; runtime rebinding swaps InputMap events.
 const CONTROL_BINDINGS := [
@@ -300,10 +338,12 @@ func _load_settings():
 		if not saved.is_empty():
 			_apply_action_events(cb[0], saved)
 
-# Settings menu uses the global GUI scale with a 2/3 modifier so its default
-# look (2x when UIScale is 3.0) is preserved while still scaling with the rest.
+# The menu draws at the interface's own scale: one unit is one GUI-scale pixel,
+# exactly like the rest of the HUD and exactly like the reference at the same
+# setting. It used to run at 2/3 of it to "preserve its default look", which is
+# what made the same size text sit in visibly smaller buttons than the reference.
 func _ui_scale() -> float:
-	return UIScale.value * 2.0 / 3.0
+	return UIScale.value
 
 func _rebuild_pages():
 	for p in _pages.values():
@@ -311,13 +351,8 @@ func _rebuild_pages():
 			p.queue_free()
 	_pages.clear()
 	_pages["pause"] = _build_pause_page()
+	# One settings page: every category is a section of it.
 	_pages["settings"] = _build_settings_page()
-	_pages["gui"] = _build_gui_page()
-	_pages["crosshair"] = _build_crosshair_page()
-	_pages["block_outline"] = _build_block_outline_page()
-	_pages["lighting"] = _build_lighting_page()
-	_pages["render"] = _build_render_page()
-	_pages["controls"] = _build_controls_page()
 	_pages["skin_maker"] = _build_skin_maker_page()
 	_pages["block_maker"] = _build_block_maker_page()
 	for p in _pages.values():
@@ -342,156 +377,110 @@ func _show_page(page_name: String):
 		if _block_preview.has_method("set_noise"):
 			_block_preview.set_noise(_block_noise)
 
+# The pause menu is the reference's in-game menu: its buttons stand on their own
+# over the dimmed world. Nothing here is a page of settings, so none of the
+# settings chrome belongs on it — no title band, no content box, no footer.
 func _build_pause_page() -> Control:
-	var s := _ui_scale()
+	var u := _ui_scale()
 	var page := Control.new()
 	page.set_anchors_preset(Control.PRESET_FULL_RECT)
 	page.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
-	var title := _make_title("PAUSED")
-	title.offset_top = -80.0 * s
-	title.offset_bottom = -40.0 * s
-	page.add_child(title)
+	var column := VBoxContainer.new()
+	var col_w := UNIT_BUTTON_W * u
+	var col_h := (UNIT_BUTTON_H * 2.0 + UNIT_GAP) * u
+	column.anchor_left = 0.5
+	column.anchor_right = 0.5
+	column.anchor_top = 0.5
+	column.anchor_bottom = 0.5
+	column.offset_left = -col_w * 0.5
+	column.offset_right = col_w * 0.5
+	column.offset_top = -col_h * 0.5
+	column.offset_bottom = col_h * 0.5
+	column.add_theme_constant_override("separation", int(UNIT_GAP * u))
+	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
-	var resume := _make_button("Resume")
-	resume.offset_top = -10.0 * s
-	resume.offset_bottom = 10.0 * s
+	var resume := _make_widget_button("Resume")
 	resume.pressed.connect(_close)
-	page.add_child(resume)
-
-	var settings := _make_button("Settings")
-	settings.offset_top = 30.0 * s
-	settings.offset_bottom = 50.0 * s
+	column.add_child(resume)
+	var settings := _make_widget_button("Settings")
 	settings.pressed.connect(func(): _show_page("settings"))
-	page.add_child(settings)
+	column.add_child(settings)
+	page.add_child(column)
 	return page
 
+# Escape opens straight into the settings: every category sits on this one
+# scrolling page, each under its own title, the way the reference's screen lists
+# its groups. There are no category buttons — what used to be a page per category
+# is now a section of this one.
 func _build_settings_page() -> Control:
-	var s := _ui_scale()
-	var page := Control.new()
-	page.set_anchors_preset(Control.PRESET_FULL_RECT)
-	page.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var sections: Array = []
+	sections.append(["GUI", [], "category"])
+	sections.append_array(_build_gui_sections())
+	sections.append(["Lighting", [], "category"])
+	sections.append_array(_build_lighting_sections())
+	sections.append(["Video Settings", [], "category"])
+	sections.append_array(_build_render_sections())
+	sections.append(["Controls", [], "category"])
+	sections.append_array(_build_controls_sections())
+	sections.append(["Crosshair", [], "category"])
+	sections.append_array(_build_crosshair_sections())
+	sections.append(["Block Outline", [], "category"])
+	sections.append_array(_build_block_outline_sections())
 
-	var title := _make_title("SETTINGS")
-	title.offset_top = -80.0 * s
-	title.offset_bottom = -40.0 * s
-	page.add_child(title)
-
-	var gui_btn := _make_button("GUI")
-	gui_btn.offset_top = -35.0 * s
-	gui_btn.offset_bottom = -15.0 * s
-	gui_btn.pressed.connect(func(): _show_page("gui"))
-	page.add_child(gui_btn)
-
-	var light_btn := _make_button("Lighting")
-	light_btn.offset_top = -5.0 * s
-	light_btn.offset_bottom = 15.0 * s
-	light_btn.pressed.connect(func(): _show_page("lighting"))
-	page.add_child(light_btn)
-
-	var render_btn := _make_button("Render")
-	render_btn.offset_top = 25.0 * s
-	render_btn.offset_bottom = 45.0 * s
-	render_btn.pressed.connect(func(): _show_page("render"))
-	page.add_child(render_btn)
-
-	var controls_btn := _make_button("Controls")
-	controls_btn.offset_top = 55.0 * s
-	controls_btn.offset_bottom = 75.0 * s
-	controls_btn.pressed.connect(func(): _show_page("controls"))
-	page.add_child(controls_btn)
-
-	var skin_btn := _make_button("Skin Maker")
-	skin_btn.offset_top = 85.0 * s
-	skin_btn.offset_bottom = 105.0 * s
+	# The two editors are not settings, but they are reached from here.
+	sections.append(["Editors", [], "category"])
+	var skin_btn := _make_widget_button("Skin Maker")
 	skin_btn.pressed.connect(func(): _show_page("skin_maker"))
-	page.add_child(skin_btn)
-
-	var block_btn := _make_button("Block Maker")
-	block_btn.offset_top = 115.0 * s
-	block_btn.offset_bottom = 135.0 * s
+	var block_btn := _make_widget_button("Block Maker")
 	block_btn.pressed.connect(func(): _show_page("block_maker"))
-	page.add_child(block_btn)
+	sections.append(["", [["", skin_btn, null], ["", block_btn, null]]])
 
-	var back := _make_button("Back")
-	back.offset_top = 145.0 * s
-	back.offset_bottom = 165.0 * s
-	back.pressed.connect(func(): _show_page("pause"))
-	page.add_child(back)
-	return page
+	return _build_scrolling_page("Settings", sections,
+		[["Back", func(): _show_page("pause")], ["Done", _close]], UNIT_OPTION_W + 20.0)
 
-func _build_gui_page() -> Control:
-	var scale_btn := _make_button("", 180.0)
+func _build_gui_sections() -> Array:
+	var scale_btn := _make_widget_button("", 180.0)
 	var scale_values := [1.0, 2.0, 3.0, 4.0]
-	scale_btn.text = str(int(round(UIScale.value))) + "x"
+	_row_value(scale_btn, str(int(round(UIScale.value))) + "x")
 	scale_btn.pressed.connect(func():
 		var i := scale_values.find(float(int(round(UIScale.value))))
 		i = (i + 1) % scale_values.size()
 		UIScale.value = scale_values[i]
-		scale_btn.text = str(int(scale_values[i])) + "x"
+		_row_value(scale_btn, str(int(scale_values[i])) + "x")
 		_schedule_save())
 	var reset := func():
 		UIScale.value = _default_gui_scale
-		scale_btn.text = str(int(round(_default_gui_scale))) + "x"
+		_row_value(scale_btn, str(int(round(_default_gui_scale))) + "x")
 
-	var crosshair_btn := _make_button("Crosshair")
-	crosshair_btn.pressed.connect(func(): _show_page("crosshair"))
-
-	var block_outline_btn := _make_button("Block Outline")
-	block_outline_btn.pressed.connect(func(): _show_page("block_outline"))
-
-	var old_reset_btn := _make_button("Old" if _old_reset_buttons else "New", 180.0)
+	var old_reset_btn := _make_widget_button("Old" if _old_reset_buttons else "New", 180.0)
+	_row_value(old_reset_btn, "Old" if _old_reset_buttons else "New")
 	old_reset_btn.pressed.connect(func():
 		_old_reset_buttons = not _old_reset_buttons
-		old_reset_btn.text = "Old" if _old_reset_buttons else "New"
+		_row_value(old_reset_btn, "Old" if _old_reset_buttons else "New")
 		_schedule_save())
 	var old_reset_reset := func():
 		_old_reset_buttons = _default_old_reset_buttons
-		old_reset_btn.text = "Old" if _default_old_reset_buttons else "New"
+		_row_value(old_reset_btn, "Old" if _default_old_reset_buttons else "New")
 		_schedule_save()
 
-	return _build_option_page("GUI", [
-		["GUI Scale", scale_btn, reset],
-		["Reset Button Type", old_reset_btn, old_reset_reset],
-		["Crosshair", crosshair_btn, null],
-		["Block Outline", block_outline_btn, null],
-	], "settings", 44.0)
+	return [
+		["Interface", [
+			["GUI Scale", scale_btn, reset],
+			["Reset Button Type", old_reset_btn, old_reset_reset],
+		]],
+	]
 
-func _build_crosshair_page() -> Control:
-	var s := _ui_scale()
-	var page := Control.new()
-	page.set_anchors_preset(Control.PRESET_FULL_RECT)
-	page.mouse_filter = Control.MOUSE_FILTER_IGNORE
-
-	var title := _make_title("CROSSHAIR")
-	title.offset_top = -150.0 * s
-	title.offset_bottom = -110.0 * s
-	page.add_child(title)
-
+func _build_crosshair_sections() -> Array:
+	var u := _ui_scale()
+	# A live preview spanning the content column, above the options. It draws
+	# from its own `size`, so a container has to be told how big it is.
 	var preview: Control = (preload("res://crosshair_preview.gd") as GDScript).new()
-	preview.set_anchors_preset(Control.PRESET_CENTER)
-	preview.offset_left = -70.0 * s
-	preview.offset_right = 70.0 * s
-	preview.offset_top = -3.0 * s
-	preview.offset_bottom = 117.0 * s
-	page.add_child(preview)
+	preview.custom_minimum_size = Vector2(140.0, 120.0) * u
+	preview.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
-	_crosshair_header(page, 0, -102.0, "CROSS")
-	_crosshair_header(page, 1, -102.0, "DOT")
-
-	# Status hint for import/export feedback
-	var crosshair_hint := Label.new()
-	crosshair_hint.text = ""
-	crosshair_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	crosshair_hint.add_theme_font_override("font", MUNRO_FONT)
-	crosshair_hint.add_theme_font_size_override("font_size", int(10 * s))
-	crosshair_hint.add_theme_color_override("font_color", Color(1.0, 0.7, 0.3))
-	crosshair_hint.set_anchors_preset(Control.PRESET_CENTER)
-	crosshair_hint.offset_left = -260.0 * s
-	crosshair_hint.offset_right = 260.0 * s
-	crosshair_hint.offset_top = 200.0 * s
-	crosshair_hint.offset_bottom = 216.0 * s
-	page.add_child(crosshair_hint)
+	# Status hint for import/export feedback, as the last row of the list.
+	var crosshair_hint := _make_hint_label(u)
 
 	var controls := {}
 	controls["cross_enabled"] = _make_toggle("cross_enabled", _crosshair_val("cross_enabled"))
@@ -511,58 +500,38 @@ func _build_crosshair_page() -> Control:
 	controls["cross_dot_collision"] = _make_toggle("cross_dot_collision", _crosshair_val("cross_dot_collision"))
 	controls["dot_contrast"] = _make_toggle("dot_contrast", _crosshair_val("dot_contrast"))
 
-	var y := -82.0
-	_crosshair_place(page, 0, y, "Show", controls["cross_enabled"])
-	y += 35.0
-	_crosshair_place(page, 0, y, "Colour", controls["cross_color"])
-	y += 35.0
-	_crosshair_place(page, 0, y, "Length", controls["cross_length"])
-	y += 35.0
-	_crosshair_place(page, 0, y, "Thickness", controls["cross_thickness"])
-	y += 35.0
-	_crosshair_place(page, 0, y, "Opacity", controls["cross_opacity"])
-	y += 35.0
-	_crosshair_place(page, 0, y, "Spacing", controls["cross_spacing"])
-	y += 35.0
-	_crosshair_place(page, 0, y, "Rotation", controls["cross_rotation"])
-	y += 35.0
-	_crosshair_place(page, 0, y, "Top Line", controls["top_line_enabled"])
-	y += 35.0
-	_crosshair_place(page, 0, y, "Dynamic Contrast", controls["cross_contrast"])
+	# Every option is a row with its own undo, so one setting can go back to its
+	# default without disturbing the rest.
+	var cross_rows := _crosshair_rows(controls, [
+		["Show", "cross_enabled"],
+		["Colour", "cross_color"],
+		["Length", "cross_length"],
+		["Thickness", "cross_thickness"],
+		["Opacity", "cross_opacity"],
+		["Spacing", "cross_spacing"],
+		["Rotation", "cross_rotation"],
+		["Top Line", "top_line_enabled"],
+		["Dynamic Contrast", "cross_contrast"],
+	])
+	var dot_rows := _crosshair_rows(controls, [
+		["Show", "dot_enabled"],
+		["Colour", "dot_color"],
+		["Size", "dot_size"],
+		["Opacity", "dot_opacity"],
+		["Rotation", "dot_rotation"],
+		["Collision", "cross_dot_collision"],
+		["Dynamic Contrast", "dot_contrast"],
+	])
 
-	var yd := -82.0
-	_crosshair_place(page, 1, yd, "Show", controls["dot_enabled"])
-	yd += 35.0
-	_crosshair_place(page, 1, yd, "Colour", controls["dot_color"])
-	yd += 35.0
-	_crosshair_place(page, 1, yd, "Size", controls["dot_size"])
-	yd += 35.0
-	_crosshair_place(page, 1, yd, "Opacity", controls["dot_opacity"])
-	yd += 35.0
-	_crosshair_place(page, 1, yd, "Rotation", controls["dot_rotation"])
-	yd += 35.0
-	_crosshair_place(page, 1, yd, "Collision", controls["cross_dot_collision"])
-	yd += 35.0
-	_crosshair_place(page, 1, yd, "Dynamic Contrast", controls["dot_contrast"])
-
-	var reset := _make_button("Reset", 100.0)
-	reset.offset_top = 240.0 * s
-	reset.offset_bottom = 260.0 * s
-	reset.offset_left = -160.0 * s
-	reset.offset_right = -60.0 * s
+	var reset := _make_widget_button("Reset", UNIT_OPTION_W)
 	reset.pressed.connect(func():
 		for k in _crosshair_defaults:
 			if crosshair_node:
 				crosshair_node.set(k, _crosshair_defaults[k])
 		_cross_refresh_controls(controls)
 		_schedule_save())
-	page.add_child(reset)
 
-	var export_btn := _make_button("Export", 100.0)
-	export_btn.offset_top = 240.0 * s
-	export_btn.offset_bottom = 260.0 * s
-	export_btn.offset_left = -50.0 * s
-	export_btn.offset_right = 50.0 * s
+	var export_btn := _make_widget_button("Export", UNIT_OPTION_W)
 	export_btn.pressed.connect(func():
 		var code := _export_crosshair_code()
 		if code != "":
@@ -570,16 +539,9 @@ func _build_crosshair_page() -> Control:
 			crosshair_hint.text = "Code copied to clipboard!"
 		else:
 			crosshair_hint.text = "Export failed"
-		# Clear hint after 3 seconds
-		get_tree().create_timer(3.0).timeout.connect(func(): crosshair_hint.text = "")
-	)
-	page.add_child(export_btn)
+		_expire_hint(crosshair_hint))
 
-	var import_btn := _make_button("Import", 100.0)
-	import_btn.offset_top = 240.0 * s
-	import_btn.offset_bottom = 260.0 * s
-	import_btn.offset_left = 60.0 * s
-	import_btn.offset_right = 160.0 * s
+	var import_btn := _make_widget_button("Import", UNIT_OPTION_W)
 	import_btn.pressed.connect(func():
 		var code := DisplayServer.clipboard_get()
 		if code != "":
@@ -590,47 +552,39 @@ func _build_crosshair_page() -> Control:
 				crosshair_hint.text = "Invalid code format"
 		else:
 			crosshair_hint.text = "Clipboard is empty"
-		# Clear hint after 3 seconds
-		get_tree().create_timer(3.0).timeout.connect(func(): crosshair_hint.text = "")
-	)
-	page.add_child(import_btn)
+		_expire_hint(crosshair_hint))
 
-	var back := _make_button("Back", 100.0)
-	back.offset_top = 240.0 * s
-	back.offset_bottom = 260.0 * s
-	back.offset_left = 170.0 * s
-	back.offset_right = 270.0 * s
-	back.pressed.connect(func(): _show_page("gui"))
-	page.add_child(back)
-	return page
+	return [
+		["", [["", preview, null, "span"]]],
+		["Cross", cross_rows],
+		["Dot", dot_rows],
+		["Preset", [
+			["", export_btn, null],
+			["", import_btn, null],
+			["", reset, null],
+		]],
+		["", [["", crosshair_hint, null, "span"]]],
+	]
 
-func _build_block_outline_page() -> Control:
-	var s := _ui_scale()
-	var page := Control.new()
-	page.set_anchors_preset(Control.PRESET_FULL_RECT)
-	page.mouse_filter = Control.MOUSE_FILTER_IGNORE
+# Rows for the crosshair page: [label, widget, undo]. The undo puts that one
+# option back at its default, which is what the reference's per-row button does.
+func _crosshair_rows(controls: Dictionary, pairs: Array) -> Array:
+	var rows: Array = []
+	for pair in pairs:
+		var field := String(pair[1])
+		rows.append([String(pair[0]), controls[field], func(f := field): _reset_crosshair_field(f, controls)])
+	return rows
 
-	var title := _make_title("BLOCK OUTLINE")
-	title.offset_top = -150.0 * s
-	title.offset_bottom = -110.0 * s
-	page.add_child(title)
+func _reset_crosshair_field(field: String, controls: Dictionary) -> void:
+	if crosshair_node:
+		crosshair_node.set(field, _crosshair_defaults[field])
+	_cross_refresh_controls(controls)
+	_schedule_save()
 
-	_block_outline_header(page, 0, -102.0, "OUTLINE")
-	_block_outline_header(page, 1, -102.0, "FILL")
-
-	# Status hint for import/export feedback
-	var outline_hint := Label.new()
-	outline_hint.text = ""
-	outline_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	outline_hint.add_theme_font_override("font", MUNRO_FONT)
-	outline_hint.add_theme_font_size_override("font_size", int(10 * s))
-	outline_hint.add_theme_color_override("font_color", Color(1.0, 0.7, 0.3))
-	outline_hint.set_anchors_preset(Control.PRESET_CENTER)
-	outline_hint.offset_left = -260.0 * s
-	outline_hint.offset_right = 260.0 * s
-	outline_hint.offset_top = 200.0 * s
-	outline_hint.offset_bottom = 216.0 * s
-	page.add_child(outline_hint)
+func _build_block_outline_sections() -> Array:
+	var u := _ui_scale()
+	# Status hint for import/export feedback, as the last row of the list.
+	var outline_hint := _make_hint_label(u)
 
 	var controls := {}
 	controls["outline_enabled"] = _make_toggle_outline("outline_enabled", _block_outline_val("outline_enabled"))
@@ -649,56 +603,37 @@ func _build_block_outline_page() -> Control:
 	controls["fill_pulse_min_opacity"] = _make_spin_outline(_block_outline_val("fill_pulse_min_opacity"), 0.0, 1.0, 0.05, "fill_pulse_min_opacity")
 	controls["fill_pulse_max_opacity"] = _make_spin_outline(_block_outline_val("fill_pulse_max_opacity"), 0.0, 1.0, 0.05, "fill_pulse_max_opacity")
 
-	var y := -82.0
-	_block_outline_place(page, 0, y, "Show", controls["outline_enabled"])
-	y += 35.0
-	_block_outline_place(page, 0, y, "Colour", controls["outline_color"])
-	y += 35.0
-	_block_outline_place(page, 0, y, "Thickness", controls["outline_thickness"])
-	y += 35.0
-	_block_outline_place(page, 0, y, "Opacity", controls["outline_opacity"])
-	y += 35.0
-	_block_outline_place(page, 0, y, "Pulse", controls["outline_pulse_enabled"])
-	y += 35.0
-	_block_outline_place(page, 0, y, "Pulse Speed", controls["outline_pulse_speed"])
-	y += 35.0
-	_block_outline_place(page, 0, y, "Pulse Min", controls["outline_pulse_min_opacity"])
-	y += 35.0
-	_block_outline_place(page, 0, y, "Pulse Max", controls["outline_pulse_max_opacity"])
+	# Every option is a row with its own undo, so one setting can go back to its
+	# default without disturbing the rest.
+	var outline_rows := _block_outline_rows(controls, [
+		["Show", "outline_enabled"],
+		["Colour", "outline_color"],
+		["Thickness", "outline_thickness"],
+		["Opacity", "outline_opacity"],
+		["Pulse", "outline_pulse_enabled"],
+		["Pulse Speed", "outline_pulse_speed"],
+		["Pulse Min", "outline_pulse_min_opacity"],
+		["Pulse Max", "outline_pulse_max_opacity"],
+	])
+	var fill_rows := _block_outline_rows(controls, [
+		["Show", "fill_enabled"],
+		["Colour", "fill_color"],
+		["Opacity", "fill_opacity"],
+		["Pulse", "fill_pulse_enabled"],
+		["Pulse Speed", "fill_pulse_speed"],
+		["Pulse Min", "fill_pulse_min_opacity"],
+		["Pulse Max", "fill_pulse_max_opacity"],
+	])
 
-	var yf := -82.0
-	_block_outline_place(page, 1, yf, "Show", controls["fill_enabled"])
-	yf += 35.0
-	_block_outline_place(page, 1, yf, "Colour", controls["fill_color"])
-	yf += 35.0
-	_block_outline_place(page, 1, yf, "Opacity", controls["fill_opacity"])
-	yf += 35.0
-	_block_outline_place(page, 1, yf, "Pulse", controls["fill_pulse_enabled"])
-	yf += 35.0
-	_block_outline_place(page, 1, yf, "Pulse Speed", controls["fill_pulse_speed"])
-	yf += 35.0
-	_block_outline_place(page, 1, yf, "Pulse Min", controls["fill_pulse_min_opacity"])
-	yf += 35.0
-	_block_outline_place(page, 1, yf, "Pulse Max", controls["fill_pulse_max_opacity"])
-
-	var reset := _make_button("Reset", 100.0)
-	reset.offset_top = 240.0 * s
-	reset.offset_bottom = 260.0 * s
-	reset.offset_left = -160.0 * s
-	reset.offset_right = -60.0 * s
+	var reset := _make_widget_button("Reset", UNIT_OPTION_W)
 	reset.pressed.connect(func():
 		for k in _block_outline_defaults:
 			if block_outline_node:
 				block_outline_node.set(k, _block_outline_defaults[k])
 		_block_outline_refresh_controls(controls)
 		_schedule_save())
-	page.add_child(reset)
 
-	var export_btn := _make_button("Export", 100.0)
-	export_btn.offset_top = 240.0 * s
-	export_btn.offset_bottom = 260.0 * s
-	export_btn.offset_left = -50.0 * s
-	export_btn.offset_right = 50.0 * s
+	var export_btn := _make_widget_button("Export", UNIT_OPTION_W)
 	export_btn.pressed.connect(func():
 		var code := _export_block_outline_code()
 		if code != "":
@@ -706,16 +641,9 @@ func _build_block_outline_page() -> Control:
 			outline_hint.text = "Code copied to clipboard!"
 		else:
 			outline_hint.text = "Export failed"
-		# Clear hint after 3 seconds
-		get_tree().create_timer(3.0).timeout.connect(func(): outline_hint.text = "")
-	)
-	page.add_child(export_btn)
+		_expire_hint(outline_hint))
 
-	var import_btn := _make_button("Import", 100.0)
-	import_btn.offset_top = 240.0 * s
-	import_btn.offset_bottom = 260.0 * s
-	import_btn.offset_left = 60.0 * s
-	import_btn.offset_right = 160.0 * s
+	var import_btn := _make_widget_button("Import", UNIT_OPTION_W)
 	import_btn.pressed.connect(func():
 		var code := DisplayServer.clipboard_get()
 		if code != "":
@@ -726,19 +654,33 @@ func _build_block_outline_page() -> Control:
 				outline_hint.text = "Invalid code format"
 		else:
 			outline_hint.text = "Clipboard is empty"
-		# Clear hint after 3 seconds
-		get_tree().create_timer(3.0).timeout.connect(func(): outline_hint.text = "")
-	)
-	page.add_child(import_btn)
+		_expire_hint(outline_hint))
 
-	var back := _make_button("Back", 100.0)
-	back.offset_top = 240.0 * s
-	back.offset_bottom = 260.0 * s
-	back.offset_left = 170.0 * s
-	back.offset_right = 270.0 * s
-	back.pressed.connect(func(): _show_page("gui"))
-	page.add_child(back)
-	return page
+	return [
+		["Outline", outline_rows],
+		["Fill", fill_rows],
+		["Preset", [
+			["", export_btn, null],
+			["", import_btn, null],
+			["", reset, null],
+		]],
+		["", [["", outline_hint, null, "span"]]],
+	]
+
+# Rows for the block outline page: [label, widget, undo], the undo restoring
+# that one option.
+func _block_outline_rows(controls: Dictionary, pairs: Array) -> Array:
+	var rows: Array = []
+	for pair in pairs:
+		var field := String(pair[1])
+		rows.append([String(pair[0]), controls[field], func(f := field): _reset_block_outline_field(f, controls)])
+	return rows
+
+func _reset_block_outline_field(field: String, controls: Dictionary) -> void:
+	if block_outline_node:
+		block_outline_node.set(field, _block_outline_defaults[field])
+	_block_outline_refresh_controls(controls)
+	_schedule_save()
 
 func _block_outline_val(field: String) -> Variant:
 	return block_outline_node.get(field) if block_outline_node else _block_outline_defaults[field]
@@ -771,7 +713,7 @@ func _make_slider(value: float, min_value: float, max_value: float, step: float,
 	slider.max_value = max_value
 	slider.step = step
 	slider.value = value
-	slider.custom_minimum_size = Vector2(0, 20 * s)
+	slider.custom_minimum_size = Vector2(0, UNIT_BUTTON_H * s)
 	var normal := _slider_track_style()
 	var hover := _slider_track_style()
 	hover.modulate_color = Color(1.2, 1.2, 1.2)
@@ -796,18 +738,34 @@ func _make_slider(value: float, min_value: float, max_value: float, step: float,
 	label.set_anchors_preset(Control.PRESET_FULL_RECT)
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	label.add_theme_font_override("font", MUNRO_FONT)
-	label.add_theme_font_size_override("font_size", int(10 * s))
-	label.add_theme_color_override("font_color", Color(0.85, 0.9, 1.0))
+	label.add_theme_font_size_override("font_size", int(UNIT_FONT * s))
+	label.add_theme_color_override("font_color", Color.WHITE)
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	label.text = _format_slider_value(value, step) + suffix
-	slider.value_changed.connect(func(v: float):
-		label.text = _format_slider_value(v, step) + suffix
-		setter.call(v))
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(slider)
 	box.add_child(label)
 	box.set_meta("slider", slider)
+	box.set_meta("value_label", label)
+	box.custom_minimum_size = Vector2(0, UNIT_BUTTON_H * s)
+	# The text is the row's label plus the value on the track, exactly like a
+	# vanilla slider, and _row_value keeps the label on when the value changes.
+	_row_value(box, _format_slider_value(value, step) + suffix)
+	slider.value_changed.connect(func(v: float):
+		_row_value(box, _format_slider_value(v, step) + suffix)
+		setter.call(v))
 	return box
+
+# The interface's own slider look: the reference's track texture with its square
+# thumb, for sliders that are not built by _make_slider (the maker pages' noise
+# control, which lives in a plain HBox with a label either side).
+func _style_slider_control(slider: HSlider) -> void:
+	slider.add_theme_stylebox_override("slider", _slider_track_style())
+	slider.add_theme_stylebox_override("grabber_area", StyleBoxEmpty.new())
+	slider.add_theme_stylebox_override("grabber_area_highlight", StyleBoxEmpty.new())
+	slider.add_theme_icon_override("grabber", _scaled_thumb_tex())
+	slider.add_theme_icon_override("grabber_highlight", _scaled_thumb_tex())
+	slider.add_theme_constant_override("grabber_offset", 0)
+	slider.add_theme_constant_override("center_grabber", 1)
 
 func _slider_track_style() -> StyleBoxTexture:
 	# The slider draws its track at the stylebox's minimum size height (the
@@ -848,6 +806,8 @@ func _format_slider_value(v: float, step: float) -> String:
 func _make_color(field: String, value: Color) -> ColorPickerButton:
 	var cp := ColorPickerButton.new()
 	cp.color = value
+	_style_button(cp, UNIT_OPTION_W)
+	_add_color_caption(cp)
 	cp.color_changed.connect(func(c: Color):
 		_cross_set(field, c))
 	return cp
@@ -855,126 +815,58 @@ func _make_color(field: String, value: Color) -> ColorPickerButton:
 func _make_color_outline(field: String, value: Color) -> ColorPickerButton:
 	var cp := ColorPickerButton.new()
 	cp.color = value
+	_style_button(cp, UNIT_OPTION_W)
+	_add_color_caption(cp)
 	cp.color_changed.connect(func(c: Color):
 		_block_outline_set(field, c))
 	return cp
 
+# A colour row shows its colour as the swatch and its name on top of it. The
+# swatch is painted over the button's own text, so the caption is a child Label —
+# outlined, because the colour underneath can be any colour at all.
+func _add_color_caption(cp: ColorPickerButton) -> void:
+	var u := _ui_scale()
+	cp.text = ""
+	var caption := Label.new()
+	caption.set_anchors_preset(Control.PRESET_FULL_RECT)
+	caption.offset_left = UNIT_BOX_PAD * u
+	caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	caption.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	caption.add_theme_font_override("font", MUNRO_FONT)
+	caption.add_theme_font_size_override("font_size", int(UNIT_FONT * u))
+	caption.add_theme_color_override("font_color", Color.WHITE)
+	caption.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.9))
+	caption.add_theme_constant_override("outline_size", maxi(1, int(round(2.0 * u))))
+	caption.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	cp.add_child(caption)
+	cp.set_meta("caption_label", caption)
+
 func _make_toggle(field: String, value: bool) -> Button:
 	var btn := Button.new()
 	btn.text = "On" if value else "Off"
-	_style_button(btn, 180.0)
+	_style_button(btn, UNIT_OPTION_W)
 	btn.pressed.connect(func():
 		var nxt := not bool(_crosshair_val(field))
 		_cross_set(field, nxt)
-		btn.text = "On" if nxt else "Off")
+		_row_value(btn, "On" if nxt else "Off"))
 	return btn
 
 func _make_toggle_outline(field: String, value: bool) -> Button:
 	var btn := Button.new()
 	btn.text = "On" if value else "Off"
-	_style_button(btn, 180.0)
+	_style_button(btn, UNIT_OPTION_W)
 	btn.pressed.connect(func():
 		var nxt := not bool(_block_outline_val(field))
 		_block_outline_set(field, nxt)
-		btn.text = "On" if nxt else "Off")
+		_row_value(btn, "On" if nxt else "Off"))
 	return btn
-
-func _crosshair_header(page: Control, col: int, y: float, text: String):
-	var s := _ui_scale()
-	var label := Label.new()
-	label.text = text
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.add_theme_font_override("font", MUNRO_FONT)
-	label.add_theme_font_size_override("font_size", int(14 * s))
-	label.add_theme_color_override("font_color", Color(0.8, 0.85, 1.0))
-	label.set_anchors_preset(Control.PRESET_CENTER)
-	label.offset_top = y * s
-	label.offset_bottom = (y + 14.0) * s
-	if col == 0:
-		label.offset_left = -280.0 * s
-		label.offset_right = -80.0 * s
-	else:
-		label.offset_left = 80.0 * s
-		label.offset_right = 280.0 * s
-	page.add_child(label)
-
-func _crosshair_place(page: Control, col: int, y: float, label_text: String, control: Control):
-	var s := _ui_scale()
-	control.set_anchors_preset(Control.PRESET_CENTER)
-	if col == 0:
-		control.offset_left = -280.0 * s
-		control.offset_right = -80.0 * s
-	else:
-		control.offset_left = 80.0 * s
-		control.offset_right = 280.0 * s
-	control.offset_top = (y + 12.0) * s
-	control.offset_bottom = (y + 34.0) * s
-	page.add_child(control)
-
-	var label := Label.new()
-	label.text = label_text
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.add_theme_font_override("font", MUNRO_FONT)
-	label.add_theme_font_size_override("font_size", int(10 * s))
-	label.add_theme_color_override("font_color", Color.WHITE)
-	label.set_anchors_preset(Control.PRESET_CENTER)
-	label.offset_left = control.offset_left
-	label.offset_right = control.offset_right
-	label.offset_top = y * s
-	label.offset_bottom = (y + 12.0) * s
-	page.add_child(label)
-
-func _block_outline_header(page: Control, col: int, y: float, text: String):
-	var s := _ui_scale()
-	var label := Label.new()
-	label.text = text
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.add_theme_font_override("font", MUNRO_FONT)
-	label.add_theme_font_size_override("font_size", int(14 * s))
-	label.add_theme_color_override("font_color", Color(0.8, 0.85, 1.0))
-	label.set_anchors_preset(Control.PRESET_CENTER)
-	label.offset_top = y * s
-	label.offset_bottom = (y + 14.0) * s
-	if col == 0:
-		label.offset_left = -280.0 * s
-		label.offset_right = -80.0 * s
-	else:
-		label.offset_left = 80.0 * s
-		label.offset_right = 280.0 * s
-	page.add_child(label)
-
-func _block_outline_place(page: Control, col: int, y: float, label_text: String, control: Control):
-	var s := _ui_scale()
-	control.set_anchors_preset(Control.PRESET_CENTER)
-	if col == 0:
-		control.offset_left = -280.0 * s
-		control.offset_right = -80.0 * s
-	else:
-		control.offset_left = 80.0 * s
-		control.offset_right = 280.0 * s
-	control.offset_top = (y + 12.0) * s
-	control.offset_bottom = (y + 34.0) * s
-	page.add_child(control)
-
-	var label := Label.new()
-	label.text = label_text
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.add_theme_font_override("font", MUNRO_FONT)
-	label.add_theme_font_size_override("font_size", int(10 * s))
-	label.add_theme_color_override("font_color", Color.WHITE)
-	label.set_anchors_preset(Control.PRESET_CENTER)
-	label.offset_left = control.offset_left
-	label.offset_right = control.offset_right
-	label.offset_top = y * s
-	label.offset_bottom = (y + 12.0) * s
-	page.add_child(label)
 
 func _cross_refresh_controls(controls: Dictionary):
 	for k in controls:
 		var v = crosshair_node.get(k) if crosshair_node else _crosshair_defaults[k]
 		var c: Control = controls[k]
 		if c is Button:
-			c.text = "On" if v else "Off"
+			_row_value(c, "On" if v else "Off")
 		elif c is SpinBox:
 			c.value = v
 		elif c.has_meta("slider"):
@@ -987,7 +879,7 @@ func _block_outline_refresh_controls(controls: Dictionary):
 		var v = block_outline_node.get(k) if block_outline_node else _block_outline_defaults[k]
 		var c: Control = controls[k]
 		if c is Button:
-			c.text = "On" if v else "Off"
+			_row_value(c, "On" if v else "Off")
 		elif c is SpinBox:
 			c.value = v
 		elif c.has_meta("slider"):
@@ -995,7 +887,7 @@ func _block_outline_refresh_controls(controls: Dictionary):
 		elif c is ColorPickerButton:
 			c.color = v
 
-func _build_lighting_page() -> Control:
+func _build_lighting_sections() -> Array:
 	var dur := _make_slider(chunk_manager.get_day_duration(), 10.0, 600.0, 10.0,
 		func(v: float):
 			chunk_manager.set_day_duration(v)
@@ -1007,6 +899,8 @@ func _build_lighting_page() -> Control:
 
 	var day_color := ColorPickerButton.new()
 	day_color.color = chunk_manager.get_day_sky_color()
+	_style_button(day_color, UNIT_OPTION_W)
+	_add_color_caption(day_color)
 	day_color.color_changed.connect(func(c: Color):
 		chunk_manager.set_day_sky_color(c)
 		_schedule_save())
@@ -1016,6 +910,8 @@ func _build_lighting_page() -> Control:
 		_schedule_save()
 
 	var night_color := ColorPickerButton.new()
+	_style_button(night_color, UNIT_OPTION_W)
+	_add_color_caption(night_color)
 	night_color.color = chunk_manager.get_night_sky_color()
 	night_color.color_changed.connect(func(c: Color):
 		chunk_manager.set_night_sky_color(c)
@@ -1026,6 +922,8 @@ func _build_lighting_page() -> Control:
 		_schedule_save()
 
 	var ao_color := ColorPickerButton.new()
+	_style_button(ao_color, UNIT_OPTION_W)
+	_add_color_caption(ao_color)
 	ao_color.color = chunk_manager.get_ao_color()
 	ao_color.color_changed.connect(func(c: Color):
 		chunk_manager.set_ao_color(c)
@@ -1045,6 +943,8 @@ func _build_lighting_page() -> Control:
 		_schedule_save()
 
 	var dark_color := ColorPickerButton.new()
+	_style_button(dark_color, UNIT_OPTION_W)
+	_add_color_caption(dark_color)
 	dark_color.color = chunk_manager.get_darkness_color()
 	dark_color.color_changed.connect(func(c: Color):
 		chunk_manager.set_darkness_color(c)
@@ -1073,31 +973,37 @@ func _build_lighting_page() -> Control:
 		_schedule_save()
 
 	var smooth_lighting := Button.new()
-	smooth_lighting.text = "On" if chunk_manager.get_smooth_lighting() else "Off"
+	_row_value(smooth_lighting, "On" if chunk_manager.get_smooth_lighting() else "Off")
 	_style_button(smooth_lighting, 180.0)
 	# Note: Smooth lighting setting only takes effect on game restart
 	smooth_lighting.pressed.connect(func():
 		chunk_manager.set_smooth_lighting(not chunk_manager.get_smooth_lighting())
-		smooth_lighting.text = "On" if chunk_manager.get_smooth_lighting() else "Off"
+		_row_value(smooth_lighting, "On" if chunk_manager.get_smooth_lighting() else "Off")
 		_schedule_save())
 	var smooth_lighting_reset := func():
 		chunk_manager.set_smooth_lighting(_default_smooth_lighting)
-		smooth_lighting.text = "On" if _default_smooth_lighting else "Off"
+		_row_value(smooth_lighting, "On" if _default_smooth_lighting else "Off")
 		_schedule_save()
 
-	return _build_option_page("LIGHTING", [
-		["Day Duration", dur, dur_reset],
-		["Day Sky Color", day_color, day_reset],
-		["Night Sky Color", night_color, night_reset],
-		["Ambient Occlusion Color", ao_color, ao_reset],
-		["AO Strength", ao_strength, ao_strength_reset],
-		["Darkness Color", dark_color, dark_reset],
-		["Contrast", contrast, contrast_reset],
-		["Saturation", saturation, saturation_reset],
-		["Smooth Lighting", smooth_lighting, smooth_lighting_reset],
-	], "settings", 40.0)
+	return [
+		["Sky", [
+			["Day Duration", dur, dur_reset],
+			["Day Sky Color", day_color, day_reset],
+			["Night Sky Color", night_color, night_reset],
+		]],
+		["Light", [
+			["AO Colour", ao_color, ao_reset],
+			["AO Strength", ao_strength, ao_strength_reset],
+			["Darkness Colour", dark_color, dark_reset],
+			["Smooth Lighting", smooth_lighting, smooth_lighting_reset],
+		]],
+		["Image", [
+			["Contrast", contrast, contrast_reset],
+			["Saturation", saturation, saturation_reset],
+		]],
+	]
 
-func _build_render_page() -> Control:
+func _build_render_sections() -> Array:
 	var rd := _make_slider(chunk_manager.get_render_distance(), 2.0, 64.0, 1.0,
 		func(v: float):
 			chunk_manager.set_render_distance(int(v))
@@ -1145,47 +1051,47 @@ func _build_render_page() -> Control:
 
 	var fog_mode_btn := _make_button("", 180.0)
 	var fog_mode_names := ["Off", "Edge", "Linear", "Exponential"]
-	fog_mode_btn.text = fog_mode_names[chunk_manager.get_fog_mode()]
+	_row_value(fog_mode_btn, fog_mode_names[chunk_manager.get_fog_mode()])
 	fog_mode_btn.pressed.connect(func():
 		var current: int = chunk_manager.get_fog_mode()
 		var next: int = (current + 1) % fog_mode_names.size()
 		chunk_manager.set_fog_mode(next)
-		fog_mode_btn.text = fog_mode_names[next]
+		_row_value(fog_mode_btn, fog_mode_names[next])
 		_schedule_save())
 	var fog_mode_reset := func():
 		chunk_manager.set_fog_mode(_default_fog_mode)
-		fog_mode_btn.text = fog_mode_names[_default_fog_mode]
+		_row_value(fog_mode_btn, fog_mode_names[_default_fog_mode])
 		_schedule_save()
 
 	var godrays_btn := Button.new()
 	var godrays_enabled: bool = godrays_node.visible if godrays_node else _default_godrays
-	godrays_btn.text = "On" if godrays_enabled else "Off"
+	_row_value(godrays_btn, "On" if godrays_enabled else "Off")
 	_style_button(godrays_btn, 180.0)
 	godrays_btn.pressed.connect(func():
 		var next: bool = not (godrays_node.visible if godrays_node else _default_godrays)
 		if godrays_node:
 			godrays_node.visible = next
-		godrays_btn.text = "On" if next else "Off"
+		_row_value(godrays_btn, "On" if next else "Off")
 		_schedule_save())
 	var godrays_reset := func():
 		if godrays_node:
 			godrays_node.visible = _default_godrays
-		godrays_btn.text = "On" if _default_godrays else "Off"
+		_row_value(godrays_btn, "On" if _default_godrays else "Off")
 		_schedule_save()
 
 	# Viewport.msaa_3d enum values (0=disabled, 1=2x, 2=4x, 3=8x) double as
 	# the label list indices, so the cycled index is the property value.
 	var msaa_btn := _make_button("", 180.0)
 	var msaa_names := ["Off", "2x", "4x", "8x"]
-	msaa_btn.text = msaa_names[get_viewport().msaa_3d]
+	_row_value(msaa_btn, msaa_names[get_viewport().msaa_3d])
 	msaa_btn.pressed.connect(func():
 		var next: int = (int(get_viewport().msaa_3d) + 1) % msaa_names.size()
 		get_viewport().msaa_3d = next as Viewport.MSAA
-		msaa_btn.text = msaa_names[next]
+		_row_value(msaa_btn, msaa_names[next])
 		_schedule_save())
 	var msaa_reset := func():
 		get_viewport().msaa_3d = _default_msaa_3d as Viewport.MSAA
-		msaa_btn.text = msaa_names[_default_msaa_3d]
+		_row_value(msaa_btn, msaa_names[_default_msaa_3d])
 		_schedule_save()
 
 	var mipmap_bias := _make_slider(chunk_manager.get_mipmap_bias(), -4.0, 4.0, 0.01,
@@ -1200,46 +1106,46 @@ func _build_render_page() -> Control:
 
 	var mipmaps_btn := Button.new()
 	var mipmaps_enabled: bool = chunk_manager.get_mipmaps_enabled()
-	mipmaps_btn.text = "On" if mipmaps_enabled else "Off"
+	_row_value(mipmaps_btn, "On" if mipmaps_enabled else "Off")
 	_style_button(mipmaps_btn, 180.0)
 	mipmaps_btn.pressed.connect(func():
 		var next: bool = not chunk_manager.get_mipmaps_enabled()
 		chunk_manager.set_mipmaps_enabled(next)
-		mipmaps_btn.text = "On" if next else "Off"
+		_row_value(mipmaps_btn, "On" if next else "Off")
 		mipmap_bias.get_meta("slider").editable = next
 		_schedule_save())
 	var mipmaps_reset := func():
 		chunk_manager.set_mipmaps_enabled(_default_mipmaps_enabled)
-		mipmaps_btn.text = "On" if _default_mipmaps_enabled else "Off"
+		_row_value(mipmaps_btn, "On" if _default_mipmaps_enabled else "Off")
 		mipmap_bias.get_meta("slider").editable = _default_mipmaps_enabled
 		_schedule_save()
 
 	var textures_btn := Button.new()
 	var textures_enabled: bool = chunk_manager.get_textures_enabled()
-	textures_btn.text = "On" if textures_enabled else "Off"
+	_row_value(textures_btn, "On" if textures_enabled else "Off")
 	_style_button(textures_btn, 180.0)
 	textures_btn.pressed.connect(func():
 		var next: bool = not chunk_manager.get_textures_enabled()
 		chunk_manager.set_textures_enabled(next)
-		textures_btn.text = "On" if next else "Off"
+		_row_value(textures_btn, "On" if next else "Off")
 		_schedule_save())
 	var textures_reset := func():
 		chunk_manager.set_textures_enabled(_default_textures_enabled)
-		textures_btn.text = "On" if _default_textures_enabled else "Off"
+		_row_value(textures_btn, "On" if _default_textures_enabled else "Off")
 		_schedule_save()
 
 	var compression_btn := Button.new()
 	var compression_enabled: bool = chunk_manager.get_compression_enabled()
-	compression_btn.text = "On" if compression_enabled else "Off"
+	_row_value(compression_btn, "On" if compression_enabled else "Off")
 	_style_button(compression_btn, 180.0)
 	compression_btn.pressed.connect(func():
 		var next: bool = not chunk_manager.get_compression_enabled()
 		chunk_manager.set_compression_enabled(next)
-		compression_btn.text = "On" if next else "Off"
+		_row_value(compression_btn, "On" if next else "Off")
 		_schedule_save())
 	var compression_reset := func():
 		chunk_manager.set_compression_enabled(_default_compression_enabled)
-		compression_btn.text = "On" if _default_compression_enabled else "Off"
+		_row_value(compression_btn, "On" if _default_compression_enabled else "Off")
 		_schedule_save()
 
 	var fps_cap := _make_slider(float(_fps_cap), 0.0, 300.0, 1.0,
@@ -1253,66 +1159,63 @@ func _build_render_page() -> Control:
 		Engine.max_fps = _default_fps_cap
 		_schedule_save()
 
-	return _build_option_page("RENDER", [
-		["Render Distance", rd, rd_reset],
-		["LOD Distance", lod_dist, lod_reset],
-		["LOD Detail Level", lod_detail, lod_detail_reset],
-		["Far LOD Distance", far_lod_dist, far_lod_reset],
-		["Far LOD Detail Level", far_lod_detail, far_lod_detail_reset],
-		["Fog Mode", fog_mode_btn, fog_mode_reset],
-		["God Rays", godrays_btn, godrays_reset],
-		["MSAA 3D", msaa_btn, msaa_reset],
-		["Mipmaps", mipmaps_btn, mipmaps_reset],
-		["Mipmap Bias", mipmap_bias, mipmap_bias_reset],
-		["Textures", textures_btn, textures_reset],
-		["Compression", compression_btn, compression_reset],
-		["FPS Cap", fps_cap, fps_cap_reset],
-	], "settings")
+	return [
+		["Terrain", [
+			["Render Distance", rd, rd_reset],
+			["LOD Distance", lod_dist, lod_reset],
+			["LOD Detail Level", lod_detail, lod_detail_reset],
+			["Far LOD Distance", far_lod_dist, far_lod_reset],
+			["Far LOD Detail Level", far_lod_detail, far_lod_detail_reset],
+		]],
+		# "Sky" is taken by the lighting category's own group.
+		["Atmosphere", [
+			["Fog Mode", fog_mode_btn, fog_mode_reset],
+			["God Rays", godrays_btn, godrays_reset],
+		]],
+		["Quality", [
+			["MSAA 3D", msaa_btn, msaa_reset],
+			["Mipmaps", mipmaps_btn, mipmaps_reset],
+			["Mipmap Bias", mipmap_bias, mipmap_bias_reset],
+			["Textures", textures_btn, textures_reset],
+			["Compression", compression_btn, compression_reset],
+		]],
+		["Performance", [
+			["FPS Cap", fps_cap, fps_cap_reset],
+		]],
+	]
 
 # CONTROLS page: one row per rebindable action. Clicking a binding button arms
 # capture; the next key/button press replaces the action's events (Escape
 # cancels). Every row gets a reset to the pristine project.godot binding.
-func _build_controls_page() -> Control:
-	var s := _ui_scale()
+func _build_controls_sections() -> Array:
 	var rows: Array = []
 	for cb in CONTROL_BINDINGS:
 		var action: String = cb[0]
-		var btn := _make_button(_binding_text(action))
+		var btn := _make_widget_button("", UNIT_OPTION_W + 20.0)
 		_control_buttons[action] = btn
+		_set_binding_label(btn, action)
 		btn.pressed.connect(func(a := action, b := btn):
 			_capturing_action = a
-			b.text = " <Press> "
+			_row_value(b, "<Press>")
 			_set_controls_hint(""))
 		rows.append([cb[1], btn, func(a := action): _reset_control(a)])
 
-	var page := _build_option_page("CONTROLS", rows, "settings", 40.0)
-
-	# Conflict/status hint shown above the Reset All row (hidden until used).
-	var hint := Label.new()
-	hint.text = ""
-	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	hint.add_theme_font_override("font", MUNRO_FONT)
-	hint.add_theme_font_size_override("font_size", int(10 * s))
-	hint.add_theme_color_override("font_color", Color(1.0, 0.7, 0.3))
-	hint.set_anchors_preset(Control.PRESET_CENTER)
-	hint.offset_left = -260.0 * s
-	hint.offset_right = 260.0 * s
-	hint.offset_top = 88.0 * s
-	hint.offset_bottom = 104.0 * s
+	# Conflict/status line, the last row of the list and empty until a capture is
+	# rejected. It is a label rather than a widget, so it takes no label of its
+	# own.
+	var hint := _make_hint_label(_ui_scale())
 	_controls_hint = hint
-	page.add_child(hint)
 
-	# Reset All: restore every action's pristine project.godot binding.
-	var reset_all := _make_button("Reset All", 160.0)
-	reset_all.set_anchors_preset(Control.PRESET_CENTER)
-	reset_all.offset_left = -80.0 * s
-	reset_all.offset_right = 80.0 * s
-	reset_all.offset_top = 108.0 * s
-	reset_all.offset_bottom = 128.0 * s
+	# Reset All used to be a footer button; on the merged page the footer belongs
+	# to the whole screen, so it is the last row of the bindings it resets.
+	var reset_all := _make_widget_button("Reset All")
 	reset_all.pressed.connect(_reset_all_controls)
-	page.add_child(reset_all)
+	rows.append(["", reset_all, null])
 
-	return page
+	return [
+		["Key Binds", rows],
+		["", [["", hint, null, "span"]]],
+	]
 
 func _set_controls_hint(text: String) -> void:
 	if _controls_hint != null:
@@ -1325,10 +1228,16 @@ func _reset_all_controls() -> void:
 		InputMap.action_erase_events(cb[0])
 		for e in _controls_defaults[cb[0]]:
 			InputMap.action_add_event(cb[0], e)
-		var btn: Button = _control_buttons.get(cb[0])
-		if btn != null:
-			btn.text = _binding_text(cb[0])
+		_set_binding_label(_control_buttons.get(cb[0]), cb[0])
 	_schedule_save()
+
+# A bound key is the row's value like every other option: the action's name stays
+# in front and only the part after the colon changes. Also used while the row is
+# armed, where the awaited input takes the value's place.
+func _set_binding_label(btn: Button, action_name: String) -> void:
+	if btn == null:
+		return
+	_row_value(btn, _binding_text(action_name))
 
 # Human-readable label for an action's first binding (key name or mouse side).
 func _binding_text(action_name: String) -> String:
@@ -1359,9 +1268,7 @@ func _reset_control(action_name: String) -> void:
 	InputMap.action_erase_events(action_name)
 	for e in _controls_defaults[action_name]:
 		InputMap.action_add_event(action_name, e)
-	var btn: Button = _control_buttons.get(action_name)
-	if btn != null:
-		btn.text = _binding_text(action_name)
+	_set_binding_label(_control_buttons.get(action_name), action_name)
 	_schedule_save()
 
 # Apply a captured event (or null to cancel) to the armed action, then refresh
@@ -1378,9 +1285,7 @@ func _finish_capture(new_event: InputEvent) -> void:
 			InputMap.action_erase_events(action)
 			InputMap.action_add_event(action, new_event)
 			_schedule_save()
-	var btn: Button = _control_buttons.get(action)
-	if btn != null:
-		btn.text = _binding_text(action)
+	_set_binding_label(_control_buttons.get(action), action)
 
 # Human-readable name of a conflicting action (from CONTROL_BINDINGS).
 func _friendly_action(action_name: String) -> String:
@@ -1502,12 +1407,12 @@ func _build_skin_maker_page() -> Control:
 	hex_label.text = "#FFFFFF"
 	hex_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hex_label.add_theme_font_override("font", MUNRO_FONT)
-	hex_label.add_theme_font_size_override("font_size", int(14 * s))
+	hex_label.add_theme_font_size_override("font_size", int(UNIT_FONT * s))
 	hex_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
 	hex_label.offset_left = -120.0
 	hex_label.offset_right = 120.0
 	hex_label.offset_top = 60.0 * s + 8.0
-	hex_label.offset_bottom = 60.0 * s + 38.0
+	hex_label.offset_bottom = 60.0 * s + 8.0 + UNIT_BUTTON_H * s
 	_skin_picker.color_changed.connect(func(c: Color):
 		hex_label.text = "#" + c.to_html(false)
 		_skin_preview.set_paint_color(c))
@@ -1517,8 +1422,8 @@ func _build_skin_maker_page() -> Control:
 	_skin_preview = (preload("res://skin_preview.gd") as GDScript).new()
 	_skin_preview.name = "SkinPreview"
 	_skin_preview.set_anchors_preset(Control.PRESET_CENTER)
-	_skin_preview.offset_left = -260.0
-	_skin_preview.offset_right = 260.0
+	_skin_preview.offset_left = -200.0
+	_skin_preview.offset_right = 200.0
 	_skin_preview.offset_top = -220.0
 	_skin_preview.offset_bottom = 220.0
 	page.add_child(_skin_preview)
@@ -1527,12 +1432,12 @@ func _build_skin_maker_page() -> Control:
 	hint.text = "ESC to exit"
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	hint.add_theme_font_override("font", MUNRO_FONT)
-	hint.add_theme_font_size_override("font_size", int(13 * s))
+	hint.add_theme_font_size_override("font_size", int(UNIT_FONT * s))
 	hint.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
-	hint.offset_left = 12.0
-	hint.offset_top = -38.0
-	hint.offset_right = 200.0
-	hint.offset_bottom = -12.0
+	hint.offset_left = UNIT_MARGIN * s
+	hint.offset_top = -(UNIT_MARGIN + UNIT_BUTTON_H) * s
+	hint.offset_right = (UNIT_MARGIN + 190.0) * s
+	hint.offset_bottom = -UNIT_MARGIN * s
 	page.add_child(hint)
 	_skin_hint = hint
 
@@ -1541,12 +1446,12 @@ func _build_skin_maker_page() -> Control:
 	toggle.toggle_mode = true
 	toggle.button_pressed = _skin_dark_mode
 	toggle.add_theme_font_override("font", MUNRO_FONT)
-	toggle.add_theme_font_size_override("font_size", int(14 * s))
+	toggle.add_theme_font_size_override("font_size", int(UNIT_FONT * s))
 	toggle.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	toggle.offset_left = -190.0
-	toggle.offset_right = -12.0
-	toggle.offset_top = 20.0 * s
-	toggle.offset_bottom = 20.0 * s + 40.0
+	toggle.offset_left = -(UNIT_BUTTON_W + UNIT_MARGIN) * s
+	toggle.offset_right = -UNIT_MARGIN * s
+	toggle.offset_top = _maker_row_top(0, s)
+	toggle.offset_bottom = _maker_row_top(0, s) + UNIT_BUTTON_H * s
 	toggle.pressed.connect(func():
 		_skin_dark_mode = not _skin_dark_mode
 		_apply_skin_palette()
@@ -1558,13 +1463,13 @@ func _build_skin_maker_page() -> Control:
 	uv_toggle.name = "UvOverlayToggle"
 	uv_toggle.toggle_mode = true
 	uv_toggle.add_theme_font_override("font", MUNRO_FONT)
-	uv_toggle.add_theme_font_size_override("font_size", int(14 * s))
+	uv_toggle.add_theme_font_size_override("font_size", int(UNIT_FONT * s))
 	uv_toggle.text = "UV OVERLAY"
 	uv_toggle.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	uv_toggle.offset_left = -190.0
-	uv_toggle.offset_right = -12.0
-	uv_toggle.offset_top = 20.0 * s + 48.0
-	uv_toggle.offset_bottom = 20.0 * s + 88.0
+	uv_toggle.offset_left = -(UNIT_BUTTON_W + UNIT_MARGIN) * s
+	uv_toggle.offset_right = -UNIT_MARGIN * s
+	uv_toggle.offset_top = _maker_row_top(1, s)
+	uv_toggle.offset_bottom = _maker_row_top(1, s) + UNIT_BUTTON_H * s
 	uv_toggle.pressed.connect(func():
 		_skin_preview.set_uv_overlay(uv_toggle.button_pressed))
 	page.add_child(uv_toggle)
@@ -1575,12 +1480,12 @@ func _build_skin_maker_page() -> Control:
 	undo_btn.text = "UNDO"
 	undo_btn.disabled = true
 	undo_btn.add_theme_font_override("font", MUNRO_FONT)
-	undo_btn.add_theme_font_size_override("font_size", int(14 * s))
+	undo_btn.add_theme_font_size_override("font_size", int(UNIT_FONT * s))
 	undo_btn.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	undo_btn.offset_left = -190.0
-	undo_btn.offset_right = -12.0
-	undo_btn.offset_top = 20.0 * s + 144.0
-	undo_btn.offset_bottom = 20.0 * s + 184.0
+	undo_btn.offset_left = -(UNIT_BUTTON_W + UNIT_MARGIN) * s
+	undo_btn.offset_right = -UNIT_MARGIN * s
+	undo_btn.offset_top = _maker_row_top(3, s)
+	undo_btn.offset_bottom = _maker_row_top(3, s) + UNIT_BUTTON_H * s
 	undo_btn.pressed.connect(func(): _skin_preview.undo_last())
 	_skin_preview.paint_history_changed.connect(
 		func(has_undo: bool): undo_btn.disabled = not has_undo)
@@ -1592,12 +1497,12 @@ func _build_skin_maker_page() -> Control:
 	tool_btn.text = "DRAW"
 	var tool_names := ["DRAW", "FILL", "BOX"]
 	tool_btn.add_theme_font_override("font", MUNRO_FONT)
-	tool_btn.add_theme_font_size_override("font_size", int(14 * s))
+	tool_btn.add_theme_font_size_override("font_size", int(UNIT_FONT * s))
 	tool_btn.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	tool_btn.offset_left = -190.0
-	tool_btn.offset_right = -12.0
-	tool_btn.offset_top = 20.0 * s + 96.0
-	tool_btn.offset_bottom = 20.0 * s + 136.0
+	tool_btn.offset_left = -(UNIT_BUTTON_W + UNIT_MARGIN) * s
+	tool_btn.offset_right = -UNIT_MARGIN * s
+	tool_btn.offset_top = _maker_row_top(2, s)
+	tool_btn.offset_bottom = _maker_row_top(2, s) + UNIT_BUTTON_H * s
 	tool_btn.pressed.connect(func():
 		var idx := tool_names.find(tool_btn.text)
 		idx = (idx + 1) % tool_names.size()
@@ -1612,12 +1517,12 @@ func _build_skin_maker_page() -> Control:
 	name_edit.placeholder_text = "skin name"
 	name_edit.max_length = 32
 	name_edit.add_theme_font_override("font", MUNRO_FONT)
-	name_edit.add_theme_font_size_override("font_size", int(13 * s))
+	name_edit.add_theme_font_size_override("font_size", int(UNIT_FONT * s))
 	name_edit.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	name_edit.offset_left = -190.0
-	name_edit.offset_right = -12.0
-	name_edit.offset_top = -140.0
-	name_edit.offset_bottom = -108.0
+	name_edit.offset_left = -(UNIT_BUTTON_W + UNIT_MARGIN) * s
+	name_edit.offset_right = -UNIT_MARGIN * s
+	name_edit.offset_top = _maker_slot(2, s) - UNIT_BUTTON_H * s
+	name_edit.offset_bottom = _maker_slot(2, s)
 	page.add_child(name_edit)
 	_skin_name_edit = name_edit
 
@@ -1625,12 +1530,12 @@ func _build_skin_maker_page() -> Control:
 	save_btn.name = "SkinSave"
 	save_btn.text = "SAVE"
 	save_btn.add_theme_font_override("font", MUNRO_FONT)
-	save_btn.add_theme_font_size_override("font_size", int(14 * s))
+	save_btn.add_theme_font_size_override("font_size", int(UNIT_FONT * s))
 	save_btn.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	save_btn.offset_left = -190.0
-	save_btn.offset_right = -12.0
-	save_btn.offset_top = -100.0
-	save_btn.offset_bottom = -60.0
+	save_btn.offset_left = -(UNIT_BUTTON_W + UNIT_MARGIN) * s
+	save_btn.offset_right = -UNIT_MARGIN * s
+	save_btn.offset_top = _maker_slot(1, s) - UNIT_BUTTON_H * s
+	save_btn.offset_bottom = _maker_slot(1, s)
 	save_btn.pressed.connect(func():
 		var skin_name := _sanitize_skin_name(name_edit.text)
 		DirAccess.make_dir_recursive_absolute("user://skins")
@@ -1645,12 +1550,12 @@ func _build_skin_maker_page() -> Control:
 	load_btn.name = "SkinLoad"
 	load_btn.text = "LOAD"
 	load_btn.add_theme_font_override("font", MUNRO_FONT)
-	load_btn.add_theme_font_size_override("font_size", int(14 * s))
+	load_btn.add_theme_font_size_override("font_size", int(UNIT_FONT * s))
 	load_btn.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	load_btn.offset_left = -190.0
-	load_btn.offset_right = -12.0
-	load_btn.offset_top = -52.0
-	load_btn.offset_bottom = -12.0
+	load_btn.offset_left = -(UNIT_BUTTON_W + UNIT_MARGIN) * s
+	load_btn.offset_right = -UNIT_MARGIN * s
+	load_btn.offset_top = _maker_slot(0, s) - UNIT_BUTTON_H * s
+	load_btn.offset_bottom = _maker_slot(0, s)
 	load_btn.pressed.connect(_open_skin_gallery)
 	page.add_child(load_btn)
 	_skin_load_btn = load_btn
@@ -1660,33 +1565,34 @@ func _build_skin_maker_page() -> Control:
 	noise_row.alignment = BoxContainer.ALIGNMENT_CENTER
 	noise_row.add_theme_constant_override("separation", int(10 * s))
 	noise_row.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-	noise_row.offset_left = -200.0
-	noise_row.offset_right = 200.0
-	noise_row.offset_top = -52.0
-	noise_row.offset_bottom = -12.0
+	noise_row.offset_left = -110.0 * s
+	noise_row.offset_right = 110.0 * s
+	noise_row.offset_top = -(UNIT_MARGIN + UNIT_BUTTON_H) * s
+	noise_row.offset_bottom = -UNIT_MARGIN * s
 
 	var noise_label := Label.new()
 	noise_label.text = "NOISE"
 	noise_label.add_theme_font_override("font", MUNRO_FONT)
-	noise_label.add_theme_font_size_override("font_size", int(13 * s))
+	noise_label.add_theme_font_size_override("font_size", int(UNIT_FONT * s))
 	noise_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	noise_label.custom_minimum_size = Vector2(50 * s, 0.0)
+	noise_label.custom_minimum_size = Vector2(UNIT_BUTTON_W / 4.0 * s, 0.0)
 
 	var noise_slider := HSlider.new()
 	noise_slider.min_value = 0.0
 	noise_slider.max_value = 100.0
 	noise_slider.step = 1.0
 	noise_slider.value = _skin_noise
-	noise_slider.custom_minimum_size = Vector2(120 * s, 0.0)
+	noise_slider.custom_minimum_size = Vector2(UNIT_BUTTON_W / 2.0 * s, UNIT_BUTTON_H * s)
 	noise_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	noise_slider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_style_slider_control(noise_slider)
 
 	var noise_value := Label.new()
 	noise_value.text = str(int(_skin_noise))
 	noise_value.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	noise_value.add_theme_font_override("font", MUNRO_FONT)
-	noise_value.add_theme_font_size_override("font_size", int(13 * s))
-	noise_value.custom_minimum_size = Vector2(32 * s, 0.0)
+	noise_value.add_theme_font_size_override("font_size", int(UNIT_FONT * s))
+	noise_value.custom_minimum_size = Vector2(UNIT_BUTTON_W / 6.0 * s, 0.0)
 
 	noise_slider.value_changed.connect(func(v: float):
 		noise_value.text = str(int(v))
@@ -1741,12 +1647,12 @@ func _build_block_maker_page() -> Control:
 	hex_label.text = "#FFFFFF"
 	hex_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hex_label.add_theme_font_override("font", MUNRO_FONT)
-	hex_label.add_theme_font_size_override("font_size", int(14 * s))
+	hex_label.add_theme_font_size_override("font_size", int(UNIT_FONT * s))
 	hex_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
 	hex_label.offset_left = -120.0
 	hex_label.offset_right = 120.0
 	hex_label.offset_top = 60.0 * s + 8.0
-	hex_label.offset_bottom = 60.0 * s + 38.0
+	hex_label.offset_bottom = 60.0 * s + 8.0 + UNIT_BUTTON_H * s
 	_block_picker.color_changed.connect(func(c: Color):
 		hex_label.text = "#" + c.to_html(false)
 		_block_color = c
@@ -1770,12 +1676,12 @@ func _build_block_maker_page() -> Control:
 	dark_toggle.button_pressed = _skin_dark_mode
 	dark_toggle.text = "DARK MODE" if not _skin_dark_mode else "LIGHT MODE"
 	dark_toggle.add_theme_font_override("font", MUNRO_FONT)
-	dark_toggle.add_theme_font_size_override("font_size", int(14 * s))
+	dark_toggle.add_theme_font_size_override("font_size", int(UNIT_FONT * s))
 	dark_toggle.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	dark_toggle.offset_left = -190.0
-	dark_toggle.offset_right = -12.0
-	dark_toggle.offset_top = 20.0 * s
-	dark_toggle.offset_bottom = 20.0 * s + 40.0
+	dark_toggle.offset_left = -(UNIT_BUTTON_W + UNIT_MARGIN) * s
+	dark_toggle.offset_right = -UNIT_MARGIN * s
+	dark_toggle.offset_top = _maker_row_top(0, s)
+	dark_toggle.offset_bottom = _maker_row_top(0, s) + UNIT_BUTTON_H * s
 	dark_toggle.pressed.connect(func():
 		_skin_dark_mode = not _skin_dark_mode
 		dark_toggle.text = "DARK MODE" if not _skin_dark_mode else "LIGHT MODE"
@@ -1788,13 +1694,13 @@ func _build_block_maker_page() -> Control:
 	uv_toggle.name = "BlockUvOverlayToggle"
 	uv_toggle.toggle_mode = true
 	uv_toggle.add_theme_font_override("font", MUNRO_FONT)
-	uv_toggle.add_theme_font_size_override("font_size", int(14 * s))
+	uv_toggle.add_theme_font_size_override("font_size", int(UNIT_FONT * s))
 	uv_toggle.text = "UV OVERLAY"
 	uv_toggle.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	uv_toggle.offset_left = -190.0
-	uv_toggle.offset_right = -12.0
-	uv_toggle.offset_top = 20.0 * s + 48.0
-	uv_toggle.offset_bottom = 20.0 * s + 88.0
+	uv_toggle.offset_left = -(UNIT_BUTTON_W + UNIT_MARGIN) * s
+	uv_toggle.offset_right = -UNIT_MARGIN * s
+	uv_toggle.offset_top = _maker_row_top(1, s)
+	uv_toggle.offset_bottom = _maker_row_top(1, s) + UNIT_BUTTON_H * s
 	uv_toggle.pressed.connect(func():
 		if _block_preview != null:
 			_block_preview.set_uv_overlay(uv_toggle.button_pressed))
@@ -1805,12 +1711,12 @@ func _build_block_maker_page() -> Control:
 	hint.text = "ESC to exit"
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	hint.add_theme_font_override("font", MUNRO_FONT)
-	hint.add_theme_font_size_override("font_size", int(13 * s))
+	hint.add_theme_font_size_override("font_size", int(UNIT_FONT * s))
 	hint.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
-	hint.offset_left = 12.0
-	hint.offset_top = -38.0
-	hint.offset_right = 200.0
-	hint.offset_bottom = -12.0
+	hint.offset_left = UNIT_MARGIN * s
+	hint.offset_top = -(UNIT_MARGIN + UNIT_BUTTON_H) * s
+	hint.offset_right = (UNIT_MARGIN + 190.0) * s
+	hint.offset_bottom = -UNIT_MARGIN * s
 	page.add_child(hint)
 	_block_hint = hint
 
@@ -1819,12 +1725,12 @@ func _build_block_maker_page() -> Control:
 	undo_btn.text = "UNDO"
 	undo_btn.disabled = true
 	undo_btn.add_theme_font_override("font", MUNRO_FONT)
-	undo_btn.add_theme_font_size_override("font_size", int(14 * s))
+	undo_btn.add_theme_font_size_override("font_size", int(UNIT_FONT * s))
 	undo_btn.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	undo_btn.offset_left = -190.0
-	undo_btn.offset_right = -12.0
-	undo_btn.offset_top = 20.0 * s + 144.0
-	undo_btn.offset_bottom = 20.0 * s + 184.0
+	undo_btn.offset_left = -(UNIT_BUTTON_W + UNIT_MARGIN) * s
+	undo_btn.offset_right = -UNIT_MARGIN * s
+	undo_btn.offset_top = _maker_row_top(3, s)
+	undo_btn.offset_bottom = _maker_row_top(3, s) + UNIT_BUTTON_H * s
 	undo_btn.pressed.connect(func(): 
 		if _block_preview != null:
 			_block_preview.undo())
@@ -1838,12 +1744,12 @@ func _build_block_maker_page() -> Control:
 	tool_btn.text = "DRAW"
 	var tool_names := ["DRAW", "FILL", "BOX"]
 	tool_btn.add_theme_font_override("font", MUNRO_FONT)
-	tool_btn.add_theme_font_size_override("font_size", int(14 * s))
+	tool_btn.add_theme_font_size_override("font_size", int(UNIT_FONT * s))
 	tool_btn.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	tool_btn.offset_left = -190.0
-	tool_btn.offset_right = -12.0
-	tool_btn.offset_top = 20.0 * s + 96.0
-	tool_btn.offset_bottom = 20.0 * s + 136.0
+	tool_btn.offset_left = -(UNIT_BUTTON_W + UNIT_MARGIN) * s
+	tool_btn.offset_right = -UNIT_MARGIN * s
+	tool_btn.offset_top = _maker_row_top(2, s)
+	tool_btn.offset_bottom = _maker_row_top(2, s) + UNIT_BUTTON_H * s
 	tool_btn.pressed.connect(func():
 		var idx := tool_names.find(tool_btn.text)
 		idx = (idx + 1) % tool_names.size()
@@ -1860,12 +1766,12 @@ func _build_block_maker_page() -> Control:
 	name_edit.placeholder_text = "block name"
 	name_edit.max_length = 32
 	name_edit.add_theme_font_override("font", MUNRO_FONT)
-	name_edit.add_theme_font_size_override("font_size", int(13 * s))
+	name_edit.add_theme_font_size_override("font_size", int(UNIT_FONT * s))
 	name_edit.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	name_edit.offset_left = -190.0
-	name_edit.offset_right = -12.0
-	name_edit.offset_top = -140.0
-	name_edit.offset_bottom = -108.0
+	name_edit.offset_left = -(UNIT_BUTTON_W + UNIT_MARGIN) * s
+	name_edit.offset_right = -UNIT_MARGIN * s
+	name_edit.offset_top = _maker_slot(2, s) - UNIT_BUTTON_H * s
+	name_edit.offset_bottom = _maker_slot(2, s)
 	page.add_child(name_edit)
 	_block_name_edit = name_edit
 
@@ -1873,12 +1779,12 @@ func _build_block_maker_page() -> Control:
 	load_btn.name = "BlockLoad"
 	load_btn.text = "LOAD"
 	load_btn.add_theme_font_override("font", MUNRO_FONT)
-	load_btn.add_theme_font_size_override("font_size", int(14 * s))
+	load_btn.add_theme_font_size_override("font_size", int(UNIT_FONT * s))
 	load_btn.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	load_btn.offset_left = -190.0
-	load_btn.offset_right = -12.0
-	load_btn.offset_top = -52.0
-	load_btn.offset_bottom = -12.0
+	load_btn.offset_left = -(UNIT_BUTTON_W + UNIT_MARGIN) * s
+	load_btn.offset_right = -UNIT_MARGIN * s
+	load_btn.offset_top = _maker_slot(0, s) - UNIT_BUTTON_H * s
+	load_btn.offset_bottom = _maker_slot(0, s)
 	load_btn.pressed.connect(_open_block_gallery)
 	page.add_child(load_btn)
 	_block_load_btn = load_btn
@@ -1887,12 +1793,12 @@ func _build_block_maker_page() -> Control:
 	save_btn.name = "BlockSave"
 	save_btn.text = "SAVE"
 	save_btn.add_theme_font_override("font", MUNRO_FONT)
-	save_btn.add_theme_font_size_override("font_size", int(14 * s))
+	save_btn.add_theme_font_size_override("font_size", int(UNIT_FONT * s))
 	save_btn.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	save_btn.offset_left = -190.0
-	save_btn.offset_right = -12.0
-	save_btn.offset_top = -100.0
-	save_btn.offset_bottom = -60.0
+	save_btn.offset_left = -(UNIT_BUTTON_W + UNIT_MARGIN) * s
+	save_btn.offset_right = -UNIT_MARGIN * s
+	save_btn.offset_top = _maker_slot(1, s) - UNIT_BUTTON_H * s
+	save_btn.offset_bottom = _maker_slot(1, s)
 	save_btn.pressed.connect(func():
 		var block_name := _sanitize_block_name(name_edit.text)
 		DirAccess.make_dir_recursive_absolute("user://blocks")
@@ -1908,33 +1814,34 @@ func _build_block_maker_page() -> Control:
 	noise_row.alignment = BoxContainer.ALIGNMENT_CENTER
 	noise_row.add_theme_constant_override("separation", int(10 * s))
 	noise_row.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-	noise_row.offset_left = -200.0
-	noise_row.offset_right = 200.0
-	noise_row.offset_top = -52.0
-	noise_row.offset_bottom = -12.0
+	noise_row.offset_left = -110.0 * s
+	noise_row.offset_right = 110.0 * s
+	noise_row.offset_top = -(UNIT_MARGIN + UNIT_BUTTON_H) * s
+	noise_row.offset_bottom = -UNIT_MARGIN * s
 
 	var noise_label := Label.new()
 	noise_label.text = "NOISE"
 	noise_label.add_theme_font_override("font", MUNRO_FONT)
-	noise_label.add_theme_font_size_override("font_size", int(13 * s))
+	noise_label.add_theme_font_size_override("font_size", int(UNIT_FONT * s))
 	noise_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	noise_label.custom_minimum_size = Vector2(50 * s, 0.0)
+	noise_label.custom_minimum_size = Vector2(UNIT_BUTTON_W / 4.0 * s, 0.0)
 
 	var noise_slider := HSlider.new()
 	noise_slider.min_value = 0.0
 	noise_slider.max_value = 100.0
 	noise_slider.step = 1.0
 	noise_slider.value = _block_noise
-	noise_slider.custom_minimum_size = Vector2(120 * s, 0.0)
+	noise_slider.custom_minimum_size = Vector2(UNIT_BUTTON_W / 2.0 * s, UNIT_BUTTON_H * s)
 	noise_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	noise_slider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_style_slider_control(noise_slider)
 
 	var noise_value := Label.new()
 	noise_value.text = str(int(_block_noise))
 	noise_value.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	noise_value.add_theme_font_override("font", MUNRO_FONT)
-	noise_value.add_theme_font_size_override("font_size", int(13 * s))
-	noise_value.custom_minimum_size = Vector2(32 * s, 0.0)
+	noise_value.add_theme_font_size_override("font_size", int(UNIT_FONT * s))
+	noise_value.custom_minimum_size = Vector2(UNIT_BUTTON_W / 6.0 * s, 0.0)
 
 	noise_slider.value_changed.connect(func(v: float):
 		noise_value.text = str(int(v))
@@ -2098,7 +2005,7 @@ func _refresh_skin_gallery() -> void:
 		var empty_hint := Label.new()
 		empty_hint.text = "No saved skins yet — use SAVE to create one."
 		empty_hint.add_theme_font_override("font", MUNRO_FONT)
-		empty_hint.add_theme_font_size_override("font_size", int(14 * _ui_scale()))
+		empty_hint.add_theme_font_size_override("font_size", int(UNIT_FONT * _ui_scale()))
 		empty_hint.add_theme_color_override("font_color",
 			Color(0.75, 0.75, 0.75, 1) if _skin_dark_mode else Color(0.2, 0.2, 0.2))
 		_skin_gallery_grid.add_child(empty_hint)
@@ -2166,7 +2073,7 @@ func _make_skin_card(s: float, skin_name: String) -> VBoxContainer:
 	name_btn.tooltip_text = "Load " + skin_name
 	name_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	name_btn.add_theme_font_override("font", MUNRO_FONT)
-	name_btn.add_theme_font_size_override("font_size", int(12 * s))
+	name_btn.add_theme_font_size_override("font_size", int(UNIT_FONT * s))
 	name_btn.add_theme_color_override("font_color", fg_col)
 	name_btn.add_theme_color_override("font_hover_color", fg_col)
 	name_btn.add_theme_color_override("font_pressed_color", fg_col)
@@ -2174,10 +2081,10 @@ func _make_skin_card(s: float, skin_name: String) -> VBoxContainer:
 	var del_btn := Button.new()
 	del_btn.text = "X"
 	del_btn.flat = true
-	del_btn.custom_minimum_size = Vector2(int(24 * s), 0)
+	del_btn.custom_minimum_size = Vector2(UNIT_UNDO_W * s, 0)
 	del_btn.tooltip_text = "Delete " + skin_name
 	del_btn.add_theme_font_override("font", MUNRO_FONT)
-	del_btn.add_theme_font_size_override("font_size", int(13 * s))
+	del_btn.add_theme_font_size_override("font_size", int(UNIT_FONT * s))
 	del_btn.add_theme_color_override("font_color", Color(1, 0.42, 0.42))
 	del_btn.add_theme_color_override("font_hover_color", Color(1, 0.6, 0.6))
 	foot.add_child(del_btn)
@@ -2351,13 +2258,10 @@ func _build_skin_gallery(s: float) -> Control:
 	title.text = "LOAD SKIN"
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	title.add_theme_font_override("font", MUNRO_FONT)
-	title.add_theme_font_size_override("font_size", int(17 * s))
+	title.add_theme_font_size_override("font_size", int(UNIT_FONT * s))
 	title.add_theme_color_override("font_color", fg_col)
 	header.add_child(title)
-	var close_btn := Button.new()
-	close_btn.text = "CLOSE"
-	close_btn.add_theme_font_override("font", MUNRO_FONT)
-	close_btn.add_theme_font_size_override("font_size", int(13 * s))
+	var close_btn := _make_widget_button("CLOSE", UNIT_RESET_W)
 	close_btn.pressed.connect(_close_skin_gallery)
 	header.add_child(close_btn)
 	vbox.add_child(header)
@@ -2412,7 +2316,7 @@ func _refresh_block_gallery() -> void:
 		var empty_hint := Label.new()
 		empty_hint.text = "No saved blocks yet — use SAVE to create one."
 		empty_hint.add_theme_font_override("font", MUNRO_FONT)
-		empty_hint.add_theme_font_size_override("font_size", int(14 * _ui_scale()))
+		empty_hint.add_theme_font_size_override("font_size", int(UNIT_FONT * _ui_scale()))
 		empty_hint.add_theme_color_override("font_color",
 			Color(0.75, 0.75, 0.75, 1) if _skin_dark_mode else Color(0.2, 0.2, 0.2))
 		_block_gallery_grid.add_child(empty_hint)
@@ -2484,7 +2388,7 @@ func _make_block_card(s: float, block_name: String) -> VBoxContainer:
 	name_btn.tooltip_text = "Load " + block_name
 	name_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	name_btn.add_theme_font_override("font", MUNRO_FONT)
-	name_btn.add_theme_font_size_override("font_size", int(12 * s))
+	name_btn.add_theme_font_size_override("font_size", int(UNIT_FONT * s))
 	name_btn.add_theme_color_override("font_color", fg_col)
 	name_btn.add_theme_color_override("font_hover_color", fg_col)
 	name_btn.add_theme_color_override("font_pressed_color", fg_col)
@@ -2492,10 +2396,10 @@ func _make_block_card(s: float, block_name: String) -> VBoxContainer:
 	var del_btn := Button.new()
 	del_btn.text = "X"
 	del_btn.flat = true
-	del_btn.custom_minimum_size = Vector2(int(24 * s), 0)
+	del_btn.custom_minimum_size = Vector2(UNIT_UNDO_W * s, 0)
 	del_btn.tooltip_text = "Delete " + block_name
 	del_btn.add_theme_font_override("font", MUNRO_FONT)
-	del_btn.add_theme_font_size_override("font_size", int(13 * s))
+	del_btn.add_theme_font_size_override("font_size", int(UNIT_FONT * s))
 	del_btn.add_theme_color_override("font_color", Color(1, 0.42, 0.42))
 	del_btn.add_theme_color_override("font_hover_color", Color(1, 0.6, 0.6))
 	foot.add_child(del_btn)
@@ -2674,13 +2578,10 @@ func _build_block_gallery(s: float) -> Control:
 	title.text = "LOAD BLOCK"
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	title.add_theme_font_override("font", MUNRO_FONT)
-	title.add_theme_font_size_override("font_size", int(17 * s))
+	title.add_theme_font_size_override("font_size", int(UNIT_FONT * s))
 	title.add_theme_color_override("font_color", fg_col)
 	header.add_child(title)
-	var close_btn := Button.new()
-	close_btn.text = "CLOSE"
-	close_btn.add_theme_font_override("font", MUNRO_FONT)
-	close_btn.add_theme_font_size_override("font_size", int(13 * s))
+	var close_btn := _make_widget_button("CLOSE", UNIT_RESET_W)
 	close_btn.pressed.connect(_close_block_gallery)
 	header.add_child(close_btn)
 	vbox.add_child(header)
@@ -2780,7 +2681,7 @@ func _style_skin_button(btn: Button, fg_col: Color, dark: bool) -> void:
 func _make_picker_theme(s: float, dark: bool) -> Theme:
 	var th := Theme.new()
 	th.default_font = MUNRO_FONT
-	th.default_font_size = int(12 * s)
+	th.default_font_size = int(UNIT_FONT * s)
 	var fg := Color(1, 1, 1, 1) if dark else Color.BLACK
 	var hover := Color(0.72, 0.72, 0.72, 1) if dark else Color(0.35, 0.35, 0.35, 1)
 	# The ColorPicker's internals are C++-built (inaccessible child controls),
@@ -2819,108 +2720,309 @@ func _tint_picker_internals(node: Node, fg: Color, hover: Color) -> void:
 				btn.add_theme_color_override(state, col)
 		_tint_picker_internals(child, fg, hover)
 
-func _build_option_page(title_text: String, rows: Array, back_target: String, row_spacing := 44.0) -> Control:
-	var s := _ui_scale()
+func _flat_style(color: Color) -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = color
+	return style
+
+# -----------------------------------------------------------------------------
+# The scrolling screen
+#
+# One shape for every options page, the way the reference screen reads: a title
+# bar across the top, a bordered content box that scrolls when the options do not
+# fit, option rows in two columns under section headings, and a bar of actions
+# along the bottom. Rows keep the [label, control, reset] shape the pages already
+# built, so a page converts by grouping its rows under headings — the layout, the
+# sizing and the scrolling all come from here.
+#
+#   sections: [[heading, [row, ...], "category"?], ...]
+#   actions:  [[text, Callable], ...] for the bottom bar
+#
+# A row can be [label, control, reset] where reset is a Callable or null, or
+# [label, control, null, "span"] for something wider than one column (a preview),
+# which is placed across the content box on its own. A section whose third element
+# is "category" is a settings area on the merged page: brighter heading, gap
+# above — see _build_settings_page().
+# -----------------------------------------------------------------------------
+func _build_scrolling_page(title_text: String, sections: Array, actions: Array,
+		option_w := UNIT_OPTION_W, columns := 2) -> Control:
+	var u := _ui_scale()
 	var page := Control.new()
 	page.set_anchors_preset(Control.PRESET_FULL_RECT)
 	page.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
-	var title_h := 40.0
-	var title_gap := 10.0
-	var n := float(rows.size())
-	var content_h := title_h + title_gap + (n - 1.0) * row_spacing + 38.0 + 8.0 + 20.0
-	var y0 := -content_h / 2.0
+	# Only a page that actually has per-row resets pays for their column.
+	var resettable := false
+	for section in sections:
+		for row in section[1]:
+			if row.size() > 2 and row[2] != null:
+				resettable = true
+	var reset_w := (UNIT_RESET_W if _old_reset_buttons else UNIT_UNDO_W) if resettable else 0.0
+	var row_gap := UNIT_ROW_GAP if resettable else 0.0
+	var cell_w := option_w + row_gap + reset_w
+	var grid_w := cell_w * float(columns) + UNIT_COL_GAP * float(columns - 1)
+	var box_w := grid_w + UNIT_BOX_PAD * 2.0 + UNIT_SCROLLBAR_W + UNIT_BOX_PAD
+	var bar_h := UNIT_BAR_H * u
+	var footer_h := (UNIT_BUTTON_H + UNIT_MARGIN * 2.0) * u
 
-	var title := _make_title(title_text)
-	title.offset_top = y0 * s
-	title.offset_bottom = (y0 + title_h) * s
+	# --- the title bar, and the action bar that mirrors it at the bottom
+	page.add_child(_bar(u, true, bar_h))
+	page.add_child(_bar(u, false, footer_h))
+
+	var title := Label.new()
+	title.text = title_text
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	title.add_theme_font_override("font", MUNRO_FONT)
+	title.add_theme_font_size_override("font_size", int(UNIT_FONT * u))
+	title.add_theme_color_override("font_color", Color.WHITE)
+	title.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	title.offset_bottom = bar_h
+	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	page.add_child(title)
 
-	var y := y0 + title_h + title_gap
-	for row in rows:
-		var control: Control = row[1]
-		control.set_anchors_preset(Control.PRESET_CENTER)
-		var has_reset: bool = row.size() > 2 and row[2] != null
-		if has_reset:
-			if _old_reset_buttons:
-				control.offset_left = -140.0 * s
-				control.offset_right = 40.0 * s
-			else:
-				control.offset_left = -120.0 * s
-				control.offset_right = 60.0 * s
-		else:
-			control.offset_left = -100.0 * s
-			control.offset_right = 100.0 * s
-		control.offset_top = (y + 18.0) * s
-		control.offset_bottom = (y + 38.0) * s
-		page.add_child(control)
+	var action_row := HBoxContainer.new()
+	action_row.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	action_row.offset_top = -footer_h + UNIT_MARGIN * u
+	action_row.offset_bottom = -UNIT_MARGIN * u
+	action_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	action_row.add_theme_constant_override("separation", int(UNIT_COL_GAP * u))
+	action_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	for action in actions:
+		var btn := _make_widget_button(String(action[0]), UNIT_BUTTON_W)
+		btn.pressed.connect(action[1])
+		action_row.add_child(btn)
+	page.add_child(action_row)
 
-		var label := Label.new()
-		label.text = row[0]
-		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		label.add_theme_font_override("font", MUNRO_FONT)
-		label.add_theme_font_size_override("font_size", int(10 * s))
-		label.add_theme_color_override("font_color", Color.WHITE)
-		label.set_anchors_preset(Control.PRESET_CENTER)
-		label.offset_left = control.offset_left
-		label.offset_right = control.offset_right
-		label.offset_top = y * s
-		label.offset_bottom = (y + 16.0) * s
-		page.add_child(label)
+	# --- the content box: a fixed column, centred, between the two bars
+	var box := Panel.new()
+	var box_style := StyleBoxFlat.new()
+	box_style.bg_color = BOX_COLOR
+	box_style.border_color = BOX_BORDER_COLOR
+	box_style.set_border_width_all(maxi(1, int(round(u))))
+	box.add_theme_stylebox_override("panel", box_style)
+	box.anchor_left = 0.5
+	box.anchor_right = 0.5
+	box.anchor_top = 0.0
+	box.anchor_bottom = 1.0
+	box.offset_left = -box_w * u * 0.5
+	box.offset_right = box_w * u * 0.5
+	box.offset_top = bar_h + UNIT_MARGIN * u
+	box.offset_bottom = -(footer_h + UNIT_MARGIN * u)
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	page.add_child(box)
 
-		if row.size() > 2 and row[2] != null:
-			var reset: Button
-			if _old_reset_buttons:
-				reset = _make_button("Reset", 80.0)
-				reset.offset_left = 48.0 * s
-				reset.offset_right = 128.0 * s
-				reset.offset_top = (y + 18.0) * s
-				reset.offset_bottom = (y + 38.0) * s
-			else:
-				reset = _make_undo_button(20.0)
-				reset.offset_left = 78.0 * s
-				reset.offset_right = 98.0 * s
-				reset.offset_top = (y + 18.0) * s
-				reset.offset_bottom = (y + 38.0) * s
-			reset.pressed.connect(row[2])
-			page.add_child(reset)
+	var scroll := ScrollContainer.new()
+	scroll.set_anchors_preset(Control.PRESET_FULL_RECT)
+	scroll.offset_left = UNIT_BOX_PAD * u
+	scroll.offset_right = -(UNIT_BOX_PAD + UNIT_SCROLLBAR_W) * u
+	scroll.offset_top = UNIT_BOX_PAD * u
+	scroll.offset_bottom = -UNIT_BOX_PAD * u
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	box.add_child(scroll)
 
-		y += row_spacing
+	var bar := scroll.get_v_scroll_bar()
+	bar.custom_minimum_size = Vector2(UNIT_SCROLLBAR_W * u, 0.0)
+	bar.add_theme_stylebox_override("scroll", _flat_style(SCROLL_TRACK_COLOR))
+	var grabber := _flat_style(SCROLL_GRABBER_COLOR)
+	bar.add_theme_stylebox_override("grabber", grabber)
+	bar.add_theme_stylebox_override("grabber_highlight", grabber)
+	bar.add_theme_stylebox_override("grabber_pressed", grabber)
 
-	var back := _make_button("Back")
-	back.offset_top = (y + 8.0) * s
-	back.offset_bottom = (y + 28.0) * s
-	back.pressed.connect(func(): _show_page(back_target))
-	page.add_child(back)
+	var body := VBoxContainer.new()
+	body.add_theme_constant_override("separation", int(UNIT_GAP * u))
+	scroll.add_child(body)
+
+	for section in sections:
+		# A section may mark itself a category ("category" as a third element):
+		# the merged settings page uses one per settings area, so the areas break
+		# the list apart instead of reading as one more group heading.
+		var category: bool = section.size() > 2 and String(section[2]) == "category"
+		if String(section[0]) != "":
+			if category and body.get_child_count() > 0:
+				var spacer := Control.new()
+				spacer.custom_minimum_size = Vector2(0.0, UNIT_GAP * u)
+				spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+				body.add_child(spacer)
+			var heading := Label.new()
+			heading.text = String(section[0])
+			heading.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+			heading.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+			heading.add_theme_font_override("font", MUNRO_FONT)
+			heading.add_theme_font_size_override("font_size", int(UNIT_FONT * u))
+			heading.add_theme_color_override("font_color", CATEGORY_COLOR if category else HEADING_COLOR)
+			heading.custom_minimum_size = Vector2(grid_w * u, UNIT_HEADING_H * u)
+			heading.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+			heading.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			body.add_child(heading)
+
+		var rows: Array = section[1]
+		var grid := GridContainer.new()
+		grid.columns = columns
+		grid.add_theme_constant_override("h_separation", int(UNIT_COL_GAP * u))
+		grid.add_theme_constant_override("v_separation", int(UNIT_GAP * u))
+		grid.custom_minimum_size = Vector2(grid_w * u, 0.0)
+		grid.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		var cells := 0
+		for row in rows:
+			if row.size() > 3 and String(row[3]) == "span":
+				# A spanning row is its own child, so the grid it interrupts has to
+				# be emitted first or the row would land after the options under it.
+				body.add_child(grid)
+				grid = GridContainer.new()
+				grid.columns = columns
+				grid.add_theme_constant_override("h_separation", int(UNIT_COL_GAP * u))
+				grid.add_theme_constant_override("v_separation", int(UNIT_GAP * u))
+				grid.custom_minimum_size = Vector2(grid_w * u, 0.0)
+				grid.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+				cells = 0
+				body.add_child(_make_span_row(row, grid_w, u))
+				continue
+			grid.add_child(_make_row_cell(row, cell_w, reset_w, row_gap, option_w, u))
+			cells += 1
+		if cells > 0:
+			body.add_child(grid)
+
 	return page
 
+# That row's own width, with the option on the left and its reset on the right.
+func _make_row_cell(row: Array, cell_w: float, reset_w: float, row_gap: float, option_w: float,
+		u: float) -> Control:
+	var cell := HBoxContainer.new()
+	cell.custom_minimum_size = Vector2(cell_w * u, UNIT_BUTTON_H * u)
+	cell.add_theme_constant_override("separation", int(row_gap * u))
+	cell.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	var control: Control = row[1]
+	control.custom_minimum_size = Vector2(option_w * u, UNIT_BUTTON_H * u)
+	_apply_row_label(control, String(row[0]))
+	cell.add_child(control)
+
+	var reset: Variant = row[2] if row.size() > 2 else null
+	if reset != null:
+		var rb: Button
+		if _old_reset_buttons:
+			rb = _make_widget_button("Reset", UNIT_RESET_W)
+		else:
+			rb = _make_undo_button(UNIT_UNDO_W, false)
+		rb.custom_minimum_size = Vector2(reset_w * u, UNIT_BUTTON_H * u)
+		rb.pressed.connect(reset)
+		cell.add_child(rb)
+	return cell
+
+# Something that is not an option — a live preview — spanning the whole box.
+func _make_span_row(row: Array, grid_w: float, u: float) -> Control:
+	var holder := HBoxContainer.new()
+	holder.custom_minimum_size = Vector2(grid_w * u, 0.0)
+	holder.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	holder.alignment = BoxContainer.ALIGNMENT_CENTER
+	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var control: Control = row[1]
+	if control.custom_minimum_size == Vector2.ZERO:
+		control.custom_minimum_size = Vector2(UNIT_BUTTON_W * u, UNIT_BUTTON_H * u)
+	holder.add_child(control)
+	return holder
+
+# Give a row its label: the widget's own text becomes "Label: value", except for
+# a colour swatch, which has no value to show and is labelled by its purpose.
+func _apply_row_label(control: Control, label: String) -> void:
+	_row_label(control, label)
+	if control is ColorPickerButton:
+		control.text = label
+		# ...and the caption that is actually visible over the swatch.
+		var caption: Variant = control.get_meta("caption_label", null)
+		if caption != null and is_instance_valid(caption):
+			caption.text = label
+		return
+	# A slider's box is a plain Control: its value lives in a Label drawn over the
+	# track, and it has no text of its own to fall back on.
+	if control.has_meta("value_label"):
+		_row_value(control, String(control.get_meta("row_value", "")))
+		return
+	_row_value(control, String(control.get_meta("row_value", control.text)))
+
+# A full-width strip: the title bar when `top`, the action bar otherwise.
+func _bar(u: float, top: bool, height: float) -> ColorRect:
+	var bar := ColorRect.new()
+	bar.color = BAR_COLOR
+	bar.set_anchors_preset(Control.PRESET_TOP_WIDE if top else Control.PRESET_BOTTOM_WIDE)
+	if top:
+		bar.offset_bottom = height
+	else:
+		bar.offset_top = -height
+	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return bar
+
+# The import/export (and key-conflict) status line. It is a label rather than a
+# row widget, so it never takes a label of its own, and it is sized to the
+# content column so its text has room to be read.
+func _make_hint_label(u: float) -> Label:
+	var hint := Label.new()
+	hint.text = ""
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hint.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	hint.clip_text = true
+	hint.custom_minimum_size = Vector2(UNIT_BUTTON_W * 2.0, UNIT_BUTTON_H) * u
+	hint.add_theme_font_override("font", MUNRO_FONT)
+	hint.add_theme_font_size_override("font_size", int(UNIT_FONT * u))
+	hint.add_theme_color_override("font_color", HINT_COLOR)
+	return hint
+
+# A maker page's side buttons: the top of slot `row`, counting down from the title
+# band, in interface units like the rest of the menu. Four slots is what the skin
+# and block makers use (mode, UV overlay, tool, undo).
+func _maker_row_top(row: int, s: float) -> float:
+	return (UNIT_BAR_H + UNIT_GAP + row * (UNIT_BUTTON_H + UNIT_GAP)) * s
+
+# The bottom edge of slot `row`, counting up from the bottom margin: the maker
+# pages stack their LOAD / SAVE / name field on the bottom right edge.
+func _maker_slot(row: int, s: float) -> float:
+	return -(UNIT_MARGIN + row * (UNIT_BUTTON_H + UNIT_GAP)) * s
+
+# Clear a status line a few seconds after it was set, so it does not linger.
+func _expire_hint(hint: Label) -> void:
+	get_tree().create_timer(3.0).timeout.connect(func():
+		if is_instance_valid(hint):
+			hint.text = "")
+
+# A title is a label in the interface font like everything else: the reference
+# screen's heading is the same size as its buttons, only centred.
 func _make_title(text: String) -> Label:
 	var s := _ui_scale()
 	var title := Label.new()
 	title.text = text
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_font_override("font", MUNRO_FONT)
-	title.add_theme_font_size_override("font_size", int(24 * s))
+	title.add_theme_font_size_override("font_size", int(UNIT_FONT * s))
 	title.add_theme_color_override("font_color", Color.WHITE)
 	title.set_anchors_preset(Control.PRESET_CENTER)
 	title.offset_left = -200.0 * s
 	title.offset_right = 200.0 * s
 	return title
 
-func _make_button(text: String, width := 200.0) -> Button:
+func _make_button(text: String, width := UNIT_BUTTON_W) -> Button:
 	var s := _ui_scale()
-	var btn := Button.new()
-	btn.text = text
-	_style_button(btn, width)
+	var btn := _make_widget_button(text, width)
 	btn.set_anchors_preset(Control.PRESET_CENTER)
 	btn.offset_left = -(width / 2.0) * s
 	btn.offset_right = (width / 2.0) * s
 	return btn
 
+# The same button without the centre anchors, for anything a container places:
+# a container drives its children's rects, so anchors there are noise.
+func _make_widget_button(text: String, width := UNIT_BUTTON_W) -> Button:
+	var btn := Button.new()
+	btn.text = text
+	# A row is a fixed width, so a long label clips rather than pushing the
+	# column out of line.
+	btn.clip_text = true
+	_style_button(btn, width)
+	return btn
+
 func _style_button(btn: Button, width: float):
 	var s := _ui_scale()
 	btn.add_theme_font_override("font", MUNRO_FONT)
-	btn.add_theme_font_size_override("font_size", int(12 * s))
+	btn.add_theme_font_size_override("font_size", int(UNIT_FONT * s))
 	btn.add_theme_color_override("font_color", Color.WHITE)
 	btn.add_theme_color_override("font_hover_color", Color.WHITE)
 	btn.add_theme_color_override("font_pressed_color", Color.WHITE)
@@ -2936,14 +3038,45 @@ func _style_button(btn: Button, width: float):
 	btn.add_theme_stylebox_override("hover", hover)
 	btn.add_theme_stylebox_override("pressed", pressed)
 	btn.add_theme_stylebox_override("focus", normal)
-	btn.custom_minimum_size = Vector2(width, 20) * s
+	# A row is a fixed width, so a long label clips instead of pushing the column
+	# out of line. Set for every styled button, not just the ones made here.
+	btn.clip_text = true
+	btn.custom_minimum_size = Vector2(width, UNIT_BUTTON_H) * s
 
-func _make_undo_button(width := 200.0) -> Button:
+func _make_undo_button(width := UNIT_BUTTON_W, centered := true) -> Button:
 	var btn := Button.new()
 	btn.text = ""
 	_style_undo_button(btn, width)
-	btn.set_anchors_preset(Control.PRESET_CENTER)
+	if centered:
+		btn.set_anchors_preset(Control.PRESET_CENTER)
 	return btn
+
+# -----------------------------------------------------------------------------
+# "Label: value" inside the widget
+#
+# Every option row carries its own label the way the reference screen does, so a
+# row is one widget rather than a widget plus a separate caption above it. The
+# label lives in metadata, which lets the handlers that already update a widget's
+# value keep doing exactly that: they call _row_value(widget, value) and never
+# have to know the prefix.
+# -----------------------------------------------------------------------------
+func _row_label(control: Control, text: String) -> void:
+	control.set_meta("row_label", text)
+
+
+func _row_value(control: Control, value: String) -> void:
+	control.set_meta("row_value", value)
+	var text := value
+	var label := String(control.get_meta("row_label", ""))
+	if label != "":
+		text = label + ": " + value
+	if control.has_meta("value_label"):
+		# A slider box shows its value in a Label drawn over the track.
+		var target: Label = control.get_meta("value_label")
+		if target != null and is_instance_valid(target):
+			target.text = text
+	else:
+		control.text = text
 
 func _style_undo_button(btn: Button, width: float):
 	var s := _ui_scale()
@@ -3241,14 +3374,6 @@ func _input(event):
 				_close()
 			"settings":
 				_show_page("pause")
-			"controls":
-				_show_page("settings")
-			"crosshair":
-				_show_page("gui")
-			"block_outline":
-				_show_page("gui")
-			"skin_maker":
-				_close()
 			_:
 				_show_page("settings")
 		get_viewport().set_input_as_handled()

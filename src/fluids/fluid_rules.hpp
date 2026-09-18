@@ -65,6 +65,14 @@
 //      square, and it is why a cell beside a hole does not fill the flat ground
 //      around it.
 //
+//      The search never counts a drop this cell cannot get to. Its horizon is
+//      the smaller of the substance's willingness to look (`search_distance`)
+//      and the cells the fluid still has strength for — a drop past that is a
+//      dead end, and every direction given up for it is lost, so the cell
+//      spreads as far as it can instead. A drop that IS in reach steers exactly
+//      as above, and since the cap is per cell, the cells that shorten the
+//      distance to a far drop still turn into it once it comes within theirs.
+//
 // Two deliberate departures from the reference this was modelled on, both of
 // which make the result simpler rather than different in any visible way:
 //
@@ -131,7 +139,10 @@ struct FluidTraits {
     int max_depth = 7;
     // Game ticks (20 per second) between one cell's updates.
     int tick_delay = 5;
-    // How far the drop-seeking search may look, in steps.
+    // How far the drop-seeking search may look, in steps — willingness, not
+    // possibility: the rules clamp it to what the cell can still reach (see
+    // rule 8 in the header), because a fluid can be willing to look further
+    // than it can travel.
     int search_distance = 4;
     // Whether two side sources over something solid conjure a source in this
     // cell (rule 5 in the header). That is what makes a poured pool feed itself

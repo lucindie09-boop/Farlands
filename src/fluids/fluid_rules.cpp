@@ -12,9 +12,11 @@ const FluidTraits* traits_for(FluidKind kind) noexcept {
 
     // Lava: the slow, shallow cousin of water — three cells deep instead of
     // seven, and a second between one cell and the next, so a poured pool
-    // creeps outward and then sits there. It also looks less far for a drop. It
-    // keeps the source-pair rule, which is what stops a wide pool draining away
-    // again.
+    // creeps outward and then sits there. It also looks less far for a drop,
+    // though what actually bounds that look is its own short reach (see the
+    // horizon in best_directions): three cells of travel is what a pour has to
+    // work with, and a drop it cannot arrive at is not a route. It keeps the
+    // source-pair rule, which is what stops a wide pool draining away again.
     //                       decay, depth, tick delay, search, pools
     static const FluidTraits kLava{ 1, 3, 20, 3, true };
 
@@ -93,6 +95,17 @@ constexpr int kNoDrop = 1000;
     return best;
 }
 
+// How far this cell's fluid can still travel, in cells, if it spreads at
+// `spread_depth`: the neighbour it is about to push into, plus every cell after
+// that which still leaves it at or above the thinnest depth its substance
+// allows. One is the floor, because a cell that may spread at all reaches the
+// cell it spreads into.
+[[nodiscard]] int reach_after_spread(const FluidTraits& traits, int spread_depth) noexcept {
+    const int decay = traits.decay_per_step > 0 ? traits.decay_per_step : 1;
+    const int further = (traits.max_depth - spread_depth) / decay;
+    return further > 0 ? further + 1 : 1;
+}
+
 // Which sideways directions this cell should spread into: the ones whose
 // distance to the nearest drop is smallest, ties included. Returns the count and
 // fills `out`.
@@ -106,8 +119,18 @@ constexpr int kNoDrop = 1000;
 // four reads a direction instead of the full search. The search runs only when
 // no neighbour can drop at all, which is the case measured in the tests at
 // ~1400 reads for one cell (constant, never world-sized — see the bound test).
+//
+// The search is also capped by how far this cell's fluid can still travel (see
+// reach_after_spread), not just by how far its substance is willing to look.
+// Those are two different numbers, and where they disagree the smaller one is
+// the truth: a drop past the reach is a dead end, and running for one costs the
+// flow every direction it could have taken instead — which is how a pour ends
+// up stopped a cell short of a pit rather than spread as far as it is able. The
+// search counts steps from the neighbour it starts at, so a drop at score s
+// needs s + 1 cells of travel, and a spray that reaches three cells looks at
+// scores 0, 1 and 2.
 [[nodiscard]] int best_directions(const FluidWorld& world, FluidKind kind, int x, int y, int z,
-                                  const FluidTraits& traits, bool out[4]) noexcept {
+                                  const FluidTraits& traits, int spread_depth, bool out[4]) noexcept {
     for (int i = 0; i < 4; ++i) out[i] = false;
 
     int count = 0;
@@ -122,12 +145,25 @@ constexpr int kNoDrop = 1000;
     }
     if (count > 0) return count;  // 0 is unbeatable: nothing to search for
 
+    const int horizon =
+        std::min(traits.search_distance, reach_after_spread(traits, spread_depth) - 1);
+    if (horizon <= 0) {
+        // Nothing this cell could reach, so there is no drop worth running for
+        // and no reason to prefer any direction: every one it can flow into gets
+        // its share. This is the same answer the search gives when it finds no
+        // drop at all, reached without the search.
+        for (int i = 0; i < 4; ++i) {
+            if (walkable(world, x + kDx[i], y, z + kDz[i], kind)) out[i] = true;
+        }
+        return 4;
+    }
+
     int best = kNoDrop;
     for (int i = 0; i < 4; ++i) {
         const int nx = x + kDx[i];
         const int nz = z + kDz[i];
         if (!walkable(world, nx, y, nz, kind)) continue;
-        const int score = drop_distance(world, kind, nx, y, nz, 1, i ^ 1, traits.search_distance);
+        const int score = drop_distance(world, kind, nx, y, nz, 1, i ^ 1, horizon);
         if (score < best) {
             // A strictly better direction discards every earlier winner.
             best = score;
@@ -235,7 +271,9 @@ FluidStep tick(const FluidWorld& world, int x, int y, int z) noexcept {
     if (spread_depth > traits->max_depth) return step;  // already as thin as it gets
 
     bool directions[4] = { false, false, false, false };
-    if (best_directions(world, current.kind, x, y, z, *traits, directions) == 0) return step;
+    if (best_directions(world, current.kind, x, y, z, *traits, spread_depth, directions) == 0) {
+        return step;
+    }
     for (int i = 0; i < 4; ++i) {
         if (!directions[i]) continue;
         const int nx = x + kDx[i];

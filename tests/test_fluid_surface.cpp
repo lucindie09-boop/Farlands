@@ -373,7 +373,7 @@ TEST_CASE("a liquid is drawn exactly once, by the fluid pass") {
     CHECK(has_height(water_surface_heights(greedy_on), kRimHeight));
 }
 
-TEST_CASE("water under a solid roof loses its top face but keeps its sides") {
+TEST_CASE("a liquid surface below the cell top keeps its face under a block") {
     BlockRegistry::get_instance().initialize_default_blocks();
     ChunkData chunk;
     chunk.fill_blocks(BlockIDs::AIR);
@@ -384,8 +384,12 @@ TEST_CASE("water under a solid roof loses its top face but keeps its sides") {
     MeshBuilder mb;
     mb.build_mesh(chunk);
 
-    CHECK(count_water_tops(mb, 1) == 0);
-    CHECK(mb.get_water_vertices().size() == 16);  // four sides
+    // A source's surface sits at 8/9: the band between it and the cell top is
+    // open air, so the block's floor above does not cover the surface and the
+    // top face must draw. Only a full-height (falling) column reaches 1.0 and
+    // culls against a block above.
+    CHECK(count_water_tops(mb, 1) == 1);
+    CHECK(mb.get_water_vertices().size() == 16 + 4);  // four sides + the top
     CHECK(has_height(water_surface_heights(mb), kRimHeight));
 }
 
@@ -420,4 +424,75 @@ TEST_CASE("a column of water draws full-height sides") {
     // lower one draws its four sides and no top — nine faces, nothing doubled.
     CHECK(count_water_tops(mb, 1) == 1);
     CHECK(mb.get_water_vertices().size() == (4 + 5) * 4);
+}
+
+// ---------------------------------------------------------------------------
+// Liquid-liquid side faces, decided per corner
+// ---------------------------------------------------------------------------
+
+TEST_CASE("a different-liquid side face hides only when covered at both shared corners") {
+    BlockRegistry& reg = BlockRegistry::get_instance();
+    reg.initialize_default_blocks();
+
+    // The user's case, reduced to its geometry: two flows of different depths
+    // meeting along an edge, with each one's surface height varying ALONG the
+    // shared edge (its flow crosses the seam) — so the two edge profiles
+    // interleave: each face is the taller one at one end and the shorter one at
+    // the other, meaning neither covers the other and both must draw.
+    //
+    // Layout (stone floor everywhere, not listed): a uniform lava flow in the
+    // -X half meets an acid column at x = 10 whose depth steps from shallow to
+    // deep partway along the seam. The lava edge sits flat between the acid
+    // edge's two corner heights.
+    MapWorld w;
+    w.registry = &reg;
+    for (int32_t z = 5; z <= 15; ++z) {
+        for (int32_t x = 6; x <= 9; ++x) w.put(x, 0, z, reg.get_block_id_by_name("lava_runoff_2"));
+    }
+    w.put(10, 0, 12, reg.get_block_id_by_name("acid_runoff_1"));
+    w.put(10, 0, 13, reg.get_block_id_by_name("acid_runoff_1"));
+    w.put(10, 0, 14, reg.get_block_id_by_name("acid_runoff_5"));
+
+    // The two corners of the shared edge (the one the faces of cells z = 13
+    // span), under each family's own corner rule.
+    const float lava_0 = mesh_fluid::corner_height(w, FluidKind::Lava, 10, 0, 13);
+    const float lava_1 = mesh_fluid::corner_height(w, FluidKind::Lava, 10, 0, 14);
+    const float acid_0 = mesh_fluid::corner_height(w, FluidKind::Acid, 10, 0, 13);
+    const float acid_1 = mesh_fluid::corner_height(w, FluidKind::Acid, 10, 0, 14);
+
+    INFO("lava edge: ", lava_0, " / ", lava_1,
+         "  acid edge: ", acid_0, " / ", acid_1);
+    // Flat lava between the acid's steeply falling profile.
+    CHECK(near(lava_0, 1.0f / 3.0f));
+    CHECK(near(lava_1, 1.0f / 3.0f));
+    CHECK(near(acid_0, 0.388889f));
+    CHECK(near(acid_1, 0.277778f));
+    CHECK((lava_0 > acid_0) != (lava_1 > acid_1));
+    // Each face is covered at one corner only, so both are visible.
+    CHECK(mesh_fluid::different_liquid_side_visible(lava_0, lava_1, acid_0, acid_1));
+    CHECK(mesh_fluid::different_liquid_side_visible(acid_0, acid_1, lava_0, lava_1));
+}
+
+TEST_CASE("a uniformly shorter different-liquid face is still culled") {
+    BlockRegistry& reg = BlockRegistry::get_instance();
+    reg.initialize_default_blocks();
+
+    // The same seam, but the acid is one step SHALLOWER everywhere along it, so
+    // the lava's face is the taller one at both corners and the acid's is fully
+    // hidden behind it — drawing both would double-blend the same wall.
+    MapWorld w;
+    w.registry = &reg;
+    for (int32_t z = 5; z <= 15; ++z) {
+        for (int32_t x = 6; x <= 9; ++x) w.put(x, 0, z, reg.get_block_id_by_name("lava_runoff_2"));
+        for (int32_t x2 = 10; x2 <= 13; ++x2) w.put(x2, 0, z, reg.get_block_id_by_name("acid_runoff_3"));
+    }
+
+    const float lava_a = mesh_fluid::corner_height(w, FluidKind::Lava, 10, 0, 10);
+    const float lava_b = mesh_fluid::corner_height(w, FluidKind::Lava, 10, 0, 11);
+    const float acid_a = mesh_fluid::corner_height(w, FluidKind::Acid, 10, 0, 10);
+    const float acid_b = mesh_fluid::corner_height(w, FluidKind::Acid, 10, 0, 11);
+    CHECK(lava_a > acid_a);
+    CHECK(lava_b > acid_b);
+    CHECK_FALSE(mesh_fluid::different_liquid_side_visible(acid_a, acid_b, lava_a, lava_b));
+    CHECK(mesh_fluid::different_liquid_side_visible(lava_a, lava_b, acid_a, acid_b));
 }

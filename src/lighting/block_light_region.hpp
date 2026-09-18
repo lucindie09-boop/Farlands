@@ -153,13 +153,16 @@ public:
                     continue;
                 }
 
+                // Same opacity cost as the chunk-map BFS: light crossing a
+                // translucent block drops by its opacity before landing.
+                const int extra = block_type.light_opacity;
                 const uint8_t cur_r = dst_chunk->get_light_r_unsafe(nx, ny, nz);
                 const uint8_t cur_g = dst_chunk->get_light_g_unsafe(nx, ny, nz);
                 const uint8_t cur_b = dst_chunk->get_light_b_unsafe(nx, ny, nz);
 
-                const uint8_t out_r = std::max(cur_r, next_r);
-                const uint8_t out_g = std::max(cur_g, next_g);
-                const uint8_t out_b = std::max(cur_b, next_b);
+                const uint8_t out_r = std::max(cur_r, extra > 0 ? static_cast<uint8_t>(std::max(0, next_r - extra)) : next_r);
+                const uint8_t out_g = std::max(cur_g, extra > 0 ? static_cast<uint8_t>(std::max(0, next_g - extra)) : next_g);
+                const uint8_t out_b = std::max(cur_b, extra > 0 ? static_cast<uint8_t>(std::max(0, next_b - extra)) : next_b);
 
                 if (out_r != cur_r || out_g != cur_g || out_b != cur_b) {
                     dst_chunk->set_light_rgb_unsafe(nx, ny, nz, out_r, out_g, out_b);

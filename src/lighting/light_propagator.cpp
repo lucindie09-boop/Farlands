@@ -5,6 +5,7 @@
 #include "core/chunk_data.hpp"
 #include <godot_cpp/core/print_string.hpp>
 #include <godot_cpp/variant/string.hpp>
+#include <algorithm>
 #include <unordered_set>
 
 using namespace godot;
@@ -183,13 +184,17 @@ void LightPropagator::light_propagate_add_locked(int32_t origin_cx, int32_t orig
             const BlockType& neighbor_type = registry.get_block(neighbor_block);
             if (HasProperty(neighbor_type.properties, BlockProperty::Opaque)) continue;
 
+            // Light crossing a translucent block pays its opacity (water/acid 3,
+            // lava 15): a torch two cells into a pool is dimmer than one beside
+            // it in air, and lava swallows block light outright.
+            const int extra = neighbor_type.light_opacity;
             const uint8_t cur_r = dst->get_light_r(nx, ny, nz);
             const uint8_t cur_g = dst->get_light_g(nx, ny, nz);
             const uint8_t cur_b = dst->get_light_b(nx, ny, nz);
 
-            const uint8_t out_r = std::max(cur_r, next_r);
-            const uint8_t out_g = std::max(cur_g, next_g);
-            const uint8_t out_b = std::max(cur_b, next_b);
+            const uint8_t out_r = std::max(cur_r, extra > 0 ? static_cast<uint8_t>(std::max(0, next_r - extra)) : next_r);
+            const uint8_t out_g = std::max(cur_g, extra > 0 ? static_cast<uint8_t>(std::max(0, next_g - extra)) : next_g);
+            const uint8_t out_b = std::max(cur_b, extra > 0 ? static_cast<uint8_t>(std::max(0, next_b - extra)) : next_b);
             if (out_r != cur_r || out_g != cur_g || out_b != cur_b) {
                 dst->set_light_rgb(nx, ny, nz, out_r, out_g, out_b);
                 queue.push_back({ncx, ncy, ncz, nx, ny, nz, out_r, out_g, out_b});

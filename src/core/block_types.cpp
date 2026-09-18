@@ -239,6 +239,15 @@ bool BlockRegistry::load_from_json(const godot::String& json_path) noexcept {
             bt.slipperiness = static_cast<float>(static_cast<double>(d["slipperiness"]));
         }
 
+        // light_opacity (extra light levels removed crossing this block;
+        // clamped to the 0..15 light scale, 15 = stops light like opaque)
+        if (d.has("light_opacity")) {
+            int64_t opacity = static_cast<int64_t>(d["light_opacity"]);
+            if (opacity < 0) opacity = 0;
+            if (opacity > 15) opacity = 15;
+            bt.light_opacity = static_cast<uint8_t>(opacity);
+        }
+
         // hardness (break time in seconds; -1.0 = unbreakable)
         if (d.has("hardness")) {
             bt.hardness = static_cast<float>(static_cast<double>(d["hardness"]));
@@ -561,6 +570,9 @@ void BlockRegistry::initialize_default_blocks() noexcept {
         bt.top_face_offset = 0.12f;
         bt.slipperiness = 0.6f;
         bt.full_cube_ = true;
+        // Water's light cost (see light_opacity). The ocean is the big one: a
+        // generated seabed is dark, not a glow-lit floor.
+        bt.light_opacity = 3;
         // Deliberately NOT a fluid state. The flowing simulation is the dynamic
         // water a player pours, and generated ocean is not part of it: left out
         // of the state table, the ocean never ticks, so it neither spills runoff
@@ -586,6 +598,7 @@ void BlockRegistry::initialize_default_blocks() noexcept {
         // A source: this is the block a poured bucket places, and the block a
         // pool settles into.
         bt.fluid_kind = FluidKind::Water;
+        bt.light_opacity = 3;
         register_block(bt);
     }
 
@@ -707,7 +720,7 @@ void BlockRegistry::initialize_default_blocks() noexcept {
     // `water` block above, and a falling cell is FULL height (offset 0), because
     // water in a column is only ever full strength.
     static constexpr float kRunoffOffset[8] = { 0.0f, 0.22f, 0.33f, 0.44f, 0.56f, 0.67f, 0.78f, 0.89f };
-    const auto fluid_state = [&](const char* name, FluidKind kind, uint8_t depth, bool falling) {
+    const auto fluid_state = [&](const char* name, FluidKind kind, uint8_t depth, bool falling, uint8_t opacity) {
         BlockType bt{};
         bt.name = name;
         bt.properties = BlockProperty::Liquid | BlockProperty::Transparent;
@@ -721,23 +734,24 @@ void BlockRegistry::initialize_default_blocks() noexcept {
         bt.fluid_kind = kind;
         bt.fluid_depth = depth;
         bt.fluid_falling = falling;
+        bt.light_opacity = opacity;
         register_block(bt);
     };
-    fluid_state("water_runoff_1", FluidKind::Water, 1, false);
-    fluid_state("water_runoff_2", FluidKind::Water, 2, false);
-    fluid_state("water_runoff_3", FluidKind::Water, 3, false);
-    fluid_state("water_runoff_4", FluidKind::Water, 4, false);
-    fluid_state("water_runoff_5", FluidKind::Water, 5, false);
-    fluid_state("water_runoff_6", FluidKind::Water, 6, false);
-    fluid_state("water_runoff_7", FluidKind::Water, 7, false);
-    fluid_state("water_fallen", FluidKind::Water, 0, true);
+    fluid_state("water_runoff_1", FluidKind::Water, 1, false, 3);
+    fluid_state("water_runoff_2", FluidKind::Water, 2, false, 3);
+    fluid_state("water_runoff_3", FluidKind::Water, 3, false, 3);
+    fluid_state("water_runoff_4", FluidKind::Water, 4, false, 3);
+    fluid_state("water_runoff_5", FluidKind::Water, 5, false, 3);
+    fluid_state("water_runoff_6", FluidKind::Water, 6, false, 3);
+    fluid_state("water_runoff_7", FluidKind::Water, 7, false, 3);
+    fluid_state("water_fallen", FluidKind::Water, 0, true, 3);
 
     // The other two fluids, appended for the same reason as everything else
     // here. Their sources are registered next to their runoff because both
     // halves are the same block with a fluid state on it, and the state table
     // (fluids/fluid_state_table.hpp) finds every one of them by scanning this
     // registry — the same scan the game's JSON goes through.
-    const auto fluid_source = [&](const char* name, FluidKind kind) {
+    const auto fluid_source = [&](const char* name, FluidKind kind, uint8_t opacity) {
         BlockType bt{};
         bt.name = name;
         bt.properties = BlockProperty::Liquid | BlockProperty::Transparent;
@@ -748,25 +762,26 @@ void BlockRegistry::initialize_default_blocks() noexcept {
         bt.hardness = -1.0f;
         bt.full_cube_ = true;
         bt.fluid_kind = kind;
+        bt.light_opacity = opacity;
         register_block(bt);
     };
     // Lava stops at depth three (see fluid_rules.cpp), so it has no states
     // deeper than that to store — a depth nothing can reach needs no block.
-    fluid_source("lava", FluidKind::Lava);
-    fluid_state("lava_runoff_1", FluidKind::Lava, 1, false);
-    fluid_state("lava_runoff_2", FluidKind::Lava, 2, false);
-    fluid_state("lava_runoff_3", FluidKind::Lava, 3, false);
-    fluid_state("lava_fallen", FluidKind::Lava, 0, true);
+    fluid_source("lava", FluidKind::Lava, 15);
+    fluid_state("lava_runoff_1", FluidKind::Lava, 1, false, 15);
+    fluid_state("lava_runoff_2", FluidKind::Lava, 2, false, 15);
+    fluid_state("lava_runoff_3", FluidKind::Lava, 3, false, 15);
+    fluid_state("lava_fallen", FluidKind::Lava, 0, true, 15);
 
-    fluid_source("acid", FluidKind::Acid);
-    fluid_state("acid_runoff_1", FluidKind::Acid, 1, false);
-    fluid_state("acid_runoff_2", FluidKind::Acid, 2, false);
-    fluid_state("acid_runoff_3", FluidKind::Acid, 3, false);
-    fluid_state("acid_runoff_4", FluidKind::Acid, 4, false);
-    fluid_state("acid_runoff_5", FluidKind::Acid, 5, false);
-    fluid_state("acid_runoff_6", FluidKind::Acid, 6, false);
-    fluid_state("acid_runoff_7", FluidKind::Acid, 7, false);
-    fluid_state("acid_fallen", FluidKind::Acid, 0, true);
+    fluid_source("acid", FluidKind::Acid, 3);
+    fluid_state("acid_runoff_1", FluidKind::Acid, 1, false, 3);
+    fluid_state("acid_runoff_2", FluidKind::Acid, 2, false, 3);
+    fluid_state("acid_runoff_3", FluidKind::Acid, 3, false, 3);
+    fluid_state("acid_runoff_4", FluidKind::Acid, 4, false, 3);
+    fluid_state("acid_runoff_5", FluidKind::Acid, 5, false, 3);
+    fluid_state("acid_runoff_6", FluidKind::Acid, 6, false, 3);
+    fluid_state("acid_runoff_7", FluidKind::Acid, 7, false, 3);
+    fluid_state("acid_fallen", FluidKind::Acid, 0, true, 3);
 }
 
 } // namespace VoxelEngine

@@ -496,3 +496,97 @@ TEST_CASE("a uniformly shorter different-liquid face is still culled") {
     CHECK_FALSE(mesh_fluid::different_liquid_side_visible(acid_a, acid_b, lava_a, lava_b));
     CHECK(mesh_fluid::different_liquid_side_visible(lava_a, lava_b, acid_a, acid_b));
 }
+
+// ---------------------------------------------------------------------------
+// Texture flow direction, packed into the liquid vertices' AO byte
+// ---------------------------------------------------------------------------
+
+TEST_CASE("a level surface packs no flow, a sloped one flows downhill") {
+    BlockRegistry& reg = BlockRegistry::get_instance();
+    reg.initialize_default_blocks();
+
+    mesh_fluid::Corners level;
+    level.h[0][0] = level.h[0][1] = level.h[1][0] = level.h[1][1] = kLevelHeight;
+    CHECK(mesh_fluid::top_face_flow(level) == 0);
+
+    // Dropping the +X edge: the flow points east (bucket 3) and grows with
+    // the steepness. (A 4-bit strength saturates quickly — the gentle drop is
+    // chosen small enough to stay off the ceiling.)
+    mesh_fluid::Corners east_slope = level;
+    east_slope.h[0][1] = kLevelHeight - 0.03f;
+    east_slope.h[1][1] = kLevelHeight - 0.03f;
+    const uint8_t gentle = mesh_fluid::top_face_flow(east_slope);
+    CHECK((gentle >> 4) == 3);
+    CHECK((gentle & 0xF) > 0);
+    CHECK((gentle & 0xF) < 15);
+
+    east_slope.h[0][1] = 0.2f;
+    east_slope.h[1][1] = 0.2f;
+    const uint8_t steep = mesh_fluid::top_face_flow(east_slope);
+    CHECK((steep >> 4) == 3);
+    CHECK((steep & 0xF) > (gentle & 0xF));
+}
+
+TEST_CASE("flow compass: every direction buckets where it should") {
+    BlockRegistry& reg = BlockRegistry::get_instance();
+    reg.initialize_default_blocks();
+
+    mesh_fluid::Corners c;
+    c.h[0][0] = c.h[0][1] = c.h[1][0] = c.h[1][1] = kLevelHeight;
+    // Corners combine both gradients: height(z, x) = z-drop + x-drop - level.
+    const auto bucket = [&](float n, float s, float w, float e) {
+        c.h[0][0] = w + n - kLevelHeight;
+        c.h[0][1] = e + n - kLevelHeight;
+        c.h[1][0] = w + s - kLevelHeight;
+        c.h[1][1] = e + s - kLevelHeight;
+        return mesh_fluid::top_face_flow(c) >> 4;
+    };
+    // h[cz][cx]: cz=0 is -Z (north), cx=0 is -X (west). Downhill = flow;
+    // the LOWER edge gets the smaller height (kRimHeight < kLevelHeight).
+    CHECK(bucket(kLevelHeight, kRimHeight, kLevelHeight, kLevelHeight) == 5);  // south low -> S
+    CHECK(bucket(kRimHeight, kLevelHeight, kLevelHeight, kLevelHeight) == 1);  // north low -> N
+    CHECK(bucket(kLevelHeight, kLevelHeight, kLevelHeight, kRimHeight) == 3);  // east low -> E
+    CHECK(bucket(kLevelHeight, kLevelHeight, kRimHeight, kLevelHeight) == 7);  // west low -> W
+    // Diagonals: SE low -> SE (4), NW low -> NW (8).
+    CHECK(bucket(kLevelHeight, kRimHeight, kLevelHeight, kRimHeight) == 4);
+    CHECK(bucket(kRimHeight, kLevelHeight, kRimHeight, kLevelHeight) == 8);
+}
+
+TEST_CASE("side faces of moving liquid flow down the wall, sources hold still") {
+    CHECK(mesh_fluid::side_face_flow(false, false, 0) == 0);
+    CHECK(mesh_fluid::side_face_flow(true, false, 0) == 0);       // a source
+    const uint8_t runoff = mesh_fluid::side_face_flow(true, false, 2);
+    CHECK((runoff >> 4) == 9);                                     // straight down
+    CHECK((runoff & 0xF) > 0);
+    const uint8_t falling = mesh_fluid::side_face_flow(true, true, 0);
+    CHECK((falling >> 4) == 9);
+    CHECK((falling & 0xF) > (runoff & 0xF));                       // a fall is faster
+}
+
+TEST_CASE("the fluid pass writes flow into the water vertices") {
+    BlockRegistry::get_instance().initialize_default_blocks();
+    ChunkData chunk;
+    chunk.fill_blocks(BlockIDs::AIR);
+    // A sloped pool: interior flat (no flow), rim flowing toward the middle.
+    for (int32_t x = 10; x <= 12; ++x) {
+        for (int32_t z = 10; z <= 12; ++z) {
+            chunk.set_block(x, 9, z, BlockIDs::STONE);
+            chunk.set_block(x, 10, z, BlockIDs::WATER);
+        }
+    }
+    chunk.compute_section_flags();
+
+    MeshBuilder mb;
+    mb.build_mesh(chunk);
+
+    int flow_zero = 0;
+    int flow_any = 0;
+    for (const CachedQuad& q : mb.get_quads()) {
+        if (!q.water || q.direction != FaceDirection::Top) continue;
+        for (const Vertex& v : q.verts) {
+            if (v.ao == 0) ++flow_zero; else ++flow_any;
+        }
+    }
+    CHECK(flow_zero > 0);  // the pool's level middle
+    CHECK(flow_any > 0);   // the sloping rim
+}

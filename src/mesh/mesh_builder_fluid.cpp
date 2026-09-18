@@ -89,6 +89,17 @@ void MeshBuilder::add_fluid_quad(int32_t x, int32_t y, int32_t z, FaceDirection 
         // The water shader leaves this channel free; it carries the fluid kind
         // (Water=1, Lava=2, Acid=3) so each substance can pick its own alpha.
         v.emissive_index = static_cast<uint8_t>(block_type.fluid_kind);
+        // Liquids are never occluded (full-bright AO above), so the AO byte
+        // carries the texture-flow direction instead: downhill on top faces
+        // (the slope the corners already encode), down the wall on side faces
+        // of moving liquid. The shader scrolls the texture along it.
+        if (dir == FaceDirection::Top) {
+            v.ao = mesh_fluid::top_face_flow(corners);
+        } else {
+            v.ao = mesh_fluid::side_face_flow(block_type.is_fluid_state(),
+                                              block_type.fluid_falling,
+                                              static_cast<int>(block_type.fluid_depth));
+        }
         v.light_r = static_cast<uint8_t>(kBlockBrightness[unpack_r(light_key)] * 255.0f);
         v.light_g = static_cast<uint8_t>(kBlockBrightness[unpack_g(light_key)] * 255.0f);
         v.light_b = static_cast<uint8_t>(kBlockBrightness[unpack_b(light_key)] * 255.0f);

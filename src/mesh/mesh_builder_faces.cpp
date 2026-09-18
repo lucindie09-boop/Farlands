@@ -1,4 +1,5 @@
 #include "mesh/mesh_builder.hpp"
+#include "mesh/mesh_fluid.hpp"
 #include "mesh/smooth_lighting.hpp"
 #include <cmath>
 
@@ -180,11 +181,17 @@ void MeshBuilder::add_aabb_face(const ChunkData& chunk, const ChunkNeighborAcces
         float base_v = kFaceUVs[i][1] * uv_scale_v + uv_offset_v;
         v.v = invert_v ? (1.0f - base_v) : base_v;
         v.texture_index = static_cast<uint16_t>(texture_idx);
-        v.ao = AmbientOcclusion::pack_vertex_ao(ao[i], direction);
-        // For liquid faces the water shader reads this channel as the fluid
-        // kind (Water=1, Lava=2, Acid=3) to pick per-substance alpha; for
-        // solids the water shader never sees it, so this only matters when
-        // the LOD box path draws a liquid here.
+        // For liquid faces the AO byte is the water shader's texture-flow
+        // channel, not occlusion (it can't darken a sloped surface anyway):
+        // far LOD boxes read as still water, so flow 0. For solids it stays
+        // the packed AO the terrain shader expects.
+        v.ao = is_water
+            ? mesh_fluid::pack_flow(0, 0.0f)
+            : AmbientOcclusion::pack_vertex_ao(ao[i], direction);
+        // The water shader reads the emissive channel as the fluid kind
+        // (Water=1, Lava=2, Acid=3) to pick per-substance alpha; for solids
+        // the water shader never sees it, so this only matters when the LOD
+        // box path draws a liquid here.
         v.emissive_index = static_cast<uint8_t>(is_water
             ? static_cast<int>(block_type.fluid_kind) : emissive_idx);
         v.light_r = static_cast<uint8_t>(kBlockBrightness[unpack_r(light_keys[i])] * 255.0f);
@@ -342,11 +349,17 @@ light_keys[0] = light_keys[1] = light_keys[2] = light_keys[3] = light_key;
             apply_uv_rotation(v.u, v.v, surface_rotation);
         }
         v.texture_index = static_cast<uint16_t>(texture_idx);
-        v.ao = AmbientOcclusion::pack_vertex_ao(ao[i], direction);
-        // For liquid faces the water shader reads this channel as the fluid
-        // kind (Water=1, Lava=2, Acid=3) to pick per-substance alpha; for
-        // solids the water shader never sees it, so this only matters when
-        // the LOD box path draws a liquid here.
+        // For liquid faces the AO byte is the water shader's texture-flow
+        // channel, not occlusion (it can't darken a sloped surface anyway):
+        // far LOD boxes read as still water, so flow 0. For solids it stays
+        // the packed AO the terrain shader expects.
+        v.ao = is_water
+            ? mesh_fluid::pack_flow(0, 0.0f)
+            : AmbientOcclusion::pack_vertex_ao(ao[i], direction);
+        // The water shader reads the emissive channel as the fluid kind
+        // (Water=1, Lava=2, Acid=3) to pick per-substance alpha; for solids
+        // the water shader never sees it, so this only matters when the LOD
+        // box path draws a liquid here.
         v.emissive_index = static_cast<uint8_t>(is_water
             ? static_cast<int>(block_type.fluid_kind) : emissive_idx);
         v.light_r = static_cast<uint8_t>(kBlockBrightness[unpack_r(light_keys[i])] * 255.0f);

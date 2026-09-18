@@ -45,6 +45,7 @@
 #include "core/block_types.hpp"
 #include "mesh/mesh_types.hpp"
 
+#include <cmath>
 #include <cstdint>
 
 namespace VoxelEngine {
@@ -208,6 +209,63 @@ template <typename Lookup>
 [[nodiscard]] inline bool different_liquid_side_visible(
     float my_c0, float my_c1, float other_c0, float other_c1) noexcept {
     return !(my_c0 <= other_c0 && my_c1 <= other_c1);
+}
+
+// ---------------------------------------------------------------------------
+// Texture flow direction, packed into the liquid vertices' AO byte.
+//
+// A liquid is never occluded — the mesher packs full-bright AO into every
+// fluid vertex and the surface shader never darkens by it — so that byte is
+// free to carry something the water actually shows: which way its texture
+// should drift. The surface's own corner heights already encode the slope,
+// and water flows downhill, so the DIRECTION is derived from the same data
+// that draws the surface; nothing in the simulation has to record it.
+//
+// Layout: high nibble = direction, low nibble = strength (0..15).
+//   0        no flow (a level surface — a lone source, a pool's interior)
+//   1..8     compass across the TOP face, clockwise from north (-Z):
+//            1 N, 2 NE, 3 E (+X), 4 SE, 5 S (+Z), 6 SW, 7 W (-X), 8 NW
+//   9        straight DOWN a SIDE face (the waterfall reading)
+[[nodiscard]] inline uint8_t pack_flow(int direction, float strength) noexcept {
+    if (direction <= 0 || strength <= 0.0f) return 0;
+    if (direction > 9) direction = 9;
+    if (strength > 1.0f) strength = 1.0f;
+    const int s = static_cast<int>(strength * 15.0f + 0.5f);
+    return static_cast<uint8_t>((direction << 4) | s);
+}
+
+// The flow byte for a TOP face from its four corner heights: the downhill
+// gradient. A level surface has zero gradient and packs 0 (no flow); the
+// strength grows with the steepness so deeper, faster water visibly drifts
+// quicker. `corners` is indexed [cz][cx] with cx=1 on +X and cz=1 on +Z.
+[[nodiscard]] inline uint8_t top_face_flow(const Corners& c) noexcept {
+    const float west  = (c.h[0][0] + c.h[1][0]) * 0.5f;
+    const float east  = (c.h[0][1] + c.h[1][1]) * 0.5f;
+    const float north = (c.h[0][0] + c.h[0][1]) * 0.5f;
+    const float south = (c.h[1][0] + c.h[1][1]) * 0.5f;
+    // Downhill: toward the lower side. +x when the east side is lower, +z
+    // when the south side is lower.
+    const float fx = west - east;
+    const float fz = north - south;
+    const float mag = std::sqrt(fx * fx + fz * fz);
+    // Below ~half a pixel of drop the surface reads as level (this is also
+    // the merged-run case, where all four corners are identical).
+    if (mag < 0.004f) return 0;
+    // Compass bucket: 0 radians points north (-Z), a quarter turn east.
+    const float angle = std::atan2(fx, -fz);
+    int bucket = static_cast<int>(std::lround(angle * (4.0f / 3.14159265f))) & 7;
+    const float strength = mag * 6.0f < 0.2f ? 0.2f : mag * 6.0f;
+    return pack_flow(bucket + 1, strength);
+}
+
+// The flow byte for a SIDE face: a moving liquid reads as sliding down its
+// own wall (the waterfall effect); a source's sides hold still.
+[[nodiscard]] inline uint8_t side_face_flow(bool is_fluid_state, bool falling,
+                                            int depth) noexcept {
+    if (!is_fluid_state) return 0;
+    if (falling) return pack_flow(9, 1.0f);
+    if (depth > 0) return pack_flow(9, 0.45f);
+    return 0;
 }
 
 }  // namespace mesh_fluid

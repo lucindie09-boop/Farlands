@@ -1,5 +1,9 @@
 shader_type spatial;
-render_mode blend_mix, unshaded, cull_back;
+render_mode blend_mix, unshaded, cull_back, depth_draw_always;
+// depth_draw_always: liquid geometry writes depth even in the transparent
+// pass. Without it the default (opaque-only depth) leaves water with NO depth
+// in the z-buffer, so a side face behind a top face draws anyway — lava/acid
+// sides were visible through their own surface at certain angles.
 
 uniform sampler2DArray texture_array : filter_nearest_mipmap;
 
@@ -138,7 +142,13 @@ void fragment(){
 
     vec3 lit_color=color.rgb*combinedLight*ao_tint;
 
-    // Water shimmer
+    // The fluid kind this fragment belongs to (see the alpha section below):
+    // 1 = water, 2 = lava, 3 = acid. Water is the only shiny liquid — lava
+    // and acid are matte, so shimmer and sun glint skip them entirely.
+    float fluid_kind = floor(custom1_attr.a * 255.0 + 0.5);
+    float is_water_kind = step(0.5, fluid_kind) * step(fluid_kind, 1.5);
+
+    // Water shimmer (water only)
     float shimmer=
         sin(world_position.x*12.0+
         world_position.z*8.0)*0.5+0.5;
@@ -148,21 +158,28 @@ void fragment(){
         world_position.z*11.0+
         1.5)*0.5+0.5;
 
-    lit_color*=1.0+shimmer*0.15;
+    lit_color*=1.0+shimmer*0.10*is_water_kind;
 
+    // Ambient sky add, gated by THIS surface's sky light: previously it was a
+    // flat constant that lifted even pitch-dark water in a cave toward white.
+    // skyBrightness already folds in time-of-day (sky_light_intensity).
     lit_color+=
         sky_light_color*
-        sky_light_intensity*
-        0.08;
+        skyBrightness*
+        0.06;
 
-    // Sun glint
+    // Sun glint (water only)
     vec3 incident=normalize(view_direction);
     vec3 reflect_dir=reflect(incident,world_normal);
     float specAngle=max(dot(reflect_dir,sun_dir_norm),0.0);
+    // The broad secondary lobe was quarter-strength white over almost every
+    // angle — the main source of the milky sheen. Kept: the tight mirror
+    // hotspot (real sun reflection) at reduced gain. Both are gated by the
+    // surface's own sky light, so buried water cannot glint.
     float glint=
-        pow(specAngle,90.0)*1.2+
-        pow(specAngle,20.0)*0.25;
-    glint*=max(sky_light_intensity,0.05);
+        pow(specAngle,90.0)*0.9+
+        pow(specAngle,20.0)*0.08;
+    glint*=max(skyBrightness,0.05)*is_water_kind;
 
     lit_color+=vec3(1.0,1.0,1.0)*glint;
 
@@ -328,9 +345,6 @@ void fragment(){
     float edge_fade = mix(near_edge_fade, 1.0, distance_restore);
 
     float base_alpha = water_color.a * edge_fade;
-    // Lava reads as a hot liquid only when it is opaque; water and acid keep
-    // the shared translucent base.
-    float fluid_kind = floor(custom1_attr.a * 255.0 + 0.5);
     base_alpha = mix(base_alpha, lava_alpha, step(1.5, fluid_kind) * step(fluid_kind, 2.5));
     ALBEDO = final_color;
     ALPHA = mix(base_alpha, 1.0, fog_amount);

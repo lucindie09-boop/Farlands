@@ -95,6 +95,17 @@ struct BlockType {
     uint8_t light_b = 0;
     LightEmissionPattern light_pattern = LightEmissionPattern::Diamond;
 
+    // Light levels this block removes from light crossing it, on top of the
+    // usual -1 per step every block's neighbour costs. Opaque blocks stop
+    // light outright; transparent ones have an opacity — air 0, glass 0,
+    // water/acid 3 (the classic behaviour: a pool darkens fast with depth,
+    // a torch is dimmer a couple of cells into water than in air), lava 15
+    // (light enters the surface cell and no further). Parsed from
+    // block_definitions.json "light_opacity"; the default-registry helpers
+    // set it per substance. Consumed by the sky-light column scans and both
+    // block-light BFS paths, which is every place light meets a block.
+    uint8_t light_opacity = 0;
+
     // Mesh behaviour: blocks visually lower than full height (water, mud, etc.)
     float top_face_offset = 0.0f;
     // If false, side faces are rendered even against same-type neighbours.

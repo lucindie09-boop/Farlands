@@ -272,3 +272,51 @@ TEST_CASE("multi-source light propagation across chunks") {
     CHECK(region[1][1][1].get_light_b_unsafe(0, 16, 16) > 0);
 }
 
+
+TEST_CASE("sky light dies with depth in water") {
+    BlockRegistry::get_instance().initialize_default_blocks();
+    ChunkData chunk;
+    chunk.clear();
+    // A 10-deep pool of source water: sky light enters the surface cell at 15
+    // and pays water's opacity (3) per cell — 15, 12, 9, 6, 3, then dark.
+    for (int y = 20; y < 30; ++y) {
+        chunk.set_block(16, y, 16, BlockIDs::WATER);
+    }
+    chunk.set_block(16, 19, 16, BlockIDs::STONE);  // pool floor
+    chunk.propagate_sky_light(nullptr);
+    CHECK(chunk.get_sky_light(16, 29, 16) == 12);  // first water cell below open sky
+    CHECK(chunk.get_sky_light(16, 28, 16) == 9);
+    CHECK(chunk.get_sky_light(16, 27, 16) == 6);
+    CHECK(chunk.get_sky_light(16, 26, 16) == 3);
+    CHECK(chunk.get_sky_light(16, 25, 16) == 0);
+    CHECK(chunk.get_sky_light(16, 20, 16) == 0);   // deep water is dark
+}
+
+TEST_CASE("block light pays water opacity crossing it") {
+    BlockRegistry::get_instance().initialize_default_blocks();
+    ChunkData chunk;
+    chunk.clear();
+    // A torch in a sealed stone room with a 2-deep pool between it and the
+    // probe cell. The stone cap matters: without it light hops over the pool
+    // through the air above and the direct-crossing value never wins.
+    chunk.set_block(16, 16, 16, BlockIDs::LIGHT_BLOCK);
+    chunk.set_block(17, 16, 16, BlockIDs::WATER);
+    chunk.set_block(18, 16, 16, BlockIDs::WATER);
+    chunk.set_block(17, 17, 16, BlockIDs::WATER);
+    chunk.set_block(18, 17, 16, BlockIDs::WATER);
+    for (int x = 15; x <= 19; ++x) chunk.set_block(x, 18, 16, BlockIDs::STONE);
+    chunk.set_block(19, 16, 16, BlockIDs::STONE);
+    chunk.set_block(19, 17, 16, BlockIDs::STONE);
+    for (int y = 15; y <= 17; ++y) {
+        chunk.set_block(17, y, 15, BlockIDs::STONE);
+        chunk.set_block(18, y, 15, BlockIDs::STONE);
+        chunk.set_block(17, y, 17, BlockIDs::STONE);
+        chunk.set_block(18, y, 17, BlockIDs::STONE);
+        chunk.set_block(17, y, 16, y == 16 || y == 17 ? BlockIDs::WATER : BlockIDs::STONE);
+        chunk.set_block(18, y, 16, y == 16 || y == 17 ? BlockIDs::WATER : BlockIDs::STONE);
+    }
+    propagate_chunk_block_light_additive(chunk);
+    // source 15 -> water: 15-1-3 = 11 -> next water: 11-1-3 = 7
+    CHECK(chunk.get_light_r_unsafe(17, 16, 16) == 11);
+    CHECK(chunk.get_light_r_unsafe(18, 16, 16) == 7);
+}

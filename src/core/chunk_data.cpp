@@ -1,5 +1,7 @@
 #include "core/chunk_data.hpp"
 
+#include <algorithm>
+
 namespace VoxelEngine {
 
 ChunkData::ChunkData()
@@ -176,8 +178,14 @@ void ChunkData::propagate_sky_light(const ChunkData* chunk_above) {
                 const BlockID block_id = get_block_unsafe(x, y, z);
                 if (block_id != BlockIDs::AIR) {
                     const BlockType& block_type = registry.get_block(block_id);
-                    if (HasProperty(block_type.properties, BlockProperty::Opaque))
+                    if (HasProperty(block_type.properties, BlockProperty::Opaque)) {
                         current_sky_light = 0;
+                    } else if (block_type.light_opacity > 0) {
+                        // Light crossing this block pays its opacity. A pool
+                        // darkens with depth (3/block) instead of staying at
+                        // full sky light all the way to the seabed.
+                        current_sky_light = static_cast<uint8_t>(std::max(0, static_cast<int>(current_sky_light) - block_type.light_opacity));
+                    }
                 }
                 set_sky_light_unsafe(x, y, z, current_sky_light);
             }
@@ -192,8 +200,11 @@ void ChunkData::propagate_sky_light_column(int32_t x, int32_t z, const ChunkData
         const BlockID block_id = get_block_unsafe(x, y, z);
         if (block_id != BlockIDs::AIR) {
             const BlockType& block_type = registry.get_block(block_id);
-            if (HasProperty(block_type.properties, BlockProperty::Opaque))
+            if (HasProperty(block_type.properties, BlockProperty::Opaque)) {
                 current_sky_light = 0;
+            } else if (block_type.light_opacity > 0) {
+                current_sky_light = static_cast<uint8_t>(std::max(0, static_cast<int>(current_sky_light) - block_type.light_opacity));
+            }
         }
         set_sky_light_unsafe(x, y, z, current_sky_light);
     }

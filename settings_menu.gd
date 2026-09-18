@@ -100,7 +100,6 @@ var _default_mipmaps_enabled: bool = true
 var _default_mipmap_bias: float = 0.1
 var _default_textures_enabled: bool = true
 var _default_compression_enabled: bool = false
-var _default_old_reset_buttons: bool = false
 var _default_fps_cap: int = 0
 var _default_msaa_3d: int = 0
 
@@ -195,7 +194,6 @@ var _crosshair_defaults := {
 }
 
 var _save_timer: Timer = null
-var _old_reset_buttons: bool = false
 var _fps_cap: int = 0
 
 func _ready():
@@ -286,7 +284,6 @@ func _save_settings():
 	cfg.set_value("render", "compression_enabled", chunk_manager.get_compression_enabled())
 	cfg.set_value("render", "fps_cap", _fps_cap)
 	cfg.set_value("render", "msaa_3d", get_viewport().msaa_3d)
-	cfg.set_value("gui", "old_reset_buttons", _old_reset_buttons)
 	cfg.set_value("gui", "skin_dark_mode", _skin_dark_mode)
 	cfg.set_value("gui", "skin_noise", _skin_noise)
 	cfg.set_value("gui", "block_noise", _block_noise)
@@ -332,7 +329,6 @@ func _load_settings():
 	_fps_cap = loaded_fps_cap if loaded_fps_cap != 60 else _default_fps_cap
 	Engine.max_fps = _fps_cap
 	get_viewport().msaa_3d = int(cfg.get_value("render", "msaa_3d", _default_msaa_3d)) as Viewport.MSAA
-	_old_reset_buttons = cfg.get_value("gui", "old_reset_buttons", _default_old_reset_buttons)
 	_skin_dark_mode = cfg.get_value("gui", "skin_dark_mode", _skin_dark_mode)
 	_skin_noise = float(cfg.get_value("gui", "skin_noise", _skin_noise))
 	_block_noise = float(cfg.get_value("gui", "block_noise", _block_noise))
@@ -489,21 +485,33 @@ func _build_general_sections() -> Array:
 		UIScale.value = _default_gui_scale
 		_row_value(scale_btn, str(int(round(_default_gui_scale))) + "x")
 
-	var old_reset_btn := _make_widget_button("Old" if _old_reset_buttons else "New", 180.0)
-	_row_value(old_reset_btn, "Old" if _old_reset_buttons else "New")
-	old_reset_btn.pressed.connect(func():
-		_old_reset_buttons = not _old_reset_buttons
-		_row_value(old_reset_btn, "Old" if _old_reset_buttons else "New")
-		_schedule_save())
-	var old_reset_reset := func():
-		_old_reset_buttons = _default_old_reset_buttons
-		_row_value(old_reset_btn, "Old" if _default_old_reset_buttons else "New")
+	var rd := _make_slider(chunk_manager.get_render_distance(), 2.0, 64.0, 1.0,
+		func(v: float):
+			chunk_manager.set_render_distance(int(v))
+			_schedule_save(), " chunks")
+	var rd_reset := func():
+		rd.get_meta("slider").value = _default_render_distance
+		chunk_manager.set_render_distance(_default_render_distance)
+		_schedule_save()
+
+	var fps_cap := _make_slider(float(_fps_cap), 0.0, 300.0, 1.0,
+		func(v: float):
+			_fps_cap = int(v)
+			Engine.max_fps = _fps_cap
+			_schedule_save(), " FPS")
+	var fps_cap_reset := func():
+		fps_cap.get_meta("slider").value = _default_fps_cap
+		_fps_cap = _default_fps_cap
+		Engine.max_fps = _default_fps_cap
 		_schedule_save()
 
 	return [
 		["Interface", [
 			["GUI Scale", scale_btn, reset],
-			["Reset Button Type", old_reset_btn, old_reset_reset],
+		]],
+		["Performance", [
+			["Render Distance", rd, rd_reset],
+			["FPS Cap", fps_cap, fps_cap_reset],
 		]],
 	]
 
@@ -1039,15 +1047,6 @@ func _build_lighting_sections() -> Array:
 	]
 
 func _build_render_sections() -> Array:
-	var rd := _make_slider(chunk_manager.get_render_distance(), 2.0, 64.0, 1.0,
-		func(v: float):
-			chunk_manager.set_render_distance(int(v))
-			_schedule_save(), " chunks")
-	var rd_reset := func():
-		rd.get_meta("slider").value = _default_render_distance
-		chunk_manager.set_render_distance(_default_render_distance)
-		_schedule_save()
-
 	var lod_dist := _make_slider(chunk_manager.get_lod_distance(), 0.0, 64.0, 1.0,
 		func(v: float):
 			chunk_manager.set_lod_distance(int(v))
@@ -1183,20 +1182,8 @@ func _build_render_sections() -> Array:
 		_row_value(compression_btn, "On" if _default_compression_enabled else "Off")
 		_schedule_save()
 
-	var fps_cap := _make_slider(float(_fps_cap), 0.0, 300.0, 1.0,
-		func(v: float):
-			_fps_cap = int(v)
-			Engine.max_fps = _fps_cap
-			_schedule_save(), " FPS")
-	var fps_cap_reset := func():
-		fps_cap.get_meta("slider").value = _default_fps_cap
-		_fps_cap = _default_fps_cap
-		Engine.max_fps = _default_fps_cap
-		_schedule_save()
-
 	return [
 		["Terrain", [
-			["Render Distance", rd, rd_reset],
 			["LOD Distance", lod_dist, lod_reset],
 			["LOD Detail Level", lod_detail, lod_detail_reset],
 			["Far LOD Distance", far_lod_dist, far_lod_reset],
@@ -1213,9 +1200,6 @@ func _build_render_sections() -> Array:
 			["Mipmap Bias", mipmap_bias, mipmap_bias_reset],
 			["Textures", textures_btn, textures_reset],
 			["Compression", compression_btn, compression_reset],
-		]],
-		["Performance", [
-			["FPS Cap", fps_cap, fps_cap_reset],
 		]],
 	]
 
@@ -2792,7 +2776,7 @@ func _build_scrolling_page(title_text: String, sections: Array, actions: Array,
 		for row in section[1]:
 			if row.size() > 2 and row[2] != null:
 				resettable = true
-	var reset_w := (UNIT_RESET_W if _old_reset_buttons else UNIT_UNDO_W) if resettable else 0.0
+	var reset_w := UNIT_UNDO_W if resettable else 0.0
 	var row_gap := UNIT_ROW_GAP if resettable else 0.0
 	var cell_w := option_w + row_gap + reset_w
 	var grid_w := cell_w * float(columns) + UNIT_COL_GAP * float(columns - 1)
@@ -2969,11 +2953,7 @@ func _make_row_cell(row: Array, cell_w: float, reset_w: float, row_gap: float, o
 
 	var reset: Variant = row[2] if row.size() > 2 else null
 	if reset != null:
-		var rb: Button
-		if _old_reset_buttons:
-			rb = _make_widget_button("Reset", UNIT_RESET_W)
-		else:
-			rb = _make_undo_button()
+		var rb := _make_undo_button()
 		rb.custom_minimum_size = Vector2(reset_w * u, UNIT_BUTTON_H * u)
 		rb.pressed.connect(reset)
 		cell.add_child(rb)

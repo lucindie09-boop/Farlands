@@ -111,13 +111,25 @@ void MaterialManager::update_color_parameters(float contrast, float saturation, 
 }
 
 void MaterialManager::update_player_light(const Vector3& position, float radius, float intensity, const Color& color) {
-Ref<ShaderMaterial> material = get_material();
-if (material.is_valid()) {
-material->set_shader_parameter("player_light_position", position);
-material->set_shader_parameter("player_light_radius", radius);
-material->set_shader_parameter("player_light_intensity", intensity);
-material->set_shader_parameter("player_light_color", color);
-}
+    // BOTH world materials carry the player-light uniforms. The water material
+    // was left out, so its shader kept the loaded defaults (position 0,0,0) and
+    // liquids never responded to the dynamic light: at night, water/acid near the
+    // player rendered black (texture x zero light) while terrain around them
+    // glowed. Same values must land on both, every frame.
+    Ref<ShaderMaterial> material = get_material();
+    if (material.is_valid()) {
+        material->set_shader_parameter("player_light_position", position);
+        material->set_shader_parameter("player_light_radius", radius);
+        material->set_shader_parameter("player_light_intensity", intensity);
+        material->set_shader_parameter("player_light_color", color);
+    }
+    Ref<ShaderMaterial> water_mat = get_water_material();
+    if (water_mat.is_valid()) {
+        water_mat->set_shader_parameter("player_light_position", position);
+        water_mat->set_shader_parameter("player_light_radius", radius);
+        water_mat->set_shader_parameter("player_light_intensity", intensity);
+        water_mat->set_shader_parameter("player_light_color", color);
+    }
 }
 
 void MaterialManager::set_mipmap_bias(float bias) {

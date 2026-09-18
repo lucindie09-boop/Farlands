@@ -107,6 +107,27 @@ FluidTestWorld hole_scene() {
     return w;
 }
 
+// A lava source with a hole in the floor under the LAST cell it can reach — the
+// third one north. A hole there is a route: the channel walks out and pours in.
+FluidTestWorld pit_at_reach() {
+    FluidTestWorld w(15, 4, 15);
+    w.set_floor(0);
+    w.set_open(7, 0, 4);
+    w.set_cell_fluid(7, 1, 7, FluidCell{ FluidKind::Lava, 0, false });
+    return w;
+}
+
+// The same scene with the hole one cell further north: now it sits under the
+// cell just past the end of the reach, where no lava can ever stand. Nothing
+// else about the floor differs.
+FluidTestWorld pit_past_reach() {
+    FluidTestWorld w(15, 4, 15);
+    w.set_floor(0);
+    w.set_open(7, 0, 3);
+    w.set_cell_fluid(7, 1, 7, FluidCell{ FluidKind::Lava, 0, false });
+    return w;
+}
+
 // A source and a wall it has to stop against.
 FluidTestWorld wall_scene() {
     FluidTestWorld w(14, 3, 14);
@@ -427,6 +448,42 @@ TEST_CASE("fluid: a stream runs for a hole instead of spreading around it") {
     CHECK(w.count_fluid() == 6);
 
     CHECK(drivers_agree(hole_scene()) == std::string());
+}
+
+TEST_CASE("fluid: a drop the fluid cannot reach does not steer the flow") {
+    // Rule 8 sends a cell only toward the best-scoring directions, so the score
+    // has to mean something the flow can act on. A hole under the third cell of
+    // a reach of three is one: the channel arrives, pours in, and the three
+    // directions that cannot see it lose. That is the behaviour rule 8 exists
+    // for.
+    FluidTestWorld reachable = pit_at_reach();
+    CHECK(reachable.settle_sweep() > 0);
+    CHECK(reachable.at(7, 1, 6).depth == 1);
+    CHECK(reachable.at(7, 1, 5).depth == 2);
+    CHECK(reachable.at(7, 1, 4).depth == 3);
+    CHECK(reachable.at(7, 0, 4).falling);
+    CHECK_FALSE(reachable.at(8, 1, 7).present());
+    CHECK(reachable.count_fluid() == 5);
+    CHECK(drivers_agree(pit_at_reach()) == std::string());
+
+    // One cell further out, and the hole cannot be reached by anything: lava
+    // sent that way spends every cell of its strength on a wall and arrives
+    // nowhere, and the directions it gave up for it stay dry. The flood has to
+    // spread as far as its own strength goes instead. The hole is still in
+    // range of the cells that close the distance to it — it just does not get to
+    // decide the shape of the whole pour from outside the reach.
+    FluidTestWorld beyond = pit_past_reach();
+    CHECK(beyond.settle_sweep() > 0);
+    for (int d = 1; d <= 3; ++d) {
+        CHECK(beyond.at(7 + d, 1, 7).depth == d);
+        CHECK(beyond.at(7 - d, 1, 7).depth == d);
+        CHECK(beyond.at(7, 1, 7 + d).depth == d);
+        CHECK(beyond.at(7, 1, 7 - d).depth == d);
+    }
+    CHECK_FALSE(beyond.at(7, 1, 3).present());
+    // The same 25 cells as a flat floor with no hole at all in it.
+    CHECK(beyond.count_fluid() == 25);
+    CHECK(drivers_agree(pit_past_reach()) == std::string());
 }
 
 TEST_CASE("fluid: a wall stops the flow and no solid ever holds fluid") {

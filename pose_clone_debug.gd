@@ -169,8 +169,8 @@ func _rebuild_overlay() -> void:
 	if _overlay == null:
 		_overlay = MultiMeshInstance3D.new()
 		_overlay.name = "PathOverlay"
-		var multimesh := MultiMesh.new()
-		multimesh.transform_format = MultiMesh.TRANSFORM_3D
+		var overlay_mesh := MultiMesh.new()
+		overlay_mesh.transform_format = MultiMesh.TRANSFORM_3D
 		var cube := BoxMesh.new()
 		cube.size = Vector3.ONE * 1.02
 		_overlay_mat = StandardMaterial3D.new()
@@ -178,8 +178,8 @@ func _rebuild_overlay() -> void:
 		_overlay_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		_overlay_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 		cube.material = _overlay_mat
-		multimesh.mesh = cube
-		_overlay.multimesh = multimesh
+		overlay_mesh.mesh = cube
+		_overlay.multimesh = overlay_mesh
 		scene_root.add_child(_overlay)
 	if _path_truncated:
 		_overlay_mat.albedo_color = PATH_COLOR_PARTIAL

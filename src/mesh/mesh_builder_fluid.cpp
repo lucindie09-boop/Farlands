@@ -43,15 +43,17 @@ void MeshBuilder::add_fluid_quad(int32_t x, int32_t y, int32_t z, FaceDirection 
                                  const BlockRegistry& registry) {
     const int dir_index = static_cast<int>(dir);
     const BlockType& block_type = registry.get_block(block_id);
+    // The liquid vertex carries the texture layer, not an emissive index: that
+    // byte is the fluid family (see mesh_fluid.hpp), so this face has no use for
+    // the block's emissive layers and does not read them.
     int texture_idx = 0;
-    int emissive_idx = 0;
     switch (dir) {
-        case FaceDirection::Right:  texture_idx = block_type.texture_indices[0]; emissive_idx = block_type.emissive_texture_indices[0]; break;
-        case FaceDirection::Left:   texture_idx = block_type.texture_indices[1]; emissive_idx = block_type.emissive_texture_indices[1]; break;
-        case FaceDirection::Top:    texture_idx = block_type.texture_indices[2]; emissive_idx = block_type.emissive_texture_indices[2]; break;
-        case FaceDirection::Bottom: texture_idx = block_type.texture_indices[3]; emissive_idx = block_type.emissive_texture_indices[3]; break;
-        case FaceDirection::Front:  texture_idx = block_type.texture_indices[4]; emissive_idx = block_type.emissive_texture_indices[4]; break;
-        case FaceDirection::Back:   texture_idx = block_type.texture_indices[5]; emissive_idx = block_type.emissive_texture_indices[5]; break;
+        case FaceDirection::Right:  texture_idx = block_type.texture_indices[0]; break;
+        case FaceDirection::Left:   texture_idx = block_type.texture_indices[1]; break;
+        case FaceDirection::Top:    texture_idx = block_type.texture_indices[2]; break;
+        case FaceDirection::Bottom: texture_idx = block_type.texture_indices[3]; break;
+        case FaceDirection::Front:  texture_idx = block_type.texture_indices[4]; break;
+        case FaceDirection::Back:   texture_idx = block_type.texture_indices[5]; break;
     }
 
     const uint32_t vertex_count = static_cast<uint32_t>(water_vertices.size());

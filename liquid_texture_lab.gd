@@ -84,7 +84,6 @@ var settings: Dictionary = {}
 
 var _open := false
 var _layer: CanvasLayer = null
-var _panel: Control = null
 var _status: Label = null
 var _name_edit: LineEdit = null
 var _load_pick: OptionButton = null
@@ -130,7 +129,6 @@ var _described: Dictionary = {}
 var _compression_flipped := false
 var _compression_was := false
 var _last_ms := 0.0
-var _endpoint_colors: Array[Color] = []
 var _flat_low := 0.0
 var _flat_high := 0.0
 
@@ -371,8 +369,8 @@ func _build_settings_column() -> Control:
 	_kernel_pick = OptionButton.new()
 	_kernel_pick.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_kernel_pick.add_theme_font_override("font", MUNRO_FONT)
-	for name in KERNELS:
-		_kernel_pick.add_item(name)
+	for kernel_label in KERNELS:
+		_kernel_pick.add_item(kernel_label)
 	_kernel_pick.item_selected.connect(func(index: int):
 		settings["kernel"] = KERNELS[index]
 		_mark_dirty())
@@ -656,7 +654,7 @@ func _regenerate() -> void:
 func _slice_frames() -> void:
 	_frames.clear()
 	var size := _strip.get_width()
-	var count := int(_strip.get_height() / size)
+	var count := int(_strip.get_height() / float(size))
 	for index in count:
 		_frames.append(_strip.get_region(Rect2i(0, index * size, size, size)))
 
@@ -678,8 +676,8 @@ func _measure_flatness() -> void:
 	var last := (stops - 1) * 4
 	var high := _ramp_byte(ramp, last)
 	var data := _strip.get_data()
-	var cells := int(data.size() / 4)
-	var stride := maxi(1, int(cells / 4096))
+	var cells := int(data.size() / 4.0)
+	var stride := maxi(1, int(cells / 4096.0))
 	var total := 0
 	var at_low := 0
 	var at_high := 0
@@ -944,10 +942,10 @@ func _save() -> void:
 	if _strip == null:
 		return
 	DirAccess.make_dir_recursive_absolute(SAVE_DIR)
-	var name := _name_edit.text.strip_edges() if _name_edit else "water_anim"
-	if name.is_empty():
-		name = "water_anim"
-	var base := SAVE_DIR + "/" + name
+	var strip_name := _name_edit.text.strip_edges() if _name_edit else "water_anim"
+	if strip_name.is_empty():
+		strip_name = "water_anim"
+	var base := SAVE_DIR + "/" + strip_name
 	var error := _strip.save_png(base + ".png")
 	if error != OK:
 		_live_label.text = "save failed: %s" % error
@@ -958,38 +956,38 @@ func _save() -> void:
 		return
 	file.store_string(JSON.stringify(settings, "  "))
 	file.close()
-	_live_label.text = "saved %s.png + .json  (strip %dx%d)" % [name, _strip.get_width(), _strip.get_height()]
+	_live_label.text = "saved %s.png + .json  (strip %dx%d)" % [strip_name, _strip.get_width(), _strip.get_height()]
 	_refresh_load_list()
 
 func _load_selected() -> void:
 	if _load_pick == null or _load_pick.item_count == 0:
 		return
-	var name := _load_pick.get_item_text(_load_pick.selected)
-	var file := FileAccess.open(SAVE_DIR + "/" + name + ".json", FileAccess.READ)
+	var strip_name := _load_pick.get_item_text(_load_pick.selected)
+	var file := FileAccess.open(SAVE_DIR + "/" + strip_name + ".json", FileAccess.READ)
 	if file == null:
-		_live_label.text = "load failed: %s.json" % name
+		_live_label.text = "load failed: %s.json" % strip_name
 		return
 	var parsed = JSON.parse_string(file.get_as_text())
 	file.close()
 	if typeof(parsed) != TYPE_DICTIONARY:
-		_live_label.text = "load failed: %s.json is not a settings dictionary" % name
+		_live_label.text = "load failed: %s.json is not a settings dictionary" % strip_name
 		return
 	settings = parsed
 	settings["ramp"] = PackedFloat32Array(settings.get("ramp", PackedFloat32Array()))
 	if _name_edit:
-		_name_edit.text = name
+		_name_edit.text = strip_name
 	_refresh_widgets()
 	_dirty_delay = 0.0
 	_regenerate()
-	_live_label.text = "loaded %s" % name
+	_live_label.text = "loaded %s" % strip_name
 
 func _delete() -> void:
 	if _load_pick == null or _load_pick.item_count == 0:
 		return
-	var name := _load_pick.get_item_text(_load_pick.selected)
-	DirAccess.remove_absolute(ProjectSettings.globalize_path(SAVE_DIR + "/" + name + ".png"))
-	DirAccess.remove_absolute(ProjectSettings.globalize_path(SAVE_DIR + "/" + name + ".json"))
-	_live_label.text = "deleted %s" % name
+	var strip_name := _load_pick.get_item_text(_load_pick.selected)
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(SAVE_DIR + "/" + strip_name + ".png"))
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(SAVE_DIR + "/" + strip_name + ".json"))
+	_live_label.text = "deleted %s" % strip_name
 	_refresh_load_list()
 
 func _refresh_load_list(prefer_name: String = "") -> void:

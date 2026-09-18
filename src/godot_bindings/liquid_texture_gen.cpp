@@ -34,7 +34,7 @@ namespace {
     return static_cast<bool>(value);
 }
 
-[[nodiscard]] Kernel kernel_from(Variant value, Kernel fallback) {
+[[nodiscard]] Kernel kernel_from(const Variant& value, Kernel fallback) {
     const String name = static_cast<String>(value);
     if (name == "box") return Kernel::Box;
     if (name == "warp") return Kernel::Warp;
@@ -124,10 +124,10 @@ namespace {
     d["loop"] = s.loop;
     d["loop_window"] = s.loop_window;
     PackedFloat32Array ramp;
-    ramp.resize(VoxelEngine::liquid::kMaxRampStops * 4);
+    ramp.resize(static_cast<int64_t>(VoxelEngine::liquid::kMaxRampStops) * 4);
     for (int stop = 0; stop < VoxelEngine::liquid::kMaxRampStops; ++stop) {
         for (int channel = 0; channel < 4; ++channel) {
-            ramp.set(stop * 4 + channel, s.ramp[stop][channel]);
+            ramp.set(static_cast<int64_t>(stop) * 4 + channel, s.ramp[stop][channel]);
         }
     }
     d["ramp"] = ramp;

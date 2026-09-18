@@ -230,7 +230,7 @@ template <typename Lookup>
     if (direction <= 0 || strength <= 0.0f) return 0;
     if (direction > 9) direction = 9;
     if (strength > 1.0f) strength = 1.0f;
-    const int s = static_cast<int>(strength * 15.0f + 0.5f);
+    const int s = static_cast<int>(std::lround(strength * 15.0f));
     return static_cast<uint8_t>((direction << 4) | s);
 }
 

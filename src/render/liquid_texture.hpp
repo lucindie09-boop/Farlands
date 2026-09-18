@@ -40,11 +40,11 @@ namespace VoxelEngine::liquid {
 //   Warp  the 3x3 block, shifted per row and per column by a sine wave
 //         (the classic still lava: the churn comes from the wandering window)
 //   Plus  the cell and its four orthogonal neighbours
-enum class Kernel : int32_t { Row = 0, Box = 1, Warp = 2, Plus = 3 };
+enum class Kernel : uint8_t { Row = 0, Box = 1, Warp = 2, Plus = 3 };
 
 // A palette + physics preset. The three styles share every knob; only the
 // defaults differ (see style_settings).
-enum class Style : int32_t { Water = 0, Lava = 1, Acid = 2 };
+enum class Style : uint8_t { Water = 0, Lava = 1, Acid = 2 };
 
 inline constexpr int32_t kKernelCount = 4;
 inline constexpr int32_t kStyleCount = 3;
@@ -226,7 +226,6 @@ struct Settings {
             s.ramp[2] = {198.0f / 255.0f, 240.0f / 255.0f, 96.0f / 255.0f, 0.88f};
             break;
         case Style::Water:
-            break;
         default:
             break;
     }
@@ -568,7 +567,8 @@ inline void render_into(const Settings& s, const std::vector<float>& field, std:
         strip.looped = true;
         std::vector<float> morphed(fields[0].size(), 0.0f);
         for (int j = 0; j < window; ++j) {
-            const size_t index = static_cast<size_t>(base_frames - window + j);
+            const int frame_index = base_frames - window + j;
+            const size_t index = static_cast<size_t>(frame_index);
             const float t = static_cast<float>(j + 1) / static_cast<float>(window);
             const std::vector<float>& source = fields[index];
             const std::vector<float>& target =

@@ -231,7 +231,7 @@ func _build(liquid: String, state: Dictionary) -> bool:
 		state["note"] = "generating the strip failed"
 		return false
 	var size := strip.get_width()
-	var count := int(strip.get_height() / size)
+	var count := int(strip.get_height() / float(size))
 	var frames: Array[Image] = []
 	for index in count:
 		frames.append(strip.get_region(Rect2i(0, index * size, size, size)))

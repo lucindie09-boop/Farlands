@@ -110,7 +110,7 @@ func _track_head_look() -> void:
 		var cam_q: Quaternion = cam.global_transform.basis.get_rotation_quaternion()
 		_head.quaternion = parent_q.inverse() * cam_q * Quaternion(Vector3.UP, PI)
 
-func set_animation_state(is_walking: bool) -> void:
+func set_animation_state(_is_walking: bool) -> void:
 	if _anim_player == null:
 		return
 	

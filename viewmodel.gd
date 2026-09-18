@@ -1004,7 +1004,6 @@ func _remap_shape_for_viewmodel(shape: String) -> String:
 		return shape
 	
 	var shape_type = parts[0]
-	var variant = parts[1]
 	
 	# Map stairs to face east (towards camera)
 	if shape_type == "stair":

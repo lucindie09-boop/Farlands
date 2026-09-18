@@ -723,30 +723,14 @@ func _make_slider(value: float, min_value: float, max_value: float, step: float,
 	slider.step = step
 	slider.value = value
 	slider.custom_minimum_size = Vector2(0, UNIT_BUTTON_H * s)
-	var normal := _slider_track_style()
-	var hover := _slider_track_style()
-	hover.modulate_color = Color(1.2, 1.2, 1.2)
-	slider.add_theme_stylebox_override("slider", normal)
+	# The track is one flat stylebox: it is not what answers the pointer, so it
+	# has no highlighted twin (the thumb does, below).
+	slider.add_theme_stylebox_override("slider", _slider_track_style())
 	# Suppress the separate "grabber_area" fill (Godot would draw a second
 	# background for the portion left of the grabber) - we only want one.
 	slider.add_theme_stylebox_override("grabber_area", StyleBoxEmpty.new())
 	slider.add_theme_stylebox_override("grabber_area_highlight", StyleBoxEmpty.new())
-	slider.add_theme_icon_override("grabber", _scaled_thumb_tex())
-	slider.add_theme_icon_override("grabber_highlight", _scaled_thumb_tex())
-	slider.add_theme_constant_override("grabber_offset", 0)
-	# The thumb's travel span is the track's width minus the icon's own, so its
-	# leftmost pixel lands on the track's leftmost pixel at the minimum and its
-	# rightmost on the track's rightmost at the maximum. Centring the icon on the
-	# value instead (center_grabber) hangs half of it off each end of the track.
-	slider.add_theme_constant_override("center_grabber", 0)
-	# Highlight the whole track (not just the filled portion left of the
-	# grabber) when the slider is hovered or focused.
-	var set_highlight := func(on: bool):
-		slider.add_theme_stylebox_override("slider", hover if on else normal)
-	slider.mouse_entered.connect(set_highlight.bind(true))
-	slider.mouse_exited.connect(set_highlight.bind(false))
-	slider.focus_entered.connect(set_highlight.bind(true))
-	slider.focus_exited.connect(set_highlight.bind(false))
+	_style_slider_thumb(slider)
 	var label := Label.new()
 	label.set_anchors_preset(Control.PRESET_FULL_RECT)
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -775,10 +759,21 @@ func _style_slider_control(slider: HSlider) -> void:
 	slider.add_theme_stylebox_override("slider", _slider_track_style())
 	slider.add_theme_stylebox_override("grabber_area", StyleBoxEmpty.new())
 	slider.add_theme_stylebox_override("grabber_area_highlight", StyleBoxEmpty.new())
+	_style_slider_thumb(slider)
+
+# The thumb, and the two states the engine swaps it for: hovering (or focusing)
+# the slider brightens the HANDLE, and an uneditable slider (mipmap bias with
+# mipmaps off) draws its handle from the disabled icon — the track underneath is
+# left alone in every one of them.
+func _style_slider_thumb(slider: HSlider) -> void:
 	slider.add_theme_icon_override("grabber", _scaled_thumb_tex())
-	slider.add_theme_icon_override("grabber_highlight", _scaled_thumb_tex())
+	slider.add_theme_icon_override("grabber_highlight", _scaled_thumb_tex(1.2))
+	slider.add_theme_icon_override("grabber_disabled", _scaled_thumb_tex(0.7))
 	slider.add_theme_constant_override("grabber_offset", 0)
-	# End-to-end travel, like _make_slider: the thumb stays on the track.
+	# The thumb's travel span is the track's width minus the icon's own, so its
+	# leftmost pixel lands on the track's leftmost pixel at the minimum and its
+	# rightmost on the track's rightmost at the maximum. Centring the icon on the
+	# value instead (center_grabber) hangs half of it off each end of the track.
 	slider.add_theme_constant_override("center_grabber", 0)
 
 func _slider_track_style() -> StyleBoxTexture:
@@ -801,12 +796,21 @@ func _slider_track_style() -> StyleBoxTexture:
 	style.texture_margin_bottom = half
 	return style
 
-func _scaled_thumb_tex() -> Texture2D:
+func _scaled_thumb_tex(tint := 1.0) -> Texture2D:
 	# The grabber icon is drawn at native size, so scale it up to match the
 	# stretched track/button height (20 * ui_scale), like everything else.
 	var s := _ui_scale()
 	var img := SLIDER_THUMB_TEX.get_image()
 	img.resize(maxi(1, roundi(SLIDER_THUMB_TEX.get_width() * s)), maxi(1, roundi(SLIDER_THUMB_TEX.get_height() * s)), Image.INTERPOLATE_NEAREST)
+	# A themed ICON cannot be modulated the way a button's stylebox can, so the
+	# highlight and disabled handles are the same pixels multiplied up or down.
+	if not is_equal_approx(tint, 1.0):
+		img.convert(Image.FORMAT_RGBA8)
+		for y in range(img.get_height()):
+			for x in range(img.get_width()):
+				var c := img.get_pixel(x, y)
+				img.set_pixel(x, y, Color(minf(c.r * tint, 1.0), minf(c.g * tint, 1.0),
+					minf(c.b * tint, 1.0), c.a))
 	return ImageTexture.create_from_image(img)
 
 func _format_slider_value(v: float, step: float) -> String:

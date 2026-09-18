@@ -59,18 +59,22 @@ func _process(_delta: float) -> void:
 		sun_visibility = sun_facing_fade * sun_horizon_fade
 		if sun_visibility > 0.0:
 			var sun_world_pos: Vector3 = camera.global_position + sun_dir * SUN_DISTANCE
-			var screen_pos: Vector2 = camera.unproject_position(sun_world_pos)
-			var sun_uv: Vector2 = screen_pos / viewport_size
-			# Fade when sun projects off-screen (prevents white tint from edge-clamped samples)
-			var edge_margin := 0.15
-			sun_visibility *= smoothstep(-edge_margin, 0.0, sun_uv.x)
-			sun_visibility *= smoothstep(1.0 + edge_margin, 1.0, sun_uv.x)
-			sun_visibility *= smoothstep(-edge_margin, 0.0, sun_uv.y)
-			sun_visibility *= smoothstep(1.0 + edge_margin, 1.0, sun_uv.y)
-			# Fade when sun projects near screen center (prevents crosshair hotspot)
-			var sun_center_dist: float = (sun_uv - Vector2(0.5, 0.5)).length()
-			sun_visibility *= smoothstep(0.05, 0.25, sun_center_dist)
-			shader_material.set_shader_parameter("sun_screen_uv", sun_uv)
+			# Unprojecting a point on the camera plane is undefined (the engine
+			# errors and returns garbage); that plane is grazed exactly where
+			# `facing` crosses zero, so require real depth along the view axis.
+			if (sun_world_pos - camera.global_position).dot(cam_forward) > 0.5:
+				var screen_pos: Vector2 = camera.unproject_position(sun_world_pos)
+				var sun_uv: Vector2 = screen_pos / viewport_size
+				# Fade when sun projects off-screen (prevents white tint from edge-clamped samples)
+				var edge_margin := 0.15
+				sun_visibility *= smoothstep(-edge_margin, 0.0, sun_uv.x)
+				sun_visibility *= smoothstep(1.0 + edge_margin, 1.0, sun_uv.x)
+				sun_visibility *= smoothstep(-edge_margin, 0.0, sun_uv.y)
+				sun_visibility *= smoothstep(1.0 + edge_margin, 1.0, sun_uv.y)
+				# Fade when sun projects near screen center (prevents crosshair hotspot)
+				var sun_center_dist: float = (sun_uv - Vector2(0.5, 0.5)).length()
+				sun_visibility *= smoothstep(0.05, 0.25, sun_center_dist)
+				shader_material.set_shader_parameter("sun_screen_uv", sun_uv)
 	shader_material.set_shader_parameter("sun_visibility", sun_visibility)
 
 	# --- Moon (opposite of sun) ---
@@ -83,14 +87,16 @@ func _process(_delta: float) -> void:
 		moon_visibility = moon_facing_fade * moon_horizon_fade
 		if moon_visibility > 0.0:
 			var moon_world_pos: Vector3 = camera.global_position + moon_dir * SUN_DISTANCE
-			var screen_pos: Vector2 = camera.unproject_position(moon_world_pos)
-			var moon_uv: Vector2 = screen_pos / viewport_size
-			var edge_margin := 0.15
-			moon_visibility *= smoothstep(-edge_margin, 0.0, moon_uv.x)
-			moon_visibility *= smoothstep(1.0 + edge_margin, 1.0, moon_uv.x)
-			moon_visibility *= smoothstep(-edge_margin, 0.0, moon_uv.y)
-			moon_visibility *= smoothstep(1.0 + edge_margin, 1.0, moon_uv.y)
-			var moon_center_dist: float = (moon_uv - Vector2(0.5, 0.5)).length()
-			moon_visibility *= smoothstep(0.05, 0.25, moon_center_dist)
-			shader_material.set_shader_parameter("moon_screen_uv", moon_uv)
+			# Same camera-plane guard as the sun's projection above.
+			if (moon_world_pos - camera.global_position).dot(cam_forward) > 0.5:
+				var screen_pos: Vector2 = camera.unproject_position(moon_world_pos)
+				var moon_uv: Vector2 = screen_pos / viewport_size
+				var edge_margin := 0.15
+				moon_visibility *= smoothstep(-edge_margin, 0.0, moon_uv.x)
+				moon_visibility *= smoothstep(1.0 + edge_margin, 1.0, moon_uv.x)
+				moon_visibility *= smoothstep(-edge_margin, 0.0, moon_uv.y)
+				moon_visibility *= smoothstep(1.0 + edge_margin, 1.0, moon_uv.y)
+				var moon_center_dist: float = (moon_uv - Vector2(0.5, 0.5)).length()
+				moon_visibility *= smoothstep(0.05, 0.25, moon_center_dist)
+				shader_material.set_shader_parameter("moon_screen_uv", moon_uv)
 	shader_material.set_shader_parameter("moon_visibility", moon_visibility)

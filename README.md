@@ -221,7 +221,7 @@ Open the project root in Godot 4 and press Play. The main scene is `Main.tscn`. 
 | Tab | Accept autocomplete / cycle through completions (hold to auto-cycle) |
 | Up/Down arrows | Cycle through completions (when chat is open and completions are available) |
 
-Input bindings live in `project.godot` (`move_forward`, `move_back`, `move_left`, `move_right`, `jump`, `sprint`, `sneak`, `fly_toggle`, `toggle_inventory`, `toggle_chat`, `toggle_third_person`, `mouse_click_left`, `mouse_click_right`, `pose_clone_toggle`). The C++ `PlayerController` node owns all movement, look, block interaction, and inventory state — there is no player GDScript. The hotbar/inventory screens are GDScript `Control` overlays that read/write that state.
+Input bindings live in `project.godot` (`move_forward`, `move_back`, `move_left`, `move_right`, `jump`, `sprint`, `sneak`, `fly_toggle`, `toggle_inventory`, `toggle_chat`, `toggle_third_person`, `mouse_click_left`, `mouse_click_right`, `pose_clone_toggle`, `toggle_chunk_borders` — the last one shows the 32-block chunk grid around the player as X-ray lines, `chunk_borders.gd`, off by default). The C++ `PlayerController` node owns all movement, look, block interaction, and inventory state — there is no player GDScript. The hotbar/inventory screens are GDScript `Control` overlays that read/write that state.
 
 Liquids are passable and swimmable: a liquid never stops a body (worldgen oceans included — you fall in, and the third-person cameras look straight through it), and while any part of the body is inside one it sinks slowly (~1.6 blocks/s), accelerates and moves at a fraction of land speed, rises while jump is held, gets lifted when it swims into a bank, and takes no fall damage on entry.
 

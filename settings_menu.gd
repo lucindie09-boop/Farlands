@@ -24,6 +24,7 @@ const UNIT_BUTTON_W := 200.0      # a full-width button: menu rows and footer ac
 const UNIT_BUTTON_H := 20.0       # every widget's height, sliders included
 const UNIT_OPTION_W := 150.0      # one option in the two-column list
 const UNIT_UNDO_W := 20.0         # a per-row reset: a square icon (== UNIT_BUTTON_H)
+const UNIT_HEADING_ICON_W := 10.0 # heading export/import/reset icons: 50% of UNIT_UNDO_W
 const UNIT_RESET_W := 60.0        # ...or the older text "Reset" button
 const UNIT_ROW_GAP := 2.0         # between an option and its reset
 const UNIT_HEADING_H := 20.0      # one section heading's row
@@ -2899,19 +2900,19 @@ func _build_scrolling_page(title_text: String, sections: Array, actions: Array,
 			heading.add_theme_font_override("font", MUNRO_FONT)
 			heading.add_theme_font_size_override("font_size", int(UNIT_FONT * u))
 			heading.add_theme_color_override("font_color", CATEGORY_COLOR if category else HEADING_COLOR)
-			heading.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			heading.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 			heading.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			heading.set_meta("is_heading", true)
 			heading_row.add_child(heading)
 
 			if category:
-				var export_btn := _make_icon_button(EXPORT_TEX)
+				var export_btn := _make_icon_button(EXPORT_TEX, UNIT_HEADING_ICON_W)
 				export_btn.tooltip_text = "Export this section"
 				heading_row.add_child(export_btn)
-				var import_btn := _make_icon_button(IMPORT_TEX)
+				var import_btn := _make_icon_button(IMPORT_TEX, UNIT_HEADING_ICON_W)
 				import_btn.tooltip_text = "Import this section"
 				heading_row.add_child(import_btn)
-				var reset_all_btn := _make_icon_button(UNDO_TEX)
+				var reset_all_btn := _make_icon_button(UNDO_TEX, UNIT_HEADING_ICON_W)
 				reset_all_btn.tooltip_text = "Reset this section"
 				var section_resets: Array = []
 				for row in section[1]:
@@ -3117,18 +3118,21 @@ func _style_button(btn: Button, width: float):
 func _make_undo_button() -> Button:
 	return _make_icon_button(UNDO_TEX)
 
-# A square icon button: the texture stretched onto a UNIT_UNDO_W (== height)
-# square, so export/import/reset icons all stay 1:1 at every GUI scale.
-func _make_icon_button(tex: Texture2D) -> Button:
+# A square icon button: the texture stretched onto a `width` (== height) square,
+# so the icon stays 1:1 at every GUI scale. The heading icons pass a smaller
+# width (75%) and shrink vertically so the HBox does not stretch them back.
+func _make_icon_button(tex: Texture2D, width := UNIT_UNDO_W) -> Button:
 	var btn := Button.new()
 	btn.text = ""
-	_style_icon_button(btn, tex)
+	btn.set_meta("icon_w", width)
+	_style_icon_button(btn, tex, width)
 	return btn
 
-func _style_icon_button(btn: Button, tex: Texture2D):
+func _style_icon_button(btn: Button, tex: Texture2D, width := UNIT_UNDO_W):
 	var s := _ui_scale()
 	btn.add_theme_font_override("font", MUNRO_FONT)
 	btn.add_theme_font_size_override("font_size", int(UNIT_FONT * s))
+	btn.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	var normal := StyleBoxTexture.new()
 	normal.texture = tex
 	var hover := StyleBoxTexture.new()
@@ -3141,7 +3145,7 @@ func _style_icon_button(btn: Button, tex: Texture2D):
 	btn.add_theme_stylebox_override("hover", hover)
 	btn.add_theme_stylebox_override("pressed", pressed)
 	btn.add_theme_stylebox_override("focus", normal)
-	btn.custom_minimum_size = Vector2(UNIT_UNDO_W, UNIT_UNDO_W) * s
+	btn.custom_minimum_size = Vector2(width, width) * s
 
 # -----------------------------------------------------------------------------
 # "Label: value" inside the widget

@@ -181,4 +181,5 @@ player_position = Vector3(0, 280, 0)
 biome_size = 0.25
 smooth_lighting = true
 lod_distance = 6
+player_light_enabled = false
 fog_density = 0.1

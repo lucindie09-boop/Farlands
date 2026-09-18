@@ -25,7 +25,7 @@ const UNIT_BUTTON_H := 20.0       # every widget's height, sliders included
 const UNIT_OPTION_W := 150.0      # one option in the two-column list
 const UNIT_UNDO_W := 20.0         # a per-row reset: a square icon (== UNIT_BUTTON_H)
 const UNIT_HEADING_ICON_W := 10.0 # heading export/import/reset icons: 50% of UNIT_UNDO_W
-const UNIT_RESET_W := 60.0        # ...or the older text "Reset" button
+const UNIT_RESET_W := 60.0        # a small action button (the galleries' CLOSE)
 const UNIT_ROW_GAP := 2.0         # between an option and its reset
 const UNIT_HEADING_H := 20.0      # one section heading's row
 const UNIT_GAP := 4.0             # between two rows
@@ -443,12 +443,18 @@ func _build_tools_page() -> Control:
 		[["Back", func(): _show_page("pause")], ["Done", _close]], UNIT_BUTTON_W, 1,
 		Color(0, 0, 0, 0))
 
-# Flatten an area's sections into one category heading followed by its rows.
+# Flatten an area's sections into one category heading followed by its rows. A
+# section whose third element is a Dictionary instead of "category" carries that
+# area's export/import codec: it contributes no rows of its own, it only hands
+# the codec to the heading's icons.
 func _category(title: String, grouped: Array) -> Array:
 	var rows: Array = []
+	var codec := {}
 	for section in grouped:
+		if section.size() > 2 and section[2] is Dictionary:
+			codec = section[2]
 		rows.append_array(section[1])
-	return [[title, rows, "category"]]
+	return [[title, rows, "category", codec]]
 
 # Zip two row lists into one grid's worth of rows so the first list reads as
 # the left column and the second as the right: the grid fills row-major, so
@@ -472,6 +478,10 @@ func _build_controls_page() -> Control:
 		2, Color(0, 0, 0, 0))
 
 func _build_general_sections() -> Array:
+	var u := _ui_scale()
+	# Status hint for import/export feedback, as the last row of the list.
+	var hint := _make_hint_label(u)
+
 	var scale_btn := _make_widget_button("", 180.0)
 	var scale_values := [1.0, 2.0, 3.0, 4.0]
 	_row_value(scale_btn, str(int(round(UIScale.value))) + "x")
@@ -505,6 +515,16 @@ func _build_general_sections() -> Array:
 		Engine.max_fps = _default_fps_cap
 		_schedule_save()
 
+	var codec := {
+		"export": _export_general_code,
+		"import": _import_general_code,
+		"refresh": func():
+			_row_value(scale_btn, str(int(round(UIScale.value))) + "x")
+			rd.get_meta("slider").value = float(chunk_manager.get_render_distance())
+			fps_cap.get_meta("slider").value = float(_fps_cap),
+		"hint": hint,
+	}
+
 	return [
 		["Interface", [
 			["GUI Scale", scale_btn, reset],
@@ -513,6 +533,8 @@ func _build_general_sections() -> Array:
 			["Render Distance", rd, rd_reset],
 			["FPS Cap", fps_cap, fps_cap_reset],
 		]],
+		["", [], codec],
+		["", [["", hint, null, "span"]]],
 	]
 
 func _build_crosshair_sections() -> Array:
@@ -567,45 +589,17 @@ func _build_crosshair_sections() -> Array:
 		["Dynamic Contrast", "dot_contrast"],
 	])
 
-	var reset := _make_widget_button("Reset", UNIT_OPTION_W)
-	reset.pressed.connect(func():
-		for k in _crosshair_defaults:
-			if crosshair_node:
-				crosshair_node.set(k, _crosshair_defaults[k])
-		_cross_refresh_controls(controls)
-		_schedule_save())
-
-	var export_btn := _make_widget_button("Export", UNIT_OPTION_W)
-	export_btn.pressed.connect(func():
-		var code := _export_crosshair_code()
-		if code != "":
-			DisplayServer.clipboard_set(code)
-			crosshair_hint.text = "Code copied to clipboard!"
-		else:
-			crosshair_hint.text = "Export failed"
-		_expire_hint(crosshair_hint))
-
-	var import_btn := _make_widget_button("Import", UNIT_OPTION_W)
-	import_btn.pressed.connect(func():
-		var code := DisplayServer.clipboard_get()
-		if code != "":
-			if _import_crosshair_code(code):
-				_cross_refresh_controls(controls)
-				crosshair_hint.text = "Code imported successfully!"
-			else:
-				crosshair_hint.text = "Invalid code format"
-		else:
-			crosshair_hint.text = "Clipboard is empty"
-		_expire_hint(crosshair_hint))
+	var codec := {
+		"export": _export_crosshair_code,
+		"import": _import_crosshair_code,
+		"refresh": func(): _cross_refresh_controls(controls),
+		"hint": crosshair_hint,
+	}
 
 	return [
 		["", [["", preview, null, "span"]]],
 		["", _interleave(cross_rows, dot_rows)],
-		["Preset", [
-			["", export_btn, null],
-			["", import_btn, null],
-			["", reset, null],
-		]],
+		["", [], codec],
 		["", [["", crosshair_hint, null, "span"]]],
 	]
 
@@ -668,45 +662,17 @@ func _build_block_outline_sections() -> Array:
 		["Pulse Max", "fill_pulse_max_opacity"],
 	])
 
-	var reset := _make_widget_button("Reset", UNIT_OPTION_W)
-	reset.pressed.connect(func():
-		for k in _block_outline_defaults:
-			if block_outline_node:
-				block_outline_node.set(k, _block_outline_defaults[k])
-		_block_outline_refresh_controls(controls)
-		_schedule_save())
-
-	var export_btn := _make_widget_button("Export", UNIT_OPTION_W)
-	export_btn.pressed.connect(func():
-		var code := _export_block_outline_code()
-		if code != "":
-			DisplayServer.clipboard_set(code)
-			outline_hint.text = "Code copied to clipboard!"
-		else:
-			outline_hint.text = "Export failed"
-		_expire_hint(outline_hint))
-
-	var import_btn := _make_widget_button("Import", UNIT_OPTION_W)
-	import_btn.pressed.connect(func():
-		var code := DisplayServer.clipboard_get()
-		if code != "":
-			if _import_block_outline_code(code):
-				_block_outline_refresh_controls(controls)
-				outline_hint.text = "Code imported successfully!"
-			else:
-				outline_hint.text = "Invalid code format"
-		else:
-			outline_hint.text = "Clipboard is empty"
-		_expire_hint(outline_hint))
+	var codec := {
+		"export": _export_block_outline_code,
+		"import": _import_block_outline_code,
+		"refresh": func(): _block_outline_refresh_controls(controls),
+		"hint": outline_hint,
+	}
 
 	return [
 		["Outline", outline_rows],
 		["Fill", fill_rows],
-		["Preset", [
-			["", export_btn, null],
-			["", import_btn, null],
-			["", reset, null],
-		]],
+		["", [], codec],
 		["", [["", outline_hint, null, "span"]]],
 	]
 
@@ -931,6 +897,10 @@ func _block_outline_refresh_controls(controls: Dictionary):
 			c.color = v
 
 func _build_lighting_sections() -> Array:
+	var u := _ui_scale()
+	# Status hint for import/export feedback, as the last row of the list.
+	var hint := _make_hint_label(u)
+
 	var dur := _make_slider(chunk_manager.get_day_duration(), 10.0, 600.0, 10.0,
 		func(v: float):
 			chunk_manager.set_day_duration(v)
@@ -1028,6 +998,22 @@ func _build_lighting_sections() -> Array:
 		_row_value(smooth_lighting, "On" if _default_smooth_lighting else "Off")
 		_schedule_save()
 
+	var codec := {
+		"export": _export_lighting_code,
+		"import": _import_lighting_code,
+		"refresh": func():
+			dur.get_meta("slider").value = chunk_manager.get_day_duration()
+			day_color.color = chunk_manager.get_day_sky_color()
+			night_color.color = chunk_manager.get_night_sky_color()
+			ao_color.color = chunk_manager.get_ao_color()
+			ao_strength.get_meta("slider").value = chunk_manager.get_ao_strength()
+			dark_color.color = chunk_manager.get_darkness_color()
+			contrast.get_meta("slider").value = chunk_manager.get_contrast()
+			saturation.get_meta("slider").value = chunk_manager.get_saturation()
+			_row_value(smooth_lighting, "On" if chunk_manager.get_smooth_lighting() else "Off"),
+		"hint": hint,
+	}
+
 	return [
 		["Sky", [
 			["Day Duration", dur, dur_reset],
@@ -1044,9 +1030,15 @@ func _build_lighting_sections() -> Array:
 			["Contrast", contrast, contrast_reset],
 			["Saturation", saturation, saturation_reset],
 		]],
+		["", [], codec],
+		["", [["", hint, null, "span"]]],
 	]
 
 func _build_render_sections() -> Array:
+	var u := _ui_scale()
+	# Status hint for import/export feedback, as the last row of the list.
+	var hint := _make_hint_label(u)
+
 	var lod_dist := _make_slider(chunk_manager.get_lod_distance(), 0.0, 64.0, 1.0,
 		func(v: float):
 			chunk_manager.set_lod_distance(int(v))
@@ -1182,6 +1174,25 @@ func _build_render_sections() -> Array:
 		_row_value(compression_btn, "On" if _default_compression_enabled else "Off")
 		_schedule_save()
 
+	var codec := {
+		"export": _export_render_code,
+		"import": _import_render_code,
+		"refresh": func():
+			lod_dist.get_meta("slider").value = float(chunk_manager.get_lod_distance())
+			lod_detail.get_meta("slider").value = chunk_manager.get_lod_detail_level()
+			far_lod_dist.get_meta("slider").value = float(chunk_manager.get_far_lod_distance())
+			far_lod_detail.get_meta("slider").value = chunk_manager.get_far_lod_detail_level()
+			_row_value(fog_mode_btn, fog_mode_names[chunk_manager.get_fog_mode()])
+			_row_value(godrays_btn, "On" if (godrays_node.visible if godrays_node else _default_godrays) else "Off")
+			_row_value(msaa_btn, msaa_names[get_viewport().msaa_3d])
+			_row_value(mipmaps_btn, "On" if chunk_manager.get_mipmaps_enabled() else "Off")
+			mipmap_bias.get_meta("slider").editable = chunk_manager.get_mipmaps_enabled()
+			mipmap_bias.get_meta("slider").value = chunk_manager.get_mipmap_bias()
+			_row_value(textures_btn, "On" if chunk_manager.get_textures_enabled() else "Off")
+			_row_value(compression_btn, "On" if chunk_manager.get_compression_enabled() else "Off"),
+		"hint": hint,
+	}
+
 	return [
 		["Terrain", [
 			["LOD Distance", lod_dist, lod_reset],
@@ -1201,6 +1212,8 @@ func _build_render_sections() -> Array:
 			["Textures", textures_btn, textures_reset],
 			["Compression", compression_btn, compression_reset],
 		]],
+		["", [], codec],
+		["", [["", hint, null, "span"]]],
 	]
 
 # CONTROLS page: one row per rebindable action. Clicking a binding button arms
@@ -2861,16 +2874,19 @@ func _build_scrolling_page(title_text: String, sections: Array, actions: Array,
 		# the merged settings page uses one per settings area, so the areas break
 		# the list apart instead of reading as one more group heading.
 		var category: bool = section.size() > 2 and String(section[2]) == "category"
+		# An area carries its export/import codec as the section's fourth element:
+		# the two callables that produce and consume its code, plus the hint line
+		# they report into. See _category().
+		var codec: Dictionary = section[3] if section.size() > 3 else {}
 		if String(section[0]) != "":
 			if category and body.get_child_count() > 0:
 				var spacer := Control.new()
 				spacer.custom_minimum_size = Vector2(0.0, UNIT_GAP * u)
 				spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 				body.add_child(spacer)
-			# The heading is a row so each area's export/import/reset-all can sit
-			# beside its title. Export and import are intentionally unwired for
-			# now (the layout is what is being looked at); reset all replays each
-			# row's own reset callable, so it already works.
+			# The heading is a row so each area's export/import/reset can sit beside
+			# its title. Export and import run the area's own codec (below); reset
+			# replays each row's own reset callable, so it already works.
 			var heading_row := HBoxContainer.new()
 			heading_row.custom_minimum_size = Vector2(grid_w * u, UNIT_HEADING_H * u)
 			heading_row.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
@@ -2892,9 +2908,11 @@ func _build_scrolling_page(title_text: String, sections: Array, actions: Array,
 			if category:
 				var export_btn := _make_icon_button(EXPORT_TEX, UNIT_HEADING_ICON_W)
 				export_btn.tooltip_text = "Export this section"
+				export_btn.pressed.connect(func(): _export_section_code(codec))
 				heading_row.add_child(export_btn)
 				var import_btn := _make_icon_button(IMPORT_TEX, UNIT_HEADING_ICON_W)
 				import_btn.tooltip_text = "Import this section"
+				import_btn.pressed.connect(func(): _import_section_code(codec))
 				heading_row.add_child(import_btn)
 				var reset_all_btn := _make_icon_button(UNDO_TEX, UNIT_HEADING_ICON_W)
 				reset_all_btn.tooltip_text = "Reset this section"
@@ -3100,7 +3118,7 @@ func _make_undo_button() -> Button:
 
 # A square icon button: the texture stretched onto a `width` (== height) square,
 # so the icon stays 1:1 at every GUI scale. The heading icons pass a smaller
-# width (75%) and shrink vertically so the HBox does not stretch them back.
+# width (half) and shrink vertically so the HBox does not stretch them back.
 func _make_icon_button(tex: Texture2D, width := UNIT_UNDO_W) -> Button:
 	var btn := Button.new()
 	btn.text = ""
@@ -3325,6 +3343,157 @@ func _import_block_outline_code(code: String) -> bool:
 	block_outline_node.outline_color = _unpack_color32(data, idx); idx += 4
 	block_outline_node.fill_color = _unpack_color32(data, idx); idx += 4
 	
+	_schedule_save()
+	return true
+
+# -----------------------------------------------------------------------------
+# Section codes
+#
+# Every area on the settings page exports and imports the same way: one compact
+# string of a version byte, that area's settings packed as tightly as their
+# ranges allow, base32-encoded and dashed in fives. The prefix names the area the
+# code belongs to, so a code can only be dropped on the section that made it.
+# The two node-backed areas (crosshair, block outline) keep their packers above;
+# these cover the areas whose values live on the manager and on this script.
+# -----------------------------------------------------------------------------
+
+# The icons beside a category's title. Export writes that area's code to the
+# clipboard; import reads one back, applies it and lets the area resync its own
+# widgets, so an imported code shows up in the rows immediately.
+func _export_section_code(codec: Dictionary) -> void:
+	var code := ""
+	if codec.has("export"):
+		code = String(codec["export"].call())
+	if code == "":
+		_section_message(codec, "Export failed")
+		return
+	DisplayServer.clipboard_set(code)
+	_section_message(codec, "Code copied to clipboard!")
+
+func _import_section_code(codec: Dictionary) -> void:
+	var clipboard := DisplayServer.clipboard_get().strip_edges()
+	if clipboard == "":
+		_section_message(codec, "Clipboard is empty")
+		return
+	if not codec.has("import") or not bool(codec["import"].call(clipboard)):
+		_section_message(codec, "Invalid code format")
+		return
+	if codec.has("refresh"):
+		codec["refresh"].call()
+	_section_message(codec, "Code imported successfully!")
+
+func _section_message(codec: Dictionary, text: String) -> void:
+	var hint: Label = codec.get("hint")
+	if hint == null or not is_instance_valid(hint):
+		return
+	hint.text = text
+	_expire_hint(hint)
+
+# A section code is a version byte, that area's bytes, then base32. This checks
+# the prefix names the area it is being dropped on and that the payload arrived
+# whole, and hands the bytes back for the area to read.
+func _decode_section_code(code: String, prefix: String, payload_size: int) -> PackedByteArray:
+	var parts := code.strip_edges().split("-")
+	if parts.size() < 2 or String(parts[0]).to_upper() != prefix:
+		return PackedByteArray()
+	var data := _base32_decode("".join(parts.slice(1)))
+	if data.size() < payload_size + 1 or data[0] != 1:
+		return PackedByteArray()
+	return data
+
+# General: GUI scale, render distance, FPS cap.
+func _export_general_code() -> String:
+	var data := PackedByteArray()
+	data.append(1)
+	data.append(clampi(int(round(UIScale.value)), 1, 4))
+	data.append(clampi(chunk_manager.get_render_distance(), 2, 64))
+	data.append_array(_pack_float16(float(_fps_cap), 0.0, 300.0, 1.0))
+	return _format_cs_code("FG", _base32_encode(data))
+
+func _import_general_code(code: String) -> bool:
+	var data := _decode_section_code(code, "FG", 4)
+	if data.is_empty():
+		return false
+	UIScale.value = float(clampi(data[1], 1, 4))
+	chunk_manager.set_render_distance(clampi(data[2], 2, 64))
+	_fps_cap = clampi(int(round(_unpack_float16(data, 3, 0.0, 300.0, 1.0))), 0, 300)
+	Engine.max_fps = _fps_cap
+	_schedule_save()
+	return true
+
+# Advanced rendering: the sky, light and image settings.
+func _export_lighting_code() -> String:
+	var data := PackedByteArray()
+	data.append(1)
+	# One flags byte for the switches, so the next one costs no format change.
+	var flags := 0
+	flags |= (1 if chunk_manager.get_smooth_lighting() else 0) << 0
+	data.append(flags)
+	data.append_array(_pack_float16(chunk_manager.get_day_duration(), 10.0, 600.0, 10.0))
+	data.append_array(_pack_color32(chunk_manager.get_day_sky_color()))
+	data.append_array(_pack_color32(chunk_manager.get_night_sky_color()))
+	data.append_array(_pack_color32(chunk_manager.get_ao_color()))
+	data.append_array(_pack_float16(chunk_manager.get_ao_strength(), 0.0, 2.0, 100.0))
+	data.append_array(_pack_color32(chunk_manager.get_darkness_color()))
+	data.append_array(_pack_float16(chunk_manager.get_contrast(), 0.0, 2.0, 100.0))
+	data.append_array(_pack_float16(chunk_manager.get_saturation(), 0.0, 2.0, 100.0))
+	return _format_cs_code("FAR", _base32_encode(data))
+
+func _import_lighting_code(code: String) -> bool:
+	var data := _decode_section_code(code, "FAR", 25)
+	if data.is_empty():
+		return false
+	var flags := data[1]
+	var idx := 2
+	chunk_manager.set_day_duration(_unpack_float16(data, idx, 10.0, 600.0, 10.0)); idx += 2
+	chunk_manager.set_day_sky_color(_unpack_color32(data, idx)); idx += 4
+	chunk_manager.set_night_sky_color(_unpack_color32(data, idx)); idx += 4
+	chunk_manager.set_ao_color(_unpack_color32(data, idx)); idx += 4
+	chunk_manager.set_ao_strength(_unpack_float16(data, idx, 0.0, 2.0, 100.0)); idx += 2
+	chunk_manager.set_darkness_color(_unpack_color32(data, idx)); idx += 4
+	chunk_manager.set_contrast(_unpack_float16(data, idx, 0.0, 2.0, 100.0)); idx += 2
+	chunk_manager.set_saturation(_unpack_float16(data, idx, 0.0, 2.0, 100.0)); idx += 2
+	chunk_manager.set_smooth_lighting((flags & (1 << 0)) != 0)
+	_schedule_save()
+	return true
+
+# Render: the LOD tiers, atmosphere and quality switches.
+func _export_render_code() -> String:
+	var data := PackedByteArray()
+	data.append(1)
+	var flags := 0
+	flags |= (1 if (godrays_node.visible if godrays_node else _default_godrays) else 0) << 0
+	flags |= (1 if chunk_manager.get_mipmaps_enabled() else 0) << 1
+	flags |= (1 if chunk_manager.get_textures_enabled() else 0) << 2
+	flags |= (1 if chunk_manager.get_compression_enabled() else 0) << 3
+	data.append(flags)
+	data.append(clampi(chunk_manager.get_fog_mode(), 0, 3))
+	data.append(clampi(int(get_viewport().msaa_3d), 0, 3))
+	data.append(clampi(chunk_manager.get_lod_distance(), 0, 64))
+	data.append(clampi(chunk_manager.get_far_lod_distance(), 0, 64))
+	data.append_array(_pack_float16(chunk_manager.get_lod_detail_level(), 0.125, 1.0, 1000.0))
+	data.append_array(_pack_float16(chunk_manager.get_far_lod_detail_level(), 0.125, 1.0, 1000.0))
+	# Mipmap bias is the one signed value: shift it into range before packing.
+	data.append_array(_pack_float16(chunk_manager.get_mipmap_bias() + 4.0, 0.0, 8.0, 100.0))
+	return _format_cs_code("FR", _base32_encode(data))
+
+func _import_render_code(code: String) -> bool:
+	var data := _decode_section_code(code, "FR", 11)
+	if data.is_empty():
+		return false
+	var flags := data[1]
+	chunk_manager.set_lod_distance(clampi(data[4], 0, 64))
+	chunk_manager.set_far_lod_distance(clampi(data[5], 0, 64))
+	chunk_manager.set_lod_detail_level(_unpack_float16(data, 6, 0.125, 1.0, 1000.0))
+	chunk_manager.set_far_lod_detail_level(_unpack_float16(data, 8, 0.125, 1.0, 1000.0))
+	chunk_manager.set_mipmap_bias(_unpack_float16(data, 10, 0.0, 8.0, 100.0) - 4.0)
+	chunk_manager.set_fog_mode(clampi(data[2], 0, 3))
+	if godrays_node:
+		godrays_node.visible = (flags & (1 << 0)) != 0
+	chunk_manager.set_mipmaps_enabled((flags & (1 << 1)) != 0)
+	chunk_manager.set_textures_enabled((flags & (1 << 2)) != 0)
+	chunk_manager.set_compression_enabled((flags & (1 << 3)) != 0)
+	get_viewport().msaa_3d = clampi(data[3], 0, 3) as Viewport.MSAA
 	_schedule_save()
 	return true
 

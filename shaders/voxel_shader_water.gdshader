@@ -97,12 +97,34 @@ void vertex(){
 
 void fragment(){
     float layer=custom1_attr.r * 255.0;
-    vec2 water_uv = custom2_attr.xy + vec2(TIME * 0.02, TIME * 0.01);
+    // Texture flow: the AO byte on liquid vertices carries a packed flow
+    // direction instead of occlusion (liquids are never occluded). High nibble
+    // = direction, low nibble = strength. 1..8 = compass across the top face
+    // (1 = north/-Z, clockwise), 9 = straight down a side face, 0 = still
+    // water (a level surface — a source or a pool's interior) does not move.
+    float flow_packed = floor(custom1_attr.g * 255.0 + 0.5);
+    float flow_dir = floor(flow_packed / 16.0);
+    float flow_strength = fract(flow_packed / 16.0) * 16.0 / 15.0;
+    vec2 flow_vec = vec2(0.0);
+    if (flow_dir > 0.5 && flow_dir < 8.5) {
+        // Compass bucket to unit vector: bucket 1 = north = (0,-1) in offset
+        // space. The offset shifts the SAMPLING point, so the visible texture
+        // drifts opposite to it — top-face UVs run u = +X and v = -Z, so an
+        // eastward drift needs offset u negative while a northward drift
+        // needs offset v negative; hence the asymmetric signs.
+        float a = (flow_dir - 1.0) * 1.5707963 / 2.0;
+        flow_vec = vec2(-sin(a), -cos(a));
+    } else if (flow_dir > 8.5) {
+        flow_vec = vec2(0.0, -1.0);  // down a side face (UV v runs down the wall)
+    }
+    vec2 water_uv = custom2_attr.xy + flow_vec * TIME * 0.12 * flow_strength;
     vec3 tex_coord = vec3(water_uv, layer);
     vec4 color = texture(texture_array, tex_coord, mipmap_bias);
 
-    float ao=custom1_attr.g;
-    float ao_amount = clamp((1.0 - ao) * ao_strength, 0.0, 1.0);
+    // Liquid vertices carry their texture-flow direction in the AO byte (see
+    // above), not occlusion — a sloped surface cannot carry corner AO anyway,
+    // so liquids are always drawn unoccluded.
+    float ao_amount = 0.0;
     vec3 ao_tint = mix(ao_color, vec3(1.0), 1.0 - ao_amount);
 
     vec3 block_light=custom0_attr.rgb;

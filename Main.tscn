@@ -8,6 +8,7 @@
 [ext_resource type="Script" uid="uid://dpp1manu5wtsx" path="res://chat.gd" id="7_chat"]
 [ext_resource type="Script" uid="uid://g3lh0j0xb0jf" path="res://settings_menu.gd" id="8_settings"]
 [ext_resource type="Script" uid="uid://cg56m76b43332" path="res://crosshair.gd" id="9_crosshair"]
+[ext_resource type="Script" path="res://compass_hud.gd" id="10_compass"]
 [ext_resource type="Script" uid="uid://byak67cusfoxc" path="res://healthbar.gd" id="11_healthbar"]
 [ext_resource type="Script" uid="uid://b3eee8l30k8qd" path="res://death_screen.gd" id="12_deathscreen"]
 [ext_resource type="Script" uid="uid://csimhtsb21lnr" path="res://crafting_table_menu.gd" id="13_tablemenu"]
@@ -135,6 +136,15 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("9_crosshair")
+
+[node name="Compass" type="Control" parent="HUD"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("10_compass")
 
 [node name="DeathScreen" type="Control" parent="HUD" unique_id=1526793449]
 layout_mode = 3

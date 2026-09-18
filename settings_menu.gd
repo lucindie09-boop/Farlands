@@ -3,6 +3,7 @@ extends Control
 const MUNRO_FONT: Font = preload("res://fonts/munro.ttf")
 const BUTTON_TEX: Texture2D = preload("res://textures/gui/button.png")
 const BUTTON_SQUARE_TEX: Texture2D = preload("res://textures/gui/button_square.png")
+const UNDO_TEX: Texture2D = preload("res://textures/gui/undo_button.png")
 const SLIDER_TRACK_TEX: Texture2D = preload("res://textures/gui/slider_button.png")
 const SLIDER_THUMB_TEX: Texture2D = preload("res://textures/gui/slider.png")
 const SETTINGS_PATH := "user://settings.cfg"
@@ -20,8 +21,8 @@ const UNIT_FONT := 8.0            # the interface font's height: EVERY label
 const UNIT_BUTTON_W := 200.0      # a full-width button: menu rows and footer actions
 const UNIT_BUTTON_H := 20.0       # every widget's height, sliders included
 const UNIT_OPTION_W := 150.0      # one option in the two-column list
-const UNIT_UNDO_W := 60.0         # a per-row reset button (new style)
-const UNIT_RESET_W := 60.0        # a per-row reset button (old style)
+const UNIT_UNDO_W := 20.0         # a per-row reset: a square icon (== UNIT_BUTTON_H)
+const UNIT_RESET_W := 60.0        # ...or the older text "Reset" button
 const UNIT_ROW_GAP := 2.0         # between an option and its reset
 const UNIT_HEADING_H := 20.0      # one section heading's row
 const UNIT_GAP := 4.0             # between two rows
@@ -2829,8 +2830,12 @@ func _build_scrolling_page(title_text: String, sections: Array, actions: Array,
 	var box := Panel.new()
 	var box_style := StyleBoxFlat.new()
 	box_style.bg_color = content_bg
-	box_style.border_color = BOX_BORDER_COLOR
-	box_style.set_border_width_all(maxi(1, int(round(u))))
+	# A box with a visible background gets its outline; a transparent one (the
+	# settings/controls/tools pages, which sit over the world) must not draw the
+	# grey pixel frame.
+	if content_bg.a > 0.0:
+		box_style.border_color = BOX_BORDER_COLOR
+		box_style.set_border_width_all(maxi(1, int(round(u))))
 	box.add_theme_stylebox_override("panel", box_style)
 	box.anchor_left = 0.5
 	box.anchor_right = 0.5
@@ -2932,7 +2937,11 @@ func _make_row_cell(row: Array, cell_w: float, reset_w: float, row_gap: float, o
 
 	var reset: Variant = row[2] if row.size() > 2 else null
 	if reset != null:
-		var rb := _make_widget_button("Reset", UNIT_RESET_W)
+		var rb: Button
+		if _old_reset_buttons:
+			rb = _make_widget_button("Reset", UNIT_RESET_W)
+		else:
+			rb = _make_undo_button()
 		rb.custom_minimum_size = Vector2(reset_w * u, UNIT_BUTTON_H * u)
 		rb.pressed.connect(reset)
 		cell.add_child(rb)
@@ -3070,6 +3079,31 @@ func _style_button(btn: Button, width: float):
 	# out of line. Set for every styled button, not just the ones made here.
 	btn.clip_text = true
 	btn.custom_minimum_size = Vector2(width, UNIT_BUTTON_H) * s
+
+# A row's reset as the square undo icon. It is its own stylebox rather than the
+# stretched BUTTON_TEX because the icon is 1:1: UNIT_UNDO_W is UNIT_BUTTON_H, so
+# the button — and the texture stretched onto it — stays square at every scale.
+func _make_undo_button() -> Button:
+	var btn := Button.new()
+	btn.text = ""
+	_style_undo_button(btn)
+	return btn
+
+func _style_undo_button(btn: Button):
+	var s := _ui_scale()
+	var normal := StyleBoxTexture.new()
+	normal.texture = UNDO_TEX
+	var hover := StyleBoxTexture.new()
+	hover.texture = UNDO_TEX
+	hover.modulate_color = Color(1.2, 1.2, 1.2)
+	var pressed := StyleBoxTexture.new()
+	pressed.texture = UNDO_TEX
+	pressed.modulate_color = Color(0.75, 0.75, 0.75)
+	btn.add_theme_stylebox_override("normal", normal)
+	btn.add_theme_stylebox_override("hover", hover)
+	btn.add_theme_stylebox_override("pressed", pressed)
+	btn.add_theme_stylebox_override("focus", normal)
+	btn.custom_minimum_size = Vector2(UNIT_UNDO_W, UNIT_UNDO_W) * s
 
 # -----------------------------------------------------------------------------
 # "Label: value" inside the widget

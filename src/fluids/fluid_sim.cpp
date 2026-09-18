@@ -83,13 +83,18 @@ void FluidSim::schedule(int32_t x, int32_t y, int32_t z, uint64_t due_tick) {
         // tick: waking the same cell ten times in a tick is still one tick, and
         // that is what keeps a busy flood from thrashing.
         //
-        // Unless that earlier tick has ALREADY BEEN REACHED, in which case it is
-        // spent. This is the difference between a flood that spreads and one
-        // that stops after a single ring: cells are woken at current_tick_ +
-        // delay, and a cell already queued for the tick in progress (or already
-        // ticked by it) answered "no fluid here" against the world before the
-        // write landed. Keeping that spent tick silently drops the wake-up, so a
-        // reached tick is replaced by the new one instead.
+        // A wake for a tick that has not been reached yet only has to be one
+        // wake: keep the earlier tick.
+        //
+        // A wake for a tick that HAS been reached is different, and the two cases
+        // it covers are told apart by whether the cell still has a token in the
+        // queue (see run_tick): a cell already ticked by the tick in progress has
+        // had its entry erased and answered "no fluid here" against the world as
+        // it was before this write landed, so the new, later wake takes the map's
+        // place; a cell still waiting its turn in this tick keeps its token (it
+        // is ticked below) and the map moves on to the later wake, so it is asked
+        // again once the write has actually landed. Dropping that later wake
+        // would stall a cell that only becomes fluid when the write lands.
         if (it->second > current_tick_ && it->second <= due_tick) return;
         it->second = due_tick;
     } else {
@@ -190,8 +195,18 @@ void FluidSim::run_tick() {
         const int64_t key = pack(entry.x, entry.y, entry.z);
         const auto it = scheduled_.find(key);
         if (it == scheduled_.end()) continue;        // handled already
-        if (it->second != entry.due) continue;       // superseded by an earlier wake-up
-        scheduled_.erase(it);
+        // A token whose tick has been reached is a real wake-up and is always
+        // honoured, even when the map now points at a LATER tick: that happens
+        // when this cell was written into while it waited its turn, and both
+        // ticks are owed — this one for the work it already had, the later one
+        // for the write. Only the entry this token owns is cleared, so honouring
+        // it cannot swallow the later wake.
+        //
+        // A map entry due EARLIER than this token means an earlier token is still
+        // queued for the same cell; that one is popped first (the queue is
+        // ordered by due), so this token is a leftover and is dropped.
+        if (it->second < entry.due) continue;
+        if (it->second == entry.due) scheduled_.erase(it);
 
         ++stats_.last_tick_cells;
         ++stats_.cells_ticked;

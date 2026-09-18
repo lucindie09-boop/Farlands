@@ -81,6 +81,7 @@ struct CellInfo {
     FluidKind family = FluidKind::None;  // None => not a liquid
     int level = 0;                       // steps from full strength; 0 = a source
     bool holds_body = false;             // does the cell fill space (BlockType::blocks_fluid)
+    bool falling = false;                // a falling column: full height whatever the depth says
 };
 
 [[nodiscard]] inline CellInfo classify(BlockID id, const BlockType& type) noexcept {
@@ -88,8 +89,11 @@ struct CellInfo {
     info.family = family_of(id, type);
     info.level = type.is_fluid_state() ? static_cast<int>(type.fluid_depth) : 0;
     info.holds_body = type.blocks_fluid();
+    info.falling = type.is_fluid_state() && type.fluid_falling;
     return info;
 }
+
+
 
 // The surface height at the corner whose MAX cell is (x, y, z): the corner is
 // shared by (x,y,z), (x-1,y,z), (x,y,z-1) and (x-1,y,z-1), all in one plane.
@@ -168,14 +172,42 @@ template <typename Lookup>
 //     liquid surface. Stone does; mud, whose top is one pixel down, would leave a
 //     sliver of a full-strength surface behind it, so it does not — the same
 //     height comparison the solid path makes;
-//   * everything else (air, a slab, another liquid) leaves the face visible.
+//   * a DIFFERENT substance side by side is decided per corner, not by one
+//     nominal height — see different_liquid_side_visible below (the caller
+//     handles it, because it needs the shared edge's corner heights);
+//   * everything else (air, a slab) leaves the face visible.
+//
+// `neighbor_is_above` (the neighbour in the cell above this one) changes the
+// geometry: any block above sits on this cell's TOP PLANE, at height 1.0 — its
+// floor, not its surface. A liquid surface below that plane is not covered by
+// the block (the open band between surface and cell top is exactly why the face
+// must draw), so the top face is visible unless the surface itself reaches 1.0 —
+// a full-height column — where it would z-fight the block's floor. This is the
+// fix for a block placed on runoff culling the surface beneath it.
 [[nodiscard]] inline bool face_visible(FluidKind family, const CellInfo& neighbor,
                                        const BlockType& neighbor_type,
-                                       float surface_height) noexcept {
+                                       float surface_height,
+                                       bool neighbor_is_above = false) noexcept {
     if (neighbor.family == family) return false;
+    if (neighbor_is_above) return surface_height < 1.0f;
     if (!neighbor_type.is_full_cube()) return true;
     if (HasProperty(neighbor_type.properties, BlockProperty::Transparent)) return true;
     return (1.0f - neighbor_type.top_face_offset) < surface_height;
+}
+
+// A side face against a DIFFERENT substance, decided on the shared edge's
+// actual corner heights. Two liquid-liquid side faces sit on the same plane
+// with opposite winding, so back-face culling means they are never visible
+// from the same side — there is no double-blend. A face is redundant only
+// when the neighbour's face covers it WHOLLY: its profile (floor to two
+// corner heights, linear between) at-or-below the neighbour's at both shared
+// corners. Opposing flows interleave — each is taller at one corner — so
+// both draw; a uniformly shorter face is culled.
+// `my_*` / `other_*` are the two shared-edge corner heights of each face,
+// in the same corner order.
+[[nodiscard]] inline bool different_liquid_side_visible(
+    float my_c0, float my_c1, float other_c0, float other_c1) noexcept {
+    return !(my_c0 <= other_c0 && my_c1 <= other_c1);
 }
 
 }  // namespace mesh_fluid

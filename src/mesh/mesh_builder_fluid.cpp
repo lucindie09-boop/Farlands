@@ -136,9 +136,11 @@ void MeshBuilder::passive_fluid_mesh(const ChunkData& chunk, const ChunkNeighbor
         const BlockID id = accessor.get_block(lx, ly, lz);
         return mesh_fluid::classify(id, registry.get_block_fast(id));
     };
-    const auto face_shows = [&](FluidKind family, BlockID neighbor_id, float surface) {
+    const auto face_shows = [&](FluidKind family, BlockID neighbor_id, float surface,
+                                bool above) {
         const BlockType& nt = registry.get_block_fast(neighbor_id);
-        return mesh_fluid::face_visible(family, mesh_fluid::classify(neighbor_id, nt), nt, surface);
+        return mesh_fluid::face_visible(family, mesh_fluid::classify(neighbor_id, nt), nt, surface,
+                                        above);
     };
 
     for (int32_t s = 0; s < CHUNK_SECTIONS; ++s) {
@@ -212,14 +214,30 @@ void MeshBuilder::passive_fluid_mesh(const ChunkData& chunk, const ChunkNeighbor
                     // mud, one pixel down — and both readings leave it showing.
                     const float nominal = 1.0f - bt.top_face_offset;
                     bool shows[6] = {false, false, false, false, false, false};
+                    // Side neighbours of a DIFFERENT substance, indexed by
+                    // kSideDirections order; their faces are decided per corner
+                    // once this cell's corner heights exist (below).
+                    FluidKind side_family[4] = {FluidKind::None, FluidKind::None,
+                                                FluidKind::None, FluidKind::None};
                     bool any_face = false;
                     for (int i = 0; i < 6; ++i) {
                         if (i == static_cast<int>(FaceDirection::Bottom)) continue;
-                        shows[i] = face_shows(self.family,
-                                              accessor.get_block(x + kDirectionOffsets[i][0],
-                                                                 y + kDirectionOffsets[i][1],
-                                                                 z + kDirectionOffsets[i][2]),
-                                              nominal);
+                        const BlockID n_id = accessor.get_block(x + kDirectionOffsets[i][0],
+                                                                y + kDirectionOffsets[i][1],
+                                                                z + kDirectionOffsets[i][2]);
+                        const BlockType& n_type = registry.get_block_fast(n_id);
+                        const mesh_fluid::CellInfo n_info = mesh_fluid::classify(n_id, n_type);
+                        if (i >= 2 && n_info.family != FluidKind::None &&
+                            n_info.family != self.family) {
+                            // Provisional: the per-corner test needs this cell's
+                            // corners, so mark it visible to keep `any_face` honest
+                            // and settle it after corners_of below.
+                            side_family[i - 2] = n_info.family;
+                            shows[i] = true;
+                        } else {
+                            shows[i] = face_shows(self.family, n_id, nominal,
+                                                  i == static_cast<int>(FaceDirection::Top));
+                        }
                         any_face = any_face || shows[i];
                     }
                     if (!any_face) {
@@ -229,6 +247,40 @@ void MeshBuilder::passive_fluid_mesh(const ChunkData& chunk, const ChunkNeighbor
 
                     const mesh_fluid::Corners corners =
                         mesh_fluid::corners_of(lookup, self.family, x, y, z);
+
+                    // The different-liquid side faces, decided on the shared edge's
+                    // actual corner heights: my face is redundant only when its
+                    // profile sits at-or-below the neighbour's at BOTH corners.
+                    // Opposing flows interleave — each face is the taller one at one
+                    // end of the edge — so both draw. Each side's corners are
+                    // measured under its own family's corner rule, exactly as that
+                    // face is rendered, so the comparison matches what the eye sees.
+                    for (int s = 0; s < 4; ++s) {
+                        if (side_family[s] == FluidKind::None) continue;
+                        const int i = s + 2;
+                        // The face's top-edge endpoints in world space, in the
+                        // max-cell convention corner_height uses.
+                        int32_t ax, az, bx, bz;
+                        switch (i) {
+                            case 2:  ax = x + 1; az = z;     bx = x + 1; bz = z + 1; break;  // Right (+X)
+                            case 3:  ax = x;     az = z;     bx = x;     bz = z + 1; break;  // Left  (-X)
+                            case 4:  ax = x;     az = z + 1; bx = x + 1; bz = z + 1; break;  // Front (+Z)
+                            default: ax = x;     az = z;     bx = x + 1; bz = z;     break;  // Back  (-Z)
+                        }
+                        const float my0 = corners.h[az - z][ax - x];
+                        const float my1 = corners.h[bz - z][bx - x];
+                        const float other0 =
+                            mesh_fluid::corner_height(lookup, side_family[s], ax, y, az);
+                        const float other1 =
+                            mesh_fluid::corner_height(lookup, side_family[s], bx, y, bz);
+                        shows[i] = mesh_fluid::different_liquid_side_visible(
+                            my0, my1, other0, other1);
+                        any_face = any_face || shows[i];
+                    }
+                    if (!any_face) {
+                        flush_top(z);
+                        continue;
+                    }
 
                     // Sides: one cell wide, from the floor up to the two corners on
                     // their own top edge, so they never merge.

@@ -4,6 +4,8 @@ const MUNRO_FONT: Font = preload("res://fonts/munro.ttf")
 const BUTTON_TEX: Texture2D = preload("res://textures/gui/button.png")
 const BUTTON_SQUARE_TEX: Texture2D = preload("res://textures/gui/button_square.png")
 const UNDO_TEX: Texture2D = preload("res://textures/gui/undo_button.png")
+const EXPORT_TEX: Texture2D = preload("res://textures/gui/export_button.png")
+const IMPORT_TEX: Texture2D = preload("res://textures/gui/import_button.png")
 const SLIDER_TRACK_TEX: Texture2D = preload("res://textures/gui/slider_button.png")
 const SLIDER_THUMB_TEX: Texture2D = preload("res://textures/gui/slider.png")
 const SETTINGS_PATH := "user://settings.cfg"
@@ -2880,6 +2882,16 @@ func _build_scrolling_page(title_text: String, sections: Array, actions: Array,
 				spacer.custom_minimum_size = Vector2(0.0, UNIT_GAP * u)
 				spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 				body.add_child(spacer)
+			# The heading is a row so each area's export/import/reset-all can sit
+			# beside its title. Export and import are intentionally unwired for
+			# now (the layout is what is being looked at); reset all replays each
+			# row's own reset callable, so it already works.
+			var heading_row := HBoxContainer.new()
+			heading_row.custom_minimum_size = Vector2(grid_w * u, UNIT_HEADING_H * u)
+			heading_row.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+			heading_row.add_theme_constant_override("separation", int(UNIT_ROW_GAP * u))
+			heading_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
 			var heading := Label.new()
 			heading.text = String(section[0])
 			heading.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
@@ -2887,11 +2899,30 @@ func _build_scrolling_page(title_text: String, sections: Array, actions: Array,
 			heading.add_theme_font_override("font", MUNRO_FONT)
 			heading.add_theme_font_size_override("font_size", int(UNIT_FONT * u))
 			heading.add_theme_color_override("font_color", CATEGORY_COLOR if category else HEADING_COLOR)
-			heading.custom_minimum_size = Vector2(grid_w * u, UNIT_HEADING_H * u)
-			heading.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+			heading.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			heading.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			heading.set_meta("is_heading", true)
-			body.add_child(heading)
+			heading_row.add_child(heading)
+
+			if category:
+				var export_btn := _make_icon_button(EXPORT_TEX)
+				export_btn.tooltip_text = "Export this section"
+				heading_row.add_child(export_btn)
+				var import_btn := _make_icon_button(IMPORT_TEX)
+				import_btn.tooltip_text = "Import this section"
+				heading_row.add_child(import_btn)
+				var reset_all_btn := _make_icon_button(UNDO_TEX)
+				reset_all_btn.tooltip_text = "Reset this section"
+				var section_resets: Array = []
+				for row in section[1]:
+					if row.size() > 2 and row[2] != null:
+						section_resets.append(row[2])
+				if not section_resets.is_empty():
+					reset_all_btn.pressed.connect(func():
+						for r in section_resets:
+							r.call())
+				heading_row.add_child(reset_all_btn)
+			body.add_child(heading_row)
 
 		var rows: Array = section[1]
 		var grid := GridContainer.new()
@@ -3084,20 +3115,27 @@ func _style_button(btn: Button, width: float):
 # stretched BUTTON_TEX because the icon is 1:1: UNIT_UNDO_W is UNIT_BUTTON_H, so
 # the button — and the texture stretched onto it — stays square at every scale.
 func _make_undo_button() -> Button:
+	return _make_icon_button(UNDO_TEX)
+
+# A square icon button: the texture stretched onto a UNIT_UNDO_W (== height)
+# square, so export/import/reset icons all stay 1:1 at every GUI scale.
+func _make_icon_button(tex: Texture2D) -> Button:
 	var btn := Button.new()
 	btn.text = ""
-	_style_undo_button(btn)
+	_style_icon_button(btn, tex)
 	return btn
 
-func _style_undo_button(btn: Button):
+func _style_icon_button(btn: Button, tex: Texture2D):
 	var s := _ui_scale()
+	btn.add_theme_font_override("font", MUNRO_FONT)
+	btn.add_theme_font_size_override("font_size", int(UNIT_FONT * s))
 	var normal := StyleBoxTexture.new()
-	normal.texture = UNDO_TEX
+	normal.texture = tex
 	var hover := StyleBoxTexture.new()
-	hover.texture = UNDO_TEX
+	hover.texture = tex
 	hover.modulate_color = Color(1.2, 1.2, 1.2)
 	var pressed := StyleBoxTexture.new()
-	pressed.texture = UNDO_TEX
+	pressed.texture = tex
 	pressed.modulate_color = Color(0.75, 0.75, 0.75)
 	btn.add_theme_stylebox_override("normal", normal)
 	btn.add_theme_stylebox_override("hover", hover)

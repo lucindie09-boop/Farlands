@@ -734,7 +734,11 @@ func _make_slider(value: float, min_value: float, max_value: float, step: float,
 	slider.add_theme_icon_override("grabber", _scaled_thumb_tex())
 	slider.add_theme_icon_override("grabber_highlight", _scaled_thumb_tex())
 	slider.add_theme_constant_override("grabber_offset", 0)
-	slider.add_theme_constant_override("center_grabber", 1)
+	# The thumb's travel span is the track's width minus the icon's own, so its
+	# leftmost pixel lands on the track's leftmost pixel at the minimum and its
+	# rightmost on the track's rightmost at the maximum. Centring the icon on the
+	# value instead (center_grabber) hangs half of it off each end of the track.
+	slider.add_theme_constant_override("center_grabber", 0)
 	# Highlight the whole track (not just the filled portion left of the
 	# grabber) when the slider is hovered or focused.
 	var set_highlight := func(on: bool):
@@ -774,7 +778,8 @@ func _style_slider_control(slider: HSlider) -> void:
 	slider.add_theme_icon_override("grabber", _scaled_thumb_tex())
 	slider.add_theme_icon_override("grabber_highlight", _scaled_thumb_tex())
 	slider.add_theme_constant_override("grabber_offset", 0)
-	slider.add_theme_constant_override("center_grabber", 1)
+	# End-to-end travel, like _make_slider: the thumb stays on the track.
+	slider.add_theme_constant_override("center_grabber", 0)
 
 func _slider_track_style() -> StyleBoxTexture:
 	# The slider draws its track at the stylebox's minimum size height (the

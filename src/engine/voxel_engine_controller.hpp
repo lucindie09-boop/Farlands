@@ -2,11 +2,16 @@
 #define FARLANDS_VOXEL_ENGINE_CONTROLLER_HPP
 #include <cstdint>
 #include <memory>
+#include <string>
+#include <unordered_map>
 
 #include <godot_cpp/variant/vector3.hpp>
 #include <godot_cpp/variant/plane.hpp>
 #include <godot_cpp/variant/color.hpp>
 #include <godot_cpp/variant/aabb.hpp>
+#include <godot_cpp/variant/dictionary.hpp>
+#include <godot_cpp/variant/packed_byte_array.hpp>
+#include <godot_cpp/variant/string.hpp>
 
 #include "core/chunk_types.hpp"
 #include "core/inventory.hpp"
@@ -21,6 +26,7 @@
 #include "mesh/mesh_manager.hpp"
 #include "lighting/light_propagator.hpp"
 #include "engine/collision_resolver.hpp"
+#include "schematic/mc_palette.hpp"
 
 namespace VoxelEngine {
 
@@ -45,6 +51,29 @@ public:
 
     void set_block_world(int32_t world_x, int32_t world_y, int32_t world_z, int block_id);
     int  get_block_world(int32_t world_x, int32_t world_y, int32_t world_z);
+
+    // Block files from other tools: hand it the bytes of a .schematic (or bare
+    // NBT) and an origin, and it decodes, translates and writes in one go.
+    //
+    // The bytes come from the caller rather than a path because the caller is
+    // the side that knows about res:// and user:// paths; nothing here touches
+    // the filesystem except the translation table, which it reads once and
+    // caches. The returned Dictionary always has "ok", and on failure "error";
+    // on success the counters described in AGENTS.md (cells, replaced,
+    // substituted, skipped, unknown, chunks, undo_cells, ...).
+    godot::Dictionary paste_schematic_bytes(const godot::PackedByteArray& bytes,
+                                            int32_t origin_x, int32_t origin_y, int32_t origin_z,
+                                            const godot::Dictionary& options);
+    // Decodes and plans without writing anything: what the file is, and what it
+    // would become. This is what a preview needs before it has an anchor, and
+    // what tells a caller the file's size without a throwaway paste.
+    godot::Dictionary inspect_schematic(const godot::PackedByteArray& bytes,
+                                        const godot::Dictionary& options);
+    // Puts the last paste back through the same writer. Answers "ok" false when
+    // there is nothing to undo.
+    godot::Dictionary undo_paste();
+    // Cells the next undo would restore, 0 when there is no paste to undo.
+    int64_t paste_undo_cells() const;
 
     bool is_aabb_solid(const godot::AABB& aabb) {
         return collision_resolver.is_aabb_solid(aabb);
@@ -230,6 +259,29 @@ bool smooth_lighting = false;
     uint64_t chunks_processed_last_interval = 0;
     uint64_t chunks_processed_total = 0;
     double last_delta = 0.0;
+
+    // The legacy-id translation table, loaded from res://data/minecraft_blocks.json
+    // on first use. Kept here rather than in the block registry because it is an
+    // import concern: nothing else in the engine wants to know that an old id 53
+    // is oak stairs.
+    schematic::McPalette minecraft_palette_;
+    bool minecraft_palette_loaded_ = false;
+    // Names the palette uses, resolved to this build's ids once per load.
+    std::unordered_map<std::string, BlockID> minecraft_name_ids_;
+    // Loads the table if it has not been loaded; false with a reason in
+    // `minecraft_palette_error_` when the file is missing or malformed.
+    bool ensure_minecraft_palette();
+    std::string minecraft_palette_error_;
+    // Shared front half of inspect/paste: decode the bytes, read the options and
+    // build the plan. False with a reason when any of that fails.
+    bool decode_and_plan(const godot::PackedByteArray& bytes,
+                         const godot::Dictionary& options,
+                         int32_t origin_x, int32_t origin_y, int32_t origin_z,
+                         schematic::PasteOptions& out_options, schematic::SchematicData& out_file,
+                         schematic::PastePlan& out_plan, std::string& error);
+    // The counters both entry points report, from the plan and (when there was a
+    // write) what the world actually took.
+    static godot::Dictionary plan_counters(const schematic::PastePlan& plan);
 
     static PerformanceTimer perf_timer;
 };

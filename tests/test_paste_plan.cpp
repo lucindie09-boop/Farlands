@@ -1,0 +1,313 @@
+#include "doctest.h"
+#include "schematic/paste_plan.hpp"
+
+#include <algorithm>
+#include <map>
+#include <string>
+#include <vector>
+
+using VoxelEngine::BlockID;
+using VoxelEngine::schematic::McPalette;
+using VoxelEngine::schematic::PasteOptions;
+using VoxelEngine::schematic::PastePlan;
+using VoxelEngine::schematic::PasteStats;
+using VoxelEngine::schematic::PasteUndo;
+using VoxelEngine::schematic::plan_paste;
+using VoxelEngine::schematic::SchematicData;
+using VoxelEngine::schematic::to_revert_plan;
+
+namespace {
+
+// The table used by every case here: one exact block, one stand-in, one liquid,
+// one deliberate skip, and a row for an id the rest of the world has never heard
+// of is left out on purpose (that is the `unknown` bucket).
+constexpr const char* kTable = R"({
+  "blocks": [
+    { "id": 0, "block": "air" },
+    { "id": 1, "block": "stone" },
+    { "id": 2, "block": "grass" },
+    { "id": 5, "block": "oak_planks", "substitute": true },
+    { "id": 8, "block": "water", "fluid": true },
+    { "id": 35, "block": "water", "fluid": true, "substitute": true },
+    { "id": 50, "skip": true },
+    { "id": 999, "block": "no_such_block" }
+  ]
+})";
+
+// The ids this build has; a resolver over this map is what the engine's
+// registry scan does in-game.
+const std::map<std::string, BlockID> kBlocks = {
+    {"air", 0}, {"stone", 1}, {"grass", 2}, {"oak_planks", 3}, {"water", 4},
+};
+
+bool resolve(const std::string& name, BlockID& out) {
+    const auto found = kBlocks.find(name);
+    if (found == kBlocks.end()) return false;
+    out = found->second;
+    return true;
+}
+
+McPalette table() {
+    McPalette palette;
+    std::string error;
+    CHECK_MESSAGE(palette.load(kTable, &error), error);
+    return palette;
+}
+
+// A file whose cells are given as legacy (id, data) pairs in the reader's own
+// order (x fastest, then z, then y), assembled into the palette the reader
+// would have produced.
+SchematicData make_file(int32_t width, int32_t height, int32_t length,
+                        const std::vector<std::pair<uint16_t, uint8_t>>& states) {
+    SchematicData file;
+    file.width = width;
+    file.height = height;
+    file.length = length;
+    for (const auto& state : states) {
+        uint32_t slot = 0;
+        bool found = false;
+        for (size_t i = 0; i < file.palette.size(); ++i) {
+            if (file.palette[i].id == state.first && file.palette[i].data == state.second) {
+                slot = static_cast<uint32_t>(i);
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            VoxelEngine::schematic::LegacyBlockState entry;
+            entry.id = state.first;
+            entry.data = state.second;
+            file.palette.push_back(entry);
+            slot = static_cast<uint32_t>(file.palette.size() - 1);
+        }
+        file.cells.push_back(slot);
+        if (state.first != 0) ++file.non_air_cells;
+    }
+    return file;
+}
+
+std::vector<uint32_t> described(const PastePlan& plan) {
+    std::vector<uint32_t> out;
+    out.reserve(plan.cells.size());
+    for (const PastePlan::Cell& cell : plan.cells) {
+        out.push_back(static_cast<uint32_t>(cell.x & 0x3FF) |
+                      (static_cast<uint32_t>(cell.y & 0x3FF) << 10) |
+                      (static_cast<uint32_t>(cell.z & 0x3FF) << 20) |
+                      (static_cast<uint32_t>(cell.block) << 30));
+    }
+    return out;
+}
+
+PastePlan plan_of(const SchematicData& file, const PasteOptions& options, int32_t ox = 0, int32_t oy = 0,
+                  int32_t oz = 0, std::string* error = nullptr) {
+    PastePlan plan;
+    std::string local_error;
+    const bool ok = plan_paste(file, table(), ox, oy, oz, options, resolve, plan, &local_error);
+    CHECK_MESSAGE(ok, local_error);
+    if (error != nullptr) *error = local_error;
+    return plan;
+}
+
+size_t counted_total(const PasteStats& stats) {
+    return stats.air_ignored + stats.placed + stats.substituted + stats.declined_fluid +
+           stats.declined_substitute + stats.skipped + stats.unknown + stats.unresolved;
+}
+
+} // namespace
+
+TEST_CASE("paste plan: every non-air cell lands in exactly one bucket") {
+    // 2×2×2: stone, planks (stand-in), water, torch (skip), air ×3, and an id
+    // with no row at all.
+    const SchematicData file = make_file(2, 2, 2, {
+        {1, 0}, {5, 0},
+        {8, 0}, {50, 0},
+        {0, 0}, {1, 0},
+        {0, 0}, {4000, 0},
+    });
+    const PastePlan plan = plan_of(file, PasteOptions{});
+
+    CHECK(plan.stats.file_cells == 8);
+    CHECK(plan.stats.air_ignored == 2);
+    CHECK(plan.stats.placed == 2);         // stone twice
+    CHECK(plan.stats.substituted == 1);    // planks
+    CHECK(plan.stats.declined_fluid == 1); // water, fluids off
+    CHECK(plan.stats.skipped == 1);        // torch
+    CHECK(plan.stats.unknown == 1);        // no row
+    CHECK(plan.stats.unresolved == 0);
+    CHECK(counted_total(plan.stats) == plan.stats.file_cells);
+
+    // Air, the liquid, the skip and the unknown are all left out, so the plan is
+    // the two stone cells and the planks: three of the eight.
+    CHECK(plan.cells.size() == 3);
+    CHECK(plan.min_x == 0);
+    CHECK(plan.max_x == 1);
+}
+
+TEST_CASE("paste plan: cells carry world coordinates in the file's own order") {
+    // A 2×1×2 slab with distinguishable corners, placed at an origin so a
+    // transposed axis would be visible rather than plausible.
+    const SchematicData file = make_file(2, 1, 2, {
+        {1, 0}, {2, 0},   // y0 z0: x0 stone, x1 grass
+        {5, 0}, {0, 0},   // y0 z1: x0 planks, x1 air
+    });
+    const PastePlan plan = plan_of(file, PasteOptions{}, 10, 64, 20);
+
+    CHECK(plan.cells.size() == 3);
+    // Order is y, then z, then x.
+    CHECK(plan.cells[0].x == 10);
+    CHECK(plan.cells[0].y == 64);
+    CHECK(plan.cells[0].z == 20);
+    CHECK(plan.cells[0].block == kBlocks.at("stone"));
+
+    CHECK(plan.cells[1].x == 11);
+    CHECK(plan.cells[1].z == 20);
+    CHECK(plan.cells[1].block == kBlocks.at("grass"));
+
+    // x = 0 of the far row is one step in z, not one step in x.
+    CHECK(plan.cells[2].x == 10);
+    CHECK(plan.cells[2].z == 21);
+    CHECK(plan.cells[2].block == kBlocks.at("oak_planks"));
+
+    CHECK(plan.min_x == 10);
+    CHECK(plan.max_x == 11);
+    CHECK(plan.min_y == 64);
+    CHECK(plan.max_y == 64);
+    CHECK(plan.min_z == 20);
+    CHECK(plan.max_z == 21);
+
+    // The same input twice is the same plan, cell for cell.
+    const PastePlan again = plan_of(file, PasteOptions{}, 10, 64, 20);
+    CHECK(described(plan) == described(again));
+}
+
+TEST_CASE("paste plan: the policy gates are independent") {
+    const SchematicData file = make_file(1, 1, 5, {
+        {1, 0}, {5, 0}, {8, 0}, {35, 0}, {50, 0},
+    });
+
+    {   // Defaults: exact blocks AND stand-ins land, liquids do not.
+        const PastePlan plan = plan_of(file, PasteOptions{});
+        CHECK(plan.cells.size() == 2);
+        CHECK(plan.stats.placed == 1);               // stone
+        CHECK(plan.stats.substituted == 1);          // planks
+        CHECK(plan.stats.declined_fluid == 2);       // water, and water-as-stand-in
+        CHECK(plan.stats.declined_substitute == 0);
+        CHECK(plan.stats.skipped == 1);
+    }
+    {   // Stand-ins off: only exact counterparts land.
+        PasteOptions options;
+        options.substitutes = false;
+        const PastePlan plan = plan_of(file, options);
+        CHECK(plan.cells.size() == 1);
+        CHECK(plan.stats.placed == 1);
+        CHECK(plan.stats.declined_substitute == 1);  // planks
+        CHECK(plan.stats.declined_fluid == 2);
+    }
+    {   // Both on: the stand-in liquid needs both gates, and passes both here.
+        PasteOptions options;
+        options.substitutes = true;
+        options.fluids = true;
+        const PastePlan plan = plan_of(file, options);
+        CHECK(plan.cells.size() == 4);
+        CHECK(plan.stats.placed == 2);       // stone, and water (not a stand-in)
+        CHECK(plan.stats.substituted == 2);  // planks, and water-as-stand-in
+        CHECK(plan.stats.declined_fluid == 0);
+    }
+    {   // Liquids on, stand-ins off: the stand-in liquid is declined for the
+        // other reason too, so planks and wool-become-water both stay out.
+        PasteOptions options;
+        options.fluids = true;
+        options.substitutes = false;
+        const PastePlan plan = plan_of(file, options);
+        CHECK(plan.cells.size() == 2);
+        CHECK(plan.stats.placed == 2);               // stone, and water
+        CHECK(plan.stats.declined_substitute == 2);
+        CHECK(plan.stats.declined_fluid == 0);
+    }
+}
+
+TEST_CASE("paste plan: the file's air is optional and clears cells when it lands") {
+    const SchematicData file = make_file(1, 1, 3, {{1, 0}, {0, 0}, {2, 0}});
+
+    PasteOptions options;
+    CHECK(plan_of(file, options).stats.air_ignored == 1);
+
+    options.write_air = true;
+    const PastePlan plan = plan_of(file, options);
+    CHECK(plan.stats.air_ignored == 0);
+    CHECK(plan.cells.size() == 3);
+    // The middle cell is an explicit air write, not a hole in the plan.
+    CHECK(plan.cells[1].block == VoxelEngine::BlockIDs::AIR);
+    CHECK(plan.stats.placed == 3);
+}
+
+TEST_CASE("paste plan: an unresolvable target is counted, not placed") {
+    const SchematicData file = make_file(1, 1, 2, {{999, 0}, {1, 0}});
+    const PastePlan plan = plan_of(file, PasteOptions{});
+    CHECK(plan.stats.unresolved == 1);
+    CHECK(plan.stats.placed == 1);
+    CHECK(plan.cells.size() == 1);
+    CHECK(counted_total(plan.stats) == 2);
+}
+
+TEST_CASE("paste plan: a paste above the cell cap is refused whole") {
+    const SchematicData file = make_file(1, 1, 4, {{1, 0}, {1, 0}, {1, 0}, {1, 0}});
+
+    PasteOptions options;
+    options.max_cells = 4;
+    CHECK(plan_of(file, options).cells.size() == 4);  // exactly at the cap is fine
+
+    options.max_cells = 3;
+    PastePlan plan;
+    std::string error;
+    CHECK_FALSE(plan_paste(file, table(), 0, 0, 0, options, resolve, plan, &error));
+    CHECK(error.find("4 cells") != std::string::npos);
+    CHECK(error.find("limit of 3") != std::string::npos);
+    // Refused means empty, not truncated: half a building is worse than none.
+    CHECK(plan.cells.empty());
+}
+
+TEST_CASE("paste plan: a plan with nothing to do is empty and still counted") {
+    const SchematicData file = make_file(1, 1, 2, {{0, 0}, {0, 0}});
+    const PastePlan plan = plan_of(file, PasteOptions{});
+    CHECK(plan.empty());
+    CHECK(plan.max_x < plan.min_x);
+    CHECK(plan.stats.air_ignored == 2);
+
+    // ...and an empty source file's box does not produce a phantom cell.
+    SchematicData empty;
+    empty.width = 1;
+    empty.height = 1;
+    empty.length = 1;
+    empty.cells = {0};
+    empty.palette = {{0, 0}};
+    PastePlan empty_plan;
+    CHECK(plan_paste(empty, table(), 0, 0, 0, PasteOptions{}, resolve, empty_plan, nullptr));
+    CHECK(empty_plan.empty());
+}
+
+TEST_CASE("paste plan: the revert plan is the write plan with the old blocks in it") {
+    PasteUndo undo;
+    undo.cells = {
+        {4, 5, 6, 1},
+        {4, 5, 7, 0},
+        {6, 5, 6, 2},
+    };
+    const PastePlan revert = to_revert_plan(undo);
+    CHECK(revert.cells.size() == 3);
+    CHECK(revert.cells[0].x == 4);
+    CHECK(revert.cells[0].y == 5);
+    CHECK(revert.cells[0].z == 6);
+    CHECK(revert.cells[0].block == 1);
+    // Air is a legitimate revert target: it re-opens what the paste filled.
+    CHECK(revert.cells[1].block == VoxelEngine::BlockIDs::AIR);
+    CHECK(revert.min_x == 4);
+    CHECK(revert.max_x == 6);
+    CHECK(revert.min_z == 6);
+    CHECK(revert.max_z == 7);
+    CHECK(revert.stats.placed == 3);
+
+    PasteUndo nothing;
+    CHECK_FALSE(nothing.valid());
+    CHECK(to_revert_plan(nothing).empty());
+}

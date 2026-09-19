@@ -35,11 +35,26 @@ var _tab_cycle_delay: float = 0.1875
 var _up_held: bool = false
 var _up_hold_time: float = 0.0
 
-const COMMANDS := ["/help", "/give", "/tp", "/fly", "/locatebiome", "/clearchat", "/clearinv", "/version", "/texturepack", "/testicons"]
+const COMMANDS := ["/help", "/give", "/tp", "/fly", "/locatebiome", "/paste", "/clearchat", "/clearinv", "/version", "/texturepack", "/testicons"]
 const BIOME_NAMES := ["ocean", "hills", "plains"]
+# A build bigger than this is refused rather than written: the write itself is a
+# single pass, but a paste of hundreds of thousands of cells is a freeze, and a
+# player who asked for it by accident wants an error, not a hang.
+const PASTE_MAX_CELLS := 200000
+const PASTE_KEYWORDS := ["undo", "fluids", "gaps", "air", "strict"]
 
 func _chat_scale() -> float:
 	return 1.0  # Chat is not affected by the global GUI scale
+
+# A build file can be named as an absolute path, or just by name if it sits in the
+# project (res://) or the user directory (user://).
+func _resolve_paste_path(name: String) -> String:
+	if FileAccess.file_exists(name):
+		return name
+	for prefix in ["res://", "user://"]:
+		if FileAccess.file_exists(prefix + name):
+			return prefix + name
+	return ""
 
 func _apply_input_layout():
 	var sc := _chat_scale()
@@ -332,6 +347,11 @@ func _get_command_param_hint(cmd: String, arg_count: int) -> String:
 		"/locatebiome":
 			if arg_count == 1:
 				return "<biome>"
+		"/paste":
+			if arg_count == 1:
+				return "<file.schematic> [fluids] [gaps] [air] [strict] | undo"
+			if arg_count >= 2:
+				return "fluid|gap|air|strict"
 		"/texturepack":
 			if arg_count == 1:
 				return "<name>"
@@ -435,6 +455,10 @@ func _tab_candidates(prefix: String, word: String) -> Array[String]:
 			for b in BIOME_NAMES:
 				if b.begins_with(word):
 					out.append(b)
+		elif parts.size() >= 1 and parts[0].to_lower() == "/paste" and parts.size() > 1:
+			for keyword in PASTE_KEYWORDS:
+				if keyword.begins_with(word):
+					out.append(keyword)
 	# For other parameters, return empty so we can show parameter hints instead
 	return out
 
@@ -493,6 +517,8 @@ func _run_command(raw: String):
 			_add_message("/tp <x> <y> <z> - teleport to a position", COLOR_SYSTEM)
 			_add_message("/fly [speed] - toggle flying (optional speed multiplier)", COLOR_SYSTEM)
 			_add_message("/locatebiome <biome> - find the nearest biome (ocean/hills/plains)", COLOR_SYSTEM)
+			_add_message("/paste <file.schematic> [fluids] [gaps] [air] [strict] - place a build file", COLOR_SYSTEM)
+			_add_message("/paste undo - put the last paste back", COLOR_SYSTEM)
 			_add_message("/clearchat - clear the chat", COLOR_SYSTEM)
 			_add_message("/clearinv - clear your inventory", COLOR_SYSTEM)
 			_add_message("/version - show the engine version", COLOR_SYSTEM)
@@ -567,6 +593,78 @@ func _run_command(raw: String):
 				_add_message("The nearest %s is at (%d, %d, %d)" % [biome_name, int(result["x"]), int(result["y"]), int(result["z"])], COLOR_SUCCESS)
 			else:
 				_add_message("Could not find %s within 3000 blocks." % biome_name, COLOR_ERROR)
+		"/paste":
+			if parts.size() < 2:
+				_add_message("Usage: /paste <file.schematic> [fluids] [gaps] [air] [strict]", COLOR_ERROR)
+				_add_message("       /paste undo - put the last paste back", COLOR_ERROR)
+				_add_message("The build's bottom corner goes where you are looking.", COLOR_SYSTEM)
+				return
+			var chunk_manager := get_node_or_null("/root/Main/ChunkManager")
+			if chunk_manager == null:
+				_add_message("World not available.", COLOR_ERROR)
+				return
+			if parts[1].to_lower() == "undo":
+				var undone: Dictionary = chunk_manager.undo_paste()
+				if undone.get("ok", false):
+					_add_message("Paste undone: %d cells restored in %d chunks." % [int(undone.get("cells", 0)), int(undone.get("chunks", 0))], COLOR_SUCCESS)
+				else:
+					_add_message("Nothing to undo.", COLOR_ERROR)
+				return
+
+			# Options are plain words so the command stays typeable.
+			var fluids := false
+			var replace_solid := true
+			var write_air := false
+			var substitutes := true
+			for i in range(2, parts.size()):
+				match parts[i].to_lower():
+					"fluids": fluids = true
+					"gaps": replace_solid = false
+					"air": write_air = true
+					"strict": substitutes = false
+					_:
+						_add_message("Unknown option: %s (fluids, gaps, air, strict)" % parts[i], COLOR_ERROR)
+						return
+
+			var path := _resolve_paste_path(parts[1])
+			if path == "":
+				_add_message("No such file: %s (looked in the project and user://)" % parts[1], COLOR_ERROR)
+				return
+			var bytes := FileAccess.get_file_as_bytes(path)
+			if bytes.is_empty():
+				_add_message("Could not read %s" % path, COLOR_ERROR)
+				return
+
+			# Anchor on the block the crosshair is against, so where you look is
+			# where the corner goes; standing on nothing, use your own feet.
+			var anchor := Vector3i(player_controller.global_position.floor())
+			var aim: Dictionary = chunk_manager.raycast_from_camera(6.0)
+			if aim.get("success", false):
+				var spot: Vector3 = aim.get("place_position", player_controller.global_position)
+				anchor = Vector3i(spot.floor())
+
+			var options := {
+				"fluids": fluids,
+				"replace_solid": replace_solid,
+				"write_air": write_air,
+				"substitutes": substitutes,
+				"max_cells": PASTE_MAX_CELLS,
+			}
+			var result: Dictionary = chunk_manager.paste_schematic(bytes, anchor.x, anchor.y, anchor.z, options)
+			if not result.get("ok", false):
+				_add_message("Paste failed: %s" % result.get("error", "unknown error"), COLOR_ERROR)
+				return
+
+			_add_message("Pasted %s (%dx%dx%d) at %d, %d, %d" % [parts[1], int(result.get("file_width", 0)), int(result.get("file_height", 0)), int(result.get("file_length", 0)), anchor.x, anchor.y, anchor.z], COLOR_SUCCESS)
+			_add_message("  %d cells written, %d stand-ins, %d chunks" % [int(result.get("cells", 0)), int(result.get("substituted", 0)), int(result.get("chunks", 0))], COLOR_SYSTEM)
+			if int(result.get("covered", 0)) > 0:
+				_add_message("  %d cells left alone (gaps only)" % int(result.get("covered", 0)), COLOR_SYSTEM)
+			if int(result.get("unloaded_chunks", 0)) > 0:
+				_add_message("  %d cells skipped: their chunk is not loaded" % int(result.get("unloaded_chunks", 0)), COLOR_ERROR)
+			var left_out := int(result.get("skipped", 0)) + int(result.get("unknown", 0)) + int(result.get("declined_fluid", 0)) + int(result.get("declined_substitute", 0)) + int(result.get("unresolved", 0))
+			if left_out > 0:
+				_add_message("  %d cells have no counterpart here (unknown %d, skipped %d, liquids %d)" % [left_out, int(result.get("unknown", 0)), int(result.get("skipped", 0)), int(result.get("declined_fluid", 0))], COLOR_SYSTEM)
+			_add_message("  /paste undo to put it back", COLOR_SYSTEM)
 		"/clearchat":
 			messages.clear()
 			_add_message("Chat cleared.", COLOR_SYSTEM)

@@ -4,6 +4,8 @@
 #include "lighting/light_propagator.hpp"
 #include "core/block_types.hpp"
 #include <algorithm>
+#include <array>
+#include <map>
 #include <vector>
 #include <cmath>
 
@@ -385,6 +387,203 @@ void BlockEditor::set_block_variant(int32_t world_x, int32_t world_y, int32_t wo
     }
     chunk_world->mark_chunk_dirty(chunk_x, chunk_y, chunk_z);
     mesh_manager->queue_dirty_chunk(chunk_x, chunk_y, chunk_z);
+}
+
+// -------------------------------------------------------------------------
+// Bulk paste
+// -------------------------------------------------------------------------
+
+PasteWriteResult BlockEditor::apply_paste(const schematic::PastePlan& plan,
+                                          const schematic::PasteOptions& options) {
+    using schematic::PastePlan;
+    PasteWriteResult result;
+    if (plan.empty()) return result;
+
+    ChunkMap& cm = chunk_world->get_chunk_map();
+    const BlockRegistry& registry = BlockRegistry::get_instance();
+
+    // Group the cells by chunk, key-ordered so the lock bands and the write
+    // order are the same for the same plan on any machine.
+    struct Group {
+        int32_t cx = 0, cy = 0, cz = 0;
+        std::vector<size_t> cells;
+    };
+    std::map<uint64_t, Group> groups;
+    for (size_t i = 0; i < plan.cells.size(); ++i) {
+        const PastePlan::Cell& cell = plan.cells[i];
+        int32_t cx, cy, cz, lx, ly, lz;
+        world_to_chunk_local(cell.x, cell.y, cell.z, cx, cy, cz, lx, ly, lz);
+        Group& group = groups[cm.get_chunk_key(cx, cy, cz)];
+        group.cx = cx;
+        group.cy = cy;
+        group.cz = cz;
+        group.cells.push_back(i);
+    }
+
+    // Index-aligned with each other: what each written cell displaced, and what
+    // it was set to. The first becomes the undo record, the second is what the
+    // edit map and the fluid simulation hear about.
+    std::vector<PastePlan::Cell> displaced;
+    std::vector<PastePlan::Cell> written;
+    displaced.reserve(plan.cells.size());
+    written.reserve(plan.cells.size());
+    std::vector<std::array<int32_t, 3>> touched;
+    // The volume the paste actually changed, accumulated across every chunk it
+    // touches — NOT per chunk, which would report only the last chunk's box.
+    bool have_bounds = false;
+
+    for (auto& entry : groups) {
+        Group& group = entry.second;
+        // One exclusive band for the whole chunk, matching place_block's reach
+        // (a block write plus a light update never leaves the 3×3×3 around it),
+        // rather than a lock per cell.
+        uint64_t keys[27];
+        int idx = 0;
+        for (int dz = -1; dz <= 1; dz++)
+            for (int dy = -1; dy <= 1; dy++)
+                for (int dx = -1; dx <= 1; dx++)
+                    keys[idx++] = cm.get_chunk_key(group.cx + dx, group.cy + dy, group.cz + dz);
+        auto lock = cm.lock_keys_exclusive(keys);
+
+        ChunkData* chunk = cm.get_chunk_data_fast(group.cx, group.cy, group.cz);
+        if (chunk == nullptr) {
+            // The plan was built against a world that has since moved on. Nothing
+            // is queued for a chunk that is not there: a paste is not a player
+            // edit at the loading frontier, and half a building in a pending
+            // queue would land silently later.
+            result.skipped_unloaded += group.cells.size();
+            continue;
+        }
+        ChunkData* above = cm.get_chunk_data_fast(group.cx, group.cy + 1, group.cz);
+        ChunkRenderData* render = cm.get_chunk_render_data_fast(group.cx, group.cy, group.cz);
+
+        // Columns whose opacity changed, so sky light is recomputed once per
+        // column rather than once per cell.
+        std::vector<uint32_t> sky_columns;
+        bool wrote_here = false;
+
+        for (const size_t index : group.cells) {
+            const PastePlan::Cell& cell = plan.cells[index];
+            int32_t cx, cy, cz, lx, ly, lz;
+            world_to_chunk_local(cell.x, cell.y, cell.z, cx, cy, cz, lx, ly, lz);
+            if (!is_local_in_bounds(lx, ly, lz)) {
+                ++result.skipped_out_of_bounds;
+                continue;
+            }
+            const BlockID old_block = chunk->get_block_unsafe(lx, ly, lz);
+            if (old_block == cell.block) {
+                ++result.skipped_unchanged;
+                continue;
+            }
+            if (!options.replace_solid && old_block != BlockIDs::AIR) {
+                ++result.skipped_covered;
+                continue;
+            }
+
+            chunk->set_block(lx, ly, lz, cell.block);
+
+            const bool old_opaque = HasProperty(registry.get_block_fast(old_block).properties,
+                                               BlockProperty::Opaque);
+            const bool new_opaque = HasProperty(registry.get_block_fast(cell.block).properties,
+                                               BlockProperty::Opaque);
+            if (old_opaque != new_opaque) {
+                const uint32_t column = (static_cast<uint32_t>(lx) << 16) |
+                                        static_cast<uint32_t>(lz & 0xFFFF);
+                bool known = false;
+                for (const uint32_t seen : sky_columns) {
+                    if (seen == column) { known = true; break; }
+                }
+                if (!known) sky_columns.push_back(column);
+            }
+
+            displaced.push_back(PastePlan::Cell{cell.x, cell.y, cell.z, old_block});
+            written.push_back(cell);
+            ++result.written;
+            // This chunk (not the volume) needs a remesh and a relight, and that
+            // is per chunk, so it is a separate flag from the bounds above.
+            wrote_here = true;
+
+            if (!have_bounds) {
+                result.min_x = result.max_x = cell.x;
+                result.min_y = result.max_y = cell.y;
+                result.min_z = result.max_z = cell.z;
+                have_bounds = true;
+            } else {
+                if (cell.x < result.min_x) result.min_x = cell.x;
+                if (cell.x > result.max_x) result.max_x = cell.x;
+                if (cell.y < result.min_y) result.min_y = cell.y;
+                if (cell.y > result.max_y) result.max_y = cell.y;
+                if (cell.z < result.min_z) result.min_z = cell.z;
+                if (cell.z > result.max_z) result.max_z = cell.z;
+            }
+
+            if (render) {
+                render->is_mesh_dirty = true;
+                render->mesh_version++;
+                render->dirty_subchunks |= static_cast<uint8_t>(1 << subchunk_index(lx, ly, lz));
+                render->mark_block_dirty(lx, ly, lz);
+            }
+        }
+
+        // Sky light is a column property: recompute the touched columns of this
+        // chunk while the band is still held, exactly as a single edit does.
+        for (const uint32_t column : sky_columns) {
+            chunk->propagate_sky_light_column(static_cast<int32_t>(column >> 16),
+                                              static_cast<int32_t>(column & 0xFFFF), above);
+        }
+        if (wrote_here) {
+            touched.push_back({group.cx, group.cy, group.cz});
+        }
+    }
+
+    // Locks released. Persist the edits (which is also what wakes pasted fluid),
+    // then relight and remesh each touched chunk once.
+    for (const PastePlan::Cell& cell : written) {
+        int32_t cx, cy, cz, lx, ly, lz;
+        world_to_chunk_local(cell.x, cell.y, cell.z, cx, cy, cz, lx, ly, lz);
+        chunk_world->add_block_edit(cx, cy, cz, lx, ly, lz, cell.block);
+    }
+    for (const std::array<int32_t, 3>& pos : touched) {
+        chunk_world->mark_chunk_dirty(pos[0], pos[1], pos[2]);
+        mesh_manager->queue_dirty_chunk(pos[0], pos[1], pos[2]);
+        // Relights the 3×3×3 neighborhood (and dirties their meshes), which is
+        // what a block change can reach.
+        light_propagator->propagate_block_light_region(pos[0], pos[1], pos[2]);
+    }
+
+    result.chunks_touched = touched.size();
+    result.undo_available = !displaced.empty();
+    // A paste that wrote nothing leaves the previous record alone: it did not
+    // make the last one unreachable.
+    if (!displaced.empty()) {
+        paste_undo_.cells = std::move(displaced);
+    }
+    return result;
+}
+
+bool BlockEditor::undo_paste(PasteWriteResult* out) {
+    if (!paste_undo_.valid()) return false;
+
+    // The record is taken out of the way first, because the write below replaces
+    // it with what the revert itself displaced (which is the pasted build, and
+    // would make undo a toggle).
+    schematic::PasteUndo record = std::move(paste_undo_);
+    paste_undo_ = schematic::PasteUndo{};
+
+    schematic::PasteOptions options;
+    // A revert restores the volume exactly, holes included, so it replaces what
+    // is there and writes air.
+    options.replace_solid = true;
+    options.write_air = true;
+
+    const PasteWriteResult result = apply_paste(schematic::to_revert_plan(record), options);
+    if (result.written > 0) {
+        paste_undo_ = schematic::PasteUndo{};  // one level, and it is spent
+    } else {
+        paste_undo_ = std::move(record);       // nothing landed; leave it retryable
+    }
+    if (out) *out = result;
+    return result.written > 0;
 }
 
 } // namespace VoxelEngine

@@ -338,6 +338,43 @@ Dictionary ChunkManager::find_biome(const String& biome_name, int32_t center_x,
     return controller->find_biome(biome_name, center_x, center_z, max_radius);
 }
 
+Dictionary ChunkManager::inspect_schematic(const PackedByteArray& bytes, const Dictionary& options) {
+    if (!controller) {
+        Dictionary out;
+        out["ok"] = false;
+        out["error"] = String("the engine is not running");
+        return out;
+    }
+    return controller->inspect_schematic(bytes, options);
+}
+
+Dictionary ChunkManager::paste_schematic(const PackedByteArray& bytes, int32_t origin_x,
+                                         int32_t origin_y, int32_t origin_z,
+                                         const Dictionary& options) {
+    if (!controller) {
+        Dictionary out;
+        out["ok"] = false;
+        out["error"] = String("the engine is not running");
+        return out;
+    }
+    return controller->paste_schematic_bytes(bytes, origin_x, origin_y, origin_z, options);
+}
+
+Dictionary ChunkManager::undo_paste() {
+    if (!controller) {
+        Dictionary out;
+        out["ok"] = false;
+        out["error"] = String("the engine is not running");
+        return out;
+    }
+    return controller->undo_paste();
+}
+
+int64_t ChunkManager::paste_undo_cells() {
+    if (!controller) return 0;
+    return controller->paste_undo_cells();
+}
+
 int64_t ChunkManager::request_path(const Vector3& from, const Vector3& to, int32_t max_expansions,
                                    double max_ms) {
     if (!controller) return 0;
@@ -741,6 +778,12 @@ void ChunkManager::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_block_name", "block_id"), &ChunkManager::get_block_name);
     ClassDB::bind_method(D_METHOD("get_selection_boxes", "block_id"), &ChunkManager::get_selection_boxes);
     ClassDB::bind_method(D_METHOD("find_biome", "biome_name", "center_x", "center_z", "max_radius"), &ChunkManager::find_biome);
+    ClassDB::bind_method(D_METHOD("inspect_schematic", "bytes", "options"),
+                         &ChunkManager::inspect_schematic, DEFVAL(Dictionary()));
+    ClassDB::bind_method(D_METHOD("paste_schematic", "bytes", "origin_x", "origin_y", "origin_z", "options"),
+                         &ChunkManager::paste_schematic, DEFVAL(Dictionary()));
+    ClassDB::bind_method(D_METHOD("undo_paste"), &ChunkManager::undo_paste);
+    ClassDB::bind_method(D_METHOD("paste_undo_cells"), &ChunkManager::paste_undo_cells);
     ClassDB::bind_method(D_METHOD("resolve_voxel_collision", "position", "motion", "size"), &ChunkManager::resolve_voxel_collision);
     ClassDB::bind_method(D_METHOD("request_path", "from", "to", "max_expansions", "max_ms"),
                          &ChunkManager::request_path, DEFVAL(20000), DEFVAL(32.0));

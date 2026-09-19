@@ -1,0 +1,117 @@
+#ifndef FARLANDS_PASTE_PLAN_HPP
+#define FARLANDS_PASTE_PLAN_HPP
+
+// -----------------------------------------------------------------------------
+// What a block file would actually change, before anything touches the world.
+//
+// The reader decodes a file and the palette says what each state should become.
+// This is the third step, and it is deliberately separate from the write: it
+// decides, per cell, whether that cell is part of the paste at all — a decision
+// that depends on POLICY (do liquids land? do stand-ins? does the file's air
+// count?) and never on what happens to be in the world. So the plan can be built,
+// counted and reported with no chunk map in sight, and the numbers a player is
+// shown ("2,500 placed, 289 skipped") are the numbers the file itself implies.
+//
+// The one policy that cannot be answered here is `replace_solid`, because
+// whether a cell is already occupied is a property of the world. It lives in
+// PasteOptions so one struct flows through both halves, and the writer enforces
+// it and reports what it declined.
+//
+// Counters are mutual and complete: every non-air cell in the file's box ends up
+// in exactly one bucket (placed / substituted / declined_fluid /
+// declined_substitute / skipped / unknown / unresolved), so a report that looks
+// wrong is a bug in the policy rather than a mystery.
+// -----------------------------------------------------------------------------
+
+#include "core/block_types.hpp"
+#include "schematic/mc_palette.hpp"
+#include "schematic/schematic_reader.hpp"
+
+#include <cstddef>
+#include <cstdint>
+#include <functional>
+#include <string>
+#include <vector>
+
+namespace VoxelEngine {
+namespace schematic {
+
+struct PasteOptions {
+    // Liquids in the file (and their falling states) land. Off by default
+    // because a pasted ocean immediately starts flowing.
+    bool fluids = false;
+    // Stand-ins from the table land. Off means only exact counterparts do, which
+    // is the setting for "I want to see exactly what is missing".
+    bool substitutes = true;
+    // The file's air is written too, carving away whatever is there. Off by
+    // default: attaching a build to terrain should not delete the terrain.
+    bool write_air = false;
+    // Cells whose current block is not air are overwritten. Enforced by the
+    // writer, since only it can see the world; false means "fill gaps only".
+    bool replace_solid = true;
+    // Refuse the whole paste if it would change more cells than this. 0 = no cap.
+    // The plan is refused rather than truncated, because half a building is worse
+    // than none and a caller that ignores the count gets a surprise otherwise.
+    size_t max_cells = 0;
+};
+
+struct PasteStats {
+    size_t file_cells = 0;        // every cell in the file's box
+    size_t air_ignored = 0;       // air, with write_air off
+    size_t placed = 0;            // exact counterparts
+    size_t substituted = 0;       // stand-ins that landed
+    size_t declined_fluid = 0;    // liquids, with fluids off
+    size_t declined_substitute = 0;  // stand-ins, with substitutes off
+    size_t skipped = 0;           // the table says this state has no counterpart
+    size_t unknown = 0;           // no row for the id at all
+    size_t unresolved = 0;        // the table names a block this build does not have
+};
+
+struct PastePlan {
+    struct Cell {
+        int32_t x = 0;
+        int32_t y = 0;
+        int32_t z = 0;
+        BlockID block = 0;
+    };
+
+    // World coordinates, in the file's own iteration order (y, then z, then x),
+    // so the plan is reproducible and a test can assert an exact sequence.
+    std::vector<Cell> cells;
+    PasteStats stats;
+    // Bounds of the cells themselves (empty when nothing is planned), so a caller
+    // can report the volume it would touch without walking the file again.
+    int32_t min_x = 0, max_x = -1, min_y = 0, max_y = -1, min_z = 0, max_z = -1;
+
+    [[nodiscard]] bool empty() const noexcept { return cells.empty(); }
+    [[nodiscard]] size_t size() const noexcept { return cells.size(); }
+};
+
+// A name is resolved to this build's block id; false means the table named
+// something that does not exist here, which is a fault worth reporting rather
+// than silently dropping.
+using BlockResolver = std::function<bool(const std::string& name, BlockID& out)>;
+
+// Builds the plan for `file` placed with its (0, 0, 0) corner at the origin.
+// Fails only on a fault the caller cannot sensibly continue past (the cell cap);
+// everything ordinary — an id with no row, a state the table skips — is counted.
+bool plan_paste(const SchematicData& file, const McPalette& palette,
+                int32_t origin_x, int32_t origin_y, int32_t origin_z,
+                const PasteOptions& options, const BlockResolver& resolve,
+                PastePlan& out, std::string* error = nullptr);
+
+// The plan that puts a paste back: one cell per written position, holding the
+// block that was there. Air is included, so reverting a paste that filled a cave
+// re-opens it. A caller records the displaced blocks while writing; this turns
+// that record into an ordinary plan, which is what lets undo reuse the writer.
+struct PasteUndo {
+    std::vector<PastePlan::Cell> cells;  // block = the block that was displaced
+    [[nodiscard]] bool valid() const noexcept { return !cells.empty(); }
+};
+
+[[nodiscard]] PastePlan to_revert_plan(const PasteUndo& undo);
+
+} // namespace schematic
+} // namespace VoxelEngine
+
+#endif // FARLANDS_PASTE_PLAN_HPP

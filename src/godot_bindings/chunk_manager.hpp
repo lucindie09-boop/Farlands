@@ -7,6 +7,7 @@
 #include <godot_cpp/variant/color.hpp>
 #include <godot_cpp/variant/node_path.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
+#include <godot_cpp/variant/packed_byte_array.hpp>
 #include <godot_cpp/variant/aabb.hpp>
 #include <godot_cpp/variant/string.hpp>
 #include <godot_cpp/core/class_db.hpp>
@@ -102,6 +103,19 @@ public:
 
     // Nearest column of the named biome (ocean/hills) within max_radius
     // blocks of (center_x, center_z). Returns {found: bool, x, y, z}.
+    // Block files from other tools, from the bytes of a .schematic to blocks in
+    // the world. GDScript reads the file (it is the side that knows about res://
+    // and user://) and gets back the counters that say what landed and what the
+    // table could not place. Options: fluids, substitutes, replace_solid,
+    // write_air, max_cells.
+    godot::Dictionary inspect_schematic(const godot::PackedByteArray& bytes,
+                                        const godot::Dictionary& options);
+    godot::Dictionary paste_schematic(const godot::PackedByteArray& bytes, int32_t origin_x,
+                                      int32_t origin_y, int32_t origin_z,
+                                      const godot::Dictionary& options);
+    godot::Dictionary undo_paste();
+    int64_t paste_undo_cells();
+
     godot::Dictionary find_biome(const godot::String& biome_name, int32_t center_x,
                                  int32_t center_z, int32_t max_radius);
 

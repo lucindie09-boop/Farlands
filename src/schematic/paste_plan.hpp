@@ -18,9 +18,11 @@
 // it and reports what it declined.
 //
 // Counters are mutual and complete: every non-air cell in the file's box ends up
-// in exactly one bucket (placed / substituted / declined_fluid /
+// in exactly one bucket (placed / substituted / stilled / declined_fluid /
 // declined_substitute / skipped / unknown / unresolved), so a report that looks
-// wrong is a bug in the policy rather than a mystery.
+// wrong is a bug in the policy rather than a mystery. A stilled cell counts as
+// stilled and not as placed or substituted, even if its row is a stand-in: the
+// counter is there to answer "what happened to the water".
 // -----------------------------------------------------------------------------
 
 #include "core/block_types.hpp"
@@ -37,8 +39,11 @@ namespace VoxelEngine {
 namespace schematic {
 
 struct PasteOptions {
-    // Liquids in the file (and their falling states) land. Off by default
-    // because a pasted ocean immediately starts flowing.
+    // Liquids in the file land as LIVE sources (and their falling states), which
+    // immediately run. Off by default, and then they still land — as the still
+    // form the table names — because a pasted building with holes where its water
+    // was is worse than one whose water does not move. Only a liquid with no still
+    // form is left out entirely.
     bool fluids = false;
     // Stand-ins from the table land. Off means only exact counterparts do, which
     // is the setting for "I want to see exactly what is missing".
@@ -60,7 +65,8 @@ struct PasteStats {
     size_t air_ignored = 0;       // air, with write_air off
     size_t placed = 0;            // exact counterparts
     size_t substituted = 0;       // stand-ins that landed
-    size_t declined_fluid = 0;    // liquids, with fluids off
+    size_t stilled = 0;           // liquids placed as their still form
+    size_t declined_fluid = 0;    // liquids with no still form, with fluids off
     size_t declined_substitute = 0;  // stand-ins, with substitutes off
     size_t skipped = 0;           // the table says this state has no counterpart
     size_t unknown = 0;           // no row for the id at all

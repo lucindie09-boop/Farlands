@@ -1974,5 +1974,33 @@
     "emissive_textures": ["", "", "", "", "", ""],
     "light": [0, 0, 0],
     "slipperiness": 0.6
+  },
+  {
+    "name": "surface_lava",
+    "_comment": "Lava a build file brought with it, left STILL: a paste places this rather than a lava source, so a pasted lake does not immediately run downhill, and `/paste <file> fluids` is what asks for the live one. It is lava to look at and lava to flow against (mesh/mesh_fluid.hpp family_of) and it declares NO fluid state, exactly like surface_water \u2014 that absence is the whole of what makes it still.",
+    "light_opacity": 15,
+    "hardness": -1,
+    "properties": ["Liquid", "Transparent"],
+    "shape": "lowered/12",
+    "visible_faces": [true, true, true, false, true, true],
+    "textures": ["lava", "lava", "lava", "lava", "lava", "lava"],
+    "emissive_textures": ["", "", "", "", "", ""],
+    "light": [0, 0, 0],
+    "top_face_offset": 0.12,
+    "slipperiness": 0.6
+  },
+  {
+    "name": "surface_acid",
+    "_comment": "Acid a build file brought with it, left still \u2014 see surface_lava. Same substance, same shape, no fluid state.",
+    "light_opacity": 3,
+    "hardness": -1,
+    "properties": ["Liquid", "Transparent"],
+    "shape": "lowered/12",
+    "visible_faces": [true, true, true, false, true, true],
+    "textures": ["acid", "acid", "acid", "acid", "acid", "acid"],
+    "emissive_textures": ["", "", "", "", "", ""],
+    "light": [0, 0, 0],
+    "top_face_offset": 0.12,
+    "slipperiness": 0.6
   }
 ]

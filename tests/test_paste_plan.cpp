@@ -28,6 +28,8 @@ constexpr const char* kTable = R"({
     { "id": 2, "block": "grass" },
     { "id": 5, "block": "oak_planks", "substitute": true },
     { "id": 8, "block": "water", "fluid": true },
+    { "id": 9, "block": "water", "fluid": true, "still": "surface_water" },
+    { "id": 10, "block": "lava", "fluid": true, "still": "surface_lava", "substitute": true },
     { "id": 35, "block": "water", "fluid": true, "substitute": true },
     { "id": 50, "skip": true },
     { "id": 999, "block": "no_such_block" }
@@ -38,6 +40,7 @@ constexpr const char* kTable = R"({
 // registry scan does in-game.
 const std::map<std::string, BlockID> kBlocks = {
     {"air", 0}, {"stone", 1}, {"grass", 2}, {"oak_planks", 3}, {"water", 4},
+    {"surface_water", 5}, {"lava", 6}, {"surface_lava", 7},
 };
 
 bool resolve(const std::string& name, BlockID& out) {
@@ -109,8 +112,9 @@ PastePlan plan_of(const SchematicData& file, const PasteOptions& options, int32_
 }
 
 size_t counted_total(const PasteStats& stats) {
-    return stats.air_ignored + stats.placed + stats.substituted + stats.declined_fluid +
-           stats.declined_substitute + stats.skipped + stats.unknown + stats.unresolved;
+    return stats.air_ignored + stats.placed + stats.substituted + stats.stilled +
+           stats.declined_fluid + stats.declined_substitute + stats.skipped + stats.unknown +
+           stats.unresolved;
 }
 
 } // namespace
@@ -223,6 +227,48 @@ TEST_CASE("paste plan: the policy gates are independent") {
         CHECK(plan.stats.placed == 2);               // stone, and water
         CHECK(plan.stats.declined_substitute == 2);
         CHECK(plan.stats.declined_fluid == 0);
+    }
+}
+
+TEST_CASE("paste plan: a liquid lands still unless the paste asks for fluids") {
+    // id 8 has no still form in the table, id 9 does, and id 10's row is both a
+    // stand-in and a liquid — so one file exercises every branch of the rule.
+    const SchematicData file = make_file(1, 1, 4, {
+        {8, 0}, {9, 0}, {10, 0}, {1, 0},
+    });
+
+    {   // Defaults: the water is THERE, it just is not running.
+        const PastePlan plan = plan_of(file, PasteOptions{});
+        CHECK(plan.stats.stilled == 2);          // surface_water and surface_lava
+        CHECK(plan.stats.substituted == 0);      // a stilled stand-in counts as stilled
+        CHECK(plan.stats.placed == 1);           // stone, and only stone
+        CHECK(plan.stats.declined_fluid == 1);   // id 8: nothing still to put there
+        CHECK(plan.cells.size() == 3);
+        CHECK(plan.cells[0].block == 5);         // surface_water
+        CHECK(plan.cells[1].block == 7);         // surface_lava
+        CHECK(plan.cells[2].block == 1);         // stone
+        CHECK(counted_total(plan.stats) == plan.stats.file_cells);
+    }
+    {   // `fluids`: the same cells become the running sources.
+        PasteOptions options;
+        options.fluids = true;
+        const PastePlan plan = plan_of(file, options);
+        CHECK(plan.stats.stilled == 0);
+        CHECK(plan.stats.declined_fluid == 0);
+        CHECK(plan.stats.placed == 3);          // stone, water, water
+        CHECK(plan.stats.substituted == 1);     // the lava row is a stand-in
+        CHECK(plan.cells.size() == 4);
+        CHECK(plan.cells[0].block == 4);        // water
+        CHECK(plan.cells[1].block == 4);        // water
+        CHECK(plan.cells[2].block == 6);        // lava
+    }
+    {   // Stand-ins off does not touch a liquid that is an exact counterpart.
+        PasteOptions options;
+        options.substitutes = false;
+        const PastePlan plan = plan_of(file, options);
+        CHECK(plan.stats.stilled == 1);              // surface_water
+        CHECK(plan.stats.declined_substitute == 1);  // the lava stand-in
+        CHECK(plan.cells.size() == 2);
     }
 }
 

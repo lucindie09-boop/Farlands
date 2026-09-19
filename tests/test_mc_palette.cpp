@@ -288,9 +288,47 @@ TEST_CASE("mc palette: ambiguous or impossible rows are refused") {
     CHECK(must_fail("{\"variant_sets\": 5, \"blocks\": [{\"id\": 1, \"block\": \"stone\"}]}")
               .find("\"variant_sets\" must be an object") != std::string::npos);
 
+    // A still form is the still form OF a liquid: without "fluid" it is a row
+    // that forgot the flag, so it is refused rather than resolved to something.
+    CHECK(must_fail(table_with_rows(", {\"id\": 2, \"block\": \"water\", \"still\": \"surface_water\"}"))
+              .find("\"still\" only means something with \"fluid\"") != std::string::npos);
+    CHECK(must_fail(table_with_rows(", {\"id\": 2, \"block\": \"water\", \"fluid\": true, \"still\": 5}"))
+              .find("\"still\" must be a block name") != std::string::npos);
+
     // Errors point at the row they came from.
     CHECK(must_fail(table_with_rows(", {\"id\": 77, \"blok\": \"stone\"}")).find("id 77") !=
           std::string::npos);
+}
+
+TEST_CASE("mc palette: a liquid carries the still form a paste falls back to") {
+    const McPalette palette = must_load(R"({
+      "blocks": [
+        { "id": 8, "block": "water", "fluid": true },
+        { "id": 9, "block": "water", "fluid": true, "still": "surface_water" },
+        { "id": 35, "block": "water", "fluid": true, "still": "surface_water", "substitute": true }
+      ],
+      "names": {
+        "minecraft:lava": { "block": "lava", "fluid": true, "still": "surface_lava" }
+      }
+    })");
+
+    CHECK(palette.resolve(9, 0).still_name == "surface_water");
+    CHECK(palette.resolve(9, 0).fluid);
+    CHECK(palette.resolve(35, 0).still_name == "surface_water");
+    // A liquid with no still form says so by leaving it empty, which is what the
+    // planner reads as "leave this cell out when fluids are off".
+    CHECK(palette.resolve(8, 0).still_name.empty());
+
+    VoxelEngine::schematic::BlockState named;
+    named.id = 0;
+    named.name = "minecraft:lava";
+    CHECK(palette.resolve(named).still_name == "surface_lava");
+
+    // The still form is a target like any other, so it is enumerated for the
+    // caller that checks every name against the block list.
+    const std::vector<std::string> names = target_names(palette);
+    CHECK(std::find(names.begin(), names.end(), "surface_water") != names.end());
+    CHECK(std::find(names.begin(), names.end(), "surface_lava") != names.end());
 }
 
 TEST_CASE("mc palette: comment keys are ignored everywhere") {

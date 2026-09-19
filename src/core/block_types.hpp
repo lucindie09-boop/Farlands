@@ -433,12 +433,19 @@ namespace BlockIDs {
     constexpr BlockID OAK_STUMP      = 43;
     constexpr BlockID OAK_STUMP_TOP   = 44;
     constexpr BlockID OAK_STUMP_DOUBLE = 45;
+    // Liquids a build file brought with it, left still: the same substances as
+    // water/lava/acid with no fluid state, so the simulation never touches them.
+    // Their ids are their position in data/block_definitions.json, which is why
+    // they sit at the end of it.
+    constexpr BlockID SURFACE_LAVA   = 141;
+    constexpr BlockID SURFACE_ACID   = 142;
 }
 
 // BlockType::draws_fluid_surface, out of line because the cell it names —
 // generated ocean water — is identified by id.
 inline bool BlockType::draws_fluid_surface() const noexcept {
-    return is_fluid_state() || id == BlockIDs::SURFACE_WATER;
+    return is_fluid_state() || id == BlockIDs::SURFACE_WATER ||
+           id == BlockIDs::SURFACE_LAVA || id == BlockIDs::SURFACE_ACID;
 }
 
 } // namespace VoxelEngine

@@ -275,6 +275,7 @@ Dictionary VoxelEngineController::plan_counters(const schematic::PastePlan& plan
     out["planned"] = static_cast<int64_t>(plan.cells.size());
     out["placed"] = static_cast<int64_t>(plan.stats.placed);
     out["substituted"] = static_cast<int64_t>(plan.stats.substituted);
+    out["stilled"] = static_cast<int64_t>(plan.stats.stilled);
     out["declined_fluid"] = static_cast<int64_t>(plan.stats.declined_fluid);
     out["declined_substitute"] = static_cast<int64_t>(plan.stats.declined_substitute);
     out["skipped"] = static_cast<int64_t>(plan.stats.skipped);

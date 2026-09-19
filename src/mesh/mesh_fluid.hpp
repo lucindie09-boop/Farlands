@@ -55,14 +55,18 @@ namespace mesh_fluid {
 // liquid at all. Two cells of the same family are one surface: the face between
 // them is culled at any level and their corner heights average together.
 //
-// A block that declares a fluid state has that kind. The one liquid that
-// deliberately does not — generated ocean water (`surface_water`), kept out of
-// the fluid state table so the sea never ticks — is nevertheless water to look
-// at, so it shares water's family. Without that the sea and a poured bucket
-// would seam against each other and the shoreline would have no slope.
+// A block that declares a fluid state has that kind. The liquids that
+// deliberately do not — the `surface_*` family, kept out of the fluid state
+// table so the sea never ticks and so a pasted lake lands still — are
+// nevertheless water/lava/acid to look at, so they share their substance's
+// family. Without that the sea and a poured bucket would seam against each other
+// and the shoreline would have no slope, and a pasted lake would be drawn as
+// three hundred separate cells of flat water.
 [[nodiscard]] inline FluidKind family_of(BlockID id, const BlockType& type) noexcept {
     if (type.fluid_kind != FluidKind::None) return type.fluid_kind;
     if (id == BlockIDs::SURFACE_WATER) return FluidKind::Water;
+    if (id == BlockIDs::SURFACE_LAVA) return FluidKind::Lava;
+    if (id == BlockIDs::SURFACE_ACID) return FluidKind::Acid;
     return FluidKind::None;
 }
 

@@ -193,6 +193,9 @@ bool parse_name_row(const std::string& key, const JsonValue& value, NameRow& row
             } else if (member_key == "fluid") {
                 if (!member_value.is_bool()) return fail(error, where + "\"fluid\" must be true or false");
                 row.fluid = member_value.as_bool();
+            } else if (member_key == "still") {
+                if (!member_value.is_string()) return fail(error, where + "\"still\" must be a block name");
+                row.still = member_value.as_string();
             } else if (member_key == "note") {
                 if (!member_value.is_string()) return fail(error, where + "\"note\" must be a string");
                 row.note = member_value.as_string();
@@ -228,6 +231,11 @@ bool parse_name_row(const std::string& key, const JsonValue& value, NameRow& row
     }
     if (row.skip && (!row.block.empty() || row.shape != ShapeKind::None)) {
         return fail(error, where + "a row cannot both skip and name a target");
+    }
+    // A still form is the still form OF a liquid, so it is meaningless (and
+    // almost certainly a row whose "fluid" was forgotten) without one.
+    if (!row.still.empty() && !row.fluid) {
+        return fail(error, where + "\"still\" only means something with \"fluid\"");
     }
     return true;
 }
@@ -497,6 +505,13 @@ bool McPalette::load(const std::string& json_text, std::string* error) {
                 row.fluid = value.as_bool();
                 continue;
             }
+            if (key == "still") {
+                if (!value.is_string()) {
+                    return fail_row(error, row.id, "\"still\" must be a block name");
+                }
+                row.still = value.as_string();
+                continue;
+            }
             // An unrecognised key is nearly always a typo ("blok", "variant"),
             // and silently ignoring it would drop the mapping it was meant to
             // make, so it is an error.
@@ -514,6 +529,9 @@ bool McPalette::load(const std::string& json_text, std::string* error) {
         }
         if (row.block.empty() && row.variants.empty() && !row.skip) {
             return fail_row(error, row.id, "a row needs \"block\", \"variants\" or \"skip\"");
+        }
+        if (!row.still.empty() && !row.fluid) {
+            return fail_row(error, row.id, "\"still\" only means something with \"fluid\"");
         }
         by_id_.emplace(row.id, rows_.size());
         rows_.push_back(std::move(row));
@@ -546,6 +564,7 @@ PaletteTarget McPalette::resolve(uint16_t id, uint8_t data) const {
     target.note = row->note;
     target.substitute = row->substitute;
     target.fluid = row->fluid;
+    target.still_name = row->still;
     target.source = std::to_string(id);
 
     for (const auto& variant : row->variants) {
@@ -636,6 +655,7 @@ PaletteTarget McPalette::apply_name_row(const NameRow& row, const std::string& c
     }
     target.substitute = row.substitute || species_substitute;
     target.fluid = row.fluid;
+    target.still_name = row.still;
     if (!species_note.empty()) {
         target.note = row.note.empty() ? species_note : (row.note + "; " + species_note);
     }
@@ -668,6 +688,9 @@ std::vector<std::string> target_names(const McPalette& palette) {
         const PaletteRow* row = palette.row_for(id);
         if (row == nullptr) continue;
         if (!row->block.empty()) unique.insert(row->block);
+        // The still form is a target like any other: a paste places it, so a
+        // name typo in it has to be caught the same way.
+        if (!row->still.empty()) unique.insert(row->still);
         for (const auto& variant : row->variants) {
             if (!variant.second.empty()) unique.insert(variant.second);
         }
@@ -691,6 +714,16 @@ std::vector<std::string> target_names(const McPalette& palette) {
             if (!expand_template(row.shape == ShapeKind::None ? row.block : row.family, capture, palette,
                                  expanded, substitute, note)) {
                 continue;
+            }
+            if (!row.still.empty()) {
+                // Expanded like any other target, so a `{wood}` liquid row (there
+                // is none yet) works the same way its block does.
+                std::string still;
+                bool still_substitute = false;
+                std::string still_note;
+                if (expand_template(row.still, capture, palette, still, still_substitute, still_note)) {
+                    unique.insert(std::move(still));
+                }
             }
             if (row.shape == ShapeKind::None) {
                 unique.insert(std::move(expanded));

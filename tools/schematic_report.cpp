@@ -359,7 +359,7 @@ int main(int argc, char** argv) {
     }
 
     size_t mapped_cells = 0, substituted_cells = 0, skipped_cells = 0, unknown_cells = 0,
-           fluid_cells = 0;
+           fluid_cells = 0, fluid_without_still_cells = 0;
     size_t mapped_states = 0, substituted_states = 0, skipped_states = 0, unknown_states = 0;
     std::vector<FailedPastRow> not_placed;
     for (const Resolved& entry : resolved) {
@@ -391,7 +391,12 @@ int main(int argc, char** argv) {
             mapped_cells += entry.count;
             ++mapped_states;
         }
-        if (entry.target.fluid) fluid_cells += entry.count;
+        if (entry.target.fluid) {
+            fluid_cells += entry.count;
+            // A liquid with no still form is the one kind of cell a paste without
+            // `fluids` leaves out entirely, so it is the one worth calling out.
+            if (entry.target.still_name.empty()) fluid_without_still_cells += entry.count;
+        }
     }
 
     std::sort(resolved.begin(), resolved.end(), [](const Resolved& a, const Resolved& b) {
@@ -421,6 +426,15 @@ int main(int argc, char** argv) {
             std::printf("   %s%s%s", entry.target.block_name.c_str(),
                         entry.target.substitute ? "*" : "",
                         entry.target.fluid ? "  (liquid)" : "");
+            // Both forms are worth printing: which one lands is the paste's
+            // `fluids` word, and a missing still form is why a liquid cell would
+            // be left out at all.
+            if (entry.target.fluid) {
+                std::printf("  -> %s",
+                            entry.target.still_name.empty() ? "(no still form: left out)"
+                                                            : (entry.target.still_name + " when still")
+                                                                .c_str());
+            }
             std::printf("\n");
         }
     }
@@ -455,8 +469,14 @@ int main(int argc, char** argv) {
                     " %zu unknown, of %zu\n",
                     mapped_states, substituted_states, skipped_states, unknown_states, states_total);
         if (fluid_cells > 0) {
-            std::printf("            %zu cells are liquid; they only land with fluids enabled\n",
+            std::printf("            %zu cells are liquid: they land STILL (a lake that does not run)"
+                        " unless the paste is given fluids\n",
                         fluid_cells);
+        }
+        if (fluid_without_still_cells > 0) {
+            std::printf("            %zu of those have no still form in the table and would be left out"
+                        " altogether\n",
+                        fluid_without_still_cells);
         }
 
         if (!not_placed.empty()) {
@@ -521,10 +541,10 @@ int main(int argc, char** argv) {
                                    : (std::to_string(plan_reps) + " runs, best of, avg " +
                                       std::to_string(total / plan_reps).substr(0, 5) + " ms")
                                          .c_str());
-        std::printf("            placed %zu, substituted %zu, skipped %zu, unknown %zu,"
-                    " declined %zu, air ignored %zu\n",
-                    plan.stats.placed, plan.stats.substituted, plan.stats.skipped,
-                    plan.stats.unknown,
+        std::printf("            placed %zu, substituted %zu, stilled %zu, skipped %zu,"
+                    " unknown %zu, declined %zu, air ignored %zu\n",
+                    plan.stats.placed, plan.stats.substituted, plan.stats.stilled,
+                    plan.stats.skipped, plan.stats.unknown,
                     plan.stats.declined_fluid + plan.stats.declined_substitute,
                     plan.stats.air_ignored);
     }

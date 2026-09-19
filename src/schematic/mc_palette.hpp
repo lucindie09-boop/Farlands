@@ -18,6 +18,10 @@
 //   "skip"     — the row has no block here and is dropped,
 //   "substitute" — the target is a stand-in, not the same block,
 //   "fluid"    — the target is a liquid, which a paste has to handle specially,
+//   "still"    — the same substance with no fluid state, which is what a paste
+//                places when it is not asked for liquids. Required alongside
+//                "fluid" for a liquid that should land at all either way; a
+//                liquid without one is left out when fluids are off,
 //   "note"     — free text for whoever reads the file (and the report).
 //
 // Palette files name their blocks outright — "minecraft:oak_stairs", with
@@ -82,6 +86,10 @@ struct PaletteTarget {
     bool substitute = false;
     // The target is a liquid.
     bool fluid = false;
+    // The still form of that liquid, when the table names one: what a paste
+    // places instead of the live source unless it is asked for liquids. Empty
+    // means there is nothing still to put there, so the cell is left out.
+    std::string still_name;
     // The mapping came from a per-data-value override rather than the row's
     // default, which is what tells an oriented block from a plain one.
     bool from_variant = false;
@@ -106,6 +114,7 @@ struct PaletteRow {
     bool skip = false;
     bool substitute = false;
     bool fluid = false;
+    std::string still;
     std::string note;
 };
 
@@ -128,6 +137,7 @@ struct NameRow {
     bool skip = false;
     bool substitute = false;
     bool fluid = false;
+    std::string still;
     std::string note;
 };
 

@@ -92,20 +92,34 @@ bool plan_paste(const SchematicData& file, const McPalette& palette,
                     ++out.stats.skipped;
                     continue;
                 }
-                // A stand-in that is also a liquid has to clear both gates: it is
-                // still a stand-in, and it still flows.
-                if (target->fluid && !options.fluids) {
+                // A liquid lands either way; `fluids` chooses which form. The
+                // still form is the same substance with no fluid state, so it is
+                // drawn and collided as the liquid it is without ever ticking —
+                // which is what keeps a pasted lake from running downhill. A
+                // liquid the table gives no still form is the only one a paste
+                // without `fluids` leaves out.
+                const bool still = target->fluid && !options.fluids;
+                if (still && target->still_name.empty()) {
                     ++out.stats.declined_fluid;
                     continue;
                 }
+                // A stand-in that is also a liquid has to clear both gates: it is
+                // still a stand-in, and it still lands as the liquid it is.
                 if (target->substitute && !options.substitutes) {
                     ++out.stats.declined_substitute;
                     continue;
                 }
+                // A shape row names no block of its own, so a still form (also
+                // none, for every row that has one) is simply not asked for.
+                const std::string& want = still ? target->still_name : target->block_name;
 
                 BlockID block = BlockIDs::AIR;
                 if (!file_air) {
-                    const auto found = targets.find(target->block_name);
+                    if (want.empty()) {
+                        ++out.stats.unresolved;
+                        continue;
+                    }
+                    const auto found = targets.find(want);
                     if (found == targets.end()) {
                         ++out.stats.unresolved;
                         continue;
@@ -120,7 +134,9 @@ bool plan_paste(const SchematicData& file, const McPalette& palette,
                 cell.block = block;
                 out.cells.push_back(cell);
 
-                if (target->substitute) {
+                if (still) {
+                    ++out.stats.stilled;
+                } else if (target->substitute) {
                     ++out.stats.substituted;
                 } else {
                     ++out.stats.placed;

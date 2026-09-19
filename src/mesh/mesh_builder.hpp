@@ -413,6 +413,8 @@ GreedyVerticalStatsSnapshot greedy_v_stats_local{};
         switch (id) {
             case BlockIDs::AIR:
             case BlockIDs::SURFACE_WATER:
+            case BlockIDs::SURFACE_LAVA:
+            case BlockIDs::SURFACE_ACID:
             case BlockIDs::WATER:
             case BlockIDs::LEAVES:
             case BlockIDs::LIGHT_BLOCK:

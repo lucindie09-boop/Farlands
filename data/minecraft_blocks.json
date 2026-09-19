@@ -15,6 +15,9 @@
     "  skip        true when we have no block for it and it is dropped",
     "  substitute  true when the target is a stand-in, not the same block",
     "  fluid       true when the target is a liquid",
+    "  still       the same substance with no fluid state, placed instead when a",
+    "              paste is not asked for liquids (see \"fluids\" in the \"names\"",
+    "              comment below). Without it a liquid cell is left out entirely",
     "  note        why, for whoever reads this next",
     "",
     "Policy, so the entries below are not arbitrary: a full opaque cube we do not",
@@ -114,6 +117,11 @@
       "skipped, because inventing geometry reads worse than a gap and the report",
       "lists every skipped state with its count.",
       "",
+      "Liquids carry \"still\" as well as \"block\": a paste places that one by",
+      "default, so a build's water arrives as the still water the sea is made of",
+      "rather than immediately running downhill, and /paste <file> fluids is what",
+      "asks for the live source instead.",
+      "",
       "A \"shape\" row is not a block: it names the family to use and reads the",
       "state's properties to pick the member, so one line covers all eight",
       "orientations of a stair. That is also the one place to look when a pasted",
@@ -167,6 +175,9 @@
     "minecraft:smooth_red_sandstone":   { "block": "sand", "substitute": true, "note": "sandstone reads as sand here" },
     "minecraft:cut_red_sandstone":      { "block": "sand", "substitute": true, "note": "sandstone reads as sand here" },
     "minecraft:chiseled_red_sandstone": { "block": "sand", "substitute": true, "note": "sandstone reads as sand here" },
+
+    "minecraft:water":                  { "block": "water", "fluid": true, "still": "surface_water", "note": "a build's water: still by default, live with `fluids`" },
+    "minecraft:lava":                   { "block": "lava", "fluid": true, "still": "surface_lava", "note": "a build's lava: still by default, live with `fluids`" },
 
     "minecraft:dirt":                   "dirt",
     "minecraft:coarse_dirt":            "dirt",
@@ -339,10 +350,10 @@
       "note": "birch/jungle/acacia planks become oak, dark oak becomes pine; we have four woods"
     },
 
-    { "id": 8, "block": "water", "fluid": true, "note": "flowing; a paste may decline fluids" },
-    { "id": 9, "block": "water", "fluid": true },
-    { "id": 10, "block": "lava", "fluid": true, "note": "flowing" },
-    { "id": 11, "block": "lava", "fluid": true },
+    { "id": 8, "block": "water", "fluid": true, "still": "surface_water", "note": "flowing; lands as still water unless the paste asks for fluids" },
+    { "id": 9, "block": "water", "fluid": true, "still": "surface_water" },
+    { "id": 10, "block": "lava", "fluid": true, "still": "surface_lava", "note": "flowing" },
+    { "id": 11, "block": "lava", "fluid": true, "still": "surface_lava" },
 
     { "id": 12, "block": "sand", "note": "data 1 is red sand" },
     { "id": 13, "block": "gravel" },

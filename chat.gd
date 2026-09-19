@@ -725,6 +725,12 @@ func _run_command(raw: String):
 			_add_message("  %d cells written, %d stand-ins, %d chunks" % [int(result.get("cells", 0)), int(result.get("substituted", 0)), int(result.get("chunks", 0))], COLOR_SYSTEM)
 			if int(result.get("covered", 0)) > 0:
 				_add_message("  %d cells left alone (gaps only)" % int(result.get("covered", 0)), COLOR_SYSTEM)
+			# Liquids land either way: still by default (the block the sea is made
+			# of, which never ticks, so a pasted lake does not run downhill), or as
+			# the live source the `fluids` word asks for.
+			var stilled := int(result.get("stilled", 0))
+			if stilled > 0:
+				_add_message("  %d liquid cells placed still (add \"fluids\" to place the running kind)" % stilled, COLOR_SYSTEM)
 			# Cells whose chunk was not loaded are not dropped: the engine asks for
 			# those chunks (ahead of the normal streaming, which would never
 			# generate the sky above a build) and writes the cells as they arrive.

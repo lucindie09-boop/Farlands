@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <unordered_set>
 
 #include "debug/perf_report.hpp"
@@ -361,6 +362,70 @@ Dictionary VoxelEngineController::inspect_schematic(const PackedByteArray& bytes
     for (const Variant& key : counters.keys()) result[key] = counters[key];
     if (!plan.empty()) {
         // Local to the file, since inspection has no anchor.
+        result["min"] = Vector3i(plan.min_x, plan.min_y, plan.min_z);
+        result["max"] = Vector3i(plan.max_x, plan.max_y, plan.max_z);
+    }
+    return result;
+}
+
+Dictionary VoxelEngineController::preview_schematic(const PackedByteArray& bytes, int32_t origin_x,
+                                                    int32_t origin_y, int32_t origin_z,
+                                                    const Dictionary& options) {
+    Dictionary result;
+    result["ok"] = false;
+
+    schematic::PasteOptions paste_options;
+    schematic::SchematicData file;
+    schematic::PastePlan plan;
+    std::string error;
+    if (!decode_and_plan(bytes, options, origin_x, origin_y, origin_z, paste_options, file, plan,
+                         error)) {
+        result["error"] = String(error.c_str());
+        return result;
+    }
+
+    // How many cells the caller wants to draw, and how many it gets. The cap is
+    // generous rather than tight: one MultiMesh can hold a few hundred thousand
+    // cube instances, and a preview that silently stops at some number would be
+    // worse than one that draws a strided ghost.
+    int64_t wanted = 20000;
+    if (options.has("preview_cells")) {
+        wanted = static_cast<int64_t>(options.get("preview_cells", 20000));
+    }
+    if (wanted < 0) wanted = 0;
+    if (wanted > 400000) wanted = 400000;
+    const size_t cap = static_cast<size_t>(wanted);
+
+    const size_t total = plan.cells.size();
+    const size_t stride = (cap == 0 || total <= cap) ? 1 : (total + cap - 1) / cap;
+    size_t returned = 0;
+    for (size_t i = 0; i < total; i += stride) ++returned;
+
+    PackedByteArray cells;
+    if (returned > 0) {
+        cells.resize(static_cast<int32_t>(returned * 4 * sizeof(int32_t)));
+        uint8_t* out = cells.ptrw();
+        size_t at = 0;
+        for (size_t i = 0; i < total; i += stride) {
+            const schematic::PastePlan::Cell& cell = plan.cells[i];
+            const int32_t values[4] = {cell.x, cell.y, cell.z, static_cast<int32_t>(cell.block)};
+            std::memcpy(out + at, values, sizeof(values));
+            at += sizeof(values);
+        }
+    }
+
+    result["ok"] = true;
+    result["format"] = String(schematic::block_file_format_name(file.format));
+    result["file_width"] = file.width;
+    result["file_height"] = file.height;
+    result["file_length"] = file.length;
+    const Dictionary counters = plan_counters(plan);
+    for (const Variant& key : counters.keys()) result[key] = counters[key];
+    result["cells"] = cells;
+    result["cells_returned"] = static_cast<int64_t>(returned);
+    result["cells_sampled"] = stride > 1;
+    if (!plan.empty()) {
+        // World coordinates of the whole volume, so a preview can box it.
         result["min"] = Vector3i(plan.min_x, plan.min_y, plan.min_z);
         result["max"] = Vector3i(plan.max_x, plan.max_y, plan.max_z);
     }

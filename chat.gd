@@ -53,39 +53,16 @@ func _chat_scale() -> float:
 # schematics folder (the project's, then the user's), then in the project and user
 # roots. A bare name is tried with the extension left off, since both formats are
 # recognised by their contents rather than their name.
-const SCHEMATIC_DIRS := ["res://schematics/", "user://schematics/"]
-const SCHEMATIC_EXTENSIONS := [".schematic", ".schem", ".nbt"]
+# Where build files live and how a name opens them is shared with the wand's
+# menu, so it lives in one place (schematic_files.gd) rather than here.
+const SchematicFiles := preload("res://schematic_files.gd")
 
-func _resolve_paste_path(name: String) -> String:
-	if FileAccess.file_exists(name):
-		return name
-	var candidates: Array[String] = [name]
-	if not name.get_extension().to_lower() in ["schematic", "schem", "nbt"]:
-		for extension in SCHEMATIC_EXTENSIONS:
-			candidates.append(name + extension)
-	for candidate in candidates:
-		for prefix in SCHEMATIC_DIRS + ["res://", "user://"]:
-			if FileAccess.file_exists(prefix + candidate):
-				return prefix + candidate
-	return ""
+func _resolve_paste_path(file_name: String) -> String:
+	return SchematicFiles.resolve(file_name)
 
 # The build files the folders hold, for /paste list and for tab completion.
 func _list_schematic_files() -> Array[String]:
-	var found: Array[String] = []
-	for prefix in SCHEMATIC_DIRS + ["res://", "user://"]:
-		var dir := DirAccess.open(prefix)
-		if dir == null:
-			continue
-		dir.list_dir_begin()
-		var entry := dir.get_next()
-		while entry != "":
-			if not dir.current_is_dir() and entry.get_extension().to_lower() in ["schematic", "schem", "nbt"]:
-				if not entry in found:
-					found.append(entry)
-			entry = dir.get_next()
-		dir.list_dir_end()
-	found.sort()
-	return found
+	return SchematicFiles.list()
 
 func _apply_input_layout():
 	var sc := _chat_scale()

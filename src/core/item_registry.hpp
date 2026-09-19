@@ -53,13 +53,17 @@ struct ItemLight {
 // name that does not resolve is a data mistake and has to be visible at startup
 // rather than silently doing nothing the first time someone right-clicks.
 struct ItemUseAction {
-    std::string kind;        // "pour"/"fill", or empty for an item with no in-world use
+    std::string kind;        // "pour"/"fill"/"wand", or empty for an item with no in-world use
     std::string block_name;  // the target as written in items.json
     BlockID block = 0;       // resolved block id; AIR = the name did not resolve
 
     [[nodiscard]] bool has_use() const noexcept { return !kind.empty(); }
     [[nodiscard]] bool is_pour() const noexcept { return kind == "pour"; }
     [[nodiscard]] bool is_fill() const noexcept { return kind == "fill"; }
+    // A wand does not touch the world itself: it is a tool whose clicks are
+    // answered by the game's own layer (see PlayerController's wand signals),
+    // because what it does is choose a thing and then place it where you look.
+    [[nodiscard]] bool is_wand() const noexcept { return kind == "wand"; }
 };
 
 // Non-placeable inventory objects (sticks, tools, ...) living in their own ID

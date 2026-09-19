@@ -69,6 +69,16 @@ public:
     // what tells a caller the file's size without a throwaway paste.
     godot::Dictionary inspect_schematic(const godot::PackedByteArray& bytes,
                                         const godot::Dictionary& options);
+    // The same plan, anchored, plus the cells a preview has to draw: a flat
+    // PackedByteArray of four int32 per cell (x, y, z, block id), stride-sampled
+    // down to `preview_cells` so a 900k-cell build is still one buffer a frame
+    // can upload. Nothing is written; the counts are the WHOLE plan's, so a
+    // preview can say "showing 20,000 of 937,143 cells" without lying. Cell
+    // sampling is even (every Nth cell in the file's own order), which is what
+    // keeps the sampled shape readable as a ghost of the real one.
+    godot::Dictionary preview_schematic(const godot::PackedByteArray& bytes, int32_t origin_x,
+                                        int32_t origin_y, int32_t origin_z,
+                                        const godot::Dictionary& options);
     // Puts the last paste back through the same writer. Answers "ok" false when
     // there is nothing to undo. A paste still waiting on chunks is abandoned
     // first, and whatever did land is reverted with it.

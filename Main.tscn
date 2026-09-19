@@ -16,6 +16,7 @@
 [ext_resource type="Script" uid="uid://cs38nfukfohid" path="res://player_model.gd" id="15_playerskin"]
 [ext_resource type="Script" uid="uid://ceyf2rk1ue46s" path="res://block_break_overlay.gd" id="16_breakoverlay"]
 [ext_resource type="Script" uid="uid://dbeyx08uuwwe7" path="res://viewmodel.gd" id="18_viewmodel"]
+[ext_resource type="Script" uid="uid://c0wgpq0dxpukx" path="res://wand.gd" id="19_wand"]
 
 [sub_resource type="Environment" id="Environment_uu6xs"]
 background_mode = 2
@@ -118,6 +119,9 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("7_chat")
+
+[node name="Wand" type="Node" parent="HUD" unique_id=135246795]
+script = ExtResource("19_wand")
 
 [node name="SettingsMenu" type="Control" parent="HUD" unique_id=135246791]
 layout_mode = 3

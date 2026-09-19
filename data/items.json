@@ -83,10 +83,6 @@
 			"name": "iron_ingot",
 			"texture": "iron_ingot",
 			"pose": "item2"
-		},
-		{
-			"name": "wand",
-			"texture": "wand"
-		}
+		},{"name": "wand", "texture": "wand", "use": {"kind": "wand"}}
 	]
 }

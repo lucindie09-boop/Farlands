@@ -110,6 +110,13 @@ public:
     // write_air, max_cells.
     godot::Dictionary inspect_schematic(const godot::PackedByteArray& bytes,
                                         const godot::Dictionary& options);
+    // The same plan anchored at a world position, plus the cells to draw it with:
+    // four int32 per cell (x, y, z, block) in `cells`, sampled down to
+    // options["preview_cells"]. Writes nothing — this is what the wand's ghost is
+    // built from, and what a menu uses to say how big the paste would be.
+    godot::Dictionary preview_schematic(const godot::PackedByteArray& bytes, int32_t origin_x,
+                                        int32_t origin_y, int32_t origin_z,
+                                        const godot::Dictionary& options);
     godot::Dictionary paste_schematic(const godot::PackedByteArray& bytes, int32_t origin_x,
                                       int32_t origin_y, int32_t origin_z,
                                       const godot::Dictionary& options);

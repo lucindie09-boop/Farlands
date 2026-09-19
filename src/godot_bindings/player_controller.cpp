@@ -125,6 +125,10 @@ void PlayerController::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_chat_open", "open"), &PlayerController::set_chat_open);
     ClassDB::bind_method(D_METHOD("is_chat_open"), &PlayerController::is_chat_open);
     ClassDB::bind_method(D_METHOD("set_settings_open", "open"), &PlayerController::set_settings_open);
+    ClassDB::bind_method(D_METHOD("set_wand_menu_open", "open"),
+                         &PlayerController::set_wand_menu_open);
+    ClassDB::bind_method(D_METHOD("is_wand_held"), &PlayerController::wand_held);
+    ClassDB::bind_method(D_METHOD("is_wand_menu_open"), &PlayerController::is_wand_menu_open);
     ClassDB::bind_method(D_METHOD("is_settings_open"), &PlayerController::is_settings_open);
     ClassDB::bind_method(D_METHOD("teleport_to", "pos"), &PlayerController::teleport_to);
     ClassDB::bind_method(D_METHOD("set_fly_mode", "on"), &PlayerController::set_fly_mode);
@@ -156,6 +160,14 @@ void PlayerController::_bind_methods() {
     ADD_SIGNAL(MethodInfo("block_placed"));
     ADD_SIGNAL(MethodInfo("died"));
     ADD_SIGNAL(MethodInfo("respawned"));
+    // A held wand's clicks: middle opens its menu, right works the tool in the
+    // world, left commits what the tool is showing. The wand never reaches the
+    // placement path (its item id is above the block registry, so it could not
+    // place a block anyway), and these are emitted instead of breaking or
+    // placing so exactly one thing answers a click while it is held.
+    ADD_SIGNAL(MethodInfo("wand_menu"));
+    ADD_SIGNAL(MethodInfo("wand_use"));
+    ADD_SIGNAL(MethodInfo("wand_confirm"));
 
     ADD_PROPERTY(PropertyInfo(Variant::INT, "health", PROPERTY_HINT_RANGE, "0,20,1"),
                  "set_health", "get_health");
@@ -293,8 +305,10 @@ void PlayerController::_process(double delta) {
     if (fly_mode_) {
         Input* input = Input::get_singleton();
         Vector3 input_dir;
-        // Suppress movement while a UI overlay (inventory/table/chat/settings) is open
-        if (input && !inventory_open_ && !table_menu_open_ && !chat_open_ && !settings_open_) {
+        // Suppress movement while a UI overlay (inventory/table/chat/settings/
+        // the wand's menu) is open
+        if (input && !inventory_open_ && !table_menu_open_ && !chat_open_ && !settings_open_ &&
+            !wand_menu_open_) {
             Basis basis = get_basis();
             if (input->is_action_pressed("move_forward")) input_dir -= basis.get_column(2);
             if (input->is_action_pressed("move_back"))    input_dir += basis.get_column(2);
@@ -315,8 +329,10 @@ void PlayerController::_process(double delta) {
 
     PlayerInput pi;
     Input* input = Input::get_singleton();
-    // Suppress movement while a UI overlay (inventory/table/chat/settings) is open
-    if (input && !inventory_open_ && !table_menu_open_ && !chat_open_ && !settings_open_) {
+    // Suppress movement while a UI overlay (inventory/table/chat/settings/the
+    // wand's menu) is open
+    if (input && !inventory_open_ && !table_menu_open_ && !chat_open_ && !settings_open_ &&
+        !wand_menu_open_) {
         Basis basis = get_basis();
         pi.move_forward_held = input->is_action_pressed("move_forward");
         if (input->is_action_pressed("move_forward")) pi.wish_direction -= basis.get_column(2);
@@ -395,7 +411,7 @@ void PlayerController::_input(const Ref<InputEvent>& p_event) {
     }
 
     // Skip mouse mode switching when inventory, table menu, chat or settings is open
-    if (inventory_open_ || table_menu_open_ || chat_open_ || settings_open_) {
+    if (inventory_open_ || table_menu_open_ || chat_open_ || settings_open_ || wand_menu_open_) {
         return;
     }
 
@@ -429,14 +445,26 @@ void PlayerController::_input(const Ref<InputEvent>& p_event) {
     // Hold-to-break: progress accumulates in _process via update_break_progress;
     // the LMB click here only re-captures the mouse (handled above) and punches
     // the pose-clone dummy when it's under the crosshair (Minecraft attack).
+    // A held wand takes the click instead — its left button commits whatever it
+    // is showing, and it never mines.
     if (p_event->is_action_pressed("mouse_click_left")) {
-        if (try_punch_dummy()) {
+        if (wand_held()) {
+            emit_signal("wand_confirm");
+        } else if (try_punch_dummy()) {
             punch_cooldown_ = kPunchInterval;
         }
     }
 
     if (p_event->is_action_pressed("mouse_click_right")) {
-        use_item();
+        if (wand_held()) {
+            emit_signal("wand_use");
+        } else {
+            use_item();
+        }
+    }
+
+    if (p_event->is_action_pressed("wand_menu") && wand_held()) {
+        emit_signal("wand_menu");
     }
 
     if (p_event->is_action_pressed("fly_toggle")) {
@@ -666,8 +694,23 @@ void PlayerController::break_block() {
     }
 }
 
+bool PlayerController::wand_held() const {
+    const VoxelEngine::ItemUseAction* use =
+        VoxelEngine::ItemRegistry::get_instance().get_item_use(inventory_.get_selected_block());
+    return use != nullptr && use->is_wand();
+}
+
 void PlayerController::update_break_progress(float delta) {
     if (!chunk_manager_) {
+        break_target_valid_ = false;
+        break_progress_ = 0.0f;
+        return;
+    }
+
+    // A wand is not a pickaxe: nothing accumulates while one is held, so
+    // right-clicking a build file into place cannot chew a hole in whatever is
+    // behind it at the same time.
+    if (wand_held()) {
         break_target_valid_ = false;
         break_progress_ = 0.0f;
         return;
@@ -676,7 +719,7 @@ void PlayerController::update_break_progress(float delta) {
     Input* input = Input::get_singleton();
     const bool mouse_captured = input && input->get_mouse_mode() == Input::MOUSE_MODE_CAPTURED;
     const bool held = input && input->is_action_pressed("mouse_click_left");
-    const bool ui_blocked = inventory_open_ || table_menu_open_ || chat_open_ || settings_open_;
+    const bool ui_blocked = inventory_open_ || table_menu_open_ || chat_open_ || settings_open_ || wand_menu_open_;
 
     // When the dummy is under the crosshair (closer than the block), LMB keeps
     // punching it at the vanilla swing interval instead of mining (vanilla: the
@@ -967,6 +1010,12 @@ void PlayerController::use_item() {
     const VoxelEngine::ItemUseAction* use =
         VoxelEngine::ItemRegistry::get_instance().get_item_use(held);
     if (use != nullptr && use->has_use()) {
+        // A wand's use is a signal, not a world edit: it is answered by the
+        // layer that knows which function and which build file are selected.
+        if (use->is_wand()) {
+            emit_signal("wand_use");
+            return;
+        }
         if (use->is_pour()) {
             pour_fluid_at_aim(use->block);
         } else if (use->is_fill()) {
@@ -1386,6 +1435,15 @@ bool PlayerController::is_chat_open() const {
     return chat_open_;
 }
 
+void PlayerController::set_wand_menu_open(bool open) {
+    wand_menu_open_ = open;
+    update_mouse_mode();
+}
+
+bool PlayerController::is_wand_menu_open() const {
+    return wand_menu_open_;
+}
+
 void PlayerController::set_settings_open(bool open) {
     settings_open_ = open;
     update_mouse_mode();
@@ -1398,7 +1456,7 @@ bool PlayerController::is_settings_open() const {
 void PlayerController::update_mouse_mode() {
     Input* input = Input::get_singleton();
     if (!input) return;
-    if (inventory_open_ || table_menu_open_ || chat_open_ || settings_open_ || dead_) {
+    if (inventory_open_ || table_menu_open_ || chat_open_ || settings_open_ || wand_menu_open_ || dead_) {
         input->set_mouse_mode(Input::MOUSE_MODE_VISIBLE);
     } else {
         input->set_mouse_mode(Input::MOUSE_MODE_CAPTURED);

@@ -38,6 +38,9 @@ public:
     // Right-click entry point: a held item with a "use" action (data/items.json)
     // does that instead of placing, anything else falls through to place_block().
     void use_item();
+    // True while the selected slot holds a wand: its clicks become wand_use /
+    // wand_confirm / wand_menu signals instead of placing, mining or punching.
+    [[nodiscard]] bool wand_held() const;
     int get_selected_block() const;
     void set_selected_block(int block_id);
     int get_block_edit_counter() const;
@@ -82,6 +85,10 @@ public:
     // Settings menu API
     void set_settings_open(bool open);
     bool is_settings_open() const;
+    // The wand's menu is a modal UI like the others: the mouse is released, the
+    // player stops walking and clicks belong to the menu, not the world.
+    void set_wand_menu_open(bool open);
+    bool is_wand_menu_open() const;
     
     void teleport_to(const godot::Vector3& pos);
     void set_fly_mode(bool on);
@@ -164,6 +171,7 @@ private:
     bool table_menu_open_ = false;
     bool chat_open_ = false;
     bool settings_open_ = false;
+    bool wand_menu_open_ = false;
     bool inventory_saved_ = false;
     float rendered_eye_height_ = 1.62f;
     int block_edit_counter_ = 0;

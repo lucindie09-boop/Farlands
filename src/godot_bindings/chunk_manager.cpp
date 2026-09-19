@@ -348,6 +348,18 @@ Dictionary ChunkManager::inspect_schematic(const PackedByteArray& bytes, const D
     return controller->inspect_schematic(bytes, options);
 }
 
+Dictionary ChunkManager::preview_schematic(const PackedByteArray& bytes, int32_t origin_x,
+                                           int32_t origin_y, int32_t origin_z,
+                                           const Dictionary& options) {
+    if (!controller) {
+        Dictionary out;
+        out["ok"] = false;
+        out["error"] = String("the engine is not running");
+        return out;
+    }
+    return controller->preview_schematic(bytes, origin_x, origin_y, origin_z, options);
+}
+
 Dictionary ChunkManager::paste_schematic(const PackedByteArray& bytes, int32_t origin_x,
                                          int32_t origin_y, int32_t origin_z,
                                          const Dictionary& options) {
@@ -790,6 +802,9 @@ void ChunkManager::_bind_methods() {
     ClassDB::bind_method(D_METHOD("find_biome", "biome_name", "center_x", "center_z", "max_radius"), &ChunkManager::find_biome);
     ClassDB::bind_method(D_METHOD("inspect_schematic", "bytes", "options"),
                          &ChunkManager::inspect_schematic, DEFVAL(Dictionary()));
+    ClassDB::bind_method(D_METHOD("preview_schematic", "bytes", "origin_x", "origin_y", "origin_z",
+                                  "options"),
+                         &ChunkManager::preview_schematic, DEFVAL(Dictionary()));
     ClassDB::bind_method(D_METHOD("paste_schematic", "bytes", "origin_x", "origin_y", "origin_z", "options"),
                          &ChunkManager::paste_schematic, DEFVAL(Dictionary()));
     ClassDB::bind_method(D_METHOD("undo_paste"), &ChunkManager::undo_paste);

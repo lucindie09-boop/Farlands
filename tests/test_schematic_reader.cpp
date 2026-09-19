@@ -20,6 +20,7 @@ using schematic_test::kSchemMissingDimsHex;
 using schematic_test::kSchemNibbleHex;
 using schematic_test::kSchemWrongRootHex;
 using schematic_test::kSchemWrappedHex;
+using schematic_test::kSchemFloatFieldsHex;
 using schematic_test::kSchemNibblePaddedHex;
 using schematic_test::kSchemSpongeV2Hex;
 using schematic_test::kSchemSpongeV3Hex;
@@ -542,4 +543,36 @@ TEST_CASE("schematic: a file that is neither format is refused with the reason")
     std::string error;
     CHECK_FALSE(load_schematic_bytes(nbt.data(), nbt.size(), data, &error));
     CHECK(error.find("neither a Blocks array nor a palette") != std::string::npos);
+}
+
+TEST_CASE("schematic: a skipped field is skipped at its own width") {
+    // Real files carry block entities and entities, which are dense with floats
+    // (Health, ItemDropChance) and doubles (Yaw, Motion). A float skipped as one
+    // byte instead of four does not fail where it happens: it desynchronises the
+    // cursor, and the file dies much later as an impossible tag type with the
+    // whole build already lost. This fixture puts those fields first, inside
+    // sections that are skipped whole, so getting the width wrong loses the build.
+    const std::vector<uint8_t> bytes = unhex(kSchemFloatFieldsHex);
+    SchematicData data;
+    std::string error;
+    CHECK_MESSAGE(load_schematic_bytes(bytes.data(), bytes.size(), data, &error), error);
+    CHECK(data.format == BlockFileFormat::Classic);
+    CHECK(data.root_name == "Schematic");
+    CHECK(data.width == kFixtureWidth);
+    CHECK(data.height == kFixtureHeight);
+    CHECK(data.length == kFixtureLength);
+    CHECK(data.materials == "Alpha");
+    CHECK(first_mismatch(data, false).empty());
+
+    // The skipped sections are still understood: the block entity's position is
+    // read out of it, and the entity list is counted.
+    CHECK(data.tile_entity_count == 1);
+    CHECK(data.tile_entity_positions.size() == 1);
+    if (data.tile_entity_positions.size() == 1) {
+        CHECK(data.tile_entity_positions[0][0] == 1);
+        CHECK(data.tile_entity_positions[0][1] == 0);
+        CHECK(data.tile_entity_positions[0][2] == 1);
+    }
+    CHECK(data.entity_count == 1);
+    CHECK(data.tile_entities_truncated == false);
 }

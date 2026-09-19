@@ -113,6 +113,46 @@ def classic_entries(w, h, l, blocks, data, add=None):
     return entries
 
 
+def classic_with_float_fields(w, h, l, blocks, data):
+    """A build whose skipped sections are full of 4- and 8-byte numbers.
+
+    Real files carry entities and block entities, which are dense with floats
+    (`ItemDropChance`, `Health`) and doubles (`Yaw`, `Motion`). Skipping one at
+    the wrong width does not fail where it happens: it desynchronises the cursor,
+    and the file then dies somewhere else entirely (as "unknown tag type"). This
+    fixture puts the trap FIRST, inside a compound that is skipped whole, so a
+    wrong width there loses the build that follows.
+    """
+    entity = compound([
+        tag(5, "Health", struct.pack(">f", 20.0)),
+        tag(6, "Motion", struct.pack(">d", -0.0784000015258789)),
+        tag(5, "FallDistance", struct.pack(">f", 0.5)),
+        tag(4, "UUIDMost", struct.pack(">q", -5123456789012345678)),
+        tag(8, "id", s("minecraft:chicken")),
+        tag(10, "ForgeData", compound([
+            tag(5, "Nested", struct.pack(">f", 1.5)),
+            tag(2, "Tiny", sh(-3)),
+        ])),
+    ])
+    block_entity = compound([
+        tag(5, "CustomNameFloat", struct.pack(">f", 2.25)),
+        tag(6, "Precision", struct.pack(">d", 1.0 / 3.0)),
+        tag(3, "x", i32(1)),
+        tag(3, "y", i32(0)),
+        tag(3, "z", i32(1)),
+    ])
+    entries = [
+        tag(10, "Icon", compound([
+            tag(5, "Ratio", struct.pack(">f", 0.75)),
+            tag(6, "Scale", struct.pack(">d", 2.5)),
+        ])),
+        tag(9, "TileEntities", compound_list([block_entity])),
+        tag(9, "Entities", compound_list([entity])),
+    ]
+    entries.extend(classic_entries(w, h, l, blocks, data))
+    return root(b"Schematic", compound(entries))
+
+
 def schematic(w, h, l, blocks, data, add=None, root_name=b"Schematic"):
     return root(root_name, compound(classic_entries(w, h, l, blocks, data, add)))
 
@@ -244,6 +284,7 @@ def build_fixtures():
                                           lambda x, y, z: 0, truncate=1)),
         "kSchemMissingDims": gz(bytes([10]) + struct.pack(">H", 9) + b"Schematic" +
                                compound([tag(7, "Blocks", barr(blocks))])),
+        "kSchemFloatFields": gz(classic_with_float_fields(W, H, L, blocks, data_bytes)),
     }
 
 

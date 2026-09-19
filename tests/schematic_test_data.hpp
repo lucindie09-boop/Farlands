@@ -216,8 +216,6 @@ inline const char* kSchemAddPaddedHex =
     "9580dce4f9ff9569ebee03ae231af56a"
     "ff000000";
 
-// A palette-format file (`.schem`), v2: named states at the root, one varint
-// index per cell, and an unnamed root around it.
 // The nibble-packed build with Data one byte longer than the packed size, which
 // is the same slip on the other array.
 inline const char* kSchemNibblePaddedHex =
@@ -234,6 +232,38 @@ inline const char* kSchemNibblePaddedHex =
     "7e0123060e064edfc492d4a2ccc49c62"
     "0656c79c828c4406004d9418b2b30000"
     "00";
+
+// A build whose skipped sections come FIRST and are dense with floats and
+// doubles (an icon, a block entity, and an entity, as real files have). Skipping
+// a float at the wrong width does not fail there: the cursor desynchronises and
+// the file dies later, so a reader that gets this wrong loses the whole build.
+inline const char* kSchemFloatFieldsHex =
+    "1f8b08000000000002ff5d8ec94e1b41"
+    "10866bc6d3b379ec61314b4220ecab90"
+    "10c708c9061c0ba418a180c5854babdd"
+    "785ab4bb91a7918097e0157806c4811b"
+    "11af803871e6311054931b75a9aa5fdf"
+    "ff57c5101db08c77a9112c066f976945"
+    "80fcc555576b003e90034625af79f0bf"
+    "22480e85e4bf951146f03c46c921906e"
+    "9fe74677f7689737a4a6a6d667add17e"
+    "8f33910badaacfadcf2a8073611dd82f"
+    "6d1af62bbb636cf825d2dfe1549a6cf3"
+    "c626f94d8d0fa987bb01f2787dbc4420"
+    "695029eb223754315e45870761abb55b"
+    "6feadcdcbf3ead575e92db105cd186fe"
+    "ae509cf5e889f9c532c14eb98a216ae8"
+    "5e87d7a9a178678fe786b7abff005cf0"
+    "0e85ba7c7fb32339126d9381e7da4f44"
+    "273350c0f10f571d544900fe96d4ec34"
+    "c7d31b8e17c461b1dc9f0e0c8d0e7ffb"
+    "f1737c7266de8f92b4d437385c19f93e"
+    "3e3631353b3db7b8824805913144a611"
+    "595a585e5d0bc0b37fd81870dc42c123"
+    "be1f8451141793a4544e5d14080a210a"
+    "4514ca2938880488c488941001eb0b21"
+    "6a52c37b82ca1cc8a63ccb287c001e1a"
+    "3e3ddb010000";
 
 inline const char* kSchemSpongeV2Hex =
     "1f8b08000000000002ff4d90414ec340"

@@ -360,6 +360,16 @@ Dictionary ChunkManager::paste_schematic(const PackedByteArray& bytes, int32_t o
     return controller->paste_schematic_bytes(bytes, origin_x, origin_y, origin_z, options);
 }
 
+Dictionary ChunkManager::get_pending_paste() {
+    if (!controller) return Dictionary();
+    return controller->get_pending_paste();
+}
+
+Dictionary ChunkManager::take_paste_completion() {
+    if (!controller) return Dictionary();
+    return controller->take_paste_completion();
+}
+
 Dictionary ChunkManager::undo_paste() {
     if (!controller) {
         Dictionary out;
@@ -783,6 +793,8 @@ void ChunkManager::_bind_methods() {
     ClassDB::bind_method(D_METHOD("paste_schematic", "bytes", "origin_x", "origin_y", "origin_z", "options"),
                          &ChunkManager::paste_schematic, DEFVAL(Dictionary()));
     ClassDB::bind_method(D_METHOD("undo_paste"), &ChunkManager::undo_paste);
+    ClassDB::bind_method(D_METHOD("get_pending_paste"), &ChunkManager::get_pending_paste);
+    ClassDB::bind_method(D_METHOD("take_paste_completion"), &ChunkManager::take_paste_completion);
     ClassDB::bind_method(D_METHOD("paste_undo_cells"), &ChunkManager::paste_undo_cells);
     ClassDB::bind_method(D_METHOD("resolve_voxel_collision", "position", "motion", "size"), &ChunkManager::resolve_voxel_collision);
     ClassDB::bind_method(D_METHOD("request_path", "from", "to", "max_expansions", "max_ms"),

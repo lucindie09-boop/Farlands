@@ -394,7 +394,9 @@ void BlockEditor::set_block_variant(int32_t world_x, int32_t world_y, int32_t wo
 // -------------------------------------------------------------------------
 
 PasteWriteResult BlockEditor::apply_paste(const schematic::PastePlan& plan,
-                                          const schematic::PasteOptions& options) {
+                                          const schematic::PasteOptions& options,
+                                          bool append_undo,
+                                          std::vector<schematic::PastePlan::Cell>* unwritten) {
     using schematic::PastePlan;
     PasteWriteResult result;
     if (plan.empty()) return result;
@@ -447,11 +449,14 @@ PasteWriteResult BlockEditor::apply_paste(const schematic::PastePlan& plan,
 
         ChunkData* chunk = cm.get_chunk_data_fast(group.cx, group.cy, group.cz);
         if (chunk == nullptr) {
-            // The plan was built against a world that has since moved on. Nothing
-            // is queued for a chunk that is not there: a paste is not a player
-            // edit at the loading frontier, and half a building in a pending
-            // queue would land silently later.
+            // The plan was built against a world that has since moved on here.
+            // Nothing is queued by the writer itself: a paste is not a player
+            // edit at the loading frontier, so it reports the cells back and the
+            // caller decides (the paste job waits for the chunk and retries).
             result.skipped_unloaded += group.cells.size();
+            if (unwritten != nullptr) {
+                for (const size_t index : group.cells) unwritten->push_back(plan.cells[index]);
+            }
             continue;
         }
         ChunkData* above = cm.get_chunk_data_fast(group.cx, group.cy + 1, group.cz);
@@ -556,7 +561,17 @@ PasteWriteResult BlockEditor::apply_paste(const schematic::PastePlan& plan,
     // A paste that wrote nothing leaves the previous record alone: it did not
     // make the last one unreachable.
     if (!displaced.empty()) {
-        paste_undo_.cells = std::move(displaced);
+        if (append_undo && paste_undo_.valid()) {
+            // Another batch of the SAME paste: its displaced blocks join the
+            // record rather than replacing it, so one undo takes the whole thing
+            // back. The batches are disjoint by construction (a cell is written
+            // once and then dropped from the plan), so no cell is recorded twice.
+            paste_undo_.cells.insert(paste_undo_.cells.end(),
+                                     std::make_move_iterator(displaced.begin()),
+                                     std::make_move_iterator(displaced.end()));
+        } else {
+            paste_undo_.cells = std::move(displaced);
+        }
     }
     return result;
 }
@@ -576,11 +591,22 @@ bool BlockEditor::undo_paste(PasteWriteResult* out) {
     options.replace_solid = true;
     options.write_air = true;
 
-    const PasteWriteResult result = apply_paste(schematic::to_revert_plan(record), options);
-    if (result.written > 0) {
-        paste_undo_ = schematic::PasteUndo{};  // one level, and it is spent
+    // Cells whose chunk is gone (evicted since the paste, on a build wide enough
+    // to reach past the streaming frontier) come back as "not reverted" rather
+    // than being silently dropped: the record keeps exactly those cells, so
+    // calling again finishes the job — and reports `restored`/`unloaded` so the
+    // caller can tell a finished undo from a partial one.
+    std::vector<schematic::PastePlan::Cell> unreached;
+    PasteWriteResult result =
+        apply_paste(schematic::to_revert_plan(record), options, false, &unreached);
+    result.restored = result.written;
+    result.unloaded = unreached.size();
+    if (unreached.empty()) {
+        paste_undo_ = schematic::PasteUndo{};  // fully reverted, and it is spent
     } else {
-        paste_undo_ = std::move(record);       // nothing landed; leave it retryable
+        // Keep the one-level record, narrowed to what is left to put back.
+        record.cells = std::move(unreached);
+        paste_undo_ = std::move(record);
     }
     if (out) *out = result;
     return result.written > 0;

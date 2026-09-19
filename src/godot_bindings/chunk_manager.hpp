@@ -114,6 +114,11 @@ public:
                                       int32_t origin_y, int32_t origin_z,
                                       const godot::Dictionary& options);
     godot::Dictionary undo_paste();
+    // Live state of a paste that is waiting for chunks to generate, and the
+    // one-shot report of the last one that finished (empty when nothing is
+    // waiting and nothing has finished since the last call).
+    godot::Dictionary get_pending_paste();
+    godot::Dictionary take_paste_completion();
     int64_t paste_undo_cells();
 
     godot::Dictionary find_biome(const godot::String& biome_name, int32_t center_x,

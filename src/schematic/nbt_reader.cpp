@@ -51,9 +51,16 @@ bool NbtReader::read_bytes(void* destination, size_t length) {
 }
 
 bool NbtReader::read_tag(NbtTag& tag) {
+    // The offset is read before the byte, so the message names where the type
+    // came from: an unknown type is always the cursor being somewhere it should
+    // not be, and the byte to look at is the useful part.
+    const size_t at = cursor_;
     uint8_t raw = 0;
     if (!read_bytes(&raw, 1)) return false;
-    if (raw > static_cast<uint8_t>(NbtTag::LongArray)) return fail("unknown tag type " + std::to_string(raw));
+    if (raw > static_cast<uint8_t>(NbtTag::LongArray)) {
+        return fail("unknown tag type " + std::to_string(raw) + " at byte " + std::to_string(at) +
+                    " (the tree is malformed, or this is not the format it claims)");
+    }
     tag = static_cast<NbtTag>(raw);
     return true;
 }
@@ -267,15 +274,20 @@ bool NbtReader::read_list_header(NbtTag& element_type, int32_t& count) {
 
 bool NbtReader::skip_payload(NbtTag type, int nesting) {
     if (nesting > kMaxNesting) return fail("nested values deeper than the cap");
+    // Every width here is the tag's own, and getting one wrong does not fail
+    // where it happens: it desynchronises the cursor, and the damage surfaces
+    // later as an impossible tag type deep in a list. (Exactly that happened
+    // with Float, which shares a case with Byte below only if you confuse the
+    // two — a Float is four bytes.)
     switch (type) {
         case NbtTag::Byte:
-        case NbtTag::Float:
             cursor_ += 1;
             break;
         case NbtTag::Short:
             cursor_ += 2;
             break;
         case NbtTag::Int:
+        case NbtTag::Float:
             cursor_ += 4;
             break;
         case NbtTag::Long:

@@ -70,10 +70,22 @@ public:
     godot::Dictionary inspect_schematic(const godot::PackedByteArray& bytes,
                                         const godot::Dictionary& options);
     // Puts the last paste back through the same writer. Answers "ok" false when
-    // there is nothing to undo.
+    // there is nothing to undo. A paste still waiting on chunks is abandoned
+    // first, and whatever did land is reverted with it.
     godot::Dictionary undo_paste();
     // Cells the next undo would restore, 0 when there is no paste to undo.
     int64_t paste_undo_cells() const;
+
+    // --- A paste that had to wait for chunks --------------------------------
+    // Cells are written as their chunks arrive rather than being skipped: the
+    // chunks are requested, pinned so the unload pass leaves them alone, and the
+    // write is retried every frame until the plan is empty. `get_pending_paste`
+    // is the live state (for a progress line), and `take_paste_completion` hands
+    // over the one-shot report of the last job that finished — consumed, so a
+    // caller polling every frame announces it once.
+    godot::Dictionary get_pending_paste();
+    godot::Dictionary take_paste_completion();
+    void tick_pending_paste(double delta);
 
     bool is_aabb_solid(const godot::AABB& aabb) {
         return collision_resolver.is_aabb_solid(aabb);
@@ -223,6 +235,43 @@ private:
     ChunkWorld chunk_world;
     MeshManager mesh_manager;
     LightPropagator light_propagator;
+    // The part of a paste that is still waiting for chunks. One at a time: a
+    // second paste replaces the first (and cancels its waiting cells), because
+    // two half-landed buildings and one undo record is worse than a refusal.
+    struct PendingPaste {
+        std::vector<schematic::PastePlan::Cell> remaining;
+        schematic::PasteOptions options;
+        // Chunk keys asked for and not yet resident (also the pinned set).
+        std::vector<uint64_t> requested;
+        PasteWriteResult totals;
+        size_t planned = 0;
+        double waited_ms = 0.0;
+        int32_t batches = 0;
+        // True once this job has an undo record of its own to add to. Until
+        // then its first write REPLACES whatever the last paste left, so those
+        // wait-batches can never merge two pastes into one undo.
+        bool undo_started = false;
+    };
+    PendingPaste pending_paste_storage;
+    bool has_pending_paste = false;
+    // The report of a finished job, handed over once. `pending_paste_abandoned`
+    // means the wait timed out (or nothing was left to ask for) and the cells
+    // that never landed are `pending_paste_leftover`.
+    bool paste_report_ready = false;
+    bool paste_report_abandoned = false;
+    size_t paste_report_cells = 0;
+    size_t paste_report_leftover = 0;
+    size_t paste_report_chunks = 0;
+    double paste_report_waited_ms = 0.0;
+    // The rest of the job's totals, so a caller can account for every cell: a
+    // finished paste has written + unchanged + covered + out_of_bounds == planned.
+    size_t paste_report_unchanged = 0;
+    size_t paste_report_covered = 0;
+    size_t paste_report_out_of_bounds = 0;
+    size_t paste_report_planned = 0;
+    void cancel_pending_paste();
+    void finish_pending_paste(bool abandoned);
+
     WorldUpdater world_updater;
     BlockEditor block_editor;
     // Built once from whatever block registry loaded, then handed to the world

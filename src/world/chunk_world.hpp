@@ -54,6 +54,26 @@ public:
     void clear();
     void queue_pending_placement(int32_t world_x, int32_t world_y, int32_t world_z, int block_id);
     void apply_pending_placements(uint64_t key, int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, ChunkRenderData& render_data);
+
+    // --- Chunks a caller needs NOW -------------------------------------------
+    // The streaming sweep decides what to generate from the player's position and
+    // a per-column surface band, which means the chunks a caller is waiting on are
+    // often not in it at all: the sky above a build is deliberately never
+    // generated, and anything past the render distance is out of scope entirely.
+    // An URGENT request is a chunk that must exist whatever those rules say — the
+    // updater generates it ahead of the sweep, and takes it out of the queue when
+    // it does. A PIN is a chunk the unload pass leaves alone until the caller is
+    // finished with it, so a chunk that was just loaded is not evicted before the
+    // write that asked for it lands. Both are keyed by chunk key and both are
+    // the caller's to clean up; nothing expires them on its own.
+    void request_urgent_chunk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z);
+    // Takes up to `max` pending requests, oldest first, and forgets them.
+    std::vector<ChunkPos> take_urgent_chunk_requests(size_t max);
+    [[nodiscard]] size_t urgent_chunk_count() const;
+    void pin_chunk(uint64_t key);
+    void unpin_chunk(uint64_t key);
+    [[nodiscard]] bool is_chunk_pinned(uint64_t key) const;
+    void unpin_all_chunks();
     void queue_vegetation_placement(int32_t world_x, int32_t world_y, int32_t world_z, BlockID block_id);
     void apply_vegetation_placements(uint64_t key, int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, ChunkRenderData& render_data);
     
@@ -132,6 +152,14 @@ private:
     std::mutex pending_placement_mutex;
     std::unordered_map<uint64_t, std::vector<PendingBlockPlacement>> pending_vegetation_placements;
     std::mutex vegetation_placement_mutex;
+    // Chunks a caller asked for urgently, in request order (the deque is what
+    // keeps the order; the set is what keeps the queue free of duplicates).
+    std::deque<uint64_t> urgent_chunk_requests;
+    std::unordered_set<uint64_t> urgent_chunk_set;
+    mutable std::mutex urgent_chunk_mutex;
+    // Chunks the unload pass must not touch yet.
+    std::unordered_set<uint64_t> pinned_chunks;
+    mutable std::mutex pinned_chunk_mutex;
     std::function<void(int32_t, int32_t, int32_t)> edit_listener;
     std::mutex file_access_mutex;
     std::atomic<uint64_t> async_epoch{0};

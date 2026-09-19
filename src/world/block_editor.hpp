@@ -36,6 +36,12 @@ struct PasteWriteResult {
     size_t chunks_touched = 0;
     int32_t min_x = 0, max_x = -1, min_y = 0, max_y = -1, min_z = 0, max_z = -1;
     bool undo_available = false;
+    // Only meaningful on a revert: how many of the record's cells were put back,
+    // and how many could not be because their chunk had been evicted. A partial
+    // revert keeps the record narrowed to `unloaded`, so calling undo again
+    // finishes it instead of leaving half a building behind for good.
+    size_t restored = 0;
+    size_t unloaded = 0;
 };
 
 class BlockEditor {
@@ -56,8 +62,23 @@ public:
     // which is why it is its own entry point rather than a loop over that one.
     // The displaced blocks are kept as the undo record; a second paste replaces
     // it, so undo is one level deep and always describes the last paste.
+    //
+    // `append_undo` exists for a paste that lands in more than one call because
+    // part of it had to wait for chunks: those calls are ONE paste, so the later
+    // ones add to the record the first one started instead of replacing it.
+    // Without it, undo after a chunk-waiting paste would only take back the last
+    // batch and leave the rest of the building standing.
+    //
+    // `unwritten`, when given, receives the cells whose chunk was not resident —
+    // the caller's "try again later" list. It has to come from HERE rather than
+    // from the caller asking the chunk map afterwards: a chunk can arrive in the
+    // middle of the write, and a cell the writer had already given up on would
+    // then look resident and be dropped for good. (That is not hypothetical: it
+    // lost 394,810 cells of a 937,143-cell paste before the probe caught it.)
     PasteWriteResult apply_paste(const schematic::PastePlan& plan,
-                                 const schematic::PasteOptions& options);
+                                 const schematic::PasteOptions& options,
+                                 bool append_undo = false,
+                                 std::vector<schematic::PastePlan::Cell>* unwritten = nullptr);
 
     // Puts the last paste back, through the same writer. Returns false when there
     // is nothing to undo. The record is cleared only if the revert wrote

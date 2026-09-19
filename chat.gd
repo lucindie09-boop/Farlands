@@ -37,10 +37,13 @@ var _up_hold_time: float = 0.0
 
 const COMMANDS := ["/help", "/give", "/tp", "/fly", "/locatebiome", "/paste", "/clearchat", "/clearinv", "/version", "/texturepack", "/testicons"]
 const BIOME_NAMES := ["ocean", "hills", "plains"]
-# A build bigger than this is refused rather than written: the write itself is a
-# single pass, but a paste of hundreds of thousands of cells is a freeze, and a
-# player who asked for it by accident wants an error, not a hang.
-const PASTE_MAX_CELLS := 200000
+# A build bigger than this is refused rather than written. This is a guard
+# against a file that is not a building at all (a corrupted size field turns into
+# a million-cell plan), not a budget: real builds get past it. The first write is
+# still one pass, so a paste of a few hundred thousand cells does hitch for a
+# moment while it lands; the cells whose chunks are missing are written later as
+# those chunks generate, which is what keeps the hitch from also being a hole.
+const PASTE_MAX_CELLS := 2000000
 const PASTE_KEYWORDS := ["undo", "fluids", "gaps", "air", "strict"]
 
 func _chat_scale() -> float:
@@ -140,6 +143,7 @@ func _ready():
 	_add_message("Welcome! Type /help for a list of commands.", COLOR_SYSTEM)
 
 func _process(delta):
+	_poll_pending_paste()
 	if is_open and not _ghost_text.is_empty():
 		_pulse_time += delta
 		var pulse_alpha = 0.25 + 0.15 * sin(_pulse_time * 3.0)
@@ -158,6 +162,24 @@ func _process(delta):
 		if _up_hold_time >= _tab_cycle_delay:
 			_perform_tab_cycle(true)  # Forward cycle
 			_up_hold_time = 0.0
+
+# A paste that had to wait for chunks reports when it is done. The report is
+# consumed by whoever asks for it, so this announces each finished paste once
+# however many frames it took.
+func _poll_pending_paste() -> void:
+	var chunk_manager := get_node_or_null("/root/Main/ChunkManager")
+	if chunk_manager == null:
+		return
+	var finished: Dictionary = chunk_manager.take_paste_completion()
+	if finished.is_empty():
+		return
+	var cells := int(finished.get("cells", 0))
+	var seconds := float(finished.get("waiting_ms", 0.0)) / 1000.0
+	if bool(finished.get("abandoned", false)):
+		var left := int(finished.get("leftover_cells", 0))
+		_add_message("Paste gave up waiting after %.1fs: %d cells written, %d not placed" % [seconds, cells, left], COLOR_ERROR)
+	else:
+		_add_message("Paste finished: %d cells in %d chunks (waited %.1fs for chunks to generate)" % [cells, int(finished.get("chunks", 0)), seconds], COLOR_SUCCESS)
 
 func _input(event):
 	if not is_open:
@@ -645,6 +667,12 @@ func _run_command(raw: String):
 				var undone: Dictionary = chunk_manager.undo_paste()
 				if undone.get("ok", false):
 					_add_message("Paste undone: %d cells restored in %d chunks." % [int(undone.get("cells", 0)), int(undone.get("chunks", 0))], COLOR_SUCCESS)
+					# A build wide enough to reach past the streaming frontier can
+					# have cells whose chunk was evicted since the paste. They are
+					# still in the record, so another /paste undo finishes it.
+					var stuck := int(undone.get("unloaded", 0))
+					if stuck > 0:
+						_add_message("  %d cells could not be reached: their chunk is not loaded. Run /paste undo again." % stuck, COLOR_ERROR)
 				else:
 					_add_message("Nothing to undo.", COLOR_ERROR)
 				return
@@ -697,8 +725,13 @@ func _run_command(raw: String):
 			_add_message("  %d cells written, %d stand-ins, %d chunks" % [int(result.get("cells", 0)), int(result.get("substituted", 0)), int(result.get("chunks", 0))], COLOR_SYSTEM)
 			if int(result.get("covered", 0)) > 0:
 				_add_message("  %d cells left alone (gaps only)" % int(result.get("covered", 0)), COLOR_SYSTEM)
-			if int(result.get("unloaded_chunks", 0)) > 0:
-				_add_message("  %d cells skipped: their chunk is not loaded" % int(result.get("unloaded_chunks", 0)), COLOR_ERROR)
+			# Cells whose chunk was not loaded are not dropped: the engine asks for
+			# those chunks (ahead of the normal streaming, which would never
+			# generate the sky above a build) and writes the cells as they arrive.
+			var waiting := int(result.get("pending_cells", 0))
+			if waiting > 0:
+				_add_message("  %d cells are waiting for %d chunk%s to generate" % [waiting, int(result.get("queued_chunks", 0)), "" if int(result.get("queued_chunks", 0)) == 1 else "s"], COLOR_SYSTEM)
+				_add_message("  they will land as those chunks load; /paste undo cancels the rest", COLOR_SYSTEM)
 			var left_out := int(result.get("skipped", 0)) + int(result.get("unknown", 0)) + int(result.get("declined_fluid", 0)) + int(result.get("declined_substitute", 0)) + int(result.get("unresolved", 0))
 			if left_out > 0:
 				_add_message("  %d cells have no counterpart here (unknown %d, skipped %d, liquids %d)" % [left_out, int(result.get("unknown", 0)), int(result.get("skipped", 0)), int(result.get("declined_fluid", 0))], COLOR_SYSTEM)

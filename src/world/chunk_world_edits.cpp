@@ -26,6 +26,10 @@ void ChunkWorld::free_loaded_chunks() {
 }
 
 bool ChunkWorld::try_unload_chunk(uint64_t key, MeshManager* mesh_mgr) {
+    // A pinned chunk is one a caller is still writing into: unloading it here
+    // would only mean generating it again for the same write. Refused, and the
+    // caller retries — the pin is released as soon as the caller is done.
+    if (is_chunk_pinned(key)) return false;
     int32_t cx = 0, cy = 0, cz = 0;
     ChunkMap::decode_chunk_key(key, cx, cy, cz);
 bool needs_save = false;
@@ -99,9 +103,64 @@ void ChunkWorld::clear() {
     pending_chunk_dirty_mesh.clear();
     light_propagated_chunks.clear();
     pending_block_placements.clear();
+    {
+        std::lock_guard<std::mutex> lock(urgent_chunk_mutex);
+        urgent_chunk_requests.clear();
+        urgent_chunk_set.clear();
+    }
+    unpin_all_chunks();
     pending_vegetation_placements.clear();
     chunk_map.clear();
     async_epoch.store(0, std::memory_order_release);
+}
+
+void ChunkWorld::request_urgent_chunk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z) {
+    const uint64_t key = chunk_map.get_chunk_key(chunk_x, chunk_y, chunk_z);
+    std::lock_guard<std::mutex> lock(urgent_chunk_mutex);
+    // Asking twice for the same chunk is normal (a paste re-asks every frame until
+    // the chunk arrives); the set is what makes it a no-op rather than a queue of
+    // duplicates that would each be generated and thrown away.
+    if (!urgent_chunk_set.insert(key).second) return;
+    urgent_chunk_requests.push_back(key);
+}
+
+std::vector<ChunkPos> ChunkWorld::take_urgent_chunk_requests(size_t max) {
+    std::vector<ChunkPos> out;
+    std::lock_guard<std::mutex> lock(urgent_chunk_mutex);
+    while (out.size() < max && !urgent_chunk_requests.empty()) {
+        const uint64_t key = urgent_chunk_requests.front();
+        urgent_chunk_requests.pop_front();
+        urgent_chunk_set.erase(key);
+        ChunkPos pos{};
+        ChunkMap::decode_chunk_key(key, pos.x, pos.y, pos.z);
+        out.push_back(pos);
+    }
+    return out;
+}
+
+size_t ChunkWorld::urgent_chunk_count() const {
+    std::lock_guard<std::mutex> lock(urgent_chunk_mutex);
+    return urgent_chunk_requests.size();
+}
+
+void ChunkWorld::pin_chunk(uint64_t key) {
+    std::lock_guard<std::mutex> lock(pinned_chunk_mutex);
+    pinned_chunks.insert(key);
+}
+
+void ChunkWorld::unpin_chunk(uint64_t key) {
+    std::lock_guard<std::mutex> lock(pinned_chunk_mutex);
+    pinned_chunks.erase(key);
+}
+
+bool ChunkWorld::is_chunk_pinned(uint64_t key) const {
+    std::lock_guard<std::mutex> lock(pinned_chunk_mutex);
+    return pinned_chunks.find(key) != pinned_chunks.end();
+}
+
+void ChunkWorld::unpin_all_chunks() {
+    std::lock_guard<std::mutex> lock(pinned_chunk_mutex);
+    pinned_chunks.clear();
 }
 
 void ChunkWorld::queue_pending_placement(int32_t world_x, int32_t world_y, int32_t world_z, int block_id) {

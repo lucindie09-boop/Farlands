@@ -132,6 +132,32 @@ void WorldUpdater::update_generation(bool is_editor, int32_t active_render_dista
         generation_sweep_generated = false;
     }
 
+    // --- Urgent requests, before anything else ------------------------------
+    // A caller (a paste) is waiting on these chunks, and the sweep would mostly
+    // refuse them anyway: the sky above a build sits outside the per-column band
+    // and is never generated on its own, and a build can reach past the render
+    // distance. They are generated here rather than by the sweep because the
+    // sweep's filters are exactly what is in the way. The allowance is small and
+    // separate from the sweep's, so a huge request streams in over frames
+    // instead of stalling this one.
+    {
+        constexpr size_t kMaxUrgentPerFrame = 8;
+        size_t allowance = kMaxUrgentPerFrame;
+        // Same backlog guard the sweep uses: if the completed queue is already
+        // full, the main thread is behind and generating more would only grow it.
+        if (!chunk_world->get_scheduler().can_enqueue(budgets.completed_queue_backlog)) {
+            allowance = 0;
+        }
+        if (allowance > 0) {
+            const std::vector<ChunkPos> urgent =
+                chunk_world->take_urgent_chunk_requests(allowance);
+            for (const ChunkPos& pos : urgent) {
+                if (pos.y < 0 || pos.y >= kWorldChunkSlices) continue;
+                generate_chunk(pos.x, pos.y, pos.z, epoch);
+            }
+        }
+    }
+
     const bool frustum_active = frustum.is_initialized();
     const size_t total_offsets = pre_sorted_offsets.size();
     const size_t max_checks_per_frame = static_cast<size_t>(
@@ -287,6 +313,14 @@ void WorldUpdater::update_unload(int32_t active_render_distance, int32_t pcx, in
         while (!unload_queue.empty() && unloads_this_frame < budgets.unloads_per_frame) {
             uint64_t key = unload_queue.back();
             unload_queue.pop_back();
+            // Pinned: a caller asked for this chunk and has not finished with it.
+            // Dropped from the pending set rather than retried, so it is not
+            // re-queued every frame; the next scan re-adds it once the pin is
+            // gone and it is still out of range.
+            if (chunk_world->is_chunk_pinned(key)) {
+                unload_pending.erase(key);
+                continue;
+            }
             if (chunk_world->get_chunk_map().contains(key)) {
                 int32_t cx = 0, cy = 0, cz = 0;
                 ChunkMap::decode_chunk_key(key, cx, cy, cz);

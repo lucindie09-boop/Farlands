@@ -35,9 +35,9 @@ const UNIT_BAR_H := 20.0          # the title bar and the action bar
 const UNIT_BOX_PAD := 4.0         # inside the content box's border
 const UNIT_SCROLLBAR_W := 6.0
 
-# The reference screen's colours: a darker bar top and bottom, a slightly
-# lighter box between them, and headings in the teal it labels its sections with.
-const BAR_COLOR := Color(0.04, 0.05, 0.07, 0.9)
+# The reference screen's colours: a slightly lighter box between the bars, and
+# headings in the teal it labels its sections with. The dark bars themselves are
+# gone — the title and footer actions stand directly on the dimmed world.
 const BOX_COLOR := Color(0.05, 0.06, 0.08, 0.75)
 const BOX_BORDER_COLOR := Color(0.32, 0.35, 0.4, 0.9)
 const HEADING_COLOR := Color(0.38, 0.85, 0.78)
@@ -569,24 +569,24 @@ func _build_crosshair_sections() -> Array:
 	# Every option is a row with its own undo, so one setting can go back to its
 	# default without disturbing the rest.
 	var cross_rows := _crosshair_rows(controls, [
-		["Show", "cross_enabled"],
-		["Colour", "cross_color"],
-		["Length", "cross_length"],
-		["Thickness", "cross_thickness"],
-		["Opacity", "cross_opacity"],
-		["Spacing", "cross_spacing"],
-		["Rotation", "cross_rotation"],
-		["Top Line", "top_line_enabled"],
-		["Dynamic Contrast", "cross_contrast"],
+		["Show Cross", "cross_enabled"],
+		["Cross Colour", "cross_color"],
+		["Cross Length", "cross_length"],
+		["Cross Thickness", "cross_thickness"],
+		["Cross Opacity", "cross_opacity"],
+		["Cross Spacing", "cross_spacing"],
+		["Cross Rotation", "cross_rotation"],
+		["Cross Top Line", "top_line_enabled"],
+		["Cross Dynamic Contrast", "cross_contrast"],
 	])
 	var dot_rows := _crosshair_rows(controls, [
-		["Show", "dot_enabled"],
-		["Colour", "dot_color"],
-		["Size", "dot_size"],
-		["Opacity", "dot_opacity"],
-		["Rotation", "dot_rotation"],
-		["Collision", "cross_dot_collision"],
-		["Dynamic Contrast", "dot_contrast"],
+		["Show Dot", "dot_enabled"],
+		["Dot Colour", "dot_color"],
+		["Dot Size", "dot_size"],
+		["Dot Opacity", "dot_opacity"],
+		["Dot Rotation", "dot_rotation"],
+		["Dot Collision", "cross_dot_collision"],
+		["Dot Dynamic Contrast", "dot_contrast"],
 	])
 
 	var codec := {
@@ -643,23 +643,23 @@ func _build_block_outline_sections() -> Array:
 	# Every option is a row with its own undo, so one setting can go back to its
 	# default without disturbing the rest.
 	var outline_rows := _block_outline_rows(controls, [
-		["Show", "outline_enabled"],
-		["Colour", "outline_color"],
-		["Thickness", "outline_thickness"],
-		["Opacity", "outline_opacity"],
-		["Pulse", "outline_pulse_enabled"],
-		["Pulse Speed", "outline_pulse_speed"],
-		["Pulse Min", "outline_pulse_min_opacity"],
-		["Pulse Max", "outline_pulse_max_opacity"],
+		["Show Outline", "outline_enabled"],
+		["Outline Colour", "outline_color"],
+		["Outline Thickness", "outline_thickness"],
+		["Outline Opacity", "outline_opacity"],
+		["Outline Pulse", "outline_pulse_enabled"],
+		["Outline Pulse Speed", "outline_pulse_speed"],
+		["Outline Pulse Min", "outline_pulse_min_opacity"],
+		["Outline Pulse Max", "outline_pulse_max_opacity"],
 	])
 	var fill_rows := _block_outline_rows(controls, [
-		["Show", "fill_enabled"],
-		["Colour", "fill_color"],
-		["Opacity", "fill_opacity"],
-		["Pulse", "fill_pulse_enabled"],
-		["Pulse Speed", "fill_pulse_speed"],
-		["Pulse Min", "fill_pulse_min_opacity"],
-		["Pulse Max", "fill_pulse_max_opacity"],
+		["Show Overlay", "fill_enabled"],
+		["Overlay Colour", "fill_color"],
+		["Overlay Opacity", "fill_opacity"],
+		["Overlay Pulse", "fill_pulse_enabled"],
+		["Overlay Pulse Speed", "fill_pulse_speed"],
+		["Overlay Pulse Min", "fill_pulse_min_opacity"],
+		["Overlay Pulse Max", "fill_pulse_max_opacity"],
 	])
 
 	var codec := {
@@ -670,8 +670,7 @@ func _build_block_outline_sections() -> Array:
 	}
 
 	return [
-		["Outline", outline_rows],
-		["Fill", fill_rows],
+		["", _interleave(outline_rows, fill_rows)],
 		["", [], codec],
 		["", [["", outline_hint, null, "span"]]],
 	]
@@ -2806,10 +2805,9 @@ func _build_scrolling_page(title_text: String, sections: Array, actions: Array,
 	var bar_h := UNIT_BAR_H * u
 	var footer_h := (UNIT_BUTTON_H + UNIT_MARGIN * 2.0) * u
 
-	# --- the title bar, and the action bar that mirrors it at the bottom
-	page.add_child(_bar(true, bar_h))
-	page.add_child(_bar(false, footer_h))
-
+	# No title bar or action-bar strip: the title and the footer actions stand
+	# directly on the dimmed world. The bar heights below still reserve their
+	# space so the content box and rows keep their positions.
 	var title := Label.new()
 	title.text = title_text
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -3016,18 +3014,6 @@ func _apply_row_label(control: Control, label: String) -> void:
 		_row_value(control, String(control.get_meta("row_value", "")))
 		return
 	_row_value(control, String(control.get_meta("row_value", control.text)))
-
-# A full-width strip: the title bar when `top`, the action bar otherwise.
-func _bar(top: bool, height: float) -> ColorRect:
-	var bar := ColorRect.new()
-	bar.color = BAR_COLOR
-	bar.set_anchors_preset(Control.PRESET_TOP_WIDE if top else Control.PRESET_BOTTOM_WIDE)
-	if top:
-		bar.offset_bottom = height
-	else:
-		bar.offset_top = -height
-	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	return bar
 
 # The import/export (and key-conflict) status line. It is a label rather than a
 # row widget, so it never takes a label of its own, and it is sized to the

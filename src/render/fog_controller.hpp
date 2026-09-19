@@ -98,7 +98,7 @@ public:
     [[nodiscard]] FogMode get_fog_mode() const { return fog_mode; }
 
 private:
-    FogMode fog_mode = FogMode::Edge; // Default to edge (mode 1)
+    FogMode fog_mode = FogMode::Exponential; // Default to exponential (mode 3)
     bool enabled = true;
     float render_distance_blocks = 512.0f;
     float fog_density = 0.3f;

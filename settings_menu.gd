@@ -79,7 +79,7 @@ var _current_page: String = "pause"
 var _bg: ColorRect
 var _pages: Dictionary = {}
 
-var _default_gui_scale: float = 3.0
+var _default_gui_scale: float = 2.0
 var _default_day_duration: float = 10.0
 var _default_day_sky: Color = Color(1, 1, 1, 1)
 var _default_night_sky: Color = Color(0, 0, 0, 1)
@@ -94,7 +94,7 @@ var _default_ao_color: Color = Color(0, 0, 0, 1)
 var _default_ao_strength: float = 1.0
 var _default_darkness_color: Color = Color(0, 0, 0, 1)
 var _default_smooth_lighting: bool = false
-var _default_fog_mode: int = 1  # 0=disabled, 1=edge, 2=linear, 3=exponential
+var _default_fog_mode: int = 3  # 0=disabled, 1=edge, 2=linear, 3=exponential
 var _default_godrays: bool = true
 var _default_mipmaps_enabled: bool = true
 var _default_mipmap_bias: float = 0.1
@@ -2996,6 +2996,11 @@ func _make_span_row(row: Array, grid_w: float, u: float) -> Control:
 	# row must take no space at all (a hidden child in a container is skipped,
 	# leaving just the VBox's own gap around the surrounding rows).
 	if control.has_meta("hint_label"):
+		# Constrain the hint to the grid: its own minimum is 400 units wide
+		# (UNIT_BUTTON_W * 2), wider than the column layout, so if it ever kept
+		# that the VBox's minimum would grow and the centred rows would jump as
+		# the feedback line appeared.
+		control.custom_minimum_size = Vector2(grid_w, UNIT_BUTTON_H) * u
 		holder.visible = control.visible
 		control.visibility_changed.connect(func():
 			holder.visible = control.visible)

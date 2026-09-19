@@ -22,10 +22,14 @@ bool plan_paste(const SchematicData& file, const McPalette& palette,
     out = PastePlan{};
     if (!resolve) return fail(error, "plan_paste: no block resolver");
 
-    // Each distinct target name is resolved ONCE, not once per cell: the engine's
-    // resolver is a scan over the block table, and a build repeats a handful of
-    // names tens of thousands of times. Names that do not resolve are kept so the
-    // cells naming them are still counted per cell below.
+    // Each distinct target name the table can ask for is resolved ONCE, not once
+    // per cell: the engine's resolver is a scan over the block table, and a build
+    // repeats a handful of names tens of thousands of times. Names that do not
+    // resolve are kept so the cells naming them are still counted per cell below.
+    //
+    // The list is total by construction (see target_names): a pattern only ever
+    // brings a species in, and a shape expands to its family's members, so no
+    // cell can name a target the table did not enumerate.
     std::unordered_map<std::string, BlockID> targets;
     std::unordered_set<std::string> unresolved_names;
     for (const std::string& name : target_names(palette)) {
@@ -37,50 +41,71 @@ bool plan_paste(const SchematicData& file, const McPalette& palette,
         }
     }
 
+    // The table is asked once per distinct STATE, never once per cell. A build
+    // repeats the same handful of states across hundreds of thousands of cells,
+    // and resolving one allocates several strings, so this is the difference
+    // between a pass that is a scan and one that re-translates every block.
+    std::vector<PaletteTarget> state_targets(file.palette.size());
+    std::vector<uint8_t> state_resolved(file.palette.size(), 0);
+
+    // Cells are walked in the file's own order but straight off the flat array,
+    // which is stored in exactly that order: state_at() would recompute and
+    // re-check the index for every one of a million cells to no benefit.
+    size_t cell_index = 0;
     for (int32_t y = 0; y < file.height; ++y) {
         for (int32_t z = 0; z < file.length; ++z) {
-            for (int32_t x = 0; x < file.width; ++x) {
-                const LegacyBlockState* state = file.state_at(x, y, z);
-                if (state == nullptr) continue;
+            for (int32_t x = 0; x < file.width; ++x, ++cell_index) {
+                if (cell_index >= file.cells.size()) continue;
+                const uint32_t slot = file.cells[cell_index];
+                if (slot >= file.palette.size()) continue;
                 ++out.stats.file_cells;
 
+                const BlockState& state = file.palette[slot];
                 // Air in the file is air here: it clears the cell rather than
                 // naming a block, so it does not go through the table (and a
                 // table with no air row must not turn a carve-out into unknown).
-                const bool file_air = state->is_air();
+                const bool file_air = state.is_air();
                 if (file_air && !options.write_air) {
                     ++out.stats.air_ignored;
                     continue;
                 }
 
-                PaletteTarget target;
+                PaletteTarget air_target;
+                const PaletteTarget* target = nullptr;
                 if (file_air) {
-                    target.kind = PaletteTarget::Kind::Mapped;
+                    air_target.kind = PaletteTarget::Kind::Mapped;
+                    target = &air_target;
                 } else {
-                    target = palette.resolve(state->id, state->data);
+                    // One call for both languages: the state itself says whether
+                    // it is an id or a name, and the palette knows both.
+                    if (!state_resolved[slot]) {
+                        state_targets[slot] = palette.resolve(state);
+                        state_resolved[slot] = 1;
+                    }
+                    target = &state_targets[slot];
                 }
-                if (target.unknown()) {
+                if (target->unknown()) {
                     ++out.stats.unknown;
                     continue;
                 }
-                if (target.skipped()) {
+                if (target->skipped()) {
                     ++out.stats.skipped;
                     continue;
                 }
                 // A stand-in that is also a liquid has to clear both gates: it is
                 // still a stand-in, and it still flows.
-                if (target.fluid && !options.fluids) {
+                if (target->fluid && !options.fluids) {
                     ++out.stats.declined_fluid;
                     continue;
                 }
-                if (target.substitute && !options.substitutes) {
+                if (target->substitute && !options.substitutes) {
                     ++out.stats.declined_substitute;
                     continue;
                 }
 
                 BlockID block = BlockIDs::AIR;
                 if (!file_air) {
-                    const auto found = targets.find(target.block_name);
+                    const auto found = targets.find(target->block_name);
                     if (found == targets.end()) {
                         ++out.stats.unresolved;
                         continue;
@@ -95,7 +120,7 @@ bool plan_paste(const SchematicData& file, const McPalette& palette,
                 cell.block = block;
                 out.cells.push_back(cell);
 
-                if (target.substitute) {
+                if (target->substitute) {
                     ++out.stats.substituted;
                 } else {
                     ++out.stats.placed;

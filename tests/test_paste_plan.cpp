@@ -74,7 +74,7 @@ SchematicData make_file(int32_t width, int32_t height, int32_t length,
             }
         }
         if (!found) {
-            VoxelEngine::schematic::LegacyBlockState entry;
+            VoxelEngine::schematic::BlockState entry;
             entry.id = state.first;
             entry.data = state.second;
             file.palette.push_back(entry);

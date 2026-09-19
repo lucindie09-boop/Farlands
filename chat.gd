@@ -46,15 +46,43 @@ const PASTE_KEYWORDS := ["undo", "fluids", "gaps", "air", "strict"]
 func _chat_scale() -> float:
 	return 1.0  # Chat is not affected by the global GUI scale
 
-# A build file can be named as an absolute path, or just by name if it sits in the
-# project (res://) or the user directory (user://).
+# Where a build file is looked for, in order: as an exact path, then by name in a
+# schematics folder (the project's, then the user's), then in the project and user
+# roots. A bare name is tried with the extension left off, since both formats are
+# recognised by their contents rather than their name.
+const SCHEMATIC_DIRS := ["res://schematics/", "user://schematics/"]
+const SCHEMATIC_EXTENSIONS := [".schematic", ".schem", ".nbt"]
+
 func _resolve_paste_path(name: String) -> String:
 	if FileAccess.file_exists(name):
 		return name
-	for prefix in ["res://", "user://"]:
-		if FileAccess.file_exists(prefix + name):
-			return prefix + name
+	var candidates: Array[String] = [name]
+	if not name.get_extension().to_lower() in ["schematic", "schem", "nbt"]:
+		for extension in SCHEMATIC_EXTENSIONS:
+			candidates.append(name + extension)
+	for candidate in candidates:
+		for prefix in SCHEMATIC_DIRS + ["res://", "user://"]:
+			if FileAccess.file_exists(prefix + candidate):
+				return prefix + candidate
 	return ""
+
+# The build files the folders hold, for /paste list and for tab completion.
+func _list_schematic_files() -> Array[String]:
+	var found: Array[String] = []
+	for prefix in SCHEMATIC_DIRS + ["res://", "user://"]:
+		var dir := DirAccess.open(prefix)
+		if dir == null:
+			continue
+		dir.list_dir_begin()
+		var entry := dir.get_next()
+		while entry != "":
+			if not dir.current_is_dir() and entry.get_extension().to_lower() in ["schematic", "schem", "nbt"]:
+				if not entry in found:
+					found.append(entry)
+			entry = dir.get_next()
+		dir.list_dir_end()
+	found.sort()
+	return found
 
 func _apply_input_layout():
 	var sc := _chat_scale()
@@ -349,7 +377,7 @@ func _get_command_param_hint(cmd: String, arg_count: int) -> String:
 				return "<biome>"
 		"/paste":
 			if arg_count == 1:
-				return "<file.schematic> [fluids] [gaps] [air] [strict] | undo"
+				return "<file> [fluids] [gaps] [air] [strict] | undo | list"
 			if arg_count >= 2:
 				return "fluid|gap|air|strict"
 		"/texturepack":
@@ -517,8 +545,8 @@ func _run_command(raw: String):
 			_add_message("/tp <x> <y> <z> - teleport to a position", COLOR_SYSTEM)
 			_add_message("/fly [speed] - toggle flying (optional speed multiplier)", COLOR_SYSTEM)
 			_add_message("/locatebiome <biome> - find the nearest biome (ocean/hills/plains)", COLOR_SYSTEM)
-			_add_message("/paste <file.schematic> [fluids] [gaps] [air] [strict] - place a build file", COLOR_SYSTEM)
-			_add_message("/paste undo - put the last paste back", COLOR_SYSTEM)
+			_add_message("/paste <file> [fluids] [gaps] [air] [strict] - place a build file", COLOR_SYSTEM)
+			_add_message("/paste undo - put the last paste back, /paste list - show the build files", COLOR_SYSTEM)
 			_add_message("/clearchat - clear the chat", COLOR_SYSTEM)
 			_add_message("/clearinv - clear your inventory", COLOR_SYSTEM)
 			_add_message("/version - show the engine version", COLOR_SYSTEM)
@@ -595,13 +623,23 @@ func _run_command(raw: String):
 				_add_message("Could not find %s within 3000 blocks." % biome_name, COLOR_ERROR)
 		"/paste":
 			if parts.size() < 2:
-				_add_message("Usage: /paste <file.schematic> [fluids] [gaps] [air] [strict]", COLOR_ERROR)
+				_add_message("Usage: /paste <file> [fluids] [gaps] [air] [strict]", COLOR_ERROR)
 				_add_message("       /paste undo - put the last paste back", COLOR_ERROR)
+				_add_message("       /paste list - show the build files in the schematics folders", COLOR_ERROR)
 				_add_message("The build's bottom corner goes where you are looking.", COLOR_SYSTEM)
 				return
 			var chunk_manager := get_node_or_null("/root/Main/ChunkManager")
 			if chunk_manager == null:
 				_add_message("World not available.", COLOR_ERROR)
+				return
+			if parts[1].to_lower() == "list":
+				var files := _list_schematic_files()
+				if files.is_empty():
+					_add_message("No build files found (put them in res://schematics/ or user://schematics/).", COLOR_ERROR)
+					return
+				_add_message("%d build file%s:" % [files.size(), "" if files.size() == 1 else "s"], COLOR_SYSTEM)
+				for file_name in files:
+					_add_message("  %s" % file_name, COLOR_SYSTEM)
 				return
 			if parts[1].to_lower() == "undo":
 				var undone: Dictionary = chunk_manager.undo_paste()
@@ -628,7 +666,7 @@ func _run_command(raw: String):
 
 			var path := _resolve_paste_path(parts[1])
 			if path == "":
-				_add_message("No such file: %s (looked in the project and user://)" % parts[1], COLOR_ERROR)
+				_add_message("No such file: %s (try /paste list; looked in the project and user://, and in their schematics folders)" % parts[1], COLOR_ERROR)
 				return
 			var bytes := FileAccess.get_file_as_bytes(path)
 			if bytes.is_empty():
@@ -655,7 +693,7 @@ func _run_command(raw: String):
 				_add_message("Paste failed: %s" % result.get("error", "unknown error"), COLOR_ERROR)
 				return
 
-			_add_message("Pasted %s (%dx%dx%d) at %d, %d, %d" % [parts[1], int(result.get("file_width", 0)), int(result.get("file_height", 0)), int(result.get("file_length", 0)), anchor.x, anchor.y, anchor.z], COLOR_SUCCESS)
+			_add_message("Pasted %s (%dx%dx%d, %s) at %d, %d, %d" % [parts[1], int(result.get("file_width", 0)), int(result.get("file_height", 0)), int(result.get("file_length", 0)), result.get("format", "unknown format"), anchor.x, anchor.y, anchor.z], COLOR_SUCCESS)
 			_add_message("  %d cells written, %d stand-ins, %d chunks" % [int(result.get("cells", 0)), int(result.get("substituted", 0)), int(result.get("chunks", 0))], COLOR_SYSTEM)
 			if int(result.get("covered", 0)) > 0:
 				_add_message("  %d cells left alone (gaps only)" % int(result.get("covered", 0)), COLOR_SYSTEM)

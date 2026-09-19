@@ -238,6 +238,20 @@ bool NbtReader::read_byte_array(const uint8_t*& data, size_t& length) {
     return true;
 }
 
+bool NbtReader::read_int_array(std::vector<int32_t>& out) {
+    if (!require_payload(NbtTag::IntArray)) return false;
+    int32_t count = 0;
+    if (!read_raw_i32(count)) return false;
+    if (count < 0) return fail("negative int array length");
+    out.clear();
+    out.resize(static_cast<size_t>(count));
+    for (int32_t i = 0; i < count; ++i) {
+        if (!read_raw_i32(out[static_cast<size_t>(i)])) return false;
+    }
+    payload_pending_ = false;
+    return true;
+}
+
 bool NbtReader::read_list_header(NbtTag& element_type, int32_t& count) {
     if (!require_payload(NbtTag::List)) return false;
     NbtTag type = NbtTag::End;

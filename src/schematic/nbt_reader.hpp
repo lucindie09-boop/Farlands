@@ -21,6 +21,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace VoxelEngine {
 namespace schematic {
@@ -82,6 +83,10 @@ public:
     // Zero-copy: the returned pointer is into the caller's buffer and stays valid
     // for as long as it does.
     bool read_byte_array(const uint8_t*& data, size_t& length);
+    // Copies an int array's values, converted to host order. Unlike the block
+    // arrays these are tiny — an offset, a block-entity position — so they are
+    // converted on the way out rather than viewed in place.
+    bool read_int_array(std::vector<int32_t>& out);
     // Reads a list entry's element type and count. The elements follow and must
     // each be consumed (push_compound / skip_value) before the enclosing
     // compound can be walked again.

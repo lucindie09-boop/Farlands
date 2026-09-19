@@ -338,8 +338,12 @@ Dictionary VoxelEngineController::inspect_schematic(const PackedByteArray& bytes
     result["file_width"] = file.width;
     result["file_height"] = file.height;
     result["file_length"] = file.length;
+    result["format"] = String(schematic::block_file_format_name(file.format));
+    result["format_version"] = file.format_version;
+    result["data_version"] = static_cast<int64_t>(file.data_version);
     result["container"] = String(schematic::container_kind_name(file.container));
     result["data_layout"] = String(schematic::data_layout_name(file.data_layout));
+    if (file.has_offset) result["offset"] = Vector3i(file.offset[0], file.offset[1], file.offset[2]);
     result["palette_states"] = static_cast<int64_t>(file.palette.size());
     result["non_air_cells"] = static_cast<int64_t>(file.non_air_cells);
     result["tile_entities"] = static_cast<int64_t>(file.tile_entity_count);
@@ -380,6 +384,10 @@ Dictionary VoxelEngineController::paste_schematic_bytes(const PackedByteArray& b
     result["file_width"] = file.width;
     result["file_height"] = file.height;
     result["file_length"] = file.length;
+    result["format"] = String(schematic::block_file_format_name(file.format));
+    result["format_version"] = file.format_version;
+    // The file's own numbers as well as the world's, so a caller can tell "the
+    // table could not map this" from "the world would not take it".
     const Dictionary counters = plan_counters(plan);
     for (const Variant& key : counters.keys()) result[key] = counters[key];
     result["cells"] = static_cast<int64_t>(written.written);

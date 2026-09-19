@@ -179,6 +179,140 @@ inline const char* kSchemMissingDimsHex =
     "91062a51022ad154d7d235600000b185"
     "758c56000000";
 
+// The same build wrapped in an unnamed root, which writers do and which the
+// reader has to see through: the build compound is found by shape, not by the
+// root's own name.
+inline const char* kSchemWrappedHex =
+    "1f8b08000000000002ff15ccb96ec240"
+    "1485e1e365663ce30d02615fc2960450"
+    "241e80064441011505f5c858d8c22c0a"
+    "f3fee2d25dfdface5580823c24597ad5"
+    "264f6cb0637e32195c1b7c9be6e7ccc0"
+    "a17397dece5499005f17f7e4f204b0b4"
+    "5ca13c3f2ac71f9f8d5ab3d3ef7e8dbe"
+    "b90ce2b054a955ebad6ebb37180f27bf"
+    "732255226d224322d39fd9df42c0dd68"
+    "a3df6f60d98ee332ce8527a5f283208c"
+    "629b02a3e051f02944312c2282882212"
+    "12c17be741eeb549ff735d3cc156c523"
+    "d3c00be9b1723ed4000000";
+
+// The classic build again, with AddBlocks one byte longer than the packed size.
+// Some writers round the length up a whole byte; the extra half-byte is ignored
+// and the file still has to decode to exactly the same build.
+inline const char* kSchemAddPaddedHex =
+    "1f8b08000000000002ff7d8e3b6fc230"
+    "14463f92d88ef304caab694bca4b4085"
+    "c41fe842d5a1034c1d3a5b8995448487"
+    "8affbfb865e888a77b8eceb5ae07f99d"
+    "95faa04c9559603f556e4a3816f897ae"
+    "8ad2c0a671ab8f055926c03fea53b6bf"
+    "00788788ba2c7848bcd6208d7b2fd3ce"
+    "d3786913b8042141fbf175de1fce569c"
+    "c0276812749f276fc968b116703e9551"
+    "b76f1a966d3b8c73e14ae9f9411046b1"
+    "4582917049f824a2180d4a04251e2521"
+    "25f8db732177cae8df4ad517b04d7d2e"
+    "9580dce4f9ff9569ebee03ae231af56a"
+    "ff000000";
+
+// A palette-format file (`.schem`), v2: named states at the root, one varint
+// index per cell, and an unnamed root around it.
+// The nibble-packed build with Data one byte longer than the packed size, which
+// is the same slip on the other array.
+inline const char* kSchemNibblePaddedHex =
+    "1f8b08000000000002ffe362e00c4ece"
+    "48cd4d2cc94c6662600dcf4c29c96060"
+    "616260f348cd4ccf28616006327d52f3"
+    "d281a2acec0c6c4e39f9c9d9c50c0c0c"
+    "368c2cec5c1cdc7c82fc42a212629232"
+    "f2b20aca6a6c9c3cfcbc02c26222e252"
+    "b2d2728a2a4aaa1ada4025224025d240"
+    "254a40259aea5aba06ec0c2c2e892589"
+    "4063e4058c9c53cb66ac3c7de79f5148"
+    "6afb8c5da7dffe1308296b5fb9ebce5b"
+    "7e0123060e064edfc492d4a2ccc49c62"
+    "0656c79c828c4406004d9418b2b30000"
+    "00";
+
+inline const char* kSchemSpongeV2Hex =
+    "1f8b08000000000002ff4d90414ec340"
+    "0c457f6642934ca9380217e80910d920"
+    "9058504042a28baaaa4ce224a3269928"
+    "63041c8153c384228a57d6d3fff6b70d"
+    "60903d150d7724b6d0489e79f4d6f500"
+    "94c6fc9a84fec8e253e1646d4b69a015"
+    "66b76ceb46a0427bc77d1da89a63f650"
+    "559e25d8f557281c2a8c328fd4b208af"
+    "e83d80d820f9051a8bcef65c8c54c905"
+    "d971d26b9c1d9917d7738091c6e5913a"
+    "daefbc04bddf5454d8bece99bc2c1b6a"
+    "ab5cdcb07c23e1b17575cd655e51eb79"
+    "7bc871fe6ff030be16bcf32dbd6ce463"
+    "e0c9b7fdd99e20bb6a5db19fce0fe014"
+    "918a940e6e8d28437ad38b15cbde4c59"
+    "0dd2150b95419a22bea78e110bfbe905"
+    "df40dab4765e010000";
+
+// The same idea at v3, where the palette and the cell data are nested under a
+// "Blocks" compound, next to a block-entity list and a biome section to skip.
+inline const char* kSchemSpongeV3Hex =
+    "1f8b08000000000002ff65505d4bc440"
+    "0c9c76ebf5cb4345f0c7f8280a0a9e1e"
+    "08e7a3ac6dda866bb7d2cd833fd2dfe4"
+    "995e4f7b60603761320933c990be140d"
+    "7556b83088373478ee1d006390df5ab1"
+    "7fc8c5578893572ea58109b1b827ae1b"
+    "41a8e523b95ad130c7e2b9aa3cc938ae"
+    "2fdaed76df9ae30c8b9bb62fb6de205b"
+    "db964468653f475686f800185c76eca8"
+    "186c25d7debad24bef4839a1c172ee58"
+    "1eb05f7f3563ef3c14cddb476bddd66b"
+    "2f408c6894aef5290255184c7f8ae55e"
+    "c69d1316269f8de404e14389b3799b5e"
+    "c34b0eb3eefdc1478029348f4eb8efe8"
+    "9f93e0d8c9f9bc4d55b1f3fbf1595582"
+    "df48911cabd1fdc98ac496ca4b103dd9"
+    "8e1089ea317ada816b76d3dc0f776953"
+    "cbb6010000";
+
+// A palette whose single entry sits at index 128, so the cell data is a
+// multi-byte varint and the palette index is sparse.
+inline const char* kSchemSpongeVarintHex =
+    "1f8b08000000000002ff3d8e410b8240"
+    "1484675d4b5d89fe4fc728e890150475"
+    "5ef4a94bba82fb0e1dbdf6abeb49d19c"
+    "866fe60dcf20bb962df5965da991dc68"
+    "0c6ef000228d7c67d9fec9ea15617177"
+    "15b788222c0fe49a96a1c41ec9374255"
+    "8ee5b9ae03b19cebb7085fc994b9d88e"
+    "98a9b04f01ca20f9018d75ef3c95a3ad"
+    "791378f024f98404d9b61bcac7fc8180"
+    "785293ca90ee3d3b7614cc3c6b9016c4"
+    "b6924a8af8647b42cc1418f80033c702"
+    "a4d5000000";
+
+// A palette file whose cell data stops one cell short of the volume: refused,
+// because the rest of the build would silently be air.
+inline const char* kSchemSpongeShortHex =
+    "1f8b08000000000002ff4d90db4ac340"
+    "10867fb3b139517c045fa04f20e64614"
+    "bcb02a087a514a1937b3c9d2cd81ec88"
+    "fa083eb56eac34fe57331fff1c732047"
+    "f6a41b6e49ac56489e79f4b6ef00440a"
+    "c535091dc9f22bc2e98bada4818ab0b8"
+    "655b3782288477dcd5814605160fc678"
+    "9650aebe83705068953f9263115ed347"
+    "00718ee40f282c5bdbb11ec9c805d971"
+    "f22b9ccdcc4bdf7180270a9733ed69bf"
+    "f312fc7e6348dbae2e99bcac1a72a694"
+    "7e58bd93f0e8fabae6aa34e43c6f0f7b"
+    "9cff6b3c8c6f9a77ded1eb463e079eea"
+    "b6bfd3136457aed7fbe9fc000accca90"
+    "de7462c5b2cfa73c47ba66a12a3853c4"
+    "f7d43262613f7de0072a96497b5d0100"
+    "00";
+
 // ---------------------------------------------------------------------------
 // The geometry the schematic fixtures were written with. The reader is checked
 // against these formulas, which is what proves the cell order: an axis swap
@@ -198,6 +332,22 @@ inline uint8_t fixture_data_value(int32_t x, int32_t y, int32_t z) {
 }
 inline uint16_t fixture_add_block_id(int32_t x, int32_t y, int32_t z) {
     return static_cast<uint16_t>(0x100 + ((x * 7 + y * 3 + z * 5) % 90));
+}
+
+// ---------------------------------------------------------------------------
+// The palette fixtures, and the states they were written with. The index each
+// cell holds is a formula rather than a table, so a cell read out of order is a
+// failure instead of a coincidence.
+// ---------------------------------------------------------------------------
+inline constexpr int32_t kSpongeWidth = 3;
+inline constexpr int32_t kSpongeHeight = 2;
+inline constexpr int32_t kSpongeLength = 2;
+
+inline uint32_t sponge_v2_state_index(int32_t x, int32_t y, int32_t z) {
+    return static_cast<uint32_t>((x + 2 * y + z) % 4);
+}
+inline uint32_t sponge_v3_state_index(int32_t x, int32_t y, int32_t z) {
+    return static_cast<uint32_t>((x + 3 * y + 2 * z) % 3);
 }
 
 // ---------------------------------------------------------------------------

@@ -27,7 +27,7 @@ const UNIT_UNDO_W := 20.0         # a per-row reset: a square icon (== UNIT_BUTT
 const UNIT_HEADING_ICON_W := 10.0 # heading export/import/reset icons: 50% of UNIT_UNDO_W
 const UNIT_RESET_W := 60.0        # a small action button (the galleries' CLOSE)
 const UNIT_ROW_GAP := 2.0         # between an option and its reset
-const UNIT_HEADING_H := 20.0      # one section heading's row
+const UNIT_HEADING_H := 24.0      # a category heading: 10-unit icons, tall enough to give the title 8u of air above it
 const UNIT_GAP := 4.0             # between two rows
 const UNIT_COL_GAP := 8.0         # between the two columns
 const UNIT_MARGIN := 8.0          # around the content box and inside the bars
@@ -1259,7 +1259,7 @@ func _build_controls_sections() -> Array:
 
 func _set_controls_hint(text: String) -> void:
 	if _controls_hint != null:
-		_controls_hint.text = text
+		_set_hint_text(_controls_hint, text)
 
 # Restore every rebindable action to its pristine project.godot binding.
 func _reset_all_controls() -> void:
@@ -2886,14 +2886,11 @@ func _build_scrolling_page(title_text: String, sections: Array, actions: Array,
 		# they report into. See _category().
 		var codec: Dictionary = section[3] if section.size() > 3 else {}
 		if String(section[0]) != "":
-			if category and body.get_child_count() > 0:
-				var spacer := Control.new()
-				spacer.custom_minimum_size = Vector2(0.0, UNIT_GAP * u)
-				spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
-				body.add_child(spacer)
 			# The heading is a row so each area's export/import/reset can sit beside
 			# its title. Export and import run the area's own codec (below); reset
-			# replays each row's own reset callable, so it already works.
+			# replays each row's own reset callable, so it already works. A 24-unit
+			# row with 8-unit centred text puts 8 units of air above the title, and
+			# with the 4-unit VBox gap that reads as a clear section break.
 			var heading_row := HBoxContainer.new()
 			heading_row.custom_minimum_size = Vector2(grid_w * u, UNIT_HEADING_H * u)
 			heading_row.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
@@ -2995,6 +2992,13 @@ func _make_span_row(row: Array, grid_w: float, u: float) -> Control:
 	if control.custom_minimum_size == Vector2.ZERO:
 		control.custom_minimum_size = Vector2(UNIT_BUTTON_W * u, UNIT_BUTTON_H * u)
 	holder.add_child(control)
+	# A hint span row is only a status line: while its hint has no message the
+	# row must take no space at all (a hidden child in a container is skipped,
+	# leaving just the VBox's own gap around the surrounding rows).
+	if control.has_meta("hint_label"):
+		holder.visible = control.visible
+		control.visibility_changed.connect(func():
+			holder.visible = control.visible)
 	return holder
 
 # Give a row its label: the widget's own text becomes "Label: value", except for
@@ -3028,7 +3032,19 @@ func _make_hint_label(u: float) -> Label:
 	hint.add_theme_font_override("font", MUNRO_FONT)
 	hint.add_theme_font_size_override("font_size", int(UNIT_FONT * u))
 	hint.add_theme_color_override("font_color", HINT_COLOR)
+	# A hint is a status line for its section's import/export feedback: it shows
+	# only while it has a message. An empty hint must not reserve a whole row of
+	# page height, so it starts hidden and only shows once _set_hint_text gives it
+	# a message (a hidden control in the row container takes no layout space).
+	hint.set_meta("hint_label", true)
+	hint.visible = false
 	return hint
+
+# The only way a hint label gets its text: it sets the message and makes the
+# label (and its span row) visible, and hides it again when the message clears.
+func _set_hint_text(hint: Label, text: String) -> void:
+	hint.text = text
+	hint.visible = text != ""
 
 # A maker page's side buttons: the top of slot `row`, counting down from the title
 # band, in interface units like the rest of the menu. Four slots is what the skin
@@ -3045,7 +3061,7 @@ func _maker_slot(row: int, s: float) -> float:
 func _expire_hint(hint: Label) -> void:
 	get_tree().create_timer(3.0).timeout.connect(func():
 		if is_instance_valid(hint):
-			hint.text = "")
+			_set_hint_text(hint, ""))
 
 # A title is a label in the interface font like everything else: the reference
 # screen's heading is the same size as its buttons, only centred.
@@ -3381,7 +3397,7 @@ func _section_message(codec: Dictionary, text: String) -> void:
 	var hint: Label = codec.get("hint")
 	if hint == null or not is_instance_valid(hint):
 		return
-	hint.text = text
+	_set_hint_text(hint, text)
 	_expire_hint(hint)
 
 # A section code is a version byte, that area's bytes, then base32. This checks

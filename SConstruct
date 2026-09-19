@@ -84,6 +84,8 @@ shared_sources = [
     "src/schematic/gzip_inflate.cpp",
     "src/schematic/nbt_reader.cpp",
     "src/schematic/schematic_reader.cpp",
+    "src/schematic/minimal_json.cpp",
+    "src/schematic/mc_palette.cpp",
 ]
 # Remove any non-existent .cpp files (like crc32.cpp which is header-only)
 shared_sources = [s for s in shared_sources if os.path.exists(str(s))]
@@ -154,7 +156,7 @@ schem_env = env.Clone()
 schem_env.Append(CPPPATH=["src/"])
 schem_env.Append(LIBS=[])
 schem_tool_objects = [shared_obj_by_src[n] for n in [
-    "gzip_inflate", "nbt_reader", "schematic_reader",
+    "gzip_inflate", "nbt_reader", "schematic_reader", "minimal_json", "mc_palette",
 ]]
 schem_prog = schem_env.Program("bin/schematic_report",
                                ["tools/schematic_report.cpp"] + schem_tool_objects)

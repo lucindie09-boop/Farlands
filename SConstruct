@@ -81,6 +81,9 @@ shared_sources = [
     "src/pathfinding/pathfinder.cpp",
     "src/pathfinding/path_smoother.cpp",
     "src/pathfinding/path_service.cpp",
+    "src/schematic/gzip_inflate.cpp",
+    "src/schematic/nbt_reader.cpp",
+    "src/schematic/schematic_reader.cpp",
 ]
 # Remove any non-existent .cpp files (like crc32.cpp which is header-only)
 shared_sources = [s for s in shared_sources if os.path.exists(str(s))]
@@ -143,6 +146,19 @@ path_prog = path_env.Program("bin/path_cost",
                              ["tools/path_cost.cpp"] + terrain_tool_objects +
                              [chunk_data_object] + nav_tool_objects)
 Alias("path_cost", path_prog)
+
+# Block-file report (standalone executable). Reads a .schematic straight off
+# disk: the inflater and the NBT reader are self-contained, so this needs no
+# Godot runtime and no compression library.
+schem_env = env.Clone()
+schem_env.Append(CPPPATH=["src/"])
+schem_env.Append(LIBS=[])
+schem_tool_objects = [shared_obj_by_src[n] for n in [
+    "gzip_inflate", "nbt_reader", "schematic_reader",
+]]
+schem_prog = schem_env.Program("bin/schematic_report",
+                               ["tools/schematic_report.cpp"] + schem_tool_objects)
+Alias("schematic_report", schem_prog)
 
 # Elevation domain-warp sweep (standalone, renders BMPs for visual comparison).
 warp_env = env.Clone()

@@ -536,20 +536,16 @@ func cancel_preview() -> void:
 func _draw_ghost(info: Dictionary, origin: Vector3i) -> void:
 	if _ghost == null or _outline == null:
 		return
-	var packed: PackedByteArray = info.get("cells", PackedByteArray())
-	var values := packed.to_int32_array()
-	# Four int32 per cell (x, y, z, block id). Written as a float divide because
-	# GDScript's integer division is a warning for a reason: a silent truncation
-	# here would drop the last cell of every ghost.
-	var count := int(floor(values.size() / 4.0))
+	# The instance transforms arrive ready to upload: one unit transform per cell,
+	# twelve floats each, built engine-side. A GDScript loop over the same cells was a
+	# `set_instance_transform` call per cell on the main thread, which is a hitch at
+	# every re-aim on a big build.
+	var transforms: PackedFloat32Array = info.get("transforms", PackedFloat32Array())
+	var count := int(floor(transforms.size() / 12.0))
 	var multi: MultiMesh = _ghost.multimesh
 	multi.instance_count = count
-	for i in count:
-		var at := Vector3(
-			float(values[i * 4]) + 0.5,
-			float(values[i * 4 + 1]) + 0.5,
-			float(values[i * 4 + 2]) + 0.5)
-		multi.set_instance_transform(i, Transform3D(Basis(), at))
+	if count > 0:
+		multi.buffer = transforms
 	_ghost.visible = count > 0
 
 	# The volume's outline, one cube bigger than the cells' own bounds so it reads

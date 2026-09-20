@@ -297,7 +297,7 @@ bool VoxelEngineController::decode_and_plan(const PackedByteArray& bytes,
                                             const Dictionary& options,
                                             int32_t origin_x, int32_t origin_y, int32_t origin_z,
                                             schematic::PasteOptions& out_options,
-                                            schematic::SchematicData& out_file,
+                                            const schematic::SchematicData*& out_file,
                                             schematic::PastePlan& out_plan, std::string& error) {
     if (!ensure_minecraft_palette()) {
         error = minecraft_palette_error_;
@@ -307,10 +307,32 @@ bool VoxelEngineController::decode_and_plan(const PackedByteArray& bytes,
         error = "the file is empty";
         return false;
     }
-    if (!schematic::load_schematic_bytes(reinterpret_cast<const uint8_t*>(bytes.ptr()),
-                                         static_cast<size_t>(bytes.size()), out_file, &error)) {
-        return false;
+
+    // The decode cache: the same bytes decode to the same build, and a preview is
+    // re-planned at a new origin every time you move the crosshair while the file
+    // stays the same. FNV-1a is enough here — this catches "is it still that file"
+    // for a few hundred KB of compressed bytes, and a collision would need two
+    // different builds to hash alike, not an attacker.
+    uint64_t fingerprint = 1469598103934665603ull;
+    {
+        const uint8_t* raw = bytes.ptr();
+        const int32_t n = bytes.size();
+        for (int32_t i = 0; i < n; ++i) {
+            fingerprint ^= raw[i];
+            fingerprint *= 1099511628211ull;
+        }
     }
+    if (!have_decoded_build_ || decoded_build_.fingerprint != fingerprint) {
+        schematic::SchematicData fresh;
+        if (!schematic::load_schematic_bytes(reinterpret_cast<const uint8_t*>(bytes.ptr()),
+                                             static_cast<size_t>(bytes.size()), fresh, &error)) {
+            return false;
+        }
+        decoded_build_.file = std::move(fresh);
+        decoded_build_.fingerprint = fingerprint;
+        have_decoded_build_ = true;
+    }
+    out_file = &decoded_build_.file;
 
     if (options.has("fluids")) out_options.fluids = static_cast<bool>(options["fluids"]);
     if (options.has("substitutes")) {
@@ -331,7 +353,7 @@ bool VoxelEngineController::decode_and_plan(const PackedByteArray& bytes,
         out = found->second;
         return true;
     };
-    if (!schematic::plan_paste(out_file, minecraft_palette_, origin_x, origin_y, origin_z,
+    if (!schematic::plan_paste(*out_file, minecraft_palette_, origin_x, origin_y, origin_z,
                                out_options, resolve, out_plan, &error)) {
         return false;
     }
@@ -351,7 +373,7 @@ Dictionary VoxelEngineController::inspect_schematic(const PackedByteArray& bytes
     result["ok"] = false;
 
     schematic::PasteOptions paste_options;
-    schematic::SchematicData file;
+    const schematic::SchematicData* file = nullptr;
     schematic::PastePlan plan;
     std::string error;
     // The origin does not matter for inspection (only for the coordinates the
@@ -362,19 +384,19 @@ Dictionary VoxelEngineController::inspect_schematic(const PackedByteArray& bytes
     }
 
     result["ok"] = true;
-    result["file_width"] = file.width;
-    result["file_height"] = file.height;
-    result["file_length"] = file.length;
-    result["format"] = String(schematic::block_file_format_name(file.format));
-    result["format_version"] = file.format_version;
-    result["data_version"] = static_cast<int64_t>(file.data_version);
-    result["container"] = String(schematic::container_kind_name(file.container));
-    result["data_layout"] = String(schematic::data_layout_name(file.data_layout));
-    if (file.has_offset) result["offset"] = Vector3i(file.offset[0], file.offset[1], file.offset[2]);
-    result["palette_states"] = static_cast<int64_t>(file.palette.size());
-    result["non_air_cells"] = static_cast<int64_t>(file.non_air_cells);
-    result["tile_entities"] = static_cast<int64_t>(file.tile_entity_count);
-    result["entities"] = static_cast<int64_t>(file.entity_count);
+    result["file_width"] = file->width;
+    result["file_height"] = file->height;
+    result["file_length"] = file->length;
+    result["format"] = String(schematic::block_file_format_name(file->format));
+    result["format_version"] = file->format_version;
+    result["data_version"] = static_cast<int64_t>(file->data_version);
+    result["container"] = String(schematic::container_kind_name(file->container));
+    result["data_layout"] = String(schematic::data_layout_name(file->data_layout));
+    if (file->has_offset) result["offset"] = Vector3i(file->offset[0], file->offset[1], file->offset[2]);
+    result["palette_states"] = static_cast<int64_t>(file->palette.size());
+    result["non_air_cells"] = static_cast<int64_t>(file->non_air_cells);
+    result["tile_entities"] = static_cast<int64_t>(file->tile_entity_count);
+    result["entities"] = static_cast<int64_t>(file->entity_count);
     const Dictionary counters = plan_counters(plan);
     for (const Variant& key : counters.keys()) result[key] = counters[key];
     if (!plan.empty()) {
@@ -392,7 +414,7 @@ Dictionary VoxelEngineController::preview_schematic(const PackedByteArray& bytes
     result["ok"] = false;
 
     schematic::PasteOptions paste_options;
-    schematic::SchematicData file;
+    const schematic::SchematicData* file = nullptr;
     schematic::PastePlan plan;
     std::string error;
     if (!decode_and_plan(bytes, options, origin_x, origin_y, origin_z, paste_options, file, plan,
@@ -419,26 +441,61 @@ Dictionary VoxelEngineController::preview_schematic(const PackedByteArray& bytes
     for (size_t i = 0; i < total; i += stride) ++returned;
 
     PackedByteArray cells;
+    // The same cells again, as the instance buffer a MultiMesh wants: one unit
+    // transform per cell with the origin at the cell's CENTRE. Built here rather
+    // than in GDScript because a script loop over a hundred thousand cells is a
+    // frame hitch at every re-aim, and one `buffer` assignment is a single upload.
+    //
+    // THE LAYOUT IS NOT WHAT IT LOOKS LIKE, and getting it wrong is invisible rather
+    // than loud: an instance packed in the wrong order does not error, it renders as a
+    // degenerate transform somewhere off screen, so the ghost simply never appears.
+    // Measured from the engine rather than read off the docs (the docs describe the
+    // unpacked `transform_array` as "x, y, z, origin", which is NOT this order):
+    // `set_instance_transform(0, Transform3D(Basis(), Vector3(11, 22, 33)))` packs to
+    //   1,0,0, 11,  0,1,0, 22,  0,0,1, 33
+    // i.e. three rows of four — each basis row followed by that row's origin
+    // component. So the identity diagonal sits at 0, 5, 10 and the translation at 3, 7,
+    // 11. `.freebuff/probe_mm_layout.gd` prints both that packing and what a wrong
+    // order decodes to (a basis of (11,0,0), (22,0,0), (33,0,0) at origin (1,1,1)).
+    PackedFloat32Array transforms;
     if (returned > 0) {
         cells.resize(static_cast<int32_t>(returned * 4 * sizeof(int32_t)));
+        transforms.resize(static_cast<int32_t>(returned * 12));
         uint8_t* out = cells.ptrw();
+        float* xform = transforms.ptrw();
         size_t at = 0;
+        int32_t slot = 0;
         for (size_t i = 0; i < total; i += stride) {
             const schematic::PastePlan::Cell& cell = plan.cells[i];
             const int32_t values[4] = {cell.x, cell.y, cell.z, static_cast<int32_t>(cell.block)};
             std::memcpy(out + at, values, sizeof(values));
             at += sizeof(values);
+            // Row 0, then origin.x; row 1, then origin.y; row 2, then origin.z.
+            xform[slot + 0] = 1.0f;
+            xform[slot + 1] = 0.0f;
+            xform[slot + 2] = 0.0f;
+            xform[slot + 3] = static_cast<float>(cell.x) + 0.5f;
+            xform[slot + 4] = 0.0f;
+            xform[slot + 5] = 1.0f;
+            xform[slot + 6] = 0.0f;
+            xform[slot + 7] = static_cast<float>(cell.y) + 0.5f;
+            xform[slot + 8] = 0.0f;
+            xform[slot + 9] = 0.0f;
+            xform[slot + 10] = 1.0f;
+            xform[slot + 11] = static_cast<float>(cell.z) + 0.5f;
+            slot += 12;
         }
     }
 
     result["ok"] = true;
-    result["format"] = String(schematic::block_file_format_name(file.format));
-    result["file_width"] = file.width;
-    result["file_height"] = file.height;
-    result["file_length"] = file.length;
+    result["format"] = String(schematic::block_file_format_name(file->format));
+    result["file_width"] = file->width;
+    result["file_height"] = file->height;
+    result["file_length"] = file->length;
     const Dictionary counters = plan_counters(plan);
     for (const Variant& key : counters.keys()) result[key] = counters[key];
     result["cells"] = cells;
+    result["transforms"] = transforms;
     result["cells_returned"] = static_cast<int64_t>(returned);
     result["cells_sampled"] = stride > 1;
     if (!plan.empty()) {
@@ -457,7 +514,7 @@ Dictionary VoxelEngineController::paste_schematic_bytes(const PackedByteArray& b
     result["ok"] = false;
 
     schematic::PasteOptions paste_options;
-    schematic::SchematicData file;
+    const schematic::SchematicData* file = nullptr;
     schematic::PastePlan plan;
     std::string error;
     if (!decode_and_plan(bytes, options, origin_x, origin_y, origin_z, paste_options, file, plan,
@@ -502,11 +559,11 @@ Dictionary VoxelEngineController::paste_schematic_bytes(const PackedByteArray& b
     // needs to see: the plan counts what the file implies, the write counts what
     // the world actually took.
     result["ok"] = true;
-    result["file_width"] = file.width;
-    result["file_height"] = file.height;
-    result["file_length"] = file.length;
-    result["format"] = String(schematic::block_file_format_name(file.format));
-    result["format_version"] = file.format_version;
+    result["file_width"] = file->width;
+    result["file_height"] = file->height;
+    result["file_length"] = file->length;
+    result["format"] = String(schematic::block_file_format_name(file->format));
+    result["format_version"] = file->format_version;
     // The file's own numbers as well as the world's, so a caller can tell "the
     // table could not map this" from "the world would not take it".
     const Dictionary counters = plan_counters(plan);

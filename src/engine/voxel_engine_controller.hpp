@@ -333,11 +333,29 @@ bool smooth_lighting = false;
     std::string minecraft_palette_error_;
     // Shared front half of inspect/paste: decode the bytes, read the options and
     // build the plan. False with a reason when any of that fails.
+    // Decodes the file (or reuses the cached decode) and plans where it lands.
+    // `out_file` is borrowed rather than copied: the decoded build is held by the
+    // cache below, and copying a half-million-cell file per preview would put back
+    // the cost the cache exists to remove.
     bool decode_and_plan(const godot::PackedByteArray& bytes,
                          const godot::Dictionary& options,
                          int32_t origin_x, int32_t origin_y, int32_t origin_z,
-                         schematic::PasteOptions& out_options, schematic::SchematicData& out_file,
+                         schematic::PasteOptions& out_options,
+                         const schematic::SchematicData*& out_file,
                          schematic::PastePlan& out_plan, std::string& error);
+
+    // The decoded build the wand is working on. `preview_schematic` runs at every
+    // re-aim, and decoding a large file (a gzip inflate plus a parse) is the
+    // expensive half of that, while the plan depends on where you aim and has to be
+    // redone anyway. One entry on purpose: the wand works on one file at a time, so
+    // a map would add management for no extra hits. Keyed by a hash of the bytes, so
+    // a different build — or the same file edited — re-decodes.
+    struct DecodedBuild {
+        uint64_t fingerprint = 0;
+        schematic::SchematicData file;
+    };
+    DecodedBuild decoded_build_;
+    bool have_decoded_build_ = false;
     // The counters both entry points report, from the plan and (when there was a
     // write) what the world actually took.
     static godot::Dictionary plan_counters(const schematic::PastePlan& plan);

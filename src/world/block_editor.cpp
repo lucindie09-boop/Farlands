@@ -425,11 +425,20 @@ bool paste_cell_needs_fluid_wake(const BlockRegistry& registry, const ChunkData&
         const int32_t nz = lz + offset[2];
         // Inside the chunk: an array read. Across the seam: the one case that has
         // to ask the world, and only for the cells that sit on a face.
+        //
+        // The _fast accessor is required, not an optimisation: the caller holds the
+        // 3x3x3 exclusive band for the chunk being written, and a face neighbour is at
+        // most one chunk away, so its shard IS one of the ones held. The locking
+        // accessor would take a shared lock on a shard this thread owns exclusively,
+        // which std::shared_mutex answers with a deadlock — a hang, not a wrong
+        // answer, and one every big paste hits because a build spanning chunks always
+        // has cells on a face. Asking under the lock we already hold is the whole
+        // reason the neighbour is read here instead of through the world.
         const BlockID neighbor = cell_in_chunk(nx, ny, nz)
             ? chunk.get_block_unsafe(nx, ny, nz)
-            : static_cast<BlockID>(cm.get_block_world(world_x + offset[0],
-                                                      world_y + offset[1],
-                                                      world_z + offset[2]));
+            : static_cast<BlockID>(cm.get_block_world_fast(world_x + offset[0],
+                                                           world_y + offset[1],
+                                                           world_z + offset[2]));
         if (registry.get_block_fast(neighbor).is_fluid_state()) return true;
     }
     return false;

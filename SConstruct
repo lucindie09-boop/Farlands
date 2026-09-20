@@ -35,6 +35,14 @@ lib_sources = [s for s in sources if os.path.basename(str(s)) not in ("terrain_d
 # Remove any non-existent .cpp files (like crc32.cpp which is header-only)
 lib_sources = [s for s in lib_sources if os.path.exists(str(s))]
 
+# Windows crash reports: dbghelp is what writes the minidump and turns a stack of
+# addresses into function names, and /DEBUG is what produces the .pdb beside the
+# DLL that makes our own frames readable — a minidump of an optimized DLL with no
+# symbols is just a column of numbers.
+if sys.platform == "win32":
+    env.Append(LIBS=["dbghelp"])
+    env.Append(LINKFLAGS=["/DEBUG:FULL"])
+
 library = env.SharedLibrary("bin/libgdextension{}{}".format(env["suffix"], env["SHLIBSUFFIX"]), source=lib_sources)
 Default(library, cdb)
 

@@ -1,5 +1,6 @@
 #include "godot_bindings/chunk_manager.hpp"
 
+#include "debug/crash_dump.hpp"
 #include "engine/voxel_engine_controller.hpp"
 #include "world/block_editor.hpp"
 #include "pathfinding/path_service.hpp"
@@ -318,6 +319,14 @@ String ChunkManager::get_block_name(int block_id) {
     const auto& block = BlockRegistry::get_instance().get_block(static_cast<BlockID>(block_id));
     return String(block.name);
 }
+
+#ifdef DEBUG_ENABLED
+void ChunkManager::debug_crash_for_test() {
+    // Deliberately ignored: false means the harness was not armed, which is not
+    // worth a warning in the debug build it only exists in.
+    (void)debug::crash_for_test();
+}
+#endif
 
 Array ChunkManager::get_selection_boxes(int block_id) {
     Array result;
@@ -806,6 +815,9 @@ void ChunkManager::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_block", "world_x", "world_y", "world_z"), &ChunkManager::get_block);
     ClassDB::bind_method(D_METHOD("get_block_name", "block_id"), &ChunkManager::get_block_name);
     ClassDB::bind_method(D_METHOD("get_selection_boxes", "block_id"), &ChunkManager::get_selection_boxes);
+#ifdef DEBUG_ENABLED
+    ClassDB::bind_method(D_METHOD("debug_crash_for_test"), &ChunkManager::debug_crash_for_test);
+#endif
     ClassDB::bind_method(D_METHOD("find_biome", "biome_name", "center_x", "center_z", "max_radius"), &ChunkManager::find_biome);
     ClassDB::bind_method(D_METHOD("inspect_schematic", "bytes", "options"),
                          &ChunkManager::inspect_schematic, DEFVAL(Dictionary()));

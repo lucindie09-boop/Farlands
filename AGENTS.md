@@ -205,6 +205,11 @@ A Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked streamin
 - **Mesh-build serialization**: `MeshBuildTask::execute` holds a shared 3×3×3 `lock_keys` over the center chunk + 26 neighbors for the whole data read, serializing the build against writers (block edits, light region recomputes, player light) that mutate neighbor section palettes mid-build
 - **Overlapping light removal**: Per-channel removal clears a channel only when the removed source emitted it and the cell's level is strictly below the source's; surviving channels are re-added so they refill the cleared region, and each (cell, channel) is cleared at most once so the BFS terminates with overlapping sources
 
+### Crash Reporting
+- **Our own handler, installed before any class registers** (`debug/crash_dump.hpp`, wired in `register_types.cpp`): an unhandled exception writes `user://crashes/crash-<stamp>.txt` — exception code, read/write and address, the module and offset of the instruction pointer, the faulting thread's stack with a symbol per frame, the loaded modules, and our DLL's build time — then `crash-<stamp>.dmp` beside it, plus a `<stamp>-firstchance.txt` capped at 8 writes. The report is written before the dump because it is what can be read without a debugger, and the handler returns `EXCEPTION_CONTINUE_SEARCH` so the engine's own handler still runs. It exists because the process dies before the engine can print anything, so its log just stops mid-initialization
+- **`dbghelp` and `/DEBUG:FULL` are linked on Windows** (`SConstruct`): a minidump of an optimized DLL with no symbols is a column of numbers
+- **The proof fault is debug-build and env-armed only**: `ChunkManager::debug_crash_for_test()` exists under `DEBUG_ENABLED` and `crash_for_test()` answers false without `FARLANDS_CRASH_TEST=1`, because a synthetic crash in the player's crash folder sits beside the real ones. `.freebuff/run_crash_probe.sh` runs it armed and prints what landed
+
 ### Collision & Physics
 - **Binary-search AABB collision**: Custom voxel collision queries directly against chunk map
 - **Multi-box collision support**: Non-full block shapes (stairs, slabs, walls, poles) have accurate multi-box collision detection

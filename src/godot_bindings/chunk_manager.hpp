@@ -107,6 +107,13 @@ public:
     godot::String get_block_name(int block_id);
     godot::Array get_selection_boxes(int block_id);
 
+#ifdef DEBUG_ENABLED
+    // Faults on purpose, to prove the crash-report handler works end to end (see
+    // debug/crash_dump.hpp). Debug builds only: a method that takes the process
+    // down has no business existing where it could be called by accident.
+    void debug_crash_for_test();
+#endif
+
     // Nearest column of the named biome (ocean/hills) within max_radius
     // blocks of (center_x, center_z). Returns {found: bool, x, y, z}.
     // Block files from other tools, from the bytes of a .schematic to blocks in

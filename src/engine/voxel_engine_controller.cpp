@@ -17,6 +17,7 @@
 #include "core/chunk_coords.hpp"
 #include "schematic/paste_plan.hpp"
 #include "schematic/schematic_reader.hpp"
+#include "render/multimesh_instance_layout.hpp"
 #include <godot_cpp/classes/file_access.hpp>
 #include <godot_cpp/variant/vector3i.hpp>
 #include <mutex>
@@ -446,17 +447,10 @@ Dictionary VoxelEngineController::preview_schematic(const PackedByteArray& bytes
     // than in GDScript because a script loop over a hundred thousand cells is a
     // frame hitch at every re-aim, and one `buffer` assignment is a single upload.
     //
-    // THE LAYOUT IS NOT WHAT IT LOOKS LIKE, and getting it wrong is invisible rather
-    // than loud: an instance packed in the wrong order does not error, it renders as a
-    // degenerate transform somewhere off screen, so the ghost simply never appears.
-    // Measured from the engine rather than read off the docs (the docs describe the
-    // unpacked `transform_array` as "x, y, z, origin", which is NOT this order):
-    // `set_instance_transform(0, Transform3D(Basis(), Vector3(11, 22, 33)))` packs to
-    //   1,0,0, 11,  0,1,0, 22,  0,0,1, 33
-    // i.e. three rows of four — each basis row followed by that row's origin
-    // component. So the identity diagonal sits at 0, 5, 10 and the translation at 3, 7,
-    // 11. `.freebuff/probe_mm_layout.gd` prints both that packing and what a wrong
-    // order decodes to (a basis of (11,0,0), (22,0,0), (33,0,0) at origin (1,1,1)).
+    // The packing lives in one place (render/multimesh_instance_layout.hpp) because
+    // getting the float order wrong is silent, and that file carries the measured
+    // evidence for it. `verify_multimesh_instance_layout` holds it against the engine
+    // at startup.
     PackedFloat32Array transforms;
     if (returned > 0) {
         cells.resize(static_cast<int32_t>(returned * 4 * sizeof(int32_t)));
@@ -470,19 +464,9 @@ Dictionary VoxelEngineController::preview_schematic(const PackedByteArray& bytes
             const int32_t values[4] = {cell.x, cell.y, cell.z, static_cast<int32_t>(cell.block)};
             std::memcpy(out + at, values, sizeof(values));
             at += sizeof(values);
-            // Row 0, then origin.x; row 1, then origin.y; row 2, then origin.z.
-            xform[slot + 0] = 1.0f;
-            xform[slot + 1] = 0.0f;
-            xform[slot + 2] = 0.0f;
-            xform[slot + 3] = static_cast<float>(cell.x) + 0.5f;
-            xform[slot + 4] = 0.0f;
-            xform[slot + 5] = 1.0f;
-            xform[slot + 6] = 0.0f;
-            xform[slot + 7] = static_cast<float>(cell.y) + 0.5f;
-            xform[slot + 8] = 0.0f;
-            xform[slot + 9] = 0.0f;
-            xform[slot + 10] = 1.0f;
-            xform[slot + 11] = static_cast<float>(cell.z) + 0.5f;
+            render::pack_unit_instance_transform(xform + slot, static_cast<float>(cell.x) + 0.5f,
+                                                static_cast<float>(cell.y) + 0.5f,
+                                                static_cast<float>(cell.z) + 0.5f);
             slot += 12;
         }
     }

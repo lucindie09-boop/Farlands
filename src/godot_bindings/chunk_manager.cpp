@@ -2,6 +2,7 @@
 
 #include "debug/crash_dump.hpp"
 #include "engine/voxel_engine_controller.hpp"
+#include "render/multimesh_instance_layout.hpp"
 #include "world/block_editor.hpp"
 #include "pathfinding/path_service.hpp"
 #include "render/texture_array_generator.hpp"
@@ -41,6 +42,18 @@ PerformanceTimer& ChunkManager::get_perf_timer() {
 
 void ChunkManager::_ready() {
     // print_line("_ready: called, is_inside_tree=" + String::num(is_inside_tree()));
+#ifdef DEBUG_ENABLED
+    // Once, at startup, because the thing it checks fails silently: a build preview
+    // packed in the wrong float order draws mangled instances off screen and shows
+    // only its outline, with nothing in the log to say why. Debug builds only, and it
+    // says nothing at all when it agrees — or when there is no renderer to ask.
+    {
+        std::string layout_report;
+        if (!render::verify_multimesh_instance_layout(layout_report)) {
+            ERR_PRINT(String(layout_report.c_str()));
+        }
+    }
+#endif
     controller->set_owner(this);
     if (!player_path.is_empty()) {
         Node* player_node = get_node_or_null(player_path);
@@ -325,6 +338,16 @@ void ChunkManager::debug_crash_for_test() {
     // Deliberately ignored: false means the harness was not armed, which is not
     // worth a warning in the debug build it only exists in.
     (void)debug::crash_for_test();
+}
+
+bool ChunkManager::debug_multimesh_layout_ok() {
+    // The startup check again, on demand, so a probe can hold it to the engine without
+    // needing a crash or a scene. Answers true in a run with no renderer, where there
+    // is nothing to compare.
+    std::string report;
+    const bool ok = render::verify_multimesh_instance_layout(report);
+    if (!ok) ERR_PRINT(String(report.c_str()));
+    return ok;
 }
 #endif
 
@@ -817,6 +840,7 @@ void ChunkManager::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_selection_boxes", "block_id"), &ChunkManager::get_selection_boxes);
 #ifdef DEBUG_ENABLED
     ClassDB::bind_method(D_METHOD("debug_crash_for_test"), &ChunkManager::debug_crash_for_test);
+    ClassDB::bind_method(D_METHOD("debug_multimesh_layout_ok"), &ChunkManager::debug_multimesh_layout_ok);
 #endif
     ClassDB::bind_method(D_METHOD("find_biome", "biome_name", "center_x", "center_z", "max_radius"), &ChunkManager::find_biome);
     ClassDB::bind_method(D_METHOD("inspect_schematic", "bytes", "options"),

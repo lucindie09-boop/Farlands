@@ -112,6 +112,11 @@ public:
     // debug/crash_dump.hpp). Debug builds only: a method that takes the process
     // down has no business existing where it could be called by accident.
     void debug_crash_for_test();
+
+    // Packs a known transform through both the engine and our own instance-buffer
+    // packing and answers whether they agree (see render/multimesh_instance_layout.hpp).
+    // Called once in _ready, and bound so a probe can ask too.
+    bool debug_multimesh_layout_ok();
 #endif
 
     // Nearest column of the named biome (ocean/hills) within max_radius

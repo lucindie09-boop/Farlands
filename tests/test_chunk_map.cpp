@@ -1,4 +1,5 @@
 #include "doctest.h"
+#include "chunk_map_fixture.hpp"
 #include "core/chunk_map.hpp"
 
 using namespace VoxelEngine;
@@ -65,6 +66,38 @@ TEST_CASE("lock_keys locks exactly the keys it is given") {
     CHECK(cm.lock_keys(keys, 1).shard_count() == 1);
     CHECK(cm.lock_keys(keys, 2).shard_count() == 2);
     CHECK(cm.lock_keys(keys, 0).shard_count() == 0);
+}
+
+TEST_CASE("a held band reads a neighbouring chunk through the fast accessor") {
+    // The paste's fluid-wake predicate reads a written cell's face neighbours while
+    // holding the 3x3x3 exclusive band, and a face neighbour can be one chunk away.
+    // It must use the _fast accessor there: the locking one takes a shared lock on a
+    // shard this thread already owns exclusively, which std::shared_mutex answers by
+    // blocking forever (a debug build now reports it instead of hanging). This pins
+    // the accessor that is legal under the lock, and that it answers the same as the
+    // locking one does outside it.
+    BlockRegistry::get_instance().initialize_default_blocks();
+    ChunkMap cm;
+    chunktest::insert_chunk(cm, 1, 0, 0, [](ChunkData& data) {
+        data.set_block(0, 0, 0, static_cast<BlockID>(BlockIDs::STONE));
+    });
+
+    // Exactly the band the paste locks: the written chunk and its 26 neighbours.
+    uint64_t keys[27];
+    int idx = 0;
+    for (int dz = -1; dz <= 1; ++dz)
+        for (int dy = -1; dy <= 1; ++dy)
+            for (int dx = -1; dx <= 1; ++dx)
+                keys[idx++] = cm.get_chunk_key(dx, dy, dz);
+    {
+        auto band = cm.lock_keys_exclusive(keys);
+        // One block into the neighbouring chunk: local (0,0,0) of chunk (1,0,0).
+        CHECK(cm.get_block_world_fast(CHUNK_WIDTH, 0, 0) == static_cast<int>(BlockIDs::STONE));
+    }
+
+    // With the band gone, the locking accessor agrees — so the fast path is the same
+    // read, not a weaker one.
+    CHECK(cm.get_block_world(CHUNK_WIDTH, 0, 0) == static_cast<int>(BlockIDs::STONE));
 }
 
 TEST_CASE("key encode/decode near max range") {

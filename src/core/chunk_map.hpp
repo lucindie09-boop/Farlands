@@ -94,7 +94,7 @@ public:
 #else
         ExclusiveShardLock& operator=(ExclusiveShardLock&& other) noexcept {
             if (this != &other) {
-                for (auto si : shard_indices_) LOCK_ORDER_RELEASE(si);
+                for (auto si : shard_indices_) LOCK_ORDER_RELEASE_EX(si);
                 locks_ = std::move(other.locks_);
                 shard_indices_ = std::move(other.shard_indices_);
             }
@@ -103,7 +103,7 @@ public:
 #endif
         ~ExclusiveShardLock() {
 #ifdef DEBUG_ENABLED
-            for (auto si : shard_indices_) LOCK_ORDER_RELEASE(si);
+            for (auto si : shard_indices_) LOCK_ORDER_RELEASE_EX(si);
 #endif
         }
     };
@@ -140,6 +140,9 @@ public:
     ShardLock lock_chunk(int32_t cx, int32_t cy, int32_t cz) const {
         ShardLock sl;
         size_t si = key_to_shard(get_chunk_key(cx, cy, cz));
+        // Checked BEFORE the lock: a re-entrant read never returns, so there would be
+        // nothing left to report with.
+        LOCK_ORDER_REQUIRE_SHARED(si, "lock_chunk");
         sl.locks_.emplace_back(shards_[si].mutex);
         LOCK_ORDER_ACQUIRE(si);
 #ifdef DEBUG_ENABLED
@@ -156,6 +159,7 @@ public:
         sl.locks_.reserve(kNumShards);
         for (size_t i = 0; i < kNumShards; ++i) {
             if (seen[i]) {
+                LOCK_ORDER_REQUIRE_SHARED(i, "lock_keys");
                 sl.locks_.emplace_back(shards_[i].mutex);
                 LOCK_ORDER_ACQUIRE(i);
 #ifdef DEBUG_ENABLED
@@ -180,6 +184,7 @@ public:
         sl.locks_.reserve(kNumShards);
         for (size_t i = 0; i < kNumShards; ++i) {
             if (seen[i]) {
+                LOCK_ORDER_REQUIRE_SHARED(i, "lock_keys");
                 sl.locks_.emplace_back(shards_[i].mutex);
                 LOCK_ORDER_ACQUIRE(i);
 #ifdef DEBUG_ENABLED
@@ -204,7 +209,7 @@ public:
         for (size_t i = 0; i < kNumShards; ++i) {
             if (seen[i]) {
                 sl.locks_.emplace_back(shards_[i].mutex);
-                LOCK_ORDER_ACQUIRE(i);
+                LOCK_ORDER_ACQUIRE_EX(i);
 #ifdef DEBUG_ENABLED
                 sl.shard_indices_.push_back(i);
 #endif
@@ -227,7 +232,7 @@ public:
         for (size_t i = 0; i < kNumShards; ++i) {
             if (seen[i]) {
                 sl.locks_.emplace_back(shards_[i].mutex);
-                LOCK_ORDER_ACQUIRE(i);
+                LOCK_ORDER_ACQUIRE_EX(i);
 #ifdef DEBUG_ENABLED
                 sl.shard_indices_.push_back(i);
 #endif
@@ -240,6 +245,7 @@ public:
         ShardLock sl;
         sl.locks_.reserve(kNumShards);
         for (size_t i = 0; i < kNumShards; ++i) {
+            LOCK_ORDER_REQUIRE_SHARED(i, "lock_all");
             sl.locks_.emplace_back(shards_[i].mutex);
             LOCK_ORDER_ACQUIRE(i);
 #ifdef DEBUG_ENABLED
@@ -254,7 +260,7 @@ public:
         sl.locks_.reserve(kNumShards);
         for (size_t i = 0; i < kNumShards; ++i) {
             sl.locks_.emplace_back(shards_[i].mutex);
-            LOCK_ORDER_ACQUIRE(i);
+            LOCK_ORDER_ACQUIRE_EX(i);
 #ifdef DEBUG_ENABLED
             sl.shard_indices_.push_back(i);
 #endif
@@ -267,6 +273,7 @@ public:
     [[nodiscard]] ChunkData* get_chunk_data(int32_t cx, int32_t cy, int32_t cz) const {
         uint64_t key = get_chunk_key(cx, cy, cz);
         auto& s = shards_[key_to_shard(key)];
+        LOCK_ORDER_REQUIRE_SHARED(key_to_shard(key), "get_chunk_data");
         std::shared_lock lock(s.mutex);
         auto it = s.chunks.find(key);
         return (it != s.chunks.end()) ? it->second->data.get() : nullptr;
@@ -275,6 +282,7 @@ public:
     [[nodiscard]] ChunkRenderData* get_chunk_render_data(int32_t cx, int32_t cy, int32_t cz) const {
         uint64_t key = get_chunk_key(cx, cy, cz);
         auto& s = shards_[key_to_shard(key)];
+        LOCK_ORDER_REQUIRE_SHARED(key_to_shard(key), "get_chunk_render_data");
         std::shared_lock lock(s.mutex);
         auto it = s.chunks.find(key);
         return (it != s.chunks.end()) ? it->second.get() : nullptr;
@@ -283,6 +291,7 @@ public:
     [[nodiscard]] bool has_loaded_chunk(int32_t cx, int32_t cy, int32_t cz) const {
         uint64_t key = get_chunk_key(cx, cy, cz);
         auto& s = shards_[key_to_shard(key)];
+        LOCK_ORDER_REQUIRE_SHARED(key_to_shard(key), "has_loaded_chunk");
         std::shared_lock lock(s.mutex);
         return s.chunks.find(key) != s.chunks.end();
     }
@@ -292,6 +301,7 @@ public:
         world_to_chunk_local(wx, wy, wz, cx, cy, cz, lx, ly, lz);
         uint64_t key = get_chunk_key(cx, cy, cz);
         auto& s = shards_[key_to_shard(key)];
+        LOCK_ORDER_REQUIRE_SHARED(key_to_shard(key), "is_block_solid");
         std::shared_lock lock(s.mutex);
         auto it = s.chunks.find(key);
         if (it == s.chunks.end()) return false;
@@ -303,6 +313,7 @@ public:
         world_to_chunk_local(wx, wy, wz, cx, cy, cz, lx, ly, lz);
         uint64_t key = get_chunk_key(cx, cy, cz);
         auto& s = shards_[key_to_shard(key)];
+        LOCK_ORDER_REQUIRE_SHARED(key_to_shard(key), "get_block_world");
         std::shared_lock lock(s.mutex);
         auto it = s.chunks.find(key);
         if (it == s.chunks.end()) return static_cast<int>(BlockIDs::AIR);
@@ -311,6 +322,7 @@ public:
 
     [[nodiscard]] bool contains(uint64_t key) const {
         auto& s = shards_[key_to_shard(key)];
+        LOCK_ORDER_REQUIRE_SHARED(key_to_shard(key), "contains");
         std::shared_lock lock(s.mutex);
         return s.chunks.find(key) != s.chunks.end();
     }
@@ -444,6 +456,7 @@ public:
     //  18-25: triple corners (neg_x_neg_y_neg_z .. pos_x_pos_y_pos_z)
     void pin_chunk(uint64_t key) {
         auto& s = shards_[key_to_shard(key)];
+        LOCK_ORDER_REQUIRE_SHARED(key_to_shard(key), "pin_chunk");
         std::shared_lock lock(s.mutex);
         auto it = s.chunks.find(key);
         if (it != s.chunks.end()) {
@@ -453,6 +466,7 @@ public:
 
     void unpin_chunk(uint64_t key) {
         auto& s = shards_[key_to_shard(key)];
+        LOCK_ORDER_REQUIRE_SHARED(key_to_shard(key), "unpin_chunk");
         std::shared_lock lock(s.mutex);
         auto it = s.chunks.find(key);
         if (it != s.chunks.end()) {

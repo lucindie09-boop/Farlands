@@ -427,11 +427,21 @@ func _build_ghost() -> void:
 	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	material.albedo_color = GHOST_COLOR
-	# Every cube is visible from anywhere and the cubes blend with each other
-	# instead of fighting for depth: this is a diagram of a volume, not solid
-	# geometry, and terrain still hides it (the depth TEST stays on).
+	#   * both faces drawn (CULL_DISABLED), because the ghost is a volume you can
+	#     stand inside: culling the back faces made a big build's preview vanish the
+	#     moment the camera was within it.
+	material.blend_mode = BaseMaterial3D.BLEND_MODE_MIX
 	material.cull_mode = BaseMaterial3D.CULL_DISABLED
-	material.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
+	material.no_depth_test = false
+	#   * depth WRITTEN (DEPTH_DRAW_ALWAYS) and drawn before the translucent things
+	#     that write depth (render_priority -1). The liquid shader is
+	#     depth_draw_always, so a ghost that wrote no depth was blended UNDER any
+	#     water or lava between you and it, however far away that liquid was — the
+	#     "liquids draw on top of the overlay" bug. Writing depth is what lets the
+	#     liquid's own depth TEST hide it behind the ghost. Terrain still hides the
+	#     ghost itself, because the depth test here stays on.
+	material.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_ALWAYS
+	material.render_priority = -1
 
 	var cube := BoxMesh.new()
 	cube.size = Vector3.ONE

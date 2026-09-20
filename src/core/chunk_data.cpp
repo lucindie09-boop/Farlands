@@ -67,18 +67,101 @@ ChunkData& ChunkData::operator=(ChunkData&& other) noexcept {
     return *this;
 }
 
-void ChunkData::clear_block_light() noexcept {
+bool ChunkData::clear_block_light() noexcept {
+    // Returns whether anything was actually there to clear, which is what tells a
+    // caller its light did not change: a region pass over daylight terrain has no
+    // block light at all, and dirtying 27 chunks for a remesh after wiping nothing
+    // is how a paste (or a newly installed chunk) cost far more than it changed.
+    bool changed = false;
     for (auto& s : storage->light_secs) {
         if (s.is_uniform()) {
-            s.palette[0] = s.uniform_val() & 0x000F;
-        } else {
-            for (int i = 0; i < PaletteStorage::SEC_VOLUME; ++i) {
-                uint16_t v = PaletteStorage::section_get(s, i);
-                uint16_t nv = v & 0x000F;
-                if (nv != v) PaletteStorage::section_set(s, i, nv);
+            const uint16_t v = s.uniform_val();
+            const uint16_t nv = v & 0x000F;
+            if (nv != v) {
+                s.palette[0] = nv;
+                changed = true;
+            }
+            continue;
+        }
+        // Fast path: when no palette entry carries block light there is nothing to
+        // clear, and the palette is hundreds of times smaller than the section. A
+        // sky-lit terrain chunk lands here for all 8 sections, so the clear costs
+        // a few palette reads instead of 4096 read-modify-writes each.
+        bool any_block_light = false;
+        for (const uint16_t v : s.palette) {
+            if ((v & 0xFFF0u) != 0) {
+                any_block_light = true;
+                break;
+            }
+        }
+        if (!any_block_light) continue;
+        for (int i = 0; i < PaletteStorage::SEC_VOLUME; ++i) {
+            const uint16_t v = PaletteStorage::section_get(s, i);
+            const uint16_t nv = v & 0x000F;
+            if (nv != v) {
+                PaletteStorage::section_set(s, i, nv);
+                changed = true;
             }
         }
     }
+    return changed;
+}
+
+namespace {
+
+void append_u32(std::vector<uint8_t>& out, uint32_t v) {
+    out.push_back(static_cast<uint8_t>(v & 0xFFu));
+    out.push_back(static_cast<uint8_t>((v >> 8) & 0xFFu));
+    out.push_back(static_cast<uint8_t>((v >> 16) & 0xFFu));
+    out.push_back(static_cast<uint8_t>((v >> 24) & 0xFFu));
+}
+
+bool read_u32(const std::vector<uint8_t>& in, size_t& at, uint32_t& out) {
+    if (at + 4 > in.size()) return false;
+    out = static_cast<uint32_t>(in[at]) | (static_cast<uint32_t>(in[at + 1]) << 8) |
+          (static_cast<uint32_t>(in[at + 2]) << 16) | (static_cast<uint32_t>(in[at + 3]) << 24);
+    at += 4;
+    return true;
+}
+
+} // namespace
+
+void ChunkData::append_light_state(std::vector<uint8_t>& out) const {
+    for (const PalSection& s : storage->light_secs) {
+        out.push_back(s.bpi);
+        append_u32(out, static_cast<uint32_t>(s.palette.size()));
+        for (const uint16_t v : s.palette) {
+            out.push_back(static_cast<uint8_t>(v & 0xFFu));
+            out.push_back(static_cast<uint8_t>(v >> 8));
+        }
+        append_u32(out, static_cast<uint32_t>(s.indices.size()));
+        out.insert(out.end(), s.indices.begin(), s.indices.end());
+    }
+}
+
+bool ChunkData::light_state_equals(const std::vector<uint8_t>& prior) const {
+    size_t at = 0;
+    for (const PalSection& s : storage->light_secs) {
+        if (at >= prior.size() || prior[at++] != s.bpi) return false;
+
+        uint32_t pal_n = 0;
+        if (!read_u32(prior, at, pal_n)) return false;
+        if (pal_n != s.palette.size()) return false;
+        if (at + static_cast<size_t>(pal_n) * 2 > prior.size()) return false;
+        for (uint32_t i = 0; i < pal_n; ++i) {
+            const uint16_t v = static_cast<uint16_t>(prior[at] | (static_cast<uint16_t>(prior[at + 1]) << 8));
+            if (v != s.palette[i]) return false;
+            at += 2;
+        }
+
+        uint32_t idx_n = 0;
+        if (!read_u32(prior, at, idx_n)) return false;
+        if (idx_n != s.indices.size()) return false;
+        if (at + idx_n > prior.size()) return false;
+        if (idx_n > 0 && std::memcmp(prior.data() + at, s.indices.data(), idx_n) != 0) return false;
+        at += idx_n;
+    }
+    return at == prior.size();
 }
 
 void ChunkData::clear_sky_light() noexcept {

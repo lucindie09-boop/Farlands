@@ -176,7 +176,17 @@ func _rebuild_overlay() -> void:
 		_overlay_mat = StandardMaterial3D.new()
 		_overlay_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		_overlay_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		# Three settings for one symptom: a route marker that faded in and out as you
+		# turned. A MultiMesh draws every cell in ONE call, so alpha MIXING has no
+		# order to work with — each cube's far faces mix over its near ones, and which
+		# of them is "near" depends on the camera. Additive blending only ever adds
+		# light, so it has no order at all and looks the same from every angle.
+		_overlay_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
 		_overlay_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+		#   * depth test OFF so a marker inside a hill is still readable, and depth
+		#     writing OFF so the cells don't hide each other.
+		_overlay_mat.no_depth_test = true
+		_overlay_mat.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
 		cube.material = _overlay_mat
 		overlay_mesh.mesh = cube
 		_overlay.multimesh = overlay_mesh

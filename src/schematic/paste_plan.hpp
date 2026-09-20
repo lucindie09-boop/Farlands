@@ -98,6 +98,29 @@ struct PastePlan {
 // than silently dropping.
 using BlockResolver = std::function<bool(const std::string& name, BlockID& out)>;
 
+// Where a plan's CONTENT sat inside the file's own box, in blocks, as of the moment
+// it was anchored (see anchor_plan_on_content). Zero for a build that starts at its
+// own corner, which is the common case.
+struct PlanMargin {
+    int32_t x = 0, y = 0, z = 0;
+};
+
+// Moves every cell, and the bounds, by the same amount. An empty plan is left alone
+// (its bounds are an empty sentinel, not a position).
+void translate_plan(PastePlan& plan, int32_t dx, int32_t dy, int32_t dz);
+
+// Anchors the plan on its CONTENT instead of on the file's own corner, and reports
+// where that content was inside the box.
+//
+// This is the difference between "paste where I aimed" and "paste somewhere in the
+// next field". A build saved from a region selection carries the selection's empty
+// margin inside its declared box — one of the sample files holds nothing until 90
+// blocks in on x and 114 on z — so planting the BOX corner at the crosshair puts the
+// building a hundred blocks away from it. Aiming at the content instead is what a
+// player means by "put it there", and for a build that starts at its own corner the
+// two are identical.
+PlanMargin anchor_plan_on_content(PastePlan& plan, int32_t x, int32_t y, int32_t z);
+
 // Builds the plan for `file` placed with its (0, 0, 0) corner at the origin.
 // Fails only on a fault the caller cannot sensibly continue past (the cell cap);
 // everything ordinary — an id with no row, a state the table skips — is counted.

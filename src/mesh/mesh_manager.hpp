@@ -67,6 +67,8 @@ public:
     void mark_chunk_urgent(int32_t cx, int32_t cy, int32_t cz);
     void reprioritize(int32_t player_cx, int32_t player_cy, int32_t player_cz, const Frustum* frustum = nullptr);
     void mark_chunks_dirty_for_light(int32_t center_cx, int32_t center_cy, int32_t center_cz);
+    // One chunk, for a light pass that reports exactly which chunks it wrote.
+    void mark_chunk_dirty_for_light(int32_t cx, int32_t cy, int32_t cz);
     void process_queue(int32_t max_immediate, int32_t max_rebuilds, double budget_ms);
     void notify_chunk_unloaded(int32_t cx, int32_t cy, int32_t cz, const ChunkRenderData* render_data);
     void clear();

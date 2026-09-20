@@ -26,6 +26,10 @@ struct CompletedLightPropagation {
     int32_t chunk_y = 0;
     int32_t chunk_z = 0;
     uint64_t epoch = 0;
+    // 27-bit mask of the chunks the worker's light pass actually wrote (bit
+    // (dx+1) + (dy+1)*3 + (dz+1)*9), so the main thread marks those for a remesh
+    // instead of the whole 3x3x3 — see BlockLightRegion::slot_bit.
+    uint32_t modified_mask = 0;
 };
 
 // -------------------------------------------------------------------------

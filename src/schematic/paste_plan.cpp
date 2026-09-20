@@ -1,5 +1,6 @@
 #include "schematic/paste_plan.hpp"
 
+#include <limits>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -166,6 +167,54 @@ bool plan_paste(const SchematicData& file, const McPalette& palette,
                                std::to_string(options.max_cells));
     }
     return true;
+}
+
+void translate_plan(PastePlan& plan, int32_t dx, int32_t dy, int32_t dz) {
+    for (PastePlan::Cell& cell : plan.cells) {
+        cell.x += dx;
+        cell.y += dy;
+        cell.z += dz;
+    }
+    if (plan.empty()) return;
+    plan.min_x += dx;
+    plan.max_x += dx;
+    plan.min_y += dy;
+    plan.max_y += dy;
+    plan.min_z += dz;
+    plan.max_z += dz;
+}
+
+PlanMargin anchor_plan_on_content(PastePlan& plan, int32_t x, int32_t y, int32_t z) {
+    PlanMargin margin;
+    if (plan.empty()) return margin;
+
+    // "Content" is what the paste would actually put there. A cell planned as air
+    // (write_air carving a hole) is not content, so it must not drag the anchor back
+    // out to the box corner.
+    int32_t min_x = std::numeric_limits<int32_t>::max();
+    int32_t min_y = std::numeric_limits<int32_t>::max();
+    int32_t min_z = std::numeric_limits<int32_t>::max();
+    bool any = false;
+    for (const PastePlan::Cell& cell : plan.cells) {
+        if (cell.block == BlockIDs::AIR) continue;
+        any = true;
+        if (cell.x < min_x) min_x = cell.x;
+        if (cell.y < min_y) min_y = cell.y;
+        if (cell.z < min_z) min_z = cell.z;
+    }
+    // A plan of nothing but air has no content to anchor to; its own bounds are the
+    // honest answer, and the box corner is where it lands.
+    if (!any) {
+        min_x = plan.min_x;
+        min_y = plan.min_y;
+        min_z = plan.min_z;
+    }
+
+    margin.x = min_x;
+    margin.y = min_y;
+    margin.z = min_z;
+    translate_plan(plan, x - min_x, y - min_y, z - min_z);
+    return margin;
 }
 
 PastePlan to_revert_plan(const PasteUndo& undo) {

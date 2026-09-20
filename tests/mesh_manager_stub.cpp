@@ -5,4 +5,5 @@
 
 namespace VoxelEngine {
 void MeshManager::mark_chunks_dirty_for_light(int32_t, int32_t, int32_t) {}
+void MeshManager::mark_chunk_dirty_for_light(int32_t, int32_t, int32_t) {}
 } // namespace VoxelEngine

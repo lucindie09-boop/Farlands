@@ -430,6 +430,13 @@ PasteWriteResult BlockEditor::apply_paste(const schematic::PastePlan& plan,
     displaced.reserve(plan.cells.size());
     written.reserve(plan.cells.size());
     std::vector<std::array<int32_t, 3>> touched;
+    // The subset of `touched` whose BLOCK light can actually have changed. Every
+    // chunk a paste writes to needs a remesh, but only these need the 3×3×3 region
+    // pass — and that pass is the expensive half of a paste by a wide margin
+    // (measured: milliseconds a chunk against fractions of one for the write). A
+    // chunk of stone swapped for other stone, or a wall built out of blocks that
+    // were already opaque, moves no light at all.
+    std::vector<std::array<int32_t, 3>> light_touched;
     // The volume the paste actually changed, accumulated across every chunk it
     // touches — NOT per chunk, which would report only the last chunk's box.
     bool have_bounds = false;
@@ -466,6 +473,7 @@ PasteWriteResult BlockEditor::apply_paste(const schematic::PastePlan& plan,
         // column rather than once per cell.
         std::vector<uint32_t> sky_columns;
         bool wrote_here = false;
+        bool light_relevant_here = false;
 
         for (const size_t index : group.cells) {
             const PastePlan::Cell& cell = plan.cells[index];
@@ -487,10 +495,17 @@ PasteWriteResult BlockEditor::apply_paste(const schematic::PastePlan& plan,
 
             chunk->set_block(lx, ly, lz, cell.block);
 
-            const bool old_opaque = HasProperty(registry.get_block_fast(old_block).properties,
-                                               BlockProperty::Opaque);
-            const bool new_opaque = HasProperty(registry.get_block_fast(cell.block).properties,
-                                               BlockProperty::Opaque);
+            const BlockType& old_type = registry.get_block_fast(old_block);
+            const BlockType& new_type = registry.get_block_fast(cell.block);
+            const bool old_opaque = HasProperty(old_type.properties, BlockProperty::Opaque);
+            const bool new_opaque = HasProperty(new_type.properties, BlockProperty::Opaque);
+            // Whether BLOCK light can have moved here: whether light passes through
+            // the cell, or either block emits.
+            if (old_opaque != new_opaque || old_type.light_opacity != new_type.light_opacity ||
+                HasProperty(old_type.properties, BlockProperty::Emissive) ||
+                HasProperty(new_type.properties, BlockProperty::Emissive)) {
+                light_relevant_here = true;
+            }
             if (old_opaque != new_opaque) {
                 const uint32_t column = (static_cast<uint32_t>(lx) << 16) |
                                         static_cast<uint32_t>(lz & 0xFFFF);
@@ -538,6 +553,9 @@ PasteWriteResult BlockEditor::apply_paste(const schematic::PastePlan& plan,
         }
         if (wrote_here) {
             touched.push_back({group.cx, group.cy, group.cz});
+            if (light_relevant_here) {
+                light_touched.push_back({group.cx, group.cy, group.cz});
+            }
         }
     }
 
@@ -551,8 +569,13 @@ PasteWriteResult BlockEditor::apply_paste(const schematic::PastePlan& plan,
     for (const std::array<int32_t, 3>& pos : touched) {
         chunk_world->mark_chunk_dirty(pos[0], pos[1], pos[2]);
         mesh_manager->queue_dirty_chunk(pos[0], pos[1], pos[2]);
-        // Relights the 3×3×3 neighborhood (and dirties their meshes), which is
-        // what a block change can reach.
+    }
+    // Relights the 3×3×3 neighbourhood (and dirties the meshes of the chunks whose
+    // light actually changed), which is what a block change can reach. Only for the
+    // chunks where a written cell could have moved light: over a build that is
+    // mostly stone, this is the difference between a region pass per touched chunk
+    // and almost none of them.
+    for (const std::array<int32_t, 3>& pos : light_touched) {
         light_propagator->propagate_block_light_region(pos[0], pos[1], pos[2]);
     }
 

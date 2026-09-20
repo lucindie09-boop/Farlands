@@ -177,6 +177,12 @@ void ChunkManager::_exit_tree() {
 void ChunkManager::set_seed(int32_t p_seed) { controller->set_seed(p_seed); }
 int32_t ChunkManager::get_seed() const { return controller->get_seed(); }
 
+godot::String ChunkManager::engine_build_stamp() const {
+    // The compiler's own timestamps for this translation unit, so it cannot be
+    // forgotten when the code changes.
+    return godot::String("built " __DATE__ " " __TIME__);
+}
+
 void ChunkManager::set_render_distance(int32_t distance) { controller->set_render_distance(distance); }
 int32_t ChunkManager::get_render_distance() const { return controller->get_render_distance(); }
 
@@ -788,6 +794,7 @@ void ChunkManager::update_environment() {
 // -------------------------------------------------------------------------
 void ChunkManager::_bind_methods() {
     // Non-property API (manual — each has unique signatures)
+    ClassDB::bind_method(D_METHOD("engine_build_stamp"), &ChunkManager::engine_build_stamp);
     ClassDB::bind_method(D_METHOD("update_chunks"), &ChunkManager::update_chunks);
     ClassDB::bind_method(D_METHOD("generate_chunk", "chunk_x", "chunk_y", "chunk_z"), &ChunkManager::generate_chunk);
     ClassDB::bind_method(D_METHOD("unload_chunk", "chunk_x", "chunk_y", "chunk_z"), &ChunkManager::unload_chunk);

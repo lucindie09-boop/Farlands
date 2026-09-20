@@ -32,7 +32,11 @@ public:
     void try_fixup_chunk(uint64_t key, int32_t cx, int32_t cy, int32_t cz);
 
 private:
-    void propagate_block_light_region_locked(int32_t cx, int32_t cy, int32_t cz);
+    // `modified_out`, when given, receives a 27-bit mask of the chunks the pass
+    // actually wrote light to (see BlockLightRegion::slot_bit). The public wrapper
+    // uses it so a region pass marks only the chunks whose light changed.
+    void propagate_block_light_region_locked(int32_t cx, int32_t cy, int32_t cz,
+                                            uint32_t* modified_out = nullptr);
 
     ChunkMap* chunk_map = nullptr;
     MeshManager* mesh_manager = nullptr;

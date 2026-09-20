@@ -12,7 +12,9 @@ using VoxelEngine::schematic::PasteOptions;
 using VoxelEngine::schematic::PastePlan;
 using VoxelEngine::schematic::PasteStats;
 using VoxelEngine::schematic::PasteUndo;
+using VoxelEngine::schematic::anchor_plan_on_content;
 using VoxelEngine::schematic::plan_paste;
+using VoxelEngine::schematic::PlanMargin;
 using VoxelEngine::schematic::SchematicData;
 using VoxelEngine::schematic::to_revert_plan;
 
@@ -356,4 +358,87 @@ TEST_CASE("paste plan: the revert plan is the write plan with the old blocks in 
     PasteUndo nothing;
     CHECK_FALSE(nothing.valid());
     CHECK(to_revert_plan(nothing).empty());
+}
+
+TEST_CASE("anchoring plants the CONTENT at the aim, not the file's box corner") {
+    // A 4x1x4 box that holds nothing until 3 in on x and 2 in on z: the shape of a
+    // build saved from a region selection, and the reason a big schematic landed a
+    // hundred blocks from where it was right-clicked. The file's own order is x
+    // fastest, then z, then y.
+    std::vector<std::pair<uint16_t, uint8_t>> states(16, {0, 0});
+    states[3 + 2 * 4] = {1, 0};  // x = 3, z = 2 -> stone
+    const SchematicData file = make_file(4, 1, 4, states);
+
+    PastePlan plan = plan_of(file, PasteOptions{}, /*ox=*/100, /*oy=*/64, /*oz=*/200);
+    const int32_t width_before = plan.max_x - plan.min_x;
+    const int32_t depth_before = plan.max_z - plan.min_z;
+    // Unanchored, the aim has the file's BOX corner, so the content sits away from it
+    // by the margin: 3 further out on x and 2 on z. That offset is exactly the reported
+    // bug — a big file's margin is a hundred blocks, not three.
+    CHECK(plan.min_x == 103);
+    CHECK(plan.min_z == 202);
+    bool off_before = false;
+    for (const PastePlan::Cell& cell : plan.cells) {
+        if (cell.block != VoxelEngine::BlockIDs::AIR) off_before = true;
+    }
+    CHECK(off_before);
+
+    const PlanMargin margin = anchor_plan_on_content(plan, 100, 64, 200);
+    // What the margin means: where the content WAS inside the box.
+    CHECK(margin.x == 103);
+    CHECK(margin.y == 64);
+    CHECK(margin.z == 202);
+
+    // Every cell that will actually be written now sits on the aim.
+    for (const PastePlan::Cell& cell : plan.cells) {
+        if (cell.block == VoxelEngine::BlockIDs::AIR) continue;
+        CHECK(cell.x == 100);
+        CHECK(cell.y == 64);
+        CHECK(cell.z == 200);
+    }
+    // The bounds were translated with them, so a caller still reports the volume it
+    // will touch (and the size of that volume is unchanged). plan_paste's bounds are
+    // the PLANNED cells', not the file box's, so this one-cell build bounds to the
+    // cell itself.
+    CHECK(plan.max_x - plan.min_x == width_before);
+    CHECK(plan.max_z - plan.min_z == depth_before);
+    CHECK(plan.min_x == 100);
+    CHECK(plan.max_x == 100);
+    CHECK(plan.min_z == 200);
+    CHECK(plan.max_z == 200);
+}
+
+TEST_CASE("anchoring a build that starts at its own corner changes nothing") {
+    // The common case: content at (0, 0, 0) means the margin is the aim itself and
+    // every cell stays exactly where it was. This is why the fix cannot regress an
+    // ordinary build.
+    const SchematicData file = make_file(2, 2, 2, {
+        {1, 0}, {0, 0},
+        {0, 0}, {1, 0},
+        {1, 0}, {0, 0},
+        {0, 0}, {0, 0},
+    });
+    PastePlan plan = plan_of(file, PasteOptions{}, 10, 20, 30);
+    const std::vector<uint32_t> before = described(plan);
+
+    const PlanMargin margin = anchor_plan_on_content(plan, 10, 20, 30);
+    CHECK(margin.x == 10);
+    CHECK(margin.y == 20);
+    CHECK(margin.z == 30);
+    CHECK(described(plan) == before);
+
+    // A plan whose cells are all AIR has no content to anchor to. It must fall back to
+    // its own bounds rather than to an uninitialised minimum, and it must not be moved
+    // to a nonsense position: with the box corner already on the aim, the shift is zero.
+    PasteOptions carve;
+    carve.write_air = true;  // without this an air-only file plans no cells at all
+    const SchematicData empty_file = make_file(2, 1, 2, {
+        {0, 0}, {0, 0}, {0, 0}, {0, 0},
+    });
+    PastePlan air_only = plan_of(empty_file, carve, 5, 5, 5);
+    CHECK_FALSE(air_only.cells.empty());
+    const PlanMargin empty_margin = anchor_plan_on_content(air_only, 5, 5, 5);
+    CHECK(empty_margin.x == 5);
+    CHECK(empty_margin.y == 5);
+    CHECK(empty_margin.z == 5);
 }

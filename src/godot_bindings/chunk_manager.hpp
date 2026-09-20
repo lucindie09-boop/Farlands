@@ -58,6 +58,12 @@ public:
     void set_seed(int32_t p_seed);
     int32_t get_seed() const;
 
+    // When this shared library was COMPILED. Reported in game, because the one
+    // question that has cost the most time here is "is the build I just made the one
+    // that is running?" — Godot does not hot-reload a GDExtension, and an editor left
+    // open holds the image it loaded at startup. `/version` prints this.
+    godot::String engine_build_stamp() const;
+
     void set_render_distance(int32_t distance);
     int32_t get_render_distance() const;
 

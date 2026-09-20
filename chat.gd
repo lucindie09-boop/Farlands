@@ -726,7 +726,14 @@ func _run_command(raw: String):
 			player_controller.clear_inventory()
 			_add_message("Inventory cleared.", COLOR_SUCCESS)
 		"/version":
-			_add_message("Farlands - Godot 4 + C++ GDExtension", COLOR_SYSTEM)
+			# The stamp is here so "which build am I testing?" is answerable in one command:
+			# a GDExtension is NOT hot-reloaded, so whatever loaded this library keeps
+			# running it until the game (and the editor, which holds its own copy) restarts.
+			var engine := get_node_or_null("/root/Main/ChunkManager")
+			var stamp := "unknown build"
+			if engine != null and engine.has_method("engine_build_stamp"):
+				stamp = engine.engine_build_stamp()
+			_add_message("Farlands - Godot 4 + C++ GDExtension (%s)" % stamp, COLOR_SYSTEM)
 		"/texturepack":
 			if parts.size() >= 2 and parts[1] in ["off", "clear", ""]:
 				player_controller.set_active_texture_pack("")

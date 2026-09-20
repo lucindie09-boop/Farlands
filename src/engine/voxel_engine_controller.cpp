@@ -324,8 +324,18 @@ bool VoxelEngineController::decode_and_plan(const PackedByteArray& bytes,
         out = found->second;
         return true;
     };
-    return schematic::plan_paste(out_file, minecraft_palette_, origin_x, origin_y, origin_z,
-                                 out_options, resolve, out_plan, &error);
+    if (!schematic::plan_paste(out_file, minecraft_palette_, origin_x, origin_y, origin_z,
+                               out_options, resolve, out_plan, &error)) {
+        return false;
+    }
+    // The cell the caller aimed at is where the BUILDING goes, not where the file's
+    // box corner goes. A build saved from a region selection carries the selection's
+    // empty margin inside its declared box, so planting the corner at the crosshair is
+    // what put a big schematic a hundred blocks from where it was right-clicked. Both
+    // the ghost and the paste come through here, so this is also what keeps them on
+    // the same spot.
+    (void)schematic::anchor_plan_on_content(out_plan, origin_x, origin_y, origin_z);
+    return true;
 }
 
 Dictionary VoxelEngineController::inspect_schematic(const PackedByteArray& bytes,

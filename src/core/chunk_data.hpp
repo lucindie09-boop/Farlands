@@ -8,6 +8,7 @@
 #include <cstring>
 #include <algorithm>
 #include <vector>
+#include <cstddef>
 
 namespace VoxelEngine {
 
@@ -352,8 +353,18 @@ public:
     ChunkData& operator=(ChunkData&& other) noexcept;
 
     // Bulk Clear
-    void clear_block_light() noexcept;
+    // Returns whether there was any block light to clear, so a caller that relights
+    // a region can tell whether that region's light changed at all.
+    [[nodiscard]] bool clear_block_light() noexcept;
     void clear_sky_light() noexcept;
+
+    // Exact byte image of the light sections (palette and indices included), so a
+    // caller can tell whether a relight pass changed anything at all. Equal images
+    // mean identical light values, so a mesh built from one matches the other and
+    // needs no rebuild. A pristine chunk costs a few dozen bytes here, because its
+    // sections are uniform.
+    void append_light_state(std::vector<uint8_t>& out) const;
+    [[nodiscard]] bool light_state_equals(const std::vector<uint8_t>& prior) const;
     void clear_light() noexcept;
     void clear() noexcept;
 
@@ -503,7 +514,7 @@ public:
 
     // Light Propagation
     void propagate_light() {
-        clear_block_light();
+        (void)clear_block_light();  // the result matters only to a caller relighting a region
         if (is_empty || emissive_count == 0) return;
         propagate_chunk_block_light_additive(*this);
     }

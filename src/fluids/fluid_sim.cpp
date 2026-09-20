@@ -50,6 +50,12 @@ void FluidSim::unpack(int64_t key, int32_t& x, int32_t& y, int32_t& z) noexcept 
 }
 
 void FluidSim::clear() noexcept {
+    {
+        // A world reload drops whatever a worker had posted for the old world.
+        std::lock_guard<std::mutex> lock(posted_mutex_);
+        posted_.clear();
+    }
+    draining_.clear();
     queue_ = decltype(queue_)();
     scheduled_.clear();
     writes_.clear();
@@ -137,7 +143,35 @@ void FluidSim::notify_block_changed(int32_t x, int32_t y, int32_t z) {
     schedule_around(x, y, z, current_tick_ + delay_ticks_for(kind));
 }
 
+void FluidSim::post_block_changed(int32_t x, int32_t y, int32_t z) {
+    std::lock_guard<std::mutex> lock(posted_mutex_);
+    posted_.push_back(Posted{x, y, z});
+}
+
+size_t FluidSim::drain_posted() {
+    {
+        std::lock_guard<std::mutex> lock(posted_mutex_);
+        if (posted_.empty()) return 0;
+        // Swap rather than copy, so the inbox is free again immediately and a worker
+        // posting during the apply below never waits on the world reads.
+        draining_.swap(posted_);
+    }
+    const size_t count = draining_.size();
+    // Outside the lock: applying a wake reads the world and mutates the pending set,
+    // and neither may happen with the inbox held.
+    for (const Posted& cell : draining_) {
+        notify_block_changed(cell.x, cell.y, cell.z);
+    }
+    draining_.clear();  // keeps the capacity for the next frame
+    return count;
+}
+
 void FluidSim::advance(double delta) {
+    // Wakes posted from a worker thread land here, on the thread that owns the queue
+    // and the pending set — and BEFORE the idle early-return below, which is the case
+    // that matters: a chunk arriving with fluid in it posts while nothing is flowing,
+    // and dropping that post would leave the flood asleep until something else woke it.
+    drain_posted();
     if (!enabled() || map_ == nullptr) return;
     if (queue_.empty()) {
         // Idle: no backlog accumulates while nothing is flowing.
@@ -162,6 +196,7 @@ void FluidSim::advance(double delta) {
 int FluidSim::run_to_settled(int max_ticks) { return run_ticks(max_ticks); }
 
 int FluidSim::run_ticks(int max_ticks) {
+    drain_posted();
     if (!enabled() || map_ == nullptr) return 0;
     int ticks = 0;
     while (!queue_.empty() && ticks < max_ticks) {

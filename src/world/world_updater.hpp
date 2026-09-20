@@ -78,6 +78,11 @@ public:
     void notify_block_edit(int32_t x, int32_t y, int32_t z) {
         fluid_sim.notify_block_changed(x, y, z);
     }
+    // The worker-thread form (see ChunkWorld::set_worker_edit_listener): queues the
+    // wake for the next fluid tick instead of applying it here.
+    void post_block_edit(int32_t x, int32_t y, int32_t z) {
+        fluid_sim.post_block_changed(x, y, z);
+    }
     [[nodiscard]] const fluids::FluidSim& get_fluid_sim() const { return fluid_sim; }
 
     void update(bool is_editor, uint64_t epoch, uint64_t& chunks_processed_total, double delta);

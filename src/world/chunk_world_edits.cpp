@@ -270,11 +270,15 @@ void ChunkWorld::apply_edit_map_to_chunk(uint64_t key, int32_t chunk_x, int32_t 
         }
     }
 
-    if (edit_listener) {
+    // This runs on a chunk-generation WORKER (generate_chunk -> here), so the wake
+    // goes through the worker listener, which posts rather than applies. Calling
+    // the applying one from here raced the main thread's own sim ticks — see
+    // FluidSim::post_block_changed for the crash that came out of it.
+    if (worker_edit_listener) {
         for (size_t i = 0; i + 2 < fluid_cells.size(); i += 3) {
-            edit_listener(chunk_x * CHUNK_WIDTH + fluid_cells[i],
-                          chunk_y * CHUNK_HEIGHT + fluid_cells[i + 1],
-                          chunk_z * CHUNK_DEPTH + fluid_cells[i + 2]);
+            worker_edit_listener(chunk_x * CHUNK_WIDTH + fluid_cells[i],
+                                 chunk_y * CHUNK_HEIGHT + fluid_cells[i + 1],
+                                 chunk_z * CHUNK_DEPTH + fluid_cells[i + 2]);
         }
     }
 }

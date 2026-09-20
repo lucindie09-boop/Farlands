@@ -30,7 +30,15 @@
 #include "fluids/fluid_rules.hpp"
 #include "fluids/fluid_state_table.hpp"
 
+// THREADING: the simulation is single-threaded. The pending set, the queue and the
+// tick counter all belong to the MAIN thread, and only that thread may call schedule,
+// tick, advance or the run_* drivers. Wakes that come from a worker — a generating
+// chunk seeding the fluid in its edit map, which is a normal part of streaming terrain
+// — go through post_block_changed and are applied on the main thread by the next drain
+// (advance / run_* drain automatically). Posting is the whole contract: it queues a
+// coordinate and nothing else, so it is safe from any thread.
 #include <cstdint>
+#include <mutex>
 #include <queue>
 #include <unordered_map>
 #include <vector>
@@ -94,7 +102,27 @@ public:
     // load). Wakes the cell and its neighbours so they re-evaluate — and does
     // nothing at all when none of the seven is a fluid, so editing stone in the
     // middle of nowhere costs seven block reads rather than a window scan.
+    //
+    // MAIN THREAD ONLY. From anywhere else, post_block_changed.
     void notify_block_changed(int32_t x, int32_t y, int32_t z);
+
+    // The same wake, posted from ANY thread, applied on the next drain.
+    //
+    // This exists because of a crash, and the crash is worth stating: a chunk being
+    // generated applies its edit map on a WORKER thread, and every fluid cell in that
+    // map wakes the sim. notify_block_changed mutates the pending set and the queue,
+    // so being called from a worker raced the main thread's own wakes and ticks — and
+    // the damaged hash map surfaced later as heap corruption (0xC0000374, worker
+    // thread, walk `FluidSim::schedule <- schedule_around <- notify_block_changed <-
+    // ChunkWorld::apply_edit_map_to_chunk <- generate_chunk <- ThreadPool::worker_loop`).
+    // The deferral is invisible: a wake is already scheduled some ticks ahead, so one
+    // frame of queueing changes nothing about how a flood flows.
+    void post_block_changed(int32_t x, int32_t y, int32_t z);
+
+    // Applies everything posted from other threads and returns how many cells were
+    // applied. Called at the top of advance() and of the run_* drivers, so a caller
+    // that drives the sim any of the ordinary ways picks posted wakes up for free.
+    size_t drain_posted();
 
     [[nodiscard]] bool enabled() const noexcept { return table_ != nullptr && table_->any(); }
     [[nodiscard]] size_t pending_count() const noexcept { return scheduled_.size(); }
@@ -103,6 +131,17 @@ public:
     [[nodiscard]] const Stats& stats() const noexcept { return stats_; }
 
 private:
+    // The cross-thread inbox (see post_block_changed). `draining_` is the same buffer
+    // after a swap, kept so the per-frame drain does not allocate.
+    struct Posted {
+        int32_t x = 0;
+        int32_t y = 0;
+        int32_t z = 0;
+    };
+    std::mutex posted_mutex_;
+    std::vector<Posted> posted_;
+    std::vector<Posted> draining_;
+
     struct Entry {
         uint64_t due = 0;
         uint64_t seq = 0;

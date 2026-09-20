@@ -73,6 +73,13 @@ VoxelEngineController::VoxelEngineController()
     chunk_world.set_edit_listener([this](int32_t x, int32_t y, int32_t z) {
         world_updater.notify_block_edit(x, y, z);
     });
+    // The same wakes, but from a generation worker applying a chunk's edit map.
+    // Posting is what makes that safe: the simulation's queue belongs to the
+    // thread that ticks it, and a worker reaching into it is what produced the
+    // intermittent startup heap corruption.
+    chunk_world.set_worker_edit_listener([this](int32_t x, int32_t y, int32_t z) {
+        world_updater.post_block_edit(x, y, z);
+    });
     world_updater.set_thread_pool(thread_pool.get());
     world_updater.set_performance_timer(&perf_timer);
     world_updater.set_material_manager(&environment_controller.get_material_manager());

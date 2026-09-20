@@ -87,6 +87,15 @@ public:
         edit_listener = std::move(listener);
     }
 
+    // The same notification from a WORKER thread, where the main-thread listener
+    // must not be called: applying a chunk's edit map happens on the thread pool
+    // during generation, and the listener's real work (waking the fluid sim)
+    // mutates a queue the main thread ticks. The receiver of this one has to be
+    // something that is safe to call from anywhere — a post, not an apply.
+    void set_worker_edit_listener(std::function<void(int32_t, int32_t, int32_t)> listener) {
+        worker_edit_listener = std::move(listener);
+    }
+
     // Edit map methods
     // `notify` is false for a write the FLUID SIMULATION already knows about:
     // it schedules what it writes itself, so telling it again would only mean
@@ -161,6 +170,7 @@ private:
     std::unordered_set<uint64_t> pinned_chunks;
     mutable std::mutex pinned_chunk_mutex;
     std::function<void(int32_t, int32_t, int32_t)> edit_listener;
+    std::function<void(int32_t, int32_t, int32_t)> worker_edit_listener;
     std::mutex file_access_mutex;
     std::atomic<uint64_t> async_epoch{0};
 

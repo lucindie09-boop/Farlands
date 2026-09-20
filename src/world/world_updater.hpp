@@ -10,6 +10,9 @@
 #include <godot_cpp/variant/vector3.hpp>
 
 namespace VoxelEngine { class ChunkGenerator; }
+// The fluid sink batches its writes per chunk, so it needs the real EditCell type
+// rather than a forward declaration.
+#include "world/chunk_world.hpp"
 #include <deque>
 #include <vector>
 #include <unordered_set>
@@ -126,6 +129,8 @@ private:
                               const std::vector<fluids::FluidWriteRecord>& writes) override;
     private:
         WorldUpdater* owner_;
+        // Reused across calls so a tick's writes do not allocate per chunk.
+        std::vector<ChunkWorld::EditCell> batch;
     };
 
     fluids::FluidSim fluid_sim;

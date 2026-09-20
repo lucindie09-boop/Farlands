@@ -25,12 +25,15 @@ void WorldUpdater::set_fluid_state_table(fluids::FluidStateTable* table) {
 
 void WorldUpdater::FluidSink::on_chunk_updated(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z,
                                                const std::vector<fluids::FluidWriteRecord>& writes) {
+    // One batched write per chunk per tick, rather than a lock, a chunk lookup and a
+    // dirty mark per cell. notify=false either way: the simulation already scheduled
+    // everything it wrote — it has to, because that is what makes the flood advance.
+    batch.clear();
+    batch.reserve(writes.size());
     for (const fluids::FluidWriteRecord& write : writes) {
-        // notify=false: the simulation already scheduled everything it wrote. It
-        // has to, because that is what makes the flood advance at all.
-        owner_->chunk_world->add_block_edit(chunk_x, chunk_y, chunk_z, write.local_x, write.local_y,
-                                            write.local_z, write.block, /*notify=*/false);
+        batch.push_back(ChunkWorld::EditCell{write.local_x, write.local_y, write.local_z, write.block});
     }
+    owner_->chunk_world->add_block_edits(chunk_x, chunk_y, chunk_z, batch);
     if (owner_->mesh_manager != nullptr) {
         // One remesh per chunk per tick, rather than one per cell.
         owner_->mesh_manager->queue_dirty_chunk(chunk_x, chunk_y, chunk_z);

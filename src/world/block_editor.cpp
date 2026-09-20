@@ -393,6 +393,50 @@ void BlockEditor::set_block_variant(int32_t world_x, int32_t world_y, int32_t wo
 // Bulk paste
 // -------------------------------------------------------------------------
 
+namespace {
+
+// Same rule as BlockEditor::is_local_in_bounds, for a free function that has no
+// `this`. Both answer "is this cell inside the chunk it names".
+bool cell_in_chunk(int32_t lx, int32_t ly, int32_t lz) {
+    return lx >= 0 && lx < CHUNK_WIDTH && ly >= 0 && ly < CHUNK_HEIGHT && lz >= 0 &&
+           lz < CHUNK_DEPTH;
+}
+
+// Whether a written cell can change what the fluid simulation would do: the cell
+// became or stopped being a fluid, or a face-neighbour is one. That is the
+// simulation's own rule, answered here because here the neighbours are reads of the
+// chunk already in hand.
+//
+// Only cells that pass this are woken, and the simulation re-tests each one exactly
+// as before — so nothing that mattered can be missed: a fluid cell is always woken
+// by its own write, and the simulation's scan of that cell covers every neighbour it
+// could affect.
+bool paste_cell_needs_fluid_wake(const BlockRegistry& registry, const ChunkData& chunk,
+                                 const ChunkMap& cm, BlockID old_block, BlockID new_block,
+                                 int32_t world_x, int32_t world_y, int32_t world_z, int32_t lx,
+                                 int32_t ly, int32_t lz) {
+    if (registry.get_block_fast(new_block).is_fluid_state()) return true;
+    if (registry.get_block_fast(old_block).is_fluid_state()) return true;
+    static constexpr int32_t kOffsets[6][3] = {{1, 0, 0},  {-1, 0, 0}, {0, 1, 0},
+                                               {0, -1, 0}, {0, 0, 1},  {0, 0, -1}};
+    for (const auto& offset : kOffsets) {
+        const int32_t nx = lx + offset[0];
+        const int32_t ny = ly + offset[1];
+        const int32_t nz = lz + offset[2];
+        // Inside the chunk: an array read. Across the seam: the one case that has
+        // to ask the world, and only for the cells that sit on a face.
+        const BlockID neighbor = cell_in_chunk(nx, ny, nz)
+            ? chunk.get_block_unsafe(nx, ny, nz)
+            : static_cast<BlockID>(cm.get_block_world(world_x + offset[0],
+                                                      world_y + offset[1],
+                                                      world_z + offset[2]));
+        if (registry.get_block_fast(neighbor).is_fluid_state()) return true;
+    }
+    return false;
+}
+
+} // namespace
+
 PasteWriteResult BlockEditor::apply_paste(const schematic::PastePlan& plan,
                                           const schematic::PasteOptions& options,
                                           bool append_undo,
@@ -430,6 +474,9 @@ PasteWriteResult BlockEditor::apply_paste(const schematic::PastePlan& plan,
     displaced.reserve(plan.cells.size());
     written.reserve(plan.cells.size());
     std::vector<std::array<int32_t, 3>> touched;
+    // World positions whose write can change a fluid's answer, decided while the
+    // chunk was in hand and woken once every band is released.
+    std::vector<std::array<int32_t, 3>> wake_world;
     // The subset of `touched` whose BLOCK light can actually have changed. Every
     // chunk a paste writes to needs a remesh, but only these need the 3×3×3 region
     // pass — and that pass is the expensive half of a paste by a wide margin
@@ -516,6 +563,16 @@ PasteWriteResult BlockEditor::apply_paste(const schematic::PastePlan& plan,
                 if (!known) sky_columns.push_back(column);
             }
 
+            // Whether this write can change what the fluid simulation would do, asked
+            // HERE because here the six neighbours are reads of the chunk already in
+            // hand. Waking every written cell instead made the main thread pay a
+            // locked neighbour scan per CELL to discover that a stone wall has no
+            // fluid anywhere near it.
+            if (paste_cell_needs_fluid_wake(registry, *chunk, cm, old_block, cell.block,
+                                            cell.x, cell.y, cell.z, lx, ly, lz)) {
+                wake_world.push_back({cell.x, cell.y, cell.z});
+            }
+
             displaced.push_back(PastePlan::Cell{cell.x, cell.y, cell.z, old_block});
             written.push_back(cell);
             ++result.written;
@@ -559,12 +616,41 @@ PasteWriteResult BlockEditor::apply_paste(const schematic::PastePlan& plan,
         }
     }
 
-    // Locks released. Persist the edits (which is also what wakes pasted fluid),
-    // then relight and remesh each touched chunk once.
-    for (const PastePlan::Cell& cell : written) {
-        int32_t cx, cy, cz, lx, ly, lz;
-        world_to_chunk_local(cell.x, cell.y, cell.z, cx, cy, cz, lx, ly, lz);
-        chunk_world->add_block_edit(cx, cy, cz, lx, ly, lz, cell.block);
+    // Locks released. Persist the edits one CHUNK at a time, then wake the fluid
+    // cells that can matter, then relight and remesh each touched chunk once.
+    //
+    // The writes are grouped by the same loop that produced them, so the cells of one
+    // chunk are already consecutive in `written` — a run can be handed over without
+    // copying or regrouping anything.
+    {
+        std::vector<ChunkWorld::EditCell> run;
+        int32_t run_cx = 0, run_cy = 0, run_cz = 0;
+        bool have_run = false;
+        // A chunk's cells can span several bands' worth of runs, so the run is
+        // flushed whenever the chunk changes and the last one after the loop.
+        auto flush_run = [&]() {
+            if (have_run && !run.empty()) {
+                chunk_world->add_block_edits(run_cx, run_cy, run_cz, run);
+            }
+            run.clear();
+        };
+        for (const PastePlan::Cell& cell : written) {
+            int32_t cx, cy, cz, lx, ly, lz;
+            world_to_chunk_local(cell.x, cell.y, cell.z, cx, cy, cz, lx, ly, lz);
+            if (have_run && (cx != run_cx || cy != run_cy || cz != run_cz)) {
+                flush_run();
+            }
+            run_cx = cx;
+            run_cy = cy;
+            run_cz = cz;
+            have_run = true;
+            run.push_back(ChunkWorld::EditCell{lx, ly, lz, cell.block});
+        }
+        flush_run();
+    }
+    // The fluid wakes, which used to be a side effect of persisting each cell.
+    for (const std::array<int32_t, 3>& pos : wake_world) {
+        chunk_world->notify_block_change(pos[0], pos[1], pos[2]);
     }
     for (const std::array<int32_t, 3>& pos : touched) {
         chunk_world->mark_chunk_dirty(pos[0], pos[1], pos[2]);

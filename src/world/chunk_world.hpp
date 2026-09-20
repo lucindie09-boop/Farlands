@@ -101,6 +101,33 @@ public:
     // it schedules what it writes itself, so telling it again would only mean
     // seven block reads per cell for nothing.
     void add_block_edit(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, int32_t local_x, int32_t local_y, int32_t local_z, BlockID block_id, bool notify = true);
+
+    // One cell of a batched write, in LOCAL chunk coordinates (a batch belongs to
+    // one chunk, so the caller already has them).
+    struct EditCell {
+        int32_t x = 0;
+        int32_t y = 0;
+        int32_t z = 0;
+        BlockID block = 0;
+    };
+
+    // add_block_edit for a whole chunkful at once: one edit-map lock, one chunk
+    // lookup, one dirty mark and one hash-table reserve for the run instead of one
+    // of each per block. A schematic paste writes hundreds of thousands of cells
+    // through here, and the per-cell version was paying three mutex acquisitions
+    // and two hash lookups per BLOCK.
+    //
+    // Deliberately does NOT notify the edit listener: the caller has the volume in
+    // hand and can pick the cells worth waking, and waking per written cell would
+    // put the fluid simulation's locked neighbour scan on the critical path for
+    // every block of a build. Use notify_block_change for the ones that matter.
+    void add_block_edits(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z,
+                         const std::vector<EditCell>& edits);
+
+    // Wakes the edit listener (the fluid simulation) for one world cell, if one is
+    // installed. Separate from persisting so a bulk writer can write in batches and
+    // wake only the cells that can change a fluid's answer.
+    void notify_block_change(int32_t world_x, int32_t world_y, int32_t world_z);
     void apply_edit_map_to_chunk(uint64_t key, int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, ChunkData& chunk_data);
     bool load_edit_map_from_disk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, EditMap& out_edit_map, const BlockRegistry& registry);
     void save_edit_map_to_disk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, const EditMap& edit_map);

@@ -247,6 +247,7 @@ A Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked streamin
 - **LOD solid cache fix**: Fix O(stride²) solid_cache population in LOD mesh builder, stores BlockID instead of bool
 - **Light propagation optimization**: Offload to worker threads with fast-path atomic check, poll results on main thread
 - **Sub-chunk dirty tracking**: Fine-grained invalidation instead of full-chunk rebuilds
+- **Batched edit persistence**: a paste and the fluid sink both persist a chunk's cells through `ChunkWorld::add_block_edits` — one edit-map lock, one chunk lookup, one dirty mark and one hash-table reserve for the run instead of one of each per BLOCK (the per-cell form was paying three mutex acquisitions and two hash lookups per block on a build with hundreds of thousands of cells). It deliberately does NOT notify the edit listener, so the caller picks the cells worth waking: `apply_paste` computes that where the chunk is already in hand (`paste_cell_needs_fluid_wake` — the written cell became or stopped being a fluid, or a face-neighbour is one, which is the simulation's own `notify_block_changed` filter answered from the chunk array rather than through a world read), and wakes them once every write band is released. Undo goes through the same `apply_paste`, so it gets both halves
 
 ## Technical Details
 

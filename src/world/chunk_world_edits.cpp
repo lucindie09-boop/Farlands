@@ -242,6 +242,36 @@ void ChunkWorld::add_block_edit(int32_t chunk_x, int32_t chunk_y, int32_t chunk_
     }
 }
 
+void ChunkWorld::add_block_edits(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z,
+                                 const std::vector<EditCell>& edits) {
+    if (edits.empty()) return;
+    const uint64_t key = chunk_map.get_chunk_key(chunk_x, chunk_y, chunk_z);
+    const size_t incoming = edits.size();
+    {
+        std::lock_guard<std::mutex> lock(edit_maps_mutex);
+        auto it = chunk_edit_maps.find(key);
+        if (it == chunk_edit_maps.end()) {
+            it = chunk_edit_maps.emplace(key, EditMap{}).first;
+        }
+        EditMap& map = it->second;
+        // Sized once for the run: without this a chunkful of edits rehashes the map
+        // a dozen times on the way in, which is a surprising share of a paste.
+        map.edits.reserve(map.edits.size() + incoming);
+        for (const EditCell& cell : edits) {
+            map.set_block(cell.x, cell.y, cell.z, cell.block);
+        }
+    }
+
+    // Once for the chunk, not once per cell: a dirty mark takes its own lock, and a
+    // bulk writer marks the chunks it touches dirty itself anyway.
+    mark_chunk_dirty(chunk_x, chunk_y, chunk_z);
+}
+
+void ChunkWorld::notify_block_change(int32_t world_x, int32_t world_y, int32_t world_z) {
+    if (!edit_listener) return;
+    edit_listener(world_x, world_y, world_z);
+}
+
 void ChunkWorld::apply_edit_map_to_chunk(uint64_t key, int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, ChunkData& chunk_data) {
     // Positions to wake once the edit-map lock is released. Local coordinates
     // packed three to an int so this stays allocation-light on a hot path.

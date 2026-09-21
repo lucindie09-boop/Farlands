@@ -2,6 +2,7 @@
 
 #include "worldgen/chunk_generator.hpp"
 #include "mesh/mesh_builder.hpp"
+#include "core/chunk_map.hpp"
 
 using namespace godot;
 using namespace VoxelEngine;
@@ -18,7 +19,8 @@ String PerfReport::build(
     size_t generating_count,
     size_t completed_chunk_count,
     size_t loaded_chunk_count,
-    const WorldRenderStats& render_stats
+    const WorldRenderStats& render_stats,
+    const ChunkMap* chunk_map
 ) {
     String report = "=== Performance Report ===\n";
 
@@ -82,12 +84,16 @@ String PerfReport::build(
     // region, but have no instance drawing them.
     report += "  Unrendered:      " + String::num_int64(render_stats.chunks_with_geometry_but_no_instance) + "\n";
 
-    report += "--- per-frame breakdown ---\n";
-    report += "  player_pos_update: avg=" + String::num(perf_timer.get_avg(TimerID::PlayerPosUpdate), 3) + "ms\n";
-    report += "  chunk_load_unload: avg=" + String::num(perf_timer.get_avg(TimerID::ChunkLoadUnload), 3) + "ms\n";
-    report += "  dirty_mesh_queue:  avg=" + String::num(perf_timer.get_avg(TimerID::DirtyMeshQueue), 3) + "ms\n";
-    report += "  process_completed_chunks: avg=" + String::num(perf_timer.get_avg(TimerID::ProcessCompletedChunks), 3) + "ms\n";
-    report += "  process_completed_meshes: avg=" + String::num(perf_timer.get_avg(TimerID::ProcessCompletedMeshes), 3) + "ms\n";
+    report += "--- per-frame breakdown (avg / max — the max column is what a spike frame paid) ---\n";
+    auto phase_line = [&](const char* label, TimerID id) {
+        report += String("  ") + label + String::num(perf_timer.get_avg(id), 3) +
+                  "ms max=" + String::num(perf_timer.get_max(id), 3) + "ms\n";
+    };
+    phase_line("player_pos_update: avg=", TimerID::PlayerPosUpdate);
+    phase_line("chunk_load_unload: avg=", TimerID::ChunkLoadUnload);
+    phase_line("dirty_mesh_queue:  avg=", TimerID::DirtyMeshQueue);
+    phase_line("process_completed_chunks: avg=", TimerID::ProcessCompletedChunks);
+    phase_line("process_completed_meshes: avg=", TimerID::ProcessCompletedMeshes);
     uint64_t col_count = perf_timer.get_count(TimerID::UpdateCollision);
     if (col_count > 0) {
         double col_min = perf_timer.get_min(TimerID::UpdateCollision);
@@ -102,7 +108,8 @@ String PerfReport::build(
         }
     }
 
-    report += "  mesh_upload_gpu:   avg=" + String::num(perf_timer.get_avg(TimerID::MeshUploadGpu), 3) + "ms\n";
+    report += "  mesh_upload_gpu:   avg=" + String::num(perf_timer.get_avg(TimerID::MeshUploadGpu), 3) +
+              "ms max=" + String::num(perf_timer.get_max(TimerID::MeshUploadGpu), 3) + "ms\n";
     report += "  world_update:      avg=" + String::num(perf_timer.get_avg(TimerID::WorldUpdate), 3) + "ms\n";
     report += "  scene_update:      avg=" + String::num(perf_timer.get_avg(TimerID::SceneUpdate), 3) + "ms\n";
     report += "  render_time:       avg=" + String::num(perf_timer.get_avg(TimerID::RenderTime), 3) + "ms\n";
@@ -122,6 +129,23 @@ String PerfReport::build(
         } else {
             report += "  unaccounted:     avg=" + String::num(unaccounted, 3) + "ms\n";
         }
+    }
+
+    // Shard lock telemetry for the interval that just ended (drained, so each
+    // report measures itself). This is where a spike frame gets its name: a
+    // contended wait whose max approaches process_total's max means the frame
+    // spent its spike waiting on a shard the light workers hold; zeroes across
+    // the board exonerate the lock and point back at the phase maxima above.
+    if (chunk_map != nullptr) {
+        uint64_t ls[8];
+        chunk_map->drain_shard_lock_stats(ls);
+        auto ms = [](uint64_t ns) { return String::num(static_cast<double>(ns) / 1e6, 3); };
+        report += "--- shard lock contention (this interval) ---\n";
+        report += "  shared waits: " + String::num_int64(ls[0]) +
+                  "  total=" + ms(ls[1]) + "ms  worst=" + ms(ls[2]) + "ms\n";
+        report += "  excl waits:   " + String::num_int64(ls[3]) +
+                  "  total=" + ms(ls[4]) + "ms  worst=" + ms(ls[5]) + "ms\n";
+        report += "  excl holds:   total=" + ms(ls[6]) + "ms  worst=" + ms(ls[7]) + "ms\n";
     }
 
     report += "--- per-chunk (amortised) ---\n";

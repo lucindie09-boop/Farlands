@@ -14,12 +14,95 @@
 #include <algorithm>
 #include <cstring>
 #include <atomic>
+#include <chrono>
+#include <utility>
+#include <bit>
 #include "core/lock_order_checker.hpp"
 
 namespace VoxelEngine {
 
+// Per-shard lock telemetry, read by the perf report to attribute the main
+// thread's spike frames. Every counter is relaxed: each field is independently
+// consistent, but two fields are never consistent with each other, which is
+// fine — these are diagnostics, not state.
+struct ShardLockStats {
+    std::atomic<uint64_t> shared_contended{0};
+    std::atomic<uint64_t> shared_wait_total_ns{0};
+    std::atomic<uint64_t> shared_wait_max_ns{0};
+    std::atomic<uint64_t> excl_contended{0};
+    std::atomic<uint64_t> excl_wait_total_ns{0};
+    std::atomic<uint64_t> excl_wait_max_ns{0};
+    std::atomic<uint64_t> excl_hold_total_ns{0};
+    std::atomic<uint64_t> excl_hold_max_ns{0};
+
+    void record_wait(bool exclusive, uint64_t ns) {
+        if (exclusive) {
+            excl_contended.fetch_add(1, std::memory_order_relaxed);
+            excl_wait_total_ns.fetch_add(ns, std::memory_order_relaxed);
+            uint64_t m = excl_wait_max_ns.load(std::memory_order_relaxed);
+            while (ns > m && !excl_wait_max_ns.compare_exchange_weak(m, ns, std::memory_order_relaxed)) {}
+        } else {
+            shared_contended.fetch_add(1, std::memory_order_relaxed);
+            shared_wait_total_ns.fetch_add(ns, std::memory_order_relaxed);
+            uint64_t m = shared_wait_max_ns.load(std::memory_order_relaxed);
+            while (ns > m && !shared_wait_max_ns.compare_exchange_weak(m, ns, std::memory_order_relaxed)) {}
+        }
+    }
+
+    void record_hold(uint64_t ns) {
+        excl_hold_total_ns.fetch_add(ns, std::memory_order_relaxed);
+        uint64_t m = excl_hold_max_ns.load(std::memory_order_relaxed);
+        while (ns > m && !excl_hold_max_ns.compare_exchange_weak(m, ns, std::memory_order_relaxed)) {}
+    }
+
+    // Aggregated across all shards, and drained: the counters reset so each
+    // perf-report interval measures itself, matching reset_all() on the timers.
+    void drain_into(uint64_t out[8]) {
+        auto pull = [](std::atomic<uint64_t>& a) { return a.exchange(0, std::memory_order_relaxed); };
+        out[0] += pull(shared_contended);
+        out[1] += pull(shared_wait_total_ns);
+        out[2] = std::max(out[2], pull(shared_wait_max_ns));
+        out[3] += pull(excl_contended);
+        out[4] += pull(excl_wait_total_ns);
+        out[5] = std::max(out[5], pull(excl_wait_max_ns));
+        out[6] += pull(excl_hold_total_ns);
+        out[7] = std::max(out[7], pull(excl_hold_max_ns));
+    }
+};
+
+namespace shard_lock_detail {
+// Contended-acquisition telemetry. The uncontended path is a single try_lock:
+// no clock read, no counter write. A contended one pays one clock pair and a
+// couple of relaxed fetch_adds — which is exactly the event being measured.
+inline std::shared_lock<std::shared_mutex> lock_shared_timed(std::shared_mutex& m, ShardLockStats& st) {
+    if (m.try_lock_shared()) return std::shared_lock<std::shared_mutex>(m, std::adopt_lock);
+    const auto t0 = std::chrono::steady_clock::now();
+    m.lock_shared();
+    st.record_wait(false, static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - t0).count()));
+    return std::shared_lock<std::shared_mutex>(m, std::adopt_lock);
+}
+
+inline std::unique_lock<std::shared_mutex> lock_excl_timed(std::shared_mutex& m, ShardLockStats& st) {
+    if (m.try_lock()) return std::unique_lock<std::shared_mutex>(m, std::adopt_lock);
+    const auto t0 = std::chrono::steady_clock::now();
+    m.lock();
+    st.record_wait(true, static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - t0).count()));
+    return std::unique_lock<std::shared_mutex>(m, std::adopt_lock);
+}
+
+// Single-shard write accessors (insert/erase/...) use lock_excl_timed directly:
+// wait telemetry only, no hold clock. Those writes run millions of times per
+// session, and any per-call clock read or atomic write inside the critical
+// section lands on the same cache line as the mutex — measurable overhead that
+// amplifies the very convoys being diagnosed.
+} // namespace shard_lock_detail
+
 // -------------------------------------------------------------------------
 // Chunk map — owns the chunk storage and provides thread-safe accessors.
+// Every acquisition goes through shard_lock_detail's timed helpers, so the
+// perf report can show lock waits and exclusive (writer) hold times directly.
 // Uses 64 shards, each with its own unordered_map and shared_mutex, so a
 // write on one shard never stalls readers on other shards.
 //
@@ -105,7 +188,29 @@ public:
 #ifdef DEBUG_ENABLED
             for (auto si : shard_indices_) LOCK_ORDER_RELEASE_EX(si);
 #endif
+            // Writer hold accounting for the multi-shard exclusive locks (the
+            // light workers' 27-key region, the install path). These are rare
+            // compared to the single-shard writes, so the clock read here is
+            // nothing — and their hold time is the number that names a long
+            // reader stall. No-op for the moved-from lock.
+            if (held_count_ != 0) {
+                const auto now = std::chrono::steady_clock::now();
+                const uint64_t ns = static_cast<uint64_t>(
+                    std::chrono::duration_cast<std::chrono::nanoseconds>(now - acquired_at_).count());
+                for (size_t n = 0; n < held_count_; ++n) {
+                    held_stats_[n]->record_hold(ns);
+                }
+            }
         }
+
+    private:
+        // The stats object of each acquired shard, filled at acquisition. Raw
+        // pointers rather than a base+index because shards are bigger than
+        // their stats — indexing from &shards_[0].stats would walk straight
+        // into mutexes and maps.
+        ShardLockStats* held_stats_[kNumShards] = {};
+        size_t held_count_ = 0;
+        std::chrono::steady_clock::time_point acquired_at_{};
     };
 
     [[nodiscard]] inline uint64_t get_chunk_key(int32_t x, int32_t y, int32_t z) const noexcept {
@@ -143,7 +248,7 @@ public:
         // Checked BEFORE the lock: a re-entrant read never returns, so there would be
         // nothing left to report with.
         LOCK_ORDER_REQUIRE_SHARED(si, "lock_chunk");
-        sl.locks_.emplace_back(shards_[si].mutex);
+        sl.locks_.emplace_back(shard_lock_detail::lock_shared_timed(shards_[si].mutex, shards_[si].stats));
         LOCK_ORDER_ACQUIRE(si);
 #ifdef DEBUG_ENABLED
         sl.shard_indices_.push_back(si);
@@ -160,7 +265,7 @@ public:
         for (size_t i = 0; i < kNumShards; ++i) {
             if (seen[i]) {
                 LOCK_ORDER_REQUIRE_SHARED(i, "lock_keys");
-                sl.locks_.emplace_back(shards_[i].mutex);
+                sl.locks_.emplace_back(shard_lock_detail::lock_shared_timed(shards_[i].mutex, shards_[i].stats));
                 LOCK_ORDER_ACQUIRE(i);
 #ifdef DEBUG_ENABLED
                 sl.shard_indices_.push_back(i);
@@ -185,7 +290,7 @@ public:
         for (size_t i = 0; i < kNumShards; ++i) {
             if (seen[i]) {
                 LOCK_ORDER_REQUIRE_SHARED(i, "lock_keys");
-                sl.locks_.emplace_back(shards_[i].mutex);
+                sl.locks_.emplace_back(shard_lock_detail::lock_shared_timed(shards_[i].mutex, shards_[i].stats));
                 LOCK_ORDER_ACQUIRE(i);
 #ifdef DEBUG_ENABLED
                 sl.shard_indices_.push_back(i);
@@ -208,13 +313,15 @@ public:
         sl.locks_.reserve(kNumShards);
         for (size_t i = 0; i < kNumShards; ++i) {
             if (seen[i]) {
-                sl.locks_.emplace_back(shards_[i].mutex);
+                sl.locks_.push_back(shard_lock_detail::lock_excl_timed(shards_[i].mutex, shards_[i].stats));
+                sl.held_stats_[sl.held_count_++] = &shards_[i].stats;
                 LOCK_ORDER_ACQUIRE_EX(i);
 #ifdef DEBUG_ENABLED
                 sl.shard_indices_.push_back(i);
 #endif
             }
         }
+        sl.acquired_at_ = std::chrono::steady_clock::now();
         return sl;
     }
 
@@ -231,13 +338,15 @@ public:
         sl.locks_.reserve(kNumShards);
         for (size_t i = 0; i < kNumShards; ++i) {
             if (seen[i]) {
-                sl.locks_.emplace_back(shards_[i].mutex);
+                sl.locks_.push_back(shard_lock_detail::lock_excl_timed(shards_[i].mutex, shards_[i].stats));
+                sl.held_stats_[sl.held_count_++] = &shards_[i].stats;
                 LOCK_ORDER_ACQUIRE_EX(i);
 #ifdef DEBUG_ENABLED
                 sl.shard_indices_.push_back(i);
 #endif
             }
         }
+        sl.acquired_at_ = std::chrono::steady_clock::now();
         return sl;
     }
 
@@ -246,7 +355,7 @@ public:
         sl.locks_.reserve(kNumShards);
         for (size_t i = 0; i < kNumShards; ++i) {
             LOCK_ORDER_REQUIRE_SHARED(i, "lock_all");
-            sl.locks_.emplace_back(shards_[i].mutex);
+            sl.locks_.emplace_back(shard_lock_detail::lock_shared_timed(shards_[i].mutex, shards_[i].stats));
             LOCK_ORDER_ACQUIRE(i);
 #ifdef DEBUG_ENABLED
             sl.shard_indices_.push_back(i);
@@ -259,12 +368,14 @@ public:
         ExclusiveShardLock sl;
         sl.locks_.reserve(kNumShards);
         for (size_t i = 0; i < kNumShards; ++i) {
-            sl.locks_.emplace_back(shards_[i].mutex);
+            sl.locks_.push_back(shard_lock_detail::lock_excl_timed(shards_[i].mutex, shards_[i].stats));
+            sl.held_stats_[sl.held_count_++] = &shards_[i].stats;
             LOCK_ORDER_ACQUIRE_EX(i);
 #ifdef DEBUG_ENABLED
             sl.shard_indices_.push_back(i);
 #endif
         }
+        sl.acquired_at_ = std::chrono::steady_clock::now();
         return sl;
     }
 
@@ -274,7 +385,7 @@ public:
         uint64_t key = get_chunk_key(cx, cy, cz);
         auto& s = shards_[key_to_shard(key)];
         LOCK_ORDER_REQUIRE_SHARED(key_to_shard(key), "get_chunk_data");
-        std::shared_lock lock(s.mutex);
+        auto lock = shard_lock_detail::lock_shared_timed(s.mutex, s.stats);
         auto it = s.chunks.find(key);
         return (it != s.chunks.end()) ? it->second->data.get() : nullptr;
     }
@@ -283,7 +394,7 @@ public:
         uint64_t key = get_chunk_key(cx, cy, cz);
         auto& s = shards_[key_to_shard(key)];
         LOCK_ORDER_REQUIRE_SHARED(key_to_shard(key), "get_chunk_render_data");
-        std::shared_lock lock(s.mutex);
+        auto lock = shard_lock_detail::lock_shared_timed(s.mutex, s.stats);
         auto it = s.chunks.find(key);
         return (it != s.chunks.end()) ? it->second.get() : nullptr;
     }
@@ -292,7 +403,7 @@ public:
         uint64_t key = get_chunk_key(cx, cy, cz);
         auto& s = shards_[key_to_shard(key)];
         LOCK_ORDER_REQUIRE_SHARED(key_to_shard(key), "has_loaded_chunk");
-        std::shared_lock lock(s.mutex);
+        auto lock = shard_lock_detail::lock_shared_timed(s.mutex, s.stats);
         return s.chunks.find(key) != s.chunks.end();
     }
 
@@ -302,7 +413,7 @@ public:
         uint64_t key = get_chunk_key(cx, cy, cz);
         auto& s = shards_[key_to_shard(key)];
         LOCK_ORDER_REQUIRE_SHARED(key_to_shard(key), "is_block_solid");
-        std::shared_lock lock(s.mutex);
+        auto lock = shard_lock_detail::lock_shared_timed(s.mutex, s.stats);
         auto it = s.chunks.find(key);
         if (it == s.chunks.end()) return false;
         return static_cast<BlockID>(it->second->data->get_block(lx, ly, lz)) != BlockIDs::AIR;
@@ -314,7 +425,7 @@ public:
         uint64_t key = get_chunk_key(cx, cy, cz);
         auto& s = shards_[key_to_shard(key)];
         LOCK_ORDER_REQUIRE_SHARED(key_to_shard(key), "get_block_world");
-        std::shared_lock lock(s.mutex);
+        auto lock = shard_lock_detail::lock_shared_timed(s.mutex, s.stats);
         auto it = s.chunks.find(key);
         if (it == s.chunks.end()) return static_cast<int>(BlockIDs::AIR);
         return static_cast<int>(it->second->data->get_block(lx, ly, lz));
@@ -323,12 +434,21 @@ public:
     [[nodiscard]] bool contains(uint64_t key) const {
         auto& s = shards_[key_to_shard(key)];
         LOCK_ORDER_REQUIRE_SHARED(key_to_shard(key), "contains");
-        std::shared_lock lock(s.mutex);
+        auto lock = shard_lock_detail::lock_shared_timed(s.mutex, s.stats);
         return s.chunks.find(key) != s.chunks.end();
     }
 
     [[nodiscard]] size_t size() const {
         return chunk_count_.load(std::memory_order_relaxed);
+    }
+
+    // Aggregated, drained lock telemetry for the perf report (see ShardLockStats).
+    // out: {shared_contended, shared_wait_total_ns, shared_wait_max_ns,
+    //       excl_contended, excl_wait_total_ns, excl_wait_max_ns,
+    //       excl_hold_total_ns, excl_hold_max_ns}
+    void drain_shard_lock_stats(uint64_t out[8]) const {
+        for (size_t i = 0; i < 8; ++i) out[i] = 0;
+        for (auto& s : shards_) s.stats.drain_into(out);
     }
 
     // -- Fast-path accessors (caller must hold a ShardLock on the relevant shard) --
@@ -383,7 +503,7 @@ public:
 
     void erase(uint64_t key) {
         auto& s = shards_[key_to_shard(key)];
-        std::unique_lock lock(s.mutex);
+        auto lock = shard_lock_detail::lock_excl_timed(s.mutex, s.stats);
         if (s.chunks.erase(key) > 0) {
             chunk_count_.fetch_sub(1, std::memory_order_relaxed);
         }
@@ -391,7 +511,7 @@ public:
 
     void insert(uint64_t key, std::unique_ptr<ChunkRenderData> render_data) {
         auto& s = shards_[key_to_shard(key)];
-        std::unique_lock lock(s.mutex);
+        auto lock = shard_lock_detail::lock_excl_timed(s.mutex, s.stats);
         auto [it, inserted] = s.chunks.insert_or_assign(key, std::move(render_data));
         (void)it;
         if (inserted) {
@@ -407,7 +527,7 @@ public:
 
     [[nodiscard]] std::unique_ptr<ChunkRenderData> find_and_erase(uint64_t key) {
         auto& s = shards_[key_to_shard(key)];
-        std::unique_lock lock(s.mutex);
+        auto lock = shard_lock_detail::lock_excl_timed(s.mutex, s.stats);
         auto it = s.chunks.find(key);
         if (it == s.chunks.end()) return nullptr;
         auto result = std::move(it->second);
@@ -419,7 +539,7 @@ public:
     template<typename Pred>
     [[nodiscard]] std::unique_ptr<ChunkRenderData> find_and_erase_if(uint64_t key, Pred&& predicate) {
         auto& s = shards_[key_to_shard(key)];
-        std::unique_lock lock(s.mutex);
+        auto lock = shard_lock_detail::lock_excl_timed(s.mutex, s.stats);
         auto it = s.chunks.find(key);
         if (it == s.chunks.end()) return nullptr;
         if (!predicate(*it->second)) return nullptr;
@@ -457,7 +577,7 @@ public:
     void pin_chunk(uint64_t key) {
         auto& s = shards_[key_to_shard(key)];
         LOCK_ORDER_REQUIRE_SHARED(key_to_shard(key), "pin_chunk");
-        std::shared_lock lock(s.mutex);
+        auto lock = shard_lock_detail::lock_shared_timed(s.mutex, s.stats);
         auto it = s.chunks.find(key);
         if (it != s.chunks.end()) {
             it->second->pending_mesh_builds.fetch_add(1, std::memory_order_relaxed);
@@ -467,7 +587,7 @@ public:
     void unpin_chunk(uint64_t key) {
         auto& s = shards_[key_to_shard(key)];
         LOCK_ORDER_REQUIRE_SHARED(key_to_shard(key), "unpin_chunk");
-        std::shared_lock lock(s.mutex);
+        auto lock = shard_lock_detail::lock_shared_timed(s.mutex, s.stats);
         auto it = s.chunks.find(key);
         if (it != s.chunks.end()) {
             it->second->pending_mesh_builds.fetch_sub(1, std::memory_order_relaxed);
@@ -585,6 +705,7 @@ private:
     struct Shard {
         mutable std::shared_mutex mutex;
         std::unordered_map<uint64_t, std::unique_ptr<ChunkRenderData>> chunks;
+        ShardLockStats stats;
     };
 
     mutable std::array<Shard, kNumShards> shards_;

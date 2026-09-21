@@ -868,7 +868,8 @@ String VoxelEngineController::get_performance_report() {
         chunk_world.get_scheduler().generating_count(),
         chunk_world.get_scheduler().completed_chunk_count(),
         chunk_world.get_chunk_map().size(),
-        mesh_manager.gather_render_stats()
+        mesh_manager.gather_render_stats(),
+        &chunk_world.get_chunk_map()
     );
     chunks_processed_last_interval = chunks_processed_total;
     frame_count = 0;

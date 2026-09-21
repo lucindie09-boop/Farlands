@@ -171,7 +171,16 @@ int32_t ChunkWorld::process_completed_chunks(uint64_t epoch, double budget_ms, i
                     for (int dy = -1; dy <= 1; dy++)
                         for (int dx = -1; dx <= 1; dx++)
                             keys[idx++] = chunk_map.get_chunk_key(stage.chunk_x + dx, stage.chunk_y + dy, stage.chunk_z + dz);
-                auto lock = chunk_map.lock_keys_exclusive(keys);
+                // SHARED, not exclusive: everything below this line only READS the
+                // map (it checks presence and asks 27 neighbours for their emissive
+                // counts). Taking the exclusive lock here made every chunk install on
+                // the main thread an exclusive writer of up to 28 shards for a
+                // read-only question, which is what starved the readers that show up
+                // as 100 ms lock waits. The propagation itself — the only real
+                // writer — takes its own exclusive lock in the worker below, and the
+                // `propagate_block_light_region` fallback is called outside this
+                // scope, so it is not a nested exclusive acquisition.
+                auto lock = chunk_map.lock_keys(keys);
                 if (!chunk_map.contains_fast(key)) continue;
 
                 if (light_propagated_chunks.find(key) != light_propagated_chunks.end()) {
@@ -272,7 +281,9 @@ int32_t ChunkWorld::process_completed_chunks(uint64_t epoch, double budget_ms, i
                     chunk_map.get_chunk_key(stage.chunk_x,     stage.chunk_y,     stage.chunk_z - 1),
                     chunk_map.get_chunk_key(stage.chunk_x,     stage.chunk_y,     stage.chunk_z + 1)
                 };
-                auto lock = chunk_map.lock_keys(std::vector<uint64_t>(neighbor_keys, neighbor_keys + 7));
+                // Array overload, not a std::vector: this runs per installed chunk,
+                // and the vector allocated on every call.
+                auto lock = chunk_map.lock_keys(neighbor_keys);
                 if (!chunk_map.contains_fast(key)) continue;
 
                 if (mesh_manager) {
@@ -385,7 +396,7 @@ if (mesh_manager) {
         chunk_map.get_chunk_key(ncx,     ncy,     ncz - 1),
         chunk_map.get_chunk_key(ncx,     ncy,     ncz + 1)
     };
-    auto lock = chunk_map.lock_keys(std::vector<uint64_t>(neighbor_keys, neighbor_keys + 7));
+    auto lock = chunk_map.lock_keys(neighbor_keys);
     ChunkData* installed_chunk = chunk_map.get_chunk_data_fast(ncx, ncy, ncz);
     if (installed_chunk) {
         const int32_t kOff[6][3] = {

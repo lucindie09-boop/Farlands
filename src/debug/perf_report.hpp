@@ -8,6 +8,8 @@
 
 namespace VoxelEngine {
 
+class ChunkMap;
+
 class PerfReport {
 public:
     static godot::String build(
@@ -22,7 +24,8 @@ public:
         size_t generating_count,
         size_t completed_chunk_count,
         size_t loaded_chunk_count,
-        const WorldRenderStats& render_stats
+        const WorldRenderStats& render_stats,
+        const ChunkMap* chunk_map = nullptr
     );
 };
 

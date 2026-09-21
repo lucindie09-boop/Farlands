@@ -185,7 +185,9 @@ bool NbtReader::read_any_int(int64_t& value) {
         case NbtTag::Byte: {
             int8_t small = 0;
             if (!read_i8(small)) return false;
-            value = small;
+            // A tag byte is signed, so it is sign-extended on purpose rather than
+            // widened through an unsigned character.
+            value = static_cast<int64_t>(small);
             return true;
         }
         case NbtTag::Short: {

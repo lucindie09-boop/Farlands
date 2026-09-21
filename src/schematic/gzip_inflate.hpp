@@ -37,7 +37,7 @@ enum class WrapKind : uint8_t {
 // output from a tiny input, so the decompressed size is capped rather than
 // trusted: a schematic is a build, not a disk image.
 struct InflateLimits {
-    size_t max_output_bytes = 512u * 1024u * 1024u;
+    size_t max_output_bytes = static_cast<size_t>(512) * 1024u * 1024u;
 };
 
 // Inflates one member of the given container kind, appending to `out`.

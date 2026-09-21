@@ -128,7 +128,12 @@ int decode_symbol(BitReader& reader, const Huffman& h) {
         code |= static_cast<int>(reader.take(1));
         if (reader.failed) return -1;
         const int count = h.count[len];
-        if (code - count < first) return h.symbol[static_cast<size_t>(index + (code - first))];
+        if (code - count < first) {
+            // Both terms are non-negative here (code - first is at least count, and
+            // count is a symbol count), so widening them separately indexes the table
+            // without an addition that could be read as signed.
+            return h.symbol[static_cast<size_t>(index) + static_cast<size_t>(code - first)];
+        }
         index += count;
         first = (first + count) << 1;
         code <<= 1;

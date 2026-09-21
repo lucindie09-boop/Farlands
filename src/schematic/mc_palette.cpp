@@ -5,7 +5,9 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
+#include <initializer_list>
 #include <set>
+#include <string_view>
 
 namespace VoxelEngine {
 namespace schematic {
@@ -23,6 +25,17 @@ constexpr const char* kWoodPlaceholder = "{wood}";
 bool fail(std::string* error, const std::string& message) {
     if (error) *error = message;
     return false;
+}
+
+// Builds a message from its parts in one string. Chaining `+` allocates a temporary per
+// operator, and a load-time message that quotes a key it rejected is all parts.
+std::string joined(std::initializer_list<std::string_view> parts) {
+    size_t total = 0;
+    for (const std::string_view part : parts) total += part.size();
+    std::string out;
+    out.reserve(total);
+    for (const std::string_view part : parts) out.append(part.data(), part.size());
+    return out;
 }
 
 bool fail_row(std::string* error, uint16_t id, const std::string& message) {
@@ -59,16 +72,16 @@ bool parse_variants(const JsonValue& object, std::vector<std::pair<uint8_t, std:
         // Keys are data values, written as JSON numbers; a quoted number would
         // never match at resolve time, so it is refused here.
         if (data_key.empty() || data_key.find_first_not_of("0123456789") != std::string::npos) {
-            return fail(error, where + ": variant key \"" + data_key + "\" must be a data value 0..15");
+            return fail(error, joined({where, ": variant key \"", data_key, "\" must be a data value 0..15"}));
         }
         const long data_value = std::strtol(data_key.c_str(), nullptr, 10);
         if (data_value > 15) {
-            return fail(error, where + ": variant key \"" + data_key + "\" is above 15");
+            return fail(error, joined({where, ": variant key \"", data_key, "\" is above 15"}));
         }
         std::string target;
         if (!variant.second.is_null()) {
             if (!variant.second.is_string()) {
-                return fail(error, where + ": variant " + data_key + " must be a block name or null");
+                return fail(error, joined({where, ": variant ", data_key, " must be a block name or null"}));
             }
             target = variant.second.as_string();
         }
@@ -200,7 +213,7 @@ bool parse_name_row(const std::string& key, const JsonValue& value, NameRow& row
                 if (!member_value.is_string()) return fail(error, where + "\"note\" must be a string");
                 row.note = member_value.as_string();
             } else {
-                return fail(error, where + "unknown key \"" + member_key + "\"");
+                return fail(error, joined({where, "unknown key \"", member_key, "\""}));
             }
         }
         if (!shape_text.empty()) {

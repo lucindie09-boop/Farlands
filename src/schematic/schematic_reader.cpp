@@ -16,7 +16,7 @@ constexpr const char* kBuildCompoundName = "Schematic";
 // A build this size is not a build; the cap also keeps the dimension product
 // well inside size_t.
 constexpr int32_t kMaxAxis = 8192;
-constexpr size_t kMaxCells = 128u * 1024u * 1024u;
+constexpr size_t kMaxCells = static_cast<size_t>(128) * 1024u * 1024u;
 // Tile-entity positions are only reported, so a file claiming millions of them
 // records the count and stops collecting.
 constexpr size_t kMaxTileEntities = 4096;

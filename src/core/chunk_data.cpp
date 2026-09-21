@@ -142,7 +142,8 @@ void ChunkData::append_light_state(std::vector<uint8_t>& out) const {
 bool ChunkData::light_state_equals(const std::vector<uint8_t>& prior) const {
     size_t at = 0;
     for (const PalSection& s : storage->light_secs) {
-        if (at >= prior.size() || prior[at++] != s.bpi) return false;
+        if (at >= prior.size()) return false;
+        if (prior[at++] != s.bpi) return false;
 
         uint32_t pal_n = 0;
         if (!read_u32(prior, at, pal_n)) return false;

@@ -454,10 +454,13 @@ LONG CALLBACK first_chance_filter(EXCEPTION_POINTERS* pointers) {
 // A synthetic crash is only allowed when asked for by name: it writes a report
 // into the player's crash folder and an entry into the Windows application log,
 // and both get read as evidence later.
-[[nodiscard]] bool armed_for_test() {
-    const char* armed = std::getenv("FARLANDS_CRASH_TEST");
-    return armed != nullptr && std::strcmp(armed, "1") == 0;
-}
+//
+// Read once at install time, like everything else here: getenv takes a lock inside
+// the C runtime, so asking from a fault path could hang against another thread rather
+// than answer.
+bool g_armed_for_test = false;
+
+[[nodiscard]] bool armed_for_test() noexcept { return g_armed_for_test; }
 
 bool to_wide(const std::string& text, wchar_t* out, size_t out_size) {
     if (text.empty()) return false;
@@ -468,6 +471,8 @@ bool to_wide(const std::string& text, wchar_t* out, size_t out_size) {
 }  // namespace
 
 std::string install_crash_dump_handler(const std::string& directory) {
+    const char* armed = std::getenv("FARLANDS_CRASH_TEST");
+    g_armed_for_test = armed != nullptr && std::strcmp(armed, "1") == 0;
     if (g_installed || directory.empty()) return std::string();
     wchar_t wide[MAX_PATH] = {};
     if (!to_wide(directory, wide, _countof(wide))) return std::string();
@@ -518,14 +523,16 @@ namespace VoxelEngine {
 namespace debug {
 namespace {
 
-[[nodiscard]] bool armed_for_test() {
-    const char* armed = std::getenv("FARLANDS_CRASH_TEST");
-    return armed != nullptr && std::strcmp(armed, "1") == 0;
-}
+// Set at install time rather than read from the fault path: getenv is not thread safe.
+bool g_armed_for_test = false;
+
+[[nodiscard]] bool armed_for_test() noexcept { return g_armed_for_test; }
 
 }  // namespace
 
 std::string install_crash_dump_handler(const std::string& directory) {
+    const char* armed = std::getenv("FARLANDS_CRASH_TEST");
+    g_armed_for_test = armed != nullptr && std::strcmp(armed, "1") == 0;
     (void)directory;
     return std::string();
 }

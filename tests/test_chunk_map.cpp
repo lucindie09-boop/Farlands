@@ -100,6 +100,70 @@ TEST_CASE("a held band reads a neighbouring chunk through the fast accessor") {
     CHECK(cm.get_block_world(CHUNK_WIDTH, 0, 0) == static_cast<int>(BlockIDs::STONE));
 }
 
+TEST_CASE("every chunk of a column shares one shard") {
+    // This is load-bearing, not incidental: the generation sweep answers "is this
+    // whole column built?" for the count(band) slices of one column under a SINGLE
+    // ChunkMap::lock_column acquisition and probes the rest with the lock-free
+    // `_fast` accessors. That is only correct while every (cx, cy, cz) with the
+    // same (cx, cz) resolves to one shard, so it is pinned here rather than
+    // assumed at the one call site that depends on it.
+    ChunkMap cm;
+    const int32_t ys[] = {-1000000, -33, -1, 0, 1, 31, 32, 33, 1024, 1000000};
+    const int32_t columns[][2] = {
+        {0, 0}, {1, 0}, {0, 1}, {-1, -1}, {1234, -5678}, {-1000000, 1000000}, {999983, 999979},
+    };
+    for (const auto& col : columns) {
+        const size_t column_shard = cm.shard_of_column(col[0], col[1]);
+        for (int32_t cy : ys) {
+            CHECK(cm.shard_of(cm.get_chunk_key(col[0], cy, col[1])) == column_shard);
+        }
+    }
+    // Distinct columns are NOT forced apart — the hash decides, exactly as it did
+    // per chunk before. Nothing may start depending on neighbouring columns
+    // landing on different shards.
+    CHECK(cm.shard_of_column(0, 0) == cm.shard_of(cm.get_chunk_key(0, 0, 0)));
+}
+
+TEST_CASE("column shards still spread across the shard array") {
+    // Masking y out reduces the hash's input space; it must not collapse it. Every
+    // shard has to be reachable and none may take a large share, or the sweep's one
+    // acquisition per column would land on a hot shard for whole regions of the map.
+    ChunkMap cm;
+    size_t counts[ChunkMap::kNumShards] = {};
+    constexpr int32_t kSpan = 64;
+    size_t total = 0;
+    for (int32_t cx = 0; cx < kSpan; ++cx) {
+        for (int32_t cz = 0; cz < kSpan; ++cz) {
+            ++counts[cm.shard_of_column(cx, cz)];
+            ++total;
+        }
+    }
+    const size_t expected = total / ChunkMap::kNumShards;
+    for (size_t s = 0; s < ChunkMap::kNumShards; ++s) {
+        CHECK(counts[s] > 0);
+        CHECK(counts[s] <= expected * 3);
+    }
+}
+
+TEST_CASE("a column band read under one lock agrees with the locking accessor") {
+    // The sweep replaces count(band) locked `contains` calls with one lock_column
+    // plus lock-free probes. Prove the batched form answers what the locking one
+    // answers, for a resident slice and for a missing one.
+    ChunkMap cm;
+    chunktest::insert_floor_chunk(cm, 5, 3, -7);
+    chunktest::insert_floor_chunk(cm, 5, 4, -7);
+    {
+        auto column_lock = cm.lock_column(5, -7);
+        CHECK(cm.contains_fast(cm.get_chunk_key(5, 3, -7)));
+        CHECK(cm.contains_fast(cm.get_chunk_key(5, 4, -7)));
+        CHECK_FALSE(cm.contains_fast(cm.get_chunk_key(5, 5, -7)));
+        CHECK_FALSE(cm.contains_fast(cm.get_chunk_key(6, 3, -7)));
+    }
+    CHECK(cm.contains(cm.get_chunk_key(5, 3, -7)));
+    CHECK(cm.contains(cm.get_chunk_key(5, 4, -7)));
+    CHECK_FALSE(cm.contains(cm.get_chunk_key(5, 5, -7)));
+}
+
 TEST_CASE("key encode/decode near max range") {
     ChunkMap cm;
     int32_t max_val = 1000000;

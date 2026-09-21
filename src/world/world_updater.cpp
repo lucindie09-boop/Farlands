@@ -906,20 +906,34 @@ void WorldUpdater::service_sweep_bands() {
         // flight is not resident yet, so such a column stays walkable until a
         // rebuild — a wasted walk, never a hole.
         double resident_ms = 0.0;
-        if (sweep::band_fully_resident(column.band, [&](int32_t cy) {
-                const auto t0 = std::chrono::steady_clock::now();
-                const bool has = chunk_world->get_chunk_map().contains(
+        // ONE shard acquisition for the whole column, then lock-free probes.
+        // Every chunk of a column shares a shard (ChunkMap::key_to_shard hashes
+        // x and z, not y), so the band's count(band) questions are answered under
+        // a single lock instead of one acquisition per slice. That matters
+        // because a slice's acquisition is the only part that can WAIT, and each
+        // one could queue behind a generation worker writing its own shard:
+        // /genstats recorded the slowest single column spending 39.4 ms of its
+        // 39.6 ms in 7 lookups, of which 39.4 ms was ONE lookup waiting for a
+        // shard. The wait is now paid once per column, at the acquisition timed
+        // below, and the probes that follow cannot contend with anything.
+        {
+            const auto t_resident = std::chrono::steady_clock::now();
+            auto column_lock = chunk_world->get_chunk_map().lock_column(cx, cz);
+            // The slowest single column ACQUISITION of the session, not the
+            // average: one contended shard lock is the whole hypothesis.
+            generation_stats.max_contains_ms = std::max(generation_stats.max_contains_ms,
+                std::chrono::duration<double, std::milli>(
+                    std::chrono::steady_clock::now() - t_resident).count());
+            const bool fully_resident = sweep::band_fully_resident(column.band, [&](int32_t cy) {
+                return chunk_world->get_chunk_map().contains_fast(
                     chunk_world->get_chunk_map().get_chunk_key(cx, cy, cz));
-                // The slowest SINGLE lookup of the session, not the average: one
-                // contended shard lock is the whole hypothesis being tested.
-                const double dt = std::chrono::duration<double, std::milli>(
-                    std::chrono::steady_clock::now() - t0).count();
-                generation_stats.max_contains_ms = std::max(generation_stats.max_contains_ms, dt);
-                resident_ms += dt;
-                return has;
-            })) {
-            built_columns.insert(chunk_world->get_chunk_map().get_chunk_key(cx, 0, cz));
-            ++generation_stats.columns_built;
+            });
+            resident_ms = std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - t_resident).count();
+            if (fully_resident) {
+                built_columns.insert(chunk_world->get_chunk_map().get_chunk_key(cx, 0, cz));
+                ++generation_stats.columns_built;
+            }
         }
         generation_stats.candidate_offsets += static_cast<uint64_t>(sweep::count(column.band));
         ++generation_stats.band_reads;

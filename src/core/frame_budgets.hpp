@@ -30,7 +30,14 @@ struct FrameBudgets {
     int32_t loading_threshold = 500;
     double loading_duration = 3.0;
 
-    int32_t unload_checks_per_frame = 500;
+    // Entries the unload scan visits per pass. It walks the whole map, so this is
+    // what decides how long a loaded set takes to be re-examined at all: 500 per
+    // pass against a 100k-chunk set on a 15-frame skip is a ~50 s sweep, far longer
+    // than the interval in which the moving disc makes chunks leave range. Each
+    // visit is a decode, a distance test and a hash-set lookup under one shard's
+    // SHARED lock (see ChunkMap::for_each_limited_resumable — no longer lock_all),
+    // so a visit is tens of nanoseconds and the scan can afford to be thorough.
+    int32_t unload_checks_per_frame = 4096;
     int32_t unloads_per_frame = 200;
     int32_t max_generation_checks_per_frame = 100000;
     int32_t generating_per_worker = 2;

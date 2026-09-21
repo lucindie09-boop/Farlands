@@ -256,6 +256,30 @@ public:
         return sl;
     }
 
+    // Shared lock on the ONE shard that owns a COLUMN (see key_to_shard). A
+    // caller that must ask several questions about one column — the sweep's "is
+    // the whole band resident?" is count(band) of them — takes this once and then
+    // uses the `_fast` accessors, which take no lock at all. This is only sound
+    // because sharding is by column: every chunk key of (cx, cz) resolves to the
+    // shard this returns.
+    ShardLock lock_column(int32_t cx, int32_t cz) const {
+        ShardLock sl;
+        const size_t si = key_to_shard(get_chunk_key(cx, 0, cz));
+        LOCK_ORDER_REQUIRE_SHARED(si, "lock_column");
+        sl.locks_.emplace_back(shard_lock_detail::lock_shared_timed(shards_[si].mutex, shards_[si].stats));
+        LOCK_ORDER_ACQUIRE(si);
+#ifdef DEBUG_ENABLED
+        sl.shard_indices_.push_back(si);
+#endif
+        return sl;
+    }
+
+    // The number of a column's shard, for callers that want to assert the
+    // invariant above rather than assume it.
+    [[nodiscard]] size_t shard_of_column(int32_t cx, int32_t cz) const noexcept {
+        return key_to_shard(get_chunk_key(cx, 0, cz));
+    }
+
     ShardLock lock_keys(const std::vector<uint64_t>& keys) const {
         ShardLock sl;
         if (keys.empty()) return sl;
@@ -663,10 +687,23 @@ public:
         return true;
     }
 
+    // Walks the map in cursor-resumable slices for callers that are SCANNING it
+    // rather than taking a consistent snapshot (the unload pass: "which loaded
+    // chunks are now out of range").
+    //
+    // One shard is locked at a time, and only while it is being read. Holding
+    // lock_all() for the whole walk — which is what this did — takes every shard
+    // SHARED for the entire slice, so on a 100k-chunk map every chunk insert
+    // (exclusive, from the install path and the workers) queues behind a scan that
+    // runs every frame or two. That is the convoy the reader-side telemetry shows
+    // as 100-260 ms waits while the worst single hold is a few ms: the wait is the
+    // queue of writers, not one writer. Readers are unaffected by another reader, so
+    // acquiring per shard costs the map nothing and lets the writers interleave
+    // between shards. The visitor must not touch the map itself — it holds one
+    // shard, and taking another here would be a nested acquisition in the wrong
+    // order.
     template<typename Callback>
     void for_each_limited_resumable(Callback&& callback, size_t max_count, size_t& cursor) const {
-        auto all = lock_all();
-
         size_t shard_idx = cursor >> 32;
         size_t bucket_idx = cursor & 0xFFFFFFFF;
 
@@ -674,25 +711,28 @@ public:
 
         size_t visited = 0;
         while (shard_idx < kNumShards && visited < max_count) {
-            auto& shard_map = shards_[shard_idx].chunks;
-            size_t n_buckets = shard_map.bucket_count();
-            if (n_buckets == 0) { ++shard_idx; bucket_idx = 0; continue; }
-            if (bucket_idx >= n_buckets) { bucket_idx = 0; ++shard_idx; continue; }
+            {
+                auto lock = shard_lock_detail::lock_shared_timed(shards_[shard_idx].mutex, shards_[shard_idx].stats);
+                auto& shard_map = shards_[shard_idx].chunks;
+                size_t n_buckets = shard_map.bucket_count();
+                if (n_buckets == 0) { ++shard_idx; bucket_idx = 0; continue; }
+                if (bucket_idx >= n_buckets) { bucket_idx = 0; ++shard_idx; continue; }
 
-            size_t buckets_scanned = 0;
-            size_t b = bucket_idx;
-            while (buckets_scanned < n_buckets && visited < max_count) {
-                for (auto it = shard_map.begin(b); it != shard_map.end(b) && visited < max_count; ++it) {
-                    callback(it->first, it->second);
-                    ++visited;
+                size_t buckets_scanned = 0;
+                size_t b = bucket_idx;
+                while (buckets_scanned < n_buckets && visited < max_count) {
+                    for (auto it = shard_map.begin(b); it != shard_map.end(b) && visited < max_count; ++it) {
+                        callback(it->first, it->second);
+                        ++visited;
+                    }
+                    b = (b + 1) % n_buckets;
+                    ++buckets_scanned;
                 }
-                b = (b + 1) % n_buckets;
-                ++buckets_scanned;
-            }
 
-            if (visited >= max_count) {
-                cursor = (shard_idx << 32) | b;
-                return;
+                if (visited >= max_count) {
+                    cursor = (shard_idx << 32) | b;
+                    return;
+                }
             }
             ++shard_idx;
             bucket_idx = 0;
@@ -711,14 +751,34 @@ private:
     mutable std::array<Shard, kNumShards> shards_;
     std::atomic<size_t> chunk_count_{0};
 
+    // A shard is chosen per COLUMN, not per chunk: the y field (bits 21..41) is
+    // masked out before hashing, so every chunk of one (x, z) column lands on
+    // one shard.
+    //
+    // That is what makes a column's questions cheap. The generation sweep asks
+    // "is this whole column built?" once per column per pass, and the answer is
+    // count(band) chunk lookups — a band reaches the world floor near the player.
+    // With a shard per chunk, each of those lookups was its own shared_mutex
+    // acquisition on its own shard, so one column spanned up to 16 shards and
+    // could queue behind a writing worker on any one of them. Measured with
+    // /genstats: the slowest single column spent 39.4 ms of its 39.6 ms in 7 such
+    // lookups, and 39.4 ms of that was ONE lookup waiting for a shard. With the
+    // column on one shard, the whole check costs ONE acquisition
+    // (ChunkMap::lock_column) followed by lock-free probes.
+    //
+    // It also shrinks every multi-key lock, because the keys of a neighborhood
+    // collapse onto shared shards: a 3x3x3 is 9 distinct (x, z) columns, so the
+    // light region's 27-key exclusive pass takes 9 shards rather than up to 27,
+    // and the install path's 28-key probe likewise.
+    //
+    // Not `key % kNumShards`: the raw key's low bits come only from z (x and y
+    // sit at bits 21..62), so x would never reach the index. Fold x and z
+    // together and avalanche via the murmur3 finalizer so unrelated columns
+    // still spread across all 64 shards.
+    static constexpr uint64_t kYFieldMask = uint64_t{0x1FFFFF} << 21;
+
     size_t key_to_shard(uint64_t key) const noexcept {
-        // Mix all three packed coordinates into the shard index. The raw key's
-        // low bits come only from z (x/y occupy bits 21..62), so a plain
-        // `key % 64` put every chunk sharing a Z coordinate on the same shard
-        // and collapsed a 3x3x3 neighborhood lock (3 distinct z values) to just
-        // 3 shards. Fold x ^ y ^ z together, then avalanche via the murmur3
-        // finalizer so unrelated (x,y,z) spread across all 64 shards.
-        uint64_t h = (key >> 42) ^ (key >> 21) ^ key;
+        uint64_t h = key & ~kYFieldMask;
         h ^= h >> 33;
         h *= 0xFF51AFD7ED558CCDULL;
         h ^= h >> 33;

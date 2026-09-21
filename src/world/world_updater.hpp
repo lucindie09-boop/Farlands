@@ -262,16 +262,18 @@ public:
         double   max_band_column_ms = 0.0;
         // What that slowest column was DOING, recorded together because the parts
         // only mean something for the column that was slow: its bounds read (cache
-        // hit, cold range, or claimed prefetch answer) and its resident lookups
-        // (count(band) shared-lock `contains` calls). Whatever is left over is
-        // neither of those — the bookkeeping is arithmetic, so a large remainder is
-        // this thread being taken away rather than any code in this loop.
+        // hit, cold range, or claimed prefetch answer) and its resident check —
+        // ONE `ChunkMap::lock_column` acquisition (all of a column's chunks share
+        // a shard) followed by lock-free probes. Whatever is left over is neither
+        // of those — the bookkeeping is arithmetic, so a large remainder is this
+        // thread being taken away rather than any code in this loop.
         double   max_band_bounds_ms   = 0.0;
         double   max_band_resident_ms = 0.0;
-        // The slowest single resident lookup, in any column. A value near the
-        // column's whole cost is a lock wait (the generation workers hold the same
-        // shards); a small value beside a large column means the stall was between
-        // the statements, not inside one.
+        // The slowest single column ACQUISITION of the session. That acquisition
+        // is the only part of a resident check that can wait: a value near the
+        // column's whole cost means it waited on the generation workers that write
+        // the same map, while a small value beside a large column means the stall
+        // was between the statements rather than inside one.
         double   max_contains_ms      = 0.0;
         // The slowest single cold bounds derivation. If a fat band frame coincides
         // with a fat value here, the rigorous height range is what stalled; if not,

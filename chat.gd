@@ -812,9 +812,10 @@ func _run_command(raw: String):
 			if float(g.get("max_band_ms", 0.0)) > 5.0:
 				_add_message("  worst band frame read %s columns; its slowest single column was %.2f ms (slowest cold bound read %.2f ms)" % [_fmt_count(int(g.get("max_band_columns", 0))), float(g.get("max_band_column_ms", 0.0)), float(g.get("max_cold_bounds_ms", 0.0))], COLOR_SYSTEM)
 				# The split inside that slowest column: the bounds read, the resident
-				# lookups, and the slowest SINGLE lookup of the session. Whatever is left
-				# over is neither — which is this thread being taken away.
-				_add_message("  that column spent %.2f ms on its bounds read and %.2f ms on %s resident lookups (slowest single lookup %.2f ms)" % [float(g.get("max_band_bounds_ms", 0.0)), float(g.get("max_band_resident_ms", 0.0)), _fmt_count(int(g.get("max_band_columns", 0))), float(g.get("max_contains_ms", 0.0))], COLOR_SYSTEM)
+				# check (ONE shard acquisition for the whole column, then lock-free
+				# probes), and the slowest SINGLE acquisition of the session. Whatever
+				# is left over is neither — which is this thread being taken away.
+				_add_message("  that column spent %.2f ms on its bounds read and %.2f ms on its resident check (slowest single column lock %.2f ms)" % [float(g.get("max_band_bounds_ms", 0.0)), float(g.get("max_band_resident_ms", 0.0)), float(g.get("max_contains_ms", 0.0))], COLOR_SYSTEM)
 			# The same band reads split by where the answer came from: a worker that
 			# derived it early, or this thread. `cold bounds` is the number the
 			# prefetch exists to drive to zero, and `waited on` is the rest of its

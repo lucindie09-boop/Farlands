@@ -656,29 +656,48 @@ public:
     }
 
     // -- Global iteration --
+    //
+    // ONE SHARD AT A TIME, and only while it is being read — never `lock_all()`.
+    // These are sweeps over "what is currently loaded" (free the instances, mark
+    // the meshes dirty, count the far-eligible), not snapshots, and taking all 64
+    // shards SHARED for the whole walk means every chunk insert in the game — the
+    // install path and the light workers, exclusive, thousands a second — queues
+    // behind a scan of a 36k-chunk map. That makes the queue of writers that a
+    // reader then queues behind, which is exactly the convoy `for_each_limited_
+    // resumable` was rewritten to stop feeding (see that function for the measured
+    // wait/hold ratio). A visitor must therefore NOT touch the map itself: it holds
+    // one shard, and taking another here would be a nested acquisition in the wrong
+    // order. Chunks never move between shards (the key fixes the shard), so a chunk
+    // cannot be visited twice or escape a shard's lock, and the only difference a
+    // caller can observe is that a chunk may be inserted or erased between shards —
+    // which is what "what is loaded" means anyway.
 
     template<typename Callback>
     void for_each(Callback&& callback) {
-        auto all = lock_all();
-        for (auto& s : shards_)
-            for (auto& pair : s.chunks)
+        for (size_t i = 0; i < kNumShards; ++i) {
+            auto lock = shard_lock_detail::lock_shared_timed(shards_[i].mutex, shards_[i].stats);
+            for (auto& pair : shards_[i].chunks)
                 callback(pair.first, pair.second);
+        }
     }
 
     template<typename Callback>
     void for_each(Callback&& callback) const {
-        auto all = lock_all();
-        for (auto& s : shards_)
-            for (auto& pair : s.chunks)
+        for (size_t i = 0; i < kNumShards; ++i) {
+            auto lock = shard_lock_detail::lock_shared_timed(shards_[i].mutex, shards_[i].stats);
+            for (auto& pair : shards_[i].chunks)
                 callback(pair.first, pair.second);
+        }
     }
 
+    // True when the whole map was walked; false when `max_count` stopped it early
+    // (the caller asked for a bounded sweep, so stopping is the point).
     template<typename Callback>
     bool for_each_limited(Callback&& callback, size_t max_count) const {
-        auto all = lock_all();
         size_t count = 0;
-        for (auto& s : shards_) {
-            for (auto& pair : s.chunks) {
+        for (size_t i = 0; i < kNumShards; ++i) {
+            auto lock = shard_lock_detail::lock_shared_timed(shards_[i].mutex, shards_[i].stats);
+            for (auto& pair : shards_[i].chunks) {
                 if (count >= max_count) return false;
                 callback(pair.first, pair.second);
                 count++;

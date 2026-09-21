@@ -46,15 +46,27 @@ void MeshManager::notify_chunk_unloaded(int32_t cx, int32_t cy, int32_t cz, cons
 
 
 void MeshManager::mark_all_chunks_dirty() {
-if (!chunk_map) return;
-chunk_map->for_each([&](uint64_t key, const std::unique_ptr<ChunkRenderData>& render_data) {
-if (render_data->data && !render_data->data->is_all_air()) {
-}
-render_data->is_mesh_dirty = true;
-int32_t cx, cy, cz;
-ChunkMap::decode_chunk_key(key, cx, cy, cz);
-queue_dirty_chunk(cx, cy, cz);
-});
+    if (!chunk_map) return;
+    // The queue entry is built from the VISITED chunk rather than by calling
+    // queue_dirty_chunk(): that would re-look the same chunk up through the
+    // LOCKING accessor, a nested shared acquisition on a shard this thread already
+    // holds, which SRW answers by blocking forever once a writer is queued on it.
+    // Running the walk under lock_all() did not make that safe, only rare (any
+    // queued chunk insert is enough). Everything queue_dirty_chunk() needs is
+    // already in hand here: the key, the render data, and the far-region flag.
+    chunk_map->for_each([&](uint64_t key, const std::unique_ptr<ChunkRenderData>& render_data) {
+        if (!render_data) return;
+        render_data->is_mesh_dirty = true;
+        int32_t cx, cy, cz;
+        ChunkMap::decode_chunk_key(key, cx, cy, cz);
+        if (render_data->far_mesh_cache) {
+            mark_far_region_dirty_for_chunk(cx, cy, cz);
+        }
+        const int32_t dx = cx - last_player_chunk_x;
+        const int32_t dy = cy - last_player_chunk_y;
+        const int32_t dz = cz - last_player_chunk_z;
+        mesh_queue.queue_dirty_chunk(key, dx * dx + dy * dy + dz * dz, false);
+    });
 }
 
 bool MeshManager::has_pending_mesh_work() const {

@@ -19,6 +19,9 @@ func _ui_scale() -> float:
 func _ready():
 	visible = false
 	mouse_filter = Control.MOUSE_FILTER_STOP
+	# Nearest, as every other menu here sets on its root: the button art is pixel
+	# art and the canvas default is LINEAR, which blurs it as soon as it is scaled.
+	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 
 	var bg := ColorRect.new()
 	bg.color = Color(0.45, 0.0, 0.0, 0.55)

@@ -30,14 +30,59 @@ const BUTTON_TEX: Texture2D = preload("res://textures/gui/button.png")
 const SchematicFiles := preload("res://schematic_files.gd")
 
 # The interface grid, the same units the settings menu draws in, so the wand's
-# menu is the same interface rather than a second one.
+# menu is the same interface rather than a second one: a widget is UNIT_BUTTON_H
+# units tall and its text UNIT_FONT, and the menu reads them at its own scale.
 const UNIT_FONT := 8.0
-const UNIT_BUTTON_W := 200.0
 const UNIT_BUTTON_H := 20.0
 const UNIT_GAP := 4.0
-const UNIT_MARGIN := 8.0
-const UNIT_TITLE_W := 320.0
-const UNIT_FILE_W := 150.0
+
+# --- the menu, in the load menu's own numbers ---------------------------------
+# The wand's menu is built from the SKIN MAKER'S LOAD MENU (settings_menu.gd's
+# skin gallery), which is the closest thing the game has to a picker: the same
+# panel colours, the same header with the title on the left and CLOSE on the
+# right, and the same square bordered cards in a scrolling grid. Every number
+# below is one of that menu's, so the two can be read side by side.
+#
+# The PANEL is the load menu at MENU_SCALE: it is read from a distance in the
+# middle of the screen, so it stands where the load menu's panel does but much
+# larger. Four times 660x504 is bigger than a 1080p screen, which
+# MENU_MAX_FRACTION answers by clamping it to a share of the window, so the panel
+# is always the same SHAPE and as large as the window can hold.
+const MENU_SCALE := 4.0
+const MENU_MAX_FRACTION := 0.92
+# The CONTENT inside it is NOT scaled with the panel. At 4x, the load menu's own
+# card comes out 430 px across and a row 90 px tall, which is enormous even in a
+# panel this size - so the things in the panel are drawn at MENU_CONTENT_SCALE x
+# the interface instead, and 1.0 means they are exactly the load menu's sizes:
+# 16 px text, 192 px cards, 40 px buttons.
+const MENU_CONTENT_SCALE := 1.0
+# The load menu's panel, in interface units: 660 x 504 before the UI scale. Both
+# are multiplied by MENU_SCALE to give the panel the wand's menu asks for.
+const MENU_UNITS_WIDE := 660.0
+const MENU_UNITS_TALL := 504.0
+# A card: square, one of the load menu's 96-unit preview tiles.
+const MENU_TILE_UNITS := 96.0
+const MENU_TILE_GAP := 12.0   # between cards
+const MENU_GAP := 8.0         # header to body
+const MENU_ACTION_W := 60.0  # CLOSE: a small action button
+const MENU_TAB_W := 130.0    # a tab: wide enough for the longer of the two labels
+# The panel's padding PER SIDE, in units: the load menu's stylebox margins (14
+# left/right) plus its MarginContainer (8). Kept as a sum because the width the
+# cards have to fit is the panel less exactly this, twice. Vertically it is 16
+# at the top (10 + 6) and 18 at the bottom (14 + 4), which is the 34 counted into
+# MENU_UNITS_TALL above rather than a constant, since nothing reads it.
+const MENU_PANEL_PAD_H := 22.0
+
+# The load menu's dark palette.
+const PANEL_BG := Color(0.1, 0.1, 0.12)
+const PANEL_BORDER := Color(0.28, 0.28, 0.3)
+const CARD_BG := Color(0.14, 0.14, 0.17)
+const CARD_BORDER := Color(0.35, 0.35, 0.4)
+const CARD_HOVER := Color(0.22, 0.24, 0.3)
+# The tab pair. The one you are looking at wears the same tint a selected card
+# does, so "which of these is current" is one language everywhere in the menu.
+const TAB_CURRENT := Color(0.7, 1.0, 0.8)
+const TAB_IDLE := Color(0.72, 0.72, 0.72)
 
 # How many cells the ghost draws. Past this the sample is strided: a preview is
 # for reading the shape and the size, and one buffer that a frame can upload
@@ -48,6 +93,13 @@ const GHOST_COLOR := Color(0.55, 0.86, 1.0, 0.26)
 const OUTLINE_COLOR := Color(0.75, 1.0, 0.95, 0.55)
 const HINT_FONT_COLOR := Color.WHITE
 const TEXT_SHADOW := Color(0.0, 0.0, 0.0, 0.7)
+
+# The menu's tabs. Two pages, and the pair is what the top of the panel is: the
+# tools, and the builds those tools place.
+const TABS := [
+	{"id": "tools", "name": "BUILDING TOOLS"},
+	{"id": "schematics", "name": "SCHEMATICS"},
+]
 
 # The wand's functions. One today; the menu is a list so the next one is an
 # entry here plus the branch that implements it, not a new interface.
@@ -72,10 +124,19 @@ var _file_info := {}
 
 # --- the menu ---------------------------------------------------------------
 var _menu: Control = null
-var _menu_title: Label = null
 var _menu_body: VBoxContainer = null
-var _menu_page := "functions"  # or "files"
+# The panel's column: the tab row and the body, both rebuilt per page, because
+# the tab tints have to follow the page they switch to.
+var _menu_column: VBoxContainer = null
+var _menu_page := "tools"  # or "schematics"
 var _menu_open := false
+var _panel: PanelContainer = null
+# Pixels per interface unit INSIDE the menu, and the width its content has to
+# work with. Both are decided when the menu is built (see _fit_menu) rather than
+# read from the UI scale at every widget: the menu is the one surface that is
+# larger than the interface, and it is only as large as the window can hold.
+var _menu_m := 0.0
+var _menu_content_px := 0.0
 
 # --- the ghost --------------------------------------------------------------
 var _ghost_root: Node3D = null
@@ -164,7 +225,7 @@ func open_menu() -> void:
 		_build_menu()
 	if _menu == null:
 		return
-	_menu_page = "functions"
+	_menu_page = "tools"
 	_refresh_menu()
 	_menu.visible = true
 	_menu_open = true
@@ -216,12 +277,6 @@ func choose_file(file_name: String) -> bool:
 		_refresh_menu()
 	return true
 
-func _function_entry(id: String) -> Dictionary:
-	for entry in FUNCTIONS:
-		if entry["id"] == id:
-			return entry
-	return {}
-
 func _options() -> Dictionary:
 	# One place, used by the preview AND the paste. The wand's own extras
 	# (how many ghost cells) are dropped before a paste, since the writer has no
@@ -238,113 +293,185 @@ func _preview_cells() -> int:
 	return PREVIEW_CELLS
 
 func _refresh_menu() -> void:
-	if _menu == null:
+	if _menu_column == null:
 		return
-	for child in _menu_body.get_children():
+	for child in _menu_column.get_children():
 		# Hidden now, freed at the end of the frame: this runs from inside a
 		# button's own `pressed` signal, and Godot refuses to free a node while
 		# it is emitting. Hiding first is what keeps one frame from showing the
 		# old page and the new one at once.
 		child.visible = false
 		child.queue_free()
-	if _menu_page == "files":
-		_menu_title.text = "CHOOSE A BUILD"
-		_build_file_page()
+	_build_tabs()
+	_menu_body = VBoxContainer.new()
+	_menu_body.add_theme_constant_override("separation", int(UNIT_GAP * _menu_m))
+	# The body fills the panel, so a page puts its state line on the bottom edge
+	# and its one growing row (the cards) in the middle of it.
+	_menu_body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_menu_column.add_child(_menu_body)
+	if _menu_page == "schematics":
+		_build_schematic_page()
 	else:
-		_menu_title.text = "WAND"
-		_build_function_page()
+		_build_tool_page()
 
-func _build_function_page() -> void:
-	var s := _ui_scale()
+## The tab row across the top, with CLOSE on the right. The tabs ARE the page
+## title, which is why the panel has none: the label under the pointer is what
+## says where you are.
+func _build_tabs() -> void:
+	var m := _menu_m
+	var header := HBoxContainer.new()
+	header.add_theme_constant_override("separation", int(MENU_GAP * m))
+	for entry in TABS:
+		var btn := _make_button(String(entry["name"]), MENU_TAB_W)
+		btn.modulate = TAB_CURRENT if String(entry["id"]) == _menu_page else TAB_IDLE
+		btn.pressed.connect(func() -> void:
+			_menu_page = String(entry["id"])
+			_refresh_menu()
+		)
+		header.add_child(btn)
+	var room := Control.new()
+	room.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	header.add_child(room)
+	var close := _make_button("CLOSE", MENU_ACTION_W)
+	close.pressed.connect(close_menu)
+	header.add_child(close)
+	_menu_column.add_child(header)
+
+## The menu's state line, in the bottom left corner of the panel: what a right
+## click in the world would place. On both tabs, because it is the one thing the
+## whole menu is about.
+func _build_build_line() -> void:
+	var label := Label.new()
+	label.add_theme_font_override("font", FONT)
+	label.add_theme_font_size_override("font_size", int(UNIT_FONT * _menu_m))
+	label.add_theme_color_override("font_color", Color(0.75, 1.0, 0.95))
+	if _file_name.is_empty():
+		label.text = "build: (none chosen)"
+	else:
+		label.text = "build: %s · %d cells" % [_file_name, int(_file_info.get("planned", 0))]
+	_menu_body.add_child(label)
+
+func _build_tool_page() -> void:
+	var m := _menu_m
+	var gap := MENU_TILE_GAP * m
+	var tile := MENU_TILE_UNITS * m
+	# The functions ARE the menu: one card each, the shape the galleries use, so
+	# the next function is another card here rather than another kind of row.
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_menu_body.add_child(scroll)
+
+	var grid := GridContainer.new()
+	grid.columns = _tile_columns(tile, gap)
+	grid.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	grid.add_theme_constant_override("h_separation", int(gap))
+	grid.add_theme_constant_override("v_separation", int(gap))
 	for entry in FUNCTIONS:
-		var btn := _make_button(String(entry["name"]), UNIT_BUTTON_W)
+		var card := _make_tile(String(entry["name"]), tile, String(entry.get("hint", "")))
 		# The chosen function reads as chosen: it is the one the clicks use.
 		if entry["id"] == _function_id:
-			btn.modulate = Color(0.7, 1.0, 0.8)
-		btn.pressed.connect(func() -> void:
+			card.modulate = Color(0.7, 1.0, 0.8)
+		card.pressed.connect(func() -> void:
 			set_function(String(entry["id"]))
+			# A tool that works on a build is no use until one is chosen, so
+			# picking it turns to the tab where that happens.
 			if bool(entry.get("needs_file", false)):
-				_menu_page = "files"
+				_menu_page = "schematics"
 				_refresh_menu()
 		)
-		_menu_body.add_child(btn)
+		grid.add_child(card)
+	scroll.add_child(grid)
+	_build_build_line()
 
-	var hint := Label.new()
-	hint.add_theme_font_override("font", FONT)
-	hint.add_theme_font_size_override("font_size", int(UNIT_FONT * s))
-	hint.add_theme_color_override("font_color", Color(1, 1, 1, 0.8))
-	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	hint.custom_minimum_size = Vector2(UNIT_TITLE_W * s, 0)
-	var entry := _function_entry(_function_id)
-	hint.text = String(entry.get("hint", ""))
-	_menu_body.add_child(hint)
-
-	var current := Label.new()
-	current.add_theme_font_override("font", FONT)
-	current.add_theme_font_size_override("font_size", int(UNIT_FONT * s))
-	current.add_theme_color_override("font_color", Color(0.75, 1.0, 0.95))
-	if _file_name.is_empty():
-		current.text = "build: (none chosen)"
-	else:
-		current.text = "build: %s · %d cells" % [_file_name, int(_file_info.get("planned", 0))]
-	_menu_body.add_child(current)
-
-	var pick := _make_button("CHOOSE BUILD", UNIT_BUTTON_W)
-	pick.pressed.connect(func() -> void:
-		_menu_page = "files"
-		_refresh_menu()
-	)
-	_menu_body.add_child(pick)
-
-	var close := _make_button("CLOSE", UNIT_BUTTON_W)
-	close.pressed.connect(close_menu)
-	_menu_body.add_child(close)
-
-func _build_file_page() -> void:
-	var s := _ui_scale()
+func _build_schematic_page() -> void:
+	var m := _menu_m
+	var gap := MENU_TILE_GAP * m
+	var tile := MENU_TILE_UNITS * m
 	var names := SchematicFiles.list()
 	if names.is_empty():
 		var none := Label.new()
 		none.add_theme_font_override("font", FONT)
-		none.add_theme_font_size_override("font_size", int(UNIT_FONT * s))
+		none.add_theme_font_size_override("font_size", int(UNIT_FONT * m))
 		none.add_theme_color_override("font_color", Color(1, 0.8, 0.8))
 		none.text = "No build files. Put them in schematics/."
 		_menu_body.add_child(none)
 	else:
-		# A grid of names, the same shape the skin and block galleries use: the
-		# files ARE the menu, so they are the buttons.
+		# The same cards again, one per build. It scrolls, because a folder of
+		# builds is longer than any panel and a menu that grew with the folder
+		# would run off the window.
+		var scroll := ScrollContainer.new()
+		scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+		scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		_menu_body.add_child(scroll)
+
 		var grid := GridContainer.new()
-		grid.columns = 2
-		grid.add_theme_constant_override("h_separation", int(8 * s))
-		grid.add_theme_constant_override("v_separation", int(UNIT_GAP * s))
+		grid.columns = _tile_columns(tile, gap)
+		grid.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		grid.add_theme_constant_override("h_separation", int(gap))
+		grid.add_theme_constant_override("v_separation", int(gap))
 		for entry_name in names:
-			var btn := _make_button(SchematicFiles.display_name(entry_name), UNIT_FILE_W)
+			# No per-file size on the card on purpose: reading one is a decode,
+			# and the big ones are hundreds of milliseconds. The size appears in
+			# the state line once a file is chosen, where it is read once.
+			var card := _make_tile(SchematicFiles.display_name(entry_name), tile, entry_name)
 			if entry_name == _file_name:
-				btn.modulate = Color(0.7, 1.0, 0.8)
-			# No per-file size here on purpose: reading one is a decode, and the
-			# big ones are hundreds of milliseconds. The size appears on the
-			# function page once a file is chosen, where it is read once.
-			btn.pressed.connect(func() -> void:
+				card.modulate = Color(0.7, 1.0, 0.8)
+			card.pressed.connect(func() -> void:
 				if not choose_file(entry_name):
 					_hint_flash("Could not read %s" % entry_name)
 					return
-				_menu_page = "functions"
+				_menu_page = "tools"
 				_refresh_menu()
 			)
-			grid.add_child(btn)
-		_menu_body.add_child(grid)
+			grid.add_child(card)
+		scroll.add_child(grid)
+	_build_build_line()
 
-	var back := _make_button("BACK", UNIT_BUTTON_W)
-	back.pressed.connect(func() -> void:
-		_menu_page = "functions"
-		_refresh_menu()
-	)
-	_menu_body.add_child(back)
+## Decides the panel's size, the scale its content is drawn at, and the width the
+## cards have to fit, all from the window. Called once, when the menu is built.
+func _fit_menu() -> void:
+	var s := _ui_scale()
+	var panel_w: float = MENU_UNITS_WIDE * s * MENU_SCALE
+	var panel_h: float = MENU_UNITS_TALL * s * MENU_SCALE
+	# The window bounds the PANEL: MENU_SCALE times the load menu is wider and
+	# taller than a 1080p screen, so it is the smaller of the two per axis. A
+	# window with no size at all - the dummy driver behind --headless - bounds
+	# nothing, and gets the size the panel asks for.
+	var room := get_viewport().get_visible_rect().size
+	if room.x >= 1.0 and room.y >= 1.0:
+		panel_w = minf(panel_w, room.x * MENU_MAX_FRACTION)
+		panel_h = minf(panel_h, room.y * MENU_MAX_FRACTION)
+	# The content is drawn at its own scale, which the window does not touch.
+	_menu_m = s * MENU_CONTENT_SCALE
+	# Whole pixels: a fractional size centres with a floor, and the two gaps come
+	# out differing by a pixel or two instead of matching.
+	panel_w = floorf(panel_w)
+	panel_h = floorf(panel_h)
+	_menu_content_px = maxf(panel_w - 2.0 * MENU_PANEL_PAD_H * _menu_m, 1.0)
+	if _panel != null:
+		# A box of a size rather than a panel that grows to its content: the
+		# panel is what stays on screen, and a page with more cards than fit
+		# scrolls inside it instead of pushing its own border off the window.
+		_panel.custom_minimum_size = Vector2(panel_w, panel_h)
+
+## How many cards fit across the panel. The load menu hard-codes 5 columns for
+## its own width; the wand's panel is whatever the window allowed, so the count
+## comes from the room the cards actually have - which is what keeps them square
+## and the grid looking like the gallery rather than a stretched row.
+func _tile_columns(tile: float, gap: float) -> int:
+	return maxi(int(floorf((_menu_content_px + gap) / (tile + gap))), 1)
 
 func _build_menu() -> void:
-	var s := _ui_scale()
 	var root := Control.new()
 	root.name = "WandMenu"
+	# Nearest, exactly as the settings menu and the crafting table set on their own
+	# root: the interface textures are pixel art, and Godot's canvas default is
+	# LINEAR, which smears the button art as soon as it is scaled up. Every Control
+	# under this one inherits it, because a child's filter is PARENT_NODE by
+	# default - so this single line is what keeps the whole menu crisp, cards and
+	# tabs and CLOSE alike.
+	root.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_STOP
 	root.visible = false
@@ -356,41 +483,94 @@ func _build_menu() -> void:
 	backdrop.mouse_filter = Control.MOUSE_FILTER_STOP
 	root.add_child(backdrop)
 
-	var panel := PanelContainer.new()
-	panel.set_anchors_preset(Control.PRESET_CENTER)
-	panel.custom_minimum_size = Vector2((UNIT_TITLE_W + 2 * UNIT_MARGIN) * s, 0)
+	# The panel is held by a full-rect container rather than anchored itself:
+	# anchored on the middle it put its top-left corner ON the middle of the
+	# screen and grew down-right from there, which is why the dialog sat off
+	# centre. A container centres it, and keeps it centred as pages change size.
+	var centre := CenterContainer.new()
+	centre.set_anchors_preset(Control.PRESET_FULL_RECT)
+	centre.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(centre)
+
+	_panel = PanelContainer.new()
+	centre.add_child(_panel)
+	_fit_menu()
+
+	var m := _menu_m
+	# The load menu's panel: dark, rounded, a two-pixel border, and its padding
+	# split the same way (the stylebox's own margins plus a MarginContainer).
 	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.08, 0.08, 0.10, 0.92)
-	style.border_color = Color(1, 1, 1, 0.35)
-	style.set_border_width_all(int(2 * s))
-	style.set_content_margin_all(int(UNIT_MARGIN * s))
-	panel.add_theme_stylebox_override("panel", style)
-	root.add_child(panel)
+	style.bg_color = PANEL_BG
+	style.border_color = PANEL_BORDER
+	style.set_border_width_all(int(2 * m))
+	style.set_corner_radius_all(int(6 * m))
+	style.content_margin_left = int(14 * m)
+	style.content_margin_right = int(14 * m)
+	style.content_margin_top = int(10 * m)
+	style.content_margin_bottom = int(14 * m)
+	_panel.add_theme_stylebox_override("panel", style)
 
-	var column := VBoxContainer.new()
-	column.add_theme_constant_override("separation", int(UNIT_GAP * s))
-	panel.add_child(column)
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", int(8 * m))
+	margin.add_theme_constant_override("margin_right", int(8 * m))
+	margin.add_theme_constant_override("margin_top", int(6 * m))
+	margin.add_theme_constant_override("margin_bottom", int(4 * m))
+	_panel.add_child(margin)
 
-	_menu_title = Label.new()
-	_menu_title.add_theme_font_override("font", FONT)
-	_menu_title.add_theme_font_size_override("font_size", int(UNIT_FONT * s * 1.5))
-	_menu_title.add_theme_color_override("font_color", Color.WHITE)
-	_menu_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	column.add_child(_menu_title)
-
-	_menu_body = VBoxContainer.new()
-	_menu_body.add_theme_constant_override("separation", int(UNIT_GAP * s))
-	column.add_child(_menu_body)
+	# Left empty: the tab row and the page are built by _refresh_menu, which runs
+	# on every switch and so keeps the tabs' contents honest about which is on.
+	_menu_column = VBoxContainer.new()
+	_menu_column.add_theme_constant_override("separation", int(MENU_GAP * m))
+	margin.add_child(_menu_column)
 
 	_menu = root
 
+## A full-width row button: `width` is in interface units and the height is a
+## widget's, both read at the menu's own scale.
 func _make_button(text: String, width: float) -> Button:
-	var s := _ui_scale()
+	return _make_button_px(text, Vector2(width, UNIT_BUTTON_H) * _menu_m)
+
+## One card, the shape the skin and block galleries use: a SQUARE button with a
+## rounded border, dark by default and lighter under the pointer, with a pressed
+## border in white. The wand's cards carry a name where those carry a rendered
+## model, which is the one difference between them.
+func _make_tile(text: String, side_px: float, hint: String) -> Button:
+	var m := _menu_m
+	var btn := Button.new()
+	btn.text = text
+	btn.clip_text = true
+	btn.tooltip_text = hint
+	btn.add_theme_font_override("font", FONT)
+	btn.add_theme_font_size_override("font_size", int(UNIT_FONT * m))
+	btn.add_theme_color_override("font_color", Color.WHITE)
+	btn.add_theme_color_override("font_hover_color", Color.WHITE)
+	btn.add_theme_color_override("font_pressed_color", Color.WHITE)
+	var card := StyleBoxFlat.new()
+	card.bg_color = CARD_BG
+	card.set_border_width_all(int(2 * m))
+	card.border_color = CARD_BORDER
+	card.set_corner_radius_all(int(4 * m))
+	var hover := card.duplicate()
+	hover.bg_color = CARD_HOVER
+	var pressed := card.duplicate()
+	pressed.bg_color = CARD_HOVER
+	pressed.border_color = Color.WHITE
+	btn.add_theme_stylebox_override("normal", card)
+	btn.add_theme_stylebox_override("hover", hover)
+	btn.add_theme_stylebox_override("pressed", pressed)
+	btn.add_theme_stylebox_override("focus", pressed)
+	btn.custom_minimum_size = Vector2(side_px, side_px)
+	return btn
+
+## A button of an exact pixel size. Every other button in the menu lands here -
+## the header's CLOSE and the rows at the foot of each page - so their style and
+## their text cannot drift apart.
+func _make_button_px(text: String, size_px: Vector2) -> Button:
 	var btn := Button.new()
 	btn.text = text
 	btn.clip_text = true
 	btn.add_theme_font_override("font", FONT)
-	btn.add_theme_font_size_override("font_size", int(UNIT_FONT * s))
+	btn.add_theme_font_size_override("font_size", int(UNIT_FONT * _menu_m))
 	btn.add_theme_color_override("font_color", Color.WHITE)
 	btn.add_theme_color_override("font_hover_color", Color.WHITE)
 	btn.add_theme_color_override("font_pressed_color", Color.WHITE)
@@ -406,7 +586,7 @@ func _make_button(text: String, width: float) -> Button:
 	btn.add_theme_stylebox_override("hover", hover)
 	btn.add_theme_stylebox_override("pressed", pressed)
 	btn.add_theme_stylebox_override("focus", normal)
-	btn.custom_minimum_size = Vector2(width, UNIT_BUTTON_H) * s
+	btn.custom_minimum_size = size_px
 	return btn
 
 # ---------------------------------------------------------------------------

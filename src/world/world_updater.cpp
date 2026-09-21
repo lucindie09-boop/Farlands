@@ -622,6 +622,17 @@ void WorldUpdater::on_chunk_installed(int32_t cx, int32_t cy, int32_t cz, bool h
         map.get_chunk_key(cx, cy, cz + 1),
     };
     for (const uint64_t key : neighbours) {
+        // A neighbour whose COLUMN is already fully built needs no offer — and
+        // this lookup is free next to the locked `contains` the drain would pay
+        // to discover the same thing (87% of the first flight's offers were
+        // skipped as already-loaded, each one a shard lock). `built_columns` is
+        // main-thread-only, and this listener runs on the main thread.
+        int32_t nx = 0, ny = 0, nz = 0;
+        ChunkMap::decode_chunk_key(key, nx, ny, nz);
+        if (built_columns.count(map.get_chunk_key(nx, 0, nz)) != 0) continue;
+        // Already being generated: an offer would be skipped at the drain, and
+        // this filter is three relaxed atomic loads.
+        if (chunk_world->get_scheduler().may_be_generating(key)) continue;
         if (chain_queued.insert(key).second) {
             chain_queue.push_back(key);
         }
@@ -652,8 +663,16 @@ int32_t WorldUpdater::drain_chain_queue(uint64_t epoch, int32_t budget, int32_t 
             continue;
         }
         // Already on its way, or already here: the chain exists to ORDER work, and
-        // both mean the work exists.
-        if (chunk_world->get_scheduler().may_be_generating(key) ||
+        // both mean the work exists. The free checks answer first, so the locked
+        // `contains` only runs for a chunk that is neither built-column-complete
+        // nor visibly in flight — the seed-time filters already removed most of
+        // those, and each remaining one is a shard lock on the map the workers
+        // are writing.
+        if (chunk_world->get_scheduler().may_be_generating(key)) {
+            ++generation_stats.chain_skipped;
+            continue;
+        }
+        if (built_columns.count(chunk_world->get_chunk_map().get_chunk_key(cx, 0, cz)) != 0 ||
             chunk_world->get_chunk_map().contains(key)) {
             ++generation_stats.chain_skipped;
             continue;

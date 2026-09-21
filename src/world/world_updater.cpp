@@ -7,8 +7,9 @@
 #include "core/performance_timer.hpp"
 #include "render/material_manager.hpp"
 #include <godot_cpp/classes/engine.hpp>
-#include <cmath>
 #include <algorithm>
+#include <chrono>
+#include <cmath>
 
 namespace VoxelEngine {
 using namespace godot;
@@ -107,6 +108,11 @@ void WorldUpdater::update(bool is_editor, uint64_t epoch, uint64_t& chunks_proce
 void WorldUpdater::update_generation(bool is_editor, int32_t active_render_distance, uint64_t epoch,
                                      int32_t pcx, int32_t pcy, int32_t pcz, bool chunk_changed) {
     ScopedTimer t(*perf_timer, TimerID::ChunkLoadUnload);
+    const auto sweep_start = std::chrono::steady_clock::now();
+    ++generation_stats.frames;
+    // Per-frame halves of the rolling window, written once at the end.
+    uint32_t frame_checks = 0;
+    uint32_t frame_generations = 0;
     constexpr int32_t kWorldChunkSlices = WORLD_HEIGHT_Y / CHUNK_HEIGHT;
     if (pre_sorted_offsets.empty() ||
         current_render_distance != active_render_distance) {
@@ -133,6 +139,7 @@ void WorldUpdater::update_generation(bool is_editor, int32_t active_render_dista
         generation_cursor          = 0;
         generation_pass_complete   = false;
         generation_sweep_generated = false;
+        ++generation_stats.cursor_resets;
     }
 
     // --- Urgent requests, before anything else ------------------------------
@@ -155,8 +162,11 @@ void WorldUpdater::update_generation(bool is_editor, int32_t active_render_dista
             const std::vector<ChunkPos> urgent =
                 chunk_world->take_urgent_chunk_requests(allowance);
             for (const ChunkPos& pos : urgent) {
+                ++generation_stats.urgent_requested;
                 if (pos.y < 0 || pos.y >= kWorldChunkSlices) continue;
-                generate_chunk(pos.x, pos.y, pos.z, epoch);
+                if (generate_chunk(pos.x, pos.y, pos.z, epoch)) {
+                    ++generation_stats.urgent_generated;
+                }
             }
         }
     }
@@ -193,12 +203,20 @@ void WorldUpdater::update_generation(bool is_editor, int32_t active_render_dista
             int32_t cy = pcy + offset.y;
             int32_t cz = pcz + offset.z;
 
+            ++generation_stats.frustum_checks;
             ++total_in_sweep;
             if (!frustum.is_chunk_visible(cx, cy, cz)) continue;
             ++visible_in_sweep;
+            ++generation_stats.frustum_visible;
 
             uint64_t key = chunk_world->get_chunk_map().get_chunk_key(cx, cy, cz);
-            if (chunk_world->get_chunk_map().contains(key)) continue;
+            if (chunk_world->get_chunk_map().contains(key)) {
+                // Counted, not just skipped: in a settled world almost everything
+                // in the frustum is already resident, and without this number the
+                // pass reads as if it were finding candidate work it never acts on.
+                ++generation_stats.frustum_loaded;
+                continue;
+            }
 
             int32_t chunk_bottom = cy * CHUNK_HEIGHT;
             int32_t chunk_top    = (cy + 1) * CHUNK_HEIGHT;
@@ -221,8 +239,10 @@ void WorldUpdater::update_generation(bool is_editor, int32_t active_render_dista
             // fill path no longer has a bottom height filter to catch them.
             if (cy < 0 || cy >= kWorldChunkSlices) continue;
 
+            ++generation_stats.frustum_band_pass;
             if (generate_chunk(cx, cy, cz, epoch)) {
                 ++frustum_generations;
+                ++generation_stats.frustum_generations;
                 generation_sweep_generated = true;
             }
         }
@@ -244,6 +264,7 @@ void WorldUpdater::update_generation(bool is_editor, int32_t active_render_dista
                 generation_cursor = 0;
                 if (!generation_sweep_generated) {
                     generation_pass_complete = true;
+                    ++generation_stats.sweeps_completed;
                     break;
                 }
                 generation_sweep_generated = false;
@@ -251,6 +272,8 @@ void WorldUpdater::update_generation(bool is_editor, int32_t active_render_dista
 
             const ChunkPos& offset = pre_sorted_offsets[generation_cursor++];
             ++checks;
+            ++generation_stats.checks;
+            ++frame_checks;
 
             int32_t cx = pcx + offset.x;
             int32_t cy = pcy + offset.y;
@@ -258,6 +281,7 @@ void WorldUpdater::update_generation(bool is_editor, int32_t active_render_dista
 
             uint64_t key = chunk_world->get_chunk_map().get_chunk_key(cx, cy, cz);
             if (chunk_world->get_chunk_map().contains(key)) {
+                ++generation_stats.reject_loaded;
                 continue;
             }
 
@@ -269,16 +293,45 @@ void WorldUpdater::update_generation(bool is_editor, int32_t active_render_dista
             // near-surface band only beyond it. Sky above content is skipped.
             const bool fill_column = std::abs(offset.x) <= kUndergroundFillRadius &&
                                      std::abs(offset.z) <= kUndergroundFillRadius;
-            if (static_cast<float>(chunk_bottom) > surface.top_h + 32.0f) continue;
-            if (!fill_column && static_cast<float>(chunk_top) < surface.land_h - 32.0f) continue;
+            if (static_cast<float>(chunk_bottom) > surface.top_h + 32.0f) {
+                ++generation_stats.reject_above;
+                continue;
+            }
+            if (!fill_column && static_cast<float>(chunk_top) < surface.land_h - 32.0f) {
+                ++generation_stats.reject_below;
+                continue;
+            }
             // World bounds: never generate chunks outside [0, kSlices) — the
             // fill path no longer has a bottom height filter to catch them.
-            if (cy < 0 || cy >= kWorldChunkSlices) continue;
+            if (cy < 0 || cy >= kWorldChunkSlices) {
+                ++generation_stats.reject_oob;
+                continue;
+            }
 
+            ++generation_stats.band_pass;
             if (generate_chunk(cx, cy, cz, epoch)) {
                 ++generations_this_frame;
+                ++generation_stats.generations;
+                ++frame_generations;
                 generation_sweep_generated = true;
+            } else {
+                ++generation_stats.generate_refused;
             }
+        }
+    }
+
+    {
+        const std::chrono::duration<double, std::milli> elapsed =
+            std::chrono::steady_clock::now() - sweep_start;
+        generation_stats.last_ms = elapsed.count();
+        generation_stats.total_ms += elapsed.count();
+        generation_stats.max_ms = std::max(generation_stats.max_ms, generation_stats.last_ms);
+        generation_stats.window_checks[generation_stats.window_head] = frame_checks;
+        generation_stats.window_generations[generation_stats.window_head] = frame_generations;
+        generation_stats.window_head =
+            (generation_stats.window_head + 1) % GenerationStats::kWindowFrames;
+        if (generation_stats.window_frames < GenerationStats::kWindowFrames) {
+            ++generation_stats.window_frames;
         }
     }
 }
@@ -573,6 +626,7 @@ void WorldUpdater::initialize_view_distance(int32_t horizontal_rd) {
             return a.z < b.z;
         }
     );
+    generation_stats.candidate_offsets = pre_sorted_offsets.size();
 }
 
 void WorldUpdater::clear() {

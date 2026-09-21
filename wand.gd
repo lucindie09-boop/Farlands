@@ -73,8 +73,13 @@ const MENU_CONTENT_SCALE := 1.0
 # are multiplied by MENU_SCALE to give the panel the wand's menu asks for.
 const MENU_UNITS_WIDE := 660.0
 const MENU_UNITS_TALL := 504.0
-# A card: square, one of the load menu's 96-unit preview tiles.
-const MENU_TILE_UNITS := 96.0
+# A card: square, the load menu's 96-unit preview tile drawn 25% smaller (72),
+# so a card is 144 px where it would have been 192. That menu's tile is sized for
+# a gallery of rendered models; these carry a name and sit eight or nine to a row
+# in the room this panel has, so a quarter less is the same grid with more of it
+# on screen at once. Every other number here is still that menu's, which is the
+# point of the block.
+const MENU_TILE_UNITS := 72.0
 const MENU_TILE_GAP := 12.0   # between cards
 const MENU_GAP := 8.0         # header to body
 const MENU_TAB_W := 130.0    # a tab: wide enough for the longer of the two labels

@@ -171,6 +171,12 @@ public:
     // chunk their window needs is not loaded.
     godot::Dictionary get_fluid_stats();
 
+    // The generation sweep's counters (see WorldUpdater::GenerationStats): how
+    // many candidate offsets each pass examines, why the rejected ones were
+    // rejected, and how many became real generations. Read by /genstats.
+    godot::Dictionary get_generation_stats();
+    void reset_generation_stats();
+
     // Jobs still running. Cheap enough to poll per frame.
     int32_t get_pending_paths() const;
 

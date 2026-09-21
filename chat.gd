@@ -35,7 +35,7 @@ var _tab_cycle_delay: float = 0.1875
 var _up_held: bool = false
 var _up_hold_time: float = 0.0
 
-const COMMANDS := ["/help", "/give", "/tp", "/fly", "/locatebiome", "/paste", "/clearchat", "/clearinv", "/version", "/texturepack", "/testicons"]
+const COMMANDS := ["/help", "/give", "/tp", "/fly", "/locatebiome", "/paste", "/clearchat", "/clearinv", "/version", "/genstats", "/texturepack", "/testicons"]
 const BIOME_NAMES := ["ocean", "hills", "plains"]
 # A build bigger than this is refused rather than written. This is a guard
 # against a file that is not a building at all (a corrupted size field turns into
@@ -45,6 +45,29 @@ const BIOME_NAMES := ["ocean", "hills", "plains"]
 # those chunks generate, which is what keeps the hitch from also being a hole.
 const PASTE_MAX_CELLS := 2000000
 const PASTE_KEYWORDS := ["undo", "fluids", "gaps", "air", "strict"]
+
+# Thousands separators. The generation counts run to seven and eight digits, and
+# an unformatted run of digits is how a wrong one goes unnoticed.
+func _fmt_count(n: int) -> String:
+	var digits := str(absi(n))
+	var out := ""
+	var placed := 0
+	for i in range(digits.length() - 1, -1, -1):
+		out = digits[i] + out
+		placed += 1
+		if placed % 3 == 0 and i > 0:
+			out = "," + out
+	return "-" + out if n < 0 else out
+
+# A share of a few million: one decimal is enough to read the big ones, and the
+# small ones keep a second so 0.3% and 0.03% do not both print as "0.0%".
+func _pct(part: int, whole: int) -> String:
+	if whole <= 0:
+		return "0%"
+	var ratio := 100.0 * float(part) / float(whole)
+	if ratio >= 1.0:
+		return "%.1f%%" % ratio
+	return "%.2f%%" % ratio
 
 func _chat_scale() -> float:
 	return 1.0  # Chat is not affected by the global GUI scale
@@ -382,6 +405,10 @@ func _get_command_param_hint(cmd: String, arg_count: int) -> String:
 		"/texturepack":
 			if arg_count == 1:
 				return "<name>"
+		"/genstats":
+			if arg_count == 1:
+				return "[reset]"
+			return ""
 		"/help", "/clearchat", "/clearinv", "/version":
 			# These commands take no arguments
 			return ""
@@ -734,6 +761,42 @@ func _run_command(raw: String):
 			if engine != null and engine.has_method("engine_build_stamp"):
 				stamp = engine.engine_build_stamp()
 			_add_message("Farlands - Godot 4 + C++ GDExtension (%s)" % stamp, COLOR_SYSTEM)
+		"/genstats":
+			# What the generation sweep actually spends its per-frame check budget
+			# on. The candidate list spans the whole world height while only a
+			# column's near-surface band can ever generate, so most entries are
+			# rejected — these numbers say how many and why, rather than leaving that
+			# to be inferred from the list size. Session totals are dominated by the
+			# initial load, so the rolling window is the part that describes flying.
+			var chunk_manager := get_node_or_null("/root/Main/ChunkManager")
+			if chunk_manager == null:
+				_add_message("ChunkManager not found.", COLOR_ERROR)
+				return
+			if parts.size() >= 2 and parts[1].to_lower() == "reset":
+				chunk_manager.reset_generation_stats()
+				_add_message("Generation counters reset.", COLOR_SYSTEM)
+				return
+			var g: Dictionary = chunk_manager.get_generation_stats()
+			var checks := int(g.get("checks", 0))
+			var gens := int(g.get("generations", 0))
+			var frames := int(g.get("frames", 0))
+			_add_message("gen: %s frames, RD %d, candidate list %s offsets, %s cursor resets, %s complete sweeps" % [_fmt_count(frames), int(g.get("render_distance", 0)), _fmt_count(int(g.get("candidate_offsets", 0))), _fmt_count(int(g.get("cursor_resets", 0))), _fmt_count(int(g.get("sweeps_completed", 0)))], COLOR_SYSTEM)
+			_add_message("  sweep: %s checks in %s ms (avg %.3f, max %.3f) -> %s generated (%s), %s reached the filter" % [_fmt_count(checks), _fmt_count(int(g.get("total_ms", 0.0))), float(g.get("avg_ms", 0.0)), float(g.get("max_ms", 0.0)), _fmt_count(gens), _pct(gens, checks), _fmt_count(int(g.get("band_pass", 0)))], COLOR_SYSTEM)
+			var rejected := int(g.get("reject_loaded", 0)) + int(g.get("reject_above", 0)) + int(g.get("reject_below", 0)) + int(g.get("reject_oob", 0))
+			_add_message("  rejected %s of %s (%s): loaded %s (%s), above content %s (%s), below band %s (%s), out of bounds %s" % [_fmt_count(rejected), _fmt_count(checks), _pct(rejected, checks), _fmt_count(int(g.get("reject_loaded", 0))), _pct(int(g.get("reject_loaded", 0)), checks), _fmt_count(int(g.get("reject_above", 0))), _pct(int(g.get("reject_above", 0)), checks), _fmt_count(int(g.get("reject_below", 0))), _pct(int(g.get("reject_below", 0)), checks), _fmt_count(int(g.get("reject_oob", 0)))], COLOR_SYSTEM)
+			if int(g.get("generate_refused", 0)) > 0:
+				_add_message("  %s passed every filter and were still refused (in flight, or the worker queue is full)" % _fmt_count(int(g.get("generate_refused", 0))), COLOR_SYSTEM)
+			# "in the frustum" is the visibility test alone; the loaded count is the part
+			# of it that was already resident, so the four numbers explain each other
+			# rather than leaving a large one unexplained.
+			_add_message("  frustum: %s checks, %s in the frustum of which %s already loaded, %s reached the filters, %s generated" % [_fmt_count(int(g.get("frustum_checks", 0))), _fmt_count(int(g.get("frustum_visible", 0))), _fmt_count(int(g.get("frustum_loaded", 0))), _fmt_count(int(g.get("frustum_band_pass", 0))), _fmt_count(int(g.get("frustum_generations", 0)))], COLOR_SYSTEM)
+			if int(g.get("urgent_requested", 0)) > 0:
+				_add_message("  pending requests (pastes): %s asked for, %s generated" % [_fmt_count(int(g.get("urgent_requested", 0))), _fmt_count(int(g.get("urgent_generated", 0)))], COLOR_SYSTEM)
+			var window_frames := int(g.get("window_frames", 0))
+			if window_frames > 0:
+				var window_checks := int(g.get("window_checks", 0))
+				_add_message("  last %d frames: %s checks (%.1f/frame), %s generated (%s)" % [window_frames, _fmt_count(window_checks), float(window_checks) / float(window_frames), _fmt_count(int(g.get("window_generations", 0))), _pct(int(g.get("window_generations", 0)), window_checks)], COLOR_SYSTEM)
+			_add_message("  /genstats reset to zero them", COLOR_SYSTEM)
 		"/texturepack":
 			if parts.size() >= 2 and parts[1] in ["off", "clear", ""]:
 				player_controller.set_active_texture_pack("")

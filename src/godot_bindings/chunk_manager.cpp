@@ -478,6 +478,64 @@ Dictionary ChunkManager::get_fluid_stats() {
     return out;
 }
 
+Dictionary ChunkManager::get_generation_stats() {
+    // The sweep's own accounting. `checks` and the reject counters describe the
+    // whole history of the session, which is dominated by the initial load; the
+    // rolling window is the part that answers "what does this cost while I am
+    // flying right now". Both are here so the two are never confused.
+    const VoxelEngine::WorldUpdater::GenerationStats& stats =
+        controller->get_world_updater().get_generation_stats();
+    Dictionary out;
+    out["frames"] = static_cast<int64_t>(stats.frames);
+    out["candidate_offsets"] = static_cast<int64_t>(stats.candidate_offsets);
+    out["cursor_resets"] = static_cast<int64_t>(stats.cursor_resets);
+
+    out["checks"] = static_cast<int64_t>(stats.checks);
+    out["band_pass"] = static_cast<int64_t>(stats.band_pass);
+    out["generations"] = static_cast<int64_t>(stats.generations);
+    out["generate_refused"] = static_cast<int64_t>(stats.generate_refused);
+    out["reject_loaded"] = static_cast<int64_t>(stats.reject_loaded);
+    out["reject_above"] = static_cast<int64_t>(stats.reject_above);
+    out["reject_below"] = static_cast<int64_t>(stats.reject_below);
+    out["reject_oob"] = static_cast<int64_t>(stats.reject_oob);
+    out["sweeps_completed"] = static_cast<int64_t>(stats.sweeps_completed);
+
+    out["frustum_checks"] = static_cast<int64_t>(stats.frustum_checks);
+    out["frustum_visible"] = static_cast<int64_t>(stats.frustum_visible);
+    out["frustum_loaded"] = static_cast<int64_t>(stats.frustum_loaded);
+    out["frustum_band_pass"] = static_cast<int64_t>(stats.frustum_band_pass);
+    out["frustum_generations"] = static_cast<int64_t>(stats.frustum_generations);
+
+    out["urgent_requested"] = static_cast<int64_t>(stats.urgent_requested);
+    out["urgent_generated"] = static_cast<int64_t>(stats.urgent_generated);
+
+    out["total_ms"] = stats.total_ms;
+    out["last_ms"] = stats.last_ms;
+    out["max_ms"] = stats.max_ms;
+    out["avg_ms"] = stats.frames > 0 ? stats.total_ms / static_cast<double>(stats.frames) : 0.0;
+
+    // Window sums, computed here rather than in GDScript so the caller reads the
+    // same numbers the counters hold (and so a mid-window reset cannot mix two
+    // different frame sets).
+    uint64_t window_checks = 0;
+    uint64_t window_generations = 0;
+    for (size_t i = 0; i < stats.window_frames; ++i) {
+        window_checks += stats.window_checks[i];
+        window_generations += stats.window_generations[i];
+    }
+    out["window_frames"] = static_cast<int64_t>(stats.window_frames);
+    out["window_checks"] = static_cast<int64_t>(window_checks);
+    out["window_generations"] = static_cast<int64_t>(window_generations);
+
+    const int32_t render_distance = get_render_distance();
+    out["render_distance"] = render_distance;
+    return out;
+}
+
+void ChunkManager::reset_generation_stats() {
+    controller->get_world_updater().reset_generation_stats();
+}
+
 Array ChunkManager::poll_paths() {
     Array out;
     if (!path_service) return out;
@@ -859,6 +917,8 @@ void ChunkManager::_bind_methods() {
                          &ChunkManager::request_path, DEFVAL(20000), DEFVAL(32.0));
     ClassDB::bind_method(D_METHOD("poll_paths"), &ChunkManager::poll_paths);
     ClassDB::bind_method(D_METHOD("get_fluid_stats"), &ChunkManager::get_fluid_stats);
+    ClassDB::bind_method(D_METHOD("get_generation_stats"), &ChunkManager::get_generation_stats);
+    ClassDB::bind_method(D_METHOD("reset_generation_stats"), &ChunkManager::reset_generation_stats);
     ClassDB::bind_method(D_METHOD("get_texture_layer_info", "texture_name"), &ChunkManager::get_texture_layer_info);
     ClassDB::bind_method(D_METHOD("get_texture_layer_image", "texture_name"), &ChunkManager::get_texture_layer_image);
     ClassDB::bind_method(D_METHOD("fit_texture_frame", "texture_name", "frame"), &ChunkManager::fit_texture_frame);

@@ -13,6 +13,7 @@ namespace VoxelEngine { class ChunkGenerator; }
 // The fluid sink batches its writes per chunk, so it needs the real EditCell type
 // rather than a forward declaration.
 #include "world/chunk_world.hpp"
+#include <array>
 #include <deque>
 #include <vector>
 #include <unordered_set>
@@ -117,6 +118,72 @@ public:
     int32_t get_last_player_chunk_z() const { return last_player_chunk_z; }
     double get_initial_loading_duration() const { return budgets.loading_duration; }
 
+    // Counters for the generation sweep, read by /genstats.
+    //
+    // Why they exist: the candidate offset list spans the entire world height
+    // (WORLD_HEIGHT_Y / CHUNK_HEIGHT slices per column) while only the
+    // near-surface band of a column can ever pass the filters, so each pass
+    // spends most of its per-frame check budget on entries that are guaranteed
+    // rejections. These counters say how many entries a pass actually touches,
+    // why each one was rejected, and how many became real generations — which
+    // is the only way to tell whether reordering or shrinking the candidate set
+    // would buy anything, rather than guessing from the list size.
+    struct GenerationStats {
+        uint64_t frames           = 0;  // update_generation calls
+        uint64_t candidate_offsets = 0; // built offset list size (last rebuild)
+        uint64_t cursor_resets    = 0;  // walks restarted by a chunk crossing
+
+        // Phase 2, the distance-ordered sweep. `checks` is the number of
+        // candidate offsets it examined; the reject counters sum to
+        // checks - band_pass, since every examined offset takes one path.
+        uint64_t checks            = 0;
+        uint64_t band_pass         = 0;  // passed every filter, generation attempted
+        uint64_t generations       = 0;  // generate_chunk enqueued it
+        uint64_t generate_refused  = 0;  // generate_chunk declined (in flight / backlog)
+        uint64_t reject_loaded     = 0;  // chunk already in the map
+        uint64_t reject_above      = 0;  // entirely above the column's content
+        uint64_t reject_below      = 0;  // entirely below the band (band-only columns)
+        uint64_t reject_oob        = 0;  // outside [0, kWorldChunkSlices)
+        uint64_t sweeps_completed  = 0;  // full walks that found nothing left to do
+
+        // Phase 1, the frustum pass.
+        uint64_t frustum_checks      = 0;
+        uint64_t frustum_visible     = 0;  // inside the frustum (BEFORE the loaded test)
+        uint64_t frustum_loaded      = 0;  // inside the frustum and already resident
+        uint64_t frustum_band_pass   = 0;
+        uint64_t frustum_generations = 0;
+
+        // Urgent requests (a paste waiting on chunks). These bypass the sweep's
+        // filters, so they are counted separately rather than as sweep work.
+        uint64_t urgent_requested = 0;
+        uint64_t urgent_generated = 0;
+
+        // Rolling window of the last kWindowFrames frames. A session total is
+        // dominated by the initial load; mid-flight the question is what the
+        // sweep costs *now*, and the two are wildly different numbers.
+        static constexpr size_t kWindowFrames = 120;
+        std::array<uint32_t, kWindowFrames> window_checks{};
+        std::array<uint32_t, kWindowFrames> window_generations{};
+        size_t   window_head   = 0;
+        uint32_t window_frames = 0;
+
+        // Wall time inside update_generation, milliseconds.
+        double total_ms = 0.0;
+        double last_ms  = 0.0;
+        double max_ms   = 0.0;
+    };
+
+    [[nodiscard]] const GenerationStats& get_generation_stats() const { return generation_stats; }
+    void reset_generation_stats() {
+        // candidate_offsets is the size of the list that is currently built, not
+        // a count of anything that happened, so it survives a reset. Zeroing it
+        // would read as "no candidates" for the rest of the session, since the
+        // list is only rebuilt when the render distance changes.
+        const uint64_t offsets = generation_stats.candidate_offsets;
+        generation_stats = GenerationStats{};
+        generation_stats.candidate_offsets = offsets;
+    }
+
 private:
     // Puts a tick's fluid writes back where they belong: into the edit map (what
     // survives a save) and into the remesh queue. The blocks themselves and the
@@ -156,6 +223,8 @@ private:
     bool vegetation_enabled = true;
 
     FrameBudgets budgets;
+
+    GenerationStats generation_stats;
 
     std::vector<ChunkPos> pre_sorted_offsets;
     int32_t current_render_distance = 64;

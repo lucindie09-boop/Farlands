@@ -28,10 +28,13 @@ extends Node
 const FONT: Font = preload("res://fonts/munro.ttf")
 const BUTTON_TEX: Texture2D = preload("res://textures/gui/button.png")
 const CLOSE_TEX: Texture2D = preload("res://textures/gui/close_button.png")
-# The square button art (20x20, the shape the close button shares). A card wears
-# this as its background rather than a flat stylebox, so the grid reads as the
-# same interface as every other button in the game.
-const CARD_TEX: Texture2D = preload("res://textures/gui/button_square.png")
+# The square button art for the cards: the 50x50 version, not the 20x20 one the
+# close button uses. A card is 192 px across, so the larger source is stretched
+# less - the bevel is drawn in roughly 4 px blocks instead of 10 - which is the
+# finer of the two and the reason it was picked. A card wears this as its
+# background rather than a flat stylebox, so the grid reads as the same
+# interface as every other button in the game.
+const CARD_TEX: Texture2D = preload("res://textures/gui/button_square_large.png")
 # The two states of any button that wears a texture: the art brightened under the
 # pointer, darkened while held. Multiplied into the texture, so one image covers
 # all three states.
@@ -544,12 +547,13 @@ func _make_button(text: String, width: float) -> Button:
 	return _make_button_px(text, Vector2(width, UNIT_BUTTON_H) * _menu_m)
 
 ## One card: a SQUARE button wearing the interface's own square button art
-## (`button_square.png`) as its background, brightened under the pointer and
-## darkened while held. The 20x20 image is stretched to the whole card and there
-## is NO 9-slice - the menu root's NEAREST filter is what makes that stretch read
-## as pixel art, each source pixel a solid block, so the bevel scales with the
-## card instead of smearing into a blur. The wand's cards carry a name where the
-## skin and block galleries carry a rendered model, which is the one difference.
+## (`button_square_large.png`, CARD_TEX) as its background, brightened under the
+## pointer and darkened while held. The image is stretched to the whole card and
+## there is NO 9-slice - the menu root's NEAREST filter is what makes that
+## stretch read as pixel art, each source pixel a solid block, so the bevel scales
+## with the card instead of smearing into a blur. The wand's cards carry a name
+## where the skin and block galleries carry a rendered model, which is the one
+## difference.
 func _make_tile(text: String, side_px: float, hint: String) -> Button:
 	var m := _menu_m
 	var btn := Button.new()

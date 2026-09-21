@@ -156,6 +156,24 @@ void WorldUpdater::update_generation(bool is_editor, int32_t active_render_dista
             std::round(static_cast<double>(budgets.chunk_generations) * generation_scale)));
     }
 
+    // --- Admission control: cap the in-flight generation set -----------------
+    // The pressure above only scales the per-frame generation budget, so the set
+    // still grew for as long as the workers lagged. This is the actual bound, and
+    // the reason it helps beyond memory: a smaller set means completions arrive in
+    // a trickle instead of landing in one 1,000-chunk burst (which is what the
+    // install phase's worst frames are), the worker queue stays short enough for a
+    // column-bound answer to come back before the frontier reaches it, and the walk
+    // stops spending checks on candidates it can only refuse. Refilling is not a
+    // risk: the sweep can enqueue `dynamic_max_generations` per frame against a cap
+    // of `workers * per_worker`, so the set is topped up many times over between
+    // completions. Urgent (paste) requests keep their own separate allowance and
+    // are deliberately NOT gated on this cap — a caller is blocked on those.
+    const size_t max_in_flight = std::max<size_t>(
+        64, worker_count * static_cast<size_t>(std::max(1, budgets.max_generating_in_flight_per_worker)));
+    const bool in_flight_ok = generating_count < max_in_flight;
+    const bool backlog_ok = chunk_world->get_scheduler().can_enqueue(budgets.completed_queue_backlog);
+    const bool generation_admitted = in_flight_ok && backlog_ok;
+
     if (chunk_changed) {
         generation_cursor          = SweepCursor{};
         generation_pass_complete   = false;
@@ -174,9 +192,10 @@ void WorldUpdater::update_generation(bool is_editor, int32_t active_render_dista
     {
         constexpr size_t kMaxUrgentPerFrame = 8;
         size_t allowance = kMaxUrgentPerFrame;
-        // Same backlog guard the sweep uses: if the completed queue is already
-        // full, the main thread is behind and generating more would only grow it.
-        if (!chunk_world->get_scheduler().can_enqueue(budgets.completed_queue_backlog)) {
+        // The completed-queue guard, and deliberately not the in-flight cap: a
+        // paste is blocked on these chunks, so it gets to keep its small separate
+        // allowance even when the sweep has been told to stop enqueueing.
+        if (!backlog_ok) {
             allowance = 0;
         }
         if (allowance > 0) {
@@ -209,8 +228,7 @@ void WorldUpdater::update_generation(bool is_editor, int32_t active_render_dista
     // leaves the walk a quarter rather than starving it. (The frustum pass had
     // 1/2.)
     if (!chain_queue.empty()) {
-        const bool backlog_ok = chunk_world->get_scheduler().can_enqueue(budgets.completed_queue_backlog);
-        if (backlog_ok) {
+        if (generation_admitted) {
             constexpr int32_t kChainShare = 4;  // the walk keeps 1/4
             const int32_t chain_budget = std::max(
                 dynamic_max_generations - dynamic_max_generations / kChainShare, 1);
@@ -232,7 +250,7 @@ void WorldUpdater::update_generation(bool is_editor, int32_t active_render_dista
 
         while (checks < max_checks_per_frame &&
                generations_this_frame < dynamic_max_generations &&
-               chunk_world->get_scheduler().can_enqueue(budgets.completed_queue_backlog)) {
+               generation_admitted) {
 
             SweepCandidate candidate;
             if (!advance_sweep(generation_cursor, pcy, candidate)) {

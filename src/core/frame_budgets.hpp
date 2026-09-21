@@ -34,6 +34,17 @@ struct FrameBudgets {
     int32_t unloads_per_frame = 200;
     int32_t max_generation_checks_per_frame = 100000;
     int32_t generating_per_worker = 2;
+    // Admission control for the in-flight generation set. Pressure above scales
+    // the per-frame generation budget DOWN, but nothing stopped the set itself from
+    // growing: generations were enqueued every frame until the completed queue hit
+    // `completed_queue_backlog` (512), which is how a flight reached 6,524 chunks in
+    // flight at once. That backlog is what fills the completed queue in bursts (the
+    // install phase's 143 ms frames), keeps the column prefetch's answers behind
+    // thousands of generation tasks (8,863 columns derived on the main thread at
+    // ~181 us each), and makes the walk burn its check budget on refusals. Capping
+    // the set keeps the pipeline full — a worker is 1 ms of work, so a few dozen in
+    // flight saturate 15 workers — without letting it grow into a backlog.
+    int32_t max_generating_in_flight_per_worker = 8;
 
     double flush_interval = 5.0;
 };

@@ -135,3 +135,75 @@ TEST_CASE("an empty band offers nothing") {
     int32_t cy = 0;
     CHECK_FALSE(sweep::slice_cy(band, 5, 0, cy));
 }
+
+// The "column is fully built" decision that lets the walk skip a column outright.
+// It is the one thing standing between the sweep and a hole: a column reported
+// built when a band chunk is missing is never offered again until something
+// invalidates it, and the symptom is missing terrain rather than a crash. So the
+// predicate is held to the same standard as the band — decided per slice, and
+// checked against what the band actually contains.
+TEST_CASE("a band is fully resident only when every slice of it exists") {
+    const sweep::ChunkBand band{ 4, 7 };   // 4 slices
+    // -1 is the complete band; the rest are slices the band CONTAINS. A slice
+    // outside [lo, hi] cannot be the missing one, so sweeping 0..7 would assert
+    // that a band is incomplete because a slice it never covers is absent — which
+    // is how the first version of this test failed against correct code.
+    std::vector<int32_t> cases{ -1 };
+    for (int32_t cy = band.lo; cy <= band.hi; ++cy) cases.push_back(cy);
+    for (int32_t missing : cases) {
+        int32_t lookups = 0;
+        const bool built = sweep::band_fully_resident(band, [&](int32_t cy) {
+            ++lookups;
+            return cy != missing;
+        });
+        if (missing == -1) {
+            CHECK(built);
+            // Every slice, and the whole band must be visited: stopping at the
+            // first slice would report "built" for a column whose later chunks
+            // are missing.
+            CHECK(lookups == sweep::count(band));
+        } else {
+            CHECK_FALSE(built);
+        }
+    }
+}
+
+TEST_CASE("an empty band is never built") {
+    // "Nothing to generate" is not "already generated": treating the two as one
+    // would mark every empty column built, and the walk would then skip columns
+    // whose band is empty — harmless today, but only by accident of what an empty
+    // band means, so the predicate refuses to conflate them.
+    CHECK_FALSE(sweep::band_fully_resident(sweep::ChunkBand{}, [](int32_t) { return true; }));
+
+    const sweep::ChunkBand empty = sweep::band_for_column(3000.0f, 3100.0f, false, kSlices);
+    CHECK(sweep::empty(empty));
+    CHECK_FALSE(sweep::band_fully_resident(empty, [](int32_t) { return true; }));
+}
+
+TEST_CASE("a band is built exactly when the resident set covers it") {
+    // Cross-check against the accepted-slice list: for a range of bands, build
+    // the resident set from a subset of the accepted slices and require the
+    // predicate to agree with set inclusion, slice by slice.
+    const float kLands[] = { 0.0f, 62.0f, 96.0f, 140.0f, 200.0f };
+    const float kTops[]  = { 60.0f, 70.0f, 110.0f, 150.0f, 210.0f };
+    for (float land : kLands) {
+        for (float top : kTops) {
+            if (top < land) continue;
+            for (bool fill : { false, true }) {
+                const sweep::ChunkBand band = sweep::band_for_column(land, top, fill, kSlices);
+                const std::vector<int32_t> slices = accepted(land, top, fill);
+                CHECK(slices.size() == static_cast<size_t>(sweep::count(band)));
+                if (slices.empty()) continue;
+
+                for (size_t drop = 0; drop <= slices.size(); ++drop) {
+                    std::vector<int32_t> resident(slices.begin(), slices.end());
+                    if (drop < slices.size()) resident.erase(resident.begin() + static_cast<long>(drop));
+                    const bool built = sweep::band_fully_resident(band, [&](int32_t cy) {
+                        return std::find(resident.begin(), resident.end(), cy) != resident.end();
+                    });
+                    CHECK(built == (drop == slices.size()));
+                }
+            }
+        }
+    }
+}

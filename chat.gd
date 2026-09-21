@@ -784,6 +784,10 @@ func _run_command(raw: String):
 			_add_message("  sweep: %s checks in %s ms (avg %.3f, max %.3f) -> %s generated (%s), %s reached the filter" % [_fmt_count(checks), _fmt_count(int(g.get("total_ms", 0.0))), float(g.get("avg_ms", 0.0)), float(g.get("max_ms", 0.0)), _fmt_count(gens), _pct(gens, checks), _fmt_count(int(g.get("band_pass", 0)))], COLOR_SYSTEM)
 			var rejected := int(g.get("reject_loaded", 0)) + int(g.get("reject_above", 0)) + int(g.get("reject_below", 0)) + int(g.get("reject_oob", 0))
 			_add_message("  rejected %s of %s (%s): loaded %s (%s), above content %s (%s), below band %s (%s), out of bounds %s" % [_fmt_count(rejected), _fmt_count(checks), _pct(rejected, checks), _fmt_count(int(g.get("reject_loaded", 0))), _pct(int(g.get("reject_loaded", 0)), checks), _fmt_count(int(g.get("reject_above", 0))), _pct(int(g.get("reject_above", 0)), checks), _fmt_count(int(g.get("reject_below", 0))), _pct(int(g.get("reject_below", 0)), checks), _fmt_count(int(g.get("reject_oob", 0)))], COLOR_SYSTEM)
+			# Columns whose band was already complete are skipped whole by the walk, so
+			# this is the part of the list that costs nothing: if `skipped` climbs while
+			# `checks` stays flat, the walk is no longer re-confirming built terrain.
+			_add_message("  columns: %s found fully built when their band was read, %s skipped by the walk" % [_fmt_count(int(g.get("columns_built", 0))), _fmt_count(int(g.get("columns_skipped", 0)))], COLOR_SYSTEM)
 			if int(g.get("generate_refused", 0)) > 0:
 				_add_message("  %s passed every filter and were still refused (in flight, or the worker queue is full)" % _fmt_count(int(g.get("generate_refused", 0))), COLOR_SYSTEM)
 			# "in the frustum" is the visibility test alone; the loaded count is the part

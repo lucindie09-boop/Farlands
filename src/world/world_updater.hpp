@@ -69,8 +69,24 @@ public:
     void set_vegetation_enabled(bool enabled);
     bool is_vegetation_enabled() const { return vegetation_enabled; }
     const TerrainParams& get_terrain_params() const { return terrain_params; }
+    // The frustum is stored EXACTLY as given — the mesh queue and the unload pass
+    // both test against it — but the frustum PASS is only re-armed when the view
+    // actually changed.
+    //
+    // Re-arming it every frame (which is what this did, because ChunkManager feeds
+    // the camera in every frame) restarts the walk from ring zero forever, so the
+    // pass re-tests the same near columns and never gets to the ones its ordering
+    // exists for. A real session with the band list and built-column skip already
+    // in place measured it at 3,545,274 checks against the distance walk's 196,553
+    // — 95% of every check in the sweep — with 2,406,288 of its 2,426,296
+    // in-frustum candidates already loaded, and `generate_refused` at 29,585: the
+    // same columns asked for again and again, each refusal a locked lookup of the
+    // in-flight set (see ChunkScheduler::enqueue_generation). Once a view stops
+    // changing, the pass belongs switched off, not re-run.
     void set_frustum(const Frustum& f) {
+        const bool view_changed = frustum.differs_from(f);
         frustum = f;
+        if (!view_changed) return;
         frustum_cursor = SweepCursor{};
         frustum_pass_complete = false;
     }
@@ -147,6 +163,13 @@ public:
         uint64_t reject_below      = 0;  // entirely below the band (band-only columns)
         uint64_t reject_oob        = 0;  // outside [0, kWorldChunkSlices)
         uint64_t sweeps_completed  = 0;  // full walks that found nothing left to do
+
+        // Columns whose whole band was already resident when the band was read,
+        // and how many times the walk has since skipped one. `skipped` growing
+        // while `checks` stays flat is the shape of the waste this removes: the
+        // walk re-confirming chunks that exist (97.8% of phase 2 before it).
+        uint64_t columns_built   = 0;
+        uint64_t columns_skipped = 0;
 
         // Phase 1, the frustum pass.
         uint64_t frustum_checks      = 0;
@@ -282,6 +305,13 @@ private:
     };
 
     std::vector<SweepColumn> sweep_columns;
+    // Columns whose whole band is resident, keyed by the chunk-map key at slice 0
+    // (same packing, so one convention covers both and a negative coordinate
+    // cannot collide with a positive one). A column lands here when its band is
+    // computed and every slice of it exists, and is removed when any of its
+    // chunks is unloaded (`try_unload`) or when the list is rebuilt. This is what
+    // `advance_sweep` skips: one lookup instead of count(band) of them.
+    std::unordered_set<uint64_t> built_columns;
     // First column whose band is still unknown. Because the list is sorted nearest
     // first and the bands are read in that order, the walk (which also goes
     // nearest first) can always run up to this frontier and never past it.

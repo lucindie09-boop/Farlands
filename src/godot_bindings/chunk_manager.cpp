@@ -500,6 +500,8 @@ Dictionary ChunkManager::get_generation_stats() {
     out["reject_below"] = static_cast<int64_t>(stats.reject_below);
     out["reject_oob"] = static_cast<int64_t>(stats.reject_oob);
     out["sweeps_completed"] = static_cast<int64_t>(stats.sweeps_completed);
+    out["columns_built"] = static_cast<int64_t>(stats.columns_built);
+    out["columns_skipped"] = static_cast<int64_t>(stats.columns_skipped);
 
     out["frustum_checks"] = static_cast<int64_t>(stats.frustum_checks);
     out["frustum_visible"] = static_cast<int64_t>(stats.frustum_visible);

@@ -513,6 +513,11 @@ void WorldUpdater::try_unload(uint64_t key) {
         unload_queue.push_back(key);
     } else {
         unload_pending.erase(key);
+        // The column is no longer complete, and skipping it would leave exactly
+        // the hole the sweep exists to fill, so it has to become walkable again.
+        int32_t cx = 0, cy = 0, cz = 0;
+        ChunkMap::decode_chunk_key(key, cx, cy, cz);
+        built_columns.erase(chunk_world->get_chunk_map().get_chunk_key(cx, 0, cz));
     }
 }
 
@@ -608,6 +613,17 @@ void WorldUpdater::service_sweep_bands() {
                                  std::abs(static_cast<int32_t>(column.dz)) <= kUndergroundFillRadius;
         column.band = sweep::band_for_column(surface.land_h, surface.top_h, fill_column, kWorldChunkSlices);
         column.band_ready = true;
+        // Decided here, where the band was just computed, rather than by the walk
+        // that would otherwise look up every slice of it on every pass. A chunk in
+        // flight is not resident yet, so such a column stays walkable until a
+        // rebuild — a wasted walk, never a hole.
+        if (sweep::band_fully_resident(column.band, [&](int32_t cy) {
+                return chunk_world->get_chunk_map().contains(
+                    chunk_world->get_chunk_map().get_chunk_key(cx, cy, cz));
+            })) {
+            built_columns.insert(chunk_world->get_chunk_map().get_chunk_key(cx, 0, cz));
+            ++generation_stats.columns_built;
+        }
         generation_stats.candidate_offsets += static_cast<uint64_t>(sweep::count(column.band));
         ++generation_stats.band_reads;
         ++sweep_band_frontier;
@@ -627,6 +643,19 @@ bool WorldUpdater::advance_sweep(SweepCursor& cursor, int32_t pcy, SweepCandidat
         // Not read yet: the walk stops here rather than reading it, so the cost
         // stays on service_sweep_bands' budget and both stay in ring order.
         if (!column.band_ready) return false;
+        // Already fully built: skip the whole column for one lookup instead of
+        // re-confirming each of its chunks. Both passes share this walk, so the
+        // frustum pass gets the same skip.
+        if (!built_columns.empty()) {
+            const uint64_t column_key = chunk_world->get_chunk_map().get_chunk_key(
+                sweep_origin_cx + column.dx, 0, sweep_origin_cz + column.dz);
+            if (built_columns.count(column_key) != 0) {
+                ++generation_stats.columns_skipped;
+                ++cursor.column;
+                cursor.slice = 0;
+                continue;
+            }
+        }
         int32_t cy = 0;
         if (sweep::slice_cy(column.band, pcy, cursor.slice, cy)) {
             ++cursor.slice;
@@ -670,6 +699,15 @@ void WorldUpdater::rebuild_sweep_columns(int32_t horizontal_rd, int32_t pcx, int
     sweep_origin_cz = pcz;
     sweep_bands_dirty = false;
     sweep_columns.clear();
+    // Every band in the new list is unknown, and a column's contents may have
+    // changed under the old marks, so the whole set goes with the list and is
+    // re-earned as the frontier reads each new band.
+    built_columns.clear();
+    // The cursor is a position in THIS list, so a rebuilt list invalidates it —
+    // and this is now the usual reason the frustum pass is re-armed at all, since
+    // `set_frustum` only re-arms it on a real view change.
+    frustum_cursor = SweepCursor{};
+    frustum_pass_complete = false;
     sweep_band_frontier = 0;
     // Every band in the new list is unknown, so the candidate total starts over
     // and climbs as the frontier reads them (it reaches the true total within a
@@ -720,6 +758,7 @@ void WorldUpdater::clear() {
     // again when those chunks load.
     fluid_sim.clear();
     sweep_columns.clear();
+    built_columns.clear();
     sweep_bands_dirty = true;
     sweep_origin_cx = INT32_MIN;
     sweep_origin_cz = INT32_MIN;

@@ -60,6 +60,28 @@ struct ChunkBand {
     return band;
 }
 
+// True when every slice of a band is already resident, per `resident(cy)`.
+//
+// A column whose whole band exists has nothing left for the sweep to do, but the
+// walk only discovers that by looking each slice up — and it re-discovers it on
+// every pass, because a chunk crossing rebuilds the list and restarts the cursor
+// at the near ring, which is precisely the part that is already built. Measured
+// with /genstats on a real session: after the band pruning above landed, 97.8% of
+// the walk's checks were `reject_loaded`. Deciding it once per column, where the
+// band is computed, replaces ~count(band) lookups per pass with one lookup.
+//
+// An EMPTY band is not "fully resident": a column with no candidates has nothing
+// to build, and reporting it as built would be true but useless — the walk passes
+// over it in one step anyway.
+template <typename ResidentFn>
+[[nodiscard]] inline bool band_fully_resident(const ChunkBand& band, ResidentFn&& resident) {
+    if (empty(band)) return false;
+    for (int32_t cy = band.lo; cy <= band.hi; ++cy) {
+        if (!resident(cy)) return false;
+    }
+    return true;
+}
+
 // The i-th slice of a band in the order the sweep offers them: from the
 // player's own slice outward, alternating below and above. "Same level first" is
 // deliberate. The player's own rows are what is being looked at, and for the

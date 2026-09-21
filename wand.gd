@@ -73,8 +73,11 @@ const MENU_TAB_W := 130.0    # a tab: wide enough for the longer of the two labe
 # MENU_UNITS_TALL above rather than a constant, since nothing reads it.
 const MENU_PANEL_PAD_H := 22.0
 
-# The load menu's dark palette.
-const PANEL_BG := Color(0.1, 0.1, 0.12)
+# The load menu's dark palette, except that the panel is half TRANSPARENT: the
+# wand is aimed at the world, so the pane shows the build behind it rather than
+# replacing it - and the cards stay solid, which is what keeps them readable on
+# top of whatever is behind the glass.
+const PANEL_BG := Color(0.1, 0.1, 0.12, 0.5)
 const PANEL_BORDER := Color(0.28, 0.28, 0.3)
 const CARD_BG := Color(0.14, 0.14, 0.17)
 const CARD_BORDER := Color(0.35, 0.35, 0.4)

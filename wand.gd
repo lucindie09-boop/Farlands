@@ -27,6 +27,16 @@ extends Node
 
 const FONT: Font = preload("res://fonts/munro.ttf")
 const BUTTON_TEX: Texture2D = preload("res://textures/gui/button.png")
+const CLOSE_TEX: Texture2D = preload("res://textures/gui/close_button.png")
+# The square button art (20x20, the shape the close button shares). A card wears
+# this as its background rather than a flat stylebox, so the grid reads as the
+# same interface as every other button in the game.
+const CARD_TEX: Texture2D = preload("res://textures/gui/button_square.png")
+# The two states of any button that wears a texture: the art brightened under the
+# pointer, darkened while held. Multiplied into the texture, so one image covers
+# all three states.
+const BUTTON_HOVER_TINT := Color(1.2, 1.2, 1.2)
+const BUTTON_PRESS_TINT := Color(0.8, 0.8, 0.8)
 const SchematicFiles := preload("res://schematic_files.gd")
 
 # The interface grid, the same units the settings menu draws in, so the wand's
@@ -64,7 +74,6 @@ const MENU_UNITS_TALL := 504.0
 const MENU_TILE_UNITS := 96.0
 const MENU_TILE_GAP := 12.0   # between cards
 const MENU_GAP := 8.0         # header to body
-const MENU_ACTION_W := 60.0  # CLOSE: a small action button
 const MENU_TAB_W := 130.0    # a tab: wide enough for the longer of the two labels
 # The panel's padding PER SIDE, in units: the load menu's stylebox margins (14
 # left/right) plus its MarginContainer (8). Kept as a sum because the width the
@@ -75,13 +84,10 @@ const MENU_PANEL_PAD_H := 22.0
 
 # The load menu's dark palette, except that the panel is half TRANSPARENT: the
 # wand is aimed at the world, so the pane shows the build behind it rather than
-# replacing it - and the cards stay solid, which is what keeps them readable on
-# top of whatever is behind the glass.
+# replacing it - and the cards are opaque art of their own (CARD_TEX), which is
+# what keeps them readable on top of whatever is behind the glass.
 const PANEL_BG := Color(0.1, 0.1, 0.12, 0.5)
 const PANEL_BORDER := Color(0.28, 0.28, 0.3)
-const CARD_BG := Color(0.14, 0.14, 0.17)
-const CARD_BORDER := Color(0.35, 0.35, 0.4)
-const CARD_HOVER := Color(0.22, 0.24, 0.3)
 # The tab pair. The one you are looking at wears the same tint a selected card
 # does, so "which of these is current" is one language everywhere in the menu.
 const TAB_CURRENT := Color(0.7, 1.0, 0.8)
@@ -335,7 +341,11 @@ func _build_tabs() -> void:
 	var room := Control.new()
 	room.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	header.add_child(room)
-	var close := _make_button("CLOSE", MENU_ACTION_W)
+	# The icon, not the word: a square the height of the row, named so a caller
+	# (or a probe) can find it without matching on text it does not have.
+	var close := _make_icon_button(CLOSE_TEX, UNIT_BUTTON_H)
+	close.name = "MenuClose"
+	close.tooltip_text = "Close"
 	close.pressed.connect(close_menu)
 	header.add_child(close)
 	_menu_column.add_child(header)
@@ -533,10 +543,13 @@ func _build_menu() -> void:
 func _make_button(text: String, width: float) -> Button:
 	return _make_button_px(text, Vector2(width, UNIT_BUTTON_H) * _menu_m)
 
-## One card, the shape the skin and block galleries use: a SQUARE button with a
-## rounded border, dark by default and lighter under the pointer, with a pressed
-## border in white. The wand's cards carry a name where those carry a rendered
-## model, which is the one difference between them.
+## One card: a SQUARE button wearing the interface's own square button art
+## (`button_square.png`) as its background, brightened under the pointer and
+## darkened while held. The 20x20 image is stretched to the whole card and there
+## is NO 9-slice - the menu root's NEAREST filter is what makes that stretch read
+## as pixel art, each source pixel a solid block, so the bevel scales with the
+## card instead of smearing into a blur. The wand's cards carry a name where the
+## skin and block galleries carry a rendered model, which is the one difference.
 func _make_tile(text: String, side_px: float, hint: String) -> Button:
 	var m := _menu_m
 	var btn := Button.new()
@@ -548,26 +561,39 @@ func _make_tile(text: String, side_px: float, hint: String) -> Button:
 	btn.add_theme_color_override("font_color", Color.WHITE)
 	btn.add_theme_color_override("font_hover_color", Color.WHITE)
 	btn.add_theme_color_override("font_pressed_color", Color.WHITE)
-	var card := StyleBoxFlat.new()
-	card.bg_color = CARD_BG
-	card.set_border_width_all(int(2 * m))
-	card.border_color = CARD_BORDER
-	card.set_corner_radius_all(int(4 * m))
-	var hover := card.duplicate()
-	hover.bg_color = CARD_HOVER
-	var pressed := card.duplicate()
-	pressed.bg_color = CARD_HOVER
-	pressed.border_color = Color.WHITE
-	btn.add_theme_stylebox_override("normal", card)
-	btn.add_theme_stylebox_override("hover", hover)
-	btn.add_theme_stylebox_override("pressed", pressed)
-	btn.add_theme_stylebox_override("focus", pressed)
+	btn.add_theme_stylebox_override("normal", _square_style(CARD_TEX, Color.WHITE))
+	btn.add_theme_stylebox_override("hover", _square_style(CARD_TEX, BUTTON_HOVER_TINT))
+	btn.add_theme_stylebox_override("pressed", _square_style(CARD_TEX, BUTTON_PRESS_TINT))
+	btn.add_theme_stylebox_override("focus", _square_style(CARD_TEX, Color.WHITE))
 	btn.custom_minimum_size = Vector2(side_px, side_px)
 	return btn
 
-## A button of an exact pixel size. Every other button in the menu lands here -
-## the header's CLOSE and the rows at the foot of each page - so their style and
-## their text cannot drift apart.
+## Any texture as a button background: stretched to whatever box it is given,
+## tinted for the state. One definition shared by the cards and the icon button,
+## so the two cannot disagree about what a button looks like.
+func _square_style(tex: Texture2D, tint: Color) -> StyleBoxTexture:
+	var box := StyleBoxTexture.new()
+	box.texture = tex
+	box.modulate_color = tint
+	return box
+
+## A SQUARE icon button: the texture stretched onto a `side` (in units) square,
+## so the icon stays 1:1 at every scale - the same shape settings_menu.gd uses
+## for its reset and heading icons, and the reason CLOSE is a picture here rather
+## than the word it used to be.
+func _make_icon_button(tex: Texture2D, side: float) -> Button:
+	var btn := Button.new()
+	btn.text = ""
+	btn.add_theme_stylebox_override("normal", _square_style(tex, Color.WHITE))
+	btn.add_theme_stylebox_override("hover", _square_style(tex, BUTTON_HOVER_TINT))
+	btn.add_theme_stylebox_override("pressed", _square_style(tex, BUTTON_PRESS_TINT))
+	btn.add_theme_stylebox_override("focus", _square_style(tex, Color.WHITE))
+	btn.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	btn.custom_minimum_size = Vector2(side, side) * _menu_m
+	return btn
+
+## A text button of an exact pixel size. Every other button in the menu lands
+## here - the tabs and the cards - so their style and their text cannot differ.
 func _make_button_px(text: String, size_px: Vector2) -> Button:
 	var btn := Button.new()
 	btn.text = text

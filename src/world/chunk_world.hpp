@@ -37,6 +37,12 @@ public:
     void set_mesh_manager(MeshManager* mm) { mesh_manager = mm; }
     void set_light_propagator(LightPropagator* lp) { light_propagator = lp; }
     void set_thread_pool(ThreadPool* tp) { thread_pool = tp; }
+    // Called on the main thread for every chunk installed into the map, with the
+    // chunk's coordinates and whether its data holds any non-air block. The
+    // generation chain (WorldUpdater) seeds its frontier from this.
+    void set_install_listener(std::function<void(int32_t, int32_t, int32_t, bool)> listener) {
+        install_listener = std::move(listener);
+    }
 
     bool generate_chunk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, uint64_t epoch,
                         const TerrainParams& params, const BiomeConfig& biomes,
@@ -198,6 +204,7 @@ private:
     mutable std::mutex pinned_chunk_mutex;
     std::function<void(int32_t, int32_t, int32_t)> edit_listener;
     std::function<void(int32_t, int32_t, int32_t)> worker_edit_listener;
+    std::function<void(int32_t, int32_t, int32_t, bool)> install_listener;
     std::mutex file_access_mutex;
     std::atomic<uint64_t> async_epoch{0};
 

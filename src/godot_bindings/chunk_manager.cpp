@@ -512,6 +512,13 @@ Dictionary ChunkManager::get_generation_stats() {
     out["frustum_refused"] = static_cast<int64_t>(stats.frustum_refused);
     out["frustum_inflight"] = static_cast<int64_t>(stats.frustum_inflight);
 
+    // The chain queue (the current chunk-selection priority).
+    out["chain_offered"] = static_cast<int64_t>(stats.chain_offered);
+    out["chain_generations"] = static_cast<int64_t>(stats.chain_generations);
+    out["chain_refused"] = static_cast<int64_t>(stats.chain_refused);
+    out["chain_skipped"] = static_cast<int64_t>(stats.chain_skipped);
+    out["chain_seeds"] = static_cast<int64_t>(stats.chain_seeds);
+
     out["urgent_requested"] = static_cast<int64_t>(stats.urgent_requested);
     out["urgent_generated"] = static_cast<int64_t>(stats.urgent_generated);
 

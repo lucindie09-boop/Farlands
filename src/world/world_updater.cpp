@@ -192,93 +192,28 @@ void WorldUpdater::update_generation(bool is_editor, int32_t active_render_dista
         }
     }
 
-    const bool frustum_active = frustum.is_initialized();
-    const size_t total_offsets = sweep_columns.size();
     const size_t max_checks_per_frame = static_cast<size_t>(
         std::max(dynamic_max_generations * 2, 512));
 
-    // --- Phase 1: Frustum-priority pass ---
-    // Walk the sweep list and generate the candidates that are in the camera
-    // frustum. Allocates up to half the generation budget to visible chunks.
-    // Also counts visible-vs-total candidates to estimate viewport load.
-    if (frustum_active && !frustum_pass_complete && total_offsets > 0) {
-        size_t   frustum_checks          = 0;
-        size_t   frustum_inflight_skips  = 0;
-        int32_t  frustum_generations     = 0;
-        const size_t max_frustum_checks = std::max(max_checks_per_frame / 2, size_t(64));
-        int32_t  visible_in_sweep        = 0;
-        int32_t  total_in_sweep          = 0;
-
-        while (frustum_checks < max_frustum_checks &&
-               frustum_generations < std::max(dynamic_max_generations / 2, 1) &&
-               chunk_world->get_scheduler().can_enqueue(budgets.completed_queue_backlog)) {
-
-            SweepCandidate candidate;
-            if (!advance_sweep(frustum_cursor, pcy, candidate)) {
-                // "Spent" only if the cursor left the list. Stopping on a band the
-                // frontier has not read yet is not the end of anything: the pass
-                // resumes next frame, and marking it complete here would retire
-                // the frustum pass for good the first time it outran the frontier.
-                if (frustum_cursor.column >= sweep_columns.size()) frustum_pass_complete = true;
-                break;
+    // --- Phase 1: the generation chain ----------------------------------
+    // The only chunk-selection priority (the frustum pass is retired; its
+    // counters and the A/B that retired it are in ARCHITECTURE.md). A chunk that
+    // installed with terrain in it queued its four horizontal neighbours, and
+    // this drains them before the ring walk gets a say — through the same
+    // filters and the same budget as any other candidate, so it reorders work,
+    // never bypasses a filter. Ground out of a ring walk: half the frame's
+    // generation budget, same share the frustum pass had.
+    if (!chain_queue.empty()) {
+        const bool backlog_ok = chunk_world->get_scheduler().can_enqueue(budgets.completed_queue_backlog);
+        if (backlog_ok) {
+            const int32_t chain_budget = std::max(dynamic_max_generations / 2, 1);
+            const int32_t chained = drain_chain_queue(epoch, chain_budget, pcy, generation_sweep_generated);
+            if (chained > 0) {
+                frame_generations += chained;
+                // A chain generation is real progress: retire the "nothing left"
+                // verdict so the walk re-checks the (now cheaper) near rings.
+                generation_pass_complete = false;
             }
-            const int32_t cx = candidate.x;
-            const int32_t cy = candidate.y;
-            const int32_t cz = candidate.z;
-            ++frustum_checks;
-
-            ++generation_stats.frustum_checks;
-            ++total_in_sweep;
-            if (!frustum.is_chunk_visible(cx, cy, cz)) continue;
-            ++visible_in_sweep;
-            ++generation_stats.frustum_visible;
-
-            uint64_t key = chunk_world->get_chunk_map().get_chunk_key(cx, cy, cz);
-            // Asked BEFORE the map lookup and without any lock: an in-flight chunk
-            // is not resident yet, so the map cannot tell us, and asking through
-            // generate_chunk costs a mutex plus a shard lock to be refused.
-            if (frustum_inflight_skips < max_frustum_checks &&
-                chunk_world->get_scheduler().may_be_generating(key)) {
-                ++frustum_inflight_skips;
-                ++generation_stats.frustum_inflight;
-                continue;
-            }
-            if (chunk_world->get_chunk_map().contains(key)) {
-                // Counted, not just skipped: in a settled world almost everything
-                // in the frustum is already resident, and without this number the
-                // pass reads as if it were finding candidate work it never acts on.
-                ++generation_stats.frustum_loaded;
-                continue;
-            }
-
-            // Safety net, and it should never fire: the list was built from these
-            // same bounds, so a reject here means the bands went stale mid-walk
-            // (terrain or render distance changed without a rebuild). Cheap
-            // enough to keep, and it is what makes the band reject counters in
-            // /genstats a check on the pruning rather than a restatement of it.
-            const bool fill_column = candidate.fill_column;
-            const ColumnSurfaceBounds surface = get_column_surface_bounds(cx, cz);
-            if (!sweep::chunk_in_band(cy, surface.land_h, surface.top_h, fill_column)) continue;
-            // World bounds: never generate chunks outside [0, kSlices) — the
-            // fill path no longer has a bottom height filter to catch them.
-            if (cy < 0 || cy >= kWorldChunkSlices) continue;
-
-            ++generation_stats.frustum_band_pass;
-            if (generate_chunk(cx, cy, cz, epoch)) {
-                ++frustum_generations;
-                ++generation_stats.frustum_generations;
-                generation_sweep_generated = true;
-            } else {
-                ++generation_stats.frustum_refused;
-            }
-        }
-        if (total_in_sweep > 0) {
-            // NOTE: the denominator used to be every slice of every column, sky
-            // and bedrock included, which pinned this near 0 and the mesh budgets
-            // it scales (0.5x-1.0x) near their floor. It now measures the share of
-            // REAL candidates in view, so the mesh budget will sit higher. If
-            // meshing becomes the bottleneck, this is where to look.
-            visible_chunk_ratio_ = static_cast<float>(visible_in_sweep) / static_cast<float>(total_in_sweep);
         }
     }
 
@@ -673,6 +608,82 @@ void WorldUpdater::invalidate_height_cache() {
     sweep_bands_dirty = true;
 }
 
+void WorldUpdater::on_chunk_installed(int32_t cx, int32_t cy, int32_t cz, bool has_blocks) {
+    if (!has_blocks) return;
+    ++generation_stats.chain_seeds;
+    // One set insert per neighbour pair is the whole cost here; the dedupe set
+    // keeps a chunk surrounded by built neighbours from being offered once per
+    // one of them.
+    const ChunkMap& map = chunk_world->get_chunk_map();
+    const uint64_t neighbours[4] = {
+        map.get_chunk_key(cx - 1, cy, cz),
+        map.get_chunk_key(cx + 1, cy, cz),
+        map.get_chunk_key(cx, cy, cz - 1),
+        map.get_chunk_key(cx, cy, cz + 1),
+    };
+    for (const uint64_t key : neighbours) {
+        if (chain_queued.insert(key).second) {
+            chain_queue.push_back(key);
+        }
+    }
+}
+
+int32_t WorldUpdater::drain_chain_queue(uint64_t epoch, int32_t budget, int32_t pcy,
+                                        bool& generated_anything) {
+    constexpr int32_t kWorldChunkSlices = WORLD_HEIGHT_Y / CHUNK_HEIGHT;
+    int32_t generations = 0;
+    while (generations < budget && !chain_queue.empty()) {
+        const uint64_t key = chain_queue.front();
+        chain_queue.pop_front();
+        chain_queued.erase(key);
+        int32_t cx = 0, cy = 0, cz = 0;
+        ChunkMap::decode_chunk_key(key, cx, cy, cz);
+        ++generation_stats.chain_offered;
+        // The SAME filters the walk applies, in the same order. Outside the world
+        // height or outside the sweep's disc: not a failure, just not offered.
+        if (cy < 0 || cy >= kWorldChunkSlices) {
+            ++generation_stats.chain_skipped;
+            continue;
+        }
+        const int32_t dx = cx - sweep_origin_cx;
+        const int32_t dz = cz - sweep_origin_cz;
+        if (dx * dx + dz * dz > current_render_distance * current_render_distance) {
+            ++generation_stats.chain_skipped;
+            continue;
+        }
+        // Already on its way, or already here: the chain exists to ORDER work, and
+        // both mean the work exists.
+        if (chunk_world->get_scheduler().may_be_generating(key) ||
+            chunk_world->get_chunk_map().contains(key)) {
+            ++generation_stats.chain_skipped;
+            continue;
+        }
+        // The band the walk generates within. The list was built from these same
+        // bounds, so a reject here means the band is exactly the walk's.
+        const bool fill_column = std::abs(dx) <= kUndergroundFillRadius &&
+                                 std::abs(dz) <= kUndergroundFillRadius;
+        const ColumnSurfaceBounds surface = get_column_surface_bounds(cx, cz);
+        if (!sweep::chunk_in_band(cy, surface.land_h, surface.top_h, fill_column)) {
+            ++generation_stats.chain_skipped;
+            continue;
+        }
+        if (generate_chunk(cx, cy, cz, epoch)) {
+            ++generations;
+            ++generation_stats.chain_generations;
+            generated_anything = true;
+        } else {
+            // Not placed: in flight past the lock-free filter's view, or the
+            // backlog guard is holding. Re-queueing here would LOOP — the queue
+            // is refilled by installs far faster than the budget drains it, and
+            // a refused offer comes back on its own when a neighbour installs
+            // again. The walk reaches it regardless; the chain is a priority,
+            // not the only path.
+            ++generation_stats.chain_refused;
+        }
+    }
+    return generations;
+}
+
 void WorldUpdater::refresh_prefetch_config() {
     if (!column_prefetch) return;
     ColumnPrefetch::Config config;
@@ -928,6 +939,11 @@ void WorldUpdater::rebuild_sweep_columns(int32_t horizontal_rd, int32_t pcx, int
     // re-earned as the frontier reads each new band.
     built_columns.clear();
     sweep_band_frontier = 0;
+    // Queued neighbours were keyed to positions the OLD list served; a rebuild
+    // re-earns everything, so the chain starts clean rather than draining stale
+    // offers through the new list's disc test.
+    chain_queue.clear();
+    chain_queued.clear();
     // Every band in the new list is unknown, so the candidate total starts over
     // and climbs as the frontier reads them (it reaches the true total within a
     // frame or two once the heights are cached, and over a couple of seconds on
@@ -978,6 +994,8 @@ void WorldUpdater::clear() {
     fluid_sim.clear();
     sweep_columns.clear();
     built_columns.clear();
+    chain_queue.clear();
+    chain_queued.clear();
     sweep_bands_dirty = true;
     sweep_origin_cx = INT32_MIN;
     sweep_origin_cz = INT32_MIN;
@@ -987,6 +1005,7 @@ void WorldUpdater::clear() {
     frustum_cursor             = SweepCursor{};
     generation_cursor          = SweepCursor{};
     frustum_pass_complete      = false;
+    visible_chunk_ratio_       = 1.0f;
     generation_pass_complete   = false;
     generation_sweep_generated = false;
     unload_scan_skip_counter   = 0;

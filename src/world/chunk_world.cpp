@@ -342,6 +342,10 @@ int32_t ChunkWorld::process_completed_chunks(uint64_t epoch, double budget_ms, i
 
             if (chunk_map.contains(key)) continue;
 
+            // Read BEFORE the move below hands the data to the chunk: after it,
+            // completed.chunk_data is null and this would be a null dereference.
+            const bool has_blocks = completed.chunk_data && !completed.chunk_data->is_all_air();
+
             auto render_data = std::make_unique<ChunkRenderData>();
             render_data->data = std::move(completed.chunk_data);
             render_data->is_mesh_dirty = true;
@@ -353,6 +357,17 @@ apply_pending_placements(key, completed.chunk_x, completed.chunk_y, completed.ch
 apply_vegetation_placements(key, completed.chunk_x, completed.chunk_y, completed.chunk_z, *render_data);
 
             chunk_map.insert(key, std::move(render_data));
+
+            // The generation chain seeds itself from installs: one listener call
+            // per chunk, on this thread, AFTER the chunk is resident (so the
+            // listener's own lookups see it). The chain decides from `has_blocks`
+            // whether to propagate horizontally — an all-air chunk has no surface
+            // to spread from, and chasing neighbours through pure sky is the
+            // ocean-of-nothing case the ring walk already covers more cheaply.
+            if (install_listener) {
+                install_listener(completed.chunk_x, completed.chunk_y,
+                                 completed.chunk_z, has_blocks);
+            }
 
 if (mesh_manager) {
     // Newly loaded chunk may provide boundary data that changes neighbor meshes.

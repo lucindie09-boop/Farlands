@@ -795,10 +795,11 @@ func _run_command(raw: String):
 			_add_message("  columns: %s found fully built when their band was read, %s skipped by the walk" % [_fmt_count(int(g.get("columns_built", 0))), _fmt_count(int(g.get("columns_skipped", 0)))], COLOR_SYSTEM)
 			if int(g.get("generate_refused", 0)) > 0:
 				_add_message("  %s passed every filter and were still refused (in flight, or the worker queue is full)" % _fmt_count(int(g.get("generate_refused", 0))), COLOR_SYSTEM)
-			# "in the frustum" is the visibility test alone; the loaded count is the part
-			# of it that was already resident, so the four numbers explain each other
-			# rather than leaving a large one unexplained.
-			_add_message("  frustum: %s checks, %s in the frustum of which %s already loaded, %s reached the filters, %s generated, %s skipped as in flight, %s refused" % [_fmt_count(int(g.get("frustum_checks", 0))), _fmt_count(int(g.get("frustum_visible", 0))), _fmt_count(int(g.get("frustum_loaded", 0))), _fmt_count(int(g.get("frustum_band_pass", 0))), _fmt_count(int(g.get("frustum_generations", 0))), _fmt_count(int(g.get("frustum_inflight", 0))), _fmt_count(int(g.get("frustum_refused", 0)))], COLOR_SYSTEM)
+			# The chunk-selection priority: a chunk that installed with terrain queued
+			# its 4 horizontal neighbours, drained before the ring walk through the
+			# same filters. skipped = already here or already in flight; refused =
+			# offered again next frame.
+			_add_message("  chain: %s offered (%s seeds), %s generated, %s skipped, %s refused" % [_fmt_count(int(g.get("chain_offered", 0))), _fmt_count(int(g.get("chain_seeds", 0))), _fmt_count(int(g.get("chain_generations", 0))), _fmt_count(int(g.get("chain_skipped", 0))), _fmt_count(int(g.get("chain_refused", 0)))], COLOR_SYSTEM)
 			# Two separate costs, and the split is the point: building the list is pure
 			# bookkeeping (cheap), while reading a column's band is a chunk height range
 			# over its lattice (~235 us cold), which is why it is spent on a per-frame

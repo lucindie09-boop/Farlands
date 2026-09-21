@@ -43,7 +43,18 @@ public:
     WorldUpdater();
     ~WorldUpdater();
 
-    void set_chunk_world(ChunkWorld* cw) { chunk_world = cw; }
+    void set_chunk_world(ChunkWorld* cw) {
+        chunk_world = cw;
+        // The chain queue is the chunk-selection priority: every install tells
+        // the updater what to spread to. Both are controller members, so the
+        // listener cannot outlive the updater that owns the lambda.
+        if (cw) {
+            cw->set_install_listener(
+                [this](int32_t cx, int32_t cy, int32_t cz, bool has_blocks) {
+                    on_chunk_installed(cx, cy, cz, has_blocks);
+                });
+        }
+    }
     void set_mesh_manager(MeshManager* mm) { mesh_manager = mm; }
     void set_thread_pool(ThreadPool* tp) { thread_pool = tp; }
     void set_performance_timer(PerformanceTimer* pt) { perf_timer = pt; }
@@ -140,15 +151,6 @@ public:
     double get_initial_loading_duration() const { return budgets.loading_duration; }
 
     // Counters for the generation sweep, read by /genstats.
-    //
-    // Why they exist: the candidate offset list spans the entire world height
-    // (WORLD_HEIGHT_Y / CHUNK_HEIGHT slices per column) while only the
-    // near-surface band of a column can ever pass the filters, so each pass
-    // spends most of its per-frame check budget on entries that are guaranteed
-    // rejections. These counters say how many entries a pass actually touches,
-    // why each one was rejected, and how many became real generations — which
-    // is the only way to tell whether reordering or shrinking the candidate set
-    // would buy anything, rather than guessing from the list size.
     struct GenerationStats {
         uint64_t frames           = 0;  // update_generation calls
         uint64_t candidate_offsets = 0; // candidate CHUNKS in the built sweep list
@@ -182,7 +184,9 @@ public:
         uint64_t columns_built   = 0;
         uint64_t columns_skipped = 0;
 
-        // Phase 1, the frustum pass.
+        // Phase 1, the frustum pass. RETIRED — the chain queue replaced it (see
+        // the chain comment above); the counters and their /genstats line stay for
+        // the A/B record but nothing writes them any more.
         uint64_t frustum_checks      = 0;
         uint64_t frustum_visible     = 0;  // inside the frustum (BEFORE the loaded test)
         uint64_t frustum_loaded      = 0;  // inside the frustum and already resident
@@ -195,6 +199,15 @@ public:
         // pass's budget goes on work already under way.
         uint64_t frustum_refused     = 0;
         uint64_t frustum_inflight    = 0;  // skipped without the locks (see reject_inflight)
+
+        // The chain queue (the current priority): candidates offered, filters
+        // they passed, and generations they won. `chain_seeds` counts the
+        // listener calls that queued at least one neighbour.
+        uint64_t chain_offered    = 0;
+        uint64_t chain_generations = 0;
+        uint64_t chain_refused    = 0;
+        uint64_t chain_skipped    = 0;  // already loaded or in flight when drained
+        uint64_t chain_seeds      = 0;
 
         // Urgent requests (a paste waiting on chunks). These bypass the sweep's
         // filters, so they are counted separately rather than as sweep work.
@@ -329,6 +342,23 @@ private:
     FrameBudgets budgets;
 
     GenerationStats generation_stats;
+
+    // --- The generation chain -------------------------------------------
+    // The ONLY chunk-selection priority (experiment, replacing the frustum
+    // pass): when a chunk installs and its data holds any non-air block, its
+    // four horizontal neighbours are queued here. update_generation drains this
+    // queue BEFORE the ring walk, and every drained candidate still goes through
+    // the same filters (in-flight, loaded, band, world bounds) and the same
+    // generation budget as any other candidate, so the chain can only reorder,
+    // never bypass. Deliberately unbounded as a queue — it is a SET of positions
+    // waiting to be offered, and generation is bounded elsewhere; a dedupe set
+    // keeps a popular chunk from being offered repeatedly by its many neighbours.
+    std::deque<uint64_t> chain_queue;
+    std::unordered_set<uint64_t> chain_queued;
+    void on_chunk_installed(int32_t cx, int32_t cy, int32_t cz, bool has_blocks);
+    // Drains up to `budget` candidates from the chain queue through the shared
+    // filters. Returns how many generations it enqueued.
+    int32_t drain_chain_queue(uint64_t epoch, int32_t budget, int32_t pcy, bool& generated_anything);
 
     // One column of the generation sweep: where it sits relative to the player's
     // chunk, and the only slices of it that can pass the band filter.

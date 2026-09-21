@@ -18,6 +18,11 @@ struct DirtyChunkEntry {
     uint64_t key = 0;
     int32_t dist_sq = 0;
     bool urgent = false;
+    // View-first meshing: a rebuild you can SEE jumps the queue. This is the
+    // one remaining frustum priority, kept deliberately after an A/B (see
+    // ARCHITECTURE.md) — generation is chain/distance-ordered and frustum-free,
+    // but the MESH pass runs view-first, which is what makes terrain appear
+    // where the player is looking before it appears at their back.
     bool in_frustum = false;
     uint32_t priority_revision = 0;
     bool operator>(const DirtyChunkEntry& other) const {

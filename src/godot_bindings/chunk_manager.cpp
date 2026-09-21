@@ -528,6 +528,9 @@ Dictionary ChunkManager::get_generation_stats() {
     out["max_band_ms"] = stats.max_band_ms;
     out["max_band_columns"] = static_cast<int64_t>(stats.max_band_columns);
     out["max_band_column_ms"] = stats.max_band_column_ms;
+    out["max_band_bounds_ms"] = stats.max_band_bounds_ms;
+    out["max_band_resident_ms"] = stats.max_band_resident_ms;
+    out["max_contains_ms"] = stats.max_contains_ms;
     out["max_cold_bounds_ms"] = stats.max_cold_bounds_ms;
     // The other half of a band read: how many were answered by a worker instead of
     // computed here, and how many columns this thread still had to derive itself.

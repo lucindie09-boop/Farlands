@@ -787,11 +787,13 @@ void WorldUpdater::service_sweep_bands() {
     double band_ms = 0.0;
     uint64_t columns_read = 0;
     double worst_column_ms = 0.0;
+    double worst_bounds_ms = 0.0, worst_resident_ms = 0.0;
     while (sweep_band_frontier < sweep_columns.size()) {
         const double before_column_ms = band_ms;
         SweepColumn& column = sweep_columns[sweep_band_frontier];
         const int32_t cx = sweep_origin_cx + column.dx;
         const int32_t cz = sweep_origin_cz + column.dz;
+        const double before_bounds = band_ms;
         const ColumnSurfaceBounds surface = get_column_surface_bounds(cx, cz);
         const bool fill_column = std::abs(static_cast<int32_t>(column.dx)) <= kUndergroundFillRadius &&
                                  std::abs(static_cast<int32_t>(column.dz)) <= kUndergroundFillRadius;
@@ -801,9 +803,18 @@ void WorldUpdater::service_sweep_bands() {
         // that would otherwise look up every slice of it on every pass. A chunk in
         // flight is not resident yet, so such a column stays walkable until a
         // rebuild — a wasted walk, never a hole.
+        double resident_ms = 0.0;
         if (sweep::band_fully_resident(column.band, [&](int32_t cy) {
-                return chunk_world->get_chunk_map().contains(
+                const auto t0 = std::chrono::steady_clock::now();
+                const bool has = chunk_world->get_chunk_map().contains(
                     chunk_world->get_chunk_map().get_chunk_key(cx, cy, cz));
+                // The slowest SINGLE lookup of the session, not the average: one
+                // contended shard lock is the whole hypothesis being tested.
+                const double dt = std::chrono::duration<double, std::milli>(
+                    std::chrono::steady_clock::now() - t0).count();
+                generation_stats.max_contains_ms = std::max(generation_stats.max_contains_ms, dt);
+                resident_ms += dt;
+                return has;
             })) {
             built_columns.insert(chunk_world->get_chunk_map().get_chunk_key(cx, 0, cz));
             ++generation_stats.columns_built;
@@ -814,14 +825,18 @@ void WorldUpdater::service_sweep_bands() {
         ++sweep_band_frontier;
         band_ms = std::chrono::duration<double, std::milli>(
             std::chrono::steady_clock::now() - start).count();
-        // Timed per column, because the budget can only bound WORK: it is checked
-        // after each column, so a frame can overshoot it by the cost of the column
-        // it was in when the budget ran out. That cost is what separates a budget
-        // that is not bounding anything (many cheap columns, every value small)
-        // from this thread being taken away mid-column (one value as large as the
-        // whole overshoot) — and the two need opposite fixes.
+        // Parts of THIS column, so the record matches the frame it explains.
         const double this_column_ms = band_ms - before_column_ms;
-        worst_column_ms = std::max(worst_column_ms, this_column_ms);
+        if (this_column_ms > worst_column_ms) {
+            worst_column_ms = this_column_ms;
+            worst_bounds_ms = band_ms - before_bounds;
+            worst_resident_ms = resident_ms;
+        }
+        // The budget can only bound WORK: it is checked after each column, so a
+        // frame can overshoot it by the cost of the column it was in when the
+        // budget ran out. That cost is what separates a budget that is not bounding
+        // anything (many cheap columns, every value small) from this thread being
+        // taken away mid-column (one value as large as the whole overshoot).
         if (band_ms >= kBandBudgetMs) break;
     }
     // The elapsed value is written straight into the stats so the timing costs
@@ -834,6 +849,8 @@ void WorldUpdater::service_sweep_bands() {
         generation_stats.max_band_ms = band_ms;
         generation_stats.max_band_columns = columns_read;
         generation_stats.max_band_column_ms = worst_column_ms;
+        generation_stats.max_band_bounds_ms = worst_bounds_ms;
+        generation_stats.max_band_resident_ms = worst_resident_ms;
     }
 }
 

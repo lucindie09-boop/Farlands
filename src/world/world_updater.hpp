@@ -69,24 +69,27 @@ public:
     void set_vegetation_enabled(bool enabled);
     bool is_vegetation_enabled() const { return vegetation_enabled; }
     const TerrainParams& get_terrain_params() const { return terrain_params; }
-    // The frustum is stored EXACTLY as given — the mesh queue and the unload pass
-    // both test against it — but the frustum PASS is only re-armed when the view
-    // actually changed.
+    // The frustum is stored as given, and the frustum PASS is re-armed on every
+    // call — deliberately, and only after measuring the alternative.
     //
-    // Re-arming it every frame (which is what this did, because ChunkManager feeds
-    // the camera in every frame) restarts the walk from ring zero forever, so the
-    // pass re-tests the same near columns and never gets to the ones its ordering
-    // exists for. A real session with the band list and built-column skip already
-    // in place measured it at 3,545,274 checks against the distance walk's 196,553
-    // — 95% of every check in the sweep — with 2,406,288 of its 2,426,296
-    // in-frustum candidates already loaded, and `generate_refused` at 29,585: the
-    // same columns asked for again and again, each refusal a locked lookup of the
-    // in-flight set (see ChunkScheduler::enqueue_generation). Once a view stops
-    // changing, the pass belongs switched off, not re-run.
+    // The pass looks wasteful from the counters: in one real session it spent
+    // 3,545,274 checks to the distance walk's 196,553 (95% of every check in the
+    // sweep), 2,406,288 of its 2,426,296 in-frustum candidates were already
+    // loaded, and it re-armed from ring zero on every frame because ChunkManager
+    // feeds the camera in every frame. Gating the re-arm on a real view change
+    // (a position/angle threshold on the frustum) was implemented and A/B'd on
+    // one build with `.freebuff/probe_stream_bench.gd`: it removed the idle cost
+    // exactly (standing still for 10 s: 306,845 checks and 88.5 ms -> 0 checks
+    // and 0.6 ms) and cost more than it saved (flight throughput 1,903 ->
+    // 1,750-1,798 chunks/s, because this pass is a SECOND, view-ordered consumer
+    // of the generation budget and its work is not waste the walk picks up: the
+    // walk refuses 11% of its own checks on chunks already in flight, so it has
+    // no headroom to absorb them). 88.5 ms per 10 s idle is 0.15 ms per frame —
+    // the pass's checks are cheap and its ordering is what puts terrain in front
+    // of the player first. What its numbers DO justify is making it cheaper per
+    // check, not running it less.
     void set_frustum(const Frustum& f) {
-        const bool view_changed = frustum.differs_from(f);
         frustum = f;
-        if (!view_changed) return;
         frustum_cursor = SweepCursor{};
         frustum_pass_complete = false;
     }
@@ -177,6 +180,12 @@ public:
         uint64_t frustum_loaded      = 0;  // inside the frustum and already resident
         uint64_t frustum_band_pass   = 0;
         uint64_t frustum_generations = 0;
+        // Passed every filter and was refused anyway — the chunk is already in
+        // flight. Counted because it is the one refusal that is NOT waste
+        // discovered by a bug: it is this pass asking again for something it
+        // asked for on a previous frame, so it measures exactly how much of the
+        // pass's budget goes on work already under way.
+        uint64_t frustum_refused     = 0;
 
         // Urgent requests (a paste waiting on chunks). These bypass the sweep's
         // filters, so they are counted separately rather than as sweep work.

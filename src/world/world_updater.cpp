@@ -247,6 +247,8 @@ void WorldUpdater::update_generation(bool is_editor, int32_t active_render_dista
                 ++frustum_generations;
                 ++generation_stats.frustum_generations;
                 generation_sweep_generated = true;
+            } else {
+                ++generation_stats.frustum_refused;
             }
         }
         if (total_in_sweep > 0) {
@@ -703,11 +705,6 @@ void WorldUpdater::rebuild_sweep_columns(int32_t horizontal_rd, int32_t pcx, int
     // changed under the old marks, so the whole set goes with the list and is
     // re-earned as the frontier reads each new band.
     built_columns.clear();
-    // The cursor is a position in THIS list, so a rebuilt list invalidates it —
-    // and this is now the usual reason the frustum pass is re-armed at all, since
-    // `set_frustum` only re-arms it on a real view change.
-    frustum_cursor = SweepCursor{};
-    frustum_pass_complete = false;
     sweep_band_frontier = 0;
     // Every band in the new list is unknown, so the candidate total starts over
     // and climbs as the frontier reads them (it reaches the true total within a

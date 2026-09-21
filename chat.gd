@@ -793,7 +793,7 @@ func _run_command(raw: String):
 			# "in the frustum" is the visibility test alone; the loaded count is the part
 			# of it that was already resident, so the four numbers explain each other
 			# rather than leaving a large one unexplained.
-			_add_message("  frustum: %s checks, %s in the frustum of which %s already loaded, %s reached the filters, %s generated" % [_fmt_count(int(g.get("frustum_checks", 0))), _fmt_count(int(g.get("frustum_visible", 0))), _fmt_count(int(g.get("frustum_loaded", 0))), _fmt_count(int(g.get("frustum_band_pass", 0))), _fmt_count(int(g.get("frustum_generations", 0)))], COLOR_SYSTEM)
+			_add_message("  frustum: %s checks, %s in the frustum of which %s already loaded, %s reached the filters, %s generated, %s already in flight" % [_fmt_count(int(g.get("frustum_checks", 0))), _fmt_count(int(g.get("frustum_visible", 0))), _fmt_count(int(g.get("frustum_loaded", 0))), _fmt_count(int(g.get("frustum_band_pass", 0))), _fmt_count(int(g.get("frustum_generations", 0))), _fmt_count(int(g.get("frustum_refused", 0)))], COLOR_SYSTEM)
 			# Two separate costs, and the split is the point: building the list is pure
 			# bookkeeping (cheap), while reading a column's band is a chunk height range
 			# over its lattice (~235 us cold), which is why it is spent on a per-frame

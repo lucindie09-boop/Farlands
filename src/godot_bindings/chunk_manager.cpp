@@ -508,6 +508,7 @@ Dictionary ChunkManager::get_generation_stats() {
     out["frustum_loaded"] = static_cast<int64_t>(stats.frustum_loaded);
     out["frustum_band_pass"] = static_cast<int64_t>(stats.frustum_band_pass);
     out["frustum_generations"] = static_cast<int64_t>(stats.frustum_generations);
+    out["frustum_refused"] = static_cast<int64_t>(stats.frustum_refused);
 
     out["urgent_requested"] = static_cast<int64_t>(stats.urgent_requested);
     out["urgent_generated"] = static_cast<int64_t>(stats.urgent_generated);

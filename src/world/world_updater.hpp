@@ -13,6 +13,7 @@ namespace VoxelEngine { class ChunkGenerator; }
 // The fluid sink batches its writes per chunk, so it needs the real EditCell type
 // rather than a forward declaration.
 #include "world/chunk_world.hpp"
+#include "world/sweep_band.hpp"
 #include <array>
 #include <deque>
 #include <vector>
@@ -70,7 +71,7 @@ public:
     const TerrainParams& get_terrain_params() const { return terrain_params; }
     void set_frustum(const Frustum& f) {
         frustum = f;
-        frustum_cursor = 0;
+        frustum_cursor = SweepCursor{};
         frustum_pass_complete = false;
     }
     const Frustum& get_frustum() const { return frustum; }
@@ -130,7 +131,8 @@ public:
     // would buy anything, rather than guessing from the list size.
     struct GenerationStats {
         uint64_t frames           = 0;  // update_generation calls
-        uint64_t candidate_offsets = 0; // built offset list size (last rebuild)
+        uint64_t candidate_offsets = 0; // candidate CHUNKS in the built sweep list
+        uint64_t candidate_columns = 0; // columns that list covers
         uint64_t cursor_resets    = 0;  // walks restarted by a chunk crossing
 
         // Phase 2, the distance-ordered sweep. `checks` is the number of
@@ -171,17 +173,34 @@ public:
         double total_ms = 0.0;
         double last_ms  = 0.0;
         double max_ms   = 0.0;
+
+        // Of that, the part spent rebuilding the sweep list. The rebuild reads one
+        // band per column, so it is the only part of a walk whose cost is per
+        // COLUMN rather than per candidate, and the only part that can hitch.
+        uint64_t rebuilds         = 0;
+        double   last_rebuild_ms  = 0.0;
+        double   total_rebuild_ms = 0.0;
+        double   max_rebuild_ms   = 0.0;
+
+        // Of the walk, the part spent reading column bands (the frontier), and
+        // how many columns that covers. This is the only per-COLUMN cost in the
+        // sweep and the only one that needs a per-frame budget.
+        uint64_t band_reads       = 0;
+        double   total_band_ms    = 0.0;
+        double   max_band_ms      = 0.0;
     };
 
     [[nodiscard]] const GenerationStats& get_generation_stats() const { return generation_stats; }
     void reset_generation_stats() {
-        // candidate_offsets is the size of the list that is currently built, not
-        // a count of anything that happened, so it survives a reset. Zeroing it
-        // would read as "no candidates" for the rest of the session, since the
-        // list is only rebuilt when the render distance changes.
+        // candidate_offsets/candidate_columns describe the list that is currently
+        // built rather than counting anything that happened, so they survive a
+        // reset. Zeroing them would read as "no candidates" for the rest of the
+        // session, since the list is only rebuilt on a movement or a change.
         const uint64_t offsets = generation_stats.candidate_offsets;
+        const uint64_t columns = generation_stats.candidate_columns;
         generation_stats = GenerationStats{};
         generation_stats.candidate_offsets = offsets;
+        generation_stats.candidate_columns = columns;
     }
 
 private:
@@ -226,7 +245,50 @@ private:
 
     GenerationStats generation_stats;
 
-    std::vector<ChunkPos> pre_sorted_offsets;
+    // One column of the generation sweep: where it sits relative to the player's
+    // chunk, and the only slices of it that can pass the band filter.
+    //
+    // Replacing a flat vector of (dx, dy, dz) offsets — 65 slices per column,
+    // 208,585 entries at render distance 32, ~84% of which the filter rejected
+    // while it walked them — with ~3,200 column entries covering ~18,000
+    // candidate chunks. The slice range is ABSOLUTE in chunk y (the filter is),
+    // so only dx/dz go stale as the player moves, which is why the list is
+    // rebuilt on a horizontal chunk crossing and not on a vertical one.
+    struct SweepColumn {
+        int16_t dx = 0;
+        int16_t dz = 0;
+        sweep::ChunkBand band;
+        // Read on demand by service_sweep_bands, in list order, rather than for
+        // the whole disc in the frame the list was built. Reading one column's
+        // band costs a rigorous chunk height range over its lattice — measured at
+        // ~235 us, so all 3,209 of them is ~755 ms of work that has to be spread
+        // over frames or paid as one stall.
+        bool band_ready = false;
+    };
+
+    // A resumable position in the sweep list: which column, and how far into that
+    // column's slice range. `column == sweep_columns.size()` means the list is
+    // spent.
+    struct SweepCursor {
+        size_t column = 0;
+        uint32_t slice = 0;
+    };
+
+    struct SweepCandidate {
+        int32_t x = 0;
+        int32_t y = 0;
+        int32_t z = 0;
+        bool fill_column = false;
+    };
+
+    std::vector<SweepColumn> sweep_columns;
+    // First column whose band is still unknown. Because the list is sorted nearest
+    // first and the bands are read in that order, the walk (which also goes
+    // nearest first) can always run up to this frontier and never past it.
+    size_t  sweep_band_frontier = 0;
+    int32_t sweep_origin_cx = INT32_MIN;  // player chunk the list was built around
+    int32_t sweep_origin_cz = INT32_MIN;
+    bool sweep_bands_dirty = true;        // terrain changed under the bands
     int32_t current_render_distance = 64;
     std::vector<uint64_t> unload_queue;
     std::unordered_set<uint64_t> unload_pending;
@@ -252,13 +314,13 @@ private:
     std::deque<uint64_t> column_height_fifo;
 
     Frustum frustum;
-    size_t frustum_cursor = 0;
+    SweepCursor frustum_cursor;
     bool frustum_pass_complete = false;
     float visible_chunk_ratio_ = 1.0f;
 
-    // Resumable generation cursor — amortises the pre_sorted_offsets scan across frames.
+    // Resumable generation cursor — amortises the sweep list scan across frames.
     // Reset when player changes chunks; set pass_complete when a full sweep finds nothing.
-    size_t  generation_cursor          = 0;
+    SweepCursor generation_cursor;
     bool    generation_pass_complete   = false;  // true = all chunks loaded, skip scan
     bool    generation_sweep_generated = false;  // tracks if current sweep generated any chunk
 
@@ -288,7 +350,16 @@ private:
     ColumnSurfaceBounds get_column_surface_bounds(int32_t cx, int32_t cz);
     void invalidate_height_cache();
 
-    void initialize_view_distance(int32_t horizontal_rd);
+    // Builds the sweep list: one entry per column in the render distance that has
+    // any slice the band filter can accept, each carrying that slice range.
+    void rebuild_sweep_columns(int32_t horizontal_rd, int32_t pcx, int32_t pcz);
+    // Offers the next candidate of a list walk, in ring order then outward from
+    // the player's own slice. False once the list is spent.
+    bool advance_sweep(SweepCursor& cursor, int32_t pcy, SweepCandidate& out);
+    // Reads the bands of the not-yet-known columns nearest the player, up to a
+    // per-frame time budget. Always reads at least one, so the frontier cannot
+    // stall. Costs nothing once it has caught up with the list.
+    void service_sweep_bands();
     void update_generation(bool is_editor, int32_t active_render_distance, uint64_t epoch, int32_t pcx, int32_t pcy, int32_t pcz, bool chunk_changed);
     void update_unload(int32_t active_render_distance, int32_t pcx, int32_t pcy, int32_t pcz, bool chunk_changed);
     void process_mesh_budgets(bool is_editor, uint64_t epoch, uint64_t& chunks_processed_total, int32_t active_render_distance, double delta);

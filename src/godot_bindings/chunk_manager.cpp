@@ -488,6 +488,7 @@ Dictionary ChunkManager::get_generation_stats() {
     Dictionary out;
     out["frames"] = static_cast<int64_t>(stats.frames);
     out["candidate_offsets"] = static_cast<int64_t>(stats.candidate_offsets);
+    out["candidate_columns"] = static_cast<int64_t>(stats.candidate_columns);
     out["cursor_resets"] = static_cast<int64_t>(stats.cursor_resets);
 
     out["checks"] = static_cast<int64_t>(stats.checks);
@@ -513,6 +514,13 @@ Dictionary ChunkManager::get_generation_stats() {
     out["last_ms"] = stats.last_ms;
     out["max_ms"] = stats.max_ms;
     out["avg_ms"] = stats.frames > 0 ? stats.total_ms / static_cast<double>(stats.frames) : 0.0;
+    out["rebuilds"] = static_cast<int64_t>(stats.rebuilds);
+    out["last_rebuild_ms"] = stats.last_rebuild_ms;
+    out["total_rebuild_ms"] = stats.total_rebuild_ms;
+    out["max_rebuild_ms"] = stats.max_rebuild_ms;
+    out["band_reads"] = static_cast<int64_t>(stats.band_reads);
+    out["total_band_ms"] = stats.total_band_ms;
+    out["max_band_ms"] = stats.max_band_ms;
 
     // Window sums, computed here rather than in GDScript so the caller reads the
     // same numbers the counters hold (and so a mid-window reset cannot mix two

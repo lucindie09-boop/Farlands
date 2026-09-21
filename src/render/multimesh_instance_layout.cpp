@@ -3,6 +3,7 @@
 #ifdef DEBUG_ENABLED
 
 #include <godot_cpp/classes/multi_mesh.hpp>
+#include <godot_cpp/classes/quad_mesh.hpp>
 #include <godot_cpp/variant/basis.hpp>
 #include <godot_cpp/variant/packed_float32_array.hpp>
 #include <godot_cpp/variant/transform3d.hpp>
@@ -44,6 +45,12 @@ bool verify_multimesh_instance_layout(std::string& report) {
         return true;
     }
     probe->set_transform_format(godot::MultiMesh::TRANSFORM_3D);
+    // A mesh is required, not decoration: writing instance data makes the renderer
+    // recompute the multimesh's bounds, and it complains (and has nothing to measure)
+    // when the mesh is null. One quad is enough for the bounds and costs nothing.
+    godot::Ref<godot::QuadMesh> marker;
+    marker.instantiate();
+    probe->set_mesh(marker);
     probe->set_instance_count(1);
     probe->set_instance_transform(
         0, godot::Transform3D(godot::Basis(), godot::Vector3(kTestX, kTestY, kTestZ)));
@@ -58,8 +65,18 @@ bool verify_multimesh_instance_layout(std::string& report) {
     float ours[kFloatsPerInstance];
     pack_unit_instance_transform(ours, kTestX, kTestY, kTestZ);
 
+    // Compared value by value rather than with memcmp: agreeing here is a statement
+    // about the numbers, and two representations of the same float that differ in
+    // padding or negative zero are not a layout difference.
     const float* engine_packed = packed.ptr();
-    if (std::memcmp(engine_packed, ours, sizeof(ours)) == 0) {
+    bool same = true;
+    for (int i = 0; i < kFloatsPerInstance; ++i) {
+        if (engine_packed[i] != ours[i]) {
+            same = false;
+            break;
+        }
+    }
+    if (same) {
         return true;
     }
 

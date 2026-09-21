@@ -14,6 +14,7 @@ namespace VoxelEngine { class ChunkGenerator; }
 // rather than a forward declaration.
 #include "world/chunk_world.hpp"
 #include "world/sweep_band.hpp"
+#include "world/column_prefetch.hpp"
 #include <array>
 #include <deque>
 #include <vector>
@@ -162,6 +163,13 @@ public:
         uint64_t generations       = 0;  // generate_chunk enqueued it
         uint64_t generate_refused  = 0;  // generate_chunk declined (in flight / backlog)
         uint64_t reject_loaded     = 0;  // chunk already in the map
+        // Candidates the walk passed over because the chunk is ALREADY being
+        // generated, learned from ChunkScheduler's lock-free filter instead of by
+        // asking (which costs a global mutex plus a shard lock, and is the reason
+        // these used to show up as `generate_refused`). Counted separately from
+        // `checks` because they do not consume the check budget: the point is that
+        // those checks go to candidates that are not already on their way.
+        uint64_t reject_inflight   = 0;
         uint64_t reject_above      = 0;  // entirely above the column's content
         uint64_t reject_below      = 0;  // entirely below the band (band-only columns)
         uint64_t reject_oob        = 0;  // outside [0, kWorldChunkSlices)
@@ -186,6 +194,7 @@ public:
         // asked for on a previous frame, so it measures exactly how much of the
         // pass's budget goes on work already under way.
         uint64_t frustum_refused     = 0;
+        uint64_t frustum_inflight    = 0;  // skipped without the locks (see reject_inflight)
 
         // Urgent requests (a paste waiting on chunks). These bypass the sweep's
         // filters, so they are counted separately rather than as sweep work.
@@ -220,9 +229,40 @@ public:
         uint64_t band_reads       = 0;
         double   total_band_ms    = 0.0;
         double   max_band_ms      = 0.0;
+        // How many columns the worst band frame read. The budget is checked after
+        // every column, so a frame cannot overshoot by more than ONE column's cost
+        // — which makes this the number that says whether a fat band frame is many
+        // columns (the budget is not doing its job) or a single column that stalled
+        // (something outside this loop held the thread).
+        uint64_t max_band_columns = 0;
+        // The slowest single column ever read. If the worst band frame is large
+        // AND this is large, one column stalled (the budget is fine and something
+        // outside this loop took the thread); if the worst frame is large and this
+        // is small, thousands of cheap columns ran past the budget.
+        double   max_band_column_ms = 0.0;
+        // The slowest single cold bounds derivation. If a fat band frame coincides
+        // with a fat value here, the rigorous height range is what stalled; if not,
+        // that frame was spent after the range (the resident lookups) or this thread
+        // was taken away entirely.
+        double   max_cold_bounds_ms = 0.0;
+
+        // Columns whose bounds a worker produced ahead of the frontier, and the
+        // band reads that consumed one. With the prefetch running, `band_reads`
+        // stays where it is while the cold part of each one moves off this
+        // thread, so `total_band_ms`/`max_band_ms` are the measurement that says
+        // whether that happened; `prefetch_taken` is the counter that proves a
+        // band read was taken from a ready answer rather than computed here.
+        uint64_t prefetch_taken   = 0;
+        // Columns whose bounds THIS thread had to derive, which is the number the
+        // prefetch exists to drive to zero. A column is counted once, on the pass
+        // that first needed it: later passes hit the column cache instead.
+        uint64_t cold_bounds      = 0;
     };
 
     [[nodiscard]] const GenerationStats& get_generation_stats() const { return generation_stats; }
+    [[nodiscard]] ColumnPrefetch::Stats get_prefetch_stats() const {
+        return column_prefetch ? column_prefetch->stats() : ColumnPrefetch::Stats{};
+    }
     void reset_generation_stats() {
         // candidate_offsets/candidate_columns describe the list that is currently
         // built rather than counting anything that happened, so they survive a
@@ -380,6 +420,29 @@ private:
     // see, so they keep the cheap band-only window.
     static constexpr int32_t kUndergroundFillRadius = 8;
 
+    // Off-thread producer of the per-column content bounds the band frontier
+    // consumes. See column_prefetch.hpp: the bounds are ~181 us of pure
+    // computation each and 70% of the sweep's wall time lived in them, so they
+    // are the one part of the sweep that belongs on a worker rather than inside
+    // a 2 ms frame budget.
+    std::shared_ptr<ColumnPrefetch> column_prefetch;
+    // Where the request scan has got to in the sweep list. The list is nearest
+    // first and a crossing replaces its outer ring, so a bounded walk that
+    // requests whatever has no bounds yet (independent of the frontier) is what
+    // keeps the ring about to enter the disc already computed when it arrives.
+    size_t prefetch_scan = 0;
+    // Requests made so far by the pass the cursor is in, and whether a whole pass
+    // came up empty. An empty pass means every column of this list either has
+    // bounds or is already asked for, and only a rebuild (or a cache clear, which
+    // forces one) can change that — so the scan stops until then instead of
+    // re-reading 3,209 positions every frame forever.
+    size_t prefetch_pass_requests = 0;
+    bool   prefetch_idle = false;
+    // True until the first pass over a freshly built list has run. That pass
+    // covers the whole list in one frame, because the frontier reaches the far end
+    // (where the ring that just entered sits) before the next one.
+    bool   prefetch_pass_fresh = true;
+
     // Resumable cursor for the unload scan (bucket index into ChunkMap's
     // internal unordered_map). Persisted across frames so the scan actually
     // walks the whole map over time instead of re-checking the same ~500
@@ -387,6 +450,13 @@ private:
     size_t unload_scan_bucket_cursor = 0;
 
     ColumnSurfaceBounds get_column_surface_bounds(int32_t cx, int32_t cz);
+    // The one definition of a column's bounds from a generator answer, shared by
+    // this thread's fallback path and a worker's prefetched answer so the two
+    // cannot disagree about them.
+    static ColumnSurfaceBounds bounds_of_height_range(float min_h, float max_h, float max_water_h);
+    // Inserts into the column cache with its FIFO eviction, in one place so the
+    // fallback path and a claimed prefetch answer cannot diverge on ownership.
+    void store_column_bounds(uint64_t key, const ColumnSurfaceBounds& bounds);
     void invalidate_height_cache();
 
     // Builds the sweep list: one entry per column in the render distance that has
@@ -399,6 +469,16 @@ private:
     // per-frame time budget. Always reads at least one, so the frontier cannot
     // stall. Costs nothing once it has caught up with the list.
     void service_sweep_bands();
+    // Requests bounds for a bounded slice of the sweep list, so a column entering
+    // the disc has its band answer already waiting instead of being computed on
+    // this thread the moment the frontier reaches it.
+    void pump_column_prefetch();
+    // Hands one column to the pool against `epoch`, if a request for it was not
+    // already out. True when a task was queued.
+    bool enqueue_column_prefetch(int32_t cx, int32_t cz, uint32_t epoch);
+    // Republishes the terrain configuration the prefetch workers compute with,
+    // and drops their answers, because those bounds are derived from it.
+    void refresh_prefetch_config();
     void update_generation(bool is_editor, int32_t active_render_distance, uint64_t epoch, int32_t pcx, int32_t pcy, int32_t pcz, bool chunk_changed);
     void update_unload(int32_t active_render_distance, int32_t pcx, int32_t pcy, int32_t pcz, bool chunk_changed);
     void process_mesh_budgets(bool is_editor, uint64_t epoch, uint64_t& chunks_processed_total, int32_t active_render_distance, double delta);

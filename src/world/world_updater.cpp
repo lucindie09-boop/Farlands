@@ -14,7 +14,12 @@
 namespace VoxelEngine {
 using namespace godot;
 
-WorldUpdater::WorldUpdater() = default;
+WorldUpdater::WorldUpdater() : column_prefetch(std::make_shared<ColumnPrefetch>()) {
+    // The workers' first act is to copy the published configuration, so it has to
+    // be published from the start: a worker computing with a default config would
+    // hand the sweep bands from terrain that is not the terrain it is rendering.
+    refresh_prefetch_config();
+}
 WorldUpdater::~WorldUpdater() = default;
 
 void WorldUpdater::set_fluid_state_table(fluids::FluidStateTable* table) {
@@ -60,11 +65,17 @@ void WorldUpdater::set_terrain_params(const TerrainParams& p) {
 void WorldUpdater::set_biome_config(const BiomeConfig& c) {
     biome_config = c;
     if (height_estimator) height_estimator->set_biome_config(c);
+    // Biome amplification is part of what a column's bounds are derived from, so
+    // republish it here even though the column cache is left alone (these setters
+    // are setup-time today, but the prefetch must not outlive the config it was
+    // asked to compute with either way).
+    refresh_prefetch_config();
 }
 
 void WorldUpdater::set_vegetation_config(const VegetationConfig& c) {
     vegetation_config = c;
     if (height_estimator) height_estimator->set_vegetation_config(c);
+    refresh_prefetch_config();
 }
 
 void WorldUpdater::set_vegetation_enabled(bool enabled) {
@@ -192,6 +203,7 @@ void WorldUpdater::update_generation(bool is_editor, int32_t active_render_dista
     // Also counts visible-vs-total candidates to estimate viewport load.
     if (frustum_active && !frustum_pass_complete && total_offsets > 0) {
         size_t   frustum_checks          = 0;
+        size_t   frustum_inflight_skips  = 0;
         int32_t  frustum_generations     = 0;
         const size_t max_frustum_checks = std::max(max_checks_per_frame / 2, size_t(64));
         int32_t  visible_in_sweep        = 0;
@@ -222,6 +234,15 @@ void WorldUpdater::update_generation(bool is_editor, int32_t active_render_dista
             ++generation_stats.frustum_visible;
 
             uint64_t key = chunk_world->get_chunk_map().get_chunk_key(cx, cy, cz);
+            // Asked BEFORE the map lookup and without any lock: an in-flight chunk
+            // is not resident yet, so the map cannot tell us, and asking through
+            // generate_chunk costs a mutex plus a shard lock to be refused.
+            if (frustum_inflight_skips < max_frustum_checks &&
+                chunk_world->get_scheduler().may_be_generating(key)) {
+                ++frustum_inflight_skips;
+                ++generation_stats.frustum_inflight;
+                continue;
+            }
             if (chunk_world->get_chunk_map().contains(key)) {
                 // Counted, not just skipped: in a settled world almost everything
                 // in the frustum is already resident, and without this number the
@@ -264,6 +285,7 @@ void WorldUpdater::update_generation(bool is_editor, int32_t active_render_dista
     // --- Phase 2: Normal ring-ordered pass ---
     if (!generation_pass_complete && !sweep_columns.empty()) {
         size_t   checks              = 0;
+        size_t   inflight_skips      = 0;
         int32_t  generations_this_frame = 0;
 
         while (checks < max_checks_per_frame &&
@@ -294,11 +316,26 @@ void WorldUpdater::update_generation(bool is_editor, int32_t active_render_dista
             const int32_t cx = candidate.x;
             const int32_t cy = candidate.y;
             const int32_t cz = candidate.z;
+
+            uint64_t key = chunk_world->get_chunk_map().get_chunk_key(cx, cy, cz);
+            // Already on its way: skip it WITHOUT spending a check, which is what
+            // moves this budget onto terrain that does not exist yet. Bounded by
+            // its own allowance so a frame cannot walk the whole list on skips —
+            // past the allowance a candidate falls through to the old path, where
+            // generate_chunk refuses it (bounded waste instead of unbounded
+            // cheap work). The filter takes no lock (see
+            // ChunkScheduler::may_be_generating).
+            if (inflight_skips < max_checks_per_frame &&
+                chunk_world->get_scheduler().may_be_generating(key)) {
+                ++inflight_skips;
+                ++generation_stats.reject_inflight;
+                continue;
+            }
+
             ++checks;
             ++generation_stats.checks;
             ++frame_checks;
 
-            uint64_t key = chunk_world->get_chunk_map().get_chunk_key(cx, cy, cz);
             if (chunk_world->get_chunk_map().contains(key)) {
                 ++generation_stats.reject_loaded;
                 continue;
@@ -562,11 +599,20 @@ WorldUpdater::ColumnSurfaceBounds WorldUpdater::get_column_surface_bounds(int32_
     if (it != column_height_cache.end()) {
         return it->second;
     }
-    // FIFO eviction: evict oldest entries when cache is full.
-    if (column_height_cache.size() >= 65536) {
-        uint64_t oldest = column_height_fifo.front();
-        column_height_fifo.pop_front();
-        column_height_cache.erase(oldest);
+    // A worker already derived these bounds: claim its answer rather than spend
+    // ~181 us of this thread on the same lattice. This is the whole point of the
+    // prefetch, and `prefetch_taken` counts it so /genstats can show whether the
+    // requests are landing ahead of the frontier or behind it.
+    if (column_prefetch) {
+        ColumnBounds ready;
+        if (column_prefetch->try_take(key, ready)) {
+            ColumnSurfaceBounds b;
+            b.land_h = ready.land_h;
+            b.top_h  = ready.top_h;
+            store_column_bounds(key, b);
+            ++generation_stats.prefetch_taken;
+            return b;
+        }
     }
     // Rigorous content bounds over the WHOLE chunk area (all 4-block lattice
     // nodes, not just the center column). On steep terrain a biome border or
@@ -577,18 +623,49 @@ WorldUpdater::ColumnSurfaceBounds WorldUpdater::get_column_surface_bounds(int32_
     // This range already pads by ChunkGenerator::density_margin(), so it bounds every column's
     // real content; land_h is the lowest possible surface (everything below is
     // solid rock), top_h the highest (air above, with water to sea level).
+    // Timed only on the cold path, so the clock reads cost nothing in the common
+    // case. This is the number that says whether a band frame that blew its budget
+    // was spent in here (the rigorous height range really did take that long) or
+    // somewhere after it (the resident lookups, or this thread being taken away).
+    const auto range_start = std::chrono::steady_clock::now();
     const ChunkGenerator::HeightRange range = height_estimator->get_chunk_height_range(cx, cz);
+    generation_stats.max_cold_bounds_ms = std::max(generation_stats.max_cold_bounds_ms,
+        std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - range_start).count());
+    ++generation_stats.cold_bounds;
+    const ColumnSurfaceBounds b = bounds_of_height_range(range.min_h, range.max_h, range.max_water_h);
+    store_column_bounds(key, b);
+    return b;
+}
+
+// The one definition of "what a column's bounds are", so the main thread's
+// fallback path and a worker's prefetched answer cannot disagree about them.
+WorldUpdater::ColumnSurfaceBounds WorldUpdater::bounds_of_height_range(float min_h, float max_h,
+                                                                      float max_water_h) {
     ColumnSurfaceBounds b;
-    b.land_h = range.min_h;
-    b.top_h  = std::max(range.max_h, range.max_water_h);
+    b.land_h = min_h;
+    // Water is content too: an ocean chunk is air above the sea floor but not
+    // above sea level, and the band filter has to keep those slices.
+    b.top_h  = std::max(max_h, max_water_h);
+    return b;
+}
+
+void WorldUpdater::store_column_bounds(uint64_t key, const ColumnSurfaceBounds& b) {
+    if (column_height_cache.size() >= 65536) {
+        uint64_t oldest = column_height_fifo.front();
+        column_height_fifo.pop_front();
+        column_height_cache.erase(oldest);
+    }
     column_height_cache[key] = b;
     column_height_fifo.push_back(key);
-    return b;
 }
 
 void WorldUpdater::invalidate_height_cache() {
     column_height_cache.clear();
     column_height_fifo.clear();
+    // The prefetched answers come from that same cache's inputs, so they go with
+    // it: republishing the configuration retires every request in flight.
+    refresh_prefetch_config();
     // The sweep list carries a slice range per column, read from this cache, so a
     // change of seed, sea level, terrain params or biome config invalidates the
     // list with it — otherwise the sweep would keep generating against bands from
@@ -596,7 +673,109 @@ void WorldUpdater::invalidate_height_cache() {
     sweep_bands_dirty = true;
 }
 
+void WorldUpdater::refresh_prefetch_config() {
+    if (!column_prefetch) return;
+    ColumnPrefetch::Config config;
+    config.terrain    = terrain_params;
+    config.biomes     = biome_config;
+    config.vegetation = vegetation_config;
+    column_prefetch->set_config(config);
+}
+
+bool WorldUpdater::enqueue_column_prefetch(int32_t cx, int32_t cz, uint32_t epoch) {
+    if (!column_prefetch || thread_pool == nullptr) return false;
+    const uint64_t key = ColumnPrefetch::key_of(cx, cz);
+    if (!column_prefetch->request(key, epoch)) return false;
+    // The task holds the prefetch state, not this updater: it can still be queued
+    // or running when the world is torn down, and must not reach back into memory
+    // that has gone.
+    std::shared_ptr<ColumnPrefetch> state = column_prefetch;
+    thread_pool->fire_and_forget([state, key, epoch, cx, cz] {
+        // One generator per thread, configured from the published copy of the
+        // terrain configuration — the same shape the generation workers use, and
+        // for the same reason: never shared, and never the main thread's, whose
+        // setters mutate it while this runs.
+        static thread_local ChunkGenerator generator;
+        static thread_local ColumnPrefetch::Config config;
+        static thread_local uint32_t seen_epoch = 0;
+        bool copied = false;
+        if (!state->worker_config(epoch, seen_epoch, config, copied)) return;
+        if (copied) {
+            generator.set_params(config.terrain);
+            generator.set_biome_config(config.biomes);
+            generator.set_vegetation_config(config.vegetation);
+        }
+        const ChunkGenerator::HeightRange range = generator.get_chunk_height_range(cx, cz);
+        // Same helper the main thread's fallback path uses, so an answer cannot
+        // depend on which thread produced it.
+        const WorldUpdater::ColumnSurfaceBounds b =
+            bounds_of_height_range(range.min_h, range.max_h, range.max_water_h);
+        state->publish(key, epoch, ColumnBounds{b.land_h, b.top_h});
+    });
+    return true;
+}
+
+void WorldUpdater::pump_column_prefetch() {
+    if (!column_prefetch || thread_pool == nullptr) return;
+    if (sweep_columns.empty() || prefetch_idle) return;
+    // Two bounds on what is offered: only a slice of the list is scanned per
+    // frame, and only so many requests may be out at once. The scan is
+    // deliberately independent of the frontier, because the columns the frontier
+    // has no bounds for are not the ones just ahead of it — after a crossing they
+    // are the ring that just entered the disc, which sits at the END of a
+    // nearest-first list, and the frontier would reach them only after re-reading
+    // every column already known (all ~3,200 of them) on the way.
+    constexpr size_t kScanPerFrame = 1024;
+    constexpr size_t kMaxOutstanding = 256;
+    size_t outstanding = column_prefetch->outstanding();
+    if (outstanding >= kMaxOutstanding) return;
+    const uint32_t epoch = column_prefetch->epoch();
+    const size_t list_size = sweep_columns.size();
+    // The first pass over a freshly built list covers ALL of it, rather than a
+    // slice per frame. The frontier starts at position 0 on that same frame and can
+    // reach the far end — where the ring that just entered the disc sits, since the
+    // list is nearest-first — before the next frame, so a request made a slice at a
+    // time arrives after the frontier has already asked for the column and derived
+    // it here. Measured with the benchmark: slicing every pass left 1,910 of 4,848
+    // entered columns derived on this thread (39%), i.e. two fifths of the work this
+    // exists to move was still being paid on the main thread. Later passes only
+    // replace what has been claimed, so they stay on the small budget.
+    const size_t scan_budget = prefetch_pass_fresh ? list_size : kScanPerFrame;
+    size_t scanned = 0;
+    while (scanned < scan_budget) {
+        if (prefetch_scan >= list_size) {
+            // A whole pass over the list is done. One that wanted nothing will
+            // keep wanting nothing until the list is rebuilt, so stop scanning
+            // rather than re-reading the same 3,209 positions every frame.
+            if (prefetch_pass_requests == 0) {
+                prefetch_idle = true;
+                return;
+            }
+            prefetch_pass_requests = 0;
+            prefetch_scan = 0;
+        }
+        const SweepColumn& column = sweep_columns[prefetch_scan++];
+        ++scanned;
+        const int32_t cx = sweep_origin_cx + column.dx;
+        const int32_t cz = sweep_origin_cz + column.dz;
+        const uint64_t key = (static_cast<uint64_t>(static_cast<uint32_t>(cx)) << 32)
+                           |  static_cast<uint64_t>(static_cast<uint32_t>(cz));
+        // Already derived: the crossing that entered this ring re-requests the
+        // whole list, and all but the ~130 columns that just appeared are cached.
+        if (column_height_cache.find(key) != column_height_cache.end()) continue;
+        if (enqueue_column_prefetch(cx, cz, epoch)) {
+            ++prefetch_pass_requests;
+            ++outstanding;
+            if (outstanding >= kMaxOutstanding) break;
+        }
+    }
+    prefetch_pass_fresh = false;
+}
+
 void WorldUpdater::service_sweep_bands() {
+    // Top the requests up before the frontier, so a column entering the disc
+    // usually has its answer waiting by the time the frontier gets to it.
+    pump_column_prefetch();
     if (sweep_band_frontier >= sweep_columns.size()) return;  // caught up
     constexpr int32_t kWorldChunkSlices = WORLD_HEIGHT_Y / CHUNK_HEIGHT;
     // Two milliseconds of a 16 ms frame, always at least one column so the
@@ -606,7 +785,10 @@ void WorldUpdater::service_sweep_bands() {
     constexpr double kBandBudgetMs = 2.0;
     const auto start = std::chrono::steady_clock::now();
     double band_ms = 0.0;
+    uint64_t columns_read = 0;
+    double worst_column_ms = 0.0;
     while (sweep_band_frontier < sweep_columns.size()) {
+        const double before_column_ms = band_ms;
         SweepColumn& column = sweep_columns[sweep_band_frontier];
         const int32_t cx = sweep_origin_cx + column.dx;
         const int32_t cz = sweep_origin_cz + column.dz;
@@ -628,15 +810,31 @@ void WorldUpdater::service_sweep_bands() {
         }
         generation_stats.candidate_offsets += static_cast<uint64_t>(sweep::count(column.band));
         ++generation_stats.band_reads;
+        ++columns_read;
         ++sweep_band_frontier;
         band_ms = std::chrono::duration<double, std::milli>(
             std::chrono::steady_clock::now() - start).count();
+        // Timed per column, because the budget can only bound WORK: it is checked
+        // after each column, so a frame can overshoot it by the cost of the column
+        // it was in when the budget ran out. That cost is what separates a budget
+        // that is not bounding anything (many cheap columns, every value small)
+        // from this thread being taken away mid-column (one value as large as the
+        // whole overshoot) — and the two need opposite fixes.
+        const double this_column_ms = band_ms - before_column_ms;
+        worst_column_ms = std::max(worst_column_ms, this_column_ms);
         if (band_ms >= kBandBudgetMs) break;
     }
     // The elapsed value is written straight into the stats so the timing costs
     // nothing per column; `max` is the worst frame the budget allowed to slip.
     generation_stats.total_band_ms += band_ms;
-    generation_stats.max_band_ms = std::max(generation_stats.max_band_ms, band_ms);
+    // Recorded together with the worst frame, because the two answers to "a 20 ms
+    // band frame" mean opposite things: many columns says the budget is not
+    // bounding anything, one column says this thread was taken away from us.
+    if (band_ms > generation_stats.max_band_ms) {
+        generation_stats.max_band_ms = band_ms;
+        generation_stats.max_band_columns = columns_read;
+        generation_stats.max_band_column_ms = worst_column_ms;
+    }
 }
 
 bool WorldUpdater::advance_sweep(SweepCursor& cursor, int32_t pcy, SweepCandidate& out) {
@@ -689,6 +887,13 @@ void WorldUpdater::rebuild_sweep_columns(int32_t horizontal_rd, int32_t pcx, int
         height_estimator->set_vegetation_config(vegetation_config);
     }
     if (column_height_cache.empty()) column_height_cache.reserve(65536);
+    // A new list means a new set of columns to ask for, so the request scan
+    // starts over. (Its "nothing left to ask for" verdict only holds for the list
+    // it was reached on.)
+    prefetch_scan = 0;
+    prefetch_pass_requests = 0;
+    prefetch_idle = false;
+    prefetch_pass_fresh = true;
     // No vertical render distance: a column whose terrain sits far above or
     // below the player is still reachable, because what bounds generation is the
     // column's own content band, not a window around the player. The band is

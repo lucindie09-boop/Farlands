@@ -784,6 +784,11 @@ func _run_command(raw: String):
 			_add_message("  sweep: %s checks in %s ms (avg %.3f, max %.3f) -> %s generated (%s), %s reached the filter" % [_fmt_count(checks), _fmt_count(int(g.get("total_ms", 0.0))), float(g.get("avg_ms", 0.0)), float(g.get("max_ms", 0.0)), _fmt_count(gens), _pct(gens, checks), _fmt_count(int(g.get("band_pass", 0)))], COLOR_SYSTEM)
 			var rejected := int(g.get("reject_loaded", 0)) + int(g.get("reject_above", 0)) + int(g.get("reject_below", 0)) + int(g.get("reject_oob", 0))
 			_add_message("  rejected %s of %s (%s): loaded %s (%s), above content %s (%s), below band %s (%s), out of bounds %s" % [_fmt_count(rejected), _fmt_count(checks), _pct(rejected, checks), _fmt_count(int(g.get("reject_loaded", 0))), _pct(int(g.get("reject_loaded", 0)), checks), _fmt_count(int(g.get("reject_above", 0))), _pct(int(g.get("reject_above", 0)), checks), _fmt_count(int(g.get("reject_below", 0))), _pct(int(g.get("reject_below", 0)), checks), _fmt_count(int(g.get("reject_oob", 0)))], COLOR_SYSTEM)
+			# Candidates the walk passed over WITHOUT spending a check, because the
+			# lock-free filter said the chunk is already being generated. These are
+			# the checks that now go to terrain that does not exist yet.
+			if int(g.get("reject_inflight", 0)) > 0:
+				_add_message("  in flight: %s candidates skipped without the lock, so those checks went to candidates that were not already on their way" % _fmt_count(int(g.get("reject_inflight", 0))), COLOR_SYSTEM)
 			# Columns whose band was already complete are skipped whole by the walk, so
 			# this is the part of the list that costs nothing: if `skipped` climbs while
 			# `checks` stays flat, the walk is no longer re-confirming built terrain.
@@ -793,12 +798,25 @@ func _run_command(raw: String):
 			# "in the frustum" is the visibility test alone; the loaded count is the part
 			# of it that was already resident, so the four numbers explain each other
 			# rather than leaving a large one unexplained.
-			_add_message("  frustum: %s checks, %s in the frustum of which %s already loaded, %s reached the filters, %s generated, %s already in flight" % [_fmt_count(int(g.get("frustum_checks", 0))), _fmt_count(int(g.get("frustum_visible", 0))), _fmt_count(int(g.get("frustum_loaded", 0))), _fmt_count(int(g.get("frustum_band_pass", 0))), _fmt_count(int(g.get("frustum_generations", 0))), _fmt_count(int(g.get("frustum_refused", 0)))], COLOR_SYSTEM)
+			_add_message("  frustum: %s checks, %s in the frustum of which %s already loaded, %s reached the filters, %s generated, %s skipped as in flight, %s refused" % [_fmt_count(int(g.get("frustum_checks", 0))), _fmt_count(int(g.get("frustum_visible", 0))), _fmt_count(int(g.get("frustum_loaded", 0))), _fmt_count(int(g.get("frustum_band_pass", 0))), _fmt_count(int(g.get("frustum_generations", 0))), _fmt_count(int(g.get("frustum_inflight", 0))), _fmt_count(int(g.get("frustum_refused", 0)))], COLOR_SYSTEM)
 			# Two separate costs, and the split is the point: building the list is pure
 			# bookkeeping (cheap), while reading a column's band is a chunk height range
 			# over its lattice (~235 us cold), which is why it is spent on a per-frame
 			# budget nearest-first instead of all at once in the frame the list is built.
 			_add_message("  list rebuilds: %s in %s ms (max %.2f); bands read: %s in %s ms (max %.2f/frame)" % [_fmt_count(int(g.get("rebuilds", 0))), _fmt_count(int(g.get("total_rebuild_ms", 0.0))), float(g.get("max_rebuild_ms", 0.0)), _fmt_count(int(g.get("band_reads", 0))), _fmt_count(int(g.get("total_band_ms", 0.0))), float(g.get("max_band_ms", 0.0))], COLOR_SYSTEM)
+			# The budget is checked after every column, so a frame cannot overshoot by
+			# more than one column: a fat frame that read ONE column was taken away from
+			# this thread by something else, a fat frame that read thousands is a budget
+			# that is not bounding anything.
+			if float(g.get("max_band_ms", 0.0)) > 5.0:
+				_add_message("  worst band frame read %s columns; its slowest single column was %.2f ms (slowest cold bound read %.2f ms)" % [_fmt_count(int(g.get("max_band_columns", 0))), float(g.get("max_band_column_ms", 0.0)), float(g.get("max_cold_bounds_ms", 0.0))], COLOR_SYSTEM)
+			# The same band reads split by where the answer came from: a worker that
+			# derived it early, or this thread. `cold bounds` is the number the
+			# prefetch exists to drive to zero, and `waited on` is the rest of its
+			# answers (still in flight, or for terrain that has since changed).
+			var pf_published := int(g.get("prefetch_published", 0))
+			if pf_published > 0 or int(g.get("prefetch_requested", 0)) > 0:
+				_add_message("  column bounds: %s taken from a worker, %s derived here; %s requested, %s answers published, %s stale, %s dropped, %s still out" % [_fmt_count(int(g.get("prefetch_taken", 0))), _fmt_count(int(g.get("cold_bounds", 0))), _fmt_count(int(g.get("prefetch_requested", 0))), _fmt_count(pf_published), _fmt_count(int(g.get("prefetch_stale", 0))), _fmt_count(int(g.get("prefetch_dropped", 0))), _fmt_count(int(g.get("prefetch_outstanding", 0)))], COLOR_SYSTEM)
 			if int(g.get("urgent_requested", 0)) > 0:
 				_add_message("  pending requests (pastes): %s asked for, %s generated" % [_fmt_count(int(g.get("urgent_requested", 0))), _fmt_count(int(g.get("urgent_generated", 0)))], COLOR_SYSTEM)
 			var window_frames := int(g.get("window_frames", 0))

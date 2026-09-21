@@ -496,6 +496,7 @@ Dictionary ChunkManager::get_generation_stats() {
     out["generations"] = static_cast<int64_t>(stats.generations);
     out["generate_refused"] = static_cast<int64_t>(stats.generate_refused);
     out["reject_loaded"] = static_cast<int64_t>(stats.reject_loaded);
+    out["reject_inflight"] = static_cast<int64_t>(stats.reject_inflight);
     out["reject_above"] = static_cast<int64_t>(stats.reject_above);
     out["reject_below"] = static_cast<int64_t>(stats.reject_below);
     out["reject_oob"] = static_cast<int64_t>(stats.reject_oob);
@@ -509,6 +510,7 @@ Dictionary ChunkManager::get_generation_stats() {
     out["frustum_band_pass"] = static_cast<int64_t>(stats.frustum_band_pass);
     out["frustum_generations"] = static_cast<int64_t>(stats.frustum_generations);
     out["frustum_refused"] = static_cast<int64_t>(stats.frustum_refused);
+    out["frustum_inflight"] = static_cast<int64_t>(stats.frustum_inflight);
 
     out["urgent_requested"] = static_cast<int64_t>(stats.urgent_requested);
     out["urgent_generated"] = static_cast<int64_t>(stats.urgent_generated);
@@ -524,6 +526,22 @@ Dictionary ChunkManager::get_generation_stats() {
     out["band_reads"] = static_cast<int64_t>(stats.band_reads);
     out["total_band_ms"] = stats.total_band_ms;
     out["max_band_ms"] = stats.max_band_ms;
+    out["max_band_columns"] = static_cast<int64_t>(stats.max_band_columns);
+    out["max_band_column_ms"] = stats.max_band_column_ms;
+    out["max_cold_bounds_ms"] = stats.max_cold_bounds_ms;
+    // The other half of a band read: how many were answered by a worker instead of
+    // computed here, and how many columns this thread still had to derive itself.
+    // The pair is what says whether the prefetch is running ahead of the frontier
+    // or behind it — a lagging prefetch is slower, never wrong.
+    out["cold_bounds"] = static_cast<int64_t>(stats.cold_bounds);
+    out["prefetch_taken"] = static_cast<int64_t>(stats.prefetch_taken);
+    const VoxelEngine::ColumnPrefetch::Stats pf =
+        controller->get_world_updater().get_prefetch_stats();
+    out["prefetch_requested"] = static_cast<int64_t>(pf.requested);
+    out["prefetch_published"] = static_cast<int64_t>(pf.published);
+    out["prefetch_stale"] = static_cast<int64_t>(pf.stale);
+    out["prefetch_dropped"] = static_cast<int64_t>(pf.dropped);
+    out["prefetch_outstanding"] = static_cast<int64_t>(pf.outstanding);
 
     // Window sums, computed here rather than in GDScript so the caller reads the
     // same numbers the counters hold (and so a mid-window reset cannot mix two

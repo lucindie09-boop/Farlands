@@ -454,6 +454,16 @@ void WorldUpdater::process_mesh_budgets(bool is_editor, uint64_t epoch, uint64_t
         upload_budget       = std::max(1, static_cast<int32_t>(static_cast<float>(upload_budget) * visibility_scale));
     }
 
+    // NOTE: a backlog-proportional mesh budget was tried here and reverted. The
+    // reasoning was sound (the queue is saturated while the player moves, so a
+    // bigger count drains it sooner) but the cost is on the main thread, and this
+    // pass is not cheap per rebuild: every rebuild does 7 chunk lookups, and the
+    // far-region share of the budget walks 64 chunks per scheduled region. Scaling
+    // the count 4x took `dirty_mesh_queue` from a ~1.0 ms median to ~2.7 ms in a
+    // live session with no visible gain, because the extra rebuilds are not more
+    // terrain — they arrive in the same order, just sooner (see ARCHITECTURE.md).
+    // The starvation fix (the queue's reserve) does not depend on this.
+
     {
         ScopedTimer t(*perf_timer, TimerID::ProcessCompletedChunks);
         int32_t active_max = is_initial_loading ? budgets.chunk_completions_initial : budgets.chunk_completions_gameplay;

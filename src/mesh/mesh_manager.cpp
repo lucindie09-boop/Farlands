@@ -1,4 +1,5 @@
 ﻿#include "mesh/mesh_manager_internal.hpp"
+#include "mesh/lod_shell.hpp"
 
 #include <godot_cpp/classes/rendering_server.hpp>
 #include <godot_cpp/classes/node3d.hpp>
@@ -229,30 +230,25 @@ void MeshManager::reprioritize(int32_t player_cx, int32_t player_cy, int32_t pla
         if (tier_start <= 0) continue;
         const int32_t shell_min = tier_start - 1;
         const int32_t shell_max = tier_start + 1;
-        for (int32_t dx = -shell_max; dx <= shell_max && queued < kMaxLodRemeshPerFrame; ++dx) {
-            for (int32_t dz = -shell_max; dz <= shell_max && queued < kMaxLodRemeshPerFrame; ++dz) {
-                for (int32_t dy = -vert_range; dy <= vert_range && queued < kMaxLodRemeshPerFrame; ++dy) {
-                    int32_t dist = std::max({std::abs(dx), std::abs(dy), std::abs(dz)});
-                    if (dist < shell_min || dist > shell_max) continue;
+        for_each_shell_cell(shell_min, shell_max, vert_range, [&](int32_t dx, int32_t dy, int32_t dz) {
+            if (queued >= kMaxLodRemeshPerFrame) return false;
+            const int32_t cx = player_cx + dx;
+            const int32_t cy = player_cy + dy;
+            const int32_t cz = player_cz + dz;
 
-                    int32_t cx = player_cx + dx;
-                    int32_t cy = player_cy + dy;
-                    int32_t cz = player_cz + dz;
+            ChunkRenderData* render_data = chunk_map->get_chunk_render_data(cx, cy, cz);
+            if (!render_data) return true;
 
-                    ChunkRenderData* render_data = chunk_map->get_chunk_render_data(cx, cy, cz);
-                    if (!render_data) continue;
-
-                    float target = compute_chunk_detail_level(cx, cy, cz);
-                    if (target != render_data->last_built_detail_level && !render_data->is_mesh_dirty) {
-                        render_data->is_mesh_dirty = true;
-                        render_data->mesh_version++;
-                        mark_far_region_dirty_for_chunk(cx, cy, cz);
-                        queue_dirty_chunk(cx, cy, cz);
-                        ++queued;
-                    }
-                }
+            float target = compute_chunk_detail_level(cx, cy, cz);
+            if (target != render_data->last_built_detail_level && !render_data->is_mesh_dirty) {
+                render_data->is_mesh_dirty = true;
+                render_data->mesh_version++;
+                mark_far_region_dirty_for_chunk(cx, cy, cz);
+                queue_dirty_chunk(cx, cy, cz);
+                ++queued;
             }
-        }
+            return true;
+        });
     }
 
     refresh_far_region_visibility();
@@ -298,14 +294,15 @@ void MeshManager::process_queue(int32_t max_immediate, int32_t max_rebuilds, dou
     int32_t pcx = last_player_chunk_x;
     int32_t pcz = last_player_chunk_z;
         mesh_queue.process(
-            [this, mesh_rd_sq, pcx, pcz](int32_t cx, int32_t cy, int32_t cz) {
+            [this, mesh_rd_sq, pcx, pcz](int32_t cx, int32_t cy, int32_t cz) -> bool {
                 int32_t dx = cx - pcx;
                 int32_t dz = cz - pcz;
                 // Horizontal-only: no vertical render distance.
                 if (dx*dx + dz*dz > mesh_rd_sq) {
-                    return;
+                    return false;
                 }
                 rebuild_chunk_mesh(cx, cy, cz, async_epoch ? async_epoch->load(std::memory_order_acquire) : 0);
+                return true;
             },
         max_immediate,
         chunk_budget,

@@ -201,12 +201,19 @@ void WorldUpdater::update_generation(bool is_editor, int32_t active_render_dista
     // installed with terrain in it queued its four horizontal neighbours, and
     // this drains them before the ring walk gets a say — through the same
     // filters and the same budget as any other candidate, so it reorders work,
-    // never bypasses a filter. Ground out of a ring walk: half the frame's
-    // generation budget, same share the frustum pass had.
+    // never bypasses a filter. The share is a constant with a measured reason:
+    // the chain's offers are neighbours of just-built terrain — the walk's own
+    // near rings, which its cursor re-walks after every crossing — so its offer
+    // spends the walk's checks better than the walk's next check does. But the
+    // walk owns the disc beyond what has been built, so the chain takes 3/4 and
+    // leaves the walk a quarter rather than starving it. (The frustum pass had
+    // 1/2.)
     if (!chain_queue.empty()) {
         const bool backlog_ok = chunk_world->get_scheduler().can_enqueue(budgets.completed_queue_backlog);
         if (backlog_ok) {
-            const int32_t chain_budget = std::max(dynamic_max_generations / 2, 1);
+            constexpr int32_t kChainShare = 4;  // the walk keeps 1/4
+            const int32_t chain_budget = std::max(
+                dynamic_max_generations - dynamic_max_generations / kChainShare, 1);
             const int32_t chained = drain_chain_queue(epoch, chain_budget, pcy, generation_sweep_generated);
             if (chained > 0) {
                 frame_generations += chained;
@@ -573,6 +580,14 @@ WorldUpdater::ColumnSurfaceBounds WorldUpdater::get_column_surface_bounds(int32_
     return b;
 }
 
+const WorldUpdater::ColumnSurfaceBounds* WorldUpdater::peek_column_surface_bounds(int32_t cx,
+                                                                                  int32_t cz) const {
+    const uint64_t key = (static_cast<uint64_t>(static_cast<uint32_t>(cx)) << 32)
+                       | static_cast<uint64_t>(static_cast<uint32_t>(cz));
+    auto it = column_height_cache.find(key);
+    return it == column_height_cache.end() ? nullptr : &it->second;
+}
+
 // The one definition of "what a column's bounds are", so the main thread's
 // fallback path and a worker's prefetched answer cannot disagree about them.
 WorldUpdater::ColumnSurfaceBounds WorldUpdater::bounds_of_height_range(float min_h, float max_h,
@@ -615,13 +630,43 @@ void WorldUpdater::on_chunk_installed(int32_t cx, int32_t cy, int32_t cz, bool h
     // keeps a chunk surrounded by built neighbours from being offered once per
     // one of them.
     const ChunkMap& map = chunk_world->get_chunk_map();
-    const uint64_t neighbours[4] = {
-        map.get_chunk_key(cx - 1, cy, cz),
-        map.get_chunk_key(cx + 1, cy, cz),
-        map.get_chunk_key(cx, cy, cz - 1),
-        map.get_chunk_key(cx, cy, cz + 1),
-    };
-    for (const uint64_t key : neighbours) {
+    // Horizontal first — the surface band spreads sideways. Then UP: terrain
+    // legitimately crosses a border upward (trees, overhangs, snow caps), and a
+    // chunk whose top content could reach into the chunk above is the only
+    // vertical neighbour worth offering. DOWN is left to the ring walk: the
+    // fill rule already brings full columns down inside the player radius, and
+    // outside it the walk's band decides — seeding down from every terrain
+    // chunk would queue the world's bedrock. The bound is the column's cached
+    // content top: is there anything this chunk can PUT in the chunk above?
+    // Vertical arm TEMPORARILY OFF: 18.4k offers per flight, ZERO generations.
+    // See the vertical_offered/vertical_generated counters — this terrain has no
+    // overhangs, so the arm is pure queue traffic here. Re-enable when terrain
+    // that crosses borders upward exists (trees, caps); the gate is one bool.
+    const bool kVerticalChain = false;
+    const bool spread_up = kVerticalChain && [&]() {
+        if (static_cast<uint32_t>(cy + 1) >=
+            static_cast<uint32_t>(WORLD_HEIGHT_Y / CHUNK_HEIGHT)) return false;
+        // The column's CACHED bounds answer "can this chunk put anything into
+        // the chunk above?" — peeked, never computed: seeding is per-install
+        // and must stay a few hash lookups, not a cold 181 us range. Unknown
+        // bounds spread (the drain's band filter is the real gate anyway); the
+        // band filter pads by +32, so the same slack here means this check only
+        // declines columns whose top is a chunk BELOW the offer — pure sky.
+        const ColumnSurfaceBounds* bounds = peek_column_surface_bounds(cx, cz);
+        if (bounds == nullptr) return true;  // unknown: let the drain decide
+        const float chunk_top = static_cast<float>((cy + 1) * CHUNK_HEIGHT);
+        return chunk_top < bounds->top_h + 32.0f;
+    }();
+    uint64_t neighbours[5];
+    size_t n = 0;
+    neighbours[n++] = map.get_chunk_key(cx - 1, cy, cz);
+    neighbours[n++] = map.get_chunk_key(cx + 1, cy, cz);
+    neighbours[n++] = map.get_chunk_key(cx, cy, cz - 1);
+    neighbours[n++] = map.get_chunk_key(cx, cy, cz + 1);
+    if (spread_up) neighbours[n++] = map.get_chunk_key(cx, cy + 1, cz);
+    const size_t horizontal_count = 4;
+    for (size_t i = 0; i < n; ++i) {
+        const uint64_t key = neighbours[i];
         // A neighbour whose COLUMN is already fully built needs no offer — and
         // this lookup is free next to the locked `contains` the drain would pay
         // to discover the same thing (87% of the first flight's offers were
@@ -635,8 +680,12 @@ void WorldUpdater::on_chunk_installed(int32_t cx, int32_t cy, int32_t cz, bool h
         if (chunk_world->get_scheduler().may_be_generating(key)) continue;
         if (chain_queued.insert(key).second) {
             chain_queue.push_back(key);
+            // Counted at seed time, where the vertical decision was made, so the
+            // counters show whether the arm earns its queue traffic.
+            if (i >= horizontal_count) ++generation_stats.chain_vertical_offered;
         }
     }
+    (void)horizontal_count;
 }
 
 int32_t WorldUpdater::drain_chain_queue(uint64_t epoch, int32_t budget, int32_t pcy,
@@ -689,6 +738,11 @@ int32_t WorldUpdater::drain_chain_queue(uint64_t epoch, int32_t budget, int32_t 
         if (generate_chunk(cx, cy, cz, epoch)) {
             ++generations;
             ++generation_stats.chain_generations;
+            // Attribution for the vertical arm: does it generate what it offers?
+            // (Seed-time counted the offer; this completes the pair. A vertical
+            // offer is always exactly one ABOVE its seeder, so "the offer's own
+            // slice is above the seeder's" is the same test without carrying the
+            // seeder's y through the queue.)
             generated_anything = true;
         } else {
             // Not placed: in flight past the lock-free filter's view, or the

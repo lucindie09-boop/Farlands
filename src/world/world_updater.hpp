@@ -208,6 +208,13 @@ public:
         uint64_t chain_refused    = 0;
         uint64_t chain_skipped    = 0;  // already loaded or in flight when drained
         uint64_t chain_seeds      = 0;
+        // How many of the offered candidates were VERTICAL neighbours, and how
+        // many of those generated. The vertical arm exists for trees and
+        // overhangs, which cross chunk borders upward where the horizontal ring
+        // already covers the surface band; if `generated` does not follow
+        // `vertical_offered`, the arm is pure queue traffic and should go.
+        uint64_t chain_vertical_offered = 0;
+        uint64_t chain_vertical_generated = 0;
 
         // Urgent requests (a paste waiting on chunks). These bypass the sweep's
         // filters, so they are counted separately rather than as sweep work.
@@ -493,6 +500,10 @@ private:
     size_t unload_scan_bucket_cursor = 0;
 
     ColumnSurfaceBounds get_column_surface_bounds(int32_t cx, int32_t cz);
+    // The cached bounds for a column, or nullptr when they are not in the cache.
+    // For callers that must not COMPUTE a cold range as a side effect of asking —
+    // the chain's seeding is per-install and must stay a few hash lookups.
+    [[nodiscard]] const ColumnSurfaceBounds* peek_column_surface_bounds(int32_t cx, int32_t cz) const;
     // The one definition of a column's bounds from a generator answer, shared by
     // this thread's fallback path and a worker's prefetched answer so the two
     // cannot disagree about them.

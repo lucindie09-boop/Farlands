@@ -799,7 +799,7 @@ func _run_command(raw: String):
 			# its 4 horizontal neighbours, drained before the ring walk through the
 			# same filters. skipped = already here or already in flight; refused =
 			# offered again next frame.
-			_add_message("  chain: %s offered (%s seeds), %s generated, %s skipped, %s refused" % [_fmt_count(int(g.get("chain_offered", 0))), _fmt_count(int(g.get("chain_seeds", 0))), _fmt_count(int(g.get("chain_generations", 0))), _fmt_count(int(g.get("chain_skipped", 0))), _fmt_count(int(g.get("chain_refused", 0)))], COLOR_SYSTEM)
+			_add_message("  chain: %s offered (%s seeds), %s generated, %s skipped, %s refused (vertical: %s offered, %s generated)" % [_fmt_count(int(g.get("chain_offered", 0))), _fmt_count(int(g.get("chain_seeds", 0))), _fmt_count(int(g.get("chain_generations", 0))), _fmt_count(int(g.get("chain_skipped", 0))), _fmt_count(int(g.get("chain_refused", 0))), _fmt_count(int(g.get("chain_vertical_offered", 0))), _fmt_count(int(g.get("chain_vertical_generated", 0)))], COLOR_SYSTEM)
 			# Two separate costs, and the split is the point: building the list is pure
 			# bookkeeping (cheap), while reading a column's band is a chunk height range
 			# over its lattice (~235 us cold), which is why it is spent on a per-frame

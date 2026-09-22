@@ -54,30 +54,88 @@
       ]
     },
     "n_up": {
-      "selection_boxes": [[0, 0.5, 0, 1, 1, 1], [0, 0, 0, 1, 0.5, 0.5]]
+      "_comment": "The hanging half of the family: the same five rules as stair/n on geometry mirrored about the cell floor, so the slab is the raised half and the step hangs. `selection_boxes` is the canonical flattening (slab then step), which is what the loader derives from the parts and what the icon draws. A hanging stair turns only with another hanging one and an upright only with an upright  -  the two are mirrored, so a quarter or a remnant between them would sit in a step-shaped gap that is not there.",
+      "selection_boxes": [[0, 0.5, 0, 1, 1, 1], [0, 0, 0, 1, 0.5, 0.5]],
+      "parts": [
+        { "boxes": [[0, 0.5, 0, 1, 1, 1]] },
+        { "rule": "stair_step", "boxes": [[0, 0, 0, 1, 0.5, 0.5]] },
+        { "rule": "stair_corner_left", "boxes": [[0, 0, 0.5, 0.5, 0.5, 1]] },
+        { "rule": "stair_corner_right", "boxes": [[0.5, 0, 0.5, 1, 0.5, 1]] },
+        { "rule": "stair_cut_left", "boxes": [[0, 0, 0, 0.5, 0.5, 0.5]] },
+        { "rule": "stair_cut_right", "boxes": [[0.5, 0, 0, 1, 0.5, 0.5]] }
+      ]
     },
     "s_up": {
-      "selection_boxes": [[0, 0.5, 0, 1, 1, 1], [0, 0, 0.5, 1, 0.5, 1]]
+      "selection_boxes": [[0, 0.5, 0, 1, 1, 1], [0, 0, 0.5, 1, 0.5, 1]],
+      "parts": [
+        { "boxes": [[0, 0.5, 0, 1, 1, 1]] },
+        { "rule": "stair_step", "boxes": [[0, 0, 0.5, 1, 0.5, 1]] },
+        { "rule": "stair_corner_left", "boxes": [[0.5, 0, 0, 1, 0.5, 0.5]] },
+        { "rule": "stair_corner_right", "boxes": [[0, 0, 0, 0.5, 0.5, 0.5]] },
+        { "rule": "stair_cut_left", "boxes": [[0.5, 0, 0.5, 1, 0.5, 1]] },
+        { "rule": "stair_cut_right", "boxes": [[0, 0, 0.5, 0.5, 0.5, 1]] }
+      ]
     },
     "e_up": {
-      "selection_boxes": [[0, 0.5, 0, 1, 1, 1], [0.5, 0, 0, 1, 0.5, 1]]
+      "selection_boxes": [[0, 0.5, 0, 1, 1, 1], [0.5, 0, 0, 1, 0.5, 1]],
+      "parts": [
+        { "boxes": [[0, 0.5, 0, 1, 1, 1]] },
+        { "rule": "stair_step", "boxes": [[0.5, 0, 0, 1, 0.5, 1]] },
+        { "rule": "stair_corner_left", "boxes": [[0, 0, 0, 0.5, 0.5, 0.5]] },
+        { "rule": "stair_corner_right", "boxes": [[0, 0, 0.5, 0.5, 0.5, 1]] },
+        { "rule": "stair_cut_left", "boxes": [[0.5, 0, 0, 1, 0.5, 0.5]] },
+        { "rule": "stair_cut_right", "boxes": [[0.5, 0, 0.5, 1, 0.5, 1]] }
+      ]
     },
     "w_up": {
-      "selection_boxes": [[0, 0.5, 0, 1, 1, 1], [0, 0, 0, 0.5, 0.5, 1]]
+      "selection_boxes": [[0, 0.5, 0, 1, 1, 1], [0, 0, 0, 0.5, 0.5, 1]],
+      "parts": [
+        { "boxes": [[0, 0.5, 0, 1, 1, 1]] },
+        { "rule": "stair_step", "boxes": [[0, 0, 0, 0.5, 0.5, 1]] },
+        { "rule": "stair_corner_left", "boxes": [[0.5, 0, 0.5, 1, 0.5, 1]] },
+        { "rule": "stair_corner_right", "boxes": [[0.5, 0, 0, 1, 0.5, 0.5]] },
+        { "rule": "stair_cut_left", "boxes": [[0, 0, 0.5, 0.5, 0.5, 1]] },
+        { "rule": "stair_cut_right", "boxes": [[0, 0, 0, 0.5, 0.5, 0.5]] }
+      ]
     }
   },
   "wall": {
-    "n": {
-      "selection_boxes": [[0, 0, 0, 1, 1, 0.5]]
-    },
-    "s": {
-      "selection_boxes": [[0, 0, 0.5, 1, 1, 1]]
-    },
-    "e": {
-      "selection_boxes": [[0.5, 0, 0, 1, 1, 1]]
-    },
-    "w": {
-      "selection_boxes": [[0, 0, 0, 0.5, 1, 1]]
+    "_comment": "A wall is a POST plus an arm per side it reaches toward, resolved when the chunk is meshed (core/shape_resolver.hpp). There are three rules rather than one because the two hands do different jobs: an arm reaching another wall stops short of the top (14/16) because it is bridging to something thin, while an arm braced against a whole face runs the full height because it carries the column out to what it leans on -- and the post itself is 13/16, with the top 3/16 claimed by what stands on the wall, which is what keeps a low run of wall low. Which arm appears is a property of the neighbour, so ONE shape serves all four directions and the four per-material wall blocks that used to differ by orientation now differ only in the id they kept.",
+    "all": {
+      "_comment": "`selection_boxes` and `collision_boxes` are the canonical flattening (post, cap, and the two arms along X), which the loader derives from the parts and warns about if they drift. Collision is 1.5 high, the pole's and the fence's precedent: the model is 14/16 so it is already a barrier to step over, and 1.5 is what makes it one a body cannot hop.",
+      "selection_boxes": [
+        [0.25, 0, 0.25, 0.75, 0.8125, 0.75],
+        [0.25, 0.8125, 0.25, 0.75, 1, 0.75],
+        [0.5, 0, 0.3125, 1, 0.875, 0.6875],
+        [0, 0, 0.3125, 0.5, 0.875, 0.6875]
+      ],
+      "collision_boxes": [
+        [0.25, 0, 0.25, 0.75, 1.5, 0.75],
+        [0.25, 0.8125, 0.25, 0.75, 1, 0.75],
+        [0.5, 0, 0.3125, 1, 1.5, 0.6875],
+        [0, 0, 0.3125, 0.5, 1.5, 0.6875]
+      ],
+      "parts": [
+        { "boxes": [[0.25, 0, 0.25, 0.75, 0.8125, 0.75]],
+          "collision_boxes": [[0.25, 0, 0.25, 0.75, 1.5, 0.75]] },
+        { "rule": "wall_cap", "boxes": [[0.25, 0.8125, 0.25, 0.75, 1, 0.75]] },
+        { "rule": "wall_arm", "faces": ["n"], "boxes": [[0.3125, 0, 0, 0.6875, 0.875, 0.5]],
+          "collision_boxes": [[0.3125, 0, 0, 0.6875, 1.5, 0.5]] },
+        { "rule": "wall_arm", "faces": ["s"], "boxes": [[0.3125, 0, 0.5, 0.6875, 0.875, 1]],
+          "collision_boxes": [[0.3125, 0, 0.5, 0.6875, 1.5, 1]] },
+        { "rule": "wall_arm", "faces": ["e"], "boxes": [[0.5, 0, 0.3125, 1, 0.875, 0.6875]],
+          "collision_boxes": [[0.5, 0, 0.3125, 1, 1.5, 0.6875]] },
+        { "rule": "wall_arm", "faces": ["w"], "boxes": [[0, 0, 0.3125, 0.5, 0.875, 0.6875]],
+          "collision_boxes": [[0, 0, 0.3125, 0.5, 1.5, 0.6875]] },
+        { "rule": "wall_brace", "faces": ["n"], "boxes": [[0.3125, 0, 0, 0.6875, 1, 0.5]],
+          "collision_boxes": [[0.3125, 0, 0, 0.6875, 1.5, 0.5]] },
+        { "rule": "wall_brace", "faces": ["s"], "boxes": [[0.3125, 0, 0.5, 0.6875, 1, 1]],
+          "collision_boxes": [[0.3125, 0, 0.5, 0.6875, 1.5, 1]] },
+        { "rule": "wall_brace", "faces": ["e"], "boxes": [[0.5, 0, 0.3125, 1, 1, 0.6875]],
+          "collision_boxes": [[0.5, 0, 0.3125, 1, 1.5, 0.6875]] },
+        { "rule": "wall_brace", "faces": ["w"], "boxes": [[0, 0, 0.3125, 0.5, 1, 0.6875]],
+          "collision_boxes": [[0, 0, 0.3125, 0.5, 1.5, 0.6875]] }
+      ]
     }
   },
   "pole": {

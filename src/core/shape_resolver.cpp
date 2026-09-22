@@ -86,6 +86,9 @@ ShapeRule shape_rule_from_name(std::string_view name) noexcept {
     if (name == "stair_corner_left") return ShapeRule::StairCornerLeft;
     if (name == "stair_corner_right") return ShapeRule::StairCornerRight;
     if (name == "pane") return ShapeRule::Pane;
+    if (name == "wall_arm") return ShapeRule::WallArm;
+    if (name == "wall_brace") return ShapeRule::WallBrace;
+    if (name == "wall_cap") return ShapeRule::WallCap;
     return ShapeRule::None;
 }
 
@@ -98,19 +101,22 @@ const char* shape_rule_name(ShapeRule rule) noexcept {
         case ShapeRule::StairCornerLeft:  return "stair_corner_left";
         case ShapeRule::StairCornerRight: return "stair_corner_right";
         case ShapeRule::Pane:             return "pane";
+        case ShapeRule::WallArm:          return "wall_arm";
+        case ShapeRule::WallBrace:        return "wall_brace";
+        case ShapeRule::WallCap:          return "wall_cap";
         case ShapeRule::None:             break;
     }
     return "none";
 }
 
-// The face a block's step points at. False for anything that is not an upright
-// stair — a hanging stair, a slab, terrain — because none of those turn a corner
-// or cut one.
-[[nodiscard]] bool step_face_of(const BlockType& type, ShapeFace& out) noexcept {
+// Which way a block's step points, and which way up the block is. False for
+// anything that is not a stair at all — a slab, terrain, a fence.
+[[nodiscard]] bool step_face_of(const BlockType& type, ShapeFace& out, bool& hanging) noexcept {
     if (type.stair_step_face == kNoStairFace) return false;
     const auto face = static_cast<ShapeFace>(type.stair_step_face);
     if (shape_side_ring_index(face) < 0) return false;
     out = face;
+    hanging = type.stair_hanging;
     return true;
 }
 
@@ -121,15 +127,24 @@ const char* shape_rule_name(ShapeRule rule) noexcept {
     return other != step && other != shape_opposite_face(step);
 }
 
-// A stair standing on the SAME step as this one: same way up, step pointing the
-// way ours does. Two of those side by side are one flight, and the second one owns
-// the geometry the first would otherwise grow — which is why both the cut and the
-// corner rules ask about it before drawing anything.
-[[nodiscard]] bool same_step_stair(ShapeFace step, BlockID neighbor,
+// A stair that is the same shape as this one: its step points the way ours does AND
+// it is the same way up. Both halves of that matter. Two of these side by side are
+// one flight, and the second one owns the geometry the first would otherwise grow —
+// which is why both the cut and the corner rules ask about it before drawing
+// anything.
+//
+// The way up is part of the question because the two families are MIRRORED about
+// the floor: a stair that climbs and a stair that hangs meet along a side with a
+// step-shaped gap between them, and a quarter or a remnant drawn there would be a
+// box floating in that gap. So a hanging stair turns only with a hanging one and an
+// upright only with an upright — which is also what leaves an upright stair's
+// geometry exactly what it was before the hanging ones had rules of their own.
+[[nodiscard]] bool same_step_stair(ShapeFace step, bool hanging, BlockID neighbor,
                                    const BlockRegistry& registry) noexcept {
     ShapeFace other = ShapeFace::Top;
-    if (!step_face_of(registry.get_block_fast(neighbor), other)) return false;
-    return other == step;
+    bool other_hanging = false;
+    if (!step_face_of(registry.get_block_fast(neighbor), other, other_hanging)) return false;
+    return other == step && other_hanging == hanging;
 }
 
 // Which half of the step survives a stair turned across it, if any.
@@ -143,24 +158,36 @@ enum class StairCut : uint8_t { None = 0, Left = 1, Right = 2 };
 // flight from developing a notch: when the half that would be cut away already
 // belongs to a flight on this one's step (same way up, same way round), the two
 // runs meet sideways and the step between them stays whole.
-[[nodiscard]] StairCut cut_of(ShapeFace step, const ShapeNeighborFn& neighbors,
+[[nodiscard]] StairCut cut_of(ShapeFace step, bool hanging, const ShapeNeighborFn& neighbors,
                               const BlockRegistry& registry) noexcept {
     ShapeFace front = ShapeFace::Top;
-    if (!step_face_of(registry.get_block_fast(neighbors(step)), front)) return StairCut::None;
+    bool front_hanging = false;
+    if (!step_face_of(registry.get_block_fast(neighbors(step)), front, front_hanging)) {
+        return StairCut::None;
+    }
+    // A stair the other way up in front of the step is not a stair the step runs
+    // into: the two are mirrored about the floor, so what meets this cell along a
+    // side is not a second half of the same shape.
+    if (front_hanging != hanging) return StairCut::None;
     if (!stairs_cross(step, front)) return StairCut::None;
 
     if (front == shape_step_left_of(step)) {
-        return same_step_stair(step, neighbors(shape_step_right_of(step)), registry)
+        return same_step_stair(step, hanging, neighbors(shape_step_right_of(step)), registry)
                    ? StairCut::None
                    : StairCut::Left;
     }
-    return same_step_stair(step, neighbors(shape_step_left_of(step)), registry) ? StairCut::None
-                                                                               : StairCut::Right;
+    return same_step_stair(step, hanging, neighbors(shape_step_left_of(step)), registry)
+               ? StairCut::None
+               : StairCut::Right;
 }
 
 uint8_t shape_rule_faces_for(ShapeRule rule, const BlockType& self) noexcept {
     ShapeFace step = ShapeFace::Top;
-    if (!step_face_of(self, step)) return 0;  // not an upright stair: nothing to read
+    // The way up is not part of the answer here: a hanging stair asks the same two
+    // questions about the same horizontal faces, and only the geometry it grows
+    // differs, which the file's own boxes carry.
+    bool hanging = false;
+    if (!step_face_of(self, step, hanging)) return 0;  // not a stair: nothing to read
 
     switch (rule) {
         // The whole step is decided by what stands in front of it, so that one face
@@ -190,6 +217,9 @@ uint8_t shape_rule_faces_for(ShapeRule rule, const BlockType& self) noexcept {
         // derives it. A pane's is one direction per part, which is the whole reason
         // it can be a single block id where the reference needs a per-axis pair.
         case ShapeRule::Pane:
+        case ShapeRule::WallArm:
+        case ShapeRule::WallBrace:
+        case ShapeRule::WallCap:
         case ShapeRule::Fence:
         case ShapeRule::None:
             break;
@@ -198,7 +228,7 @@ uint8_t shape_rule_faces_for(ShapeRule rule, const BlockType& self) noexcept {
 }
 
 bool shape_rule_is_connector(ShapeRule rule) noexcept {
-    return rule == ShapeRule::Fence || rule == ShapeRule::Pane;
+    return rule == ShapeRule::Fence || rule == ShapeRule::Pane || rule == ShapeRule::WallArm;
 }
 
 bool shape_rule_canonical(ShapeRule rule, const BlockType& self, ShapeFace face) noexcept {
@@ -217,6 +247,19 @@ bool shape_rule_canonical(ShapeRule rule, const BlockType& self, ShapeFace face)
         // world model grew arms.
         case ShapeRule::Pane:
             return face == ShapeFace::Right || face == ShapeFace::Left;
+        // A wall likewise, for the same two reasons: a run along X is what the block
+        // is almost always about to become, and it is the only set that reads as a
+        // wall at thumbnail size.
+        case ShapeRule::WallArm:
+            return face == ShapeFace::Right || face == ShapeFace::Left;
+        // ...and the cap is always in the icon, because at that size a wall without
+        // its post looks like a wall standing in a hole. Neither the brace nor the
+        // corner-less arm is: both mean "something solid is next to me", which a
+        // worldless resolution cannot know.
+        case ShapeRule::WallCap:
+            return true;
+        case ShapeRule::WallBrace:
+            return false;
         // The step is part of a lone stair, so it is what the icon, the hotbar cell
         // and the held viewmodel draw.
         case ShapeRule::StairStep:
@@ -279,16 +322,49 @@ bool shape_rule_connects(ShapeRule rule, const BlockType& self, ShapeFace face,
             // reaches out over water.
             if (neighbor == BlockIDs::AIR || type.is_liquid()) return false;
             return type.is_full_cube();
+        case ShapeRule::WallArm:
+            // A run's arm reaches the next wall along, whatever it is made of: a
+            // wall is recognised by the family's own rule, so two materials meet
+            // here for the same reason two fence woods do.
+            //
+            // Deliberately nothing else. A wall does NOT have the fence's reach into
+            // anything a body cannot walk through, and that difference is the whole
+            // look of the family: a rail only needs an end to meet, so it lines up
+            // with the side of a slab, while an arm is a buttress and there is
+            // nothing to buttress against a half-height neighbour. Anything that
+            // DOES offer a whole face gets the other rule instead, which is taller.
+            if (neighbor == BlockIDs::AIR) return false;
+            return type.connector == ShapeRule::WallArm;
+        case ShapeRule::WallBrace:
+            // A wall standing against something solid: the arm runs the full height
+            // of the cell instead of stopping short, because it is carrying the
+            // column's height out to the face it leans on rather than bridging a gap
+            // to another thin wall. That is why this is a rule of its own and not a
+            // second predicate on the arm: the two arms are 2/16 apart in height, and
+            // which one appears is a property of what is next door.
+            if (neighbor == BlockIDs::AIR || type.is_liquid()) return false;
+            // A window is a full cube, but bracing a wall against glass puts a solid
+            // looking buttress on a pane: it reads as a wall built through a window.
+            if (HasProperty(type.properties, BlockProperty::Transparent)) return false;
+            return type.is_full_cube();
+        case ShapeRule::WallCap:
+            // The post carries its full height while anything at all stands on the
+            // wall -- stone, a plank, another wall, even a liquid surface, which is
+            // the one thing above a wall that is not a block and still reads as
+            // something resting on it. Nothing above leaves the post short, which is
+            // what keeps a low run of wall low.
+            return neighbor != BlockIDs::AIR;
         case ShapeRule::StairStep:
         case ShapeRule::StairCutLeft:
         case ShapeRule::StairCutRight:
         case ShapeRule::StairCornerLeft:
         case ShapeRule::StairCornerRight: {
-            // All five read the same two things: which way this stair's own step
-            // points, and what is standing in front of it.
+            // All five read the same three things: which way this stair's own step
+            // points, which way up it is, and what is standing in front of it.
             ShapeFace step = ShapeFace::Top;
-            if (!step_face_of(self, step)) return false;
-            const StairCut cut = cut_of(step, neighbors, registry);
+            bool hanging = false;
+            if (!step_face_of(self, step, hanging)) return false;
+            const StairCut cut = cut_of(step, hanging, neighbors, registry);
 
             switch (rule) {
                 case ShapeRule::StairStep:
@@ -317,8 +393,15 @@ bool shape_rule_connects(ShapeRule rule, const BlockType& self, ShapeFace face,
                     //    That is why the quarter sits in the half opposite the step:
                     //    it is the region the two of them leave open between them.
                     if (face == shape_opposite_face(step)) {
+                        // ...and it has to be the same way up, for the same reason
+                        // the cut does: the region the two of them leave open
+                        // between them only exists when both are laid out the same
+                        // way round, and a stair behind a hanging one points into a
+                        // gap that is not there.
                         ShapeFace other = ShapeFace::Top;
-                        return step_face_of(type, other) && other == side;
+                        bool other_hanging = false;
+                        return step_face_of(type, other, other_hanging) && other == side &&
+                               other_hanging == hanging;
                     }
                     // 2. Nothing may cut the step: a stair turned across it cuts the
                     //    step back instead, and the cut is what the cell gets, so a
@@ -327,7 +410,7 @@ bool shape_rule_connects(ShapeRule rule, const BlockType& self, ShapeFace face,
                     // 3. The quarter's own side: no stair already on this one's step
                     //    there, because that stair reaches into the very region the
                     //    quarter would fill.
-                    if (face == side) return !same_step_stair(step, neighbor, registry);
+                    if (face == side) return !same_step_stair(step, hanging, neighbor, registry);
                     return false;
                 }
                 default:

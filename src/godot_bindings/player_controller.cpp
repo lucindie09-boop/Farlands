@@ -944,35 +944,20 @@ void PlayerController::place_block() {
             }
         }
 
-        // Wall auto-detection: orient from face hit, merge if target has wall of same family
+        // Wall auto-detection: there is nothing here to orient. All four per-material
+        // orientations carry the same connected shape, so which way a wall runs is a
+        // property of the cells around it rather than of the id you placed -- the
+        // placement is the block you were holding, and the old "which edge of the
+        // cell does this panel hug" question no longer has an answer to compute. What
+        // is left is the merge: a wall already standing in the target cell becomes the
+        // family's solid block instead of being overwritten or refused, which is the
+        // one case where two wall ids meet in a single cell.
         if (const auto* wall_fam = VoxelEngine::BlockRegistry::get_instance().get_wall_family(block_to_place)) {
-            Vector3 hit_normal = Vector3(result["hit_normal"]);
-            BlockID target_block = static_cast<BlockID>(cm->get_block(bx, by, bz));
-            const auto* target_wall = VoxelEngine::BlockRegistry::get_instance().get_wall_family(target_block);
-
-            if (target_wall && target_wall == wall_fam && target_block != wall_fam->full) {
-                // Side face, target cell already has a wall of same family — merge there
+            const BlockID target_block = static_cast<BlockID>(cm->get_block(bx, by, bz));
+            const auto* target_wall =
+                VoxelEngine::BlockRegistry::get_instance().get_wall_family(target_block);
+            if (target_wall == wall_fam && wall_fam->full != 0 && target_block != wall_fam->full) {
                 final_block = wall_fam->full;
-            } else if (std::abs(hit_normal.y) > 0.5) {
-                // Top/bottom face: wall sits on the edge closest to hit point
-                Vector3 hit_point = result["hit_point"];
-                double frac_x = hit_point.x - bx;
-                double frac_z = hit_point.z - bz;
-                double off_x = std::abs(frac_x - 0.5);
-                double off_z = std::abs(frac_z - 0.5);
-                if (off_x > off_z) {
-                    final_block = (frac_x > 0.5) ? wall_fam->e : wall_fam->w;
-                } else {
-                    final_block = (frac_z > 0.5) ? wall_fam->s : wall_fam->base;
-                }
-            } else {
-                // Side face: wall panel hugs the clicked block (flat side toward it)
-                double nx = hit_normal.x, nz = hit_normal.z;
-                if (std::abs(nx) > std::abs(nz)) {
-                    final_block = (nx > 0) ? wall_fam->w : wall_fam->e;
-                } else {
-                    final_block = (nz > 0) ? wall_fam->base : wall_fam->s;
-                }
             }
         }
 

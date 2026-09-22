@@ -158,12 +158,20 @@ void apply_shape_to_block(const BlockShape& shape, BlockType& bt, const godot::S
     // block so a neighbouring stair's corner rule needs nothing but that block.
     const std::string shape_key = shape_name.utf8().get_data();
     if (shape_key.rfind("stair/", 0) == 0) {
-        const std::string variant = shape_key.substr(6);
+        std::string variant = shape_key.substr(6);
+        // A hanging stair is the same five rules on mirrored geometry, so `_up` is
+        // the whole of the difference: it names the way up, and the face is read
+        // from what is left of the name exactly as for an upright one.
+        bool hanging = false;
+        if (variant.size() > 3 && variant.compare(variant.size() - 3, 3, "_up") == 0) {
+            hanging = true;
+            variant.erase(variant.size() - 3);
+        }
         if (variant == "n")      bt.stair_step_face = static_cast<uint8_t>(ShapeFace::Back);
         else if (variant == "s") bt.stair_step_face = static_cast<uint8_t>(ShapeFace::Front);
         else if (variant == "e") bt.stair_step_face = static_cast<uint8_t>(ShapeFace::Right);
         else if (variant == "w") bt.stair_step_face = static_cast<uint8_t>(ShapeFace::Left);
-        // The hanging `*_up` variants keep kNoStairFace on purpose.
+        bt.stair_hanging = hanging && bt.stair_step_face != kNoStairFace;
     }
 
     if (bt.parts.empty()) return;
@@ -659,11 +667,21 @@ bool BlockRegistry::load_from_json(const godot::String& json_path) noexcept {
             godot::String shape_str = d["shape"];
             shape = shape_str.utf8().get_data();
         }
-        if      (shape == "wall/n")      fam.base = id;
-        else if (shape == "wall/s")      fam.s    = id;
-        else if (shape == "wall/e")      fam.e    = id;
-        else if (shape == "wall/w")      fam.w    = id;
-        else                             fam.full = id;
+        // Every body entry carries the same connected shape, so a family is not
+        // four orientations any more and the id a wall was placed as says nothing
+        // about what it draws. Two questions the shapes cannot answer are what is
+        // left: which id a mined wall drops -- the body the inventory offers, which
+        // is declared first for every material -- and which id a wall thickens into,
+        // which is the entry with no shape at all. The retired `wall/{n,s,e,w}`
+        // names stay recognised so an older shape file still builds a family rather
+        // than silently losing the drop.
+        const bool body = shape == "wall/all" || shape == "wall/n" || shape == "wall/s" ||
+                          shape == "wall/e" || shape == "wall/w";
+        if (body) {
+            if (fam.base == 0) fam.base = id;
+        } else {
+            fam.full = id;
+        }
         wall_family_map_[id] = static_cast<BlockID>(fi + 1);
     }
 

@@ -97,9 +97,12 @@ enum class ShapeRule : uint8_t {
     StairCornerLeft = 5,   // a quarter filling the inside of a turn on the left
     StairCornerRight = 6,  // ...and on the right
     Pane = 7,              // a sheet reaching toward another pane or a whole face
+    WallArm = 8,           // a low arm reaching toward another wall
+    WallBrace = 9,         // a full-height arm braced against a solid whole face
+    WallCap = 10,          // the top of the post, while something stands on the wall
 };
 
-// "This block is not an upright stair", for BlockType::stair_step_face.
+// "This block is not a stair at all", for BlockType::stair_step_face.
 inline constexpr uint8_t kNoStairFace = 0xFF;
 
 struct ShapePart {
@@ -212,16 +215,24 @@ struct BlockType {
     // loader warns: a connector answers exactly one question).
     ShapeRule connector = ShapeRule::None;
 
-    // For a stair: which cell face its step (the raised half) sits against, as a
-    // ShapeFace value; kNoStairFace for everything else. A neighbouring stair's
-    // corner rule asks this, which is why it is data on the block rather than a
-    // lookup into the stair family table: the rule then needs only the neighbour's
-    // BlockType. The hanging `*_up` variants stay kNoStairFace — their corner
-    // geometry is mirrored, and a wrong corner is worse than none. Set at load
-    // from the shape name (`stair/n` → -Z), the same string the stair family table
-    // is built from; the built-in default registry never sets it, and it has no
-    // real stair shapes to corner with anyway.
+    // For a stair: which cell face its step (the half that is twice as tall as a
+    // slab) sits against, as a ShapeFace value; kNoStairFace for everything else.
+    // A neighbouring stair's corner rule asks this, which is why it is data on the
+    // block rather than a lookup into the stair family table: the rule then needs
+    // only the neighbour's BlockType. Set at load from the shape name (`stair/n` →
+    // -Z), the same string the stair family table is built from; the built-in
+    // default registry never sets it, and it has no real stair shapes to corner
+    // with anyway.
     uint8_t stair_step_face = kNoStairFace;
+
+    // ...and whether that step hangs from the top of the cell instead of standing
+    // on the floor. The rules are identical either way — a turn is a turn — but the
+    // two families are MIRRORED, so they never turn with each other: a stair that
+    // climbs meets a stair that hangs along a side with a step-shaped gap between
+    // them rather than an inside corner. The guard is therefore part of every
+    // stair rule's question, and it lives here, next to the step face, because a
+    // neighbour's rule can only read the block it is looking at.
+    bool stair_hanging = false;
 
     // Cached flag: true when selection_boxes is a single full cube [0,0,0,1,1,1].
     // Checked on hot paths (greedy meshing, collision, AO) for zero-overhead fast path.
@@ -384,10 +395,15 @@ public:
         BlockID s = 0, e = 0, w = 0;
         BlockID n_up = 0, s_up = 0, e_up = 0, w_up = 0;
     };
+    // A wall family is two ids, not five. The four per-material orientations all
+    // carry the same connected shape (`wall/all`): which way a wall runs is a
+    // property of the cells around it, resolved when the chunk is meshed, so the id
+    // a wall was placed as no longer says anything about what it draws. What the
+    // family still has to answer is what the shapes cannot: which id a mined wall
+    // drops, and which id a wall thickens into.
     struct WallFamily {
-        BlockID base = 0;  // wall/n (inventory variant)
-        BlockID s = 0, e = 0, w = 0;
-        BlockID full = 0;
+        BlockID base = 0;  // the body the inventory offers
+        BlockID full = 0;  // the solid block a wall thickens into
     };
     [[nodiscard]] const SlabFamily* get_slab_family(BlockID id) const noexcept;
     [[nodiscard]] const StairFamily* get_stair_family(BlockID id) const noexcept;

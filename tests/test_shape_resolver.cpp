@@ -131,6 +131,18 @@ int boxes_reaching(const ShapeBoxes& boxes, ShapeFace face) {
     return count;
 }
 
+// How many boxes reach a side of the cell, at whatever height they sit. The helper
+// above skips anything resting on the floor, because a fence's rails are raised and
+// its post is not a rail of its own; a wall's arm stands on the floor and still
+// reaches sideways, so it needs the plain count.
+int boxes_reaching_side(const ShapeBoxes& boxes, ShapeFace face) {
+    int count = 0;
+    for (const BlockAABB& b : boxes) {
+        if ((shape_box_faces({b}) & shape_face_bit(face)) != 0) ++count;
+    }
+    return count;
+}
+
 // A half-cell box: `face` names the side it hugs. A stair's raised half is half the
 // cell high, so building the parts from the step direction this way means the test
 // spells the same geometry the shape file does, variant by variant, instead of a
@@ -172,16 +184,27 @@ bool has_box(const ShapeBoxes& boxes, float x0, float y0, float z0, float x1, fl
     return false;
 }
 
+// The same box flipped about the cell floor, which is the whole difference between a
+// stair that climbs and one that hangs: the reference draws the hanging variants from
+// the same models mirrored, and the shape file carries them that way.
+BlockAABB mirror_y(const BlockAABB& b) {
+    return box(b.min[0], 1.0f - b.max[1], b.min[2], b.max[0], 1.0f - b.min[1], b.max[2]);
+}
+
 // A stair as data/block_shapes.json spells one out: the slab, the step, the two
 // corners that can be filled, and the two remnants the step is cut back to. The
 // loader reads the claim faces off the rule rather than the boxes (the step face
 // and a guard side are not where a corner box is), and so does this.
-BlockType make_stair(const char* name, ShapeFace step_face) {
+//
+// `hanging` mirrors every box about the floor and says so on the block, which is the
+// whole of the difference between the two ways up: the rules are the same five.
+BlockType make_stair(const char* name, ShapeFace step_face, bool hanging = false) {
     BlockType bt{};
     bt.name = name;
     bt.properties = BlockProperty::Solid | BlockProperty::Opaque | BlockProperty::NoOcclusion;
     bt.visible_faces = {true, true, true, true, true, true};
     bt.stair_step_face = static_cast<uint8_t>(step_face);
+    bt.stair_hanging = hanging;
 
     const ShapeFace behind = shape_opposite_face(step_face);
     const ShapeFace left = shape_step_left_of(step_face);
@@ -212,6 +235,12 @@ BlockType make_stair(const char* name, ShapeFace step_face) {
 
     bt.parts = {slab, step, corner_left, corner_right, cut_left, cut_right};
 
+    if (hanging) {
+        for (ShapePart& part : bt.parts) {
+            for (BlockAABB& b : part.boxes) b = mirror_y(b);
+        }
+    }
+
     // The same two steps the loader takes: claims come off the boxes unless the rule
     // supplies them, and the static lists are the canonical flattening of the parts.
     for (ShapePart& part : bt.parts) {
@@ -228,15 +257,13 @@ BlockType make_stair(const char* name, ShapeFace step_face) {
     return bt;
 }
 
-// A hanging stair, as data/block_shapes.json has it: the same box model with no
-// neighbour-dependent parts at all, so nothing turns a corner with it and it turns
-// none of its own.
+// A hanging stair, as data/block_shapes.json has it: the same five rules on the same
+// box model mirrored about the cell floor, so the slab is the raised half and the step
+// hangs. It carries a real step face and a real up-ness, which is what lets it turn
+// with another hanging stair while a stair of the other kind — in either role — is
+// inert to it.
 BlockType make_hanging_stair(const char* name, ShapeFace step_face) {
-    BlockType bt = make_stair(name, step_face);
-    bt.parts.clear();
-    bt.stair_step_face = kNoStairFace;
-    bt.selection_boxes = {box(0.0f, 0.0f, 0.0f, 1.0f, 0.5f, 1.0f), edge_half_box(step_face)};
-    return bt;
+    return make_stair(name, step_face, /*hanging=*/true);
 }
 
 // A window: body-stopping, but you see through it, so nothing arms into it. Named
@@ -303,6 +330,91 @@ BlockType make_sheet(const char* name) {
     ShapeBoxes canonical;
     resolve_canonical_boxes(bt, ShapeBoxKind::Selection, canonical);
     bt.selection_boxes.assign(canonical.begin(), canonical.end());
+
+    bt.full_cube_ = false;
+    bt.greedy_mergeable = false;
+    return bt;
+}
+
+// The wall as data/block_shapes.json spells it out: a post, a cap the post grows
+// while something stands on it, an arm per side that reaches another wall, and a
+// brace per side for a neighbour offering a whole face. Two hands, two rules,
+// because they are two heights: an arm bridging to another thin wall stops short of
+// the top, while a brace carries the column out to the face it leans on. Spelled
+// from the direction the way the stair parts are, and every hand's claim is a
+// DECLARED single face exactly as the file declares it — an arm also reaches the
+// bottom of its cell, and a wall in the air does not stop reaching sideways.
+std::vector<ShapePart> wall_parts() {
+    const auto footprint = [](ShapeFace face) -> BlockAABB {
+        switch (face) {
+            case ShapeFace::Back:  return box(0.3125f, 0.0f, 0.0f, 0.6875f, 1.0f, 0.5f);
+            case ShapeFace::Front: return box(0.3125f, 0.0f, 0.5f, 0.6875f, 1.0f, 1.0f);
+            case ShapeFace::Left:  return box(0.0f, 0.0f, 0.3125f, 0.5f, 1.0f, 0.6875f);
+            default:               return box(0.5f, 0.0f, 0.3125f, 1.0f, 1.0f, 0.6875f);
+        }
+    };
+
+    const auto hand = [&](ShapeFace face, float top, ShapeRule rule) {
+        ShapePart p;
+        BlockAABB b = footprint(face);
+        b.max[1] = top;
+        p.boxes = {b};
+        BlockAABB c = b;
+        c.max[1] = 1.5f;  // every wall part is 1.5 high to walk into, however tall it draws
+        p.collision_boxes = {c};
+        p.rule = rule;
+        p.faces = shape_face_bit(face);
+        p.faces_declared = true;
+        return p;
+    };
+
+    std::vector<ShapePart> parts;
+    ShapePart post;
+    post.boxes = {box(0.25f, 0.0f, 0.25f, 0.75f, 0.8125f, 0.75f)};
+    post.collision_boxes = {box(0.25f, 0.0f, 0.25f, 0.75f, 1.5f, 0.75f)};
+    post.faces = shape_box_faces(post.boxes);
+    parts.push_back(std::move(post));
+
+    ShapePart cap;
+    cap.rule = ShapeRule::WallCap;
+    cap.boxes = {box(0.25f, 0.8125f, 0.25f, 0.75f, 1.0f, 0.75f)};
+    cap.faces = shape_box_faces(cap.boxes);
+    parts.push_back(std::move(cap));
+
+    parts.push_back(hand(ShapeFace::Back, 0.875f, ShapeRule::WallArm));
+    parts.push_back(hand(ShapeFace::Front, 0.875f, ShapeRule::WallArm));
+    parts.push_back(hand(ShapeFace::Right, 0.875f, ShapeRule::WallArm));
+    parts.push_back(hand(ShapeFace::Left, 0.875f, ShapeRule::WallArm));
+    parts.push_back(hand(ShapeFace::Back, 1.0f, ShapeRule::WallBrace));
+    parts.push_back(hand(ShapeFace::Front, 1.0f, ShapeRule::WallBrace));
+    parts.push_back(hand(ShapeFace::Right, 1.0f, ShapeRule::WallBrace));
+    parts.push_back(hand(ShapeFace::Left, 1.0f, ShapeRule::WallBrace));
+    return parts;
+}
+
+BlockType make_wall(const char* name) {
+    BlockType bt{};
+    bt.name = name;
+    bt.properties = BlockProperty::Solid | BlockProperty::Opaque | BlockProperty::NoOcclusion;
+    bt.visible_faces = {true, true, true, true, true, true};
+    bt.parts = wall_parts();
+    // The loader takes this from the first connector rule it meets in the parts,
+    // which is what the other wall's arm rule asks about.
+    bt.connector = ShapeRule::WallArm;
+
+    // The same two steps the loader takes: rules that answer with faces of their own
+    // override the declared ones, and the static lists are the canonical flattening.
+    for (ShapePart& part : bt.parts) {
+        const uint8_t from_rule = shape_rule_faces_for(part.rule, bt);
+        if (from_rule != 0) part.faces = from_rule;
+    }
+
+    ShapeBoxes canonical;
+    resolve_canonical_boxes(bt, ShapeBoxKind::Selection, canonical);
+    bt.selection_boxes.assign(canonical.begin(), canonical.end());
+    ShapeBoxes canonical_collision;
+    resolve_canonical_boxes(bt, ShapeBoxKind::Collision, canonical_collision);
+    bt.collision_boxes.assign(canonical_collision.begin(), canonical_collision.end());
 
     bt.full_cube_ = false;
     bt.greedy_mergeable = false;
@@ -616,6 +728,194 @@ TEST_CASE("the canonical pane is the flat sheet the inventory should draw") {
     CHECK(sheet.selection_boxes[2].min[0] == doctest::Approx(0.0f));
 }
 
+TEST_CASE("a lone wall is its post, and the cap is what something above it buys") {
+    BlockRegistry::get_instance().initialize_default_blocks();
+    const BlockType wall = make_wall("test_wall_alone");
+
+    NeighborTable none;
+    const ShapeBoxes boxes = resolve_with(wall, none, ShapeBoxKind::Selection);
+    CHECK(boxes.count() == 1);
+    CHECK(boxes[0].min[0] == doctest::Approx(0.25f));
+    // Short of the top: a lone run of wall stays low until something rests on it.
+    CHECK(boxes[0].max[1] == doctest::Approx(0.8125f));
+
+    NeighborTable capped;
+    capped.set(ShapeFace::Top, BlockIDs::STONE);
+    const ShapeBoxes tall = resolve_with(wall, capped, ShapeBoxKind::Selection);
+    CHECK(tall.count() == 2);
+    CHECK(has_box(tall, 0.25f, 0.8125f, 0.25f, 0.75f, 1.0f, 0.75f));
+
+    // A liquid surface counts too: the one thing that can stand on a wall without
+    // being a block, and the reason the test is "not air" rather than "solid".
+    capped.set(ShapeFace::Top, BlockIDs::WATER);
+    CHECK(resolve_with(wall, capped, ShapeBoxKind::Selection).count() == 2);
+}
+
+TEST_CASE("a wall arms toward another wall, whatever it is made of, and only that side") {
+    BlockRegistry& reg = BlockRegistry::get_instance();
+    reg.initialize_default_blocks();
+    const BlockID wall_id = reg.register_block(make_wall("test_wall_armed"));
+    const BlockID other_id = reg.register_block(make_wall("test_wall_other_material"));
+    if (wall_id == BlockIDs::AIR || other_id == BlockIDs::AIR) {
+        CHECK(false);
+        return;
+    }
+    const BlockType& wall = reg.get_block(wall_id);
+    CHECK(wall.connector == ShapeRule::WallArm);
+
+    NeighborTable east;
+    east.set(ShapeFace::Right, wall_id);
+    const ShapeBoxes boxes = resolve_with(wall, east, ShapeBoxKind::Selection);
+    CHECK(boxes.count() == 2);
+    CHECK(boxes_reaching_side(boxes, ShapeFace::Right) == 1);
+    CHECK(boxes_reaching_side(boxes, ShapeFace::Left) == 0);
+    CHECK(boxes_reaching_side(boxes, ShapeFace::Front) == 0);
+    CHECK(boxes_reaching_side(boxes, ShapeFace::Back) == 0);
+    // A bridging arm stops short of the top, which is what tells it apart from a brace.
+    bool arm_is_short = false;
+    for (uint8_t i = 0; i < boxes.count(); ++i) {
+        if (boxes[i].max[0] >= 1.0f && boxes[i].max[1] == doctest::Approx(0.875f)) arm_is_short = true;
+    }
+    CHECK(arm_is_short);
+
+    // Another material is still a wall: the rule is one rule, not one per family.
+    east.set(ShapeFace::Right, other_id);
+    CHECK(resolve_with(wall, east, ShapeBoxKind::Selection).count() == 2);
+
+    // Both ends of a run at once: the arms are per side, not one shared set.
+    NeighborTable corner;
+    corner.set(ShapeFace::Right, wall_id);
+    corner.set(ShapeFace::Back, wall_id);
+    const ShapeBoxes turn = resolve_with(wall, corner, ShapeBoxKind::Selection);
+    CHECK(turn.count() == 3);
+    CHECK(boxes_reaching_side(turn, ShapeFace::Right) == 1);
+    CHECK(boxes_reaching_side(turn, ShapeFace::Back) == 1);
+}
+
+TEST_CASE("a wall braces against a whole face but not against anything thinner or a window") {
+    BlockRegistry& reg = BlockRegistry::get_instance();
+    reg.initialize_default_blocks();
+    const BlockID wall_id = reg.register_block(make_wall("test_wall_braced"));
+    const BlockID pane_id = make_window(reg);
+    const BlockID fence_id = reg.register_block(make_fence("test_wall_neighbour_fence"));
+    const BlockID glazing_id = make_glazing(reg);
+    if (wall_id == BlockIDs::AIR || pane_id == BlockIDs::AIR || fence_id == BlockIDs::AIR ||
+        glazing_id == BlockIDs::AIR) {
+        CHECK(false);
+        return;
+    }
+    const BlockType& wall = reg.get_block(wall_id);
+
+    NeighborTable table;
+    table.set(ShapeFace::Right, BlockIDs::STONE);
+    const ShapeBoxes stone = resolve_with(wall, table, ShapeBoxKind::Selection);
+    CHECK(stone.count() == 2);
+    bool brace_is_full = false;
+    for (uint8_t i = 0; i < stone.count(); ++i) {
+        if (stone[i].max[0] >= 1.0f && stone[i].max[1] == doctest::Approx(1.0f)) brace_is_full = true;
+    }
+    CHECK(brace_is_full);
+
+    // A rail is 14/16 high and a window is not a whole face: there is nothing out at
+    // that face for a buttress to lean on, so the post stands alone.
+    table.set(ShapeFace::Right, fence_id);
+    CHECK(resolve_with(wall, table, ShapeBoxKind::Selection).count() == 1);
+    table.set(ShapeFace::Right, pane_id);
+    CHECK(resolve_with(wall, table, ShapeBoxKind::Selection).count() == 1);
+
+    // ...and glass is a whole face, but bracing against it would draw solid-looking
+    // stone through a window, so a wall refuses what a pane happily seals against.
+    table.set(ShapeFace::Right, glazing_id);
+    CHECK(resolve_with(wall, table, ShapeBoxKind::Selection).count() == 1);
+
+    table.set(ShapeFace::Right, BlockIDs::WATER);
+    CHECK(resolve_with(wall, table, ShapeBoxKind::Selection).count() == 1);
+    table.set(ShapeFace::Right, BlockIDs::AIR);
+    CHECK(resolve_with(wall, table, ShapeBoxKind::Selection).count() == 1);
+}
+
+TEST_CASE("a wall's arm is claimed by the side it points at, not by the foot it stands on") {
+    BlockRegistry& reg = BlockRegistry::get_instance();
+    reg.initialize_default_blocks();
+    const BlockID wall_id = reg.register_block(make_wall("test_wall_claim"));
+    if (wall_id == BlockIDs::AIR) {
+        CHECK(false);
+        return;
+    }
+    const BlockType& wall = reg.get_block(wall_id);
+
+    // A run in the air, with nothing below and nothing above it, still arms. An arm's
+    // boxes reach the bottom of the cell, so a claim read off them would demand a
+    // block underneath and silently drop the arm on a wall built out over a drop.
+    NeighborTable airborne;
+    airborne.set(ShapeFace::Right, wall_id);
+    CHECK(resolve_with(wall, airborne, ShapeBoxKind::Selection).count() == 2);
+
+    NeighborTable grounded;
+    grounded.set(ShapeFace::Bottom, BlockIDs::STONE);
+    CHECK(resolve_with(wall, grounded, ShapeBoxKind::Selection).count() == 1);
+
+    // Every hand declares the one side it points at, which is the only case the
+    // loader takes on the author's word, and each one is a face its boxes reach.
+    for (const ShapePart& part : wall.parts) {
+        if (part.rule != ShapeRule::WallArm && part.rule != ShapeRule::WallBrace) continue;
+        CHECK(part.faces_declared);
+        CHECK((part.faces & ~shape_box_faces(part.boxes)) == 0);  // a face its boxes reach
+        int set_bits = 0;
+        for (uint8_t f = 0; f < 6; ++f) {
+            if (part.faces & shape_face_bit(static_cast<ShapeFace>(f))) ++set_bits;
+        }
+        CHECK(set_bits == 1);
+    }
+}
+
+TEST_CASE("wall collision resolves per part: a lone post is a post, a run is a barrier") {
+    BlockRegistry& reg = BlockRegistry::get_instance();
+    reg.initialize_default_blocks();
+    const BlockID wall_id = reg.register_block(make_wall("test_wall_collision"));
+    if (wall_id == BlockIDs::AIR) {
+        CHECK(false);
+        return;
+    }
+    const BlockType& wall = reg.get_block(wall_id);
+
+    NeighborTable none;
+    const ShapeBoxes isolated = resolve_with(wall, none, ShapeBoxKind::Collision);
+    CHECK(isolated.count() == 1);
+    CHECK(isolated[0].max[1] == doctest::Approx(1.5f));
+    CHECK(isolated[0].max[0] == doctest::Approx(0.75f));  // post width, not a run
+
+    NeighborTable run;
+    run.set(ShapeFace::Right, wall_id);
+    const ShapeBoxes connected = resolve_with(wall, run, ShapeBoxKind::Collision);
+    CHECK(connected.count() == 2);
+    bool reaches_edge = false;
+    for (uint8_t i = 0; i < connected.count(); ++i) {
+        if (connected[i].max[0] >= 1.0f && connected[i].max[1] >= 1.5f) reaches_edge = true;
+    }
+    CHECK(reaches_edge);
+}
+
+TEST_CASE("the canonical wall is the run the inventory should draw") {
+    BlockRegistry::get_instance().initialize_default_blocks();
+    const BlockType wall = make_wall("test_wall_canonical");
+
+    ShapeBoxes canonical;
+    resolve_canonical_boxes(wall, ShapeBoxKind::Selection, canonical);
+
+    // Post plus the two X arms, the cap the icon needs to not look like a hole, and
+    // no braces: a brace means "something solid is beside me", which a worldless
+    // consumer cannot know.
+    CHECK(canonical.count() == 4);
+    CHECK(boxes_reaching_side(canonical, ShapeFace::Right) == 1);
+    CHECK(boxes_reaching_side(canonical, ShapeFace::Left) == 1);
+    CHECK(boxes_reaching_side(canonical, ShapeFace::Front) == 0);
+    CHECK(boxes_reaching_side(canonical, ShapeFace::Back) == 0);
+    // ...and that is what the static lists a worldless consumer sees hold.
+    CHECK(wall.selection_boxes.size() == 4);
+    CHECK(wall.collision_boxes.size() == 4);
+}
+
 TEST_CASE("a shape with more boxes than the resolver can carry reports it") {
     BlockRegistry::get_instance().initialize_default_blocks();
     BlockType bt{};
@@ -795,7 +1095,9 @@ TEST_CASE("a stair behind the step pointing at a side fills that corner") {
     const BlockID west = reg.register_block(make_stair("test_stair_w", ShapeFace::Left));
     const BlockID east = reg.register_block(make_stair("test_stair_e", ShapeFace::Right));
     const BlockID south = reg.register_block(make_stair("test_stair_s", ShapeFace::Front));
-    const BlockID hanging = reg.register_block(make_hanging_stair("test_stair_n_up", ShapeFace::Back));
+    // A hanging stair stepping toward +X: a side, so without the up-ness guard this is
+    // exactly the neighbour that would fill a corner.
+    const BlockID hanging = reg.register_block(make_hanging_stair("test_stair_n_up", ShapeFace::Right));
     if (north == BlockIDs::AIR) {
         CHECK(false);
         return;
@@ -842,7 +1144,9 @@ TEST_CASE("a stair turned across the step cuts it back to one side") {
     const BlockID north = reg.register_block(make_stair("test_cut_n", ShapeFace::Back));
     const BlockID east  = reg.register_block(make_stair("test_cut_e", ShapeFace::Right));
     const BlockID west  = reg.register_block(make_stair("test_cut_w", ShapeFace::Left));
-    const BlockID hanging = reg.register_block(make_hanging_stair("test_cut_up", ShapeFace::Back));
+    // Turned ACROSS this stair's step rather than pointing along it, so the up-ness
+    // guard is the only thing keeping the upright step whole here.
+    const BlockID hanging = reg.register_block(make_hanging_stair("test_cut_up", ShapeFace::Right));
     if (north == BlockIDs::AIR) {
         CHECK(false);
         return;
@@ -959,15 +1263,183 @@ TEST_CASE("a flight beside the half that would be cut away keeps the step whole"
     CHECK(!has_box(boxes, 0.5f, 0.5f, 0.5f, 1.0f, 1.0f, 1.0f));
 }
 
+TEST_CASE("a hanging stair is the upright one mirrored about the floor") {
+    BlockRegistry::get_instance().initialize_default_blocks();
+    const ShapeFace faces[4] = {ShapeFace::Back, ShapeFace::Front, ShapeFace::Right,
+                                ShapeFace::Left};
+    for (uint8_t f = 0; f < 4; ++f) {
+        const BlockType up = make_stair("test_mirror_up", faces[f]);
+        const BlockType down = make_hanging_stair("test_mirror_down", faces[f]);
+
+        CHECK(down.stair_hanging);
+        CHECK(!up.stair_hanging);
+        // The step points the same way whichever way up the stair is: what changed is
+        // which half of the cell is the tall one, and that is carried by the boxes.
+        CHECK(down.stair_step_face == up.stair_step_face);
+
+        NeighborTable none;
+        const ShapeBoxes a = resolve_with(up, none, ShapeBoxKind::Selection);
+        const ShapeBoxes b = resolve_with(down, none, ShapeBoxKind::Selection);
+        CHECK(a.count() == b.count());
+        for (uint8_t i = 0; i < a.count() && i < b.count(); ++i) {
+            CHECK(same_box(mirror_y(a[i]), b[i]));
+        }
+    }
+}
+
+TEST_CASE("a hanging stair turns with another hanging one, in the lower half") {
+    BlockRegistry& reg = BlockRegistry::get_instance();
+    reg.initialize_default_blocks();
+    const BlockID north_up =
+        reg.register_block(make_hanging_stair("test_up_corner_n", ShapeFace::Back));
+    const BlockID east_up =
+        reg.register_block(make_hanging_stair("test_up_corner_e", ShapeFace::Right));
+    const BlockID west_up =
+        reg.register_block(make_hanging_stair("test_up_corner_w", ShapeFace::Left));
+    const BlockID upright = reg.register_block(make_stair("test_up_corner_plain", ShapeFace::Back));
+    if (north_up == BlockIDs::AIR || east_up == BlockIDs::AIR || west_up == BlockIDs::AIR ||
+        upright == BlockIDs::AIR) {
+        CHECK(false);
+        return;
+    }
+    const BlockType& stair = reg.get_block(north_up);
+
+    NeighborTable table;
+    CHECK(resolve_with(stair, table, ShapeBoxKind::Selection).count() == 2);
+
+    // The stair it turns with stands BEHIND the step (+Z) stepping toward +X, so the
+    // quarter fills the right half of the region behind the step — the mirrored
+    // counterpart of the upright stair's, in the LOWER half because that is where a
+    // hanging stair's step is.
+    table.set(ShapeFace::Front, east_up);
+    const ShapeBoxes corner = resolve_with(stair, table, ShapeBoxKind::Selection);
+    CHECK(corner.count() == 3);
+    CHECK(has_box(corner, 0.5f, 0.0f, 0.5f, 1.0f, 0.5f, 1.0f));
+    CHECK(has_box(corner, 0.0f, 0.0f, 0.0f, 1.0f, 0.5f, 0.5f));   // the hanging step, whole
+    CHECK(has_box(corner, 0.0f, 0.5f, 0.0f, 1.0f, 1.0f, 1.0f));   // the raised slab
+    // A corner quarter is part of the block: it is solid for collision too.
+    CHECK(resolve_with(stair, table, ShapeBoxKind::Collision).count() == 3);
+
+    table.set(ShapeFace::Front, west_up);
+    const ShapeBoxes mirror = resolve_with(stair, table, ShapeBoxKind::Selection);
+    CHECK(mirror.count() == 3);
+    CHECK(has_box(mirror, 0.0f, 0.0f, 0.5f, 0.5f, 0.5f, 1.0f));
+
+    // An upright stair behind the step points at the same side but is the other way
+    // up, so it is not a turn at all: the two are mirrored, and the quarter would sit
+    // in a step-shaped gap that is not there.
+    table.set(ShapeFace::Front, upright);
+    const ShapeBoxes mixed = resolve_with(stair, table, ShapeBoxKind::Selection);
+    CHECK(mixed.count() == 2);
+    CHECK(has_box(mixed, 0.0f, 0.0f, 0.0f, 1.0f, 0.5f, 0.5f));
+}
+
+TEST_CASE("a hanging stair's step is cut back by another hanging stair across it") {
+    BlockRegistry& reg = BlockRegistry::get_instance();
+    reg.initialize_default_blocks();
+    // The stair under test is `stair/n_up`: step hanging at -Z.
+    const BlockID north_up = reg.register_block(make_hanging_stair("test_up_cut_n", ShapeFace::Back));
+    const BlockID east_up =
+        reg.register_block(make_hanging_stair("test_up_cut_e", ShapeFace::Right));
+    const BlockID west_up = reg.register_block(make_hanging_stair("test_up_cut_w", ShapeFace::Left));
+    // ...and an upright one TURNED ACROSS it, which would cut an upright step. It is
+    // the wrong way up, so the hanging step stays whole.
+    const BlockID upright = reg.register_block(make_stair("test_up_cut_plain", ShapeFace::Left));
+    if (north_up == BlockIDs::AIR || east_up == BlockIDs::AIR || west_up == BlockIDs::AIR ||
+        upright == BlockIDs::AIR) {
+        CHECK(false);
+        return;
+    }
+    const BlockType& stair = reg.get_block(north_up);
+
+    // In FRONT of the hanging step (-Z), stepping toward -X: the -X half of the step is
+    // what survives, exactly as for an upright stair.
+    NeighborTable table;
+    table.set(ShapeFace::Back, west_up);
+    const ShapeBoxes cut = resolve_with(stair, table, ShapeBoxKind::Selection);
+    CHECK(cut.count() == 2);
+    CHECK(has_box(cut, 0.0f, 0.0f, 0.0f, 0.5f, 0.5f, 0.5f));   // the remainder
+    CHECK(!has_box(cut, 0.0f, 0.0f, 0.0f, 1.0f, 0.5f, 0.5f));  // the whole hanging step is gone
+
+    table.set(ShapeFace::Back, east_up);
+    const ShapeBoxes cut_other = resolve_with(stair, table, ShapeBoxKind::Selection);
+    CHECK(cut_other.count() == 2);
+    CHECK(has_box(cut_other, 0.5f, 0.0f, 0.0f, 1.0f, 0.5f, 0.5f));
+
+    table.set(ShapeFace::Back, upright);
+    const ShapeBoxes mixed = resolve_with(stair, table, ShapeBoxKind::Selection);
+    CHECK(mixed.count() == 2);
+    CHECK(has_box(mixed, 0.0f, 0.0f, 0.0f, 1.0f, 0.5f, 0.5f));
+}
+
+// What one exhaustive sweep of a stair's six neighbours found.
+struct StairSweep {
+    int full_cells = 0;      // neighbourhoods covering every quadrant of the step's half
+    int bad_box_counts = 0;  // resolutions that are not slab + at most a step and a quarter
+    int turned = 0;          // neighbourhoods where the rules drew something extra
+};
+
+// The sweep: every combination of `kind_count` neighbours on six faces, watching for
+// the three things that must never happen. Parameterized by which half the step lives
+// in, because a hanging stair is the SAME rules mirrored: its step and its quarters are
+// in the lower half and its slab — which covers all four quadrants of its own half by
+// itself — is in the upper one. So the slab is skipped in both cases and only boxes
+// lying inside the step's half can count as covering it.
+StairSweep sweep_stair(const BlockType& stair, const BlockID* kinds, int kind_count) {
+    StairSweep out;
+    const float band_lo = stair.stair_hanging ? 0.0f : 0.5f;
+
+    int32_t combinations = 1;
+    for (int i = 0; i < 6; ++i) combinations *= kind_count;
+
+    for (int32_t combo = 0; combo < combinations; ++combo) {
+        NeighborTable table;
+        int32_t rest = combo;
+        for (uint8_t f = 0; f < 6; ++f) {
+            table.faces[f] = kinds[rest % kind_count];
+            rest /= kind_count;
+        }
+        const ShapeBoxes boxes = resolve_with(stair, table, ShapeBoxKind::Selection);
+        // A stair is always its slab plus at most a step and one quarter.
+        if (boxes.count() < 2 || boxes.count() > 4) ++out.bad_box_counts;
+        if (boxes.count() > 2) ++out.turned;
+
+        bool quadrant_open = false;
+        for (int qx = 0; qx < 2 && !quadrant_open; ++qx) {
+            for (int qz = 0; qz < 2 && !quadrant_open; ++qz) {
+                bool covered = false;
+                for (uint8_t i = 0; i < boxes.count(); ++i) {
+                    const BlockAABB& b = boxes[i];
+                    if (b.min[1] < band_lo - 1e-4f || b.max[1] > band_lo + 0.5f + 1e-4f) {
+                        continue;  // the slab, or a box in the other half entirely
+                    }
+                    if (b.min[0] <= qx * 0.5f + 1e-4f && b.max[0] >= (qx + 1) * 0.5f - 1e-4f &&
+                        b.min[2] <= qz * 0.5f + 1e-4f && b.max[2] >= (qz + 1) * 0.5f - 1e-4f) {
+                        covered = true;
+                        break;
+                    }
+                }
+                if (!covered) quadrant_open = true;
+            }
+        }
+        if (!quadrant_open) ++out.full_cells;
+    }
+    return out;
+}
+
 // The regression this whole rule set exists to fix: with the corner decided by a
 // SIDE neighbour, two corners on opposite sides plus the whole step covered all
 // four upper quadrants, so the stair resolved into a full cube. The rules are now
 // the ones the geometry forces: the step is whole only while nothing cuts it, the
 // squares the corner and the remnant call "this side" are one side each, and the
 // corner's partner is a single cell, so at most one corner can ever appear. That
-// leaves one of the four upper quadrants open in every neighbourhood, which is what
-// the sweep proves — a sweep that also has to find neighbour-dependent geometry, or
-// it would pass on a stair that never turns at all.
+// leaves one of the four quadrants of the step's half open in every neighbourhood,
+// which is what the sweep proves — a sweep that also has to find neighbour-dependent
+// geometry, or it would pass on a stair that never turns at all.
+//
+// Both ways up are swept, because the hanging stairs have the same rules: the same
+// property has to hold for the mirrored family, and a neighbourhood that only mixes
+// the two kinds proves the up-ness guard keeps them apart.
 TEST_CASE("no neighbourhood can turn a stair into a full cell") {
     BlockRegistry& reg = BlockRegistry::get_instance();
     reg.initialize_default_blocks();
@@ -977,66 +1449,38 @@ TEST_CASE("no neighbourhood can turn a stair into a full cell") {
         reg.register_block(make_stair("test_sweep_e", ShapeFace::Right)),
         reg.register_block(make_stair("test_sweep_w", ShapeFace::Left)),
     };
-    const BlockID hanging = reg.register_block(make_hanging_stair("test_sweep_up", ShapeFace::Back));
+    const BlockID hanging_ids[4] = {
+        reg.register_block(make_hanging_stair("test_sweep_n_up", ShapeFace::Back)),
+        reg.register_block(make_hanging_stair("test_sweep_s_up", ShapeFace::Front)),
+        reg.register_block(make_hanging_stair("test_sweep_e_up", ShapeFace::Right)),
+        reg.register_block(make_hanging_stair("test_sweep_w_up", ShapeFace::Left)),
+    };
     for (uint8_t i = 0; i < 4; ++i) {
-        if (stair_ids[i] == BlockIDs::AIR) {
+        if (stair_ids[i] == BlockIDs::AIR || hanging_ids[i] == BlockIDs::AIR) {
             CHECK(false);
             return;
         }
     }
-    if (hanging == BlockIDs::AIR) {
-        CHECK(false);
-        return;
-    }
 
-    const BlockID kinds[7] = {BlockIDs::AIR, BlockIDs::STONE, stair_ids[0], stair_ids[1],
-                              stair_ids[2], stair_ids[3], hanging};
-    const int32_t kind_count = 7;
-    int32_t combinations = 1;
-    for (int i = 0; i < 6; ++i) combinations *= kind_count;
+    // Each sweep carries the other family as its seventh kind, so every neighbourhood
+    // in it is a mix and the guard is under test along with the rules.
+    const BlockID upright_kinds[7] = {BlockIDs::AIR, BlockIDs::STONE, stair_ids[0], stair_ids[1],
+                                      stair_ids[2], stair_ids[3], hanging_ids[0]};
+    const BlockID hanging_kinds[7] = {BlockIDs::AIR, BlockIDs::STONE, hanging_ids[0],
+                                      hanging_ids[1], hanging_ids[2], hanging_ids[3], stair_ids[0]};
 
     for (uint8_t v = 0; v < 4; ++v) {
-        const BlockType& stair = reg.get_block(stair_ids[v]);
-        int full_cells = 0;
-        int bad_box_counts = 0;
-        int turned = 0;
-        for (int32_t combo = 0; combo < combinations; ++combo) {
-            NeighborTable table;
-            int32_t rest = combo;
-            for (uint8_t f = 0; f < 6; ++f) {
-                table.faces[f] = kinds[rest % kind_count];
-                rest /= kind_count;
-            }
-            const ShapeBoxes boxes = resolve_with(stair, table, ShapeBoxKind::Selection);
-            // A stair is always its slab plus at most a step and one quarter.
-            if (boxes.count() < 2 || boxes.count() > 4) ++bad_box_counts;
-            if (boxes.count() > 2) ++turned;
-
-            // Is any of the four upper quadrants left open? The slab is y 0..0.5, so
-            // it is skipped: only boxes raised in the upper half count as covering.
-            bool quadrant_open = false;
-            for (int qx = 0; qx < 2 && !quadrant_open; ++qx) {
-                for (int qz = 0; qz < 2 && !quadrant_open; ++qz) {
-                    bool covered = false;
-                    for (uint8_t i = 0; i < boxes.count(); ++i) {
-                        const BlockAABB& b = boxes[i];
-                        if (b.min[1] < 0.5f - 1e-4f) continue;
-                        if (b.min[0] <= qx * 0.5f + 1e-4f && b.max[0] >= (qx + 1) * 0.5f - 1e-4f &&
-                            b.min[2] <= qz * 0.5f + 1e-4f && b.max[2] >= (qz + 1) * 0.5f - 1e-4f) {
-                            covered = true;
-                            break;
-                        }
-                    }
-                    if (!covered) quadrant_open = true;
-                }
-            }
-            if (!quadrant_open) ++full_cells;
-        }
-        CHECK(full_cells == 0);
-        CHECK(bad_box_counts == 0);
+        const StairSweep upright = sweep_stair(reg.get_block(stair_ids[v]), upright_kinds, 7);
+        CHECK(upright.full_cells == 0);
+        CHECK(upright.bad_box_counts == 0);
         // ...and the sweep has to reach the neighbour-dependent geometry at all, or
         // it proves nothing about it.
-        CHECK(turned > 0);
+        CHECK(upright.turned > 0);
+
+        const StairSweep hanging = sweep_stair(reg.get_block(hanging_ids[v]), hanging_kinds, 7);
+        CHECK(hanging.full_cells == 0);
+        CHECK(hanging.bad_box_counts == 0);
+        CHECK(hanging.turned > 0);
     }
 }
 

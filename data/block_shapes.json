@@ -96,5 +96,108 @@
     "00625": {
       "selection_boxes": [[0, 0, 0, 1, 0.0625, 1]]
     }
+  },
+
+  "_comment": "Everything below the shapes above is flat, non-connecting geometry: a fence does not yet know which of its four arms to draw, a pane is a plate rather than a post with arms, and a torch is axis-aligned. `fence` is deliberately split into `post` and `arm_*` parts so that when the neighbour resolver lands it composes `post` with only the arms a run needs, and `all` (the model the blocks use today) disappears.",
+
+  "fence": {
+    "post": {
+      "selection_boxes": [[0.375, 0, 0.375, 0.625, 1, 0.625]]
+    },
+    "arm_n": {
+      "selection_boxes": [[0.4375, 0.75, 0, 0.5625, 0.9375, 0.5625], [0.4375, 0.375, 0, 0.5625, 0.5625, 0.5625]]
+    },
+    "arm_s": {
+      "selection_boxes": [[0.4375, 0.75, 0.4375, 0.5625, 0.9375, 1], [0.4375, 0.375, 0.4375, 0.5625, 0.5625, 1]]
+    },
+    "arm_e": {
+      "selection_boxes": [[0.4375, 0.75, 0.4375, 1, 0.9375, 0.5625], [0.4375, 0.375, 0.4375, 1, 0.5625, 0.5625]]
+    },
+    "arm_w": {
+      "selection_boxes": [[0, 0.75, 0.4375, 0.5625, 0.9375, 0.5625], [0, 0.375, 0.4375, 0.5625, 0.5625, 0.5625]]
+    },
+    "all": {
+      "_comment": "Post plus all four arms, with the raised 1.5-high collision a body cannot hop (the pole's precedent). Two rails per arm, not one: a single bar reads as a rail fence, two read as a fence.",
+      "selection_boxes": [
+        [0.375, 0, 0.375, 0.625, 1, 0.625],
+        [0.4375, 0.75, 0, 0.5625, 0.9375, 0.5625],
+        [0.4375, 0.375, 0, 0.5625, 0.5625, 0.5625],
+        [0.4375, 0.75, 0.4375, 0.5625, 0.9375, 1],
+        [0.4375, 0.375, 0.4375, 0.5625, 0.5625, 1],
+        [0.4375, 0.75, 0.4375, 1, 0.9375, 0.5625],
+        [0.4375, 0.375, 0.4375, 1, 0.5625, 0.5625],
+        [0, 0.75, 0.4375, 0.5625, 0.9375, 0.5625],
+        [0, 0.375, 0.4375, 0.5625, 0.5625, 0.5625]
+      ],
+      "collision_boxes": [
+        [0.375, 0, 0.375, 0.625, 1.5, 0.625],
+        [0.4375, 0, 0, 0.5625, 1.5, 0.625],
+        [0.4375, 0, 0.375, 0.5625, 1.5, 1],
+        [0.4375, 0, 0.375, 1, 1.5, 0.5625],
+        [0, 0, 0.375, 0.5625, 1.5, 0.5625]
+      ]
+    }
+  },
+
+  "torch": {
+    "selection_boxes": [[0.4375, 0, 0.4375, 0.5625, 0.625, 0.5625]]
+  },
+
+  "torch_wall": {
+    "_comment": "The same stick, moved to hug one face of the cell and raised so it hangs off the floor. The reference leans a wall torch 22.5 degrees, which this schema cannot express yet (a rotated box needs a `rotate` field), so these are axis-aligned on purpose.",
+    "n": { "selection_boxes": [[0.4375, 0.21875, 0, 0.5625, 0.84375, 0.125]] },
+    "s": { "selection_boxes": [[0.4375, 0.21875, 0.875, 0.5625, 0.84375, 1]] },
+    "e": { "selection_boxes": [[0.875, 0.21875, 0.4375, 1, 0.84375, 0.5625]] },
+    "w": { "selection_boxes": [[0, 0.21875, 0.4375, 0.125, 0.84375, 0.5625]] }
+  },
+
+  "pane": {
+    "_comment": "A 2/16 plate spanning the cell. The resolver will replace these with a 2/16 post plus conditional arms, which is what a pane looks like at the end of a wall or in a corner.",
+    "thin_x": { "selection_boxes": [[0.4375, 0, 0, 0.5625, 1, 1]] },
+    "thin_z": { "selection_boxes": [[0, 0, 0.4375, 1, 1, 0.5625]] }
+  },
+
+  "ladder": {
+    "_comment": "A 1/16 plate against one face. Decorative: there is no climbing, the same reason the block-file importer currently skips ladders.",
+    "n": { "selection_boxes": [[0, 0, 0, 1, 1, 0.0625]] },
+    "s": { "selection_boxes": [[0, 0, 0.9375, 1, 1, 1]] },
+    "e": { "selection_boxes": [[0.9375, 0, 0, 1, 1, 1]] },
+    "w": { "selection_boxes": [[0, 0, 0, 0.0625, 1, 1]] }
+  },
+
+  "chain": {
+    "selection_boxes": [[0.4375, 0, 0.4375, 0.5625, 1, 0.5625]]
+  },
+
+  "lantern": {
+    "selection_boxes": [[0.3125, 0.375, 0.3125, 0.6875, 0.75, 0.6875]]
+  },
+
+  "carpet": {
+    "selection_boxes": [[0, 0, 0, 1, 0.0625, 1]]
+  },
+
+  "plate": {
+    "selection_boxes": [[0, 0, 0, 1, 0.0625, 1]]
+  },
+
+  "layer": {
+    "_comment": "Stacked heights for snow layers, one entry per layer: layer N is N eighths tall. The blocks for 2..8 exist and are hidden; what is missing is the placement rule that grows an existing layer instead of stacking a second block on top of it.",
+    "1": { "selection_boxes": [[0, 0, 0, 1, 0.125, 1]] },
+    "2": { "selection_boxes": [[0, 0, 0, 1, 0.25, 1]] },
+    "3": { "selection_boxes": [[0, 0, 0, 1, 0.375, 1]] },
+    "4": { "selection_boxes": [[0, 0, 0, 1, 0.5, 1]] },
+    "5": { "selection_boxes": [[0, 0, 0, 1, 0.625, 1]] },
+    "6": { "selection_boxes": [[0, 0, 0, 1, 0.75, 1]] },
+    "7": { "selection_boxes": [[0, 0, 0, 1, 0.875, 1]] },
+    "8": { "selection_boxes": [[0, 0, 0, 1, 1, 1]] }
+  },
+
+  "button": {
+    "floor": { "selection_boxes": [[0.3125, 0, 0.3125, 0.6875, 0.125, 0.6875]] },
+    "n": { "selection_boxes": [[0.3125, 0.375, 0, 0.6875, 0.625, 0.125]] },
+    "s": { "selection_boxes": [[0.3125, 0.375, 0.875, 0.6875, 0.625, 1]] },
+    "e": { "selection_boxes": [[0.875, 0.375, 0.3125, 1, 0.625, 0.6875]] },
+    "w": { "selection_boxes": [[0, 0.375, 0.3125, 0.125, 0.625, 0.6875]] }
   }
 }

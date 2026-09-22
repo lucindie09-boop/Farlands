@@ -32,6 +32,36 @@ void build_lod_priority_lut(LodPriorityLut& lut, const VoxelEngine::BlockRegistr
     }
 }
 
+// True when a sibling box of the same shape sits directly beneath this one and
+// spans its whole footprint, so this box's underside is buried inside the shape
+// (a stair's upper step over its own lower step, a wall's cap over its post).
+// Emitting that face would be a hidden quad.
+bool box_underside_covered(const std::vector<VoxelEngine::BlockAABB>& boxes,
+                           const VoxelEngine::BlockAABB& box) {
+    for (const VoxelEngine::BlockAABB& other : boxes) {
+        if (&other == &box) continue;
+        const float dy = other.max[1] - box.min[1];
+        if (dy < -0.0005f || dy > 0.0005f) continue;
+        if (other.min[0] <= box.min[0] && other.max[0] >= box.max[0] &&
+            other.min[2] <= box.min[2] && other.max[2] >= box.max[2]) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Bottom faces of a box resting on the cell floor are never visible from a
+// ground-level view and have been skipped since the first per-AABB emitter. A
+// box raised off the floor (a wall torch, a fence rail, a lantern) does get its
+// underside emitted, unless a sibling box covers it.
+bool skip_bottom_face(const std::vector<VoxelEngine::BlockAABB>& boxes,
+                      const VoxelEngine::BlockAABB& box,
+                      VoxelEngine::FaceDirection dir) {
+    if (dir != VoxelEngine::FaceDirection::Bottom) return false;
+    if (box.min[1] <= 0.0f) return true;
+    return box_underside_covered(boxes, box);
+}
+
 } // namespace
 
 namespace VoxelEngine {
@@ -390,7 +420,10 @@ void MeshBuilder::emit_faces(const ChunkData& chunk, const BlockRegistry& regist
                         for (const auto& box : bt.selection_boxes) {
                             for (int i = 0; i < 6; i++) {
                                 FaceDirection dir = kAllDirections[i];
-                                if (dir == FaceDirection::Bottom) continue;
+                                // Raised boxes emit their underside; floor boxes and
+                                // boxes whose underside is buried in a sibling box do
+                                // not. See skip_bottom_face above.
+                                if (skip_bottom_face(bt.selection_boxes, box, dir)) continue;
                                 int32_t dir_idx = static_cast<int32_t>(dir);
                                 int32_t nx = x + kDirectionOffsets[dir_idx][0] * stride_xz_;
                                 int32_t ny = y + kDirectionOffsets[dir_idx][1];
@@ -442,7 +475,10 @@ void MeshBuilder::emit_faces(const ChunkData& chunk, const BlockRegistry& regist
                             for (const auto& box : bt.selection_boxes) {
                                 for (int i = 0; i < 6; i++) {
                                     FaceDirection dir = kAllDirections[i];
-                                    if (dir == FaceDirection::Bottom) continue;
+                                    // Raised boxes emit their underside (see the
+                                    // passive path's note); floor boxes and buried
+                                    // undersides do not.
+                                    if (skip_bottom_face(bt.selection_boxes, box, dir)) continue;
                                     int32_t dir_idx = static_cast<int32_t>(dir);
                                     int32_t nx = x + kDirectionOffsets[dir_idx][0] * stride_xz_;
                                     int32_t ny = y + kDirectionOffsets[dir_idx][1];

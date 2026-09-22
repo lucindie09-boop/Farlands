@@ -182,6 +182,87 @@
       "pattern": [" f ", " /f", "/  "],
       "key": { "f": ["oak_planks", "pine_planks", "spruce_planks", "holly_planks"], "/": "stick" },
       "result": { "block": "wooden_hammer", "count": 1 }
+    },
+
+    {
+      "_comment": "The fence/torch/pane batch. Patterns stay 2x2 wherever they can so they fit the inventory grid as well as the table, and every result names a VISIBLE block (the orientation variants are hidden and drop these).",
+      "type": "shaped",
+      "pattern": ["PS", "PS"],
+      "key": { "P": "oak_planks", "S": "stick" },
+      "result": { "block": "oak_fence", "count": 3 }
+    },
+    {
+      "type": "shaped",
+      "pattern": ["PS", "PS"],
+      "key": { "P": "pine_planks", "S": "stick" },
+      "result": { "block": "pine_fence", "count": 3 }
+    },
+    {
+      "type": "shaped",
+      "pattern": ["PS", "PS"],
+      "key": { "P": "spruce_planks", "S": "stick" },
+      "result": { "block": "spruce_fence", "count": 3 }
+    },
+    {
+      "type": "shaped",
+      "pattern": ["PS", "PS"],
+      "key": { "P": "holly_planks", "S": "stick" },
+      "result": { "block": "holly_fence", "count": 3 }
+    },
+    {
+      "type": "shaped",
+      "pattern": ["C", "S"],
+      "key": { "C": "coal_ore", "S": "stick" },
+      "result": { "block": "light_torch", "count": 4 }
+    },
+    {
+      "_comment": "There is no furnace, so glass is a hand recipe rather than a smelt: four sand in, four glass out.",
+      "type": "shaped",
+      "pattern": ["SS", "SS"],
+      "key": { "S": "sand" },
+      "result": { "block": "glass", "count": 4 }
+    },
+    {
+      "type": "shaped",
+      "pattern": ["GG", "GG"],
+      "key": { "G": "glass" },
+      "result": { "block": "glass_pane", "count": 16 }
+    },
+    {
+      "type": "shaped",
+      "pattern": ["SS", "SS"],
+      "key": { "S": "stick" },
+      "result": { "block": "ladder", "count": 3 }
+    },
+    {
+      "type": "shaped",
+      "pattern": ["II"],
+      "key": { "I": "iron_ingot" },
+      "result": { "block": "chain", "count": 2 }
+    },
+    {
+      "type": "shaped",
+      "pattern": ["I", "T"],
+      "key": { "I": "iron_ingot", "T": "light_torch" },
+      "result": { "block": "lantern", "count": 1 }
+    },
+    {
+      "type": "shaped",
+      "pattern": ["PP"],
+      "key": { "P": "oak_planks" },
+      "result": { "block": "oak_plate", "count": 1 }
+    },
+    {
+      "type": "shaped",
+      "pattern": ["S"],
+      "key": { "S": "stone" },
+      "result": { "block": "stone_button", "count": 1 }
+    },
+    {
+      "type": "shaped",
+      "pattern": ["S"],
+      "key": { "S": "snow" },
+      "result": { "block": "snow_layer", "count": 4 }
     }
   ]
 }

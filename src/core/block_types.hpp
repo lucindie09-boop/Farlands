@@ -86,10 +86,16 @@ struct BlockAABB {
 // consumer that has no world to look at uses, and the loader derives them from
 // the parts rather than trusting a second hand-written copy.
 // -----------------------------------------------------------------------------
+// `left` and `right` below are from the point of view of standing on the stair
+// facing the way its step points, which is the way a turn reads on screen.
 enum class ShapeRule : uint8_t {
-    None = 0,        // unconditional part
-    Fence = 1,       // arms appear toward another fence or any body-stopping block
-    StairInner = 2,  // a quarter box fills the inside of an L of stairs
+    None = 0,              // unconditional part
+    Fence = 1,             // arms appear toward another fence or any body-stopping block
+    StairStep = 2,         // the step: stands whole unless a stair turns across it
+    StairCutLeft = 3,      // the corner the step is cut back to, on the step's left
+    StairCutRight = 4,     // ...and on its right
+    StairCornerLeft = 5,   // a quarter filling the inside of a turn on the left
+    StairCornerRight = 6,  // ...and on the right
 };
 
 // "This block is not an upright stair", for BlockType::stair_step_face.
@@ -99,12 +105,14 @@ struct ShapePart {
     std::vector<BlockAABB> boxes;            // the part's own geometry
     std::vector<BlockAABB> collision_boxes;  // optional; empty = this part's boxes
     ShapeRule rule = ShapeRule::None;
-    // Which cell faces the claim is tested on, in ShapeFace bits. Derived from the
-    // geometry by the loader (shape_box_faces) unless the part declares "faces",
-    // which a corner box needs: a stair's inner quarter reaches the FAR cell
-    // boundary as well as the neighbour's, and only the neighbour's side is part
-    // of the claim.
+    // Which cell faces the claim is tested on, in ShapeFace bits. Normally derived
+    // from the geometry (shape_box_faces), so a rule cannot be authored against a
+    // face its boxes do not meet — but a rule that asks about something else
+    // supplies the faces itself (shape_rule_faces_for): the stair rules ask about
+    // the step face and a guard side, neither of which is where their boxes are.
+    // A file may also declare "faces" explicitly, which sets faces_declared.
     uint8_t faces = 0;
+    bool faces_declared = false;
 };
 
 struct BlockShape {

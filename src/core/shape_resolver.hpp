@@ -72,6 +72,48 @@ enum class ShapeFace : uint8_t {
     return static_cast<uint8_t>(1u << static_cast<uint8_t>(face));
 }
 
+// The convention the stair rule names are written against: standing on a stair
+// facing the way its step points, the side to its left and the side to its right.
+// A face value names the direction it points at, so walking the horizontal ring
+// -Z, +X, +Z, -X — a quarter turn clockwise seen from above — one step forward
+// from a step direction reaches its right-hand side and one step back the left.
+// The face on the other side of the cell: Top/Bottom, Right/Left, Front/Back.
+[[nodiscard]] constexpr ShapeFace shape_opposite_face(ShapeFace face) noexcept {
+    switch (face) {
+        case ShapeFace::Top:    return ShapeFace::Bottom;
+        case ShapeFace::Bottom: return ShapeFace::Top;
+        case ShapeFace::Right:  return ShapeFace::Left;
+        case ShapeFace::Left:   return ShapeFace::Right;
+        case ShapeFace::Front:  return ShapeFace::Back;
+        case ShapeFace::Back:   break;
+    }
+    return ShapeFace::Front;
+}
+
+[[nodiscard]] constexpr int shape_side_ring_index(ShapeFace face) noexcept {
+    switch (face) {
+        case ShapeFace::Back:  return 0;  // -Z
+        case ShapeFace::Right: return 1;  // +X
+        case ShapeFace::Front: return 2;  // +Z
+        case ShapeFace::Left:  return 3;  // -X
+        default:               return -1;
+    }
+}
+
+[[nodiscard]] constexpr ShapeFace shape_step_left_of(ShapeFace step) noexcept {
+    constexpr ShapeFace ring[4] = {ShapeFace::Back, ShapeFace::Right, ShapeFace::Front,
+                                   ShapeFace::Left};
+    const int i = shape_side_ring_index(step);
+    return i < 0 ? step : ring[(i + 3) % 4];
+}
+
+[[nodiscard]] constexpr ShapeFace shape_step_right_of(ShapeFace step) noexcept {
+    constexpr ShapeFace ring[4] = {ShapeFace::Back, ShapeFace::Right, ShapeFace::Front,
+                                   ShapeFace::Left};
+    const int i = shape_side_ring_index(step);
+    return i < 0 ? step : ring[(i + 1) % 4];
+}
+
 // A neighbour lookup a resolution runs against. Every consumer answers from its
 // own safe source: the mesher reads its accessor, collision reads the chunk map
 // under the lock the caller already holds for the query box (padded by a block,
@@ -121,19 +163,42 @@ struct ShapeBoxes {
 [[nodiscard]] ShapeRule shape_rule_from_name(std::string_view name) noexcept;
 [[nodiscard]] const char* shape_rule_name(ShapeRule rule) noexcept;
 
-// Which faces a canonical resolution assumes connected. This is what an inventory
-// icon, a hotbar model or a tooltip draws with no world to look at, and what the
-// loader derives a shape's static box lists from.
-[[nodiscard]] uint8_t shape_rule_canonical_faces(ShapeRule rule) noexcept;
+// Which faces a rule's claim is read on. Zero means the claim FOLLOWS THE GEOMETRY:
+// the loader derives it from the boxes, so the data file says which way a part
+// points by drawing it (the fence's arms). Non-zero means the rule itself supplies
+// the faces, which the stair rules do because what they ask about — the step face,
+// and the guard side across the cell — is not where their boxes are. `self` is the
+// block being loaded, since a stair's faces depend on where its own step points.
+[[nodiscard]] uint8_t shape_rule_faces_for(ShapeRule rule, const BlockType& self) noexcept;
+
+// True for rules that answer "is that neighbour the same kind of thing as me" —
+// the property a block's `connector` records, and the only kind of rule that cares
+// about a shape mixing rules.
+[[nodiscard]] bool shape_rule_is_connector(ShapeRule rule) noexcept;
+
+// Whether a rule-claimed part belongs to the CANONICAL resolution: the model an
+// inventory icon, a hotbar cell or a held viewmodel draws, and what the loader
+// derives a shape's static box lists from. A rule whose claim is about the geometry
+// it reaches answers per face (the fence's arms are in the item model, the arms
+// pointing the other way are not); a rule whose claim is about a neighbour
+// somewhere else in the cell is all-or-nothing, because it means "a stair is beside
+// me", which a worldless resolution cannot know.
+[[nodiscard]] bool shape_rule_canonical(ShapeRule rule, const BlockType& self,
+                                       ShapeFace face) noexcept;
 
 // True when a neighbour satisfies the rule ON ONE FACE. The single place a
 // family's semantics live, so the mesher, collision and the outline cannot
 // disagree about whether a fence has an arm or a stair has a corner.
 //
-// The face is the cell face the part's claim sits on, which is what a rule like
-// the stair corner needs: whether a neighbouring stair turns toward this cell
-// depends on which side of this cell it is on.
-[[nodiscard]] bool shape_rule_connects(ShapeRule rule, ShapeFace face, BlockID neighbor,
+// The face is the cell face the claim was authored on, and the neighbours are the
+// caller's own safe lookups rather than one id: a stair rule asks about more than
+// the cell it was called on — whether the step is cut back depends on what stands
+// in front of it and on whether the half that would be cut away belongs to a
+// flight beside it. `self` is the block being resolved, which the stair rules need:
+// what a neighbour does to a stair depends on which way that stair's own step
+// points.
+[[nodiscard]] bool shape_rule_connects(ShapeRule rule, const BlockType& self, ShapeFace face,
+                                      const ShapeNeighborFn& neighbors,
                                       const BlockRegistry& registry) noexcept;
 
 

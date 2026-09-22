@@ -9,36 +9,48 @@
   },
   "stair": {
     "n": {
-      "_comment": "A stair whose step (the raised half) sits against its -Z face, plus the two INNER corner quarters. Each quarter is claimed by \"stair_inner\": it is present only while the neighbour on that side is a stair climbing toward this cell (its step against the face it shares with us), which is what an inside corner of two stairs is. The quarters are absent from the canonical flattening, so a lone stair  -  and the icon, the hand model and the outline  -  is the plain step. Not the OUTER corner: that one CUTS the step back to a quarter, which needs a part that replaces another part rather than adding to it.",
+      "_comment": "A stair whose step (the raised half) sits against its -Z face. \"left\" and \"right\" in the rules below are from the point of view of standing on the stair facing the way its step points  -  here the step points -Z, so left is -X and right is +X. The step is neighbour-dependent in three ways. A stair turned ACROSS it, standing in front of the step, cuts it back to one of the two `stair_cut_*` remnants, and the half that survives is the half that stair is stepping toward, so the two steps run into each other instead of into a wall of themselves. A `stair_corner_*` quarter fills the inside of a turn when the stair BEHIND the step points at one side. And a stair on THIS one's step - same way up, same way round - standing on the side either of those is about switches it off, because two flights meeting sideways already own that region: the step between them stays whole and the quarter is not drawn. A cell therefore never covers more than three of its four upper quadrants, so a stair cannot resolve into a full block. The canonical flattening is the slab plus the whole step, so a lone stair  -  and the icon, the hand model and the outline  -  is the plain step.",
       "selection_boxes": [[0, 0, 0, 1, 0.5, 1], [0, 0.5, 0, 1, 1, 0.5]],
       "parts": [
-        { "boxes": [[0, 0, 0, 1, 0.5, 1], [0, 0.5, 0, 1, 1, 0.5]] },
-        { "rule": "stair_inner", "faces": ["e"], "boxes": [[0.5, 0.5, 0.5, 1, 1, 1]] },
-        { "rule": "stair_inner", "faces": ["w"], "boxes": [[0, 0.5, 0.5, 0.5, 1, 1]] }
+        { "boxes": [[0, 0, 0, 1, 0.5, 1]] },
+        { "rule": "stair_step", "boxes": [[0, 0.5, 0, 1, 1, 0.5]] },
+        { "rule": "stair_corner_left", "boxes": [[0, 0.5, 0.5, 0.5, 1, 1]] },
+        { "rule": "stair_corner_right", "boxes": [[0.5, 0.5, 0.5, 1, 1, 1]] },
+        { "rule": "stair_cut_left", "boxes": [[0, 0.5, 0, 0.5, 1, 0.5]] },
+        { "rule": "stair_cut_right", "boxes": [[0.5, 0.5, 0, 1, 1, 0.5]] }
       ]
     },
     "s": {
       "selection_boxes": [[0, 0, 0, 1, 0.5, 1], [0, 0.5, 0.5, 1, 1, 1]],
       "parts": [
-        { "boxes": [[0, 0, 0, 1, 0.5, 1], [0, 0.5, 0.5, 1, 1, 1]] },
-        { "rule": "stair_inner", "faces": ["e"], "boxes": [[0.5, 0.5, 0, 1, 1, 0.5]] },
-        { "rule": "stair_inner", "faces": ["w"], "boxes": [[0, 0.5, 0, 0.5, 1, 0.5]] }
+        { "boxes": [[0, 0, 0, 1, 0.5, 1]] },
+        { "rule": "stair_step", "boxes": [[0, 0.5, 0.5, 1, 1, 1]] },
+        { "rule": "stair_corner_left", "boxes": [[0.5, 0.5, 0, 1, 1, 0.5]] },
+        { "rule": "stair_corner_right", "boxes": [[0, 0.5, 0, 0.5, 1, 0.5]] },
+        { "rule": "stair_cut_left", "boxes": [[0.5, 0.5, 0.5, 1, 1, 1]] },
+        { "rule": "stair_cut_right", "boxes": [[0, 0.5, 0.5, 0.5, 1, 1]] }
       ]
     },
     "e": {
       "selection_boxes": [[0, 0, 0, 1, 0.5, 1], [0.5, 0.5, 0, 1, 1, 1]],
       "parts": [
-        { "boxes": [[0, 0, 0, 1, 0.5, 1], [0.5, 0.5, 0, 1, 1, 1]] },
-        { "rule": "stair_inner", "faces": ["s"], "boxes": [[0, 0.5, 0.5, 0.5, 1, 1]] },
-        { "rule": "stair_inner", "faces": ["n"], "boxes": [[0, 0.5, 0, 0.5, 1, 0.5]] }
+        { "boxes": [[0, 0, 0, 1, 0.5, 1]] },
+        { "rule": "stair_step", "boxes": [[0.5, 0.5, 0, 1, 1, 1]] },
+        { "rule": "stair_corner_left", "boxes": [[0, 0.5, 0, 0.5, 1, 0.5]] },
+        { "rule": "stair_corner_right", "boxes": [[0, 0.5, 0.5, 0.5, 1, 1]] },
+        { "rule": "stair_cut_left", "boxes": [[0.5, 0.5, 0, 1, 1, 0.5]] },
+        { "rule": "stair_cut_right", "boxes": [[0.5, 0.5, 0.5, 1, 1, 1]] }
       ]
     },
     "w": {
       "selection_boxes": [[0, 0, 0, 1, 0.5, 1], [0, 0.5, 0, 0.5, 1, 1]],
       "parts": [
-        { "boxes": [[0, 0, 0, 1, 0.5, 1], [0, 0.5, 0, 0.5, 1, 1]] },
-        { "rule": "stair_inner", "faces": ["s"], "boxes": [[0.5, 0.5, 0.5, 1, 1, 1]] },
-        { "rule": "stair_inner", "faces": ["n"], "boxes": [[0.5, 0.5, 0, 1, 1, 0.5]] }
+        { "boxes": [[0, 0, 0, 1, 0.5, 1]] },
+        { "rule": "stair_step", "boxes": [[0, 0.5, 0, 0.5, 1, 1]] },
+        { "rule": "stair_corner_left", "boxes": [[0.5, 0.5, 0.5, 1, 1, 1]] },
+        { "rule": "stair_corner_right", "boxes": [[0.5, 0.5, 0, 1, 1, 0.5]] },
+        { "rule": "stair_cut_left", "boxes": [[0, 0.5, 0.5, 0.5, 1, 1]] },
+        { "rule": "stair_cut_right", "boxes": [[0, 0.5, 0, 0.5, 1, 0.5]] }
       ]
     },
     "n_up": {

@@ -97,9 +97,10 @@ void parse_parts_array(const godot::Array& arr, std::vector<ShapePart>& out,
         }
         // The claim follows the geometry: which cell faces the boxes reach is read
         // off the boxes, so a rule can never be authored against a face the part
-        // does not actually meet. A part may override that with "faces" because a
-        // corner box reaches the far cell boundary too, and only one of those
-        // boundaries is what its claim is about (the stair's inner quarter).
+        // does not actually meet. A rule that asks about something other than the
+        // geometry it reaches supplies its own faces instead (a stair's step face and
+        // its guard side are not where its corner boxes are) — that happens in
+        // apply_shape_to_block, which is where the block's own orientation is known.
         part.faces = shape_box_faces(part.boxes);
         if (pd.has("faces")) {
             godot::Array names = pd["faces"];
@@ -116,7 +117,10 @@ void parse_parts_array(const godot::Array& arr, std::vector<ShapePart>& out,
                 }
                 mask |= static_cast<uint8_t>(1u << bit);
             }
-            if (mask != 0) part.faces = mask;
+            if (mask != 0) {
+                part.faces = mask;
+                part.faces_declared = true;
+            }
         }
         out.push_back(std::move(part));
     }
@@ -164,26 +168,51 @@ void apply_shape_to_block(const BlockShape& shape, BlockType& bt, const godot::S
 
     if (bt.parts.empty()) return;
 
+    // A rule that asks about something other than the faces its boxes reach supplies
+    // those faces itself, now that the block's orientation is known. Loading them from
+    // the data file instead would mean spelling out, for every variant, which of the
+    // six faces a claim is read on — the same fact the rule already encodes.
+    for (ShapePart& part : bt.parts) {
+        const uint8_t from_rule = shape_rule_faces_for(part.rule, bt);
+        if (from_rule == 0) continue;
+        if (part.faces_declared && part.faces != from_rule) {
+            WARN_PRINT("BlockRegistry: shape \"" + shape_name +
+                       "\" declares faces that are not the ones rule \"" +
+                       godot::String(shape_rule_name(part.rule)) +
+                       "\" reads; the rule wins, because a claim answered from the wrong "
+                       "neighbour draws the part in the wrong place rather than not at all");
+        }
+        part.faces = from_rule;
+    }
+
     bool any_collision = false;
     for (const ShapePart& part : bt.parts) {
         if (part.rule != ShapeRule::None) {
-            if (bt.connector == ShapeRule::None) {
-                bt.connector = part.rule;
-            } else if (bt.connector != part.rule) {
-                ERR_PRINT("BlockRegistry: shape \"" + shape_name + "\" mixes rules \"" +
-                          godot::String(shape_rule_name(bt.connector)) + "\" and \"" +
-                          godot::String(shape_rule_name(part.rule)) +
-                          "\"; a neighbour asking \"are you the same kind of thing\" gets one "
-                          "answer, so the first rule wins");
+            // Only connector rules answer "is that neighbour the same kind of thing as
+            // me", which is the one property a shape can carry. A stair's step, its cut
+            // remnants and its corners are four different rules on purpose.
+            if (shape_rule_is_connector(part.rule)) {
+                if (bt.connector == ShapeRule::None) {
+                    bt.connector = part.rule;
+                } else if (bt.connector != part.rule) {
+                    ERR_PRINT("BlockRegistry: shape \"" + shape_name + "\" mixes rules \"" +
+                              godot::String(shape_rule_name(bt.connector)) + "\" and \"" +
+                              godot::String(shape_rule_name(part.rule)) +
+                              "\"; a neighbour asking \"are you the same kind of thing\" gets "
+                              "one answer, so the first rule wins");
+                }
             }
             if (part.faces == 0) {
                 ERR_PRINT("BlockRegistry: shape \"" + shape_name +
                           "\" puts a rule on a part that reaches no cell face, so nothing can "
                           "ever claim it; it is drawn unconditionally");
-            } else if ((part.faces & ~shape_box_faces(part.boxes)) != 0) {
+            } else if (!part.faces_declared && shape_rule_faces_for(part.rule, bt) == 0 &&
+                       (part.faces & ~shape_box_faces(part.boxes)) != 0) {
                 // A claim on a face the part does not even touch is always false,
-                // which would silently delete the part from every stair, so it is
-                // a load error rather than a quiet no.
+                // which would silently delete the part, so it is a load error rather
+                // than a quiet no. Only geometry-driven claims are checked this way: a
+                // rule-supplied claim deliberately asks about faces the part's boxes do
+                // not reach, and a declared list is the author's own statement.
                 ERR_PRINT("BlockRegistry: shape \"" + shape_name +
                           "\" claims a face its part does not reach; the part would never be "
                           "drawn");

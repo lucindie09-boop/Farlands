@@ -99,7 +99,7 @@ enum class ShapeRule : uint8_t {
     Pane = 7,              // a sheet reaching toward another pane or a whole face
     WallArm = 8,           // a low arm reaching toward another wall
     WallBrace = 9,         // a full-height arm braced against a solid whole face
-    WallCap = 10,          // the top of the post, while something stands on the wall
+    WallPost = 10,         // the post itself, up while the cell's own layout calls for it
 };
 
 // "This block is not a stair at all", for BlockType::stair_step_face.

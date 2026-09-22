@@ -280,6 +280,18 @@ BlockID make_window(BlockRegistry& reg) {
 
 // A full cube you can see through: what the fence rule turns away and what the pane
 // rule is for. No boxes set, so it is a full cube exactly like real glass.
+// Half a cell tall across the whole footprint: something a wall can hold up without
+// it resting on the post's own 2/16 column, which is the distinction the post's
+// coverage test is about.
+BlockID make_ledge(BlockRegistry& reg) {
+    BlockType ledge{};
+    ledge.name = "test_ledge";
+    ledge.properties = BlockProperty::Solid | BlockProperty::Opaque;
+    ledge.selection_boxes = {box(0.0f, 0.0f, 0.0f, 1.0f, 0.5f, 1.0f)};
+    ledge.full_cube_ = false;
+    return reg.register_block(ledge);
+}
+
 BlockID make_glazing(BlockRegistry& reg) {
     BlockType glass{};
     glass.name = "test_glazing";
@@ -369,17 +381,15 @@ std::vector<ShapePart> wall_parts() {
     };
 
     std::vector<ShapePart> parts;
+    // The post is 8/16 wide and full height, and its box meets no cell boundary at
+    // all — which is exactly why it is the one part in the file whose rule claims no
+    // face and answers for the whole cell instead.
     ShapePart post;
-    post.boxes = {box(0.25f, 0.0f, 0.25f, 0.75f, 0.8125f, 0.75f)};
+    post.rule = ShapeRule::WallPost;
+    post.boxes = {box(0.25f, 0.0f, 0.25f, 0.75f, 1.0f, 0.75f)};
     post.collision_boxes = {box(0.25f, 0.0f, 0.25f, 0.75f, 1.5f, 0.75f)};
     post.faces = shape_box_faces(post.boxes);
     parts.push_back(std::move(post));
-
-    ShapePart cap;
-    cap.rule = ShapeRule::WallCap;
-    cap.boxes = {box(0.25f, 0.8125f, 0.25f, 0.75f, 1.0f, 0.75f)};
-    cap.faces = shape_box_faces(cap.boxes);
-    parts.push_back(std::move(cap));
 
     parts.push_back(hand(ShapeFace::Back, 0.875f, ShapeRule::WallArm));
     parts.push_back(hand(ShapeFace::Front, 0.875f, ShapeRule::WallArm));
@@ -728,27 +738,169 @@ TEST_CASE("the canonical pane is the flat sheet the inventory should draw") {
     CHECK(sheet.selection_boxes[2].min[0] == doctest::Approx(0.0f));
 }
 
-TEST_CASE("a lone wall is its post, and the cap is what something above it buys") {
-    BlockRegistry::get_instance().initialize_default_blocks();
-    const BlockType wall = make_wall("test_wall_alone");
+TEST_CASE("a wall's post is up everywhere a rail does not already read as the wall") {
+    BlockRegistry& reg = BlockRegistry::get_instance();
+    reg.initialize_default_blocks();
+    const BlockID wall_id = reg.register_block(make_wall("test_wall_post"));
+    if (wall_id == BlockIDs::AIR) {
+        CHECK(false);
+        return;
+    }
+    const BlockType& wall = reg.get_block(wall_id);
+    auto post_is_up = [](const ShapeBoxes& boxes) {
+        for (uint8_t i = 0; i < boxes.count(); ++i) {
+            if (boxes[i].max[1] >= 1.0f - 1e-4f) return true;
+        }
+        return false;
+    };
 
+    // A wall on its own is a post: full height, 8/16 wide, nothing else.
     NeighborTable none;
-    const ShapeBoxes boxes = resolve_with(wall, none, ShapeBoxKind::Selection);
-    CHECK(boxes.count() == 1);
-    CHECK(boxes[0].min[0] == doctest::Approx(0.25f));
-    // Short of the top: a lone run of wall stays low until something rests on it.
-    CHECK(boxes[0].max[1] == doctest::Approx(0.8125f));
+    const ShapeBoxes alone = resolve_with(wall, none, ShapeBoxKind::Selection);
+    CHECK(alone.count() == 1);
+    CHECK(has_box(alone, 0.25f, 0.0f, 0.25f, 0.75f, 1.0f, 0.75f));
 
-    NeighborTable capped;
-    capped.set(ShapeFace::Top, BlockIDs::STONE);
-    const ShapeBoxes tall = resolve_with(wall, capped, ShapeBoxKind::Selection);
-    CHECK(tall.count() == 2);
-    CHECK(has_box(tall, 0.25f, 0.8125f, 0.25f, 0.75f, 1.0f, 0.75f));
+    // A plain through-run is the layout with no post, along either axis: the arms
+    // alone, 14/16 high, are what a run of wall reads as.
+    NeighborTable run_z;
+    run_z.set(ShapeFace::Back, wall_id);
+    run_z.set(ShapeFace::Front, wall_id);
+    const ShapeBoxes along_z = resolve_with(wall, run_z, ShapeBoxKind::Selection);
+    CHECK(along_z.count() == 2);
+    CHECK_FALSE(post_is_up(along_z));
 
-    // A liquid surface counts too: the one thing that can stand on a wall without
-    // being a block, and the reason the test is "not air" rather than "solid".
-    capped.set(ShapeFace::Top, BlockIDs::WATER);
-    CHECK(resolve_with(wall, capped, ShapeBoxKind::Selection).count() == 2);
+    NeighborTable run_x;
+    run_x.set(ShapeFace::Left, wall_id);
+    run_x.set(ShapeFace::Right, wall_id);
+    const ShapeBoxes along_x = resolve_with(wall, run_x, ShapeBoxKind::Selection);
+    CHECK(along_x.count() == 2);
+    CHECK_FALSE(post_is_up(along_x));
+
+    // Every other layout carries one. The end of a run and a corner are the two that
+    // matter in a build; a T junction and a cross are what the same rule does next.
+    NeighborTable end_of_run;
+    end_of_run.set(ShapeFace::Front, wall_id);
+    const ShapeBoxes end = resolve_with(wall, end_of_run, ShapeBoxKind::Selection);
+    CHECK(end.count() == 2);
+    CHECK(post_is_up(end));
+
+    NeighborTable corner;
+    corner.set(ShapeFace::Back, wall_id);
+    corner.set(ShapeFace::Right, wall_id);
+    const ShapeBoxes turn = resolve_with(wall, corner, ShapeBoxKind::Selection);
+    CHECK(turn.count() == 3);
+    CHECK(post_is_up(turn));
+
+    NeighborTable tee;
+    tee.set(ShapeFace::Back, wall_id);
+    tee.set(ShapeFace::Front, wall_id);
+    tee.set(ShapeFace::Right, wall_id);
+    const ShapeBoxes junction = resolve_with(wall, tee, ShapeBoxKind::Selection);
+    CHECK(junction.count() == 4);
+    CHECK(post_is_up(junction));
+
+    // A cross is the other layout without a post: four arms already meet in the
+    // middle, so there is no column for one to be.
+    NeighborTable cross;
+    cross.set(ShapeFace::Back, wall_id);
+    cross.set(ShapeFace::Front, wall_id);
+    cross.set(ShapeFace::Left, wall_id);
+    cross.set(ShapeFace::Right, wall_id);
+    const ShapeBoxes crossing = resolve_with(wall, cross, ShapeBoxKind::Selection);
+    CHECK(crossing.count() == 4);
+    CHECK_FALSE(post_is_up(crossing));
+}
+
+TEST_CASE("a run carries its post only while something rests on its footprint") {
+    BlockRegistry& reg = BlockRegistry::get_instance();
+    reg.initialize_default_blocks();
+    const BlockID wall_id = reg.register_block(make_wall("test_wall_post_cover"));
+    const BlockID fence_id = reg.register_block(make_fence("test_wall_post_fence"));
+    const BlockID ledge_id = make_ledge(reg);
+    if (wall_id == BlockIDs::AIR || fence_id == BlockIDs::AIR || ledge_id == BlockIDs::AIR) {
+        CHECK(false);
+        return;
+    }
+    const BlockType& wall = reg.get_block(wall_id);
+
+    auto mid_run_count = [&](BlockID above) {
+        NeighborTable table;
+        table.set(ShapeFace::Front, wall_id);
+        table.set(ShapeFace::Back, wall_id);
+        table.set(ShapeFace::Top, above);
+        return resolve_with(wall, table, ShapeBoxKind::Selection).count();
+    };
+
+    // A plank, a window, a fence's post: anything whose boxes span the post's own
+    // 2/16 column and reach the top of the cell is being carried by it.
+    CHECK(mid_run_count(BlockIDs::STONE) == 3);
+    CHECK(mid_run_count(fence_id) == 3);
+
+    // A ledge is half a cell tall, a liquid is not something a wall holds up, and a
+    // wall above is inert: a wall two high stays the rail one high is.
+    CHECK(mid_run_count(ledge_id) == 2);
+    CHECK(mid_run_count(BlockIDs::WATER) == 2);
+    CHECK(mid_run_count(wall_id) == 2);
+
+    // ...and a run whose arms are full height on both sides of an axis is a column
+    // already, so it takes no post however much is piled on it.
+    NeighborTable braced;
+    braced.set(ShapeFace::Front, BlockIDs::STONE);
+    braced.set(ShapeFace::Back, BlockIDs::STONE);
+    braced.set(ShapeFace::Top, BlockIDs::STONE);
+    const ShapeBoxes solid = resolve_with(wall, braced, ShapeBoxKind::Selection);
+    CHECK(solid.count() == 2);
+    for (uint8_t i = 0; i < solid.count(); ++i) {
+        CHECK(solid[i].max[1] == doctest::Approx(1.0f));  // two braces, no post
+    }
+}
+
+TEST_CASE("a wall's post reads the layout and the cell above it, and nothing else") {
+    BlockRegistry& reg = BlockRegistry::get_instance();
+    reg.initialize_default_blocks();
+    const BlockID wall_id = reg.register_block(make_wall("test_wall_post_sweep"));
+    if (wall_id == BlockIDs::AIR) {
+        CHECK(false);
+        return;
+    }
+    const BlockType& wall = reg.get_block(wall_id);
+    const ShapeFace sides[4] = {ShapeFace::Back, ShapeFace::Right, ShapeFace::Front, ShapeFace::Left};
+
+    for (int mask = 0; mask < 16; ++mask) {
+        bool connected[4];
+        bool any = false;
+        for (int i = 0; i < 4; ++i) {
+            connected[i] = (mask & (1 << i)) != 0;
+            any = any || connected[i];
+        }
+        // A plain through-run and a cross are the two layouts without a post of
+        // their own; everything else is a cell where a column is what holds the run up.
+        const bool through_run = any && connected[0] == connected[2] && connected[1] == connected[3];
+        for (int above = 0; above < 2; ++above) {
+            for (int below = 0; below < 2; ++below) {
+                NeighborTable table;
+                for (int i = 0; i < 4; ++i) {
+                    if (connected[i]) table.set(sides[i], wall_id);
+                }
+                if (above == 1) table.set(ShapeFace::Top, BlockIDs::STONE);
+                if (below == 1) table.set(ShapeFace::Bottom, BlockIDs::STONE);
+                const ShapeBoxes boxes = resolve_with(wall, table, ShapeBoxKind::Selection);
+
+                bool post_is_up = false;
+                uint8_t arms = 0;
+                for (uint8_t i = 0; i < boxes.count(); ++i) {
+                    if (boxes[i].max[1] >= 1.0f - 1e-4f) post_is_up = true;
+                    else ++arms;
+                }
+                // Whatever is above only ever adds the post to a plain run; the
+                // layout decides the rest, and the cell underneath decides nothing.
+                CHECK(post_is_up == (!through_run || above == 1));
+                uint8_t expect_arms = static_cast<uint8_t>(connected[0] + connected[1] +
+                                                          connected[2] + connected[3]);
+                CHECK(arms == expect_arms);
+            }
+        }
+    }
 }
 
 TEST_CASE("a wall arms toward another wall, whatever it is made of, and only that side") {
@@ -903,17 +1055,18 @@ TEST_CASE("the canonical wall is the run the inventory should draw") {
     ShapeBoxes canonical;
     resolve_canonical_boxes(wall, ShapeBoxKind::Selection, canonical);
 
-    // Post plus the two X arms, the cap the icon needs to not look like a hole, and
-    // no braces: a brace means "something solid is beside me", which a worldless
-    // consumer cannot know.
-    CHECK(canonical.count() == 4);
+    // Post plus the two X arms — which is exactly a wall held in the hand: a column
+    // with a run through it — and no braces: a brace means "something solid is beside
+    // me", which a worldless consumer cannot know.
+    CHECK(canonical.count() == 3);
+    CHECK(has_box(canonical, 0.25f, 0.0f, 0.25f, 0.75f, 1.0f, 0.75f));
     CHECK(boxes_reaching_side(canonical, ShapeFace::Right) == 1);
     CHECK(boxes_reaching_side(canonical, ShapeFace::Left) == 1);
     CHECK(boxes_reaching_side(canonical, ShapeFace::Front) == 0);
     CHECK(boxes_reaching_side(canonical, ShapeFace::Back) == 0);
     // ...and that is what the static lists a worldless consumer sees hold.
-    CHECK(wall.selection_boxes.size() == 4);
-    CHECK(wall.collision_boxes.size() == 4);
+    CHECK(wall.selection_boxes.size() == 3);
+    CHECK(wall.collision_boxes.size() == 3);
 }
 
 TEST_CASE("a shape with more boxes than the resolver can carry reports it") {

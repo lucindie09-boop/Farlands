@@ -210,7 +210,7 @@ void apply_shape_to_block(const BlockShape& shape, BlockType& bt, const godot::S
                               "one answer, so the first rule wins");
                 }
             }
-            if (part.faces == 0) {
+            if (!shape_rule_self_decided(part.rule) && part.faces == 0) {
                 ERR_PRINT("BlockRegistry: shape \"" + shape_name +
                           "\" puts a rule on a part that reaches no cell face, so nothing can "
                           "ever claim it; it is drawn unconditionally");

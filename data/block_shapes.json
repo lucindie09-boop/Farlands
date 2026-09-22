@@ -100,25 +100,22 @@
     }
   },
   "wall": {
-    "_comment": "A wall is a POST plus an arm per side it reaches toward, resolved when the chunk is meshed (core/shape_resolver.hpp). There are three rules rather than one because the two hands do different jobs: an arm reaching another wall stops short of the top (14/16) because it is bridging to something thin, while an arm braced against a whole face runs the full height because it carries the column out to what it leans on -- and the post itself is 13/16, with the top 3/16 claimed by what stands on the wall, which is what keeps a low run of wall low. Which arm appears is a property of the neighbour, so ONE shape serves all four directions and the four per-material wall blocks that used to differ by orientation now differ only in the id they kept.",
+    "_comment": "A wall is a POST plus an arm per side it reaches toward, resolved when the chunk is meshed (core/shape_resolver.hpp). Three rules, because the family asks three different questions. The two hands: an arm reaching another wall stops short of the top (14/16) because it is bridging to something thin, while an arm braced against a whole face runs the full height because it carries the column out to what it leans on. And the post itself, which is up unless this cell is a plain THROUGH-RUN -- a rail studded with posts at every cell stops reading as a rail -- so it is the ends of a run, the corners, the T junctions, a wall standing on its own and the cell at a cross (four arms already meet in the middle) that carry it, along with any cell in a plain run that has something resting on the post's own 2/16 footprint. That last rule is the only one in the file that reads the cell AS A WHOLE rather than one face at a time, which is why it claims no faces at all. Which hand appears is a property of the neighbour, so ONE shape serves all four directions and the four per-material wall blocks that used to differ by orientation now differ only in the id they kept.",
     "all": {
-      "_comment": "`selection_boxes` and `collision_boxes` are the canonical flattening (post, cap, and the two arms along X), which the loader derives from the parts and warns about if they drift. Collision is 1.5 high, the pole's and the fence's precedent: the model is 14/16 so it is already a barrier to step over, and 1.5 is what makes it one a body cannot hop.",
+      "_comment": "`selection_boxes` and `collision_boxes` are the canonical flattening (post plus the two arms along X), which the loader derives from the parts and warns about if they drift. Collision is 1.5 high, the pole's and the fence's precedent and the height this family is measured at: the model is 14/16 at its lowest, already above what a jump clears, and 1.5 is what makes a wall one a body cannot hop.",
       "selection_boxes": [
-        [0.25, 0, 0.25, 0.75, 0.8125, 0.75],
-        [0.25, 0.8125, 0.25, 0.75, 1, 0.75],
+        [0.25, 0, 0.25, 0.75, 1, 0.75],
         [0.5, 0, 0.3125, 1, 0.875, 0.6875],
         [0, 0, 0.3125, 0.5, 0.875, 0.6875]
       ],
       "collision_boxes": [
         [0.25, 0, 0.25, 0.75, 1.5, 0.75],
-        [0.25, 0.8125, 0.25, 0.75, 1, 0.75],
         [0.5, 0, 0.3125, 1, 1.5, 0.6875],
         [0, 0, 0.3125, 0.5, 1.5, 0.6875]
       ],
       "parts": [
-        { "boxes": [[0.25, 0, 0.25, 0.75, 0.8125, 0.75]],
+        { "rule": "wall_post", "boxes": [[0.25, 0, 0.25, 0.75, 1, 0.75]],
           "collision_boxes": [[0.25, 0, 0.25, 0.75, 1.5, 0.75]] },
-        { "rule": "wall_cap", "boxes": [[0.25, 0.8125, 0.25, 0.75, 1, 0.75]] },
         { "rule": "wall_arm", "faces": ["n"], "boxes": [[0.3125, 0, 0, 0.6875, 0.875, 0.5]],
           "collision_boxes": [[0.3125, 0, 0, 0.6875, 1.5, 0.5]] },
         { "rule": "wall_arm", "faces": ["s"], "boxes": [[0.3125, 0, 0.5, 0.6875, 0.875, 1]],

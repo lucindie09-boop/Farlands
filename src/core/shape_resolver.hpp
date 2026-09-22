@@ -119,6 +119,8 @@ enum class ShapeFace : uint8_t {
 // under the lock the caller already holds for the query box (padded by a block,
 // so a +-1 neighbour is always in the locked set), the outline takes one locked
 // lookup per face, and the canonical (inventory) resolution uses no world at all.
+// Every rule reads at most the six cells touching this one, which is what keeps
+// that one-block padding sufficient.
 struct ShapeNeighborFn {
     BlockID (*fn)(void* ctx, ShapeFace face) = nullptr;
     void* ctx = nullptr;
@@ -175,6 +177,24 @@ struct ShapeBoxes {
 // the property a block's `connector` records, and the only kind of rule that cares
 // about a shape mixing rules.
 [[nodiscard]] bool shape_rule_is_connector(ShapeRule rule) noexcept;
+
+// True for rules that read the cell AS A WHOLE rather than one face at a time.
+//
+// Every other rule is a conjunction over the faces its part claims: the fence's arm
+// appears while the face it points at holds a fence. That shape cannot express the
+// wall's post, which is up unless this cell is a plain through-run — a question
+// about the four lateral neighbours at once, and about a fifth cell on top of them,
+// where no single face is being claimed. Such a rule supplies no claim faces at all
+// and answers for itself (shape_rule_present); a worldless resolution draws its part
+// unconditionally, which is what puts the post in an inventory icon.
+[[nodiscard]] bool shape_rule_self_decided(ShapeRule rule) noexcept;
+
+// Whether a self-decided rule's part belongs to THIS cell. Only called for the rules
+// shape_rule_self_decided answers true for; true for anything else, so a caller that
+// asks unconditionally cannot drop a part by accident.
+[[nodiscard]] bool shape_rule_present(ShapeRule rule, const BlockType& self,
+                                     const ShapeNeighborFn& neighbors,
+                                     const BlockRegistry& registry) noexcept;
 
 // Whether a rule-claimed part belongs to the CANONICAL resolution: the model an
 // inventory icon, a hotbar cell or a held viewmodel draws, and what the loader

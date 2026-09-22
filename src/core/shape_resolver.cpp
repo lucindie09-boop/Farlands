@@ -34,7 +34,13 @@ void resolve_impl(const BlockType& block, const BlockRegistry& registry,
     for (const ShapePart& part : block.parts) {
         if (part.rule != ShapeRule::None) {
             bool claimed = true;
-            if (canonical) {
+            if (shape_rule_self_decided(part.rule)) {
+                // A rule that reads the cell as a whole has no face to be claimed on,
+                // so it answers for itself. A worldless resolution draws it: the
+                // canonical set is the block's fullest reading, and a wall's post is
+                // in the item model exactly as it is in the reference's.
+                claimed = canonical || shape_rule_present(part.rule, block, neighbors, registry);
+            } else if (canonical) {
                 // No world to ask, so every face of the claim has to be one the rule
                 // says a lone block still has: a fence arm pointing the way the
                 // canonical run does not is not in the item model either.
@@ -88,7 +94,7 @@ ShapeRule shape_rule_from_name(std::string_view name) noexcept {
     if (name == "pane") return ShapeRule::Pane;
     if (name == "wall_arm") return ShapeRule::WallArm;
     if (name == "wall_brace") return ShapeRule::WallBrace;
-    if (name == "wall_cap") return ShapeRule::WallCap;
+    if (name == "wall_post") return ShapeRule::WallPost;
     return ShapeRule::None;
 }
 
@@ -103,7 +109,7 @@ const char* shape_rule_name(ShapeRule rule) noexcept {
         case ShapeRule::Pane:             return "pane";
         case ShapeRule::WallArm:          return "wall_arm";
         case ShapeRule::WallBrace:        return "wall_brace";
-        case ShapeRule::WallCap:          return "wall_cap";
+        case ShapeRule::WallPost:         return "wall_post";
         case ShapeRule::None:             break;
     }
     return "none";
@@ -219,7 +225,7 @@ uint8_t shape_rule_faces_for(ShapeRule rule, const BlockType& self) noexcept {
         case ShapeRule::Pane:
         case ShapeRule::WallArm:
         case ShapeRule::WallBrace:
-        case ShapeRule::WallCap:
+        case ShapeRule::WallPost:  // reads no face: its part claims none (see below)
         case ShapeRule::Fence:
         case ShapeRule::None:
             break;
@@ -229,6 +235,10 @@ uint8_t shape_rule_faces_for(ShapeRule rule, const BlockType& self) noexcept {
 
 bool shape_rule_is_connector(ShapeRule rule) noexcept {
     return rule == ShapeRule::Fence || rule == ShapeRule::Pane || rule == ShapeRule::WallArm;
+}
+
+bool shape_rule_self_decided(ShapeRule rule) noexcept {
+    return rule == ShapeRule::WallPost;
 }
 
 bool shape_rule_canonical(ShapeRule rule, const BlockType& self, ShapeFace face) noexcept {
@@ -252,11 +262,14 @@ bool shape_rule_canonical(ShapeRule rule, const BlockType& self, ShapeFace face)
         // wall at thumbnail size.
         case ShapeRule::WallArm:
             return face == ShapeFace::Right || face == ShapeFace::Left;
-        // ...and the cap is always in the icon, because at that size a wall without
-        // its post looks like a wall standing in a hole. Neither the brace nor the
-        // corner-less arm is: both mean "something solid is next to me", which a
-        // worldless resolution cannot know.
-        case ShapeRule::WallCap:
+        // ...and the post is always in the icon, because at that size a wall without
+        // its post looks like a wall standing in a hole — and because a wall held in
+        // the hand is post plus a run through it, which is exactly the canonical set
+        // this derives. Neither the brace nor the arm is: both mean "something is
+        // next to me", which a worldless resolution cannot know. (The walk does not
+        // ask this for the post — it answers for itself — but the answer here is the
+        // same one, so the two cannot disagree.)
+        case ShapeRule::WallPost:
             return true;
         case ShapeRule::WallBrace:
             return false;
@@ -347,13 +360,13 @@ bool shape_rule_connects(ShapeRule rule, const BlockType& self, ShapeFace face,
             // looking buttress on a pane: it reads as a wall built through a window.
             if (HasProperty(type.properties, BlockProperty::Transparent)) return false;
             return type.is_full_cube();
-        case ShapeRule::WallCap:
-            // The post carries its full height while anything at all stands on the
-            // wall -- stone, a plank, another wall, even a liquid surface, which is
-            // the one thing above a wall that is not a block and still reads as
-            // something resting on it. Nothing above leaves the post short, which is
-            // what keeps a low run of wall low.
-            return neighbor != BlockIDs::AIR;
+        case ShapeRule::WallPost:
+            // Never reached: the post claims no cell face, so the walk resolves it
+            // through shape_rule_present rather than one face at a time. What the
+            // post depends on is not one neighbour — it is the four lateral ones at
+            // once, and whether a fifth cell on top of them rests on it.
+            (void)face;
+            return false;
         case ShapeRule::StairStep:
         case ShapeRule::StairCutLeft:
         case ShapeRule::StairCutRight:
@@ -421,6 +434,97 @@ bool shape_rule_connects(ShapeRule rule, const BlockType& self, ShapeFace face,
             break;
     }
     return false;
+}
+
+namespace {
+
+// The 2/16 column a wall's post occupies, and the epsilon the coverage test below
+// works to — the same one the box reader uses, so "reaches the top" means the same
+// thing here as it does everywhere else.
+constexpr float kPostColumnMin = 0.4375f;  // 7/16
+constexpr float kPostColumnMax = 0.5625f;  // 9/16
+constexpr float kPostEpsilon = 1e-4f;
+
+// Whether the block above stands ON the post's footprint all the way up: its boxes
+// have to span the 2/16 column and reach the top of its own cell. That is what
+// "something rests on the post" means, and it is why a slab over a wall does not
+// raise one (half a cell tall) while a plank, a window, a fence's post or another
+// post does.
+//
+// The collision boxes rather than the visual ones, deliberately: the question is
+// whether the thing above is carried by the post, and a fence's rail-shape reaches
+// across the cell without being anything to carry. Growth, not a single box test,
+// because a post may legitimately be modelled in more than one box stacked.
+[[nodiscard]] bool covers_post_column(const BlockType& above) noexcept {
+    if (above.is_full_cube()) return true;
+    const std::vector<BlockAABB>& boxes = above.get_collision_boxes();
+    float reach = 0.0f;
+    for (bool grew = true; grew;) {
+        grew = false;
+        for (const BlockAABB& box : boxes) {
+            if (box.min[0] > kPostColumnMin + kPostEpsilon) continue;
+            if (box.max[0] < kPostColumnMax - kPostEpsilon) continue;
+            if (box.min[2] > kPostColumnMin + kPostEpsilon) continue;
+            if (box.max[2] < kPostColumnMax - kPostEpsilon) continue;
+            if (box.min[1] > reach + kPostEpsilon) continue;
+            if (box.max[1] <= reach) continue;
+            reach = box.max[1];
+            grew = true;
+        }
+    }
+    return reach >= 1.0f - kPostEpsilon;
+}
+
+} // namespace
+
+bool shape_rule_present(ShapeRule rule, const BlockType& self, const ShapeNeighborFn& neighbors,
+                        const BlockRegistry& registry) noexcept {
+    if (rule != ShapeRule::WallPost) return true;
+
+    // The four sides, opposite pairs adjacent: Back/-Z against Front/+Z, and
+    // Right/+X against Left/-X.
+    constexpr ShapeFace kSides[4] = {ShapeFace::Back, ShapeFace::Right, ShapeFace::Front,
+                                     ShapeFace::Left};
+    bool reaches[4];
+    bool braced[4];
+    bool any = false;
+    for (int i = 0; i < 4; ++i) {
+        braced[i] = shape_rule_connects(ShapeRule::WallBrace, self, kSides[i], neighbors, registry);
+        // A side counts when either of the wall's two hands reaches it: a buttress
+        // against stone is as much a connection as an arm to another wall, and both
+        // matter to the question below.
+        reaches[i] = braced[i] ||
+                     shape_rule_connects(ShapeRule::WallArm, self, kSides[i], neighbors, registry);
+        any = any || reaches[i];
+    }
+
+    // A plain through-run is the layout with no post, and it is the whole reason the
+    // post is conditional: a run is a rail, and a rail studded with posts at every
+    // cell no longer reads as the wall it is. Everything else carries one — a wall on
+    // its own, the end of a run, a corner, a T junction — because those are the cells
+    // where a column reads as the thing holding the run up. A four-way cross is the
+    // one other layout without a post: four arms already meet in the middle.
+    const bool through_run = any && reaches[0] == reaches[2] && reaches[1] == reaches[3];
+    if (!through_run) return true;
+
+    // A run with a full-height arm on both sides of an axis is a solid column already,
+    // so it takes no post however much is piled on it.
+    if ((braced[0] && braced[2]) || (braced[1] && braced[3])) return false;
+
+    // Otherwise the post is up exactly while something rests on its footprint.
+    const BlockID above = neighbors(ShapeFace::Top);
+    if (above == BlockIDs::AIR) return false;
+    const BlockType& above_type = registry.get_block_fast(above);
+    if (above_type.is_liquid()) return false;
+    // ...and a wall above is inert, which is the one place this departs from the
+    // reference on purpose. There the post below comes up when the wall above stands
+    // WITH a post of its own — a question about that cell's neighbours, which no rule
+    // can ask from here without reading two cells out. Leaving it out is the quieter
+    // half of the difference: a wall two high stays the uniform rail one high is,
+    // where asking only "is there a wall above" would give every stacked run a solid
+    // base and a thin top.
+    if (above_type.connector == ShapeRule::WallArm) return false;
+    return covers_post_column(above_type);
 }
 
 uint8_t shape_face_from_name(std::string_view name) noexcept {

@@ -10,6 +10,86 @@ namespace {
 // round-trip through the JSON loader.
 constexpr float kFaceTouchEpsilon = 1e-4f;
 
+// How far in from the boundary a wall's reach is answerable for: it stands on the
+// half of the cell nearest the side it points at, and then some. The region a reach
+// is drawn over, grown out to the full width of the cell across it, is what the cell
+// above has to span for that reach to be run to the cell's top.
+constexpr float kReachStrip = 0.5625f;  // 9/16
+
+// Whether the cell above spans the strip a reach on `face` occupies.
+//
+// This is the whole height rule of the wall family, and it is deliberately not a
+// question about the neighbour: a wall beside a whole block and a wall beside another
+// wall look the SAME, because what a reach buttresses against does not tell you how
+// tall it should be. What does is whether there is anything over it. A reach has open
+// sky above it and stops 2/16 short of the cell top; put a block, a slab or a step on
+// the cell and the reach runs the full height, because the wall is now carrying what
+// stands on it and a flank under a span should meet it.
+//
+// One box of the cell above has to do it, which is not a shortcut: every part that
+// spans a whole strip is drawn as one box, and the things that are too thin to carry
+// (a rail's post, a sheet, a fence's arm) miss it in the middle rather than the
+// corners, so no union of them covers a strip either.
+[[nodiscard]] bool above_covers_reach(const ShapeNeighborFn& neighbors,
+                                     const BlockRegistry& registry, ShapeFace face) noexcept {
+    float x0 = 0.0f;
+    float x1 = 1.0f;
+    float z0 = 0.0f;
+    float z1 = 1.0f;
+    switch (face) {
+        case ShapeFace::Back:  z1 = kReachStrip; break;
+        case ShapeFace::Front: z0 = 1.0f - kReachStrip; break;
+        case ShapeFace::Left:  x1 = kReachStrip; break;
+        case ShapeFace::Right: x0 = 1.0f - kReachStrip; break;
+        default:               return false;
+    }
+
+    // Air is a full cube in this engine's cache (it carries no shape of its own, which
+    // is exactly what "a whole cell" means), so it is turned away by name before the
+    // flag is ever read — the same order every other rule here uses. A liquid is
+    // turned away for the other reason: it has no collision to span anything with.
+    const BlockID above_id = neighbors(ShapeFace::Top);
+    if (above_id == BlockIDs::AIR) return false;
+    const BlockType& above = registry.get_block_fast(above_id);
+    if (above.is_liquid()) return false;
+    // A whole cell spans every strip in it, and it is the one case the boxes cannot
+    // answer: a full cube carries no explicit list, because being a whole cell is its
+    // shape. Same shortcut the post's coverage test takes, for the same reason.
+    if (above.is_full_cube()) return true;
+    for (const BlockAABB& box : above.get_collision_boxes()) {
+        if (box.min[0] > x0 + kFaceTouchEpsilon) continue;
+        if (box.max[0] < x1 - kFaceTouchEpsilon) continue;
+        if (box.min[2] > z0 + kFaceTouchEpsilon) continue;
+        if (box.max[2] < z1 - kFaceTouchEpsilon) continue;
+        return true;
+    }
+    return false;
+}
+
+// Whether a wall reaches this neighbour at all, and it is the same answer whatever
+// height the reach ends up drawn at: what a wall meets is a separate question from
+// how tall the thing it draws is.
+[[nodiscard]] bool wall_reaches(BlockID neighbor, const BlockType& type) noexcept {
+    if (neighbor == BlockIDs::AIR) return false;
+    // Another wall, whatever it is made of: two materials meet here for the same
+    // reason two fence woods do.
+    if (type.connector == ShapeRule::WallArm) return true;
+    // ...or a sheet, which a wall bites into. This is the family's one asymmetry, and
+    // it is the pane rule's mirror image: a sheet presses against a whole face, and a
+    // wall's flank is not a face, so a pane does not reach a wall — while a wall's
+    // reach is a buttress meeting whatever stands in the cell beside it, and a sheet is
+    // something to buttress against.
+    if (type.connector == ShapeRule::Pane) return true;
+    // ...or a neighbour offering a whole face, which is what a full cube means here.
+    // Deliberately not the fence's reach into anything a body cannot walk through: a
+    // rail only needs an end to meet, so it lines up with the side of a slab or a snow
+    // layer, while a wall's reach is a buttress and there is nothing to buttress
+    // against a half-height neighbour. So a slab, a stair, a pole, a fence and a torch
+    // are all left alone — and so is water, however full the cell looks.
+    if (type.is_liquid()) return false;
+    return type.is_full_cube();
+}
+
 // The walk both entry points share. `canonical` swaps the per-face neighbour
 // question for the rule's canonical face set, which is the only difference
 // between "what is there now" and "what a thumbnail should show".
@@ -93,7 +173,7 @@ ShapeRule shape_rule_from_name(std::string_view name) noexcept {
     if (name == "stair_corner_right") return ShapeRule::StairCornerRight;
     if (name == "pane") return ShapeRule::Pane;
     if (name == "wall_arm") return ShapeRule::WallArm;
-    if (name == "wall_brace") return ShapeRule::WallBrace;
+    if (name == "wall_bearing") return ShapeRule::WallBearing;
     if (name == "wall_post") return ShapeRule::WallPost;
     return ShapeRule::None;
 }
@@ -108,7 +188,7 @@ const char* shape_rule_name(ShapeRule rule) noexcept {
         case ShapeRule::StairCornerRight: return "stair_corner_right";
         case ShapeRule::Pane:             return "pane";
         case ShapeRule::WallArm:          return "wall_arm";
-        case ShapeRule::WallBrace:        return "wall_brace";
+        case ShapeRule::WallBearing:      return "wall_bearing";
         case ShapeRule::WallPost:         return "wall_post";
         case ShapeRule::None:             break;
     }
@@ -224,7 +304,7 @@ uint8_t shape_rule_faces_for(ShapeRule rule, const BlockType& self) noexcept {
         // it can be a single block id where the reference needs a per-axis pair.
         case ShapeRule::Pane:
         case ShapeRule::WallArm:
-        case ShapeRule::WallBrace:
+        case ShapeRule::WallBearing:
         case ShapeRule::WallPost:  // reads no face: its part claims none (see below)
         case ShapeRule::Fence:
         case ShapeRule::None:
@@ -265,13 +345,14 @@ bool shape_rule_canonical(ShapeRule rule, const BlockType& self, ShapeFace face)
         // ...and the post is always in the icon, because at that size a wall without
         // its post looks like a wall standing in a hole — and because a wall held in
         // the hand is post plus a run through it, which is exactly the canonical set
-        // this derives. Neither the brace nor the arm is: both mean "something is
-        // next to me", which a worldless resolution cannot know. (The walk does not
-        // ask this for the post — it answers for itself — but the answer here is the
-        // same one, so the two cannot disagree.)
+        // this derives. Neither of the reaches is: both mean "something is beside me",
+        // which a worldless resolution cannot know, and the icon draws the short one
+        // through the post rather than the tall one, because nothing is over the cell
+        // to carry it. (The walk does not ask this for the post — it answers for itself
+        // — but the answer here is the same one, so the two cannot disagree.)
         case ShapeRule::WallPost:
             return true;
-        case ShapeRule::WallBrace:
+        case ShapeRule::WallBearing:
             return false;
         // The step is part of a lone stair, so it is what the icon, the hotbar cell
         // and the held viewmodel draw.
@@ -335,31 +416,16 @@ bool shape_rule_connects(ShapeRule rule, const BlockType& self, ShapeFace face,
             // reaches out over water.
             if (neighbor == BlockIDs::AIR || type.is_liquid()) return false;
             return type.is_full_cube();
+        // The wall family's two hands, which are the SAME reach drawn at two heights.
+        // They ask the same first question — does this side reach at all — and then
+        // split on the cell above, so a side that reaches draws exactly one of them and
+        // the pair can never both appear or both vanish.
         case ShapeRule::WallArm:
-            // A run's arm reaches the next wall along, whatever it is made of: a
-            // wall is recognised by the family's own rule, so two materials meet
-            // here for the same reason two fence woods do.
-            //
-            // Deliberately nothing else. A wall does NOT have the fence's reach into
-            // anything a body cannot walk through, and that difference is the whole
-            // look of the family: a rail only needs an end to meet, so it lines up
-            // with the side of a slab, while an arm is a buttress and there is
-            // nothing to buttress against a half-height neighbour. Anything that
-            // DOES offer a whole face gets the other rule instead, which is taller.
-            if (neighbor == BlockIDs::AIR) return false;
-            return type.connector == ShapeRule::WallArm;
-        case ShapeRule::WallBrace:
-            // A wall standing against something solid: the arm runs the full height
-            // of the cell instead of stopping short, because it is carrying the
-            // column's height out to the face it leans on rather than bridging a gap
-            // to another thin wall. That is why this is a rule of its own and not a
-            // second predicate on the arm: the two arms are 2/16 apart in height, and
-            // which one appears is a property of what is next door.
-            if (neighbor == BlockIDs::AIR || type.is_liquid()) return false;
-            // A window is a full cube, but bracing a wall against glass puts a solid
-            // looking buttress on a pane: it reads as a wall built through a window.
-            if (HasProperty(type.properties, BlockProperty::Transparent)) return false;
-            return type.is_full_cube();
+        case ShapeRule::WallBearing: {
+            if (!wall_reaches(neighbor, type)) return false;
+            const bool carried = above_covers_reach(neighbors, registry, face);
+            return rule == ShapeRule::WallBearing ? carried : !carried;
+        }
         case ShapeRule::WallPost:
             // Never reached: the post claims no cell face, so the walk resolves it
             // through shape_rule_present rather than one face at a time. What the
@@ -486,14 +552,13 @@ bool shape_rule_present(ShapeRule rule, const BlockType& self, const ShapeNeighb
     constexpr ShapeFace kSides[4] = {ShapeFace::Back, ShapeFace::Right, ShapeFace::Front,
                                      ShapeFace::Left};
     bool reaches[4];
-    bool braced[4];
+    bool bearing[4];
     bool any = false;
     for (int i = 0; i < 4; ++i) {
-        braced[i] = shape_rule_connects(ShapeRule::WallBrace, self, kSides[i], neighbors, registry);
-        // A side counts when either of the wall's two hands reaches it: a buttress
-        // against stone is as much a connection as an arm to another wall, and both
-        // matter to the question below.
-        reaches[i] = braced[i] ||
+        bearing[i] = shape_rule_connects(ShapeRule::WallBearing, self, kSides[i], neighbors, registry);
+        // A side counts when either of the wall's two hands reaches it — and since the
+        // two hands are one reach drawn at two heights, that is just "the side connects".
+        reaches[i] = bearing[i] ||
                      shape_rule_connects(ShapeRule::WallArm, self, kSides[i], neighbors, registry);
         any = any || reaches[i];
     }
@@ -507,9 +572,11 @@ bool shape_rule_present(ShapeRule rule, const BlockType& self, const ShapeNeighb
     const bool through_run = any && reaches[0] == reaches[2] && reaches[1] == reaches[3];
     if (!through_run) return true;
 
-    // A run with a full-height arm on both sides of an axis is a solid column already,
-    // so it takes no post however much is piled on it.
-    if ((braced[0] && braced[2]) || (braced[1] && braced[3])) return false;
+    // A run whose reaches on both sides of an axis already run to the cell top is a
+    // column already, so it takes no post however much is piled on it — and that is
+    // exactly the run under a whole block, where the two reaches meet the span above
+    // and a post between them would only be a thicker middle.
+    if ((bearing[0] && bearing[2]) || (bearing[1] && bearing[3])) return false;
 
     // Otherwise the post is up exactly while something rests on its footprint.
     const BlockID above = neighbors(ShapeFace::Top);

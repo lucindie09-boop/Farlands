@@ -348,14 +348,14 @@ BlockType make_sheet(const char* name) {
     return bt;
 }
 
-// The wall as data/block_shapes.json spells it out: a post, a cap the post grows
-// while something stands on it, an arm per side that reaches another wall, and a
-// brace per side for a neighbour offering a whole face. Two hands, two rules,
-// because they are two heights: an arm bridging to another thin wall stops short of
-// the top, while a brace carries the column out to the face it leans on. Spelled
-// from the direction the way the stair parts are, and every hand's claim is a
-// DECLARED single face exactly as the file declares it — an arm also reaches the
-// bottom of its cell, and a wall in the air does not stop reaching sideways.
+// The wall as data/block_shapes.json spells it out: a post, and a reach per side it
+// meets. Two hands, two rules,
+// because they are two heights: the reach stops short of the cell top while the cell
+// above it is open, and the other rule draws the same reach at full height while the
+// cell above spans it. Spelled from the direction the way the stair parts are, and
+// every hand's claim is a DECLARED single face exactly as the file declares it — a
+// reach also reaches the bottom of its cell, and a wall in the air does not stop
+// reaching sideways.
 std::vector<ShapePart> wall_parts() {
     const auto footprint = [](ShapeFace face) -> BlockAABB {
         switch (face) {
@@ -395,10 +395,10 @@ std::vector<ShapePart> wall_parts() {
     parts.push_back(hand(ShapeFace::Front, 0.875f, ShapeRule::WallArm));
     parts.push_back(hand(ShapeFace::Right, 0.875f, ShapeRule::WallArm));
     parts.push_back(hand(ShapeFace::Left, 0.875f, ShapeRule::WallArm));
-    parts.push_back(hand(ShapeFace::Back, 1.0f, ShapeRule::WallBrace));
-    parts.push_back(hand(ShapeFace::Front, 1.0f, ShapeRule::WallBrace));
-    parts.push_back(hand(ShapeFace::Right, 1.0f, ShapeRule::WallBrace));
-    parts.push_back(hand(ShapeFace::Left, 1.0f, ShapeRule::WallBrace));
+    parts.push_back(hand(ShapeFace::Back, 1.0f, ShapeRule::WallBearing));
+    parts.push_back(hand(ShapeFace::Front, 1.0f, ShapeRule::WallBearing));
+    parts.push_back(hand(ShapeFace::Right, 1.0f, ShapeRule::WallBearing));
+    parts.push_back(hand(ShapeFace::Left, 1.0f, ShapeRule::WallBearing));
     return parts;
 }
 
@@ -831,10 +831,15 @@ TEST_CASE("a run carries its post only while something rests on its footprint") 
         return resolve_with(wall, table, ShapeBoxKind::Selection).count();
     };
 
-    // A plank, a window, a fence's post: anything whose boxes span the post's own
-    // 2/16 column and reach the top of the cell is being carried by it.
-    CHECK(mid_run_count(BlockIDs::STONE) == 3);
+    // A fence's post: its boxes span the post's own 2/16 column and reach the top of
+    // the cell, so the run is holding it up and the post comes up to meet it.
     CHECK(mid_run_count(fence_id) == 3);
+
+    // A whole block over a run is the other answer, and the opposite one. It spans the
+    // reaches as well as the column, so both reaches run to the cell top and the run is
+    // a column already: there is no post to put between them, and what is left is the
+    // two reaches.
+    CHECK(mid_run_count(BlockIDs::STONE) == 2);
 
     // A ledge is half a cell tall, a liquid is not something a wall holds up, and a
     // wall above is inert: a wall two high stays the rail one high is.
@@ -842,16 +847,16 @@ TEST_CASE("a run carries its post only while something rests on its footprint") 
     CHECK(mid_run_count(BlockIDs::WATER) == 2);
     CHECK(mid_run_count(wall_id) == 2);
 
-    // ...and a run whose arms are full height on both sides of an axis is a column
-    // already, so it takes no post however much is piled on it.
-    NeighborTable braced;
-    braced.set(ShapeFace::Front, BlockIDs::STONE);
-    braced.set(ShapeFace::Back, BlockIDs::STONE);
-    braced.set(ShapeFace::Top, BlockIDs::STONE);
-    const ShapeBoxes solid = resolve_with(wall, braced, ShapeBoxKind::Selection);
+    // ...and the same holds for a run reached on both sides of its axis by whole faces
+    // with a block resting over it: two full-height reaches, no post.
+    NeighborTable carried;
+    carried.set(ShapeFace::Front, BlockIDs::STONE);
+    carried.set(ShapeFace::Back, BlockIDs::STONE);
+    carried.set(ShapeFace::Top, BlockIDs::STONE);
+    const ShapeBoxes solid = resolve_with(wall, carried, ShapeBoxKind::Selection);
     CHECK(solid.count() == 2);
     for (uint8_t i = 0; i < solid.count(); ++i) {
-        CHECK(solid[i].max[1] == doctest::Approx(1.0f));  // two braces, no post
+        CHECK(solid[i].max[1] == doctest::Approx(1.0f));  // reaches run to the top, no post
     }
 }
 
@@ -859,7 +864,8 @@ TEST_CASE("a wall's post reads the layout and the cell above it, and nothing els
     BlockRegistry& reg = BlockRegistry::get_instance();
     reg.initialize_default_blocks();
     const BlockID wall_id = reg.register_block(make_wall("test_wall_post_sweep"));
-    if (wall_id == BlockIDs::AIR) {
+    const BlockID fence_id = reg.register_block(make_fence("test_wall_post_sweep_fence"));
+    if (wall_id == BlockIDs::AIR || fence_id == BlockIDs::AIR) {
         CHECK(false);
         return;
     }
@@ -876,28 +882,40 @@ TEST_CASE("a wall's post reads the layout and the cell above it, and nothing els
         // A plain through-run and a cross are the two layouts without a post of
         // their own; everything else is a cell where a column is what holds the run up.
         const bool through_run = any && connected[0] == connected[2] && connected[1] == connected[3];
-        for (int above = 0; above < 2; ++above) {
+        for (int above = 0; above < 3; ++above) {
             for (int below = 0; below < 2; ++below) {
                 NeighborTable table;
                 for (int i = 0; i < 4; ++i) {
                     if (connected[i]) table.set(sides[i], wall_id);
                 }
                 if (above == 1) table.set(ShapeFace::Top, BlockIDs::STONE);
+                if (above == 2) table.set(ShapeFace::Top, fence_id);
                 if (below == 1) table.set(ShapeFace::Bottom, BlockIDs::STONE);
                 const ShapeBoxes boxes = resolve_with(wall, table, ShapeBoxKind::Selection);
 
-                bool post_is_up = false;
-                uint8_t arms = 0;
-                for (uint8_t i = 0; i < boxes.count(); ++i) {
-                    if (boxes[i].max[1] >= 1.0f - 1e-4f) post_is_up = true;
-                    else ++arms;
+                // Every side that reaches carries exactly one reach, at the height the
+                // cell above decides: a whole block spans the strip a reach stands on, a
+                // fence's post does not.
+                for (int i = 0; i < 4; ++i) {
+                    CHECK(boxes_reaching_side(boxes, sides[i]) == (connected[i] ? 1 : 0));
+                    if (!connected[i]) continue;
+                    float top = 0.0f;
+                    for (const BlockAABB& b : boxes) {
+                        if ((shape_box_faces({b}) & shape_face_bit(sides[i])) == 0) continue;
+                        if (b.max[1] > top) top = b.max[1];
+                    }
+                    CHECK(top == doctest::Approx(above == 1 ? 1.0f : 0.875f));
                 }
-                // Whatever is above only ever adds the post to a plain run; the
-                // layout decides the rest, and the cell underneath decides nothing.
-                CHECK(post_is_up == (!through_run || above == 1));
-                uint8_t expect_arms = static_cast<uint8_t>(connected[0] + connected[1] +
-                                                          connected[2] + connected[3]);
-                CHECK(arms == expect_arms);
+
+                // The post is the layout's and the cell underneath decides nothing. On a
+                // plain run the cell above does decide, and its two answers are
+                // opposites: a fence's post covers the post's own footprint, so the run
+                // carries one up to meet it, while a whole block spans the reaches
+                // instead, so both of them run to the top and the column is already
+                // there.
+                const bool post_is_up = has_box(boxes, 0.25f, 0.0f, 0.25f, 0.75f, 1.0f, 0.75f);
+                if (through_run) CHECK(post_is_up == (above == 2));
+                else CHECK(post_is_up);
             }
         }
     }
@@ -923,7 +941,7 @@ TEST_CASE("a wall arms toward another wall, whatever it is made of, and only tha
     CHECK(boxes_reaching_side(boxes, ShapeFace::Left) == 0);
     CHECK(boxes_reaching_side(boxes, ShapeFace::Front) == 0);
     CHECK(boxes_reaching_side(boxes, ShapeFace::Back) == 0);
-    // A bridging arm stops short of the top, which is what tells it apart from a brace.
+    // A reach with open sky above it stops short of the top.
     bool arm_is_short = false;
     for (uint8_t i = 0; i < boxes.count(); ++i) {
         if (boxes[i].max[0] >= 1.0f && boxes[i].max[1] == doctest::Approx(0.875f)) arm_is_short = true;
@@ -944,46 +962,112 @@ TEST_CASE("a wall arms toward another wall, whatever it is made of, and only tha
     CHECK(boxes_reaching_side(turn, ShapeFace::Back) == 1);
 }
 
-TEST_CASE("a wall braces against a whole face but not against anything thinner or a window") {
+TEST_CASE("a wall reaches what it meets, at one height whatever it is") {
     BlockRegistry& reg = BlockRegistry::get_instance();
     reg.initialize_default_blocks();
-    const BlockID wall_id = reg.register_block(make_wall("test_wall_braced"));
+    const BlockID wall_id = reg.register_block(make_wall("test_wall_reach"));
+    const BlockID sheet_id = reg.register_block(make_sheet("test_wall_neighbour_sheet"));
     const BlockID pane_id = make_window(reg);
     const BlockID fence_id = reg.register_block(make_fence("test_wall_neighbour_fence"));
     const BlockID glazing_id = make_glazing(reg);
-    if (wall_id == BlockIDs::AIR || pane_id == BlockIDs::AIR || fence_id == BlockIDs::AIR ||
-        glazing_id == BlockIDs::AIR) {
+    const BlockID ledge_id = make_ledge(reg);
+    if (wall_id == BlockIDs::AIR || sheet_id == BlockIDs::AIR || pane_id == BlockIDs::AIR ||
+        fence_id == BlockIDs::AIR || glazing_id == BlockIDs::AIR || ledge_id == BlockIDs::AIR) {
         CHECK(false);
         return;
     }
     const BlockType& wall = reg.get_block(wall_id);
 
-    NeighborTable table;
-    table.set(ShapeFace::Right, BlockIDs::STONE);
-    const ShapeBoxes stone = resolve_with(wall, table, ShapeBoxKind::Selection);
-    CHECK(stone.count() == 2);
-    bool brace_is_full = false;
-    for (uint8_t i = 0; i < stone.count(); ++i) {
-        if (stone[i].max[0] >= 1.0f && stone[i].max[1] == doctest::Approx(1.0f)) brace_is_full = true;
+    // How tall the box on a side stands, read off the boxes that reach that side: -1
+    // means nothing reaches it at all.
+    const auto reach_top = [](const ShapeBoxes& boxes, ShapeFace side) {
+        float top = -1.0f;
+        for (uint8_t i = 0; i < boxes.count(); ++i) {
+            const BlockAABB& b = boxes[i];
+            const bool reaches = (side == ShapeFace::Right) ? b.max[0] >= 1.0f - 1e-4f
+                                 : (side == ShapeFace::Left)  ? b.min[0] <= 1e-4f
+                                 : (side == ShapeFace::Front) ? b.max[2] >= 1.0f - 1e-4f
+                                                              : b.min[2] <= 1e-4f;
+            if (reaches && b.max[1] > top) top = b.max[1];
+        }
+        return top;
+    };
+
+    // Another wall and a whole block draw the same reach at the SAME height, which is
+    // the whole point of moving the height off the neighbour: a buttress against stone
+    // and a run to the next wall are the same piece of wall.
+    NeighborTable beside_wall;
+    beside_wall.set(ShapeFace::Right, wall_id);
+    const ShapeBoxes wall_side = resolve_with(wall, beside_wall, ShapeBoxKind::Selection);
+    CHECK(wall_side.count() == 2);
+    CHECK(reach_top(wall_side, ShapeFace::Right) == doctest::Approx(0.875f));
+
+    NeighborTable beside_stone;
+    beside_stone.set(ShapeFace::Right, BlockIDs::STONE);
+    const ShapeBoxes stone_side = resolve_with(wall, beside_stone, ShapeBoxKind::Selection);
+    CHECK(stone_side.count() == 2);
+    CHECK(reach_top(stone_side, ShapeFace::Right) == doctest::Approx(0.875f));
+
+    // What reaches: another wall, a sheet a wall can bite into, and anything offering a
+    // whole face — glass included, because a whole face is a whole face whether or not
+    // it is transparent, and a short reach through a window is not the buttress that
+    // used to be drawn there.
+    for (BlockID neighbor : {wall_id, sheet_id, glazing_id, BlockIDs::STONE}) {
+        NeighborTable table;
+        table.set(ShapeFace::Right, neighbor);
+        CHECK(resolve_with(wall, table, ShapeBoxKind::Selection).count() == 2);
     }
-    CHECK(brace_is_full);
+    // A bare window is NOT one of them, and that is the pane rule's own asymmetry read
+    // from this side: what a wall reaches is the family's block, not a flat pane of
+    // glass that happens to look identical.
+    {
+        NeighborTable table;
+        table.set(ShapeFace::Right, pane_id);
+        CHECK(resolve_with(wall, table, ShapeBoxKind::Selection).count() == 1);
+    }
 
-    // A rail is 14/16 high and a window is not a whole face: there is nothing out at
-    // that face for a buttress to lean on, so the post stands alone.
-    table.set(ShapeFace::Right, fence_id);
-    CHECK(resolve_with(wall, table, ShapeBoxKind::Selection).count() == 1);
-    table.set(ShapeFace::Right, pane_id);
-    CHECK(resolve_with(wall, table, ShapeBoxKind::Selection).count() == 1);
+    // What does not: anything a body can walk through, and anything half a cell tall.
+    // There is nothing standing out at that face for a reach to meet, which is where
+    // this parts company with the fence's reach into the side of a slab.
+    for (BlockID neighbor : {fence_id, ledge_id, BlockIDs::WATER, BlockIDs::AIR}) {
+        NeighborTable table;
+        table.set(ShapeFace::Right, neighbor);
+        CHECK(resolve_with(wall, table, ShapeBoxKind::Selection).count() == 1);
+    }
 
-    // ...and glass is a whole face, but bracing against it would draw solid-looking
-    // stone through a window, so a wall refuses what a pane happily seals against.
-    table.set(ShapeFace::Right, glazing_id);
-    CHECK(resolve_with(wall, table, ShapeBoxKind::Selection).count() == 1);
+    // The cell above is what makes a reach full height. A whole block and a slab span
+    // the strip the reach stands on; a fence's post misses it at the cell's own edge
+    // and a sheet misses it across, so neither is something a wall is carrying.
+    const auto top_under = [&](BlockID above) {
+        NeighborTable table;
+        table.set(ShapeFace::Right, BlockIDs::STONE);
+        if (above != BlockIDs::AIR) table.set(ShapeFace::Top, above);
+        return reach_top(resolve_with(wall, table, ShapeBoxKind::Selection), ShapeFace::Right);
+    };
+    CHECK(top_under(BlockIDs::STONE) == doctest::Approx(1.0f));
+    CHECK(top_under(ledge_id) == doctest::Approx(1.0f));
+    CHECK(top_under(fence_id) == doctest::Approx(0.875f));
+    CHECK(top_under(pane_id) == doctest::Approx(0.875f));
+    CHECK(top_under(BlockIDs::AIR) == doctest::Approx(0.875f));
 
-    table.set(ShapeFace::Right, BlockIDs::WATER);
-    CHECK(resolve_with(wall, table, ShapeBoxKind::Selection).count() == 1);
-    table.set(ShapeFace::Right, BlockIDs::AIR);
-    CHECK(resolve_with(wall, table, ShapeBoxKind::Selection).count() == 1);
+    // Exactly one of the two heights per side that reaches, whichever it is: the two
+    // rules are one reach split in two, so a side can never draw both or neither.
+    const ShapeFace sides[4] = {ShapeFace::Back, ShapeFace::Right, ShapeFace::Front,
+                                ShapeFace::Left};
+    for (int mask = 0; mask < 16; ++mask) {
+        NeighborTable table;
+        for (int i = 0; i < 4; ++i) {
+            if (mask & (1 << i)) table.set(sides[i], wall_id);
+        }
+        for (BlockID above : {BlockIDs::AIR, BlockIDs::STONE, fence_id}) {
+            if (above != BlockIDs::AIR) table.set(ShapeFace::Top, above);
+            const ShapeBoxes boxes = resolve_with(wall, table, ShapeBoxKind::Selection);
+            for (int i = 0; i < 4; ++i) {
+                CHECK(boxes_reaching_side(boxes, sides[i]) == ((mask & (1 << i)) ? 1 : 0));
+            }
+            table.set(ShapeFace::Top, BlockIDs::AIR);
+        }
+    }
 }
 
 TEST_CASE("a wall's arm is claimed by the side it points at, not by the foot it stands on") {
@@ -1010,7 +1094,7 @@ TEST_CASE("a wall's arm is claimed by the side it points at, not by the foot it 
     // Every hand declares the one side it points at, which is the only case the
     // loader takes on the author's word, and each one is a face its boxes reach.
     for (const ShapePart& part : wall.parts) {
-        if (part.rule != ShapeRule::WallArm && part.rule != ShapeRule::WallBrace) continue;
+        if (part.rule != ShapeRule::WallArm && part.rule != ShapeRule::WallBearing) continue;
         CHECK(part.faces_declared);
         CHECK((part.faces & ~shape_box_faces(part.boxes)) == 0);  // a face its boxes reach
         int set_bits = 0;
@@ -1055,9 +1139,10 @@ TEST_CASE("the canonical wall is the run the inventory should draw") {
     ShapeBoxes canonical;
     resolve_canonical_boxes(wall, ShapeBoxKind::Selection, canonical);
 
-    // Post plus the two X arms — which is exactly a wall held in the hand: a column
-    // with a run through it — and no braces: a brace means "something solid is beside
-    // me", which a worldless consumer cannot know.
+    // Post plus the two short reaches along X — which is exactly a wall held in the
+    // hand: a column with a run through it — and neither at full height, because a
+    // worldless consumer cannot know whether anything is over the cell carrying them,
+    // and no reach on the other axis at all.
     CHECK(canonical.count() == 3);
     CHECK(has_box(canonical, 0.25f, 0.0f, 0.25f, 0.75f, 1.0f, 0.75f));
     CHECK(boxes_reaching_side(canonical, ShapeFace::Right) == 1);

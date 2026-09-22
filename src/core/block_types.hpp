@@ -97,8 +97,8 @@ enum class ShapeRule : uint8_t {
     StairCornerLeft = 5,   // a quarter filling the inside of a turn on the left
     StairCornerRight = 6,  // ...and on the right
     Pane = 7,              // a sheet reaching toward another pane or a whole face
-    WallArm = 8,           // a low arm reaching toward another wall
-    WallBrace = 9,         // a full-height arm braced against a solid whole face
+    WallArm = 8,           // a reach meeting a neighbour, stopping short of the cell top
+    WallBearing = 9,       // the same reach run to the top, while the cell above spans it
     WallPost = 10,         // the post itself, up while the cell's own layout calls for it
 };
 

@@ -100,9 +100,9 @@
     }
   },
   "wall": {
-    "_comment": "A wall is a POST plus an arm per side it reaches toward, resolved when the chunk is meshed (core/shape_resolver.hpp). Three rules, because the family asks three different questions. The two hands: an arm reaching another wall stops short of the top (14/16) because it is bridging to something thin, while an arm braced against a whole face runs the full height because it carries the column out to what it leans on. And the post itself, which is up unless this cell is a plain THROUGH-RUN -- a rail studded with posts at every cell stops reading as a rail -- so it is the ends of a run, the corners, the T junctions, a wall standing on its own and the cell at a cross (four arms already meet in the middle) that carry it, along with any cell in a plain run that has something resting on the post's own 2/16 footprint. That last rule is the only one in the file that reads the cell AS A WHOLE rather than one face at a time, which is why it claims no faces at all. Which hand appears is a property of the neighbour, so ONE shape serves all four directions and the four per-material wall blocks that used to differ by orientation now differ only in the id they kept.",
+    "_comment": "A wall is a POST plus a REACH per side it meets, resolved when the chunk is meshed (core/shape_resolver.hpp). Three rules, because the family asks three different questions. A reach is drawn twice, at two heights, and WHICH height is not a property of what is next door: a reach stops 2/16 short of the top (14/16) while the cell above it is open, and runs the full height while the cell above spans the strip the reach stands on -- a wall under a block is carrying it, and a flank under a span should meet it. So a wall beside a whole block and a wall beside another wall draw the same thing, which is the point of the rule: what a reach butts against says nothing about how tall it should be. What the neighbour decides is whether there is a reach at all: another wall, a sheet a wall can bite into, or a neighbour offering a whole face. And the post itself, which is up unless this cell is a plain THROUGH-RUN -- a rail studded with posts at every cell stops reading as a rail -- so it is the ends of a run, the corners, the T junctions and a wall standing on its own that carry it -- and the layouts that do not are the plain run, the cross (four reaches already meet in the middle), and a run under a whole block, whose two reaches are full height and already meet the span above. A cell in a plain run does carry one while something rests on the post's own 2/16 footprint. That last rule is the only one in the file that reads the cell AS A WHOLE rather than one face at a time, which is why it claims no faces at all. Which of the two heights a reach ends up drawn at is a property of the cell above, so ONE shape serves all four directions and the four per-material wall blocks that used to differ by orientation now differ only in the id they kept.",
     "all": {
-      "_comment": "`selection_boxes` and `collision_boxes` are the canonical flattening (post plus the two arms along X), which the loader derives from the parts and warns about if they drift. Collision is 1.5 high, the pole's and the fence's precedent and the height this family is measured at: the model is 14/16 at its lowest, already above what a jump clears, and 1.5 is what makes a wall one a body cannot hop.",
+      "_comment": "`selection_boxes` and `collision_boxes` are the canonical flattening (post plus the two short reaches along X), which the loader derives from the parts and warns about if they drift. Collision is 1.5 high, the pole's and the fence's precedent and the height this family is measured at: the model is 14/16 at its lowest, already above what a jump clears, and 1.5 is what makes a wall one a body cannot hop.",
       "selection_boxes": [
         [0.25, 0, 0.25, 0.75, 1, 0.75],
         [0.5, 0, 0.3125, 1, 0.875, 0.6875],
@@ -124,13 +124,13 @@
           "collision_boxes": [[0.5, 0, 0.3125, 1, 1.5, 0.6875]] },
         { "rule": "wall_arm", "faces": ["w"], "boxes": [[0, 0, 0.3125, 0.5, 0.875, 0.6875]],
           "collision_boxes": [[0, 0, 0.3125, 0.5, 1.5, 0.6875]] },
-        { "rule": "wall_brace", "faces": ["n"], "boxes": [[0.3125, 0, 0, 0.6875, 1, 0.5]],
+        { "rule": "wall_bearing", "faces": ["n"], "boxes": [[0.3125, 0, 0, 0.6875, 1, 0.5]],
           "collision_boxes": [[0.3125, 0, 0, 0.6875, 1.5, 0.5]] },
-        { "rule": "wall_brace", "faces": ["s"], "boxes": [[0.3125, 0, 0.5, 0.6875, 1, 1]],
+        { "rule": "wall_bearing", "faces": ["s"], "boxes": [[0.3125, 0, 0.5, 0.6875, 1, 1]],
           "collision_boxes": [[0.3125, 0, 0.5, 0.6875, 1.5, 1]] },
-        { "rule": "wall_brace", "faces": ["e"], "boxes": [[0.5, 0, 0.3125, 1, 1, 0.6875]],
+        { "rule": "wall_bearing", "faces": ["e"], "boxes": [[0.5, 0, 0.3125, 1, 1, 0.6875]],
           "collision_boxes": [[0.5, 0, 0.3125, 1, 1.5, 0.6875]] },
-        { "rule": "wall_brace", "faces": ["w"], "boxes": [[0, 0, 0.3125, 0.5, 1, 0.6875]],
+        { "rule": "wall_bearing", "faces": ["w"], "boxes": [[0, 0, 0.3125, 0.5, 1, 0.6875]],
           "collision_boxes": [[0, 0, 0.3125, 0.5, 1.5, 0.6875]] }
       ]
     }

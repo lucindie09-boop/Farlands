@@ -107,6 +107,41 @@ int boxes_reaching(const ShapeBoxes& boxes, ShapeFace face) {
     return count;
 }
 
+// A stair as data/block_shapes.json spells the `stair/n` variant: the slab plus a
+// step against the -Z face, and the two inner corner quarters claimed on the X
+// sides with an explicit "faces" list (a corner box reaches the far cell boundary
+// as well as the neighbour's, and only the neighbour's side is the claim).
+BlockType make_stair(const char* name, uint8_t step_face) {
+    BlockType bt{};
+    bt.name = name;
+    bt.properties = BlockProperty::Solid | BlockProperty::Opaque | BlockProperty::NoOcclusion;
+    bt.visible_faces = {true, true, true, true, true, true};
+    bt.stair_step_face = step_face;
+
+    ShapePart straight;
+    straight.boxes = {box(0.0f, 0.0f, 0.0f, 1.0f, 0.5f, 1.0f),
+                      box(0.0f, 0.5f, 0.0f, 1.0f, 1.0f, 0.5f)};
+
+    ShapePart east;
+    east.rule = ShapeRule::StairInner;
+    east.faces = shape_face_bit(ShapeFace::Right);
+    east.boxes = {box(0.5f, 0.5f, 0.5f, 1.0f, 1.0f, 1.0f)};
+
+    ShapePart west;
+    west.rule = ShapeRule::StairInner;
+    west.faces = shape_face_bit(ShapeFace::Left);
+    west.boxes = {box(0.0f, 0.5f, 0.5f, 0.5f, 1.0f, 1.0f)};
+
+    bt.parts = {straight, east, west};
+
+    ShapeBoxes canonical;
+    resolve_canonical_boxes(bt, ShapeBoxKind::Selection, canonical);
+    bt.selection_boxes.assign(canonical.begin(), canonical.end());
+    bt.full_cube_ = false;
+    bt.greedy_mergeable = false;
+    return bt;
+}
+
 // A window: body-stopping, but you see through it, so nothing arms into it.
 BlockID make_pane(BlockRegistry& reg) {
     BlockType pane{};
@@ -325,4 +360,103 @@ TEST_CASE("a chunk meshed after the neighbour arrives matches one meshed with it
     after_removal.set_greedy_enabled(false);
     after_removal.build_mesh(incremental);
     CHECK(after_removal.get_vertices().size() == lonely_vertices);
+}
+
+TEST_CASE("a stair draws its inner corner only against a stair climbing toward it") {
+    BlockRegistry& reg = BlockRegistry::get_instance();
+    reg.initialize_default_blocks();
+    // make_stair builds the `stair/n` variant: step against -Z.
+    const BlockID north   = reg.register_block(make_stair("test_stair_n", static_cast<uint8_t>(ShapeFace::Back)));
+    const BlockID west    = reg.register_block(make_stair("test_stair_w", static_cast<uint8_t>(ShapeFace::Left)));
+    const BlockID east    = reg.register_block(make_stair("test_stair_e", static_cast<uint8_t>(ShapeFace::Right)));
+    const BlockID south   = reg.register_block(make_stair("test_stair_s", static_cast<uint8_t>(ShapeFace::Front)));
+    const BlockID hanging = reg.register_block(make_stair("test_stair_n_up", kNoStairFace));
+    if (north == BlockIDs::AIR) {
+        CHECK(false);
+        return;
+    }
+    const BlockType& stair = reg.get_block(north);
+
+    NeighborTable table;
+    // Alone: the slab and its step, no corner.
+    CHECK(resolve_with(stair, table, ShapeBoxKind::Selection).count() == 2);
+
+    // `stair/w` to the east climbs toward us, so its step meets the face we share.
+    table.set(ShapeFace::Right, west);
+    const ShapeBoxes corner = resolve_with(stair, table, ShapeBoxKind::Selection);
+    CHECK(corner.count() == 3);
+    bool fills_east_notch = false;
+    for (uint8_t i = 0; i < corner.count(); ++i) {
+        const BlockAABB& b = corner[i];
+        if (b.min[0] == doctest::Approx(0.5f) && b.min[2] == doctest::Approx(0.5f) &&
+            b.min[1] == doctest::Approx(0.5f) && b.max[0] == doctest::Approx(1.0f)) {
+            fills_east_notch = true;
+        }
+    }
+    CHECK(fills_east_notch);
+    // A corner quarter is part of the block: it is solid for collision too.
+    CHECK(resolve_with(stair, table, ShapeBoxKind::Collision).count() == 3);
+
+    // Every other orientation against that face: right shape, wrong way round.
+    table.set(ShapeFace::Right, north);   // same way round as us: two steps in a row
+    CHECK(resolve_with(stair, table, ShapeBoxKind::Selection).count() == 2);
+    table.set(ShapeFace::Right, east);    // climbing away
+    CHECK(resolve_with(stair, table, ShapeBoxKind::Selection).count() == 2);
+    table.set(ShapeFace::Right, south);   // climbing along our step
+    CHECK(resolve_with(stair, table, ShapeBoxKind::Selection).count() == 2);
+    table.set(ShapeFace::Right, hanging); // a hanging `*_up` stair has no upright face
+    CHECK(resolve_with(stair, table, ShapeBoxKind::Selection).count() == 2);
+    table.set(ShapeFace::Right, BlockIDs::STONE);  // a wall is not a stair
+    CHECK(resolve_with(stair, table, ShapeBoxKind::Selection).count() == 2);
+    table.set(ShapeFace::Right, BlockIDs::AIR);
+    CHECK(resolve_with(stair, table, ShapeBoxKind::Selection).count() == 2);
+
+    // Both sides at once is an L with corners on both: per-side parts, not one set.
+    table.set(ShapeFace::Right, west);
+    table.set(ShapeFace::Left, east);
+    CHECK(resolve_with(stair, table, ShapeBoxKind::Selection).count() == 4);
+}
+
+// The corner box reaches the far cell boundary as well as the neighbour's, so a
+// claim derived from the geometry would read Right|Back and corner against a stair
+// BEHIND this one too — a corner on a side where nothing is attached. The explicit
+// "faces" list on the part is what keeps the claim to the one side it belongs to.
+TEST_CASE("a stair's corner claims the neighbour's face, not every face its box reaches") {
+    BlockRegistry& reg = BlockRegistry::get_instance();
+    reg.initialize_default_blocks();
+    const BlockID north = reg.register_block(make_stair("test_stair_claim_n", static_cast<uint8_t>(ShapeFace::Back)));
+    const BlockID south = reg.register_block(make_stair("test_stair_claim_s", static_cast<uint8_t>(ShapeFace::Front)));
+    if (north == BlockIDs::AIR) {
+        CHECK(false);
+        return;
+    }
+    const BlockType& stair = reg.get_block(north);
+
+    // A `stair/s` behind us climbs away from us, which would satisfy a Back claim if
+    // the box's reach decided the claim. It must not: the east quarter stays absent.
+    NeighborTable behind;
+    behind.set(ShapeFace::Back, south);
+    CHECK(resolve_with(stair, behind, ShapeBoxKind::Selection).count() == 2);
+
+    // ...and the declared face still works on its own, so the claim was narrowed
+    // rather than lost.
+    NeighborTable side;
+    side.set(ShapeFace::Right, reg.register_block(make_stair("test_stair_claim_w",
+                                                             static_cast<uint8_t>(ShapeFace::Left))));
+    CHECK(side.faces[static_cast<uint8_t>(ShapeFace::Right)] != BlockIDs::AIR);
+    CHECK(resolve_with(stair, side, ShapeBoxKind::Selection).count() == 3);
+}
+
+TEST_CASE("the canonical stair is the plain step the inventory should draw") {
+    BlockRegistry::get_instance().initialize_default_blocks();
+    const BlockType stair = make_stair("test_stair_canonical", static_cast<uint8_t>(ShapeFace::Back));
+
+    ShapeBoxes canonical;
+    resolve_canonical_boxes(stair, ShapeBoxKind::Selection, canonical);
+
+    // Slab and step, no corner: a corner means "a neighbour is there", which a
+    // worldless consumer standing in the inventory cannot know.
+    CHECK(canonical.count() == 2);
+    CHECK(stair.selection_boxes.size() == 2);
+    CHECK(stair.selection_boxes[1].max[2] == doctest::Approx(0.5f));
 }

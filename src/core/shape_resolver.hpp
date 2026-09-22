@@ -126,16 +126,26 @@ struct ShapeBoxes {
 // loader derives a shape's static box lists from.
 [[nodiscard]] uint8_t shape_rule_canonical_faces(ShapeRule rule) noexcept;
 
-// True when a neighbour satisfies the rule. The single place a family's
-// connection semantics live, so the mesher, collision and the outline cannot
-// disagree about whether a fence has an arm.
-[[nodiscard]] bool shape_rule_connects(ShapeRule rule, BlockID neighbor,
+// True when a neighbour satisfies the rule ON ONE FACE. The single place a
+// family's semantics live, so the mesher, collision and the outline cannot
+// disagree about whether a fence has an arm or a stair has a corner.
+//
+// The face is the cell face the part's claim sits on, which is what a rule like
+// the stair corner needs: whether a neighbouring stair turns toward this cell
+// depends on which side of this cell it is on.
+[[nodiscard]] bool shape_rule_connects(ShapeRule rule, ShapeFace face, BlockID neighbor,
                                       const BlockRegistry& registry) noexcept;
+
 
 // Which cell faces a set of boxes reaches (within 1/16). The loader calls this
 // once per part so the claim follows the geometry instead of a second naming
 // scheme that could contradict it.
 [[nodiscard]] uint8_t shape_box_faces(const std::vector<BlockAABB>& boxes) noexcept;
+
+// A face name as data/block_shapes.json spells it in a part's "faces" override:
+// n = -Z, s = +Z, e = +X, w = -X, up = +Y, down = -Y, matching the variant names
+// in the same file. Returns 0xFF when the name is not one of those.
+[[nodiscard]] uint8_t shape_face_from_name(std::string_view name) noexcept;
 
 // Resolve a block's parts against real neighbours. Never allocates. The registry
 // is what the rules ask about the neighbours themselves (is this one a fence, a

@@ -9,16 +9,37 @@
   },
   "stair": {
     "n": {
-      "selection_boxes": [[0, 0, 0, 1, 0.5, 1], [0, 0.5, 0, 1, 1, 0.5]]
+      "_comment": "A stair whose step (the raised half) sits against its -Z face, plus the two INNER corner quarters. Each quarter is claimed by \"stair_inner\": it is present only while the neighbour on that side is a stair climbing toward this cell (its step against the face it shares with us), which is what an inside corner of two stairs is. The quarters are absent from the canonical flattening, so a lone stair  -  and the icon, the hand model and the outline  -  is the plain step. Not the OUTER corner: that one CUTS the step back to a quarter, which needs a part that replaces another part rather than adding to it.",
+      "selection_boxes": [[0, 0, 0, 1, 0.5, 1], [0, 0.5, 0, 1, 1, 0.5]],
+      "parts": [
+        { "boxes": [[0, 0, 0, 1, 0.5, 1], [0, 0.5, 0, 1, 1, 0.5]] },
+        { "rule": "stair_inner", "faces": ["e"], "boxes": [[0.5, 0.5, 0.5, 1, 1, 1]] },
+        { "rule": "stair_inner", "faces": ["w"], "boxes": [[0, 0.5, 0.5, 0.5, 1, 1]] }
+      ]
     },
     "s": {
-      "selection_boxes": [[0, 0, 0, 1, 0.5, 1], [0, 0.5, 0.5, 1, 1, 1]]
+      "selection_boxes": [[0, 0, 0, 1, 0.5, 1], [0, 0.5, 0.5, 1, 1, 1]],
+      "parts": [
+        { "boxes": [[0, 0, 0, 1, 0.5, 1], [0, 0.5, 0.5, 1, 1, 1]] },
+        { "rule": "stair_inner", "faces": ["e"], "boxes": [[0.5, 0.5, 0, 1, 1, 0.5]] },
+        { "rule": "stair_inner", "faces": ["w"], "boxes": [[0, 0.5, 0, 0.5, 1, 0.5]] }
+      ]
     },
     "e": {
-      "selection_boxes": [[0, 0, 0, 1, 0.5, 1], [0.5, 0.5, 0, 1, 1, 1]]
+      "selection_boxes": [[0, 0, 0, 1, 0.5, 1], [0.5, 0.5, 0, 1, 1, 1]],
+      "parts": [
+        { "boxes": [[0, 0, 0, 1, 0.5, 1], [0.5, 0.5, 0, 1, 1, 1]] },
+        { "rule": "stair_inner", "faces": ["s"], "boxes": [[0, 0.5, 0.5, 0.5, 1, 1]] },
+        { "rule": "stair_inner", "faces": ["n"], "boxes": [[0, 0.5, 0, 0.5, 1, 0.5]] }
+      ]
     },
     "w": {
-      "selection_boxes": [[0, 0, 0, 1, 0.5, 1], [0, 0.5, 0, 0.5, 1, 1]]
+      "selection_boxes": [[0, 0, 0, 1, 0.5, 1], [0, 0.5, 0, 0.5, 1, 1]],
+      "parts": [
+        { "boxes": [[0, 0, 0, 1, 0.5, 1], [0, 0.5, 0, 0.5, 1, 1]] },
+        { "rule": "stair_inner", "faces": ["s"], "boxes": [[0.5, 0.5, 0.5, 1, 1, 1]] },
+        { "rule": "stair_inner", "faces": ["n"], "boxes": [[0.5, 0.5, 0, 1, 1, 0.5]] }
+      ]
     },
     "n_up": {
       "selection_boxes": [[0, 0.5, 0, 1, 1, 1], [0, 0, 0, 1, 0.5, 0.5]]

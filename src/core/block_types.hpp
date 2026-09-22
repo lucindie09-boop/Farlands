@@ -87,17 +87,23 @@ struct BlockAABB {
 // the parts rather than trusting a second hand-written copy.
 // -----------------------------------------------------------------------------
 enum class ShapeRule : uint8_t {
-    None = 0,   // unconditional part
-    Fence = 1,  // arms appear toward another fence or any body-stopping block
+    None = 0,        // unconditional part
+    Fence = 1,       // arms appear toward another fence or any body-stopping block
+    StairInner = 2,  // a quarter box fills the inside of an L of stairs
 };
+
+// "This block is not an upright stair", for BlockType::stair_step_face.
+inline constexpr uint8_t kNoStairFace = 0xFF;
 
 struct ShapePart {
     std::vector<BlockAABB> boxes;            // the part's own geometry
     std::vector<BlockAABB> collision_boxes;  // optional; empty = this part's boxes
     ShapeRule rule = ShapeRule::None;
-    // Which cell faces the boxes reach, in FaceDirection bits. Derived from the
-    // geometry by the loader (shape_box_faces), so a claim cannot contradict the
-    // boxes it was authored with.
+    // Which cell faces the claim is tested on, in ShapeFace bits. Derived from the
+    // geometry by the loader (shape_box_faces) unless the part declares "faces",
+    // which a corner box needs: a stair's inner quarter reaches the FAR cell
+    // boundary as well as the neighbour's, and only the neighbour's side is part
+    // of the claim.
     uint8_t faces = 0;
 };
 
@@ -196,6 +202,17 @@ struct BlockType {
     // not. A shape that mixes rules reports the first rule-bearing part (the
     // loader warns: a connector answers exactly one question).
     ShapeRule connector = ShapeRule::None;
+
+    // For a stair: which cell face its step (the raised half) sits against, as a
+    // ShapeFace value; kNoStairFace for everything else. A neighbouring stair's
+    // corner rule asks this, which is why it is data on the block rather than a
+    // lookup into the stair family table: the rule then needs only the neighbour's
+    // BlockType. The hanging `*_up` variants stay kNoStairFace — their corner
+    // geometry is mirrored, and a wrong corner is worse than none. Set at load
+    // from the shape name (`stair/n` → -Z), the same string the stair family table
+    // is built from; the built-in default registry never sets it, and it has no
+    // real stair shapes to corner with anyway.
+    uint8_t stair_step_face = kNoStairFace;
 
     // Cached flag: true when selection_boxes is a single full cube [0,0,0,1,1,1].
     // Checked on hot paths (greedy meshing, collision, AO) for zero-overhead fast path.

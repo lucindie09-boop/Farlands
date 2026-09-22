@@ -47,8 +47,8 @@ void resolve_impl(const BlockType& block, const BlockRegistry& registry,
                 for (uint8_t d = 0; d < 6; ++d) {
                     const uint8_t bit = static_cast<uint8_t>(1u << d);
                     if ((part.faces & bit) == 0) continue;
-                    if (!shape_rule_connects(part.rule, neighbors(static_cast<ShapeFace>(d)),
-                                             registry)) {
+                    if (!shape_rule_connects(part.rule, static_cast<ShapeFace>(d),
+                                             neighbors(static_cast<ShapeFace>(d)), registry)) {
                         claimed = false;
                         break;
                     }
@@ -74,15 +74,30 @@ void resolve_impl(const BlockType& block, const BlockRegistry& registry,
 
 ShapeRule shape_rule_from_name(std::string_view name) noexcept {
     if (name == "fence") return ShapeRule::Fence;
+    if (name == "stair_inner") return ShapeRule::StairInner;
     return ShapeRule::None;
 }
 
 const char* shape_rule_name(ShapeRule rule) noexcept {
     switch (rule) {
-        case ShapeRule::Fence: return "fence";
-        case ShapeRule::None:  break;
+        case ShapeRule::Fence:      return "fence";
+        case ShapeRule::StairInner: return "stair_inner";
+        case ShapeRule::None:       break;
     }
     return "none";
+}
+
+// The face opposite a given one. Top/Bottom, Right/Left, Front/Back.
+constexpr ShapeFace opposite_face(ShapeFace face) noexcept {
+    switch (face) {
+        case ShapeFace::Top:    return ShapeFace::Bottom;
+        case ShapeFace::Bottom: return ShapeFace::Top;
+        case ShapeFace::Right:  return ShapeFace::Left;
+        case ShapeFace::Left:   return ShapeFace::Right;
+        case ShapeFace::Front:  return ShapeFace::Back;
+        case ShapeFace::Back:   break;
+    }
+    return ShapeFace::Front;
 }
 
 uint8_t shape_rule_canonical_faces(ShapeRule rule) noexcept {
@@ -94,13 +109,19 @@ uint8_t shape_rule_canonical_faces(ShapeRule rule) noexcept {
         case ShapeRule::Fence:
             return static_cast<uint8_t>(shape_face_bit(ShapeFace::Right) |
                                         shape_face_bit(ShapeFace::Left));
+        // A stair's corner is not part of a lone stair, which is why the icon, the
+        // hotbar model and the held viewmodel all show the plain step. It also has
+        // to be this way round: a corner box in the canonical set would be a box
+        // sticking out of a stair that has nothing to turn around.
+        case ShapeRule::StairInner:
         case ShapeRule::None:
             break;
     }
     return 0;
 }
 
-bool shape_rule_connects(ShapeRule rule, BlockID neighbor, const BlockRegistry& registry) noexcept {
+bool shape_rule_connects(ShapeRule rule, ShapeFace face, BlockID neighbor,
+                         const BlockRegistry& registry) noexcept {
     if (rule == ShapeRule::None) return false;
     if (neighbor == BlockIDs::AIR) return false;
 
@@ -121,10 +142,30 @@ bool shape_rule_connects(ShapeRule rule, BlockID neighbor, const BlockRegistry& 
             // up with the side of a slab or a snow layer too, and the rail's own
             // height is fixed, so the neighbour's height does not matter.
             return type.stops_bodies();
+        case ShapeRule::StairInner: {
+            // The inside of an L: this cell has a neighbour on `face` whose step
+            // sits against the face it shares with us, i.e. that stair climbs
+            // TOWARD this cell. Then the quarter box fills the notch, so the two
+            // steps read as one corner instead of two steps with a hole between
+            // them. Deliberately material-agnostic: any stair corners with any
+            // other, exactly as the reference does, and the geometry is the same.
+            if (type.stair_step_face == kNoStairFace) return false;
+            return type.stair_step_face == static_cast<uint8_t>(opposite_face(face));
+        }
         case ShapeRule::None:
             break;
     }
     return false;
+}
+
+uint8_t shape_face_from_name(std::string_view name) noexcept {
+    if (name == "n") return static_cast<uint8_t>(ShapeFace::Back);
+    if (name == "s") return static_cast<uint8_t>(ShapeFace::Front);
+    if (name == "e") return static_cast<uint8_t>(ShapeFace::Right);
+    if (name == "w") return static_cast<uint8_t>(ShapeFace::Left);
+    if (name == "up") return static_cast<uint8_t>(ShapeFace::Top);
+    if (name == "down") return static_cast<uint8_t>(ShapeFace::Bottom);
+    return 0xFF;
 }
 
 uint8_t shape_box_faces(const std::vector<BlockAABB>& boxes) noexcept {

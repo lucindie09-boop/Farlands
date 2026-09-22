@@ -97,8 +97,27 @@ void parse_parts_array(const godot::Array& arr, std::vector<ShapePart>& out,
         }
         // The claim follows the geometry: which cell faces the boxes reach is read
         // off the boxes, so a rule can never be authored against a face the part
-        // does not actually meet.
+        // does not actually meet. A part may override that with "faces" because a
+        // corner box reaches the far cell boundary too, and only one of those
+        // boundaries is what its claim is about (the stair's inner quarter).
         part.faces = shape_box_faces(part.boxes);
+        if (pd.has("faces")) {
+            godot::Array names = pd["faces"];
+            uint8_t mask = 0;
+            for (int f = 0; f < static_cast<int>(names.size()); ++f) {
+                const std::string face_name = static_cast<godot::String>(names[f]).utf8().get_data();
+                const uint8_t bit = shape_face_from_name(face_name);
+                if (bit == 0xFF) {
+                    ERR_PRINT("BlockRegistry: unknown face name \"" +
+                              static_cast<godot::String>(names[f]) + "\" in " + owner +
+                              " part " + godot::String::num_int64(i) +
+                              " — expected n, s, e, w, up or down");
+                    continue;
+                }
+                mask |= static_cast<uint8_t>(1u << bit);
+            }
+            if (mask != 0) part.faces = mask;
+        }
         out.push_back(std::move(part));
     }
 }
@@ -129,6 +148,20 @@ void apply_shape_to_block(const BlockShape& shape, BlockType& bt, const godot::S
     bt.selection_boxes = shape.selection_boxes;
     bt.collision_boxes = shape.collision_boxes;
     bt.parts = shape.parts;
+
+    // A stair's step face is read off its variant name, the same winding the shape
+    // file uses: stair/n has its step against the cell's -Z face. It lives on the
+    // block so a neighbouring stair's corner rule needs nothing but that block.
+    const std::string shape_key = shape_name.utf8().get_data();
+    if (shape_key.rfind("stair/", 0) == 0) {
+        const std::string variant = shape_key.substr(6);
+        if (variant == "n")      bt.stair_step_face = static_cast<uint8_t>(ShapeFace::Back);
+        else if (variant == "s") bt.stair_step_face = static_cast<uint8_t>(ShapeFace::Front);
+        else if (variant == "e") bt.stair_step_face = static_cast<uint8_t>(ShapeFace::Right);
+        else if (variant == "w") bt.stair_step_face = static_cast<uint8_t>(ShapeFace::Left);
+        // The hanging `*_up` variants keep kNoStairFace on purpose.
+    }
+
     if (bt.parts.empty()) return;
 
     bool any_collision = false;
@@ -147,6 +180,13 @@ void apply_shape_to_block(const BlockShape& shape, BlockType& bt, const godot::S
                 ERR_PRINT("BlockRegistry: shape \"" + shape_name +
                           "\" puts a rule on a part that reaches no cell face, so nothing can "
                           "ever claim it; it is drawn unconditionally");
+            } else if ((part.faces & ~shape_box_faces(part.boxes)) != 0) {
+                // A claim on a face the part does not even touch is always false,
+                // which would silently delete the part from every stair, so it is
+                // a load error rather than a quiet no.
+                ERR_PRINT("BlockRegistry: shape \"" + shape_name +
+                          "\" claims a face its part does not reach; the part would never be "
+                          "drawn");
             }
         }
         if (!part.collision_boxes.empty()) any_collision = true;

@@ -4,6 +4,7 @@
 #include "core/chunk_data.hpp"
 #include "mesh/mesh_builder.hpp"
 
+#include <cmath>
 #include <cstring>
 #include <vector>
 
@@ -90,6 +91,29 @@ ShapeBoxes resolve_with(const BlockType& bt, NeighborTable& table, ShapeBoxKind 
     resolve_shape_boxes(bt, BlockRegistry::get_instance(), ShapeNeighborFn{&table_lookup, &table},
                         kind, boxes);
     return boxes;
+}
+
+// The hull of a resolved set: what the boxes cover between them. Comparing a hull
+// against a single box is how the pane tests below check that a run of sheets adds
+// up to the one flat plate a pane used to be, rather than to something that merely
+// has the right number of boxes.
+BlockAABB hull(const ShapeBoxes& boxes) {
+    BlockAABB b = boxes[0];
+    for (uint8_t i = 1; i < boxes.count(); ++i) {
+        for (int k = 0; k < 3; ++k) {
+            if (boxes[i].min[k] < b.min[k]) b.min[k] = boxes[i].min[k];
+            if (boxes[i].max[k] > b.max[k]) b.max[k] = boxes[i].max[k];
+        }
+    }
+    return b;
+}
+
+bool same_box(const BlockAABB& a, const BlockAABB& b) {
+    for (int k = 0; k < 3; ++k) {
+        if (std::fabs(a.min[k] - b.min[k]) > 1e-4f) return false;
+        if (std::fabs(a.max[k] - b.max[k]) > 1e-4f) return false;
+    }
+    return true;
 }
 
 // How many resolved boxes reach a given cell face. The arms are told apart by
@@ -215,14 +239,74 @@ BlockType make_hanging_stair(const char* name, ShapeFace step_face) {
     return bt;
 }
 
-// A window: body-stopping, but you see through it, so nothing arms into it.
-BlockID make_pane(BlockRegistry& reg) {
+// A window: body-stopping, but you see through it, so nothing arms into it. Named
+// for what it tests rather than for its material, because the pane family below is
+// the one block in the game called "pane".
+BlockID make_window(BlockRegistry& reg) {
     BlockType pane{};
-    pane.name = "test_window_pane";
+    pane.name = "test_window";
     pane.properties = BlockProperty::Solid | BlockProperty::Transparent;
     pane.selection_boxes = {box(0.0f, 0.0f, 0.4375f, 1.0f, 1.0f, 0.5625f)};
     pane.full_cube_ = false;
     return reg.register_block(pane);
+}
+
+// A full cube you can see through: what the fence rule turns away and what the pane
+// rule is for. No boxes set, so it is a full cube exactly like real glass.
+BlockID make_glazing(BlockRegistry& reg) {
+    BlockType glass{};
+    glass.name = "test_glazing";
+    glass.properties = BlockProperty::Solid | BlockProperty::Transparent;
+    return reg.register_block(glass);
+}
+
+// The pane as data/block_shapes.json spells it: a centre post, and one arm per
+// direction it can seal against. Built the way make_fence is, with one difference
+// that matters: each arm's claim is DECLARED as the single face it points at rather
+// than read off its boxes. An arm spans the whole cell height, so the geometry on
+// its own would claim up and down too, and a sheet is not something that needs a
+// block above and below it to exist.
+std::vector<ShapePart> sheet_parts() {
+    const auto arm = [](const BlockAABB& b, ShapeFace face) {
+        ShapePart p;
+        p.boxes = {b};
+        p.rule = ShapeRule::Pane;
+        p.faces = shape_face_bit(face);
+        p.faces_declared = true;
+        return p;
+    };
+
+    std::vector<ShapePart> parts;
+    ShapePart post;
+    post.boxes = {box(0.4375f, 0.0f, 0.4375f, 0.5625f, 1.0f, 0.5625f)};
+    post.faces = shape_box_faces(post.boxes);
+    parts.push_back(std::move(post));
+    parts.push_back(arm(box(0.4375f, 0.0f, 0.0f, 0.5625f, 1.0f, 0.4375f), ShapeFace::Back));
+    parts.push_back(arm(box(0.4375f, 0.0f, 0.5625f, 0.5625f, 1.0f, 1.0f), ShapeFace::Front));
+    parts.push_back(arm(box(0.5625f, 0.0f, 0.4375f, 1.0f, 1.0f, 0.5625f), ShapeFace::Right));
+    parts.push_back(arm(box(0.0f, 0.0f, 0.4375f, 0.4375f, 1.0f, 0.5625f), ShapeFace::Left));
+    return parts;
+}
+
+BlockType make_sheet(const char* name) {
+    BlockType bt{};
+    bt.name = name;
+    bt.properties =
+        BlockProperty::Solid | BlockProperty::Transparent | BlockProperty::NoOcclusion;
+    bt.visible_faces = {true, true, true, true, true, true};
+    bt.parts = sheet_parts();
+    bt.connector = ShapeRule::Pane;
+
+    // The same derivation the loader does, and note the collision list is left
+    // empty on purpose, exactly as the JSON leaves it: a pane's collision IS its
+    // sheets, so the two lists cannot drift apart in the first place.
+    ShapeBoxes canonical;
+    resolve_canonical_boxes(bt, ShapeBoxKind::Selection, canonical);
+    bt.selection_boxes.assign(canonical.begin(), canonical.end());
+
+    bt.full_cube_ = false;
+    bt.greedy_mergeable = false;
+    return bt;
 }
 
 } // namespace
@@ -273,7 +357,7 @@ TEST_CASE("a fence connects to a body-stopping block but not to air, water or a 
     BlockRegistry& reg = BlockRegistry::get_instance();
     reg.initialize_default_blocks();
     const BlockID fence_id = reg.register_block(make_fence("test_fence_connect"));
-    const BlockID pane_id = make_pane(reg);
+    const BlockID pane_id = make_window(reg);
     if (fence_id == BlockIDs::AIR || pane_id == BlockIDs::AIR) {
         CHECK(false);
         return;
@@ -343,6 +427,193 @@ TEST_CASE("the canonical resolution is the fence run the inventory should draw")
     // ...and that is what the static list a worldless consumer sees holds.
     CHECK(fence.selection_boxes.size() == 5);
     CHECK(fence.collision_boxes.size() == 3);
+}
+
+TEST_CASE("a lone pane is the post alone, not a sheet") {
+    BlockRegistry& reg = BlockRegistry::get_instance();
+    reg.initialize_default_blocks();
+    const BlockID sheet_id = reg.register_block(make_sheet("test_sheet_lone"));
+    if (sheet_id == BlockIDs::AIR) {
+        CHECK(false);
+        return;
+    }
+    const BlockType& sheet = reg.get_block(sheet_id);
+
+    NeighborTable none;
+    const ShapeBoxes boxes = resolve_with(sheet, none, ShapeBoxKind::Selection);
+    CHECK(boxes.count() == 1);
+    CHECK(boxes[0].min[0] == doctest::Approx(0.4375f));
+    CHECK(boxes[0].max[0] == doctest::Approx(0.5625f));
+    CHECK(boxes[0].min[2] == doctest::Approx(0.4375f));
+    CHECK(boxes[0].max[2] == doctest::Approx(0.5625f));
+    CHECK(boxes[0].min[1] == doctest::Approx(0.0f));
+    CHECK(boxes[0].max[1] == doctest::Approx(1.0f));
+}
+
+TEST_CASE("a pane reaches exactly the faces it can seal against") {
+    BlockRegistry& reg = BlockRegistry::get_instance();
+    reg.initialize_default_blocks();
+    const BlockID sheet_id = reg.register_block(make_sheet("test_sheet_faces"));
+    if (sheet_id == BlockIDs::AIR) {
+        CHECK(false);
+        return;
+    }
+    const BlockType& sheet = reg.get_block(sheet_id);
+
+    NeighborTable table;
+    table.set(ShapeFace::Right, BlockIDs::STONE);
+    const ShapeBoxes one = resolve_with(sheet, table, ShapeBoxKind::Selection);
+    CHECK(one.count() == 2);
+    // Post then the single +X arm, in part order: the arm reaches the boundary it
+    // points at and no other, which is what makes a run of them one sheet.
+    CHECK(one[1].max[0] == doctest::Approx(1.0f));
+    CHECK(one[1].min[0] == doctest::Approx(0.5625f));
+    CHECK(one[1].min[2] == doctest::Approx(0.4375f));
+    CHECK(one[1].max[2] == doctest::Approx(0.5625f));
+
+    // A neighbour of its own kind reaches too, so a run and a corner are composed
+    // rather than being variants of their own.
+    table.set(ShapeFace::Left, sheet_id);
+    CHECK(resolve_with(sheet, table, ShapeBoxKind::Selection).count() == 3);
+}
+
+TEST_CASE("a pane seals against a window where a fence refuses one") {
+    BlockRegistry& reg = BlockRegistry::get_instance();
+    reg.initialize_default_blocks();
+    const BlockID glazing = make_glazing(reg);
+    const BlockID sheet_id = reg.register_block(make_sheet("test_sheet_glazing"));
+    if (glazing == BlockIDs::AIR || sheet_id == BlockIDs::AIR) {
+        CHECK(false);
+        return;
+    }
+    const BlockType& sheet = reg.get_block(sheet_id);
+    BlockType fence = make_fence("test_fence_vs_glazing");
+
+    NeighborTable through;
+    through.set(ShapeFace::Right, glazing);
+
+    // The sheet: a whole face to press against, so it reaches, and the transparence
+    // that disqualifies the rail is the whole point of the block.
+    CHECK(resolve_with(sheet, through, ShapeBoxKind::Selection).count() == 2);
+    // The rail: a bar will not be run into a window.
+    CHECK(resolve_with(fence, through, ShapeBoxKind::Selection).count() == 1);
+}
+
+TEST_CASE("a pane's claim is the face it was authored on, not the height it spans") {
+    BlockRegistry& reg = BlockRegistry::get_instance();
+    reg.initialize_default_blocks();
+    const BlockID sheet_id = reg.register_block(make_sheet("test_sheet_claim"));
+    if (sheet_id == BlockIDs::AIR) {
+        CHECK(false);
+        return;
+    }
+    const BlockID post_id = reg.register_block(make_fence("test_fence_claim"));
+    if (post_id == BlockIDs::AIR) {
+        CHECK(false);
+        return;
+    }
+    const BlockType& sheet = reg.get_block(sheet_id);
+
+    // An arm spans the whole cell height, so a claim read off its boxes would ask
+    // about up and down as well. The block above and below being things it cannot
+    // seal against must therefore not take the arm away: the neighbour it is
+    // authored on is a pane, and that is the only question an arm asks.
+    NeighborTable tall;
+    tall.set(ShapeFace::Back, sheet_id);
+    tall.set(ShapeFace::Top, post_id);
+    tall.set(ShapeFace::Bottom, post_id);
+    const ShapeBoxes with_caps = resolve_with(sheet, tall, ShapeBoxKind::Selection);
+    CHECK(with_caps.count() == 2);
+    CHECK(with_caps[1].min[2] == doctest::Approx(0.0f));
+
+    // ...and the converse, which is the ordinary case: nothing above or below at
+    // all still leaves the sheet whole.
+    NeighborTable bare;
+    bare.set(ShapeFace::Back, sheet_id);
+    CHECK(resolve_with(sheet, bare, ShapeBoxKind::Selection).count() == 2);
+}
+
+TEST_CASE("a pane run reproduces the flat sheet it replaced") {
+    BlockRegistry& reg = BlockRegistry::get_instance();
+    reg.initialize_default_blocks();
+    const BlockID sheet_id = reg.register_block(make_sheet("test_sheet_run"));
+    if (sheet_id == BlockIDs::AIR) {
+        CHECK(false);
+        return;
+    }
+    const BlockType& sheet = reg.get_block(sheet_id);
+
+    // This is the invariant that lets one block id stand in for a variant per axis:
+    // post plus the two arms along X covers exactly the cell-crossing plate the old
+    // single-plane pane was, and post plus the two arms along Z covers the other
+    // one. So nothing built with the old block changed shape.
+    NeighborTable across_x;
+    across_x.set(ShapeFace::Right, sheet_id);
+    across_x.set(ShapeFace::Left, sheet_id);
+    const ShapeBoxes x_run = resolve_with(sheet, across_x, ShapeBoxKind::Selection);
+    CHECK(x_run.count() == 3);
+    CHECK(same_box(hull(x_run), box(0.0f, 0.0f, 0.4375f, 1.0f, 1.0f, 0.5625f)));
+
+    NeighborTable across_z;
+    across_z.set(ShapeFace::Front, sheet_id);
+    across_z.set(ShapeFace::Back, sheet_id);
+    const ShapeBoxes z_run = resolve_with(sheet, across_z, ShapeBoxKind::Selection);
+    CHECK(z_run.count() == 3);
+    CHECK(same_box(hull(z_run), box(0.4375f, 0.0f, 0.0f, 0.5625f, 1.0f, 1.0f)));
+
+    // A corner is both, and still adds up to no more than the two plates it is
+    // made of: four boxes against the four an unshared sheet would need.
+    NeighborTable corner = across_x;
+    corner.set(ShapeFace::Front, sheet_id);
+    CHECK(resolve_with(sheet, corner, ShapeBoxKind::Selection).count() == 4);
+}
+
+TEST_CASE("pane collision resolves per part: a column to walk around, a sheet to not") {
+    BlockRegistry& reg = BlockRegistry::get_instance();
+    reg.initialize_default_blocks();
+    const BlockID sheet_id = reg.register_block(make_sheet("test_sheet_collision"));
+    if (sheet_id == BlockIDs::AIR) {
+        CHECK(false);
+        return;
+    }
+    const BlockType& sheet = reg.get_block(sheet_id);
+
+    NeighborTable none;
+    const ShapeBoxes lone = resolve_with(sheet, none, ShapeBoxKind::Collision);
+    CHECK(lone.count() == 1);
+    // A lone pane reaches no boundary, so a body walks straight past it.
+    CHECK(lone[0].max[0] < 1.0f);
+    CHECK(lone[0].max[2] < 1.0f);
+
+    NeighborTable run;
+    run.set(ShapeFace::Right, sheet_id);
+    run.set(ShapeFace::Left, sheet_id);
+    const ShapeBoxes spanning = resolve_with(sheet, run, ShapeBoxKind::Collision);
+    CHECK(spanning.count() == 3);
+    CHECK(same_box(hull(spanning), box(0.0f, 0.0f, 0.4375f, 1.0f, 1.0f, 0.5625f)));
+
+    // A pane has no collision override of its own, so the two lists are the same
+    // walk of the same parts and cannot drift. Worth pinning because every other
+    // part-based family so far HAS had one (the fence's raised rail, the stair's
+    // step).
+    CHECK(sheet.selection_boxes.size() == 3);
+}
+
+TEST_CASE("the canonical pane is the flat sheet the inventory should draw") {
+    BlockRegistry::get_instance().initialize_default_blocks();
+    const BlockType sheet = make_sheet("test_sheet_canonical");
+
+    ShapeBoxes canonical;
+    resolve_canonical_boxes(sheet, ShapeBoxKind::Selection, canonical);
+
+    CHECK(canonical.count() == 3);
+    CHECK(same_box(hull(canonical), box(0.0f, 0.0f, 0.4375f, 1.0f, 1.0f, 0.5625f)));
+    // ...and that is what the static list a worldless consumer sees holds, in the
+    // order the loader derives it: post, then the two arms along X.
+    CHECK(sheet.selection_boxes.size() == 3);
+    CHECK(sheet.selection_boxes[0].min[0] == doctest::Approx(0.4375f));
+    CHECK(sheet.selection_boxes[1].max[0] == doctest::Approx(1.0f));
+    CHECK(sheet.selection_boxes[2].min[0] == doctest::Approx(0.0f));
 }
 
 TEST_CASE("a shape with more boxes than the resolver can carry reports it") {

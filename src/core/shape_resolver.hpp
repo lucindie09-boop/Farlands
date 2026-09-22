@@ -202,9 +202,13 @@ struct ShapeBoxes {
                                       const BlockRegistry& registry) noexcept;
 
 
-// Which cell faces a set of boxes reaches (within 1/16). The loader calls this
-// once per part so the claim follows the geometry instead of a second naming
-// scheme that could contradict it.
+// Which cell faces a set of boxes reaches. A face counts only when a box touches
+// that cell boundary more or less exactly (the same 1e-4 epsilon the reader uses),
+// NOT when a box merely comes near it: a fence rail 15/16 tall reaches the top of
+// its cell in every sense except the one that matters, and treating it as a claim on
+// Top would make every fence arm demand a block above it. The loader calls this once
+// per part so the claim follows the geometry instead of a second naming scheme that
+// could contradict it.
 [[nodiscard]] uint8_t shape_box_faces(const std::vector<BlockAABB>& boxes) noexcept;
 
 // A face name as data/block_shapes.json spells it in a part's "faces" override:

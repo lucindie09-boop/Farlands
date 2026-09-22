@@ -85,6 +85,7 @@ ShapeRule shape_rule_from_name(std::string_view name) noexcept {
     if (name == "stair_cut_right") return ShapeRule::StairCutRight;
     if (name == "stair_corner_left") return ShapeRule::StairCornerLeft;
     if (name == "stair_corner_right") return ShapeRule::StairCornerRight;
+    if (name == "pane") return ShapeRule::Pane;
     return ShapeRule::None;
 }
 
@@ -96,6 +97,7 @@ const char* shape_rule_name(ShapeRule rule) noexcept {
         case ShapeRule::StairCutRight:    return "stair_cut_right";
         case ShapeRule::StairCornerLeft:  return "stair_corner_left";
         case ShapeRule::StairCornerRight: return "stair_corner_right";
+        case ShapeRule::Pane:             return "pane";
         case ShapeRule::None:             break;
     }
     return "none";
@@ -184,7 +186,10 @@ uint8_t shape_rule_faces_for(ShapeRule rule, const BlockType& self) noexcept {
             return static_cast<uint8_t>(shape_face_bit(shape_opposite_face(step)) |
                                         shape_face_bit(step) |
                                         shape_face_bit(shape_step_right_of(step)));
-        // Fence arms read their claim off their own boxes, so the loader derives it.
+        // Arms and sheets both read their claim off their own boxes, so the loader
+        // derives it. A pane's is one direction per part, which is the whole reason
+        // it can be a single block id where the reference needs a per-axis pair.
+        case ShapeRule::Pane:
         case ShapeRule::Fence:
         case ShapeRule::None:
             break;
@@ -192,7 +197,9 @@ uint8_t shape_rule_faces_for(ShapeRule rule, const BlockType& self) noexcept {
     return 0;
 }
 
-bool shape_rule_is_connector(ShapeRule rule) noexcept { return rule == ShapeRule::Fence; }
+bool shape_rule_is_connector(ShapeRule rule) noexcept {
+    return rule == ShapeRule::Fence || rule == ShapeRule::Pane;
+}
 
 bool shape_rule_canonical(ShapeRule rule, const BlockType& self, ShapeFace face) noexcept {
     (void)self;
@@ -202,6 +209,13 @@ bool shape_rule_canonical(ShapeRule rule, const BlockType& self, ShapeFace face)
         // what the item is almost always about to become, and because it is the
         // only canonical set that reads as a fence at thumbnail size.
         case ShapeRule::Fence:
+            return face == ShapeFace::Right || face == ShapeFace::Left;
+        // A pane likewise: post plus the two arms along X, which is one flat
+        // sheet across the cell and the only canonical set that reads as glass at
+        // thumbnail size. It is also the shape that reproduces the old
+        // single-plane block exactly, so an inventory icon did not change when the
+        // world model grew arms.
+        case ShapeRule::Pane:
             return face == ShapeFace::Right || face == ShapeFace::Left;
         // The step is part of a lone stair, so it is what the icon, the hotbar cell
         // and the held viewmodel draw.
@@ -244,6 +258,27 @@ bool shape_rule_connects(ShapeRule rule, const BlockType& self, ShapeFace face,
             // up with the side of a slab or a snow layer too, and the rail's own
             // height is fixed, so the neighbour's height does not matter.
             return type.stops_bodies();
+        case ShapeRule::Pane:
+            // A sheet reaches a face only toward something it can seal against, and
+            // there are exactly two of those. Another pane, for the same reason a
+            // rail reaches a rail: two sheets meeting on a shared plane are one
+            // sheet, so a run and a corner are compositions rather than variants.
+            if (type.connector == ShapeRule::Pane) return true;
+            // ...or a block offering a WHOLE face to press against, which is what a
+            // full cube means here. Deliberately not the fence's test: a rail is a
+            // bar that only needs an end to meet, so it reaches anything a body
+            // cannot walk through, while a sheet with no face behind it is glued to
+            // nothing. So a pane sits flush against stone, planks, glass and terrain,
+            // and stays short of the slabs, poles, stairs and fences it has no face
+            // to meet.
+            //
+            // A window passes even though the fence rule turns it away, and it is
+            // the clearest statement of the difference: a window is precisely what a
+            // pane is for. There is no seam to hide either, because both sheets are
+            // drawn. A liquid fails it however full the cell looks, so a pane never
+            // reaches out over water.
+            if (neighbor == BlockIDs::AIR || type.is_liquid()) return false;
+            return type.is_full_cube();
         case ShapeRule::StairStep:
         case ShapeRule::StairCutLeft:
         case ShapeRule::StairCutRight:

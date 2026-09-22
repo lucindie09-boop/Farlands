@@ -96,6 +96,7 @@ enum class ShapeRule : uint8_t {
     StairCutRight = 4,     // ...and on its right
     StairCornerLeft = 5,   // a quarter filling the inside of a turn on the left
     StairCornerRight = 6,  // ...and on the right
+    Pane = 7,              // a sheet reaching toward another pane or a whole face
 };
 
 // "This block is not an upright stair", for BlockType::stair_step_face.

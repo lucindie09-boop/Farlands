@@ -186,9 +186,27 @@
   },
 
   "pane": {
-    "_comment": "A 2/16 plate spanning the cell. The resolver will replace these with a 2/16 post plus conditional arms, which is what a pane looks like at the end of a wall or in a corner.",
-    "thin_x": { "selection_boxes": [[0.4375, 0, 0, 0.5625, 1, 1]] },
-    "thin_z": { "selection_boxes": [[0, 0, 0.4375, 1, 1, 0.5625]] }
+    "_comment": "A 2/16 sheet: a centre post plus one arm per direction it can seal against (core/shape_resolver.cpp). The arms stop where the post begins instead of overlapping it, so a two-way run reproduces the old single-plane block EXACTLY, in either axis - which is what makes one block id enough here where the reference needs a separate id per axis and a placement rule to pick between them. A lone pane is the post alone, a 2/16 column, and the reference draws one the same way. Each arm declares ONE claim face on purpose: its box spans the full cell height, so the geometry on its own would read as a claim on up and down too, and a sheet is not something that needs a block above and below it.",
+    "post": { "selection_boxes": [[0.4375, 0, 0.4375, 0.5625, 1, 0.5625]] },
+    "arm_n": { "selection_boxes": [[0.4375, 0, 0, 0.5625, 1, 0.4375]] },
+    "arm_s": { "selection_boxes": [[0.4375, 0, 0.5625, 0.5625, 1, 1]] },
+    "arm_e": { "selection_boxes": [[0.5625, 0, 0.4375, 1, 1, 0.5625]] },
+    "arm_w": { "selection_boxes": [[0, 0, 0.4375, 0.4375, 1, 0.5625]] },
+    "all": {
+      "_comment": "Post plus the four arms, each carrying \"rule\": \"pane\". `selection_boxes` is the canonical flattening - post plus the two arms along X, i.e. one flat sheet across the cell - which is what the inventory icon and the held model draw; the loader derives it from the parts and warns if the two ever disagree.",
+      "selection_boxes": [
+        [0.4375, 0, 0.4375, 0.5625, 1, 0.5625],
+        [0.5625, 0, 0.4375, 1, 1, 0.5625],
+        [0, 0, 0.4375, 0.4375, 1, 0.5625]
+      ],
+      "parts": [
+        { "boxes": [[0.4375, 0, 0.4375, 0.5625, 1, 0.5625]] },
+        { "rule": "pane", "faces": ["n"], "boxes": [[0.4375, 0, 0, 0.5625, 1, 0.4375]] },
+        { "rule": "pane", "faces": ["s"], "boxes": [[0.4375, 0, 0.5625, 0.5625, 1, 1]] },
+        { "rule": "pane", "faces": ["e"], "boxes": [[0.5625, 0, 0.4375, 1, 1, 0.5625]] },
+        { "rule": "pane", "faces": ["w"], "boxes": [[0, 0, 0.4375, 0.4375, 1, 0.5625]] }
+      ]
+    }
   },
 
   "ladder": {

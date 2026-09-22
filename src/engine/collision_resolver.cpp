@@ -2,6 +2,7 @@
 #include "core/chunk_map.hpp"
 #include "core/chunk_coords.hpp"
 #include "core/block_types.hpp"
+#include "core/shape_resolver.hpp"
 #include <cmath>
 #include <algorithm>
 #include <vector>
@@ -11,6 +12,30 @@ namespace VoxelEngine {
 using namespace godot;
 
 namespace {
+
+// A neighbour for a shape claim, read through the map the caller has ALREADY
+// locked for this query. is_aabb_solid pads its key set by one block in every
+// direction, so a +-1 neighbour of any cell the loop visits is inside the locked
+// shards: the resolver never reaches outside the caller's lock.
+struct CollisionShapeContext {
+    const ChunkMap* map;
+    int32_t x;
+    int32_t y;
+    int32_t z;
+};
+
+BlockID collision_shape_neighbor(void* ctx, ShapeFace face) {
+    const CollisionShapeContext& c = *static_cast<CollisionShapeContext*>(ctx);
+    switch (face) {
+        case ShapeFace::Top:    return static_cast<BlockID>(c.map->get_block_world_fast(c.x, c.y + 1, c.z));
+        case ShapeFace::Bottom: return static_cast<BlockID>(c.map->get_block_world_fast(c.x, c.y - 1, c.z));
+        case ShapeFace::Right:  return static_cast<BlockID>(c.map->get_block_world_fast(c.x + 1, c.y, c.z));
+        case ShapeFace::Left:   return static_cast<BlockID>(c.map->get_block_world_fast(c.x - 1, c.y, c.z));
+        case ShapeFace::Front:  return static_cast<BlockID>(c.map->get_block_world_fast(c.x, c.y, c.z + 1));
+        case ShapeFace::Back:   break;
+    }
+    return static_cast<BlockID>(c.map->get_block_world_fast(c.x, c.y, c.z - 1));
+}
 
 // Shared-lock only the shards of the chunks intersecting a block-space box,
 // instead of the whole map. Collision probes only ever touch the swept volume
@@ -224,7 +249,17 @@ bool CollisionResolver::is_aabb_solid_fast(const AABB& aabb) const {
                 // full cube while the JSON gives it a lowered shape.
                 if (!bt.stops_bodies()) continue;
                 if (bt.is_full_cube()) return true;
-                for (const auto& box : bt.get_collision_boxes()) {
+                // A neighbour-dependent shape collides only with the parts that
+                // are present: an isolated fence post is a post, a run is a wall.
+                // Shapes without parts borrow their static list, so the common
+                // path costs no resolution at all.
+                CollisionShapeContext shape_ctx{chunk_map_, x, y, z};
+                ShapeBoxes collision_boxes;
+                resolve_shape_boxes(bt, registry,
+                                    ShapeNeighborFn{&collision_shape_neighbor, &shape_ctx},
+                                    ShapeBoxKind::Collision, collision_boxes);
+                for (uint8_t bi = 0; bi < collision_boxes.count(); ++bi) {
+                    const BlockAABB& box = collision_boxes[bi];
                     AABB cell_aabb(
                         Vector3(x + box.min[0], y + box.min[1], z + box.min[2]),
                         Vector3(box.max[0] - box.min[0], box.max[1] - box.min[1], box.max[2] - box.min[2]));

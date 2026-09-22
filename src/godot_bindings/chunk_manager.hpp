@@ -15,6 +15,7 @@
 
 #include "core/performance_timer.hpp"
 #include "core/block_types.hpp"
+#include "core/shape_resolver.hpp"
 
 namespace godot {
 class Node;
@@ -106,6 +107,11 @@ public:
     int get_block(int32_t world_x, int32_t world_y, int32_t world_z);
     godot::String get_block_name(int block_id);
     godot::Array get_selection_boxes(int block_id);
+    // What the mesh actually draws at this position: neighbour-dependent parts
+    // (a fence's arms) are resolved, unlike get_selection_boxes, which is the
+    // canonical flattening and needs no world.
+    godot::Array get_selection_boxes_at(int block_id, int32_t world_x, int32_t world_y,
+                                        int32_t world_z);
 
 #ifdef DEBUG_ENABLED
     // Faults on purpose, to prove the crash-report handler works end to end (see

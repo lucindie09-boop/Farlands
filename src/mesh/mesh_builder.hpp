@@ -4,6 +4,7 @@
 
 #include "core/chunk_data.hpp"
 #include "core/block_types.hpp"
+#include "core/shape_resolver.hpp"
 #include "mesh/mesh_types.hpp"
 #include "mesh/chunk_neighbor_accessor.hpp"
 #include "mesh/mesh_fluid.hpp"
@@ -273,6 +274,20 @@ private:
         {0, 0, 1},   // Front
         {0, 0, -1}   // Back
     };
+
+    // The cell a neighbour-dependent shape part is claimed against: a fence's
+    // arms are present only while the cell next door is one, and this reads the
+    // same accessor the face culling below uses, so the arms and the culling can
+    // never disagree about what is adjacent.
+    struct ShapeNeighborContext {
+        const ChunkNeighborAccessor* accessor = nullptr;
+        int32_t x = 0;
+        int32_t y = 0;
+        int32_t z = 0;
+        int32_t stride_xz = 1;
+    };
+
+    static BlockID shape_neighbor_lookup(void* ctx, ShapeFace face);
 
     static constexpr float kFaceNormals[6][3] = {
         {0, 1, 0},   // Top

@@ -1,5 +1,7 @@
 #include "core/block_types.hpp"
+#include "core/shape_resolver.hpp"
 
+#include <cmath>
 #include <vector>
 #include <deque>
 #include <string>
@@ -60,12 +62,123 @@ void parse_aabb_array(const godot::Array& arr, std::vector<BlockAABB>& out) {
     }
 }
 
-void parse_shape_dict(const godot::Dictionary& sd, BlockShape& shape) {
+// Two box lists are the same shape when every box matches within 1/16 of a
+// voxel: the JSON carries exact 16ths and the derived list is a copy of parsed
+// values, so this only has to absorb the double -> float round trip.
+bool box_lists_equal(const std::vector<BlockAABB>& a, const std::vector<BlockAABB>& b) {
+    if (a.size() != b.size()) return false;
+    for (size_t i = 0; i < a.size(); ++i) {
+        for (int k = 0; k < 3; ++k) {
+            if (std::fabs(a[i].min[k] - b[i].min[k]) > 1e-4f) return false;
+            if (std::fabs(a[i].max[k] - b[i].max[k]) > 1e-4f) return false;
+        }
+    }
+    return true;
+}
+
+void parse_parts_array(const godot::Array& arr, std::vector<ShapePart>& out,
+                       const godot::String& owner) {
+    out.reserve(static_cast<size_t>(arr.size()));
+    for (int i = 0; i < static_cast<int>(arr.size()); ++i) {
+        if (arr[i].get_type() != godot::Variant::DICTIONARY) continue;
+        godot::Dictionary pd = arr[i];
+        ShapePart part;
+        if (pd.has("boxes")) parse_aabb_array(pd["boxes"], part.boxes);
+        if (pd.has("collision_boxes")) parse_aabb_array(pd["collision_boxes"], part.collision_boxes);
+        if (pd.has("rule")) {
+            godot::String rule_str = pd["rule"];
+            const std::string rule_name = rule_str.utf8().get_data();
+            part.rule = shape_rule_from_name(rule_name);
+            if (part.rule == ShapeRule::None) {
+                ERR_PRINT("BlockRegistry: unknown shape rule \"" + rule_str + "\" in " + owner +
+                          " part " + godot::String::num_int64(i) +
+                          " — the part stays unconditional");
+            }
+        }
+        // The claim follows the geometry: which cell faces the boxes reach is read
+        // off the boxes, so a rule can never be authored against a face the part
+        // does not actually meet.
+        part.faces = shape_box_faces(part.boxes);
+        out.push_back(std::move(part));
+    }
+}
+
+void parse_shape_dict(const godot::Dictionary& sd, BlockShape& shape,
+                      const godot::String& owner) {
     if (sd.has("selection_boxes")) {
         parse_aabb_array(sd["selection_boxes"], shape.selection_boxes);
     }
     if (sd.has("collision_boxes")) {
         parse_aabb_array(sd["collision_boxes"], shape.collision_boxes);
+    }
+    if (sd.has("parts")) {
+        parse_parts_array(sd["parts"], shape.parts, owner);
+    }
+}
+
+// Copy a shape into a block, then DERIVE the two static lists from the parts.
+//
+// Deriving rather than trusting the file matters because three readers see a
+// shape: the mesher and outline (through the resolver, so always current), and
+// the GDScript icon/viewmodel code (which reads data/block_shapes.json directly
+// and has no world to resolve against). Those two views have to agree, so the
+// declared list is only kept if the parts reproduce it — otherwise the file has
+// drifted and the icon in the hand would show a different model from the world.
+void apply_shape_to_block(const BlockShape& shape, BlockType& bt, const godot::String& block_name,
+                          const godot::String& shape_name) {
+    bt.selection_boxes = shape.selection_boxes;
+    bt.collision_boxes = shape.collision_boxes;
+    bt.parts = shape.parts;
+    if (bt.parts.empty()) return;
+
+    bool any_collision = false;
+    for (const ShapePart& part : bt.parts) {
+        if (part.rule != ShapeRule::None) {
+            if (bt.connector == ShapeRule::None) {
+                bt.connector = part.rule;
+            } else if (bt.connector != part.rule) {
+                ERR_PRINT("BlockRegistry: shape \"" + shape_name + "\" mixes rules \"" +
+                          godot::String(shape_rule_name(bt.connector)) + "\" and \"" +
+                          godot::String(shape_rule_name(part.rule)) +
+                          "\"; a neighbour asking \"are you the same kind of thing\" gets one "
+                          "answer, so the first rule wins");
+            }
+            if (part.faces == 0) {
+                ERR_PRINT("BlockRegistry: shape \"" + shape_name +
+                          "\" puts a rule on a part that reaches no cell face, so nothing can "
+                          "ever claim it; it is drawn unconditionally");
+            }
+        }
+        if (!part.collision_boxes.empty()) any_collision = true;
+    }
+
+    ShapeBoxes canonical;
+    resolve_canonical_boxes(bt, ShapeBoxKind::Selection, canonical);
+    if (canonical.overflowed) {
+        ERR_PRINT("BlockRegistry: shape \"" + shape_name + "\" for block \"" + block_name +
+                  "\" resolves to more than " + godot::String::num_int64(ShapeBoxes::kCapacity) +
+                  " boxes, which the resolver cannot carry; raise ShapeBoxes::kCapacity");
+    }
+    std::vector<BlockAABB> derived(canonical.begin(), canonical.end());
+    if (!box_lists_equal(derived, shape.selection_boxes)) {
+        WARN_PRINT("BlockRegistry: shape \"" + shape_name +
+                   "\" is part-based but its \"selection_boxes\" is not the canonical "
+                   "flattening of those parts; block_shapes.json needs updating (the parts win "
+                   "for the world, the file is what the inventory icon draws)");
+    }
+    bt.selection_boxes = std::move(derived);
+
+    if (any_collision) {
+        ShapeBoxes canonical_collision;
+        resolve_canonical_boxes(bt, ShapeBoxKind::Collision, canonical_collision);
+        std::vector<BlockAABB> derived_collision(canonical_collision.begin(),
+                                                canonical_collision.end());
+        if (!box_lists_equal(derived_collision, shape.collision_boxes)) {
+            WARN_PRINT("BlockRegistry: shape \"" + shape_name +
+                       "\" is part-based but its \"collision_boxes\" is not the canonical "
+                       "flattening of those parts; block_shapes.json needs updating");
+        }
+        bt.collision_boxes = std::move(derived_collision);
     }
 }
 
@@ -99,10 +212,10 @@ bool BlockRegistry::load_shapes_from_json(const godot::String& json_path) noexce
         if (val.get_type() == godot::Variant::DICTIONARY) {
             godot::Dictionary group = val;
             // Grouped: check if it's a leaf shape (has "selection_boxes") or a variant group
-            if (group.has("selection_boxes")) {
+            if (group.has("selection_boxes") || group.has("parts")) {
                 // Leaf shape (e.g. "pole")
                 BlockShape shape;
-                parse_shape_dict(group, shape);
+                parse_shape_dict(group, shape, godot::String(prefix.c_str()));
                 shapes[prefix] = std::move(shape);
             } else {
                 // Variant group (e.g. "stair" -> "n", "s", ...)
@@ -113,7 +226,7 @@ bool BlockRegistry::load_shapes_from_json(const godot::String& json_path) noexce
                     std::string full_name = prefix + "/" + sub_key.utf8().get_data();
 
                     BlockShape shape;
-                    parse_shape_dict(sub_val, shape);
+                    parse_shape_dict(sub_val, shape, godot::String(full_name.c_str()));
                     shapes[full_name] = std::move(shape);
                 }
             }
@@ -294,8 +407,7 @@ bool BlockRegistry::load_from_json(const godot::String& json_path) noexcept {
             std::string shape_key = shape_name_str.utf8().get_data();
             auto it = shapes.find(shape_key);
             if (it != shapes.end()) {
-                bt.selection_boxes = it->second.selection_boxes;
-                bt.collision_boxes = it->second.collision_boxes;
+                apply_shape_to_block(it->second, bt, name_str, shape_name_str);
             } else {
                 ERR_PRINT("BlockRegistry: unknown shape \"" + shape_name_str + "\" for block \"" + name_str + "\"");
             }

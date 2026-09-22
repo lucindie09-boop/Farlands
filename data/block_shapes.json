@@ -117,13 +117,9 @@
       "selection_boxes": [[0, 0.75, 0.4375, 0.5625, 0.9375, 0.5625], [0, 0.375, 0.4375, 0.5625, 0.5625, 0.5625]]
     },
     "all": {
-      "_comment": "Post plus all four arms, with the raised 1.5-high collision a body cannot hop (the pole's precedent). Two rails per arm, not one: a single bar reads as a rail fence, two read as a fence.",
+      "_comment": "Post plus the four arms, each arm carrying \"rule\": \"fence\". A claimed part is present only while the cell face its boxes reach has a neighbour the rule accepts, so an isolated fence is the post alone and a run is a continuous rail: two rails per arm, not one, because a single bar reads as a rail fence and two read as a fence. The claim is resolved when the chunk is meshed (core/shape_resolver.hpp) because nothing in this engine updates a cell when its neighbour changes. Collision is part-wise for the same reason: an unconnected post is only as wide as itself, while a run is 1.5 high and a body cannot hop it (the pole's precedent).",
       "selection_boxes": [
         [0.375, 0, 0.375, 0.625, 1, 0.625],
-        [0.4375, 0.75, 0, 0.5625, 0.9375, 0.5625],
-        [0.4375, 0.375, 0, 0.5625, 0.5625, 0.5625],
-        [0.4375, 0.75, 0.4375, 0.5625, 0.9375, 1],
-        [0.4375, 0.375, 0.4375, 0.5625, 0.5625, 1],
         [0.4375, 0.75, 0.4375, 1, 0.9375, 0.5625],
         [0.4375, 0.375, 0.4375, 1, 0.5625, 0.5625],
         [0, 0.75, 0.4375, 0.5625, 0.9375, 0.5625],
@@ -131,10 +127,15 @@
       ],
       "collision_boxes": [
         [0.375, 0, 0.375, 0.625, 1.5, 0.625],
-        [0.4375, 0, 0, 0.5625, 1.5, 0.625],
-        [0.4375, 0, 0.375, 0.5625, 1.5, 1],
         [0.4375, 0, 0.375, 1, 1.5, 0.5625],
         [0, 0, 0.375, 0.5625, 1.5, 0.5625]
+      ],
+      "parts": [
+        { "boxes": [[0.375, 0, 0.375, 0.625, 1, 0.625]], "collision_boxes": [[0.375, 0, 0.375, 0.625, 1.5, 0.625]] },
+        { "rule": "fence", "boxes": [[0.4375, 0.75, 0, 0.5625, 0.9375, 0.5625], [0.4375, 0.375, 0, 0.5625, 0.5625, 0.5625]], "collision_boxes": [[0.4375, 0, 0, 0.5625, 1.5, 0.625]] },
+        { "rule": "fence", "boxes": [[0.4375, 0.75, 0.4375, 0.5625, 0.9375, 1], [0.4375, 0.375, 0.4375, 0.5625, 0.5625, 1]], "collision_boxes": [[0.4375, 0, 0.375, 0.5625, 1.5, 1]] },
+        { "rule": "fence", "boxes": [[0.4375, 0.75, 0.4375, 1, 0.9375, 0.5625], [0.4375, 0.375, 0.4375, 1, 0.5625, 0.5625]], "collision_boxes": [[0.4375, 0, 0.375, 1, 1.5, 0.5625]] },
+        { "rule": "fence", "boxes": [[0, 0.75, 0.4375, 0.5625, 0.9375, 0.5625], [0, 0.375, 0.4375, 0.5625, 0.5625, 0.5625]], "collision_boxes": [[0, 0, 0.375, 0.5625, 1.5, 0.5625]] }
       ]
     }
   },

@@ -3,6 +3,7 @@
 #include "mesh/mesh_manager.hpp"
 #include "lighting/light_propagator.hpp"
 #include "core/block_types.hpp"
+#include "core/shape_resolver.hpp"
 #include <algorithm>
 #include <array>
 #include <map>
@@ -13,6 +14,30 @@ namespace VoxelEngine {
 using namespace godot;
 
 namespace {
+
+// A neighbour for a shape claim, read through the chunk map the DDA has already
+// locked (that lock covers one block beyond the ray's box, see the key set).
+struct RaycastShapeContext {
+    ChunkWorld* world;
+    int32_t x;
+    int32_t y;
+    int32_t z;
+};
+
+BlockID raycast_shape_neighbor(void* ctx, ShapeFace face) {
+    const RaycastShapeContext& c = *static_cast<RaycastShapeContext*>(ctx);
+    ChunkMap& map = c.world->get_chunk_map();
+    switch (face) {
+        case ShapeFace::Top:    return static_cast<BlockID>(map.get_block_world_fast(c.x, c.y + 1, c.z));
+        case ShapeFace::Bottom: return static_cast<BlockID>(map.get_block_world_fast(c.x, c.y - 1, c.z));
+        case ShapeFace::Right:  return static_cast<BlockID>(map.get_block_world_fast(c.x + 1, c.y, c.z));
+        case ShapeFace::Left:   return static_cast<BlockID>(map.get_block_world_fast(c.x - 1, c.y, c.z));
+        case ShapeFace::Front:  return static_cast<BlockID>(map.get_block_world_fast(c.x, c.y, c.z + 1));
+        case ShapeFace::Back:   break;
+    }
+    return static_cast<BlockID>(map.get_block_world_fast(c.x, c.y, c.z - 1));
+}
+
 // Ray-AABB intersection using the slab method. Returns true if the ray hits
 // the box, with the parametric distance t and the outward face normal.
 bool ray_aabb_intersect(const Vector3& origin, const Vector3& dir,
@@ -234,6 +259,10 @@ RaycastResult BlockEditor::raycast_from_ray(const Vector3& ray_origin,
     // only the shards of the chunks that box can touch (a reach-distance ray
     // spans 1-3 chunks) once, up front — the DDA never leaves the box, so no
     // mid-walk re-acquisition is needed.
+    //
+    // The box is grown by one block on every side because a neighbour-dependent
+    // shape (a fence's arms) is resolved against the cells around each candidate
+    // block, and those must be inside the lock too.
     const int32_t end_x = static_cast<int32_t>(std::floor(ray_origin.x + ray_dir.x * (max_distance * 3.0 + 2.0)));
     const int32_t end_y = static_cast<int32_t>(std::floor(ray_origin.y + ray_dir.y * (max_distance * 3.0 + 2.0)));
     const int32_t end_z = static_cast<int32_t>(std::floor(ray_origin.z + ray_dir.z * (max_distance * 3.0 + 2.0)));
@@ -241,9 +270,11 @@ RaycastResult BlockEditor::raycast_from_ray(const Vector3& ray_origin,
     std::vector<uint64_t> keys;
     {
         int32_t min_cx, min_cy, min_cz, max_cx, max_cy, max_cz, dummy;
-        world_to_chunk_local(std::min(current_x, end_x), std::min(current_y, end_y), std::min(current_z, end_z),
+        world_to_chunk_local(std::min(current_x, end_x) - 1, std::min(current_y, end_y) - 1,
+                             std::min(current_z, end_z) - 1,
                              min_cx, min_cy, min_cz, dummy, dummy, dummy);
-        world_to_chunk_local(std::max(current_x, end_x), std::max(current_y, end_y), std::max(current_z, end_z),
+        world_to_chunk_local(std::max(current_x, end_x) + 1, std::max(current_y, end_y) + 1,
+                             std::max(current_z, end_z) + 1,
                              max_cx, max_cy, max_cz, dummy, dummy, dummy);
         for (int32_t cx = min_cx; cx <= max_cx; ++cx)
             for (int32_t cy = min_cy; cy <= max_cy; ++cy)
@@ -285,7 +316,15 @@ RaycastResult BlockEditor::raycast_from_ray(const Vector3& ray_origin,
             bool hit_any = false;
             double closest_t = max_distance;
             Vector3 hit_normal;
-            for (const auto& box : bt.selection_boxes) {
+            // Neighbour-dependent parts resolve here too, so a fence is only
+            // aimed at where it is actually drawn — the arms are missing from an
+            // isolated post, and the ray must not hit a phantom one.
+            RaycastShapeContext shape_ctx{chunk_world, current_x, current_y, current_z};
+            ShapeBoxes shape;
+            resolve_shape_boxes(bt, registry, ShapeNeighborFn{&raycast_shape_neighbor, &shape_ctx},
+                                ShapeBoxKind::Selection, shape);
+            for (uint8_t bi = 0; bi < shape.count(); ++bi) {
+                const BlockAABB& box = shape[bi];
                 Vector3 box_min(current_x + box.min[0], current_y + box.min[1], current_z + box.min[2]);
                 Vector3 box_max(current_x + box.max[0], current_y + box.max[1], current_z + box.max[2]);
                 double t;

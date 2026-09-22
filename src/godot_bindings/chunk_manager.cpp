@@ -351,6 +351,44 @@ bool ChunkManager::debug_multimesh_layout_ok() {
 }
 #endif
 
+namespace {
+
+// A neighbour for a shape claim, read through the locking accessor: the outline
+// runs outside any map lock, so this must not use a _fast variant.
+struct OutlineShapeContext {
+    ChunkManager* manager;
+    int32_t x;
+    int32_t y;
+    int32_t z;
+};
+
+BlockID outline_shape_neighbor(void* ctx, ShapeFace face) {
+    const OutlineShapeContext& c = *static_cast<OutlineShapeContext*>(ctx);
+    switch (face) {
+        case ShapeFace::Top:    return static_cast<BlockID>(c.manager->get_block(c.x, c.y + 1, c.z));
+        case ShapeFace::Bottom: return static_cast<BlockID>(c.manager->get_block(c.x, c.y - 1, c.z));
+        case ShapeFace::Right:  return static_cast<BlockID>(c.manager->get_block(c.x + 1, c.y, c.z));
+        case ShapeFace::Left:   return static_cast<BlockID>(c.manager->get_block(c.x - 1, c.y, c.z));
+        case ShapeFace::Front:  return static_cast<BlockID>(c.manager->get_block(c.x, c.y, c.z + 1));
+        case ShapeFace::Back:   break;
+    }
+    return static_cast<BlockID>(c.manager->get_block(c.x, c.y, c.z - 1));
+}
+
+Array boxes_to_array(const ShapeBoxes& boxes) {
+    Array result;
+    for (uint8_t i = 0; i < boxes.count(); ++i) {
+        const BlockAABB& b = boxes[i];
+        PackedFloat32Array box;
+        box.push_back(b.min[0]); box.push_back(b.min[1]); box.push_back(b.min[2]);
+        box.push_back(b.max[0]); box.push_back(b.max[1]); box.push_back(b.max[2]);
+        result.push_back(box);
+    }
+    return result;
+}
+
+} // namespace
+
 Array ChunkManager::get_selection_boxes(int block_id) {
     Array result;
     const BlockType& bt = BlockRegistry::get_instance().get_block(static_cast<BlockID>(block_id));
@@ -367,6 +405,31 @@ Array ChunkManager::get_selection_boxes(int block_id) {
             box.push_back(b.max[0]); box.push_back(b.max[1]); box.push_back(b.max[2]);
             result.push_back(box);
         }
+    }
+    return result;
+}
+
+Array ChunkManager::get_selection_boxes_at(int block_id, int32_t world_x, int32_t world_y,
+                                          int32_t world_z) {
+    const BlockType& bt = BlockRegistry::get_instance().get_block(static_cast<BlockID>(block_id));
+    // No parts: the shape does not depend on the world, so the static list is it.
+    if (bt.parts.empty()) return get_selection_boxes(block_id);
+
+    OutlineShapeContext ctx{this, world_x, world_y, world_z};
+    ShapeBoxes boxes;
+    resolve_shape_boxes(bt, BlockRegistry::get_instance(),
+                        ShapeNeighborFn{&outline_shape_neighbor, &ctx}, ShapeBoxKind::Selection,
+                        boxes);
+
+    Array result = boxes_to_array(boxes);
+    if (result.is_empty()) {
+        // Every part was claimed away (a connectable shape with nothing to
+        // connect to and no unconditional geometry) — outline the cell itself
+        // rather than nothing, so the block is still targetable.
+        PackedFloat32Array box;
+        box.push_back(0.0f); box.push_back(0.0f); box.push_back(0.0f);
+        box.push_back(1.0f); box.push_back(1.0f); box.push_back(1.0f);
+        result.push_back(box);
     }
     return result;
 }
@@ -937,6 +1000,8 @@ void ChunkManager::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_block", "world_x", "world_y", "world_z"), &ChunkManager::get_block);
     ClassDB::bind_method(D_METHOD("get_block_name", "block_id"), &ChunkManager::get_block_name);
     ClassDB::bind_method(D_METHOD("get_selection_boxes", "block_id"), &ChunkManager::get_selection_boxes);
+    ClassDB::bind_method(D_METHOD("get_selection_boxes_at", "block_id", "world_x", "world_y", "world_z"),
+                         &ChunkManager::get_selection_boxes_at);
 #ifdef DEBUG_ENABLED
     ClassDB::bind_method(D_METHOD("debug_crash_for_test"), &ChunkManager::debug_crash_for_test);
     ClassDB::bind_method(D_METHOD("debug_multimesh_layout_ok"), &ChunkManager::debug_multimesh_layout_ok);

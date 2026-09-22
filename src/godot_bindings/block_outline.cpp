@@ -15,6 +15,25 @@
 
 using namespace godot;
 
+namespace {
+
+// Same box list, within rounding. Both sides come from the same resolved floats,
+// so this is a change detector rather than a geometry comparison.
+bool boxes_equal(const godot::Array& a, const godot::Array& b) {
+    if (a.size() != b.size()) return false;
+    for (int i = 0; i < a.size(); ++i) {
+        PackedFloat32Array ba = a[i];
+        PackedFloat32Array bb = b[i];
+        if (ba.size() != bb.size()) return false;
+        for (int k = 0; k < ba.size(); ++k) {
+            if (std::abs(ba[k] - bb[k]) > 1e-5f) return false;
+        }
+    }
+    return true;
+}
+
+} // namespace
+
 BlockOutline::BlockOutline() = default;
 BlockOutline::~BlockOutline() = default;
 
@@ -90,9 +109,14 @@ void BlockOutline::_process(double delta) {
     set_global_position(Vector3(bx, by, bz));
 
     const int block_id = static_cast<int>(result.get("block_id", 0));
-    if (block_id != current_block_id_) {
+    // The outline is resolved against the world, not read from the block alone: a
+    // fence post on its own is one box and inside a run it has arms, so the box
+    // set can change without the block id changing. Resolving is a handful of
+    // locked lookups, and the mesh is rebuilt only when the set really differs.
+    Array resolved_boxes = chunk_manager_->get_selection_boxes_at(block_id, bx, by, bz);
+    if (block_id != current_block_id_ || !boxes_equal(resolved_boxes, current_boxes_)) {
         current_block_id_ = block_id;
-        current_boxes_ = chunk_manager_->get_selection_boxes(block_id);
+        current_boxes_ = resolved_boxes;
         rebuild_outline_mesh();
         update_fill_for_boxes();
     } else if (outline_thickness_ != current_thickness_) {

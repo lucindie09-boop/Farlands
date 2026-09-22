@@ -1,5 +1,6 @@
 #include "mesh/mesh_builder.hpp"
 #include "core/block_types.hpp"
+#include "core/shape_resolver.hpp"
 
 namespace {
 
@@ -36,7 +37,10 @@ void build_lod_priority_lut(LodPriorityLut& lut, const VoxelEngine::BlockRegistr
 // spans its whole footprint, so this box's underside is buried inside the shape
 // (a stair's upper step over its own lower step, a wall's cap over its post).
 // Emitting that face would be a hidden quad.
-bool box_underside_covered(const std::vector<VoxelEngine::BlockAABB>& boxes,
+//
+// The set tested is the RESOLVED one, not the static list: if a claimed part is
+// absent, the box above it is no longer buried and its underside has to be drawn.
+bool box_underside_covered(const VoxelEngine::ShapeBoxes& boxes,
                            const VoxelEngine::BlockAABB& box) {
     for (const VoxelEngine::BlockAABB& other : boxes) {
         if (&other == &box) continue;
@@ -54,12 +58,9 @@ bool box_underside_covered(const std::vector<VoxelEngine::BlockAABB>& boxes,
 // ground-level view and have been skipped since the first per-AABB emitter. A
 // box raised off the floor (a wall torch, a fence rail, a lantern) does get its
 // underside emitted, unless a sibling box covers it.
-bool skip_bottom_face(const std::vector<VoxelEngine::BlockAABB>& boxes,
-                      const VoxelEngine::BlockAABB& box,
-                      VoxelEngine::FaceDirection dir) {
-    if (dir != VoxelEngine::FaceDirection::Bottom) return false;
-    if (box.min[1] <= 0.0f) return true;
-    return box_underside_covered(boxes, box);
+bool skip_bottom_face(const VoxelEngine::ShapeBoxes& boxes,
+                      const VoxelEngine::BlockAABB& box) {
+    return box.min[1] <= 0.0f || box_underside_covered(boxes, box);
 }
 
 } // namespace
@@ -376,6 +377,25 @@ bool MeshBuilder::should_cull_aabb_face(const float self_min[3], const float sel
     return false;
 }
 
+// shape_resolver.hpp re-declares the six faces as ShapeFace so core/ need not
+// include the mesh layer. Same order, same values; this is what keeps that true.
+static_assert(static_cast<uint8_t>(ShapeFace::Top) == static_cast<uint8_t>(FaceDirection::Top));
+static_assert(static_cast<uint8_t>(ShapeFace::Bottom) == static_cast<uint8_t>(FaceDirection::Bottom));
+static_assert(static_cast<uint8_t>(ShapeFace::Right) == static_cast<uint8_t>(FaceDirection::Right));
+static_assert(static_cast<uint8_t>(ShapeFace::Left) == static_cast<uint8_t>(FaceDirection::Left));
+static_assert(static_cast<uint8_t>(ShapeFace::Front) == static_cast<uint8_t>(FaceDirection::Front));
+static_assert(static_cast<uint8_t>(ShapeFace::Back) == static_cast<uint8_t>(FaceDirection::Back));
+
+// The neighbour a shape part's claim is tested against. Same accessor the face
+// culling reads, so a fence arm and the culling of the faces around it agree.
+BlockID MeshBuilder::shape_neighbor_lookup(void* ctx, ShapeFace face) {
+    const ShapeNeighborContext& c = *static_cast<ShapeNeighborContext*>(ctx);
+    const int32_t d = static_cast<int32_t>(face);
+    return c.accessor->get_block(c.x + kDirectionOffsets[d][0] * c.stride_xz,
+                                 c.y + kDirectionOffsets[d][1],
+                                 c.z + kDirectionOffsets[d][2] * c.stride_xz);
+}
+
 // -------------------------------------------------------------------------
 // Face emission driver
 // -------------------------------------------------------------------------
@@ -417,13 +437,22 @@ void MeshBuilder::emit_faces(const ChunkData& chunk, const BlockRegistry& regist
                         if (is_fluid_drawn(block_id, registry)) continue;
                         const BlockType& bt = registry.get_block_fast(block_id);
                         if (bt.greedy_mergeable) continue;
-                        for (const auto& box : bt.selection_boxes) {
+                        // Neighbour-dependent parts resolve here, against the same
+                        // accessor the culling below uses.
+                        ShapeNeighborContext shape_ctx{&accessor, x, y, z, stride_xz_};
+                        ShapeBoxes boxes;
+                        resolve_shape_boxes(bt, registry,
+                                            ShapeNeighborFn{&shape_neighbor_lookup, &shape_ctx},
+                                            ShapeBoxKind::Selection, boxes);
+                        for (uint8_t bi = 0; bi < boxes.count(); ++bi) {
+                            const BlockAABB& box = boxes[bi];
+                            // Raised boxes emit their underside; floor boxes and
+                            // boxes whose underside is buried in a sibling box do
+                            // not. See skip_bottom_face above.
+                            const bool skip_bottom = skip_bottom_face(boxes, box);
                             for (int i = 0; i < 6; i++) {
                                 FaceDirection dir = kAllDirections[i];
-                                // Raised boxes emit their underside; floor boxes and
-                                // boxes whose underside is buried in a sibling box do
-                                // not. See skip_bottom_face above.
-                                if (skip_bottom_face(bt.selection_boxes, box, dir)) continue;
+                                if (dir == FaceDirection::Bottom && skip_bottom) continue;
                                 int32_t dir_idx = static_cast<int32_t>(dir);
                                 int32_t nx = x + kDirectionOffsets[dir_idx][0] * stride_xz_;
                                 int32_t ny = y + kDirectionOffsets[dir_idx][1];
@@ -472,13 +501,22 @@ void MeshBuilder::emit_faces(const ChunkData& chunk, const BlockRegistry& regist
                         // Non-full blocks: emit faces per selection AABB
                         // (at LOD stride > 1, treat them as full cubes instead)
                         if (stride_xz_ <= 1 && !bt.is_full_cube()) {
-                            for (const auto& box : bt.selection_boxes) {
+                            // Neighbour-dependent parts resolve here, against the
+                            // same accessor the culling below uses.
+                            ShapeNeighborContext shape_ctx{&accessor, x, y, z, stride_xz_};
+                            ShapeBoxes boxes;
+                            resolve_shape_boxes(bt, registry,
+                                                ShapeNeighborFn{&shape_neighbor_lookup, &shape_ctx},
+                                                ShapeBoxKind::Selection, boxes);
+                            for (uint8_t bi = 0; bi < boxes.count(); ++bi) {
+                                const BlockAABB& box = boxes[bi];
+                                // Raised boxes emit their underside (see the
+                                // passive path's note); floor boxes and buried
+                                // undersides do not.
+                                const bool skip_bottom = skip_bottom_face(boxes, box);
                                 for (int i = 0; i < 6; i++) {
                                     FaceDirection dir = kAllDirections[i];
-                                    // Raised boxes emit their underside (see the
-                                    // passive path's note); floor boxes and buried
-                                    // undersides do not.
-                                    if (skip_bottom_face(bt.selection_boxes, box, dir)) continue;
+                                    if (dir == FaceDirection::Bottom && skip_bottom) continue;
                                     int32_t dir_idx = static_cast<int32_t>(dir);
                                     int32_t nx = x + kDirectionOffsets[dir_idx][0] * stride_xz_;
                                     int32_t ny = y + kDirectionOffsets[dir_idx][1];

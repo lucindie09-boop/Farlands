@@ -60,6 +60,7 @@ shared_sources = [
     "src/worldgen/vegetation_config.cpp",
     "src/worldgen/vegetation_generator.cpp",
     "src/core/block_types.cpp",
+    "src/core/shape_resolver.cpp",
     "src/core/inventory.cpp",
     "src/core/crafting.cpp",
     "src/core/item_registry.cpp",

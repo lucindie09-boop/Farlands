@@ -74,10 +74,37 @@ struct BlockAABB {
 
 // -----------------------------------------------------------------------------
 // Block Shape (shared geometry from block_shapes.json)
+//
+// A variant is a list of PARTS. Most parts are unconditional; a part carrying a
+// rule is present only while the cell faces its boxes reach have neighbours that
+// rule accepts (a fence arm toward another fence, rather than toward air). The
+// rule DATA lives here; what a rule MEANS is core/shape_resolver.cpp, so a
+// family's semantics are in one place instead of spread through the data file.
+//
+// selection_boxes / collision_boxes stay the flattening of the parts under the
+// canonical resolution (see shape_rule_canonical_faces). They are what every
+// consumer that has no world to look at uses, and the loader derives them from
+// the parts rather than trusting a second hand-written copy.
 // -----------------------------------------------------------------------------
+enum class ShapeRule : uint8_t {
+    None = 0,   // unconditional part
+    Fence = 1,  // arms appear toward another fence or any body-stopping block
+};
+
+struct ShapePart {
+    std::vector<BlockAABB> boxes;            // the part's own geometry
+    std::vector<BlockAABB> collision_boxes;  // optional; empty = this part's boxes
+    ShapeRule rule = ShapeRule::None;
+    // Which cell faces the boxes reach, in FaceDirection bits. Derived from the
+    // geometry by the loader (shape_box_faces), so a claim cannot contradict the
+    // boxes it was authored with.
+    uint8_t faces = 0;
+};
+
 struct BlockShape {
     std::vector<BlockAABB> selection_boxes;
     std::vector<BlockAABB> collision_boxes;
+    std::vector<ShapePart> parts;
 };
 
 // -----------------------------------------------------------------------------
@@ -156,6 +183,19 @@ struct BlockType {
     // Optional override for collision only. When non-empty, collision queries use this
     // instead of selection_boxes. Raycast, mesh, and outline still use selection_boxes.
     std::vector<BlockAABB> collision_boxes{};
+
+    // Shape parts, when the shape is neighbour-dependent (a fence's arms). Empty
+    // for every shape that is pure geometry: a consumer that finds this empty
+    // uses selection_boxes/collision_boxes directly and never calls the resolver.
+    // With parts, the two lists above hold the canonical flattening, so a
+    // consumer with no world to look at still draws the right model.
+    std::vector<ShapePart> parts{};
+
+    // The rule this block is recognised BY, for a neighbour asking "are you the
+    // same kind of thing I am?": two fence woods connect, a fence and a pane do
+    // not. A shape that mixes rules reports the first rule-bearing part (the
+    // loader warns: a connector answers exactly one question).
+    ShapeRule connector = ShapeRule::None;
 
     // Cached flag: true when selection_boxes is a single full cube [0,0,0,1,1,1].
     // Checked on hot paths (greedy meshing, collision, AO) for zero-overhead fast path.

@@ -289,6 +289,15 @@ private:
 
     static BlockID shape_neighbor_lookup(void* ctx, ShapeFace face);
 
+    // The block next door, resolved against the world from ITS cell: the boxes it
+    // is drawing right now, which for a connector shape are not the static list
+    // beside it. See the boundary culling in mesh_builder_solid.cpp for why the
+    // mesher has to ask.
+    static void resolve_neighbor_shape(const ChunkNeighborAccessor& accessor,
+                                       const BlockRegistry& registry,
+                                       const BlockType& neighbor_type, int32_t nx, int32_t ny,
+                                       int32_t nz, ShapeBoxes& out);
+
     static constexpr float kFaceNormals[6][3] = {
         {0, 1, 0},   // Top
         {0, -1, 0},  // Bottom

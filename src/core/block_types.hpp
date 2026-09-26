@@ -3,8 +3,10 @@
 #include <cstdint>
 #include <array>
 #include <cassert>
+#include <functional>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace godot { class String; }
@@ -413,12 +415,41 @@ public:
     // block_definitions.json "name" fields). Returns AIR (0) when unknown.
     [[nodiscard]] BlockID get_block_id_by_name(const char* name) const noexcept;
 
-    // Whether the block is flagged "hidden" in block_definitions.json
-    // (placement-only variants like stair orientations are hidden from the
-    // inventory /give list; their ids still exist in the positional save format).
-    [[nodiscard]] bool is_hidden(BlockID id) const noexcept {
-        return id < MAX_BLOCK_TYPES && hidden_[id];
+    // A block that exists only as a PLACEMENT VARIANT of another: a stair's other
+    // seven orientations, a slab's top half or a merged full slab. Such a block is
+    // never a thing to hand a player -- the family's inventory variant is what you
+    // pick up, and the orientation is chosen when it is placed -- though its id
+    // stays in the positional save format and the placement code still writes it.
+    //
+    // Walls are deliberately EXCLUDED: a wall's `_full` is not an orientation but a
+    // real solid block (and stone's is kept reachable on purpose), so wall hiding
+    // stays a data flag rather than a family rule. A block already flagged hidden
+    // is hidden either way, so the two mechanisms cannot fight.
+    [[nodiscard]] bool is_family_variant(BlockID id) const noexcept {
+        if (id == 0 /* AIR */ || id >= MAX_BLOCK_TYPES) return false;
+        if (const StairFamily* f = get_stair_family(id); f != nullptr && f->base != 0) {
+            return id != f->base;
+        }
+        if (const SlabFamily* f = get_slab_family(id); f != nullptr && f->bottom != 0) {
+            return id != f->bottom;
+        }
+        return false;
     }
+
+    // Whether the block is not a thing to offer in the inventory: flagged "hidden"
+    // in block_definitions.json, or a placement-only family variant (see
+    // is_family_variant). Either way its id still exists in the positional save
+    // format, and this is what /give and its autocomplete key off.
+    [[nodiscard]] bool is_hidden(BlockID id) const noexcept {
+        return id < MAX_BLOCK_TYPES && (hidden_[id] || is_family_variant(id));
+    }
+
+    // Finishes the "drops" references that were not a block when the file loaded.
+    // A block can drop an ITEM (the torch block drops the torch item), and items
+    // load after blocks, so any unresolved drop name waits here until the caller
+    // can offer an item lookup. Unknown names at that point are logged and left
+    // AIR (drop the block itself).
+    void resolve_pending_drops(const std::function<BlockID(const char*)>& item_lookup) noexcept;
 
     void initialize_default_blocks() noexcept;
     bool load_shapes_from_json(const godot::String& json_path) noexcept;
@@ -439,6 +470,10 @@ private:
 
     // "hidden" flag per block id, parsed from block_definitions.json.
     std::array<bool, MAX_BLOCK_TYPES> hidden_{};
+
+    // "drops" names that were not a block at load time, waiting for the item
+    // registry (which loads after blocks) before they can be resolved.
+    std::vector<std::pair<BlockID, std::string>> pending_drops_;
 
     // Stair family lookup: maps block id → 1-indexed family (0 = not in any).
     std::vector<StairFamily> stair_families_;

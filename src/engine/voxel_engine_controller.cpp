@@ -937,6 +937,12 @@ void VoxelEngineController::load_world_configs() {
     if (!ItemRegistry::get_instance().load_from_json("res://data/items.json")) {
         WARN_PRINT("items.json missing or unparseable; item recipes will not resolve");
     }
+    // Blocks load before items, so a block whose "drops" names an item (the torch
+    // block drops the torch item) could not be resolved then. Finish those now that
+    // the item ids exist.
+    BlockRegistry::get_instance().resolve_pending_drops([](const char* name) {
+        return ItemRegistry::get_instance().get_item_id_by_name(name);
+    });
 
     recipe_book.clear();
     if (!recipe_book.load_from_json("res://data/recipes.json")) {

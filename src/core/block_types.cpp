@@ -573,8 +573,22 @@ bool BlockRegistry::load_from_json(const godot::String& json_path) noexcept {
             out = target;
             return godot::String();
         };
-        const godot::String drops_error = resolve_ref("drops", bt->drops);
-        if (!drops_error.is_empty()) ERR_PRINT(drops_error);
+        // "drops" is the one reference that may name an ITEM (the torch block drops
+        // the torch item, so breaking a torch hands back the thing you can place),
+        // and items load AFTER blocks. A name that is not a block yet is therefore
+        // not an error: it waits for resolve_pending_drops(), which the controller
+        // calls once items exist. "crush_result" is always a block and still errors
+        // here.
+        if (d.has("drops")) {
+            const godot::String target_name = d["drops"];
+            const BlockID target = get_block_id_by_name(target_name.utf8().get_data());
+            if (target != 0) {
+                bt->drops = target;
+            } else {
+                pending_drops_.emplace_back(static_cast<BlockID>(i),
+                                            target_name.utf8().get_data());
+            }
+        }
         const godot::String crush_error = resolve_ref("crush_result", bt->crush_result);
         if (!crush_error.is_empty()) ERR_PRINT(crush_error);
     }
@@ -686,6 +700,24 @@ bool BlockRegistry::load_from_json(const godot::String& json_path) noexcept {
     }
 
     return true;
+}
+
+void BlockRegistry::resolve_pending_drops(
+    const std::function<BlockID(const char*)>& item_lookup) noexcept {
+    for (const auto& [id, name] : pending_drops_) {
+        BlockID target = get_block_id_by_name(name.c_str());
+        if (target == BlockIDs::AIR && item_lookup) {
+            target = item_lookup(name.c_str());
+        }
+        if (target == BlockIDs::AIR) {
+            ERR_PRINT("BlockRegistry: unknown drops \"" + godot::String(name.c_str())
+                      + "\" for block \"" + godot::String(get_block(id).name)
+                      + "\" (not a block or an item)");
+            continue;
+        }
+        get_block_mutable(id)->drops = target;
+    }
+    pending_drops_.clear();
 }
 #endif
 

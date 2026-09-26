@@ -246,7 +246,7 @@
 
     "minecraft:*_stairs":               { "shape": "stairs", "family": "stone_stairs", "substitute": true, "note": "a stair family this build does not have; the shape is what matters" },
     "minecraft:*_slab":                 { "shape": "slab", "family": "stone", "substitute": true, "note": "a slab family this build does not have; the shape is what matters" },
-    "minecraft:*_wall":                 { "block": "stone_wall_full", "substitute": true, "note": "a wall material this build does not have; the post is what keeps the line" },
+    "minecraft:*_wall":                 { "block": "stone", "substitute": true, "note": "a wall material this build does not have; a stone block keeps the line" },
 
     "minecraft:glowstone":              { "block": "light_block", "substitute": true, "note": "ours emits light too" },
     "minecraft:sea_lantern":            { "block": "light_block", "substitute": true, "note": "ours emits light too" },
@@ -479,9 +479,9 @@
 
     {
       "id": 139,
-      "block": "stone_wall_full",
+      "block": "stone",
       "substitute": true,
-      "note": "cobblestone wall; data 1 is the mossy variant. The post, not an arm: a paste has to run this game's own connection pass over what it writes"
+      "note": "cobblestone wall; data 1 is the mossy variant"
     },
     { "id": 85, "block": "oak_wall_full", "substitute": true, "note": "oak fence reads as a wall post here" },
     { "id": 188, "block": "spruce_wall_full", "substitute": true, "note": "spruce fence" },

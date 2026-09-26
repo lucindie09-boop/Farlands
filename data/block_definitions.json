@@ -826,20 +826,6 @@
     "slipperiness": 0.6
   },
   {
-    "name": "stone_wall_full",
-    "preferred_tool": "pickaxe",
-    "hardness": 1.5,
-    "wall_family": "stone_wall",
-    "_comment": "Deliberately NOT hidden, unlike the other four materials' solid walls: it is the one wall block you can still /give yourself, and it is what a pasted build turns every foreign wall into (data/minecraft_blocks.json).",
-    "properties": ["Solid", "Opaque"],
-    "visible_faces": [true, true, true, true, true, true],
-    "textures": ["stone", "stone", "stone", "stone", "stone", "stone"],
-    "emissive_textures": ["", "", "", "", "", ""],
-    "light": [0, 0, 0],
-    "top_face_offset": 0.0,
-    "slipperiness": 0.6
-  },
-  {
     "name": "gravel_path",
     "preferred_tool": "shovel",
     "hardness": 0.6,

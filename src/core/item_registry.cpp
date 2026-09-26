@@ -75,6 +75,14 @@ const ItemLight* ItemRegistry::get_item_light(BlockID id) const noexcept {
     return def.has_light ? &def.light : nullptr;
 }
 
+const ItemPlace* ItemRegistry::get_item_place(BlockID id) const noexcept {
+    if (!is_item(id)) {
+        return nullptr;
+    }
+    const ItemDef& def = items_[static_cast<size_t>(id - FIRST_ITEM_ID)];
+    return def.has_place ? &def.place : nullptr;
+}
+
 #ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
 
 bool ItemRegistry::load_from_json(const godot::String& json_path) noexcept {
@@ -149,6 +157,42 @@ bool ItemRegistry::load_from_json(const godot::String& json_path) noexcept {
             } else {
                 ERR_PRINT("items.json entry " + name + ": unknown use kind \"" + kind
                           + "\", ignored");
+            }
+        }
+        // Optional "place" object: an item that itself puts a BLOCK in the world
+        // when right-clicked, the one declared bridge from the item space into the
+        // block space (the torch item places a torch block). `block` is what a
+        // horizontal face places; the optional "wall" object names the four
+        // variants a vertical face picks from, keyed by the face the piece hugs
+        // (n = -Z, s = +Z, e = +X, w = -X), the same spelling block_shapes.json
+        // uses for the wall-torch shapes. Names resolve here rather than at use for
+        // the same reason a pour's does: a typo has to be visible at startup.
+        if (entry.has("place")) {
+            const godot::Dictionary place = entry["place"];
+            const BlockRegistry& blocks = BlockRegistry::get_instance();
+            const auto resolve_one = [&](const godot::Dictionary& src, const char* key,
+                                         BlockID& out) {
+                const godot::String target = src.get(key, godot::String());
+                if (target.is_empty()) return;
+                out = blocks.get_block_id_by_name(target.utf8().get_data());
+                if (out == BlockIDs::AIR) {
+                    ERR_PRINT("items.json entry " + name + ": place \"" + godot::String(key)
+                              + "\" names unknown block \"" + target + "\", ignored");
+                }
+            };
+            resolve_one(place, "block", def.place.block);
+            if (place.has("wall")) {
+                // Order is the ItemPlace::resolve index order, not alphabetical.
+                const godot::Dictionary wall = place["wall"];
+                resolve_one(wall, "n", def.place.wall[0]);
+                resolve_one(wall, "s", def.place.wall[1]);
+                resolve_one(wall, "e", def.place.wall[2]);
+                resolve_one(wall, "w", def.place.wall[3]);
+            }
+            def.has_place = def.place.any();
+            if (!def.has_place) {
+                WARN_PRINT("items.json entry " + name
+                           + ": \"place\" names no known block, ignored");
             }
         }
         // Optional held-item light: {"level": 14, "color": [1.0, 0.83, 0.6]}.

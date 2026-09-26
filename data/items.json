@@ -71,7 +71,16 @@
 			"name": "torch",
 			"texture": "torch",
 			"pose": "item2",
-			"light": { "level": 14, "color": [1.0, 0.83, 0.6] }
+			"light": { "level": 14, "color": [1.0, 0.83, 0.6] },
+			"place": {
+				"block": "light_torch",
+				"wall": {
+					"n": "light_torch_wall_n",
+					"s": "light_torch_wall_s",
+					"e": "light_torch_wall_e",
+					"w": "light_torch_wall_w"
+				}
+			}
 		},
 		{
 			"name": "bucket",

@@ -846,15 +846,22 @@ void PlayerController::place_block() {
         }
     }
 
-    // Get the block type from inventory
-    BlockID block_to_place = inventory_.get_selected_block();
-    if (block_to_place == 0) return; // No block selected
+    // What the hand is offering. A block is placed as itself. An item normally is
+    // not placeable at all — its id lives in a separate space above the block
+    // registry and must stay out of voxels — but one may declare the block it puts
+    // in the world (the torch item places a torch), which is the only bridge.
+    const BlockID held = inventory_.get_selected_block();
+    if (held == 0) return; // Nothing selected
+    const auto& items = VoxelEngine::ItemRegistry::get_instance();
+    const VoxelEngine::ItemPlace* item_place = nullptr;
+    BlockID block_to_place = held;
+    if (items.is_item(held)) {
+        item_place = items.get_item_place(held);
+        if (item_place == nullptr || item_place->block == 0) return;
+        block_to_place = item_place->block;
+    }
 
-    // Items (sticks, tools, ...) are never placeable — their ids live in a
-    // separate space above the block registry and must stay out of voxels.
-    if (VoxelEngine::ItemRegistry::get_instance().is_item(block_to_place)) return;
-
-    // Check if we have enough blocks
+    // Check if we have enough
     if (inventory_.get_selected_count() <= 0) return;
 
     Dictionary result = cm->raycast_from_camera(10.0);
@@ -863,6 +870,15 @@ void PlayerController::place_block() {
         int bx = static_cast<int>(std::floor(place_pos.x));
         int by = static_cast<int>(std::floor(place_pos.y));
         int bz = static_cast<int>(std::floor(place_pos.z));
+
+        // An item that places a block picks its variant from the clicked face: a
+        // torch stands on a top face and hugs the wall on a side face. A face the
+        // shape does not offer resolves to AIR, which refuses the placement.
+        if (item_place != nullptr) {
+            const Vector3 hit_normal = Vector3(result["hit_normal"]);
+            block_to_place = item_place->resolve(hit_normal.x, hit_normal.y, hit_normal.z);
+            if (block_to_place == 0) return;
+        }
 
         // Slab auto-detection: merge halves into double slab, or pick top/bottom orientation.
         // Works per family (plank slabs, log stumps) so the two never cross-merge.
@@ -976,8 +992,9 @@ void PlayerController::place_block() {
         BlockID placed = static_cast<BlockID>(cm->get_block(bx, by, bz));
         if (placed != final_block) return;
 
-        // Consume from inventory
-        inventory_.consume_block(block_to_place, 1);
+        // Consume what was actually held: a placed item consumes the ITEM, not the
+        // block it put in the world.
+        inventory_.consume_block(item_place != nullptr ? held : block_to_place, 1);
 
         // Notify that a block actually landed (drives the place swing animation).
         emit_signal("block_placed");

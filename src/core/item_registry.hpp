@@ -66,6 +66,41 @@ struct ItemUseAction {
     [[nodiscard]] bool is_wand() const noexcept { return kind == "wand"; }
 };
 
+// Optional "place" on an item (items.json "place" object): the block it puts in
+// the world when right-clicked. Normally an item is never placeable — its id lives
+// in its own space above the block registry and must stay out of voxels — so this
+// is the one declared bridge between the two. `block` is what a horizontal face
+// places (a torch standing on a surface); the optional `wall` variants are what a
+// vertical face places, keyed by the face the piece HUGS, in the same n/s/e/w
+// spelling data/block_shapes.json uses: n = -Z, s = +Z, e = +X, w = -X. A face
+// with no variant falls back to `block`.
+struct ItemPlace {
+    BlockID block = 0;                    // the block a top face places; AIR = none
+    BlockID wall[4] = {0, 0, 0, 0};       // n, s, e, w wall-hugging variants; AIR = fall back
+
+    [[nodiscard]] bool any() const noexcept {
+        return block != BlockIDs::AIR || wall[0] != BlockIDs::AIR || wall[1] != BlockIDs::AIR
+            || wall[2] != BlockIDs::AIR || wall[3] != BlockIDs::AIR;
+    }
+
+    // The block to put in the world for a click on the face whose outward normal is
+    // (nx, ny, nz) — the raycast's hit_normal, which points away from the clicked
+    // block and so into the cell being placed into. A horizontal face (|ny| > 0.5)
+    // places `block`; a vertical face picks the variant that hugs the wall it is
+    // attached to (clicking the +Z face puts the piece on the new cell's -Z side,
+    // which is the n variant). AIR means "this shape does not offer that face".
+    [[nodiscard]] BlockID resolve(float nx, float ny, float nz) const noexcept {
+        const float ax = nx < 0.0f ? -nx : nx;
+        const float ay = ny < 0.0f ? -ny : ny;
+        const float az = nz < 0.0f ? -nz : nz;
+        if (ay > 0.5f) return block;
+        int idx;
+        if (az >= ax) idx = (nz > 0.0f) ? 0 : 1;   // +Z face -> n (-Z), -Z face -> s (+Z)
+        else          idx = (nx > 0.0f) ? 3 : 2;   // +X face -> w (-X), -X face -> e (+X)
+        return wall[idx] != BlockIDs::AIR ? wall[idx] : block;
+    }
+};
+
 // Non-placeable inventory objects (sticks, tools, ...) living in their own ID
 // space above the block registry: item ids start at FIRST_ITEM_ID, so a single
 // Inventory slot id can address either without changing any storage or stack
@@ -98,6 +133,10 @@ public:
     // nullptr when the id is not an item, or when the item lights nothing. The
     // returned light reports level 0 for an item with no "light" entry.
     [[nodiscard]] const ItemLight* get_item_light(BlockID id) const noexcept;
+    // nullptr when the id is not an item, or when the item places no block. The
+    // returned placement names the block (and its wall-hugging variants) that a
+    // right-click puts in the world instead of the item staying out of voxels.
+    [[nodiscard]] const ItemPlace* get_item_place(BlockID id) const noexcept;
     [[nodiscard]] size_t get_item_count() const noexcept {
         return items_.size();
     }
@@ -113,6 +152,8 @@ private:
         ItemUseAction use;
         ItemLight light;
         bool has_light = false;
+        ItemPlace place;
+        bool has_place = false;
     };
     std::deque<ItemDef> items_;  // deque: name pointers stay valid on growth
 };

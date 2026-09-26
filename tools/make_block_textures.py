@@ -18,7 +18,12 @@ pixels, and drawing it by hand once is how that drifts. Everything here is
 authored to the region the geometry actually samples:
 
   torch       sides sample x 7..9, y 6..16; top samples x 7..9, y 7..9;
-              bottom (wall torches, and any raised box) samples x 7..9, y 14..16
+              bottom (wall torches, and any raised box) samples x 7..9, y 14..16.
+              The base is NOT drawn here: the torch the player holds and the
+              torch standing in the world are one drawing, so this copies
+              textures/items/torch.png verbatim and only generates the block's
+              emissive map from it. Item art wins because it is what the player
+              sees in hand, and it already sits in the sampled region.
   chain       sides sample x 7..9, y 0..16
   carpet      a full-face plate, so the whole texture is seen
   glass       a full cube, so the whole texture is seen
@@ -36,6 +41,7 @@ from pathlib import Path
 
 W = H = 16
 OUT_DIR = Path("textures/blocks")
+ITEM_DIR = Path("textures/items")
 
 
 def rgba(r, g, b, a=255):
@@ -67,38 +73,33 @@ def write_png(path, pixels):
 
 
 # ---------------------------------------------------------------------------
-# torch: a stick with a flame, laid out for the regions the geometry samples
+# torch: the item's own art, plus a block-only emissive map
 # ---------------------------------------------------------------------------
-def torch_base():
-    px = blank()
-    stick_dark = rgba(84, 56, 30)
-    stick_mid = rgba(112, 76, 42)
-    stick_lit = rgba(138, 99, 56)
-    # rows 6..9 flame, hottest at the top; rows 10..15 stick
-    flame = {
-        6: rgba(255, 236, 140),
-        7: rgba(255, 206, 74),
-        8: rgba(246, 158, 46),
-        9: rgba(214, 108, 34),
-    }
-    for y in range(6, 16):
-        for x in range(7, 9):
-            if y in flame:
-                px[y][x] = flame[y]
-            else:
-                px[y][x] = stick_lit if x == 7 else stick_mid
-    # a darker base so the stick reads as rounded at the bottom
-    for x in range(7, 9):
-        px[15][x] = stick_dark
-    return px
+def copy_torch_base():
+    """Write textures/blocks/torch.png as a verbatim copy of the item torch.
+
+    The held torch and the placed torch must be the same drawing, so the item
+    file is the single source of truth rather than a second torch drawn here
+    that could drift from it. The item art already occupies the region the
+    geometry samples, so it needs no re-layout.
+    """
+    src = ITEM_DIR / "torch.png"
+    if not src.exists():
+        raise SystemExit(f"item torch texture missing: {src}")
+    dst = OUT_DIR / "torch.png"
+    dst.write_bytes(src.read_bytes())
+    print(f"copied {src} -> {dst} ({dst.stat().st_size} bytes)")
 
 
 def torch_emit():
     # Black where nothing glows: the emissive map is ADDED to the lit colour, so
-    # a non-black pixel outside the flame would light the whole stick.
+    # a non-black pixel outside the flame would light the whole stick. The item
+    # art's flame is rows 6-7 (its stick starts at row 8), so only those glow;
+    # row 8 is a faint warm edge so the top of the stick does not read as cold
+    # wood right under the flame.
     px = blank(rgba(0, 0, 0))
     for y, c in ((6, rgba(255, 214, 120)), (7, rgba(255, 176, 72)),
-                 (8, rgba(232, 132, 40)), (9, rgba(150, 74, 20))):
+                 (8, rgba(120, 70, 28))):
         for x in range(7, 9):
             px[y][x] = c
     return px
@@ -184,7 +185,7 @@ def carpet():
 
 def main():
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    write_png(OUT_DIR / "torch.png", torch_base())
+    copy_torch_base()
     write_png(OUT_DIR / "torch_emit.png", torch_emit())
     write_png(OUT_DIR / "glass.png", glass())
     write_png(OUT_DIR / "ladder.png", ladder())

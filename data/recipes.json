@@ -185,7 +185,7 @@
     },
 
     {
-      "_comment": "The fence/torch/pane batch. Patterns stay 2x2 wherever they can so they fit the inventory grid as well as the table, and every result names a VISIBLE block (the orientation variants are hidden and drop these).",
+      "_comment": "The fence/torch/pane batch. Patterns stay 2x2 wherever they can so they fit the inventory grid as well as the table, and every result names something a player can hold: a VISIBLE block (the orientation variants are hidden and drop these), or the torch ITEM, which places its own block (data/items.json \"place\").",
       "type": "shaped",
       "pattern": ["PS", "PS"],
       "key": { "P": "oak_planks", "S": "stick" },
@@ -213,7 +213,7 @@
       "type": "shaped",
       "pattern": ["C", "S"],
       "key": { "C": "coal_ore", "S": "stick" },
-      "result": { "block": "light_torch", "count": 4 }
+      "result": { "block": "torch", "count": 4 }
     },
     {
       "_comment": "There is no furnace, so glass is a hand recipe rather than a smelt: four sand in, four glass out.",
@@ -243,7 +243,7 @@
     {
       "type": "shaped",
       "pattern": ["I", "T"],
-      "key": { "I": "iron_ingot", "T": "light_torch" },
+      "key": { "I": "iron_ingot", "T": "torch" },
       "result": { "block": "lantern", "count": 1 }
     },
     {

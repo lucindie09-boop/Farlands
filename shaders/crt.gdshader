@@ -17,6 +17,13 @@ render_mode unshaded;
 //     image, and it is why the pass has to average rather than pick one frame
 //     pixel per cell: point sampling a sharp frame at a coarse grid does not
 //     make a coarse picture, it makes a noisy one.
+//     That raster is set as a *magnification* - picture_scale, in screen pixels
+//     per picture dot - and not as a count of lines, so a dot is always a whole
+//     number of the glass's pixels and the setting means the same thing on any
+//     window. A count of lines re-derives a dot size that is almost never a
+//     whole number of pixels, and the averaging taps then land at a different
+//     place inside every dot: what you see is no longer a raster but the
+//     pattern of that difference.
 //   - each picture cell is drawn by the beam as a soft round spot, not a hard
 //     square. The spots overlap, so a bright cell bleeds into its neighbours,
 //     which is what smears thin detail into the blobs a real set shows. The
@@ -50,7 +57,12 @@ uniform float curvature : hint_range(0.0, 0.6) = 0.22;
 uniform float corner_band : hint_range(0.05, 0.9) = 0.5;
 
 // --- The picture's own raster, and the beam that paints it ---
-uniform float scanline_count : hint_range(80.0, 900.0) = 180.0;
+// One dot of the picture, in screen pixels: the picture's raster is the glass's
+// own pixel grid magnified by this, so 1 is the frame itself, 2 draws the
+// picture two glass pixels to a dot (480 lines down a 960-pixel frame), 4 draws
+// it four (240 lines), 8 draws it eight (120 lines). Only whole numbers: see
+// the raster below for why the "whole" is the whole point.
+uniform float picture_scale : hint_range(1.0, 8.0, 1.0) = 4.0;
 uniform float scanline_depth : hint_range(0.0, 1.0) = 0.55;
 uniform float beam_softness : hint_range(0.15, 1.5) = 0.5;
 
@@ -121,18 +133,16 @@ vec3 cell_at(vec2 cell, vec2 grid, vec2 offset) {
     return texture(screen_texture, clamp((cell + offset) / grid, vec2(0.0), vec2(1.0))).rgb;
 }
 
-// The frame averaged over one cell, properly: the cell's own centre and the
-// centres of the eight frame pixels around it. In a cell three frame pixels
-// wide a third of a cell is exactly one pixel, so those nine taps are the nine
-// pixels of the cell and their mean is its mean. That is what the picture needs
-// - the frame is full of detail the picture cannot carry, and detail that gets
-// sampled anyway does not come out as a coarse picture, it comes out as a
-// stipple of whatever the detail happened to be doing at the tap positions.
-// This is the one cell per sample that is worth nine taps; the eight around it
-// get the cheapest average that covers them, which is four taps a quarter of a
-// cell out, a (1/8, 3/4, 1/8) kernel. That one is too sharp to stop the frame's
-// own texture aliasing through it, but the cells it is averaging are the ones
-// the beam is only letting a tenth of the light through.
+// The frame averaged over one cell, roughly: four taps a quarter of a cell out,
+// a (1/8, 3/4, 1/8) kernel. This is what the eight cells *around* the sample
+// get, and it is deliberately the cheap one - it is too sharp to stop the
+// frame's own texture aliasing through it, but the cells it averages are the
+// ones the beam is only letting a tenth of the light through.
+//
+// All of them exist because the frame is full of detail the picture cannot
+// carry, and detail that gets sampled anyway does not come out as a coarse
+// picture: it comes out as a stipple of whatever the detail happened to be
+// doing at the tap positions.
 vec3 cell_signal(vec2 cell, vec2 grid) {
     vec3 sum = vec3(0.0);
     for (int i = 0; i < 4; i++) {
@@ -142,13 +152,28 @@ vec3 cell_signal(vec2 cell, vec2 grid) {
     return sum * 0.25;
 }
 
-vec3 cell_signal_box(vec2 cell, vec2 grid) {
+// The frame averaged over one dot, exactly: the dot's own pixels, one tap each.
+// A dot is a whole number of the frame's pixels square, so the pixels under it
+// sit at fixed offsets from its centre - (m + 0.5)/scale - 0.5 of a dot - and
+// their mean is the dot's mean. Those taps have to be a whole pixel apart for
+// any of that to hold: bilinear taps one pixel apart tile into a flat box,
+// while taps spaced a fixed fraction of a dot apart land somewhere different
+// inside the frame's pixels in every dot, and average a different set of them.
+//
+// At three pixels a dot this is the same nine taps a third of a dot out that
+// this pass has always used; the other dot sizes get their own count instead of
+// borrowing the three-pixel one.
+vec3 cell_signal_box(vec2 cell, vec2 grid, float scale) {
     vec3 sum = vec3(0.0);
-    for (int i = 0; i < 9; i++) {
-        vec2 ninth = (vec2(float(i % 3), float(i / 3)) - vec2(1.0)) * (1.0 / 3.0);
-        sum += cell_at(cell, grid, ninth);
+    int side = int(scale);
+    for (int i = 0; i < 64; i++) {
+        if (i >= side * side) {
+            break;
+        }
+        vec2 pixel = vec2(float(i % side), float(i / side));
+        sum += cell_at(cell, grid, (pixel + vec2(0.5) - vec2(scale * 0.5)) / scale);
     }
-    return sum * (1.0 / 9.0);
+    return sum / (scale * scale);
 }
 
 void fragment() {
@@ -169,14 +194,22 @@ void fragment() {
     float glass = 1.0 - smoothstep(0.0, 2.0 * texel.y, lost);
 
     // --- The raster: the picture's own grid, laid on the glass ---
-    // `scanline_count` is how many lines the picture is drawn with, and the
-    // frame is showing that picture stretched over it. The horizontal count
-    // follows the frame's shape so the picture's cells stay square, which is
-    // also why the same setting makes the pixels look wider on a wide window.
+    // `picture_scale` screen pixels per picture dot, rounded to a whole number,
+    // is the picture's grid: the glass's own grid, magnified. Lines down the
+    // frame are the frame's height over it (240 at 4x on a 960-pixel frame), and
+    // the count across follows the frame's shape so the dots stay square.
+    //
+    // Scaling the glass's grid, rather than counting lines, is what keeps the
+    // raster clean on any window: the dots that fit are all the same whole
+    // number of pixels, so the frame's pixels fall under them the same way all
+    // the way across. Where the scale does not divide a side of the frame evenly
+    // the dot at that edge is a narrow one - three pixels of 1908 at 5x - and
+    // the vignette is darkening that edge in any case.
+    //
     // The whole grid is derived from the warped position, so the raster bends
     // with the glass instead of sliding underneath it.
-    float aspect = frame_size.x / max(frame_size.y, 1.0);
-    vec2 grid = vec2(max(scanline_count * aspect, 1.0), max(scanline_count, 1.0));
+    float scale = clamp(floor(picture_scale + 0.5), 1.0, 8.0);
+    vec2 grid = frame_size / scale;
     vec2 video = sample_uv * grid;
     vec2 cell = floor(video) + 0.5;   // the picture cell this sample lands in
     vec2 rel = video - cell;          // where in it: -0.5 at its edges, 0 at its middle
@@ -214,7 +247,7 @@ void fragment() {
     vec3 weight_sum = vec3(0.0);
     vec3 hot = vec3(0.0);
     float hot_weight = 0.0;
-    vec3 middle_signal = cell_signal_box(cell, grid);
+    vec3 middle_signal = cell_signal_box(cell, grid, scale);
     for (int i = 0; i < 9; i++) {
         vec2 step = vec2(float(i % 3) - 1.0, float(i / 3) - 1.0);
         vec3 signal = middle_signal;
@@ -256,7 +289,15 @@ void fragment() {
     // the picture and starts to look like a shadow mask held up to it. The
     // raised cosine is the stripe's own brightness - dark at both its edges,
     // which is the dark line between two phosphors, brightest in its middle.
-    float slot = fract(video.x / mask_pitch) * 3.0;
+    //
+    // A triad has a floor of three *screen* pixels, because three guns inside
+    // three screen pixels is one gun per pixel and there is nothing finer to
+    // draw with: a triad narrower than that is sampled at less than one pixel
+    // per gun, and the pattern stops being a pattern and becomes a colour cast
+    // over the whole picture - a one-pixel dot with a one-pixel triad puts the
+    // same gun in every pixel, which comes out green.
+    float triad = max(mask_pitch, 3.0 / scale);
+    float slot = fract(video.x / triad) * 3.0;
     float index = floor(slot);
     float across_stripe = fract(slot);
     float stripe_lit = 0.5 - 0.5 * cos(TAU * across_stripe);

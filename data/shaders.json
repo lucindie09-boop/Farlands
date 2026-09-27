@@ -7,7 +7,7 @@
       "shader": "res://shaders/crt.gdshader",
       "enabled": false,
       "params": [
-        { "key": "curvature", "label": "Tube Curvature", "type": "float", "default": 0.22, "min": 0.0, "max": 0.6, "step": 0.005 },
+        { "key": "curvature", "label": "Tube Curvature", "type": "float", "default": 0.0, "min": 0.0, "max": 0.6, "step": 0.005 },
         { "key": "corner_band", "label": "Corner Rounding", "type": "float", "default": 0.5, "min": 0.05, "max": 0.9, "step": 0.01 },
         { "key": "picture_scale", "label": "Picture Scale", "type": "float", "default": 4.0, "min": 1.0, "max": 8.0, "step": 1.0, "suffix": "x" },
         { "key": "scanline_depth", "label": "Scanline Depth", "type": "float", "default": 0.55, "min": 0.0, "max": 1.0, "step": 0.01 },

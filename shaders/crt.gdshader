@@ -53,7 +53,9 @@ uniform sampler2D screen_texture : hint_screen_texture, repeat_disable, filter_l
 uniform vec2 frame_size = vec2(1920.0, 1080.0);
 
 // --- Tube geometry ---
-uniform float curvature : hint_range(0.0, 0.6) = 0.22;
+// Flat by default: the bend is what draws the black case, so at 0 the picture
+// fills the frame corner to corner and the tube's shape is opt-in.
+uniform float curvature : hint_range(0.0, 0.6) = 0.0;
 uniform float corner_band : hint_range(0.05, 0.9) = 0.5;
 
 // --- The picture's own raster, and the beam that paints it ---

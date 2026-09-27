@@ -49,6 +49,12 @@ const CATEGORY_COLOR := Color(0.92, 0.94, 0.97)
 const SCROLL_TRACK_COLOR := Color(0.0, 0.0, 0.0, 0.45)
 const SCROLL_GRABBER_COLOR := Color(0.78, 0.8, 0.85, 0.9)
 const HINT_COLOR := Color(1.0, 0.7, 0.3)
+# A shader page whose shader is off pulses its title between full white and this
+# much of it, at this many cycles per second: the rows on that page still write
+# to the stack, but nothing on screen changes, and the title is the one thing on
+# it that can say so without being a second switch.
+const TITLE_PULSE_LOW := 0.35
+const TITLE_PULSE_HZ := 0.5
 
 # Actions exposed on the CONTROLS page. The engine keeps the pristine project
 # defaults as the per-row reset target; runtime rebinding swaps InputMap events.
@@ -82,6 +88,9 @@ var _current_page: String = "pause"
 
 var _bg: ColorRect
 var _pages: Dictionary = {}
+# Each shader page's title label, by page name, so the pulse below can reach it.
+var _shader_page_titles: Dictionary = {}
+var _title_pulse := 0.0
 
 var _default_gui_scale: float = 2.0
 var _default_day_duration: float = 10.0
@@ -383,6 +392,7 @@ func _rebuild_pages():
 	# page's heading covers the whole stack: importing a code has to pull every
 	# row on every one of them back in step, not only the rows on the page the
 	# code was pasted into.
+	_shader_page_titles.clear()
 	var shader_syncs: Array = []
 	_pages["shaders"] = _build_shaders_page(shader_syncs)
 	for definition in _shader_definitions():
@@ -511,10 +521,16 @@ func _build_shaders_page(syncs: Array) -> Control:
 # whether it is on; this page is the fine adjustment under it.
 func _build_shader_page(definition: Dictionary, syncs: Array) -> Control:
 	var rows: Array = _build_shader_param_rows(definition, syncs)
-
-	return _build_scrolling_page(String(definition.get("name", definition.get("id", ""))),
+	var id := String(definition.get("id", ""))
+	var page := _build_scrolling_page(String(definition.get("name", id)),
 		[["", rows]], [["Back", func(): _show_page("shaders")], ["Done", _close]],
 		UNIT_OPTION_W, 2, Color(0, 0, 0, 0))
+	# Kept by page name so _process can reach it: this page's rows write to a
+	# shader that may be switched off, and the title is what says so.
+	var title := _page_title(page)
+	if title != null:
+		_shader_page_titles["shader_" + id] = title
+	return page
 
 func _shader_definitions() -> Array:
 	return shader_overlay.get_definitions() if shader_overlay else []
@@ -2997,6 +3013,9 @@ func _build_scrolling_page(title_text: String, sections: Array, actions: Array,
 	title.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	title.offset_bottom = bar_h
 	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# Marked so a page can find the one line of chrome it is given: a shader's
+	# page pulses its title while that shader is off (see _pulse_shader_titles).
+	title.set_meta("page_title", true)
 	page.add_child(title)
 
 	var action_row := HBoxContainer.new()
@@ -3138,6 +3157,13 @@ func _build_scrolling_page(title_text: String, sections: Array, actions: Array,
 			body.add_child(grid)
 
 	return page
+
+# A page's own title, the label _build_scrolling_page puts across the top.
+func _page_title(page: Control) -> Label:
+	for child in page.get_children():
+		if child is Label and child.has_meta("page_title"):
+			return child
+	return null
 
 # That row's own width, with the option on the left and its reset on the right.
 func _make_row_cell(row: Array, cell_w: float, reset_w: float, row_gap: float, option_w: float,
@@ -3886,11 +3912,38 @@ func _open():
 	_rebuild_pages()
 	_show_page("pause")
 	show()
+	# The pages were just rebuilt, so their titles start white: put the pulse's
+	# colour on them now rather than a frame later.
+	_title_pulse = 0.0
+	_pulse_shader_titles()
+	set_process(true)
 	player_controller.set_settings_open(true)
 
 func _close():
 	is_open = false
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	set_process(false)
 	hide()
 	player_controller.set_settings_open(false)
 	_save_settings()
+
+# A page of sliders for a shader that is switched off changes nothing you can
+# see, so that page's title breathes - darker and back, slowly. Nothing else on
+# the page differs: the point is only to say which page you are looking at.
+func _process(delta: float) -> void:
+	_title_pulse += delta
+	_pulse_shader_titles()
+
+func _pulse_shader_titles() -> void:
+	if _shader_page_titles.is_empty():
+		return
+	var wave := 0.5 + 0.5 * sin(TAU * TITLE_PULSE_HZ * _title_pulse)
+	var shade := lerpf(TITLE_PULSE_LOW, 1.0, wave)
+	for page_name in _shader_page_titles:
+		var title: Label = _shader_page_titles[page_name]
+		if not is_instance_valid(title):
+			continue
+		var id := String(page_name).trim_prefix("shader_")
+		var on: bool = shader_overlay != null and shader_overlay.is_enabled(id)
+		title.add_theme_color_override("font_color",
+			Color.WHITE if on else Color(shade, shade, shade))

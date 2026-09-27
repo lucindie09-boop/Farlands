@@ -72,6 +72,9 @@ const CONTROL_BINDINGS := [
 @onready var crosshair_node = get_node_or_null("/root/Main/HUD/Crosshair")
 @onready var block_outline_node = get_node_or_null("/root/Main/BlockOutline")
 @onready var godrays_node = get_node_or_null("/root/Main/HUD/GodRaysOverlay")
+# The screen-shader stack (data/shaders.json). It owns the shaders' live state;
+# this menu is the one that persists it, because this menu owns settings.cfg.
+@onready var shader_overlay = get_node_or_null("/root/Main/HUD/ShaderOverlay")
 
 var is_open = false
 var _current_page: String = "pause"
@@ -287,6 +290,15 @@ func _save_settings():
 	cfg.set_value("gui", "skin_dark_mode", _skin_dark_mode)
 	cfg.set_value("gui", "skin_noise", _skin_noise)
 	cfg.set_value("gui", "block_noise", _block_noise)
+	# A shader's state is its switch plus one value per uniform, keyed by the
+	# shader's id and the uniform's name (see data/shaders.json).
+	if shader_overlay:
+		for definition in shader_overlay.get_definitions():
+			var id := String(definition.get("id", ""))
+			cfg.set_value("shaders", id + "_enabled", shader_overlay.is_enabled(id))
+			for param in definition.get("params", []):
+				var key := String(param.get("key", ""))
+				cfg.set_value("shaders", id + "_" + key, shader_overlay.get_value(id, key))
 	for cb in CONTROL_BINDINGS:
 		cfg.set_value("controls", cb[0], _serialize_action_events(cb[0]))
 	cfg.save(SETTINGS_PATH)
@@ -332,6 +344,17 @@ func _load_settings():
 	_skin_dark_mode = cfg.get_value("gui", "skin_dark_mode", _skin_dark_mode)
 	_skin_noise = float(cfg.get_value("gui", "skin_noise", _skin_noise))
 	_block_noise = float(cfg.get_value("gui", "block_noise", _block_noise))
+	if shader_overlay:
+		for definition in shader_overlay.get_definitions():
+			var id := String(definition.get("id", ""))
+			shader_overlay.set_enabled(id, bool(cfg.get_value("shaders", id + "_enabled",
+				bool(definition.get("enabled", false)))))
+			for param in definition.get("params", []):
+				var key := String(param.get("key", ""))
+				var fallback: Variant = param.get("default", 0.0)
+				var saved: Variant = cfg.get_value("shaders", id + "_" + key, fallback)
+				shader_overlay.set_value(id, key,
+					bool(saved) if String(param.get("type", "float")) == "bool" else float(saved))
 	for cb in CONTROL_BINDINGS:
 		var saved: Array = cfg.get_value("controls", cb[0], [])
 		if not saved.is_empty():
@@ -353,6 +376,7 @@ func _rebuild_pages():
 	# One settings page for the general categories; controls is its own page.
 	_pages["settings"] = _build_settings_page()
 	_pages["controls"] = _build_controls_page()
+	_pages["shaders"] = _build_shaders_page()
 	_pages["tools"] = _build_tools_page()
 	_pages["skin_maker"] = _build_skin_maker_page()
 	_pages["block_maker"] = _build_block_maker_page()
@@ -387,9 +411,22 @@ func _build_pause_page() -> Control:
 	page.set_anchors_preset(Control.PRESET_FULL_RECT)
 	page.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
+	# Resume, then the pages: Settings and Shaders are how the game looks and
+	# behaves, Controls and Tools are how it is driven and what it is built with.
+	var entries: Array = [
+		["Resume", _close],
+		["Settings", func(): _show_page("settings")],
+		["Shaders", func(): _show_page("shaders")],
+		["Controls", func(): _show_page("controls")],
+		["Tools", func(): _show_page("tools")],
+	]
+
 	var column := VBoxContainer.new()
+	# The column is exactly as tall as the buttons it holds, so adding a page is
+	# one more entry above and nothing else.
 	var col_w := UNIT_BUTTON_W * u
-	var col_h := (UNIT_BUTTON_H * 4.0 + UNIT_GAP * 3.0) * u
+	var col_h := (UNIT_BUTTON_H * float(entries.size()) \
+		+ UNIT_GAP * float(entries.size() - 1)) * u
 	column.anchor_left = 0.5
 	column.anchor_right = 0.5
 	column.anchor_top = 0.5
@@ -401,18 +438,10 @@ func _build_pause_page() -> Control:
 	column.add_theme_constant_override("separation", int(UNIT_GAP * u))
 	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
-	var resume := _make_widget_button("Resume")
-	resume.pressed.connect(_close)
-	column.add_child(resume)
-	var settings := _make_widget_button("Settings")
-	settings.pressed.connect(func(): _show_page("settings"))
-	column.add_child(settings)
-	var controls := _make_widget_button("Controls")
-	controls.pressed.connect(func(): _show_page("controls"))
-	column.add_child(controls)
-	var tools := _make_widget_button("Tools")
-	tools.pressed.connect(func(): _show_page("tools"))
-	column.add_child(tools)
+	for entry in entries:
+		var btn := _make_widget_button(String(entry[0]))
+		btn.pressed.connect(entry[1])
+		column.add_child(btn)
 	page.add_child(column)
 	return page
 
@@ -442,6 +471,115 @@ func _build_tools_page() -> Control:
 		[["", [["", skin_btn, null], ["", block_btn, null]]]],
 		[["Back", func(): _show_page("pause")], ["Done", _close]], UNIT_BUTTON_W, 1,
 		Color(0, 0, 0, 0))
+
+# Shaders is its own page, entered from the pause menu: a screen shader is not a
+# property of the world. Its rows come from data/shaders.json, so a new shader is
+# a new entry there and nothing here: one on/off row per shader under the page's
+# category heading, then that shader's own uniforms under its own heading, with
+# one row per param - a slider, or a toggle for a bool.
+#
+# Every row's setter writes through to `shader_overlay` as it is dragged, so a
+# slider's effect is on screen while it is being dragged, and `syncs` collects
+# one callable per row that re-reads the shader's state: an imported code sets
+# the state out of band, and the rows have to be pulled back in step with it.
+func _build_shaders_page() -> Control:
+	var syncs: Array = []
+	var sections: Array = []
+	sections.append_array(_category("Screen Shaders", _build_shader_sections(syncs)))
+	for definition in _shader_definitions():
+		var rows: Array = _build_shader_param_rows(definition, syncs)
+		if not rows.is_empty():
+			sections.append([String(definition.get("name", definition.get("id", ""))), rows])
+
+	return _build_scrolling_page("Shaders", sections,
+		[["Back", func(): _show_page("pause")], ["Done", _close]], UNIT_OPTION_W,
+		2, Color(0, 0, 0, 0))
+
+func _shader_definitions() -> Array:
+	return shader_overlay.get_definitions() if shader_overlay else []
+
+# This page's category: one row per shader, its label the shader's own name and
+# its option the switch, so the whole stack can be flipped on and off without
+# scrolling through fourteen uniform rows to find the one that turns it off.
+func _build_shader_sections(syncs: Array) -> Array:
+	var u := _ui_scale()
+	# Status hint for import/export feedback, as the last row of the list.
+	var hint := _make_hint_label(u)
+
+	var rows: Array = []
+	for definition in _shader_definitions():
+		var id := String(definition.get("id", ""))
+		var start: bool = bool(definition.get("enabled", false))
+		var btn := Button.new()
+		_row_value(btn, "On" if shader_overlay.is_enabled(id) else "Off")
+		_style_button(btn, 180.0)
+		var show := func(on: bool) -> void:
+			shader_overlay.set_enabled(id, on)
+			_row_value(btn, "On" if on else "Off")
+		btn.pressed.connect(func():
+			show.call(not shader_overlay.is_enabled(id))
+			_schedule_save())
+		var reset := func():
+			show.call(start)
+			_schedule_save()
+		rows.append([String(definition.get("name", id)), btn, reset])
+		syncs.append(func(): _row_value(btn, "On" if shader_overlay.is_enabled(id) else "Off"))
+
+	var codec := {
+		"export": _export_shaders_code,
+		"import": _import_shaders_code,
+		"refresh": func():
+			for sync in syncs:
+				sync.call(),
+		"hint": hint,
+	}
+
+	return [
+		["", rows, codec],
+		["", [["", hint, null, "span"]]],
+	]
+
+# One shader's uniforms, in the order the registry lists them.
+func _build_shader_param_rows(definition: Dictionary, syncs: Array) -> Array:
+	var id := String(definition.get("id", ""))
+	var rows: Array = []
+	for param in definition.get("params", []):
+		var key := String(param.get("key", ""))
+		if key == "" or not shader_overlay:
+			continue
+		var label := String(param.get("label", key))
+		var fallback: Variant = param.get("default", 0.0)
+
+		if String(param.get("type", "float")) == "bool":
+			var btn := Button.new()
+			_row_value(btn, "On" if bool(shader_overlay.get_value(id, key)) else "Off")
+			_style_button(btn, 180.0)
+			var set_bool := func(value: bool) -> void:
+				shader_overlay.set_value(id, key, value)
+				_row_value(btn, "On" if value else "Off")
+			btn.pressed.connect(func():
+				set_bool.call(not bool(shader_overlay.get_value(id, key)))
+				_schedule_save())
+			rows.append([label, btn, func():
+				set_bool.call(bool(fallback))
+				_schedule_save()])
+			syncs.append(func(): set_bool.call(bool(shader_overlay.get_value(id, key))))
+			continue
+
+		var ctrl := _make_slider(float(shader_overlay.get_value(id, key)),
+			float(param.get("min", 0.0)), float(param.get("max", 1.0)),
+			float(param.get("step", 0.01)),
+			func(v: float):
+				shader_overlay.set_value(id, key, v)
+				_schedule_save(), String(param.get("suffix", "")))
+		var set_float := func(value: float) -> void:
+			ctrl.get_meta("slider").value = value
+			shader_overlay.set_value(id, key, value)
+		rows.append([label, ctrl, func():
+			set_float.call(float(fallback))
+			_schedule_save()])
+		syncs.append(func(): set_float.call(float(shader_overlay.get_value(id, key))))
+	return rows
 
 # Flatten an area's sections into one category heading followed by its rows. A
 # section whose third element is a Dictionary instead of "category" carries that
@@ -3510,6 +3648,70 @@ func _import_render_code(code: String) -> bool:
 	chunk_manager.set_textures_enabled((flags & (1 << 2)) != 0)
 	chunk_manager.set_compression_enabled((flags & (1 << 3)) != 0)
 	get_viewport().msaa_3d = clampi(data[3], 0, 3) as Viewport.MSAA
+	_schedule_save()
+	return true
+
+# Screen shaders: the whole stack's switches and uniforms in one code, so a CRT
+# dialled in on one machine can be handed to another. The layout is the
+# registry's own order - a byte per switch, a byte per bool, two bytes per float
+# against that param's range - and the import insists the code is exactly that
+# long, so a code from a registry with different shaders is refused instead of
+# landing half-applied.
+func _shader_code_size() -> int:
+	var size := 0
+	for definition in _shader_definitions():
+		size += 1
+		for param in definition.get("params", []):
+			size += 1 if String(param.get("type", "float")) == "bool" else 2
+	return size
+
+# The quantisation a param's two bytes can carry: its own step where that fits.
+func _shader_param_scale(param: Dictionary) -> float:
+	var step := float(param.get("step", 0.01))
+	var scale := (1.0 / step) if step > 0.0 else 100.0
+	var max_value := float(param.get("max", 1.0))
+	if max_value > 0.0 and max_value * scale > 65535.0:
+		scale = floor(65535.0 / max_value)
+	return maxf(scale, 1.0)
+
+func _export_shaders_code() -> String:
+	var data := PackedByteArray()
+	data.append(1)
+	for definition in _shader_definitions():
+		var id := String(definition.get("id", ""))
+		data.append(1 if shader_overlay.is_enabled(id) else 0)
+		for param in definition.get("params", []):
+			var key := String(param.get("key", ""))
+			if String(param.get("type", "float")) == "bool":
+				data.append(1 if bool(shader_overlay.get_value(id, key)) else 0)
+			else:
+				data.append_array(_pack_float16(float(shader_overlay.get_value(id, key)),
+					float(param.get("min", 0.0)), float(param.get("max", 1.0)),
+					_shader_param_scale(param)))
+	return _format_cs_code("FS", _base32_encode(data))
+
+func _import_shaders_code(code: String) -> bool:
+	if not shader_overlay:
+		return false
+	var size := _shader_code_size()
+	var data := _decode_section_code(code, "FS", size)
+	if data.is_empty() or data.size() != size + 1:
+		return false
+	var idx := 1
+	for definition in _shader_definitions():
+		var id := String(definition.get("id", ""))
+		shader_overlay.set_enabled(id, (data[idx] & 1) != 0)
+		idx += 1
+		for param in definition.get("params", []):
+			var key := String(param.get("key", ""))
+			if String(param.get("type", "float")) == "bool":
+				shader_overlay.set_value(id, key, (data[idx] & 1) != 0)
+				idx += 1
+			else:
+				shader_overlay.set_value(id, key, _unpack_float16(data, idx,
+					float(param.get("min", 0.0)), float(param.get("max", 1.0)),
+					_shader_param_scale(param)))
+				idx += 2
 	_schedule_save()
 	return true
 

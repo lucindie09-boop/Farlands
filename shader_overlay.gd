@@ -26,6 +26,15 @@ extends Control
 
 const DEFINITIONS_PATH := "res://data/shaders.json"
 
+# Where the world's engine lives, for the one thing a world effect needs from it
+# that a shader cannot do itself: the chunks are culled against boxes that say
+# where the world *was*, because a vertex shader runs after the engine has
+# decided what to draw. A bent world would therefore have its far field culled
+# away. The bend's four knobs go to the engine as well as to the material, and
+# the engine grows those boxes to where the shader will put the geometry - see
+# src/mesh/mesh_manager_bend.cpp.
+
+
 var _definitions: Array = []
 # id -> { kind, rect, materials, uniforms, enable_key }. A screen effect has a
 # rect of its own to hide; a world effect has neither, and its switch is a
@@ -33,6 +42,10 @@ var _definitions: Array = []
 var _layers: Dictionary = {}
 var _enabled: Dictionary = {}  # id -> bool
 var _values: Dictionary = {}   # id -> { key: value }
+# The world's engine, if there is one in this scene. Null in a scene without one
+# (a probe that builds its own world), which is why nothing here is required to
+# be present.
+var _world: Node = null
 
 
 func _ready() -> void:
@@ -47,6 +60,10 @@ func _ready() -> void:
 	# The patterns a shader measures are counted in frame pixels, so a resized
 	# window has to tell them how many there are now.
 	get_viewport().size_changed.connect(_push_frame_size)
+	# Deferred, because a sibling's `_ready` may not have run yet and the engine
+	# is a sibling. Pushed once here even though nothing has changed: the engine
+	# starts with the bend off and has to be told that the effect exists at all.
+	_push_world_bend.call_deferred()
 
 
 # --- The registry -------------------------------------------------------------
@@ -88,6 +105,7 @@ func set_enabled(id: String, enabled: bool) -> void:
 		# itself, and what the switch means there is the effect's own strength
 		# multiplied by nothing.
 		_push(layer, String(layer.get("enable_key", "")), 1.0 if enabled else 0.0)
+		_push_world_bend.call_deferred()
 
 
 # --- Param values -------------------------------------------------------------
@@ -102,6 +120,47 @@ func set_value(id: String, key: String, value: Variant) -> void:
 		return
 	_values[id][key] = value
 	_push(_layers.get(id, {}), key, value)
+	_push_world_bend.call_deferred()
+
+
+# The world effect's own state, handed to the engine as well as to the material,
+# because the engine culls the chunks against boxes that describe where the world
+# was: a shader cannot widen them and the engine cannot read a shader. Deferred
+# by the callers rather than pushed straight away, because this is reached once
+# per row while the menu is being built and taking it costs the engine a walk
+# over every resident chunk.
+func _push_world_bend() -> void:
+	if _world == null or not is_instance_valid(_world) or not _world.has_method("set_world_bend"):
+		_world = _find_world()
+		if _world == null:
+			return
+	for definition in _definitions:
+		if String(definition.get("kind", "screen")) != "world":
+			continue
+		var id := String(definition.get("id", ""))
+		var values: Dictionary = _values.get(id, {})
+		_world.set_world_bend(bool(_enabled.get(id, false)),
+			float(values.get("world_bend", 0.0)),
+			float(values.get("world_bend_radius", 256.0)),
+			float(values.get("world_bend_rise", 1.0)))
+
+
+# The engine is a node in the same scene, but not at a fixed depth: this is a
+# child of the HUD, so a sibling of the HUD is an uncle of this, and a path that
+# was right yesterday is a path that silently stops working today. So it is found
+# by asking: walk outwards from here and take the first node that can take the
+# bend at all. Cached once found (the outer test re-checks it every push, so a
+# freed engine is re-found rather than quietly dropped).
+func _find_world() -> Node:
+	var node: Node = self
+	while node != null:
+		if node.has_method("set_world_bend"):
+			return node
+		for child in node.get_children():
+			if child.has_method("set_world_bend"):
+				return child
+		node = node.get_parent()
+	return null
 
 
 # Only push what the target actually declares, so a mistyped key in the registry

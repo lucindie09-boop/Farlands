@@ -38,11 +38,16 @@ void MeshManager::show_chunk_instance(ChunkRenderData* render_data, int32_t cx, 
         rs->instance_geometry_set_cast_shadows_setting(
             render_data->instance_rid,
             RenderingServer::SHADOW_CASTING_SETTING_OFF);
-        rs->instance_set_custom_aabb(
-            render_data->instance_rid,
-            AABB(Vector3(0, 0, 0), Vector3(CHUNK_WIDTH, CHUNK_HEIGHT, CHUNK_DEPTH)));
+        const Vector3 origin(cx * CHUNK_WIDTH, cy * CHUNK_HEIGHT, cz * CHUNK_DEPTH);
+        // The chunk's own box, grown by World Bend if it is on: a new instance
+        // has to be right the moment it appears, or a chunk uploaded while the
+        // player stands still would be culled against where it no longer is
+        // until they happen to move a block.
+        bend_cull_apply(render_data->instance_rid, render_data->bend_cull_margin,
+                        AABB(Vector3(0, 0, 0), Vector3(CHUNK_WIDTH, CHUNK_HEIGHT, CHUNK_DEPTH)),
+                        origin);
         Transform3D transform;
-        transform.origin = Vector3(cx * CHUNK_WIDTH, cy * CHUNK_HEIGHT, cz * CHUNK_DEPTH);
+        transform.origin = origin;
         rs->instance_set_transform(render_data->instance_rid, transform);
         if (owner) {
             Node3D* owner3d = Object::cast_to<Node3D>(owner);

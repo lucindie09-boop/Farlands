@@ -49,6 +49,19 @@ public:
     void update_frustum(const std::array<godot::Plane, 6>& planes);
     void update_chunks(bool is_editor);
 
+    // World Bend moves the world's vertices in a shader, which is after the
+    // engine has culled it: the four knobs are handed here so the boxes the
+    // chunks are culled against can be grown to where the shader will put them.
+    // `update_world_bend_cull` is the per-frame half, and does nothing unless
+    // the bend is on or the camera has moved (see mesh_manager_bend.cpp).
+    void set_world_bend(bool enabled, double amount, double radius, double rise);
+    void update_world_bend_cull(const godot::Vector3& camera_position);
+
+    // Whether anything is still waiting to be generated or meshed. A probe that
+    // wants to measure what the renderer draws has to wait for the world to stop
+    // arriving, and a frame count is a guess at that.
+    [[nodiscard]] bool has_pending_mesh_work() const { return mesh_manager.has_pending_mesh_work(); }
+
     void set_block_world(int32_t world_x, int32_t world_y, int32_t world_z, int block_id);
     int  get_block_world(int32_t world_x, int32_t world_y, int32_t world_z);
 

@@ -3,6 +3,7 @@
 #include "core/chunk_map.hpp"
 #include "mesh/chunk_render_data.hpp"
 #include "core/frustum.hpp"
+#include "core/world_bend.hpp"
 #include "world/chunk_scheduler.hpp"
 #include "mesh/mesh_queue.hpp"
 #include "mesh/mesh_builder.hpp"
@@ -40,6 +41,17 @@ public:
     }
 
     void set_mesh_render_distance(int32_t rd) { mesh_render_distance = rd; }
+
+    // World Bend is a vertex shader, so the engine decides what to draw from
+    // boxes that describe where the world was before the shader moved it: a
+    // chunk the bend pulls into view is culled anyway, and the far field has a
+    // hole in it. These two are the compensation. The four knobs are the ones
+    // the world materials carry (shader_overlay.gd pushes them here as well as
+    // to the shader); the per-frame call grows each resident chunk's and far
+    // region's cull box by how far the bend could move it, and does nothing at
+    // all when the bend is off.
+    void set_world_bend(bool enabled, float amount, float radius, float rise);
+    void update_world_bend_cull(const godot::Vector3& camera_position);
 
     void process_completed_meshes(uint64_t epoch, double budget_ms, int32_t max_uploads,
                                    const godot::Ref<godot::ShaderMaterial>& material,
@@ -111,6 +123,10 @@ private:
     struct FarRegionRenderData {
         godot::RID mesh_rid;
         godot::RID instance_rid;
+        // As on ChunkRenderData: how far the bend's compensation has grown this
+        // region's cull box, so an unchanged margin costs no RenderingServer
+        // call. -1 = never touched.
+        float bend_cull_margin = -1.0f;
         bool dirty = false;
         bool active = false;
         std::atomic<int> pending_builds{0};
@@ -125,6 +141,15 @@ private:
     void process_completed_region_meshes(uint64_t epoch, int32_t max_uploads,
                                          const godot::Ref<godot::ShaderMaterial>& material,
                                          const godot::Ref<godot::ShaderMaterial>& water_material);
+
+    // World Bend's culling (mesh_manager_bend.cpp). `bend_cull_for` is the box
+    // an instance should be culled against; `bend_cull_apply` pushes one and
+    // remembers it. The slack the refresh leaves is what makes a refresh per
+    // camera block rather than per frame safe.
+    godot::AABB bend_cull_for(const godot::AABB& local_aabb, const godot::Vector3& origin) const;
+    void bend_cull_apply(godot::RID instance, float& remembered, const godot::AABB& local_aabb,
+                         const godot::Vector3& origin);
+    void refresh_world_bend_region(FarRegionRenderData& region, uint64_t region_key);
     void process_far_region_queue(int32_t max_rebuilds);
     void mark_far_region_dirty_for_chunk(int32_t cx, int32_t cy, int32_t cz);
     void refresh_far_region_visibility();
@@ -142,6 +167,13 @@ private:
     PerformanceTimer* perf_timer = nullptr;
     std::atomic<uint64_t>* async_epoch = nullptr;
     godot::Node* owner = nullptr;
+    // World Bend's culling state (mesh_manager_bend.cpp): the knobs, the camera
+    // they were last worked out at, and whether a refresh is owed regardless
+    // (the knobs changed, or the bend was just switched off).
+    WorldBendParams world_bend;
+    godot::Vector3 bend_cull_camera;
+    bool bend_cull_owed = true;
+    bool bend_cull_on = false;
     MeshQueue mesh_queue;
     int32_t last_player_chunk_x = INT32_MIN;
     int32_t last_player_chunk_y = INT32_MIN;

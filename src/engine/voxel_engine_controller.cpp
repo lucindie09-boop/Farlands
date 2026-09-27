@@ -209,6 +209,15 @@ void VoxelEngineController::update_frustum(const std::array<godot::Plane, 6>& pl
     world_updater.set_frustum(f);
 }
 
+void VoxelEngineController::set_world_bend(bool enabled, double amount, double radius, double rise) {
+    mesh_manager.set_world_bend(enabled, static_cast<float>(amount),
+                                static_cast<float>(radius), static_cast<float>(rise));
+}
+
+void VoxelEngineController::update_world_bend_cull(const godot::Vector3& camera_position) {
+    mesh_manager.update_world_bend_cull(camera_position);
+}
+
 void VoxelEngineController::update_chunks(bool is_editor) {
     world_updater.update(is_editor, chunk_world.get_epoch(), chunks_processed_total, last_delta);
 }

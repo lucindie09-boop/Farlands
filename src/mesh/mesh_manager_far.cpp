@@ -85,13 +85,16 @@ void MeshManager::ensure_far_region_instance(FarRegionRenderData& region, uint64
         AABB region_aabb(
             Vector3(0, 0, 0),
             Vector3(region.region_size_xz * CHUNK_WIDTH, CHUNK_HEIGHT, region.region_size_xz * CHUNK_DEPTH));
-        rs->instance_set_custom_aabb(region.instance_rid, region_aabb);
-
-        Transform3D transform;
-        transform.origin = Vector3(
+        const Vector3 region_origin(
             rx * region.region_size_xz * CHUNK_WIDTH,
             ry * CHUNK_HEIGHT,
             rz * region.region_size_xz * CHUNK_DEPTH);
+        // A far region is one instance covering a block of chunks, so it has the
+        // same culling problem over a much wider box - and the same fix.
+        bend_cull_apply(region.instance_rid, region.bend_cull_margin, region_aabb, region_origin);
+
+        Transform3D transform;
+        transform.origin = region_origin;
         rs->instance_set_transform(region.instance_rid, transform);
 
         if (owner) {

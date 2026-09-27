@@ -167,6 +167,11 @@ void ChunkManager::_process(double delta) {
         }
     }
 
+    // The bend is measured from the camera, so the boxes the chunks are culled
+    // against depend on where it is. This is a no-op unless the bend is on or
+    // the camera has moved a whole block since the last refresh.
+    controller->update_world_bend_cull(player_pos);
+
     controller->update(delta, is_editor, player_pos);
     update_environment();
 }
@@ -703,6 +708,12 @@ VoxelEngine::CollisionResolver* ChunkManager::get_collision_resolver() {
 void ChunkManager::set_smooth_lighting(bool enabled) { controller->set_smooth_lighting(enabled); }
 bool ChunkManager::get_smooth_lighting() const { return controller->get_smooth_lighting(); }
 
+void ChunkManager::set_world_bend(bool enabled, double amount, double radius, double rise) {
+    controller->set_world_bend(enabled, amount, radius, rise);
+}
+
+bool ChunkManager::has_pending_mesh_work() const { return controller->has_pending_mesh_work(); }
+
 void ChunkManager::set_lod_distance(int32_t distance) { controller->set_lod_distance(distance); }
 int32_t ChunkManager::get_lod_distance() const { return controller->get_lod_distance(); }
 void ChunkManager::set_lod_detail_level(float level) { controller->set_lod_detail_level(level); }
@@ -1087,6 +1098,9 @@ ClassDB::bind_method(D_METHOD("get_sun_direction"), &ChunkManager::get_sun_direc
     BIND_PROP(Variant::BOOL,    editor_enabled,            "enabled");
     BIND_PROP(Variant::INT,     editor_render_distance,    "distance");
 BIND_PROP(Variant::BOOL, smooth_lighting, "enabled");
+    ClassDB::bind_method(D_METHOD("set_world_bend", "enabled", "amount", "radius", "rise"),
+                         &ChunkManager::set_world_bend);
+    ClassDB::bind_method(D_METHOD("has_pending_mesh_work"), &ChunkManager::has_pending_mesh_work);
     ClassDB::bind_method(D_METHOD("set_lod_distance", "distance"), &ChunkManager::set_lod_distance);
     ClassDB::bind_method(D_METHOD("get_lod_distance"), &ChunkManager::get_lod_distance);
     ADD_PROPERTY(PropertyInfo(Variant::INT, "lod_distance", PROPERTY_HINT_RANGE, "0,64,1"), "set_lod_distance", "get_lod_distance");

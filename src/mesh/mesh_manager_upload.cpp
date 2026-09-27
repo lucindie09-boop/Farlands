@@ -259,10 +259,17 @@ void MeshManager::process_completed_meshes(uint64_t epoch, double budget_ms, int
             rs->instance_geometry_set_cast_shadows_setting(
                 render_data->instance_rid,
                 RenderingServer::SHADOW_CASTING_SETTING_OFF);
-            AABB chunk_aabb(Vector3(0, 0, 0), Vector3(CHUNK_WIDTH, CHUNK_HEIGHT, CHUNK_DEPTH));
-            rs->instance_set_custom_aabb(render_data->instance_rid, chunk_aabb);
+            const Vector3 chunk_origin(completed.chunk_x * CHUNK_WIDTH,
+                                       completed.chunk_y * CHUNK_HEIGHT,
+                                       completed.chunk_z * CHUNK_DEPTH);
+            // World Bend grows the box (see mesh_manager_bend.cpp): a chunk that
+            // arrives while the bend is on has to be culled against where the
+            // shader will put it, not against where the mesher put it.
+            bend_cull_apply(render_data->instance_rid, render_data->bend_cull_margin,
+                            AABB(Vector3(0, 0, 0), Vector3(CHUNK_WIDTH, CHUNK_HEIGHT, CHUNK_DEPTH)),
+                            chunk_origin);
             Transform3D transform;
-            transform.origin = Vector3(completed.chunk_x * CHUNK_WIDTH, completed.chunk_y * CHUNK_HEIGHT, completed.chunk_z * CHUNK_DEPTH);
+            transform.origin = chunk_origin;
             rs->instance_set_transform(render_data->instance_rid, transform);
             if (owner) {
                 Node3D* owner3d = Object::cast_to<Node3D>(owner);

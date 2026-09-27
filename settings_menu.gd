@@ -6,6 +6,7 @@ const BUTTON_SQUARE_TEX: Texture2D = preload("res://textures/gui/button_square.p
 const UNDO_TEX: Texture2D = preload("res://textures/gui/undo_button.png")
 const EXPORT_TEX: Texture2D = preload("res://textures/gui/export_button.png")
 const IMPORT_TEX: Texture2D = preload("res://textures/gui/import_button.png")
+const SETTINGS_TEX: Texture2D = preload("res://textures/gui/settings_button.png")
 const SLIDER_TRACK_TEX: Texture2D = preload("res://textures/gui/slider_button.png")
 const SLIDER_THUMB_TEX: Texture2D = preload("res://textures/gui/slider.png")
 const SETTINGS_PATH := "user://settings.cfg"
@@ -376,7 +377,17 @@ func _rebuild_pages():
 	# One settings page for the general categories; controls is its own page.
 	_pages["settings"] = _build_settings_page()
 	_pages["controls"] = _build_controls_page()
-	_pages["shaders"] = _build_shaders_page()
+	# The Shaders page is a list of shaders; each of them gets a page of its own
+	# for its uniforms, so one shader with a dozen knobs cannot bury the next one.
+	# They share one `syncs` list with the list page because the codec on that
+	# page's heading covers the whole stack: importing a code has to pull every
+	# row on every one of them back in step, not only the rows on the page the
+	# code was pasted into.
+	var shader_syncs: Array = []
+	_pages["shaders"] = _build_shaders_page(shader_syncs)
+	for definition in _shader_definitions():
+		_pages["shader_" + String(definition.get("id", ""))] = _build_shader_page(
+			definition, shader_syncs)
 	_pages["tools"] = _build_tools_page()
 	_pages["skin_maker"] = _build_skin_maker_page()
 	_pages["block_maker"] = _build_block_maker_page()
@@ -474,33 +485,64 @@ func _build_tools_page() -> Control:
 
 # Shaders is its own page, entered from the pause menu: a screen shader is not a
 # property of the world. Its rows come from data/shaders.json, so a new shader is
-# a new entry there and nothing here: one on/off row per shader under the page's
-# category heading, then that shader's own uniforms under its own heading, with
-# one row per param - a slider, or a toggle for a bool.
+# a new entry there and nothing here: one row per shader under the page's
+# category heading, and that row is the switch plus the button that opens the
+# page the shader's own uniforms live on. The uniforms are not on this page
+# because one shader with a dozen knobs per entry buries the next shader below
+# the fold; the switch stays here because flipping the whole stack is a different
+# job from tuning one member of it.
 #
 # Every row's setter writes through to `shader_overlay` as it is dragged, so a
 # slider's effect is on screen while it is being dragged, and `syncs` collects
 # one callable per row that re-reads the shader's state: an imported code sets
-# the state out of band, and the rows have to be pulled back in step with it.
-func _build_shaders_page() -> Control:
-	var syncs: Array = []
+# the state out of band, and the rows have to be pulled back in step with it. One
+# list is shared with the per-shader pages, which is exactly why it is a list.
+func _build_shaders_page(syncs: Array) -> Control:
 	var sections: Array = []
 	sections.append_array(_category("Screen Shaders", _build_shader_sections(syncs)))
-	for definition in _shader_definitions():
-		var rows: Array = _build_shader_param_rows(definition, syncs)
-		if not rows.is_empty():
-			sections.append([String(definition.get("name", definition.get("id", ""))), rows])
 
 	return _build_scrolling_page("Shaders", sections,
 		[["Back", func(): _show_page("pause")], ["Done", _close]], UNIT_OPTION_W,
 		2, Color(0, 0, 0, 0))
 
+# One shader's own page: one row per uniform in registry order, and nothing
+# else. In particular no switch of its own - that would be the same switch twice,
+# one page apart. Turning the shader on is the list's job, where the row says
+# whether it is on; this page is the fine adjustment under it.
+func _build_shader_page(definition: Dictionary, syncs: Array) -> Control:
+	var rows: Array = _build_shader_param_rows(definition, syncs)
+
+	return _build_scrolling_page(String(definition.get("name", definition.get("id", ""))),
+		[["", rows]], [["Back", func(): _show_page("shaders")], ["Done", _close]],
+		UNIT_OPTION_W, 2, Color(0, 0, 0, 0))
+
 func _shader_definitions() -> Array:
 	return shader_overlay.get_definitions() if shader_overlay else []
 
+# One shader's switch, as the option of a row: the row gives it its label, so it
+# reads "CRT Screen: Off". Returns it with the callable that puts it back to the
+# state the registry starts it in, which is what that row's undo icon runs.
+func _shader_switch(definition: Dictionary, syncs: Array, width: float) -> Array:
+	var id := String(definition.get("id", ""))
+	var start: bool = bool(definition.get("enabled", false))
+	var btn := Button.new()
+	_row_value(btn, "On" if shader_overlay.is_enabled(id) else "Off")
+	_style_button(btn, width)
+	var show := func(on: bool) -> void:
+		shader_overlay.set_enabled(id, on)
+		_row_value(btn, "On" if on else "Off")
+	btn.pressed.connect(func():
+		show.call(not shader_overlay.is_enabled(id))
+		_schedule_save())
+	syncs.append(func(): _row_value(btn, "On" if shader_overlay.is_enabled(id) else "Off"))
+	return [btn, func():
+		show.call(start)
+		_schedule_save()]
+
 # This page's category: one row per shader, its label the shader's own name and
-# its option the switch, so the whole stack can be flipped on and off without
-# scrolling through fourteen uniform rows to find the one that turns it off.
+# its option the switch with the button that opens that shader's own page beside
+# it, so the whole stack can be flipped on and off without scrolling through
+# fourteen uniform rows to find the one that turns it off.
 func _build_shader_sections(syncs: Array) -> Array:
 	var u := _ui_scale()
 	# Status hint for import/export feedback, as the last row of the list.
@@ -509,21 +551,20 @@ func _build_shader_sections(syncs: Array) -> Array:
 	var rows: Array = []
 	for definition in _shader_definitions():
 		var id := String(definition.get("id", ""))
-		var start: bool = bool(definition.get("enabled", false))
-		var btn := Button.new()
-		_row_value(btn, "On" if shader_overlay.is_enabled(id) else "Off")
-		_style_button(btn, 180.0)
-		var show := func(on: bool) -> void:
-			shader_overlay.set_enabled(id, on)
-			_row_value(btn, "On" if on else "Off")
-		btn.pressed.connect(func():
-			show.call(not shader_overlay.is_enabled(id))
-			_schedule_save())
-		var reset := func():
-			show.call(start)
-			_schedule_save()
-		rows.append([String(definition.get("name", id)), btn, reset])
-		syncs.append(func(): _row_value(btn, "On" if shader_overlay.is_enabled(id) else "Off"))
+		var name := String(definition.get("name", id))
+		# The switch and the settings icon share the option column, so the switch
+		# gives the icon its square and the gap beside it up.
+		var option := _shader_switch(definition, syncs,
+			UNIT_OPTION_W - UNIT_ROW_GAP - UNIT_UNDO_W)
+		var settings_btn := _make_icon_button(SETTINGS_TEX)
+		settings_btn.tooltip_text = "%s settings" % name
+		settings_btn.pressed.connect(func(): _show_page("shader_" + id))
+		var pair := HBoxContainer.new()
+		pair.add_theme_constant_override("separation", int(UNIT_ROW_GAP * u))
+		pair.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		pair.add_child(option[0])
+		pair.add_child(settings_btn)
+		rows.append([name, pair, option[1], "pair"])
 
 	var codec := {
 		"export": _export_shaders_code,
@@ -3108,7 +3149,18 @@ func _make_row_cell(row: Array, cell_w: float, reset_w: float, row_gap: float, o
 
 	var control: Control = row[1]
 	control.custom_minimum_size = Vector2(option_w * u, UNIT_BUTTON_H * u)
-	_apply_row_label(control, String(row[0]))
+	# A "pair" row puts two widgets in one option column (the Shaders page gives a
+	# shader its switch and the button that opens its own page): the label belongs
+	# to the first of them, so the row still reads "CRT Screen: On" instead of the
+	# box being handed a label it has no text to show. The pair's own widgets are
+	# sized to divide the column between them.
+	if row.size() > 3 and String(row[3]) == "pair":
+		for child in control.get_children():
+			if child is Control:
+				_apply_row_label(child, String(row[0]))
+				break
+	else:
+		_apply_row_label(control, String(row[0]))
 	cell.add_child(control)
 
 	var reset: Variant = row[2] if row.size() > 2 else null

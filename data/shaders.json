@@ -1,5 +1,5 @@
 {
-  "_comment": "Screen shaders: the full-screen post-process passes offered by the pause menu's Shaders page. shader_overlay.gd builds one layer per entry in this order - a later entry draws over an earlier one - and settings_menu.gd turns each param into a row under the shader's own heading. 'id' keys this shader's saved state in user://settings.cfg (section [shaders], keys '<id>_enabled' and '<id>_<param key>'), and 'enabled' is what a fresh install starts with. Param types: 'float' reads min/max/step (a slider row, with an optional 'suffix' shown after the value) and 'bool' is a toggle row. The uniform each param drives is the param's own 'key', so a shader's uniforms, this list and the saved keys all carry the same names.",
+  "_comment": "Screen shaders: the full-screen post-process passes offered by the pause menu's Shaders page. shader_overlay.gd builds one layer per entry in this order - a later entry draws over an earlier one - and settings_menu.gd turns each param into a row under the shader's own heading. 'id' keys this shader's saved state in user://settings.cfg (section [shaders], keys '<id>_enabled' and '<id>_<param key>'), and 'enabled' is what a fresh install starts with. Param types: 'float' reads min/max/step (a slider row, with an optional 'suffix' shown after the value) and 'bool' is a toggle row. The uniform each param drives is the param's own 'key', so a shader's uniforms, this list and the saved keys all carry the same names. Lengths a pass measures in its own picture pixels say so in their label: the CRT's mask pitch is picture pixels per phosphor triad, not frame pixels.",
   "shaders": [
     {
       "id": "crt",
@@ -7,19 +7,20 @@
       "shader": "res://shaders/crt.gdshader",
       "enabled": false,
       "params": [
-        { "key": "curvature", "label": "Tube Curvature", "type": "float", "default": 0.15, "min": 0.0, "max": 0.6, "step": 0.005 },
+        { "key": "curvature", "label": "Tube Curvature", "type": "float", "default": 0.22, "min": 0.0, "max": 0.6, "step": 0.005 },
         { "key": "corner_band", "label": "Corner Rounding", "type": "float", "default": 0.5, "min": 0.05, "max": 0.9, "step": 0.01 },
-        { "key": "scanline_count", "label": "Scanlines", "type": "float", "default": 360.0, "min": 80.0, "max": 1200.0, "step": 10.0, "suffix": " lines" },
-        { "key": "scanline_depth", "label": "Scanline Depth", "type": "float", "default": 0.3, "min": 0.0, "max": 1.0, "step": 0.01 },
-        { "key": "mask_strength", "label": "Mask Strength", "type": "float", "default": 0.22, "min": 0.0, "max": 1.0, "step": 0.01 },
-        { "key": "mask_pitch", "label": "Mask Pitch", "type": "float", "default": 1.5, "min": 0.5, "max": 6.0, "step": 0.05, "suffix": " px" },
+        { "key": "scanline_count", "label": "Picture Lines", "type": "float", "default": 180.0, "min": 80.0, "max": 900.0, "step": 10.0, "suffix": " lines" },
+        { "key": "scanline_depth", "label": "Scanline Depth", "type": "float", "default": 0.55, "min": 0.0, "max": 1.0, "step": 0.01 },
+        { "key": "beam_softness", "label": "Beam Softness", "type": "float", "default": 0.5, "min": 0.15, "max": 1.5, "step": 0.01 },
+        { "key": "mask_strength", "label": "Mask Strength", "type": "float", "default": 0.15, "min": 0.0, "max": 1.0, "step": 0.01 },
+        { "key": "mask_pitch", "label": "Mask Pitch", "type": "float", "default": 1.0, "min": 0.25, "max": 3.0, "step": 0.05, "suffix": " px" },
         { "key": "convergence", "label": "Convergence", "type": "float", "default": 0.0025, "min": 0.0, "max": 0.01, "step": 0.0005 },
-        { "key": "glow", "label": "Phosphor Glow", "type": "float", "default": 0.3, "min": 0.0, "max": 1.5, "step": 0.01 },
-        { "key": "glow_radius", "label": "Glow Radius", "type": "float", "default": 3.0, "min": 1.0, "max": 12.0, "step": 0.1, "suffix": " px" },
-        { "key": "vignette", "label": "Vignette", "type": "float", "default": 0.35, "min": 0.0, "max": 1.5, "step": 0.01 },
-        { "key": "brightness", "label": "Brightness", "type": "float", "default": 1.0, "min": 0.5, "max": 1.5, "step": 0.01 },
+        { "key": "glow", "label": "Phosphor Glow", "type": "float", "default": 0.7, "min": 0.0, "max": 1.5, "step": 0.01 },
+        { "key": "glow_radius", "label": "Glow Radius", "type": "float", "default": 1.0, "min": 0.3, "max": 3.0, "step": 0.05, "suffix": " cells" },
+        { "key": "vignette", "label": "Vignette", "type": "float", "default": 0.3, "min": 0.0, "max": 1.5, "step": 0.01 },
+        { "key": "brightness", "label": "Brightness", "type": "float", "default": 1.05, "min": 0.5, "max": 1.5, "step": 0.01 },
         { "key": "contrast", "label": "Contrast", "type": "float", "default": 1.0, "min": 0.5, "max": 1.5, "step": 0.01 },
-        { "key": "saturation", "label": "Saturation", "type": "float", "default": 1.0, "min": 0.0, "max": 2.0, "step": 0.01 },
+        { "key": "saturation", "label": "Saturation", "type": "float", "default": 1.1, "min": 0.0, "max": 2.0, "step": 0.01 },
         { "key": "hum", "label": "Mains Hum", "type": "float", "default": 0.04, "min": 0.0, "max": 0.15, "step": 0.005 }
       ]
     }

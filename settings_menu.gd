@@ -509,7 +509,10 @@ func _build_tools_page() -> Control:
 # list is shared with the per-shader pages, which is exactly why it is a list.
 func _build_shaders_page(syncs: Array) -> Control:
 	var sections: Array = []
-	sections.append_array(_category("Screen Shaders", _build_shader_sections(syncs)))
+	# Not "screen shaders" any more: the registry holds both the passes drawn over
+	# the frame and the one that bends the world's own geometry, and the list is
+	# the same list for either.
+	sections.append_array(_category("Shader Effects", _build_shader_sections(syncs)))
 
 	return _build_scrolling_page("Shaders", sections,
 		[["Back", func(): _show_page("pause")], ["Done", _close]], UNIT_OPTION_W,

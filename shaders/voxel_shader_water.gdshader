@@ -1,5 +1,14 @@
 shader_type spatial;
 render_mode blend_mix, unshaded, cull_back, depth_draw_always;
+
+// World Bend (the Shaders menu's other entry): the world's own vertices moved,
+// shared with the terrain material so the surface of a lake stays welded to the
+// shore it is set into. See the include.
+#include "res://shaders/world_bend.gdshaderinc"
+
+// The water's own part of it: the ripple the surface carries. The terrain does
+// not declare this and does not want it.
+uniform float world_bend_sway = 0.0;
 // depth_draw_always: liquid geometry writes depth even in the transparent
 // pass. Without it the default (opaque-only depth) leaves water with NO depth
 // in the z-buffer, so a side face behind a top face draws anyway — lava/acid
@@ -82,14 +91,24 @@ vec3 decode_normal(float encoded) {
 }
 
 void vertex(){
-    world_position=(MODEL_MATRIX*vec4(VERTEX,1.0)).xyz;
-    world_normal=normalize((MODEL_MATRIX*vec4(decode_normal(CUSTOM1.b),0.0)).xyz);
-
     vec3 camera_position=INV_VIEW_MATRIX[3].xyz;
+
+    // As on the terrain, and by the same function at the same place, so a
+    // shoreline cannot open up as the world bends: the two materials share the
+    // vertices along it, and a bend that is a function of world position moves
+    // shared vertices the same way whichever material is drawing them. The one
+    // difference is `world_bend_sway`, which is the ripple the water surface
+    // carries and the ground does not.
+    vec3 unbent=(MODEL_MATRIX*vec4(VERTEX,1.0)).xyz;
+    vec3 bent=world_bend_position(unbent, camera_position, world_bend_sway);
+    VERTEX=(inverse(MODEL_MATRIX)*vec4(bent,1.0)).xyz;
+
+    world_position=bent;
+    world_normal=normalize((MODEL_MATRIX*vec4(decode_normal(CUSTOM1.b),0.0)).xyz);
 
     view_direction=normalize(world_position-camera_position);
 
-    fog_distance=distance(world_position,camera_position);
+    fog_distance=distance(unbent,camera_position);
     custom0_attr = CUSTOM0;
     custom1_attr = CUSTOM1;
     custom2_attr = CUSTOM2;

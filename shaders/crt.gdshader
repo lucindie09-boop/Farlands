@@ -1,7 +1,7 @@
 shader_type canvas_item;
 render_mode unshaded;
 
-// Farlands' screen shaders, pass one: a CRT picture.
+// Farlands' screen shaders: a CRT picture.
 //
 // This is a canvas_item pass on a full-screen rect, so it reads the frame that
 // has already been drawn (world first, then whatever the overlay sits above in

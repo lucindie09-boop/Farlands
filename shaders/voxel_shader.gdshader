@@ -1,6 +1,10 @@
 shader_type spatial;
 render_mode unshaded, cull_back, depth_draw_always;
 
+// World Bend (the Shaders menu's other entry): the world's own vertices moved,
+// shared with the water material so both bend identically. See the include.
+#include "res://shaders/world_bend.gdshaderinc"
+
 uniform sampler2DArray texture_array : filter_nearest_mipmap;
 uniform sampler2DArray emissive_array : filter_nearest_mipmap;
 
@@ -71,14 +75,27 @@ vec3 decode_normal(float encoded) {
 
 void vertex(){
 
-    world_position=(MODEL_MATRIX*vec4(VERTEX,1.0)).xyz;
-    world_normal=normalize((MODEL_MATRIX*vec4(decode_normal(CUSTOM1.b),0.0)).xyz);
-
     vec3 camera_position=INV_VIEW_MATRIX[3].xyz;
+
+    // The bend moves the vertex where it is, in world space, and puts it back
+    // into the mesh's own space so the engine's transform, clipping, culling and
+    // depth all see the bent world as simply the world. Everything the fragment
+    // stage is told about the vertex follows the bent position - how far a block
+    // is from the player's light, which way this face points - while the fog is
+    // told the distance to where the block *is*, so bending the far field up
+    // over the horizon does not bring the edge of the loaded world into view.
+    // The terrain carries no ripple: that is the water's, and it is passed by
+    // the water material below.
+    vec3 unbent=(MODEL_MATRIX*vec4(VERTEX,1.0)).xyz;
+    vec3 bent=world_bend_position(unbent, camera_position, 0.0);
+    VERTEX=(inverse(MODEL_MATRIX)*vec4(bent,1.0)).xyz;
+
+    world_position=bent;
+    world_normal=normalize((MODEL_MATRIX*vec4(decode_normal(CUSTOM1.b),0.0)).xyz);
 
     view_direction=normalize(world_position-camera_position);
 
-    fog_distance=distance(world_position,camera_position);
+    fog_distance=distance(unbent,camera_position);
     custom0_attr = CUSTOM0;
     custom1_attr = CUSTOM1;
     custom2_attr = CUSTOM2;

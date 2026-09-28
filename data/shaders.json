@@ -75,6 +75,18 @@
         { "key": "saturation", "label": "Saturation", "type": "float", "default": 1.1, "min": 0.0, "max": 2.0, "step": 0.01 },
         { "key": "hum", "label": "Mains Hum", "type": "float", "default": 0.04, "min": 0.0, "max": 0.15, "step": 0.005 }
       ]
+    },
+    {
+      "id": "phosphor",
+      "name": "Phosphor Trail",
+      "shader": "res://shaders/phosphor.gdshader",
+      "enabled": false,
+      "params": [
+        { "key": "phosphor_retention", "label": "Retention", "type": "float", "default": 0.8, "min": 0.0, "max": 0.95, "step": 0.01 },
+        { "key": "phosphor_floor", "label": "Burn Threshold", "type": "float", "default": 0.12, "min": 0.0, "max": 1.0, "step": 0.01 },
+        { "key": "phosphor_spread", "label": "Glow Spread", "type": "float", "default": 0.4, "min": 0.0, "max": 1.0, "step": 0.01 },
+        { "key": "phosphor_bright_hold", "label": "Bright Holds Longer", "type": "bool", "default": true }
+      ]
     }
   ]
 }

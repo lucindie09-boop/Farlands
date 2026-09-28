@@ -25,6 +25,13 @@ extends Control
 #     a uniform as well (`enable_key`), and the shaders multiply the effect by
 #     nothing when it is off.
 #
+# A pass may also ask for the frame *before* the one it is drawing into: a shader
+# that declares the `previous_frame` uniform is handed the frame as it stood where
+# the pass sits, one frame ago, out of a pair of viewports this node keeps for it.
+# That is the one thing a reading pass cannot get for itself - the engine's screen
+# copy is of the frame being drawn - and it is what an after-image, a trail or any
+# accumulate-and-fade effect is made of. See _build_history and _advance_histories.
+#
 # The registry also lists the kinds themselves (`kinds`), in the order the
 # Shaders page shows them and with the name each category is given there, which
 # is what `get_kinds` hands the menu: the page is grouped by the kind of effect,
@@ -84,6 +91,11 @@ const WORLD_PASS_Z_INDEX := -1
 # pass's index above is the only other one there is.
 const SCREEN_PASS_Z_INDEX := 0
 
+# The uniform a pass declares to be handed the frame before the one it draws into.
+# Declaring it is the whole contract: the name is what this node looks for, and a
+# shader that declares it is given a viewport holding that frame.
+const PREVIOUS_FRAME_UNIFORM := "previous_frame"
+
 
 var _definitions: Array = []
 # The registry's own list of kinds, in the menu's order: the Shaders page groups
@@ -99,6 +111,9 @@ var _values: Dictionary = {}   # id -> { key: value }
 # (a probe that builds its own world), which is why nothing here is required to
 # be present.
 var _world: Node = null
+# A single black pixel, made once and handed to any pass that has no frame behind it
+# yet. See _blank_frame.
+var _blank: Texture2D = null
 
 
 func _ready() -> void:
@@ -106,6 +121,11 @@ func _ready() -> void:
 	# them, exactly like the god-rays overlay.
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	set_anchors_preset(Control.PRESET_FULL_RECT)
+	# The anchors alone are not enough: this node's parent is a CanvasLayer, not a
+	# Control, and a full-rect preset on it has been seen to leave the node at zero
+	# size - which is a whole stack of zero-sized rects, drawing nothing, with no
+	# error to say so. So the frame is set here as well, and kept in step below.
+	size = get_viewport().get_visible_rect().size
 	_load_definitions()
 	for definition in _definitions:
 		_build_layer(definition)
@@ -161,6 +181,16 @@ func set_enabled(id: String, enabled: bool) -> void:
 	var rect: ColorRect = layer.get("rect", null)
 	if rect != null:
 		rect.visible = enabled
+		var history: Dictionary = layer.get("history", {})
+		if not history.is_empty():
+			# Switched on, the pass spends one frame with nothing behind it, so that
+			# the trail starts from the frame it was switched on in rather than from
+			# whatever was on screen the last time it was on; switched off, what it
+			# was fed is blanked. Both are done in _advance_histories, which is where
+			# the two viewports a pass reads and writes swap over.
+			history["priming"] = 1 if enabled else 0
+			if not enabled:
+				_set_previous_frame(layer, _blank_frame())
 		# An off pass makes no copy, so it costs nothing and does not stand
 		# between an on pass unchanged from the pass before it. Hidden is
 		# enough - a hidden CanvasItem is not processed at all - and the mode is
@@ -345,6 +375,10 @@ func _build_pass(definition: Dictionary, kind: String, id: String) -> Dictionary
 		push_error("shaders.json: %s failed to load %s" % [id, path])
 		return {}
 
+	# Where this pass and everything that belongs to it is drawn: a world pass at the
+	# world's depth, a screen pass above the HUD art this node covers.
+	var pass_z := WORLD_PASS_Z_INDEX if kind == "world" else SCREEN_PASS_Z_INDEX
+
 	# The copy this pass reads, added first so it is processed first: same
 	# z_index as the rect, and tree order breaks the tie. It is the whole of what
 	# a pass needs to see the frame as it stands where the pass is - the world
@@ -353,7 +387,7 @@ func _build_pass(definition: Dictionary, kind: String, id: String) -> Dictionary
 	var copy := BackBufferCopy.new()
 	copy.name = id + "BackBuffer"
 	copy.copy_mode = BackBufferCopy.COPY_MODE_VIEWPORT
-	copy.z_index = WORLD_PASS_Z_INDEX if kind == "world" else SCREEN_PASS_Z_INDEX
+	copy.z_index = pass_z
 	add_child(copy)
 
 	var rect := ColorRect.new()
@@ -361,21 +395,129 @@ func _build_pass(definition: Dictionary, kind: String, id: String) -> Dictionary
 	rect.set_anchors_preset(Control.PRESET_FULL_RECT)
 	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	rect.color = Color(0, 0, 0, 0)
-	rect.z_index = WORLD_PASS_Z_INDEX if kind == "world" else SCREEN_PASS_Z_INDEX
+	rect.z_index = pass_z
 	var shader_material := ShaderMaterial.new()
 	shader_material.shader = shader
 	rect.material = shader_material
 	add_child(rect)
 
+	# A pass that declares the previous frame is given two of them, and a blank to
+	# start from: the pair is what turns "this frame" into "the frame before it", and
+	# the blank is what makes switching an after-image on start the trail from the
+	# frame it was switched on in. See _build_history and _advance_histories.
+	var uniforms := _uniform_names(shader)
+	var history: Dictionary = {}
+	if uniforms.has(PREVIOUS_FRAME_UNIFORM):
+		history = _build_history(id)
+		shader_material.set_shader_parameter(PREVIOUS_FRAME_UNIFORM, _blank_frame())
+
 	return {
 		"kind": kind,
 		"rect": rect,
 		"copy": copy,
+		"history": history,
 		"materials": [shader_material],
-		"uniforms": _uniform_names(shader),
+		"uniforms": uniforms,
 		"enable_key": "",
 	}
 
+
+# The frames behind a pass that asked for them. A shader cannot see these for
+# itself: the screen copy the engine makes for a reading pass is of the frame *being
+# drawn*, taken where the pass sits, so the only frame a pass can look at is its own.
+# What this node can do instead is keep viewports whose whole content is the main
+# viewport's own texture, and hand one over as an ordinary sampler.
+#
+# There are two of them, and they swap over every frame, because a viewport holding
+# the screen captures it as that screen is *at that moment*, which is this frame -
+# and a pass needs the one before. So while one captures the frame being drawn, the
+# other is stopped and handed over as it stands, holding the frame before; the next
+# frame they trade places. One frame behind is the whole of the trick, and it is
+# also why the capture sits after the pass in the tree rather than before it: what a
+# pass has to age is the picture it drew a moment ago, this pass's own after-image
+# included. Taken before the pass, the frame handed over would have no trail in it,
+# and the trail would be two frames long instead of building up.
+#
+# It is a blit of a frame that already exists, so it is cheap; it is stopped with its
+# effect, so an after-image that is off costs nothing at all; and there is a pair per
+# pass, so two passes wanting the previous frame each age their own ghost instead of
+# sharing one. What the frame handed over holds is the frame as drawn where the pass
+# sits - the screen, this node's own passes and the HUD under it, and for a world
+# pass the world alone, since the HUD over it is drawn later.
+func _build_history(id: String) -> Dictionary:
+	var views: Array = []
+	for suffix in ["A", "B"]:
+		var view := SubViewport.new()
+		view.name = id + "History" + suffix
+		view.size = Vector2i(get_viewport().get_visible_rect().size)
+		view.render_target_update_mode = SubViewport.UPDATE_DISABLED
+		add_child(view)
+		# A viewport is not a Control, so the rect inside it is placed and sized by
+		# hand rather than anchored: filling the viewport is the whole of its job.
+		var copied := TextureRect.new()
+		copied.name = "Frame"
+		copied.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		copied.stretch_mode = TextureRect.STRETCH_SCALE
+		copied.size = Vector2(view.size)
+		copied.texture = get_viewport().get_texture()
+		view.add_child(copied)
+		views.append(view)
+	return {"views": views, "writing": 0, "priming": 0}
+
+
+# The half of the history pair that a pass is not reading, advanced every frame: the
+# one that was handed over last frame captures this one, and the other one freezes
+# with what it captured, which is what makes it the frame before this one. Runs in
+# _process, so the modes and the uniform are in place before the frame is drawn.
+func _advance_histories() -> void:
+	for id in _layers:
+		var layer: Dictionary = _layers[id]
+		var history: Dictionary = layer.get("history", {})
+		if history.is_empty():
+			continue
+		var views: Array = history["views"]
+		if not bool(_enabled.get(id, false)):
+			for view in views:
+				(view as SubViewport).render_target_update_mode = SubViewport.UPDATE_DISABLED
+			_set_previous_frame(layer, _blank_frame())
+			continue
+		if int(history["priming"]) > 0:
+			# One frame with a blank behind it, both viewports filling at once: the
+			# trail starts from the frame the effect was switched on in.
+			history["priming"] = int(history["priming"]) - 1
+			for view in views:
+				(view as SubViewport).render_target_update_mode = SubViewport.UPDATE_ALWAYS
+			_set_previous_frame(layer, _blank_frame())
+			continue
+		var writing := int(history["writing"])
+		var holding := views[1 - writing] as SubViewport
+		holding.render_target_update_mode = SubViewport.UPDATE_DISABLED
+		(views[writing] as SubViewport).render_target_update_mode = SubViewport.UPDATE_ALWAYS
+		_set_previous_frame(layer, holding.get_texture())
+		history["writing"] = 1 - writing
+
+
+func _process(_delta: float) -> void:
+	_advance_histories()
+
+
+# The one uniform a history pass is handed every frame rather than once: which of
+# its two viewports holds the frame before this one changes with the frame.
+func _set_previous_frame(layer: Dictionary, frame: Texture2D) -> void:
+	for target in layer.get("materials", []):
+		(target as ShaderMaterial).set_shader_parameter(PREVIOUS_FRAME_UNIFORM, frame)
+
+
+# A single black pixel, for a pass with nothing behind it yet. A picture that takes
+# the brighter of two is the picture itself against black, so a pass with this behind
+# it draws exactly what it was handed - which is what makes switching an after-image
+# on start clean instead of replaying a frame from minutes ago.
+func _blank_frame() -> Texture2D:
+	if _blank == null:
+		var image := Image.create(1, 1, false, Image.FORMAT_RGBA8)
+		image.fill(Color(0, 0, 0, 1))
+		_blank = ImageTexture.create_from_image(image)
+	return _blank
 
 # A vertex effect: no rect and no shader of its own. It names the materials the
 # world is drawn with and moves their uniforms, which is what a bend of the
@@ -425,5 +567,22 @@ func _uniform_names(shader: Shader) -> Dictionary:
 # over, in pixels, which is the size of the screen texture they sample.
 func _push_frame_size() -> void:
 	var frame := Vector2(get_viewport().get_visible_rect().size)
+	# A pass is a full-rect child of this node, so a node without a size is a stack of
+	# passes without one; see _ready.
+	size = frame
 	for id in _layers:
 		_push(_layers[id], "frame_size", frame)
+		var history: Dictionary = _layers[id].get("history", {})
+		if not history.is_empty():
+			_resize_history(history, frame)
+
+
+# A history viewport holds a copy of the frame, so it is the frame's size: a ghost
+# measured in a texture of another size is a different shape on every window.
+func _resize_history(history: Dictionary, frame: Vector2) -> void:
+	for view in history.get("views", []):
+		var port := view as SubViewport
+		port.size = Vector2i(frame)
+		var copied := port.get_node_or_null("Frame") as TextureRect
+		if copied != null:
+			copied.size = frame

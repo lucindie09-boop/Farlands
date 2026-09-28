@@ -471,6 +471,13 @@ bool to_wide(const std::string& text, wchar_t* out, size_t out_size) {
 }  // namespace
 
 std::string install_crash_dump_handler(const std::string& directory) {
+    // Not thread safe in the standard's eyes, and there is nothing to replace it
+    // with: the rule is about another thread calling setenv underneath this one, and
+    // this read happens once, from the loader, before any thread exists - in a
+    // process that never calls setenv. That is why it is here rather than on the
+    // fault path as well, and why the suppression is the honest answer instead of a
+    // lock around it.
+    // NOLINTNEXTLINE(concurrency-mt-unsafe)
     const char* armed = std::getenv("FARLANDS_CRASH_TEST");
     g_armed_for_test = armed != nullptr && std::strcmp(armed, "1") == 0;
     if (g_installed || directory.empty()) return std::string();
@@ -531,6 +538,12 @@ bool g_armed_for_test = false;
 }  // namespace
 
 std::string install_crash_dump_handler(const std::string& directory) {
+    // Not thread safe in the standard's eyes, and there is nothing to replace it
+    // with: the rule is about another thread calling setenv underneath this one, and
+    // this read happens once, from the loader, before any thread exists - in a
+    // process that never calls setenv. The Windows branch above reads the same
+    // variable the same way and for the same reason.
+    // NOLINTNEXTLINE(concurrency-mt-unsafe)
     const char* armed = std::getenv("FARLANDS_CRASH_TEST");
     g_armed_for_test = armed != nullptr && std::strcmp(armed, "1") == 0;
     (void)directory;

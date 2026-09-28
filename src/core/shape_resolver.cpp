@@ -276,14 +276,13 @@ uint8_t shape_rule_faces_for(ShapeRule rule, const BlockType& self) noexcept {
     if (!step_face_of(self, step, hanging)) return 0;  // not a stair: nothing to read
 
     switch (rule) {
-        // The whole step is decided by what stands in front of it, so that one face
-        // is the entire claim.
+        // The whole step, and both remnants, are decided by what stands in front of
+        // them, so that one face is the entire claim in all three - written as one
+        // case because a claim is a value and three identical ones are one claim.
+        // The half of a remnant that is cut away is asked about inside the rule
+        // instead, because what suppresses a cut is a stair standing there rather
+        // than the face itself.
         case ShapeRule::StairStep:
-            return shape_face_bit(step);
-        // A remnant is the half of the step the stair in front is stepping toward,
-        // so its claim is that one face. The half being cut away is asked about
-        // inside the rule, because what suppresses a cut is a stair standing there
-        // rather than the face itself.
         case ShapeRule::StairCutLeft:
         case ShapeRule::StairCutRight:
             return shape_face_bit(step);
@@ -324,22 +323,16 @@ bool shape_rule_self_decided(ShapeRule rule) noexcept {
 bool shape_rule_canonical(ShapeRule rule, const BlockType& self, ShapeFace face) noexcept {
     (void)self;
     switch (rule) {
-        // A fence in the hand is the common fence run, not a lone post and not a
-        // four-armed cross: post plus the two arms along X. Chosen because it is
-        // what the item is almost always about to become, and because it is the
-        // only canonical set that reads as a fence at thumbnail size.
+        // A fence, a pane and a wall are each held in the hand as a run along X -
+        // post plus the two arms, or one flat sheet - rather than as a lone post or
+        // as a four-armed cross, and for the same reasons in all three cases: it is
+        // what the block is almost always about to become, and it is the only
+        // canonical set that reads as that block at thumbnail size. For the pane it
+        // is also the shape that reproduces the old single-plane block exactly, so
+        // an inventory icon did not change when the world model grew arms. One
+        // case, because the answer is one answer.
         case ShapeRule::Fence:
-            return face == ShapeFace::Right || face == ShapeFace::Left;
-        // A pane likewise: post plus the two arms along X, which is one flat
-        // sheet across the cell and the only canonical set that reads as glass at
-        // thumbnail size. It is also the shape that reproduces the old
-        // single-plane block exactly, so an inventory icon did not change when the
-        // world model grew arms.
         case ShapeRule::Pane:
-            return face == ShapeFace::Right || face == ShapeFace::Left;
-        // A wall likewise, for the same two reasons: a run along X is what the block
-        // is almost always about to become, and it is the only set that reads as a
-        // wall at thumbnail size.
         case ShapeRule::WallArm:
             return face == ShapeFace::Right || face == ShapeFace::Left;
         // ...and the post is always in the icon, because at that size a wall without

@@ -20,6 +20,17 @@ inline float clamp01(float v) noexcept {
     return v > 1.0f ? 1.0f : v;
 }
 
+// A name that does not resolve is reported through this rather than with ERR_PRINT
+// where it is found, because the resolver below is a lambda and ERR_PRINT expands
+// to __FUNCTION__, which inside a lambda names its call operator: the log would
+// say "operator()" instead of which loader found the problem. Naming the reporter
+// is what gives the message a real function to point at. (The same problem, solved
+// the other way round by BlockRegistry's cross-block reference pass, which builds
+// its message inside the lambda and prints it outside.)
+void report_unresolved_name(const godot::String& message) {
+    ERR_PRINT(message);
+}
+
 } // namespace
 
 ItemRegistry& ItemRegistry::get_instance() {
@@ -176,8 +187,9 @@ bool ItemRegistry::load_from_json(const godot::String& json_path) noexcept {
                 if (target.is_empty()) return;
                 out = blocks.get_block_id_by_name(target.utf8().get_data());
                 if (out == BlockIDs::AIR) {
-                    ERR_PRINT("items.json entry " + name + ": place \"" + godot::String(key)
-                              + "\" names unknown block \"" + target + "\", ignored");
+                    report_unresolved_name("items.json entry " + name + ": place \"" +
+                                           godot::String(key) + "\" names unknown block \"" +
+                                           target + "\", ignored");
                 }
             };
             resolve_one(place, "block", def.place.block);

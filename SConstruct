@@ -255,6 +255,11 @@ if sys.platform != "win32":
     fuzz_recovery = fuzz_env.Program("bin/fuzz_chunk_recovery", ["tools/fuzz_chunk_recovery.cpp"] + fuzz_edit_map_sources)
     fuzz_light = fuzz_env.Program("bin/fuzz_light_propagation", ["tools/fuzz_light_propagation.cpp"] + fuzz_sources_common)
     fuzz_mesh_sources = fuzz_sources_common + [
+        # The solid pass resolves a neighbour's shape to decide a face, and that
+        # resolver is its own translation unit: without it here the fuzz binary
+        # links with an undefined resolve_shape_boxes and the whole `fuzz` target
+        # fails to build.
+        "src/core/shape_resolver.cpp",
         "src/mesh/mesh_builder.cpp",
         "src/mesh/mesh_builder_faces.cpp",
         "src/mesh/mesh_builder_greedy.cpp",

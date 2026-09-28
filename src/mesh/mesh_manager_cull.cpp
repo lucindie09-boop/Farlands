@@ -88,7 +88,7 @@ AABB MeshManager::cull_for(const AABB& local_aabb, const Vector3& origin) const 
 // remembered value is the growth rather than the box: two numbers, and negative
 // on an instance that has never been touched, which is not 0 (a box at the mesh's
 // own size) because the first box has to be written either way.
-void MeshManager::cull_apply(RID instance, Vector2& remembered, const AABB& local_aabb,
+void MeshManager::cull_apply(const RID& instance, Vector2& remembered, const AABB& local_aabb,
                              const Vector3& origin) {
     const AABB box = cull_for(local_aabb, origin);
     remembered = world_cull_growth(local_aabb, box);

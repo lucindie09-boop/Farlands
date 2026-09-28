@@ -149,7 +149,7 @@ private:
     // pushes one and remembers how far it was grown. The slack the refresh
     // leaves is what makes a refresh per camera block rather than per frame safe.
     godot::AABB cull_for(const godot::AABB& local_aabb, const godot::Vector3& origin) const;
-    void cull_apply(godot::RID instance, godot::Vector2& remembered, const godot::AABB& local_aabb,
+    void cull_apply(const godot::RID& instance, godot::Vector2& remembered, const godot::AABB& local_aabb,
                     const godot::Vector3& origin);
     void refresh_world_cull_region(FarRegionRenderData& region, uint64_t region_key);
     void process_far_region_queue(int32_t max_rebuilds);

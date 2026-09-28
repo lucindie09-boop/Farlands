@@ -186,7 +186,14 @@ bool NbtReader::read_any_int(int64_t& value) {
             int8_t small = 0;
             if (!read_i8(small)) return false;
             // A tag byte is signed, so it is sign-extended on purpose rather than
-            // widened through an unsigned character.
+            // widened through an unsigned character: the negative half of the range
+            // is the value here, not a mistake. The check that objects to this cast
+            // is about plain `char`, where the sign is the platform's choice and a
+            // value above 127 is easy to read as one; `int8_t` is an alias for a
+            // signed *integer*, which is the case its own documentation names as
+            // not worth warning about - and there is no unsigned reader to go
+            // through instead, because an NBT Byte is signed.
+            // NOLINTNEXTLINE(bugprone-signed-char-misuse)
             value = static_cast<int64_t>(small);
             return true;
         }

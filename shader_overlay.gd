@@ -250,8 +250,10 @@ func _push(layer: Dictionary, key: String, value: Variant) -> void:
 	var uniforms: Dictionary = layer["uniforms"]
 	if not uniforms.has(key):
 		return
-	for material in layer["materials"]:
-		(material as ShaderMaterial).set_shader_parameter(key, value)
+	# `target` and not `material`: a local by that name shadows a property of this
+	# node's own class, which the engine warns about at load.
+	for target in layer["materials"]:
+		(target as ShaderMaterial).set_shader_parameter(key, value)
 
 
 # --- Building the stack -------------------------------------------------------
@@ -324,15 +326,15 @@ func _build_pass(definition: Dictionary, kind: String, id: String) -> Dictionary
 	rect.color = Color(0, 0, 0, 0)
 	if kind == "world":
 		rect.z_index = WORLD_PASS_Z_INDEX
-	var material := ShaderMaterial.new()
-	material.shader = shader
-	rect.material = material
+	var shader_material := ShaderMaterial.new()
+	shader_material.shader = shader
+	rect.material = shader_material
 	add_child(rect)
 
 	return {
 		"kind": kind,
 		"rect": rect,
-		"materials": [material],
+		"materials": [shader_material],
 		"uniforms": _uniform_names(shader),
 		"enable_key": "",
 	}
@@ -352,12 +354,12 @@ func _build_vertex_effect(definition: Dictionary) -> Dictionary:
 		if resource_path == "" or not ResourceLoader.exists(resource_path):
 			push_error("shaders.json: %s has no material at %s" % [id, resource_path])
 			continue
-		var material: ShaderMaterial = load(resource_path)
-		if material == null or material.shader == null:
+		var loaded: ShaderMaterial = load(resource_path)
+		if loaded == null or loaded.shader == null:
 			push_error("shaders.json: %s could not load a material at %s" % [id, resource_path])
 			continue
-		materials.append(material)
-		for uniform in material.shader.get_shader_uniform_list():
+		materials.append(loaded)
+		for uniform in loaded.shader.get_shader_uniform_list():
 			uniforms[String(uniform["name"])] = true
 	if materials.is_empty():
 		push_error("shaders.json: %s has no materials to drive" % id)
@@ -385,6 +387,6 @@ func _uniform_names(shader: Shader) -> Dictionary:
 # The frame the shaders make their patterns out of: the viewport they are drawn
 # over, in pixels, which is the size of the screen texture they sample.
 func _push_frame_size() -> void:
-	var size := Vector2(get_viewport().get_visible_rect().size)
+	var frame := Vector2(get_viewport().get_visible_rect().size)
 	for id in _layers:
-		_push(_layers[id], "frame_size", size)
+		_push(_layers[id], "frame_size", frame)

@@ -363,8 +363,13 @@ func _load_settings():
 				var key := String(param.get("key", ""))
 				var fallback: Variant = param.get("default", 0.0)
 				var saved: Variant = cfg.get_value("shaders", id + "_" + key, fallback)
-				shader_overlay.set_value(id, key,
-					bool(saved) if String(param.get("type", "float")) == "bool" else float(saved))
+				# Two statements rather than a ternary: the two arms are a bool and a
+				# float, and a ternary whose arms do not share a type is a warning from
+				# the engine's own analyser.
+				if String(param.get("type", "float")) == "bool":
+					shader_overlay.set_value(id, key, bool(saved))
+				else:
+					shader_overlay.set_value(id, key, float(saved))
 	for cb in CONTROL_BINDINGS:
 		var saved: Array = cfg.get_value("controls", cb[0], [])
 		if not saved.is_empty():
@@ -592,15 +597,17 @@ func _shader_switch(definition: Dictionary, syncs: Array, width: float) -> Array
 	var btn := Button.new()
 	_row_value(btn, "On" if shader_overlay.is_enabled(id) else "Off")
 	_style_button(btn, width)
-	var show := func(on: bool) -> void:
+	# `apply` and not `show`: a local by that name shadows a method of the class
+	# this node extends, which the engine warns about at load.
+	var apply := func(on: bool) -> void:
 		shader_overlay.set_enabled(id, on)
 		_row_value(btn, "On" if on else "Off")
 	btn.pressed.connect(func():
-		show.call(not shader_overlay.is_enabled(id))
+		apply.call(not shader_overlay.is_enabled(id))
 		_schedule_save())
 	syncs.append(func(): _row_value(btn, "On" if shader_overlay.is_enabled(id) else "Off"))
 	return [btn, func():
-		show.call(start)
+		apply.call(start)
 		_schedule_save()]
 
 # One category's rows: one per shader of that kind, its label the shader's own
@@ -614,20 +621,22 @@ func _build_shader_rows(syncs: Array, kind: String) -> Array:
 		if String(definition.get("kind", "screen")) != kind:
 			continue
 		var id := String(definition.get("id", ""))
-		var name := String(definition.get("name", id))
+		# `label` and not `name`: `name` is a property of every Node, so a local by
+		# that name shadows it and the engine warns about it at load.
+		var label := String(definition.get("name", id))
 		# The switch and the settings icon share the option column, so the switch
 		# gives the icon its square and the gap beside it up.
 		var option := _shader_switch(definition, syncs,
 			UNIT_OPTION_W - UNIT_ROW_GAP - UNIT_UNDO_W)
 		var settings_btn := _make_icon_button(SETTINGS_TEX)
-		settings_btn.tooltip_text = "%s settings" % name
+		settings_btn.tooltip_text = "%s settings" % label
 		settings_btn.pressed.connect(func(): _show_page("shader_" + id))
 		var pair := HBoxContainer.new()
 		pair.add_theme_constant_override("separation", int(UNIT_ROW_GAP * u))
 		pair.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		pair.add_child(option[0])
 		pair.add_child(settings_btn)
-		rows.append([name, pair, option[1], "pair"])
+		rows.append([label, pair, option[1], "pair"])
 	return rows
 
 # The whole stack's export/import code, as a category's codec: the icons the
@@ -3783,22 +3792,24 @@ func _import_render_code(code: String) -> bool:
 # against that param's range - and the import insists the code is exactly that
 # long, so a code from a registry with different shaders is refused instead of
 # landing half-applied.
+# (`total` and not `size`, which is a property of every Control.)
 func _shader_code_size() -> int:
-	var size := 0
+	var total := 0
 	for definition in _shader_definitions():
-		size += 1
+		total += 1
 		for param in definition.get("params", []):
-			size += 1 if String(param.get("type", "float")) == "bool" else 2
-	return size
+			total += 1 if String(param.get("type", "float")) == "bool" else 2
+	return total
 
 # The quantisation a param's two bytes can carry: its own step where that fits.
+# (`units` and not `scale`, which is a property of every Control.)
 func _shader_param_scale(param: Dictionary) -> float:
 	var step := float(param.get("step", 0.01))
-	var scale := (1.0 / step) if step > 0.0 else 100.0
+	var units := (1.0 / step) if step > 0.0 else 100.0
 	var max_value := float(param.get("max", 1.0))
-	if max_value > 0.0 and max_value * scale > 65535.0:
-		scale = floor(65535.0 / max_value)
-	return maxf(scale, 1.0)
+	if max_value > 0.0 and max_value * units > 65535.0:
+		units = floor(65535.0 / max_value)
+	return maxf(units, 1.0)
 
 func _export_shaders_code() -> String:
 	var data := PackedByteArray()
@@ -3819,9 +3830,9 @@ func _export_shaders_code() -> String:
 func _import_shaders_code(code: String) -> bool:
 	if not shader_overlay:
 		return false
-	var size := _shader_code_size()
-	var data := _decode_section_code(code, "FS", size)
-	if data.is_empty() or data.size() != size + 1:
+	var code_size := _shader_code_size()
+	var data := _decode_section_code(code, "FS", code_size)
+	if data.is_empty() or data.size() != code_size + 1:
 		return false
 	var idx := 1
 	for definition in _shader_definitions():

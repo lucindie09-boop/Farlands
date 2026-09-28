@@ -309,7 +309,9 @@ void MeshManager::rebuild_all_meshes_with_neighbors(uint64_t epoch) {
             dirty_chunks.emplace_back(chunk_x, chunk_y, chunk_z);
         }
     });
-    for (auto [chunk_x, chunk_y, chunk_z] : dirty_chunks) {
+    // By reference: the three coordinates are read, never written, and the tuple
+    // they are bound from lives in the vector for the whole walk.
+    for (const auto& [chunk_x, chunk_y, chunk_z] : dirty_chunks) {
         ChunkRenderData* render_data = chunk_map->get_chunk_render_data(chunk_x, chunk_y, chunk_z);
         ChunkRenderData* d_x_neg = chunk_map->get_chunk_render_data(chunk_x - 1, chunk_y, chunk_z);
         ChunkRenderData* d_x_pos = chunk_map->get_chunk_render_data(chunk_x + 1, chunk_y, chunk_z);

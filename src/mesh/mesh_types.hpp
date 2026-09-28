@@ -28,10 +28,20 @@ enum class FaceDirection : uint8_t {
 // Position is stored in Q8.8 fixed-point format for all three axes:
 // 8 integer bits + 8 fractional bits, allowing sub-block precision
 // for non-full blocks (fences, stairs, walls, slabs).
+// Every byte of it is written. The two bytes between normal_pad and u would
+// otherwise be padding the compiler leaves alone, and normal_pad itself is not
+// assigned anywhere - and this struct is compared byte for byte by the meshing
+// tests (tests/test_shape_resolver.cpp) and memcpy'd into cached quads, so a byte
+// nothing writes is a byte that makes two identical meshes differ. The first
+// version of those tests passed on one compiler and failed on another for exactly
+// that reason. The default member initialisers are what makes `Vertex v;` - the
+// way every mesher builds one - deterministic.
 struct Vertex {
     uint16_t x, y, z;    // 6 bytes (Q8.8 fixed-point: 8 int + 8 frac)
     int8_t nx, ny, nz;    // 3 bytes
-    uint8_t normal_pad;   // 1 byte padding
+    uint8_t normal_pad = 0;  // 1 byte, kept for the layout: nothing reads it
+    uint8_t reserved0 = 0;   // the two bytes the compiler used to leave alone
+    uint8_t reserved1 = 0;
     float u, v;           // 8 bytes
     uint16_t texture_index; // 2 bytes
     uint8_t ao;           // 1 byte
@@ -41,6 +51,14 @@ struct Vertex {
     uint8_t light_b;      // 1 byte
     uint8_t sky_light;    // 1 byte
 };
+
+// The vertex is a byte-for-byte comparable block, so it may have no hole and no
+// tail: its size is exactly the sum of its members. Adding a field that needs
+// more alignment than the layout already provides breaks this line rather than the
+// meshing tests, which is the point of writing it here.
+static_assert(sizeof(Vertex) == 4 * sizeof(uint16_t) + 3 * sizeof(int8_t) +
+                                   9 * sizeof(uint8_t) + 2 * sizeof(float),
+              "Vertex has padding: see the note above its definition");
 
 // One emitted quad (a greedy merge run or a single face) with its final
 // vertex/indices data. Used for partial remeshing: a rebuild carries forward

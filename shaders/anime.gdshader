@@ -3,13 +3,17 @@ render_mode unshaded;
 
 // Farlands' first WORLD shader: the world's own picture, drawn as an anime frame.
 //
-// This pass reads the same frame every screen shader reads, and is built the same
+// This pass is built exactly like a screen shader and reads the frame the same
 // way, so what makes it a different *kind* of thing is where it draws. A world
 // pass is put at a negative z_index by shader_overlay.gd, which means it is drawn
 // over the 3D world and *under* everything else in the HUD: the frame it reads is
 // the world and nothing else, and the hotbar, the health bar and the menus over
 // it are drawn back on top of the result untouched. A screen pass - the CRT - is
 // a picture of the whole screenful and grades the HUD along with the terrain.
+// That "where it draws" is also what decides *which* frame it reads: a reading
+// pass is handed a snapshot of the screen taken where it sits (its own copy node,
+// see shader_overlay.gd), not the finished screenful, which is why a world pass
+// can be one and still be underneath the hotbar it does not grade.
 // The registry's `kinds` list says which is which, and the Shaders page groups by
 // it; see data/shaders.json.
 //

@@ -31,6 +31,17 @@ extends Control
 # and a kind with nothing in it is not shown at all, so the next kind is an entry
 # in that list and a shader rather than a page of menu code.
 #
+# Every pass also carries its own BackBufferCopy, and that is what lets a stack of
+# them be a stack. A shader reads the frame through a copy of it, and Godot makes
+# one copy per frame - at the first node that reads the screen, wherever that node
+# is. A second reading pass is therefore handed the frame as it was *before* the
+# first one drew, and since a pass writes its picture back over the whole screen,
+# it paints that older frame back: the pass before it disappears, and so does
+# every HUD item drawn between the two. That is the one thing a stack of these
+# cannot be assembled out of without saying so, so each pass puts a copy node
+# immediately before itself and reads the frame as drawn up to where it sits. See
+# _build_pass, and WORLD_PASS_Z_INDEX below for where a world pass sits.
+#
 # This node owns the state but not the file: settings_menu.gd is the one that
 # reads and writes user://settings.cfg, so the Shaders page calls in here for
 # every value it shows and every value it changes.
@@ -67,6 +78,11 @@ const VERTEX_ENGINE_KNOBS := {
 # compass above it - so the two kinds see different frames, and that is the whole
 # of what the registry's third kind means here.
 const WORLD_PASS_Z_INDEX := -1
+
+# The z a screen effect's rect gets. Spelled out because its copy node has to be
+# ordered with it rather than left at the engine's default, and because the world
+# pass's index above is the only other one there is.
+const SCREEN_PASS_Z_INDEX := 0
 
 
 var _definitions: Array = []
@@ -145,6 +161,15 @@ func set_enabled(id: String, enabled: bool) -> void:
 	var rect: ColorRect = layer.get("rect", null)
 	if rect != null:
 		rect.visible = enabled
+		# An off pass makes no copy, so it costs nothing and does not stand
+		# between an on pass unchanged from the pass before it. Hidden is
+		# enough - a hidden CanvasItem is not processed at all - and the mode is
+		# cleared too, so a copy that is somehow still reached copies nothing.
+		var copy: BackBufferCopy = layer.get("copy", null)
+		if copy != null:
+			copy.visible = enabled
+			copy.copy_mode = BackBufferCopy.COPY_MODE_VIEWPORT if enabled \
+				else BackBufferCopy.COPY_MODE_DISABLED
 	else:
 		# A vertex effect is not something that can be hidden: it is the geometry
 		# itself, and what the switch means there is the effect's own strength
@@ -304,11 +329,12 @@ func _build_layer(definition: Dictionary) -> void:
 
 
 # A pass over a frame the node can see: a full-screen rect of its own with the
-# entry's shader on it. Whatever the shader writes is the picture, alpha and all,
-# so the rect's own colour only has to not be drawn over it before the shader
-# runs. A screen effect and a world effect are the same layer built the same way
-# and differ by the one line at the bottom - the world's rect is put at the
-# world's depth, so it sees the frame without the HUD and is covered by it.
+# entry's shader on it, plus the copy node that hands it that frame. Whatever the
+# shader writes is the picture, alpha and all, so the rect's own colour only has
+# to not be drawn over it before the shader runs. A screen effect and a world
+# effect are the same layer built the same way and differ by the one line at the
+# bottom - the world's rect (and its copy) is put at the world's depth, so it sees
+# the frame without the HUD and is covered by it.
 func _build_pass(definition: Dictionary, kind: String, id: String) -> Dictionary:
 	var path := String(definition.get("shader", ""))
 	if path == "" or not ResourceLoader.exists(path):
@@ -319,13 +345,23 @@ func _build_pass(definition: Dictionary, kind: String, id: String) -> Dictionary
 		push_error("shaders.json: %s failed to load %s" % [id, path])
 		return {}
 
+	# The copy this pass reads, added first so it is processed first: same
+	# z_index as the rect, and tree order breaks the tie. It is the whole of what
+	# a pass needs to see the frame as it stands where the pass is - the world
+	# alone for a world pass, the world plus the passes and HUD art under a screen
+	# pass - and it is why two passes no longer fight over one shared copy.
+	var copy := BackBufferCopy.new()
+	copy.name = id + "BackBuffer"
+	copy.copy_mode = BackBufferCopy.COPY_MODE_VIEWPORT
+	copy.z_index = WORLD_PASS_Z_INDEX if kind == "world" else SCREEN_PASS_Z_INDEX
+	add_child(copy)
+
 	var rect := ColorRect.new()
 	rect.name = id
 	rect.set_anchors_preset(Control.PRESET_FULL_RECT)
 	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	rect.color = Color(0, 0, 0, 0)
-	if kind == "world":
-		rect.z_index = WORLD_PASS_Z_INDEX
+	rect.z_index = WORLD_PASS_Z_INDEX if kind == "world" else SCREEN_PASS_Z_INDEX
 	var shader_material := ShaderMaterial.new()
 	shader_material.shader = shader
 	rect.material = shader_material
@@ -334,6 +370,7 @@ func _build_pass(definition: Dictionary, kind: String, id: String) -> Dictionary
 	return {
 		"kind": kind,
 		"rect": rect,
+		"copy": copy,
 		"materials": [shader_material],
 		"uniforms": _uniform_names(shader),
 		"enable_key": "",

@@ -24,6 +24,16 @@ extends Control
 #     draws with. Such an effect has nothing to hide, so its switch is pushed as
 #     a uniform as well (`enable_key`), and the shaders multiply the effect by
 #     nothing when it is off.
+#   - a 'camera' effect is not a picture either and gets no layer: it moves the
+#     camera itself, which no shader can do - a shader is handed a frame after the
+#     eye has seen it, and moving the picture after the fact is not the same as
+#     moving the eye (it would not move what the frustum chose, only smear it).
+#     There is no shader to load and nothing to draw, so the overlay runs the
+#     effect itself in _process, writing the movement where the engine reads it -
+#     the camera's own offset fields - and undoing the previous frame's write
+#     before each new one, so an effect switched off leaves the camera exactly as
+#     it found it. Its params are plain state, checked against the registry's
+#     keys rather than against shader uniforms, because there are none.
 #
 # A pass may also ask for the frame *before* the one it is drawing into: a shader
 # that declares the `previous_frame` uniform is handed the frame as it stood where
@@ -203,8 +213,15 @@ func set_enabled(id: String, enabled: bool) -> void:
 	else:
 		# A vertex effect is not something that can be hidden: it is the geometry
 		# itself, and what the switch means there is the effect's own strength
-		# multiplied by nothing.
+		# multiplied by nothing. A camera effect is the same in kind - the switch
+		# is nothing to draw or hide, only state the driver reads in _process.
 		_push(layer, String(layer.get("enable_key", "")), 1.0 if enabled else 0.0)
+		if String(layer.get("kind", "screen")) == "camera":
+			# Off, the write of the frame before is undone now rather than waiting
+			# for a _process that will not reach it again; on, the offsets are
+			# already whatever the driver left them, which is zero.
+			if not enabled:
+				_camera_restore(layer)
 		_push_vertex_effects.call_deferred()
 
 
@@ -337,8 +354,13 @@ func _build_layer(definition: Dictionary) -> void:
 		push_error("shaders.json: an effect has no id")
 		return
 	var kind := String(definition.get("kind", "screen"))
-	var built := _build_vertex_effect(definition) if kind == "vertex" \
-		else _build_pass(definition, kind, id)
+	var built: Dictionary
+	if kind == "vertex":
+		built = _build_vertex_effect(definition)
+	elif kind == "camera":
+		built = _build_camera_effect(definition)
+	else:
+		built = _build_pass(definition, kind, id)
 	if built.is_empty():
 		return
 
@@ -499,6 +521,17 @@ func _advance_histories() -> void:
 
 func _process(_delta: float) -> void:
 	_advance_histories()
+	# Camera effects are movements of the eye rather than pictures, so their
+	# driver runs here, where the engine is between frames and the write of the
+	# frame before can be undone before the next one is made.
+	for id in _layers:
+		var layer: Dictionary = _layers[id]
+		if String(layer.get("kind", "screen")) != "camera":
+			continue
+		if bool(_enabled.get(id, false)):
+			_process_camera_effect(layer, id, _delta)
+		else:
+			_camera_restore(layer)
 
 
 # The one uniform a history pass is handed every frame rather than once: which of
@@ -518,6 +551,90 @@ func _blank_frame() -> Texture2D:
 		image.fill(Color(0, 0, 0, 1))
 		_blank = ImageTexture.create_from_image(image)
 	return _blank
+
+# A camera effect: no rect, no shader, no materials - a movement of the camera
+# itself, which this node runs in _process and writes where the engine reads it:
+# the camera's own h_offset/v_offset. Those two fields displace the eye in view
+# space without touching where it looks, so nothing that steers the camera (the
+# player's mouse look, the head-bob, the frustum) needs to know this is here, and
+# nothing of theirs is ever overwritten: only what this effect itself wrote is
+# ever taken back off.
+func _build_camera_effect(_definition: Dictionary) -> Dictionary:
+	return {
+		"kind": "camera",
+		"rect": null,
+		"materials": [],
+		# The keys this effect is allowed to hold, spelled out because there is no
+		# shader to ask: the params of a camera effect drive nothing, they are the
+		# state the driver reads.
+		"uniforms": {"camera_jitter_strength": true, "camera_jitter_rate": true},
+		"enable_key": "",
+		# The driver's own state: what was written last frame, so it can come back
+		# off; and where the jitter's step stands, so the steps are held and re-
+		# rolled rather than re-rolled every frame, which would be noise, not a
+		# jitter.
+		"applied": Vector2.ZERO,
+		"clock": 0.0,
+		"offset": Vector2.ZERO,
+	}
+
+
+# The camera effect's driver, run from _process for every enabled camera effect:
+# held steps of offset, re-rolled at the rate. The step's size is the strength
+# itself - the offset is a fraction of the screen-height-equivalent view, and the
+# default lands well under a block's apparent size at arm's length - and the roll
+# is a fresh pair of values in -1..1, so the movement is a rattle, not a drift.
+# Anything less than a step wide is smoothed over rather than jumped, so the
+# rattle does not tick like a metronome.
+func _process_camera_effect(layer: Dictionary, id: String, delta: float) -> void:
+	var camera := get_viewport().get_camera_3d()
+	if camera == null:
+		_camera_restore(layer)
+		return
+	var values: Dictionary = _values.get(id, {})
+	var strength := float(values.get("camera_jitter_strength", 0.02))
+	# maxf and not max: the latter is a generic over Variant, which the := below
+	# would then infer the variable from.
+	var rate := maxf(float(values.get("camera_jitter_rate", 24.0)), 0.01)
+	var clock: float = layer["clock"] + delta
+	if clock >= 1.0 / rate:
+		clock = 0.0
+		layer["offset"] = Vector2(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0))
+	layer["clock"] = clock
+	var wanted := strength * (layer["offset"] as Vector2)
+	# The write of the frame before is taken back off FIRST, and before the new
+	# one is stored - a restore that read the layer after it was updated would
+	# subtract the step it is about to write rather than the one it wrote, which
+	# leaves the camera holding it with nothing left to undo. `previous` is kept
+	# across the restore because the restore clears the field, and the easing is
+	# from the step before, not from nothing.
+	var previous: Vector2 = layer["applied"]
+	_camera_restore(layer)
+	# Where the step was smaller than the strength, arrive rather than jump; the
+	# lerp weight is a fixed fraction of the way there per frame, which is a
+	# smoothing over two or three frames and not a decay.
+	var applied := previous.lerp(wanted, 0.5)
+	layer["applied"] = applied
+	# Added to the camera, not assigned over it: the camera is back on whatever
+	# baseline its own owners left it, and this is one more thing moving the eye
+	# rather than the whole of what moves it.
+	camera.h_offset += applied.x
+	camera.v_offset += applied.y
+
+
+# The write of the last frame, taken back off before the next one: only what this
+# effect itself wrote is ever undone, so a value the player's own controls wrote
+# between frames survives.
+func _camera_restore(layer: Dictionary) -> void:
+	var applied: Vector2 = layer["applied"]
+	if applied == Vector2.ZERO:
+		return
+	var camera := get_viewport().get_camera_3d()
+	if camera != null:
+		camera.h_offset -= applied.x
+		camera.v_offset -= applied.y
+	layer["applied"] = Vector2.ZERO
+
 
 # A vertex effect: no rect and no shader of its own. It names the materials the
 # world is drawn with and moves their uniforms, which is what a bend of the

@@ -5,7 +5,7 @@
     { "kind": "vertex", "name": "Vertex Shaders" },
     { "kind": "world", "name": "World Shaders" },
     { "kind": "filter", "name": "Colour Filters" },
-    { "kind": "camera", "name": "Camera Shaders" }
+    { "kind": "camera", "name": "Camera Effects" }
   ],
   "shaders": [
     {

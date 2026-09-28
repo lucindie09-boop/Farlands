@@ -566,7 +566,9 @@ func _build_camera_effect(_definition: Dictionary) -> Dictionary:
 		"materials": [],
 		# The keys this effect is allowed to hold, spelled out because there is no
 		# shader to ask: the params of a camera effect drive nothing, they are the
-		# state the driver reads.
+		# state the driver reads. One list for every camera effect, because the
+		# builder is shared and the driver picks by id which of the keys are its
+		# own.
 		"uniforms": {"camera_jitter_strength": true, "camera_jitter_rate": true},
 		"enable_key": "",
 		# The driver's own state: what was written last frame, so it can come back
@@ -579,19 +581,54 @@ func _build_camera_effect(_definition: Dictionary) -> Dictionary:
 	}
 
 
-# The camera effect's driver, run from _process for every enabled camera effect:
-# held steps of offset, re-rolled at the rate. The step's size is the strength
-# itself - the offset is a fraction of the screen-height-equivalent view, and the
-# default lands well under a block's apparent size at arm's length - and the roll
-# is a fresh pair of values in -1..1, so the movement is a rattle, not a drift.
-# Anything less than a step wide is smoothed over rather than jumped, so the
-# rattle does not tick like a metronome.
+# The camera effects' driver, run from _process for every enabled one. Camera
+# Jitter is a rattle: a fresh pair of offsets in -1..1 rolled every
+# `camera_jitter_rate` of a second and HELD until the next roll, so the eye
+# lands somewhere and stays there a moment - a re-roll every frame would be
+# noise, not a jitter. Steps are eased into over two or three frames rather than
+# jumped, so the rattle does not tick like a metronome. The motion is read out
+# of its own function and written additively onto the camera's own
+# h_offset/v_offset, with the write of the frame before taken back off first, so
+# a second camera effect is a motion function, the line that dispatches it and
+# its keys in the shared list: the write, the restore and the easing are the
+# same for all of them. The sizes
+# are the strengths themselves - metres of eye displacement, with the default
+# well under a block's apparent size at arm's length - and a strength of zero
+# writes nothing, so an enabled but zeroed row is free.
 func _process_camera_effect(layer: Dictionary, id: String, delta: float) -> void:
 	var camera := get_viewport().get_camera_3d()
 	if camera == null:
 		_camera_restore(layer)
 		return
 	var values: Dictionary = _values.get(id, {})
+	var motion := Vector2.ZERO
+	if id == "camera_jitter":
+		motion = _camera_jitter_motion(layer, values, delta)
+	if motion == Vector2.ZERO:
+		# Nothing this frame (and, with a zero strength, ever): the restore below
+		# still runs, which is what keeps an enabled row with no motion free.
+		_camera_restore(layer)
+		return
+	# The write of the frame before is taken back off FIRST, and before the new
+	# one is stored - a restore that read the layer after it was updated would
+	# subtract the step it is about to write rather than the one it wrote, which
+	# leaves the camera holding it with nothing left to undo. `previous` is kept
+	# across the restore because the restore clears the field, and the easing is
+	# from the step before, not from nothing.
+	var previous: Vector2 = layer["applied"]
+	_camera_restore(layer)
+	var applied := previous.lerp(motion, 0.5)
+	layer["applied"] = applied
+	# Added to the camera, not assigned over it: the camera is back on whatever
+	# baseline its own owners left it, and this is one more thing moving the eye
+	# rather than the whole of what moves it.
+	camera.h_offset += applied.x
+	camera.v_offset += applied.y
+
+
+# The jitter's motion: held steps of offset, re-rolled at the rate. The roll is a
+# fresh pair of values in -1..1, so the movement is a rattle, not a drift.
+func _camera_jitter_motion(layer: Dictionary, values: Dictionary, delta: float) -> Vector2:
 	var strength := float(values.get("camera_jitter_strength", 0.02))
 	# maxf and not max: the latter is a generic over Variant, which the := below
 	# would then infer the variable from.
@@ -601,25 +638,7 @@ func _process_camera_effect(layer: Dictionary, id: String, delta: float) -> void
 		clock = 0.0
 		layer["offset"] = Vector2(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0))
 	layer["clock"] = clock
-	var wanted := strength * (layer["offset"] as Vector2)
-	# The write of the frame before is taken back off FIRST, and before the new
-	# one is stored - a restore that read the layer after it was updated would
-	# subtract the step it is about to write rather than the one it wrote, which
-	# leaves the camera holding it with nothing left to undo. `previous` is kept
-	# across the restore because the restore clears the field, and the easing is
-	# from the step before, not from nothing.
-	var previous: Vector2 = layer["applied"]
-	_camera_restore(layer)
-	# Where the step was smaller than the strength, arrive rather than jump; the
-	# lerp weight is a fixed fraction of the way there per frame, which is a
-	# smoothing over two or three frames and not a decay.
-	var applied := previous.lerp(wanted, 0.5)
-	layer["applied"] = applied
-	# Added to the camera, not assigned over it: the camera is back on whatever
-	# baseline its own owners left it, and this is one more thing moving the eye
-	# rather than the whole of what moves it.
-	camera.h_offset += applied.x
-	camera.v_offset += applied.y
+	return strength * (layer["offset"] as Vector2)
 
 
 # The write of the last frame, taken back off before the next one: only what this

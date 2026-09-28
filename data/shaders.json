@@ -8,7 +8,7 @@
   "shaders": [
     {
       "id": "anime",
-      "name": "Anime Look",
+      "name": "Hand Drawn",
       "kind": "world",
       "shader": "res://shaders/anime.gdshader",
       "enabled": false,
@@ -16,7 +16,8 @@
         { "key": "anime_flatten", "label": "Flat Colour", "type": "float", "default": 0.8, "min": 0.0, "max": 1.0, "step": 0.05 },
         { "key": "anime_radius", "label": "Colour Window", "type": "float", "default": 2.0, "min": 1.0, "max": 3.0, "step": 1.0, "suffix": " px" },
         { "key": "anime_bands", "label": "Shading Steps", "type": "float", "default": 5.0, "min": 2.0, "max": 8.0, "step": 1.0 },
-        { "key": "anime_outline", "label": "Outline", "type": "float", "default": 0.7, "min": 0.0, "max": 1.0, "step": 0.05 },
+        { "key": "anime_shading", "label": "Shading", "type": "float", "default": 1.0, "min": 0.0, "max": 1.0, "step": 0.05 },
+        { "key": "anime_outline", "label": "Outline", "type": "float", "default": 0.55, "min": 0.0, "max": 1.0, "step": 0.05 },
         { "key": "anime_outline_width", "label": "Outline Width", "type": "float", "default": 1.0, "min": 1.0, "max": 3.0, "step": 1.0, "suffix": " px" },
         { "key": "anime_saturation", "label": "Colour Punch", "type": "float", "default": 1.15, "min": 0.5, "max": 2.0, "step": 0.05 }
       ]

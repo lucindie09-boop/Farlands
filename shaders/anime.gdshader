@@ -64,8 +64,15 @@ uniform float anime_radius : hint_range(1.0, 3.0, 1.0) = 2.0;
 // ink line, so this is the noise the outlines are willing to ignore.
 uniform float anime_bands : hint_range(2.0, 8.0, 1.0) = 5.0;
 
+// How much of the frame's own light is replaced by those flats. At 1 the shading
+// is the bands and nothing else, at 0 the frame keeps its whole gradient and the
+// pass is the flattening and the ink; it exists because how hard a step has to
+// land is a matter of taste and of what the frame under it is doing, and a knob
+// is a better answer to that than a number chosen here.
+uniform float anime_shading : hint_range(0.0, 1.0) = 1.0;
+
 // How dark the ink is drawn, as a multiplier on what is under it. 0 draws no ink.
-uniform float anime_outline : hint_range(0.0, 1.0) = 0.7;
+uniform float anime_outline : hint_range(0.0, 1.0) = 0.55;
 
 // How far away the line is looked for, in screen pixels. Wider lines survive on
 // a picture with more texture in it.
@@ -112,6 +119,16 @@ const vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);
 float luminance(vec3 c) {
     return dot(c, LUMA);
 }
+
+// The most the shading may move a pixel either way. Banding is the frame's light
+// rounded to a few steps, and the rounding is only a look while a step stays a
+// step: at the bottom of the scale the flat a pixel rounds *down* to is zero, and
+// a colour multiplied by nothing is black. That is not a band, it is a contrast
+// control wound up - the first version of this pass did exactly that, and it
+// turned every shadow in the picture into a blotch. Bounding the gain is what
+// keeps a band a band: the darkest pixel can be taken a third of the way down and
+// the brightest a third of the way up, and no further.
+const float SHADE_GAIN = 1.3;
 
 // The shading map, and the same map the ink is measured on: the brightness
 // quantised into `steps` flats, with the step itself softened over a third of a
@@ -221,7 +238,8 @@ void fragment() {
     // the frame is painted in.
     vec3 colour = mix(frame, flatten_around(UV, radius), anime_flatten);
     float brightness = luminance(colour);
-    colour *= shade(brightness, steps) / max(brightness, 0.0001);
+    float banded = mix(brightness, shade(brightness, steps), anime_shading);
+    colour *= clamp(banded / max(brightness, 0.0001), 1.0 / SHADE_GAIN, SHADE_GAIN);
 
     float line = smoothstep(INK_FLOOR, INK_CEIL, edge_here(UV, steps)) * anime_outline;
     colour *= mix(1.0, INK_LEVEL, line);

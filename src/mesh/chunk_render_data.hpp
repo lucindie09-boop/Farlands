@@ -87,12 +87,14 @@ struct ChunkRenderData {
     // Whether the shader material has been set on this mesh RID (avoids redundant RS calls)
     bool material_set = false;
 
-    // How far World Bend's culling compensation has grown this chunk's
-    // instance AABB (0 = the mesh's own box, which is also what a world with the
-    // bend switched off wants). Kept so the per-frame refresh can skip the
-    // RenderingServer call for every chunk whose margin did not really change -
-    // which is all of them while the camera is standing still.
-    float bend_cull_margin = -1.0f;
+    // How far the world effects' culling compensation has grown this chunk's
+    // instance AABB: the growth sideways and the growth downward (both 0 = the
+    // mesh's own box, which is also what a world with both effects switched off
+    // wants). Kept so the per-block refresh can skip the RenderingServer call
+    // for every chunk whose margin did not really change - which is all of them
+    // while the camera is standing still. See core/world_cull.hpp's
+    // `world_cull_growth`; a negative component means never touched.
+    godot::Vector2 cull_growth = godot::Vector2(-1.0f, -1.0f);
 
     // Track the last built detail level for LOD transitions
     float last_built_detail_level = 1.0f;

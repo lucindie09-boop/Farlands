@@ -191,13 +191,14 @@ public:
 void set_smooth_lighting(bool enabled);
 bool get_smooth_lighting() const;
 
-    // World Bend (the Shaders menu's first entry) moves the world's vertices in
-    // a vertex shader, which runs after the engine has culled it, so the chunks
-    // would be culled against where they used to be. The overlay hands the four
-    // knobs here as well as to the shader; the boxes are grown to match in
-    // _process, where the camera is known. Off by default, and doing nothing
-    // while it is off.
+    // The Shaders menu's two geometry effects - World Bend and the Horizon
+    // Curve - move the world's vertices in a vertex shader, which runs after the
+    // engine has culled it, so the chunks would be culled against where they used
+    // to be. The overlay hands each effect's own knobs here as well as to its
+    // materials; the boxes are grown to match in _process, where the camera is
+    // known. Off by default, and doing nothing while both are off.
     void set_world_bend(bool enabled, double amount, double radius, double rise);
+    void set_world_horizon(bool enabled, double radius);
 
     // Whether chunks are still being generated or meshed, so a caller can wait
     // for a settled world rather than guessing a number of frames.

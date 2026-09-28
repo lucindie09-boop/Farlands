@@ -214,8 +214,12 @@ void VoxelEngineController::set_world_bend(bool enabled, double amount, double r
                                 static_cast<float>(radius), static_cast<float>(rise));
 }
 
-void VoxelEngineController::update_world_bend_cull(const godot::Vector3& camera_position) {
-    mesh_manager.update_world_bend_cull(camera_position);
+void VoxelEngineController::set_world_horizon(bool enabled, double radius) {
+    mesh_manager.set_world_horizon(enabled, static_cast<float>(radius));
+}
+
+void VoxelEngineController::update_world_cull(const godot::Vector3& camera_position) {
+    mesh_manager.update_world_cull(camera_position);
 }
 
 void VoxelEngineController::update_chunks(bool is_editor) {

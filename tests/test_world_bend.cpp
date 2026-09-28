@@ -3,7 +3,7 @@
 //
 // The bend's authority is shaders/world_bend.gdshaderinc; nothing here re-decides
 // what it does. What is tested is the second implementation of it in
-// core/world_bend.hpp — the one culling uses — against two properties that
+// core/world_cull.hpp — the one culling uses — against two properties that
 // culling cannot be wrong about:
 //
 //   1. every point of a box, warped, is inside the box the cull AABB gives back.
@@ -27,53 +27,20 @@
 #include <cmath>
 #include <vector>
 
-#include "core/world_bend.hpp"
+#include "core/world_cull.hpp"
+#include "world_effect_warp.hpp"
 
 using namespace VoxelEngine;
 using godot::AABB;
 using godot::Vector3;
+// The bend as the shader does it, transcribed from the include, and the two
+// helpers a containment is stated in - shared with the Horizon Curve's own test,
+// so neither test can drift from the shaders without the other noticing.
+using warptest::bend_warp;
+using warptest::contains;
+using warptest::outside_by;
 
 namespace {
-
-// The include's `world_bend_position`, point for point: the same relative
-// vector, the same arctan wrap, the same convex mix, the same levelled-off lift,
-// and the same two guards.
-Vector3 warp(const Vector3& world, const Vector3& camera, const WorldBendParams& p) {
-    if (!p.enabled || p.amount <= 0.0f) return world;
-    const Vector3 relative = world - camera;
-    const float horizontal = std::sqrt(relative.x * relative.x + relative.z * relative.z);
-    if (horizontal < 0.0001f) return world;
-    const float radius = std::max(p.radius, 1.0f);
-    const float wrapped = std::atan(horizontal / radius) * radius;
-    const float closed = horizontal + p.amount * (wrapped - horizontal);
-    const float ratio = horizontal / radius;
-    const float lift = p.amount * p.rise * radius * (1.0f - 1.0f / std::sqrt(1.0f + ratio * ratio));
-    const float scale = closed / horizontal;
-    return Vector3(camera.x + relative.x * scale,
-                   world.y + lift,
-                   camera.z + relative.z * scale);
-}
-
-bool contains(const AABB& box, const Vector3& point) {
-    const Vector3 far_corner = box.position + box.size;
-    return point.x >= box.position.x && point.x <= far_corner.x
-        && point.y >= box.position.y && point.y <= far_corner.y
-        && point.z >= box.position.z && point.z <= far_corner.z;
-}
-
-// How far a point sits outside a box, in blocks, in its worst axis. Zero for a
-// point inside it.
-float outside_by(const AABB& box, const Vector3& point) {
-    const Vector3 far_corner = box.position + box.size;
-    float worst = 0.0f;
-    worst = std::max(worst, box.position.x - point.x);
-    worst = std::max(worst, point.x - far_corner.x);
-    worst = std::max(worst, box.position.y - point.y);
-    worst = std::max(worst, point.y - far_corner.y);
-    worst = std::max(worst, box.position.z - point.z);
-    worst = std::max(worst, point.z - far_corner.z);
-    return worst;
-}
 
 // The chunk-shaped boxes the renderer hands in: a 32-block chunk box, and the
 // far-field regions, which are several chunks across.
@@ -143,7 +110,7 @@ TEST_CASE("world bend: the cull box contains everything the shader moves into it
                         world_box.position.x + world_box.size.x * static_cast<float>(i) / (steps - 1),
                         world_box.position.y + world_box.size.y * static_cast<float>(j) / (steps - 1),
                         world_box.position.z + world_box.size.z * static_cast<float>(k) / (steps - 1));
-                    const Vector3 moved = warp(point, c.camera, c.params);
+                    const Vector3 moved = bend_warp(point, c.camera, c.params);
                     // The cull box is in the instance's local space; the camera
                     // and the warp are in world space, which is the same space
                     // shifted by the origin.

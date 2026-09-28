@@ -1,10 +1,13 @@
 shader_type spatial;
 render_mode blend_mix, unshaded, cull_back, depth_draw_always;
 
-// World Bend (the Shaders menu's other entry): the world's own vertices moved,
-// shared with the terrain material so the surface of a lake stays welded to the
-// shore it is set into. See the include.
+// The Shaders menu's two geometry effects: World Bend moves the world's own
+// vertices, and the Horizon Curve sinks the far field the way a sphere's own
+// surface falls away. Both are shared with the terrain material so ground and
+// water do the same thing to the same vertices, which is what keeps a shoreline
+// welded to the shore it is set into. See the two includes.
 #include "res://shaders/world_bend.gdshaderinc"
+#include "res://shaders/world_horizon.gdshaderinc"
 
 // The water's own part of it: the ripple the surface carries. The terrain does
 // not declare this and does not want it.
@@ -93,17 +96,29 @@ vec3 decode_normal(float encoded) {
 void vertex(){
     vec3 camera_position=INV_VIEW_MATRIX[3].xyz;
 
-    // As on the terrain, and by the same function at the same place, so a
-    // shoreline cannot open up as the world bends: the two materials share the
-    // vertices along it, and a bend that is a function of world position moves
+    // As on the terrain, and by the same functions at the same place, so a
+    // shoreline cannot open up as the world moves: the two materials share the
+    // vertices along it, and a move that is a function of world position moves
     // shared vertices the same way whichever material is drawing them. The one
     // difference is `world_bend_sway`, which is the ripple the water surface
     // carries and the ground does not.
     vec3 unbent=(MODEL_MATRIX*vec4(VERTEX,1.0)).xyz;
-    vec3 bent=world_bend_position(unbent, camera_position, world_bend_sway);
-    VERTEX=(inverse(MODEL_MATRIX)*vec4(bent,1.0)).xyz;
 
-    world_position=bent;
+    // As on the terrain, and for the same reason: with both effects off the
+    // vertex is left where the mesh put it and the mesh's matrix is never
+    // inverted.
+    vec3 world=unbent;
+    if (world_bend_active() || world_horizon_active()) {
+        if (world_bend_active()) {
+            world=world_bend_position(unbent, camera_position, world_bend_sway);
+        }
+        if (world_horizon_active()) {
+            world.y-=world_horizon_drop(unbent, camera_position);
+        }
+        VERTEX=(inverse(MODEL_MATRIX)*vec4(world,1.0)).xyz;
+    }
+
+    world_position=world;
     world_normal=normalize((MODEL_MATRIX*vec4(decode_normal(CUSTOM1.b),0.0)).xyz);
 
     view_direction=normalize(world_position-camera_position);

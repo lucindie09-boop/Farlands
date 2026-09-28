@@ -167,10 +167,10 @@ void ChunkManager::_process(double delta) {
         }
     }
 
-    // The bend is measured from the camera, so the boxes the chunks are culled
-    // against depend on where it is. This is a no-op unless the bend is on or
-    // the camera has moved a whole block since the last refresh.
-    controller->update_world_bend_cull(player_pos);
+    // Both world effects are measured from the camera, so the boxes the chunks
+    // are culled against depend on where it is. This is a no-op unless one of
+    // them is on or the camera has moved a whole block since the last refresh.
+    controller->update_world_cull(player_pos);
 
     controller->update(delta, is_editor, player_pos);
     update_environment();
@@ -712,6 +712,10 @@ void ChunkManager::set_world_bend(bool enabled, double amount, double radius, do
     controller->set_world_bend(enabled, amount, radius, rise);
 }
 
+void ChunkManager::set_world_horizon(bool enabled, double radius) {
+    controller->set_world_horizon(enabled, radius);
+}
+
 bool ChunkManager::has_pending_mesh_work() const { return controller->has_pending_mesh_work(); }
 
 void ChunkManager::set_lod_distance(int32_t distance) { controller->set_lod_distance(distance); }
@@ -1100,6 +1104,8 @@ ClassDB::bind_method(D_METHOD("get_sun_direction"), &ChunkManager::get_sun_direc
 BIND_PROP(Variant::BOOL, smooth_lighting, "enabled");
     ClassDB::bind_method(D_METHOD("set_world_bend", "enabled", "amount", "radius", "rise"),
                          &ChunkManager::set_world_bend);
+    ClassDB::bind_method(D_METHOD("set_world_horizon", "enabled", "radius"),
+                         &ChunkManager::set_world_horizon);
     ClassDB::bind_method(D_METHOD("has_pending_mesh_work"), &ChunkManager::has_pending_mesh_work);
     ClassDB::bind_method(D_METHOD("set_lod_distance", "distance"), &ChunkManager::set_lod_distance);
     ClassDB::bind_method(D_METHOD("get_lod_distance"), &ChunkManager::get_lod_distance);

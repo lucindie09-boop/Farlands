@@ -29,10 +29,22 @@ const DEFINITIONS_PATH := "res://data/shaders.json"
 # Where the world's engine lives, for the one thing a world effect needs from it
 # that a shader cannot do itself: the chunks are culled against boxes that say
 # where the world *was*, because a vertex shader runs after the engine has
-# decided what to draw. A bent world would therefore have its far field culled
-# away. The bend's four knobs go to the engine as well as to the material, and
-# the engine grows those boxes to where the shader will put the geometry - see
-# src/mesh/mesh_manager_bend.cpp.
+# decided what to draw. A bent or curved world would therefore have its far field
+# culled away. Each effect's own knobs go to the engine as well as to its
+# materials, and the engine grows those boxes to where the shaders will put the
+# geometry - see src/core/world_cull.hpp and src/mesh/mesh_manager_cull.cpp.
+
+# The knobs each world effect hands the engine, in the order that effect's own
+# method takes them: an effect's `id` names the method it is told through
+# (`bend` -> set_world_bend, `horizon` -> set_world_horizon), and this list is
+# what the culling arithmetic needs of it, which is not the same list the menu
+# offers. The water's ripple is a knob the menu offers and the culling has no use
+# for: it moves the surface sideways, and the slack the box already carries is
+# wider than its whole slider.
+const WORLD_ENGINE_KNOBS := {
+	"bend": ["world_bend", "world_bend_radius", "world_bend_rise"],
+	"horizon": ["world_horizon_radius"],
+}
 
 
 var _definitions: Array = []
@@ -62,8 +74,9 @@ func _ready() -> void:
 	get_viewport().size_changed.connect(_push_frame_size)
 	# Deferred, because a sibling's `_ready` may not have run yet and the engine
 	# is a sibling. Pushed once here even though nothing has changed: the engine
-	# starts with the bend off and has to be told that the effect exists at all.
-	_push_world_bend.call_deferred()
+	# starts with both world effects off and has to be told that they exist at
+	# all.
+	_push_world_effects.call_deferred()
 
 
 # --- The registry -------------------------------------------------------------
@@ -105,7 +118,7 @@ func set_enabled(id: String, enabled: bool) -> void:
 		# itself, and what the switch means there is the effect's own strength
 		# multiplied by nothing.
 		_push(layer, String(layer.get("enable_key", "")), 1.0 if enabled else 0.0)
-		_push_world_bend.call_deferred()
+		_push_world_effects.call_deferred()
 
 
 # --- Param values -------------------------------------------------------------
@@ -120,17 +133,19 @@ func set_value(id: String, key: String, value: Variant) -> void:
 		return
 	_values[id][key] = value
 	_push(_layers.get(id, {}), key, value)
-	_push_world_bend.call_deferred()
+	_push_world_effects.call_deferred()
 
 
-# The world effect's own state, handed to the engine as well as to the material,
-# because the engine culls the chunks against boxes that describe where the world
-# was: a shader cannot widen them and the engine cannot read a shader. Deferred
-# by the callers rather than pushed straight away, because this is reached once
-# per row while the menu is being built and taking it costs the engine a walk
-# over every resident chunk.
-func _push_world_bend() -> void:
-	if _world == null or not is_instance_valid(_world) or not _world.has_method("set_world_bend"):
+# Every world effect's own state, handed to the engine as well as to its
+# materials, because the engine culls the chunks against boxes that describe where
+# the world was: a shader cannot widen them and the engine cannot read a shader.
+# One walk over the registry tells each effect's method what its own knobs are;
+# a world effect whose knobs the engine has no method for is skipped here rather
+# than pushed into a method that does not exist. Deferred by the callers rather
+# than pushed straight away, because this is reached once per row while the menu
+# is being built and taking it costs the engine a walk over every resident chunk.
+func _push_world_effects() -> void:
+	if not _can_take_world_effects(_world):
 		_world = _find_world()
 		if _world == null:
 			return
@@ -138,26 +153,55 @@ func _push_world_bend() -> void:
 		if String(definition.get("kind", "screen")) != "world":
 			continue
 		var id := String(definition.get("id", ""))
+		var method := "set_world_" + id
+		if not _world.has_method(method):
+			push_error("shader_overlay: the world effect '%s' needs %s and the engine has no such method" % [id, method])
+			continue
 		var values: Dictionary = _values.get(id, {})
-		_world.set_world_bend(bool(_enabled.get(id, false)),
-			float(values.get("world_bend", 0.0)),
-			float(values.get("world_bend_radius", 256.0)),
-			float(values.get("world_bend_rise", 1.0)))
+		var args: Array = [bool(_enabled.get(id, false))]
+		for key in WORLD_ENGINE_KNOBS.get(id, []):
+			args.append(float(values.get(key, 0.0)))
+		_world.callv(method, args)
+
+
+# The methods the engine has to have: the registry's world effects, each named by
+# its own id. A node is the world's engine for this purpose only when it can take
+# all of them, because requiring every one rather than any one is what makes a
+# half-wired engine a node that is not found - rather than a node that silently
+# stops growing boxes for the effect it forgot.
+func _world_methods() -> Array:
+	var methods: Array = []
+	for definition in _definitions:
+		if String(definition.get("kind", "screen")) == "world":
+			methods.append("set_world_" + String(definition.get("id", "")))
+	return methods
+
+
+func _can_take_world_effects(node: Node) -> bool:
+	if node == null or not is_instance_valid(node):
+		return false
+	var methods := _world_methods()
+	if methods.is_empty():
+		return false
+	for method in methods:
+		if not node.has_method(method):
+			return false
+	return true
 
 
 # The engine is a node in the same scene, but not at a fixed depth: this is a
 # child of the HUD, so a sibling of the HUD is an uncle of this, and a path that
 # was right yesterday is a path that silently stops working today. So it is found
 # by asking: walk outwards from here and take the first node that can take the
-# bend at all. Cached once found (the outer test re-checks it every push, so a
-# freed engine is re-found rather than quietly dropped).
+# world's effects at all. Cached once found (the outer test re-checks it every
+# push, so a freed engine is re-found rather than quietly dropped).
 func _find_world() -> Node:
 	var node: Node = self
 	while node != null:
-		if node.has_method("set_world_bend"):
+		if _can_take_world_effects(node):
 			return node
 		for child in node.get_children():
-			if child.has_method("set_world_bend"):
+			if _can_take_world_effects(child):
 				return child
 		node = node.get_parent()
 	return null

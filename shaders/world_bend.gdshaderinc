@@ -46,11 +46,21 @@ uniform float world_bend_rise = 1.0;
 const float WORLD_BEND_SWAY_RATE = 0.6;
 const float WORLD_BEND_SWAY_WAVES = 0.35;
 
+// Whether the bend is on at all. The two consumers ask this themselves, before
+// they call in, because the way back from world space to the mesh's own space is
+// the inverse of the mesh's matrix, and that is not a thing to compute per
+// vertex on every chunk of the world for an effect that is switched off - which
+// is how this one ships. With the switch off the vertex stage is the shader the
+// world had before the bend existed: it never inverts anything.
+bool world_bend_active() {
+    return world_bend_on >= 0.5 && world_bend > 0.0;
+}
+
 // Where a world position ends up. `sway` is the water's ripple in blocks, and
 // the terrain passes 0 for it: only the water material declares the knob, and
 // a world whose *ground* ripples is a different effect with a different name.
 vec3 world_bend_position(vec3 world, vec3 camera_position, float sway) {
-    if (world_bend_on < 0.5 || world_bend <= 0.0) {
+    if (!world_bend_active()) {
         return world;
     }
 

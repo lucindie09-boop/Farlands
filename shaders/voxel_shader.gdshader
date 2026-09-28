@@ -1,9 +1,12 @@
 shader_type spatial;
 render_mode unshaded, cull_back, depth_draw_always;
 
-// World Bend (the Shaders menu's other entry): the world's own vertices moved,
-// shared with the water material so both bend identically. See the include.
+// The Shaders menu's two geometry effects: World Bend moves the world's own
+// vertices, and the Horizon Curve sinks the far field the way a sphere's own
+// surface falls away. Both are shared with the water material so ground and
+// water do the same thing to the same vertices. See the two includes.
 #include "res://shaders/world_bend.gdshaderinc"
+#include "res://shaders/world_horizon.gdshaderinc"
 
 uniform sampler2DArray texture_array : filter_nearest_mipmap;
 uniform sampler2DArray emissive_array : filter_nearest_mipmap;
@@ -77,20 +80,42 @@ void vertex(){
 
     vec3 camera_position=INV_VIEW_MATRIX[3].xyz;
 
-    // The bend moves the vertex where it is, in world space, and puts it back
+    // Both effects move the vertex where it is, in world space, and put it back
     // into the mesh's own space so the engine's transform, clipping, culling and
-    // depth all see the bent world as simply the world. Everything the fragment
-    // stage is told about the vertex follows the bent position - how far a block
+    // depth all see the moved world as simply the world. Everything the fragment
+    // stage is told about the vertex follows the moved position - how far a block
     // is from the player's light, which way this face points - while the fog is
-    // told the distance to where the block *is*, so bending the far field up
-    // over the horizon does not bring the edge of the loaded world into view.
-    // The terrain carries no ripple: that is the water's, and it is passed by
-    // the water material below.
+    // told the distance to where the block *is*, so bending the far field up over
+    // the horizon (or sinking it below the horizon) does not bring the edge of
+    // the loaded world into view. The terrain carries no ripple: that is the
+    // water's, and it is passed by the water material below.
     vec3 unbent=(MODEL_MATRIX*vec4(VERTEX,1.0)).xyz;
-    vec3 bent=world_bend_position(unbent, camera_position, 0.0);
-    VERTEX=(inverse(MODEL_MATRIX)*vec4(bent,1.0)).xyz;
 
-    world_position=bent;
+    // With both effects switched off, the vertex stage is the shader the world
+    // had before either of them existed: the vertex is left exactly where the
+    // mesh put it and nothing is inverted. The way back from world space to the
+    // mesh's own space is the inverse of the mesh's matrix, which is not
+    // something to spend per vertex on every chunk of the world every frame for
+    // two effects that ship off. Each test is on a uniform, so every vertex of a
+    // draw call takes the same side of it, and the half that is not taken is not
+    // executed.
+    vec3 world=unbent;
+    if (world_bend_active() || world_horizon_active()) {
+        if (world_bend_active()) {
+            world=world_bend_position(unbent, camera_position, 0.0);
+        }
+        if (world_horizon_active()) {
+            // Both are measured from where the vertex really is, so the two are
+            // independent of each other's order: the horizon sinks the world the
+            // bend has already moved, and each is the same picture whether or
+            // not the other is switched on. Only y moves, so nothing here can
+            // open a seam in a surface the bend left welded.
+            world.y-=world_horizon_drop(unbent, camera_position);
+        }
+        VERTEX=(inverse(MODEL_MATRIX)*vec4(world,1.0)).xyz;
+    }
+
+    world_position=world;
     world_normal=normalize((MODEL_MATRIX*vec4(decode_normal(CUSTOM1.b),0.0)).xyz);
 
     view_direction=normalize(world_position-camera_position);

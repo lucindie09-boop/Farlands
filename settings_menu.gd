@@ -495,12 +495,20 @@ func _build_tools_page() -> Control:
 
 # Shaders is its own page, entered from the pause menu: a screen shader is not a
 # property of the world. Its rows come from data/shaders.json, so a new shader is
-# a new entry there and nothing here: one row per shader under the page's
-# category heading, and that row is the switch plus the button that opens the
-# page the shader's own uniforms live on. The uniforms are not on this page
-# because one shader with a dozen knobs per entry buries the next shader below
-# the fold; the switch stays here because flipping the whole stack is a different
-# job from tuning one member of it.
+# a new entry there and nothing here: one row per shader, and that row is the
+# switch plus the button that opens the page the shader's own uniforms live on.
+# The uniforms are not on this page because one shader with a dozen knobs per
+# entry buries the next shader below the fold; the switch stays here because
+# flipping the whole stack is a different job from tuning one member of it.
+#
+# The rows are grouped by the *kind* of effect, one category per kind, in the
+# order the registry lists the kinds and under the name it gives each one - and a
+# kind with nothing in it is not shown at all, which is what makes the next kind a
+# shader and a registry entry rather than a page of code here. Two effects that
+# are two different kinds of thing should not read as one list: one of them is a
+# picture laid over the frame and the other is the world's own geometry, and a
+# player looking for the switch that curves the ground should not have to find it
+# under a CRT's heading.
 #
 # Every row's setter writes through to `shader_overlay` as it is dragged, so a
 # slider's effect is on screen while it is being dragged, and `syncs` collects
@@ -508,15 +516,52 @@ func _build_tools_page() -> Control:
 # the state out of band, and the rows have to be pulled back in step with it. One
 # list is shared with the per-shader pages, which is exactly why it is a list.
 func _build_shaders_page(syncs: Array) -> Control:
+	var u := _ui_scale()
+	# The import/export icons and their status line belong to the whole stack
+	# rather than to one category of it: the code carries every shader, so the
+	# icons ride on the first category that has any rows and the status line stays
+	# at the bottom of the page, below all of them.
+	var hint := _make_hint_label(u)
+	var codec_moved := false
 	var sections: Array = []
-	# Not "screen shaders" any more: the registry holds both the passes drawn over
-	# the frame and the one that bends the world's own geometry, and the list is
-	# the same list for either.
-	sections.append_array(_category("Shader Effects", _build_shader_sections(syncs)))
+	for kind in _shader_kinds():
+		var rows := _build_shader_rows(syncs, String(kind.get("kind", "")))
+		if rows.is_empty():
+			continue
+		var codec := _shader_codec(syncs, hint) if not codec_moved else {}
+		codec_moved = true
+		sections.append_array(_category(_shader_kind_name(kind), [["", rows, codec]]))
+	if not codec_moved:
+		# No shader at all in the registry: the page still has to exist, and its
+		# code is the empty stack's.
+		sections.append_array(_category("Shader Effects", [["", [], _shader_codec(syncs, hint)]]))
+	sections.append(["", [["", hint, null, "span"]]])
 
 	return _build_scrolling_page("Shaders", sections,
 		[["Back", func(): _show_page("pause")], ["Done", _close]], UNIT_OPTION_W,
 		2, Color(0, 0, 0, 0))
+
+# The kinds the page groups by, in the registry's own order. A registry that
+# forgot to declare them still gets a page: the fallback is the definitions
+# themselves, grouped by their own `kind` in the order they appear, with the kind
+# itself as the heading - every shader reachable, rather than one heading with
+# most of its rows missing from it.
+func _shader_kinds() -> Array:
+	var kinds: Array = shader_overlay.get_kinds() if shader_overlay else []
+	if not kinds.is_empty():
+		return kinds
+	var seen: Array = []
+	for definition in _shader_definitions():
+		var id := String(definition.get("kind", "screen"))
+		if not seen.has(id):
+			seen.append({"kind": id, "name": id})
+	return seen
+
+# What a kind's category is called: the registry's name for it, or the kind
+# itself if it has none, which is all a registry that forgets one deserves.
+func _shader_kind_name(kind: Dictionary) -> String:
+	var id := String(kind.get("kind", ""))
+	return String(kind.get("name", id)) if kind.has("name") else id
 
 # One shader's own page: one row per uniform in registry order, and nothing
 # else. In particular no switch of its own - that would be the same switch twice,
@@ -558,17 +603,16 @@ func _shader_switch(definition: Dictionary, syncs: Array, width: float) -> Array
 		show.call(start)
 		_schedule_save()]
 
-# This page's category: one row per shader, its label the shader's own name and
-# its option the switch with the button that opens that shader's own page beside
-# it, so the whole stack can be flipped on and off without scrolling through
-# fourteen uniform rows to find the one that turns it off.
-func _build_shader_sections(syncs: Array) -> Array:
+# One category's rows: one per shader of that kind, its label the shader's own
+# name and its option the switch with the button that opens that shader's own page
+# beside it, so a whole category can be flipped on and off without scrolling
+# through fourteen uniform rows to find the one that turns it off.
+func _build_shader_rows(syncs: Array, kind: String) -> Array:
 	var u := _ui_scale()
-	# Status hint for import/export feedback, as the last row of the list.
-	var hint := _make_hint_label(u)
-
 	var rows: Array = []
 	for definition in _shader_definitions():
+		if String(definition.get("kind", "screen")) != kind:
+			continue
 		var id := String(definition.get("id", ""))
 		var name := String(definition.get("name", id))
 		# The switch and the settings icon share the option column, so the switch
@@ -584,8 +628,14 @@ func _build_shader_sections(syncs: Array) -> Array:
 		pair.add_child(option[0])
 		pair.add_child(settings_btn)
 		rows.append([name, pair, option[1], "pair"])
+	return rows
 
-	var codec := {
+# The whole stack's export/import code, as a category's codec: the icons the
+# heading draws from it act on every shader there is, not on the category they
+# happen to sit on, and `refresh` is what pulls every row of every page back in
+# step after an imported code sets the state out of band.
+func _shader_codec(syncs: Array, hint: Label) -> Dictionary:
+	return {
 		"export": _export_shaders_code,
 		"import": _import_shaders_code,
 		"refresh": func():
@@ -593,11 +643,6 @@ func _build_shader_sections(syncs: Array) -> Array:
 				sync.call(),
 		"hint": hint,
 	}
-
-	return [
-		["", rows, codec],
-		["", [["", hint, null, "span"]]],
-	]
 
 # One shader's uniforms, in the order the registry lists them.
 func _build_shader_param_rows(definition: Dictionary, syncs: Array) -> Array:

@@ -9,13 +9,19 @@ extends Control
 #     and passes the frame already drawn beneath it (the world, plus whichever
 #     HUD art this node sits above in Main.tscn) through its shader. One that is
 #     off is simply hidden, so an off stack costs nothing but a hidden Control.
-#   - a 'world' effect gets no rect, because it is not a picture of the world but
+#   - a 'vertex' effect gets no rect, because it is not a picture of the world but
 #     the world: it names the materials the world is drawn with (the registry's
 #     `materials`), and this node moves *their* uniforms. Those materials are
 #     loaded rather than instantiated, so they are the very resources the engine
 #     draws with. Such an effect has nothing to hide, so its switch is pushed as
 #     a uniform as well (`enable_key`), and the shaders multiply the effect by
 #     nothing when it is off.
+#
+# The registry also lists the kinds themselves (`kinds`), in the order the
+# Shaders page shows them and with the name each category is given there, which
+# is what `get_kinds` hands the menu: the page is grouped by the kind of effect,
+# and a kind with nothing in it is not shown at all, so the next kind is an entry
+# in that list and a shader rather than a page of menu code.
 #
 # This node owns the state but not the file: settings_menu.gd is the one that
 # reads and writes user://settings.cfg, so the Shaders page calls in here for
@@ -26,7 +32,7 @@ extends Control
 
 const DEFINITIONS_PATH := "res://data/shaders.json"
 
-# Where the world's engine lives, for the one thing a world effect needs from it
+# Where the world's engine lives, for the one thing a vertex effect needs from it
 # that a shader cannot do itself: the chunks are culled against boxes that say
 # where the world *was*, because a vertex shader runs after the engine has
 # decided what to draw. A bent or curved world would therefore have its far field
@@ -34,22 +40,25 @@ const DEFINITIONS_PATH := "res://data/shaders.json"
 # materials, and the engine grows those boxes to where the shaders will put the
 # geometry - see src/core/world_cull.hpp and src/mesh/mesh_manager_cull.cpp.
 
-# The knobs each world effect hands the engine, in the order that effect's own
+# The knobs each vertex effect hands the engine, in the order that effect's own
 # method takes them: an effect's `id` names the method it is told through
 # (`bend` -> set_world_bend, `horizon` -> set_world_horizon), and this list is
 # what the culling arithmetic needs of it, which is not the same list the menu
 # offers. The water's ripple is a knob the menu offers and the culling has no use
 # for: it moves the surface sideways, and the slack the box already carries is
 # wider than its whole slider.
-const WORLD_ENGINE_KNOBS := {
+const VERTEX_ENGINE_KNOBS := {
 	"bend": ["world_bend", "world_bend_radius", "world_bend_rise"],
 	"horizon": ["world_horizon_radius"],
 }
 
 
 var _definitions: Array = []
+# The registry's own list of kinds, in the menu's order: the Shaders page groups
+# its rows by them and takes each category's name from here.
+var _kinds: Array = []
 # id -> { kind, rect, materials, uniforms, enable_key }. A screen effect has a
-# rect of its own to hide; a world effect has neither, and its switch is a
+# rect of its own to hide; a vertex effect has neither, and its switch is a
 # uniform on the materials it drives.
 var _layers: Dictionary = {}
 var _enabled: Dictionary = {}  # id -> bool
@@ -76,7 +85,7 @@ func _ready() -> void:
 	# is a sibling. Pushed once here even though nothing has changed: the engine
 	# starts with both world effects off and has to be told that they exist at
 	# all.
-	_push_world_effects.call_deferred()
+	_push_vertex_effects.call_deferred()
 
 
 # --- The registry -------------------------------------------------------------
@@ -90,6 +99,13 @@ func get_shader_ids() -> Array:
 	for definition in _definitions:
 		ids.append(String(definition.get("id", "")))
 	return ids
+
+
+## The kinds of effect the registry knows, in the order the Shaders page lists
+## them: [{ kind, name }, ...]. The menu is the registry's own shape, which is
+## what makes a third kind an entry there rather than a page of code here.
+func get_kinds() -> Array:
+	return _kinds
 
 
 func get_shader_name(id: String) -> String:
@@ -118,7 +134,7 @@ func set_enabled(id: String, enabled: bool) -> void:
 		# itself, and what the switch means there is the effect's own strength
 		# multiplied by nothing.
 		_push(layer, String(layer.get("enable_key", "")), 1.0 if enabled else 0.0)
-		_push_world_effects.call_deferred()
+		_push_vertex_effects.call_deferred()
 
 
 # --- Param values -------------------------------------------------------------
@@ -133,54 +149,54 @@ func set_value(id: String, key: String, value: Variant) -> void:
 		return
 	_values[id][key] = value
 	_push(_layers.get(id, {}), key, value)
-	_push_world_effects.call_deferred()
+	_push_vertex_effects.call_deferred()
 
 
-# Every world effect's own state, handed to the engine as well as to its
+# Every vertex effect's own state, handed to the engine as well as to its
 # materials, because the engine culls the chunks against boxes that describe where
 # the world was: a shader cannot widen them and the engine cannot read a shader.
 # One walk over the registry tells each effect's method what its own knobs are;
-# a world effect whose knobs the engine has no method for is skipped here rather
+# a vertex effect whose knobs the engine has no method for is skipped here rather
 # than pushed into a method that does not exist. Deferred by the callers rather
 # than pushed straight away, because this is reached once per row while the menu
 # is being built and taking it costs the engine a walk over every resident chunk.
-func _push_world_effects() -> void:
-	if not _can_take_world_effects(_world):
+func _push_vertex_effects() -> void:
+	if not _can_take_vertex_effects(_world):
 		_world = _find_world()
 		if _world == null:
 			return
 	for definition in _definitions:
-		if String(definition.get("kind", "screen")) != "world":
+		if String(definition.get("kind", "screen")) != "vertex":
 			continue
 		var id := String(definition.get("id", ""))
 		var method := "set_world_" + id
 		if not _world.has_method(method):
-			push_error("shader_overlay: the world effect '%s' needs %s and the engine has no such method" % [id, method])
+			push_error("shader_overlay: the vertex effect '%s' needs %s and the engine has no such method" % [id, method])
 			continue
 		var values: Dictionary = _values.get(id, {})
 		var args: Array = [bool(_enabled.get(id, false))]
-		for key in WORLD_ENGINE_KNOBS.get(id, []):
+		for key in VERTEX_ENGINE_KNOBS.get(id, []):
 			args.append(float(values.get(key, 0.0)))
 		_world.callv(method, args)
 
 
-# The methods the engine has to have: the registry's world effects, each named by
+# The methods the engine has to have: the registry's vertex effects, each named by
 # its own id. A node is the world's engine for this purpose only when it can take
 # all of them, because requiring every one rather than any one is what makes a
 # half-wired engine a node that is not found - rather than a node that silently
 # stops growing boxes for the effect it forgot.
-func _world_methods() -> Array:
+func _vertex_methods() -> Array:
 	var methods: Array = []
 	for definition in _definitions:
-		if String(definition.get("kind", "screen")) == "world":
+		if String(definition.get("kind", "screen")) == "vertex":
 			methods.append("set_world_" + String(definition.get("id", "")))
 	return methods
 
 
-func _can_take_world_effects(node: Node) -> bool:
+func _can_take_vertex_effects(node: Node) -> bool:
 	if node == null or not is_instance_valid(node):
 		return false
-	var methods := _world_methods()
+	var methods := _vertex_methods()
 	if methods.is_empty():
 		return false
 	for method in methods:
@@ -198,17 +214,17 @@ func _can_take_world_effects(node: Node) -> bool:
 func _find_world() -> Node:
 	var node: Node = self
 	while node != null:
-		if _can_take_world_effects(node):
+		if _can_take_vertex_effects(node):
 			return node
 		for child in node.get_children():
-			if _can_take_world_effects(child):
+			if _can_take_vertex_effects(child):
 				return child
 		node = node.get_parent()
 	return null
 
 
 # Only push what the target actually declares, so a mistyped key in the registry
-# is reported once at load (below) instead of erroring every frame. A world
+# is reported once at load (below) instead of erroring every frame. A vertex
 # effect's params can be declared by any of its materials - the water's ripple
 # is on the water and not on the terrain - so each one is pushed to whichever of
 # them has it.
@@ -239,6 +255,7 @@ func _load_definitions() -> void:
 		return
 
 	_definitions = json.data.get("shaders", []) if json.data is Dictionary else []
+	_kinds = json.data.get("kinds", []) if json.data is Dictionary else []
 
 
 func _build_layer(definition: Dictionary) -> void:
@@ -246,7 +263,7 @@ func _build_layer(definition: Dictionary) -> void:
 	if id == "":
 		push_error("shaders.json: an effect has no id")
 		return
-	var built := _build_world_effect(definition) if String(definition.get("kind", "screen")) == "world" \
+	var built := _build_vertex_effect(definition) if String(definition.get("kind", "screen")) == "vertex" \
 		else _build_screen_effect(definition)
 	if built.is_empty():
 		return
@@ -300,12 +317,12 @@ func _build_screen_effect(definition: Dictionary) -> Dictionary:
 	}
 
 
-# A world effect: no rect and no shader of its own. It names the materials the
+# A vertex effect: no rect and no shader of its own. It names the materials the
 # world is drawn with and moves their uniforms, which is what a bend of the
 # world's own geometry is - the shaders that do it are the world's, not this
 # node's. The materials are loaded, not instantiated: these are the very
 # resources the engine draws with, so a value set here is set on the world.
-func _build_world_effect(definition: Dictionary) -> Dictionary:
+func _build_vertex_effect(definition: Dictionary) -> Dictionary:
 	var id := String(definition.get("id", ""))
 	var materials: Array = []
 	var uniforms := {}
@@ -329,7 +346,7 @@ func _build_world_effect(definition: Dictionary) -> Dictionary:
 		push_error("shaders.json: %s has no enable_key uniform on its materials" % id)
 		return {}
 	return {
-		"kind": "world",
+		"kind": "vertex",
 		"rect": null,
 		"materials": materials,
 		"uniforms": uniforms,

@@ -9,6 +9,14 @@ extends Control
 #     and passes the frame already drawn beneath it (the world, plus whichever
 #     HUD art this node sits above in Main.tscn) through its shader. One that is
 #     off is simply hidden, so an off stack costs nothing but a hidden Control.
+#   - a 'world' effect is the same layer and the same shader, drawn somewhere
+#     else: at a negative z_index, which is over the 3D world and under every
+#     other CanvasItem in the HUD. So it reads the world with no HUD in it and
+#     what it writes is put back under the HUD, while a screen effect grades the
+#     finished screenful. That is the whole difference between the two kinds on
+#     this side - an outline belongs on the rock and not on the hotbar - and it is
+#     a difference the shaders themselves cannot express, because a shader is
+#     handed one frame and has no idea where in the stack it was drawn.
 #   - a 'vertex' effect gets no rect, because it is not a picture of the world but
 #     the world: it names the materials the world is drawn with (the registry's
 #     `materials`), and this node moves *their* uniforms. Those materials are
@@ -52,14 +60,22 @@ const VERTEX_ENGINE_KNOBS := {
 	"horizon": ["world_horizon_radius"],
 }
 
+# Where a world effect's layer is drawn: under every other CanvasItem in the
+# layer, and therefore over the 3D world, which is drawn before the HUD's canvas
+# at all. A screen effect is drawn wherever its rect lands in this node, which is
+# above the HUD art the node sits over and under the menu, the crosshair and the
+# compass above it - so the two kinds see different frames, and that is the whole
+# of what the registry's third kind means here.
+const WORLD_PASS_Z_INDEX := -1
+
 
 var _definitions: Array = []
 # The registry's own list of kinds, in the menu's order: the Shaders page groups
 # its rows by them and takes each category's name from here.
 var _kinds: Array = []
-# id -> { kind, rect, materials, uniforms, enable_key }. A screen effect has a
-# rect of its own to hide; a vertex effect has neither, and its switch is a
-# uniform on the materials it drives.
+# id -> { kind, rect, materials, uniforms, enable_key }. A screen or world
+# effect has a rect of its own to hide; a vertex effect has neither, and its
+# switch is a uniform on the materials it drives.
 var _layers: Dictionary = {}
 var _enabled: Dictionary = {}  # id -> bool
 var _values: Dictionary = {}   # id -> { key: value }
@@ -83,7 +99,7 @@ func _ready() -> void:
 	get_viewport().size_changed.connect(_push_frame_size)
 	# Deferred, because a sibling's `_ready` may not have run yet and the engine
 	# is a sibling. Pushed once here even though nothing has changed: the engine
-	# starts with both world effects off and has to be told that they exist at
+	# starts with both vertex effects off and has to be told that they exist at
 	# all.
 	_push_vertex_effects.call_deferred()
 
@@ -130,7 +146,7 @@ func set_enabled(id: String, enabled: bool) -> void:
 	if rect != null:
 		rect.visible = enabled
 	else:
-		# A world effect is not something that can be hidden: it is the geometry
+		# A vertex effect is not something that can be hidden: it is the geometry
 		# itself, and what the switch means there is the effect's own strength
 		# multiplied by nothing.
 		_push(layer, String(layer.get("enable_key", "")), 1.0 if enabled else 0.0)
@@ -209,7 +225,7 @@ func _can_take_vertex_effects(node: Node) -> bool:
 # child of the HUD, so a sibling of the HUD is an uncle of this, and a path that
 # was right yesterday is a path that silently stops working today. So it is found
 # by asking: walk outwards from here and take the first node that can take the
-# world's effects at all. Cached once found (the outer test re-checks it every
+# vertex effects at all. Cached once found (the outer test re-checks it every
 # push, so a freed engine is re-found rather than quietly dropped).
 func _find_world() -> Node:
 	var node: Node = self
@@ -263,8 +279,9 @@ func _build_layer(definition: Dictionary) -> void:
 	if id == "":
 		push_error("shaders.json: an effect has no id")
 		return
-	var built := _build_vertex_effect(definition) if String(definition.get("kind", "screen")) == "vertex" \
-		else _build_screen_effect(definition)
+	var kind := String(definition.get("kind", "screen"))
+	var built := _build_vertex_effect(definition) if kind == "vertex" \
+		else _build_pass(definition, kind, id)
 	if built.is_empty():
 		return
 
@@ -284,11 +301,13 @@ func _build_layer(definition: Dictionary) -> void:
 	set_enabled(id, _enabled[id])
 
 
-# A screen effect: a full-screen rect of its own, drawn over the frame beneath
-# it. Whatever the shader writes is the picture, alpha and all, so the rect's own
-# colour only has to not be drawn over it before the shader runs.
-func _build_screen_effect(definition: Dictionary) -> Dictionary:
-	var id := String(definition.get("id", ""))
+# A pass over a frame the node can see: a full-screen rect of its own with the
+# entry's shader on it. Whatever the shader writes is the picture, alpha and all,
+# so the rect's own colour only has to not be drawn over it before the shader
+# runs. A screen effect and a world effect are the same layer built the same way
+# and differ by the one line at the bottom - the world's rect is put at the
+# world's depth, so it sees the frame without the HUD and is covered by it.
+func _build_pass(definition: Dictionary, kind: String, id: String) -> Dictionary:
 	var path := String(definition.get("shader", ""))
 	if path == "" or not ResourceLoader.exists(path):
 		push_error("shaders.json: %s has no shader at %s" % [id, path])
@@ -303,13 +322,15 @@ func _build_screen_effect(definition: Dictionary) -> Dictionary:
 	rect.set_anchors_preset(Control.PRESET_FULL_RECT)
 	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	rect.color = Color(0, 0, 0, 0)
+	if kind == "world":
+		rect.z_index = WORLD_PASS_Z_INDEX
 	var material := ShaderMaterial.new()
 	material.shader = shader
 	rect.material = material
 	add_child(rect)
 
 	return {
-		"kind": "screen",
+		"kind": kind,
 		"rect": rect,
 		"materials": [material],
 		"uniforms": _uniform_names(shader),

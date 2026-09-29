@@ -1,0 +1,477 @@
+#!/usr/bin/env python3
+"""Fail when the markdown documentation stops being true.
+
+The three other gates cover code. This one covers the docs, because the way they
+rot is mechanical and therefore checkable: a cited path that has been renamed,
+deleted or never existed; a count stated in prose that no longer matches the
+tree; a file that has quietly become a wall no reviewer can diff.
+
+Checked (see `--selftest` for a demonstration of each):
+
+  1. Every file path written in backticks, and every markdown link target, must
+     exist. A path may be a glob (then at least one file must match) or a bare
+     basename (then some file with that name must exist somewhere in the tree,
+     so `chunk_persistence.hpp` would have been caught the day it stopped
+     existing). Directory shorthand like `block_types.hpp/cpp` is expanded.
+  2. Facts stated as counts must match: test cases, test/source file counts, the
+     500-line guard's own file count, and the block registry's size against
+     `MAX_BLOCK_TYPES`.
+  3. Budgets: no PROSE line longer than MAX_LINE_CHARS (a bullet written as one
+     35,000-character paragraph cannot be reviewed, and a one-word fix diffs the
+     whole thing), no file larger than MAX_FILE_BYTES, and a warning for any
+     section longer than SECTION_WARN_WORDS. A table row is exempt from the hard
+     cap because markdown gives you no way to wrap one, which is exactly the
+     problem: an essay in a cell cannot be reviewed either, so a row over
+     TABLE_WARN_CHARS gets a warning instead.
+
+Not checked, deliberately: numbers in the file-size plan's history (`888 -> 486`)
+are records of what happened, not claims about today, and the plan is excluded
+from the count checks by name.
+
+Usage:
+    python tools/check_docs.py            # or: scons docscheck
+    python tools/check_docs.py --selftest
+
+Assertion counts are the one claim that needs a real run, so if `bin/run_tests`
+is built this runs it once (cached - the count is one fact about the tree) and
+compares. Set `CHECK_DOCS_NO_SUITE=1` to skip that and the count is only noted as
+unverified.
+"""
+
+import json
+import os
+import re
+import subprocess
+import sys
+import tempfile
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# Directories that hold no documentation of ours, or vendored/generated content.
+SKIP_DIRS = {
+    ".git", ".godot", ".freebuff", "bin", "build", "godot-cpp", "MCPipeline",
+    "node_modules", "screenshots", "textures/0Archive",
+}
+SKIP_FILES = {"docs/file_size_plan.md"}  # a history, not a description of today
+
+# Only these extensions are treated as repo paths. Anything else (`user://`,
+# `res://`, godot resources, asset names) is somebody else's to resolve.
+PATH_EXTS = (
+    "cpp", "hpp", "h", "gd", "py", "sh", "json", "md", "tscn", "gdshader",
+    "gdshaderinc", "txt", "cfg", "yml", "yaml", "glb", "png", "gdshaderinc",
+)
+# Paths that legitimately do not exist in the repo, with the reason. Anything added
+# here is a claim the gate can no longer check, so each one needs a real reason.
+ALLOWED_MISSING = {
+    "settings.cfg": "written by the game at user://settings.cfg",
+    "inventory.bin": "written by the game at user://chunks/inventory.bin",
+    ".sconsign.dblite": "SCons' own database, generated at build time",
+    "vc140.pdb": "an MSVC artifact",
+    # Toolchain headers, not ours to have.
+    "windows.h": "Windows SDK",
+    "dbghelp.h": "Windows SDK",
+    "tlhelp32.h": "Windows SDK",
+    "intrin.h": "MSVC intrinsic header",
+    # Named as things that no longer exist, which is the point of the sentence.
+    "block_textures.gd": "deleted; blockatlas generation is the C++ BlockTextures binding now",
+    "block_outline.gd": "deleted; the outline is the native C++ BlockOutline node now",
+    "core/chunk_types.hpp": "deleted; the junk drawer was dismantled into mesh/ and render/",
+    "chunk_persistence.hpp": "deleted in 68a725b; whole-chunk snapshots became sparse edit maps",
+    "patch_slim.py": "a one-off script from an earlier session, never in the repo",
+    "light_block_emit.png": "documented as ABSENT by textures/README.md",
+    "light_red_emit.png": "documented as ABSENT by textures/README.md",
+    "light_green_emit.png": "documented as ABSENT by textures/README.md",
+    "light_blue_emit.png": "documented as ABSENT by textures/README.md",
+}
+
+# A doc may name a path relative to one of these when the directory is unambiguous
+# (`core/shape_resolver.hpp` for `src/core/shape_resolver.hpp`).
+FALLBACK_ROOTS = ("src", "tests", "tools", "data", "docs", "shaders", "textures")
+
+MAX_LINE_CHARS = 1000
+MAX_FILE_BYTES = 400_000
+SECTION_WARN_WORDS = 3_000
+TABLE_WARN_CHARS = 400
+HEADING_WARN_CHARS = 120
+
+INLINE_CODE = re.compile(r"`([^`\n]+)`")
+LINK_TARGET = re.compile(r"\]\(([^)\s]+)\)")
+PATHISH = re.compile(
+    r"^\.?[A-Za-z0-9_][A-Za-z0-9_./*+-]*\.(?:" + "|".join(PATH_EXTS) + r")$"
+)
+# `block_types.hpp/cpp` means both files; `/hpp` and `/cpp` are the whole shorthand set.
+DIR_SHORTHAND = re.compile(r"^(?P<base>.+\.(?:hpp|cpp|h))_?(?P<dir>cpp|hpp)$")
+
+
+def fail(msg):
+    print(msg, file=sys.stderr)
+
+
+def doc_files():
+    """Every markdown file of ours, tracked or not, so a new one is checked."""
+    found = []
+    for dirpath, dirs, names in os.walk(ROOT):
+        rel_dir = os.path.relpath(dirpath, ROOT).replace("\\", "/")
+        if rel_dir == ".":
+            rel_dir = ""
+        dirs[:] = [
+            d for d in dirs
+            if os.path.join(rel_dir, d).replace("\\", "/").strip("/") not in SKIP_DIRS
+            and d not in SKIP_DIRS
+        ]
+        for name in names:
+            if name.endswith(".md"):
+                rel = (f"{rel_dir}/{name}" if rel_dir else name)
+                if rel not in SKIP_FILES:
+                    found.append(rel)
+    return sorted(found)
+
+
+def all_basenames():
+    """Lowercased basename -> list of repo-relative paths, for bare-name lookups.
+
+    `.freebuff/` is walked (the probe scripts are cited both bare and by path) even
+    though its markdown is not scanned.
+    """
+    index = {}
+    # `.freebuff` is kept here even though its markdown is skipped below: the probe
+    # scripts live there and the docs cite some of them by bare name.
+    skip = SKIP_DIRS - {".freebuff"}
+    for dirpath, dirs, names in os.walk(ROOT):
+        rel_dir = os.path.relpath(dirpath, ROOT).replace("\\", "/")
+        if rel_dir == ".":
+            rel_dir = ""
+        dirs[:] = [
+            d for d in dirs
+            if os.path.join(rel_dir, d).replace("\\", "/").strip("/") not in skip
+            and d not in skip
+        ]
+        for name in names:
+            index.setdefault(name.lower(), []).append(
+                f"{rel_dir}/{name}" if rel_dir else name
+            )
+    return index
+
+
+def expand(token):
+    """`block_types.hpp/cpp` -> both paths. Anything else is returned unchanged."""
+    if "/cpp" in token or "/hpp" in token:
+        head, _, tail = token.rpartition("/")
+        if tail in ("cpp", "hpp") and head.endswith((".hpp", ".cpp", ".h")):
+            return [head, f"{head[:head.rfind('.')]}.{tail}"]
+    return [token]
+
+
+def path_exists(token, basenames):
+    import glob as globmod
+    token = token.strip()
+    if not token or "://" in token or any(c in token for c in "<>{}$`") or "\\" in token:
+        return True  # not a repo path we can judge
+    if token.startswith(".godot/"):
+        return True  # Godot's own cache, regenerated on open
+    if ".." in token:
+        return True  # a range (`l0_sprite_01..10.png`), not one path
+    if token.startswith("_"):
+        # The docs' suffix shorthand: `test_shape_resolver.cpp` (with `_walls.cpp`),
+        # where the bare `_walls.cpp` names a sibling of the last full path. The full
+        # name is cited too, so nothing is left unchecked by skipping these.
+        return True
+    if token in ALLOWED_MISSING:
+        return True
+    if _resolves(token, basenames):
+        return True
+    # A path written from a directory's inside (`core/shape_resolver.hpp`).
+    if "/" in token and any(_resolves(f"{root}/{token}", basenames) for root in FALLBACK_ROOTS):
+        return True
+    return False
+
+
+def _resolves(token, basenames):
+    import glob as globmod
+
+    for candidate in expand(token):
+        if "*" in candidate or "?" in candidate:
+            if globmod.glob(os.path.join(ROOT, candidate)):
+                continue
+            return False
+        if "/" not in candidate:
+            if candidate.lower() in basenames:
+                continue
+            return False
+        full = os.path.join(ROOT, candidate)
+        if os.path.exists(full) or os.path.exists(full.lower()):
+            continue
+        # Case-insensitive fallback (docs say `main.tscn`, the file is `Main.tscn`).
+        parent = os.path.dirname(full)
+        if os.path.isdir(parent) and any(
+            n.lower() == os.path.basename(candidate).lower() for n in os.listdir(parent)
+        ):
+            continue
+        return False
+    return True
+
+
+def check_paths(path, text, basenames, problems):
+    tokens = [m.group(1).strip() for m in INLINE_CODE.finditer(text)]
+    tokens += [m.group(1).strip() for m in LINK_TARGET.finditer(text)]
+    for token in tokens:
+        token = token.split("#")[0]
+        if not PATHISH.match(token):
+            continue
+        if not path_exists(token, basenames):
+            problems.append(f"{path}: cited path does not exist: `{token}`")
+
+
+def count_test_cases():
+    tests_dir = os.path.join(ROOT, "tests")
+    total = 0
+    for name in os.listdir(tests_dir):
+        if name.endswith(".cpp"):
+            with open(os.path.join(tests_dir, name), encoding="utf-8", errors="replace") as fh:
+                total += len(re.findall(r"^\s*TEST_CASE", fh.read(), re.M))
+    return total
+
+
+def count_test_files():
+    return sum(1 for n in os.listdir(os.path.join(ROOT, "tests")) if n.endswith(".cpp"))
+
+
+def count_src_cpp():
+    total = 0
+    for _dirpath, _dirs, names in os.walk(os.path.join(ROOT, "src")):
+        total += sum(1 for n in names if n.endswith(".cpp"))
+    return total
+
+
+def count_sized_files():
+    """The same set `tools/check_file_sizes.py` reports on."""
+    total = 0
+    for root_dir in ("src", "tests", "tools"):
+        for _dirpath, _dirs, names in os.walk(os.path.join(ROOT, root_dir)):
+            total += sum(1 for n in names if n.endswith((".cpp", ".hpp")))
+    return total
+
+
+def registry_facts():
+    """(block entries, MAX_BLOCK_TYPES) - whichever of the two we can actually read."""
+    entries = cap = None
+    definitions = os.path.join(ROOT, "data", "block_definitions.json")
+    if os.path.exists(definitions):
+        with open(definitions, encoding="utf-8") as fh:
+            data = json.load(fh)
+        blocks = data["blocks"] if isinstance(data, dict) and "blocks" in data else data
+        entries = len(blocks)
+    header = os.path.join(ROOT, "src", "core", "block_types.hpp")
+    if os.path.exists(header):
+        with open(header, encoding="utf-8") as fh:
+            found = re.search(r"MAX_BLOCK_TYPES\s*=\s*(\d+)", fh.read())
+        cap = int(found.group(1)) if found else None
+    return entries, cap
+
+
+_SUITE_ASSERTIONS = None
+
+
+def suite_assertions():
+    """Assertion count from `bin/run_tests`, or None when it is not built.
+
+    Cached: the count is one fact about the tree, and the suite takes seconds to
+    run, so asking it once per document would dominate the gate.
+    """
+    global _SUITE_ASSERTIONS
+    if _SUITE_ASSERTIONS is not None:
+        return _SUITE_ASSERTIONS
+    if os.environ.get("CHECK_DOCS_NO_SUITE"):
+        return None
+    suite = os.path.join(ROOT, "bin", os.name == "nt" and "run_tests.exe" or "run_tests")
+    if not os.path.exists(suite):
+        return None
+    try:
+        out = subprocess.run(
+            [suite], capture_output=True, text=True, encoding="utf-8",
+            errors="replace", timeout=300,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    m = re.search(r"assertions:\s*(\d[\d,]*)", out.stdout)
+    if m:
+        _SUITE_ASSERTIONS = int(m.group(1).replace(",", ""))
+    return _SUITE_ASSERTIONS
+
+
+def check_counts(path, text, problems, notes):
+    cases = count_test_cases()
+    for m in re.finditer(r"(\d[\d,]*)\s+test cases", text):
+        stated = int(m.group(1).replace(",", ""))
+        if stated != cases:
+            problems.append(
+                f"{path}: says {stated} test cases, tests/ declares {cases}"
+            )
+    for m in re.finditer(r"across the (\d+) `\.cpp` files in `tests/`", text):
+        stated = int(m.group(1))
+        if stated != count_test_files():
+            problems.append(
+                f"{path}: says {stated} .cpp files in tests/, there are {count_test_files()}"
+            )
+    for m in re.finditer(r"`find src -name '\*\.cpp'`\s*\((\d+)\s*file", text):
+        stated = int(m.group(1))
+        if stated != count_src_cpp():
+            problems.append(
+                f"{path}: says find src gives {stated} files, it gives {count_src_cpp()}"
+            )
+    for m in re.finditer(r"(\d+) C\+\+ files, none above", text):
+        stated = int(m.group(1))
+        if stated != count_sized_files():
+            problems.append(
+                f"{path}: says {stated} C++ files, the size guard sees {count_sized_files()}"
+            )
+    entries, cap = registry_facts()
+    for m in re.finditer(r"(\d+) of `MAX_BLOCK_TYPES` = (\d+)", text):
+        stated_entries, stated_cap = int(m.group(1)), int(m.group(2))
+        if entries is not None and stated_entries != entries:
+            problems.append(
+                f"{path}: says {stated_entries} block entries, the JSON holds {entries}"
+            )
+        if cap is not None and stated_cap != cap:
+            problems.append(
+                f"{path}: says MAX_BLOCK_TYPES = {stated_cap}, the header says {cap}"
+            )
+    for m in re.finditer(r"is (\d+) lines \(cap (\d+), (\d+) left\)", text):
+        stated, cap_lines, left = (int(g) for g in m.groups())
+        if stated + left != cap_lines:
+            problems.append(
+                f"{path}: line-count claim does not add up ({stated} + {left} != {cap_lines})"
+            )
+    # Assertions need a real run; only judge it when the suite has been built.
+    actual = suite_assertions()
+    if actual is not None and re.search(r"(\d[\d,]*)\s+assertions", text):
+        for claimed in re.finditer(r"(\d[\d,]*)\s+assertions", text):
+            stated = int(claimed.group(1).replace(",", ""))
+            if stated != actual:
+                problems.append(
+                    f"{path}: says {stated} assertions, the suite reports {actual}"
+                )
+    elif re.search(r"(\d[\d,]*)\s+assertions", text):
+        notes.append(
+            f"{path}: assertion count not verified (no built test binary)"
+        )
+
+
+def check_budgets(path, text, problems, notes):
+    size = len(text.encode("utf-8"))
+    if size > MAX_FILE_BYTES:
+        problems.append(f"{path}: {size} bytes exceeds {MAX_FILE_BYTES}")
+    for lineno, line in enumerate(text.splitlines(), 1):
+        stripped = line.lstrip()
+        if stripped.startswith("|"):
+            if len(line) > TABLE_WARN_CHARS:
+                notes.append(
+                    f"{path}:{lineno}: table row is {len(line)} chars - a cell this "
+                    "long is an essay; move the detail below the table"
+                )
+            continue
+        if stripped.startswith("#"):
+            if len(line) > HEADING_WARN_CHARS:
+                notes.append(f"{path}:{lineno}: heading is {len(line)} chars - shorten it")
+            continue
+        if len(line) > MAX_LINE_CHARS:
+            problems.append(
+                f"{path}:{lineno}: line is {len(line)} chars (cap {MAX_LINE_CHARS}); "
+                "wrap it so a one-word fix is a one-word diff "
+                "(python tools/reflow_docs.py)"
+            )
+    section, words, start = None, 0, 0
+    for lineno, line in enumerate(text.splitlines(), 1):
+        if line.startswith("#"):
+            if section and words > SECTION_WARN_WORDS:
+                notes.append(
+                    f"{path}:{start}: section '{section}' is {words} words "
+                    f"(warn {SECTION_WARN_WORDS}) - consider splitting it"
+                )
+            section, words, start = line.lstrip("# ").strip(), 0, lineno
+            continue
+        words += len(line.split())
+    if section and words > SECTION_WARN_WORDS:
+        notes.append(
+            f"{path}:{start}: section '{section}' is {words} words (warn {SECTION_WARN_WORDS})"
+        )
+
+
+def scan():
+    basenames = all_basenames()
+    problems, notes = [], []
+    for path in doc_files():
+        with open(os.path.join(ROOT, path), encoding="utf-8") as fh:
+            text = fh.read()
+        check_paths(path, text, basenames, problems)
+        check_counts(path, text, problems, notes)
+        check_budgets(path, text, problems, notes)
+    return problems, notes
+
+
+BAD_SAMPLE = """# Sample
+
+A path that is not there: `src/nope/missing_thing.hpp`, and a bare one:
+`definitely_not_a_file.cpp`.
+
+Counts that lie: 9999 test cases, across the 1 `.cpp` files in `tests/`, and
+7 of `MAX_BLOCK_TYPES` = 8.
+
+A line far too long: {long_line}
+"""
+
+
+def selftest():
+    global ROOT
+    saved = ROOT
+    with tempfile.TemporaryDirectory() as tmp:
+        ROOT = tmp
+        os.makedirs(os.path.join(tmp, "tests"), exist_ok=True)
+        os.makedirs(os.path.join(tmp, "src", "core"), exist_ok=True)
+        os.makedirs(os.path.join(tmp, "data"), exist_ok=True)
+        with open(os.path.join(tmp, "data", "block_definitions.json"), "w", encoding="utf-8") as fh:
+            json.dump({"blocks": [{"name": "stone"}, {"name": "dirt"}]}, fh)
+        with open(os.path.join(tmp, "src", "core", "block_types.hpp"), "w", encoding="utf-8") as fh:
+            fh.write("static constexpr size_t MAX_BLOCK_TYPES = 256;\n")
+        with open(os.path.join(tmp, "sample.md"), "w", encoding="utf-8") as fh:
+            fh.write(BAD_SAMPLE.format(long_line="x" * (MAX_LINE_CHARS + 1)))
+        problems, _notes = scan()
+    ROOT = saved
+    joined = "\n".join(problems)
+    expectations = {
+        "missing path with a directory": "src/nope/missing_thing.hpp",
+        "missing bare basename": "definitely_not_a_file.cpp",
+        "wrong test-case count": "9999 test cases",
+        "wrong test-file count": "1 .cpp files in tests/",
+        "wrong registry size": "7 block entries",
+        "wrong registry cap": "MAX_BLOCK_TYPES = 8",
+        "over-long line": "cap 1000",
+    }
+    bad = [name for name, needle in expectations.items() if needle not in joined]
+    for name, needle in expectations.items():
+        print(f"  {'ok  ' if needle in joined else 'MISS'} {name}")
+    if bad:
+        fail(f"\nselftest FAILED: {len(bad)} check(s) did not fire: {', '.join(bad)}")
+        return 1
+    print("\nselftest OK: every check fires on a document that breaks it")
+    return 0
+
+
+def main(argv):
+    if "--selftest" in argv:
+        return selftest()
+    problems, notes = scan()
+    for note in notes:
+        print(f"note: {note}")
+    if problems:
+        fail(f"\ndocumentation check FAILED: {len(problems)} problem(s)\n")
+        for problem in problems:
+            fail(f"  {problem}")
+        fail("\nFix the docs, or make the cited thing exist.")
+        return 1
+    print(f"documentation OK: {len(doc_files())} markdown files, all claims check out")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

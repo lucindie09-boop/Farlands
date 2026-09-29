@@ -82,7 +82,7 @@ def main():
     print(f"file size check FAILED: {len(over)} file(s) above {MAX_LINES} lines", file=sys.stderr)
     for rel, count in over:
         print(f"  {count:6d}  {rel}  (+{count - MAX_LINES})", file=sys.stderr)
-    print("\nSplit the file along its responsibilities (see .freebuff/file_size_plan.md).", file=sys.stderr)
+    print("\nSplit the file along its responsibilities (see docs/file_size_plan.md).", file=sys.stderr)
     return 1
 
 

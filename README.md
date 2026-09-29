@@ -8,18 +8,37 @@
 
 ![Farlands gameplay — new terrain](screenshots/gameplay_new.png)
 
-A Minecraft-style voxel engine built in Godot 4 with a custom C++ GDExtension. Procedural terrain generation (a stacked-noise macro surface with domain warp and ~500/150-block relief fields, wrapped by a signed 3D density field that adds overhangs and shelves in strength-gated "weirdness" zones, plus oceans that flood the below-sea remnants of biome-shaped terrain), chunked world streaming, greedy meshing with per-chunk incremental rebuilds, colored block lighting, day/night cycle, three-tier distance-based mesh LOD with LOD-reduced chunks merged into regions to cap draw calls, frustum-prioritized chunk loading, async background chunk saving, and a C++ inventory system (hotbar + 27-slot storage) wired into block break/place with a GDScript GUI, plus data-driven 2×2 crafting (`data/recipes.json`). Ships with a C++ player controller with Minecraft-accurate fixed-timestep physics and a punchable combat dummy (K key) with vanilla 1.8.8 knockback.
+A Minecraft-style voxel engine built in Godot 4 with a custom C++ GDExtension. Procedural
+terrain generation (a stacked-noise macro surface with domain warp and ~500/150-block relief
+fields, wrapped by a signed 3D density field that adds overhangs and shelves in strength-gated
+"weirdness" zones, plus oceans that flood the below-sea remnants of biome-shaped terrain),
+chunked world streaming, greedy meshing with per-chunk incremental rebuilds, colored block
+lighting, day/night cycle, three-tier distance-based mesh LOD with LOD-reduced chunks merged
+into regions to cap draw calls, frustum-prioritized chunk loading, async background chunk
+saving, and a C++ inventory system (hotbar + 27-slot storage) wired into block break/place with
+a GDScript GUI, plus data-driven 2×2 crafting (`data/recipes.json`). Ships with a C++ player
+controller with Minecraft-accurate fixed-timestep physics and a punchable combat dummy (K key)
+with vanilla 1.8.8 knockback.
 
 ## Architecture
 
 - **Godot 4** — renderer, input, audio, and UI
-- **C++ GDExtension** — voxel engine core (chunking, meshing, lighting, terrain gen, collision, player sim)
-- **ThreadPool** — async chunk generation, mesh building, and light propagation, sized to `hardware_concurrency() - 1` workers with a high-priority queue
+- **C++ GDExtension** — voxel engine core (chunking, meshing, lighting, terrain gen, collision,
+  player sim)
+- **ThreadPool** — async chunk generation, mesh building, and light propagation, sized to
+  `hardware_concurrency() - 1` workers with a high-priority queue
 - **RenderingServer** — direct GPU mesh upload for zero SceneTree overhead per chunk
-- **Sharded chunk map** — 64 independently-locked shards (`shared_mutex` each), so a write on one shard never blocks readers on another. Recursive shared re-acquisition is forbidden (Windows SRW locks block new shared locks once a writer queues), so lock scopes use `_fast` accessors / `queue_dirty_chunk_fast()` and release before re-locking
-- **Palette-compressed storage** — block and light data stored as 8 paletted 16³ sections per chunk instead of dense arrays, cutting per-chunk memory from ~130KB to as little as ~1–20KB on uniform terrain
-- **Frustum prioritization** — camera frustum extracted each frame; visible chunks get priority for generation, meshing, retention, and LOD detail
-- **Budget-capped main thread** — generation completion, mesh uploads, and light propagation are wall-clock-budgeted per frame; the nearest-to-player completed mesh uploads first
+- **Sharded chunk map** — 64 independently-locked shards (`shared_mutex` each), so a write on
+  one shard never blocks readers on another. Recursive shared re-acquisition is forbidden
+  (Windows SRW locks block new shared locks once a writer queues), so lock scopes use `_fast`
+  accessors / `queue_dirty_chunk_fast()` and release before re-locking
+- **Palette-compressed storage** — block and light data stored as 8 paletted 16³ sections per
+  chunk instead of dense arrays, cutting per-chunk memory from ~130KB to as little as ~1–20KB on
+  uniform terrain
+- **Frustum prioritization** — camera frustum extracted each frame; visible chunks get priority
+  for generation, meshing, retention, and LOD detail
+- **Budget-capped main thread** — generation completion, mesh uploads, and light propagation are
+  wall-clock-budgeted per frame; the nearest-to-player completed mesh uploads first
 
 ## Key Systems
 
@@ -56,7 +75,7 @@ A Minecraft-style voxel engine built in Godot 4 with a custom C++ GDExtension. P
 | Crafting table UI | `crafting_table_menu.gd` | 3×3 crafting table menu: a single atlas (`textures/gui/crafting_table.png`) carries both the 36-slot inventory and the 3×3 grid; opens when the player right-clicks a `crafting_table` block (on the `crafting_table_used` signal), closes on Escape/E, with availability-gated recipe preview and atomic craft wired to the C++ RecipeBook |
 | Inventory UI | `inventory.gd` / `hotbar.gd` | GDScript `Control` overlays: E toggles the full inventory, mouse wheel cycles the hotbar, click-to-hold / drag-drop stack movement, pixel-color-keyed hover/selection highlights, live 2×2 crafting grid + output preview wired to the C++ RecipeBook. Uses isometric 3D block icons (300×300) rendered by `BlockIconRenderer` at vanilla's dimetric angle with support for custom block shapes (slabs, stairs, walls, poles) |
 | Block Icon Renderer | `block_icon_renderer.gd` | Autoload singleton that renders 3D isometric block icons for inventory UI using a SubViewport with orthographic camera at vanilla's dimetric angle (45° yaw, 30° pitch). Pre-renders all blocks asynchronously at startup and caches results. Supports custom block shapes by building meshes from `data/block_shapes.json` selection boxes. Icons are 300×300 resolution with AABB centering so all blocks appear at consistent distance. Integrated into hotbar, inventory slots, crafting cells, and drag operations with fallback to BlockTextures during initial load. `/testicons` command saves test renders to `user://` |
-| Healthbar | `healthbar.gd` | 10 hearts (`heart_full/half/empty.png`) above the hotbar's left edge, spanning ~40% of its width; full/half/empty sprites resolved from the half-heart health polled off `PlayerController.get_health()` |
+| Healthbar | `healthbar.gd` | 10 hearts (`heart_full.png` / `heart_half.png` / `heart_empty.png`) above the hotbar's left edge, spanning ~40% of its width; full/half/empty sprites resolved from the half-heart health polled off `PlayerController.get_health()` |
 | Death screen | `death_screen.gd` | "You died!" overlay with a Respawn button; shown on the `died` signal (health reaching 0), hidden on `respawned` — respawn restores full health at the game-start spawn point |
 | Chat system | `chat.gd` | GDScript chat with autocomplete: ghost text suggestions with pulsing effect, tab cycling through completions, up/down arrow navigation, hold-to-cycle, parameter hints for commands (`/give <block> [count]`, `/tp <x> <y> <z>`), commands: `/help`, `/give` (unlimited count), `/tp`, `/fly`, `/locatebiome`, `/paste` (place a build file from `schematics/` at the crosshair, list them, or undo the last one), `/clearchat`, `/clearinv`, `/version`, `/texturepack`, `/testicons` |
 | Inventory drag ops | `inventory.gd` | RMB drag-place (spread 1 unit per slot), LMB drag-collect (sweep matching blocks), shift-click/drag quick-transfer (move between hotbar/main), scroll wheel quick-transfer (push/pull 1 unit), double-click gather (sweep all matching blocks); the same interactions work on the crafting grid cells, and shift-clicking the output crafts as many as possible |
@@ -69,21 +88,34 @@ A Minecraft-style voxel engine built in Godot 4 with a custom C++ GDExtension. P
 
 ## Rendering Notes
 
-- Opaque and water are separate mesh surfaces; water uses its own shader (`shaders/voxel_shader_water.gdshader`) with edge fade, tint, shimmer, sun glint, flowing texture animation, and separate blend-mix surface for translucency.
-- Blocks can carry an emissive texture (second `Texture2DArray`) for glow, driven by `data/block_definitions.json`.
-- The terrain shader (`shaders/voxel_shader.gdshader`) applies a non-linear AO power curve (`pow(raw_ao, 1.35)`) that hides diagonal triangulation seams (soft curved AO). The procedural sky shader (`src/render/sky_controller.hpp`) provides a procedurally twinkling night starfield with a fixed north star, and sky turbidity provides Rayleigh/Mie haze effects.
-- Non-full block shapes (slabs, stairs, walls, poles) have proper ambient occlusion and UV texture mapping for their irregular geometry.
-- The directional sun light has shadows disabled — both terrain shaders are unshaded, so the shadow pass was pure overhead with no visual effect.
-- Block edits trigger an incremental partial remesh (tight dirty-AABB re-emit) instead of a full 32³ rebuild.
-- Fog system with 4 modes: Disabled, Edge, Linear, Exponential; fog color matches sky color throughout day/night cycle.
+- Opaque and water are separate mesh surfaces; water uses its own shader
+  (`shaders/voxel_shader_water.gdshader`) with edge fade, tint, shimmer, sun glint, flowing
+  texture animation, and separate blend-mix surface for translucency.
+- Blocks can carry an emissive texture (second `Texture2DArray`) for glow, driven by
+  `data/block_definitions.json`.
+- The terrain shader (`shaders/voxel_shader.gdshader`) applies a non-linear AO power curve
+  (`pow(raw_ao, 1.35)`) that hides diagonal triangulation seams (soft curved AO). The procedural
+  sky shader (`src/render/sky_controller.hpp`) provides a procedurally twinkling night starfield
+  with a fixed north star, and sky turbidity provides Rayleigh/Mie haze effects.
+- Non-full block shapes (slabs, stairs, walls, poles) have proper ambient occlusion and UV
+  texture mapping for their irregular geometry.
+- The directional sun light has shadows disabled — both terrain shaders are unshaded, so the
+  shadow pass was pure overhead with no visual effect.
+- Block edits trigger an incremental partial remesh (tight dirty-AABB re-emit) instead of a full
+  32³ rebuild.
+- Fog system with 4 modes: Disabled, Edge, Linear, Exponential; fog color matches sky color
+  throughout day/night cycle.
 - God rays toggle for atmospheric lighting effects with dynamic sample count.
-- MSAA 3D is adjustable in-game (Off/2x/4x/8x cycle button under Settings → Render); it sets the root viewport's `msaa_3d` live and persists across sessions.
+- MSAA 3D is adjustable in-game (Off/2x/4x/8x cycle button under Settings → Render); it sets the
+  root viewport's `msaa_3d` live and persists across sessions.
 - GPU compression option for texture arrays to reduce VRAM usage (S3TC/BC1-BC3).
 - Vertex compression (24 bytes per vertex, -40% VRAM) with fixed-point positions.
 
 ## Terrain Generation
 
-Terrain is built in three stages — a macro surface from stacked noise layers, a biome-shaping pass whose below-sea remnants become ocean, then a strength-gated 3D density field wrapped around that surface (full diagram in [ARCHITECTURE.md](ARCHITECTURE.md#terrain-generation)):
+Terrain is built in three stages — a macro surface from stacked noise layers, a biome-shaping
+pass whose below-sea remnants become ocean, then a strength-gated 3D density field wrapped
+around that surface (full diagram in [ARCHITECTURE.md](ARCHITECTURE.md#terrain-generation)):
 
 ```
  noise layers @ warped point → macro height per column
@@ -100,29 +132,90 @@ Terrain is built in three stages — a macro surface from stacked noise layers, 
  per-chunk: fast paths → density/material pass → cleanup → vegetation
 ```
 
-- **Biomes first, oceans last** — every column first gets a land biome from the climate grid (Plains/Hills) and that biome's height knob alters its terrain; columns that still end below sea level become Ocean last (water filled to sea level, sand surfaces, sea bed keeps the land biome's shape). Coasts are seamless by construction. Continentalness (the 12000-block base layer, normalized [0,1]) is sampled and carried per column for future preferred-profile biome selection — it never gates water.
-- **Strength-gated 3D shaping** — a low-frequency 2D "weirdness" mask picks where the signed 3D shape field is strong enough to produce overhangs/shelves; everywhere else the terrain is plain macro surface.
-- **All tuning is data-driven** (`data/terrain_config.json` → `TerrainParams`); temperature/humidity climate samplers are live (~8000-block climate features, read through a recursive anisotropic domain warp so biome boundaries flow, sampled on a 4-block lattice) — the temperate band of land is Plains, the cold/hot bands are Hills, and water is Ocean. Per-biome height/weirdness amplification knobs (including `weirdness_size_amplification`, which scales both the reach and the displacement of a weirdness zone) are blended across borders (uniform window average over the climate lattice — radius 0 means each column keeps its own biome's knobs exactly — `climate_blend_radius_nodes` in the terrain config), so relief ramps smoothly at biome boundaries instead of stepping.
+- **Biomes first, oceans last** — every column first gets a land biome from the climate grid
+  (Plains/Hills) and that biome's height knob alters its terrain; columns that still end below
+  sea level become Ocean last (water filled to sea level, sand surfaces, sea bed keeps the land
+  biome's shape). Coasts are seamless by construction. Continentalness (the 12000-block base
+  layer, normalized [0,1]) is sampled and carried per column for future preferred-profile biome
+  selection — it never gates water.
+- **Strength-gated 3D shaping** — a low-frequency 2D "weirdness" mask picks where the signed 3D
+  shape field is strong enough to produce overhangs/shelves; everywhere else the terrain is
+  plain macro surface.
+- **All tuning is data-driven** (`data/terrain_config.json` → `TerrainParams`);
+  temperature/humidity climate samplers are live (~8000-block climate features, read through a
+  recursive anisotropic domain warp so biome boundaries flow, sampled on a 4-block lattice) —
+  the temperate band of land is Plains, the cold/hot bands are Hills, and water is Ocean.
+  Per-biome height/weirdness amplification knobs (including `weirdness_size_amplification`,
+  which scales both the reach and the displacement of a weirdness zone) are blended across
+  borders (uniform window average over the climate lattice — radius 0 means each column keeps
+  its own biome's knobs exactly — `climate_blend_radius_nodes` in the terrain config), so relief
+  ramps smoothly at biome boundaries instead of stepping.
 
 ## Worldgen Config Data
 
 The terrain generation system is data-driven through JSON configuration files:
 
-- **`data/biomes.json`** — Per-biome surface materials (Ocean/Hills/Plains), height/weirdness/size amplification knobs, `preferred_continentalness`/`preferred_temperature`/`preferred_humidity` (reference data for future biome selection), and tree density/variant weights; climate thresholds feed the 3×3 temperature×humidity land-biome grid (temperate band → Plains, cold/hot → Hills)
-- **`data/vegetation.json`** — Vegetation parameters for the hills biome (sparse single-tree chance, spacing)
-- **`data/terrain_config.json`** — Macro-surface tuning: `height_base_y`, domain-warp amplitudes, mid/small relief field spacing/frequency/amplitude, shape-strength range, weirdness thresholds, climate warp amps, amplification blend radius
-- **`data/block_shapes.json`** — Shared shape registry for non-full blocks (slabs, stairs, walls, poles) with selection/collision boxes
-- **`data/block_definitions.json`** — the block registry (entry order = save-format ID, so append only), including `hardness`, the `preferred_tool`/`min_tier` pair, an optional `drops` naming what the block yields when broken by anything (stone → cobblestone), and an optional `crush_result` naming the block a **hammer** leaves behind instead of that (cobblestone → gravel; a crush wins over a drop). Both are resolved by name, so the target may be declared later in the file than the block referring to it — see the hammer row above. JSON has no comments, so notes about an entry go in a `"_comment"` key — the loaders read named fields only and ignore unknown keys
-- **`data/recipes.json`** — Crafting recipes (shaped/shapeless) resolved by block name against `block_definitions.json`; grid size and per-recipe results. A shaped `key` entry may list several acceptable ingredients (e.g. every plank type), expanded at load into one concrete recipe per combination; all the cells of one symbol use the same ingredient, so a wooden tool is always a single wood type. Names resolve against items as well as blocks, which is what makes the iron tools and the empty bucket (three `iron_ingot` in a V) craftable
-- **`data/items.json`** — Non-placeable items (entry order = id, starting at 1024; append rather than insert so existing ids keep their meaning) with an optional `"tool"` object (`class`/`tier`/`speed`) granting a break-speed bonus against blocks whose `preferred_tool` matches (the `hammer` class also matches any block with a `crush_result`, and crushes it), and an optional `"pose"` naming the held-item resting position to render with ("item" by default, "item2" for sprites rotated a quarter turn, e.g. the water bucket), and an optional `"use"` object (`{ "kind": "pour", "block": "water" }`) giving the item an in-world right-click action: `pour` writes that block into the cell the crosshair is against, which is how a bucket empties — `water_bucket`, `lava_bucket` and `acid_bucket` each name their own block, and the pour path knows nothing about which substance it is placing (a pour is still not consumed) — and `fill` (`{ "kind": "fill" }`, no block) does the opposite: it EMPTIES the fluid source the crosshair is on and swaps the item for that fluid's filled bucket by name (`water` → `water_bucket`), so an empty `bucket` is a bucket of anything. A source the simulation does not own is refused (`surface_water`, the generated ocean: not a fluid state, so the hole would be permanent), as is the falling column (full strength, but not a source), and if no item is named for that fluid nothing is taken. There is also an optional `"light"` object (`{ "level": 14, "color": [1.0, 0.83, 0.6] }`): while an item with one is in the selected slot it OWNS the player's dynamic light — level and colour come from here and the light is forced on — and putting it away restores the level, colour and `player_light_enabled` the scene had before, so holding a torch is what turns dynamic lighting on. Items are still never placeable, an item with no `"use"` entry (and no `"light"`) does nothing when right-clicked, and a `use.block` name that does not resolve is reported at load instead of silently doing nothing
+- **`data/biomes.json`** — Per-biome surface materials (Ocean/Hills/Plains),
+  height/weirdness/size amplification knobs,
+  `preferred_continentalness`/`preferred_temperature`/`preferred_humidity` (reference data for
+  future biome selection), and tree density/variant weights; climate thresholds feed the 3×3
+  temperature×humidity land-biome grid (temperate band → Plains, cold/hot → Hills)
+- **`data/vegetation.json`** — Vegetation parameters for the hills biome (sparse single-tree
+  chance, spacing)
+- **`data/terrain_config.json`** — Macro-surface tuning: `height_base_y`, domain-warp
+  amplitudes, mid/small relief field spacing/frequency/amplitude, shape-strength range,
+  weirdness thresholds, climate warp amps, amplification blend radius
+- **`data/block_shapes.json`** — Shared shape registry for non-full blocks (slabs, stairs,
+  walls, poles) with selection/collision boxes
+- **`data/block_definitions.json`** — the block registry (entry order = save-format ID, so
+  append only), including `hardness`, the `preferred_tool`/`min_tier` pair, an optional `drops`
+  naming what the block yields when broken by anything (stone → cobblestone), and an optional
+  `crush_result` naming the block a **hammer** leaves behind instead of that (cobblestone →
+  gravel; a crush wins over a drop). Both are resolved by name, so the target may be declared
+  later in the file than the block referring to it — see the hammer row above. JSON has no
+  comments, so notes about an entry go in a `"_comment"` key — the loaders read named fields
+  only and ignore unknown keys
+- **`data/recipes.json`** — Crafting recipes (shaped/shapeless) resolved by block name against
+  `block_definitions.json`; grid size and per-recipe results. A shaped `key` entry may list
+  several acceptable ingredients (e.g. every plank type), expanded at load into one concrete
+  recipe per combination; all the cells of one symbol use the same ingredient, so a wooden tool
+  is always a single wood type. Names resolve against items as well as blocks, which is what
+  makes the iron tools and the empty bucket (three `iron_ingot` in a V) craftable
+- **`data/items.json`** — Non-placeable items (entry order = id, starting at 1024; append rather
+  than insert so existing ids keep their meaning) with an optional `"tool"` object
+  (`class`/`tier`/`speed`) granting a break-speed bonus against blocks whose `preferred_tool`
+  matches (the `hammer` class also matches any block with a `crush_result`, and crushes it), and
+  an optional `"pose"` naming the held-item resting position to render with ("item" by default,
+  "item2" for sprites rotated a quarter turn, e.g. the water bucket), and an optional `"use"`
+  object (`{ "kind": "pour", "block": "water" }`) giving the item an in-world right-click
+  action: `pour` writes that block into the cell the crosshair is against, which is how a bucket
+  empties — `water_bucket`, `lava_bucket` and `acid_bucket` each name their own block, and the
+  pour path knows nothing about which substance it is placing (a pour is still not consumed) —
+  and `fill` (`{ "kind": "fill" }`, no block) does the opposite: it EMPTIES the fluid source the
+  crosshair is on and swaps the item for that fluid's filled bucket by name (`water` →
+  `water_bucket`), so an empty `bucket` is a bucket of anything. A source the simulation does
+  not own is refused (`surface_water`, the generated ocean: not a fluid state, so the hole would
+  be permanent), as is the falling column (full strength, but not a source), and if no item is
+  named for that fluid nothing is taken. There is also an optional `"light"` object
+  (`{ "level": 14, "color": [1.0, 0.83, 0.6] }`): while an item with one is in the selected slot
+  it OWNS the player's dynamic light — level and colour come from here and the light is forced
+  on — and putting it away restores the level, colour and `player_light_enabled` the scene had
+  before, so holding a torch is what turns dynamic lighting on. Items are still never placeable,
+  an item with no `"use"` entry (and no `"light"`) does nothing when right-clicked, and a
+  `use.block` name that does not resolve is reported at load instead of silently doing nothing
 
-These configs are loaded at startup via `VoxelEngineController::load_world_configs()` and threaded to generation workers. Missing files or keys fall back to built-in defaults.
+These configs are loaded at startup via `VoxelEngineController::load_world_configs()` and
+threaded to generation workers. Missing files or keys fall back to built-in defaults.
 
 ## Assets
 
 Textures are organized in the `textures/` directory:
-- `textures/blocks/` — Block textures (bedrock, dirt, grass, stone, sand, water, etc.). `water.png` is hand-authored; `lava.png` and `acid.png` are baked from their generator presets by `tools/bake_liquid_textures.gd` so the array has a layer to build and the animator has one to write into
-- `textures/items/` — Item and tool sprites, resolved from the bare name `data/items.json` gives each one
+- `textures/blocks/` — Block textures (bedrock, dirt, grass, stone, sand, water, etc.).
+  `water.png` is hand-authored; `lava.png` and `acid.png` are baked from their generator presets
+  by `tools/bake_liquid_textures.gd` so the array has a layer to build and the animator has one
+  to write into
+- `textures/items/` — Item and tool sprites, resolved from the bare name `data/items.json` gives
+  each one
 - `textures/animated/` — The ten cracked-block overlay frames the break animation steps through
 - `textures/gui/` — UI textures (hotbar, inventory background, effects, settings/tool icons)
 - `textures/sprites/` — Sprite textures (hearts, etc.)
@@ -130,7 +223,10 @@ Textures are organized in the `textures/` directory:
 - `textures/mobs/` — Mob skins
 - `textures/0Archive/` — Archived/deprecated textures (old versions kept for reference)
 
-The player model lives in `player.glb` (voxel-style, slim 3-px arms with a tightly-packed 64×64 skin-texture atlas). `player_model.gd` applies a skin texture to the model with nearest filtering (no mipmaps, to avoid blending UV islands), and `skin_preview.gd` is a transparent-background sub-viewport that orbits the model for the skin maker.
+The player model lives in `player.glb` (voxel-style, slim 3-px arms with a tightly-packed 64×64
+skin-texture atlas). `player_model.gd` applies a skin texture to the model with nearest
+filtering (no mipmaps, to avoid blending UV islands), and `skin_preview.gd` is a
+transparent-background sub-viewport that orbits the model for the skin maker.
 
 ### Texture Packs
 
@@ -179,6 +275,7 @@ scons bench    # benchmark executable (supports --check <baseline>)
 scons test     # builds the doctest suite (see tests/)
 scons sizecheck   # fails if any .cpp/.hpp passes 500 lines (also a CI step)
 scons portability # fails on a Windows-only shape outside #ifdef _WIN32 (also a CI step)
+scons docscheck   # fails if the markdown cites a path that does not exist (also a CI step)
 scons path_cost # planner cost over real terrain (bin/path_cost [seed] [max_distance])
 scons schematic_report # decode a build file (bin/schematic_report <file> [--top N | --all] [--table PATH] [--plan] [--repeat N])
 # in game: K spawns the punchable dummy, P plans a route from it to the player
@@ -191,21 +288,52 @@ scons schematic_report # decode a build file (bin/schematic_report <file> [--top
 scons fuzz     # libFuzzer harnesses (Linux/macOS, clang required)
 ```
 
-Optional build flags: `TSAN=1` (ThreadSanitizer), `ASAN=1` (ASan+UBSan), `COVERAGE=1` (lcov) — all Linux/macOS only.
+Optional build flags: `TSAN=1` (ThreadSanitizer), `ASAN=1` (ASan+UBSan), `COVERAGE=1` (lcov) —
+all Linux/macOS only.
 
 CI (`.github/workflows/build.yml`) runs on every push and pull request:
-- **Build job** — 5-leg matrix: ubuntu plain, ubuntu TSan, ubuntu ASan+UBSan, macos plain, windows plain. Tests run on every leg; the benchmark regression check (`--check benchmark_baseline.txt`) runs on the non-sanitizer legs.
-- **Fuzz job** — builds and runs 5 libFuzzer harnesses (`fuzz_palette`, `fuzz_chunk_load`, `fuzz_chunk_recovery`, `fuzz_light_propagation`, `fuzz_mesh_builder`) for 60 seconds each on Linux.
-- **Static-analysis job** — clang-tidy across all of `src/` with `bugprone-*`, `concurrency-*`, and `performance-*` checks; findings in project sources fail the job. It runs on Linux, so Windows-only code (the `#ifdef _WIN32` halves) is outside its reach by construction.
-- **Coverage job** — lcov coverage report uploaded to Codecov.
+- **Build job** — 5-leg matrix: ubuntu plain, ubuntu TSan, ubuntu ASan+UBSan, macos plain,
+  windows plain. Tests run on every leg; the benchmark regression check
+  (`--check benchmark_baseline.txt`) runs on the non-sanitizer legs.
+- **Fuzz job** — builds and runs 5 libFuzzer harnesses (`fuzz_palette`, `fuzz_chunk_load`,
+  `fuzz_chunk_recovery`, `fuzz_light_propagation`, `fuzz_mesh_builder`) for 60 seconds each on
+  Linux.
+- **Static-analysis job** — clang-tidy across all of `src/` with `bugprone-*`, `concurrency-*`,
+  and `performance-*` checks; findings in project sources fail the job. It runs on Linux, so
+  Windows-only code (the `#ifdef _WIN32` halves) is outside its reach by construction.
+- **Coverage job** — lcov coverage report uploaded to Codecov.The build and fuzz jobs
+  additionally run `python tools/check_file_sizes.py` (**no C++ file above 500 lines**, warning
+  at 480), and the build job runs `python tools/check_portability.py` (no Windows-only include,
+  `#pragma`, intrinsic or Win32 type outside an `#ifdef _WIN32` region, and no standard
+  attribute written after a decl-specifier) and `python tools/check_docs.py` (every path the
+  documentation cites must exist, the counts it states must match the tree, and no doc line may
+  exceed the review budget). All three compile-or-read happily on MSVC and are fatal on
+  GCC/clang, which is why the tree is checked by something other than MSVC before it is
+  accepted; the same three are available locally as `scons sizecheck`, `scons portability` and
+  `scons docscheck`.
 
-The build and fuzz jobs additionally run `python tools/check_file_sizes.py` (**no C++ file above 500 lines**, warning at 480) and the build job `python tools/check_portability.py` (no Windows-only include, `#pragma`, intrinsic or Win32 type outside an `#ifdef _WIN32` region, and no standard attribute written after a decl-specifier). Both compile happily on MSVC and are fatal on GCC/clang, which is why the tree is checked by something other than MSVC before it is accepted; the same two checks are available locally as `scons sizecheck` and `scons portability`.
+## Documentation
 
-The project has **588 test cases / 346,456 assertions** across the 90 `.cpp` files in `tests/` (88 declaring cases, plus the doctest entry point and a stub TU), including 27 tests in `test_concurrency.cpp` (shard locking, deadlock prevention, PaletteStorage, cross-chunk writers, thread-pool work stealing).
+The docs are split by the question they answer: [docs/README.md](docs/README.md) is the index.
+In short — [ARCHITECTURE.md](ARCHITECTURE.md) for how the engine works and why,
+[docs/howto.md](docs/howto.md) for the files a change touches,
+[docs/data-schemas.md](docs/data-schemas.md) for every field of the `data/*.json` files,
+[docs/glossary.md](docs/glossary.md) for the vocabulary, [docs/debugging.md](docs/debugging.md)
+for the instruments, [docs/probes.md](docs/probes.md) for the probe suite, and
+[docs/decisions/README.md](docs/decisions/README.md) for what has already been tried and
+rejected. [AGENTS.md](AGENTS.md) is the engineering record.
+
+The project has **588 test cases / 346,456 assertions** across the 90 `.cpp` files in `tests/`
+(88 declaring cases, plus the doctest entry point and a stub TU), including 27 tests in
+`test_concurrency.cpp` (shard locking, deadlock prevention, PaletteStorage, cross-chunk writers,
+thread-pool work stealing).
 
 ## Running
 
-Open the project root in Godot 4 and press Play. The main scene is `Main.tscn`. The C++ extension loads automatically from the platform-specific library declared in `voxel_engine.gdextension` (e.g. `bin/libgdextension.windows.template_debug.x86_64.dll` on Windows).
+Open the project root in Godot 4 and press Play. The main scene is `Main.tscn`. The C++
+extension loads automatically from the platform-specific library declared in
+`voxel_engine.gdextension` (e.g. `bin/libgdextension.windows.template_debug.x86_64.dll` on
+Windows).
 
 ## Controls
 
@@ -230,13 +358,41 @@ Open the project root in Godot 4 and press Play. The main scene is `Main.tscn`. 
 | Tab | Accept autocomplete / cycle through completions (hold to auto-cycle) |
 | Up/Down arrows | Cycle through completions (when chat is open and completions are available) |
 
-Input bindings live in `project.godot` (`move_forward`, `move_back`, `move_left`, `move_right`, `jump`, `sprint`, `sneak`, `fly_toggle`, `toggle_inventory`, `toggle_chat`, `toggle_third_person`, `mouse_click_left`, `mouse_click_right`, `pose_clone_toggle`, `toggle_chunk_borders` — the last one shows the 32-block chunk grid around the player as X-ray lines, `chunk_borders.gd`, off by default). The C++ `PlayerController` node owns all movement, look, block interaction, and inventory state — there is no player GDScript. The hotbar/inventory screens are GDScript `Control` overlays that read/write that state.
+Input bindings live in `project.godot` (`move_forward`, `move_back`, `move_left`, `move_right`,
+`jump`, `sprint`, `sneak`, `fly_toggle`, `toggle_inventory`, `toggle_chat`,
+`toggle_third_person`, `mouse_click_left`, `mouse_click_right`, `pose_clone_toggle`,
+`toggle_chunk_borders` — the last one shows the 32-block chunk grid around the player as X-ray
+lines, `chunk_borders.gd`, off by default). The C++ `PlayerController` node owns all movement,
+look, block interaction, and inventory state — there is no player GDScript. The hotbar/inventory
+screens are GDScript `Control` overlays that read/write that state.
 
-Liquids are passable and swimmable: a liquid never stops a body (worldgen oceans included — you fall in, and the third-person cameras look straight through it), and while any part of the body is inside one it sinks slowly (~1.6 blocks/s), accelerates and moves at a fraction of land speed, rises while jump is held, gets lifted when it swims into a bank, and takes no fall damage on entry.
+Liquids are passable and swimmable: a liquid never stops a body (worldgen oceans included — you
+fall in, and the third-person cameras look straight through it), and while any part of the body
+is inside one it sinks slowly (~1.6 blocks/s), accelerates and moves at a fraction of land
+speed, rises while jump is held, gets lifted when it swims into a bank, and takes no fall damage
+on entry.
 
-Three substances flow, each with its own bucket: **water** (a source spreads a diamond of radius 7, one cell per quarter second, and two sources over solid ground turn the cell between them into another source, so a poured pool feeds itself), **lava** (three cells out, one cell per second, and it does pool), and **acid** (water's reach on a faster clock, hunts a drop one cell further, and it does **not** pool — a splash spends itself and drains). All three drain again when their source is removed. Generated water is deliberately inert: the ocean worldgen fills declares no fluid state, so it never ticks or spills, and a poured bucket pools against it. Their textures animate as you play — the stripes you see on water, lava and acid are generated by the same automaton the Liquid Texture Lab (O) authors, played into the texture array by an autoload animator; press O and hit "Bind to world" to make one of your own tuned strips the one the game plays. Right-clicking a source with the empty `bucket` takes it: the cell empties (the fluid around it settles back in) and the bucket becomes that fluid's own bucket, so a spill can be picked back up — the bucket is what makes a poured pool reversible
+Three substances flow, each with its own bucket: **water** (a source spreads a diamond of radius
+7, one cell per quarter second, and two sources over solid ground turn the cell between them
+into another source, so a poured pool feeds itself), **lava** (three cells out, one cell per
+second, and it does pool), and **acid** (water's reach on a faster clock, hunts a drop one cell
+further, and it does **not** pool — a splash spends itself and drains). All three drain again
+when their source is removed. Generated water is deliberately inert: the ocean worldgen fills
+declares no fluid state, so it never ticks or spills, and a poured bucket pools against it.
+Their textures animate as you play — the stripes you see on water, lava and acid are generated
+by the same automaton the Liquid Texture Lab (O) authors, played into the texture array by an
+autoload animator; press O and hit "Bind to world" to make one of your own tuned strips the one
+the game plays. Right-clicking a source with the empty `bucket` takes it: the cell empties (the
+fluid around it settles back in) and the bucket becomes that fluid's own bucket, so a spill can
+be picked back up — the bucket is what makes a poured pool reversible
 
-The F5 back/front cameras sit on your look ray 4 blocks out and slide in before any solid block, so they never clip through terrain; the in-front view looks back at your face. Block targeting casts from your eye along the look direction in every view (like vanilla's eye-ray trace), so the crosshair, block outline, and the player's head all agree with first person. In third person the body lags behind your look Minecraft-style: the torso eases toward your movement direction (dragged along once your head leads it by more than ~35°) while the head tracks your aim continuously.
+The F5 back/front cameras sit on your look ray 4 blocks out and slide in before any solid block,
+so they never clip through terrain; the in-front view looks back at your face. Block targeting
+casts from your eye along the look direction in every view (like vanilla's eye-ray trace), so
+the crosshair, block outline, and the player's head all agree with first person. In third person
+the body lags behind your look Minecraft-style: the torso eases toward your movement direction
+(dragged along once your head leads it by more than ~35°) while the head tracks your aim
+continuously.
 
 ### Controls Rebinding
 
@@ -250,25 +406,33 @@ Settings → Controls page allows rebinding any action to a different key or but
 
 ## Performance Tuning
 
-The `ChunkManager` node exposes these editor properties (see `src/godot_bindings/chunk_manager.cpp`):
+The `ChunkManager` node exposes these editor properties (see
+`src/godot_bindings/chunk_manager.cpp`):
 
 - **seed**, **render_distance**, **player_path**, **player_position**, **auto_update**
 - **editor_enabled**, **editor_render_distance**
 - **sea_level**, **biome_size** — terrain shape
 - **smooth_lighting** — toggle smooth vertex lighting
-- **lod_distance**, **lod_detail_level**, **far_lod_distance**, **far_lod_detail_level** — mesh LOD (three-tier stride/detail reduction; LOD-reduced chunks merge into region instances; see `mesh_manager.cpp`)
+- **lod_distance**, **lod_detail_level**, **far_lod_distance**, **far_lod_detail_level** — mesh
+  LOD (three-tier stride/detail reduction; LOD-reduced chunks merge into region instances; see
+  `mesh_manager.cpp`)
 - **player_light_enabled** / **player_light_level** — player-following dynamic light
-- **day_time**, **day_night_cycle_enabled**, **day_duration**, **day_sky_intensity**/**night_sky_intensity**, **day_sky_color**/**night_sky_color**
+- **day_time**, **day_night_cycle_enabled**, **day_duration**,
+  **day_sky_intensity**/**night_sky_intensity**, **day_sky_color**/**night_sky_color**
 - **fog_density** — exponential fog distance
-- **mipmaps_enabled** — toggle mipmap generation on the block/emissive texture arrays (regenerates the arrays live; disables the shader LOD bias so only the base level is sampled)
-- **mipmap_bias** — shader LOD bias for block-texture sampling (both terrain and water; ignored when `mipmaps_enabled` is off)
-- **textures_enabled** — toggle real block textures vs. a magenta/black checker placeholder (regenerates the arrays live; emissive layers become black when off)
+- **mipmaps_enabled** — toggle mipmap generation on the block/emissive texture arrays
+  (regenerates the arrays live; disables the shader LOD bias so only the base level is sampled)
+- **mipmap_bias** — shader LOD bias for block-texture sampling (both terrain and water; ignored
+  when `mipmaps_enabled` is off)
+- **textures_enabled** — toggle real block textures vs. a magenta/black checker placeholder
+  (regenerates the arrays live; emissive layers become black when off)
 - **vegetation_enabled** — toggle tree/vegetation generation
 - **move_speed_multiplier** — global player movement speed multiplier
 - **debug_enabled**, **debug_print_interval** — performance report logging
 - **FrameBudgets** (in `src/core/frame_budgets.hpp`) — per-frame generation/mesh/upload caps
 
-The `PlayerController` node exposes **sensitivity** (mouse look), **fly_speed**, and **health** (half-hearts 0–20; fall damage drains it).
+The `PlayerController` node exposes **sensitivity** (mouse look), **fly_speed**, and **health**
+(half-hearts 0–20; fall damage drains it).
 
 ## Settings Menu Features
 

@@ -284,6 +284,19 @@ portability = env.Command("bin/.portability_stamp", [], '"{}" tools/check_portab
 AlwaysBuild(portability)
 Alias("portability", portability)
 
+# Documentation guard: every path the markdown cites must exist, the counts it
+# states must match the tree, and no doc may become a wall nobody can diff. The
+# third gate of the same family as the two above - a check that only CI would run
+# otherwise. Same always-runs treatment.
+docscheck = env.Command("bin/.docscheck_stamp", [], '"{}" tools/check_docs.py'.format(sys.executable))
+AlwaysBuild(docscheck)
+Alias("docscheck", docscheck)
+
+# Rewrap the docs to the width the guard wants (whitespace only, verified).
+reflow = env.Command("bin/.reflow_stamp", [], '"{}" tools/reflow_docs.py'.format(sys.executable))
+AlwaysBuild(reflow)
+Alias("reflow", reflow)
+
 # LibFuzzer harnesses (Clang-only, Linux/macOS)
 # Build with: scons fuzz  (requires clang++)
 if sys.platform != "win32":

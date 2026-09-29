@@ -1,6 +1,19 @@
 # Architecture
 
-This document describes the current, stable architecture of the voxel engine. For historical context, progress tracking, and resolved issues, see [AGENTS.md](AGENTS.md).
+This document describes the current, stable architecture of the voxel engine. For historical
+context, progress tracking, and resolved issues, see [AGENTS.md](AGENTS.md).
+
+**Contents** — [Core constants](#core-constants) · [Threading model](#threading-model) ·
+[Chunk lifecycle](#chunk-lifecycle) · [Memory layout](#memory-layout) ·
+[Terrain generation](#terrain-generation) · [Rendering](#rendering) · [Collision](#collision) ·
+[Player controller](#player-controller) · [Removed/experimental](#removedexperimental-features)
+·
+[Legacy/disabled](#legacydisabled-code) · [Key files](#key-files)
+
+Looking for something else: [which document answers which question](docs/README.md),
+[the data file schemas](docs/data-schemas.md), [what to touch for a change](docs/howto.md),
+[the vocabulary](docs/glossary.md), [debugging instruments](docs/debugging.md),
+[the probe suite](docs/probes.md), [what was already rejected](docs/decisions/README.md).
 
 ## Core Constants
 
@@ -14,7 +27,8 @@ This document describes the current, stable architecture of the voxel engine. Fo
 ### Thread Pool
 - Single shared worker pool with `hardware_concurrency() - 1` threads
 - High-priority queue for critical operations
-- No split generation/mesh pools (split approach was tried and reverted due to throughput starvation)
+- No split generation/mesh pools (split approach was tried and reverted due to throughput
+  starvation)
 
 ### Locking Hierarchy
 
@@ -31,22 +45,36 @@ This document describes the current, stable architecture of the voxel engine. Fo
 **Locking Rules:**
 1. Single-chunk/block accessors lock only their own shard
 2. Batch methods lock all relevant shards in ascending order to avoid deadlock
-3. Hot paths with many sequential reads (light propagation, dirty-neighbor checks) batch-lock instead of per-call locking
-4. **ChunkData writes**: Must hold `lock_all_exclusive()` or `lock_keys_exclusive()` for targeted shards
-5. **`_locked` methods**: Caller MUST already hold exclusive lock, uses `_fast` accessors only, MUST NOT call auto-locking methods
-6. **Auto-locking methods** (`get_chunk_data`, `get_chunk_render_data`, `mark_chunks_dirty_for_light`, `queue_dirty_chunk`): Acquire their own shared locks — MUST NOT be called under exclusive lock
-7. **Public wrappers**: Acquire exclusive lock → call `_locked` → release lock → call auto-locking accessors for dirty-marking
-8. **No recursive shared acquisition**: Never re-acquire a shard lock you already hold shared. Windows SRW locks block new shared acquisitions once a writer is queued on a shard, so this deadlocks whenever a worker is waiting exclusive. Use `queue_dirty_chunk_fast()` (dirty-queue under a caller-held lock) inside `lock_keys` scopes, and `ShardLock::reset()` before re-acquiring a periodically-refreshed lock (e.g. `BlockEditor::raycast` re-locks `lock_all()` every 8 DDA steps)
+3. Hot paths with many sequential reads (light propagation, dirty-neighbor checks) batch-lock
+   instead of per-call locking
+4. **ChunkData writes**: Must hold `lock_all_exclusive()` or `lock_keys_exclusive()` for
+   targeted shards
+5. **`_locked` methods**: Caller MUST already hold exclusive lock, uses `_fast` accessors only,
+   MUST NOT call auto-locking methods
+6. **Auto-locking methods** (`get_chunk_data`, `get_chunk_render_data`,
+   `mark_chunks_dirty_for_light`, `queue_dirty_chunk`): Acquire their own shared locks — MUST
+   NOT be called under exclusive lock
+7. **Public wrappers**: Acquire exclusive lock → call `_locked` → release lock → call
+   auto-locking accessors for dirty-marking
+8. **No recursive shared acquisition**: Never re-acquire a shard lock you already hold shared.
+   Windows SRW locks block new shared acquisitions once a writer is queued on a shard, so this
+   deadlocks whenever a worker is waiting exclusive. Use `queue_dirty_chunk_fast()` (dirty-queue
+   under a caller-held lock) inside `lock_keys` scopes, and `ShardLock::reset()` before
+   re-acquiring a periodically-refreshed lock (e.g. `BlockEditor::raycast` re-locks `lock_all()`
+   every 8 DDA steps)
 
 **Targeted Shard Locking:**
-- `lock_keys_exclusive<N>()` locks only shards whose keys appear in input, in ascending shard order
+- `lock_keys_exclusive<N>()` locks only shards whose keys appear in input, in ascending shard
+  order
 - Used in all hot paths to reduce contention:
   - `propagate_block_light_region()` — 27 keys (3×3×3 neighborhood)
   - `place_block` — 27 keys (3×3×3 center)
-  - `light_propagate_add` / `light_propagate_remove` — origin 3×3×3 + each seed node's 3×3×3 (deduplicated)
+  - `light_propagate_add` / `light_propagate_remove` — origin 3×3×3 + each seed node's 3×3×3
+    (deduplicated)
   - `update_block_light_incremental` — 54 keys (origin + center 3×3×3)
   - `PlayerLight::update` — vector of up to 54 keys (old+new chunk 3×3×3)
-  - `MeshBuildTask::execute` — 27 keys (center + 26 neighbors), **shared** `lock_keys` held for the whole data read, serializing the build against exclusive writers
+  - `MeshBuildTask::execute` — 27 keys (center + 26 neighbors), **shared** `lock_keys` held for
+    the whole data read, serializing the build against exclusive writers
 
 **BFS Bounded Reach:**
 - Max light level 15 < chunk size 32
@@ -56,7 +84,10 @@ This document describes the current, stable architecture of the voxel engine. Fo
 
 ### Frame Pipeline
 
-Every frame the main thread walks a wall-clock-budgeted pipeline that turns a missing chunk into on-GPU geometry (Godot `_process` → `VoxelEngineController` → `WorldUpdater::update`). Heavy stages are handed to the shared worker pool; the `ChunkScheduler` queues between stages decouple them, so a slow worker never blocks a frame.
+Every frame the main thread walks a wall-clock-budgeted pipeline that turns a missing chunk into
+on-GPU geometry (Godot `_process` → `VoxelEngineController` → `WorldUpdater::update`). Heavy
+stages are handed to the shared worker pool; the `ChunkScheduler` queues between stages decouple
+them, so a slow worker never blocks a frame.
 
 ```
  ONE CHUNK'S JOURNEY:  generate → light → mesh → upload
@@ -90,36 +121,63 @@ Every frame the main thread walks a wall-clock-budgeted pipeline that turns a mi
        · vertex/light arrays → RenderingServer → GPU
 ```
 
-Async persistence shares the same pool: the main thread snapshots dirty chunks on a 5s timer and workers RLE-encode + atomically write them; generation-gated saves abort in-flight superseded workers.
+Async persistence shares the same pool: the main thread snapshots dirty chunks on a 5s timer and
+workers RLE-encode + atomically write them; generation-gated saves abort in-flight superseded
+workers.
 
 ### Generation
 1. `ChunkWorld::generate_chunk()` checks if chunk exists in map
-2. If not found, generates via `ChunkGenerator` (chunks are never stored whole; sparse `EditMap`s are layered on top)
+2. If not found, generates via `ChunkGenerator` (chunks are never stored whole; sparse
+   `EditMap`s are layered on top)
 3. Inserts into `ChunkMap` with `ChunkRenderData` wrapper
 4. Queues for mesh build via `ChunkScheduler`
 
 ### Mesh Building
 1. `MeshBuilder::build_mesh()` creates mesh data from `ChunkData`
 2. Uses `ChunkNeighborAccessor` for 26 neighbor chunks
-3. Greedy meshing with stride/detail reduction for LOD (controlled by `lod_distance`/`lod_detail_level`)
-4. The build holds a shared `lock_keys` over the center chunk + 26 neighbors for the whole data read. This both pins the chunks (erasure requires an exclusive lock on the shard) and serializes the build against exclusive writers (block edits, light region recomputes) that mutate neighbor section palettes mid-build. The center chunk additionally carries `pending_mesh_builds`, which `try_unload_chunk` checks before erasing
-5. Block edits take the incremental path (`build_mesh_incremental()`): a tight dirty-AABB re-emit merged with the previously emitted mesh, with fallback to a full rebuild when the bounds grow beyond a threshold
+3. Greedy meshing with stride/detail reduction for LOD (controlled by
+   `lod_distance`/`lod_detail_level`)
+4. The build holds a shared `lock_keys` over the center chunk + 26 neighbors for the whole data
+   read. This both pins the chunks (erasure requires an exclusive lock on the shard) and
+   serializes the build against exclusive writers (block edits, light region recomputes) that
+   mutate neighbor section palettes mid-build. The center chunk additionally carries
+   `pending_mesh_builds`, which `try_unload_chunk` checks before erasing
+5. Block edits take the incremental path (`build_mesh_incremental()`): a tight dirty-AABB
+   re-emit merged with the previously emitted mesh, with fallback to a full rebuild when the
+   bounds grow beyond a threshold
 
 ### Unloading
 1. `try_unload_chunk()` checks if chunk can be unloaded (no pending mesh builds, not in frustum)
-2. Snapshots the chunk data and hands it to the background save queue (superseding any in-flight save of the same chunk) — no blocking file I/O on the main thread
+2. Snapshots the chunk data and hands it to the background save queue (superseding any in-flight
+   save of the same chunk) — no blocking file I/O on the main thread
 3. Removes from `ChunkMap`
 
 ### Persistence
-- **Save format v3**: `[width:u32][height:u32][depth:u32][version:u32=3][crc32:u32][RLE body...]`
-- **Atomic writes**: Write to `.tmp` file → create `.bak` backup of existing → atomic rename to target
-- **CRC recovery**: On CRC mismatch, attempt to load from `.bak` backup; delete corrupted files if no valid backup
+- **Save format v3**:
+  `[width:u32][height:u32][depth:u32][version:u32=3][crc32:u32][RLE body...]`
+- **Atomic writes**: Write to `.tmp` file → create `.bak` backup of existing → atomic rename to
+  target
+- **CRC recovery**: On CRC mismatch, attempt to load from `.bak` backup; delete corrupted files
+  if no valid backup
 - Supports v3 (CRC32), v2 (legacy RLE), v1 (flat legacy) transparently
-- **Async saves**: `flush_dirty_chunks(wait_for_completion, timeout_sec)` deep-copies each dirty chunk under its shard lock (cheap — 1–20KB palette-compressed data), clears the dirty flag at snapshot time, and hands the snapshot to the thread pool for RLE encode + write. All file I/O is serialized by `file_access_mutex`. `WorldUpdater::flush_dirty()` triggers a periodic non-blocking flush every 5s (`flush_interval`).
-- **Generation gating**: each in-flight save carries a per-key generation from `next_save_generation`; a newer snapshot for the same chunk bumps the generation, and the superseded worker aborts at its gate (checked under `file_access_mutex`) instead of clobbering newer data. An epoch gate additionally drops stale saves after a world reset. This guarantees the newest state is always the last one written, with at most one live write per chunk file.
-- **Flush on quit**: `ChunkManager::_exit_tree()` calls `flush_dirty_chunks(true, 5.0)`, which blocks until all outstanding saves finish so recent edits are never lost on exit.
-- **Inventory persistence**: `Inventory` serializes to `user://chunks/inventory.bin` (magic `INVE`, version 1, hotbar + 27 main slots + selected slot). `PlayerController::_exit_tree()` saves it while nodes are still alive (the destructor's tree lookups always failed at teardown).
-- **Cross-chunk writes**: `apply_pending_placements()` marks the receiving chunk dirty, so deferred vegetation canopy writes to a neighbor chunk are persisted by the next flush.
+- **Async saves**: `flush_dirty_chunks(wait_for_completion, timeout_sec)` deep-copies each dirty
+  chunk under its shard lock (cheap — 1–20KB palette-compressed data), clears the dirty flag at
+  snapshot time, and hands the snapshot to the thread pool for RLE encode + write. All file I/O
+  is serialized by `file_access_mutex`. `WorldUpdater::flush_dirty()` triggers a periodic
+  non-blocking flush every 5s (`flush_interval`).
+- **Generation gating**: each in-flight save carries a per-key generation from
+  `next_save_generation`; a newer snapshot for the same chunk bumps the generation, and the
+  superseded worker aborts at its gate (checked under `file_access_mutex`) instead of clobbering
+  newer data. An epoch gate additionally drops stale saves after a world reset. This guarantees
+  the newest state is always the last one written, with at most one live write per chunk file.
+- **Flush on quit**: `ChunkManager::_exit_tree()` calls `flush_dirty_chunks(true, 5.0)`, which
+  blocks until all outstanding saves finish so recent edits are never lost on exit.
+- **Inventory persistence**: `Inventory` serializes to `user://chunks/inventory.bin` (magic
+  `INVE`, version 1, hotbar + 27 main slots + selected slot). `PlayerController::_exit_tree()`
+  saves it while nodes are still alive (the destructor's tree lookups always failed at
+  teardown).
+- **Cross-chunk writes**: `apply_pending_placements()` marks the receiving chunk dirty, so
+  deferred vegetation canopy writes to a neighbor chunk are persisted by the next flush.
 
 ## Memory Layout
 
@@ -137,24 +195,221 @@ Async persistence shares the same pool: the main thread snapshots dirty chunks o
 - Do not hardcode block properties in C++
 
 ### Block Shapes
-- **Non-full block shapes**: Slabs, stairs, walls, and poles defined in `data/block_shapes.json`. A shape is an arbitrary list of AABBs, so a model is data rather than code: the crucible is 9 boxes (4 legs, a floor plate, 4 open-topped walls). `collision_boxes` is optional and defaults to the visible boxes, so the crucible's walls stop a body while its open top lets one stand inside on the inner floor plate; the pole is the counter-example that overrides it (1.5-high collision under a 1-block-tall stick). A `shape` name that does not resolve leaves the block a full cube (error log only), and per-AABB emission emits a box's Bottom face only while that box is RAISED off the cell floor — a resting underside is never visible from a ground-level view, a floating one has to be drawn or the model is see-through from below — and not even then when a sibling box of the same shape spans that footprint from below (a stair's upper step over its own lower step), because that face is inside the model and would be a hidden quad on every one of them
-- **Selection and collision boxes**: Each shape variant has explicit selection boxes (for raycast) and collision boxes (for physics)
-- **Auto-detecting placement**: Slabs, stairs, and walls automatically orient based on clicked face and neighboring blocks
-- **Double-slab merging**: Two stacked slabs of the same type merge into a double slab; breaking drops 2 slabs
-- **Pole collision**: Fence-like collision boxes extend 1.5 blocks high for proper player interaction
-- **The flat shape batch** (fences, glass, panes, torches, ladders, chains, lantern, carpet, plate, button, snow layers) is geometry only. `fence/all` is post plus all four arms with a 1.5-high collision; the placed lights are `light_torch` and the hidden `light_torch_wall_{n,e,s,w}` rather than `torch`, because a `torch` ITEM already exists as the held light; the torch carries no `Solid` property, which is what makes a body walk through it; and every derived orientation is `hidden` with `drops` naming what a player can actually hold — the torch's is the ITEM, so breaking a placed torch returns the thing you can place again, which is why `drops` may name an item and is finished by `BlockRegistry::resolve_pending_drops` after `items.json` loads. Hiding is also derived, not only flagged: `BlockRegistry::is_family_variant` keeps a shape family's non-base members (a stair's other orientations, a slab's top/full) out of `/give` and its autocomplete, leaving walls to the explicit flag because a wall's `_full` is a real solid block a merge or a paste writes rather than an orientation. Stone's solid wall was deleted outright: it was a plain stone cube, a block the reference does not have, so `minecraft:*_wall` and cobblestone wall now substitute to `stone` and stone's family simply has no solid to thicken into. A 2/16 box samples its own region of its texture (the emitter scales UVs by the box's extent), which is why that art is generated rather than drawn by hand: `python tools/make_block_textures.py`. The torch item and block are joined by the one declared bridge from the item space into the block space: an item may carry a `place` object naming a block (and its wall-hugging variants, `n`/`s`/`e`/`w`), and `place_block` then resolves the clicked face into the right one — a top face the standing torch, a vertical face the variant that hugs that wall — and consumes the ITEM rather than the block. Without a `place` an item is never placeable, which is what keeps tools, sticks and buckets out of voxels. The placed block wears the item's art: `textures/blocks/torch.png` is a verbatim copy of `textures/items/torch.png` (generated by `tools/make_block_textures.py`, which only draws the block-only emissive map on top), so the torch you hold and the torch standing in the world are one drawing; the torch recipe yields the ITEM, so crafting, holding and placing are one loop
-- **Neighbour-aware shapes: the resolver** (`core/shape_resolver.hpp`). A variant may declare `parts`, each an unconditional box list or one carrying a rule; a rule-claimed part is present only while the cell faces its boxes reach have neighbours the rule accepts, and the claim follows the geometry (`shape_box_faces` reads it off the boxes, so a rule cannot be written against a face a part does not meet) unless the RULE supplies them, which the stair rules do because what they ask about — the step face, and a side whose stair already owns the region — is not where their boxes are: a corner quarter and a cut remnant reach the FAR cell boundary as well as the neighbour's, so a derived claim would read "east and back" and a stair standing behind would fill the east notch, a corner on a side with nothing attached to it. A part may still declare `faces`; where the two disagree the rule wins and the loader warns. `fence/all` is the shipped case: a post plus four arms, resolved when the chunk is meshed, so an isolated fence is the post alone and a run is continuous. `pane/all` is the third family, and it is the one that shows what a DECLARED claim is for: an arm spans the whole cell height, so its boxes reach up and down too, and a claim read off them would demand a block above and below — so each arm declares the single side it points at, which is the only case the loader takes on the author's word (a declared claim must still be a face its own boxes reach). A pane reaches another pane, or anything offering a whole face, and that is deliberately not the fence's test: a rail is a bar that only needs an end to meet, while a sheet glues to the stone, the planks and the glass it is set in, so a pane may sit flush against a window where a fence refuses one. Post plus the two arms on one axis is EXACTLY the flat plate the block was before it grew arms, which is what lets one id stand in for a variant per axis — a run, a corner and a lone post are the same block, where the reference needs a second id and a placement rule to choose it. `stair/{n,s,e,w}` carries five of them, because a stair is three questions. `stair_step` is the raised half in full, drawn while nothing cuts it. A stair standing in FRONT of the step that has been turned across it meets this cell along one of the step's sides, so it cuts the step back to the half it is stepping toward: that is the remnant (`stair_cut_left` / `stair_cut_right`), and the two steps then run into each other instead of into a wall of themselves. A stair BEHIND the step pointing at one side leaves the region between them open, and the quarter (`stair_corner_left` / `stair_corner_right`) fills the inside of that turn. Both are switched off by a stair on THIS one's step — same way up, same way round — standing on the side in question, because two flights meeting sideways already own that region: the step between them stays whole and the quarter is not drawn. Orientation is therefore part of the rules and material is not, so any stair turns with any other, and all of it costs **zero new block ids** where a variant-per-state scheme needs 128. The hanging variants are the SAME five rules on geometry mirrored about the cell floor (the four `*_up` shapes repeat the upright boxes with `y` flipped, which the probe compares rule for rule and box for box), so a stair that hangs turns a corner and has its step cut back exactly as a climbing one does — in the lower half. The two ways up never turn with each other, because the region a corner fills only exists between two stairs laid out the same way round; `BlockType::stair_hanging` is what makes that askable at all, since a rule can only read the block it is looking at. The OUTER corner needed no part that replaces another after all: because the step is itself a claimed part, a cut is the step switching off with a remnant switching on. Those rules are also why a stair can never resolve into a full block — the step and a remnant cannot both be drawn, and the corner's partner is a single cell, so at most one corner exists and the four upper quadrants are never all covered. `wall/all` is the fourth family, and it is the one that shows a piece's HEIGHT is not a question about its neighbour. A reach is drawn twice from the same box: at 14/16 while the cell above it is open, and at the full cell height while the cell above spans the strip the reach stands on — a wall under a block is carrying it, and a flank under a span should meet it. So a wall beside a whole block and a wall beside another wall draw the same thing, which is exactly what the family used to get wrong, and the two rules that draw them (`wall_arm` / `wall_bearing`) are one reach split in two, so a side that reaches can never draw both or neither. What the neighbour decides is only WHETHER there is a reach at all: another wall, a sheet it can bite into — the mirror of the pane rule's asymmetry, because a sheet presses against a whole face and a wall's flank is not one, while a reach is a buttress and a sheet is something to buttress against — or a neighbour offering a whole face, glass included, since a whole face is a whole face whether or not it is transparent. All four per-material bodies carry this one shape, so placement has nothing left to orient: a wall is the block you were holding. The post is 8/16 wide and full height, and it is the one part in the file that reads the cell as a WHOLE instead of through a face: it stands unless this cell is a plain through-run — a rail studded with a post at every cell stops reading as a rail — so a lone wall, the ends of a run, a corner and a T junction carry it, while a plain run and a cross do not (four reaches already meet in the middle of a cross). A cell in a plain run carries one too while something narrow enough rests on the post's own 2/16 footprint, a question about the cell above answered from that block's boxes, so a plank, a window or a fence's post does and half a cell of ledge does not (and a wall above is inert: a wall two high stays the rail one high is). A run never carries one under a whole block, because that block spans the reaches as well and the two of them already meet the span. It therefore claims no face at all, which is why the walk carries a second kind of rule (`shape_rule_self_decided`) for the one part a per-face conjunction cannot express, and why an inventory resolution has to draw it: the item model is a post with a run through it. The family is still five ids per material because ids are positional in the save format, but they are ONE family to the registry, and that family is what a mined wall drops and what a wall thickens into (`WallFamily::base`/`full`); recognition is by shape, so the retired `wall/{n,s,e,w}` names stay understood rather than silently losing the drop. The two heights are declared claims, which puts this family on the other side of the box/rule split from the stairs: a reach's boxes meet the floor, so a claim read off them would demand something underneath a wall built out over a drop. The WHY is that a cell has no state here beyond its block id, so the variant-per-state scheme the reference uses would need a neighbour-update pass this engine does not have — and that pass would have to run again after worldgen, paste and load or shapes would be wrong exactly where nobody looks. Resolving at mesh time makes a cell's geometry a pure function of the cell and its six neighbours, which `tests/test_shape_resolver_reconcile.cpp` pins by meshing the same pair of fences (and the same stair cut) at load and after an edit and comparing the vertex buffers byte for byte. Which neighbours satisfy a rule (`shape_rule_connects`, which takes the caller's own neighbour lookups rather than one id, because a stair rule asks about cells other than the face it was called on) and what a canonical resolution assumes connected (`shape_rule_canonical`) live in that one file, and the walk serves every consumer: the mesher (its own accessor), collision and the raycast (the chunk map under the lock they already hold — collision pads its key set by a block, the raycast grows its lock box by one), the outline (a locked lookup per face), and icons, which have no world and use the canonical set. A block's `selection_boxes`/`collision_boxes` are DERIVED at load from the canonical flattening and the declared list is warned about if it disagrees, because `block_icon_renderer.gd` and `viewmodel.gd` read the file directly: otherwise the model in your hand would differ from the one placed. Pathfinding stays id-only on purpose (`block_class.hpp`): it has no position, and counting every fence as a full-height obstacle is the conservative answer for a planner
-- **Still open**: a stair is four ids you pick from the menu rather than one that resolves its orientation on placement (its corners and cut remnants are data-only on top of that, with no new ids), a wall torch is axis-aligned where the reference leans it 22.5 degrees, nothing checks that a torch, a lantern, a ladder or a wall button still has the support it hangs from — break the block behind a sconce and the sconce stays in the air — and a wall's solid `_full` block (where a material still has one — stone's was deleted) has no gesture of its own: the placement merge only fires when the cell you are aiming into already holds a wall of the family, so there is no deliberate in-game way to thicken one. None of it can be solved with variant IDs instead: the registry is already at 175 of `MAX_BLOCK_TYPES` = 256
-- **Probed by `.freebuff/probe_shapes.gd`** — every new shape's boxes read back by name from the real registry and compared against the documented 16ths model, the hidden flags, a texture per block, and then the shape file itself for the four things a static box list cannot show: that `fence/all` is part-based with the four arms claimed, that its declared box lists still match what the parts resolve to (the icon/viewmodel drift check), that a fence's collision is 1.5 high, and that the wall torch is raised off the floor, which is what makes its underside visible. It then places a fence in the live world and reads `get_selection_boxes_at` back three times — alone (1 box), against stone (3 boxes with the arm reaching x=1), and after the neighbour is removed (1 box again) — which is the only check that sees the JSON, the rule and the resolver together. The hanging stairs get their own four: alone (2 boxes, the slab raised and the step hanging), with a hanging stair turning in behind the step (3, the quarter in the LOWER half), with an upright stair in that same spot (2 — the two ways up do not turn with each other), and a hanging stair turned across the step in front (the remnant) verses an upright one there (the step whole). It does the same for a pane, three states rather than one: alone (the post, which is what proves a declared claim is not asking about the empty cell above it), against stone (the sheet flush at x=1), and in a corner with a pane of its own kind on the other axis (two sheets meeting at the post), plus that post-plus-two-arms along either axis adds up to the flat plate the block replaced — measured on the file's own numbers, because it is the geometry that has to add up, not the machinery agreeing with itself. It also checks that `stair/n` is part-based with the slab plus exactly one part per rule — the step, two remnants and two quarters — that only a rule which supplies its own claim faces has parts declaring `faces` (the stair rules, where a declared list would be overruled at load), while a declared claim anywhere else has to be a face its own boxes reach — which is what a pane arm's one-side declaration is checked against, and that every rule name in the file is one the engine knows, since an unresolved name draws its part unconditionally. In the live world it places a stair and reads the boxes back four times: alone (2 boxes), with a stair turning in BEHIND the step (3 boxes, the quarter present), with a stair turned ACROSS it in front (2 boxes, the whole step replaced by the half the crossing stair is stepping toward), and with that neighbour turned the other way (the other half survives). The wall's live checks are the cases the height rule and the conditional post need between them: beside another material's wall (the reach at 14/16), beside a whole block (the SAME 14/16 reach, which is the case the family used to get wrong, and the one worth re-reading after any change to the rule), carrying a block above (the same footprint run to the cell top), a plain run along X (two reaches and no post between them), that run under a whole block (both reaches to the top and still no post, because the pair already meets the span) and that run with a fence post above (three boxes, the post up on the post's own footprint) — beside the always-carried cases (alone, an end, a corner). `tests/test_mesh_face_emission.cpp` (with `_shape.cpp` / `_coplanar.cpp`) pins the raised-box Bottom rule; `tests/test_shape_resolver.cpp` (with `_walls.cpp` / `_stairs.cpp` / `_hanging.cpp` / `_reconcile.cpp`) pins the rules, the claim narrowing, the canonical lists, part-wise collision and the load-vs-edit property
+- **Non-full block shapes**: Slabs, stairs, walls, and poles defined in
+  `data/block_shapes.json`. A shape is an arbitrary list of AABBs, so a model is data rather
+  than code: the crucible is 9 boxes (4 legs, a floor plate, 4 open-topped walls).
+  `collision_boxes` is optional and defaults to the visible boxes, so the crucible's walls stop
+  a body while its open top lets one stand inside on the inner floor plate; the pole is the
+  counter-example that overrides it (1.5-high collision under a 1-block-tall stick). A `shape`
+  name that does not resolve leaves the block a full cube (error log only), and per-AABB
+  emission emits a box's Bottom face only while that box is RAISED off the cell floor — a
+  resting underside is never visible from a ground-level view, a floating one has to be drawn or
+  the model is see-through from below — and not even then when a sibling box of the same shape
+  spans that footprint from below (a stair's upper step over its own lower step), because that
+  face is inside the model and would be a hidden quad on every one of them
+- **Selection and collision boxes**: Each shape variant has explicit selection boxes (for
+  raycast) and collision boxes (for physics)
+- **Auto-detecting placement**: Slabs, stairs, and walls automatically orient based on clicked
+  face and neighboring blocks
+- **Double-slab merging**: Two stacked slabs of the same type merge into a double slab; breaking
+  drops 2 slabs
+- **Pole collision**: Fence-like collision boxes extend 1.5 blocks high for proper player
+  interaction
+- **The flat shape batch** (fences, glass, panes, torches, ladders, chains, lantern, carpet,
+  plate, button, snow layers) is geometry only. `fence/all` is post plus all four arms with a
+  1.5-high collision; the placed lights are `light_torch` and the hidden
+  `light_torch_wall_{n,e,s,w}` rather than `torch`, because a `torch` ITEM already exists as the
+  held light; the torch carries no `Solid` property, which is what makes a body walk through it;
+  and every derived orientation is `hidden` with `drops` naming what a player can actually hold
+  — the torch's is the ITEM, so breaking a placed torch returns the thing you can place again,
+  which is why `drops` may name an item and is finished by
+  `BlockRegistry::resolve_pending_drops` after `items.json` loads. Hiding is also derived, not
+  only flagged: `BlockRegistry::is_family_variant` keeps a shape family's non-base members (a
+  stair's other orientations, a slab's top/full) out of `/give` and its autocomplete, leaving
+  walls to the explicit flag because a wall's `_full` is a real solid block a merge or a paste
+  writes rather than an orientation. Stone's solid wall was deleted outright: it was a plain
+  stone cube, a block the reference does not have, so `minecraft:*_wall` and cobblestone wall
+  now substitute to `stone` and stone's family simply has no solid to thicken into. A 2/16 box
+  samples its own region of its texture (the emitter scales UVs by the box's extent), which is
+  why that art is generated rather than drawn by hand: `python tools/make_block_textures.py`.
+  The torch item and block are joined by the one declared bridge from the item space into the
+  block space: an item may carry a `place` object naming a block (and its wall-hugging variants,
+  `n`/`s`/`e`/`w`), and `place_block` then resolves the clicked face into the right one — a top
+  face the standing torch, a vertical face the variant that hugs that wall — and consumes the
+  ITEM rather than the block. Without a `place` an item is never placeable, which is what keeps
+  tools, sticks and buckets out of voxels. The placed block wears the item's art:
+  `textures/blocks/torch.png` is a verbatim copy of `textures/items/torch.png` (generated by
+  `tools/make_block_textures.py`, which only draws the block-only emissive map on top), so the
+  torch you hold and the torch standing in the world are one drawing; the torch recipe yields
+  the ITEM, so crafting, holding and placing are one loop
+- **Neighbour-aware shapes: the resolver** (`core/shape_resolver.hpp`). A variant may declare
+  `parts`, each an unconditional box list or one carrying a rule; a rule-claimed part is present
+  only while the cell faces its boxes reach have neighbours the rule accepts, and the claim
+  follows the geometry (`shape_box_faces` reads it off the boxes, so a rule cannot be written
+  against a face a part does not meet) unless the RULE supplies them, which the stair rules do
+  because what they ask about — the step face, and a side whose stair already owns the region —
+  is not where their boxes are: a corner quarter and a cut remnant reach the FAR cell boundary
+  as well as the neighbour's, so a derived claim would read "east and back" and a stair standing
+  behind would fill the east notch, a corner on a side with nothing attached to it. A part may
+  still declare `faces`; where the two disagree the rule wins and the loader warns. `fence/all`
+  is the shipped case: a post plus four arms, resolved when the chunk is meshed, so an isolated
+  fence is the post alone and a run is continuous. `pane/all` is the third family, and it is the
+  one that shows what a DECLARED claim is for: an arm spans the whole cell height, so its boxes
+  reach up and down too, and a claim read off them would demand a block above and below — so
+  each arm declares the single side it points at, which is the only case the loader takes on the
+  author's word (a declared claim must still be a face its own boxes reach). A pane reaches
+  another pane, or anything offering a whole face, and that is deliberately not the fence's
+  test: a rail is a bar that only needs an end to meet, while a sheet glues to the stone, the
+  planks and the glass it is set in, so a pane may sit flush against a window where a fence
+  refuses one. Post plus the two arms on one axis is EXACTLY the flat plate the block was before
+  it grew arms, which is what lets one id stand in for a variant per axis — a run, a corner and
+  a lone post are the same block, where the reference needs a second id and a placement rule to
+  choose it. `stair/{n,s,e,w}` carries five of them, because a stair is three questions.
+  `stair_step` is the raised half in full, drawn while nothing cuts it. A stair standing in
+  FRONT of the step that has been turned across it meets this cell along one of the step's
+  sides, so it cuts the step back to the half it is stepping toward: that is the remnant
+  (`stair_cut_left` / `stair_cut_right`), and the two steps then run into each other instead of
+  into a wall of themselves. A stair BEHIND the step pointing at one side leaves the region
+  between them open, and the quarter (`stair_corner_left` / `stair_corner_right`) fills the
+  inside of that turn. Both are switched off by a stair on THIS one's step — same way up, same
+  way round — standing on the side in question, because two flights meeting sideways already own
+  that region: the step between them stays whole and the quarter is not drawn. Orientation is
+  therefore part of the rules and material is not, so any stair turns with any other, and all of
+  it costs **zero new block ids** where a variant-per-state scheme needs 128. The hanging
+  variants are the SAME five rules on geometry mirrored about the cell floor (the four `*_up`
+  shapes repeat the upright boxes with `y` flipped, which the probe compares rule for rule and
+  box for box), so a stair that hangs turns a corner and has its step cut back exactly as a
+  climbing one does — in the lower half. The two ways up never turn with each other, because the
+  region a corner fills only exists between two stairs laid out the same way round;
+  `BlockType::stair_hanging` is what makes that askable at all, since a rule can only read the
+  block it is looking at. The OUTER corner needed no part that replaces another after all:
+  because the step is itself a claimed part, a cut is the step switching off with a remnant
+  switching on. Those rules are also why a stair can never resolve into a full block — the step
+  and a remnant cannot both be drawn, and the corner's partner is a single cell, so at most one
+  corner exists and the four upper quadrants are never all covered. `wall/all` is the fourth
+  family, and it is the one that shows a piece's HEIGHT is not a question about its neighbour. A
+  reach is drawn twice from the same box: at 14/16 while the cell above it is open, and at the
+  full cell height while the cell above spans the strip the reach stands on — a wall under a
+  block is carrying it, and a flank under a span should meet it. So a wall beside a whole block
+  and a wall beside another wall draw the same thing, which is exactly what the family used to
+  get wrong, and the two rules that draw them (`wall_arm` / `wall_bearing`) are one reach split
+  in two, so a side that reaches can never draw both or neither. What the neighbour decides is
+  only WHETHER there is a reach at all: another wall, a sheet it can bite into — the mirror of
+  the pane rule's asymmetry, because a sheet presses against a whole face and a wall's flank is
+  not one, while a reach is a buttress and a sheet is something to buttress against — or a
+  neighbour offering a whole face, glass included, since a whole face is a whole face whether or
+  not it is transparent. All four per-material bodies carry this one shape, so placement has
+  nothing left to orient: a wall is the block you were holding. The post is 8/16 wide and full
+  height, and it is the one part in the file that reads the cell as a WHOLE instead of through a
+  face: it stands unless this cell is a plain through-run — a rail studded with a post at every
+  cell stops reading as a rail — so a lone wall, the ends of a run, a corner and a T junction
+  carry it, while a plain run and a cross do not (four reaches already meet in the middle of a
+  cross). A cell in a plain run carries one too while something narrow enough rests on the
+  post's own 2/16 footprint, a question about the cell above answered from that block's boxes,
+  so a plank, a window or a fence's post does and half a cell of ledge does not (and a wall
+  above is inert: a wall two high stays the rail one high is). A run never carries one under a
+  whole block, because that block spans the reaches as well and the two of them already meet the
+  span. It therefore claims no face at all, which is why the walk carries a second kind of rule
+  (`shape_rule_self_decided`) for the one part a per-face conjunction cannot express, and why an
+  inventory resolution has to draw it: the item model is a post with a run through it. The
+  family is still five ids per material because ids are positional in the save format, but they
+  are ONE family to the registry, and that family is what a mined wall drops and what a wall
+  thickens into (`WallFamily::base`/`full`); recognition is by shape, so the retired
+  `wall/{n,s,e,w}` names stay understood rather than silently losing the drop. The two heights
+  are declared claims, which puts this family on the other side of the box/rule split from the
+  stairs: a reach's boxes meet the floor, so a claim read off them would demand something
+  underneath a wall built out over a drop. The WHY is that a cell has no state here beyond its
+  block id, so the variant-per-state scheme the reference uses would need a neighbour-update
+  pass this engine does not have — and that pass would have to run again after worldgen, paste
+  and load or shapes would be wrong exactly where nobody looks. Resolving at mesh time makes a
+  cell's geometry a pure function of the cell and its six neighbours, which
+  `tests/test_shape_resolver_reconcile.cpp` pins by meshing the same pair of fences (and the
+  same stair cut) at load and after an edit and comparing the vertex buffers byte for byte.
+  Which neighbours satisfy a rule (`shape_rule_connects`, which takes the caller's own neighbour
+  lookups rather than one id, because a stair rule asks about cells other than the face it was
+  called on) and what a canonical resolution assumes connected (`shape_rule_canonical`) live in
+  that one file, and the walk serves every consumer: the mesher (its own accessor), collision
+  and the raycast (the chunk map under the lock they already hold — collision pads its key set
+  by a block, the raycast grows its lock box by one), the outline (a locked lookup per face),
+  and icons, which have no world and use the canonical set. A block's
+  `selection_boxes`/`collision_boxes` are DERIVED at load from the canonical flattening and the
+  declared list is warned about if it disagrees, because `block_icon_renderer.gd` and
+  `viewmodel.gd` read the file directly: otherwise the model in your hand would differ from the
+  one placed. Pathfinding stays id-only on purpose (`block_class.hpp`): it has no position, and
+  counting every fence as a full-height obstacle is the conservative answer for a planner
+- **Still open**: a stair is four ids you pick from the menu rather than one that resolves its
+  orientation on placement (its corners and cut remnants are data-only on top of that, with no
+  new ids), a wall torch is axis-aligned where the reference leans it 22.5 degrees, nothing
+  checks that a torch, a lantern, a ladder or a wall button still has the support it hangs from
+  — break the block behind a sconce and the sconce stays in the air — and a wall's solid `_full`
+  block (where a material still has one — stone's was deleted) has no gesture of its own: the
+  placement merge only fires when the cell you are aiming into already holds a wall of the
+  family, so there is no deliberate in-game way to thicken one. None of it can be solved with
+  variant IDs instead: the registry is already at 175 of `MAX_BLOCK_TYPES` = 256
+- **Probed by `.freebuff/probe_shapes.gd`** — every new shape's boxes read back by name from the
+  real registry and compared against the documented 16ths model, the hidden flags, a texture per
+  block, and then the shape file itself for the four things a static box list cannot show: that
+  `fence/all` is part-based with the four arms claimed, that its declared box lists still match
+  what the parts resolve to (the icon/viewmodel drift check), that a fence's collision is 1.5
+  high, and that the wall torch is raised off the floor, which is what makes its underside
+  visible. It then places a fence in the live world and reads `get_selection_boxes_at` back
+  three times — alone (1 box), against stone (3 boxes with the arm reaching x=1), and after the
+  neighbour is removed (1 box again) — which is the only check that sees the JSON, the rule and
+  the resolver together. The hanging stairs get their own four: alone (2 boxes, the slab raised
+  and the step hanging), with a hanging stair turning in behind the step (3, the quarter in the
+  LOWER half), with an upright stair in that same spot (2 — the two ways up do not turn with
+  each other), and a hanging stair turned across the step in front (the remnant) verses an
+  upright one there (the step whole). It does the same for a pane, three states rather than one:
+  alone (the post, which is what proves a declared claim is not asking about the empty cell
+  above it), against stone (the sheet flush at x=1), and in a corner with a pane of its own kind
+  on the other axis (two sheets meeting at the post), plus that post-plus-two-arms along either
+  axis adds up to the flat plate the block replaced — measured on the file's own numbers,
+  because it is the geometry that has to add up, not the machinery agreeing with itself. It also
+  checks that `stair/n` is part-based with the slab plus exactly one part per rule — the step,
+  two remnants and two quarters — that only a rule which supplies its own claim faces has parts
+  declaring `faces` (the stair rules, where a declared list would be overruled at load), while a
+  declared claim anywhere else has to be a face its own boxes reach — which is what a pane arm's
+  one-side declaration is checked against, and that every rule name in the file is one the
+  engine knows, since an unresolved name draws its part unconditionally. In the live world it
+  places a stair and reads the boxes back four times: alone (2 boxes), with a stair turning in
+  BEHIND the step (3 boxes, the quarter present), with a stair turned ACROSS it in front (2
+  boxes, the whole step replaced by the half the crossing stair is stepping toward), and with
+  that neighbour turned the other way (the other half survives). The wall's live checks are the
+  cases the height rule and the conditional post need between them: beside another material's
+  wall (the reach at 14/16), beside a whole block (the SAME 14/16 reach, which is the case the
+  family used to get wrong, and the one worth re-reading after any change to the rule), carrying
+  a block above (the same footprint run to the cell top), a plain run along X (two reaches and
+  no post between them), that run under a whole block (both reaches to the top and still no
+  post, because the pair already meets the span) and that run with a fence post above (three
+  boxes, the post up on the post's own footprint) — beside the always-carried cases (alone, an
+  end, a corner). `tests/test_mesh_face_emission.cpp` (with `_shape.cpp` / `_coplanar.cpp`) pins
+  the raised-box Bottom rule; `tests/test_shape_resolver.cpp` (with `_walls.cpp` / `_stairs.cpp`
+  / `_hanging.cpp` / `_reconcile.cpp`) pins the rules, the claim narrowing, the canonical lists,
+  part-wise collision and the load-vs-edit property
 
 ## Terrain Generation
 
-- **Signed 3D density field** over a macro heightmap: `density = (surface_y - y) + shape_noise * strength * surface_band` (positive = solid). The 3D fBm deforms only a band around the macro surface, producing overhangs, shelves, and arches.
-- **4×4×4 world-aligned shape lattice**: the 3D shape noise is sampled once per lattice node and trilinearly interpolated per voxel, so chunk grids and single-point field queries stay bit-identical and lattice nodes land on shared world coordinates across chunk boundaries (no seams).
-- **Chunk-level fast paths**: after the exact macro column pass, chunks entirely above/below the per-chunk height band fill plain water/air or stone over bedrock and skip all lattice/density/material work (~7× on deep-chunk generation). The height-band estimate runs on the cached lattices (81 macro/climate nodes + the blended-amplification lattice, combined per cell into rigorous min/max bounds) instead of per-column queries — ~2× cheaper and denser than the old 5-corner samples, and it covers every column.
-- **Per-chunk macro-surface lattice**: the macro land height is evaluated once per 4-block node (81 evaluations per chunk) and bilinearly interpolated per column — the same lattice idiom as the climate fields — instead of 4 corner evaluations per column (~4096). Node values and interpolation are bit-identical to the per-call sampler, and the single-point query paths reuse the same lattice for the fast-path estimates.
+- **Signed 3D density field** over a macro heightmap:
+  `density = (surface_y - y) + shape_noise * strength * surface_band` (positive = solid). The 3D
+  fBm deforms only a band around the macro surface, producing overhangs, shelves, and arches.
+- **4×4×4 world-aligned shape lattice**: the 3D shape noise is sampled once per lattice node and
+  trilinearly interpolated per voxel, so chunk grids and single-point field queries stay
+  bit-identical and lattice nodes land on shared world coordinates across chunk boundaries (no
+  seams).
+- **Chunk-level fast paths**: after the exact macro column pass, chunks entirely above/below the
+  per-chunk height band fill plain water/air or stone over bedrock and skip all
+  lattice/density/material work (~7× on deep-chunk generation). The height-band estimate runs on
+  the cached lattices (81 macro/climate nodes + the blended-amplification lattice, combined per
+  cell into rigorous min/max bounds) instead of per-column queries — ~2× cheaper and denser than
+  the old 5-corner samples, and it covers every column.
+- **Per-chunk macro-surface lattice**: the macro land height is evaluated once per 4-block node
+  (81 evaluations per chunk) and bilinearly interpolated per column — the same lattice idiom as
+  the climate fields — instead of 4 corner evaluations per column (~4096). Node values and
+  interpolation are bit-identical to the per-call sampler, and the single-point query paths
+  reuse the same lattice for the fast-path estimates.
 
-Terrain is produced in three stages — a macro surface from stacked noise layers, a height-based water post-pass, then a strength-gated 3D density field wrapped around that surface:
+Terrain is produced in three stages — a macro surface from stacked noise layers, a height-based
+water post-pass, then a strength-gated 3D density field wrapped around that surface:
 
 ```
  MACRO SURFACE ── noise layers summed at a domain-warped sample point
@@ -202,122 +457,759 @@ Terrain is produced in three stages — a macro surface from stacked noise layer
          density surface, rejected underwater
 ```
 
-- **Macro surface layers**: all tuning is data-driven (`data/terrain_config.json` → `TerrainParams`); the layer defaults are `height_base_y` 512, a ±500-block 12,000-block octave, ±100-block detail, ×16 ridged flow, plus the two bilinearly-lerped relief fields (mid ~500-block / amplitude 90 on 8-block nodes, small ~150-block / amplitude 25 on 2-block nodes). Domain-warp amplitudes (18/30/10/16) and frequencies are the flowing-ridge dials.
-- **Biomes first, oceans last**: the 3×3 climate grid selects a land biome (Plains/Hills) on every column and that biome's amplification knobs shape the terrain first. Only after that shaping does height decide water: any column still below `sea_level` (200) becomes **Ocean** — the biome switches to the ocean set (water fills to sea level, sand surfaces) while the sea bed keeps the height the land biome gave it. Plains (height amp < 1) basins therefore shelf out shallow near coasts while Hills (amp ~1) basins drop steeply, and coasts stay seamless by construction. Shoreline material swaps come from a per-chunk 2-pass Manhattan distance transform seeded from the *actual* density surface (not the macro heightmap).
-- **Weirdness gating**: a 2D fBm (`weirdness_scale` 0.024 → ~42-block lobes) through `smoothstep(0.10, 0.75)` picks where the 3D shaping is strong: `strength = lerp(shape_strength_min 5, shape_strength_max 50, weirdness)`.
-- **Biome selection**: temperature/humidity samplers are live low-frequency 2D fields (~8000-block features at default `biome_size` 1, scales `climate_*_base_scale` in `data/terrain_config.json`), read through a recursive anisotropic domain warp (`climate_warp_amp_x1/z1/x2/z2`, same scheme as the macro height warp) so biome boundaries flow and meander instead of drawing smooth lines, and sampled on a 4-block world-aligned lattice with bilinear interpolation (same lattice idiom as the macro height field), so every chunk reads the same global nodes — no seams. The 3×3 climate grid maps the temperate (neutral-temperature) band to **Plains** and the cold/hot bands to **Hills**. **Continentalness** — the 12000-block base layer of the macro height stack, normalized to [0,1] — is now sampled live and carried in every column sample (`ColumnSample::cont`), but selection never gates on it: oceans are the final below-sea stage above, so a column's cont is what future profile-based selection will compare against each biome's `preferred_continentalness` (reference data in `data/biomes.json`). Worldgen emits **Plains**/**Hills** on land and **Ocean** below sea level. The `BiomeConfig` tables (surfaces + tree variants from `data/biomes.json`) drive per-biome surface blocks and vegetation weights.
+- **Macro surface layers**: all tuning is data-driven (`data/terrain_config.json` →
+  `TerrainParams`); the layer defaults are `height_base_y` 512, a ±500-block 12,000-block
+  octave, ±100-block detail, ×16 ridged flow, plus the two bilinearly-lerped relief fields (mid
+  ~500-block / amplitude 90 on 8-block nodes, small ~150-block / amplitude 25 on 2-block nodes).
+  Domain-warp amplitudes (18/30/10/16) and frequencies are the flowing-ridge dials.
+- **Biomes first, oceans last**: the 3×3 climate grid selects a land biome (Plains/Hills) on
+  every column and that biome's amplification knobs shape the terrain first. Only after that
+  shaping does height decide water: any column still below `sea_level` (200) becomes **Ocean** —
+  the biome switches to the ocean set (water fills to sea level, sand surfaces) while the sea
+  bed keeps the height the land biome gave it. Plains (height amp < 1) basins therefore shelf
+  out shallow near coasts while Hills (amp ~1) basins drop steeply, and coasts stay seamless by
+  construction. Shoreline material swaps come from a per-chunk 2-pass Manhattan distance
+  transform seeded from the *actual* density surface (not the macro heightmap).
+- **Weirdness gating**: a 2D fBm (`weirdness_scale` 0.024 → ~42-block lobes) through
+  `smoothstep(0.10, 0.75)` picks where the 3D shaping is strong:
+  `strength = lerp(shape_strength_min 5, shape_strength_max 50, weirdness)`.
+- **Biome selection**: temperature/humidity samplers are live low-frequency 2D fields
+  (~8000-block features at default `biome_size` 1, scales `climate_*_base_scale` in
+  `data/terrain_config.json`), read through a recursive anisotropic domain warp
+  (`climate_warp_amp_x1/z1/x2/z2`, same scheme as the macro height warp) so biome boundaries
+  flow and meander instead of drawing smooth lines, and sampled on a 4-block world-aligned
+  lattice with bilinear interpolation (same lattice idiom as the macro height field), so every
+  chunk reads the same global nodes — no seams. The 3×3 climate grid maps the temperate
+  (neutral-temperature) band to **Plains** and the cold/hot bands to **Hills**.
+  **Continentalness** — the 12000-block base layer of the macro height stack, normalized to
+  [0,1] — is now sampled live and carried in every column sample (`ColumnSample::cont`), but
+  selection never gates on it: oceans are the final below-sea stage above, so a column's cont is
+  what future profile-based selection will compare against each biome's
+  `preferred_continentalness` (reference data in `data/biomes.json`). Worldgen emits
+  **Plains**/**Hills** on land and **Ocean** below sea level. The `BiomeConfig` tables (surfaces
+  + tree variants from `data/biomes.json`) drive per-biome surface blocks and vegetation
+  weights.
 
-Per-biome amplification knobs (`height`/`weirdness`/`min_weirdness`/`weirdness_size`) are **blended across biome borders** (`weirdness_size` scales both halves of the 3D-shape envelope — strength and surface band — and drives `ChunkGenerator::density_margin()`, which every height range is padded by): each 4-block lattice node's effective knobs are the arithmetic mean over the biome nodes within `climate_blend_radius_nodes` (2 nodes = 8 blocks at the default, in `data/terrain_config.json`), which ramps the knobs linearly from one biome's plateau to the next across the whole window (each node of radius ≈ 4 blocks of transition per side). An inverse-distance kernel was tried first but front-loaded the transition into the two lattice cells touching the border, leaving a sharp height step no matter how large the radius — the uniform mean is what makes the band genuinely widen with the radius. Radius 0 disables blending entirely: every column uses its own biome's knobs exactly, so a border is a clean step with no lattice smear. The blend is evaluated on the climate lattice (cached per chunk, matching the single-point path to within float rounding). Each node's window mean uses a separable 2D prefix pass over the per-chunk biome grid, so the per-node window cost is O(1) regardless of radius (cap `CLIMATE_BLEND_MAX_RADIUS = 20`, ≈160-block full band); at large radii the remaining cost is classifying the wider biome halo once per chunk, not per window. The blend field is climate-derived and never contains ocean, so ocean columns keep the ocean biome's own knobs for 3D shaping — but their macro seabed height comes from the land biome's (blended) knob applied before the ocean override. `ChunkGenerator::amplification_for` is the single place that second choice is made (own biome at radius 0, the blended field on land otherwise) and it returns the knobs **by value**: the blended field is built as a temporary at several call sites, so a returned reference would outlive the call expression it came from.
-- Vegetation uses the real density surface with an underwater rejection guard; an isolated-singleton removal pass clears lone floating voxels the density field occasionally produces, and thin-solid-sheet/water-flood-fill cleanup keeps underwater columns clean.
+Per-biome amplification knobs (`height`/`weirdness`/`min_weirdness`/`weirdness_size`) are
+**blended across biome borders** (`weirdness_size` scales both halves of the 3D-shape envelope —
+strength and surface band — and drives `ChunkGenerator::density_margin()`, which every height
+range is padded by): each 4-block lattice node's effective knobs are the arithmetic mean over
+the biome nodes within `climate_blend_radius_nodes` (2 nodes = 8 blocks at the default, in
+`data/terrain_config.json`), which ramps the knobs linearly from one biome's plateau to the next
+across the whole window (each node of radius ≈ 4 blocks of transition per side). An
+inverse-distance kernel was tried first but front-loaded the transition into the two lattice
+cells touching the border, leaving a sharp height step no matter how large the radius — the
+uniform mean is what makes the band genuinely widen with the radius. Radius 0 disables blending
+entirely: every column uses its own biome's knobs exactly, so a border is a clean step with no
+lattice smear. The blend is evaluated on the climate lattice (cached per chunk, matching the
+single-point path to within float rounding). Each node's window mean uses a separable 2D prefix
+pass over the per-chunk biome grid, so the per-node window cost is O(1) regardless of radius
+(cap `CLIMATE_BLEND_MAX_RADIUS = 20`, ≈160-block full band); at large radii the remaining cost
+is classifying the wider biome halo once per chunk, not per window. The blend field is
+climate-derived and never contains ocean, so ocean columns keep the ocean biome's own knobs for
+3D shaping — but their macro seabed height comes from the land biome's (blended) knob applied
+before the ocean override. `ChunkGenerator::amplification_for` is the single place that second
+choice is made (own biome at radius 0, the blended field on land otherwise) and it returns the
+knobs **by value**: the blended field is built as a temporary at several call sites, so a
+returned reference would outlive the call expression it came from.
+- Vegetation uses the real density surface with an underwater rejection guard; an
+  isolated-singleton removal pass clears lone floating voxels the density field occasionally
+  produces, and thin-solid-sheet/water-flood-fill cleanup keeps underwater columns clean.
 
 ## Rendering
 
 ### Frustum-Prioritized Loading
 - `Camera3D::get_frustum()` provides 6 world-space planes
-- `DirtyChunkEntry` priority: `urgent > in_frustum > dist_sq`, and the `in_frustum` tier is **no longer unbounded** — see the backlog reserve below
-- Two-phase generation: the **generation chain** first, then the distance-sorted sweep (the frustum-priority pass was replaced — see the chain bullet below)
-- **Caller-required chunks outrank all of it**: `ChunkWorld::request_urgent_chunk()` is a queue the updater drains BEFORE either pass (a paste is waiting on those chunks, and the sweep would mostly refuse them — the sky above a build sits outside its per-column band), and `pin_chunk()` keeps the unload pass off one until the caller is done. Both are the caller's to release; `unpin_all_chunks()` on `clear()`
-- **Generation is frustum-free, meshing is view-first, and that split is deliberate after testing both.** Generation has been frustum-free since the chain replaced the pass (all three `generate_chunk` call sites are urgent/chain/walk). The MESH queue sorts rebuilds `in_frustum` first — including a fresh chunk's FIRST mesh — so terrain appears where the player is looking before it appears at their back. Removing that term (so a chunk becomes visible in its generation order) was tried and REVERTED: it read as slower mesh throughput in play, because the view-first term is not cosmetic — it is what concentrates the mesh budget on the part of the world on screen. The one other frustum use in the streaming path is the unload deferral (a visible chunk beyond render distance unloads last), which is eviction ordering and cannot reorder appearance
-- **The frustum planes are flipped on the way in, and that is load-bearing.** `Camera3D::get_frustum()` returns normals pointing OUTWARD (a point inside the frustum has a NEGATIVE distance to all six), while `Frustum` tests `distance_to(center) < -r`, i.e. assumes inward. Measured, not read from docs: a camera at (500,100,500) facing -Z returns its near plane as normal `(0,0,1)` with `d=499.95`, and the engine's own `is_position_in_frustum` says a box three chunks in FRONT of it is visible (`.freebuff/probe_frustum.gd`, and `tests/test_frustum.cpp` pins the same six plane values). Feeding those planes in unaltered made **every** chunk in the world test invisible. That was not theoretical: the generation sweep's frustum pass examined 2,376,704 candidates across one session and passed zero, so a third of the generation budget bought nothing and every mesh was queued with `in_frustum = false` — the frustum tier of `mesh_queue`'s priority never fired either. `Frustum::update` now negates them, so this class keeps ONE convention (inside = positive) and all four callers are fixed at once
-- Dynamic mesh budget: the visible-chunk ratio scales it from 0.5× (sparse) to 1.0× (full). **A backlog-proportional scale-up was tried and REVERTED.** The reasoning looked sound — the queue is saturated while the player moves, so a bigger count drains it sooner — but the work is main-thread, and it is not cheap per rebuild: each rebuild does 7 chunk lookups, and the far-region share of the budget walks 64 chunks per scheduled region. Scaling the count 4× took `dirty_mesh_queue` from a **~1.0 ms median to ~2.7 ms** in a live session (that phase is measured per report interval, `avg`/`max`) with no visible gain, because the extra rebuilds are not more terrain — the same chunks arrive in the same order, only sooner
-- **View-first meshing is a share of the budget, not a tier that can starve the rest.** The queue is split into two heaps — visible chunks, and everything else — instead of one heap ordered `in_frustum` first. Each frame the visible heap gets `max_rebuilds - reserve` and the visible heap's *unspent* share is handed to the other, so: at least `max_rebuilds/4` rebuilds per frame are always spent in plain distance order; a frame with nothing visible to build still spends the full budget; and a chunk that comes into view moves back into the visible heap on its next pop (entries are re-evaluated against the current frustum whenever their priority revision is stale) without waiting for the reserve. This is the "it forgets to mesh stuff until you look at it" fix: with one heap, a chunk that is merely off-screen — behind the player, or at the frustum's edge — never reached the front while any visible work existed, which during streaming is always, and it stayed un-meshed until the player turned round and it jumped the queue. With no frustum fed (benchmarks and tools) everything goes into the distance-ordered heap and no reserve applies, so the headless path is unaffected. `tests/test_mesh_queue.cpp` pins the share, the unused-budget hand-over, the no-frustum path and the move-back-into-view case
-- **The LOD tier rescan walks the transition shell, not the box around it.** `MeshManager::reprioritize` re-checks the chunks in each tier's transition band, which is the Chebyshev shell `max(|dx|,|dy|,|dz|) ∈ [tier-1, tier+1]`. It used to test that condition cell by cell over the whole enclosing box: with the real tier radii that is **~1.7M iterations per tier per frame to reach ~100k band cells**, and it is what the `dirty_mesh_queue` phase was spending its milliseconds on (avg 1-4.7 ms/frame, max 157 ms) — pure loop overhead, since only band cells are looked up. `for_each_shell_cell` (`src/mesh/lod_shell.hpp`) now visits the band directly: for a column with `m = max(|dx|,|dz|) >= tier-1` every `|dy| <= min(vert_range, tier+1)` qualifies, and for a column inside the inner cube `|dy|` must itself be in the band. `tests/test_lod_shell.cpp` pins the visited set against the box filter it replaced, including the `vert_range` smaller than the shell case, so the fast walk cannot silently disagree with the filter
-- **The frustum generation pass was REPLACED by the generation chain — the priority is "spread from built terrain", not "what the camera sees".** `ChunkWorld` calls one install listener per chunk it installs (`set_install_listener`), and `WorldUpdater::on_chunk_installed` queues the four horizontal neighbours of every chunk whose data holds a non-air block. `update_generation` drains that queue BEFORE the ring walk — through the same filters (world height, sweep disc, in-flight, loaded, band), the same generation budget (half the frame's allowance, the share the frustum pass had), and reorders nothing else. Three numbers decided it, all from the streaming benchmark at 60 fps: throughput **2,231 → 2,334 chunks/s**, cold start **~250-320 → 215-283 ms**, sweep wall time **1,916-2,125 → 1,346-1,402 ms**, holes still 0 — and the chain does real work, ~10% of a flight's generations. Seeding is itself filtered: a neighbour whose COLUMN is already built (`built_columns`, a main-thread set — free next to the locked `contains` the drain would pay to discover the same thing) or that is already in flight (three relaxed atomic loads) is never queued, which cut one flight's offers **166,423 → 88,923** and its skipped-at-drain count **145,297 → 79,406** with throughput unchanged. The drain takes **3/4 of the frame's generation budget** (the frustum pass had 1/2): its offers are neighbours of just-built terrain — the walk's own near rings, which the walk re-walks after every crossing — so a chain offer spends the budget better than the walk's next check, but the walk keeps a quarter for the disc beyond what has been built. The vertical arm (offering the chunk ABOVE when the column's cached bounds say content could reach it) is built and gated OFF: **18.4k offers per flight, zero generations** on this terrain — pure queue traffic. It is one bool (`kVerticalChain` in `on_chunk_installed`) to turn back on when terrain that crosses borders upward exists; the counters that judged it (`chain_vertical_offered/generated`) stay in `/genstats` Two implementation notes that were each a real bug: the listener reads `is_all_air()` BEFORE the chunk data is moved into the map (after the move it is null — segfault on the first boot, caught by the benchmark), and a REFUSED offer must be dropped, not re-queued: the queue is refilled by installs far faster than the budget drains it, so re-queueing turned 174k offers into 13.3M (a refused candidate returns on its own when a neighbour installs, and the walk reaches it regardless). Dedupe is a set beside the deque; a rebuild or world clear empties both, because queued offers were keyed to the old list's disc
-- **The frustum pass looked like waste and was not (gating it was implemented, measured, and reverted) — but it still lost its job, to a priority that pays for itself.** Gating its re-arm on a view change removed its idle cost exactly while costing 8-10% of streaming throughput, so the gate was reverted with the numbers recorded here. What replaced it (the chain, above) won on every number rather than trading one for another: it reorders the SAME work by "what is next to what already exists", which is where streaming actually happens, and its per-offer cost is a handful of set lookups instead of 240 frustum tests a frame With the band list and the built-column skip in place, a real session showed the pass at **3,545,274 checks against the distance walk's 196,553** — 95% of every check in the sweep — with **2,406,288 of its 2,426,296** in-frustum candidates already resident, plus 29,585 refusals of chunks already in flight (`ChunkScheduler::enqueue_generation` returns false for a chunk that is generating). That reads as a pass re-walking from ring zero for nothing: `ChunkManager` feeds the camera in every frame and `set_frustum` reset its cursor every time. So the re-arm was gated on a real view change (a position/angle threshold, with the near-left-top corner solved from three planes as the position proxy, and NORMALIZED normal comparison — an unnormalized `dot` reads an identical plane as 4 degrees apart and re-arms forever, which the first test run caught). A/B'd on ONE build with `.freebuff/probe_stream_bench.gd`: **the idle cost went exactly to zero** (standing still 10 s: 306,845 checks and 88.5 ms → 0 checks and 0.6 ms) and **throughput fell** (1,903 → 1,750-1,798 chunks/s). The reason is the useful part: the pass is a SECOND, view-ordered consumer of the generation budget, and the walk cannot absorb its work — the walk refuses ~10% of its own checks on chunks already in flight (`walk_refused` was 38,239 of 387,257 in one flight), so it has no headroom to pick up another 240 checks a frame. Its checks are cheap (88-101 ms per 10 s idle is **0.15 ms per frame**) and its ordering is what puts what the player is looking at first. The lesson is in the counters themselves: **a large share of checks is not the same as a large cost**, and `frustum_refused` now exists precisely to show how much of that pass is re-asking for work already under way rather than doing new work — the shape that would justify making it cheaper per check (rather than running it less).
-- **Asking "is this chunk already being generated?" takes no lock at all.** `ChunkScheduler::may_be_generating` is a 3-probe bitmap (8 KB, relaxed atomics) maintained by the enqueue and completion paths, and both sweep passes consult it BEFORE the chunk-map lookup on every candidate. Without it the only way to ask was `enqueue_generation` — a GLOBAL mutex plus a shard lock on the chunk map through its `is_already_loaded` callback, i.e. three lock operations to be refused — and the walk paid that 46,576 times in one session (15% of its checks), the frustum pass 18,269 times. A refusal there also consumed one of the walk's 512 checks per frame, so the budget went to terrain that was already on its way: skipped candidates now cost no check at all (bounded by their own per-frame allowance, so a frame cannot walk the whole list on skips — past it a candidate falls through to the old path and is refused, which is bounded waste instead of unbounded cheap work). Measured over a 40 s flight: walk refusals 38,239 → 9,052, frustum refusals 79 → 0, walk checks 387,257 → 332,542, throughput unchanged (1,964 → 1,966 chunks/s best-of-two each side), holes zero. The wall clock does not move, and that is expected — its value is 29,000 fewer lock operations per 40 s of flight on a mutex the generation workers also take, which is a frame-VARIANCE win, not a throughput one. Approximate by construction and safe in the direction that matters: a false positive defers a chunk to the walk's next cycle (bits are cleared when that generation finishes, and unconditionally — before the epoch check — so a dropped generation cannot claim to be in flight forever), a false negative just takes the old path, and nothing is skipped permanently because the walk re-offers every candidate every cycle. `tests/test_chunk_scheduler_filter.cpp` asserts the wiring in both directions against a real worker, not just that a bitmap can be set
-- **Standing still costs the sweep nothing, and that is a property to keep.** Measured at 60 fps with nothing moving: **0 checks, 0 generated, 0.6 ms** over 10 s of the distance walk (it reaches the end of the list, finds nothing, and retires until something invalidates it). The frustum pass is the exception and it is bounded, as above.
+- `DirtyChunkEntry` priority: `urgent > in_frustum > dist_sq`, and the `in_frustum` tier is **no
+  longer unbounded** — see the backlog reserve below
+- Two-phase generation: the **generation chain** first, then the distance-sorted sweep (the
+  frustum-priority pass was replaced — see the chain bullet below)
+- **Caller-required chunks outrank all of it**: `ChunkWorld::request_urgent_chunk()` is a queue
+  the updater drains BEFORE either pass (a paste is waiting on those chunks, and the sweep would
+  mostly refuse them — the sky above a build sits outside its per-column band), and
+  `pin_chunk()` keeps the unload pass off one until the caller is done. Both are the caller's to
+  release; `unpin_all_chunks()` on `clear()`
+- **Generation is frustum-free, meshing is view-first, and that split is deliberate after
+  testing both.** Generation has been frustum-free since the chain replaced the pass (all three
+  `generate_chunk` call sites are urgent/chain/walk). The MESH queue sorts rebuilds `in_frustum`
+  first — including a fresh chunk's FIRST mesh — so terrain appears where the player is looking
+  before it appears at their back. Removing that term (so a chunk becomes visible in its
+  generation order) was tried and REVERTED: it read as slower mesh throughput in play, because
+  the view-first term is not cosmetic — it is what concentrates the mesh budget on the part of
+  the world on screen. The one other frustum use in the streaming path is the unload deferral (a
+  visible chunk beyond render distance unloads last), which is eviction ordering and cannot
+  reorder appearance
+- **The frustum planes are flipped on the way in, and that is load-bearing.**
+  `Camera3D::get_frustum()` returns normals pointing OUTWARD (a point inside the frustum has a
+  NEGATIVE distance to all six), while `Frustum` tests `distance_to(center) < -r`, i.e. assumes
+  inward. Measured, not read from docs: a camera at (500,100,500) facing -Z returns its near
+  plane as normal `(0,0,1)` with `d=499.95`, and the engine's own `is_position_in_frustum` says
+  a box three chunks in FRONT of it is visible (`.freebuff/probe_frustum.gd`, and
+  `tests/test_frustum.cpp` pins the same six plane values). Feeding those planes in unaltered
+  made **every** chunk in the world test invisible. That was not theoretical: the generation
+  sweep's frustum pass examined 2,376,704 candidates across one session and passed zero, so a
+  third of the generation budget bought nothing and every mesh was queued with
+  `in_frustum = false` — the frustum tier of `mesh_queue`'s priority never fired either.
+  `Frustum::update` now negates them, so this class keeps ONE convention (inside = positive) and
+  all four callers are fixed at once
+- Dynamic mesh budget: the visible-chunk ratio scales it from 0.5× (sparse) to 1.0× (full). **A
+  backlog-proportional scale-up was tried and REVERTED.** The reasoning looked sound — the queue
+  is saturated while the player moves, so a bigger count drains it sooner — but the work is
+  main-thread, and it is not cheap per rebuild: each rebuild does 7 chunk lookups, and the
+  far-region share of the budget walks 64 chunks per scheduled region. Scaling the count 4× took
+  `dirty_mesh_queue` from a **~1.0 ms median to ~2.7 ms** in a live session (that phase is
+  measured per report interval, `avg`/`max`) with no visible gain, because the extra rebuilds
+  are not more terrain — the same chunks arrive in the same order, only sooner
+- **View-first meshing is a share of the budget, not a tier that can starve the rest.** The
+  queue is split into two heaps — visible chunks, and everything else — instead of one heap
+  ordered `in_frustum` first. Each frame the visible heap gets `max_rebuilds - reserve` and the
+  visible heap's *unspent* share is handed to the other, so: at least `max_rebuilds/4` rebuilds
+  per frame are always spent in plain distance order; a frame with nothing visible to build
+  still spends the full budget; and a chunk that comes into view moves back into the visible
+  heap on its next pop (entries are re-evaluated against the current frustum whenever their
+  priority revision is stale) without waiting for the reserve. This is the "it forgets to mesh
+  stuff until you look at it" fix: with one heap, a chunk that is merely off-screen — behind the
+  player, or at the frustum's edge — never reached the front while any visible work existed,
+  which during streaming is always, and it stayed un-meshed until the player turned round and it
+  jumped the queue. With no frustum fed (benchmarks and tools) everything goes into the
+  distance-ordered heap and no reserve applies, so the headless path is unaffected.
+  `tests/test_mesh_queue.cpp` pins the share, the unused-budget hand-over, the no-frustum path
+  and the move-back-into-view case
+- **The LOD tier rescan walks the transition shell, not the box around it.**
+  `MeshManager::reprioritize` re-checks the chunks in each tier's transition band, which is the
+  Chebyshev shell `max(|dx|,|dy|,|dz|) ∈ [tier-1, tier+1]`. It used to test that condition cell
+  by cell over the whole enclosing box: with the real tier radii that is **~1.7M iterations per
+  tier per frame to reach ~100k band cells**, and it is what the `dirty_mesh_queue` phase was
+  spending its milliseconds on (avg 1-4.7 ms/frame, max 157 ms) — pure loop overhead, since only
+  band cells are looked up. `for_each_shell_cell` (`src/mesh/lod_shell.hpp`) now visits the band
+  directly: for a column with `m = max(|dx|,|dz|) >= tier-1` every
+  `|dy| <= min(vert_range, tier+1)` qualifies, and for a column inside the inner cube `|dy|`
+  must itself be in the band. `tests/test_lod_shell.cpp` pins the visited set against the box
+  filter it replaced, including the `vert_range` smaller than the shell case, so the fast walk
+  cannot silently disagree with the filter
+- **The frustum generation pass was REPLACED by the generation chain — the priority is "spread
+  from built terrain", not "what the camera sees".** `ChunkWorld` calls one install listener per
+  chunk it installs (`set_install_listener`), and `WorldUpdater::on_chunk_installed` queues the
+  four horizontal neighbours of every chunk whose data holds a non-air block.
+  `update_generation` drains that queue BEFORE the ring walk — through the same filters (world
+  height, sweep disc, in-flight, loaded, band), the same generation budget (half the frame's
+  allowance, the share the frustum pass had), and reorders nothing else. Three numbers decided
+  it, all from the streaming benchmark at 60 fps: throughput **2,231 → 2,334 chunks/s**, cold
+  start **~250-320 → 215-283 ms**, sweep wall time **1,916-2,125 → 1,346-1,402 ms**, holes still
+  0 — and the chain does real work, ~10% of a flight's generations. Seeding is itself filtered:
+  a neighbour whose COLUMN is already built (`built_columns`, a main-thread set — free next to
+  the locked `contains` the drain would pay to discover the same thing) or that is already in
+  flight (three relaxed atomic loads) is never queued, which cut one flight's offers **166,423 →
+  88,923** and its skipped-at-drain count **145,297 → 79,406** with throughput unchanged. The
+  drain takes **3/4 of the frame's generation budget** (the frustum pass had 1/2): its offers
+  are neighbours of just-built terrain — the walk's own near rings, which the walk re-walks
+  after every crossing — so a chain offer spends the budget better than the walk's next check,
+  but the walk keeps a quarter for the disc beyond what has been built. The vertical arm
+  (offering the chunk ABOVE when the column's cached bounds say content could reach it) is built
+  and gated OFF: **18.4k offers per flight, zero generations** on this terrain — pure queue
+  traffic. It is one bool (`kVerticalChain` in `on_chunk_installed`) to turn back on when
+  terrain that crosses borders upward exists; the counters that judged it
+  (`chain_vertical_offered/generated`) stay in `/genstats` Two implementation notes that were
+  each a real bug: the listener reads `is_all_air()` BEFORE the chunk data is moved into the map
+  (after the move it is null — segfault on the first boot, caught by the benchmark), and a
+  REFUSED offer must be dropped, not re-queued: the queue is refilled by installs far faster
+  than the budget drains it, so re-queueing turned 174k offers into 13.3M (a refused candidate
+  returns on its own when a neighbour installs, and the walk reaches it regardless). Dedupe is a
+  set beside the deque; a rebuild or world clear empties both, because queued offers were keyed
+  to the old list's disc
+- **The frustum pass looked like waste and was not (gating it was implemented, measured, and
+  reverted) — but it still lost its job, to a priority that pays for itself.** Gating its re-arm
+  on a view change removed its idle cost exactly while costing 8-10% of streaming throughput, so
+  the gate was reverted with the numbers recorded here. What replaced it (the chain, above) won
+  on every number rather than trading one for another: it reorders the SAME work by "what is
+  next to what already exists", which is where streaming actually happens, and its per-offer
+  cost is a handful of set lookups instead of 240 frustum tests a frame With the band list and
+  the built-column skip in place, a real session showed the pass at **3,545,274 checks against
+  the distance walk's 196,553** — 95% of every check in the sweep — with **2,406,288 of its
+  2,426,296** in-frustum candidates already resident, plus 29,585 refusals of chunks already in
+  flight (`ChunkScheduler::enqueue_generation` returns false for a chunk that is generating).
+  That reads as a pass re-walking from ring zero for nothing: `ChunkManager` feeds the camera in
+  every frame and `set_frustum` reset its cursor every time. So the re-arm was gated on a real
+  view change (a position/angle threshold, with the near-left-top corner solved from three
+  planes as the position proxy, and NORMALIZED normal comparison — an unnormalized `dot` reads
+  an identical plane as 4 degrees apart and re-arms forever, which the first test run caught).
+  A/B'd on ONE build with `.freebuff/probe_stream_bench.gd`: **the idle cost went exactly to
+  zero** (standing still 10 s: 306,845 checks and 88.5 ms → 0 checks and 0.6 ms) and
+  **throughput fell** (1,903 → 1,750-1,798 chunks/s). The reason is the useful part: the pass is
+  a SECOND, view-ordered consumer of the generation budget, and the walk cannot absorb its work
+  — the walk refuses ~10% of its own checks on chunks already in flight (`walk_refused` was
+  38,239 of 387,257 in one flight), so it has no headroom to pick up another 240 checks a frame.
+  Its checks are cheap (88-101 ms per 10 s idle is **0.15 ms per frame**) and its ordering is
+  what puts what the player is looking at first. The lesson is in the counters themselves: **a
+  large share of checks is not the same as a large cost**, and `frustum_refused` now exists
+  precisely to show how much of that pass is re-asking for work already under way rather than
+  doing new work — the shape that would justify making it cheaper per check (rather than running
+  it less).
+- **Asking "is this chunk already being generated?" takes no lock at all.**
+  `ChunkScheduler::may_be_generating` is a 3-probe bitmap (8 KB, relaxed atomics) maintained by
+  the enqueue and completion paths, and both sweep passes consult it BEFORE the chunk-map lookup
+  on every candidate. Without it the only way to ask was `enqueue_generation` — a GLOBAL mutex
+  plus a shard lock on the chunk map through its `is_already_loaded` callback, i.e. three lock
+  operations to be refused — and the walk paid that 46,576 times in one session (15% of its
+  checks), the frustum pass 18,269 times. A refusal there also consumed one of the walk's 512
+  checks per frame, so the budget went to terrain that was already on its way: skipped
+  candidates now cost no check at all (bounded by their own per-frame allowance, so a frame
+  cannot walk the whole list on skips — past it a candidate falls through to the old path and is
+  refused, which is bounded waste instead of unbounded cheap work). Measured over a 40 s flight:
+  walk refusals 38,239 → 9,052, frustum refusals 79 → 0, walk checks 387,257 → 332,542,
+  throughput unchanged (1,964 → 1,966 chunks/s best-of-two each side), holes zero. The wall
+  clock does not move, and that is expected — its value is 29,000 fewer lock operations per 40 s
+  of flight on a mutex the generation workers also take, which is a frame-VARIANCE win, not a
+  throughput one. Approximate by construction and safe in the direction that matters: a false
+  positive defers a chunk to the walk's next cycle (bits are cleared when that generation
+  finishes, and unconditionally — before the epoch check — so a dropped generation cannot claim
+  to be in flight forever), a false negative just takes the old path, and nothing is skipped
+  permanently because the walk re-offers every candidate every cycle.
+  `tests/test_chunk_scheduler_filter.cpp` asserts the wiring in both directions against a real
+  worker, not just that a bitmap can be set
+- **Standing still costs the sweep nothing, and that is a property to keep.** Measured at 60 fps
+  with nothing moving: **0 checks, 0 generated, 0.6 ms** over 10 s of the distance walk (it
+  reaches the end of the list, finds nothing, and retires until something invalidates it). The
+  frustum pass is the exception and it is bounded, as above.
 
-- **The sweep list is per-column BANDS, not per-column world height.** `src/world/sweep_band.hpp` holds the band filter in one place (`chunk_in_band`) and the exact slice range it accepts (`band_for_column`, which TESTS each of the 32 slices instead of inverting the arithmetic — inverting it is where an off-by-one silently drops a chunk that genuinely contains terrain, which is the invisible-solid-hole class of bug `tools/sched_window_check.cpp` exists for; `tests/test_sweep_band.cpp` holds the range to the predicate exhaustively, including either side of every slice boundary). `WorldUpdater` builds one `SweepColumn` per column in the render distance `{dx, dz, band}` and `advance_sweep` offers candidates in ring order, and within a column outward from the player's own slice — so the near-player full-column fills offer the player's own rows first instead of hundreds of blocks of rock. At render distance 32 that is **~20,230 candidate chunks over ~3,209 columns, exactly**: `reject_above`, `reject_below` and `reject_oob` are now **0**, which is what "the list is exact" looks like from outside. On the same 24-chunk flight this moved candidates-generated-per-check from **1.2% → 4.1%** and generations per frame from **6.3 → 23**, with the boot story sharper still (11% → 97% of checks generating). What remained was `reject_loaded` at ~96% — the near rings re-examined after every crossing — which the next bullet removes
-- **A column whose band is already resident is skipped whole, so the walk stops re-confirming built terrain.** `sweep::band_fully_resident` decides it per slice (tested, `tests/test_sweep_band.cpp`: an empty band is deliberately NOT "built", and the predicate is cross-checked against set inclusion over a grid of band shapes); `service_sweep_bands` records the column in `built_columns` where the band is computed, and `advance_sweep` skips it with ONE chunk-map lookup instead of `count(band)` of them. Invalidation is the part that matters and it is deliberately narrow: a successful unload of any chunk in the column erases it (`try_unload` — skipping a column with a missing band chunk is exactly the invisible-hole bug), and a rebuild clears the whole set because every band in a new list is unknown. Measured on the same 40 s / 4000-block flight at 100 blocks/s (headless, 60 fps, `.freebuff/probe_stream_bench.gd`): walk checks **2,368,883 → 316,302 (-87%)**, checks that generate **3% → 26%**, and generation throughput **1,505 → 2,035 chunks/s (+35%)**, with the same zero holes in a 5x5 sample every 10 frames and the same cold-start time (~200 ms to terrain after a 2048-block teleport)
-- **Benchmark the thing the player feels, not the counters.** Every counter above is per-CHECK or per-COLUMN, so none of them answers "how long after I move does the ground under me exist" — the question every change here is actually aimed at. `.freebuff/probe_stream_bench.gd` measures it at a fixed 60 fps: (A) jump 2048 blocks into genuinely ungenerated terrain and time until the 3x3 columns around the landing spot have ground, and (B) move at 100 blocks/s for 40 s while sampling a 5x5 column square every 10 frames for columns still without ground. Baseline: cold start **~200 ms**, flight **0 holes in 505 samples**, 1,505 chunks/s generated. Two ways this measurement lies if written naively, both hit and fixed while building it: a hop shorter than the render distance lands inside the already-generated disc and measures nothing, and a column cached as "empty" must be re-scanned or a cold region reads as empty forever (the first version reported all three cold starts as never settling while generation was filling them)
-- **With the walk cheap, the band frontier was what the sweep's time was.** Same 40 s flight, splitting `total_ms` by phase: **walk 839 ms, band reads 2,820 ms, rebuilds 37 ms** out of 3,660 ms — and `band_reads` is exactly **397,907 ≈ 124 crossings x 3,209 columns**, because a crossing rebuilds the list and the frontier re-reads every band in it even though a column's band depends only on that column's own surface bounds and not on where the player stands. The per-column tail is what that 2,820 ms actually was, and it is what the next bullet moves off this thread
-- **A column's bounds are produced by a worker ahead of the frontier, and the main thread only computes one when no answer has landed.** `src/world/column_prefetch.hpp` is the handoff: the frontier REQUESTS the columns of the list it has no bounds for, and `get_column_surface_bounds` CLAIMS a ready answer keyed by absolute chunk coordinates before falling back to doing the range itself — so a lagging prefetch is slower, never wrong, and can never stall the frontier it feeds (the fallback is the old path, unchanged). Requests are scanned independently of the cursor and nearest-first, because the columns the frontier lacks are NOT the ones just ahead of it: after a crossing they are the ring that just entered the disc, which sits at the END of a nearest-first list. The first pass over a freshly built list therefore covers the whole list in one frame (a slice-per-frame scan left **1,910 of 4,848** entered columns — 39% — derived on the main thread, measured), and later passes only replace what has been claimed. Correctness is an epoch: a column's bounds depend on the terrain configuration alone, so `refresh_prefetch_config` republishes it and `ColumnPrefetch::publish` REFUSES an answer computed under a retired one instead of letting it into the cache — and every request is retired in every path, including the refused and the over-cap ones, since a key left looking in flight is a column the prefetch quietly stops covering. One generator per worker thread configured from that published copy (the same shape the generation workers use), and the state is shared-ownership so a task still queued when the updater dies writes into memory it owns
-- **Measured with the same 40 s / 4000-block flight, A/B on ONE build by disabling the pump (`band time` 745-901 ms vs 3,577 ms, -75% to -79%):** band reads are unchanged (**392,164-397,715**, the frontier still reads every column of every rebuilt list) while the columns derived on this thread fall **7,741 → 346-475 (-94%)** and `prefetch_taken` accounts for 4,373-4,953 of them; generation throughput **1,974.6 → 2,233-2,298 chunks/s (+13% to +16%)**; total sweep time **4,995 → 1,916-2,125 ms (-58%)**; holes **0** in both arms, cold start unchanged within noise (~250-320 ms to terrain after a 2048-block teleport). 521 tests pass, including `tests/test_column_prefetch.cpp`
-- **The in-flight generation set is capped, because pressure alone never bounded it.** `FrameBudgets::max_generating_in_flight_per_worker` (8, floored at 64) is a hard admission gate in `update_generation`: above it the sweep, the chain and the walk stop enqueueing for that frame, while urgent (paste) requests keep their own separate allowance and are deliberately exempt — a caller is blocked on those. Before this, the only bound was the completed queue filling at 512, so a flight reached **6,524 chunks in flight at once** with a **6,747-task worker queue**. Everything downstream followed from that backlog: completions landed in bursts (the install phase's 143 ms worst frame, with a 2,759-chunk completed queue), the column prefetch's ~181 us answers sat behind thousands of generation tasks (so **8,863 columns were derived on the main thread against 8,318 taken from a worker**, with 1,303 answers dropped), and the walk spent its whole check budget on candidates it could only refuse (`585,788` refused in one session). Refilling is not a risk: the sweep may enqueue `dynamic_max_generations` per frame against a cap of `workers x 8`, and a generation is ~1 ms of worker time, so a few dozen in flight already saturate 15 workers
-- **Shard-lock telemetry, and what it found: the waits are a convoy, and the install path was feeding it.** `ChunkMap` records per-shard contention (`drain_shard_lock_stats`, printed by the perf report): contended-only wait timing for both shared and exclusive acquisitions (an uncontended acquisition is a single `try_lock` and pays no clock), plus hold time for the multi-shard EXCLUSIVE locks, which are the rare writer locks worth naming. The reading that matters is the RATIO: over a fast flight, shared waits reached 7,950 with a worst of 382 ms while the worst single exclusive HOLD was ~8 ms — waits an order of magnitude larger than any hold are queueing behind a stream of writers, not waiting on one, i.e. a convoy. Two sources were feeding it and both are fixed: the per-chunk lighting stage took a **28-shard EXCLUSIVE lock to answer a read-only question** (does this chunk's 3x3x3 contain an emitter) on the main thread, once per staged chunk — now a shared lock, with the propagation keeping its own exclusive lock in the worker; and two neighbour-dirty passes allocated a `std::vector` for a 7-key lock on every installed chunk — now the array overload. The remaining writer pressure is one exclusive lock per chunk insert, which is why the completed queue (`Completed queue: 1811` against a drain of `render distance + 16` per frame) is the throughput cap during flight: generation is throttled by `can_enqueue` refusing on a full completed queue (`585,788` refused candidates in one session), not by the workers, which sit at roughly a third utilization
-- **The worst band frame did NOT fall, and the answer is not the budget — it is one `ChunkMap::contains` lock acquisition.** Against a 2 ms per-frame budget `max_band_ms` stays 12-26 ms in both arms of that A/B, so it is not the prefetch. The split counters settle it: a worst column of 26.09 ms was `bounds=26.09, resident=26.09, contains=23.61` — the resident lookups ARE the whole stall, one shard lock waiting on the generation workers that write the same map (the cold bounds read in the same session was 0.65-1.31 ms, so the range computation is definitively not it). The budget bounds work fine: `max_band_columns` shows the overshoot is one or a few columns, never thousands. The fix is not in the sweep — it is shortening the writer's critical sections or moving the read off the locked map
-- **The fix for that stall was `key_to_shard`: a shard is chosen per COLUMN, not per chunk.** The resident check asks "is this whole column built?" and the answer is `count(band)` chunk lookups, and a band reaches the world floor near the player. With a shard per chunk, each of those lookups was its OWN `shared_mutex` acquisition on its own shard, so a single column spanned up to 16 shards and could queue behind a writing worker on any one of them — which is why the counter above showed one lookup of 39.4 ms inside a 39.6 ms column. Masking the y field out of the hash (bits 21..41; the same packing `encode/decode_chunk_key` uses) puts every chunk of a column on one shard, and the check becomes ONE `ChunkMap::lock_column` acquisition followed by lock-free `contains_fast` probes (`tests/test_chunk_map.cpp` pins the invariant the batching depends on, plus that column shards still cover all 64 shards evenly). It also shrinks every multi-key lock, because a neighborhood's keys collapse onto shared shards: a 3x3x3 is 9 distinct (x, z) columns, so the light region's 27-key EXCLUSIVE pass takes 9 shards rather than up to 27 and the install path's 28-key probe likewise. Measured A/B on ONE build via a temporary env toggle, same 40 s flight, back to back: throughput **1,891.2 → 1,971.6 chunks/s**, sweep total **1,118.3 → 889.6 ms**, walk **566.8 → 424.4 ms**, band reads **551.5 → 465.2 ms** (**397,916** band reads in both arms, so this is per-column cost: 2.4 → 1.26-1.33 us), worst sweep frame **43.9 → 29.7 ms**, worst single column **5.11 → 3.90 ms** (and in the live game, 39.6 → 8.5-10.1 ms), cold start **222.1 → 137.5 ms**, holes **0** in both arms. 524 tests pass
-- **Reading a column's band is spread over frames, nearest column first.** One band costs a rigorous chunk height range over that column's 4-block lattice, measured at **~235 us cold**, so all 3,209 of them is ~755 ms of work. Paid eagerly that was a **single 743 ms frame** at world load and **19 ms on every chunk crossing** while flying — a dropped frame every time the player crossed into a new chunk, from the only per-COLUMN cost in the sweep. `service_sweep_bands` now reads at most 2 ms of them per frame and `advance_sweep` STOPS at the first unread column rather than reading it, so the walk cannot outrun the frontier and the frontier cannot stall (one column minimum per frame); because both go nearest-first, the work always lands on the terrain the player is standing in. Rebuilding the list is bookkeeping only: **0.5 ms** for the first one, **0.25 ms** per crossing, band reads capped at **2.5 ms/frame**, worst `update_generation` frame at boot 743 ms → 47 ms. `/genstats` reports `list rebuilds` and `bands read` as separate timings because their shapes have nothing in common
-- **What the sweep's check budget is spent on is measured, not assumed** — these are the readings that forced the change above. `WorldUpdater::GenerationStats` counts every candidate a pass examines and why each one was rejected (`reject_loaded`, `reject_above`, `reject_below`, `reject_oob`), what reached `generate_chunk` and what it refused, the frustum pass separately from the distance-sorted one, the urgent (paste) requests, and a rolling window over the last 120 frames; `/genstats` prints them and `/genstats reset` zeroes them while keeping the candidate-list size. The list WAS the render-distance disc × the WHOLE world height — the y offsets spanned ±32 slices, i.e. 65 per column (`WORLD_HEIGHT_Y`/`CHUNK_HEIGHT` = 32) — so at render distance 32 it was **208,585 entries** while only a column's near-surface band could ever pass the filters. (That is what makes the two bullets above a change in kind rather than in tuning.) Measured over a 24-chunk flight (headless, RD 32, `.freebuff/probe_gen_stats.gd`): **209,408 offsets examined for 2,616 generated (1.2%)**, with 96,541 rejected as above the column's content (46.1%), 76,054 out of world bounds (36.3%), 34,102 already loaded (16.3%) and 95 below the band — so **82.4% of every pass is vertically impossible entries**, and because the 512-check per-frame budget is exhausted on every frame it, not `chunk_generations` (256), is what limits generation: ~6 chunks/frame come out of it. The sweep is also cheap in wall time (0.66 ms/frame average, 28 ms worst frame), so the cost is not frame time, it is what the budget buys. While flying the cursor restarts on every chunk crossing (about every 8 frames here), which is exactly why `reject_loaded` is a sixth of the walk: the near rings are re-examined rather than progressed past. Boot looks healthier — 17% of checks generate — because with the player parked the first rings are the near-surface band rather than a moving frontier. The frustum pass was the first thing the counters caught: a real in-game reading (`/genstats` after a 9,379 frames) showed it had spent **2,376,704 checks and passed 0 chunks, ever** — the cause was the plane convention, see the loading section above, not the budget. With the planes flipped the same reading over 14,045 frames shows it examining **129,895 chunks in the frustum**, of which all but ~7 were already resident — which is what that pass is for, and why its `generated` count stays tiny in a settled world. The other end of the same reading is the phase-2 sweep spending its **entire 512-check budget on every frame for 0 generations** (`last 120 frames: 61,440 checks, 0 generated`), which is the state a `generated` count of 0 beside a full check budget means. `sweeps_completed` was 0 for a reason that is arithmetic rather than mysterious: one complete walk is 208,585 offsets at 512 checks/frame ≈ **407 frames**, while the cursor restarts on every chunk crossing — 61 times in 14,045 frames, one per ~230 — so the walk is reset before it can reach the end, and the frames right after a crossing are spent re-confirming the ring that is already loaded. (`generation_sweep_generated` is also SHARED between the two passes, so a frustum-pass generation mid-walk discards phase 2's "this walk found nothing" conclusion as well — a second, smaller contributor that only appeared once the frustum pass started working at all)
+- **The sweep list is per-column BANDS, not per-column world height.**
+  `src/world/sweep_band.hpp` holds the band filter in one place (`chunk_in_band`) and the exact
+  slice range it accepts (`band_for_column`, which TESTS each of the 32 slices instead of
+  inverting the arithmetic — inverting it is where an off-by-one silently drops a chunk that
+  genuinely contains terrain, which is the invisible-solid-hole class of bug
+  `tools/sched_window_check.cpp` exists for; `tests/test_sweep_band.cpp` holds the range to the
+  predicate exhaustively, including either side of every slice boundary). `WorldUpdater` builds
+  one `SweepColumn` per column in the render distance `{dx, dz, band}` and `advance_sweep`
+  offers candidates in ring order, and within a column outward from the player's own slice — so
+  the near-player full-column fills offer the player's own rows first instead of hundreds of
+  blocks of rock. At render distance 32 that is **~20,230 candidate chunks over ~3,209 columns,
+  exactly**: `reject_above`, `reject_below` and `reject_oob` are now **0**, which is what "the
+  list is exact" looks like from outside. On the same 24-chunk flight this moved
+  candidates-generated-per-check from **1.2% → 4.1%** and generations per frame from **6.3 →
+  23**, with the boot story sharper still (11% → 97% of checks generating). What remained was
+  `reject_loaded` at ~96% — the near rings re-examined after every crossing — which the next
+  bullet removes
+- **A column whose band is already resident is skipped whole, so the walk stops re-confirming
+  built terrain.** `sweep::band_fully_resident` decides it per slice (tested,
+  `tests/test_sweep_band.cpp`: an empty band is deliberately NOT "built", and the predicate is
+  cross-checked against set inclusion over a grid of band shapes); `service_sweep_bands` records
+  the column in `built_columns` where the band is computed, and `advance_sweep` skips it with
+  ONE chunk-map lookup instead of `count(band)` of them. Invalidation is the part that matters
+  and it is deliberately narrow: a successful unload of any chunk in the column erases it
+  (`try_unload` — skipping a column with a missing band chunk is exactly the invisible-hole
+  bug), and a rebuild clears the whole set because every band in a new list is unknown. Measured
+  on the same 40 s / 4000-block flight at 100 blocks/s (headless, 60 fps,
+  `.freebuff/probe_stream_bench.gd`): walk checks **2,368,883 → 316,302 (-87%)**, checks that
+  generate **3% → 26%**, and generation throughput **1,505 → 2,035 chunks/s (+35%)**, with the
+  same zero holes in a 5x5 sample every 10 frames and the same cold-start time (~200 ms to
+  terrain after a 2048-block teleport)
+- **Benchmark the thing the player feels, not the counters.** Every counter above is per-CHECK
+  or per-COLUMN, so none of them answers "how long after I move does the ground under me exist"
+  — the question every change here is actually aimed at. `.freebuff/probe_stream_bench.gd`
+  measures it at a fixed 60 fps: (A) jump 2048 blocks into genuinely ungenerated terrain and
+  time until the 3x3 columns around the landing spot have ground, and (B) move at 100 blocks/s
+  for 40 s while sampling a 5x5 column square every 10 frames for columns still without ground.
+  Baseline: cold start **~200 ms**, flight **0 holes in 505 samples**, 1,505 chunks/s generated.
+  Two ways this measurement lies if written naively, both hit and fixed while building it: a hop
+  shorter than the render distance lands inside the already-generated disc and measures nothing,
+  and a column cached as "empty" must be re-scanned or a cold region reads as empty forever (the
+  first version reported all three cold starts as never settling while generation was filling
+  them)
+- **With the walk cheap, the band frontier was what the sweep's time was.** Same 40 s flight,
+  splitting `total_ms` by phase: **walk 839 ms, band reads 2,820 ms, rebuilds 37 ms** out of
+  3,660 ms — and `band_reads` is exactly **397,907 ≈ 124 crossings x 3,209 columns**, because a
+  crossing rebuilds the list and the frontier re-reads every band in it even though a column's
+  band depends only on that column's own surface bounds and not on where the player stands. The
+  per-column tail is what that 2,820 ms actually was, and it is what the next bullet moves off
+  this thread
+- **A column's bounds are produced by a worker ahead of the frontier, and the main thread only
+  computes one when no answer has landed.** `src/world/column_prefetch.hpp` is the handoff: the
+  frontier REQUESTS the columns of the list it has no bounds for, and
+  `get_column_surface_bounds` CLAIMS a ready answer keyed by absolute chunk coordinates before
+  falling back to doing the range itself — so a lagging prefetch is slower, never wrong, and can
+  never stall the frontier it feeds (the fallback is the old path, unchanged). Requests are
+  scanned independently of the cursor and nearest-first, because the columns the frontier lacks
+  are NOT the ones just ahead of it: after a crossing they are the ring that just entered the
+  disc, which sits at the END of a nearest-first list. The first pass over a freshly built list
+  therefore covers the whole list in one frame (a slice-per-frame scan left **1,910 of 4,848**
+  entered columns — 39% — derived on the main thread, measured), and later passes only replace
+  what has been claimed. Correctness is an epoch: a column's bounds depend on the terrain
+  configuration alone, so `refresh_prefetch_config` republishes it and `ColumnPrefetch::publish`
+  REFUSES an answer computed under a retired one instead of letting it into the cache — and
+  every request is retired in every path, including the refused and the over-cap ones, since a
+  key left looking in flight is a column the prefetch quietly stops covering. One generator per
+  worker thread configured from that published copy (the same shape the generation workers use),
+  and the state is shared-ownership so a task still queued when the updater dies writes into
+  memory it owns
+- **Measured with the same 40 s / 4000-block flight, A/B on ONE build by disabling the pump
+  (`band time` 745-901 ms vs 3,577 ms, -75% to -79%):** band reads are unchanged
+  (**392,164-397,715**, the frontier still reads every column of every rebuilt list) while the
+  columns derived on this thread fall **7,741 → 346-475 (-94%)** and `prefetch_taken` accounts
+  for 4,373-4,953 of them; generation throughput **1,974.6 → 2,233-2,298 chunks/s (+13% to
+  +16%)**; total sweep time **4,995 → 1,916-2,125 ms (-58%)**; holes **0** in both arms, cold
+  start unchanged within noise (~250-320 ms to terrain after a 2048-block teleport). 521 tests
+  pass, including `tests/test_column_prefetch.cpp`
+- **The in-flight generation set is capped, because pressure alone never bounded it.**
+  `FrameBudgets::max_generating_in_flight_per_worker` (8, floored at 64) is a hard admission
+  gate in `update_generation`: above it the sweep, the chain and the walk stop enqueueing for
+  that frame, while urgent (paste) requests keep their own separate allowance and are
+  deliberately exempt — a caller is blocked on those. Before this, the only bound was the
+  completed queue filling at 512, so a flight reached **6,524 chunks in flight at once** with a
+  **6,747-task worker queue**. Everything downstream followed from that backlog: completions
+  landed in bursts (the install phase's 143 ms worst frame, with a 2,759-chunk completed queue),
+  the column prefetch's ~181 us answers sat behind thousands of generation tasks (so **8,863
+  columns were derived on the main thread against 8,318 taken from a worker**, with 1,303
+  answers dropped), and the walk spent its whole check budget on candidates it could only refuse
+  (`585,788` refused in one session). Refilling is not a risk: the sweep may enqueue
+  `dynamic_max_generations` per frame against a cap of `workers x 8`, and a generation is ~1 ms
+  of worker time, so a few dozen in flight already saturate 15 workers
+- **Shard-lock telemetry, and what it found: the waits are a convoy, and the install path was
+  feeding it.** `ChunkMap` records per-shard contention (`drain_shard_lock_stats`, printed by
+  the perf report): contended-only wait timing for both shared and exclusive acquisitions (an
+  uncontended acquisition is a single `try_lock` and pays no clock), plus hold time for the
+  multi-shard EXCLUSIVE locks, which are the rare writer locks worth naming. The reading that
+  matters is the RATIO: over a fast flight, shared waits reached 7,950 with a worst of 382 ms
+  while the worst single exclusive HOLD was ~8 ms — waits an order of magnitude larger than any
+  hold are queueing behind a stream of writers, not waiting on one, i.e. a convoy. Two sources
+  were feeding it and both are fixed: the per-chunk lighting stage took a **28-shard EXCLUSIVE
+  lock to answer a read-only question** (does this chunk's 3x3x3 contain an emitter) on the main
+  thread, once per staged chunk — now a shared lock, with the propagation keeping its own
+  exclusive lock in the worker; and two neighbour-dirty passes allocated a `std::vector` for a
+  7-key lock on every installed chunk — now the array overload. The remaining writer pressure is
+  one exclusive lock per chunk insert, which is why the completed queue (`Completed queue: 1811`
+  against a drain of `render distance + 16` per frame) is the throughput cap during flight:
+  generation is throttled by `can_enqueue` refusing on a full completed queue (`585,788` refused
+  candidates in one session), not by the workers, which sit at roughly a third utilization
+- **The worst band frame did NOT fall, and the answer is not the budget — it is one
+  `ChunkMap::contains` lock acquisition.** Against a 2 ms per-frame budget `max_band_ms` stays
+  12-26 ms in both arms of that A/B, so it is not the prefetch. The split counters settle it: a
+  worst column of 26.09 ms was `bounds=26.09, resident=26.09, contains=23.61` — the resident
+  lookups ARE the whole stall, one shard lock waiting on the generation workers that write the
+  same map (the cold bounds read in the same session was 0.65-1.31 ms, so the range computation
+  is definitively not it). The budget bounds work fine: `max_band_columns` shows the overshoot
+  is one or a few columns, never thousands. The fix is not in the sweep — it is shortening the
+  writer's critical sections or moving the read off the locked map
+- **The fix for that stall was `key_to_shard`: a shard is chosen per COLUMN, not per chunk.**
+  The resident check asks "is this whole column built?" and the answer is `count(band)` chunk
+  lookups, and a band reaches the world floor near the player. With a shard per chunk, each of
+  those lookups was its OWN `shared_mutex` acquisition on its own shard, so a single column
+  spanned up to 16 shards and could queue behind a writing worker on any one of them — which is
+  why the counter above showed one lookup of 39.4 ms inside a 39.6 ms column. Masking the y
+  field out of the hash (bits 21..41; the same packing `encode/decode_chunk_key` uses) puts
+  every chunk of a column on one shard, and the check becomes ONE `ChunkMap::lock_column`
+  acquisition followed by lock-free `contains_fast` probes (`tests/test_chunk_map.cpp` pins the
+  invariant the batching depends on, plus that column shards still cover all 64 shards evenly).
+  It also shrinks every multi-key lock, because a neighborhood's keys collapse onto shared
+  shards: a 3x3x3 is 9 distinct (x, z) columns, so the light region's 27-key EXCLUSIVE pass
+  takes 9 shards rather than up to 27 and the install path's 28-key probe likewise. Measured A/B
+  on ONE build via a temporary env toggle, same 40 s flight, back to back: throughput **1,891.2
+  → 1,971.6 chunks/s**, sweep total **1,118.3 → 889.6 ms**, walk **566.8 → 424.4 ms**, band
+  reads **551.5 → 465.2 ms** (**397,916** band reads in both arms, so this is per-column cost:
+  2.4 → 1.26-1.33 us), worst sweep frame **43.9 → 29.7 ms**, worst single column **5.11 → 3.90
+  ms** (and in the live game, 39.6 → 8.5-10.1 ms), cold start **222.1 → 137.5 ms**, holes **0**
+  in both arms. 524 tests pass
+- **Reading a column's band is spread over frames, nearest column first.** One band costs a
+  rigorous chunk height range over that column's 4-block lattice, measured at **~235 us cold**,
+  so all 3,209 of them is ~755 ms of work. Paid eagerly that was a **single 743 ms frame** at
+  world load and **19 ms on every chunk crossing** while flying — a dropped frame every time the
+  player crossed into a new chunk, from the only per-COLUMN cost in the sweep.
+  `service_sweep_bands` now reads at most 2 ms of them per frame and `advance_sweep` STOPS at
+  the first unread column rather than reading it, so the walk cannot outrun the frontier and the
+  frontier cannot stall (one column minimum per frame); because both go nearest-first, the work
+  always lands on the terrain the player is standing in. Rebuilding the list is bookkeeping
+  only: **0.5 ms** for the first one, **0.25 ms** per crossing, band reads capped at **2.5
+  ms/frame**, worst `update_generation` frame at boot 743 ms → 47 ms. `/genstats` reports
+  `list rebuilds` and `bands read` as separate timings because their shapes have nothing in
+  common
+- **What the sweep's check budget is spent on is measured, not assumed** — these are the
+  readings that forced the change above. `WorldUpdater::GenerationStats` counts every candidate
+  a pass examines and why each one was rejected (`reject_loaded`, `reject_above`,
+  `reject_below`, `reject_oob`), what reached `generate_chunk` and what it refused, the frustum
+  pass separately from the distance-sorted one, the urgent (paste) requests, and a rolling
+  window over the last 120 frames; `/genstats` prints them and `/genstats reset` zeroes them
+  while keeping the candidate-list size. The list WAS the render-distance disc × the WHOLE world
+  height — the y offsets spanned ±32 slices, i.e. 65 per column (`WORLD_HEIGHT_Y`/`CHUNK_HEIGHT`
+  = 32) — so at render distance 32 it was **208,585 entries** while only a column's near-surface
+  band could ever pass the filters. (That is what makes the two bullets above a change in kind
+  rather than in tuning.) Measured over a 24-chunk flight (headless, RD 32,
+  `.freebuff/probe_gen_stats.gd`): **209,408 offsets examined for 2,616 generated (1.2%)**, with
+  96,541 rejected as above the column's content (46.1%), 76,054 out of world bounds (36.3%),
+  34,102 already loaded (16.3%) and 95 below the band — so **82.4% of every pass is vertically
+  impossible entries**, and because the 512-check per-frame budget is exhausted on every frame
+  it, not `chunk_generations` (256), is what limits generation: ~6 chunks/frame come out of it.
+  The sweep is also cheap in wall time (0.66 ms/frame average, 28 ms worst frame), so the cost
+  is not frame time, it is what the budget buys. While flying the cursor restarts on every chunk
+  crossing (about every 8 frames here), which is exactly why `reject_loaded` is a sixth of the
+  walk: the near rings are re-examined rather than progressed past. Boot looks healthier — 17%
+  of checks generate — because with the player parked the first rings are the near-surface band
+  rather than a moving frontier. The frustum pass was the first thing the counters caught: a
+  real in-game reading (`/genstats` after a 9,379 frames) showed it had spent **2,376,704 checks
+  and passed 0 chunks, ever** — the cause was the plane convention, see the loading section
+  above, not the budget. With the planes flipped the same reading over 14,045 frames shows it
+  examining **129,895 chunks in the frustum**, of which all but ~7 were already resident — which
+  is what that pass is for, and why its `generated` count stays tiny in a settled world. The
+  other end of the same reading is the phase-2 sweep spending its **entire 512-check budget on
+  every frame for 0 generations** (`last 120 frames: 61,440 checks, 0 generated`), which is the
+  state a `generated` count of 0 beside a full check budget means. `sweeps_completed` was 0 for
+  a reason that is arithmetic rather than mysterious: one complete walk is 208,585 offsets at
+  512 checks/frame ≈ **407 frames**, while the cursor restarts on every chunk crossing — 61
+  times in 14,045 frames, one per ~230 — so the walk is reset before it can reach the end, and
+  the frames right after a crossing are spent re-confirming the ring that is already loaded.
+  (`generation_sweep_generated` is also SHARED between the two passes, so a frustum-pass
+  generation mid-walk discards phase 2's "this walk found nothing" conclusion as well — a
+  second, smaller contributor that only appeared once the frustum pass started working at all)
 
 ### LOD System
 - Per-chunk distance-based reduction (not chunk merging), in three tiers:
   1. **Full detail** within `lod_distance` (+1)
-  2. **Mid tier**: stride/detail reduction controlled by `lod_detail_level` inside the greedy mesher
-  3. **Far tier**: identical stride/detail mechanism, with its own render start `far_lod_distance` and detail `far_lod_detail_level`; far-detail chunks are upgraded/downgraded via the same reprioritize transition-shell + tracked-set logic
-- LOD-reduced chunks (detail < 1.0) are cached (`far_mesh_cache`) and merged into 8×8-chunk **far regions** — the coarse rings render as a handful of region instances instead of one per-chunk instance, keeping draw calls low
+  2. **Mid tier**: stride/detail reduction controlled by `lod_detail_level` inside the greedy
+     mesher
+  3. **Far tier**: identical stride/detail mechanism, with its own render start
+     `far_lod_distance` and detail `far_lod_detail_level`; far-detail chunks are
+     upgraded/downgraded via the same reprioritize transition-shell + tracked-set logic
+- LOD-reduced chunks (detail < 1.0) are cached (`far_mesh_cache`) and merged into 8×8-chunk
+  **far regions** — the coarse rings render as a handful of region instances instead of one
+  per-chunk instance, keeping draw calls low
 - Per-tier stride-1 "skirt" rings at each LOD transition prevent T-junction cracks
 - Cap of 512 LOD remeshes/frame; far-region rebuilds debounced (250 ms)
 
 ### Mesh Completion
-- `process_completed_meshes` is wall-clock-budgeted (`mesh_completion_budget_ms` = 0.75) plus a per-frame completion cap, so a backlog can never stall one frame
-- Nearest-first scheduling: `ChunkScheduler::poll_completed_mesh_nearest()` scans both completion queues (backed by `std::deque`) for the chunk closest to the player; stale completions (epoch mismatch) are dropped during the scan and the frame's uploads go to the most visible chunks
+- `process_completed_meshes` is wall-clock-budgeted (`mesh_completion_budget_ms` = 0.75) plus a
+  per-frame completion cap, so a backlog can never stall one frame
+- Nearest-first scheduling: `ChunkScheduler::poll_completed_mesh_nearest()` scans both
+  completion queues (backed by `std::deque`) for the chunk closest to the player; stale
+  completions (epoch mismatch) are dropped during the scan and the frame's uploads go to the
+  most visible chunks
 
 ### Upload dedup and the liquid invariant
-- Upload deduplication compares a content hash against the last upload, so an unchanged chunk never re-uploads. That hash **covers both surfaces** (`src/mesh/mesh_content_hash.hpp`): the opaque and the liquid mesh go up in one `mesh_add_surface_from_arrays` pair, so hashing the opaque one alone skipped the whole upload whenever only the water changed — which is the common case, a liquid being transparent (same blocks, same light). The failure mode is water that exists in the world, collides and outlines, and has no geometry on screen until an unrelated edit moves an opaque vertex. Pinned by `tests/test_liquid_mesh_geometry.cpp`
-- The renderer checks the invariant in the other direction too, from data to GPU: at every applied mesh, a chunk whose data holds liquid (`ChunkData::liquid_count`, maintained beside `block_count` on every write path) and whose opaque geometry is on the GPU must have liquid geometry on the GPU as well. If it does not, the chunk is remeshed once (guarded per `mesh_version`) and counted (`note_liquid_geometry`, mesh_manager_upload.cpp)
-- The performance report carries those numbers every interval, because a water drop is otherwise unobservable from inside the game: `Liquid missing` (chunks holding liquid with no liquid geometry, 0 expected), `Liquid repairs` (remeshes spent repairing that), `Mesh uploads / Dedup skips / Water-only skips` (a skip that carried a different water mesh — must be 0), and `Unrendered` (geometry in range, not covered by a far region, and no instance drawing it — must be 0)
+- Upload deduplication compares a content hash against the last upload, so an unchanged chunk
+  never re-uploads. That hash **covers both surfaces** (`src/mesh/mesh_content_hash.hpp`): the
+  opaque and the liquid mesh go up in one `mesh_add_surface_from_arrays` pair, so hashing the
+  opaque one alone skipped the whole upload whenever only the water changed — which is the
+  common case, a liquid being transparent (same blocks, same light). The failure mode is water
+  that exists in the world, collides and outlines, and has no geometry on screen until an
+  unrelated edit moves an opaque vertex. Pinned by `tests/test_liquid_mesh_geometry.cpp`
+- The renderer checks the invariant in the other direction too, from data to GPU: at every
+  applied mesh, a chunk whose data holds liquid (`ChunkData::liquid_count`, maintained beside
+  `block_count` on every write path) and whose opaque geometry is on the GPU must have liquid
+  geometry on the GPU as well. If it does not, the chunk is remeshed once (guarded per
+  `mesh_version`) and counted (`note_liquid_geometry`, mesh_manager_upload.cpp)
+- The performance report carries those numbers every interval, because a water drop is otherwise
+  unobservable from inside the game: `Liquid missing` (chunks holding liquid with no liquid
+  geometry, 0 expected), `Liquid repairs` (remeshes spent repairing that),
+  `Mesh uploads / Dedup skips / Water-only skips` (a skip that carried a different water mesh —
+  must be 0), and `Unrendered` (geometry in range, not covered by a far region, and no instance
+  drawing it — must be 0)
 
 ### Mesh Surfaces
 - Primary surface: opaque terrain with greedy meshing
-- Secondary surface: translucent water with edge fade, tint, shimmer, flowing texture animation, and separate blend-mix surface. Its geometry is the per-corner surface from `mesh_fluid.hpp` / `mesh_builder_fluid.cpp` (a liquid cell's four corners take independent heights, so a pool's rim slopes and a waterfall's sides reach the cell boundary), which is why liquids are excluded from the greedy and per-AABB emitters — one merged quad carries one top height, and that is what used to render every pool as a stepped box
+- Secondary surface: translucent water with edge fade, tint, shimmer, flowing texture animation,
+  and separate blend-mix surface. Its geometry is the per-corner surface from `mesh_fluid.hpp` /
+  `mesh_builder_fluid.cpp` (a liquid cell's four corners take independent heights, so a pool's
+  rim slopes and a waterfall's sides reach the cell boundary), which is why liquids are excluded
+  from the greedy and per-AABB emitters — one merged quad carries one top height, and that is
+  what used to render every pool as a stepped box
 - Emissive textures: second `Texture2DArray` for per-face glow maps
-- Far regions: LOD-reduced chunk meshes merged into region instances (`far_regions`, `far_mesh_cache` in `mesh_manager.*`/`chunk_render_data.hpp`) so the coarse ring costs a handful of draw calls
+- Far regions: LOD-reduced chunk meshes merged into region instances (`far_regions`,
+  `far_mesh_cache` in `mesh_manager.*`/`chunk_render_data.hpp`) so the coarse ring costs a
+  handful of draw calls
 - Vertex compression: 24 bytes per vertex (-40% VRAM) with fixed-point positions
 
 ### Procedural liquid textures (`src/render/liquid_texture.hpp`)
-- Animated water/lava/acid sprites are generated, not drawn: a three-field cellular automaton over an N×N grid of floats (`surface` = the visible height that becomes the pixel colour, `flow` = momentum the surface pushes into, `surge` = a decaying energy source re-ignited by a per-cell dice roll) stepped once per frame and mapped through a colour ramp. That is how the classic block game produced its still-water and still-lava sprites before textures became image files; the field names, kernels, defaults and colours here are ours (see the file header)
-- Three kernels (`row` 3×1, `box` 3×3, `warp` 3×3 with a sine-wandering window, `plus` 5-point) and per-style presets. **The divisor must exceed the number of cells the kernel sums** (row→3.3, box→9.9) or the surface amplifies itself every step until a frame is one flat ramp stop and the animation stops animating; the suite pins both the flattening and the field-inside-the-ramp calibration of every preset
-- The surge is deliberately not floored at zero: it settles at a small negative mean, which is what stops `flow` (which *is* floored) from integrating forever
-- Output is one vertical strip, `resolution` wide and `resolution * frames` tall, frames stacked downward — the shape the classic resource-pack format used. `interpolate` emits cross-faded sub-frames that are blended in field space before the ramp, so a blend never invents palette entries
-- **Looping**: the automaton is not periodic, so a strip's last frame does not naturally sit next to its first and the wrap pops. With `loop` on (the default) the last `loop_window` frames are morphed in field space into the run that led *into* frame 0, ending exactly on it: the last frame **is** the first frame, and the step into it is a normal-sized frame change. Measured on the shipped water preset at 16 frames: the seam step is 5 and the worst step inside the strip is 6, where the wrap used to be 36. A window of 1 is the bare duplicate (it just moves the pop one frame earlier), which is why the default is 8 — about the kernels' own decorrelation time. `Strip::looped` reports this, and a looping player must advance from the last frame to **index 1**, not 0: index 0 already played as the last frame, so wrapping to it would hold the image for two frame times. The lab does that in `_advance()`, and sub-frames after the last one blend towards index 1 for the same reason
-- `LiquidTextureGen` (static binding) is the GDScript face: settings travel as a Dictionary whose keys are the field names, `default_settings(style, resolution)` returns a complete one, `describe()` echoes the clamped values the generator would really use, and `generate_strip()` returns the `Image`
-- Live preview writes frames into the world's texture-array layer (`ChunkManager::push_texture_frame` → `Texture2DArray::update_layer`), which is why `TextureArrayGenerator::find_texture_layer()` exists separately from `get_texture_index()`: the latter answers 0 for "unknown", i.e. the fallback layer, so a writer using it would repaint stone. A GPU-compressed array cannot take a raw RGBA frame, so the lab rebuilds uncompressed for the duration of the preview and restores the user's setting afterwards
-- `ChunkManager::fit_texture_frame()` is the verifiable half of that path (RGBA8, snapped to the array's resolution, mipmaps matched to the generator's flag). `get_texture_layer_image()` is best effort: Godot 4.7's `TextureLayered::get_layer_data()` answers null even for an array built in the same process, so nothing depends on it
-- **It runs in the world, not only in the tool.** `liquid_animator.gd` (autoload) plays each liquid's strip into its texture-array layer whenever the game is running: `user://liquids/<liquid>.json` if the Lab bound one, else the built-in preset, regenerated in C++ from those settings (deterministic, so the JSON is the whole source and the saved PNG is never read). Frames advance every `frame_time` ticks with the panel's rule (a looping strip wraps to index 1). Compression is off for the session while it animates, the Lab's Live pauses it per liquid, and `get_status()` exposes source/frames/frame/pushed per liquid, which is what a probe can hold to account. A liquid's still texture is baked from its own preset by `tools/bake_liquid_textures.gd` — needed, because no PNG means no layer to write into
-- `tests/test_liquid_texture.cpp` covers the automaton (kernel wrapping, torus translation equivariance, flattening, scroll translation, determinism, interpolation, grain, posterization, clamping, ramp calibration); `.freebuff/probe_liquid_lab.gd` drives the real tool against the real world and the real texture array, and `.freebuff/probe_lava_acid.gd` drives the animator (frames landing, the compression refusal, the Lab's Bind handoff) plus lava's and acid's blocks, buckets and floods
+- Animated water/lava/acid sprites are generated, not drawn: a three-field cellular automaton
+  over an N×N grid of floats (`surface` = the visible height that becomes the pixel colour,
+  `flow` = momentum the surface pushes into, `surge` = a decaying energy source re-ignited by a
+  per-cell dice roll) stepped once per frame and mapped through a colour ramp. That is how the
+  classic block game produced its still-water and still-lava sprites before textures became
+  image files; the field names, kernels, defaults and colours here are ours (see the file
+  header)
+- Three kernels (`row` 3×1, `box` 3×3, `warp` 3×3 with a sine-wandering window, `plus` 5-point)
+  and per-style presets. **The divisor must exceed the number of cells the kernel sums**
+  (row→3.3, box→9.9) or the surface amplifies itself every step until a frame is one flat ramp
+  stop and the animation stops animating; the suite pins both the flattening and the
+  field-inside-the-ramp calibration of every preset
+- The surge is deliberately not floored at zero: it settles at a small negative mean, which is
+  what stops `flow` (which *is* floored) from integrating forever
+- Output is one vertical strip, `resolution` wide and `resolution * frames` tall, frames stacked
+  downward — the shape the classic resource-pack format used. `interpolate` emits cross-faded
+  sub-frames that are blended in field space before the ramp, so a blend never invents palette
+  entries
+- **Looping**: the automaton is not periodic, so a strip's last frame does not naturally sit
+  next to its first and the wrap pops. With `loop` on (the default) the last `loop_window`
+  frames are morphed in field space into the run that led *into* frame 0, ending exactly on it:
+  the last frame **is** the first frame, and the step into it is a normal-sized frame change.
+  Measured on the shipped water preset at 16 frames: the seam step is 5 and the worst step
+  inside the strip is 6, where the wrap used to be 36. A window of 1 is the bare duplicate (it
+  just moves the pop one frame earlier), which is why the default is 8 — about the kernels' own
+  decorrelation time. `Strip::looped` reports this, and a looping player must advance from the
+  last frame to **index 1**, not 0: index 0 already played as the last frame, so wrapping to it
+  would hold the image for two frame times. The lab does that in `_advance()`, and sub-frames
+  after the last one blend towards index 1 for the same reason
+- `LiquidTextureGen` (static binding) is the GDScript face: settings travel as a Dictionary
+  whose keys are the field names, `default_settings(style, resolution)` returns a complete one,
+  `describe()` echoes the clamped values the generator would really use, and `generate_strip()`
+  returns the `Image`
+- Live preview writes frames into the world's texture-array layer
+  (`ChunkManager::push_texture_frame` → `Texture2DArray::update_layer`), which is why
+  `TextureArrayGenerator::find_texture_layer()` exists separately from `get_texture_index()`:
+  the latter answers 0 for "unknown", i.e. the fallback layer, so a writer using it would
+  repaint stone. A GPU-compressed array cannot take a raw RGBA frame, so the lab rebuilds
+  uncompressed for the duration of the preview and restores the user's setting afterwards
+- `ChunkManager::fit_texture_frame()` is the verifiable half of that path (RGBA8, snapped to the
+  array's resolution, mipmaps matched to the generator's flag). `get_texture_layer_image()` is
+  best effort: Godot 4.7's `TextureLayered::get_layer_data()` answers null even for an array
+  built in the same process, so nothing depends on it
+- **It runs in the world, not only in the tool.** `liquid_animator.gd` (autoload) plays each
+  liquid's strip into its texture-array layer whenever the game is running:
+  `user://liquids/<liquid>.json` if the Lab bound one, else the built-in preset, regenerated in
+  C++ from those settings (deterministic, so the JSON is the whole source and the saved PNG is
+  never read). Frames advance every `frame_time` ticks with the panel's rule (a looping strip
+  wraps to index 1). Compression is off for the session while it animates, the Lab's Live pauses
+  it per liquid, and `get_status()` exposes source/frames/frame/pushed per liquid, which is what
+  a probe can hold to account. A liquid's still texture is baked from its own preset by
+  `tools/bake_liquid_textures.gd` — needed, because no PNG means no layer to write into
+- `tests/test_liquid_texture.cpp` covers the automaton (kernel wrapping, torus translation
+  equivariance, flattening, scroll translation, determinism, interpolation, grain,
+  posterization, clamping, ramp calibration); `.freebuff/probe_liquid_lab.gd` drives the real
+  tool against the real world and the real texture array, and `.freebuff/probe_lava_acid.gd`
+  drives the animator (frames landing, the compression refusal, the Lab's Bind handoff) plus
+  lava's and acid's blocks, buckets and floods
 
 ### Block file import (`src/schematic/`)
-- **The file formats are read, never written, and decoded without Godot or a compression library.** There are two families, and both decode into one shape: the *classic* file (`.schematic`, and `.nbt` in the same style) is a numbered-id build, and the *palette* file (`.schem`, the newer format) names its states and stores one base-128 varint index per cell — v2 at the root, v3 nested under a `Blocks` compound, the two told apart by that nesting rather than by the version number in the file. A classic file is a gzip'd NBT tree; NBT is tagged and byte-ordered per writer, so `nbt_reader` is a forward cursor (walk what you want, skip the rest — a tile-entity list can be the largest thing in a file and is never wanted) rather than a parsed tree, and `gzip_inflate` provides DEFLATE plus the gzip/zlib/raw framings with their checksums verified and the decompressed size capped. The standalone tools and the test binary link neither the engine nor zlib, and the reader has to run there, which is why the inflater is ours rather than a `FileAccess` call: the same code opens the file in-game and in `bin/schematic_report`
-- **Three writer quirks are absorbed rather than assumed away, because each one produces a file that decodes into plausible-but-wrong blocks instead of failing.** The nibble-packed arrays are sometimes written one byte longer than the packed size (accepted and reported, since a length that is neither layout could only be read by guesswork, and guessing the `Data` layout scrambles every oriented block); a build may be wrapped in an unnamed root, so the build compound is located by shape — a `Blocks` array or a palette — and the root's name is reported rather than required; and a palette's indices are compacted on read, with a cell pointing outside its declared palette refused by name. `schematics/14664.schematic` and `schematics/29761.schematic` (a v3 file wearing a `.schematic` name) are both in the tree for exactly these reasons. **A fourth trap is in the reader rather than the file**: a skipped value must consume its own tag width, and because a width mistake moves the cursor rather than failing there, it surfaces much later and somewhere else — a Float read as one byte desynchronises the walk and reports `unknown tag type 128` from inside a dense tile-entity list. `schematics/10179.schematic` (1,328 tile entities, 170 entities, floats and doubles throughout) is that case, and `tests/test_schematic_reader.cpp` pins it with a purpose-built fixture
-- **Decoding and meaning are separate steps.** The reader returns a palette of states with one palette index per cell — compact for a large build, and free of any assumption about which of our blocks an id should become. That mapping is data: `mc_palette.hpp/cpp` resolves `(id, data)` against `data/minecraft_blocks.json` into Unknown / Skipped / Mapped (with `substitute` and `fluid` flags and the row's own note), and a state the table has never heard of stays Unknown and is reported rather than guessed at. Rows share orientation conventions through named `variant_sets` with a `{family}` placeholder, so the eight stair orientations are written once and each stair material is one line
-- **The table is read by `minimal_json.hpp/cpp`, not `godot::JSON`.** The table has to load in `bin/schematic_report` and in the test binary, neither of which has an engine runtime, so the reader is ours and is the same code in all three places. It accepts the JSON subset a data file uses and refuses the rest with the byte offset (trailing commas, comments, bare keys, duplicate keys, nesting past the cap), and a failed parse leaves the caller's value empty rather than half-built
-- **Two arrays ride beside `Blocks`, and one of them has two possible layouts.** `Data` is a 4-bit value per cell, and it is either one byte per cell or nibble-packed two to a byte; the layout is deduced from the array length (cell count vs `(cell count + 1) / 2`) and a file matching neither is refused with both numbers. Assuming one layout silently mis-decodes every oriented block — a per-byte array read as nibbles yields stair facings that look plausible and are wrong. `AddBlocks` carries the high nibble of ids above 255, always nibble-packed
-- **Cell order is `(y * Length + z) * Width + x`.** Getting it wrong produces a file that still decodes into a building-shaped thing, so the tests assert every cell of a 4×3×5 fixture against the formula the fixture was written from instead of sampling a few ids
-- **The tile-entity and entity lists are counted, not decoded.** Signs, chests and dropped items have no block to become yet; dropping them silently would be a lie, so the counts and the first tile-entity positions are reported and placement ignores them
-- **A build's liquids land, and by default they land STILL.** A liquid row carries a `still` target beside its `block` — the same substance with no fluid state (`surface_water`, `surface_lava`, `surface_acid`), which the simulation never looks at, is drawn as the liquid it is and blocks flow like the sea does. That is what a paste places unless it is asked for `fluids`, so a building arrives with its lake intact instead of with holes where the water was or a lake that runs down the hill it was placed on. Only a liquid row with no `still` form is left out (`declined_fluid`), and a stand-in liquid still counts as `stilled` rather than `substituted`, since the counter answers what happened to the liquid. Palette-format files name their liquids rather than numbering them, so the table needs `names` rows for `minecraft:water` and `minecraft:lava` too — without them their water resolved as *unknown*, which is a hole rather than a decision
-- **Planning and writing are separate, and the plan is engine-free.** `paste_plan.hpp/cpp` resolves a decoded file through `mc_palette` into world coordinates plus block ids and counts every cell into exactly one bucket (placed, substituted, declined liquid, declined stand-in, skipped, unknown, unresolved, air ignored). Nothing about the world enters that decision except `replace_solid`, which the writer enforces, so the numbers a player is shown are the file's own numbers. The pass is per distinct STATE rather than per cell — the table's reachable names resolve once up front, the table is asked once per palette slot, and the cells are walked flat in their stored order — because a build repeats a few states across a million cells and re-asking per cell costs 1.5× to 3× more (measured: 6.3 → 4.2 ms on a 1.39M-cell file, 3.8 → 1.2 ms on a 353-state `.schem`). The write itself is `BlockEditor::apply_paste`: one exclusive 3×3×3 band per chunk (not per block), sky light recomputed per touched column, one relight and dirty per touched chunk, every cell persisted through the edit map (which also wakes pasted fluid), and the displaced blocks kept as a one-level undo. It cannot go through `BlockEditor::place_block`, which refuses any cell where the old and new blocks are both non-air and would therefore drop every cell of a build that overlaps terrain. **A cell whose chunk is not resident is not skipped: the writer returns it and the controller retries.** `VoxelEngineController` turns those cells into a job that requests their chunks urgently (ahead of the streaming sweep, which would never generate the sky above a build), pins them against the unload pass, and re-runs the write every frame until nothing is left, 16 chunks in flight and 30 s at a time — a build bigger than the streaming frontier is a pause, not a partly-placed building. The written/not-yet-written split comes back FROM the writer rather than being re-derived from the chunk map, because a chunk can arrive mid-write and a cell the writer had already given up on would then look resident and be dropped for good. Undo is symmetric: it reports `cells` (restored), `unchanged` (the world already has the pre-paste block — it can be regenerated, so this is an outcome, not a failure), `out_of_bounds` and `unloaded`, which add up to what the paste wrote, and it keeps the record narrowed to the cells it could not reach so a second `/paste undo` finishes the job. `ChunkManager.inspect_schematic` is the read-only half (decode + plan, no write) and is what a preview or a size query uses; `/paste` is the chat command over the writing half
+- **The file formats are read, never written, and decoded without Godot or a compression
+  library.** There are two families, and both decode into one shape: the *classic* file
+  (`.schematic`, and `.nbt` in the same style) is a numbered-id build, and the *palette* file
+  (`.schem`, the newer format) names its states and stores one base-128 varint index per cell —
+  v2 at the root, v3 nested under a `Blocks` compound, the two told apart by that nesting rather
+  than by the version number in the file. A classic file is a gzip'd NBT tree; NBT is tagged and
+  byte-ordered per writer, so `nbt_reader` is a forward cursor (walk what you want, skip the
+  rest — a tile-entity list can be the largest thing in a file and is never wanted) rather than
+  a parsed tree, and `gzip_inflate` provides DEFLATE plus the gzip/zlib/raw framings with their
+  checksums verified and the decompressed size capped. The standalone tools and the test binary
+  link neither the engine nor zlib, and the reader has to run there, which is why the inflater
+  is ours rather than a `FileAccess` call: the same code opens the file in-game and in
+  `bin/schematic_report`
+- **Three writer quirks are absorbed rather than assumed away, because each one produces a file
+  that decodes into plausible-but-wrong blocks instead of failing.** The nibble-packed arrays
+  are sometimes written one byte longer than the packed size (accepted and reported, since a
+  length that is neither layout could only be read by guesswork, and guessing the `Data` layout
+  scrambles every oriented block); a build may be wrapped in an unnamed root, so the build
+  compound is located by shape — a `Blocks` array or a palette — and the root's name is reported
+  rather than required; and a palette's indices are compacted on read, with a cell pointing
+  outside its declared palette refused by name. `schematics/14664.schematic` and
+  `schematics/29761.schematic` (a v3 file wearing a `.schematic` name) are both in the tree for
+  exactly these reasons. **A fourth trap is in the reader rather than the file**: a skipped
+  value must consume its own tag width, and because a width mistake moves the cursor rather than
+  failing there, it surfaces much later and somewhere else — a Float read as one byte
+  desynchronises the walk and reports `unknown tag type 128` from inside a dense tile-entity
+  list. `schematics/10179.schematic` (1,328 tile entities, 170 entities, floats and doubles
+  throughout) is that case, and `tests/test_schematic_reader.cpp` pins it with a purpose-built
+  fixture
+- **Decoding and meaning are separate steps.** The reader returns a palette of states with one
+  palette index per cell — compact for a large build, and free of any assumption about which of
+  our blocks an id should become. That mapping is data: `mc_palette.hpp/cpp` resolves
+  `(id, data)` against `data/minecraft_blocks.json` into Unknown / Skipped / Mapped (with
+  `substitute` and `fluid` flags and the row's own note), and a state the table has never heard
+  of stays Unknown and is reported rather than guessed at. Rows share orientation conventions
+  through named `variant_sets` with a `{family}` placeholder, so the eight stair orientations
+  are written once and each stair material is one line
+- **The table is read by `minimal_json.hpp/cpp`, not `godot::JSON`.** The table has to load in
+  `bin/schematic_report` and in the test binary, neither of which has an engine runtime, so the
+  reader is ours and is the same code in all three places. It accepts the JSON subset a data
+  file uses and refuses the rest with the byte offset (trailing commas, comments, bare keys,
+  duplicate keys, nesting past the cap), and a failed parse leaves the caller's value empty
+  rather than half-built
+- **Two arrays ride beside `Blocks`, and one of them has two possible layouts.** `Data` is a
+  4-bit value per cell, and it is either one byte per cell or nibble-packed two to a byte; the
+  layout is deduced from the array length (cell count vs `(cell count + 1) / 2`) and a file
+  matching neither is refused with both numbers. Assuming one layout silently mis-decodes every
+  oriented block — a per-byte array read as nibbles yields stair facings that look plausible and
+  are wrong. `AddBlocks` carries the high nibble of ids above 255, always nibble-packed
+- **Cell order is `(y * Length + z) * Width + x`.** Getting it wrong produces a file that still
+  decodes into a building-shaped thing, so the tests assert every cell of a 4×3×5 fixture
+  against the formula the fixture was written from instead of sampling a few ids
+- **The tile-entity and entity lists are counted, not decoded.** Signs, chests and dropped items
+  have no block to become yet; dropping them silently would be a lie, so the counts and the
+  first tile-entity positions are reported and placement ignores them
+- **A build's liquids land, and by default they land STILL.** A liquid row carries a `still`
+  target beside its `block` — the same substance with no fluid state (`surface_water`,
+  `surface_lava`, `surface_acid`), which the simulation never looks at, is drawn as the liquid
+  it is and blocks flow like the sea does. That is what a paste places unless it is asked for
+  `fluids`, so a building arrives with its lake intact instead of with holes where the water was
+  or a lake that runs down the hill it was placed on. Only a liquid row with no `still` form is
+  left out (`declined_fluid`), and a stand-in liquid still counts as `stilled` rather than
+  `substituted`, since the counter answers what happened to the liquid. Palette-format files
+  name their liquids rather than numbering them, so the table needs `names` rows for
+  `minecraft:water` and `minecraft:lava` too — without them their water resolved as *unknown*,
+  which is a hole rather than a decision
+- **Planning and writing are separate, and the plan is engine-free.** `paste_plan.hpp/cpp`
+  resolves a decoded file through `mc_palette` into world coordinates plus block ids and counts
+  every cell into exactly one bucket (placed, substituted, declined liquid, declined stand-in,
+  skipped, unknown, unresolved, air ignored). Nothing about the world enters that decision
+  except `replace_solid`, which the writer enforces, so the numbers a player is shown are the
+  file's own numbers. The pass is per distinct STATE rather than per cell — the table's
+  reachable names resolve once up front, the table is asked once per palette slot, and the cells
+  are walked flat in their stored order — because a build repeats a few states across a million
+  cells and re-asking per cell costs 1.5× to 3× more (measured: 6.3 → 4.2 ms on a 1.39M-cell
+  file, 3.8 → 1.2 ms on a 353-state `.schem`). The write itself is `BlockEditor::apply_paste`:
+  one exclusive 3×3×3 band per chunk (not per block), sky light recomputed per touched column,
+  one relight and dirty per touched chunk, every cell persisted through the edit map (which also
+  wakes pasted fluid), and the displaced blocks kept as a one-level undo. It cannot go through
+  `BlockEditor::place_block`, which refuses any cell where the old and new blocks are both
+  non-air and would therefore drop every cell of a build that overlaps terrain. **A cell whose
+  chunk is not resident is not skipped: the writer returns it and the controller retries.**
+  `VoxelEngineController` turns those cells into a job that requests their chunks urgently
+  (ahead of the streaming sweep, which would never generate the sky above a build), pins them
+  against the unload pass, and re-runs the write every frame until nothing is left, 16 chunks in
+  flight and 30 s at a time — a build bigger than the streaming frontier is a pause, not a
+  partly-placed building. The written/not-yet-written split comes back FROM the writer rather
+  than being re-derived from the chunk map, because a chunk can arrive mid-write and a cell the
+  writer had already given up on would then look resident and be dropped for good. Undo is
+  symmetric: it reports `cells` (restored), `unchanged` (the world already has the pre-paste
+  block — it can be regenerated, so this is an outcome, not a failure), `out_of_bounds` and
+  `unloaded`, which add up to what the paste wrote, and it keeps the record narrowed to the
+  cells it could not reach so a second `/paste undo` finishes the job.
+  `ChunkManager.inspect_schematic` is the read-only half (decode + plan, no write) and is what a
+  preview or a size query uses; `/paste` is the chat command over the writing half
 
 ## Collision
 
 - Binary-search AABB approach (3D DDA variant was tried and reverted)
 - Custom voxel collision queries chunk map directly instead of Godot physics nodes
 - Player collision via `ChunkManager::resolve_voxel_collision()`
-- **Step-up**: tests the player's full body AABB raised by `step_height`, then re-resolves horizontally and only accepts the step if it travels further than not stepping. (The old `[feet, feet+step_height)` headroom probe always contained the obstruction being stepped onto and could never succeed.)
+- **Step-up**: tests the player's full body AABB raised by `step_height`, then re-resolves
+  horizontally and only accepts the step if it travels further than not stepping. (The old
+  `[feet, feet+step_height)` headroom probe always contained the obstruction being stepped onto
+  and could never succeed.)
 
 ## Player Controller
 
 Two layers mirroring the ChunkManager/VoxelEngineController pattern:
 
-- **`VoxelEngine::PlayerSim`** (`src/engine/player_controller.*`) — pure, deterministic fixed-timestep simulation (20 ticks/s, velocities in blocks/tick). Vanilla-accurate ordering (jump + sprint boost applied before friction, matching the vanilla tick order), sticky sprint with a one-tick airborne staleness, sneak multiplier on ground only, and `on_floor` derived from the final resolved position (no swept floor probe). Standing/sneaking/landing eye-height transitions are smoothed at render time from the accumulator's partial-tick fraction. Also tracks fall distance from per-tick position deltas; a landing past `SAFE_FALL_DISTANCE` (3 blocks) queues `floor(distance − 3)` half-hearts for `consume_pending_fall_damage()`.
-- **`PlayerController`** (`src/godot_bindings/player_controller.*`) — Godot `Node3D` scene node registered via ClassDB (used directly by `Main.tscn`). Polls input, drives the tick accumulator from `_process(delta)`, handles mouse look (pitch clamped ±90°), fly mode (`fly_speed`), camera eye-height smoothing, raycast-based break/place, block selection (keys 1–9), and the **F5 three-view camera cycle** (`third_person_view_` 0/1/2: first person → behind → in front). Left-click punches the K-key pose-clone dummy when it's under the crosshair (`try_punch_dummy`, 3.0-block reach, vanilla 1.8.8 knockback with sprint bonus + 10-tick hurt-resistance gate; mining is suppressed while the dummy blocks the aim). After ticking it consumes queued fall damage into a clamped `health` property (0–20 half-hearts, `get_health`/`set_health` bindings).
-- **Third-person camera & aiming** — The back/front cameras sit on the player's look ray at `kThirdPersonOffset` (4.0) blocks and are pulled in before any solid block by `camera_clear_distance` (0.25-block samples through `CollisionResolver::is_solid_at`, min 0.25) so they never clip terrain. The camera rotation is the player's look rotation directly (front view mirrors: `(−pitch, π)`) rather than an aim-at-player direction — aim-derived rotations locked up near vertical, where the horizontal component of the aim vector vanishes. Block targeting is view-independent: the bound `get_aim_origin()`/`get_aim_direction()` cast from the player's eye along the look ray (vanilla's eye-ray trace), and `ChunkManager::raycast_from_camera` prefers them over the camera (falling back for scenes without a controller), so first/back/front views always aim at the same block and the crosshair/outline agree.
-- **Third-person body & head look** — The visual body is reparented under a runtime **`ModelPivot`** wrapper in `_ready` so it can lag behind the look: the torso eases toward the horizontal travel direction at 0.3 of the gap per 20 Hz tick (moving, including midair) and holds while standing, clamped so the head can lead the body by at most ±35° (`kBodyMaxYaw`) before dragging it — vanilla's body-yaw model. `player_model.gd`'s `_track_head_look()` points the `head` mesh at the player's **aim** (controller world yaw + pitch), never the camera — the front-view camera is yaw-flipped 180°, so camera-tracking spun the head around. The model's x/z is centered on the player (head rotation axis on the eye axis), and the glb node pivots are baked onto the true joints (see `tools/rebake_player_pivots.py`), so the head tilts around the neck like `vanilla model`.
-- **Health integration** — `healthbar.gd` renders 10 hearts (`heart_full/half/empty.png`, 9×9 art) above the hotbar's left edge, sized off the hotbar's on-screen width so the row spans ~40% of it (9-texel sprites on a 10-texel pitch). It polls `get_health()` each frame and redraws only on change. Hearts are linear-filtered: the row's fractional scale makes nearest sampling render 1-texel outlines at inconsistent widths.
-- **Death & respawn** — `set_health` hitting 0 calls `die()`: a `dead_` flag freezes `_process`/`_input` (movement, look, break/place, hotbar keys), `update_mouse_mode()` releases the cursor, and the `died` signal fires. `respawn()` restores full health, teleports to the spawn point captured in `_ready` (via `teleport_to`, clearing fall state), and emits `respawned`. `death_screen.gd` (HUD overlay) listens to both signals and shows/hides a "You died!" + Respawn button screen; the button calls `respawn()`. Inventory is kept on death.
-- **Inventory integration** — `PlayerController` owns a `VoxelEngine::Inventory` (9 hotbar + 27 main slots, 64 stack limit). Breaking a block collects it only if `can_add_block` succeeds; placing consumes from the selected hotbar slot. Hotbar/inventory state is exposed to GDScript via ClassDB bindings (`get_hotbar_slot_block_id`, `set_inventory_slot`, `select_hotbar_slot`, etc.) and rendered by the `hotbar.gd` / `inventory.gd` `Control` overlays (E toggles, mouse wheel cycles the hotbar, click-to-hold/drag-drop stack movement). The inventory UI uses isometric 3D block icons (300×300) rendered by `BlockIconRenderer` at vanilla's dimetric angle (45° yaw, 30° pitch) with support for custom block shapes (slabs, stairs, walls, poles) built from `data/block_shapes.json` selection boxes. Icons are pre-rendered asynchronously at startup and cached for performance.
-- **Crafting integration** — `RecipeBook` (`src/core/crafting.*`) loads recipes from `data/recipes.json` in `load_world_configs()` and is exposed through two ClassDB bindings: `match_recipe(grid_ids, grid_counts)` previews the output slot (gated on ingredient availability so the preview disappears once the grid runs dry), and `craft_recipe(grid_ids, grid_counts)` atomically verifies + deducts the grid and returns the new counts plus the result. The grid dimension comes from the cell count (4 → 2×2, 9 → 3×3), so both the inventory's 2×2 grid (`inventory.gd`) and the crafting table's 3×3 grid (`crafting_table_menu.gd`) use the same RecipeBook; both live GUI-side and persist across open/close. Crafting-area geometry is measured from the color-coded slot pixels in the atlas (`#7e7d7e` inputs, `#7e7d7f` output vs. `#7e7d7d` regular slots).
-- **Chat integration** — `PlayerController` provides chat state management (`set_chat_open`, `is_chat_open`) and inventory clearing (`clear_inventory`). The chat system (`chat.gd`) features advanced autocomplete with ghost text suggestions, tab cycling, and parameter hints.
-- **Lifecycle hooks** — `PlayerController::_ready()` caches the `ChunkManager` pointer (no per-call tree lookups) and loads the saved inventory; `_exit_tree()` saves the inventory while every node is still allocated, guarded by `inventory_saved_` so the destructor's fallback save is a no-op.
-- **Viewmodel & animation** — First-person hand + held item/block live in thin `viewmodel.gd` glue (child of `Camera3D`, eye space), while the per-frame math and mesh geometry are native. `ViewmodelPose` (`src/core/viewmodel_math.*`) owns the walk bob (`step_walk_bob`), mouse sway (`step_sway`), punch/place swing + equip pose (`compute_swing_pose`), held item/block swing transform (`compute_swing_transform`), and `smoothstep_01`. `ViewmodelMeshes` (`src/core/viewmodel_meshes.*`) builds the held-block cube, shaped-block selection boxes, and extruded-sprite item meshes (also reused by `block_break_overlay.gd`, `block_preview.gd`, and the block gallery). The punch (0.225s) drives an arm depth curve reshaped by a cubic smoothstep plus a two-sided circular arc sweep; it **loops while breaking** (`get_break_state()["active"]`) and is gated on captured mouse so UI clicks never swing. A separate weaker **place animation** (75% endpoint) fires only on the C++ `block_placed` signal (verified land + inventory consumed). Walk bobbing (`_walk_dist*PI*0.6`) uses a `_bob` envelope that decays to zero when airborne, driven by the `PlayerController::is_on_floor()` binding (wraps `sim_.is_on_floor()`). Peak pose constants (`PEAK_ROT`/`PEAK_POS`, etc.) stay in `viewmodel.gd` and are passed in as Vector3 pairs so they remain the single source of truth.
-- **Block break progress** — `update_break_progress` accumulates `delta * tool_speed / hardness` while LMB is held on the raycast target, where `tool_speed` comes from `mining_speed_multiplier()` (`src/core/mining.hpp`) against the block's `preferred_tool`/`min_tier` (plus a `hammer` against any block carrying a `crush_result`); releasing LMB or losing the target resets `break_progress_`/`break_target_valid_` (so the crack and looping punch stop). `get_break_state()` exposes `{active, x/y/z, stage 0-9}` to `block_break_overlay.gd`. The same pass resolves the drop through `resolve_block_drop()`, so the inventory gate and `break_block()` agree on what a break yields.
-- **Hammer crushing** — a block's optional `crush_result` (`data/block_definitions.json`, resolved to an id in a `load_from_json` post-pass) is the hammer's whole contract: a hammer-class tool is fast against any block that names one, and `resolve_block_drop()` yields that block instead of the broken one. Crushing is keyed on the block actually broken and is not tier-gated (tier only scales speed). Cobblestone → gravel, gravel → sand.
-- **Block drops** — a block's optional `drops` names what it yields when broken, whatever the tool; it is separate from `crush_result` (a crush wins) and both resolve in the same post-pass. Stone → cobblestone, so stone blocks themselves are no longer obtainable by mining.
+- **`VoxelEngine::PlayerSim`** (`src/engine/player_controller.*`) — pure, deterministic
+  fixed-timestep simulation (20 ticks/s, velocities in blocks/tick). Vanilla-accurate ordering
+  (jump + sprint boost applied before friction, matching the vanilla tick order), sticky sprint
+  with a one-tick airborne staleness, sneak multiplier on ground only, and `on_floor` derived
+  from the final resolved position (no swept floor probe). Standing/sneaking/landing eye-height
+  transitions are smoothed at render time from the accumulator's partial-tick fraction. Also
+  tracks fall distance from per-tick position deltas; a landing past `SAFE_FALL_DISTANCE` (3
+  blocks) queues `floor(distance − 3)` half-hearts for `consume_pending_fall_damage()`.
+- **`PlayerController`** (`src/godot_bindings/player_controller.*`) — Godot `Node3D` scene node
+  registered via ClassDB (used directly by `Main.tscn`). Polls input, drives the tick
+  accumulator from `_process(delta)`, handles mouse look (pitch clamped ±90°), fly mode
+  (`fly_speed`), camera eye-height smoothing, raycast-based break/place, block selection (keys
+  1–9), and the **F5 three-view camera cycle** (`third_person_view_` 0/1/2: first person →
+  behind → in front). Left-click punches the K-key pose-clone dummy when it's under the
+  crosshair (`try_punch_dummy`, 3.0-block reach, vanilla 1.8.8 knockback with sprint bonus +
+  10-tick hurt-resistance gate; mining is suppressed while the dummy blocks the aim). After
+  ticking it consumes queued fall damage into a clamped `health` property (0–20 half-hearts,
+  `get_health`/`set_health` bindings).
+- **Third-person camera & aiming** — The back/front cameras sit on the player's look ray at
+  `kThirdPersonOffset` (4.0) blocks and are pulled in before any solid block by
+  `camera_clear_distance` (0.25-block samples through `CollisionResolver::is_solid_at`, min
+  0.25) so they never clip terrain. The camera rotation is the player's look rotation directly
+  (front view mirrors: `(−pitch, π)`) rather than an aim-at-player direction — aim-derived
+  rotations locked up near vertical, where the horizontal component of the aim vector vanishes.
+  Block targeting is view-independent: the bound `get_aim_origin()`/`get_aim_direction()` cast
+  from the player's eye along the look ray (vanilla's eye-ray trace), and
+  `ChunkManager::raycast_from_camera` prefers them over the camera (falling back for scenes
+  without a controller), so first/back/front views always aim at the same block and the
+  crosshair/outline agree.
+- **Third-person body & head look** — The visual body is reparented under a runtime
+  **`ModelPivot`** wrapper in `_ready` so it can lag behind the look: the torso eases toward the
+  horizontal travel direction at 0.3 of the gap per 20 Hz tick (moving, including midair) and
+  holds while standing, clamped so the head can lead the body by at most ±35° (`kBodyMaxYaw`)
+  before dragging it — vanilla's body-yaw model. `player_model.gd`'s `_track_head_look()` points
+  the `head` mesh at the player's **aim** (controller world yaw + pitch), never the camera — the
+  front-view camera is yaw-flipped 180°, so camera-tracking spun the head around. The model's
+  x/z is centered on the player (head rotation axis on the eye axis), and the glb node pivots
+  are baked onto the true joints (see `tools/rebake_player_pivots.py`), so the head tilts around
+  the neck like `vanilla model`.
+- **Health integration** — `healthbar.gd` renders 10 hearts (`heart_full.png` / `heart_half.png`
+  / `heart_empty.png`, 9×9 art) above the hotbar's left edge, sized off the hotbar's on-screen
+  width so the row spans ~40% of it (9-texel sprites on a 10-texel pitch). It polls
+  `get_health()` each frame and redraws only on change. Hearts are linear-filtered: the row's
+  fractional scale makes nearest sampling render 1-texel outlines at inconsistent widths.
+- **Death & respawn** — `set_health` hitting 0 calls `die()`: a `dead_` flag freezes
+  `_process`/`_input` (movement, look, break/place, hotbar keys), `update_mouse_mode()` releases
+  the cursor, and the `died` signal fires. `respawn()` restores full health, teleports to the
+  spawn point captured in `_ready` (via `teleport_to`, clearing fall state), and emits
+  `respawned`. `death_screen.gd` (HUD overlay) listens to both signals and shows/hides a "You
+  died!" + Respawn button screen; the button calls `respawn()`. Inventory is kept on death.
+- **Inventory integration** — `PlayerController` owns a `VoxelEngine::Inventory` (9 hotbar + 27
+  main slots, 64 stack limit). Breaking a block collects it only if `can_add_block` succeeds;
+  placing consumes from the selected hotbar slot. Hotbar/inventory state is exposed to GDScript
+  via ClassDB bindings (`get_hotbar_slot_block_id`, `set_inventory_slot`, `select_hotbar_slot`,
+  etc.) and rendered by the `hotbar.gd` / `inventory.gd` `Control` overlays (E toggles, mouse
+  wheel cycles the hotbar, click-to-hold/drag-drop stack movement). The inventory UI uses
+  isometric 3D block icons (300×300) rendered by `BlockIconRenderer` at vanilla's dimetric angle
+  (45° yaw, 30° pitch) with support for custom block shapes (slabs, stairs, walls, poles) built
+  from `data/block_shapes.json` selection boxes. Icons are pre-rendered asynchronously at
+  startup and cached for performance.
+- **Crafting integration** — `RecipeBook` (`src/core/crafting.*`) loads recipes from
+  `data/recipes.json` in `load_world_configs()` and is exposed through two ClassDB bindings:
+  `match_recipe(grid_ids, grid_counts)` previews the output slot (gated on ingredient
+  availability so the preview disappears once the grid runs dry), and
+  `craft_recipe(grid_ids, grid_counts)` atomically verifies + deducts the grid and returns the
+  new counts plus the result. The grid dimension comes from the cell count (4 → 2×2, 9 → 3×3),
+  so both the inventory's 2×2 grid (`inventory.gd`) and the crafting table's 3×3 grid
+  (`crafting_table_menu.gd`) use the same RecipeBook; both live GUI-side and persist across
+  open/close. Crafting-area geometry is measured from the color-coded slot pixels in the atlas
+  (`#7e7d7e` inputs, `#7e7d7f` output vs. `#7e7d7d` regular slots).
+- **Chat integration** — `PlayerController` provides chat state management (`set_chat_open`,
+  `is_chat_open`) and inventory clearing (`clear_inventory`). The chat system (`chat.gd`)
+  features advanced autocomplete with ghost text suggestions, tab cycling, and parameter hints.
+- **Lifecycle hooks** — `PlayerController::_ready()` caches the `ChunkManager` pointer (no
+  per-call tree lookups) and loads the saved inventory; `_exit_tree()` saves the inventory while
+  every node is still allocated, guarded by `inventory_saved_` so the destructor's fallback save
+  is a no-op.
+- **Viewmodel & animation** — First-person hand + held item/block live in thin `viewmodel.gd`
+  glue (child of `Camera3D`, eye space), while the per-frame math and mesh geometry are native.
+  `ViewmodelPose` (`src/core/viewmodel_math.*`) owns the walk bob (`step_walk_bob`), mouse sway
+  (`step_sway`), punch/place swing + equip pose (`compute_swing_pose`), held item/block swing
+  transform (`compute_swing_transform`), and `smoothstep_01`. `ViewmodelMeshes`
+  (`src/core/viewmodel_meshes.*`) builds the held-block cube, shaped-block selection boxes, and
+  extruded-sprite item meshes (also reused by `block_break_overlay.gd`, `block_preview.gd`, and
+  the block gallery). The punch (0.225s) drives an arm depth curve reshaped by a cubic
+  smoothstep plus a two-sided circular arc sweep; it **loops while breaking**
+  (`get_break_state()["active"]`) and is gated on captured mouse so UI clicks never swing. A
+  separate weaker **place animation** (75% endpoint) fires only on the C++ `block_placed` signal
+  (verified land + inventory consumed). Walk bobbing (`_walk_dist*PI*0.6`) uses a `_bob`
+  envelope that decays to zero when airborne, driven by the `PlayerController::is_on_floor()`
+  binding (wraps `sim_.is_on_floor()`). Peak pose constants (`PEAK_ROT`/`PEAK_POS`, etc.) stay
+  in `viewmodel.gd` and are passed in as Vector3 pairs so they remain the single source of
+  truth.
+- **Block break progress** — `update_break_progress` accumulates `delta * tool_speed / hardness`
+  while LMB is held on the raycast target, where `tool_speed` comes from
+  `mining_speed_multiplier()` (`src/core/mining.hpp`) against the block's
+  `preferred_tool`/`min_tier` (plus a `hammer` against any block carrying a `crush_result`);
+  releasing LMB or losing the target resets `break_progress_`/`break_target_valid_` (so the
+  crack and looping punch stop). `get_break_state()` exposes `{active, x/y/z, stage 0-9}` to
+  `block_break_overlay.gd`. The same pass resolves the drop through `resolve_block_drop()`, so
+  the inventory gate and `break_block()` agree on what a break yields.
+- **Hammer crushing** — a block's optional `crush_result` (`data/block_definitions.json`,
+  resolved to an id in a `load_from_json` post-pass) is the hammer's whole contract: a
+  hammer-class tool is fast against any block that names one, and `resolve_block_drop()` yields
+  that block instead of the broken one. Crushing is keyed on the block actually broken and is
+  not tier-gated (tier only scales speed). Cobblestone → gravel, gravel → sand.
+- **Block drops** — a block's optional `drops` names what it yields when broken, whatever the
+  tool; it is separate from `crush_result` (a crush wins) and both resolve in the same
+  post-pass. Stone → cobblestone, so stone blocks themselves are no longer obtainable by mining.
 
-- **Liquids are passable** — `BlockType::stops_bodies()` (false for any block with the `Liquid` property) is the single answer used by `CollisionResolver::is_aabb_solid_fast`, the sneak edge-guard and the camera's `is_solid_at` clear distance; `chunk_map.is_block_solid()` stays a raw non-air query. A liquid's shape is a surface height, not a wall, so a body falls into water instead of standing on it and the camera looks through it.
-- **Water movement** — `PlayerSim::tick` samples the liquid state once per tick at foot and head level (any submerged part of the body counts, so standing on a submerged slab is wet) and, when wet, replaces gravity with a slow sink, horizontal friction with water drag, scales acceleration to 1/5, rises while jump is held, lifts the body when it swims into a wall, and zeroes the tracked fall distance so water landings never hurt. `WATER_*` constants live in `src/engine/player_controller.hpp`; `PlayerController::is_in_water()` exposes the state.
+- **Liquids are passable** — `BlockType::stops_bodies()` (false for any block with the `Liquid`
+  property) is the single answer used by `CollisionResolver::is_aabb_solid_fast`, the sneak
+  edge-guard and the camera's `is_solid_at` clear distance; `chunk_map.is_block_solid()` stays a
+  raw non-air query. A liquid's shape is a surface height, not a wall, so a body falls into
+  water instead of standing on it and the camera looks through it.
+- **Water movement** — `PlayerSim::tick` samples the liquid state once per tick at foot and head
+  level (any submerged part of the body counts, so standing on a submerged slab is wet) and,
+  when wet, replaces gravity with a slow sink, horizontal friction with water drag, scales
+  acceleration to 1/5, rises while jump is held, lifts the body when it swims into a wall, and
+  zeroes the tracked fall distance so water landings never hurt. `WATER_*` constants live in
+  `src/engine/player_controller.hpp`; `PlayerController::is_in_water()` exposes the state.
 
-No `CharacterBody3D`, `move_and_slide`, or `CollisionShape3D` — all collision goes through `CollisionResolver` against the chunk map.
+No `CharacterBody3D`, `move_and_slide`, or `CollisionShape3D` — all collision goes through
+`CollisionResolver` against the chunk map.
 
 ## Removed/Experimental Features
 
@@ -327,134 +1219,579 @@ The following experimental features were attempted but removed or reverted:
 - **Cloud layer system**: Removed atmospheric cloud layer with fbm noise
 - **Lighting preset system**: Reverted Main/Spooky preset system with separate visual sky
 - **Occluder boxes**: Reverted Godot occluder boxes for fully-solid chunks
-- **Complex biome systems**: Removed Tundra/Taiga/Savanna/StonePlateau biomes in favor of the current JSON system (Ocean/Hills/Plains)
+- **Complex biome systems**: Removed Tundra/Taiga/Savanna/StonePlateau biomes in favor of the
+  current JSON system (Ocean/Hills/Plains)
 - **Erosion-driven mountains**: Removed experimental mountain generation systems
 - **3D DDA collision**: Reverted to binary-search AABB collision
-- **11-biome climate system**: Simplified from 11 biomes to the current JSON system (Ocean/Hills/Plains)
+- **11-biome climate system**: Simplified from 11 biomes to the current JSON system
+  (Ocean/Hills/Plains)
 
 ## Legacy/Disabled Code
 
 The following code remains in the codebase but is disabled or unused:
 
-- **Cave system**: `kCavesEnabled = false` in `ChunkGenerator` - cave carving code exists but is globally disabled
-- **is_occluder() method**: Defined in `ChunkNeighborAccessor` but never called anywhere in the codebase
-- **mountain_scale parameter**: Read from save files in persistence but ignored in current terrain generation
-- **Generated water is inert**: `surface_water` (what worldgen fills every sea, lake and cave pool with) declares no fluid state, so it never enters the flow simulation. Only water a player pours flows
-- **Lava and acid are blocks of their own**: `lava` + `lava_runoff_1..3` + `lava_fallen` and `acid` + `acid_runoff_1..7` + `acid_fallen` in `data/block_definitions.json`, placed by pouring the matching bucket (`lava_bucket`/`acid_bucket` carry the same `"use": {"kind": "pour"}` the water bucket does). They flow by the same rules with their own numbers — lava stops three cells out and creeps a cell a second, acid matches water's reach on a faster clock and is the one substance that does not pool from a pair of sources — and they are meshed by the liquid surface pass because `mesh_fluid::family_of` reads the kind off the block. Their still textures are baked from the generator's own presets by `tools/bake_liquid_textures.gd`
+- **Cave system**: `kCavesEnabled = false` in `ChunkGenerator` - cave carving code exists but is
+  globally disabled
+- **is_occluder() method**: Defined in `ChunkNeighborAccessor` but never called anywhere in the
+  codebase
+- **mountain_scale parameter**: Read from save files in persistence but ignored in current
+  terrain generation
+- **Generated water is inert**: `surface_water` (what worldgen fills every sea, lake and cave
+  pool with) declares no fluid state, so it never enters the flow simulation. Only water a
+  player pours flows
+- **Lava and acid are blocks of their own**: `lava` + `lava_runoff_1..3` + `lava_fallen` and
+  `acid` + `acid_runoff_1..7` + `acid_fallen` in `data/block_definitions.json`, placed by
+  pouring the matching bucket (`lava_bucket`/`acid_bucket` carry the same
+  `"use": {"kind": "pour"}` the water bucket does). They flow by the same rules with their own
+  numbers — lava stops three cells out and creeps a cell a second, acid matches water's reach on
+  a faster clock and is the one substance that does not pool from a pair of sources — and they
+  are meshed by the liquid surface pass because `mesh_fluid::family_of` reads the kind off the
+  block. Their still textures are baked from the generator's own presets by
+  `tools/bake_liquid_textures.gd`
 
 ## Key Files
 
 ### Core
-- `src/core/chunk_data.hpp/cpp` + `palette_storage.hpp` — `PaletteStorage`, `PalSection`, section-based accessors (`chunk_data.cpp` compiles three times, so its palette half lives in the header the other two consumers include)
-- `src/core/chunk_map.hpp` + `shard_lock.hpp` / `chunk_map_inline.hpp` — Sharded locking, `lock_keys_exclusive`, auto-locking methods. `shard_lock.hpp` holds `kShardCount` (with a `static_assert` tying it to the lock-order checker's 64-bit bitset) and the RAII guards (`ShardLock`, `ExclusiveShardLock`), and `chunk_map_inline.hpp` holds the definitions of the locked accessors, so the class keeps its declarations while the bodies can be read one screen at a time
+- `src/core/chunk_data.hpp/cpp` + `palette_storage.hpp` — `PaletteStorage`, `PalSection`,
+  section-based accessors (`chunk_data.cpp` compiles three times, so its palette half lives in
+  the header the other two consumers include)
+- `src/core/chunk_map.hpp` + `shard_lock.hpp` / `chunk_map_inline.hpp` — Sharded locking,
+  `lock_keys_exclusive`, auto-locking methods. `shard_lock.hpp` holds `kShardCount` (with a
+  `static_assert` tying it to the lock-order checker's 64-bit bitset) and the RAII guards
+  (`ShardLock`, `ExclusiveShardLock`), and `chunk_map_inline.hpp` holds the definitions of the
+  locked accessors, so the class keeps its declarations while the bodies can be read one screen
+  at a time
 - `src/core/chunk_coords.hpp` — Constants (`CHUNK_WIDTH`, `SECTION_HEIGHT`, `WORLD_HEIGHT_Y`)
 - `src/core/frustum.hpp` — Frustum utility (AABB test, chunk visibility)
-- `src/core/block_types.hpp/cpp` + `block_properties.hpp` / `block_shape_types.hpp` / `block_types_shapes.cpp` / `block_types_load.cpp` / `block_types_families.cpp` / `block_types_defaults.cpp` / `block_types_internal.hpp` — `BlockRegistry`, `load_from_json` (`block_types_load.cpp` parses each entry through one helper per group of JSON keys; `block_types_families.cpp` then resolves the cross-block references and builds the slab/stair/wall family tables)
-- `src/core/shape_resolver.hpp/cpp` + `shape_resolver_rules.cpp` / `shape_resolver_internal.hpp` — The neighbour-aware shape walk (see the shape section above); the rules themselves live in `_rules.cpp`, and the two declarations both halves need are in the internal header
-- `src/debug/crash_dump.cpp` + `crash_dump_report.cpp` / `crash_dump_internal.hpp` — The crash handler's hook lifecycle against the report it writes; the state resolved at install time is shared through the internal header
-- `src/core/inventory.hpp/cpp` — `Inventory`, `InventorySlot`: hotbar/main storage, add/consume/can_add, 64 stack limit
-- `src/core/crafting.hpp/cpp` — `RecipeBook`, `CraftingRecipe`, `craft_item`: shapeless (sorted-multiset) and shaped (bounding-box trim + mirror) matching over an N×N grid; Godot-guarded JSON loader keeps the matching core fuzz/test friendly
-- `src/core/item_registry.hpp/cpp` — `ItemRegistry`, `ItemToolStats`, `ItemUseAction`, `ItemLight`, `ItemPlace`: normally non-placeable inventory objects in their own id space above blocks, loaded from `data/items.json`, with optional per-item tool stats (`class`/`tier`/`speed`), an optional in-world use action (`"use": {"kind", "block"}` — `pour` writes that block into the cell the crosshair is against, `fill` empties the fluid SOURCE the crosshair is on and swaps the item for that fluid's bucket, the two halves of one loop; resolved by name at load since blocks load first), an optional held light (`"light": {"level", "color"}` — while it is in the selected slot it owns the player's dynamic light, see `PlayerController::update_held_light`), and an optional declared placement (`"place": {"block", "wall": {n,s,e,w}}` — the one bridge from the item space into the block space; `ItemPlace::resolve` turns the raycast's face normal into the block to write, and `place_block` consumes the item). Entry order is the id, so new entries are appended. The file's optional `"pose"` field is read by `viewmodel.gd` (not the registry) since it selects a viewmodel resting position, not an item mechanic
-- `src/core/mining.hpp` — header-only `tool_mining_speed` / `crushed_block` (pure, unit-tested) plus `mining_speed_multiplier` and `resolve_block_drop` (registry lookups): the break-speed multiplier a held tool grants against a block's `preferred_tool`/`min_tier` (and a hammer against anything crushable), and the inventory stack a broken block yields after variant collapse, `drops` and any crush
+- `src/core/block_types.hpp/cpp` + `block_properties.hpp` / `block_shape_types.hpp` /
+  `block_types_shapes.cpp` / `block_types_load.cpp` / `block_types_families.cpp` /
+  `block_types_defaults.cpp` / `block_types_internal.hpp` — `BlockRegistry`, `load_from_json`
+  (`block_types_load.cpp` parses each entry through one helper per group of JSON keys;
+  `block_types_families.cpp` then resolves the cross-block references and builds the
+  slab/stair/wall family tables)
+- `src/core/shape_resolver.hpp/cpp` + `shape_resolver_rules.cpp` / `shape_resolver_internal.hpp`
+  — The neighbour-aware shape walk (see the shape section above); the rules themselves live in
+  `_rules.cpp`, and the two declarations both halves need are in the internal header
+- `src/debug/crash_dump.cpp` + `crash_dump_report.cpp` / `crash_dump_internal.hpp` — The crash
+  handler's hook lifecycle against the report it writes; the state resolved at install time is
+  shared through the internal header
+- `src/core/inventory.hpp/cpp` — `Inventory`, `InventorySlot`: hotbar/main storage,
+  add/consume/can_add, 64 stack limit
+- `src/core/crafting.hpp/cpp` — `RecipeBook`, `CraftingRecipe`, `craft_item`: shapeless
+  (sorted-multiset) and shaped (bounding-box trim + mirror) matching over an N×N grid;
+  Godot-guarded JSON loader keeps the matching core fuzz/test friendly
+- `src/core/item_registry.hpp/cpp` — `ItemRegistry`, `ItemToolStats`, `ItemUseAction`,
+  `ItemLight`, `ItemPlace`: normally non-placeable inventory objects in their own id space above
+  blocks, loaded from `data/items.json`, with optional per-item tool stats
+  (`class`/`tier`/`speed`), an optional in-world use action (`"use": {"kind", "block"}` — `pour`
+  writes that block into the cell the crosshair is against, `fill` empties the fluid SOURCE the
+  crosshair is on and swaps the item for that fluid's bucket, the two halves of one loop;
+  resolved by name at load since blocks load first), an optional held light
+  (`"light": {"level", "color"}` — while it is in the selected slot it owns the player's dynamic
+  light, see `PlayerController::update_held_light`), and an optional declared placement
+  (`"place": {"block", "wall": {n,s,e,w}}` — the one bridge from the item space into the block
+  space; `ItemPlace::resolve` turns the raycast's face normal into the block to write, and
+  `place_block` consumes the item). Entry order is the id, so new entries are appended. The
+  file's optional `"pose"` field is read by `viewmodel.gd` (not the registry) since it selects a
+  viewmodel resting position, not an item mechanic
+- `src/core/mining.hpp` — header-only `tool_mining_speed` / `crushed_block` (pure, unit-tested)
+  plus `mining_speed_multiplier` and `resolve_block_drop` (registry lookups): the break-speed
+  multiplier a held tool grants against a block's `preferred_tool`/`min_tier` (and a hammer
+  against anything crushable), and the inventory stack a broken block yields after variant
+  collapse, `drops` and any crush
 - `src/core/crc32.hpp` — IEEE 802.3 CRC32 for chunk save checksum (also verifies gzip members)
-- `src/schematic/gzip_inflate.hpp/cpp` — Self-contained DEFLATE plus gzip/zlib/raw framing, checksum-verified and size-capped, for readers that must run without the engine or zlib
-- `src/schematic/nbt_reader.hpp/cpp` — Strict forward NBT cursor (big- or little-endian, value skipping without allocation, nesting cap)
-- `src/schematic/schematic_reader.hpp/cpp` + `schematic_reader_classic.cpp` / `schematic_reader_palette.cpp` / `schematic_reader_internal.hpp` — Decoder for both families: the classic `Schematic` root (dimensions, `Blocks`/`Data`/`AddBlocks`, both `Data` layouts, writer origin) and the palette formats v2/v3 (named states with properties, varint indices), each normalised to a palette of states plus one index per cell, with tile-entity/entity counts kept
-- `src/schematic/minimal_json.hpp/cpp` — Strict JSON reader for data files that must load without the engine runtime (the translation table, in the report tool, the tests and the game alike)
-- `src/schematic/mc_palette.hpp/cpp` + `mc_palette_classic_rows.cpp` / `mc_palette_resolve.cpp` / `mc_palette_internal.hpp` — Reader and resolver for `data/minecraft_blocks.json`: legacy `(id, data)` → a block name, a deliberate skip, or Unknown, with `substitute`/`fluid` flags and the row's note
-- `data/minecraft_blocks.json` — The translation table itself: one row per legacy id, plus named `variant_sets` sharing each shape's data layout
-- `src/schematic/paste_plan.hpp/cpp` — The paste policy: what a file would change, in world coordinates, with a counter for every cell (including `stilled`, the liquids placed as their still form) and a one-level undo record
-- `tools/schematic_report.cpp` + `schematic_report_format.cpp` / `.hpp` — `scons schematic_report`: decodes a block file off disk and prints its format, layout, dimensions, fill, bounding box, the full block-state palette with counts and per-state targets, and the coverage summary with the gaps left; `--plan` builds the real paste plan and times it, which is how a file's paste cost is measured without launching the game
-- `src/world/block_editor.cpp` (`apply_paste` / `undo_paste`) — The bulk write: one locked band per chunk, per-column sky light, one relight and remesh per touched chunk, edit-map persistence and one-level undo. `apply_paste` hands back the cells whose chunk is not resident (that list IS the caller's retry state) and `undo_paste` hands back the cells a revert could not reach and keeps them in the record, so neither direction can lose a cell to a chunk that moves under it
-- `ChunkManager.inspect_schematic` / `paste_schematic` / `undo_paste` — The script-facing half, driven by `/paste` in `chat.gd`
+- `src/schematic/gzip_inflate.hpp/cpp` — Self-contained DEFLATE plus gzip/zlib/raw framing,
+  checksum-verified and size-capped, for readers that must run without the engine or zlib
+- `src/schematic/nbt_reader.hpp/cpp` — Strict forward NBT cursor (big- or little-endian, value
+  skipping without allocation, nesting cap)
+- `src/schematic/schematic_reader.hpp/cpp` + `schematic_reader_classic.cpp` /
+  `schematic_reader_palette.cpp` / `schematic_reader_internal.hpp` — Decoder for both families:
+  the classic `Schematic` root (dimensions, `Blocks`/`Data`/`AddBlocks`, both `Data` layouts,
+  writer origin) and the palette formats v2/v3 (named states with properties, varint indices),
+  each normalised to a palette of states plus one index per cell, with tile-entity/entity counts
+  kept
+- `src/schematic/minimal_json.hpp/cpp` — Strict JSON reader for data files that must load
+  without the engine runtime (the translation table, in the report tool, the tests and the game
+  alike)
+- `src/schematic/mc_palette.hpp/cpp` + `mc_palette_classic_rows.cpp` / `mc_palette_resolve.cpp`
+  / `mc_palette_internal.hpp` — Reader and resolver for `data/minecraft_blocks.json`: legacy
+  `(id, data)` → a block name, a deliberate skip, or Unknown, with `substitute`/`fluid` flags
+  and the row's note
+- `data/minecraft_blocks.json` — The translation table itself: one row per legacy id, plus named
+  `variant_sets` sharing each shape's data layout
+- `src/schematic/paste_plan.hpp/cpp` — The paste policy: what a file would change, in world
+  coordinates, with a counter for every cell (including `stilled`, the liquids placed as their
+  still form) and a one-level undo record
+- `tools/schematic_report.cpp` + `schematic_report_format.cpp` / `.hpp` —
+  `scons schematic_report`: decodes a block file off disk and prints its format, layout,
+  dimensions, fill, bounding box, the full block-state palette with counts and per-state
+  targets, and the coverage summary with the gaps left; `--plan` builds the real paste plan and
+  times it, which is how a file's paste cost is measured without launching the game
+- `src/world/block_editor.cpp` (`apply_paste` / `undo_paste`) — The bulk write: one locked band
+  per chunk, per-column sky light, one relight and remesh per touched chunk, edit-map
+  persistence and one-level undo. `apply_paste` hands back the cells whose chunk is not resident
+  (that list IS the caller's retry state) and `undo_paste` hands back the cells a revert could
+  not reach and keeps them in the record, so neither direction can lose a cell to a chunk that
+  moves under it
+- `ChunkManager.inspect_schematic` / `paste_schematic` / `undo_paste` — The script-facing half,
+  driven by `/paste` in `chat.gd`
 - `src/core/thread_pool.hpp` — Shared worker pool, high-priority queue
 
 ### Mesh
-- `src/mesh/mesh_manager.hpp` + `mesh_manager.cpp` / `mesh_manager_worker.cpp` / `mesh_manager_upload.cpp` / `mesh_manager_rebuild.cpp` / `mesh_manager_far.cpp` / `mesh_manager_lifecycle.cpp` / `mesh_manager_cull.cpp` / `mesh_manager_internal.hpp` — Per-chunk mesh builds, upload, instance management, three-tier LOD, far-region merging, nearest-first completion, and the culling compensation for the two vertex effects (World Bend and the Horizon Curve)
-- `src/core/world_cull.hpp` — The vertex effects' culling maths: how far each of them can move a point of a box, so the engine's own culling can be given a box that still contains it, and the pair of them applied to one box. Mirrors `shaders/world_bend.gdshaderinc` and `shaders/world_horizon.gdshaderinc`, which are the authorities on the effects themselves
-- `src/mesh/mesh_builder.cpp` / `mesh_builder_solid.cpp` / `mesh_builder_greedy.cpp` / `mesh_builder_faces.cpp` / `mesh_builder_fluid.cpp` + `mesh_builder.hpp`'s types in `mesh_builder_types.hpp`, the AABB-face half of `mesh_builder_faces.cpp` in `mesh_builder_faces_aabb.cpp`, and `mesh_builder_solid.cpp`'s three passes in `mesh_builder_solid_faces.cpp` / `_cull.cpp` / `_emit.cpp` (+ `_internal.hpp`) — Greedy meshing, incremental partial remeshes, and the liquid surface pass
-- `src/mesh/mesh_fluid.hpp` — The liquid surface rule, pure and header-only: per-corner heights, the surface family a block belongs to, and whether a face shows against a given neighbour. No chunk, no mesh builder, no registry scan, so `tests/test_fluid_surface.cpp` drives it over a map of cells
+- `src/mesh/mesh_manager.hpp` + `mesh_manager.cpp` / `mesh_manager_worker.cpp` /
+  `mesh_manager_upload.cpp` / `mesh_manager_rebuild.cpp` / `mesh_manager_far.cpp` /
+  `mesh_manager_lifecycle.cpp` / `mesh_manager_cull.cpp` / `mesh_manager_internal.hpp` —
+  Per-chunk mesh builds, upload, instance management, three-tier LOD, far-region merging,
+  nearest-first completion, and the culling compensation for the two vertex effects (World Bend
+  and the Horizon Curve)
+- `src/core/world_cull.hpp` — The vertex effects' culling maths: how far each of them can move a
+  point of a box, so the engine's own culling can be given a box that still contains it, and the
+  pair of them applied to one box. Mirrors `shaders/world_bend.gdshaderinc` and
+  `shaders/world_horizon.gdshaderinc`, which are the authorities on the effects themselves
+- `src/mesh/mesh_builder.cpp` / `mesh_builder_solid.cpp` / `mesh_builder_greedy.cpp` /
+  `mesh_builder_faces.cpp` / `mesh_builder_fluid.cpp` + `mesh_builder.hpp`'s types in
+  `mesh_builder_types.hpp`, the AABB-face half of `mesh_builder_faces.cpp` in
+  `mesh_builder_faces_aabb.cpp`, and `mesh_builder_solid.cpp`'s three passes in
+  `mesh_builder_solid_faces.cpp` / `_cull.cpp` / `_emit.cpp` (+ `_internal.hpp`) — Greedy
+  meshing, incremental partial remeshes, and the liquid surface pass
+- `src/mesh/mesh_fluid.hpp` — The liquid surface rule, pure and header-only: per-corner heights,
+  the surface family a block belongs to, and whether a face shows against a given neighbour. No
+  chunk, no mesh builder, no registry scan, so `tests/test_fluid_surface.cpp` drives it over a
+  map of cells
 - `src/mesh/chunk_neighbor_accessor.hpp/cpp` — 26 neighbor pointers for mesh building
-- `src/mesh/chunk_render_data.hpp` — `ChunkRenderData` (per-chunk render state stored in the chunk map), `CachedFarChunkMesh`, `CompletedMesh`
+- `src/mesh/chunk_render_data.hpp` — `ChunkRenderData` (per-chunk render state stored in the
+  chunk map), `CachedFarChunkMesh`, `CompletedMesh`
 - `src/mesh/mesh_types.hpp` — Mesh types, light checksum grid for incremental rebuilds
-- `src/mesh/mesh_queue.hpp` — `DirtyChunkEntry` + frustum/distance-prioritized mesh rebuild queue
+- `src/mesh/mesh_queue.hpp` — `DirtyChunkEntry` + frustum/distance-prioritized mesh rebuild
+  queue
 
 ### World
-- `src/world/chunk_world.cpp` + `chunk_world_edits.cpp` / `chunk_world_persistence.cpp` / `chunk_world_generate.cpp` — Edit application (block edits, pending/vegetation placements, unload/clear) and save/load (async `flush_dirty_chunks`, generation + epoch gated `enqueue_chunk_save` / `save_chunk_snapshot`, `write_chunk_file_locked`, inventory save/load). All hot paths use `lock_keys_exclusive()`
-- `src/world/block_editor.cpp` + `block_editor_raycast.cpp` / `block_editor_paste.cpp` — `place_block` with targeted locking, the selection raycast, and the bulk paste
-- `src/world/player_light.hpp` — Player light level/colour/enabled state, pushed as a shader-uniform glow. It carries no locking and touches no chunk map: the earlier design that injected a real light block into the light grid was disabled and has been removed
-- `src/world/world_updater.hpp/cpp` + `world_updater_types.hpp` / `world_updater_generation.cpp` / `world_updater_columns.cpp` / `world_updater_streaming.cpp` — Frustum integration, budgets, periodic dirty flush, and the fluid step: `update()` runs generation → unload → `fluid_sim.advance(delta)` → mesh budgets, so the cells it looks at are the ones that exist now and the chunks it dirties can remesh the same frame. Its `FluidSink` is what turns a tick's writes into persisted edits (with `notify=false`: the simulation schedules what it wrote itself) and one remesh request per chunk
-- `src/world/column_prefetch.hpp` — The handoff that moves a column's content bounds off the frame: request/claim by absolute column key, answers validated by an epoch so a task that outlived its terrain is refused rather than cached, and every request retired in every path. Header-only so the library and the test binary compile the same definition
+- `src/world/chunk_world.cpp` + `chunk_world_edits.cpp` / `chunk_world_persistence.cpp` /
+  `chunk_world_generate.cpp` — Edit application (block edits, pending/vegetation placements,
+  unload/clear) and save/load (async `flush_dirty_chunks`, generation + epoch gated
+  `enqueue_chunk_save` / `save_chunk_snapshot`, `write_chunk_file_locked`, inventory save/load).
+  All hot paths use `lock_keys_exclusive()`
+- `src/world/block_editor.cpp` + `block_editor_raycast.cpp` / `block_editor_paste.cpp` —
+  `place_block` with targeted locking, the selection raycast, and the bulk paste
+- `src/world/player_light.hpp` — Player light level/colour/enabled state, pushed as a
+  shader-uniform glow. It carries no locking and touches no chunk map: the earlier design that
+  injected a real light block into the light grid was disabled and has been removed
+- `src/world/world_updater.hpp/cpp` + `world_updater_types.hpp` / `world_updater_generation.cpp`
+  / `world_updater_columns.cpp` / `world_updater_streaming.cpp` — Frustum integration, budgets,
+  periodic dirty flush, and the fluid step: `update()` runs generation → unload →
+  `fluid_sim.advance(delta)` → mesh budgets, so the cells it looks at are the ones that exist
+  now and the chunks it dirties can remesh the same frame. Its `FluidSink` is what turns a
+  tick's writes into persisted edits (with `notify=false`: the simulation schedules what it
+  wrote itself) and one remesh request per chunk
+- `src/world/column_prefetch.hpp` — The handoff that moves a column's content bounds off the
+  frame: request/claim by absolute column key, answers validated by an epoch so a task that
+  outlived its terrain is refused rather than cached, and every request retired in every path.
+  Header-only so the library and the test binary compile the same definition
 - `src/world/chunk_scheduler.hpp` — Completion queues, `poll_completed_mesh_nearest`
 - `src/world/day_night_cycle.hpp` — Sky-light cycle
 
 ### Worldgen
-- `src/worldgen/chunk_generator.hpp/cpp` + `chunk_generator_sampling.cpp` / `chunk_generator_debug.cpp` / `chunk_generator_config.cpp` / `chunk_generator_columns.cpp` / `chunk_generator_terrain.cpp` / `chunk_generator_lattice.hpp` / `chunk_generator_lattice.cpp` — Stacked-noise macro surface, height-based oceans, signed 3D density field with 4×4×4 shape lattice, chunk-level fast paths (see Terrain Generation above). The per-cell samplers stay inline in the header; the cold layer (sampling, the debug accessors, construction) is out of line, and `ChunkGeneratorLattice` owns the chunk-scoped node arrays `generate_chunk` fills
-- `src/worldgen/vegetation_generator.hpp/cpp` — Tree placement with variant-weighted per biome, minimum spacing, deferred cross-chunk writes
+- `src/worldgen/chunk_generator.hpp/cpp` + `chunk_generator_sampling.cpp` /
+  `chunk_generator_debug.cpp` / `chunk_generator_config.cpp` / `chunk_generator_columns.cpp` /
+  `chunk_generator_terrain.cpp` / `chunk_generator_lattice.hpp` / `chunk_generator_lattice.cpp`
+  — Stacked-noise macro surface, height-based oceans, signed 3D density field with 4×4×4 shape
+  lattice, chunk-level fast paths (see Terrain Generation above). The per-cell samplers stay
+  inline in the header; the cold layer (sampling, the debug accessors, construction) is out of
+  line, and `ChunkGeneratorLattice` owns the chunk-scoped node arrays `generate_chunk` fills
+- `src/worldgen/vegetation_generator.hpp/cpp` — Tree placement with variant-weighted per biome,
+  minimum spacing, deferred cross-chunk writes
 - `src/worldgen/biome_config.hpp` — Biome config loaded from `data/biomes.json`
 - `src/worldgen/vegetation_config.hpp` — Vegetation config loaded from `data/vegetation.json`
 - `src/core/terrain_params.cpp` — Terrain parameters loaded from `data/terrain_config.json`
 
 ### UI (GDScript)
-- `chat.gd` — Chat system with autocomplete: ghost text suggestions with pulsing effect, tab cycling through completions, up/down arrow navigation, hold-to-cycle, parameter hints for commands, command execution (`/help`, `/give` with unlimited count, `/tp`, `/fly`, `/clearchat`, `/clearinv`, `/version`), mouse wheel scrolling for chat history, caret blink, wrapped messages with proper input box anchoring
+- `chat.gd` — Chat system with autocomplete: ghost text suggestions with pulsing effect, tab
+  cycling through completions, up/down arrow navigation, hold-to-cycle, parameter hints for
+  commands, command execution (`/help`, `/give` with unlimited count, `/tp`, `/fly`,
+  `/clearchat`, `/clearinv`, `/version`), mouse wheel scrolling for chat history, caret blink,
+  wrapped messages with proper input box anchoring
 - `hotbar.gd` — Hotbar UI with mouse wheel cycling, click-to-hold block selection
-- `healthbar.gd` — Health bar UI: 10 hearts above the hotbar's left edge (~40% of its width), full/half/empty sprites resolved from the half-heart count polled off `PlayerController.get_health()`
-- `death_screen.gd` — Death overlay: "You died!" + Respawn button, shown on the `PlayerController.died` signal and hidden on `respawned`
-- `inventory.gd` - Full inventory screen with drag-drop stack movement, shift-click quick-transfer, RMB drag-place, LMB drag-collect, scroll wheel quick-transfer, double-click gather; live 2×2 crafting grid + output preview (click/drag/shift/scroll interactions mirrored on the crafting cells; shift-click output crafts as many as possible)
-- `data/recipes.json` — Crafting recipes (shaped/shapeless), resolved by block name; loaded into `RecipeBook` at startup. A shaped `key` entry may list several acceptable ingredients, expanded at load into one concrete recipe per combination (per symbol, so all cells of a symbol are the same ingredient) — the matcher, the preview gate and the consumption path stay id-exact
-- `settings_menu.gd` — Adjustable settings with persistence (render, lighting, crosshair, controls) opened with Escape key; includes a **Skin Maker** page (color wheel, hex readout, orbitable preview) with a dark-mode toggle and a **Block Maker** page (16×16 cube painter) with paint tools, noise slider, and gallery. Escape opens a bare pause menu (Resume / Settings / Shaders / Controls / Tools over the dimmed world, no chrome) and **Settings** is one `_build_scrolling_page` stacking the categories General, Block Outline, Crosshair, Advanced Rendering and Render with a transparent content box (Controls and the Tools launcher have their own pages from the pause-menu buttons; Shaders lists the screen-shader stack with one switch row per shader and a `settings_button.png` icon on each row that opens that shader's own page, where its uniforms live — all of it read out of `data/shaders.json`, down to which pages exist): a title bar, a centred content box, an action bar, and a vertical scrollbar. A resettable row's reset is the square `undo_button.png` icon (20 units, 1:1 with the row height); a transparent content box draws no border, which is why the settings/controls/tools pages show no grey frame over the world. Each category heading is an HBox: beside the title sit square export/import icons (`export_button.png`/`import_button.png`) and a reset-all icon (the same `undo_button.png`), all at `UNIT_HEADING_ICON_W` (half the row reset) and tight against the non-expanding title. Export, import and reset all are all wired: each category carries a codec (its own `FG`/`FO`/`FC`/`FAR`/`FR` code plus a refresh callable that resyncs its rows), and the three icons beside its title drive it; reset all replays the section's own row resets. Every settings area (GUI, lighting, video, controls, crosshair, block outline, the two editors) is a section of that page, each introduced by a `"category"`-marked section heading — the reference interface's Video Settings layout, with the areas stacked instead of split across screens; the crosshair category interleaves its Cross and Dot rows so each reads as one full column. Section builders return row arrays (`_build_lighting_sections()`), so a setting is one row and an area is one more section. Every size is a `UNIT_*` constant times `_ui_scale()` (one unit is one GUI-scale pixel, so a 200x20-unit button is 400x40 px with 16 px text at GUI scale 2), which is what the maker pages' chrome and the gallery cards were brought onto; nothing in the menu is sized in raw pixels any more
-- `shader_overlay.gd` — The shader-effect stack, in the kinds `data/shaders.json` declares — and it declares both the kinds there are and what the menu calls each one, so a third kind is an entry in that list and a shader rather than a page of menu code. A **screen** entry gets a full-screen `ColorRect` and a `ShaderMaterial` of its own, in registry order, hidden while its effect is off. Each pass also carries a `BackBufferCopy` immediately before it, and that is what makes a stack of passes a stack rather than a race: Godot copies the screen once per frame, at the first node that reads it, so a second pass is handed the frame as it stood *before* the first pass drew and - writing its picture back over the screen - deletes that pass along with every HUD item drawn between the two. With a copy of its own each pass reads the frame as drawn up to where it sits (the world alone for a world pass, the world plus the passes and the HUD art under a screen pass), the copy is ordered with its pass by the same `z_index`, and it is hidden when the effect is off. A pass that declares the `previous_frame` uniform gets a pair of `SubViewport`s (`_build_history`, advanced by `_advance_histories`), each holding nothing but the main viewport's own texture, and they trade places every frame — one captures while the other, stopped, is handed over as the frame before this one. One is not enough, and a single capture cannot be it: a capture taken this frame holds this frame. The pair is the one thing no shader can read for itself, it follows the window's size with the frame, and turning the effect off stops it and hands the pass a blank. A pass is a full-rect child of this node, so the node's own rect is set from the viewport rather than left to its anchors: zero-sized passes draw nothing at all, silently, which is what cost this effect its first afternoon. A **world** entry is the same layer and the same shader drawn somewhere else: at a negative `z_index` (`WORLD_PASS_Z_INDEX`), which is over the 3D world and under every other CanvasItem in the HUD, so it reads the frame with no HUD in it and what it writes is put back under one — a difference no shader can express, because a shader is handed one frame and has no idea where in the stack it was drawn. A **vertex** entry gets no rect and no pass: it names the `materials` the world is drawn with (the registry's `materials`) and the `enable_key` uniform its switch is pushed to, and those materials are *loaded*, not duplicated, so a uniform set here is set on the very resources the renderer draws with. A **camera** entry (`_build_camera_effect`, driven by `_process_camera_effect`) is the newest kind and gets none of those things: it moves the current `Camera3D` itself through `h_offset`/`v_offset` — a held, re-rolled micro-offset for the jitter and never a decaying impact shake — and takes only its own writes back off, so the player's own steering of the camera is never overwritten. Owns the live state (switch + one value per uniform) and pushes the `frame_size` the passes count their patterns in, re-pushed on `size_changed`; `settings_menu.gd` is the one that persists it. Sits in the HUD *below* `SettingsMenu` so the world and gameplay HUD wear the effect while the menus over them stay readable. `shaders/crt.gdshader` is the registry's fourth entry and one of its two *screen* passes: a corner-filleted tube bend with a feathered black case, and the picture built the way a tube builds one — the frame averaged down onto a coarse raster of `picture_scale`-screen-pixel dots (`picture_scale` is a magnification rather than a line count, so a dot is always a whole number of pixels whatever the window size, which is what keeps the raster from beating against the frame's own pixel grid), a re-normalised Gaussian beam spot gathered over each dot, dark scanline gaps paid back into the lines, convergence, an RGB grille one triad per picture cell, a halo gathered out of the picture's own cells, then vignette, tone and mains hum. Its defaults are chosen by looking, not by arithmetic, over a frozen game frame (`.freebuff/probe_crt_look.gd`); `data/shaders.json` is the registry that names each effect, its `params` and the uniform each param drives. `shaders/phosphor.gdshader` is the registry's fifth entry and the other *screen* pass, and the first effect to need the frame before the one it draws into — which no shader can get for itself, since the engine's screen copy is of the frame *being drawn*. `shader_overlay.gd` keeps a viewport whose whole content is the main viewport's own texture, the screen one render ago, and sets it on any pass whose shader declares `previous_frame`: the name is the contract, one viewport per pass, stopped with its effect, and the frame it holds is the *screen* the last frame ended with rather than the world alone. The effect is then a single line — the frame is the brighter of what is on the screen and what the phosphor still holds — which is why it stacks safely: brightness is added and never accumulated, so nothing runs away and a still scene is unchanged. The held picture is aged before it is compared: decayed by `phosphor_retention`, gathered over a disc of its own pixels by `phosphor_spread` (so it diffuses a little further every frame and old ghosts are the soft ones), held longer where it was brighter by `phosphor_bright_hold` (the square-root-of-retention behaviour of a real tube), and gated by `phosphor_floor` so a pixel too dark to have lit the phosphor keeps nothing and a night does not smear into fog. A pass with a history is handed a blank for its first frame, so its trail starts from the frame it was switched on in. `shaders/invert.gdshader` and `shaders/sepia.gdshader` are the registry's sixth and seventh entries and the `filter` kind's first two members — a screen pass under another heading, and a pair deliberately as plain as a pass can be: one read of the frame, one write, no history, no offsets and nothing measured in pixels, so neither declares `frame_size`. Invert takes every channel to its opposite through a mix, which is what makes a partial invert a wash rather than a half-negative and usable as a grade; Sepia is the classic per-channel sepia transform (three dot products, written explicitly rather than as a mat3 multiply) mixed by amount, then pushed off its own grey along its own hue (`TONE_CHROMA`) — the raw matrix's three rows sit close together and grade a bright frame to washed tan, and the chroma lift is what turns the ramp into the cream-to-coffee brown of a photograph while a small amount stays a warm grade under the other effects. Both are kinded only for the menu: to the overlay a filter *is* a screen effect, so they stack with the CRT and the phosphor exactly as any other screen pass does. The registry's eighth entry, **Camera Jitter**, is the first of the `camera` kind and the first effect that is not a picture at all — it moves the camera, which no shader can do, since a shader is handed a frame after the eye has seen it and moving the picture after the fact is not moving the eye. So `shader_overlay.gd` builds it with no rect, no shader and no materials (`_build_camera_effect`), and runs it in `_process` (`_process_camera_effect`, the motion read out of `_camera_jitter_motion`): a held pair of −1..1 rolls re-rolled at `camera_jitter_rate` hz and scaled by `camera_jitter_strength` metres — a rattle, eased in over a couple of frames rather than per-frame noise. It writes additively onto the current `Camera3D`'s `h_offset`/`v_offset`, which displace the eye without touching where it looks, and takes only its own share back off before the next write (`_camera_restore`), so mouse look, head-bob and the frustum are untouched and a switched-off — or zero-strength — effect leaves the camera exactly as it found it. The driver is built for more camera effects than the one it has: the next one is a motion function and a registry entry. `shaders/anime.gdshader` is that registry's one *world* effect so far — the Shaders page's third category — and it draws at the world's own depth: its colours are flattened by taking the average of the flattest of four quadrant windows around each pixel (Kuwahara, 1976, so texture inside a surface is averaged away while the edge *between* two surfaces comes out sharper), its shading is the frame's own light rounded to `anime_bands` flats and blended in by `anime_shading`, and its shapes are inked by a Sobel over *those* bands, because texture that stays inside a band draws no line. The rounding is bounded (`SHADE_GAIN`, a third either way) for the reason the pass shipped its first version wrong: an unbounded one divides by a flat that can be zero, which crushed every shadow in the frame to a blotch. The line is the picture's own edges rather than the world's geometry, since a canvas pass has no depth buffer to compare — Godot's canvas built-ins expose none. `shaders/world_bend.gdshaderinc` is the registry's second entry and `shaders/world_horizon.gdshaderinc` is its third, and both are *vertex* effects — the Shaders page's second category — the ground moving because the world's own *vertices* move rather than because anything was drawn over them. World Bend's ground curves up and away from the camera. `shaders/voxel_shader.gdshader` and `shaders/voxel_shader_water.gdshader` both `#include` it and call it from `vertex()` with their vertex's world position and the camera's, then put the result back into the mesh's own space for the engine to project — so the terrain and the liquids bend by one shared, pure function of world position, which is what keeps a shoreline welded. The horizontal distance from the eye is mixed with that distance wrapped onto a cylinder of `world_bend_radius` (`atan(distance/radius) * radius`), a convex mix so that `world_bend` scales the bend while the map stays monotone, and the lift `world_bend * world_bend_rise * radius * (1 - 1/sqrt(1 + ratio²))` levels off at `rise * radius` instead of running away to infinity. Both horizontal axes are scaled by the same factor, so the bend is around the camera's vertical axis; the water alone declares `world_bend_sway`, a ripple off the include's own clock that the ground does not carry. It is deliberately neither a projection (the geometry moves before the camera's matrices, so walking and looking keep working on a world whose vertices have moved) nor collision (reach and the block you are mining do not move; past a few dozen blocks the ground is drawn somewhere other than where it is, which is under a block at the distances a player builds at). `shaders/world_horizon.gdshaderinc` is the other and the opposite: a sphere of `world_horizon_radius` touches the ground at the player's feet, the flat world is its tangent plane, and a point a horizontal distance d out is drawn `radius * (1 - 1/sqrt(1 + (d/radius)²))` below it — the same expression as the bend's lift with the opposite sign, one knob (the planet's radius, default 1,500 blocks, because on a sphere a separate "amount" would be a second slider doing what the first one does) and, unlike the bend, nothing but y: it leaves every distance measured on the ground, every vertical edge and the whole plan of the world exactly where they were, which is also why wrapping the world onto the sphere for real is three orders of magnitude of pull it does not spend. The two are independent — each is measured from where a vertex really is — so either can be on alone and both together compose in the world materials' order. `src/core/world_cull.hpp` + `src/mesh/mesh_manager_cull.cpp` are the half that cannot be a shader: a vertex shader runs after the engine has decided what to draw, so every chunk is culled against a box describing where it *was* and the bend pulls ground into view that the frustum has already thrown away. The header is the include's arithmetic again on the CPU — the pull and the lift at the box's far corner, where a point's distance from the camera's vertical axis is largest and both of the bend's terms are largest, inward in x and z because the mix can only shrink a distance and upward only for the lift because the lift is never negative — and the .cpp grows every resident chunk's cull box and every far region's by it, per whole block of camera movement with two blocks of slack already in the box, writing an instance's box only when its margin has really moved and handing the mesh's own boxes back when the effects go off, so a player who never turns either of them on pays nothing for them. The Horizon Curve's bound is the same idea with one term — the drop at the box's far corner, applied to the bottom of the box and nothing else — and the two effects' boxes are applied one after the other rather than merged, which is exact because each moves a point by an amount that is a function of where the point really is. `shader_overlay.gd` is what tells the engine as well as the material — one method per effect, named after the effect's id, with the knobs each one needs listed in the overlay rather than in the registry — and it finds the engine by walking outwards for the first node that can take *every* vertex effect the registry declares rather than by a path, because the path it used was the HUD's own child and the only symptom was that the culling silently never got better. Pinned by `tests/test_world_bend.cpp` and `tests/test_world_horizon.cpp` (the grown box contains the bent, and the sunk, image of every corner of every box, over a spread of cameras, radii, amounts and placements, and one box holds both effects at once — see `tests/world_effect_warp.hpp` for the single transcription of both includes that neither test can drift from) and by `.freebuff/probe_bend_cull.gd`, which measures the renderer rather than the geometry: 1,452,116 primitives in 87 draw calls with the engine not told, the same camera drawing 3,263,096 in 320 once it is, and exactly what it started with when the bend is switched off. Pinned by `.freebuff/probe_bend_geo.gd`, which stands one marker at a time on the ground at 40/80/140/220 blocks and compares its measured pixel centroid against the include's arithmetic re-run in GDScript: within 0.54 px of the camera's own unprojection with the bend off, within 0.90 px of the prediction with it on, and both real materials landing on the marker to 0.00 px
-- `liquid_texture_lab.gd` — Liquid Texture Lab (O key, autoload): procedural animated-texture authoring for water/lava/acid — style presets, every automaton and ramp knob as a slider, live animated preview plus a 3×3 tiled seam check and frame thumbnails, save/load as a vertical strip PNG + settings JSON in `user://liquids/`, a **Live** mode that pushes frames into the running world's texture-array layer for the chosen liquid (turning texture compression off for the duration, since a compressed layer cannot take an RGBA frame), and **Bind to world**, which saves the current strip as `<liquid>.json`/`.png` — the file the animator below loads for that liquid — and a **World anim** switch onto that animator
-- `liquid_animator.gd` — LiquidAnimator (autoload, always on): animates water, lava and acid in the running world with no panel open. Per liquid it takes `user://liquids/<liquid>.json` if the Lab bound one and the built-in preset otherwise, regenerates the strip in C++ (deterministic, so the saved settings are the whole source), slices it, and pushes a frame into that liquid's array layer every `frame_time` ticks, wrapping a looping strip to index 1. It turns texture compression off while it animates and restores the setting when disabled, and it is paused for whichever liquid the Lab's Live currently owns (`pause`/`resume`) — one writer per layer. `get_status()` reports source, frames, current frame, the frame last pushed, and why a liquid is idle; `.freebuff/probe_lava_acid.gd` drives all of it against the real world
-- `skin_preview.gd` — Transparent-background sub-viewport that orbits `player.glb` behind the skin maker; the camera orbits the model's AABB center rather than being a child of the rotating node
-- `block_manager.gd` — Autoload holding the single persistent 16×16 block texture (one `ImageTexture` shared by every cube face), with debounced saves to `user://current_block.png`, a restart-recovery noise base (`user://block_noise_base.png`), and a reversible grayscale-noise slider living on the autoload so it survives page rebuilds
-- `block_preview.gd` — Transparent-background sub-viewport behind the block maker that drag-orbits a cube; DRAW/FILL/BOX painting over primitive triangle raycasts, undo (Ctrl+Z), noise slider integration, and clamped zoom
-- `player_model.gd` — Applies the skin texture to `player.glb`'s `StandardMaterial3D` surfaces with nearest filtering (no mipmaps, avoiding smeared UV islands), and drives the Minecraft-style head look (`_track_head_look`): it rebuilds the aim basis from the controller's world yaw + pitch (`get_aim_direction()`) so the `head` mesh follows the player's look in every view, with a camera-follow fallback for scenes without a `PlayerController` (skin preview)
-- `player.glb` — Voxel-style player model with a tightly-packed 64×64 skin-texture atlas; node pivots re-baked onto the true Blockbench joints (limb tops, head neck) by `tools/rebake_player_pivots.py` because Blockbench's glTF export flattens cube-pivot metadata
-- `pose_clone_debug.gd` — Debug tool (K key): spawns a rigid, punchable physics dummy — a frozen copy of the player model (no Idle animation, no head tracking) running `dummy.gd`'s vanilla 1.8.8 gravity/drag/knockback at 20 tps — standing on the aimed block, with a bright depth-test-off cube at every mesh's origin (see `shaders/pose_pivot_marker.gdshader`); prints each part's pivot for marker-vs-transform verification
-- `dummy.gd` — Combat physics for the K-key pose clone: 20 tps vanilla 1.8.8 gravity/drag, knockback (`apply_knockback`: base 0.4 + sprint bonus, 10-tick hurt-resistance gate), interpolated rendering between ticks
-- `tools/bake_liquid_textures.gd` — Headless baker for a liquid's still block texture: runs the generator's own preset for `lava`/`acid` (or any style named on the command line) and writes frame 1/4 of the strip to `textures/blocks/<style>.png`, the PNG the texture array builds its layer from. `godot --headless --path . --script res://tools/bake_liquid_textures.gd`, then `--import`
-- `tools/rebake_player_pivots.py` — Idempotent re-baker for `player.glb`: moves each node origin onto its pivot while shifting that mesh's vertices by the delta so world placement is byte-identical (glTF has no pivot field — a node's origin is its rotation anchor)
-- `viewmodel.gd` — Thin first-person hand + held item/block glue (child of `Camera3D`): node tree, `_input`, F12 HUD, and peak-pose constants. Per-frame animation math lives in `ViewmodelPose` and held-mesh geometry in `ViewmodelMeshes` (both native C++)
-- `block_break_overlay.gd` — Draws the 10-stage crack overlay (`textures/animated/l0_sprite_01..10.png`) on the mined block, driven by `get_break_state()`
-- `block_textures.gd` — ~~Block texture atlas generation from `textures/blocks/`~~ ported to the native `BlockTextures` GDExtension binding (registered in `src/godot_bindings/register_types.cpp`); the GDScript file has been deleted
+- `healthbar.gd` — Health bar UI: 10 hearts above the hotbar's left edge (~40% of its width),
+  full/half/empty sprites resolved from the half-heart count polled off
+  `PlayerController.get_health()`
+- `death_screen.gd` — Death overlay: "You died!" + Respawn button, shown on the
+  `PlayerController.died` signal and hidden on `respawned`
+- `inventory.gd` - Full inventory screen with drag-drop stack movement, shift-click
+  quick-transfer, RMB drag-place, LMB drag-collect, scroll wheel quick-transfer, double-click
+  gather; live 2×2 crafting grid + output preview (click/drag/shift/scroll interactions mirrored
+  on the crafting cells; shift-click output crafts as many as possible)
+- `data/recipes.json` — Crafting recipes (shaped/shapeless), resolved by block name; loaded into
+  `RecipeBook` at startup. A shaped `key` entry may list several acceptable ingredients,
+  expanded at load into one concrete recipe per combination (per symbol, so all cells of a
+  symbol are the same ingredient) — the matcher, the preview gate and the consumption path stay
+  id-exact
+- `settings_menu.gd` — Adjustable settings with persistence (render, lighting, crosshair,
+  controls) opened with Escape key; includes a **Skin Maker** page (color wheel, hex readout,
+  orbitable preview) with a dark-mode toggle and a **Block Maker** page (16×16 cube painter)
+  with paint tools, noise slider, and gallery. Escape opens a bare pause menu (Resume / Settings
+  / Shaders / Controls / Tools over the dimmed world, no chrome) and **Settings** is one
+  `_build_scrolling_page` stacking the categories General, Block Outline, Crosshair, Advanced
+  Rendering and Render with a transparent content box (Controls and the Tools launcher have
+  their own pages from the pause-menu buttons; Shaders lists the screen-shader stack with one
+  switch row per shader and a `settings_button.png` icon on each row that opens that shader's
+  own page, where its uniforms live — all of it read out of `data/shaders.json`, down to which
+  pages exist): a title bar, a centred content box, an action bar, and a vertical scrollbar. A
+  resettable row's reset is the square `undo_button.png` icon (20 units, 1:1 with the row
+  height); a transparent content box draws no border, which is why the settings/controls/tools
+  pages show no grey frame over the world. Each category heading is an HBox: beside the title
+  sit square export/import icons (`export_button.png`/`import_button.png`) and a reset-all icon
+  (the same `undo_button.png`), all at `UNIT_HEADING_ICON_W` (half the row reset) and tight
+  against the non-expanding title. Export, import and reset all are all wired: each category
+  carries a codec (its own `FG`/`FO`/`FC`/`FAR`/`FR` code plus a refresh callable that resyncs
+  its rows), and the three icons beside its title drive it; reset all replays the section's own
+  row resets. Every settings area (GUI, lighting, video, controls, crosshair, block outline, the
+  two editors) is a section of that page, each introduced by a `"category"`-marked section
+  heading — the reference interface's Video Settings layout, with the areas stacked instead of
+  split across screens; the crosshair category interleaves its Cross and Dot rows so each reads
+  as one full column. Section builders return row arrays (`_build_lighting_sections()`), so a
+  setting is one row and an area is one more section. Every size is a `UNIT_*` constant times
+  `_ui_scale()` (one unit is one GUI-scale pixel, so a 200x20-unit button is 400x40 px with 16
+  px text at GUI scale 2), which is what the maker pages' chrome and the gallery cards were
+  brought onto; nothing in the menu is sized in raw pixels any more
+- `shader_overlay.gd` — The shader-effect stack, in the kinds `data/shaders.json` declares — and
+  it declares both the kinds there are and what the menu calls each one, so a third kind is an
+  entry in that list and a shader rather than a page of menu code. A **screen** entry gets a
+  full-screen `ColorRect` and a `ShaderMaterial` of its own, in registry order, hidden while its
+  effect is off. Each pass also carries a `BackBufferCopy` immediately before it, and that is
+  what makes a stack of passes a stack rather than a race: Godot copies the screen once per
+  frame, at the first node that reads it, so a second pass is handed the frame as it stood
+  *before* the first pass drew and - writing its picture back over the screen - deletes that
+  pass along with every HUD item drawn between the two. With a copy of its own each pass reads
+  the frame as drawn up to where it sits (the world alone for a world pass, the world plus the
+  passes and the HUD art under a screen pass), the copy is ordered with its pass by the same
+  `z_index`, and it is hidden when the effect is off. A pass that declares the `previous_frame`
+  uniform gets a pair of `SubViewport`s (`_build_history`, advanced by `_advance_histories`),
+  each holding nothing but the main viewport's own texture, and they trade places every frame —
+  one captures while the other, stopped, is handed over as the frame before this one. One is not
+  enough, and a single capture cannot be it: a capture taken this frame holds this frame. The
+  pair is the one thing no shader can read for itself, it follows the window's size with the
+  frame, and turning the effect off stops it and hands the pass a blank. A pass is a full-rect
+  child of this node, so the node's own rect is set from the viewport rather than left to its
+  anchors: zero-sized passes draw nothing at all, silently, which is what cost this effect its
+  first afternoon. A **world** entry is the same layer and the same shader drawn somewhere else:
+  at a negative `z_index` (`WORLD_PASS_Z_INDEX`), which is over the 3D world and under every
+  other CanvasItem in the HUD, so it reads the frame with no HUD in it and what it writes is put
+  back under one — a difference no shader can express, because a shader is handed one frame and
+  has no idea where in the stack it was drawn. A **vertex** entry gets no rect and no pass: it
+  names the `materials` the world is drawn with (the registry's `materials`) and the
+  `enable_key` uniform its switch is pushed to, and those materials are *loaded*, not
+  duplicated, so a uniform set here is set on the very resources the renderer draws with. A
+  **camera** entry (`_build_camera_effect`, driven by `_process_camera_effect`) is the newest
+  kind and gets none of those things: it moves the current `Camera3D` itself through
+  `h_offset`/`v_offset` — a held, re-rolled micro-offset for the jitter and never a decaying
+  impact shake — and takes only its own writes back off, so the player's own steering of the
+  camera is never overwritten. Owns the live state (switch + one value per uniform) and pushes
+  the `frame_size` the passes count their patterns in, re-pushed on `size_changed`;
+  `settings_menu.gd` is the one that persists it. Sits in the HUD *below* `SettingsMenu` so the
+  world and gameplay HUD wear the effect while the menus over them stay readable.
+  `shaders/crt.gdshader` is the registry's fourth entry and one of its two *screen* passes: a
+  corner-filleted tube bend with a feathered black case, and the picture built the way a tube
+  builds one — the frame averaged down onto a coarse raster of `picture_scale`-screen-pixel dots
+  (`picture_scale` is a magnification rather than a line count, so a dot is always a whole
+  number of pixels whatever the window size, which is what keeps the raster from beating against
+  the frame's own pixel grid), a re-normalised Gaussian beam spot gathered over each dot, dark
+  scanline gaps paid back into the lines, convergence, an RGB grille one triad per picture cell,
+  a halo gathered out of the picture's own cells, then vignette, tone and mains hum. Its
+  defaults are chosen by looking, not by arithmetic, over a frozen game frame
+  (`.freebuff/probe_crt_look.gd`); `data/shaders.json` is the registry that names each effect,
+  its `params` and the uniform each param drives. `shaders/phosphor.gdshader` is the registry's
+  fifth entry and the other *screen* pass, and the first effect to need the frame before the one
+  it draws into — which no shader can get for itself, since the engine's screen copy is of the
+  frame *being drawn*. `shader_overlay.gd` keeps a viewport whose whole content is the main
+  viewport's own texture, the screen one render ago, and sets it on any pass whose shader
+  declares `previous_frame`: the name is the contract, one viewport per pass, stopped with its
+  effect, and the frame it holds is the *screen* the last frame ended with rather than the world
+  alone. The effect is then a single line — the frame is the brighter of what is on the screen
+  and what the phosphor still holds — which is why it stacks safely: brightness is added and
+  never accumulated, so nothing runs away and a still scene is unchanged. The held picture is
+  aged before it is compared: decayed by `phosphor_retention`, gathered over a disc of its own
+  pixels by `phosphor_spread` (so it diffuses a little further every frame and old ghosts are
+  the soft ones), held longer where it was brighter by `phosphor_bright_hold` (the
+  square-root-of-retention behaviour of a real tube), and gated by `phosphor_floor` so a pixel
+  too dark to have lit the phosphor keeps nothing and a night does not smear into fog. A pass
+  with a history is handed a blank for its first frame, so its trail starts from the frame it
+  was switched on in. `shaders/invert.gdshader` and `shaders/sepia.gdshader` are the registry's
+  sixth and seventh entries and the `filter` kind's first two members — a screen pass under
+  another heading, and a pair deliberately as plain as a pass can be: one read of the frame, one
+  write, no history, no offsets and nothing measured in pixels, so neither declares
+  `frame_size`. Invert takes every channel to its opposite through a mix, which is what makes a
+  partial invert a wash rather than a half-negative and usable as a grade; Sepia is the classic
+  per-channel sepia transform (three dot products, written explicitly rather than as a mat3
+  multiply) mixed by amount, then pushed off its own grey along its own hue (`TONE_CHROMA`) —
+  the raw matrix's three rows sit close together and grade a bright frame to washed tan, and the
+  chroma lift is what turns the ramp into the cream-to-coffee brown of a photograph while a
+  small amount stays a warm grade under the other effects. Both are kinded only for the menu: to
+  the overlay a filter *is* a screen effect, so they stack with the CRT and the phosphor exactly
+  as any other screen pass does. The registry's eighth entry, **Camera Jitter**, is the first of
+  the `camera` kind and the first effect that is not a picture at all — it moves the camera,
+  which no shader can do, since a shader is handed a frame after the eye has seen it and moving
+  the picture after the fact is not moving the eye. So `shader_overlay.gd` builds it with no
+  rect, no shader and no materials (`_build_camera_effect`), and runs it in `_process`
+  (`_process_camera_effect`, the motion read out of `_camera_jitter_motion`): a held pair of
+  −1..1 rolls re-rolled at `camera_jitter_rate` hz and scaled by `camera_jitter_strength` metres
+  — a rattle, eased in over a couple of frames rather than per-frame noise. It writes additively
+  onto the current `Camera3D`'s `h_offset`/`v_offset`, which displace the eye without touching
+  where it looks, and takes only its own share back off before the next write
+  (`_camera_restore`), so mouse look, head-bob and the frustum are untouched and a switched-off
+  — or zero-strength — effect leaves the camera exactly as it found it. The driver is built for
+  more camera effects than the one it has: the next one is a motion function and a registry
+  entry. `shaders/anime.gdshader` is that registry's one *world* effect so far — the Shaders
+  page's third category — and it draws at the world's own depth: its colours are flattened by
+  taking the average of the flattest of four quadrant windows around each pixel (Kuwahara, 1976,
+  so texture inside a surface is averaged away while the edge *between* two surfaces comes out
+  sharper), its shading is the frame's own light rounded to `anime_bands` flats and blended in
+  by `anime_shading`, and its shapes are inked by a Sobel over *those* bands, because texture
+  that stays inside a band draws no line. The rounding is bounded (`SHADE_GAIN`, a third either
+  way) for the reason the pass shipped its first version wrong: an unbounded one divides by a
+  flat that can be zero, which crushed every shadow in the frame to a blotch. The line is the
+  picture's own edges rather than the world's geometry, since a canvas pass has no depth buffer
+  to compare — Godot's canvas built-ins expose none. `shaders/world_bend.gdshaderinc` is the
+  registry's second entry and `shaders/world_horizon.gdshaderinc` is its third, and both are
+  *vertex* effects — the Shaders page's second category — the ground moving because the world's
+  own *vertices* move rather than because anything was drawn over them. World Bend's ground
+  curves up and away from the camera. `shaders/voxel_shader.gdshader` and
+  `shaders/voxel_shader_water.gdshader` both `#include` it and call it from `vertex()` with
+  their vertex's world position and the camera's, then put the result back into the mesh's own
+  space for the engine to project — so the terrain and the liquids bend by one shared, pure
+  function of world position, which is what keeps a shoreline welded. The horizontal distance
+  from the eye is mixed with that distance wrapped onto a cylinder of `world_bend_radius`
+  (`atan(distance/radius) * radius`), a convex mix so that `world_bend` scales the bend while
+  the map stays monotone, and the lift
+  `world_bend * world_bend_rise * radius * (1 - 1/sqrt(1 + ratio²))` levels off at
+  `rise * radius` instead of running away to infinity. Both horizontal axes are scaled by the
+  same factor, so the bend is around the camera's vertical axis; the water alone declares
+  `world_bend_sway`, a ripple off the include's own clock that the ground does not carry. It is
+  deliberately neither a projection (the geometry moves before the camera's matrices, so walking
+  and looking keep working on a world whose vertices have moved) nor collision (reach and the
+  block you are mining do not move; past a few dozen blocks the ground is drawn somewhere other
+  than where it is, which is under a block at the distances a player builds at).
+  `shaders/world_horizon.gdshaderinc` is the other and the opposite: a sphere of
+  `world_horizon_radius` touches the ground at the player's feet, the flat world is its tangent
+  plane, and a point a horizontal distance d out is drawn
+  `radius * (1 - 1/sqrt(1 + (d/radius)²))` below it — the same expression as the bend's lift
+  with the opposite sign, one knob (the planet's radius, default 1,500 blocks, because on a
+  sphere a separate "amount" would be a second slider doing what the first one does) and, unlike
+  the bend, nothing but y: it leaves every distance measured on the ground, every vertical edge
+  and the whole plan of the world exactly where they were, which is also why wrapping the world
+  onto the sphere for real is three orders of magnitude of pull it does not spend. The two are
+  independent — each is measured from where a vertex really is — so either can be on alone and
+  both together compose in the world materials' order. `src/core/world_cull.hpp` +
+  `src/mesh/mesh_manager_cull.cpp` are the half that cannot be a shader: a vertex shader runs
+  after the engine has decided what to draw, so every chunk is culled against a box describing
+  where it *was* and the bend pulls ground into view that the frustum has already thrown away.
+  The header is the include's arithmetic again on the CPU — the pull and the lift at the box's
+  far corner, where a point's distance from the camera's vertical axis is largest and both of
+  the bend's terms are largest, inward in x and z because the mix can only shrink a distance and
+  upward only for the lift because the lift is never negative — and the .cpp grows every
+  resident chunk's cull box and every far region's by it, per whole block of camera movement
+  with two blocks of slack already in the box, writing an instance's box only when its margin
+  has really moved and handing the mesh's own boxes back when the effects go off, so a player
+  who never turns either of them on pays nothing for them. The Horizon Curve's bound is the same
+  idea with one term — the drop at the box's far corner, applied to the bottom of the box and
+  nothing else — and the two effects' boxes are applied one after the other rather than merged,
+  which is exact because each moves a point by an amount that is a function of where the point
+  really is. `shader_overlay.gd` is what tells the engine as well as the material — one method
+  per effect, named after the effect's id, with the knobs each one needs listed in the overlay
+  rather than in the registry — and it finds the engine by walking outwards for the first node
+  that can take *every* vertex effect the registry declares rather than by a path, because the
+  path it used was the HUD's own child and the only symptom was that the culling silently never
+  got better. Pinned by `tests/test_world_bend.cpp` and `tests/test_world_horizon.cpp` (the
+  grown box contains the bent, and the sunk, image of every corner of every box, over a spread
+  of cameras, radii, amounts and placements, and one box holds both effects at once — see
+  `tests/world_effect_warp.hpp` for the single transcription of both includes that neither test
+  can drift from) and by `.freebuff/probe_bend_cull.gd`, which measures the renderer rather than
+  the geometry: 1,452,116 primitives in 87 draw calls with the engine not told, the same camera
+  drawing 3,263,096 in 320 once it is, and exactly what it started with when the bend is
+  switched off. Pinned by `.freebuff/probe_bend_geo.gd`, which stands one marker at a time on
+  the ground at 40/80/140/220 blocks and compares its measured pixel centroid against the
+  include's arithmetic re-run in GDScript: within 0.54 px of the camera's own unprojection with
+  the bend off, within 0.90 px of the prediction with it on, and both real materials landing on
+  the marker to 0.00 px
+- `liquid_texture_lab.gd` — Liquid Texture Lab (O key, autoload): procedural animated-texture
+  authoring for water/lava/acid — style presets, every automaton and ramp knob as a slider, live
+  animated preview plus a 3×3 tiled seam check and frame thumbnails, save/load as a vertical
+  strip PNG + settings JSON in `user://liquids/`, a **Live** mode that pushes frames into the
+  running world's texture-array layer for the chosen liquid (turning texture compression off for
+  the duration, since a compressed layer cannot take an RGBA frame), and **Bind to world**,
+  which saves the current strip as `<liquid>.json`/`.png` — the file the animator below loads
+  for that liquid — and a **World anim** switch onto that animator
+- `liquid_animator.gd` — LiquidAnimator (autoload, always on): animates water, lava and acid in
+  the running world with no panel open. Per liquid it takes `user://liquids/<liquid>.json` if
+  the Lab bound one and the built-in preset otherwise, regenerates the strip in C++
+  (deterministic, so the saved settings are the whole source), slices it, and pushes a frame
+  into that liquid's array layer every `frame_time` ticks, wrapping a looping strip to index 1.
+  It turns texture compression off while it animates and restores the setting when disabled, and
+  it is paused for whichever liquid the Lab's Live currently owns (`pause`/`resume`) — one
+  writer per layer. `get_status()` reports source, frames, current frame, the frame last pushed,
+  and why a liquid is idle; `.freebuff/probe_lava_acid.gd` drives all of it against the real
+  world
+- `skin_preview.gd` — Transparent-background sub-viewport that orbits `player.glb` behind the
+  skin maker; the camera orbits the model's AABB center rather than being a child of the
+  rotating node
+- `block_manager.gd` — Autoload holding the single persistent 16×16 block texture (one
+  `ImageTexture` shared by every cube face), with debounced saves to `user://current_block.png`,
+  a restart-recovery noise base (`user://block_noise_base.png`), and a reversible
+  grayscale-noise slider living on the autoload so it survives page rebuilds
+- `block_preview.gd` — Transparent-background sub-viewport behind the block maker that
+  drag-orbits a cube; DRAW/FILL/BOX painting over primitive triangle raycasts, undo (Ctrl+Z),
+  noise slider integration, and clamped zoom
+- `player_model.gd` — Applies the skin texture to `player.glb`'s `StandardMaterial3D` surfaces
+  with nearest filtering (no mipmaps, avoiding smeared UV islands), and drives the
+  Minecraft-style head look (`_track_head_look`): it rebuilds the aim basis from the
+  controller's world yaw + pitch (`get_aim_direction()`) so the `head` mesh follows the player's
+  look in every view, with a camera-follow fallback for scenes without a `PlayerController`
+  (skin preview)
+- `player.glb` — Voxel-style player model with a tightly-packed 64×64 skin-texture atlas; node
+  pivots re-baked onto the true Blockbench joints (limb tops, head neck) by
+  `tools/rebake_player_pivots.py` because Blockbench's glTF export flattens cube-pivot metadata
+- `pose_clone_debug.gd` — Debug tool (K key): spawns a rigid, punchable physics dummy — a frozen
+  copy of the player model (no Idle animation, no head tracking) running `dummy.gd`'s vanilla
+  1.8.8 gravity/drag/knockback at 20 tps — standing on the aimed block, with a bright
+  depth-test-off cube at every mesh's origin (see `shaders/pose_pivot_marker.gdshader`); prints
+  each part's pivot for marker-vs-transform verification
+- `dummy.gd` — Combat physics for the K-key pose clone: 20 tps vanilla 1.8.8 gravity/drag,
+  knockback (`apply_knockback`: base 0.4 + sprint bonus, 10-tick hurt-resistance gate),
+  interpolated rendering between ticks
+- `tools/bake_liquid_textures.gd` — Headless baker for a liquid's still block texture: runs the
+  generator's own preset for `lava`/`acid` (or any style named on the command line) and writes
+  frame 1/4 of the strip to `textures/blocks/<style>.png`, the PNG the texture array builds its
+  layer from. `godot --headless --path . --script res://tools/bake_liquid_textures.gd`, then
+  `--import`
+- `tools/rebake_player_pivots.py` — Idempotent re-baker for `player.glb`: moves each node origin
+  onto its pivot while shifting that mesh's vertices by the delta so world placement is
+  byte-identical (glTF has no pivot field — a node's origin is its rotation anchor)
+- `viewmodel.gd` — Thin first-person hand + held item/block glue (child of `Camera3D`): node
+  tree, `_input`, F12 HUD, and peak-pose constants. Per-frame animation math lives in
+  `ViewmodelPose` and held-mesh geometry in `ViewmodelMeshes` (both native C++)
+- `block_break_overlay.gd` — Draws the 10-stage crack overlay
+  (`textures/animated/l0_sprite_01..10.png`) on the mined block, driven by `get_break_state()`
+- `block_textures.gd` — ~~Block texture atlas generation from `textures/blocks/`~~ ported to the
+  native `BlockTextures` GDExtension binding (registered in
+  `src/godot_bindings/register_types.cpp`); the GDScript file has been deleted
 
 ### Engine
 - `src/engine/collision_resolver.hpp/cpp` — Binary-search collision, step-up
-- `src/pathfinding/nav_types.hpp` — Planner cell classes, `NavCosts`, packed node keys, `NavPath`/`NavStats`
-- `src/pathfinding/nav_view.hpp/cpp` — Lazy memoised view of the world: per-column topmost standable surface, body clearance, liquid flag; unresident chunks resolve to `Unknown` and are never traversable. Takes an optional ranged `Reader` and prefetches each resolved column's scan window into a buffer, so a scan costs one map lock instead of one per cell; cells the buffer does not hold fall back to the per-cell sampler
-- `src/pathfinding/move_generator.hpp` — Movement primitives between columns (walk, diagonal, step up, drop, hop across a one-cell gap) with their legality rules and costs
-- `src/pathfinding/pathfinder.hpp/cpp` — Budgeted deterministic A* over the movement graph (octile + vertical heuristic, expressed in `NavCosts` units). Two caps: `max_expansions` and an optional `max_ms` wall clock, checked every 64 expansions; `truncated` = a cap ran out (not "no route"), and either way the partial route is a legal chain of moves starting at the agent. The goal test requires the goal's own anchored cell, not merely its column: a column can hold several standable surfaces (the ground under a floating staircase is in the same column as the step above it), so a column-only test accepts an arrival well below the target
-- `src/pathfinding/block_class.hpp` — The single block→nav-cell conversion (air / air-passable liquid / partial shape / full solid), deliberately not trusting `BlockType::is_full_cube()`
-- `src/pathfinding/chunk_nav_source.hpp` — Reads the live `ChunkMap` for the planner. `sample()` = one locked accessor per cell; `read_column()` = a whole column range under one `lock_keys` (ascending shard order), released before returning. Every lock is scoped to a single call: holding one across calls stalls generation writes on that shard and can deadlock. Unresident chunks report Unknown and stay that way for the life of the source
-- `src/pathfinding/path_service.hpp/cpp` — Async job runner: queues searches on the engine `ThreadPool`, returns finished `PathResult`s (support-block coordinates) to the main thread by job id. The pool is passed to `submit()` per call rather than held: the controller tears its pool down and rebuilds it on a runtime reset (`clear_editor_chunks`), so a stored `ThreadPool&` would be a dangling queue target afterwards
-- `src/pathfinding/path_smoother.hpp/cpp` — String-pull smoothing over an exact 8-connected walkability test
-- `src/engine/player_controller.hpp/cpp` — `PlayerSim` (fixed-timestep simulation, fall-distance tracking + landing damage)
-- `src/engine/voxel_engine_controller.hpp/cpp` + `voxel_engine_properties.cpp` / `voxel_engine_config.cpp` / `voxel_engine_schematic.cpp` / `voxel_engine_paste.cpp` — Bridges `ChunkManager` state to the world
+- `src/pathfinding/nav_types.hpp` — Planner cell classes, `NavCosts`, packed node keys,
+  `NavPath`/`NavStats`
+- `src/pathfinding/nav_view.hpp/cpp` — Lazy memoised view of the world: per-column topmost
+  standable surface, body clearance, liquid flag; unresident chunks resolve to `Unknown` and are
+  never traversable. Takes an optional ranged `Reader` and prefetches each resolved column's
+  scan window into a buffer, so a scan costs one map lock instead of one per cell; cells the
+  buffer does not hold fall back to the per-cell sampler
+- `src/pathfinding/move_generator.hpp` — Movement primitives between columns (walk, diagonal,
+  step up, drop, hop across a one-cell gap) with their legality rules and costs
+- `src/pathfinding/pathfinder.hpp/cpp` — Budgeted deterministic A* over the movement graph
+  (octile + vertical heuristic, expressed in `NavCosts` units). Two caps: `max_expansions` and
+  an optional `max_ms` wall clock, checked every 64 expansions; `truncated` = a cap ran out (not
+  "no route"), and either way the partial route is a legal chain of moves starting at the agent.
+  The goal test requires the goal's own anchored cell, not merely its column: a column can hold
+  several standable surfaces (the ground under a floating staircase is in the same column as the
+  step above it), so a column-only test accepts an arrival well below the target
+- `src/pathfinding/block_class.hpp` — The single block→nav-cell conversion (air / air-passable
+  liquid / partial shape / full solid), deliberately not trusting `BlockType::is_full_cube()`
+- `src/pathfinding/chunk_nav_source.hpp` — Reads the live `ChunkMap` for the planner. `sample()`
+  = one locked accessor per cell; `read_column()` = a whole column range under one `lock_keys`
+  (ascending shard order), released before returning. Every lock is scoped to a single call:
+  holding one across calls stalls generation writes on that shard and can deadlock. Unresident
+  chunks report Unknown and stay that way for the life of the source
+- `src/pathfinding/path_service.hpp/cpp` — Async job runner: queues searches on the engine
+  `ThreadPool`, returns finished `PathResult`s (support-block coordinates) to the main thread by
+  job id. The pool is passed to `submit()` per call rather than held: the controller tears its
+  pool down and rebuilds it on a runtime reset (`clear_editor_chunks`), so a stored
+  `ThreadPool&` would be a dangling queue target afterwards
+- `src/pathfinding/path_smoother.hpp/cpp` — String-pull smoothing over an exact 8-connected
+  walkability test
+- `src/engine/player_controller.hpp/cpp` — `PlayerSim` (fixed-timestep simulation, fall-distance
+  tracking + landing damage)
+- `src/engine/voxel_engine_controller.hpp/cpp` + `voxel_engine_properties.cpp` /
+  `voxel_engine_config.cpp` / `voxel_engine_schematic.cpp` / `voxel_engine_paste.cpp` — Bridges
+  `ChunkManager` state to the world
 
 ### Fluids
-- `src/fluids/fluid_rules.hpp` — The flow rules and their whole interface: `FluidKind`, `FluidCell` (source / runoff depth / falling), `FluidTraits` per kind, the `FluidWorld` query interface the rules ask, and `FluidStep` (what this cell becomes, plus the writes it pushes outward). The header carries the rule list as prose because the rules ARE the specification
-- `src/fluids/fluid_rules.cpp` — `tick()`: recompute the cell from its neighbours, the falling rule (fed from above, which can revive a cell that has no side supply at all), the two-sources-over-something-solid source rule (per substance: water and lava pool, acid does not), dry-up, and the push outward — down first, else sideways toward the directions with the shortest distance to a drop. That search is bounded to the substance's `search_distance` (4 steps for water, 3 for lava, 5 for acid) and short-circuits entirely when a neighbour can drop straight off, which keeps it constant and world-size independent (~1400 reads in the worst case, measured by `tests/test_fluid_rules.cpp`). `traits_for(kind)` above it is the whole per-substance table: water is the struct's defaults, lava is `{1, 3, 20, 3, true}` (three cells out, a second between cells, pools) and acid is `{1, 7, 3, 5, false}` (water's depth on a faster clock, hunts a drop further, never pools from a pair of sources)
-- `src/fluids/fluid_state_table.hpp/cpp` — The only place a fluid state meets a block id: built by SCANNING the registry for blocks that declare a `fluid` state, never from a hardcoded id list, because the JSON the game loads and the C++ defaults the tests run on number the same states differently
-- `src/fluids/chunk_fluid.hpp/cpp` — The chunk-side adapter: `read_window()` copies an 11×11×3 window under one ranged `lock_keys` and reports whether every chunk it needed was resident (a missing chunk reads as air, so judging against one would pour fluid into space that gets regenerated over it and would delete the water at the edge of loaded space); `apply_writes()` groups a tick's writes by chunk and takes ONE exclusive lock, one mesh-dirty and one `FluidWriteSink` call per chunk
-- `src/fluids/fluid_sim.hpp/cpp` — The 20 Hz tick driver: a due-ordered pending set (earliest tick per cell wins, and a cell whose turn has already come keeps its token even when a write pushes its next wake later — both ticks are owed, which is what makes a flood spread as a diamond rather than a rectangle), a per-tick cell budget, catch-up capped at two ticks a frame, and "recompute; if the cell did not change, stop asking it" instead of the reference's flowing/settled block pair. Nothing about the schedule is saved — a chunk that loads is seeded from the fluid states in its edit map, so a flood survives a reload. `WorldUpdater` advances it and `world_updater.hpp`'s `FluidSink` puts its writes back into the edit map and the remesh queue
+- `src/fluids/fluid_rules.hpp` — The flow rules and their whole interface: `FluidKind`,
+  `FluidCell` (source / runoff depth / falling), `FluidTraits` per kind, the `FluidWorld` query
+  interface the rules ask, and `FluidStep` (what this cell becomes, plus the writes it pushes
+  outward). The header carries the rule list as prose because the rules ARE the specification
+- `src/fluids/fluid_rules.cpp` — `tick()`: recompute the cell from its neighbours, the falling
+  rule (fed from above, which can revive a cell that has no side supply at all), the
+  two-sources-over-something-solid source rule (per substance: water and lava pool, acid does
+  not), dry-up, and the push outward — down first, else sideways toward the directions with the
+  shortest distance to a drop. That search is bounded to the substance's `search_distance` (4
+  steps for water, 3 for lava, 5 for acid) and short-circuits entirely when a neighbour can drop
+  straight off, which keeps it constant and world-size independent (~1400 reads in the worst
+  case, measured by `tests/test_fluid_rules.cpp`). `traits_for(kind)` above it is the whole
+  per-substance table: water is the struct's defaults, lava is `{1, 3, 20, 3, true}` (three
+  cells out, a second between cells, pools) and acid is `{1, 7, 3, 5, false}` (water's depth on
+  a faster clock, hunts a drop further, never pools from a pair of sources)
+- `src/fluids/fluid_state_table.hpp/cpp` — The only place a fluid state meets a block id: built
+  by SCANNING the registry for blocks that declare a `fluid` state, never from a hardcoded id
+  list, because the JSON the game loads and the C++ defaults the tests run on number the same
+  states differently
+- `src/fluids/chunk_fluid.hpp/cpp` — The chunk-side adapter: `read_window()` copies an 11×11×3
+  window under one ranged `lock_keys` and reports whether every chunk it needed was resident (a
+  missing chunk reads as air, so judging against one would pour fluid into space that gets
+  regenerated over it and would delete the water at the edge of loaded space); `apply_writes()`
+  groups a tick's writes by chunk and takes ONE exclusive lock, one mesh-dirty and one
+  `FluidWriteSink` call per chunk
+- `src/fluids/fluid_sim.hpp/cpp` — The 20 Hz tick driver: a due-ordered pending set (earliest
+  tick per cell wins, and a cell whose turn has already come keeps its token even when a write
+  pushes its next wake later — both ticks are owed, which is what makes a flood spread as a
+  diamond rather than a rectangle), a per-tick cell budget, catch-up capped at two ticks a
+  frame, and "recompute; if the cell did not change, stop asking it" instead of the reference's
+  flowing/settled block pair. Nothing about the schedule is saved — a chunk that loads is seeded
+  from the fluid states in its edit map, so a flood survives a reload. `WorldUpdater` advances
+  it and `world_updater.hpp`'s `FluidSink` puts its writes back into the edit map and the remesh
+  queue
 
 ### Rendering
 - `src/render/environment_controller.cpp` — Sky/fog/player-light parameter pushes
 - `src/render/material_manager.hpp/cpp` — Terrain + water materials, texture arrays
-- `src/render/texture_array_generator.hpp` + `texture_array_generator.cpp` / `texture_array_generator_emissive.cpp` / `texture_array_generator_internal.hpp` — Diffuse + emissive `Texture2DArray` generation (the header is the interface and the inline singleton; every body is in the two `.cpp` files, so editing the build rebuilds one TU); `find_texture_layer()` reports "no such layer" as -1 (the writer's lookup) and `get_texture_index()` keeps its 0 fallback (the mesh path's)
-- `src/render/liquid_texture.hpp` + `liquid_texture_settings.hpp` — Pure procedural animated-liquid generator (three-field automaton, style presets, colour ramp, vertical frame strip), no Godot types, so the lab, the animator and the tests run the same code
+- `src/render/texture_array_generator.hpp` + `texture_array_generator.cpp` /
+  `texture_array_generator_emissive.cpp` / `texture_array_generator_internal.hpp` — Diffuse +
+  emissive `Texture2DArray` generation (the header is the interface and the inline singleton;
+  every body is in the two `.cpp` files, so editing the build rebuilds one TU);
+  `find_texture_layer()` reports "no such layer" as -1 (the writer's lookup) and
+  `get_texture_index()` keeps its 0 fallback (the mesh path's)
+- `src/render/liquid_texture.hpp` + `liquid_texture_settings.hpp` — Pure procedural
+  animated-liquid generator (three-field automaton, style presets, colour ramp, vertical frame
+  strip), no Godot types, so the lab, the animator and the tests run the same code
 - `src/render/world_render_stats.hpp` — `WorldRenderStats` snapshot consumed by `PerfReport`
 
 ### Godot bindings
-- `src/godot_bindings/register_types.cpp` — Registers every GDExtension class/static binding (`BlockTextures`, `BlockOutline`, `BlockOutlineBuilder`, `ViewmodelPose`, `ViewmodelMeshes`, `SkinPixels`, `ChunkManager`, `PlayerController`, ...)
-- `src/godot_bindings/chunk_manager.cpp` + `chunk_manager_properties.cpp` / `chunk_manager_world_api.cpp` / `chunk_manager_schematic.cpp` / `chunk_manager_render.cpp` — Inspector properties, camera/frustum entry point, block API, `flush_dirty_chunks`, `_exit_tree` quit flush; `raycast_from_camera` casts from the `PlayerController`'s eye-ray (`get_aim_origin`/`get_aim_direction`) with a Camera3D fallback
-- `src/godot_bindings/player_controller.cpp` + `player_controller_input.cpp` / `player_controller_camera.cpp` / `player_controller_interact.cpp` / `player_controller_place.cpp` / `player_controller_inventory.cpp` / `player_controller_internal.hpp` — `PlayerController` node: input, mouse look (±90°), fly mode, F5 view cycle, camera-collision sampling, eye-based aim bindings, `ModelPivot` body-yaw lag, break/place, inventory bindings, chat bindings, health bindings, `_exit_tree` inventory save
-- `src/godot_bindings/block_outline.hpp/cpp` — Native `BlockOutline` `Node3D` (replaces `block_outline.gd`): 16 exposed settings, raycast throttling, pulse animation, material/geometry management; mesh built by the tested `BlockOutlineBuilder`/`block_outline_mesh.cpp` core
-- `src/godot_bindings/viewmodel_pose.hpp/cpp` — `ViewmodelPose` static binding over the `src/core/viewmodel_math.*` per-frame animation math (bob/sway/swing)
-- `src/godot_bindings/viewmodel_meshes.hpp/cpp` — `ViewmodelMeshes` static binding over `src/core/viewmodel_meshes.*` held-block/shaped-box/sprite geometry
-- `src/godot_bindings/liquid_texture_gen.hpp/cpp` — `LiquidTextureGen` static binding over `src/render/liquid_texture.hpp`: `style_names()`, `default_settings(style, resolution)`, `describe(settings)`, `generate_strip(settings)`
-- `src/godot_bindings/skin_pixels.hpp/cpp` — `SkinPixels` static binding: native pixel/noise helpers (noise map, gray noise, UV-to-texel bounds) used by `skin_manager.gd` and the settings galleries
+- `src/godot_bindings/register_types.cpp` — Registers every GDExtension class/static binding
+  (`BlockTextures`, `BlockOutline`, `BlockOutlineBuilder`, `ViewmodelPose`, `ViewmodelMeshes`,
+  `SkinPixels`, `ChunkManager`, `PlayerController`, ...)
+- `src/godot_bindings/chunk_manager.cpp` + `chunk_manager_properties.cpp` /
+  `chunk_manager_world_api.cpp` / `chunk_manager_schematic.cpp` / `chunk_manager_render.cpp` —
+  Inspector properties, camera/frustum entry point, block API, `flush_dirty_chunks`,
+  `_exit_tree` quit flush; `raycast_from_camera` casts from the `PlayerController`'s eye-ray
+  (`get_aim_origin`/`get_aim_direction`) with a Camera3D fallback
+- `src/godot_bindings/player_controller.cpp` + `player_controller_input.cpp` /
+  `player_controller_camera.cpp` / `player_controller_interact.cpp` /
+  `player_controller_place.cpp` / `player_controller_inventory.cpp` /
+  `player_controller_internal.hpp` — `PlayerController` node: input, mouse look (±90°), fly
+  mode, F5 view cycle, camera-collision sampling, eye-based aim bindings, `ModelPivot` body-yaw
+  lag, break/place, inventory bindings, chat bindings, health bindings, `_exit_tree` inventory
+  save
+- `src/godot_bindings/block_outline.hpp/cpp` — Native `BlockOutline` `Node3D` (replaces
+  `block_outline.gd`): 16 exposed settings, raycast throttling, pulse animation,
+  material/geometry management; mesh built by the tested
+  `BlockOutlineBuilder`/`block_outline_mesh.cpp` core
+- `src/godot_bindings/viewmodel_pose.hpp/cpp` — `ViewmodelPose` static binding over the
+  `src/core/viewmodel_math.*` per-frame animation math (bob/sway/swing)
+- `src/godot_bindings/viewmodel_meshes.hpp/cpp` — `ViewmodelMeshes` static binding over
+  `src/core/viewmodel_meshes.*` held-block/shaped-box/sprite geometry
+- `src/godot_bindings/liquid_texture_gen.hpp/cpp` — `LiquidTextureGen` static binding over
+  `src/render/liquid_texture.hpp`: `style_names()`, `default_settings(style, resolution)`,
+  `describe(settings)`, `generate_strip(settings)`
+- `src/godot_bindings/skin_pixels.hpp/cpp` — `SkinPixels` static binding: native pixel/noise
+  helpers (noise map, gray noise, UV-to-texel bounds) used by `skin_manager.gd` and the settings
+  galleries
 
 ### Lighting
 - `src/lighting/light_propagator.hpp/cpp` — Public wrappers + `_locked` variants
@@ -462,36 +1799,85 @@ The following code remains in the codebase but is disabled or unused:
 
 ### Data
 - `data/block_definitions.json` — Single source of truth for block properties
-- `data/block_shapes.json` — Shared shape registry for non-full blocks (slabs, stairs, walls, poles, crucible); a list of AABBs per shape, with optional collision boxes distinct from the visible ones
-- `data/biomes.json` — Biome definitions with per-biome materials, climate thresholds, tree density, and tree variant weights
+- `data/block_shapes.json` — Shared shape registry for non-full blocks (slabs, stairs, walls,
+  poles, crucible); a list of AABBs per shape, with optional collision boxes distinct from the
+  visible ones
+- `data/biomes.json` — Biome definitions with per-biome materials, climate thresholds, tree
+  density, and tree variant weights
 - `data/vegetation.json` — Vegetation parameters for the hills biome
-- `data/terrain_config.json` — Macro-surface tuning: `height_base_y`, domain-warp amplitudes, mid/small relief fields, shape-strength range, weirdness thresholds
+- `data/terrain_config.json` — Macro-surface tuning: `height_base_y`, domain-warp amplitudes,
+  mid/small relief fields, shape-strength range, weirdness thresholds
 - `textures/` — Asset organization (see `textures/README.md`):
-  - `textures/blocks/` — Block textures (bedrock, dirt, grass, stone, sand, water, etc.) — the only directory the texture arrays build from, a liquid's baked still frame included
-  - `textures/items/` — Item and tool sprites, named by `data/items.json` and resolved by `BlockTextures`
-  - `textures/animated/` — The ten cracked-block overlay frames the break animation steps through
-  - `textures/gui/` — UI textures (hotbar, inventory background, effects, settings and tool icons)
+  - `textures/blocks/` — Block textures (bedrock, dirt, grass, stone, sand, water, etc.) — the
+    only directory the texture arrays build from, a liquid's baked still frame included
+  - `textures/items/` — Item and tool sprites, named by `data/items.json` and resolved by
+    `BlockTextures`
+  - `textures/animated/` — The ten cracked-block overlay frames the break animation steps
+    through
+  - `textures/gui/` — UI textures (hotbar, inventory background, effects, settings and tool
+    icons)
   - `textures/sprites/` — Sprite textures (hearts, etc.)
   - `textures/atmosphere/` — Atmospheric textures (sun, north star)
   - `textures/mobs/` — Mob skins
   - `textures/0Archive/` — Archived/deprecated textures (old versions kept for reference)
 
 ### Testing
-- `tests/` — 90 `.cpp` files (588 test cases / 346,456 assertions, declared across 88 of them: `test_main.cpp` is the doctest entry point and `mesh_manager_stub.cpp` supplies link stubs), auto-discovered via `Glob("tests/*.cpp")`. A split test file keeps the original name for its main subject and takes `_<topic>` files beside it, with the fixtures they share in a `*_test_support.hpp` (`shape_resolver_test_support.hpp`, `concurrency_test_support.hpp`, `mesh_builder_test_support.hpp`, ...): a header in a named namespace whose helpers are `inline`, because a fixture that two `.cpp` files need cannot stay file-local
-- `tests/test_concurrency.cpp` + `_light.cpp` / `_cross_chunk.cpp` / `_edit_map.cpp` / `_thread_pool.cpp` / `_lock_order.cpp` — 27 tests for shard locking, deadlock prevention, PaletteStorage, cross-chunk writers, and thread-pool work stealing (the fixtures they share — `TestShardMap`, `CrossChunkWriter`, `PendingLightRemovals` — are in `concurrency_test_support.hpp`)
+- `tests/` — 90 `.cpp` files (588 test cases / 346,456 assertions, declared across 88 of them:
+  `test_main.cpp` is the doctest entry point and `mesh_manager_stub.cpp` supplies link stubs),
+  auto-discovered via `Glob("tests/*.cpp")`. A split test file keeps the original name for its
+  main subject and takes `_<topic>` files beside it, with the fixtures they share in a
+  `*_test_support.hpp` (`shape_resolver_test_support.hpp`, `concurrency_test_support.hpp`,
+  `mesh_builder_test_support.hpp`, ...): a header in a named namespace whose helpers are
+  `inline`, because a fixture that two `.cpp` files need cannot stay file-local
+- `tests/test_concurrency.cpp` + `_light.cpp` / `_cross_chunk.cpp` / `_edit_map.cpp` /
+  `_thread_pool.cpp` / `_lock_order.cpp` — 27 tests for shard locking, deadlock prevention,
+  PaletteStorage, cross-chunk writers, and thread-pool work stealing (the fixtures they share —
+  `TestShardMap`, `CrossChunkWriter`, `PendingLightRemovals` — are in
+  `concurrency_test_support.hpp`)
 - `tests/test_inventory.cpp` — Inventory add/consume/edge-case tests
-- `tests/test_crafting.cpp` — Shapeless/shaped matching (trim, mirror, offset, rotation/partial misses) + atomic craft_item tests (success, insufficient ingredients, full inventory rejection)
-- `tests/test_mining.cpp` — Tool-vs-block break-speed decisions: neutral defaults, class match/mismatch, `min_tier` gating (which never blocks the break), speed read from the tool, and the registry lookup only rewarding real item tools
+- `tests/test_crafting.cpp` — Shapeless/shaped matching (trim, mirror, offset, rotation/partial
+  misses) + atomic craft_item tests (success, insufficient ingredients, full inventory
+  rejection)
+- `tests/test_mining.cpp` — Tool-vs-block break-speed decisions: neutral defaults, class
+  match/mismatch, `min_tier` gating (which never blocks the break), speed read from the tool,
+  and the registry lookup only rewarding real item tools
 - `tests/test_light_propagation.cpp` — Cross-chunk BFS edge case tests
 - `tests/test_light_removal.cpp` — Overlapping multi-source light removal tests
-- `tests/test_player_controller.cpp` + `_water.cpp` / `_tick.cpp` / `_airborne.cpp` — PlayerSim movement/sprint/sneak/collision tests, fall damage (safe jump landing, 7.5-block drop → 4 half-hearts, teleport reset clearing pending damage)
+- `tests/test_player_controller.cpp` + `_water.cpp` / `_tick.cpp` / `_airborne.cpp` — PlayerSim
+  movement/sprint/sneak/collision tests, fall damage (safe jump landing, 7.5-block drop → 4
+  half-hearts, teleport reset clearing pending damage)
 - `tests/test_soak.cpp` — Multi-threaded fly-through-the-world stress test
-- `tests/test_persistence.cpp`, `tests/test_collision_resolver.cpp`, `tests/test_density_field.cpp` — format, collision, and terrain tests
-- `tests/test_viewmodel_math.cpp` — 10 byte-for-byte cases pinning the viewmodel bob/sway/swing math
-- `tests/test_viewmodel_meshes.cpp` — 5 byte-for-byte cases for the held-block/shaped-box/sprite mesh geometry (locked against an independent Python port)
-- `tests/test_block_outline_mesh.cpp` — Outline mesh union/dedup/thickness cases for the native `BlockOutline`
+- `tests/test_persistence.cpp`, `tests/test_collision_resolver.cpp`,
+  `tests/test_density_field.cpp` — format, collision, and terrain tests
+- `tests/test_viewmodel_math.cpp` — 10 byte-for-byte cases pinning the viewmodel bob/sway/swing
+  math
+- `tests/test_viewmodel_meshes.cpp` — 5 byte-for-byte cases for the held-block/shaped-box/sprite
+  mesh geometry (locked against an independent Python port)
+- `tests/test_block_outline_mesh.cpp` — Outline mesh union/dedup/thickness cases for the native
+  `BlockOutline`
 - `tools/benchmark.cpp` — 5 hot paths + memory, with `--check <baseline>` regression mode
-- `tools/fuzz_*.cpp` — libFuzzer harnesses (`fuzz_palette`, `fuzz_chunk_load`, `fuzz_chunk_recovery`, `fuzz_light_propagation`, `fuzz_mesh_builder`)
-- `tools/check_file_sizes.py` — the 500-line guard (`scons sizecheck` + the CI step): fails with the offender list, warns at 480
-- `tools/check_portability.py` — the `_WIN32` guard (`scons portability` + the CI step): fails on a Windows-only include, `#pragma`, intrinsic or Win32 type outside an `#ifdef _WIN32` region, and on a standard attribute placed after a decl-specifier. Both compile on MSVC and are fatal on GCC/clang, which is exactly why the tree is compiled by something other than MSVC before it is accepted
-- **clang-tidy** — the static-analysis job's gate, over `find src -name '*.cpp'` (112 files) with `bugprone-*`, `concurrency-*` and `performance-*` minus the four documented exceptions (`.github/workflows/build.yml`: `bugprone-easily-swappable-parameters`, `bugprone-narrowing-conversions`, `clang-analyzer-optin.core.EnumCastOutOfRange`, `performance-move-const-arg`); ANY finding in project sources fails the job, so it belongs to the same family as the two guards above: a check that only runs in CI. It runs on `ubuntu-latest`, so a Windows-only region is outside its reach by construction, and the two mandatory Win32 casts in `debug/crash_dump_report.cpp` (`GetModuleHandleExW`'s from-address argument, and walking `CONTEXT::Rsp`) are `performance-no-int-to-ptr` findings on Windows alone — they carry a scoped `// NOLINTNEXTLINE(check) - reason` in the house form rather than being restructured. Reproducing it locally needs two adjustments to be faithful: dedupe `compile_commands.json` by `.file` the way the workflow's `jq 'unique_by(.file)'` does, and drop `clang-diagnostic-*` findings, because a locally generated database is full of MSVC-only flags (`/c`, `/external:anglebrackets`) that make clang report `clang-diagnostic-unused-command-line-argument` on nearly every file — an artifact no Linux runner can produce
+- `tools/fuzz_*.cpp` — libFuzzer harnesses (`fuzz_palette`, `fuzz_chunk_load`,
+  `fuzz_chunk_recovery`, `fuzz_light_propagation`, `fuzz_mesh_builder`)
+- `tools/check_file_sizes.py` — the 500-line guard (`scons sizecheck` + the CI step): fails with
+  the offender list, warns at 480
+- `tools/check_portability.py` — the `_WIN32` guard (`scons portability` + the CI step): fails
+  on a Windows-only include, `#pragma`, intrinsic or Win32 type outside an `#ifdef _WIN32`
+  region, and on a standard attribute placed after a decl-specifier. Both compile on MSVC and
+  are fatal on GCC/clang, which is exactly why the tree is compiled by something other than MSVC
+  before it is accepted
+- **clang-tidy** — the static-analysis job's gate, over `find src -name '*.cpp'` (112 files)
+  with `bugprone-*`, `concurrency-*` and `performance-*` minus the four documented exceptions
+  (`.github/workflows/build.yml`: `bugprone-easily-swappable-parameters`,
+  `bugprone-narrowing-conversions`, `clang-analyzer-optin.core.EnumCastOutOfRange`,
+  `performance-move-const-arg`); ANY finding in project sources fails the job, so it belongs to
+  the same family as the two guards above: a check that only runs in CI. It runs on
+  `ubuntu-latest`, so a Windows-only region is outside its reach by construction, and the two
+  mandatory Win32 casts in `debug/crash_dump_report.cpp` (`GetModuleHandleExW`'s from-address
+  argument, and walking `CONTEXT::Rsp`) are `performance-no-int-to-ptr` findings on Windows
+  alone — they carry a scoped `// NOLINTNEXTLINE(check) - reason` in the house form rather than
+  being restructured. Reproducing it locally needs two adjustments to be faithful: dedupe
+  `compile_commands.json` by `.file` the way the workflow's `jq 'unique_by(.file)'` does, and
+  drop `clang-diagnostic-*` findings, because a locally generated database is full of MSVC-only
+  flags (`/c`, `/external:anglebrackets`) that make clang report
+  `clang-diagnostic-unused-command-line-argument` on nearly every file — an artifact no Linux
+  runner can produce

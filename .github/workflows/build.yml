@@ -52,6 +52,13 @@ jobs:
       - name: Check C++ portability
         run: python tools/check_portability.py
 
+      - name: Check documentation
+        # Every path the markdown cites must exist, the counts it states must match
+        # the tree, and no doc line may exceed the review budget. The assertion count
+        # is verified only once the test binary exists, so run `scons docscheck`
+        # locally after `scons test` to cover that half too.
+        run: python tools/check_docs.py
+
       - name: Compute godot-cpp submodule hash
         id: cachekey
         shell: bash

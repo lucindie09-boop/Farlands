@@ -61,14 +61,24 @@ private:
 };
 
 // -------------------------------------------------------------------------
-// INVE binary persistence (v1). Format:
-//   [magic:u32=0x494E5645 "INVE"][version:u32=1][hotbar HOTBAR_SIZE×2:u32]
+// INVE binary persistence. Format v2 (v1 read for compatibility):
+//   [magic:u32=0x494E5645 "INVE"][version:u32][hotbar HOTBAR_SIZE×2:u32]
 //   [inventory INVENTORY_SIZE×2:u32][selected_slot:u32]
+//   v2 appends [crc32:u32] over every byte before it (same protection the
+//   edit-map format has always had).
 // All integers little-endian. Pure shared logic so ChunkWorld (Godot
-// FileAccess orchestration) and tests encode/decode identically.
+// FileAccess orchestration) and tests encode/decode identically. The decoder
+// validates like deserialize_edit_map does: a slot id must name a block OR an
+// item this session registered (items are held in slots too, in the id space
+// above ItemRegistry::FIRST_ITEM_ID), a count outside 0..64 becomes an empty
+// slot, and a selection outside the hotbar refuses the file instead of silently
+// ignoring the field — a load that half-applied and reported success would be
+// worse than one that fell back to the default inventory.
 // -------------------------------------------------------------------------
 constexpr uint32_t INVENTORY_MAGIC = 0x494E5645; // "INVE"
-constexpr uint32_t INVENTORY_VERSION = 1;
+constexpr uint32_t INVENTORY_VERSION = 2;
+// The layout version the previous build wrote, still readable.
+constexpr uint32_t INVENTORY_VERSION_V1 = 1;
 
 void serialize_inventory(const Inventory& inventory, std::vector<uint8_t>& out);
 

@@ -64,6 +64,7 @@ shared_sources = [
     "src/core/block_types_load.cpp",
     "src/core/block_types_defaults.cpp",
     "src/core/shape_resolver.cpp",
+    "src/core/shape_resolver_rules.cpp",
     "src/core/inventory.cpp",
     "src/core/crafting.cpp",
     "src/core/item_registry.cpp",
@@ -282,10 +283,11 @@ if sys.platform != "win32":
     fuzz_light = fuzz_env.Program("bin/fuzz_light_propagation", ["tools/fuzz_light_propagation.cpp"] + fuzz_sources_common)
     fuzz_mesh_sources = fuzz_sources_common + [
         # The solid pass resolves a neighbour's shape to decide a face, and that
-        # resolver is its own translation unit: without it here the fuzz binary
+        # resolver is its own translation units: without them here the fuzz binary
         # links with an undefined resolve_shape_boxes and the whole `fuzz` target
         # fails to build.
         "src/core/shape_resolver.cpp",
+        "src/core/shape_resolver_rules.cpp",
         "src/mesh/mesh_builder.cpp",
         "src/mesh/mesh_builder_faces.cpp",
         "src/mesh/mesh_builder_greedy.cpp",

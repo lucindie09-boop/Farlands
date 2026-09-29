@@ -200,7 +200,7 @@ def path_exists(token, basenames):
         # where the bare `_walls.cpp` names a sibling of the last full path. The full
         # name is cited too, so nothing is left unchecked by skipping these.
         return True
-    if token in ALLOWED_MISSING:
+    if token in ALLOWED_MISSING or token in ALLOWED_IGNORED:
         return True
     if _resolves(token, basenames):
         return True

@@ -56,6 +56,8 @@ Default(library, cdb)
 shared_sources = [
     "src/core/terrain_params.cpp",
     "src/worldgen/chunk_generator.cpp",
+    "src/worldgen/chunk_generator_columns.cpp",
+    "src/worldgen/chunk_generator_terrain.cpp",
     "src/worldgen/biome_config.cpp",
     "src/worldgen/vegetation_config.cpp",
     "src/worldgen/vegetation_generator.cpp",
@@ -128,7 +130,8 @@ if len(shared_obj_by_src) != len(shared_sources):
 
 # Terrain-generation objects needed by standalone terrain tools (no mesh/lighting).
 terrain_tool_objects = [shared_obj_by_src[n] for n in [
-    "terrain_params", "chunk_generator", "biome_config", "vegetation_config",
+    "terrain_params", "chunk_generator", "chunk_generator_columns", "chunk_generator_terrain",
+    "biome_config", "vegetation_config",
     "vegetation_generator", "block_types", "block_types_defaults", "inventory", "item_registry",
     "edit_map",
 ]]

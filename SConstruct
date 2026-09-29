@@ -105,6 +105,19 @@ shared_objects = env.Object(shared_sources)
 # Keyed by source basename (extension-agnostic: .o on GCC/Clang, .obj on MSVC).
 shared_obj_by_src = {os.path.splitext(os.path.basename(str(s)))[0]: o for s, o in zip(shared_sources, shared_objects)}
 
+# The lookup above is keyed by basename, so two entries with the same basename
+# would silently collapse onto one object and the tool that asked for the other
+# would link the wrong one. Catch that here instead of at link time.
+if len(shared_obj_by_src) != len(shared_sources):
+    _seen = {}
+    _dupes = []
+    for _s in shared_sources:
+        _key = os.path.splitext(os.path.basename(str(_s)))[0]
+        if _key in _seen:
+            _dupes.append('{} vs {}'.format(_seen[_key], _s))
+        _seen[_key] = _s
+    raise Exception('shared_sources has duplicate basenames: ' + '; '.join(_dupes))
+
 # Terrain-generation objects needed by standalone terrain tools (no mesh/lighting).
 terrain_tool_objects = [shared_obj_by_src[n] for n in [
     "terrain_params", "chunk_generator", "biome_config", "vegetation_config",
@@ -231,6 +244,12 @@ test_light_propagator_object = test_env.Object("src/lighting/light_propagator_te
 # Note: edit_map.cpp and block_light_region.cpp are already in shared_sources via library build
 test_prog = test_env.Program("bin/run_tests", Glob("tests/*.cpp") + shared_objects + [test_chunk_data_object, test_light_propagator_object])
 Alias("test", test_prog)
+
+# File-size guard: no C++ file under src/, tests/ or tools/ may exceed 500 lines.
+# A mega file is what this alias exists to prevent, so it always re-runs.
+sizecheck = env.Command("bin/.sizecheck_stamp", [], '"{}" tools/check_file_sizes.py'.format(sys.executable))
+AlwaysBuild(sizecheck)
+Alias("sizecheck", sizecheck)
 
 # LibFuzzer harnesses (Clang-only, Linux/macOS)
 # Build with: scons fuzz  (requires clang++)

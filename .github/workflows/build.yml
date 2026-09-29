@@ -46,6 +46,9 @@ jobs:
       - name: Install SCons
         run: pip install scons
 
+      - name: Check C++ file sizes
+        run: python tools/check_file_sizes.py
+
       - name: Compute godot-cpp submodule hash
         id: cachekey
         shell: bash
@@ -124,6 +127,9 @@ jobs:
 
       - name: Install SCons
         run: pip install scons
+
+      - name: Check C++ file sizes
+        run: python tools/check_file_sizes.py
 
       - name: Install clang
         run: sudo apt-get install -y clang

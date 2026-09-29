@@ -1,9 +1,28 @@
-from PIL import Image
+"""Measure the shape statistics of a rendered biome map.
+
+`scons coarse_lattice` (or the elevation sweep) writes a BMP of the biome
+colours; this reads one back and reports land coverage, continent count and
+perimeters, coast exposure, interior ocean holes, the coast's fractal
+dimension, and shelf presence. It was an ad-hoc script in the repository root
+reading bin/biome_mega.bmp relative to the current directory, which only worked
+if you happened to be standing in the root; the path is now resolved against
+the repository so it runs from anywhere.
+
+    python tools/analyze_biome_bmp.py [path/to/biome.bmp]
+
+Needs numpy, scipy and Pillow, which are not otherwise build dependencies.
+"""
+import os
+import sys
+
 import numpy as np
+from PIL import Image
 from scipy import ndimage
 from scipy.ndimage import binary_dilation
 
-arr = np.array(Image.open("bin/biome_mega.bmp"))
+_default = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "bin", "biome_mega.bmp")
+arr = np.array(Image.open(sys.argv[1] if len(sys.argv) > 1 else _default))
 OCEAN = [20,60,140]
 LAND  = [60,160,60]
 LAKE  = [40,100,180]

@@ -785,8 +785,11 @@ void PlayerController::update_break_progress(float delta) {
     // Inventory-full gate: no progress (matches break_block's insta-collect rule).
     if (!inventory_.can_add_block(collect_id, collect_count)) return;
 
-    // Unbreakable blocks never crack or progress.
-    if (hardness < 0.0f) return;
+    // Unbreakable blocks never crack or progress. The guard is <= 0, not
+    // merely < 0: hardness is also a divisor two lines down, and a zero would
+    // send the progress to +inf (or NaN on a zero-delta frame, which then never
+    // breaks). The registry clamps at load, but this path defends itself.
+    if (hardness <= 0.0f) return;
 
     // Tool speed: the selected hotbar tool multiplies break rate when its class
     // matches this block's preferred tool (see mining_speed_multiplier).

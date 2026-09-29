@@ -1,6 +1,7 @@
 #include "core/block_types.hpp"
 #include "core/shape_resolver.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <vector>
 #include <deque>
@@ -425,8 +426,14 @@ bool BlockRegistry::load_from_json(const godot::String& json_path) noexcept {
         }
 
         // slipperiness
+        // slipperiness. Vanilla's range is 0.6 (most blocks) to 0.98 (ice); a
+        // value outside 0.05..1.0 is clamped rather than honoured, because the
+        // ground-acceleration arithmetic divides by it (pow(0.6 / s, 3)) and a
+        // zero or negative would turn velocities into inf then NaN — the same
+        // divisor class of bug hardness above guards.
         if (d.has("slipperiness")) {
-            bt.slipperiness = static_cast<float>(static_cast<double>(d["slipperiness"]));
+            float slip = static_cast<float>(static_cast<double>(d["slipperiness"]));
+            bt.slipperiness = std::clamp(slip, 0.05f, 1.0f);
         }
 
         // light_opacity (extra light levels removed crossing this block;
@@ -438,9 +445,28 @@ bool BlockRegistry::load_from_json(const godot::String& json_path) noexcept {
             bt.light_opacity = static_cast<uint8_t>(opacity);
         }
 
-        // hardness (break time in seconds; -1.0 = unbreakable)
+        // hardness (break time in seconds; -1.0 = unbreakable). Clamped like
+        // light_opacity above, because both end up as divisors in gameplay
+        // arithmetic: the break path divides by hardness, and the physics
+        // divides by slipperiness twice over.
+        //
+        // A ZERO is not the unbreakable sentinel here - -1 is, and that is left
+        // alone. Zero in this table means "breaks at once": the torch family
+        // (light_torch and its four wall variants) declares it, and reading it
+        // as unbreakable would leave a player unable to take down a torch they
+        // can place. So zero is lifted to the same floor as any other value
+        // under it, which is 0.05s: fast enough that holding the mouse is the
+        // whole of the interaction, and no longer a zero divisor.
+        //
+        // That floor is on any sub-floor value rather than on zero alone, because
+        // a hundredth of a second is not a break time a player can see the
+        // difference of, and it keeps tool_speed / hardness inside the range the
+        // progress accumulator was tuned for. The divisor the floor is really
+        // guarding is NaN on a zero-delta frame, which never breaks at all.
         if (d.has("hardness")) {
-            bt.hardness = static_cast<float>(static_cast<double>(d["hardness"]));
+            float hardness = static_cast<float>(static_cast<double>(d["hardness"]));
+            if (hardness >= 0.0f && hardness < 0.05f) hardness = 0.05f;
+            bt.hardness = hardness;
         }
 
         // preferred_tool (tool class mined fastest against this block; "" = none)

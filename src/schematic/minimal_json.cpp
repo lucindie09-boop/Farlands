@@ -244,6 +244,11 @@ struct JsonParser {
             if (!parse_string(key)) return false;
             // A repeated key is a mistake in a hand-edited table, and json has no
             // way to express it, so it is refused rather than resolved last-wins.
+            // The duplicate check is a linear scan, so a member lookup over the
+            // whole object is O(n) and the parse of an object is O(n^2) — fine
+            // for the config tables this parser reads (a few dozen members at
+            // most), and deliberately not a hash map, which would cost more
+            // than the scan at those sizes.
             for (const auto& member : out.members_) {
                 if (member.first == key) {
                     const std::string what = "duplicate key \"" + key + "\"";

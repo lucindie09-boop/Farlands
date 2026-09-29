@@ -259,6 +259,16 @@ bool NbtReader::read_int_array(std::vector<int32_t>& out) {
     int32_t count = 0;
     if (!read_raw_i32(count)) return false;
     if (count < 0) return fail("negative int array length");
+    // The count comes straight out of the file, and resize() below would
+    // allocate whatever it claims before a single element is read — a corrupt
+    // count is a multi-gigabyte request and an out-of-memory crash rather than
+    // a parse error. read_byte_array already rejects a count the buffer cannot
+    // hold; this is the same check, four bytes per element, so the resize can
+    // never ask for more than the file could possibly supply.
+    const size_t remaining = size_ - (cursor_ < size_ ? cursor_ : size_);
+    if (static_cast<size_t>(count) > remaining / 4) {
+        return fail("int array runs past end of buffer");
+    }
     out.clear();
     out.resize(static_cast<size_t>(count));
     for (int32_t i = 0; i < count; ++i) {

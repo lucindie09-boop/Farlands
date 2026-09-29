@@ -297,8 +297,15 @@ if sys.platform != "win32":
     fuzz_env.Append(LINKFLAGS=["-fsanitize=fuzzer,address,undefined"])
     # Pre-compile chunk_data.cpp for fuzz harnesses with unique target name
     fuzz_chunk_data_object = fuzz_env.Object("src/core/chunk_data_fuzz", source="src/core/chunk_data.cpp")
-    # Reference source files directly to avoid VariantDir file locking
-    fuzz_sources_common = [fuzz_chunk_data_object, "src/core/block_types.cpp", "src/core/block_types_shapes.cpp", "src/core/block_types_load.cpp", "src/core/block_types_defaults.cpp", "src/core/inventory.cpp", "src/core/edit_map.cpp", "src/lighting/block_light_region.cpp"]
+    # Reference source files directly to avoid VariantDir file locking.
+    #
+    # Everything here has to stay godot-free: the harnesses link a pure core, and a
+    # source that reaches a registry whose loader lives behind `FUZZING_BUILD_MODE_
+    # UNSAFE_FOR_PRODUCTION` is an undefined symbol at link time. `core/inventory.cpp`
+    # was here and is not any more: its save decoder range-checks an id against
+    # `ItemRegistry`, which the fuzz build cannot link, and no harness uses `Inventory`
+    # in the first place. A harness that wants it has to bring a registry-free path.
+    fuzz_sources_common = [fuzz_chunk_data_object, "src/core/block_types.cpp", "src/core/block_types_shapes.cpp", "src/core/block_types_load.cpp", "src/core/block_types_defaults.cpp", "src/core/edit_map.cpp", "src/lighting/block_light_region.cpp"]
     fuzz_palette = fuzz_env.Program("bin/fuzz_palette", ["tools/fuzz_palette.cpp"] + fuzz_sources_common)
     # edit_map.cpp's apply_edit_map_to_chunk calls ChunkData methods, so any
     # harness that links edit_map must also link the ChunkData implementation.

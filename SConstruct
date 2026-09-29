@@ -68,6 +68,7 @@ shared_sources = [
     "src/core/block_types.cpp",
     "src/core/block_types_shapes.cpp",
     "src/core/block_types_load.cpp",
+    "src/core/block_types_families.cpp",
     "src/core/block_types_defaults.cpp",
     "src/core/shape_resolver.cpp",
     "src/core/shape_resolver_rules.cpp",
@@ -111,6 +112,7 @@ shared_sources = [
     "src/schematic/schematic_reader_palette.cpp",
     "src/schematic/minimal_json.cpp",
     "src/schematic/mc_palette.cpp",
+    "src/schematic/mc_palette_classic_rows.cpp",
     "src/schematic/mc_palette_resolve.cpp",
     "src/schematic/paste_plan.cpp",
 ]
@@ -201,7 +203,8 @@ schem_env.Append(CPPPATH=["src/"])
 schem_env.Append(LIBS=[])
 schem_tool_objects = [shared_obj_by_src[n] for n in [
     "gzip_inflate", "nbt_reader", "schematic_reader", "schematic_reader_classic",
-    "schematic_reader_palette", "minimal_json", "mc_palette", "mc_palette_resolve",
+    "schematic_reader_palette", "minimal_json", "mc_palette", "mc_palette_classic_rows",
+    "mc_palette_resolve",
     "paste_plan",
 ]]
 schem_prog = schem_env.Program("bin/schematic_report",

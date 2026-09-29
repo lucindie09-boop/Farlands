@@ -68,6 +68,10 @@
 namespace VoxelEngine {
 namespace schematic {
 
+// The table's JSON tree, as schematic/minimal_json.hpp parses it. Only referenced
+// by the loader's signatures, so it stays a forward declaration here.
+class JsonValue;
+
 // The shapes whose properties this game's own blocks encode. A shape row says
 // which family to use and the resolver reads the state's properties to pick the
 // member: a stair's stack rises toward its `facing`, and the northward one is
@@ -189,6 +193,21 @@ private:
     // to the next pattern.
     [[nodiscard]] PaletteTarget apply_name_row(const NameRow& row, const std::string& capture,
                                                const BlockState& state) const;
+
+    // The sections of `load`, in the order they have to run: the species map and the
+    // variant sets are both named by rows, and every one of them appends to the
+    // table its own name says.
+    bool load_species(const JsonValue& document, std::string* error);
+    bool load_variant_sets(const JsonValue& document, std::string* error);
+    bool load_name_rows(const JsonValue& document, std::string* error);
+    // One entry of the classic "blocks" array: its id, every key it carries, and the
+    // checks that need the whole entry read.
+    bool load_classic_row(const JsonValue& entry, std::string* error);
+    // The "variants" key of one classic row: a named set with this row's "family"
+    // substituted for {family}, or an inline data-value object. `from_set` reports
+    // which of the two it was, because a "family" only means something for the first.
+    bool parse_row_variants(const JsonValue& value, PaletteRow& row, const std::string& family,
+                            bool& from_set, std::string* error);
 
     std::vector<PaletteRow> rows_;
     std::unordered_map<uint16_t, size_t> by_id_;

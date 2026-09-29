@@ -132,6 +132,17 @@ public:
 
 protected:
     static void _bind_methods();
+    // _bind_methods is one long table of ClassDB calls (58 methods, 8 signals, 4
+    // properties); one function per area of the API keeps each list on a screen and
+    // gives a new binding an obvious home. Signals and properties are added last,
+    // in that order, as they have to be.
+    static void bind_actions();
+    static void bind_inventory_api();
+    static void bind_ui_state();
+    static void bind_tuning();
+    static void bind_state_and_view();
+    static void add_signals();
+    static void add_properties();
 
 private:
     void update_mouse_mode();

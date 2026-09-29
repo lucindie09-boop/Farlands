@@ -25,20 +25,9 @@ using namespace mc_palette_detail;
 
 namespace {
 
-// Legacy ids were a byte, plus the AddBlocks nibble for later additions. The cap
-// is generous rather than exact: it exists to catch a typo like 5300, not to
-// model one particular version's id space.
-constexpr int64_t kMaxLegacyId = 4095;
-// The placeholder a named variant set uses for the block it is applied to.
-constexpr const char* kFamilyPlaceholder = "{family}";
-
-bool fail(std::string* error, const std::string& message) {
-    if (error) *error = message;
-    return false;
-}
-
 // Builds a message from its parts in one string. Chaining `+` allocates a temporary per
 // operator, and a load-time message that quotes a key it rejected is all parts.
+// File-local: only the variants reader below builds a message this way.
 std::string joined(std::initializer_list<std::string_view> parts) {
     size_t total = 0;
     for (const std::string_view part : parts) total += part.size();
@@ -46,6 +35,19 @@ std::string joined(std::initializer_list<std::string_view> parts) {
     out.reserve(total);
     for (const std::string_view part : parts) out.append(part.data(), part.size());
     return out;
+}
+
+} // namespace
+
+// The readers the classic rows share with the name rows, declared in
+// schematic/mc_palette_internal.hpp: the rows themselves are read in
+// mc_palette_classic_rows.cpp, so these cannot stay file-local.
+namespace mc_palette_detail {
+
+// kMaxLegacyId is a constant in the internal header (the classic rows check it too).
+bool fail(std::string* error, const std::string& message) {
+    if (error) *error = message;
+    return false;
 }
 
 bool fail_row(std::string* error, uint16_t id, const std::string& message) {
@@ -88,6 +90,9 @@ bool parse_variants(const JsonValue& object, std::vector<std::pair<uint8_t, std:
     return true;
 }
 
+} // namespace mc_palette_detail
+
+namespace {
 // A species entry: an object, or the bare block name it becomes. Every species
 // this game has is written out, so the mapping never has to be guessed at.
 bool parse_species(const JsonValue& object,
@@ -225,7 +230,8 @@ bool parse_name_row(const std::string& key, const JsonValue& value, NameRow& row
         }
     } else {
         return fail(error, where + "expected a block name or an object");
-    }        if (row.shape != ShapeKind::None) {
+    }
+    if (row.shape != ShapeKind::None) {
         if (!row.block.empty()) {
             return fail(error, where + "\"block\" and \"shape\" say the same thing twice");
         }
@@ -266,12 +272,38 @@ bool McPalette::load(const std::string& json_text, std::string* error) {
     if (!parse_json(json_text, document, error)) return false;
     if (!document.is_object()) return fail(error, "minecraft_blocks.json: root must be an object");
 
+    // The sections of the file, in the order they have to run: the species map and
+    // the variant sets are both named by rows, and the name rows are read before the
+    // classic ones because a pattern is allowed to bring in a species.
+    if (!load_species(document, error)) return false;
+    if (!load_variant_sets(document, error)) return false;
+    if (!load_name_rows(document, error)) return false;
+
+    const JsonValue* blocks = document.member("blocks");
+    if (blocks == nullptr || !blocks->is_array()) {
+        return fail(error, "minecraft_blocks.json: root needs a \"blocks\" array");
+    }
+
+    for (const JsonValue& entry : blocks->items()) {
+        if (!load_classic_row(entry, error)) return false;
+    }
+
+    if (rows_.empty() && names_.empty()) {
+        return fail(error, "minecraft_blocks.json: no rows");
+    }
+    return true;
+}
+
+bool McPalette::load_species(const JsonValue& document, std::string* error) {
     // The species map first: the name rows are written in terms of it.
     if (const JsonValue* species = document.member("species")) {
         if (!parse_species(*species, species_, error)) return false;
         for (size_t i = 0; i < species_.size(); ++i) species_by_key_.emplace(species_[i].first, i);
     }
+    return true;
+}
 
+bool McPalette::load_variant_sets(const JsonValue& document, std::string* error) {
     // Shared variant sets next: rows name them, so they have to exist before the
     // rows are read.
     if (const JsonValue* sets = document.member("variant_sets")) {
@@ -286,7 +318,10 @@ bool McPalette::load(const std::string& json_text, std::string* error) {
             sets_.push_back(std::move(set));
         }
     }
+    return true;
+}
 
+bool McPalette::load_name_rows(const JsonValue& document, std::string* error) {
     // The name rows: a pattern is only allowed to bring in a species, so an
     // unresolvable one is a table fault rather than a runtime surprise.
     if (const JsonValue* names = document.member("names")) {
@@ -309,134 +344,6 @@ bool McPalette::load(const std::string& json_text, std::string* error) {
             names_by_key_.emplace(row.key, names_.size());
             names_.push_back(std::move(row));
         }
-    }
-
-    const JsonValue* blocks = document.member("blocks");
-    if (blocks == nullptr || !blocks->is_array()) {
-        return fail(error, "minecraft_blocks.json: root needs a \"blocks\" array");
-    }
-
-    for (const JsonValue& entry : blocks->items()) {
-        if (!entry.is_object()) return fail(error, "minecraft_blocks.json: every row must be an object");
-
-        const JsonValue* id_value = entry.member("id");
-        if (id_value == nullptr || !id_value->is_number()) {
-            return fail(error, "minecraft_blocks.json: a row is missing a numeric \"id\"");
-        }
-        const int64_t raw_id = id_value->as_integer();
-        if (raw_id < 0 || raw_id > kMaxLegacyId) {
-            return fail(error, "minecraft_blocks.json: id " + std::to_string(raw_id) +
-                                   " is outside the legacy range 0.." + std::to_string(kMaxLegacyId));
-        }
-        PaletteRow row;
-        row.id = static_cast<uint16_t>(raw_id);
-        if (by_id_.find(row.id) != by_id_.end()) {
-            return fail_row(error, row.id, "a second row for the same id");
-        }
-
-        std::string family;
-        // "family" only has an effect on the named-set path; on an inline
-        // "variants" object it would be read and dropped, which is exactly the
-        // silent no-op the unknown-key check exists to prevent.
-        bool variants_from_set = false;
-        for (const auto& member : entry.members()) {
-            const std::string& key = member.first;
-            const JsonValue& value = member.second;
-            if (is_comment_key(key) || key == "id") continue;
-            if (key == "note") {
-                if (!value.is_string()) return fail_row(error, row.id, "\"note\" must be a string");
-                row.note = value.as_string();
-                continue;
-            }
-            if (key == "block") {
-                if (!value.is_string()) return fail_row(error, row.id, "\"block\" must be a string");
-                row.block = value.as_string();
-                continue;
-            }
-            if (key == "family") {
-                if (!value.is_string()) return fail_row(error, row.id, "\"family\" must be a string");
-                family = value.as_string();
-                if (family.find('{') != std::string::npos) {
-                    return fail_row(error, row.id, "\"family\" must not contain a placeholder");
-                }
-                continue;
-            }
-            if (key == "variants") {
-                if (value.is_string()) {
-                    // A named set, with this row's family substituted in.
-                    variants_from_set = true;
-                    const std::string name = value.as_string();
-                    const auto found = std::find_if(sets_.begin(), sets_.end(),
-                                                    [&name](const VariantSet& s) { return s.name == name; });
-                    if (found == sets_.end()) {
-                        return fail_row(error, row.id, "unknown variant set \"" + name + "\"");
-                    }
-                    for (const auto& variant : found->variants) {
-                        std::string target = variant.second;
-                        if (target.find(kFamilyPlaceholder) != std::string::npos && family.empty()) {
-                            return fail_row(error, row.id,
-                                            "variant set \"" + name + "\" needs a \"family\"");
-                        }
-                        for (size_t at = target.find(kFamilyPlaceholder); at != std::string::npos;
-                             at = target.find(kFamilyPlaceholder)) {
-                            target.replace(at, std::strlen(kFamilyPlaceholder), family);
-                        }
-                        row.variants.emplace_back(variant.first, std::move(target));
-                    }
-                } else if (!parse_variants(value, row.variants, "id " + std::to_string(row.id), error)) {
-                    return false;
-                }
-                continue;
-            }
-            if (key == "skip") {
-                if (!value.is_bool()) return fail_row(error, row.id, "\"skip\" must be true or false");
-                row.skip = value.as_bool();
-                continue;
-            }
-            if (key == "substitute") {
-                if (!value.is_bool()) return fail_row(error, row.id, "\"substitute\" must be true or false");
-                row.substitute = value.as_bool();
-                continue;
-            }
-            if (key == "fluid") {
-                if (!value.is_bool()) return fail_row(error, row.id, "\"fluid\" must be true or false");
-                row.fluid = value.as_bool();
-                continue;
-            }
-            if (key == "still") {
-                if (!value.is_string()) {
-                    return fail_row(error, row.id, "\"still\" must be a block name");
-                }
-                row.still = value.as_string();
-                continue;
-            }
-            // An unrecognised key is nearly always a typo ("blok", "variant"),
-            // and silently ignoring it would drop the mapping it was meant to
-            // make, so it is an error.
-            return fail_row(error, row.id, "unknown key \"" + key + "\"");
-        }
-
-        if (!family.empty() && !variants_from_set) {
-            return fail_row(error, row.id, "\"family\" is only meaningful with a named variant set");
-        }
-        // A row that both names a block and declares itself skipped is ambiguous
-        // about which one wins, and the usual cause is a "block": "skip" left in
-        // as if it were a value, which would then be placed as a block name.
-        if (row.skip && !row.block.empty()) {
-            return fail_row(error, row.id, "a row cannot have both \"block\" and \"skip\"");
-        }
-        if (row.block.empty() && row.variants.empty() && !row.skip) {
-            return fail_row(error, row.id, "a row needs \"block\", \"variants\" or \"skip\"");
-        }
-        if (!row.still.empty() && !row.fluid) {
-            return fail_row(error, row.id, "\"still\" only means something with \"fluid\"");
-        }
-        by_id_.emplace(row.id, rows_.size());
-        rows_.push_back(std::move(row));
-    }
-
-    if (rows_.empty() && names_.empty()) {
-        return fail(error, "minecraft_blocks.json: no rows");
     }
     return true;
 }

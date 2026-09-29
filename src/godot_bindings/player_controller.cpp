@@ -23,6 +23,19 @@ PlayerController::~PlayerController() {
 }
 
 void PlayerController::_bind_methods() {
+    // One function per area of the API, in the order the areas are declared: a
+    // new binding has one obvious home, and no single list runs off the screen.
+    // Signals and properties go in last, in that order.
+    bind_actions();
+    bind_inventory_api();
+    bind_ui_state();
+    bind_tuning();
+    bind_state_and_view();
+    add_signals();
+    add_properties();
+}
+
+void PlayerController::bind_actions() {
     ClassDB::bind_method(D_METHOD("toggle_fly_mode"), &PlayerController::toggle_fly_mode);
     ClassDB::bind_method(D_METHOD("break_block"), &PlayerController::break_block);
     ClassDB::bind_method(D_METHOD("place_block"), &PlayerController::place_block);
@@ -31,7 +44,9 @@ void PlayerController::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_selected_block", "block_id"), &PlayerController::set_selected_block);
     ClassDB::bind_method(D_METHOD("get_block_edit_counter"), &PlayerController::get_block_edit_counter);
     ClassDB::bind_method(D_METHOD("get_break_state"), &PlayerController::get_break_state);
-    
+}
+
+void PlayerController::bind_inventory_api() {
     // Inventory API
     ClassDB::bind_method(D_METHOD("get_hotbar_slot_count", "slot"), &PlayerController::get_hotbar_slot_count);
     ClassDB::bind_method(D_METHOD("get_hotbar_slot_block_id", "slot"), &PlayerController::get_hotbar_slot_block_id);
@@ -54,7 +69,9 @@ void PlayerController::_bind_methods() {
     ClassDB::bind_method(D_METHOD("is_inventory_open"), &PlayerController::is_inventory_open);
     ClassDB::bind_method(D_METHOD("set_table_menu_open", "open"), &PlayerController::set_table_menu_open);
     ClassDB::bind_method(D_METHOD("is_table_menu_open"), &PlayerController::is_table_menu_open);
+}
 
+void PlayerController::bind_ui_state() {
     ClassDB::bind_method(D_METHOD("set_chat_open", "open"), &PlayerController::set_chat_open);
     ClassDB::bind_method(D_METHOD("is_chat_open"), &PlayerController::is_chat_open);
     ClassDB::bind_method(D_METHOD("set_settings_open", "open"), &PlayerController::set_settings_open);
@@ -66,12 +83,16 @@ void PlayerController::_bind_methods() {
     ClassDB::bind_method(D_METHOD("teleport_to", "pos"), &PlayerController::teleport_to);
     ClassDB::bind_method(D_METHOD("set_fly_mode", "on"), &PlayerController::set_fly_mode);
     ClassDB::bind_method(D_METHOD("get_fly_mode"), &PlayerController::get_fly_mode);
-    
+}
+
+void PlayerController::bind_tuning() {
     ClassDB::bind_method(D_METHOD("set_sensitivity", "s"), &PlayerController::set_sensitivity);
     ClassDB::bind_method(D_METHOD("get_sensitivity"), &PlayerController::get_sensitivity);
     ClassDB::bind_method(D_METHOD("set_fly_speed", "s"), &PlayerController::set_fly_speed);
     ClassDB::bind_method(D_METHOD("get_fly_speed"), &PlayerController::get_fly_speed);
+}
 
+void PlayerController::bind_state_and_view() {
     ClassDB::bind_method(D_METHOD("get_health"), &PlayerController::get_health);
     ClassDB::bind_method(D_METHOD("set_health", "value"), &PlayerController::set_health);
     ClassDB::bind_method(D_METHOD("is_dead"), &PlayerController::is_dead);
@@ -88,7 +109,9 @@ void PlayerController::_bind_methods() {
     ClassDB::bind_method(D_METHOD("update_player_animation", "is_walking"), &PlayerController::update_player_animation);
     ClassDB::bind_method(D_METHOD("get_aim_origin"), &PlayerController::get_aim_origin);
     ClassDB::bind_method(D_METHOD("get_aim_direction"), &PlayerController::get_aim_direction);
+}
 
+void PlayerController::add_signals() {
     ADD_SIGNAL(MethodInfo("crafting_table_used"));
     ADD_SIGNAL(MethodInfo("block_placed"));
     ADD_SIGNAL(MethodInfo("died"));
@@ -101,7 +124,9 @@ void PlayerController::_bind_methods() {
     ADD_SIGNAL(MethodInfo("wand_menu"));
     ADD_SIGNAL(MethodInfo("wand_use"));
     ADD_SIGNAL(MethodInfo("wand_confirm"));
+}
 
+void PlayerController::add_properties() {
     ADD_PROPERTY(PropertyInfo(Variant::INT, "health", PROPERTY_HINT_RANGE, "0,20,1"),
                  "set_health", "get_health");
 
@@ -111,6 +136,7 @@ void PlayerController::_bind_methods() {
                  "set_fly_speed", "get_fly_speed");
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "third_person"), "set_third_person", "get_third_person");
 }
+
 
 void PlayerController::set_sensitivity(float s) { sensitivity_ = s; }
 float PlayerController::get_sensitivity() const { return sensitivity_; }

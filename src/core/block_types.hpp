@@ -12,7 +12,7 @@
 #include "core/block_properties.hpp"
 #include "core/block_shape_types.hpp"
 
-namespace godot { class String; }
+namespace godot { class Array; class Dictionary; class String; }
 
 namespace VoxelEngine {
 
@@ -348,6 +348,14 @@ public:
 
 private:
     BlockRegistry() = default;
+
+    // The passes load_from_json runs once every entry is registered. They are
+    // members because each writes one of the private tables below, and they live
+    // in core/block_types_families.cpp, next to the comments that explain them.
+    void resolve_block_references(const godot::Array& blocks_arr) noexcept;
+    void build_slab_families(const godot::Array& blocks_arr) noexcept;
+    void build_stair_families(const godot::Array& blocks_arr) noexcept;
+    void build_wall_families(const godot::Array& blocks_arr) noexcept;
 
     std::array<BlockType, MAX_BLOCK_TYPES> block_types{};
     size_t count = 0;

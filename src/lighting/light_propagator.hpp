@@ -17,10 +17,13 @@ public:
     void set_mesh_manager(MeshManager* mm) { mesh_manager = mm; }
 
     // Public wrappers: acquire exclusive lock, call _locked, release lock, then dirty-mark.
+    // The pipeline reaches light through exactly three entries — the region pass,
+    // the incremental block change, and try_fixup_chunk. The BFS primitives below
+    // (_locked variants) are internal: a caller that took the BFS wrappers directly
+    // would have to reproduce their lock-set arithmetic, and the one former public
+    // entry that scanned a chunk's lights without holding the shard's lock
+    // (propagate_from_existing_light) was removed rather than kept as a trap.
     void propagate_block_light_region(int32_t cx, int32_t cy, int32_t cz);
-    void propagate_from_existing_light(int32_t cx, int32_t cy, int32_t cz);
-    void light_propagate_add(int32_t origin_cx, int32_t origin_cy, int32_t origin_cz, std::vector<LightNode>& queue);
-    void light_propagate_remove(int32_t origin_cx, int32_t origin_cy, int32_t origin_cz, std::vector<LightNode>& remove_queue, std::vector<LightNode>& add_queue);
     void update_block_light_incremental(int32_t origin_cx, int32_t origin_cy, int32_t origin_cz, int32_t cx, int32_t cy, int32_t cz, int32_t x, int32_t y, int32_t z, BlockID old_block, BlockID new_block, uint8_t old_cell_r, uint8_t old_cell_g, uint8_t old_cell_b);
 
     // _locked BFS variants: caller MUST already hold lock_all_exclusive().

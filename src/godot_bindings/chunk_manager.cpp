@@ -1,5 +1,7 @@
 #include "godot_bindings/chunk_manager.hpp"
 
+#include <godot_cpp/core/object.hpp>
+
 #include "debug/crash_dump.hpp"
 #include "engine/voxel_engine_controller.hpp"
 #include "render/multimesh_instance_layout.hpp"
@@ -24,6 +26,30 @@
 #include <algorithm>
 
 using namespace godot;
+
+namespace {
+
+// Cached scene nodes are held as instance IDs and resolved on every use, never
+// as raw pointers: a node this class caches can be freed while the manager
+// lives on (a scene rebuild, a camera swap, the editor reloading the 3D
+// viewport), and a raw pointer would then be a use-after-free on the next
+// frame. An ID whose object is gone (or that was reused by an object of
+// another class) resolves to nullptr here, and the caller re-resolves from the
+// scene and re-caches.
+template <typename T>
+T* resolve_cached(uint64_t& id) {
+	if (id == 0) return nullptr;
+	T* resolved = Object::cast_to<T>(ObjectDB::get_instance(id));
+	if (resolved == nullptr) id = 0;
+	return resolved;
+}
+
+template <typename T>
+void cache_object(uint64_t& id, const T* object) {
+	id = object != nullptr ? object->get_instance_id() : 0;
+}
+
+} // namespace
 using namespace VoxelEngine;
 
 ChunkManager::ChunkManager() {
@@ -57,9 +83,10 @@ void ChunkManager::_ready() {
     controller->set_owner(this);
     if (!player_path.is_empty()) {
         Node* player_node = get_node_or_null(player_path);
-        cached_player = Object::cast_to<Node3D>(player_node);
-        if (cached_player) {
-            controller->set_player_position(cached_player->get_global_position());
+        Node3D* player = Object::cast_to<Node3D>(player_node);
+        cache_object(cached_player_id, player);
+        if (player) {
+            controller->set_player_position(player->get_global_position());
         }
     }
     update_environment();
@@ -118,31 +145,35 @@ void ChunkManager::_process(double delta) {
         }
         if (cam) {
             player_pos = cam->get_global_position();
-            cached_camera = cam;
+            cache_object(cached_camera_id, cam);
         } else {
             // No editor camera available (e.g. 2D view focused): fall back to
             // the player_position property (set in the scene, e.g. 0/280/0).
-            cached_camera = nullptr;
+            cached_camera_id = 0;
             player_pos = controller->get_player_position();
         }
     } else {
         cam = Object::cast_to<godot::Camera3D>(get_viewport()->get_camera_3d());
         if (cam) {
             player_pos = cam->get_global_position();
-            cached_camera = cam;
-        } else if (cached_player) {
-            player_pos = cached_player->get_global_position();
-        } else if (!player_path.is_empty()) {
-            Node* player_node = get_node_or_null(player_path);
-            Node3D* player = Object::cast_to<Node3D>(player_node);
+            cache_object(cached_camera_id, cam);
+        } else {
+            Node3D* player = resolve_cached<Node3D>(cached_player_id);
             if (player) {
-                cached_player = player;
                 player_pos = player->get_global_position();
+            } else if (!player_path.is_empty()) {
+                Node* player_node = get_node_or_null(player_path);
+                Node3D* found = Object::cast_to<Node3D>(player_node);
+                cache_object(cached_player_id, found);
+                if (found) {
+                    player_pos = found->get_global_position();
+                }
             }
         }
     }
 
     // Extract camera frustum planes for frustum-prioritized chunk loading
+    godot::Camera3D* cached_camera = resolve_cached<godot::Camera3D>(cached_camera_id);
     if (cached_camera) {
         godot::TypedArray<godot::Plane> frustum_planes = cached_camera->get_frustum();
         if (frustum_planes.size() >= 6) {
@@ -152,17 +183,20 @@ void ChunkManager::_process(double delta) {
             }
             controller->update_frustum(planes);
         }
-    } else if (cached_player) {
-        cam = Object::cast_to<godot::Camera3D>(cached_player->get_node_or_null(NodePath("Camera3D")));
-        if (cam) {
-            cached_camera = cam;
-            godot::TypedArray<godot::Plane> frustum_planes = cached_camera->get_frustum();
-            if (frustum_planes.size() >= 6) {
-                std::array<godot::Plane, 6> planes;
-                for (int i = 0; i < 6; ++i) {
-                    planes[i] = frustum_planes[i];
+    } else {
+        Node3D* player = resolve_cached<Node3D>(cached_player_id);
+        if (player) {
+            cam = Object::cast_to<godot::Camera3D>(player->get_node_or_null(NodePath("Camera3D")));
+            if (cam) {
+                cache_object(cached_camera_id, cam);
+                godot::TypedArray<godot::Plane> frustum_planes = cam->get_frustum();
+                if (frustum_planes.size() >= 6) {
+                    std::array<godot::Plane, 6> planes;
+                    for (int i = 0; i < 6; ++i) {
+                        planes[i] = frustum_planes[i];
+                    }
+                    controller->update_frustum(planes);
                 }
-                controller->update_frustum(planes);
             }
         }
     }
@@ -178,8 +212,8 @@ void ChunkManager::_process(double delta) {
 
 void ChunkManager::_exit_tree() {
     ready_for_auto_update = false;
-    cached_player = nullptr;
-    cached_camera = nullptr;
+    cached_player_id = 0;
+    cached_camera_id = 0;
     // Flush any dirty chunks while the world is still fully alive (all chunks
     // loaded, thread pool running, controller owned by this node). Without this,
     // edits made since the last 5s periodic flush are lost on quit. Blocking:
@@ -301,12 +335,10 @@ Dictionary ChunkManager::raycast_from_camera(double max_distance) {
         }
     }
     if (!have_eye_ray) {
-        Camera3D* camera = nullptr;
-        if (cached_camera) {
-            camera = cached_camera;
-        } else {
+        Camera3D* camera = resolve_cached<Camera3D>(cached_camera_id);
+        if (!camera) {
             camera = Object::cast_to<Camera3D>(player->get_node_or_null(NodePath("Camera3D")));
-            if (camera) cached_camera = camera;
+            if (camera) cache_object(cached_camera_id, camera);
         }
         if (!camera) return result;
         ray_origin = camera->get_global_position();
@@ -941,17 +973,25 @@ void ChunkManager::flush_dirty_chunks() { controller->flush_dirty_chunks(); }
 void ChunkManager::update_environment() {
     Node* parent = get_parent();
     if (!parent) return;
-    if (parent != cached_env_parent || !cached_world_env) {
-        cached_env_parent = parent;
-        cached_world_env = Object::cast_to<WorldEnvironment>(
+    // The parent is compared by ID for the same reason the nodes below are
+    // resolved from IDs: a reparent could free the object the old pointer
+    // belonged to, and comparing a dangling pointer is not a question anyone
+    // can answer. An ID comparison is always sound.
+    const uint64_t parent_id = parent->get_instance_id();
+    WorldEnvironment* world_env = resolve_cached<WorldEnvironment>(cached_world_env_id);
+    if (parent_id != cached_env_parent_id || world_env == nullptr) {
+        cached_env_parent_id = parent_id;
+        world_env = Object::cast_to<WorldEnvironment>(
             parent->get_node_or_null(NodePath("WorldEnvironment"))
         );
-        cached_sun_light = Object::cast_to<DirectionalLight3D>(
+        cache_object(cached_world_env_id, world_env);
+        DirectionalLight3D* sun = Object::cast_to<DirectionalLight3D>(
             parent->get_node_or_null(NodePath("SunLight"))
         );
+        cache_object(cached_sun_light_id, sun);
     }
-    if (!cached_world_env) return;
-    Ref<Environment> env = cached_world_env->get_environment();
+    if (world_env == nullptr) return;
+    Ref<Environment> env = world_env->get_environment();
     if (!env.is_valid()) return;
 
     auto& ec = controller->get_environment_controller();
@@ -974,26 +1014,37 @@ void ChunkManager::update_environment() {
     env->set_ambient_light_color(day_night.get_ambient_color());
     env->set_ambient_light_energy(day_night.get_ambient_intensity());
 
-    if (cached_sun_light) {
-        Vector3 light_pos = cached_sun_light->get_global_position();
-        cached_sun_light->look_at(light_pos - sun_dir, Vector3(0, 0, 1));
+    // The sun is re-acquired on its own, not only inside the guard above: a
+    // SunLight can be swapped under an unchanged parent (the world environment
+    // stays valid, so the guard does not re-run), and a sun that resolved to
+    // nullptr and was simply skipped would leave the day/night cycle driving a
+    // light that no longer exists - the world would keep its last sun
+    // transform instead of tracking the sun.
+    DirectionalLight3D* sun_light = resolve_cached<DirectionalLight3D>(cached_sun_light_id);
+    if (sun_light == nullptr) {
+        sun_light = Object::cast_to<DirectionalLight3D>(parent->get_node_or_null(NodePath("SunLight")));
+        cache_object(cached_sun_light_id, sun_light);
+    }
+    if (sun_light) {
+        Vector3 light_pos = sun_light->get_global_position();
+        sun_light->look_at(light_pos - sun_dir, Vector3(0, 0, 1));
 
         float sun_visible = std::clamp((elevation + 0.08f) / 0.16f, 0.0f, 1.0f);
         float moon_visible = (1.0f - sun_visible) * (1.0f - blend);
 
         if (sun_visible > 0.0f) {
-            cached_sun_light->set_color(sun_color);
-            cached_sun_light->set_param(Light3D::PARAM_ENERGY, 3.0f * sun_visible * day_night.get_day_intensity());
-            cached_sun_light->set_shadow(false);
-            cached_sun_light->set_sky_mode(DirectionalLight3D::SKY_MODE_LIGHT_ONLY);
+            sun_light->set_color(sun_color);
+            sun_light->set_param(Light3D::PARAM_ENERGY, 3.0f * sun_visible * day_night.get_day_intensity());
+            sun_light->set_shadow(false);
+            sun_light->set_sky_mode(DirectionalLight3D::SKY_MODE_LIGHT_ONLY);
         } else if (moon_visible > 0.0f) {
-            cached_sun_light->set_color(Color(1.0f, 1.0f, 1.0f));
-            cached_sun_light->set_param(Light3D::PARAM_ENERGY, 0.25f * moon_visible * day_night.get_night_intensity());
-            cached_sun_light->set_shadow(false);
-            cached_sun_light->set_sky_mode(DirectionalLight3D::SKY_MODE_LIGHT_ONLY);
+            sun_light->set_color(Color(1.0f, 1.0f, 1.0f));
+            sun_light->set_param(Light3D::PARAM_ENERGY, 0.25f * moon_visible * day_night.get_night_intensity());
+            sun_light->set_shadow(false);
+            sun_light->set_sky_mode(DirectionalLight3D::SKY_MODE_LIGHT_ONLY);
         } else {
-            cached_sun_light->set_param(Light3D::PARAM_ENERGY, 0.0f);
-            cached_sun_light->set_shadow(false);
+            sun_light->set_param(Light3D::PARAM_ENERGY, 0.0f);
+            sun_light->set_shadow(false);
         }
     }
 }

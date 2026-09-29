@@ -328,11 +328,18 @@ private:
     // Created on first use: it needs the controller's thread pool and chunk map.
     std::unique_ptr<VoxelEngine::nav::PathService> path_service;
     godot::NodePath player_path = godot::NodePath("../Player");
-    godot::Node3D* cached_player = nullptr;
-    godot::Camera3D* cached_camera = nullptr;
-    godot::WorldEnvironment* cached_world_env = nullptr;
-    godot::DirectionalLight3D* cached_sun_light = nullptr;
-    godot::Node* cached_env_parent = nullptr;
+    // Cached scene nodes are held as ObjectIDs and re-resolved through
+    // ObjectDB::get_instance on every use, never as raw pointers: a node this
+    // caches can be freed while this manager stays alive (a scene rebuild, a
+    // camera swap, the editor reloading the 3D viewport), and a raw pointer
+    // would then be a use-after-free on the next frame. An ID of a freed object
+    // resolves to nullptr, which every use site already handles as "not found
+    // this frame". 0 is the invalid ID.
+    uint64_t cached_player_id = 0;
+    uint64_t cached_camera_id = 0;
+    uint64_t cached_world_env_id = 0;
+    uint64_t cached_sun_light_id = 0;
+    uint64_t cached_env_parent_id = 0;
     bool ready_for_auto_update = false;
     float move_speed_multiplier_ = 1.0f;
 };

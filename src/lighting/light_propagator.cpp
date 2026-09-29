@@ -8,9 +8,35 @@
 #include <algorithm>
 #include <unordered_set>
 
+namespace {
+
+// A light BFS's thread-local queue is kept allocated between calls so the
+// steady case (a torch placed or broken) never allocates. A pathological call
+// — clearing a whole built-up region at once — can push it far past that, and
+// the memory would then sit pinned in the worker thread forever. Past this
+// cap the buffer is handed back: the next call re-reserves the small steady
+// size and the spike is paid for once, by the frame that caused it.
+constexpr size_t kQueueBufferTrimCapacity = 4096;
+
+} // namespace
+
 using namespace godot;
 
 namespace VoxelEngine {
+
+namespace {
+
+// Shrinks `buffer` when its capacity ran past the cap. Returns it unchanged
+// (the common case: capacity under the cap, nothing to do).
+void trim_queue_buffer(std::vector<LightNode>& buffer) {
+    if (buffer.capacity() > kQueueBufferTrimCapacity) {
+        std::vector<LightNode> trimmed;
+        trimmed.reserve(64);
+        buffer.swap(trimmed);
+    }
+}
+
+} // namespace
 
 // Thread-local buffers for light propagation queues
 thread_local std::vector<LightNode> LightPropagator::add_queue_buffer;
@@ -51,97 +77,14 @@ void LightPropagator::propagate_block_light_region(int32_t cx, int32_t cy, int32
     }
 }
 
-void LightPropagator::propagate_from_existing_light(int32_t cx, int32_t cy, int32_t cz) {
-    ChunkData* chunk = chunk_map->get_chunk_data(cx, cy, cz);
-    if (!chunk) return;
-    
-    // Use thread-local buffer instead of local allocation
-    add_queue_buffer.clear();
-    add_queue_buffer.reserve(64);
-    
-    for (int y = 0; y < CHUNK_HEIGHT; y++) {
-        for (int z = 0; z < CHUNK_DEPTH; z++) {
-            for (int x = 0; x < CHUNK_WIDTH; x++) {
-                uint8_t r = chunk->get_light_r(x, y, z);
-                uint8_t g = chunk->get_light_g(x, y, z);
-                uint8_t b = chunk->get_light_b(x, y, z);
-                if (r > 0 || g > 0 || b > 0) {
-                    add_queue_buffer.push_back({cx, cy, cz, static_cast<int16_t>(x), static_cast<int16_t>(y), static_cast<int16_t>(z), r, g, b});
-                }
-            }
-        }
-    }
-    if (!add_queue_buffer.empty()) {
-        light_propagate_add(cx, cy, cz, add_queue_buffer);
-    }
-    if (mesh_manager) {
-        mesh_manager->mark_chunks_dirty_for_light(cx, cy, cz);
-    }
-}
-
-void LightPropagator::light_propagate_add(int32_t origin_cx, int32_t origin_cy, int32_t origin_cz, std::vector<LightNode>& queue) {
-    {
-        // BFS can reach at most 1 chunk in each direction (max light level 15,
-        // chunk size 32). Collect all seed chunks' 3×3×3 neighborhoods and
-        // lock only those shards.
-        std::vector<uint64_t> keys;
-        keys.reserve(static_cast<size_t>(27) * 4);
-        bool seen[ChunkMap::kNumShards] = {};
-        auto add_key = [&](uint64_t k) {
-            size_t s = chunk_map->shard_of(k);
-            if (!seen[s]) { seen[s] = true; keys.push_back(k); }
-        };
-        // Origin chunk + its 3×3×3
-        for (int dz = -1; dz <= 1; dz++)
-            for (int dy = -1; dy <= 1; dy++)
-                for (int dx = -1; dx <= 1; dx++)
-                    add_key(chunk_map->get_chunk_key(origin_cx + dx, origin_cy + dy, origin_cz + dz));
-        // Each seed node's chunk + its 3×3×3
-        for (auto& node : queue) {
-            for (int dz = -1; dz <= 1; dz++)
-                for (int dy = -1; dy <= 1; dy++)
-                    for (int dx = -1; dx <= 1; dx++)
-                        add_key(chunk_map->get_chunk_key(node.cx + dx, node.cy + dy, node.cz + dz));
-        }
-        auto lock = chunk_map->lock_keys_exclusive(keys);
-        light_propagate_add_locked(origin_cx, origin_cy, origin_cz, queue);
-    }
-    if (mesh_manager) {
-        mesh_manager->mark_chunks_dirty_for_light(origin_cx, origin_cy, origin_cz);
-    }
-}
-
-void LightPropagator::light_propagate_remove(int32_t origin_cx, int32_t origin_cy, int32_t origin_cz, std::vector<LightNode>& remove_queue, std::vector<LightNode>& add_queue) {
-    {
-        // Same bounded-reach reasoning as light_propagate_add.
-        std::vector<uint64_t> keys;
-        keys.reserve(static_cast<size_t>(27) * 4);
-        bool seen[ChunkMap::kNumShards] = {};
-        auto add_key = [&](uint64_t k) {
-            size_t s = chunk_map->shard_of(k);
-            if (!seen[s]) { seen[s] = true; keys.push_back(k); }
-        };
-        for (int dz = -1; dz <= 1; dz++)
-            for (int dy = -1; dy <= 1; dy++)
-                for (int dx = -1; dx <= 1; dx++)
-                    add_key(chunk_map->get_chunk_key(origin_cx + dx, origin_cy + dy, origin_cz + dz));
-        for (auto& node : remove_queue) {
-            for (int dz = -1; dz <= 1; dz++)
-                for (int dy = -1; dy <= 1; dy++)
-                    for (int dx = -1; dx <= 1; dx++)
-                        add_key(chunk_map->get_chunk_key(node.cx + dx, node.cy + dy, node.cz + dz));
-        }
-        auto lock = chunk_map->lock_keys_exclusive(keys);
-        light_propagate_remove_locked(origin_cx, origin_cy, origin_cz, remove_queue, add_queue);
-    }
-    if (mesh_manager) {
-        mesh_manager->mark_chunks_dirty_for_light(origin_cx, origin_cy, origin_cz);
-    }
-}
-
 // -------------------------------------------------------------------------
 // _locked variants: caller already holds lock_all_exclusive().
 // MUST NOT call mark_chunks_dirty_for_light or any auto-locking accessor.
+// The public lock-then-call wrappers around these two BFS primitives were
+// removed as dead code: the pipeline reaches light through the region pass,
+// the incremental block change and try_fixup_chunk, and a caller that took
+// the primitives directly (the player light, below in environment_controller)
+// manages its own lock lifetime.
 // -------------------------------------------------------------------------
 
 void LightPropagator::propagate_block_light_region_locked(int32_t cx, int32_t cy, int32_t cz,
@@ -232,6 +175,9 @@ void LightPropagator::light_propagate_add_locked(int32_t origin_cx, int32_t orig
             }
         }
     }
+    // `queue` is usually one of the thread-local buffers (see the caller); hand
+    // back the memory a pathological BFS grew it to.
+    trim_queue_buffer(queue);
 }
 
 void LightPropagator::light_propagate_remove_locked(int32_t origin_cx, int32_t origin_cy, int32_t origin_cz, std::vector<LightNode>& remove_queue, std::vector<LightNode>& add_queue) {
@@ -306,6 +252,19 @@ void LightPropagator::light_propagate_remove_locked(int32_t origin_cx, int32_t o
             }
         }
     }
+    // Only `remove_queue` is trimmed here. It is an INPUT to this function and
+    // the loop above has walked its cursor to the end of it, so every node in
+    // it is already processed and only the memory is left to hand back.
+    //
+    // `add_queue` is deliberately NOT trimmed. It is an OUTPUT: this loop only
+    // fills it with the seeds that refill what the removal cleared (the
+    // surviving channels it found at line ~230 and ~251), and both callers run
+    // a separate add pass over it afterwards. Trimming it would swap the seeds
+    // away for a large enough removal, that pass's `!empty()` check would then
+    // read false, and the cells this pass just cleared would never be refilled -
+    // a dark region left where the surviving light should be, which is exactly
+    // the artifact the per-channel removal logic exists to avoid.
+    trim_queue_buffer(remove_queue);
 }
 
 void LightPropagator::try_fixup_chunk(uint64_t key, int32_t cx, int32_t cy, int32_t cz) {

@@ -43,15 +43,17 @@ scons portability   # no Windows-only shape outside #ifdef _WIN32
   does not inherit the includer's `using namespace`). Move the text verbatim first, then change
   it. The history and the traps are in `docs/file_size_plan.md`.
 - A new `.cpp` is picked up by `SConstruct`'s glob with no edit — unless its file is named in
-  `shared_sources`, the fuzz source lists or a tool's `Program()`.- **Four static gates run on
-  every push, and each catches a different class of mistake:**
+  `shared_sources`, the fuzz source lists or a tool's `Program()`.
+
+- **Four static gates run on every push, and each catches a different class of mistake:**
   - `scons sizecheck` — the 500-line cap above.
   - `scons portability` — a Windows-only include, `#pragma`, intrinsic or Win32 type outside
     an `#ifdef _WIN32` region, or `[[...]]` written after a decl-specifier. MSVC accepts both
     shapes and GCC/clang reject them, and the Linux jobs run only in CI, so such a mistake
     otherwise sits in the tree looking green.
-  - `scons docscheck` — a path the markdown cites that does not exist, a stated count that no
-    longer matches the tree, or a doc line too long to review. It scans `docs/` and the root
+  - `scons docscheck` — a path the markdown cites that does not exist, a link into a heading
+    that does not exist, a heading with no blank line above it, a stated count that no longer
+    matches the tree, or a doc line/section too big to review. It scans `docs/` and the root
     `*.md`, so a new page is checked without registering it anywhere.
   - clang-tidy over all of `src/` (`bugprone-*`, `concurrency-*`, `performance-*`), where any
     finding in project sources fails the job. It runs on Linux, so Windows-only code is outside
@@ -61,7 +63,8 @@ scons portability   # no Windows-only shape outside #ifdef _WIN32
 
 Where a fact belongs, so it does not get written four times and drift:
 
-- **How it works and why** → [ARCHITECTURE.md](ARCHITECTURE.md).
+- **How it works and why** → [ARCHITECTURE.md](ARCHITECTURE.md), and for the subsystems big
+  enough to have their own page, the [per-system documents](docs/README.md).
 - **A task** (add a block, a biome, a command, a shader) → [docs/howto.md](docs/howto.md).
 - **A field in a JSON file** → [docs/data-schemas.md](docs/data-schemas.md).
 - **A word** → [docs/glossary.md](docs/glossary.md).
@@ -70,7 +73,8 @@ Where a fact belongs, so it does not get written four times and drift:
   [docs/probes.md](docs/probes.md).
 - **Something tried and rejected** → a row in
   [docs/decisions/README.md](docs/decisions/README.md).
-- **Hard-won history and traps** → [AGENTS.md](AGENTS.md).
+- **Hard-won history and traps** → the `*-notes.md` page beside the subsystem in
+  [docs/](docs/README.md), or [AGENTS.md](AGENTS.md) for anything that cuts across systems.
 
 The index that says which is [docs/README.md](docs/README.md). Wrap prose at ~96 columns and run
 `scons docscheck`; `scons reflow` rewraps a long line mechanically (and refuses if the text

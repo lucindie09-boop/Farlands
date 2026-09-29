@@ -1076,3 +1076,37 @@ carries, so there is no shortcut to take there. Two details make it faithful:
 `scons portability` → clean; `benchmark.exe --check` → all six metrics within baseline
 (`generate_chunk` 0.225 ms against 0.265 ms before the by-value change — the copy is not
 measurable at one call per column).
+
+## 14. The docs pass (done)
+
+The code got a cap and three guards; the documents had no cap and no guard, so they rot the
+same way and nobody notices. This pass gave them the same treatment.
+
+- **A gate.** [../tools/check_docs.py](../tools/check_docs.py) fails on a cited path that does not
+exist (path, glob, bare basename or `block_types.hpp/cpp` shorthand), on a link into a heading
+that does not exist, on a count in prose that no longer matches the tree (test cases, file
+counts, `MAX_BLOCK_TYPES`, the size guard's own total) and on an unreadable line or file; it
+warns on a section over 3,000 words and on a table cell over 400 characters, because markdown
+gives you no way to wrap either. `scons docscheck`, plus a CI step, plus `--selftest`.
+- **The citations resolve.** 47 references pointed into `.freebuff/`, which is untracked: a
+clone had none of the probes the docs named as their proof. The scripts are un-ignored now
+(`!.freebuff/*.gd|sh|py`), the 231 MB of probe output is ignored instead, and
+`tools/check_tidy.py` (the local clang-tidy run) writes to `build/` rather than in there. The
+gate flags a citation that git IGNORES, since a clone can never have one; the 34 scripts named
+by the docs must therefore be added when this work is committed, or CI's docs check fails on a
+clean checkout.
+- **Seven sections moved out.** Every section over the warning budget became a file under
+`docs/` — shapes, streaming and the GDScript UI from ARCHITECTURE.md; shapes, rendering,
+inventory/GUI and build files from AGENTS.md — with a short summary and a link left behind. The
+text was moved by script and checked word-for-word, not retyped: 30,957 words across seven
+files. The rendering section was the hard case, since 5,400 of those words were a SINGLE bullet
+about the shader stack; it is now one subsection per effect (Hand Drawn, CRT Screen, Phosphor
+Trail, World Bend, Horizon Curve), cut at sentence starts.
+- **README stopped being a second copy.** Its Key Systems table had cells up to 5,531
+characters — an essay in a cell cannot be reviewed either. It is now one short row per system
+pointing at the document that owns the detail.
+
+The gate then caught two things in my own work: `check_docs.py` originally ran the test binary
+once per document (13 runs of a 20-second suite; now once, cached, `CHECK_DOCS_NO_SUITE=1` to
+skip), and a prose glob (`mesh_manager*.cpp`) that names no file. Result: 20 markdown files,
+0 problems and 0 warnings; AGENTS.md 2,286 → 863 lines, ARCHITECTURE.md 1,883 → 1,110.

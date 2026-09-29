@@ -166,7 +166,7 @@ The engineering notes - the decisions, the costs and the traps - are in
   placement merge only fires when the cell you are aiming into already holds a wall of the
   family, so there is no deliberate in-game way to thicken one. None of it can be solved with
   variant IDs instead: the registry is already at 175 of `MAX_BLOCK_TYPES` = 256
-- **Probed by `.freebuff/probe_shapes.gd`** — every new shape's boxes read back by name from the
+- **Probed by `probes/probe_shapes.gd`** — every new shape's boxes read back by name from the
   real registry and compared against the documented 16ths model, the hidden flags, a texture per
   block, and then the shape file itself for the four things a static box list cannot show: that
   `fence/all` is part-based with the four arms claimed, that its declared box lists still match

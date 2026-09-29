@@ -6,7 +6,7 @@ extends Node
 # user://current_skin.png (debounced) so edits survive a game restart; the
 # named SAVE/LOAD buttons work the same way on explicit files.
 
-const DEFAULT_SKIN_PATH := "res://skin.png"
+const DEFAULT_SKIN_PATH := "res://textures/skin.png"
 const CURRENT_SKIN_PATH := "user://current_skin.png"
 # Restart-recovery snapshot of the clean pre-noise skin: while noise is active
 # the reversibility base is kept on disk so the slider can still undo it in a

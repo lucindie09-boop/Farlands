@@ -34,7 +34,7 @@ with zero generations (the sweep is walking terrain that is already loaded).
 `reject_loaded` high means near rings being re-confirmed; `reject_above` /
 `reject_below` / `reject_oob` should be near zero, because the list is per-column
 bands now. Holes in the world are the thing this instrument exists for: run
-`.freebuff/probe_stream_bench.gd` for the two numbers a player feels (cold start
+`probes/probe_stream_bench.gd` for the two numbers a player feels (cold start
 after a teleport, and columns without ground during a flight).
 
 ## 3. Crash reports
@@ -46,7 +46,7 @@ our DLL's build time) and a `.dmp` beside it, plus a `-firstchance.txt` capped a
 8 writes. The report is written **before** the dump because it is what can be
 read without a debugger.
 
-- `.freebuff/run_crash_probe.sh` arms a deliberate fault and proves the whole
+- `probes/run_crash_probe.sh` arms a deliberate fault and proves the whole
   path works in the build you have. It is debug-build and env-armed only
   (`FARLANDS_CRASH_TEST=1`), so a synthetic crash never lands in your folder
   unasked.
@@ -61,7 +61,7 @@ For anything that only exists on screen or only exists in the loaded registry, a
 probe is the instrument — see [probes.md](probes.md). Two rules matter when
 reading one:
 
-- A probe that edits the world must go through `.freebuff/run_probe.sh`, which
+- A probe that edits the world must go through `probes/run_probe.sh`, which
   snapshots and restores `user://chunks`. Both runners refuse to start while a
   game process is up, and that check exists because the earlier version deleted
   and recreated a live userdata directory.

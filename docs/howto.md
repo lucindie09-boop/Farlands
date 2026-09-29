@@ -32,7 +32,7 @@ is not free: `python tools/make_block_textures.py`.
 1. If the shape already exists, set `"shape": "<name>"` on the block (or
    `/<variant>`, e.g. `slab/bottom`). A name that does not resolve leaves the
    block a **full cube** and only logs an error, so read `get_selection_boxes(id)`
-   back rather than trusting the log — `.freebuff/probe_crucible.gd` is the
+   back rather than trusting the log — `probes/probe_crucible.gd` is the
    pattern.
 2. If it is new, add `data/block_shapes.json` entry `<shape>/<variant>` with
    `selection_boxes` (a list of `[min_x, min_y, min_z, max_x, max_y, max_z]` in
@@ -45,7 +45,7 @@ is not free: `python tools/make_block_textures.py`.
 4. If it is a **family** (several ids that merge or place into one another), the
    family tables are built in `src/core/block_types_families.cpp` and referenced
    by `slab_family` / `stair_family` / `wall_family` in the block definitions.
-5. Covered by `.freebuff/probe_shapes.gd` — run it, and add your case.
+5. Covered by `probes/probe_shapes.gd` — run it, and add your case.
 
 ## Add an item
 

@@ -32,7 +32,7 @@ player is still generated, just after everything in front of it.
   NEGATIVE distance to all six), while `Frustum` tests `distance_to(center) < -r`, i.e. assumes
   inward. Measured, not read from docs: a camera at (500,100,500) facing -Z returns its near
   plane as normal `(0,0,1)` with `d=499.95`, and the engine's own `is_position_in_frustum` says
-  a box three chunks in FRONT of it is visible (`.freebuff/probe_frustum.gd`, and
+  a box three chunks in FRONT of it is visible (`probes/probe_frustum.gd`, and
   `tests/test_frustum.cpp` pins the same six plane values). Feeding those planes in unaltered
   made **every** chunk in the world test invisible. That was not theoretical: the generation
   sweep's frustum pass examined 2,376,704 candidates across one session and passed zero, so a
@@ -124,7 +124,7 @@ player is still generated, just after everything in front of it.
   view change (a position/angle threshold, with the near-left-top corner solved from three
   planes as the position proxy, and NORMALIZED normal comparison — an unnormalized `dot` reads
   an identical plane as 4 degrees apart and re-arms forever, which the first test run caught).
-  A/B'd on ONE build with `.freebuff/probe_stream_bench.gd`: **the idle cost went exactly to
+  A/B'd on ONE build with `probes/probe_stream_bench.gd`: **the idle cost went exactly to
   zero** (standing still 10 s: 306,845 checks and 88.5 ms → 0 checks and 0.6 ms) and
   **throughput fell** (1,903 → 1,750-1,798 chunks/s). The reason is the useful part: the pass is
   a SECOND, view-ordered consumer of the generation budget, and the walk cannot absorb its work
@@ -193,13 +193,13 @@ player is still generated, just after everything in front of it.
   (`try_unload` — skipping a column with a missing band chunk is exactly the invisible-hole
   bug), and a rebuild clears the whole set because every band in a new list is unknown. Measured
   on the same 40 s / 4000-block flight at 100 blocks/s (headless, 60 fps,
-  `.freebuff/probe_stream_bench.gd`): walk checks **2,368,883 → 316,302 (-87%)**, checks that
+  `probes/probe_stream_bench.gd`): walk checks **2,368,883 → 316,302 (-87%)**, checks that
   generate **3% → 26%**, and generation throughput **1,505 → 2,035 chunks/s (+35%)**, with the
   same zero holes in a 5x5 sample every 10 frames and the same cold-start time (~200 ms to
   terrain after a 2048-block teleport)
 - **Benchmark the thing the player feels, not the counters.** Every counter above is per-CHECK
   or per-COLUMN, so none of them answers "how long after I move does the ground under me exist"
-  — the question every change here is actually aimed at. `.freebuff/probe_stream_bench.gd`
+  — the question every change here is actually aimed at. `probes/probe_stream_bench.gd`
   measures it at a fixed 60 fps: (A) jump 2048 blocks into genuinely ungenerated terrain and
   time until the 3x3 columns around the landing spot have ground, and (B) move at 100 blocks/s
   for 40 s while sampling a 5x5 column square every 10 frames for columns still without ground.
@@ -335,7 +335,7 @@ player is still generated, just after everything in front of it.
   = 32) — so at render distance 32 it was **208,585 entries** while only a column's near-surface
   band could ever pass the filters. (That is what makes the two bullets above a change in kind
   rather than in tuning.) Measured over a 24-chunk flight (headless, RD 32,
-  `.freebuff/probe_gen_stats.gd`): **209,408 offsets examined for 2,616 generated (1.2%)**, with
+  `probes/probe_gen_stats.gd`): **209,408 offsets examined for 2,616 generated (1.2%)**, with
   96,541 rejected as above the column's content (46.1%), 76,054 out of world bounds (36.3%),
   34,102 already loaded (16.3%) and 95 below the band — so **82.4% of every pass is vertically
   impossible entries**, and because the 512-check per-frame budget is exhausted on every frame

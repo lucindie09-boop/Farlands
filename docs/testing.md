@@ -71,7 +71,7 @@ jobs that run on every push.
   an A/B possible without a rebuild between arms, and leaving it in a header called from
   everywhere is not an option
 - **A probe that lasts more than a few frames should be a benchmark, not a pass/fail
-  assertion**: `.freebuff/probe_stream_bench.gd` measures the two things a player feels — time
+  assertion**: `probes/probe_stream_bench.gd` measures the two things a player feels — time
   from a 2048-block teleport until the 3x3 columns around you have ground (~200 ms), and columns
   still without ground in a 5x5 square while flying at 100 blocks/s for 40 s (0 holes) — at a
   fixed 60 fps so the engine's time budgets mean what they mean in the game, and what a STANDING
@@ -84,11 +84,11 @@ jobs that run on every push.
 - **A probe that edits the world is writing persisted edits — snapshot the world first**:
   `BlockEditor::add_block_edit` writes the edit map, which autosaves into `user://chunks/*.edit`
   (every 5 s), so a probe that places blocks changes the world the user plays even if the probe
-  fails or is killed. Run those through `.freebuff/run_probe.sh <probe.gd>`, which copies that
+  fails or is killed. Run those through `probes/run_probe.sh <probe.gd>`, which copies that
   directory aside, runs the probe, and restores it afterwards (and refuses to run while a GAME
   process is up, since it would save over the restore; the editor is fine). The first
   `probe_flow.gd` runs did not, and left stone shelves and a creep of poured water in the real
-  world — `.freebuff/clean_flow_probe_litter.gd` is the one-shot repair, written to remove only
+  world — `probes/clean_flow_probe_litter.gd` is the one-shot repair, written to remove only
   dynamic fluid and floating stone
 - **A probe that edits the world must verify the write**: `BlockEditor::place_block` only
   APPLIES an edit when the target chunk has render data (`get_chunk_render_data_fast`);
@@ -98,7 +98,7 @@ jobs that run on every push.
   that spawned inside rock silently aims at the wrong block. Move the player to open ground and
   read the edit back before trusting it, and do NOT call `generate_chunk()` on an already-loaded
   chunk as a shortcut: that leaves it without render data and queues every later write to it
-  (`_wait_for_applied_writes` in `.freebuff/probe_hammer.gd` is the pattern)
+  (`_wait_for_applied_writes` in `probes/probe_hammer.gd` is the pattern)
 
 ## The CI jobs
 

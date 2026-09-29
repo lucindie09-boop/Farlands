@@ -17,7 +17,7 @@ were paid for once already. The shapes themselves are in
   walls open at the top (9 boxes; its texture is `stone` as a placeholder). A `shape` name that
   fails to resolve only logs an error and leaves the block a FULL CUBE, so a typo looks like a
   plain block rather than failing — read `get_selection_boxes(id)` back to prove the model
-  landed (`.freebuff/probe_crucible.gd`, and `tests/test_mesh_face_emission.cpp` for the emitted
+  landed (`probes/probe_crucible.gd`, and `tests/test_mesh_face_emission.cpp` for the emitted
   geometry)
 - **Liquids are passable, and the answer lives in one place**: `BlockType::stops_bodies()` is
   false for anything carrying the `Liquid` property, and that is what the collision resolver,
@@ -209,7 +209,7 @@ were paid for once already. The shapes themselves are in
 
 ## Probed
 
-- **Probed by `.freebuff/probe_shapes.gd`**, which reads every new shape's boxes back from the
+- **Probed by `probes/probe_shapes.gd`**, which reads every new shape's boxes back from the
   real registry and compares them to the documented 16ths model, checks the hidden flags,
   asserts a texture loaded per block, and then reads `data/block_shapes.json` itself for the
   things a static box list cannot show: that `fence/all` and `stair/n` are part-based with their

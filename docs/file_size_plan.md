@@ -835,7 +835,7 @@ after and diffed.
   `core/block_types_families.cpp` (**181**) as four private members declared in the header
   (460 → 468 lines, +10). The two identical selection/collision box loops collapsed into one
   `read_boxes`. The old owner was 448 lines and is now 367.
-  **Verified against the registry itself**: a new probe (`.freebuff/probe_registry_digest.gd`)
+  **Verified against the registry itself**: a new probe (`probes/probe_registry_digest.gd`)
   dumps every GDScript-visible field of all 175 entries — id, hidden flag, side texture,
   resolved selection boxes, registry name, inventory visibility — and the before/after files
   are byte-identical.
@@ -854,7 +854,7 @@ after and diffed.
   with one `PasteWrite` accumulator struct replacing ten locals. The per-cell guards turned
   from `continue` to `return`, and the body guard it shared with the pour path became
   `cell_hits_player_body`. This function had **no unit-test coverage at all**, so it was
-  verified with `.freebuff/probe_paste.gd`: the probe pastes four real builds, checks the
+  verified with `probes/probe_paste.gd`: the probe pastes four real builds, checks the
   full-size case cell by cell, re-pastes with gaps, undoes, and then pastes two huge
   cross-chunk files. Its stable lines (planned/written/restored counts, substitution stats,
   "box holds exactly 3189 written cells", and the settled totals 17005 cells / 27 chunks and
@@ -864,13 +864,13 @@ after and diffed.
 - **`place_block`** (326-line file → 371) became a frame over `resolve_held_block`,
   `merge_slab_placement`, `rotate_stair_placement` and `merge_wall_placement` — the three
   family rules that were inline in it — all file-local, so the header did not grow.
-  **Verified** with `.freebuff/probe_torch_place.gd` (item → block placement end to end: the
+  **Verified** with `probes/probe_torch_place.gd` (item → block placement end to end: the
   item places block 150, consumes the item, wears the item's texture, and breaking it returns
-  the item) and `.freebuff/probe_bucket.gd` (the pour path whose guard it now shares).
+  the item) and `probes/probe_bucket.gd` (the pour path whose guard it now shares).
 - **`_bind_methods`** was split into seven static member functions (`bind_actions`,
   `bind_inventory_api`, `bind_ui_state`, `bind_tuning`, `bind_state_and_view`, `add_signals`,
   `add_properties`), every bind line verbatim, methods first and then signals then properties
-  as before. **Verified** by a new probe (`.freebuff/probe_bindings.gd`) that walks the live
+  as before. **Verified** by a new probe (`probes/probe_bindings.gd`) that walks the live
   `ClassDB` list: all 58 methods, 7 signals and 4 properties are registered, and one live
   call per group answers.
 
@@ -880,7 +880,7 @@ after and diffed.
 `texture_array_generator.cpp` (**416**) and `texture_array_generator_emissive.cpp` (**158**),
 with the four image helpers both need in a new `texture_array_generator_internal.hpp` (**33**).
 The old `texture_array_generator_build.hpp` (167) is gone. **Verified** by a new probe
-(`.freebuff/probe_texture_array.gd`): the albedo array comes out with 36 layers — exactly the
+(`probes/probe_texture_array.gd`): the albedo array comes out with 36 layers — exactly the
 number of distinct texture names in `block_definitions.json` — at 16×16, RGBA8, mipmapped and
 writable, and every declared texture either owns a layer or is the documented `stone.png`
 fallback (`wood_top` is the one, and it has no texture file). `liquid_texture.hpp` deliberately
@@ -915,7 +915,7 @@ roughly 0.2–0.3 s of the rest at this parallelism. Two conclusions worth keepi
 
 - The tree is now **354 C++ files, none above 500 lines**; the guard warns about one file
   (`chunk_generator.hpp`, 486).
-- New reusable probes live in `.freebuff/`: `probe_registry_digest.gd` (the block registry as
+- New reusable probes live in `probes/`: `probe_registry_digest.gd` (the block registry as
   a diffable fingerprint), `probe_bindings.gd` (every bound method/signal/property),
   `probe_texture_array.gd` (the generated albedo array against the block data).
 - Two files are now editable without a rebuild cascade: the texture-array build (1 TU) and
@@ -1089,9 +1089,9 @@ counts, `MAX_BLOCK_TYPES`, the size guard's own total), on a heading with no bla
 it, and on a directory under `src/` that no document names at all; it warns on a section over
 3,000 words and on a table cell over 400 characters, because markdown gives you no way to wrap
 either. `scons docscheck`, plus a CI step, plus `--selftest`.
-- **The citations resolve.** 47 references pointed into `.freebuff/`, which is untracked: a
+- **The citations resolve.** 47 references pointed into `probes/`, which is untracked: a
 clone had none of the probes the docs named as their proof. The scripts are un-ignored now
-(`!.freebuff/*.gd|sh|py`), the 231 MB of probe output is ignored instead, and
+(`!probes/*.gd|sh|py`), the 231 MB of probe output is ignored instead, and
 `tools/check_tidy.py` (the local clang-tidy run) writes to `build/` rather than in there. The
 gate flags a citation that git IGNORES, since a clone can never have one; the 34 scripts named
 by the docs must therefore be added when this work is committed, or CI's docs check fails on a

@@ -52,8 +52,8 @@ how it is wired into the game and to the tests.
   draws it as translucent red cubes, amber when the plan was cut short by its budget (L toggles
   the raw A* grid path versus the string-pulled waypoints, P again clears); the printed line
   reports found/truncated/timed_out and expansions/columns/cells/locks. Verified headless by
-  `.freebuff/probe_path.gd`
-  (`Godot --headless --path <project> --script res://.freebuff/probe_path.gd`), which loads the
+  `probes/probe_path.gd`
+  (`Godot --headless --path <project> --script res://probes/probe_path.gd`), which loads the
   real scene, waits for the player to land, plans a 96-block route and asserts it starts on the
   origin column, reaches the goal column, stands every node on a solid block and never teleports
 

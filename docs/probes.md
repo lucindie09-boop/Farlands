@@ -5,24 +5,24 @@ the resolver, the fluid rules, the planner and the save formats. A probe is for
 what is left: the real loaded registry, the real texture array, the real world,
 and what actually reaches the screen.
 
-They live in `.freebuff/` (98 `.gd` scripts). **The scripts are repository
-content; what they produce is not.** `.gitignore` ignores `.freebuff/*` except
+They live in `probes/` (98 `.gd` scripts). **The scripts are repository
+content; what they produce is not.** `.gitignore` ignores `probes/*` except
 `*.gd`, `*.sh`, `*.tscn` and `*.gdshader*`, so screenshots, crash reports and
 generated sheets (hundreds of megabytes) stay scratch while the probes
 themselves are cited by path from ARCHITECTURE.md, AGENTS.md and source comments.
 If a fresh clone reports those paths as missing, they simply have not been added:
 
 ```bash
-git add .freebuff/*.gd .freebuff/*.sh .freebuff/*.tscn .freebuff/*.gdshader
+git add probes/*.gd probes/*.sh probes/*.tscn probes/*.gdshader
 ```
 
 ## The three runners
 
 | Runner | Use it for |
 |---|---|
-| `.freebuff/run_probe.sh <probe.gd> [timeout]` | Anything that touches the world. It snapshots `user://chunks`, runs the probe, and restores the snapshot however the probe ended |
-| `.freebuff/run_probe_shot.sh <probe.gd> [timeout]` | Anything visual. Runs **windowed** (a screenshot from the dummy renderer is blank) and harvests `user://menu_shots`, `paste_shots` and `shader_shots` into `.freebuff/shots/` |
-| `.freebuff/run_crash_probe.sh [timeout]` | The crash reporter only, with the deliberate fault armed. Separate because it kills the process and because the crash folder must be inspected afterwards |
+| `probes/run_probe.sh <probe.gd> [timeout]` | Anything that touches the world. It snapshots `user://chunks`, runs the probe, and restores the snapshot however the probe ended |
+| `probes/run_probe_shot.sh <probe.gd> [timeout]` | Anything visual. Runs **windowed** (a screenshot from the dummy renderer is blank) and harvests `user://menu_shots`, `paste_shots` and `shader_shots` into `probes/shots/` |
+| `probes/run_crash_probe.sh [timeout]` | The crash reporter only, with the deliberate fault armed. Separate because it kills the process and because the crash folder must be inspected afterwards |
 
 Both world-touching runners **refuse to start while a Godot game process is
 running**, and that check is not a nicety: an earlier version of
@@ -45,7 +45,7 @@ Three more rules, each of which cost something:
   is the wrong shape for "is streaming fast enough"; `probe_stream_bench.gd`
   measures it at a fixed 60 fps instead.
 
-If a probe does litter a world, `.freebuff/clean_flow_probe_litter.gd` is the
+If a probe does litter a world, `probes/clean_flow_probe_litter.gd` is the
 one-shot repair (dynamic fluid and floating shelves only).
 
 ## Conventions
@@ -57,7 +57,7 @@ one-shot repair (dynamic fluid and floating shelves only).
 - Exit non-zero when a check fails: the runner propagates the status, so a probe
   is a command rather than a page of output to read.
 - Sibling scripts are the same idea without the world:
-  `.freebuff/check_*.gd` asks a pure question, `.freebuff/scan_*.gd` searches the
+  `probes/check_*.gd` asks a pure question, `probes/scan_*.gd` searches the
   world for something, and a `.tscn` or `*_marker.gdshader` beside them is an
   asset a probe loads.
 

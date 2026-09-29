@@ -2420,7 +2420,7 @@ func _make_gallery_model_view(s: float, skin_name: String) -> SubViewportContain
 	var holder := Node3D.new()
 	holder.name = "SpinPivot"
 	vp.add_child(holder)
-	var model: Node3D = load("res://player.glb").instantiate()
+	var model: Node3D = load("res://models/player.glb").instantiate()
 	model.scale = Vector3(0.9, 0.9, 0.9)
 	holder.add_child(model)
 	_apply_skin_textures(model, "user://skins/" + skin_name + ".png")

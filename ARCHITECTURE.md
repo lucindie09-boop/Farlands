@@ -463,8 +463,8 @@ The full write-up, measurements included: [docs/streaming.md](docs/streaming.md)
   `tools/bake_liquid_textures.gd` — needed, because no PNG means no layer to write into
 - `tests/test_liquid_texture.cpp` covers the automaton (kernel wrapping, torus translation
   equivariance, flattening, scroll translation, determinism, interpolation, grain,
-  posterization, clamping, ramp calibration); `.freebuff/probe_liquid_lab.gd` drives the real
-  tool against the real world and the real texture array, and `.freebuff/probe_lava_acid.gd`
+  posterization, clamping, ramp calibration); `probes/probe_liquid_lab.gd` drives the real
+  tool against the real world and the real texture array, and `probes/probe_lava_acid.gd`
   drives the animator (frames landing, the compression refusal, the Lab's Bind handoff) plus
   lava's and acid's blocks, buckets and floods
 

@@ -24,13 +24,21 @@ This script is idempotent: it uses each node's CURRENT translation as the
 origin to shift from, so it can be re-run after editing the PIVOTS table.
 
 Usage:  python tools/rebake_player_pivots.py [path-to-player.glb]
+
+With no argument it re-bakes models/player.glb. The default is resolved
+against the repository, not the current directory, so the tool runs from
+anywhere.
 """
 
 import json
+import os
 import struct
 import sys
 
-GLB = sys.argv[1] if len(sys.argv) > 1 else "player.glb"
+_default = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models", "player.glb"
+)
+GLB = sys.argv[1] if len(sys.argv) > 1 else _default
 
 # mesh index -> new pivot (node origin to place at; vertices are shifted to
 # keep the world placement unchanged).

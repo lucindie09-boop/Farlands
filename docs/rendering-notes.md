@@ -292,14 +292,14 @@ procedurally generated liquid textures, and the shader-effect stack end to end.
   is the same shape as the warp that made it. Vignette + brightness/contrast/saturation + a
   rolling mains hum finish the glass and the picture. The defaults sit where real frames look
   right rather than where the arithmetic is tidiest: the pass is looked at over a frozen game
-  frame by `.freebuff/probe_crt_look.gd`, which renders the world once, freezes it, and draws
+  frame by `probes/probe_crt_look.gd`, which renders the world once, freezes it, and draws
   every candidate pass over that same frame so a change can only be the shader. Pinned by
-  `.freebuff/probe_crt_unit.gd`, which measures the fillet, the band count/period/depth, the
+  `probes/probe_crt_unit.gd`, which measures the fillet, the band count/period/depth, the
   guns' pitch-apart stagger, the vignette falloff and the normalised gather on a flat field,
   then measures the *stretch* on a one-pixel checkerboard (detail collapses, average preserved)
   and on 4-frame-px blocks (plateaus kept), and prints a zoom of the frame at one character per
   pixel so the spots and the dark rows between them can be looked at rather than only counted —
-  plus `.freebuff/probe_shaders_shot.gd`, which opens the page in the real game, checks the
+  plus `probes/probe_shaders_shot.gd`, which opens the page in the real game, checks the
   registry against the layers and against the vertex effects' materials, the layering against
   the menu, that dragging a row reaches the uniform, that the frame really changes, and that the
   settings file and the `FS-` code round trip.
@@ -444,12 +444,12 @@ procedurally generated liquid textures, and the shader-effect stack end to end.
   can take *every* vertex effect the registry declares rather than by a path, because the path
   it used to use pointed at the HUD's own child, which is not where the engine is, and the only
   symptom was that the culling silently never got better. Pinned by
-  `.freebuff/probe_bend_cull.gd`, which measures what the *renderer* did rather than where the
+  `probes/probe_bend_cull.gd`, which measures what the *renderer* did rather than where the
   geometry went: with the bend on and the engine not told the frame's primitives are unchanged
   to the last one — the bug stated exactly — and with the overlay's hand-off intact the same
   camera draws 3,263,096 primitives in 320 draw calls against 1,452,116 in 87, a quarter again
   of geometry and 8.3% of the frame's pixels, with the bend switched off returning the renderer
-  to exactly what it started with. `.freebuff/probe_bend_handoff.gd` answers the wiring on its
+  to exactly what it started with. `probes/probe_bend_handoff.gd` answers the wiring on its
   own, in seconds and without a world to stream, and `tests/test_world_bend.cpp` proves the
   property underneath all of it: the grown box contains the bent image of every corner of every
   box, over a spread of cameras, radii, amounts and box placements (30k+ assertions), so the
@@ -466,7 +466,7 @@ procedurally generated liquid textures, and the shader-effect stack end to end.
   held item, the block-break overlay, particles and the third-person body are separate meshes
   and are deliberately not bent: they are all within a few blocks of the eye, where this
   function is the identity to within a hundredth of a block. Pinned by
-  `.freebuff/probe_bend_geo.gd`, which is the probe for a thing that cannot be seen in the
+  `probes/probe_bend_geo.gd`, which is the probe for a thing that cannot be seen in the
   frame's own pixels: it stands one marker at a time on the ground at 40, 80, 140 and 220 blocks
   — sized in proportion to its distance so its size on screen never changes — draws the two
   *real* materials on it and a marker that calls the include exactly as they do, and compares
@@ -531,12 +531,12 @@ procedurally generated liquid textures, and the shader-effect stack end to end.
   and the curve switched off) and placements; the growth is downward and nothing else, the plan
   and the top of the box being the mesh's own to the last bit; the one box holds both effects at
   once; and the growth a box is remembered by moves whenever the box does — the property whose
-  absence was the culling bug above. Measured on the GPU by `.freebuff/probe_horizon_geo.gd`,
+  absence was the culling bug above. Measured on the GPU by `probes/probe_horizon_geo.gd`,
   the horizon's own version of the bend's marker probe: one marker at a time at 40, 160, 400 and
   800 blocks, plus a horizontal plate spanning 150 to 700 blocks whose predicted centroid is
   area-weighted cell by cell because a tilted surface's projection is not affine, and with the
   curve off the marker's pixels land on the camera's own unprojection of its centre before
-  anything is claimed. `.freebuff/probe_bend_compile.gd` now checks both includes on all four
+  anything is claimed. `probes/probe_bend_compile.gd` now checks both includes on all four
   shaders that consume them (the terrain, the water and a marker per effect) and both registry
   entries param by param, since an effect whose switch or knob is renamed in one place and not
   the other is an effect that draws nothing when it is turned on. And unlike the bend, which has

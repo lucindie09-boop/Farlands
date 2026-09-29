@@ -17,11 +17,11 @@ replaced with an original work or attributed here with its license.
 ```
 textures/
   blocks/           Active block face textures (16×16 PNG) — the only directory
-                    the texture arrays build from
+					the texture arrays build from
   items/            Held-item and tool sprites (bucket and each sort of bucket,
-                    sticks, pickaxes, the held torch)
+					sticks, pickaxes, the held torch)
   animated/         Block-break crack overlay frames (l0_sprite_01..10, drawn by
-                    block_break_overlay.gd)
+					block_break_overlay.gd)
   atmosphere/       Skybox elements (sun, north star)
   gui/              UI elements (inventory, hotbar, hearts, settings/tool icons)
   sprites/          In-game sprites (heart)

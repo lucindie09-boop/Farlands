@@ -10,7 +10,7 @@ extends Node3D
 #
 # Everything worth tuning is an export so positions can be nudged in-game/editor.
 
-const PLAYER_MODEL: PackedScene = preload("res://player.glb")
+const PLAYER_MODEL: PackedScene = preload("res://models/player.glb")
 const MODEL_SCALE := 0.05625 # player.glb px -> meters (0.9 / 16)
 
 @export var arm_index := 3 # glb child holding the right arm (raw scene vs import mirror)

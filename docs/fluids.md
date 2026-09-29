@@ -73,7 +73,7 @@ implementations the tests hold to each other.
   ever full strength, and it is what makes a waterfall read as a column rather than a stack of
   shallow tiles. The ladder is a player-visible invariant, so it is pinned twice:
   `tests/test_fluid_sim.cpp` checks the C++ default registry (offset per depth, strictly
-  increasing, the shape a bottom-anchored column), and `.freebuff/probe_flow.gd` checks the GAME
+  increasing, the shape a bottom-anchored column), and `probes/probe_flow.gd` checks the GAME
   registry through `ChunkManager.get_selection_boxes`, which is the only way to catch a shape
   name in `block_definitions.json` that resolves to the wrong height. **That offset is now only
   the cell's NOMINAL surface**, not the height its top face renders at: the drawn surface is per

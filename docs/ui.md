@@ -101,7 +101,7 @@ screen (the shader-effect stack, the animated-liquid tools, the model previews).
   scanline gaps paid back into the lines, convergence, an RGB grille one triad per picture cell,
   a halo gathered out of the picture's own cells, then vignette, tone and mains hum. Its
   defaults are chosen by looking, not by arithmetic, over a frozen game frame
-  (`.freebuff/probe_crt_look.gd`); `data/shaders.json` is the registry that names each effect,
+  (`probes/probe_crt_look.gd`); `data/shaders.json` is the registry that names each effect,
   its `params` and the uniform each param drives. `shaders/phosphor.gdshader` is the registry's
   fifth entry and the other *screen* pass, and the first effect to need the frame before the one
   it draws into — which no shader can get for itself, since the engine's screen copy is of the
@@ -207,10 +207,10 @@ screen (the shader-effect stack, the animated-liquid tools, the model previews).
   grown box contains the bent, and the sunk, image of every corner of every box, over a spread
   of cameras, radii, amounts and placements, and one box holds both effects at once — see
   `tests/world_effect_warp.hpp` for the single transcription of both includes that neither test
-  can drift from) and by `.freebuff/probe_bend_cull.gd`, which measures the renderer rather than
+  can drift from) and by `probes/probe_bend_cull.gd`, which measures the renderer rather than
   the geometry: 1,452,116 primitives in 87 draw calls with the engine not told, the same camera
   drawing 3,263,096 in 320 once it is, and exactly what it started with when the bend is
-  switched off. Pinned by `.freebuff/probe_bend_geo.gd`, which stands one marker at a time on
+  switched off. Pinned by `probes/probe_bend_geo.gd`, which stands one marker at a time on
   the ground at 40/80/140/220 blocks and compares its measured pixel centroid against the
   include's arithmetic re-run in GDScript: within 0.54 px of the camera's own unprojection with
   the bend off, within 0.90 px of the prediction with it on, and both real materials landing on
@@ -234,7 +234,7 @@ screen (the shader-effect stack, the animated-liquid tools, the model previews).
   It turns texture compression off while it animates and restores the setting when disabled, and
   it is paused for whichever liquid the Lab's Live currently owns (`pause`/`resume`) — one
   writer per layer. `get_status()` reports source, frames, current frame, the frame last pushed,
-  and why a liquid is idle; `.freebuff/probe_lava_acid.gd` drives all of it against the real
+  and why a liquid is idle; `probes/probe_lava_acid.gd` drives all of it against the real
   world
 
 ## Previews, models and the tools around them

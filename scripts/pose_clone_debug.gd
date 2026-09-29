@@ -19,7 +19,7 @@ extends Node
 ## pivots (arm/arm2 tops at y=24, leg/leg2 tops at y=12, torso y=18, head at
 ## the neck y=24 in glb units).
 
-const PLAYER_SCENE: PackedScene = preload("res://player.glb")
+const PLAYER_SCENE: PackedScene = preload("res://models/player.glb")
 const PLAYER_MODEL_SCRIPT: Script = preload("res://scripts/player_model.gd")
 const PIVOT_SHADER: Shader = preload("res://shaders/pose_pivot_marker.gdshader")
 # Vanilla-accurate physics (gravity/drag/knockback) â€” see dummy.gd.

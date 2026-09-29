@@ -46,23 +46,14 @@ compile_commands.json
 # Minecraft reference files (local only)
 MCPipeline/
 
-# .freebuff/ is the probe/tooling directory, and it is HALF repository content: the
-# probe scripts, their helper scripts, scenes and marker shaders are cited by path from
-# the docs and from source comments, so they belong in a clone. Everything else the
-# probes produce - screenshots, crash reports, generated sheets, Godot caches - is
-# scratch measured in hundreds of megabytes.
+# .freebuff/ is the LOCAL probe playground: scratch scripts a session writes and
+# throws away, plus screenshots, crash reports, generated sheets and Godot
+# caches. None of it belongs in a clone.
 #
-# The files the docs cite must therefore be ADDED (they are not ignored):
-#   git add .freebuff/*.gd .freebuff/*.sh .freebuff/*.tscn .freebuff/*.gdshader
-.freebuff/*
-!.freebuff/*.gd
-!.freebuff/*.sh
-!.freebuff/*.tscn
-!.freebuff/*.gdshader
-!.freebuff/*.gdshaderinc
-!.freebuff/*.md
-# Scratch scripts written during a session stay scratch even though they are .py/.gd.
-.freebuff/_*
+# The probe scripts the documentation actually cites as evidence live in
+# probes/ and are tracked normally; docs/probes.md indexes them. That split is
+# why this whole directory can be one line.
+.freebuff/
 
 # Python bytecode from the checker tools.
 __pycache__/

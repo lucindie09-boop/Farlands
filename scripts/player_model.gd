@@ -1,6 +1,6 @@
 extends Node3D
 
-@export var skin_texture: Texture2D = preload("res://skin.png")
+@export var skin_texture: Texture2D = preload("res://textures/skin.png")
 
 signal texel_painted(px: int, py: int, old_color: Color, new_color: Color)
 
@@ -211,7 +211,7 @@ func _ensure_paint_texture() -> void:
 		return
 	var img := skin_texture.get_image()
 	if img == null:
-		img = Image.load_from_file("res://skin.png")
+		img = Image.load_from_file("res://textures/skin.png")
 	if img == null:
 		return
 	_paint_image = img.duplicate()

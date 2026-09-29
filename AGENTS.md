@@ -294,7 +294,7 @@ Full notes: [docs/testing.md](docs/testing.md).
 - **The proof fault is debug-build and env-armed only**: `ChunkManager::debug_crash_for_test()`
   exists under `DEBUG_ENABLED` and `crash_for_test()` answers false without
   `FARLANDS_CRASH_TEST=1`, because a synthetic crash in the player's crash folder sits beside
-  the real ones. `.freebuff/run_crash_probe.sh` runs it armed and prints what landed
+  the real ones. `probes/run_crash_probe.sh` runs it armed and prints what landed
 
 ### Collision & Physics
 - **Binary-search AABB collision**: Custom voxel collision queries directly against chunk map

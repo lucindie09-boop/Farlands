@@ -156,7 +156,7 @@ table, the planning/writing split, the in-game wand, and the probes that pin it.
   time. The writer's own list is the state, NOT the chunk map asked afterwards: a chunk can
   arrive in the middle of a write, so a cell the writer had already given up on would look
   resident and be dropped — that race lost 394,810 cells of one 937,143-cell paste, which is
-  exactly what `.freebuff/probe_paste.gd` counts. Undo is one level deep, survives a revert that
+  exactly what `probes/probe_paste.gd` counts. Undo is one level deep, survives a revert that
   wrote nothing, and is not replaced by a paste that wrote nothing. **A revert can come up short
   too** (a build that wide has outer chunks evicted since the paste), so it reports
   `cells`/`unchanged`/`out_of_bounds`/`unloaded` — which add up to what was written — and KEEPS
@@ -196,13 +196,13 @@ table, the planning/writing split, the in-game wand, and the probes that pin it.
   somewhere off screen, so every ghost instance silently fails to appear. Measured from the
   engine, not read off the docs:
   `set_instance_transform(0, Transform3D(Basis(), Vector3(11, 22, 33)))` packs to
-  `1,0,0, 11, 0,1,0, 22, 0,0,1, 33`. `.freebuff/probe_mm_layout.gd` prints that packing and what
+  `1,0,0, 11, 0,1,0, 22, 0,0,1, 33`. `probes/probe_mm_layout.gd` prints that packing and what
   each wrong order decodes to. Two rules follow for anyone verifying this: compare through a
   real MultiMesh (`get_instance_transform`), never against the floats themselves — a
   self-consistent expectation is exactly how a wrong order passes — and run WINDOWED, because
   the dummy renderer keeps no multimesh data, so under `--headless` a buffer assignment is a
   silent no-op that reads back as identity (which is how the first probe "confirmed" the wrong
-  layout). `.freebuff/probe_preview_cache.gd` does it properly: aiming A → B → A reports each
+  layout). `probes/probe_preview_cache.gd` does it properly: aiming A → B → A reports each
   file's own dimensions (the risk a one-entry cache actually carries), the buffer's first and
   last instances read back as the aimed cell centres with an identity basis, the renderer's own
   AABB for the instance data covers them (a MultiMesh is culled as one object, so a box that
@@ -213,7 +213,7 @@ table, the planning/writing split, the in-game wand, and the probes that pin it.
   engine and `render::pack_unit_instance_transform` — the single place the layout now lives, so
   the check cannot drift from the code that uses it — and prints both packings, the consequence
   and the fix when they disagree. It is bound as `debug_multimesh_layout_ok` so a probe can ask
-  without a scene or a crash (`.freebuff/probe_layout_check.gd`). It stays silent under
+  without a scene or a crash (`probes/probe_layout_check.gd`). It stays silent under
   `--headless` on purpose: the dummy renderer keeps no instance data, so there is nothing to
   compare and any "failure" there would be the harness talking
 - **The wand's menu is the load menu, four times the size**: `wand.gd`'s middle-click menu is
@@ -279,10 +279,10 @@ table, the planning/writing split, the in-game wand, and the probes that pin it.
   content width is the panel less `MENU_PANEL_PAD_H` TWICE, which is what the `_menu_content_px`
   the pages lay out against has to be (one pad short and the panel silently grew past the window
   to 1870 px); and the size is floored to whole pixels, because a fractional size centres with a
-  floor and leaves the two gaps a pixel or two apart. `.freebuff/probe_wand_shot.gd` (windowed)
+  floor and leaves the two gaps a pixel or two apart. `probes/probe_wand_shot.gd` (windowed)
   opens BOTH pages and asserts the gaps match on each axis and that no widget hangs outside the
   panel — anything inside a `ScrollContainer` is reported and NOT judged, since being taller
-  than the panel is what a scrolling list is for. `.freebuff/probe_wand_menu.gd` presses a card,
+  than the panel is what a scrolling list is for. `probes/probe_wand_menu.gd` presses a card,
   a file tile, BACK and CLOSE for real, because a card that draws but is wired to nothing looks
   identical to a working one; run it headless for the click path and in a window for the sizes,
   since `--headless` gets a 64x64 dummy viewport where the menu is deliberately tiny (the layout
@@ -291,7 +291,7 @@ table, the planning/writing split, the in-game wand, and the probes that pin it.
 
 ## Probes
 
-- **Verified by two probes**: `.freebuff/probe_paste.gd` (headless) pastes a real file into open
+- **Verified by two probes**: `probes/probe_paste.gd` (headless) pastes a real file into open
   air and asserts the write, a repeat paste with `gaps` writing nothing, undo emptying the box,
   and the chat command's path resolution, option words and error messages — then runs every file
   in `schematics/` through inspect, paste, wait and undo, holding each one to
@@ -308,6 +308,6 @@ table, the planning/writing split, the in-game wand, and the probes that pin it.
   is the same proof at scale: 952,704 planned rather than 937,143, and 557,894 written rather
   than 542,333 — the difference is exactly its 15,561 liquid cells, which used to be left out.
   It is also how the palette format and the padded `AddBlocks` array are held to working end to
-  end; `.freebuff/probe_paste_shot.gd` (windowed, via `run_probe_shot.sh`) pastes in front of
+  end; `probes/probe_paste_shot.gd` (windowed, via `run_probe_shot.sh`) pastes in front of
   the player and screenshots it, because landed blocks that never render are the failure mode a
   data check cannot see

@@ -263,6 +263,19 @@ Requires:
 - C++17 compiler (MSVC on Windows, GCC/Clang on Linux/macOS)
 - `godot-cpp` submodule (run `git submodule update --init --recursive` after cloning)
 
+The submodule is pinned, so a clone reproduces the same bindings. Check it with
+`git submodule status`; the commit this tree is pinned to is:
+
+| Field | Value |
+|-------|-------|
+| Commit | `e83fd0904c13356ed1d4c3d09f8bb9132bdc6b77` |
+| Describe | `godot-3.3.3-stable-1237-ge83fd09` |
+| Date | 2025-09-15 |
+| Upstream | synced with `876b290332ec6f2e6d173d08162a02aa7e6ca46d` (4.5-stable) |
+
+To move it, `git -C godot-cpp checkout <sha>` then commit the gitlink. Bumping
+it changes the generated bindings, so rebuild the extension afterwards.
+
 ```bash
 # Build the extension library
 scons

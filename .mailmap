@@ -1,0 +1,16 @@
+# Map every commit written under the placeholder identity onto the real one.
+#
+# 97 early commits were authored as "lucin <lucin@example.com>" - the local
+# machine's account name against example.com, the domain RFC 2606 reserves for
+# documentation. That made `git shortlog` and the GitHub contributor list show
+# two authors for one person, and gave the placeholder address a permanent,
+# publicly visible record in the history.
+#
+# A mailmap is the fix that needs no history rewrite: git rewrites the display
+# for any commit whose identity matches the left-hand side, while the objects
+# and their hashes stay exactly as they are. Force-pushing 97 rewritten commits
+# would change every hash after the earliest one and would invalidate every
+# clone and open pull request, so it is not worth it for a cosmetic problem.
+#
+# Format: Proper Name <proper@email> <commit@email>
+lucindie09-boop <lucindie09@gmail.com> lucin <lucin@example.com>

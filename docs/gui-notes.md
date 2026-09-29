@@ -24,7 +24,7 @@ first-person viewmodel - what each one owns and the decisions behind it.
   the placement then consumes the ITEM rather than the block. The `torch` item is the shipped
   case, so the torch you hold and the torch you place are one loop, and the torch recipe now
   yields the ITEM (the lantern recipe names it too) rather than the block;
-  `.freebuff/probe_torch_place.gd` drives it end to end and `tests/test_item_place.cpp` pins the
+  `probes/probe_torch_place.gd` drives it end to end and `tests/test_item_place.cpp` pins the
   face mapping. An item may also carry `"use": {"kind": "pour", "block": "water"}` — the
   in-world right-click action, the one hook they were missing before:
   `PlayerController::use_item()` runs the action when the held item declares one and otherwise
@@ -151,7 +151,7 @@ first-person viewmodel - what each one owns and the decisions behind it.
   a brightened `grabber_highlight` (and a dimmed `grabber_disabled` — without that override
   Godot draws its own 16x16 white square in place of our thumb on an uneditable slider, which is
   the mipmap-bias row with mipmaps off), while the track is one flat stylebox with no
-  highlighted twin. `.freebuff/probe_slider_travel.gd` measures both travel ends and all three
+  highlighted twin. `probes/probe_slider_travel.gd` measures both travel ends and all three
   handle states in the rendered frame. A colour row's swatch is painted over the button's own
   text, so its caption is an outlined child Label (`_add_color_caption`) — a bare
   `ColorPickerButton` row shows a colour with no name at all
@@ -292,7 +292,7 @@ first-person viewmodel - what each one owns and the decisions behind it.
   cannot leave ITEM2 stale. The buckets, the torch and the iron ingot use ITEM2 because their
   artwork sits a quarter turn round on the sprite plane; the wand, like the stick and the
   hammers, is a held tool drawn on the sprite plane and keeps the default ITEM pose
-  (`.freebuff/probe_items.gd` asserts each of those five names resolves to ITEM2, so one added
+  (`probes/probe_items.gd` asserts each of those five names resolves to ITEM2, so one added
   without the pose cannot ship silently out of line).
 - **Shared viewmodel/cube mesh builders**: `ViewmodelMeshes` (static binding over
   `src/core/viewmodel_meshes.*`) carries the geometry for the held-block cube, shaped-block
@@ -385,7 +385,7 @@ first-person viewmodel - what each one owns and the decisions behind it.
   (the grid is world-anchored and the vertical span is measured from the slice, not from the
   feet, so walking inside one chunk cannot move a line), toggled in gameplay only (mouse
   captured) like the other debug keys, and not on the settings Controls page for the same reason
-  the other debug keys are not. Pinned by `.freebuff/probe_chunk_borders.gd`: the action is
+  the other debug keys are not. Pinned by `probes/probe_chunk_borders.gd`: the action is
   bound to B, every vertex sits on a 32-block multiple in x/z, both slice planes are drawn
   exactly at the chunk's floor and ceiling, the mesh is parented into the loaded scene with an
   unshaded vertex-colour no-depth-test material, and the toggle hides it and redraws the same

@@ -8,7 +8,7 @@ extends SubViewportContainer
 # the cursor, FILL floods the clicked face, BOX drags a paint rectangle.
 # Right-drag always zooms. Pressing empty space always orbits the camera.
 
-const MODEL_SCENE: PackedScene = preload("res://player.glb")
+const MODEL_SCENE: PackedScene = preload("res://models/player.glb")
 const SKIN_SCRIPT: GDScript = preload("res://scripts/player_model.gd")
 
 signal paint_history_changed(has_undo: bool)

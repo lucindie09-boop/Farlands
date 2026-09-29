@@ -8,6 +8,8 @@
 #include <godot_cpp/variant/packed_string_array.hpp>
 #include <godot_cpp/variant/vector3i.hpp>
 
+#include <cstdint>
+
 #include "engine/player_controller.hpp"
 #include "core/inventory.hpp"
 #include "engine/voxel_engine_controller.hpp"
@@ -160,7 +162,12 @@ private:
     VoxelEngine::PlayerSim sim_;
     godot::Camera3D* camera_ = nullptr;
     VoxelEngine::CollisionResolver* collision_resolver_ = nullptr;
+    // The ChunkManager is a sibling, not a child, so it is cached as an instance
+    // ID and refreshed through refresh_cached_nodes() rather than trusted as a
+    // raw pointer (see godot_bindings/cached_node.hpp). All three of these are
+    // nulled in _exit_tree().
     VoxelEngine::ChunkManager* chunk_manager_ = nullptr;
+    uint64_t chunk_manager_id_ = 0;
     VoxelEngine::Inventory inventory_;
 
     float pitch_ = 0.0f;
@@ -200,6 +207,10 @@ private:
     float body_yaw_ = 0.0f;
     godot::Vector3 spawn_point_;
 
+    // Re-resolve the cached sibling nodes from their instance IDs, re-looking
+    // them up when the ID no longer answers. Called once per frame before any of
+    // them is touched.
+    void refresh_cached_nodes();
     // Position/orient the camera for the current view (0/1/2) with
     // Minecraft-style block collision (pull the third-person camera in before
     // it clips through terrain).

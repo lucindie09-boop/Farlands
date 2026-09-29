@@ -1,5 +1,6 @@
 #include "godot_bindings/block_outline.hpp"
 #include "godot_bindings/block_outline_builder.hpp"
+#include "godot_bindings/cached_node.hpp"
 #include "godot_bindings/chunk_manager.hpp"
 #include "godot_bindings/player_controller.hpp"
 
@@ -37,34 +38,56 @@ bool boxes_equal(const godot::Array& a, const godot::Array& b) {
 BlockOutline::BlockOutline() = default;
 BlockOutline::~BlockOutline() = default;
 
-void BlockOutline::_ready() {
-    // Cache node references once instead of per-frame lookups
-    player_controller_ = Object::cast_to<PlayerController>(get_node_or_null(NodePath("/root/Main/Player")));
-    chunk_manager_ = Object::cast_to<VoxelEngine::ChunkManager>(get_node_or_null(NodePath("/root/Main/ChunkManager")));
+// Resolve a sibling from its cached ID, re-looking it up from the scene when the
+// ID no longer answers. A node of another type that reused the ID also lands
+// here, because cast_to refuses it. Returns nullptr when the node is genuinely
+// absent, so the caller's null test means "absent" rather than "stale".
+PlayerController* BlockOutline::get_player_controller() {
+    PlayerController* player = VoxelEngine::resolve_cached<PlayerController>(player_controller_id_);
+    if (player == nullptr) {
+        player = Object::cast_to<PlayerController>(get_node_or_null(NodePath("/root/Main/Player")));
+        VoxelEngine::cache_object(player_controller_id_, player);
+    }
+    return player;
+}
 
+VoxelEngine::ChunkManager* BlockOutline::get_chunk_manager() {
+    VoxelEngine::ChunkManager* chunks =
+        VoxelEngine::resolve_cached<VoxelEngine::ChunkManager>(chunk_manager_id_);
+    if (chunks == nullptr) {
+        chunks = Object::cast_to<VoxelEngine::ChunkManager>(
+            get_node_or_null(NodePath("/root/Main/ChunkManager")));
+        VoxelEngine::cache_object(chunk_manager_id_, chunks);
+    }
+    return chunks;
+}
+
+void BlockOutline::_ready() {
     create_fill();
     create_materials();
 }
 
 void BlockOutline::_process(double delta) {
-    if (!player_controller_ || !chunk_manager_) {
+    PlayerController* player = get_player_controller();
+    VoxelEngine::ChunkManager* chunks = get_chunk_manager();
+    if (player == nullptr || chunks == nullptr) {
         if (outline_mesh_) outline_mesh_->set_visible(false);
         if (fill_mesh_) fill_mesh_->set_visible(false);
         return;
     }
 
-    if (player_controller_->is_chat_open() || player_controller_->is_inventory_open() || player_controller_->is_settings_open()) {
+    if (player->is_chat_open() || player->is_inventory_open() || player->is_settings_open()) {
         if (outline_mesh_) outline_mesh_->set_visible(false);
         if (fill_mesh_) fill_mesh_->set_visible(false);
         return;
     }
 
-    auto* camera = Object::cast_to<Camera3D>(player_controller_->get_node_or_null(NodePath("Camera3D")));
+    auto* camera = Object::cast_to<Camera3D>(player->get_node_or_null(NodePath("Camera3D")));
     if (!camera) return;
 
     const Vector3 current_position = camera->get_global_position();
     const Vector3 current_rotation = camera->get_global_rotation();
-    const int current_edit_counter = player_controller_->get_block_edit_counter();
+    const int current_edit_counter = player->get_block_edit_counter();
 
     const bool position_changed = current_position.distance_to(last_camera_position_) > POSITION_THRESHOLD;
     const bool rotation_changed =
@@ -86,7 +109,7 @@ void BlockOutline::_process(double delta) {
     last_camera_rotation_ = current_rotation;
     last_block_edit_counter_ = current_edit_counter;
 
-    Dictionary result = chunk_manager_->raycast_from_camera(reach_distance_);
+    Dictionary result = chunks->raycast_from_camera(reach_distance_);
     if (result.is_empty() || !result.get("success", false)) {
         if (outline_mesh_) outline_mesh_->set_visible(false);
         if (fill_mesh_) fill_mesh_->set_visible(false);
@@ -113,7 +136,7 @@ void BlockOutline::_process(double delta) {
     // fence post on its own is one box and inside a run it has arms, so the box
     // set can change without the block id changing. Resolving is a handful of
     // locked lookups, and the mesh is rebuilt only when the set really differs.
-    Array resolved_boxes = chunk_manager_->get_selection_boxes_at(block_id, bx, by, bz);
+    Array resolved_boxes = chunks->get_selection_boxes_at(block_id, bx, by, bz);
     if (block_id != current_block_id_ || !boxes_equal(resolved_boxes, current_boxes_)) {
         current_block_id_ = block_id;
         current_boxes_ = resolved_boxes;

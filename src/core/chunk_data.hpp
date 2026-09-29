@@ -133,46 +133,64 @@ public:
             int sy = ((i / SECS_PER_DIM) % SECS_PER_DIM) * SEC_SIZE;
             int sz = (i / (SECS_PER_DIM * SECS_PER_DIM)) * SEC_SIZE;
 
-            uint16_t seen[256];
-            int n_seen = 0;
+            // Pass 1: the highest block id the section holds. It sizes the table
+            // the palette is collected into below, and it is the uniform test as
+            // well — a section of nothing but air is all zeroes, and needs no
+            // palette of its own.
+            uint16_t max_id = 0;
             for (int dz = 0; dz < SEC_SIZE; ++dz)
                 for (int dy = 0; dy < SEC_SIZE; ++dy)
                     for (int dx = 0; dx < SEC_SIZE; ++dx) {
-                        int wx = sx + dx, wy = sy + dy, wz = sz + dz;
-                        uint16_t id = static_cast<uint16_t>(dense[wx + wy * CHUNK_WIDTH + wz * CHUNK_WIDTH * CHUNK_HEIGHT]);
-                        bool found = false;
-                        for (int k = 0; k < n_seen; ++k) { if (seen[k] == id) { found = true; break; } }
-                        if (!found && n_seen < 256) seen[n_seen++] = id;
+                        const int wx = sx + dx, wy = sy + dy, wz = sz + dz;
+                        const uint16_t id = static_cast<uint16_t>(dense[wx + wy * CHUNK_WIDTH + wz * CHUNK_WIDTH * CHUNK_HEIGHT]);
+                        if (id > max_id) max_id = id;
                     }
 
             auto& s = block_secs[i];
-            if (n_seen == 0 || (n_seen == 1 && seen[0] == 0)) {
+            if (max_id == 0) {
                 s.palette = {0}; s.indices.clear(); s.bpi = 0;
-            } else {
-                s.palette.assign(seen, seen + n_seen);
-                s.bpi = n_seen <= 16 ? 4 : (n_seen <= 256 ? 8 : 16);
-                s.indices.assign(SEC_VOLUME * s.bpi / 8, 0);
-                for (int dz = 0; dz < SEC_SIZE; ++dz)
-                    for (int dy = 0; dy < SEC_SIZE; ++dy)
-                        for (int dx = 0; dx < SEC_SIZE; ++dx) {
-                            int wx = sx + dx, wy = sy + dy, wz = sz + dz;
-                            int local = dx + dy * SEC_SIZE + dz * SEC_SIZE * SEC_SIZE;
-                            uint16_t id = static_cast<uint16_t>(dense[wx + wy * CHUNK_WIDTH + wz * CHUNK_WIDTH * CHUNK_HEIGHT]);
-                            int idx = 0;
-                            for (int k = 0; k < n_seen; ++k) { if (seen[k] == id) { idx = k; break; } }
-                            write_index(s.indices.data(), local, idx, s.bpi);
-                        }
+                continue;
             }
+
+            // Pass 2: the distinct ids, in first-seen order — which IS the palette
+            // order every saved section and every light-state comparison is written
+            // against, so it must not change. `slot` maps an id straight to its
+            // palette index, which is what bounds a section only by its own 4096
+            // cells. The previous form collected into `uint16_t seen[256]` and
+            // dropped any id past the 256th; pass 3 then matched nothing for such a
+            // cell and wrote palette index 0, silently turning that cell into
+            // whatever the section's first id happened to be. Nothing shipped got
+            // near 257 distinct ids (the registry holds fewer ids than that), but the
+            // failure was silent and the 16-bit palette it was guarding was
+            // unreachable, so the guard protected nothing.
+            std::vector<int32_t> slot(static_cast<size_t>(max_id) + 1, -1);
+            s.palette.clear();
+            for (int dz = 0; dz < SEC_SIZE; ++dz)
+                for (int dy = 0; dy < SEC_SIZE; ++dy)
+                    for (int dx = 0; dx < SEC_SIZE; ++dx) {
+                        const int wx = sx + dx, wy = sy + dy, wz = sz + dz;
+                        const uint16_t id = static_cast<uint16_t>(dense[wx + wy * CHUNK_WIDTH + wz * CHUNK_WIDTH * CHUNK_HEIGHT]);
+                        if (slot[id] < 0) {
+                            slot[id] = static_cast<int32_t>(s.palette.size());
+                            s.palette.push_back(id);
+                        }
+                    }
+
+            const size_t distinct = s.palette.size();
+            s.bpi = distinct <= 16 ? 4 : (distinct <= 256 ? 8 : 16);
+            s.indices.assign(SEC_VOLUME * s.bpi / 8, 0);
+            for (int dz = 0; dz < SEC_SIZE; ++dz)
+                for (int dy = 0; dy < SEC_SIZE; ++dy)
+                    for (int dx = 0; dx < SEC_SIZE; ++dx) {
+                        const int wx = sx + dx, wy = sy + dy, wz = sz + dz;
+                        const int local = dx + dy * SEC_SIZE + dz * SEC_SIZE * SEC_SIZE;
+                        const uint16_t id = static_cast<uint16_t>(dense[wx + wy * CHUNK_WIDTH + wz * CHUNK_WIDTH * CHUNK_HEIGHT]);
+                        write_index(s.indices.data(), local, slot[id], s.bpi);
+                    }
         }
     }
 
     // -- Metadata helpers --
-
-    bool all_air() const {
-        for (auto& s : block_secs)
-            if (!s.is_uniform() || s.uniform_val() != 0) return false;
-        return true;
-    }
 
     int count_non_air() const {
         int c = 0;
@@ -183,27 +201,6 @@ public:
                 for (int i = 0; i < SEC_VOLUME; ++i) {
                     int idx = read_index(s.indices.data(), i, s.bpi);
                     if (static_cast<BlockID>(s.palette[static_cast<size_t>(idx)]) != BlockIDs::AIR) ++c;
-                }
-            }
-        }
-        return c;
-    }
-
-    int count_emissive() const {
-        int c = 0;
-        for (auto& s : block_secs) {
-            if (s.is_uniform()) {
-                BlockID id = static_cast<BlockID>(s.uniform_val());
-                if (id != BlockIDs::AIR && is_emissive_fast(id)) c += SEC_VOLUME;
-            } else {
-                for (size_t pi = 0; pi < s.palette.size(); ++pi) {
-                    BlockID id = static_cast<BlockID>(s.palette[pi]);
-                    if (id != BlockIDs::AIR && is_emissive_fast(id)) {
-                        int n = 0;
-                        for (int i = 0; i < SEC_VOLUME; ++i)
-                            if (read_index(s.indices.data(), i, s.bpi) == static_cast<int>(pi)) ++n;
-                        c += n;
-                    }
                 }
             }
         }
@@ -282,10 +279,6 @@ public:
     }
 
 private:
-    static bool is_emissive_fast(BlockID id) {
-        return HasProperty(BlockRegistry::get_instance().get_block_fast(id).properties, BlockProperty::Emissive);
-    }
-
     static int read_index(const uint8_t* data, int local, int bpi) {
         switch (bpi) {
             case 4:  { int b = local / 2, n = local & 1; return (data[b] >> (n * 4)) & 0xF; }

@@ -1,5 +1,7 @@
 #include "godot_bindings/chunk_manager.hpp"
 
+#include "godot_bindings/cached_node.hpp"
+
 #include <godot_cpp/core/object.hpp>
 
 #include "debug/crash_dump.hpp"
@@ -27,29 +29,10 @@
 
 using namespace godot;
 
-namespace {
-
-// Cached scene nodes are held as instance IDs and resolved on every use, never
-// as raw pointers: a node this class caches can be freed while the manager
-// lives on (a scene rebuild, a camera swap, the editor reloading the 3D
-// viewport), and a raw pointer would then be a use-after-free on the next
-// frame. An ID whose object is gone (or that was reused by an object of
-// another class) resolves to nullptr here, and the caller re-resolves from the
-// scene and re-caches.
-template <typename T>
-T* resolve_cached(uint64_t& id) {
-	if (id == 0) return nullptr;
-	T* resolved = Object::cast_to<T>(ObjectDB::get_instance(id));
-	if (resolved == nullptr) id = 0;
-	return resolved;
-}
-
-template <typename T>
-void cache_object(uint64_t& id, const T* object) {
-	id = object != nullptr ? object->get_instance_id() : 0;
-}
-
-} // namespace
+// resolve_cached<T>() / cache_object<T>() come from godot_bindings/cached_node.hpp:
+// every scene node this class caches is held as an instance ID and resolved on
+// use, so a freed or replaced node degrades to "not found" and re-resolves from
+// the scene instead of becoming a use-after-free.
 using namespace VoxelEngine;
 
 ChunkManager::ChunkManager() {

@@ -129,11 +129,18 @@ bool craft_item(const CraftingRecipe& recipe, Inventory& inv) {
 namespace {
 
 BlockID resolve_name(const godot::String& name) {
-    const char* utf8 = name.utf8().get_data();
+    // utf8() returns an owning temporary, so its bytes have to be kept alive for
+    // BOTH lookups below. Holding `name.utf8().get_data()` in a raw pointer and
+    // reading it on the next statement dereferences freed memory: the CharString
+    // is destroyed at the end of its declaration, and the freed block usually
+    // still holds the old bytes, so the bug reads as working. Converting into a
+    // std::string inside the same expression is the form the rest of the tree
+    // uses, and it is what keeps the buffer alive here.
+    const std::string utf8 = name.utf8().get_data();
     // Items (sticks, tools, ...) share the recipe namespace with blocks.
-    BlockID id = BlockRegistry::get_instance().get_block_id_by_name(utf8);
+    BlockID id = BlockRegistry::get_instance().get_block_id_by_name(utf8.c_str());
     if (id == BlockIDs::AIR) {
-        id = ItemRegistry::get_instance().get_item_id_by_name(utf8);
+        id = ItemRegistry::get_instance().get_item_id_by_name(utf8.c_str());
     }
     return id;
 }

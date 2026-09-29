@@ -8,6 +8,8 @@
 #include <godot_cpp/variant/color.hpp>
 #include <godot_cpp/variant/vector3.hpp>
 
+#include <cstdint>
+
 // Forward declarations
 class PlayerController;
 namespace VoxelEngine {
@@ -59,9 +61,14 @@ private:
     int current_block_id_ = -1;
     godot::Array current_boxes_;
 
-    // Cached node references (resolved once in _ready())
-    PlayerController* player_controller_ = nullptr;
-    VoxelEngine::ChunkManager* chunk_manager_ = nullptr;
+    // The Player and the ChunkManager, held as instance IDs and resolved on
+    // every use (see godot_bindings/cached_node.hpp). Both are SIBLINGS of this
+    // node, not children, so nothing ties their lifetime to this one — a raw
+    // pointer cached once in _ready() would be a use-after-free the next time
+    // this frame runs after either was freed or replaced. An ID that stops
+    // resolving is re-looked-up from the scene instead.
+    uint64_t player_controller_id_ = 0;
+    uint64_t chunk_manager_id_ = 0;
 
     // Throttling
     godot::Vector3 last_camera_position_;
@@ -71,6 +78,11 @@ private:
     static constexpr float ROTATION_THRESHOLD = 0.001f;
 
     // --- Methods ---
+    // The two sibling nodes, resolved (and re-resolved when a cached ID no
+    // longer answers) once per frame. Each returns nullptr when the node really
+    // is absent, which the frame treats as "nothing to outline".
+    PlayerController* get_player_controller();
+    VoxelEngine::ChunkManager* get_chunk_manager();
     void rebuild_outline_mesh();
     void create_fill();
     void update_fill_for_boxes();

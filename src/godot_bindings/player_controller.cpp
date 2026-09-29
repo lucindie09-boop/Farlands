@@ -1,4 +1,5 @@
 #include "godot_bindings/player_controller.hpp"
+#include "godot_bindings/cached_node.hpp"
 #include "godot_bindings/chunk_manager.hpp"
 #include "engine/collision_resolver.hpp"
 #include "core/item_registry.hpp"
@@ -220,7 +221,6 @@ void PlayerController::respawn() {
 }
 
 void PlayerController::_ready() {
-    g_engine_running = true;
     camera_ = get_node<Camera3D>("Camera3D");
     if (camera_) {
         camera_->set_position(Vector3(0, 1.62f, 0));
@@ -251,10 +251,14 @@ void PlayerController::_ready() {
                    "player.glb as Player/PlayerModel with player_model.gd attached.");
     }
 
+    // The ChunkManager is a SIBLING of this node, so its lifetime is not tied to
+    // ours: it is cached as an instance ID and resolved on every use rather than
+    // held as a raw pointer (see godot_bindings/cached_node.hpp).
     Node* cm_node = get_node_or_null(NodePath("/root/Main/ChunkManager"));
     if (cm_node) {
         chunk_manager_ = Object::cast_to<ChunkManager>(cm_node);
         if (chunk_manager_) {
+            cache_object(chunk_manager_id_, chunk_manager_);
             collision_resolver_ = chunk_manager_->get_collision_resolver();
         }
     }
@@ -272,9 +276,39 @@ void PlayerController::_exit_tree() {
     // where tree lookups and sibling pointers may be gone.
     save_inventory();
     inventory_saved_ = true;
+    // Drop every cached node pointer on the way out. Nothing here may be used
+    // after teardown, and a non-null pointer is what makes the rest of the class
+    // willing to dereference one.
+    camera_ = nullptr;
+    collision_resolver_ = nullptr;
+    chunk_manager_ = nullptr;
+    chunk_manager_id_ = 0;
+    model_ = nullptr;
+    model_pivot_ = nullptr;
+}
+
+// Re-resolve the sibling nodes this class depends on. Held as instance IDs, so a
+// ChunkManager that was freed or replaced resolves to nullptr instead of being
+// dereferenced, and a replacement is looked up and re-cached here. The resolver
+// is owned by the chunk manager, so it is refreshed with it rather than cached
+// on its own (it is not an Object and has no ID of its own).
+void PlayerController::refresh_cached_nodes() {
+    ChunkManager* chunks = resolve_cached<ChunkManager>(chunk_manager_id_);
+    if (chunks == nullptr) {
+        // Either never seen or gone since: try the scene again, which is what
+        // picks up a replacement rather than leaving the game permanently
+        // without a world.
+        chunks = Object::cast_to<ChunkManager>(get_node_or_null(NodePath("/root/Main/ChunkManager")));
+        cache_object(chunk_manager_id_, chunks);
+    }
+    if (chunks != chunk_manager_) {
+        chunk_manager_ = chunks;
+        collision_resolver_ = chunks != nullptr ? chunks->get_collision_resolver() : nullptr;
+    }
 }
 
 void PlayerController::_process(double delta) {
+    refresh_cached_nodes();
     if (needs_spawn_calc_ && chunk_manager_) {
         // Scan the column at (0, 0) from top down to find the first solid block.
         for (int32_t y = WORLD_HEIGHT_Y - 1; y >= 0; --y) {

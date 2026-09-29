@@ -28,7 +28,6 @@ struct FrameBudgets {
     double mesh_completion_budget_ms = 0.75;
     int32_t max_mesh_completions_per_frame = 16;
     int32_t loading_threshold = 500;
-    double loading_duration = 3.0;
 
     // Entries the unload scan visits per pass. It walks the whole map, so this is
     // what decides how long a loaded set takes to be re-examined at all: 500 per

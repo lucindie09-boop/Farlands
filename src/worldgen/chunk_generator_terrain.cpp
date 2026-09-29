@@ -26,13 +26,10 @@ ChunkGenerator::HeightRange ChunkGenerator::get_chunk_height_range(int32_t chunk
     // shaping can still push the real surface up to density_margin() above or
     // below the macro heightmap (the widest surface band any biome's
     // weirdness_size can produce), so the range is padded by that.
-    float land_lat[CLIMATE_LATTICE_NODES][CLIMATE_LATTICE_NODES];
-    float temp_lat[CLIMATE_LATTICE_NODES][CLIMATE_LATTICE_NODES];
-    float hum_lat[CLIMATE_LATTICE_NODES][CLIMATE_LATTICE_NODES];
-    build_land_shape_lattice(chunk_x, chunk_z, land_lat);
-    build_climate_lattice(chunk_x, chunk_z, temp_lat, hum_lat);
-    BiomeAmplification amp_lat[CLIMATE_LATTICE_NODES][CLIMATE_LATTICE_NODES];
-    build_amp_lattice(chunk_x, chunk_z, temp_lat, hum_lat, amp_lat);
+    ChunkGeneratorLattice lattice;
+    lattice.build_land_shape(*this, chunk_x, chunk_z);
+    lattice.build_climate(*this, chunk_x, chunk_z);
+    lattice.build_amplification(*this, chunk_x, chunk_z);
 
     const BiomeAmplification& ocean_amp =
         biome_config.amplification[static_cast<size_t>(BiomeType::Ocean)];
@@ -54,12 +51,14 @@ ChunkGenerator::HeightRange ChunkGenerator::get_chunk_height_range(int32_t chunk
     float min_h = 1e9f;
     float max_h = -1e9f;
     bool any_ocean_node = false;
-    for (int32_t i = 0; i < CLIMATE_LATTICE_NODES - 1; ++i) {
-        for (int32_t j = 0; j < CLIMATE_LATTICE_NODES - 1; ++j) {
-            const float r0 = land_lat[i][j],         r1 = land_lat[i + 1][j];
-            const float r2 = land_lat[i][j + 1],     r3 = land_lat[i + 1][j + 1];
-            const float a0 = amp_lat[i][j].height,   a1 = amp_lat[i + 1][j].height;
-            const float a2 = amp_lat[i][j + 1].height, a3 = amp_lat[i + 1][j + 1].height;
+    for (int32_t i = 0; i < ChunkGeneratorLattice::NODES - 1; ++i) {
+        for (int32_t j = 0; j < ChunkGeneratorLattice::NODES - 1; ++j) {
+            const float r0 = lattice.land_node(i, j),         r1 = lattice.land_node(i + 1, j);
+            const float r2 = lattice.land_node(i, j + 1),     r3 = lattice.land_node(i + 1, j + 1);
+            const float a0 = lattice.amp_node(i, j).height;
+            const float a1 = lattice.amp_node(i + 1, j).height;
+            const float a2 = lattice.amp_node(i, j + 1).height;
+            const float a3 = lattice.amp_node(i + 1, j + 1).height;
             const float r[4] = {r0, r1, r2, r3};
             const float a[4] = {a0, a1, a2, a3};
             if (zero_blend) {

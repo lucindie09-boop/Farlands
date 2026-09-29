@@ -33,9 +33,8 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
     // The climate fields are evaluated once on the chunk's 4-block lattice
     // (~160 raw evaluations) and every column interpolates from it instead of
     // running the per-call samplers (bit-identical values at shared nodes).
-    float temp_lat[CLIMATE_LATTICE_NODES][CLIMATE_LATTICE_NODES];
-    float hum_lat[CLIMATE_LATTICE_NODES][CLIMATE_LATTICE_NODES];
-    build_climate_lattice(chunk_x, chunk_z, temp_lat, hum_lat);
+    ChunkGeneratorLattice lattice;
+    lattice.build_climate(*this, chunk_x, chunk_z);
 
     // Amplification blend lattice: effective per-node knobs after the
     // border blend (see blend_amplitudes). Cheap — the biome windows reuse
@@ -44,16 +43,14 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
     // uses its own biome's knobs (amplification_for), so the lattice would
     // only be wasted work.
     const bool blend_enabled = params.climate_blend_radius_nodes > 0;
-    BiomeAmplification amp_lat[CLIMATE_LATTICE_NODES][CLIMATE_LATTICE_NODES];
     if (blend_enabled) {
-        build_amp_lattice(chunk_x, chunk_z, temp_lat, hum_lat, amp_lat);
+        lattice.build_amplification(*this, chunk_x, chunk_z);
     }
 
     // Land-shape lattice: the macro height is evaluated once per 4-block
     // node (81 evaluations) instead of 4 per column (~4096), mirroring the
     // climate lattice. Bit-identical to the per-call sampler.
-    float land_lat[CLIMATE_LATTICE_NODES][CLIMATE_LATTICE_NODES];
-    build_land_shape_lattice(chunk_x, chunk_z, land_lat);
+    lattice.build_land_shape(*this, chunk_x, chunk_z);
 
     float min_height = 1e9f;
     float max_height = -1e9f;
@@ -62,13 +59,13 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
             int32_t wx = world_x_start + x;
             int32_t wz = world_z_start + z;
             const BiomeAmplification blended = blend_enabled
-                ? interp_amp_lattice(amp_lat, wx, wz, world_x_start, world_z_start)
+                ? lattice.amplification(wx, wz)
                 : BiomeAmplification{};
             ColumnSample col = sample_column_with_climate(
                 wx, wz,
-                interp_climate_lattice(temp_lat, wx, wz, world_x_start, world_z_start),
-                interp_climate_lattice(hum_lat, wx, wz, world_x_start, world_z_start),
-                interp_climate_lattice(land_lat, wx, wz, world_x_start, world_z_start),
+                lattice.temperature(wx, wz),
+                lattice.humidity(wx, wz),
+                lattice.land_shape(wx, wz),
                 blended);
             columns[x][z].sample       = col;
             columns[x][z].height       = static_cast<int32_t>(std::round(col.height));

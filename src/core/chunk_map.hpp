@@ -17,6 +17,7 @@
 #include <chrono>
 #include <utility>
 #include <bit>
+#include <cmath>
 #include "core/lock_order_checker.hpp"
 
 namespace VoxelEngine {
@@ -180,6 +181,17 @@ public:
                 for (auto si : shard_indices_) LOCK_ORDER_RELEASE_EX(si);
                 locks_ = std::move(other.locks_);
                 shard_indices_ = std::move(other.shard_indices_);
+                // The hold-telemetry state moves with the locks: a lock's
+                // destructor reports the hold time from acquired_at_ over
+                // held_count_ stats pointers, so leaving them behind would
+                // report a zero hold on the moved-to lock and a bogus one on
+                // the moved-from one. The source is zeroed, so destroying it
+                // accounts nothing — which held_count_ == 0 already means.
+                held_count_ = other.held_count_;
+                for (size_t n = 0; n < held_count_; ++n)
+                    held_stats_[n] = other.held_stats_[n];
+                acquired_at_ = other.acquired_at_;
+                other.held_count_ = 0;
             }
             return *this;
         }
@@ -230,10 +242,16 @@ public:
         z = static_cast<int32_t>((static_cast<uint32_t>(key & MASK)) - OFFSET);
     }
 
+    // Chunk of a world position. The components are FLOORED, not truncated:
+    // static_cast truncates toward zero, which puts -0.5 blocks in chunk 0
+    // rather than chunk -1 and makes every chunk-adjacency question near the
+    // origin wrong by one on the negative side (the player's chunk-change
+    // detection is the caller that cares). The integer branch inside
+    // world_to_chunk_local is exact; this is the float boundary that was not.
     void get_chunk_coords(const godot::Vector3& world_pos, int32_t& chunk_x, int32_t& chunk_y, int32_t& chunk_z) const noexcept {
-        int32_t wx = static_cast<int32_t>(world_pos.x);
-        int32_t wy = static_cast<int32_t>(world_pos.y);
-        int32_t wz = static_cast<int32_t>(world_pos.z);
+        int32_t wx = static_cast<int32_t>(std::floor(world_pos.x));
+        int32_t wy = static_cast<int32_t>(std::floor(world_pos.y));
+        int32_t wz = static_cast<int32_t>(std::floor(world_pos.z));
         int32_t dummy_x, dummy_y, dummy_z;
         world_to_chunk_local(wx, wy, wz, chunk_x, chunk_y, chunk_z, dummy_x, dummy_y, dummy_z);
     }
@@ -518,8 +536,15 @@ public:
 
     // -- Write operations (auto-locking) --
 
+    // Wipes the map. Every shard is taken EXCLUSIVE in ascending order: clear()
+    // mutates each shard's unordered_map, and a shared lock on a shard being
+    // cleared is a data race against any other reader of that shard (a rehash
+    // under a reader is a crash, not a wrong answer). Callers are teardown
+    // paths — free_loaded_chunks() and the world reset — so the exclusive cost
+    // is nil, and the callers' own contract is that the worker pool is already
+    // shut down or an epoch bump has fenced the in-flight jobs.
     void clear() {
-        auto all = lock_all();
+        auto all = lock_all_exclusive();
         for (auto& s : shards_)
             s.chunks.clear();
         chunk_count_.store(0, std::memory_order_relaxed);
@@ -543,8 +568,13 @@ public:
         }
     }
 
+    // Pre-sizes every shard's map. Exclusive per shard, for the same reason
+    // clear() is: rehashing a map a reader is walking is a data race, and a
+    // shared lock does not stop readers. Mostly called before the worker pool
+    // exists (initialize()); set_render_distance() can call it mid-session,
+    // which is exactly when the exclusive lock matters.
     void reserve(size_t n) {
-        auto all = lock_all();
+        auto all = lock_all_exclusive();
         for (auto& s : shards_)
             s.chunks.reserve(n / kNumShards + 1);
     }
@@ -688,22 +718,6 @@ public:
             for (auto& pair : shards_[i].chunks)
                 callback(pair.first, pair.second);
         }
-    }
-
-    // True when the whole map was walked; false when `max_count` stopped it early
-    // (the caller asked for a bounded sweep, so stopping is the point).
-    template<typename Callback>
-    bool for_each_limited(Callback&& callback, size_t max_count) const {
-        size_t count = 0;
-        for (size_t i = 0; i < kNumShards; ++i) {
-            auto lock = shard_lock_detail::lock_shared_timed(shards_[i].mutex, shards_[i].stats);
-            for (auto& pair : shards_[i].chunks) {
-                if (count >= max_count) return false;
-                callback(pair.first, pair.second);
-                count++;
-            }
-        }
-        return true;
     }
 
     // Walks the map in cursor-resumable slices for callers that are SCANNING it

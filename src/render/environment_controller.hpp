@@ -14,22 +14,19 @@
 
 namespace VoxelEngine {
 
-class ChunkWorld;
-class LightPropagator;
-class MeshManager;
-
 class EnvironmentController {
 public:
     EnvironmentController() = default;
 
-    void update(double delta, double runtime_elapsed, const godot::Vector3& player_pos,
-                ChunkWorld& cw, LightPropagator& lp, MeshManager& mm,
-                double initial_loading_duration);
+    // Pushes the time of day and the player-follow glow into the materials. The
+    // world objects the voxel player-light used to be marched through are gone
+    // with that path (see world/player_light.hpp), so this needs no chunk map,
+    // light propagator or mesh manager.
+    void update(double delta, const godot::Vector3& player_pos);
 
     DayNightCycle& get_day_night_cycle() { return day_night; }
     const DayNightCycle& get_day_night_cycle() const { return day_night; }
     MaterialManager& get_material_manager() { return material_manager; }
-    PlayerLight& get_player_light() { return player_light; }
     SkyController& get_sky_controller() { return sky_controller; }
     FogController& get_fog_controller() { return fog_controller; }
     const FogController& get_fog_controller() const { return fog_controller; }
@@ -121,9 +118,6 @@ private:
     static constexpr float PARAM_EPSILON = 0.001f;
 
     void update_shader_parameters();
-    void update_player_light(const godot::Vector3& player_pos, double runtime_elapsed,
-                             ChunkWorld& cw, LightPropagator& lp, MeshManager& mm,
-                             double initial_loading_duration);
 };
 
 } // namespace VoxelEngine

@@ -67,7 +67,6 @@ PerformanceTimer& ChunkManager::get_perf_timer() {
 }
 
 void ChunkManager::_ready() {
-    // print_line("_ready: called, is_inside_tree=" + String::num(is_inside_tree()));
 #ifdef DEBUG_ENABLED
     // Once, at startup, because the thing it checks fails silently: a build preview
     // packed in the wrong float order draws mangled instances off screen and shows
@@ -106,20 +105,15 @@ void ChunkManager::_ready() {
 void ChunkManager::_enter_tree() {
     controller->set_owner(this);
     set_process(true);
-    // print_line("_enter_tree: called, is_inside_tree=" + String::num(is_inside_tree()));
     RenderingServer* rs = RenderingServer::get_singleton();
     Ref<World3D> world = get_world_3d();
     if (world.is_valid()) {
         RID scenario = world->get_scenario();
-        // print_line("_enter_tree: world is valid, scenario is valid=" + String::num(scenario.is_valid()));
         controller->get_chunk_world().get_chunk_map().for_each([&](uint64_t key, const std::unique_ptr<ChunkRenderData>& render_data) {
             if (render_data->instance_rid.is_valid()) {
                 rs->instance_set_scenario(render_data->instance_rid, scenario);
             }
         });
-        // print_line("_enter_tree: set scenario for " + String::num(controller->get_chunk_world().get_chunk_map().size()) + " chunks");
-    } else {
-        // print_line("_enter_tree: world is null");
     }
 }
 
@@ -292,7 +286,6 @@ void ChunkManager::set_chunk_scenario(int32_t chunk_x, int32_t chunk_y, int32_t 
 
 void ChunkManager::clear_editor_chunks() {
     controller->clear_editor_chunks();
-    // print_line("clear_editor_chunks: All chunks cleared");
 }
 
 void ChunkManager::set_editor_enabled(bool enabled) {

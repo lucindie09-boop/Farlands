@@ -100,10 +100,6 @@ private:
     // displaced blocks of the last paste, in the order they were written.
     schematic::PasteUndo paste_undo_;
 
-    void set_block_variant(int32_t world_x, int32_t world_y, int32_t world_z, BlockID block_id);
-    void update_mud_variants(int32_t world_x, int32_t world_y, int32_t world_z, BlockID new_block);
-    void post_block_change(int32_t world_x, int32_t world_y, int32_t world_z, BlockID new_block);
-
     bool is_local_in_bounds(int32_t local_x, int32_t local_y, int32_t local_z) const {
         return local_x >= 0 && local_x < CHUNK_WIDTH &&
                local_y >= 0 && local_y < CHUNK_HEIGHT &&

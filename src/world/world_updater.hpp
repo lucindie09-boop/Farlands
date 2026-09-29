@@ -100,11 +100,7 @@ public:
     // the pass's checks are cheap and its ordering is what puts terrain in front
     // of the player first. What its numbers DO justify is making it cheaper per
     // check, not running it less.
-    void set_frustum(const Frustum& f) {
-        frustum = f;
-        frustum_cursor = SweepCursor{};
-        frustum_pass_complete = false;
-    }
+    void set_frustum(const Frustum& f) { frustum = f; }
     const Frustum& get_frustum() const { return frustum; }
 
     // Fluid simulation. The state table must be built (from the loaded block
@@ -148,7 +144,6 @@ public:
     int32_t get_last_player_chunk_x() const { return last_player_chunk_x; }
     int32_t get_last_player_chunk_y() const { return last_player_chunk_y; }
     int32_t get_last_player_chunk_z() const { return last_player_chunk_z; }
-    double get_initial_loading_duration() const { return budgets.loading_duration; }
 
     // Counters for the generation sweep, read by /genstats.
     struct GenerationStats {
@@ -444,10 +439,11 @@ private:
     std::unordered_map<uint64_t, ColumnSurfaceBounds> column_height_cache;
     std::deque<uint64_t> column_height_fifo;
 
+    // The frustum the unload pass tests against. The retired frustum *generation*
+    // pass kept a cursor and a pass-complete flag here, and the visibility ratio
+    // it fed; with that pass gone the frustum is read-only state: nothing writes
+    // any of the three any more, so they are not kept.
     Frustum frustum;
-    SweepCursor frustum_cursor;
-    bool frustum_pass_complete = false;
-    float visible_chunk_ratio_ = 1.0f;
 
     // Resumable generation cursor — amortises the sweep list scan across frames.
     // Reset when player changes chunks; set pass_complete when a full sweep finds nothing.

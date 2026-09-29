@@ -174,7 +174,9 @@ void BlockEditor::place_block(int32_t world_x, int32_t world_y, int32_t world_z,
             render_data->mark_block_dirty(local_x, local_y, local_z);
         }
 
-        // Mud variant: inline update_mud_variants logic while lock is held.
+        // Mud variant: kept inline rather than factored out, because the cell it
+        // touches has to be read and written under the band this lock already
+        // holds (a standalone version re-acquires the shard and deadlocks).
         if (world_y > 0) {
             ChunkData* below_chunk = cm.get_chunk_data_fast(bw_cx, bw_cy, bw_cz);
             if (below_chunk && is_local_in_bounds(mud_lx, mud_ly, mud_lz)) {
@@ -293,6 +295,15 @@ RaycastResult BlockEditor::raycast_from_ray(const Vector3& ray_origin,
                     static_cast<double>(prev_x - current_x),
                     static_cast<double>(prev_y - current_y),
                     static_cast<double>(prev_z - current_z));
+                // The camera can sit inside a solid block (a head-height block,
+                // a flipped view), and then prev == current and there is no entry
+                // face at all. Entering the chain below with a zero normal would
+                // fall through to the z arm and divide by a ray component that is
+                // exactly zero on an axis-aligned ray — an inf/NaN hit_point and a
+                // zero hit_normal. The no-face case is answered directly instead:
+                // the hit is the origin. Each arm below divides only by the axis
+                // that moved, and an axis can only have moved if its ray
+                // component is non-zero, so those three are safe.
                 double t_face = 0.0;
                 if (face_normal.x != 0.0) {
                     double fx = (face_normal.x > 0) ? current_x + 1 : current_x;
@@ -300,7 +311,7 @@ RaycastResult BlockEditor::raycast_from_ray(const Vector3& ray_origin,
                 } else if (face_normal.y != 0.0) {
                     double fy = (face_normal.y > 0) ? current_y + 1 : current_y;
                     t_face = (fy - ray_origin.y) / ray_dir.y;
-                } else {
+                } else if (face_normal.z != 0.0) {
                     double fz = (face_normal.z > 0) ? current_z + 1 : current_z;
                     t_face = (fz - ray_origin.z) / ray_dir.z;
                 }
@@ -374,58 +385,6 @@ RaycastResult BlockEditor::raycast_from_ray(const Vector3& ray_origin,
         steps++;
     }
     return result;
-}
-
-// -------------------------------------------------------------------------
-// Internal helpers
-// -------------------------------------------------------------------------
-
-void BlockEditor::update_mud_variants(int32_t world_x, int32_t world_y, int32_t world_z, BlockID new_block) {
-    if (world_y <= 0) return;
-    const BlockID below = static_cast<BlockID>(chunk_world->get_block_world(world_x, world_y - 1, world_z));
-    if (new_block != BlockIDs::AIR) {
-        if (below == BlockIDs::MUD) {
-            set_block_variant(world_x, world_y - 1, world_z, BlockIDs::MUD_FULL);
-        } else if (below == BlockIDs::WET_SAND) {
-            set_block_variant(world_x, world_y - 1, world_z, BlockIDs::WET_SAND_FULL);
-        }
-    } else {
-        if (below == BlockIDs::MUD_FULL) {
-            set_block_variant(world_x, world_y - 1, world_z, BlockIDs::MUD);
-        } else if (below == BlockIDs::WET_SAND_FULL) {
-            set_block_variant(world_x, world_y - 1, world_z, BlockIDs::WET_SAND);
-        }
-    }
-}
-
-void BlockEditor::post_block_change(int32_t world_x, int32_t world_y, int32_t world_z, BlockID new_block) {
-    update_mud_variants(world_x, world_y, world_z, new_block);
-}
-
-void BlockEditor::set_block_variant(int32_t world_x, int32_t world_y, int32_t world_z, BlockID block_id) {
-    int32_t chunk_x, chunk_y, chunk_z, local_x, local_y, local_z;
-    world_to_chunk_local(world_x, world_y, world_z, chunk_x, chunk_y, chunk_z, local_x, local_y, local_z);
-
-    ChunkMap& cm = chunk_world->get_chunk_map();
-    {
-        uint64_t key = cm.get_chunk_key(chunk_x, chunk_y, chunk_z);
-        auto lock = cm.lock_keys_exclusive({key});
-        ChunkData* chunk_data = cm.get_chunk_data_fast(chunk_x, chunk_y, chunk_z);
-        if (!chunk_data) return;
-        if (!is_local_in_bounds(local_x, local_y, local_z)) return;
-        const BlockID old_block = chunk_data->get_block_unsafe(local_x, local_y, local_z);
-        if (old_block == block_id) return;
-        chunk_data->set_block(local_x, local_y, local_z, block_id);
-        ChunkRenderData* render_data = cm.get_chunk_render_data_fast(chunk_x, chunk_y, chunk_z);
-        if (render_data) {
-            render_data->is_mesh_dirty = true;
-            render_data->mesh_version++;
-            render_data->dirty_subchunks |= static_cast<uint8_t>(1 << subchunk_index(local_x, local_y, local_z));
-            render_data->mark_block_dirty(local_x, local_y, local_z);
-        }
-    }
-    chunk_world->mark_chunk_dirty(chunk_x, chunk_y, chunk_z);
-    mesh_manager->queue_dirty_chunk(chunk_x, chunk_y, chunk_z);
 }
 
 // -------------------------------------------------------------------------

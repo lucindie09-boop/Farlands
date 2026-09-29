@@ -1,15 +1,10 @@
 #include "render/environment_controller.hpp"
-#include "world/chunk_world.hpp"
-#include "lighting/light_propagator.hpp"
-#include "mesh/mesh_manager.hpp"
-#include "lighting/light_propagation.hpp"
 #include <algorithm>
+#include <cmath>
 
 namespace VoxelEngine {
 
-void EnvironmentController::update(double delta, double runtime_elapsed, const godot::Vector3& player_pos,
-                                   ChunkWorld& cw, LightPropagator& lp, MeshManager& mm,
-                                   double initial_loading_duration) {
+void EnvironmentController::update(double delta, const godot::Vector3& player_pos) {
     day_night.update(delta);
     update_shader_parameters();
 
@@ -111,24 +106,6 @@ void EnvironmentController::update_shader_parameters() {
                                            fog_controller.get_shader_fog_density(), 0.012f, 200.0f, fog_color,
                                            0.35f, fog_scatter, sun_color,
                                            fog_mode);
-}
-
-void EnvironmentController::update_player_light(const godot::Vector3& player_pos, double runtime_elapsed,
-                                                 ChunkWorld& cw, LightPropagator& lp, MeshManager& mm,
-                                                 double initial_loading_duration) {
-    player_light.update(
-        player_pos,
-        runtime_elapsed,
-        initial_loading_duration,
-        cw.get_chunk_map(),
-        [&lp](int32_t cx, int32_t cy, int32_t cz, std::vector<LightNode>& remove, std::vector<LightNode>& add) {
-            lp.light_propagate_remove_locked(cx, cy, cz, remove, add);
-        },
-        [&lp](int32_t cx, int32_t cy, int32_t cz, std::vector<LightNode>& add) {
-            lp.light_propagate_add_locked(cx, cy, cz, add);
-        },
-        [&mm](int32_t cx, int32_t cy, int32_t cz) { mm.mark_chunks_dirty_for_light(cx, cy, cz); }
-    );
 }
 
 } // namespace VoxelEngine

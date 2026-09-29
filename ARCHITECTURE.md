@@ -41,7 +41,6 @@ This document describes the current, stable architecture of the voxel engine. Fo
 **Targeted Shard Locking:**
 - `lock_keys_exclusive<N>()` locks only shards whose keys appear in input, in ascending shard order
 - Used in all hot paths to reduce contention:
-  - `set_block_variant()` — 1 chunk key
   - `propagate_block_light_region()` — 27 keys (3×3×3 neighborhood)
   - `place_block` — 27 keys (3×3×3 center)
   - `light_propagate_add` / `light_propagate_remove` — origin 3×3×3 + each seed node's 3×3×3 (deduplicated)
@@ -103,7 +102,7 @@ Async persistence shares the same pool: the main thread snapshots dirty chunks o
 1. `MeshBuilder::build_mesh()` creates mesh data from `ChunkData`
 2. Uses `ChunkNeighborAccessor` for 26 neighbor chunks
 3. Greedy meshing with stride/detail reduction for LOD (controlled by `lod_distance`/`lod_detail_level`)
-4. The build holds a shared `lock_keys` over the center chunk + 26 neighbors for the whole data read. This both pins the chunks (erasure requires an exclusive lock on the shard) and serializes the build against exclusive writers (block edits, light region recomputes, player light) that mutate neighbor section palettes mid-build. The center chunk additionally carries `pending_mesh_builds`, which `try_unload_chunk` checks before erasing
+4. The build holds a shared `lock_keys` over the center chunk + 26 neighbors for the whole data read. This both pins the chunks (erasure requires an exclusive lock on the shard) and serializes the build against exclusive writers (block edits, light region recomputes) that mutate neighbor section palettes mid-build. The center chunk additionally carries `pending_mesh_builds`, which `try_unload_chunk` checks before erasing
 5. Block edits take the incremental path (`build_mesh_incremental()`): a tight dirty-AABB re-emit merged with the previously emitted mesh, with fallback to a full rebuild when the bounds grow beyond a threshold
 
 ### Unloading
@@ -381,7 +380,7 @@ The following code remains in the codebase but is disabled or unused:
 ### World
 - `src/world/chunk_world.cpp` + `chunk_world_edits.cpp` / `chunk_world_persistence.cpp` — Edit application (block edits, pending/vegetation placements, unload/clear) and save/load (async `flush_dirty_chunks`, generation + epoch gated `enqueue_chunk_save` / `save_chunk_snapshot`, `write_chunk_file_locked`, inventory save/load). All hot paths use `lock_keys_exclusive()`
 - `src/world/block_editor.cpp` — `place_block` with targeted locking
-- `src/world/player_light.hpp` — Player light with targeted locking
+- `src/world/player_light.hpp` — Player light level/colour/enabled state, pushed as a shader-uniform glow. It carries no locking and touches no chunk map: the earlier design that injected a real light block into the light grid was disabled and has been removed
 - `src/world/world_updater.hpp/cpp` — Frustum integration, budgets, periodic dirty flush, and the fluid step: `update()` runs generation → unload → `fluid_sim.advance(delta)` → mesh budgets, so the cells it looks at are the ones that exist now and the chunks it dirties can remesh the same frame. Its `FluidSink` is what turns a tick's writes into persisted edits (with `notify=false`: the simulation schedules what it wrote itself) and one remesh request per chunk
 - `src/world/column_prefetch.hpp` — The handoff that moves a column's content bounds off the frame: request/claim by absolute column key, answers validated by an epoch so a task that outlived its terrain is refused rather than cached, and every request retired in every path. Header-only so the library and the test binary compile the same definition
 - `src/world/chunk_scheduler.hpp` — Completion queues, `poll_completed_mesh_nearest`

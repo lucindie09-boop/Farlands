@@ -694,9 +694,9 @@ void MeshBuilder::emit_faces(const ChunkData& chunk, const BlockRegistry& regist
         {
             ScopedTimer greedy_h_timer(perf_timer, TimerID::GreedyMeshHorizontal);
             passive_greedy_mesh_horizontal(chunk, accessor, FaceDirection::Top, registry);
-            // Bottom faces are never visible from a ground-level / top-down view.
-            // Skipping them saves ~1/6 of mesh build time and reduces GPU upload bytes.
-            // passive_greedy_mesh_horizontal(chunk, accessor, FaceDirection::Bottom, registry);
+            // Bottom faces are never visible from a ground-level / top-down view,
+            // so the Bottom arm is deliberately not emitted: skipping it saves
+            // ~1/6 of mesh build time and reduces GPU upload bytes.
         }
         {
             ScopedTimer greedy_v_timer(perf_timer, TimerID::GreedyMeshVertical);

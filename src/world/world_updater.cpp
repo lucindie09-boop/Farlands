@@ -446,13 +446,10 @@ void WorldUpdater::process_mesh_budgets(bool is_editor, uint64_t epoch, uint64_t
         mesh_rebuild_budget = budgets.mesh_rebuilds_idle;
         upload_budget = budgets.mesh_uploads_idle;
     }
-    // Scale budgets by viewport load: few visible chunks → less urgency, save CPU.
-    // Many visible chunks → keep full budget for visible-area quality.
-    if (!is_initial_loading) {
-        const float visibility_scale = 0.5f + visible_chunk_ratio_ * 0.5f;
-        mesh_rebuild_budget = std::max(1, static_cast<int32_t>(static_cast<float>(mesh_rebuild_budget) * visibility_scale));
-        upload_budget       = std::max(1, static_cast<int32_t>(static_cast<float>(upload_budget) * visibility_scale));
-    }
+    // A viewport-load budget scale used to sit here, driven by a visibility ratio
+    // the retired frustum pass was meant to write. Nothing ever assigned it, so
+    // the scale was a constant 1.0 — the budgets were never actually scaled, and
+    // the dead computation is gone with the ratio (see set_frustum).
 
     // NOTE: a backlog-proportional mesh budget was tried here and reverted. The
     // reasoning was sound (the queue is saturated while the player moves, so a
@@ -1117,10 +1114,7 @@ void WorldUpdater::clear() {
     unload_queue.clear();
     unload_pending.clear();
     invalidate_height_cache();
-    frustum_cursor             = SweepCursor{};
     generation_cursor          = SweepCursor{};
-    frustum_pass_complete      = false;
-    visible_chunk_ratio_       = 1.0f;
     generation_pass_complete   = false;
     generation_sweep_generated = false;
     unload_scan_skip_counter   = 0;

@@ -179,9 +179,7 @@ void VoxelEngineController::update(double delta, bool is_editor, const godot::Ve
 
     player_position = player_pos;
 
-    environment_controller.update(delta, runtime_elapsed, player_position,
-                                  chunk_world, light_propagator, mesh_manager,
-                                  world_updater.get_initial_loading_duration());
+    environment_controller.update(delta, player_position);
 
     {
         ScopedTimer t(perf_timer, TimerID::PlayerPosUpdate);

@@ -21,7 +21,7 @@ A Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked streamin
 - **Sharded chunk map**: 64 independently-locked shards (`shared_mutex` each), so a write on one shard never blocks readers on another
 - **Palette-compressed storage**: Block and light data stored as 8 paletted 16³ sections per chunk instead of dense arrays, cutting per-chunk memory from ~130KB to ~1–20KB on uniform terrain
 - **Budget-capped main thread**: Generation completion, mesh uploads, and light propagation are wall-clock-budgeted per frame; nearest-to-player completed mesh uploads first
-- **Dynamic mesh budget**: Scales rebuild/upload budgets by visible-chunk ratio (0.5x to 1.0x) based on viewport load
+- **Dynamic mesh budget (REMOVED — it never ran)**: the budgets were scaled by a `visible_chunk_ratio_` the retired frustum pass was meant to write, and nothing ever assigned it, so the scale was a constant 1.0 and the two lines were dead arithmetic. The ratio and its cursor are gone; what is left is the fixed idle/active budget split below
 - **Targeted shard locking**: `lock_keys_exclusive()` locks only shards whose keys appear in input, reducing contention from all-64-shard locks to only the 1–54 shards actually needed
 - **Work stealing thread pool**: Adaptive idle polling with work stealing for better CPU utilization
 - **Per-worker task queues**: Round-robin task distribution replaces single global mutex for better throughput
@@ -219,7 +219,7 @@ A Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked streamin
 - **8 deadlock classes resolved**: Self-deadlock in light propagation, shard lock ordering, `_locked` method contracts, and **recursive shared shard-lock acquisition** (Windows SRW locks block new shared acquisitions once a writer is queued on a shard, so re-acquiring a shard you already hold shared freezes the whole game). The recursive class was fixed with `queue_dirty_chunk_fast()` (dirty-queue under a caller-held lock) and `ShardLock::reset()` (release-then-re-acquire for periodic lock refreshes like the block raycast's all-shard lock)
 - **Player light thread safety**: Fixed unlocked writes while BFS runs concurrently
 - **Cross-chunk writer race**: Fixed vegetation cross-chunk block writes with proper exclusive locking
-- **Mesh-build serialization**: `MeshBuildTask::execute` holds a shared 3×3×3 `lock_keys` over the center chunk + 26 neighbors for the whole data read, serializing the build against writers (block edits, light region recomputes, player light) that mutate neighbor section palettes mid-build
+- **Mesh-build serialization**: `MeshBuildTask::execute` holds a shared 3×3×3 `lock_keys` over the center chunk + 26 neighbors for the whole data read, serializing the build against writers (block edits, light region recomputes) that mutate neighbor section palettes mid-build
 - **Overlapping light removal**: Per-channel removal clears a channel only when the removed source emitted it and the cell's level is strictly below the source's; surviving channels are re-added so they refill the cleared region, and each (cell, channel) is cleared at most once so the BFS terminates with overlapping sources
 - **Worker→simulation wake**: A generated chunk applies its saved edit map on the thread pool, which used to wake the fluid simulation directly (mutating a queue the main thread ticks) and surfaced later as heap corruption on a worker. `ChunkWorld` now carries a second listener for that path, and it posts (`FluidSim::post_block_changed`) instead of applying; the main thread drains the inbox at the top of `advance()`. See the fluid section for why the drain sits before the idle early-return
 
@@ -281,7 +281,6 @@ A Minecraft-style voxel engine (Godot 4 + C++ GDExtension) with chunked streamin
 - Recursive shared acquisition is forbidden: never re-acquire a shard you already hold shared (e.g. calling `queue_dirty_chunk` inside a `lock_keys` scope, or building a fresh `lock_all()` while one is alive). Use `queue_dirty_chunk_fast()` / `get_chunk_render_data_fast()` and `ShardLock::reset()` before re-locking. Windows SRW blocks new shared acquisitions once a writer is queued, turning the recursion into a hard deadlock
 
 ### Targeted Shard Locking Usage
-- `set_block_variant()` — 1 chunk key
 - `propagate_block_light_region()` — 27 keys (3×3×3 neighborhood)
 - `place_block` — 27 keys (3×3×3 center)
 - `light_propagate_add` / `light_propagate_remove` — origin 3×3×3 + each seed node's 3×3×3 (deduplicated)

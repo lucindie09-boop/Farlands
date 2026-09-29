@@ -32,7 +32,7 @@ bool ChunkWorld::try_unload_chunk(uint64_t key, MeshManager* mesh_mgr) {
     if (is_chunk_pinned(key)) return false;
     int32_t cx = 0, cy = 0, cz = 0;
     ChunkMap::decode_chunk_key(key, cx, cy, cz);
-bool needs_save = false;
+    bool needs_save = false;
     auto render_data = chunk_map.find_and_erase_if(key, [this, key, &needs_save](const ChunkRenderData& rd) {
         if (rd.pending_mesh_builds.load(std::memory_order_relaxed) != 0) {
             return false;
@@ -40,7 +40,7 @@ bool needs_save = false;
         if (rd.pending_mesh_uploads.load(std::memory_order_relaxed) != 0) {
             return false;
         }
-needs_save = is_chunk_dirty(key);
+        needs_save = is_chunk_dirty(key);
         return true;
     });
 
@@ -48,18 +48,18 @@ needs_save = is_chunk_dirty(key);
         return !chunk_map.contains(key);
     }
 
-if (needs_save) {
-    // Hand the edit map to the background saver. If a save for this chunk
-    // is already in flight it is superseded (generation bump), guaranteeing the
-    // newest data is the one that reaches disk.
-    std::lock_guard<std::mutex> lock(edit_maps_mutex);
-    auto it = chunk_edit_maps.find(key);
-    if (it != chunk_edit_maps.end()) {
-        auto snapshot = std::make_unique<EditMap>();
-        snapshot->edits = it->second.edits; // Deep copy
-        enqueue_edit_map_save(key, cx, cy, cz, std::move(snapshot));
+    if (needs_save) {
+        // Hand the edit map to the background saver. If a save for this chunk
+        // is already in flight it is superseded (generation bump), guaranteeing the
+        // newest data is the one that reaches disk.
+        std::lock_guard<std::mutex> lock(edit_maps_mutex);
+        auto it = chunk_edit_maps.find(key);
+        if (it != chunk_edit_maps.end()) {
+            auto snapshot = std::make_unique<EditMap>();
+            snapshot->edits = it->second.edits; // Deep copy
+            enqueue_edit_map_save(key, cx, cy, cz, std::move(snapshot));
+        }
     }
-}
     if (mesh_mgr) {
         mesh_mgr->notify_chunk_unloaded(cx, cy, cz, render_data.get());
         mesh_mgr->erase_urgent(key);

@@ -199,6 +199,7 @@ Full notes: [docs/terrain-notes.md](docs/terrain-notes.md). The fields of each f
   `data/terrain_config.json`; what each one drives is in
   [docs/terrain-notes.md](docs/terrain-notes.md), and every field is in
   [docs/data-schemas.md](docs/data-schemas.md).
+
 ### Pathfinding (`src/pathfinding/`)
 - A ground-route planner with no Godot dependencies: the goal is a cell rather than a
   column, and the heuristic is in the cost table's own units.
@@ -208,6 +209,7 @@ Full notes: [docs/terrain-notes.md](docs/terrain-notes.md). The fields of each f
   lives in `NavCosts`.
 
 Full notes: [docs/pathfinding.md](docs/pathfinding.md).
+
 ### Block files from other tools (`src/schematic/`)
 - A read-only decoder for both families of build file, with no Godot and no zlib, that
   tolerates the three quirks real writers produce.
@@ -228,6 +230,7 @@ Full notes: [docs/schematic-notes.md](docs/schematic-notes.md).
   on the main thread, never applied where it was raised.
 
 Full notes: [docs/fluids.md](docs/fluids.md).
+
 ### Testing & CI
 - 588 test cases / 346,456 assertions, written with `CHECK`/`CHECK_FALSE` only: this
   build disables exceptions, so `REQUIRE` is a compile error.
@@ -239,6 +242,7 @@ Full notes: [docs/fluids.md](docs/fluids.md).
   check, the fuzzers, coverage, and the four static gates above.
 
 Full notes: [docs/testing.md](docs/testing.md).
+
 ### Persistence & Format
 - **Save format v3**: RLE-compressed with CRC32 checksum; atomic writes with `.tmp` → `.bak` →
   target pattern

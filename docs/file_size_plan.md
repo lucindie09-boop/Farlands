@@ -1085,9 +1085,10 @@ same way and nobody notices. This pass gave them the same treatment.
 - **A gate.** [../tools/check_docs.py](../tools/check_docs.py) fails on a cited path that does not
 exist (path, glob, bare basename or `block_types.hpp/cpp` shorthand), on a link into a heading
 that does not exist, on a count in prose that no longer matches the tree (test cases, file
-counts, `MAX_BLOCK_TYPES`, the size guard's own total) and on an unreadable line or file; it
-warns on a section over 3,000 words and on a table cell over 400 characters, because markdown
-gives you no way to wrap either. `scons docscheck`, plus a CI step, plus `--selftest`.
+counts, `MAX_BLOCK_TYPES`, the size guard's own total), on a heading with no blank line above
+it, and on a directory under `src/` that no document names at all; it warns on a section over
+3,000 words and on a table cell over 400 characters, because markdown gives you no way to wrap
+either. `scons docscheck`, plus a CI step, plus `--selftest`.
 - **The citations resolve.** 47 references pointed into `.freebuff/`, which is untracked: a
 clone had none of the probes the docs named as their proof. The scripts are un-ignored now
 (`!.freebuff/*.gd|sh|py`), the 231 MB of probe output is ignored instead, and
@@ -1095,18 +1096,22 @@ clone had none of the probes the docs named as their proof. The scripts are un-i
 gate flags a citation that git IGNORES, since a clone can never have one; the 34 scripts named
 by the docs must therefore be added when this work is committed, or CI's docs check fails on a
 clean checkout.
-- **Seven sections moved out.** Every section over the warning budget became a file under
-`docs/` — shapes, streaming and the GDScript UI from ARCHITECTURE.md; shapes, rendering,
-inventory/GUI and build files from AGENTS.md — with a short summary and a link left behind. The
-text was moved by script and checked word-for-word, not retyped: 30,957 words across seven
-files. The rendering section was the hard case, since 5,400 of those words were a SINGLE bullet
-about the shader stack; it is now one subsection per effect (Hand Drawn, CRT Screen, Phosphor
-Trail, World Bend, Horizon Curve), cut at sentence starts.
+- **Eleven sections moved out, in two passes.** First every section over the warning budget —
+shapes, streaming and the GDScript UI from ARCHITECTURE.md; shapes, rendering, inventory/GUI and
+build files from AGENTS.md — then the four per-system sections that were still full-detail
+notes in AGENTS.md (terrain, pathfinding, fluids, testing & CI), so that file is now only the
+constraints and the notes that cut across systems: 2,286 → 486 lines. Every moved section left
+a short summary and a link behind. The text was moved by script and checked word-for-word, not
+retyped: 36,777 words across eleven files. The rendering section was the hard case, since 5,400
+of those words were a SINGLE bullet about the shader stack; it is now one subsection per effect
+(Hand Drawn, CRT Screen, Phosphor Trail, World Bend, Horizon Curve), cut at sentence starts.
 - **README stopped being a second copy.** Its Key Systems table had cells up to 5,531
 characters — an essay in a cell cannot be reviewed either. It is now one short row per system
 pointing at the document that owns the detail.
 
-The gate then caught two things in my own work: `check_docs.py` originally ran the test binary
+The gate then caught three things in my own work: `check_docs.py` originally ran the test binary
 once per document (13 runs of a 20-second suite; now once, cached, `CHECK_DOCS_NO_SUITE=1` to
-skip), and a prose glob (`mesh_manager*.cpp`) that names no file. Result: 20 markdown files,
-0 problems and 0 warnings; AGENTS.md 2,286 → 863 lines, ARCHITECTURE.md 1,883 → 1,110.
+skip), a prose glob (`mesh_manager*.cpp`) that names no file, and eleven headings the mover had
+glued to the paragraph above them — which is why the blank-line rule exists. Result: 24
+markdown files, 0 problems and 0 warnings; AGENTS.md 2,286 → 486 lines, ARCHITECTURE.md
+1,883 → 1,117.

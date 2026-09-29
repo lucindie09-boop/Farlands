@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://.freebuff/probe_anim.gd" id="1_anim"]
+
+[node name="ProbeAnim" type="Node3D"]
+script = ExtResource("1_anim")

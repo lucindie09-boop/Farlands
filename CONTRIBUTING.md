@@ -67,6 +67,7 @@ Where a fact belongs, so it does not get written four times and drift:
   enough to have their own page, the [per-system documents](docs/README.md).
 - **A task** (add a block, a biome, a command, a shader) → [docs/howto.md](docs/howto.md).
 - **A field in a JSON file** → [docs/data-schemas.md](docs/data-schemas.md).
+- **A test, a benchmark or a CI job** → [docs/testing.md](docs/testing.md).
 - **A word** → [docs/glossary.md](docs/glossary.md).
 - **An instrument for a symptom** → [docs/debugging.md](docs/debugging.md).
 - **A claim only the real engine can prove** → a probe, documented in

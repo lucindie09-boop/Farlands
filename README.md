@@ -122,10 +122,13 @@ These configs are loaded at startup via `VoxelEngineController::load_world_confi
 
 Textures are organized in the `textures/` directory:
 - `textures/blocks/` — Block textures (bedrock, dirt, grass, stone, sand, water, etc.). `water.png` is hand-authored; `lava.png` and `acid.png` are baked from their generator presets by `tools/bake_liquid_textures.gd` so the array has a layer to build and the animator has one to write into
-- `textures/gui/` — UI textures (hotbar, inventory background, effects)
+- `textures/items/` — Item and tool sprites, resolved from the bare name `data/items.json` gives each one
+- `textures/animated/` — The ten cracked-block overlay frames the break animation steps through
+- `textures/gui/` — UI textures (hotbar, inventory background, effects, settings/tool icons)
 - `textures/sprites/` — Sprite textures (hearts, etc.)
 - `textures/atmosphere/` — Atmospheric textures (sun, north star)
-- `textures/Archive/` — Archived/deprecated textures (old versions kept for reference)
+- `textures/mobs/` — Mob skins
+- `textures/0Archive/` — Archived/deprecated textures (old versions kept for reference)
 
 The player model lives in `player.glb` (voxel-style, slim 3-px arms with a tightly-packed 64×64 skin-texture atlas). `player_model.gd` applies a skin texture to the model with nearest filtering (no mipmaps, to avoid blending UV islands), and `skin_preview.gd` is a transparent-background sub-viewport that orbits the model for the skin maker.
 
@@ -174,6 +177,8 @@ scons
 scons debug    # terrain_debug executable
 scons bench    # benchmark executable (supports --check <baseline>)
 scons test     # builds the doctest suite (see tests/)
+scons sizecheck   # fails if any .cpp/.hpp passes 500 lines (also a CI step)
+scons portability # fails on a Windows-only shape outside #ifdef _WIN32 (also a CI step)
 scons path_cost # planner cost over real terrain (bin/path_cost [seed] [max_distance])
 scons schematic_report # decode a build file (bin/schematic_report <file> [--top N | --all] [--table PATH] [--plan] [--repeat N])
 # in game: K spawns the punchable dummy, P plans a route from it to the player
@@ -191,10 +196,12 @@ Optional build flags: `TSAN=1` (ThreadSanitizer), `ASAN=1` (ASan+UBSan), `COVERA
 CI (`.github/workflows/build.yml`) runs on every push and pull request:
 - **Build job** — 5-leg matrix: ubuntu plain, ubuntu TSan, ubuntu ASan+UBSan, macos plain, windows plain. Tests run on every leg; the benchmark regression check (`--check benchmark_baseline.txt`) runs on the non-sanitizer legs.
 - **Fuzz job** — builds and runs 5 libFuzzer harnesses (`fuzz_palette`, `fuzz_chunk_load`, `fuzz_chunk_recovery`, `fuzz_light_propagation`, `fuzz_mesh_builder`) for 60 seconds each on Linux.
-- **Static-analysis job** — clang-tidy across all of `src/` with `bugprone-*`, `concurrency-*`, and `performance-*` checks; findings in project sources fail the job.
+- **Static-analysis job** — clang-tidy across all of `src/` with `bugprone-*`, `concurrency-*`, and `performance-*` checks; findings in project sources fail the job. It runs on Linux, so Windows-only code (the `#ifdef _WIN32` halves) is outside its reach by construction.
 - **Coverage job** — lcov coverage report uploaded to Codecov.
 
-The project has **401 test cases / 214,203 assertions** across 46 doctest files, including 27 tests in `test_concurrency.cpp` (shard locking, deadlock prevention, PaletteStorage, cross-chunk writers, thread-pool work stealing).
+The build and fuzz jobs additionally run `python tools/check_file_sizes.py` (**no C++ file above 500 lines**, warning at 480) and the build job `python tools/check_portability.py` (no Windows-only include, `#pragma`, intrinsic or Win32 type outside an `#ifdef _WIN32` region, and no standard attribute written after a decl-specifier). Both compile happily on MSVC and are fatal on GCC/clang, which is why the tree is checked by something other than MSVC before it is accepted; the same two checks are available locally as `scons sizecheck` and `scons portability`.
+
+The project has **588 test cases / 346,456 assertions** across the 90 `.cpp` files in `tests/` (88 declaring cases, plus the doctest entry point and a stub TU), including 27 tests in `test_concurrency.cpp` (shard locking, deadlock prevention, PaletteStorage, cross-chunk writers, thread-pool work stealing).
 
 ## Running
 

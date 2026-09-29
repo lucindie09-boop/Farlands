@@ -4,15 +4,19 @@
 
 ```bash
 # Standard build (debug)
-python -m SCons -j8
+scons -j8
 
-# Run tests (255 tests / ~182k assertions)
-python -m SCons test -j8
-.\bin\run_tests.exe
+# Run tests (588 cases / 346,456 assertions across the 90 .cpp files in tests/)
+scons test -j8
+./bin/run_tests.exe
 
 # Benchmark with regression check
-python -m SCons bench -j8
-.\bin\benchmark.exe --check benchmark_baseline.txt
+scons bench -j8
+./bin/benchmark.exe --check benchmark_baseline.txt
+
+# The two structural guards (both also run in CI)
+scons sizecheck     # no .cpp/.hpp above 500 lines
+scons portability   # no Windows-only shape outside #ifdef _WIN32
 ```
 
 ## Code Conventions
@@ -23,6 +27,15 @@ python -m SCons bench -j8
 - **`_fast` suffix**: Accessor that reads/writes ChunkData without acquiring a shard lock. Only callable from `_locked` methods.
 - **Auto-locking methods** (no suffix): Acquire their own shared lock internally. `get_chunk_data()`, `get_chunk_render_data()`, `mark_chunks_dirty_for_light()`, `queue_dirty_chunk()`.
 - **Public wrapper pattern**: Acquire exclusive lock → call `_locked` → release lock → call auto-locking accessors for dirty-marking.
+
+### Source Files
+
+- **No `.cpp` or `.hpp` file above 500 lines** (`src/`, `tests/`, `tools/`). `scons sizecheck` fails with the offender list and warns at 480. Split along responsibilities, never by size: the original file stays the entry point for its subject, new pieces are `<name>_<topic>.cpp` beside it, a helper that two files need goes in `<name>_internal.hpp` (test fixtures in `tests/<name>_test_support.hpp`, in a named namespace with `inline` helpers, since a header does not inherit the includer's `using namespace`). Move the text verbatim first, then change it. The history and the traps are in `.freebuff/file_size_plan.md`.
+- A new `.cpp` is picked up by `SConstruct`'s glob with no edit — unless its file is named in `shared_sources`, the fuzz source lists or a tool's `Program()`.
+- **Three static gates run on every push, and each catches a different class of mistake:**
+  - `scons sizecheck` — the 500-line cap above.
+  - `scons portability` — a Windows-only include, `#pragma`, intrinsic or Win32 type outside an `#ifdef _WIN32` region, or `[[...]]` written after a decl-specifier. MSVC accepts both shapes and GCC/clang reject them, and the Linux jobs run only in CI, so such a mistake otherwise sits in the tree looking green.
+  - clang-tidy over all of `src/` (`bugprone-*`, `concurrency-*`, `performance-*`), where any finding in project sources fails the job. It runs on Linux, so Windows-only code is outside its reach by construction.
 
 ### Locking Rules
 
@@ -62,7 +75,7 @@ The chunk map uses 64 shards with `shared_mutex` per shard. Violations cause dea
 - **Save format v3**: `[width:u32][height:u32][depth:u32][version:u32=3][crc32:u32][RLE body...]`
 - **Atomic writes**: `.tmp` → backup existing to `.bak` → rename to target
 - **CRC recovery**: On mismatch, try `.bak` fallback; delete if both corrupt
-- Pure persistence logic lives in `src/core/` and is shared by tests and `ChunkWorld`: chunk decode in `chunk_persistence.hpp`, the inventory INVE byte format in `inventory.hpp`, and edit-map serialize/deserialize/apply in `edit_map.hpp`. Never re-implement these formats in tests — call the core functions. Godot file orchestration stays in `chunk_world.cpp`.
+- Pure persistence logic lives in `src/core/` and is shared by tests and `ChunkWorld`: the inventory INVE byte format in `inventory.hpp`, and edit-map serialize/deserialize/apply in `edit_map.hpp`. Never re-implement these formats in tests — call the core functions. Godot file orchestration (chunk save/load, the metadata header, atomic writes, the `.bak` fallback) stays in `src/world/chunk_world_persistence.cpp`.
 
 ### Testing
 
@@ -71,6 +84,7 @@ The chunk map uses 64 shards with `shared_mutex` per shard. Violations cause dea
 - `TestShardMap` in `test_concurrency.cpp` mirrors `ChunkMap`'s 64-shard locking without Godot dependencies. Reuse this pattern for standalone concurrent tests.
 - Block-dependent tests must call `BlockRegistry::get_instance().initialize_default_blocks()` first.
 - `FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION` guards out Godot-dependent mesh types for fuzz/test targets.
+- Fuzz source lists are explicit and **godot-free by construction**: a file is in one because a harness needs it, not because it is nearby, and a source there may not reach a loader or registry that sits behind that define — such a target links on no machine but the CI runner, so a link error there cannot be reproduced by a local build.
 
 ### Mesh Building
 
@@ -90,7 +104,8 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full system design. Key invariant
 
 ## Pull Requests
 
-- All tests must pass (`python -m SCons test -j8 && .\bin\run_tests.exe`)
+- All tests must pass (`scons test -j8 && ./bin/run_tests.exe`)
+- The static gates must be clean: `scons sizecheck`, `scons portability`, and no new clang-tidy findings in `src/`
 - New features should include tests in `tests/`
 - Benchmark regression check should pass for performance-sensitive changes
 - Lock ordering: always ascending shard order, never hold exclusive lock across auto-locking calls

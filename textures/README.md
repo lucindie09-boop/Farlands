@@ -16,18 +16,36 @@ replaced with an original work or attributed here with its license.
 
 ```
 textures/
-  blocks/           Active block face textures (16×16 PNG)
-  Archive/          Deprecated texture variants (not loaded at runtime)
+  blocks/           Active block face textures (16×16 PNG) — the only directory
+                    the texture arrays build from
+  items/            Held-item and tool sprites (bucket and each sort of bucket,
+                    sticks, pickaxes, the held torch)
+  animated/         Block-break crack overlay frames (l0_sprite_01..10, drawn by
+                    block_break_overlay.gd)
   atmosphere/       Skybox elements (sun, north star)
-  gui/              UI elements (inventory, hotbar, hearts)
+  gui/              UI elements (inventory, hotbar, hearts, settings/tool icons)
   sprites/          In-game sprites (heart)
+  mobs/             Mob skins (zombie)
+  0Archive/         Deprecated texture variants (not loaded at runtime)
+  htr.png           Unused leftover at the directory root
 ```
 
 ## Naming Convention
 
-Textures are referenced by bare name in `data/block_definitions.json`
+Block textures are referenced by bare name in `data/block_definitions.json`
 (e.g. `"stone"`, `"grass_top"`). The `TextureArrayGenerator` resolves these
-to `res://textures/blocks/<name>.png` at load time.
+to `res://textures/blocks/<name>.png` at load time, and that is the only
+directory it looks in — including for a liquid's still frame, which
+`tools/bake_liquid_textures.gd` writes there for exactly that reason. Items
+name their own files in `data/items.json` and resolve to
+`res://textures/items/<name>.png` (`BlockTextures`), because an item is not
+part of the block array.
+
+Two sets here are generated rather than hand-drawn, both idempotently:
+`python tools/make_block_textures.py` writes the torch block texture as a
+verbatim copy of the held item's art plus the emitter maps for glass, ladder,
+chain and carpet; and the cracked-block overlay in `animated/` is the ten
+frames the break animation steps through.
 
 ## Missing Textures
 

@@ -10,9 +10,10 @@
 #include "lighting/light_propagator.hpp"
 #include "core/block_types.hpp"
 #include <array>
-#include <map>
-#include <vector>
 #include <iterator>
+#include <map>
+#include <utility>
+#include <vector>
 
 namespace VoxelEngine {
 using namespace godot;

@@ -277,6 +277,13 @@ sizecheck = env.Command("bin/.sizecheck_stamp", [], '"{}" tools/check_file_sizes
 AlwaysBuild(sizecheck)
 Alias("sizecheck", sizecheck)
 
+# Portability guard: nothing Windows-only may sit outside an `#ifdef _WIN32`
+# region, and no standard attribute may follow a decl-specifier. MSVC accepts
+# both; GCC and clang do not. Same always-runs treatment as sizecheck.
+portability = env.Command("bin/.portability_stamp", [], '"{}" tools/check_portability.py'.format(sys.executable))
+AlwaysBuild(portability)
+Alias("portability", portability)
+
 # LibFuzzer harnesses (Clang-only, Linux/macOS)
 # Build with: scons fuzz  (requires clang++)
 if sys.platform != "win32":

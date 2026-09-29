@@ -5,8 +5,16 @@
 // Everything here runs on a thread that is about to die, on a stack that is
 // suspect by definition: no allocation, no locks, and each piece of evidence is
 // flushed before the next, more dangerous, one is gathered.
+//
+// Windows-only, like debug/crash_dump.cpp: the report is built out of the Win32
+// stack walker and DbgHelp's symbol handler, so on every other platform this
+// translation unit is empty — which is also what keeps `_WIN32` and the whole
+// dbghelp/tlhelp32 include pair out of a Linux or macOS build.
 
 #include "debug/crash_dump.hpp"
+
+#ifdef _WIN32
+
 #include "debug/crash_dump_internal.hpp"
 
 #include <cstdarg>
@@ -61,6 +69,10 @@ void report(HANDLE file, const wchar_t* format, ...) {
     }
 }
 
+// Local to the report: these are not part of what debug/crash_dump.cpp calls,
+// so they stay out of the namespace's shared surface.
+namespace {
+
 // The name of the module an address lives in, and its offset, which is what
 // identifies a frame when no symbols are around.
 void describe_address(DWORD64 address, wchar_t* module, size_t module_size, DWORD64* offset) {
@@ -112,6 +124,8 @@ void describe_symbol(DWORD64 address, wchar_t* out, size_t out_size, DWORD64* di
     }
 }
 
+}  // namespace
+
 // The heap manager's "this block is corrupt" status, and the two shapes it
 // arrives in: as itself (the fatal path), or as a breakpoint whose first
 // parameter is that status (the shape a debugger reports as first chance).
@@ -122,6 +136,9 @@ constexpr DWORD kStatusHeapCorruption = 0xC0000374u;
     return record->ExceptionCode == EXCEPTION_BREAKPOINT && record->NumberParameters >= 1 &&
            record->ExceptionInformation[0] == kStatusHeapCorruption;
 }
+
+// The same, for the parts of the report only the report needs.
+namespace {
 
 // Names a module and when it was linked. A folder of reports from several builds
 // cannot be read without this: an offset in one build means nothing in another.
@@ -256,6 +273,8 @@ void write_module_list(HANDLE file) {
     CloseHandle(snapshot);
 }
 
+}  // namespace
+
 // Answers the bytes written, or 0, with the last error in `error_out`.
 DWORD64 write_dump(EXCEPTION_POINTERS* pointers, const wchar_t* path, DWORD* error_out) {
     *error_out = 0;
@@ -363,3 +382,5 @@ void write_report(HANDLE file, EXCEPTION_POINTERS* pointers, const wchar_t* kind
 }  // namespace crash_detail
 }  // namespace debug
 }  // namespace VoxelEngine
+
+#endif  // _WIN32

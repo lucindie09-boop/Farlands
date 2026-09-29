@@ -36,7 +36,7 @@ using VoxelEngine::fluids::FluidWriteRecord;
 namespace fluid_sim_test {
 
 
-inline [[nodiscard]] BlockID registry_block(const char* name) {
+[[nodiscard]] inline BlockID registry_block(const char* name) {
     return BlockRegistry::get_instance().get_block_id_by_name(name);
 }
 

@@ -49,6 +49,9 @@ jobs:
       - name: Check C++ file sizes
         run: python tools/check_file_sizes.py
 
+      - name: Check C++ portability
+        run: python tools/check_portability.py
+
       - name: Compute godot-cpp submodule hash
         id: cachekey
         shell: bash

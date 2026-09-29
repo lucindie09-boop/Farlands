@@ -489,3 +489,5 @@ The following code remains in the codebase but is disabled or unused:
 - `tests/test_block_outline_mesh.cpp` — Outline mesh union/dedup/thickness cases for the native `BlockOutline`
 - `tools/benchmark.cpp` — 5 hot paths + memory, with `--check <baseline>` regression mode
 - `tools/fuzz_*.cpp` — libFuzzer harnesses (`fuzz_palette`, `fuzz_chunk_load`, `fuzz_chunk_recovery`, `fuzz_light_propagation`, `fuzz_mesh_builder`)
+- `tools/check_file_sizes.py` — the 500-line guard (`scons sizecheck` + the CI step): fails with the offender list, warns at 480
+- `tools/check_portability.py` — the `_WIN32` guard (`scons portability` + the CI step): fails on a Windows-only include, `#pragma`, intrinsic or Win32 type outside an `#ifdef _WIN32` region, and on a standard attribute placed after a decl-specifier. Both compile on MSVC and are fatal on GCC/clang, which is exactly why the tree is compiled by something other than MSVC before it is accepted

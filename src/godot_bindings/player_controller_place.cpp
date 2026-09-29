@@ -13,6 +13,7 @@
 #include <godot_cpp/classes/engine.hpp>
 
 #include <cmath>
+#include <string>
 
 using namespace godot;
 using namespace VoxelEngine;

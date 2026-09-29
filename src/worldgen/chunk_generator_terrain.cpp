@@ -106,7 +106,7 @@ int32_t ChunkGenerator::find_surface_y(int32_t world_x, int32_t world_z) const {
     const BiomeAmplification blended = blend_amplification_at(world_x, world_z);
     ColumnSample column = sample_column_with_climate(
         world_x, world_z, t, h, sample_land_shape(x, z, t, h), blended);
-    const BiomeAmplification& amp = amplification_for(column.biome, blended);
+    const BiomeAmplification amp = amplification_for(column.biome, blended);
     const float weirdness = amplified_weirdness(sample_weirdness(x, z), amp);
     const ShapeEnvelope env = shape_envelope(weirdness, amp.weirdness_size);
 

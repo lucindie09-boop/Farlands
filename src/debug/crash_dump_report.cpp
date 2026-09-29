@@ -79,10 +79,15 @@ void describe_address(DWORD64 address, wchar_t* module, size_t module_size, DWOR
     lstrcpynW(module, L"?", static_cast<int>(module_size));
     *offset = address;
     if (address == 0) return;
+    // With GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS the API takes the address back
+    // as its "module name" argument, so the integer-to-pointer cast is the
+    // documented idiom and the only way to ask about an address.
+    // NOLINTNEXTLINE(performance-no-int-to-ptr) - the API's argument is an address
+    LPCWSTR module_name = reinterpret_cast<LPCWSTR>(address);
     HMODULE base = nullptr;
     if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
                                GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                           reinterpret_cast<LPCWSTR>(address), &base) == FALSE) {
+                           module_name, &base) == FALSE) {
         return;
     }
     wchar_t path[MAX_PATH] = {};
@@ -229,6 +234,8 @@ int write_stack(HANDLE file, CONTEXT* context) {
 // unwinder gives up on. Data values and stale locals make it noisy, which is why
 // it only prints what resolves to a module and stops after a screenful.
 void write_raw_stack(HANDLE file, CONTEXT* context) {
+    // Rsp is a captured address, not a pointer we ever formed from an object.
+    // NOLINTNEXTLINE(performance-no-int-to-ptr) - walking the captured stack pointer
     const uintptr_t* sp = reinterpret_cast<const uintptr_t*>(context->Rsp);
     if (sp == nullptr || context->Rsp == 0) return;
     MEMORY_BASIC_INFORMATION info = {};

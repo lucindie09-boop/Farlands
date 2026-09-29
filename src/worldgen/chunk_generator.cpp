@@ -75,7 +75,7 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
                 : -1;
             columns[x][z].temperature  = col.temperature;
             columns[x][z].humidity     = col.humidity;
-            const BiomeAmplification& col_amp = amplification_for(col.biome, blended);
+            const BiomeAmplification col_amp = amplification_for(col.biome, blended);
             columns[x][z].weirdness    = amplified_weirdness(
                 sample_weirdness(static_cast<float>(wx), static_cast<float>(wz)),
                 col_amp);

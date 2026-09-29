@@ -264,8 +264,11 @@ private:
     BiomeType biome_at_node_raw(int32_t nx, int32_t nz) const;
     BiomeAmplification blend_amplification_node(int32_t nx, int32_t nz) const;
     BiomeAmplification blend_amplification_at(int32_t world_x, int32_t world_z) const;
-    const BiomeAmplification& amplification_for(BiomeType biome,
-                                                const BiomeAmplification& blended) const;
+    // Returned by value, not by reference: the blended field is often built as a
+    // temporary at the call site, and handing back a reference to it would dangle
+    // the moment the full expression ended. The struct is five floats.
+    BiomeAmplification amplification_for(BiomeType biome,
+                                        const BiomeAmplification& blended) const;
     float amplified_weirdness(float raw_mask, const BiomeAmplification& a) const;
 
     // Signed, normalized 3D fBm (FastNoise::fbm_3d already normalizes by the
@@ -421,7 +424,7 @@ float max_water_h = -1.0f;
     float sample_terrain_density(int32_t world_x, int32_t world_y, int32_t world_z,
                                  const ColumnSample& column) const {
         const BiomeAmplification blended = blend_amplification_at(world_x, world_z);
-        const BiomeAmplification& amp = amplification_for(column.biome, blended);
+        const BiomeAmplification amp = amplification_for(column.biome, blended);
         return sample_terrain_density(
             world_x, world_y, world_z, column,
             amplified_weirdness(sample_weirdness(static_cast<float>(world_x),

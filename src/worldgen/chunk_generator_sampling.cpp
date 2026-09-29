@@ -253,7 +253,10 @@ BiomeAmplification ChunkGenerator::blend_amplification_at(int32_t world_x, int32
 // 3D shaping (the blend field is climate-derived and never contains
 // ocean); the ocean's macro seabed height is no longer set here — it
 // keeps the height the land biome gave it before the ocean override.
-const BiomeAmplification& ChunkGenerator::amplification_for(BiomeType biome,
+//
+// Returned by value: `blended` is a temporary at several call sites, so a
+// reference to it would dangle as soon as the call expression ended.
+BiomeAmplification ChunkGenerator::amplification_for(BiomeType biome,
                                             const BiomeAmplification& blended) const {
     const size_t ix = static_cast<size_t>(biome);
     if (params.climate_blend_radius_nodes <= 0) {
@@ -290,7 +293,7 @@ float ChunkGenerator::quick_height_estimate(int32_t world_x, int32_t world_z) co
     const BiomeType biome = (raw >= params.sea_level)
         ? biome_from_climate(t, h, cont)
         : BiomeType::Ocean;
-    const BiomeAmplification& amp = amplification_for(
+    const BiomeAmplification amp = amplification_for(
         biome, params.climate_blend_radius_nodes > 0
                    ? blend_amplification_at(world_x, world_z)
                    : BiomeAmplification{});

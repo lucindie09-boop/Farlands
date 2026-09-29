@@ -132,7 +132,7 @@ bool McPalette::parse_row_variants(const JsonValue& value, PaletteRow& row, cons
     }
     // A named set, with this row's family substituted in.
     from_set = true;
-    const std::string name = value.as_string();
+    const std::string& name = value.as_string();
     const auto found = std::find_if(sets_.begin(), sets_.end(),
                                     [&name](const VariantSet& s) { return s.name == name; });
     if (found == sets_.end()) {

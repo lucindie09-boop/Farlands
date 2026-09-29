@@ -101,7 +101,7 @@ ChunkGenerator::ColumnSample ChunkGenerator::sample_column_with_climate(
     // level (1.0 = neutral; the blended field ramps across borders when
     // blending is enabled). Oceans are the LAST stage below.
     const BiomeType land_biome = biome_from_climate(temperature, humidity, cont);
-    const BiomeAmplification& amp = amplification_for(land_biome, blended);
+    const BiomeAmplification amp = amplification_for(land_biome, blended);
     float height = params.sea_level + (land_height - params.sea_level) * amp.height;
     height = std::max(static_cast<float>(params.bedrock_height) + 1.0f, height);
 

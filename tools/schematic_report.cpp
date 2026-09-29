@@ -27,6 +27,8 @@
 //                                   [--table data/minecraft_blocks.json]
 //                                   [--plan] [--repeat N]
 
+#include "schematic_report_format.hpp"
+
 #include "schematic/mc_palette.hpp"
 #include "schematic/paste_plan.hpp"
 #include "schematic/schematic_reader.hpp"
@@ -50,13 +52,6 @@ namespace {
 constexpr const char* USAGE =
     "usage: schematic_report <file> [--top N | --all] [--table PATH]"
     " [--plan] [--repeat N]\n";
-
-// Wall time since `start`, in milliseconds. Monotonic, so a clock adjustment
-// mid-run cannot produce a negative measurement.
-double elapsed_ms(std::chrono::steady_clock::time_point start) {
-    return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start)
-        .count();
-}
 
 bool read_file(const char* path, std::vector<uint8_t>& out, std::string& error) {
     std::ifstream stream(path, std::ios::binary);
@@ -123,12 +118,6 @@ std::string short_state(const BlockState& state, size_t width) {
     }
     return text;
 }
-
-struct FailedPastRow {
-    std::string state;
-    size_t count = 0;
-    std::string detail;
-};
 
 } // namespace
 
@@ -479,74 +468,11 @@ int main(int argc, char** argv) {
                         fluid_without_still_cells);
         }
 
-        if (!not_placed.empty()) {
-            std::sort(not_placed.begin(), not_placed.end(),
-                      [](const FailedPastRow& a, const FailedPastRow& b) {
-                          if (a.count != b.count) return a.count > b.count;
-                          return a.state < b.state;
-                      });
-            // Everything that is not an exact match: the pasted building will
-            // either lose these cells or get a different block in them.
-            std::printf("\ngaps        %-46s %-8s why\n", "state", "count");
-            const size_t notes_shown = not_placed.size() < 40 ? not_placed.size() : 40;
-            for (size_t i = 0; i < notes_shown; ++i) {
-                const FailedPastRow& row = not_placed[i];
-                std::printf("            %-46s %-8zu %s\n", row.state.c_str(), row.count,
-                            row.detail.empty() ? "no note in the table" : row.detail.c_str());
-            }
-            if (notes_shown < not_placed.size()) {
-                std::printf("            ... %zu more\n", not_placed.size() - notes_shown);
-            }
-        }
+        print_gap_rows(not_placed);
     }
 
     if (plan_reps > 0 && have_table) {
-        // The plan for real, timed: every cell into one bucket, with the table's
-        // resolution done per distinct state. This is the pass that runs before a
-        // paste touches the world, so its cost is the paste's floor.
-        std::unordered_map<std::string, BlockID> ids;
-        ids.reserve(block_names.size());
-        for (size_t i = 0; i < block_names.size(); ++i) {
-            ids.emplace(block_names[i], static_cast<BlockID>(i));
-        }
-        const auto resolve = [&ids](const std::string& name, BlockID& out) {
-            const auto found = ids.find(name);
-            if (found == ids.end()) return false;
-            out = found->second;
-            return true;
-        };
-
-        PasteOptions options;
-        PastePlan plan;
-        double best = 0.0;
-        double total = 0.0;
-        for (int rep = 0; rep < plan_reps; ++rep) {
-            const auto start = std::chrono::steady_clock::now();
-            if (!plan_paste(data, palette, 0, 0, 0, options, resolve, plan, &error)) {
-                std::printf("\nplan        refused: %s\n", error.c_str());
-                return 1;
-            }
-            const double ms = elapsed_ms(start);
-            total += ms;
-            if (rep == 0 || ms < best) best = ms;
-        }
-        const double per_cell_ns =
-            plan.stats.file_cells > 0
-                ? 1000000.0 * best / static_cast<double>(plan.stats.file_cells)
-                : 0.0;
-        std::printf("\nplan        %zu cells to change out of %zu file cells in %.1f ms"
-                    " (%.0f ns/cell, %s)\n",
-                    plan.size(), plan.stats.file_cells, best, per_cell_ns,
-                    plan_reps == 1 ? "1 run"
-                                   : (std::to_string(plan_reps) + " runs, best of, avg " +
-                                      std::to_string(total / plan_reps).substr(0, 5) + " ms")
-                                         .c_str());
-        std::printf("            placed %zu, substituted %zu, stilled %zu, skipped %zu,"
-                    " unknown %zu, declined %zu, air ignored %zu\n",
-                    plan.stats.placed, plan.stats.substituted, plan.stats.stilled,
-                    plan.stats.skipped, plan.stats.unknown,
-                    plan.stats.declined_fluid + plan.stats.declined_substitute,
-                    plan.stats.air_ignored);
+        if (!print_plan_report(data, palette, block_names, plan_reps, error)) return 1;
     }
 
     return table_clean ? 0 : 1;

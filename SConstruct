@@ -205,7 +205,8 @@ schem_tool_objects = [shared_obj_by_src[n] for n in [
     "paste_plan",
 ]]
 schem_prog = schem_env.Program("bin/schematic_report",
-                               ["tools/schematic_report.cpp"] + schem_tool_objects)
+                               ["tools/schematic_report.cpp",
+                                "tools/schematic_report_format.cpp"] + schem_tool_objects)
 Alias("schematic_report", schem_prog)
 
 # Elevation domain-warp sweep (standalone, renders BMPs for visual comparison).

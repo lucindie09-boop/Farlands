@@ -2,8 +2,8 @@ extends SceneTree
 ## Headless integration probe for the wand: menu, ghost and the paste gesture.
 ##
 ## Loads the real scene, gives itself the wand, and walks the exact flow a player
-## walks — middle click for the menu, choose a function, choose a build file, aim
-## the ghost, place it — asserting at each step that the WORLD agrees rather than
+## walks â€” middle click for the menu, choose a function, choose a build file, aim
+## the ghost, place it â€” asserting at each step that the WORLD agrees rather than
 ## that a function returned something:
 ##
 ##   - the menu is modal (the player is told a UI is open) and lists the files
@@ -153,7 +153,7 @@ func _run() -> void:
 			_fail("function %s is listed but cannot be selected" % entry["id"])
 	if wand.get_function() != "paste":
 		_fail("the selected function is %s, expected paste" % wand.get_function())
-	var files: Array = (preload("res://schematic_files.gd") as GDScript).list()
+	var files: Array = (preload("res://scripts/schematic_files.gd") as GDScript).list()
 	if files.is_empty():
 		_fail("no build files found, so the menu has nothing to choose")
 	elif not CHURCH in files:
@@ -216,7 +216,7 @@ func _run() -> void:
 	var hi: Vector3i = info.get("max", origin)
 	if lo.x < origin.x or hi.x < lo.x or hi.y < lo.y or hi.z < lo.z:
 		_fail("the ghost's volume %s..%s does not contain the origin %s" % [lo, hi, origin])
-	print("probe: ghost planned %d cells, volume %s..%s — %s"
+	print("probe: ghost planned %d cells, volume %s..%s â€” %s"
 		% [planned, lo, hi, wand.preview_summary()])
 
 	# --- left click: what the ghost showed is what lands ---------------------
@@ -248,7 +248,7 @@ func _run() -> void:
 		# holds nothing until x 90 and z 114 of its own box, which is exactly why a
 		# paste used to land a hundred blocks from where the crosshair was.
 		var big_bytes := FileAccess.get_file_as_bytes(
-			(preload("res://schematic_files.gd") as GDScript).resolve(BIG))
+			(preload("res://scripts/schematic_files.gd") as GDScript).resolve(BIG))
 		var big_info: Dictionary = cm.inspect_schematic(big_bytes, {})
 		var margin: Vector3i = big_info.get("margin", Vector3i.ZERO)
 		if margin != Vector3i(90, 0, 114):

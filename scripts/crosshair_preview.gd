@@ -1,6 +1,6 @@
 extends Control
 
-const Crosshair := preload("res://crosshair.gd")
+const Crosshair := preload("res://scripts/crosshair.gd")
 const CONTRAST_SHADER := preload("res://shaders/crosshair_contrast.gdshader")
 const SRC_PATH := "/root/Main/HUD/Crosshair"
 

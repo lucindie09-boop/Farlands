@@ -14,7 +14,7 @@ func _initialize() -> void:
 		print("PROBE SkinManager texture ", img.get_width(), "x", img.get_height(),
 			" transparent texels (a<0.05): ", transparent)
 	var model: Node3D = load("res://player.glb").instantiate()
-	model.set_script(load("res://player_model.gd"))
+	model.set_script(load("res://scripts/player_model.gd"))
 	root.add_child(model)
 	await process_frame
 	for mi in model.find_children("", "MeshInstance3D", true, false):

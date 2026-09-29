@@ -21,14 +21,14 @@ config/icon="res://icon.svg"
 
 [autoload]
 
-UIScale="*res://ui_scale.gd"
-SkinManager="*res://skin_manager.gd"
-BlockManager="*res://block_manager.gd"
-BlockIconRenderer="*res://block_icon_renderer.gd"
-PoseCloneDebug="*res://pose_clone_debug.gd"
-LiquidAnimator="*res://liquid_animator.gd"
-LiquidTextureLab="*res://liquid_texture_lab.gd"
-ChunkBorders="*res://chunk_borders.gd"
+UIScale="*res://scripts/ui_scale.gd"
+SkinManager="*res://scripts/skin_manager.gd"
+BlockManager="*res://scripts/block_manager.gd"
+BlockIconRenderer="*res://scripts/block_icon_renderer.gd"
+PoseCloneDebug="*res://scripts/pose_clone_debug.gd"
+LiquidAnimator="*res://scripts/liquid_animator.gd"
+LiquidTextureLab="*res://scripts/liquid_texture_lab.gd"
+ChunkBorders="*res://scripts/chunk_borders.gd"
 
 [display]
 

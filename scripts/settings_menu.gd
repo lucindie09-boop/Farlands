@@ -16,7 +16,7 @@ const SETTINGS_PATH := "user://settings.cfg"
 # one unit is _ui_scale() screen pixels, and at GUI scale 2 (what the reference
 # interface calls Normal) a standard button is UNIT_BUTTON_W x UNIT_BUTTON_H
 # units = 400x40 screen pixels with 16-pixel text. Widgets are 20 units tall and
-# text is 8 units tall — the same 20/8 the reference layout uses — which is what
+# text is 8 units tall â€” the same 20/8 the reference layout uses â€” which is what
 # the sizes written out at each call site had drifted away from: the buttons were
 # drawn at two thirds of that while their labels stayed full size.
 # -----------------------------------------------------------------------------
@@ -38,7 +38,7 @@ const UNIT_SCROLLBAR_W := 6.0
 
 # The reference screen's colours: a slightly lighter box between the bars, and
 # headings in the teal it labels its sections with. The dark bars themselves are
-# gone — the title and footer actions stand directly on the dimmed world.
+# gone â€” the title and footer actions stand directly on the dimmed world.
 const BOX_COLOR := Color(0.05, 0.06, 0.08, 0.75)
 const BOX_BORDER_COLOR := Color(0.32, 0.35, 0.4, 0.9)
 const HEADING_COLOR := Color(0.38, 0.85, 0.78)
@@ -430,7 +430,7 @@ func _show_page(page_name: String):
 
 # The pause menu is the reference's in-game menu: its buttons stand on their own
 # over the dimmed world. Nothing here is a page of settings, so none of the
-# settings chrome belongs on it — no title band, no content box, no footer.
+# settings chrome belongs on it â€” no title band, no content box, no footer.
 func _build_pause_page() -> Control:
 	var u := _ui_scale()
 	var page := Control.new()
@@ -793,7 +793,7 @@ func _build_crosshair_sections() -> Array:
 	var u := _ui_scale()
 	# A live preview spanning the content column, above the options. It draws
 	# from its own `size`, so a container has to be told how big it is.
-	var preview: Control = (preload("res://crosshair_preview.gd") as GDScript).new()
+	var preview: Control = (preload("res://scripts/crosshair_preview.gd") as GDScript).new()
 	preview.custom_minimum_size = Vector2(140.0, 120.0) * u
 	preview.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
@@ -1014,7 +1014,7 @@ func _style_slider_control(slider: HSlider) -> void:
 
 # The thumb, and the two states the engine swaps it for: hovering (or focusing)
 # the slider brightens the HANDLE, and an uneditable slider (mipmap bias with
-# mipmaps off) draws its handle from the disabled icon — the track underneath is
+# mipmaps off) draws its handle from the disabled icon â€” the track underneath is
 # left alone in every one of them.
 func _style_slider_thumb(slider: HSlider) -> void:
 	slider.add_theme_icon_override("grabber", _scaled_thumb_tex())
@@ -1091,7 +1091,7 @@ func _make_color_outline(field: String, value: Color) -> ColorPickerButton:
 	return cp
 
 # A colour row shows its colour as the swatch and its name on top of it. The
-# swatch is painted over the button's own text, so the caption is a child Label —
+# swatch is painted over the button's own text, so the caption is a child Label â€”
 # outlined, because the colour underneath can be any colour at all.
 func _add_color_caption(cp: ColorPickerButton) -> void:
 	var u := _ui_scale()
@@ -1711,7 +1711,7 @@ func _build_skin_maker_page() -> Control:
 	page.add_child(hex_label)
 	_skin_hex = hex_label
 
-	_skin_preview = (preload("res://skin_preview.gd") as GDScript).new()
+	_skin_preview = (preload("res://scripts/skin_preview.gd") as GDScript).new()
 	_skin_preview.name = "SkinPreview"
 	_skin_preview.set_anchors_preset(Control.PRESET_CENTER)
 	_skin_preview.offset_left = -200.0
@@ -1953,7 +1953,7 @@ func _build_block_maker_page() -> Control:
 	page.add_child(hex_label)
 	_block_hex = hex_label
 
-	_block_preview = (preload("res://block_preview.gd") as GDScript).new()
+	_block_preview = (preload("res://scripts/block_preview.gd") as GDScript).new()
 	_block_preview.name = "BlockPreview"
 	_block_preview.set_anchors_preset(Control.PRESET_CENTER)
 	_block_preview.offset_left = -200.0
@@ -2295,7 +2295,7 @@ func _refresh_skin_gallery() -> void:
 	var names := _list_saved_skins()
 	if names.is_empty():
 		var empty_hint := Label.new()
-		empty_hint.text = "No saved skins yet — use SAVE to create one."
+		empty_hint.text = "No saved skins yet â€” use SAVE to create one."
 		empty_hint.add_theme_font_override("font", MUNRO_FONT)
 		empty_hint.add_theme_font_size_override("font_size", int(UNIT_FONT * _ui_scale()))
 		empty_hint.add_theme_color_override("font_color",
@@ -2606,7 +2606,7 @@ func _refresh_block_gallery() -> void:
 	var names := _list_saved_blocks()
 	if names.is_empty():
 		var empty_hint := Label.new()
-		empty_hint.text = "No saved blocks yet — use SAVE to create one."
+		empty_hint.text = "No saved blocks yet â€” use SAVE to create one."
 		empty_hint.add_theme_font_override("font", MUNRO_FONT)
 		empty_hint.add_theme_font_size_override("font_size", int(UNIT_FONT * _ui_scale()))
 		empty_hint.add_theme_color_override("font_color",
@@ -2977,7 +2977,7 @@ func _make_picker_theme(s: float, dark: bool) -> Theme:
 	var fg := Color(1, 1, 1, 1) if dark else Color.BLACK
 	var hover := Color(0.72, 0.72, 0.72, 1) if dark else Color(0.35, 0.35, 0.35, 1)
 	# The ColorPicker's internals are C++-built (inaccessible child controls),
-	# so colour lookups happen under its own "ColorPicker" theme type — set the
+	# so colour lookups happen under its own "ColorPicker" theme type â€” set the
 	# items there and on the fallback types too.
 	for type_name in ["ColorPicker", "Label", "Button", "LineEdit"]:
 		th.set_color("font_color", type_name, fg)
@@ -3024,7 +3024,7 @@ func _flat_style(color: Color) -> StyleBoxFlat:
 # bar across the top, a bordered content box that scrolls when the options do not
 # fit, option rows in two columns under section headings, and a bar of actions
 # along the bottom. Rows keep the [label, control, reset] shape the pages already
-# built, so a page converts by grouping its rows under headings — the layout, the
+# built, so a page converts by grouping its rows under headings â€” the layout, the
 # sizing and the scrolling all come from here.
 #
 #   sections: [[heading, [row, ...], "category"?], ...]
@@ -3034,7 +3034,7 @@ func _flat_style(color: Color) -> StyleBoxFlat:
 # [label, control, null, "span"] for something wider than one column (a preview),
 # which is placed across the content box on its own. A section whose third element
 # is "category" is a settings area on the merged page: brighter heading, gap
-# above — see _build_settings_page().
+# above â€” see _build_settings_page().
 # -----------------------------------------------------------------------------
 func _build_scrolling_page(title_text: String, sections: Array, actions: Array,
 		option_w := UNIT_OPTION_W, columns := 2, content_bg := BOX_COLOR) -> Control:
@@ -3254,7 +3254,7 @@ func _make_row_cell(row: Array, cell_w: float, reset_w: float, row_gap: float, o
 		cell.add_child(rb)
 	return cell
 
-# Something that is not an option — a live preview — spanning the whole box.
+# Something that is not an option â€” a live preview â€” spanning the whole box.
 func _make_span_row(row: Array, grid_w: float, u: float) -> Control:
 	var holder := HBoxContainer.new()
 	holder.custom_minimum_size = Vector2(grid_w * u, 0.0)
@@ -3401,7 +3401,7 @@ func _style_button(btn: Button, width: float):
 
 # A row's reset as the square undo icon. It is its own stylebox rather than the
 # stretched BUTTON_TEX because the icon is 1:1: UNIT_UNDO_W is UNIT_BUTTON_H, so
-# the button — and the texture stretched onto it — stays square at every scale.
+# the button â€” and the texture stretched onto it â€” stays square at every scale.
 func _make_undo_button() -> Button:
 	return _make_icon_button(UNDO_TEX)
 

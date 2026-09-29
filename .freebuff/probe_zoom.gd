@@ -11,7 +11,7 @@ func _ready() -> void:
 	we.environment = env
 	add_child(we)
 	var model: Node3D = load("res://player.glb").instantiate()
-	model.set_script(load("res://player_model.gd"))
+	model.set_script(load("res://scripts/player_model.gd"))
 	model.transform = Transform3D(
 		Vector3(-0.05625, 0, 0), Vector3(0, 0.05625, 0), Vector3(0, 0, -0.05625),
 		Vector3(0, 0, 0.0844))
@@ -24,7 +24,7 @@ func _ready() -> void:
 	cam.fov = 28.0
 	add_child(cam)
 	cam.make_current()
-	# Each target: (eye, look_at) — camera close to a specific cube edge, grazing.
+	# Each target: (eye, look_at) â€” camera close to a specific cube edge, grazing.
 	var targets := [
 		# right leg front-right vertical edge, nearly edge-on
 		[Vector3(0.30, 0.22, 0.18), Vector3(0.0, 0.22, 0.0)],

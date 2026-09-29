@@ -78,7 +78,7 @@ func _chat_scale() -> float:
 # recognised by their contents rather than their name.
 # Where build files live and how a name opens them is shared with the wand's
 # menu, so it lives in one place (schematic_files.gd) rather than here.
-const SchematicFiles := preload("res://schematic_files.gd")
+const SchematicFiles := preload("res://scripts/schematic_files.gd")
 
 func _resolve_paste_path(file_name: String) -> String:
 	return SchematicFiles.resolve(file_name)
@@ -765,7 +765,7 @@ func _run_command(raw: String):
 			# What the generation sweep actually spends its per-frame check budget
 			# on. The candidate list spans the whole world height while only a
 			# column's near-surface band can ever generate, so most entries are
-			# rejected — these numbers say how many and why, rather than leaving that
+			# rejected â€” these numbers say how many and why, rather than leaving that
 			# to be inferred from the list size. Session totals are dominated by the
 			# initial load, so the rolling window is the part that describes flying.
 			var chunk_manager := get_node_or_null("/root/Main/ChunkManager")
@@ -814,7 +814,7 @@ func _run_command(raw: String):
 				# The split inside that slowest column: the bounds read, the resident
 				# check (ONE shard acquisition for the whole column, then lock-free
 				# probes), and the slowest SINGLE acquisition of the session. Whatever
-				# is left over is neither — which is this thread being taken away.
+				# is left over is neither â€” which is this thread being taken away.
 				_add_message("  that column spent %.2f ms on its bounds read and %.2f ms on its resident check (slowest single column lock %.2f ms)" % [float(g.get("max_band_bounds_ms", 0.0)), float(g.get("max_band_resident_ms", 0.0)), float(g.get("max_contains_ms", 0.0))], COLOR_SYSTEM)
 			# The same band reads split by where the answer came from: a worker that
 			# derived it early, or this thread. `cold bounds` is the number the

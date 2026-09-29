@@ -3,21 +3,21 @@ extends SceneTree
 ##
 ## What it pins, and why each one is worth a probe rather than a look:
 ##
-##  * the SHAPE of the grid — every line on a 32-block multiple, 5x5 chunks
+##  * the SHAPE of the grid â€” every line on a 32-block multiple, 5x5 chunks
 ##    around the player, verticals spanning the player's slice +/- 64. A grid
 ##    drawn one block off is still "a grid" to the eye;
 ##  * that the two boundary planes are exactly the chunk's floor and ceiling,
 ##    because those are the y boundaries the mesher and the fluid writes are
 ##    keyed on;
 ##  * that the overlay lives in the scenario (added to the loaded scene, no
-##    shadow casting, unshaded, no depth test) — a Node3D parented somewhere
+##    shadow casting, unshaded, no depth test) â€” a Node3D parented somewhere
 ##    else renders nothing at all;
 ##  * that the toggle actually hides it, and that re-enabling redraws.
 ##
 ## Run: Godot --headless --path <project> --script res://.freebuff/probe_chunk_borders.gd
 
 const CHUNK_SIZE := 32
-const SCRIPT_PATH := "res://chunk_borders.gd"
+const SCRIPT_PATH := "res://scripts/chunk_borders.gd"
 const TOGGLE_ACTION := "toggle_chunk_borders"
 
 var ok := true

@@ -17,7 +17,7 @@ func _ready() -> void:
 	add_child(we)
 
 	var model: Node3D = load("res://player.glb").instantiate()
-	model.set_script(load("res://player_model.gd"))
+	model.set_script(load("res://scripts/player_model.gd"))
 	var anim_player := AnimationPlayer.new()
 	anim_player.name = "AnimationPlayer"
 	model.add_child(anim_player)

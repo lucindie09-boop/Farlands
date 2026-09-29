@@ -12,7 +12,7 @@ func _ready() -> void:
 	we.environment = env
 	add_child(we)
 	var model: Node3D = load("res://player.glb").instantiate()
-	model.set_script(load("res://player_model.gd"))
+	model.set_script(load("res://scripts/player_model.gd"))
 	# Match Main.tscn's instance transform: glb is in px (16px tall), 0.05625 m/px.
 	model.transform = Transform3D(
 		Vector3(-0.05625, 0, 0), Vector3(0, 0.05625, 0), Vector3(0, 0, -0.05625),
@@ -31,7 +31,7 @@ func _ready() -> void:
 	add_child(cam)
 	cam.make_current()
 	var i := 0
-	# Orbit at waist height (0.45) — near-edge-on angles included.
+	# Orbit at waist height (0.45) â€” near-edge-on angles included.
 	for deg in range(0, 360, 45):
 		var rad := deg * PI / 180.0
 		var eye := Vector3(sin(rad) * 1.25, 0.45, cos(rad) * 1.25)

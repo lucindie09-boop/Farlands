@@ -4,8 +4,8 @@ extends SceneTree
 ## The complaint is that the overlay "becomes invisible at random weird angles".
 ## Two earlier theories (instance bounds, back faces in the blend) were tested and
 ## rejected, so this measures the thing itself: build the real ghost through the
-## real wand, then put a detached camera at a grid of poses — outside far, outside
-## near, on the shell, and INSIDE the volume — and count pixels that only the
+## real wand, then put a detached camera at a grid of poses â€” outside far, outside
+## near, on the shell, and INSIDE the volume â€” and count pixels that only the
 ## ghost can have painted (the same pose rendered with the ghost hidden is the
 ## baseline, so terrain and sky cannot be mistaken for it).
 ##
@@ -96,7 +96,7 @@ func _run() -> void:
 		if waited > 30 and player.is_on_floor():
 			break
 
-	var fil: GDScript = preload("res://schematic_files.gd")
+	var fil: GDScript = preload("res://scripts/schematic_files.gd")
 	var resolved: String = fil.resolve(FILE)
 	var bytes := FileAccess.get_file_as_bytes(resolved)
 	print("probe: %s = %d bytes" % [FILE, bytes.size()])

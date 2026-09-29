@@ -3,7 +3,7 @@ extends SceneTree
 ##
 ## Drives the real tool script against the real world: builds its panel, changes
 ## settings, generates a strip, saves and reloads it, and pushes a frame into the
-## world's texture array — then reads the layer back to prove the world is
+## world's texture array â€” then reads the layer back to prove the world is
 ## actually sampling the generated pixels. Run:
 ##
 ##   Godot --headless --path <project> --script res://.freebuff/probe_liquid_lab.gd
@@ -89,7 +89,7 @@ func _run() -> void:
 		_check(int(described.get("frames", 0)) == 1, "describe clamps frames")
 
 	# --- the tool: panel, regenerate, save, load, live ---------------------
-	lab = load("res://liquid_texture_lab.gd").new()
+	lab = load("res://scripts/liquid_texture_lab.gd").new()
 	root.add_child(lab)
 	await process_frame
 	_check(lab.get("settings") != null and not lab.get("settings").is_empty(), "lab has settings after _ready")
@@ -302,7 +302,7 @@ func _run() -> void:
 	_check(key_events.size() > 0 and key_events[0] is InputEventKey and key_events[0].keycode == KEY_O,
 		"the action is bound to O")
 	# The handler is gameplay-gated (mouse captured), like the other debug keys,
-	# and a headless process cannot enter that state — DisplayServer is a dummy,
+	# and a headless process cannot enter that state â€” DisplayServer is a dummy,
 	# so Input.mouse_mode stays VISIBLE however it is set. What can be pinned
 	# here is the gate itself: the key must do nothing while the mouse is free
 	# (chat, inventory, a menu), which is the failure that would let the panel

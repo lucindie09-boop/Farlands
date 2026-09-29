@@ -9,7 +9,7 @@ extends RefCounted
 ## shows but the command cannot open (or the reverse).
 ##
 ## Static, so a caller uses it without instancing anything:
-##     const Files := preload("res://schematic_files.gd")
+##     const Files := preload("res://scripts/schematic_files.gd")
 ##     Files.resolve("church")           -> "res://schematics/church.schematic"
 ##     Files.list()                      -> ["church.schematic", ...]
 

@@ -7,7 +7,7 @@ extends Node2D
 #
 #   "$GODOT" --path . res://.freebuff/probe_phosphor.tscn
 
-const OVERLAY_SCRIPT := "res://shader_overlay.gd"
+const OVERLAY_SCRIPT := "res://scripts/shader_overlay.gd"
 const EFFECT := "phosphor"
 const OLD_SPOT := Vector2i(50, 90)
 const NEW_SPOT := Vector2i(245, 90)

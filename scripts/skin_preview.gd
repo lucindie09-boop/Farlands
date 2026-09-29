@@ -9,7 +9,7 @@ extends SubViewportContainer
 # Right-drag always zooms. Pressing empty space always orbits the camera.
 
 const MODEL_SCENE: PackedScene = preload("res://player.glb")
-const SKIN_SCRIPT: GDScript = preload("res://player_model.gd")
+const SKIN_SCRIPT: GDScript = preload("res://scripts/player_model.gd")
 
 signal paint_history_changed(has_undo: bool)
 

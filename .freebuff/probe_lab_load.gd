@@ -3,7 +3,7 @@ extends SceneTree
 ##
 ## The lab's Load picker is filled from user://liquids, a directory that outlives
 ## the process. This writes a settings file there *before* the panel is ever
-## opened, then opens it and checks the picker already lists it — the case that
+## opened, then opens it and checks the picker already lists it â€” the case that
 ## used to come up empty until something was saved or deleted in the session.
 ##
 ##   Godot --headless --path <project> --script res://.freebuff/probe_lab_load.gd
@@ -33,7 +33,7 @@ func _initialize() -> void:
 	file.store_string(JSON.stringify(settings))
 	file.close()
 
-	var lab: Node = load("res://liquid_texture_lab.gd").new()
+	var lab: Node = load("res://scripts/liquid_texture_lab.gd").new()
 	root.add_child(lab)
 	await process_frame
 	_check(lab.get("_load_pick") == null, "the panel is built lazily, so there is no picker yet")

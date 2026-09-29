@@ -4,7 +4,7 @@ extends Node
 ##
 ## `PlayerController` emits `wand_menu` / `wand_use` / `wand_confirm` when the
 ## held item declares the `wand` use action (data/items.json), and stops placing,
-## mining and punching while one is held — so exactly one layer answers each
+## mining and punching while one is held â€” so exactly one layer answers each
 ## click, and the wand can never chew a hole in whatever is behind the ghost.
 ##
 ## The flow, one click at a time:
@@ -19,7 +19,7 @@ extends Node
 ## paste without writing: a 900k-cell build is one decode and one buffer, not a
 ## per-cell call from script, and the sample is strided so the shape still reads
 ## as a ghost of the whole thing. The numbers the HUD shows are the plan's, not
-## the sample's — "showing 20,000 of 937,143 cells" is never a guess.
+## the sample's â€” "showing 20,000 of 937,143 cells" is never a guess.
 ##
 ## Nothing here owns paste POLICY: the options handed to the preview and to the
 ## paste are the same Dictionary, built in one place (`_options`), because a
@@ -40,7 +40,7 @@ const CARD_TEX: Texture2D = preload("res://textures/gui/button_square_large.png"
 # all three states.
 const BUTTON_HOVER_TINT := Color(1.2, 1.2, 1.2)
 const BUTTON_PRESS_TINT := Color(0.8, 0.8, 0.8)
-const SchematicFiles := preload("res://schematic_files.gd")
+const SchematicFiles := preload("res://scripts/schematic_files.gd")
 
 # The interface grid, the same units the settings menu draws in, so the wand's
 # menu is the same interface rather than a second one: a widget is UNIT_BUTTON_H
@@ -369,7 +369,7 @@ func _build_build_line() -> void:
 	if _file_name.is_empty():
 		label.text = "build: (none chosen)"
 	else:
-		label.text = "build: %s · %d cells" % [_file_name, int(_file_info.get("planned", 0))]
+		label.text = "build: %s Â· %d cells" % [_file_name, int(_file_info.get("planned", 0))]
 	_menu_body.add_child(label)
 
 func _build_tool_page() -> void:
@@ -654,7 +654,7 @@ func _build_ghost() -> void:
 	#   * depth WRITTEN (DEPTH_DRAW_ALWAYS) and drawn before the translucent things
 	#     that write depth (render_priority -1). The liquid shader is
 	#     depth_draw_always, so a ghost that wrote no depth was blended UNDER any
-	#     water or lava between you and it, however far away that liquid was — the
+	#     water or lava between you and it, however far away that liquid was â€” the
 	#     "liquids draw on top of the overlay" bug. Writing depth is what lets the
 	#     liquid's own depth TEST hide it behind the ghost. Terrain still hides the
 	#     ghost itself, because the depth test here stays on.
@@ -728,7 +728,7 @@ func anchor_preview_from_aim() -> Dictionary:
 ## the build's own (0, 0, 0) corner, so where you aim is where its corner lands.
 func anchor_preview_at(origin: Vector3i) -> Dictionary:
 	if _file_bytes.is_empty() or _file_name.is_empty():
-		_hint_flash("No build chosen — middle click for the wand menu")
+		_hint_flash("No build chosen â€” middle click for the wand menu")
 		return {"ok": false, "error": "no build file chosen"}
 	var info: Dictionary = _chunk_manager.preview_schematic(
 		_file_bytes, origin.x, origin.y, origin.z, _options())
@@ -804,7 +804,7 @@ func confirm_paste() -> Dictionary:
 	if int(result.get("stilled", 0)) > 0:
 		summary += " (%d still liquid)" % int(result.get("stilled", 0))
 	if int(result.get("pending_cells", 0)) > 0:
-		summary += " — %d cells waiting for chunks" % int(result.get("pending_cells", 0))
+		summary += " â€” %d cells waiting for chunks" % int(result.get("pending_cells", 0))
 	_hint_flash(summary)
 	_report_to_chat(summary)
 	return result
@@ -855,7 +855,7 @@ func _update_hint() -> void:
 		return
 	_hint_flash_text = ""
 	if _preview_active:
-		_hint.text = "%s   ·   RIGHT CLICK to move   ·   LEFT CLICK to place   ·   ESC to cancel" % preview_summary()
+		_hint.text = "%s   Â·   RIGHT CLICK to move   Â·   LEFT CLICK to place   Â·   ESC to cancel" % preview_summary()
 		_hint.visible = true
 		return
 	_hint.visible = false

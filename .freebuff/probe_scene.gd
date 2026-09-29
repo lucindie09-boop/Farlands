@@ -16,7 +16,7 @@ func _ready() -> void:
 			print("PROBE padded texture ", img.get_width(), "x", img.get_height(),
 				" transparent texels (a<0.05): ", transparent)
 	var model: Node3D = load("res://player.glb").instantiate()
-	model.set_script(load("res://player_model.gd"))
+	model.set_script(load("res://scripts/player_model.gd"))
 	add_child(model)
 	await get_tree().process_frame
 	await get_tree().process_frame

@@ -4,8 +4,8 @@ extends SceneTree
 ##
 ## The paste is written a batch at a time now (kPasteCellsPerBatch), so this
 ## measures the two things that change with that: the longest frame the MAIN
-## thread sees from the first write to the last, and the accounting —
-## written + unchanged + covered + still queued == planned — which is what proves
+## thread sees from the first write to the last, and the accounting â€”
+## written + unchanged + covered + still queued == planned â€” which is what proves
 ## the budget deferred work rather than dropping it.
 ##
 ##   .freebuff/run_probe.sh .freebuff/probe_paste_budget.gd
@@ -54,7 +54,7 @@ func _run() -> void:
 
 	var base := _surface_point(player.global_position)
 	var anchor := Vector3i(int(base.x) - 20, int(base.y) + 4, int(base.z) - 20)
-	var resolved: String = (preload("res://schematic_files.gd") as GDScript).resolve(FILE)
+	var resolved: String = (preload("res://scripts/schematic_files.gd") as GDScript).resolve(FILE)
 	if resolved.is_empty():
 		_fail("%s is not in the schematics folders" % FILE)
 		quit(1)

@@ -29,7 +29,7 @@ func _ready() -> void:
 	vp.add_child(fill)
 	var model: Node3D = load("res://player.glb").instantiate()
 	model.scale = Vector3(0.9, 0.9, 0.9)
-	model.set_script(load("res://player_model.gd"))
+	model.set_script(load("res://scripts/player_model.gd"))
 	vp.add_child(model)
 	var cam := Camera3D.new()
 	cam.fov = 70.0

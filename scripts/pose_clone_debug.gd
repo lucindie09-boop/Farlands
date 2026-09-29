@@ -2,7 +2,7 @@ extends Node
 ## Debug helper: press the bound action (pose_clone_toggle, default K) while
 ## aiming at a block to spawn a standing clone of the player model on top of
 ## that block with NO animation (no AnimationPlayer child, so player_model.gd
-## never loads or plays Idle.anim — a frozen dummy), plus a small bright cube
+## never loads or plays Idle.anim â€” a frozen dummy), plus a small bright cube
 ## at the pivot point of each of the model's meshes. Press again to remove the
 ## clone.
 ##
@@ -10,8 +10,8 @@ extends Node
 ## and gets knocked back with the vanilla combat knockback when you left-click
 ## it within punch reach (see PlayerController::try_punch_dummy).
 ##
-## The clone is built like Main.tscn builds Player/PlayerModel — a fresh
-## player.glb instance carrying player_model.gd — but without the
+## The clone is built like Main.tscn builds Player/PlayerModel â€” a fresh
+## player.glb instance carrying player_model.gd â€” but without the
 ## AnimationPlayer, so the Idle animation never loads or plays. Pivot markers
 ## are parented to each MeshInstance3D, so they sit at the node origin and
 ## follow the animation if a part moves. The glb was re-baked by
@@ -20,10 +20,10 @@ extends Node
 ## the neck y=24 in glb units).
 
 const PLAYER_SCENE: PackedScene = preload("res://player.glb")
-const PLAYER_MODEL_SCRIPT: Script = preload("res://player_model.gd")
+const PLAYER_MODEL_SCRIPT: Script = preload("res://scripts/player_model.gd")
 const PIVOT_SHADER: Shader = preload("res://shaders/pose_pivot_marker.gdshader")
-# Vanilla-accurate physics (gravity/drag/knockback) — see dummy.gd.
-const DUMMY_SCRIPT: Script = preload("res://dummy.gd")
+# Vanilla-accurate physics (gravity/drag/knockback) â€” see dummy.gd.
+const DUMMY_SCRIPT: Script = preload("res://scripts/dummy.gd")
 
 # --- path debug -------------------------------------------------------------
 # P asks the engine's planner (worker thread) for a ground route from the clone
@@ -32,7 +32,7 @@ const DUMMY_SCRIPT: Script = preload("res://dummy.gd")
 # waypoints; P again clears. A route the planner could not finish inside its
 # budget (a partial, best-effort run toward the goal) is drawn amber instead of
 # red, so a truncated route is never mistaken for a complete one. The clone is
-# not moved — this only visualises the route the planner found. Results come
+# not moved â€” this only visualises the route the planner found. Results come
 # back through ChunkManager.poll_paths(), matched by job id.
 const PATH_ACTION := "pose_clone_path"
 const PATH_TOGGLE_ACTION := "pose_clone_path_toggle"
@@ -48,8 +48,8 @@ const MODEL_Y_OFFSET := -0.0844
 # The glb's geometry (and every part's pivot axis) is centered on glb z=1.5
 # while the node origin sits at z=0, so the model lies 1.5 glb units toward
 # its face from the origin. Offsetting the origin +0.0844 (1.5 * scale) puts
-# the rotation axis exactly on the host's x/z — same centering Main.tscn now
-# applies to the live PlayerModel — so the eye line, the crosshair and the
+# the rotation axis exactly on the host's x/z â€” same centering Main.tscn now
+# applies to the live PlayerModel â€” so the eye line, the crosshair and the
 # head's rotation axis all coincide like the vanilla head rig.
 const MODEL_Z_OFFSET := 0.0844
 # Marker size in glb units (world size = this * MODEL_SCALE).
@@ -178,7 +178,7 @@ func _rebuild_overlay() -> void:
 		_overlay_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		# Three settings for one symptom: a route marker that faded in and out as you
 		# turned. A MultiMesh draws every cell in ONE call, so alpha MIXING has no
-		# order to work with — each cube's far faces mix over its near ones, and which
+		# order to work with â€” each cube's far faces mix over its near ones, and which
 		# of them is "near" depends on the camera. Additive blending only ever adds
 		# light, so it has no order at all and looks the same from every angle.
 		_overlay_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
@@ -203,7 +203,7 @@ func _rebuild_overlay() -> void:
 		multimesh.set_instance_transform(i, Transform3D(Basis(), cell + Vector3(0.5, 0.5, 0.5)))
 	print("Path overlay: %d %s cubes%s"
 		% [points.size(), "waypoint" if _show_waypoints else "grid",
-		   " (partial — budget ran out)" if _path_truncated else ""])
+		   " (partial â€” budget ran out)" if _path_truncated else ""])
 
 
 func _spawn() -> void:
@@ -277,7 +277,7 @@ func _clone_model_transform() -> Transform3D:
 	var basis := Basis(Vector3(-MODEL_SCALE, 0, 0), Vector3(0, MODEL_SCALE, 0), Vector3(0, 0, -MODEL_SCALE))
 	return Transform3D(basis, Vector3(0, MODEL_Y_OFFSET, MODEL_Z_OFFSET))
 
-# Where Godot thinks each part's pivot is: the MeshInstance3D's origin — the
+# Where Godot thinks each part's pivot is: the MeshInstance3D's origin â€” the
 # point Godot rotates that node around. mi.position is the glb node translation
 # (model-local, unaffected by the model's yaw/scale), so these numbers can be
 # checked directly against the markers and against the model in an editor.

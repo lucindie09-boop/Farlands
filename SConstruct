@@ -60,6 +60,9 @@ shared_sources = [
     "src/worldgen/vegetation_config.cpp",
     "src/worldgen/vegetation_generator.cpp",
     "src/core/block_types.cpp",
+    "src/core/block_types_shapes.cpp",
+    "src/core/block_types_load.cpp",
+    "src/core/block_types_defaults.cpp",
     "src/core/shape_resolver.cpp",
     "src/core/inventory.cpp",
     "src/core/crafting.cpp",
@@ -124,7 +127,8 @@ if len(shared_obj_by_src) != len(shared_sources):
 # Terrain-generation objects needed by standalone terrain tools (no mesh/lighting).
 terrain_tool_objects = [shared_obj_by_src[n] for n in [
     "terrain_params", "chunk_generator", "biome_config", "vegetation_config",
-    "vegetation_generator", "block_types", "inventory", "edit_map",
+    "vegetation_generator", "block_types", "block_types_defaults", "inventory", "item_registry",
+    "edit_map",
 ]]
 
 # Pre-compile chunk_data.cpp once for non-test standalone tools (debug, bench, greedy, memory, repro)
@@ -268,11 +272,11 @@ if sys.platform != "win32":
     # Pre-compile chunk_data.cpp for fuzz harnesses with unique target name
     fuzz_chunk_data_object = fuzz_env.Object("src/core/chunk_data_fuzz", source="src/core/chunk_data.cpp")
     # Reference source files directly to avoid VariantDir file locking
-    fuzz_sources_common = [fuzz_chunk_data_object, "src/core/block_types.cpp", "src/core/inventory.cpp", "src/core/edit_map.cpp", "src/lighting/block_light_region.cpp"]
+    fuzz_sources_common = [fuzz_chunk_data_object, "src/core/block_types.cpp", "src/core/block_types_shapes.cpp", "src/core/block_types_load.cpp", "src/core/block_types_defaults.cpp", "src/core/inventory.cpp", "src/core/edit_map.cpp", "src/lighting/block_light_region.cpp"]
     fuzz_palette = fuzz_env.Program("bin/fuzz_palette", ["tools/fuzz_palette.cpp"] + fuzz_sources_common)
     # edit_map.cpp's apply_edit_map_to_chunk calls ChunkData methods, so any
     # harness that links edit_map must also link the ChunkData implementation.
-    fuzz_edit_map_sources = [fuzz_chunk_data_object, "src/core/edit_map.cpp", "src/core/block_types.cpp"]
+    fuzz_edit_map_sources = [fuzz_chunk_data_object, "src/core/edit_map.cpp", "src/core/block_types.cpp", "src/core/block_types_shapes.cpp", "src/core/block_types_load.cpp", "src/core/block_types_defaults.cpp"]
     fuzz_chunk = fuzz_env.Program("bin/fuzz_chunk_load", ["tools/fuzz_chunk_load.cpp"] + fuzz_edit_map_sources)
     fuzz_recovery = fuzz_env.Program("bin/fuzz_chunk_recovery", ["tools/fuzz_chunk_recovery.cpp"] + fuzz_edit_map_sources)
     fuzz_light = fuzz_env.Program("bin/fuzz_light_propagation", ["tools/fuzz_light_propagation.cpp"] + fuzz_sources_common)

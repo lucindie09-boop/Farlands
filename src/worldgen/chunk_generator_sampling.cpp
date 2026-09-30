@@ -1,9 +1,10 @@
-// The sampling layer behind a column: the climate fields and their domain warp, the
-// macro land shape with its two relief lattices, the weirdness mask, and the
-// amplification blend that carries a column between two biomes' knobs. These are the
-// per-chunk and per-point queries; the per-cell density read that runs inside the
-// generation loop stays inline in worldgen/chunk_generator.hpp so that loop can
-// still inline it.
+// The generator's sampling layer and its set-up: the noise fields and their
+// construction, the climate fields and their domain warp, the macro land shape with
+// its two relief lattices, the weirdness mask, the amplification blend that carries a
+// column between two biomes' knobs, and the debug accessors the tools cross-check the
+// chunk-cached path against. These are the per-chunk and per-point queries; the
+// per-cell density read that runs inside the generation loop stays inline in
+// worldgen/chunk_generator.hpp so that loop can still inline it.
 
 #include "worldgen/chunk_generator.hpp"
 
@@ -310,6 +311,140 @@ bool ChunkGenerator::is_cave(int32_t x, int32_t y, int32_t z) const {
     float ny = static_cast<float>(y) * params.cave_scale;
     float nz = static_cast<float>(z) * params.cave_scale;
     return cave_noise.noise_3d(nx, ny, nz) > params.cave_threshold;
+}
+
+// -------------------------------------------------------------------------
+// Construction and configuration
+// -------------------------------------------------------------------------
+// The noise fields the samplers read are built here, and rebuilt when set_params
+// changes the seed.
+
+ChunkGenerator::ChunkGenerator(const TerrainParams& p)
+    : terrain_noise(p.seed)
+    , cave_noise(p.seed + 2000)
+    , density_noise(p.seed + 7000)
+    , weirdness_noise(p.seed + 9000)
+    , temp_noise(p.seed + 3000)
+    , humidity_noise(p.seed + 4000)
+    , climate_warp_noise(p.seed + 5000)
+    , params(p)
+    , rng(p.seed)
+ {
+}
+
+BiomeType ChunkGenerator::get_biome(int32_t world_x, int32_t world_z) const {
+    return sample_column(world_x, world_z).biome;
+}
+
+float ChunkGenerator::get_terrain_height(int32_t world_x, int32_t world_z) const {
+    return sample_column(world_x, world_z).height;
+}
+
+// -------------------------------------------------------------------------
+// Parameter management
+// -------------------------------------------------------------------------
+void ChunkGenerator::set_params(const TerrainParams& p) {
+    bool seed_changed = (p.seed != params.seed);
+    params = p;
+    if (seed_changed) {
+        terrain_noise     = FastNoise(p.seed);
+        cave_noise        = FastNoise(p.seed + 2000);
+        density_noise     = FastNoise(p.seed + 7000);
+        weirdness_noise   = FastNoise(p.seed + 9000);
+        temp_noise        = FastNoise(p.seed + 3000);
+        humidity_noise    = FastNoise(p.seed + 4000);
+        climate_warp_noise = FastNoise(p.seed + 5000);
+        rng.seed(p.seed);
+    }
+}
+
+const TerrainParams& ChunkGenerator::get_params() const {
+    return params;
+}
+
+void ChunkGenerator::set_biome_config(const BiomeConfig& config) {
+    biome_config = config;
+}
+
+const BiomeConfig& ChunkGenerator::get_biome_config() const {
+    return biome_config;
+}
+
+void ChunkGenerator::set_vegetation_config(const VegetationConfig& config) {
+    vegetation_config = config;
+}
+
+const VegetationConfig& ChunkGenerator::get_vegetation_config() const {
+    return vegetation_config;
+}
+
+// -------------------------------------------------------------------------
+// Debug accessors
+// -------------------------------------------------------------------------
+// Each one runs the same builders and samplers the chunk path runs, so a
+// disagreement means the chunk path drifted rather than that these forwarders did.
+
+float ChunkGenerator::sample_continentalness_debug(float x, float z) const {
+    return sample_continentalness(x, z);
+}
+
+ChunkGenerator::ColumnSample ChunkGenerator::sample_column_debug(int32_t world_x, int32_t world_z) const {
+    return sample_column(world_x, world_z);
+}
+
+// Debug: climate values read through the chunk-cached lattice path (what
+// generate_chunk uses), for cross-checking against the per-call samplers.
+float ChunkGenerator::sample_temperature_lattice_debug(int32_t chunk_x, int32_t chunk_z,
+                                       int32_t wx, int32_t wz) const {
+    ChunkGeneratorLattice lattice;
+    lattice.build_climate(*this, chunk_x, chunk_z);
+    return lattice.temperature(wx, wz);
+}
+
+float ChunkGenerator::sample_weirdness_debug(float x, float z) const {
+    return sample_weirdness(x, z);
+}
+
+float ChunkGenerator::sample_temperature_debug(float x, float z) const {
+    return sample_temperature(x, z);
+}
+
+float ChunkGenerator::sample_humidity_debug(float x, float z) const {
+    return sample_humidity(x, z);
+}
+
+float ChunkGenerator::sample_land_shape_debug(float x, float z) const {
+    return sample_land_shape(x, z, 0.0f, 0.0f);  // temp/humidity are unused
+}
+
+// Debug: macro land height read through the chunk-cached lattice path
+// (what generate_chunk uses), for cross-checking against the per-call
+// sampler.
+float ChunkGenerator::sample_land_shape_lattice_debug(int32_t chunk_x, int32_t chunk_z,
+                                      int32_t wx, int32_t wz) const {
+    ChunkGeneratorLattice lattice;
+    lattice.build_land_shape(*this, chunk_x, chunk_z);
+    return lattice.land_shape(wx, wz);
+}
+
+// Debug: blended amplification knobs at a column (per-call path).
+BiomeAmplification ChunkGenerator::blend_amplification_debug(int32_t world_x, int32_t world_z) const {
+    return blend_amplification_at(world_x, world_z);
+}
+
+// Debug: blended amplification read through the chunk-cached lattice path
+// (what generate_chunk uses), for cross-checking against the per-call
+// sampler.
+BiomeAmplification ChunkGenerator::blend_amplification_lattice_debug(int32_t chunk_x, int32_t chunk_z,
+                                                     int32_t wx, int32_t wz) const {
+    ChunkGeneratorLattice lattice;
+    lattice.build_climate(*this, chunk_x, chunk_z);
+    lattice.build_amplification(*this, chunk_x, chunk_z);
+    return lattice.amplification(wx, wz);
+}
+
+BiomeType ChunkGenerator::biome_from_climate_debug(float temperature, float humidity, float cont) const {
+    return biome_from_climate(temperature, humidity, cont);
 }
 
 } // namespace VoxelEngine

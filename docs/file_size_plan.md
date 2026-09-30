@@ -1115,3 +1115,44 @@ skip), a prose glob (`mesh_manager*.cpp`) that names no file, and eleven heading
 glued to the paragraph above them — which is why the blank-line rule exists. Result: 24
 markdown files, 0 problems and 0 warnings; AGENTS.md 2,286 → 486 lines, ARCHITECTURE.md
 1,883 → 1,117.
+
+## 15. The consolidation pass (done)
+
+The cap produced a few files too small to be worth their own tab: seven `.cpp` files whose whole
+content was one piece of a sibling. This pass folded them back, verbatim. The cap was not the
+arbiter — cohesion was — and the test was: does the fragment share the state, the caller, or the
+class of the file it would join?
+
+| Folded in | Target | Result |
+|---|---|---|
+| `chunk_generator_config.cpp` (68) + `chunk_generator_debug.cpp` (73) | `worldgen/chunk_generator_sampling.cpp` | 315 → **450** |
+| `mesh_builder_solid_cull.cpp` (152) | `mesh/mesh_builder_solid.cpp` | 271 → **415** |
+| `mesh_manager_cull.cpp` (174) | `mesh/mesh_manager.cpp` | 319 → **480** |
+| `voxel_engine_properties.cpp` (128) | `engine/voxel_engine_controller.cpp` | 289 → **409** |
+| `player_controller_camera.cpp` (155) | `godot_bindings/player_controller.cpp` | 311 → **456** |
+
+- **Why each was a fragment, not a concern.** The debug accessors were one-line forwards to
+  samplers in `chunk_generator_sampling.cpp`, and the constructor moved with them builds the
+  noise fields those samplers read. `mesh_builder_solid_cull.cpp`'s carry-forward helpers were
+  called by `mesh_builder_solid.cpp` itself. `mesh_manager_cull.cpp`'s `cull_apply` was called by
+  `show_chunk_instance` in `mesh_manager.cpp`. The property accessors are the controller's own
+  class surface, one line each. The camera code is the rest of `PlayerController`.
+- **`mesh_manager.cpp` lands on exactly 480 lines**, which the guard's
+  `WARN_LINES < count <= MAX_LINES` test does not flag: the boundary is exclusive.
+- **What did NOT fold: `engine/voxel_engine_config.cpp` (110) stays.** It is the world's files —
+  four config loads, metadata and inventory save/load, `flush_dirty_chunks`, `find_biome` — a real
+  concern boundary, the one `world/chunk_world_persistence.cpp` and
+  `godot_bindings/chunk_manager_properties.cpp` already draw. Folding it into
+  `voxel_engine_controller.cpp` as well would have been 512 lines, over the cap; folding it into
+  the property file would have left a file called "properties" that is half file I/O.
+- **Pointers re-pointed, not deleted.** Where a header named the folded file, the comment now
+  names the surviving definition (`MeshManager::update_world_cull`) instead of a file that no
+  longer exists.
+- **`SConstruct`.** `shared_sources` lost `chunk_generator_debug.cpp`,
+  `chunk_generator_config.cpp` and `mesh_builder_solid_cull.cpp`; `terrain_tool_objects` lost the
+  two worldgen basenames and `fuzz_mesh_sources` its mesh-cull entry. The three globbed files —
+  `mesh_manager_cull.cpp`, `voxel_engine_properties.cpp`, `player_controller_camera.cpp` — needed
+  no edit, since only `shared_sources` and the tool and fuzz lists are explicit.
+- **Result: 348 C++ files under `src` + `tests` + `tools`, 106 `.cpp` under `src/`** (354 and 112
+  before). The §5.2 row for `engine/voxel_engine_controller.cpp` and the file counts quoted in
+  §9, §10 and §13 predate this section.

@@ -184,7 +184,7 @@ screen (the shader-effect stack, the animated-liquid tools, the model previews).
   onto the sphere for real is three orders of magnitude of pull it does not spend. The two are
   independent — each is measured from where a vertex really is — so either can be on alone and
   both together compose in the world materials' order. `src/core/world_cull.hpp` +
-  `src/mesh/mesh_manager_cull.cpp` are the half that cannot be a shader: a vertex shader runs
+  `src/mesh/mesh_manager.cpp` are the half that cannot be a shader: a vertex shader runs
   after the engine has decided what to draw, so every chunk is culled against a box describing
   where it *was* and the bend pulls ground into view that the frustum has already thrown away.
   The header is the include's arithmetic again on the CPU — the pull and the lift at the box's

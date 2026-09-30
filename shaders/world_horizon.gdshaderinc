@@ -69,7 +69,7 @@
 //     matrices run afterwards, so walking, pitching and the engine's own culling
 //     all go on working on a world whose vertices have moved - which is also why
 //     culling has to be told about this exactly as it is for the bend (see
-//     src/core/world_cull.hpp and src/mesh/mesh_manager_cull.cpp).
+//     src/core/world_cull.hpp and src/mesh/mesh_manager.cpp).
 uniform float world_horizon_on = 0.0;
 uniform float world_horizon_radius = 1500.0;
 

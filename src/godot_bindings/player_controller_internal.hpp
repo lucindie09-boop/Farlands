@@ -4,7 +4,7 @@
 // reach and cadence) and the two small helpers built on them. They lived in an
 // anonymous namespace while the whole binding was one file; a file-local name
 // cannot be shared, so they are `inline` here and included by the files that use
-// them — godot_bindings/player_controller_input.cpp, _camera.cpp and _interact.cpp
+// them — godot_bindings/player_controller.cpp, _input.cpp and _interact.cpp
 // — and nowhere else.
 //
 // `kPunchInterval` is why this header has to exist at all: `_input` arms the punch

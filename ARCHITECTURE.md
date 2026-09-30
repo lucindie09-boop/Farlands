@@ -833,7 +833,7 @@ The following code remains in the codebase but is disabled or unused:
 ### Mesh
 - `src/mesh/mesh_manager.hpp` + `mesh_manager.cpp` / `mesh_manager_worker.cpp` /
   `mesh_manager_upload.cpp` / `mesh_manager_rebuild.cpp` / `mesh_manager_far.cpp` /
-  `mesh_manager_lifecycle.cpp` / `mesh_manager_cull.cpp` / `mesh_manager_internal.hpp` —
+  `mesh_manager_lifecycle.cpp` / `mesh_manager_internal.hpp` —
   Per-chunk mesh builds, upload, instance management, three-tier LOD, far-region merging,
   nearest-first completion, and the culling compensation for the two vertex effects (World Bend
   and the Horizon Curve)
@@ -885,8 +885,8 @@ The following code remains in the codebase but is disabled or unused:
 
 ### Worldgen
 - `src/worldgen/chunk_generator.hpp/cpp` + `chunk_generator_sampling.cpp` /
-  `chunk_generator_debug.cpp` / `chunk_generator_config.cpp` / `chunk_generator_columns.cpp` /
-  `chunk_generator_terrain.cpp` / `chunk_generator_lattice.hpp` / `chunk_generator_lattice.cpp`
+  `chunk_generator_columns.cpp` / `chunk_generator_terrain.cpp` /
+  `chunk_generator_lattice.hpp` / `chunk_generator_lattice.cpp`
   — Stacked-noise macro surface, height-based oceans, signed 3D density field with 4×4×4 shape
   lattice, chunk-level fast paths (see Terrain Generation above). The per-cell samplers stay
   inline in the header; the cold layer (sampling, the debug accessors, construction) is out of
@@ -942,8 +942,8 @@ Every file, with what it owns: [docs/ui.md](docs/ui.md).
   walkability test
 - `src/engine/player_controller.hpp/cpp` — `PlayerSim` (fixed-timestep simulation, fall-distance
   tracking + landing damage)
-- `src/engine/voxel_engine_controller.hpp/cpp` + `voxel_engine_properties.cpp` /
-  `voxel_engine_config.cpp` / `voxel_engine_schematic.cpp` / `voxel_engine_paste.cpp` — Bridges
+- `src/engine/voxel_engine_controller.hpp/cpp` + `voxel_engine_config.cpp` /
+  `voxel_engine_schematic.cpp` / `voxel_engine_paste.cpp` — Bridges
   `ChunkManager` state to the world
 
 ### Fluids
@@ -1006,9 +1006,9 @@ Every file, with what it owns: [docs/ui.md](docs/ui.md).
   `_exit_tree` quit flush; `raycast_from_camera` casts from the `PlayerController`'s eye-ray
   (`get_aim_origin`/`get_aim_direction`) with a Camera3D fallback
 - `src/godot_bindings/player_controller.cpp` + `player_controller_input.cpp` /
-  `player_controller_camera.cpp` / `player_controller_interact.cpp` /
-  `player_controller_place.cpp` / `player_controller_inventory.cpp` /
-  `player_controller_internal.hpp` — `PlayerController` node: input, mouse look (±90°), fly
+  `player_controller_interact.cpp` / `player_controller_place.cpp` /
+  `player_controller_inventory.cpp` / `player_controller_internal.hpp` — `PlayerController`
+  node: input, mouse look (±90°), fly
   mode, F5 view cycle, camera-collision sampling, eye-based aim bindings, `ModelPivot` body-yaw
   lag, break/place, inventory bindings, chat bindings, health bindings, `_exit_tree` inventory
   save
@@ -1099,7 +1099,7 @@ Every file, with what it owns: [docs/ui.md](docs/ui.md).
   region, and on a standard attribute placed after a decl-specifier. Both compile on MSVC and
   are fatal on GCC/clang, which is exactly why the tree is compiled by something other than MSVC
   before it is accepted
-- **clang-tidy** — the static-analysis job's gate, over `find src -name '*.cpp'` (112 files)
+- **clang-tidy** — the static-analysis job's gate, over `find src -name '*.cpp'` (106 files)
   with `bugprone-*`, `concurrency-*` and `performance-*` minus the four documented exceptions
   (`.github/workflows/build.yml`: `bugprone-easily-swappable-parameters`,
   `bugprone-narrowing-conversions`, `clang-analyzer-optin.core.EnumCastOutOfRange`,

@@ -262,7 +262,7 @@ void MeshManager::process_completed_meshes(uint64_t epoch, double budget_ms, int
             const Vector3 chunk_origin(completed.chunk_x * CHUNK_WIDTH,
                                        completed.chunk_y * CHUNK_HEIGHT,
                                        completed.chunk_z * CHUNK_DEPTH);
-            // The world effects grow the box (see mesh_manager_cull.cpp): a chunk
+            // The world effects grow the box (see MeshManager::update_world_cull): a chunk
             // that arrives while one of them is on has to be culled against
             // where the shader will put it, not against where the mesher put it.
             cull_apply(render_data->instance_rid, render_data->cull_growth,

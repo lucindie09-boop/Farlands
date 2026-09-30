@@ -144,7 +144,7 @@ private:
                                          const godot::Ref<godot::ShaderMaterial>& material,
                                          const godot::Ref<godot::ShaderMaterial>& water_material);
 
-    // The world's two geometry effects and the frustum (mesh_manager_cull.cpp).
+    // The world's two geometry effects and the frustum.
     // `cull_for` is the box an instance should be culled against; `cull_apply`
     // pushes one and remembers how far it was grown. The slack the refresh
     // leaves is what makes a refresh per camera block rather than per frame safe.
@@ -169,10 +169,9 @@ private:
     PerformanceTimer* perf_timer = nullptr;
     std::atomic<uint64_t>* async_epoch = nullptr;
     godot::Node* owner = nullptr;
-    // The culling state for both of the world's geometry effects
-    // (mesh_manager_cull.cpp): the knobs, the camera they were last worked out
-    // at, and whether a refresh is owed regardless (a knob changed, or an effect
-    // was just switched off).
+    // The culling state for both of the world's geometry effects: the knobs, the
+    // camera they were last worked out at, and whether a refresh is owed
+    // regardless (a knob changed, or an effect was just switched off).
     WorldBendParams world_bend;
     WorldHorizonParams world_horizon;
     godot::Vector3 cull_camera;

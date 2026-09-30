@@ -74,7 +74,7 @@ const DEFINITIONS_PATH := "res://data/shaders.json"
 # decided what to draw. A bent or curved world would therefore have its far field
 # culled away. Each effect's own knobs go to the engine as well as to its
 # materials, and the engine grows those boxes to where the shaders will put the
-# geometry - see src/core/world_cull.hpp and src/mesh/mesh_manager_cull.cpp.
+# geometry - see src/core/world_cull.hpp and src/mesh/mesh_manager.cpp.
 
 # The knobs each vertex effect hands the engine, in the order that effect's own
 # method takes them: an effect's `id` names the method it is told through

@@ -417,7 +417,7 @@ procedurally generated liquid textures, and the shader-effect stack end to end.
   the effect exists to show is the ring that is missing. `src/core/world_cull.hpp` is the
   include's arithmetic a second time, on the CPU, answering the one question culling has to ask
   — how far can the bend move a point of a box this big, this far away — and
-  `src/mesh/mesh_manager_cull.cpp` grows every resident chunk's cull box (and every far
+  `src/mesh/mesh_manager.cpp` grows every resident chunk's cull box (and every far
   region's) by that much: inward by the pull in x and z, because the mix can only ever shrink a
   distance, and upward only for the lift, because the lift is never negative. The bound is the
   box's *far corner*, evaluated once: a point's distance from the camera's vertical axis is

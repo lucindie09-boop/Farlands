@@ -85,7 +85,7 @@ The four gates this file's constraints describe are `scons sizecheck`, `scons po
   anonymous namespace (or `static`), or its external linkage can collide with the same name in a
   sibling file at link time
 - **The static-analysis job is the third structural gate, and the only one that reads C++
-  semantics rather than shapes.** clang-tidy runs over `find src -name '*.cpp'` (112 files) with
+  semantics rather than shapes.** clang-tidy runs over `find src -name '*.cpp'` (106 files) with
   `bugprone-*`, `concurrency-*` and `performance-*` on `ubuntu-latest`, and any finding in
   project sources fails the job, so a split that smuggles in a new shape surfaces here one
   finding at a time. Two shapes are worth knowing before writing the next helper, and both are

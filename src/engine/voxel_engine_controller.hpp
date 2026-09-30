@@ -54,7 +54,7 @@ public:
     // here, per effect, so the boxes the chunks are culled against can be grown
     // to where the shader will put them. `update_world_cull` is the per-frame
     // half, and does nothing unless one of them is on or the camera has moved
-    // (see mesh_manager_cull.cpp).
+    // (see MeshManager::update_world_cull).
     void set_world_bend(bool enabled, double amount, double radius, double rise);
     void set_world_horizon(bool enabled, double radius);
     void update_world_cull(const godot::Vector3& camera_position);

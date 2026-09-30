@@ -226,6 +226,9 @@ first-person viewmodel - what each one owns and the decisions behind it.
   `user://block_noise_base.png`, and a reversible grayscale-noise slider whose value/base
   survive page rebuilds because they live on the autoload. Noise/sidecars persist per block as
   `user://blocks/<name>.png` + `<name>.json`
+- **Block Maker noise, world-wide**: the makers' sliders stay per-texture and repaint on the
+  CPU; the Shaders page's **Noisy Blocks** is the same grain over every block at once (0..100,
+  live, in the world's own fragment stage — see `docs/rendering-notes.md`)
 - **Block Maker paint tools**: DRAW/FILL/BOX over primitive triangle raycasts (`MeshInstance3D`
   has no physics node), inclusive box semantics clamped to the clicked face, undo stack (Ctrl+Z)
   recording per-texel old/new colours, brush-stroke gap-bridging interpolation, and zoom clamped

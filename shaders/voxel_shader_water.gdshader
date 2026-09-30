@@ -9,6 +9,11 @@ render_mode blend_mix, unshaded, cull_back, depth_draw_always;
 #include "res://shaders/world_bend.gdshaderinc"
 #include "res://shaders/world_horizon.gdshaderinc"
 
+// The Shaders menu's texture effect: the block makers' own grain, added to the
+// texel this fragment sampled. Shared with the terrain material, so one slider
+// grains the whole world with one field. See the include.
+#include "res://shaders/block_noise.gdshaderinc"
+
 // The water's own part of it: the ripple the surface carries. The terrain does
 // not declare this and does not want it.
 uniform float world_bend_sway = 0.0;
@@ -154,6 +159,12 @@ void fragment(){
     vec2 water_uv = custom2_attr.xy + flow_vec * TIME * 0.12 * flow_strength;
     vec3 tex_coord = vec3(water_uv, layer);
     vec4 color = texture(texture_array, tex_coord, mipmap_bias);
+
+    // Noisy Blocks, added here because this is the texel the atlas handed over:
+    // before any light touches it, so the grain is lit with the liquid rather
+    // than glowing over it. It travels with the flow above - the grain is part
+    // of the texture, so a flowing surface carries its own grain along.
+    color.rgb += block_noise_delta(water_uv, layer) * block_noise_on;
 
     // Liquid vertices carry their texture-flow direction in the AO byte (see
     // above), not occlusion — a sloped surface cannot carry corner AO anyway,

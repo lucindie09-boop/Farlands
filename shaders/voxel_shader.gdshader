@@ -8,6 +8,11 @@ render_mode unshaded, cull_back, depth_draw_always;
 #include "res://shaders/world_bend.gdshaderinc"
 #include "res://shaders/world_horizon.gdshaderinc"
 
+// The Shaders menu's texture effect: the block makers' own grain, added to the
+// texel this fragment sampled. Shared with the water material, so one slider
+// grains the whole world with one field. See the include.
+#include "res://shaders/block_noise.gdshaderinc"
+
 uniform sampler2DArray texture_array : filter_nearest_mipmap;
 uniform sampler2DArray emissive_array : filter_nearest_mipmap;
 
@@ -131,6 +136,11 @@ void fragment(){
     float layer=custom1_attr.r * 255.0;
     vec3 tex_coord = vec3(custom2_attr.xy, layer);
     vec4 color = texture(texture_array, tex_coord, mipmap_bias);
+
+    // Noisy Blocks, added here because this is the texel the atlas handed over:
+    // before any light touches it, so the grain is lit with the block rather
+    // than glowing over it, and monochromatic, so it is dirt and not speckle.
+    color.rgb += block_noise_delta(custom2_attr.xy, layer) * block_noise_on;
 
     float emissive_layer = custom1_attr.a * 255.0;
     vec3 emissive_color = texture(emissive_array, vec3(custom2_attr.xy, emissive_layer)).rgb;

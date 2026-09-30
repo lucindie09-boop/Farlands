@@ -174,7 +174,7 @@ rather than a page of menu code.
 
 | Key | Type | Meaning |
 |---|---|---|
-| `kinds` | list of objects | `kind` (the id used by entries) and `name` (the menu heading). Five today: `screen`, `vertex`, `world`, `filter`, `camera` |
+| `kinds` | list of objects | `kind` (the id used by entries) and `name` (the menu heading). Six today: `screen`, `vertex`, `texture`, `world`, `filter`, `camera` |
 | `shaders` | list of objects | One per effect; registry order is the order the passes are drawn in |
 
 Each effect:
@@ -186,11 +186,17 @@ Each effect:
 | `enabled` | bool | Default state |
 | `kind` | string | One of `kinds` |
 | `shader` | string | Path to the `.gdshader`, for the kinds that draw (`screen`, `world`, `filter`) |
-| `materials` / `enable_key` | list / string | Vertex effects: which world materials are switched, and the uniform the switch is pushed to |
+| `materials` / `enable_key` | list / string | Vertex and texture effects: the world materials the effect drives, and the uniform its switch is pushed to (a vertex effect also hands its knobs to the culling code; a texture effect has nothing to hand over) |
 | `params` | list of objects | `key` (the shader uniform's name), `label`, `type` (`float`/`bool`), `default`, and for a float `min`, `max`, `step`, optional `suffix` |
 
 A param whose `key` is declared by none of its target's materials is warned
 about at load, because it is a slider attached to nothing.
+
+The two kinds that drive materials differ in subject, not in wiring: a **vertex**
+effect moves the world's own vertices, while a **texture** effect changes what
+those materials *sample* — the block textures themselves, grained or recoloured
+for every block at once. Neither gets a layer, because neither is a picture of
+the world: it is the world.
 
 ## data/minecraft_blocks.json
 

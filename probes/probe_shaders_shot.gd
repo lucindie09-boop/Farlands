@@ -101,22 +101,26 @@ func check_registry() -> void:
 	print("probe: %d shader effect(s) registered: %s" % [definitions.size(), ids])
 
 	# The kinds bring up different things, and the count of rects is the count of
-	# the two *pass* kinds: a vertex effect with a rect would be a picture of a bend
+	# the *pass* kinds: a material effect with a rect would be a picture of a bend
 	# rather than a bend, and a pass without one would draw nothing at all.
 	#
-	# What separates the two pass kinds is where the rect is drawn, and that is a
+	# What separates the pass kinds is where the rect is drawn, and that is a
 	# property of the layer rather than of the shader - a world entry quietly built
 	# as a screen effect would grade the hotbar along with the rock, and the shader
 	# itself could not tell. So the z_index each layer ends up with is checked
-	# against its kind, and it is the whole of the difference the registry's third
-	# kind means here.
+	# against its kind, and it is the whole of the difference the registry's
+	# `world` kind means here.
 	var passes: Array = []
 	var vertices: Array = []
+	var materials: Array = []
 	for definition in definitions:
-		if String(definition.get("kind", "screen")) == "vertex":
-			vertices.append(definition)
+		var kind := String(definition.get("kind", "screen"))
+		if kind == "vertex" or kind == "texture":
+			materials.append(definition)
 		else:
 			passes.append(definition)
+		if kind == "vertex":
+			vertices.append(definition)
 
 	var layers: Array = []
 	for child in overlay.get_children():
@@ -126,8 +130,8 @@ func check_registry() -> void:
 		_fail("%d layer(s) for %d pass effect(s)" % [layers.size(), passes.size()])
 	if vertices.is_empty():
 		_fail("the registry has no vertex effect (the bend is its geometry)")
-	for definition in vertices:
-		_check_vertex_effect(definition)
+	for definition in materials:
+		_check_material_effect(definition)
 
 	for i in range(mini(layers.size(), passes.size())):
 		var definition: Dictionary = passes[i]
@@ -982,9 +986,11 @@ func _lum(data: PackedByteArray, w: int, x: int, y: int) -> float:
 
 # --- Odds and ends ------------------------------------------------------------
 
-## A vertex effect: no rect, because it is the world rather than a picture of it,
-## and the materials the world is drawn with under its control. Two things are
-## worth checking here that a screen pass has no equivalent of.
+## A material effect - the vertex kind, which moves the world's vertices, and the
+## texture kind, which changes what those materials sample - gets no rect, because
+## it is the world rather than a picture of it, and has the materials the world is
+## drawn with under its control. Two things are worth checking here that a screen
+## pass has no equivalent of.
 ##
 ## The first is that those materials are the *loaded* resources and not copies.
 ## `load("res://materials/voxel_material.tres")` goes through the resource cache,
@@ -994,10 +1000,11 @@ func _lum(data: PackedByteArray, w: int, x: int, y: int) -> float:
 ## is why the check is that the switch moves the frame (below) rather than that
 ## some material somewhere has the value.
 ##
-## The second is that a vertex effect has nothing to hide, so its switch is a
+## The second is that a material effect has nothing to hide, so its switch is a
 ## uniform (`enable_key`) and it is the overlay that pushes it - to every one of
-## the materials, or one half of the world would bend.
-func _check_vertex_effect(definition: Dictionary) -> void:
+## the materials, or one half of the world would have the effect and the other
+## half would not.
+func _check_material_effect(definition: Dictionary) -> void:
 	var id := String(definition.get("id", ""))
 	var enable_key := String(definition.get("enable_key", ""))
 	if enable_key == "":
@@ -1023,7 +1030,7 @@ func _check_vertex_effect(definition: Dictionary) -> void:
 		if not uniforms.has(String(param["key"])):
 			_fail("%s: none of its materials has %s" % [id, param["key"]])
 	if overlay.get_node_or_null(id) != null:
-		_fail("%s has a rect on the overlay; a vertex effect has none" % id)
+		_fail("%s has a rect on the overlay; a material effect has none" % id)
 
 	# The switch, both ways, on every material: half a bent world is a seam.
 	var followed := true
@@ -1040,8 +1047,9 @@ func _check_vertex_effect(definition: Dictionary) -> void:
 	var named: Array = []
 	for material in materials:
 		named.append(String((material as ShaderMaterial).resource_path).get_file())
-	print("probe: %s is a vertex effect over %s, switch %s, %d param(s), %d uniform(s)"
-		% [id, named, enable_key, definition["params"].size(), uniforms.size()])
+	print("probe: %s is a %s effect over %s, switch %s, %d param(s), %d uniform(s)"
+		% [id, definition.get("kind", "vertex"), named, enable_key,
+			definition["params"].size(), uniforms.size()])
 
 
 func _walk_headings(node: Node, out: Array) -> void:

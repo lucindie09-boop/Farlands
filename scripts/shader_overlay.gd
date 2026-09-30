@@ -24,6 +24,14 @@ extends Control
 #     draws with. Such an effect has nothing to hide, so its switch is pushed as
 #     a uniform as well (`enable_key`), and the shaders multiply the effect by
 #     nothing when it is off.
+#   - a 'texture' effect is a vertex effect on this side and not on the engine's:
+#     it names the world's own materials and moves their uniforms, with its switch
+#     pushed the same way, but what it changes is what those shaders *sample*
+#     rather than where their vertices are. So there is nothing for the engine to
+#     grow - the chunks are exactly where the meshes put them - and the effect
+#     wants no method there: the registry's `materials` list is the whole of the
+#     wiring, and the shaders it drives are the world's, like the vertex kind's.
+#     Noisy Blocks is the first of them.
 #   - a 'camera' effect is not a picture either and gets no layer: it moves the
 #     camera itself, which no shader can do - a shader is handed a frame after the
 #     eye has seen it, and moving the picture after the fact is not the same as
@@ -93,7 +101,7 @@ const VERTEX_ENGINE_KNOBS := {
 # at all. A screen effect is drawn wherever its rect lands in this node, which is
 # above the HUD art the node sits over and under the menu, the crosshair and the
 # compass above it - so the two kinds see different frames, and that is the whole
-# of what the registry's third kind means here.
+# of what the registry's `world` kind means here.
 const WORLD_PASS_Z_INDEX := -1
 
 # The z a screen effect's rect gets. Spelled out because its copy node has to be
@@ -112,8 +120,8 @@ var _definitions: Array = []
 # its rows by them and takes each category's name from here.
 var _kinds: Array = []
 # id -> { kind, rect, materials, uniforms, enable_key }. A screen or world
-# effect has a rect of its own to hide; a vertex effect has neither, and its
-# switch is a uniform on the materials it drives.
+# effect has a rect of its own to hide; a vertex or texture effect has neither,
+# and its switch is a uniform on the materials it drives.
 var _layers: Dictionary = {}
 var _enabled: Dictionary = {}  # id -> bool
 var _values: Dictionary = {}   # id -> { key: value }
@@ -211,8 +219,9 @@ func set_enabled(id: String, enabled: bool) -> void:
 			copy.copy_mode = BackBufferCopy.COPY_MODE_VIEWPORT if enabled \
 				else BackBufferCopy.COPY_MODE_DISABLED
 	else:
-		# A vertex effect is not something that can be hidden: it is the geometry
-		# itself, and what the switch means there is the effect's own strength
+		# A material effect is not something that can be hidden: the vertex kind is
+		# the geometry itself, the texture kind is what that geometry is drawn
+		# with, and in both what the switch means is the effect's own strength
 		# multiplied by nothing. A camera effect is the same in kind - the switch
 		# is nothing to draw or hide, only state the driver reads in _process.
 		_push(layer, String(layer.get("enable_key", "")), 1.0 if enabled else 0.0)
@@ -243,6 +252,9 @@ func set_value(id: String, key: String, value: Variant) -> void:
 # Every vertex effect's own state, handed to the engine as well as to its
 # materials, because the engine culls the chunks against boxes that describe where
 # the world was: a shader cannot widen them and the engine cannot read a shader.
+# Only the vertex kind is walked here, because only the vertex kind moves a vertex:
+# a texture effect drives the same materials, but the world it grains is the world
+# it was, so the boxes still describe it and there is nothing to widen.
 # One walk over the registry tells each effect's method what its own knobs are;
 # a vertex effect whose knobs the engine has no method for is skipped here rather
 # than pushed into a method that does not exist. Deferred by the callers rather
@@ -355,8 +367,8 @@ func _build_layer(definition: Dictionary) -> void:
 		return
 	var kind := String(definition.get("kind", "screen"))
 	var built: Dictionary
-	if kind == "vertex":
-		built = _build_vertex_effect(definition)
+	if kind == "vertex" or kind == "texture":
+		built = _build_material_effect(definition, kind)
 	elif kind == "camera":
 		built = _build_camera_effect(definition)
 	else:
@@ -655,12 +667,16 @@ func _camera_restore(layer: Dictionary) -> void:
 	layer["applied"] = Vector2.ZERO
 
 
-# A vertex effect: no rect and no shader of its own. It names the materials the
-# world is drawn with and moves their uniforms, which is what a bend of the
-# world's own geometry is - the shaders that do it are the world's, not this
-# node's. The materials are loaded, not instantiated: these are the very
-# resources the engine draws with, so a value set here is set on the world.
-func _build_vertex_effect(definition: Dictionary) -> Dictionary:
+# A material effect - the vertex kind or the texture kind - gets no rect and no
+# shader of its own. It names the materials the world is drawn with and moves
+# *their* uniforms, which is what moving the world's own geometry and what the
+# world's surfaces are drawn with have in common: the shaders that do both are the
+# world's, not this node's. The materials are loaded, not instantiated: these are
+# the very resources the engine draws with, so a value set here is set on the
+# world. The kind comes back with the layer because the two are not the same thing
+# to the walk in _push_vertex_effects, which is the engine's business, and to the
+# menu, which is where the two headings come from.
+func _build_material_effect(definition: Dictionary, kind: String) -> Dictionary:
 	var id := String(definition.get("id", ""))
 	var materials: Array = []
 	var uniforms := {}
@@ -684,7 +700,7 @@ func _build_vertex_effect(definition: Dictionary) -> Dictionary:
 		push_error("shaders.json: %s has no enable_key uniform on its materials" % id)
 		return {}
 	return {
-		"kind": "vertex",
+		"kind": kind,
 		"rect": null,
 		"materials": materials,
 		"uniforms": uniforms,

@@ -128,7 +128,7 @@ become no-ops. If a subject needs more than one file, keep the original name for
 the main subject and add `_<topic>` peers, with shared fixtures in
 `tests/<subject>_test_support.hpp` in a named namespace with `inline` helpers.
 
-## Add a screen shader effect
+## Add a shader effect
 
 1. Write `shaders/<name>.gdshader`.
 2. Add an entry to `data/shaders.json` with `id`, `name`, `kind`, `shader` and
@@ -138,6 +138,16 @@ the main subject and add `_<topic>` peers, with shared fixtures in
 4. If it must sample the screen at its own place in the stack, it needs its own
    `BackBufferCopy`; the overlay does that for screen and world passes, and a
    pass without one reads a frame that is missing the passes under it.
+
+An effect that is the world rather than a picture of it names no `shader` and
+gets no layer: it lists the `materials` the world is drawn with and the
+`enable_key` uniform its switch is pushed to, and its `params` are uniforms of
+those materials. A **vertex** effect moves their vertices — its knobs are handed
+to the culling code too (`src/core/world_cull.hpp`), because the engine chose
+what to draw before the shader moved it — while a **texture** effect changes what
+they sample. The kinds themselves are the registry's `kinds` list, which is what
+gives the page its headings: a new kind is an entry there, not a page of menu
+code.
 
 ## Change the save format
 

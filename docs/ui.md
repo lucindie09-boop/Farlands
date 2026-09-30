@@ -112,7 +112,20 @@ being resampled by a different fraction at each scale.
   names the `materials` the world is drawn with (the registry's `materials`) and the
   `enable_key` uniform its switch is pushed to, and those materials are *loaded*, not
   duplicated, so a uniform set here is set on the very resources the renderer draws with. A
-  **camera** entry (`_build_camera_effect`, driven by `_process_camera_effect`) is the newest
+  **texture** entry is the same wiring around another subject: the same `materials`, the same
+  `enable_key`, the same loaded resources, but what it changes is what those materials
+  *sample* — so the block textures themselves are changed for every block at once, live, while
+  the geometry stays exactly where the mesh put it. Moving no vertex, it has nothing to hand
+  the culling code the vertex kind talks to, and that is the whole of the difference between
+  the two kinds on this side. `shaders/block_noise.gdshaderinc` is the kind's first member,
+  **Noisy Blocks**: the makers' own 0..100 grain, the same ceiling (`MAX_GRAIN`), added to the
+  texel each fragment of both world materials reads, monochromatic and faded out where a texel
+  shrinks below a screen pixel. `shaders/grain.gdshader` is **Film Grain**, a screen pass with
+  no history and nothing measured: a hash of each `grain_size`-pixel cell of the frame, nailed
+  to the screen by default and re-rolled 24 times a second with **Animated** on. Neither
+  reaches the held item's mesh or the inventory's block icons, which read a block's texture
+  directly rather than through the world's materials. A **camera** entry
+  (`_build_camera_effect`, driven by `_process_camera_effect`) is the newest
   kind and gets none of those things: it moves the current `Camera3D` itself through
   `h_offset`/`v_offset` — a held, re-rolled micro-offset for the jitter and never a decaying
   impact shake — and takes only its own writes back off, so the player's own steering of the

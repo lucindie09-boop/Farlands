@@ -148,8 +148,13 @@ procedurally generated liquid textures, and the shader-effect stack end to end.
   drawn as a full-screen picture over the frame. A **vertex** effect is the world's own geometry
   moved by its vertex shader — it names the `materials` the world is drawn with and the
   `enable_key` uniform its switch is pushed to, because a material has no visibility to hide —
-  and it gets no pass and no rect of its own. A third kind, `world`, is a pass over the world's
-  own picture: it names a `shader` and gets a layer of its own exactly like a screen effect's,
+  and it gets no pass and no rect of its own. A **texture** effect is that same wiring around a
+  different subject: the same `materials`, the same `enable_key`, no pass and no rect either,
+  but what it changes is what those materials *sample* — the block textures themselves — rather
+  than where their vertices are, so unlike the vertex kind it moves nothing out of the boxes
+  the chunks were culled against and has nothing to hand the culling code. A `world` effect is a
+  pass over the world's own picture: it names a `shader` and gets a layer of its own exactly like
+  a screen effect's,
   but that layer is drawn at the *world's* depth in the stack (a negative `z_index`), which puts
   it over the 3D world and under every other CanvasItem in the HUD. So it reads the frame with
   no HUD in it and what it writes is put back under the HUD, where a screen effect grades the
@@ -176,7 +181,8 @@ procedurally generated liquid textures, and the shader-effect stack end to end.
   giving the page's category a `FS-` share code holding the whole stack. The Shaders page is
   built from the registry and never hard-codes a knob, and it is a list of effects *grouped by
   kind*: one category per kind, in the order the registry's `kinds` list gives, under the name
-  that list gives it (`Screen Shaders`, then `Vertex Shaders`, then `World Shaders`), and a kind
+  that list gives it (`Screen Shaders`, then `Vertex Shaders`, then `Texture Shaders`, then
+  `World Shaders`, then `Colour Filters`, then `Camera Effects`), and a kind
   with nothing in it is not shown at all — so the next kind is a shader and a registry entry,
   and adding one changes no menu code. Effects that are different kinds of thing should not read
   as one list: one of them is a picture laid over the frame, the next is the world's own
@@ -347,7 +353,7 @@ procedurally generated liquid textures, and the shader-effect stack end to end.
   zero-sized overlay is a whole stack of zero-sized passes, drawing nothing, with no error to
   say so. **Invert Colours** (`shaders/invert.gdshader`) and **Sepia**
   (`shaders/sepia.gdshader`) are the registry's sixth and seventh entries and the first two of
-  the `filter` kind, the newest heading on the Shaders page. A filter is a screen pass under
+  the `filter` kind, a heading of their own. A filter is a screen pass under
   another name — the overlay builds it exactly as it builds a screen effect, so it stacks like
   any other pass — and the kind exists only because of where a player goes looking: a pass whose
   whole job is grading the picture's colours is not the kind of thing to hunt for under a CRT's
@@ -542,3 +548,59 @@ procedurally generated liquid textures, and the shader-effect stack end to end.
   the other is an effect that draws nothing when it is turned on. And unlike the bend, which has
   to be judged by where the world's vertices go, this one is visible in the frame itself:
   `probe_shaders_shot.gd` and the eye both see a plain curve away.
+
+### Film Grain
+
+- **Film Grain** (`shaders/grain.gdshader`) is the registry's tenth entry, its third *screen*
+  pass, and the last thing put on the picture: the tube, the trail and the two colour filters
+  are all under it, so what it grains is the picture as the rest of the stack left it. It is
+  deliberately the plainest pass in the file — one read of the frame and one write, with no
+  history and nothing measured against the frame — so the whole of the effect is where its
+  pattern comes from. The
+  pattern is a hash of the *cell* a fragment falls in, a cell being `grain_size` screen pixels
+  square by default one, so a cell is a pixel — measured on the frame's own pixel grid through
+  `frame_size` rather than as a fraction of it, for the reason the CRT's raster is: a pattern
+  defined as a fraction of the frame is a different grain at every window size. `grain_strength`
+  is how far a cell is pushed from its own colour, and the delta goes to all three channels at
+  once, because static is grey — a grain that moved the channels apart would colour the picture.
+  The grain is *static* by default, which is exactly what it sounds like: the hash is a function
+  of the cell's index, so the pattern is nailed to the screen and the world moves under it. With
+  **Animated** on, the frame's own *step* is hashed in beside the cell — `floor(TIME * 24)` and
+  not the clock, so the grain is held for a few frames and re-rolled at a fixed rate instead of
+  once per frame, which would make the effect a different thing at 30 fps than at 144 and would
+  show the frame rate rather than grain; 24 a second is what film grain is re-rolled at, and it
+  is the same reason Camera Jitter holds its own steps. Alpha is forced opaque like the sepia's,
+  because a transparent frame in the stack must not punch a hole through the grain instead of
+  being grained.
+
+### Noisy Blocks
+
+- **Noisy Blocks** (`shaders/block_noise.gdshaderinc`) is the registry's ninth entry and the
+  `texture` kind's first member, and its subject is neither the frame nor a vertex but the
+  *atlas*: the makers' own grain, 0 to 100, over every block in the world at once and live as
+  the slider is dragged. Nothing is repainted to do it. The makers' sliders are a CPU repaint of
+  one texture each (`SkinPixels.apply_gray_noise` over a fixed per-texel random field, with a
+  clean base kept so the slider can undo itself), and a live version of that over the *atlas*
+  would be a texture upload per slider tick, because the atlas is shared by every block there
+  is. So the same grain is added where the world samples it: both of the world's materials
+  `#include` this file and add its delta to the texel the fragment stage has just read, before
+  any light touches it, which is what makes the grain part of the block rather than a wash over
+  it. It is monochromatic like the makers' — one delta on all three channels — and its scale is
+  the makers' own 0..100 with the makers' own `MAX_GRAIN` as the ceiling, 0.35 of full brightness
+  (`scripts/block_manager.gd`), so Noise 100 in the world is the texture the block maker's
+  preview showed. The grain is a hash of the *texel*, per atlas layer: a 16×16 face is a field
+  of 256 of them, and up close one texel is many screen pixels wide, so the grain is a patch of
+  colour per texel, which is exactly what the makers' noise map is. Further out it is the other
+  way round — one texel covering less than a screen pixel — and a field sampled finer than its
+  own cells is an aliasing pattern that crawls with the camera, so the grain is faded out over
+  that footprint with `fwidth` — full where a texel is a pixel or wider, gone by the time a
+  texel has shrunk to half of one. Where it fades the atlas is being mip-filtered to a flat
+  average anyway, and grain over an average is not this grain. The water
+  passes its *flowed* coordinate, so a flowing surface carries its grain along with its texture,
+  and both materials share the one field, so a shoreline is one grain and not two. It drives its
+  materials exactly as the vertex effects do — `_build_material_effect` in `shader_overlay.gd`
+  builds both kinds, `materials` + `enable_key` and no layer — and that is the whole of what the
+  `texture` kind is: the same wiring around a subject that is neither a frame nor a vertex. What
+  it does not reach is the held item's own mesh and the inventory's block icons, which read a
+  block's texture directly rather than through the world's materials: this is the world's grain,
+  not the picture's.

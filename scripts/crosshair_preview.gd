@@ -44,6 +44,7 @@ func _draw_signature() -> int:
 	h ^= (1 if src.dot_contrast else 0) * 8117
 	h ^= (1 if src.cross_dot_collision else 0) * 6221
 	h ^= int(round(src.dot_rotation * 8)) * 4967
+	h ^= int(round(Crosshair.ui_scale() * 8)) * 3571
 	return h
 
 func _sync_material():

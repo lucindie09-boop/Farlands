@@ -54,6 +54,34 @@ screen (the shader-effect stack, the animated-liquid tools, the model previews).
   px text at GUI scale 2), which is what the maker pages' chrome and the gallery cards were
   brought onto; nothing in the menu is sized in raw pixels any more
 
+### One GUI scale, in units
+
+Every HUD surface is authored in **units** and multiplied by one integer scale. One unit is one
+logical pixel, so at GUI scale k a widget `n` units across is `n * k` screen pixels: the whole
+HUD grows together and nothing lands between two pixels. `scripts/ui_scale.gd` (the `UIScale`
+autoload) owns the scale and the two origin helpers.
+
+- `set_scale()` is the only writer. It rounds and clamps — the menu offers 1x..4x — because a
+  fractional scale resamples every texture and every font.
+- `centered_origin(viewport_px, panel_units)` and `edge_origin(viewport_px, panel_units,
+  inset_units)` are how a panel is placed. Layout must not use `(viewport - panel_px) / 2.0`: at
+  an odd viewport width that puts the panel, and every slot inside it, on a half pixel. The
+  helpers snap to whole units instead, so the drawing and the hit-testing (`_slot_at_position`,
+  `_craft_slot_at_position`) agree to the pixel.
+
+| Surface | Where its units come from |
+|---|---|
+| Hotbar, inventory, crafting table | the slot art itself (`SLOT_PITCH`, `SLOT_FILL_SIZE`, `SLOT_SIZE_PX`) |
+| Health bar | the heart art (`HEART_TEXELS`, `HEART_PITCH_TEXELS`) — a heart is its own 9 units, never a fraction of the bar |
+| Crosshair, compass, FPS counter | `FONT_UNITS` / `OUTLINE_UNITS` / `TOP_UNITS` in each script |
+| Settings menu, the maker pages, the death screen | the `UNIT_*` table (a 24-unit title and an 8-unit button on the death screen) |
+| Chat | **opted out** — a log read while playing, deliberately 1:1 at every scale |
+
+An item is 16 units across in every slot, whatever the slot art's inner box measures: 16 in the
+hotbar's 16-unit fill, 16 centered in an 18-unit inventory slot. The icon renderer draws at
+192 px so that 16, 32, 48 and 64 each divide it exactly, which is what stops an item icon from
+being resampled by a different fraction at each scale.
+
 ## The shader-effect overlay
 
 - `shader_overlay.gd` — The shader-effect stack, in the kinds `data/shaders.json` declares — and

@@ -1,16 +1,16 @@
 extends Control
 
-# Minecraft-style health bar: 10 hearts floating above the hotbar's left
-# edge. Sized off the hotbar's on-screen width so the row spans ~40% of the
-# bar -- hearts render as 9-texel sprites on a 10-texel pitch (1 texel of
-# space between), and the resulting 99-texel span maps onto the 40% fraction.
-# Health is in half-hearts (0..20, vanilla convention), polled from
-# PlayerController.get_health(); fall damage drains it.
+# Health bar: 10 hearts floating above the hotbar's left edge. A heart is the
+# sprite's own 9 units on the art's 10-unit pitch (1 unit of space between), so
+# the row spans 99 units and every position in it is a whole number of units at
+# every GUI scale. Sizing a heart as a fraction of the hotbar's width instead --
+# what this did before -- resampled the sprite at every setting.
+# Health is in half-hearts (0..20), polled from PlayerController.get_health();
+# fall damage drains it.
 
 const HEART_COUNT = 10
 const MAX_HEALTH = 20
-const HOTBAR_WIDTH_FRACTION = 0.4
-const GAP_ABOVE_HOTBAR = 2.0  # UI-scale pixels between hearts and hotbar top
+const GAP_ABOVE_HOTBAR = 2.0  # units between the hearts and the hotbar's top
 
 # Heart layout in art texels: 9x9 sprite, one empty texel between neighbors.
 const HEART_TEXELS = 9
@@ -30,7 +30,9 @@ var _last_size := Vector2.ZERO
 var _last_ui_scale := -1.0
 
 func _ready():
-	texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	# Nearest, like every other GUI surface: the hearts are pixel art drawn at a
+	# whole-unit size, so linear filtering can only blur them.
+	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 
 func _process(_delta):
 	var new_health := MAX_HEALTH
@@ -46,15 +48,15 @@ func _draw():
 	if not _hotbar_texture:
 		return
 	var ui_scale = UIScale.value
-	var hotbar_width = _hotbar_texture.get_width() * ui_scale
-	var hotbar_height = _hotbar_texture.get_height() * ui_scale
-	var hotbar_x = (size.x - hotbar_width) / 2.0
-	var hotbar_top = size.y - hotbar_height
+	var hotbar_width = _hotbar_texture.get_width()
+	var hotbar_height = _hotbar_texture.get_height()
+	# The row shares the hotbar's origin, so it can never drift from the bar it
+	# sits on: both are snapped to the same scale grid.
+	var hotbar_x = UIScale.centered_origin(size.x, hotbar_width)
+	var hotbar_top = UIScale.edge_origin(size.y, hotbar_height, 0.0)
 
-	var span_texels = float(HEART_COUNT * HEART_PITCH_TEXELS - HEART_TEXELS)
-	var texel = hotbar_width * HOTBAR_WIDTH_FRACTION / span_texels
-	var heart_size = texel * float(HEART_TEXELS)
-	var pitch = texel * float(HEART_PITCH_TEXELS)
+	var heart_size = HEART_TEXELS * ui_scale
+	var pitch = HEART_PITCH_TEXELS * ui_scale
 	var y = hotbar_top - GAP_ABOVE_HOTBAR * ui_scale - heart_size
 
 	for i in range(HEART_COUNT):

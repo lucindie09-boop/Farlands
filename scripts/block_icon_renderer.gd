@@ -4,7 +4,11 @@ extends Node
 # Caches rendered textures so each block is only rendered once.
 # Uses orthographic camera at vanilla's dimetric angle (45° yaw, ~30° pitch).
 
-const ICON_SIZE := 300  # Output icon resolution
+# Output icon resolution. An icon is drawn into a 16-unit slot, and the GUI
+# scales are 1..4, so the destination is 16/32/48/64 px: 192 divides every one
+# of those exactly, which is what stops a downscaled icon from losing rows and
+# columns unevenly (300 left a different remainder at each scale).
+const ICON_SIZE := 192
 const BLOCK_SCALE := 1.0  # Scale of block in viewport
 
 var _viewport: SubViewport

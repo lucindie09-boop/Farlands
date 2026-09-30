@@ -23,6 +23,11 @@ const SLOT_SIZE_PX = 18
 const MAIN_GRID_TOP = 103
 const HOTBAR_TOP = 171
 
+# An item is 16 units across in every slot, whatever the slot art's inner box
+# measures. Whole-unit destinations at every scale are what keep an item on the
+# same grid as the panel behind it, and the icon renderer's size divides 16.
+const ICON_SIZE_UNITS = 16
+
 # Crafting area geometry, measured from the #80532b (input grid) and
 # #80532c (output) slot-background colors in the atlas. Inputs share the
 # 18px box / 21px pitch used by the main grid; the output box is larger.
@@ -180,8 +185,8 @@ func _draw():
 		var ui_scale = UIScale.value  # Match hotbar scaling
 		var scaled_width = menu_texture.get_width() * ui_scale
 		var scaled_height = menu_texture.get_height() * ui_scale
-		var texture_x = (size.x - scaled_width) / 2.0
-		var texture_y = (size.y - scaled_height) / 2.0
+		var texture_x = UIScale.centered_origin(size.x, menu_texture.get_width())
+		var texture_y = UIScale.centered_origin(size.y, menu_texture.get_height())
 		draw_texture_rect(menu_texture, Rect2(texture_x, texture_y, scaled_width, scaled_height), false)
 
 		# Draw all real slots (hotbar + main inventory) via shared geometry
@@ -204,7 +209,7 @@ func _draw():
 	# Draw held stack following the mouse
 	if _is_holding():
 		var mouse_pos = get_local_mouse_position()
-		var drag_size = 48.0
+		var drag_size = ICON_SIZE_UNITS * UIScale.value
 		var block_texture = BlockTextures.get_texture(held_block_id)
 		if block_texture:
 			draw_texture_rect(block_texture, Rect2(mouse_pos.x - drag_size/2, mouse_pos.y - drag_size/2, drag_size, drag_size), false)
@@ -246,7 +251,7 @@ func _draw_craft_cell(x, y, width, height, cslot, block_id, count, hover_tex: Te
 	# result preview doesn't dwarf inventory icons; counts anchor to the
 	# icon's corner rather than the oversized cell's.
 	if block_id > 0 and count > 0:
-		var icon_size = SLOT_SIZE_PX * 0.8 * UIScale.value
+		var icon_size = ICON_SIZE_UNITS * UIScale.value
 		var icon_x = x + (width - icon_size) / 2.0
 		var icon_y = y + (height - icon_size) / 2.0
 		var block_texture = BlockTextures.get_texture(block_id)
@@ -260,12 +265,12 @@ func _draw_craft_cell(x, y, width, height, cslot, block_id, count, hover_tex: Te
 func _draw_item_icon(block_id: int, count: int, x: float, y: float, width: float, height: float):
 	var block_texture = BlockTextures.get_texture(block_id)
 	if block_texture:
-		var icon_size = width * 0.8
+		var icon_size = ICON_SIZE_UNITS * UIScale.value
 		draw_texture_rect(block_texture,
 				Rect2(x + (width - icon_size) / 2.0, y + (height - icon_size) / 2.0, icon_size, icon_size), false)
 	else:
 		var block_color = _get_block_color(block_id)
-		var icon_size = width * 0.7
+		var icon_size = ICON_SIZE_UNITS * UIScale.value
 		draw_rect(Rect2(x + (width - icon_size) / 2.0, y + (height - icon_size) / 2.0, icon_size, icon_size), block_color)
 	if count > 1:
 		_draw_item_count(str(count), x + width, y + height, width)
@@ -297,12 +302,13 @@ func _draw_item_count(count_text: String, right_x: float, bottom_y: float, slot_
 	# horizontal alignment is ignored when width is -1, so back the position off
 	# by the text's measured width and font descent to pin the glyphs inside the
 	# slot's bottom-right corner.
-	var font_size = int(round(slot_size * 0.5))       # ~half the slot height, like Minecraft
-	var margin = max(1.0, slot_size / 18.0)             # scales with slot size instead of being flat
+	var font_size = int(round(slot_size * 0.5))       # half the slot's height, in units
+	# One unit of inset, so the label sits on the same grid as the slot it is on.
+	var margin = maxf(1.0, UIScale.value)
 	var text_width = MUNRO_FONT.get_string_size(count_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
 	var descent = MUNRO_FONT.get_descent(font_size)
 	var pos = Vector2(right_x - margin - text_width, bottom_y - margin - descent)
-	var shadow = Vector2(margin * 0.5, margin * 0.5)
+	var shadow = Vector2(margin, margin)
 	draw_string(MUNRO_FONT, pos + shadow, count_text,
 				HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color(0.09, 0.09, 0.09))
 	draw_string(MUNRO_FONT, pos, count_text,
@@ -409,8 +415,8 @@ func _gui_input(event):
 func _slot_at_position(pos: Vector2) -> int:
 	if not menu_texture:
 		return -1
-	var texture_x = (size.x - menu_texture.get_width() * UIScale.value) / 2.0
-	var texture_y = (size.y - menu_texture.get_height() * UIScale.value) / 2.0
+	var texture_x = UIScale.centered_origin(size.x, menu_texture.get_width())
+	var texture_y = UIScale.centered_origin(size.y, menu_texture.get_height())
 	for i in range(TOTAL_SLOTS):
 		if _slot_screen_rect(i, texture_x, texture_y).has_point(pos):
 			return i
@@ -433,8 +439,8 @@ func _craft_slot_at_position(pos: Vector2) -> int:
 	if not menu_texture:
 		return -1
 	var origin = Vector2(
-			(size.x - menu_texture.get_width() * UIScale.value) / 2.0,
-			(size.y - menu_texture.get_height() * UIScale.value) / 2.0)
+			UIScale.centered_origin(size.x, menu_texture.get_width()),
+			UIScale.centered_origin(size.y, menu_texture.get_height()))
 	for i in range(CRAFT_CELLS + 1):
 		if _craft_slot_rect(i, origin).has_point(pos):
 			return i

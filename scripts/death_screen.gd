@@ -14,7 +14,7 @@ var _title: Label
 var _button: Button
 
 func _ui_scale() -> float:
-	return UIScale.value * 2.0 / 3.0
+	return UIScale.value
 
 func _ready():
 	visible = false
@@ -34,7 +34,7 @@ func _ready():
 	box.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	box.grow_vertical = Control.GROW_DIRECTION_BOTH
 	box.alignment = BoxContainer.ALIGNMENT_CENTER
-	box.add_theme_constant_override("separation", 24)
+	box.add_theme_constant_override("separation", int(round(12 * _ui_scale())))
 	add_child(box)
 
 	var s := _ui_scale()
@@ -43,11 +43,11 @@ func _ready():
 	_title.text = "You died!"
 	_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_title.add_theme_font_override("font", MUNRO_FONT)
-	_title.add_theme_font_size_override("font_size", int(36 * s))
+	_title.add_theme_font_size_override("font_size", int(24 * s))
 	_title.add_theme_color_override("font_color", Color.WHITE)
 	_title.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.6))
-	_title.add_theme_constant_override("shadow_offset_x", 2)
-	_title.add_theme_constant_override("shadow_offset_y", 2)
+	_title.add_theme_constant_override("shadow_offset_x", int(s))
+	_title.add_theme_constant_override("shadow_offset_y", int(s))
 	box.add_child(_title)
 
 	_button = Button.new()
@@ -66,7 +66,7 @@ func _ready():
 func _style_button(btn: Button, width: float):
 	var s := _ui_scale()
 	btn.add_theme_font_override("font", MUNRO_FONT)
-	btn.add_theme_font_size_override("font_size", int(12 * s))
+	btn.add_theme_font_size_override("font_size", int(8 * s))
 	btn.add_theme_color_override("font_color", Color.WHITE)
 	btn.add_theme_color_override("font_hover_color", Color.WHITE)
 	btn.add_theme_color_override("font_pressed_color", Color.WHITE)

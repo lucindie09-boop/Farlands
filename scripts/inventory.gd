@@ -18,6 +18,11 @@ const SLOT_SIZE_PX = 18
 const MAIN_GRID_TOP = 105
 const HOTBAR_TOP = 173
 
+# An item is 16 units across in every slot, whatever the slot art's inner box
+# measures. Whole-unit destinations at every scale are what keep an item on the
+# same grid as the panel behind it, and the icon renderer's size divides 16.
+const ICON_SIZE_UNITS = 16
+
 # Crafting area geometry, measured from the #7e7d7e (input grid) and #7e7d7f
 # (output) slot-background colors in the atlas. Inputs share the 18px box /
 # 21px pitch used by the main grid; the output box is its own size.
@@ -160,8 +165,8 @@ func _draw():
 		var ui_scale = UIScale.value  # Match hotbar scaling
 		var scaled_width = texture_width * ui_scale
 		var scaled_height = texture_height * ui_scale
-		var texture_x = (size.x - scaled_width) / 2.0
-		var texture_y = (size.y - scaled_height) / 2.0
+		var texture_x = UIScale.centered_origin(size.x, texture_width)
+		var texture_y = UIScale.centered_origin(size.y, texture_height)
 		draw_texture_rect(inventory_texture, Rect2(texture_x, texture_y, scaled_width, scaled_height), false)
 		
 		# Draw all real slots (hotbar + main inventory) via shared geometry
@@ -184,7 +189,7 @@ func _draw():
 	# Draw held stack following the mouse
 	if _is_holding():
 		var mouse_pos = get_local_mouse_position()
-		var drag_size = 48.0
+		var drag_size = ICON_SIZE_UNITS * UIScale.value
 		
 		# Try to get isometric block icon from BlockIconRenderer
 		var icon_renderer = get_node_or_null("/root/BlockIconRenderer")
@@ -230,7 +235,7 @@ func _draw_slot(x, y, width, height, slot_index, is_hotbar):
 			block_icon = icon_renderer.get_block_icon(block_id)
 		
 		if block_icon:
-			var icon_size = width * 0.9
+			var icon_size = ICON_SIZE_UNITS * UIScale.value
 			var icon_x = x + (width - icon_size) / 2.0
 			var icon_y = y + (height - icon_size) / 2.0
 			draw_texture_rect(block_icon, Rect2(icon_x, icon_y, icon_size, icon_size), false)
@@ -238,14 +243,14 @@ func _draw_slot(x, y, width, height, slot_index, is_hotbar):
 			# Fallback to block texture
 			var block_texture = BlockTextures.get_texture(block_id)
 			if block_texture:
-				var icon_size = width * 0.8
+				var icon_size = ICON_SIZE_UNITS * UIScale.value
 				var icon_x = x + (width - icon_size) / 2.0
 				var icon_y = y + (height - icon_size) / 2.0
 				draw_texture_rect(block_texture, Rect2(icon_x, icon_y, icon_size, icon_size), false)
 			else:
 				# Fallback to colored rectangle
 				var block_color = _get_block_color(block_id)
-				var icon_size = width * 0.7
+				var icon_size = ICON_SIZE_UNITS * UIScale.value
 				var icon_x = x + (width - icon_size) / 2.0
 				var icon_y = y + (height - icon_size) / 2.0
 				draw_rect(Rect2(icon_x, icon_y, icon_size, icon_size), block_color)
@@ -269,18 +274,18 @@ func _draw_craft_cell(x, y, width, height, cslot, block_id, count, hover_tex: Te
 			block_icon = icon_renderer.get_block_icon(block_id)
 		
 		if block_icon:
-			var icon_size = width * 0.9
+			var icon_size = ICON_SIZE_UNITS * UIScale.value
 			draw_texture_rect(block_icon,
 					Rect2(x + (width - icon_size) / 2.0, y + (height - icon_size) / 2.0, icon_size, icon_size), false)
 		else:
 			var block_texture = BlockTextures.get_texture(block_id)
 			if block_texture:
-				var icon_size = width * 0.8
+				var icon_size = ICON_SIZE_UNITS * UIScale.value
 				draw_texture_rect(block_texture,
 						Rect2(x + (width - icon_size) / 2.0, y + (height - icon_size) / 2.0, icon_size, icon_size), false)
 			else:
 				var block_color = _get_block_color(block_id)
-				var icon_size = width * 0.7
+				var icon_size = ICON_SIZE_UNITS * UIScale.value
 				draw_rect(Rect2(x + (width - icon_size) / 2.0, y + (height - icon_size) / 2.0, icon_size, icon_size), block_color)
 		if count > 1:
 			_draw_item_count(str(count), x + width, y + height, width)
@@ -312,12 +317,13 @@ func _draw_item_count(count_text: String, right_x: float, bottom_y: float, slot_
 	# horizontal alignment is ignored when width is -1, so back the position off
 	# by the text's measured width and font descent to pin the glyphs inside the
 	# slot's bottom-right corner.
-	var font_size = int(round(slot_size * 0.5))       # ~half the slot height, like Minecraft
-	var margin = max(1.0, slot_size / 18.0)             # scales with slot size instead of being flat
+	var font_size = int(round(slot_size * 0.5))       # half the slot's height, in units
+	# One unit of inset, so the label sits on the same grid as the slot it is on.
+	var margin = maxf(1.0, UIScale.value)
 	var text_width = MUNRO_FONT.get_string_size(count_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
 	var descent = MUNRO_FONT.get_descent(font_size)
 	var pos = Vector2(right_x - margin - text_width, bottom_y - margin - descent)
-	var shadow = Vector2(margin * 0.5, margin * 0.5)
+	var shadow = Vector2(margin, margin)
 	draw_string(MUNRO_FONT, pos + shadow, count_text,
 				HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color(0.09, 0.09, 0.09))
 	draw_string(MUNRO_FONT, pos, count_text,
@@ -424,8 +430,8 @@ func _gui_input(event):
 func _slot_at_position(pos: Vector2) -> int:
 	if not inventory_texture:
 		return -1
-	var texture_x = (size.x - inventory_texture.get_width() * UIScale.value) / 2.0
-	var texture_y = (size.y - inventory_texture.get_height() * UIScale.value) / 2.0
+	var texture_x = UIScale.centered_origin(size.x, inventory_texture.get_width())
+	var texture_y = UIScale.centered_origin(size.y, inventory_texture.get_height())
 	for i in range(TOTAL_SLOTS):
 		if _slot_screen_rect(i, texture_x, texture_y).has_point(pos):
 			return i
@@ -448,8 +454,8 @@ func _craft_slot_at_position(pos: Vector2) -> int:
 	if not inventory_texture:
 		return -1
 	var origin = Vector2(
-			(size.x - inventory_texture.get_width() * UIScale.value) / 2.0,
-			(size.y - inventory_texture.get_height() * UIScale.value) / 2.0)
+			UIScale.centered_origin(size.x, inventory_texture.get_width()),
+			UIScale.centered_origin(size.y, inventory_texture.get_height()))
 	for i in range(5):
 		if _craft_slot_rect(i, origin).has_point(pos):
 			return i

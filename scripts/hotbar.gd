@@ -15,6 +15,11 @@ const SLOT_FILL_Y = 3
 const SLOT_FILL_SIZE = 16
 const SLOT_PITCH = 20
 
+# An item is 16 units across in every slot, whatever the slot art's inner box
+# measures. Whole-unit destinations at every scale are what keep an item on the
+# same grid as the panel behind it, and the icon renderer's size divides 16.
+const ICON_SIZE_UNITS = 16
+
 # Fill-key colors: pixels near FILL_BASE (incl. dithered variants) become
 # FILL_HIGHLIGHT; everything else is copied untouched.
 const FILL_BASE = Color(0.149, 0.145, 0.0196)      # #262505
@@ -111,12 +116,12 @@ func _draw():
 		_draw_custom_hotbar()
 		return
 	
-	# Draw the texture centered at bottom with scaling
+	# Draw the texture centered at the bottom, snapped to the scale grid.
 	var ui_scale = UIScale.value  # Global GUI scale
 	var scaled_width = texture_width * ui_scale
 	var scaled_height = texture_height * ui_scale
-	var texture_x = (size.x - scaled_width) / 2.0
-	var texture_y = size.y - scaled_height
+	var texture_x = UIScale.centered_origin(size.x, texture_width)
+	var texture_y = UIScale.edge_origin(size.y, texture_height, 0.0)
 	draw_texture_rect(hotbar_texture, Rect2(texture_x, texture_y, scaled_width, scaled_height), false)
 	
 	# Draw each hotbar slot content, positioned inside the exact 16x16 fill
@@ -148,26 +153,19 @@ func _draw():
 			if icon_renderer != null:
 				block_icon = icon_renderer.get_block_icon(block_id)
 			
+			var icon_size = ICON_SIZE_UNITS * ui_scale
+			var icon_x = fill_x + (fill_size - icon_size) / 2.0
+			var icon_y = fill_y + (fill_size - icon_size) / 2.0
 			if block_icon:
-				var icon_size = fill_size * 0.9
-				var icon_x = fill_x + (fill_size - icon_size) / 2.0
-				var icon_y = fill_y + (fill_size - icon_size) / 2.0
 				draw_texture_rect(block_icon, Rect2(icon_x, icon_y, icon_size, icon_size), false)
 			else:
 				# Fallback to block texture (items like the stick have no iso icon)
 				var block_texture = BlockTextures.get_texture(block_id)
 				if block_texture:
-					var icon_size = fill_size * 0.8
-					var icon_x = fill_x + (fill_size - icon_size) / 2.0
-					var icon_y = fill_y + (fill_size - icon_size) / 2.0
 					draw_texture_rect(block_texture, Rect2(icon_x, icon_y, icon_size, icon_size), false)
 				else:
 					# Fallback to colored rectangle
-					var block_color = _get_block_color(block_id)
-					var icon_size = fill_size * 0.7
-					var icon_x = fill_x + (fill_size - icon_size) / 2.0
-					var icon_y = fill_y + (fill_size - icon_size) / 2.0
-					draw_rect(Rect2(icon_x, icon_y, icon_size, icon_size), block_color)
+					draw_rect(Rect2(icon_x, icon_y, icon_size, icon_size), _get_block_color(block_id))
 			
 			# Draw count text
 			if count > 1:
@@ -219,12 +217,13 @@ func _draw_item_count(count_text: String, right_x: float, bottom_y: float, slot_
 	# horizontal alignment is ignored when width is -1, so back the position off
 	# by the text's measured width and font descent to pin the glyphs inside the
 	# slot's bottom-right corner.
-	var font_size = int(round(slot_size * 0.5))       # ~half the slot height, like Minecraft
-	var margin = max(1.0, slot_size / 18.0)             # scales with slot size instead of being flat
+	var font_size = int(round(slot_size * 0.5))       # half the slot's height, in units
+	# One unit of inset, so the label sits on the same grid as the slot it is on.
+	var margin = maxf(1.0, UIScale.value)
 	var text_width = MUNRO_FONT.get_string_size(count_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
 	var descent = MUNRO_FONT.get_descent(font_size)
 	var pos = Vector2(right_x - margin - text_width, bottom_y - margin - descent)
-	var shadow = Vector2(margin * 0.5, margin * 0.5)
+	var shadow = Vector2(margin, margin)
 	draw_string(MUNRO_FONT, pos + shadow, count_text,
 				HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color(0.09, 0.09, 0.09))
 	draw_string(MUNRO_FONT, pos, count_text,

@@ -319,7 +319,7 @@ func _load_settings():
 	var cfg := ConfigFile.new()
 	if cfg.load(SETTINGS_PATH) != OK:
 		return
-	UIScale.value = clampf(cfg.get_value("gui", "scale", UIScale.value), 1.0, 4.0)
+	UIScale.set_scale(clampf(cfg.get_value("gui", "scale", UIScale.value), 1.0, 4.0))
 	for k in _crosshair_defaults:
 		if crosshair_node:
 			crosshair_node.set(k, cfg.get_value("gui", k, _crosshair_defaults[k]))
@@ -740,11 +740,11 @@ func _build_general_sections() -> Array:
 	scale_btn.pressed.connect(func():
 		var i := scale_values.find(float(int(round(UIScale.value))))
 		i = (i + 1) % scale_values.size()
-		UIScale.value = scale_values[i]
+		UIScale.set_scale(scale_values[i])
 		_row_value(scale_btn, str(int(scale_values[i])) + "x")
 		_schedule_save())
 	var reset := func():
-		UIScale.value = _default_gui_scale
+		UIScale.set_scale(_default_gui_scale)
 		_row_value(scale_btn, str(int(round(_default_gui_scale))) + "x")
 
 	var rd := _make_slider(chunk_manager.get_render_distance(), 2.0, 64.0, 1.0,
@@ -3703,7 +3703,7 @@ func _import_general_code(code: String) -> bool:
 	var data := _decode_section_code(code, "FG", 4)
 	if data.is_empty():
 		return false
-	UIScale.value = float(clampi(data[1], 1, 4))
+	UIScale.set_scale(float(clampi(data[1], 1, 4)))
 	chunk_manager.set_render_distance(clampi(data[2], 2, 64))
 	_fps_cap = clampi(int(round(_unpack_float16(data, 3, 0.0, 300.0, 1.0))), 0, 300)
 	Engine.max_fps = _fps_cap

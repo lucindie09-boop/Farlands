@@ -85,6 +85,30 @@ first-person viewmodel - what each one owns and the decisions behind it.
   `PlayerController::_exit_tree` (nodes still alive) with a cached `ChunkManager` pointer — the
   old destructor-time tree lookup always failed at teardown
 
+## The GUI scale
+
+- **One integer scale, applied in units.** The GUI was scaled by each script multiplying its own
+  numbers by `UIScale.value`, which let four surfaces silently ignore the scale (the crosshair
+  held a fixed 9 px arm, the compass a fixed 20 px font, the FPS label whatever the scene pinned,
+  and the chat opted out on purpose), and let the death screen scale by two thirds of everything
+  else. `scripts/ui_scale.gd` now owns the scale (`set_scale` rounds and clamps) and the two
+  placement helpers (`centered_origin`, `edge_origin`), and every panel origin goes through them
+  rather than `(viewport - panel_px) / 2.0` — that form lands the panel and its slots on a half
+  pixel at an odd viewport width. Draw and hit-test agree because both call the helper.
+- **An item is 16 units in every slot**, and the icon renderer dropped from 300 px to 192 so
+  16/32/48/64 all divide it. The old sizes were fractions of the slot (`fill_size * 0.9`, `width
+  * 0.8`) and the cursor-held stack was a flat 48 px, so an icon was resampled by a different
+  ratio at every scale and the held stack never grew at all.
+- **The hearts stopped being a fraction of the bar.** They were sized `0.4 / 91` of the hotbar's
+  on-screen width — about 7.2 units for a 9-unit sprite, on a 10-unit pitch — and drawn with
+  `TEXTURE_FILTER_LINEAR` in an otherwise all-NEAREST HUD. A heart is now its own 9 units on the
+  art's 10-unit pitch (the row spans 99 units, about 54% of the bar, rather than the ~43% the
+  fraction gave) with NEAREST, so the sprite is never resampled.
+- **Crosshair, compass and FPS are in units now.** The crosshair scales inside `draw_crosshair`,
+  which both the HUD node and the settings-menu preview call, so the preview cannot show a size
+  the live crosshair does not have; the slider values are read as units, which roughly doubles
+  the on-screen crosshair at GUI scale 2 compared with the fixed-pixel version.
+
 ## Chat and the settings menu
 
 - **Chat system**: `chat.gd` with advanced autocomplete — ghost text suggestions with pulsing

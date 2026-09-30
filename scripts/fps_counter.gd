@@ -4,6 +4,13 @@ extends Label
 var timer: float = 0.0
 const UPDATE_INTERVAL: float = 0.25 # Update 4 times a second
 
+# The label's font in GUI units: 15 units is the 30 px the scene used to pin, so
+# the readout tracks the GUI scale like the rest of the HUD instead of staying
+# the same pixel size at every setting.
+const FONT_UNITS: float = 15.0
+
+var _last_ui_scale: float = -1.0
+
 var chunk_manager: Node3D
 var perf_timer: float = 0.0
 const PERF_UPDATE_INTERVAL: float = 2.0 # Update performance report every 2 seconds
@@ -11,8 +18,15 @@ const PERF_UPDATE_INTERVAL: float = 2.0 # Update performance report every 2 seco
 func _ready() -> void:
 	add_theme_font_override("font", load("res://fonts/munro.ttf"))
 	chunk_manager = get_node_or_null("/root/Main/ChunkManager")
+	_apply_font_size()
+
+func _apply_font_size() -> void:
+	_last_ui_scale = UIScale.value
+	add_theme_font_size_override("font_size", int(round(FONT_UNITS * UIScale.value)))
 
 func _process(delta: float) -> void:
+	if not is_equal_approx(UIScale.value, _last_ui_scale):
+		_apply_font_size()
 	timer += delta
 	perf_timer += delta
 	

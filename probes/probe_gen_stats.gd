@@ -155,8 +155,47 @@ func _run() -> void:
 	_print_stats("flying")
 
 	var g: Dictionary = cm.get_generation_stats()
+
+	# --- Band shape and what the pad bought ---------------------------------
+	# The counters this probe was extended for. Printed as one line each so a run
+	# can be diffed; the FAILs below only fire on internally inconsistent data,
+	# not on "the pad is expensive" — that is a number to read, not a verdict.
+	var hist: PackedInt32Array = g.get("band_size_hist", PackedInt32Array())
+	var hist_sum := 0
+	for i in range(hist.size()):
+		hist_sum += int(hist[i])
+	var fill_cols := int(g.get("fill_columns_read", 0))
+	var fills := int(g.get("fill_band_slices", 0))
+	var hist_parts := PackedStringArray()
+	for i in range(hist.size()):
+		hist_parts.append(str(hist[i]))
+	print("probe: BANDS nonfill_cols=%d fill_cols=%d hist=[%s] max_slices=%d mean_all=%.2f fill_mean=%.2f" % [
+		hist_sum, fill_cols, ",".join(hist_parts),
+		int(g.get("band_max_slices", 0)),
+		# candidate_offsets/candidate_columns is the mean over ALL columns, fill included;
+		# the histogram above is where the non-fill shape is read, not this.
+		(float(int(g.get("candidate_offsets", 0))) / float(max(1, int(g.get("candidate_columns", 0))))),
+		(float(fills) / float(max(1, fill_cols)))])
+
+	var inst := int(g.get("installs_total", 0))
+	var i_above := int(g.get("installs_above_top", 0))
+	var i_below := int(g.get("installs_below_land", 0))
+	var i_in := int(g.get("installs_in_range", 0))
+	var i_unknown := int(g.get("installs_bounds_unknown", 0))
+	print("probe: INSTALLS total=%d empty=%d above=%d above_empty=%d below=%d below_empty=%d inrange=%d inrange_empty=%d unknown=%d" % [
+		inst, int(g.get("installs_empty", 0)),
+		i_above, int(g.get("installs_above_top_empty", 0)),
+		i_below, int(g.get("installs_below_land_empty", 0)),
+		i_in, int(g.get("installs_in_range_empty", 0)), i_unknown])
+
 	if holes > 0:
 		_fail("%d columns along the flight had no ground: the sweep list lost chunks" % holes)
+	if hist_sum > 0 and hist_sum != int(g.get("band_reads", 0)) - fill_cols:
+		_fail("band histogram (%d) does not account for band_reads-fill (%d)" % [hist_sum, int(g.get("band_reads", 0)) - fill_cols])
+	if inst > 0 and i_above + i_below + i_in + i_unknown != inst:
+		_fail("install classification (%d) does not sum to installs_total (%d)" % [i_above + i_below + i_in + i_unknown, inst])
+	if int(g.get("installs_above_top_empty", 0)) > i_above or int(g.get("installs_below_land_empty", 0)) > i_below or int(g.get("installs_in_range_empty", 0)) > i_in:
+		_fail("an *_empty count exceeds its class total")
 	if int(g.get("candidate_columns", 0)) <= 0:
 		_fail("the sweep list is empty - nothing was ever enumerated")
 	if int(g.get("checks", 0)) <= 0:

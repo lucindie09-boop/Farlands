@@ -10,6 +10,7 @@
 // 32-block window lands on a slice edge.
 #include "doctest.h"
 #include "world/sweep_band.hpp"
+#include "world/world_updater_types.hpp"  // GenerationStats::kBandBuckets, so the histogram test cannot drift from the struct
 #include <algorithm>
 #include <vector>
 
@@ -126,6 +127,36 @@ TEST_CASE("the slice order visits every slice once, starting at the player's lev
         int32_t past = -1;
         CHECK_FALSE(sweep::slice_cy(band, centre, static_cast<uint32_t>(total), past));
     }
+}
+
+TEST_CASE("every slice count files into exactly one band-size bucket") {
+    // The histogram is only a reading if its buckets partition the range: two
+    // counts sharing a bucket would make the totals disagree with band_reads,
+    // and a gap would silently drop columns from the histogram entirely.
+    constexpr int32_t kTop = kSlices;  // 32: the whole world height is one bucket
+    for (int32_t slices = 0; slices <= kTop; ++slices) {
+        const int32_t b = sweep::band_size_bucket(slices);
+        CHECK(b >= 0);
+        CHECK(b < static_cast<int32_t>(GenerationStats::kBandBuckets));
+        // Monotone: a larger count never files below a smaller one.
+        if (slices > 0) {
+            CHECK(b >= sweep::band_size_bucket(slices - 1));
+        }
+    }
+    // The documented boundaries, pinned so a future edit cannot shift them
+    // without the numbers in docs/debugging.md going stale.
+    CHECK(sweep::band_size_bucket(0) == 0);
+    CHECK(sweep::band_size_bucket(1) == 1);
+    CHECK(sweep::band_size_bucket(3) == 2);
+    CHECK(sweep::band_size_bucket(4) == 3);
+    CHECK(sweep::band_size_bucket(7) == 3);
+    CHECK(sweep::band_size_bucket(8) == 4);
+    CHECK(sweep::band_size_bucket(15) == 4);
+    CHECK(sweep::band_size_bucket(16) == 5);
+    CHECK(sweep::band_size_bucket(24) == 6);
+    CHECK(sweep::band_size_bucket(31) == 6);
+    CHECK(sweep::band_size_bucket(32) == 7);
+    CHECK(sweep::band_size_bucket(-1) == 0);  // defensive: never negative-index
 }
 
 TEST_CASE("an empty band offers nothing") {

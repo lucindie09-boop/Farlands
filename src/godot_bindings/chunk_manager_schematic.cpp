@@ -8,6 +8,7 @@
 #include "engine/voxel_engine_controller.hpp"
 
 #include <godot_cpp/variant/packed_byte_array.hpp>
+#include <godot_cpp/variant/packed_int32_array.hpp>
 #include <godot_cpp/variant/string.hpp>
 
 using namespace godot;
@@ -142,6 +143,37 @@ Dictionary ChunkManager::get_generation_stats() {
 
     out["urgent_requested"] = static_cast<int64_t>(stats.urgent_requested);
     out["urgent_generated"] = static_cast<int64_t>(stats.urgent_generated);
+
+    // Band SHAPE, as opposed to the candidate_offsets/candidate_columns mean:
+    // per-bucket column counts over the 32 world slices, the tallest band seen,
+    // and the fill columns kept out of the histogram. Read together with the
+    // install classification below: a fat 24-31 bucket plus pad-only installs
+    // that came back empty is the ±32 pad buying nothing.
+    PackedInt32Array band_hist;
+    band_hist.resize(static_cast<int64_t>(GenerationStats::kBandBuckets));
+    for (size_t i = 0; i < GenerationStats::kBandBuckets; ++i) {
+        band_hist.set(static_cast<int64_t>(i), static_cast<int32_t>(stats.band_size_hist[i]));
+    }
+    out["band_size_hist"] = band_hist;
+    out["band_max_slices"] = static_cast<int64_t>(stats.band_max_slices);
+    out["fill_columns_read"] = static_cast<int64_t>(stats.fill_columns_read);
+    out["fill_band_slices"] = static_cast<int64_t>(stats.fill_band_slices);
+
+    // What the generations produced, classified by where the chunk sat relative
+    // to its column's estimated bounds. `*_empty` are the ones the pad (or the
+    // estimate's own slack) paid for and got nothing: above_top/below_land can
+    // ONLY be offered because of the ±32 pad or the fill rule, while in_range
+    // is terrain the estimate itself claimed. bounds_unknown is not split — the
+    // column had no cached bounds to judge against.
+    out["installs_total"] = static_cast<int64_t>(stats.installs_total);
+    out["installs_empty"] = static_cast<int64_t>(stats.installs_empty);
+    out["installs_above_top"] = static_cast<int64_t>(stats.installs_above_top);
+    out["installs_above_top_empty"] = static_cast<int64_t>(stats.installs_above_top_empty);
+    out["installs_below_land"] = static_cast<int64_t>(stats.installs_below_land);
+    out["installs_below_land_empty"] = static_cast<int64_t>(stats.installs_below_land_empty);
+    out["installs_in_range"] = static_cast<int64_t>(stats.installs_in_range);
+    out["installs_in_range_empty"] = static_cast<int64_t>(stats.installs_in_range_empty);
+    out["installs_bounds_unknown"] = static_cast<int64_t>(stats.installs_bounds_unknown);
 
     out["total_ms"] = stats.total_ms;
     out["last_ms"] = stats.last_ms;

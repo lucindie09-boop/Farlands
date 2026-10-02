@@ -823,6 +823,26 @@ func _run_command(raw: String):
 			var pf_published := int(g.get("prefetch_published", 0))
 			if pf_published > 0 or int(g.get("prefetch_requested", 0)) > 0:
 				_add_message("  column bounds: %s taken from a worker, %s derived here; %s requested, %s answers published, %s stale, %s dropped, %s still out" % [_fmt_count(int(g.get("prefetch_taken", 0))), _fmt_count(int(g.get("cold_bounds", 0))), _fmt_count(int(g.get("prefetch_requested", 0))), _fmt_count(pf_published), _fmt_count(int(g.get("prefetch_stale", 0))), _fmt_count(int(g.get("prefetch_dropped", 0))), _fmt_count(int(g.get("prefetch_outstanding", 0)))], COLOR_SYSTEM)
+			# Band SHAPE, not just the candidate_offsets/candidate_columns mean: the
+			# histogram says whether most bands are a couple of slices or most of the
+			# world, and the installs below say what the ±32-block pad actually bought.
+			# Read together: a fat top bucket plus pad-only installs that came back
+			# empty is generations spent on padding.
+			var band_hist: PackedInt32Array = g.get("band_size_hist", PackedInt32Array())
+			if band_hist.size() >= 8:
+				_add_message("  band shape (non-fill columns): 0=%s, 1=%s, 2-3=%s, 4-7=%s, 8-15=%s, 16-23=%s, 24-31=%s, 32=%s; tallest %s slices" % [_fmt_count(band_hist[0]), _fmt_count(band_hist[1]), _fmt_count(band_hist[2]), _fmt_count(band_hist[3]), _fmt_count(band_hist[4]), _fmt_count(band_hist[5]), _fmt_count(band_hist[6]), _fmt_count(band_hist[7]), _fmt_count(int(g.get("band_max_slices", 0)))], COLOR_SYSTEM)
+			if int(g.get("fill_columns_read", 0)) > 0:
+				_add_message("  fill columns (inside radius %d): %s read, %s band slices in total" % [8, _fmt_count(int(g.get("fill_columns_read", 0))), _fmt_count(int(g.get("fill_band_slices", 0)))], COLOR_SYSTEM)
+			var installs := int(g.get("installs_total", 0))
+			if installs > 0:
+				var above := int(g.get("installs_above_top", 0))
+				var below := int(g.get("installs_below_land", 0))
+				var in_range := int(g.get("installs_in_range", 0))
+				var unknown := int(g.get("installs_bounds_unknown", 0))
+				_add_message("  installs: %s total, %s empty (%s)" % [_fmt_count(installs), _fmt_count(int(g.get("installs_empty", 0))), _pct(int(g.get("installs_empty", 0)), installs)], COLOR_SYSTEM)
+				_add_message("    above column top: %s, %s of them empty; below land: %s, %s empty; inside [land, top]: %s, %s empty; bounds unknown: %s" % [_fmt_count(above), _pct(int(g.get("installs_above_top_empty", 0)), above), _fmt_count(below), _pct(int(g.get("installs_below_land_empty", 0)), below), _fmt_count(in_range), _pct(int(g.get("installs_in_range_empty", 0)), in_range), _fmt_count(unknown)], COLOR_SYSTEM)
+				var pad_only_empty := int(g.get("installs_above_top_empty", 0)) + int(g.get("installs_below_land_empty", 0))
+				_add_message("    generations the ±32 pad paid for and got nothing: %s (%s of installs)" % [_fmt_count(pad_only_empty), _pct(pad_only_empty, installs)], COLOR_SYSTEM)
 			if int(g.get("urgent_requested", 0)) > 0:
 				_add_message("  pending requests (pastes): %s asked for, %s generated" % [_fmt_count(int(g.get("urgent_requested", 0))), _fmt_count(int(g.get("urgent_generated", 0)))], COLOR_SYSTEM)
 			var window_frames := int(g.get("window_frames", 0))

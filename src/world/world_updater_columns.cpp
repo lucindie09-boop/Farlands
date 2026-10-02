@@ -109,6 +109,30 @@ void WorldUpdater::invalidate_height_cache() {
 }
 
 void WorldUpdater::on_chunk_installed(int32_t cx, int32_t cy, int32_t cz, bool has_blocks) {
+    // What the band's ±32 pad actually produced. An install is the only place
+    // that knows: the candidate was offered from the estimated bounds (or the
+    // fill rule), and whether it came back empty is the answer the estimate
+    // cannot give. Bounds are PEEKED here, never derived — this runs per
+    // install on the main thread, and a cold range is ~181 us.
+    ++generation_stats.installs_total;
+    if (!has_blocks) ++generation_stats.installs_empty;
+    const ColumnSurfaceBounds* bounds = peek_column_surface_bounds(cx, cz);
+    if (bounds == nullptr) {
+        ++generation_stats.installs_bounds_unknown;
+    } else {
+        const float chunk_bottom = static_cast<float>(cy * CHUNK_HEIGHT);
+        const float chunk_top    = static_cast<float>((cy + 1) * CHUNK_HEIGHT);
+        if (chunk_bottom > bounds->top_h) {
+            ++generation_stats.installs_above_top;
+            if (!has_blocks) ++generation_stats.installs_above_top_empty;
+        } else if (chunk_top < bounds->land_h) {
+            ++generation_stats.installs_below_land;
+            if (!has_blocks) ++generation_stats.installs_below_land_empty;
+        } else {
+            ++generation_stats.installs_in_range;
+            if (!has_blocks) ++generation_stats.installs_in_range_empty;
+        }
+    }
     if (!has_blocks) return;
     ++generation_stats.chain_seeds;
     // One set insert per neighbour pair is the whole cost here; the dedupe set

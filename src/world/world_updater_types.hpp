@@ -80,6 +80,38 @@ struct GenerationStats {
     uint64_t urgent_requested = 0;
     uint64_t urgent_generated = 0;
 
+    // How tall the bands actually are, per column READ (not per column in the
+    // list): `band_size_hist` buckets `count(band)` over the 32 world slices.
+    // The mean is candidate_offsets/candidate_columns, but a mean hides the
+    // shape — a flat column's 2-slice band and a cliff's 12-slice band average
+    // into a number that describes neither. Fill columns (inside
+    // kUndergroundFillRadius) are counted separately: their band reaches the
+    // world floor by design and would swamp the histogram.
+    static constexpr size_t kBandBuckets = 8;
+    std::array<uint64_t, kBandBuckets> band_size_hist{};
+    uint64_t band_max_slices   = 0;
+    uint64_t fill_columns_read = 0;
+    uint64_t fill_band_slices  = 0;
+
+    // Every install reaches WorldUpdater::on_chunk_installed, empty or not, so
+    // that listener is where "what did that generation actually produce" is
+    // countable. Each install is classified against its column's content
+    // bounds [land_h, top_h]: a chunk wholly ABOVE top_h or BELOW land_h could
+    // only be offered because of the band's ±32-block pad (or the fill rule),
+    // and if it installed EMPTY, that padding bought nothing. A chunk
+    // intersecting the bounds is the estimate's own slack rather than the
+    // pad's, and `bounds_unknown` counts installs whose column was never read
+    // (nothing to classify against; not split by emptiness).
+    uint64_t installs_total             = 0;
+    uint64_t installs_empty             = 0;
+    uint64_t installs_above_top         = 0;
+    uint64_t installs_above_top_empty   = 0;
+    uint64_t installs_below_land        = 0;
+    uint64_t installs_below_land_empty  = 0;
+    uint64_t installs_in_range          = 0;
+    uint64_t installs_in_range_empty    = 0;
+    uint64_t installs_bounds_unknown    = 0;
+
     // Rolling window of the last kWindowFrames frames. A session total is
     // dominated by the initial load; mid-flight the question is what the
     // sweep costs *now*, and the two are wildly different numbers.

@@ -73,7 +73,7 @@ comment, with the claim each one backs:
 | `probe_flow.gd` | Poured water really flows: a radius-7 diamond whose stored depth equals its distance from the source, it settles, a shaft under it fills |
 | `probe_lava_acid.gd` | Lava and acid blocks, buckets and floods through the real use path, plus every frame the animator pushes landing in the array |
 | `probe_stream_bench.gd` | Streaming as the player feels it: time from a 2048-block teleport until the 3×3 columns have ground, a 40 s flight's holes, and what standing still costs |
-| `probe_gen_stats.gd` | What the generation sweep spends its per-frame check budget on, per rejection reason |
+| `probe_gen_stats.gd` | What the generation sweep spends its per-frame check budget on, per rejection reason, plus the band-size histogram and the install classification that prices the ±32-block pad |
 | `probe_frustum.gd` | The plane convention: Godot's frustum normals point outward, ours assume inward, and the engine's own test agrees |
 | `probe_bend_cull.gd` | The renderer, not the geometry: primitives and draw calls with the culling compensation off and on |
 | `probe_bend_geo.gd` | World Bend's displacement in pixels, against the include's own arithmetic re-run in GDScript |

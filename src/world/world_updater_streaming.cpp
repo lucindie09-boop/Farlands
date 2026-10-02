@@ -210,6 +210,19 @@ void WorldUpdater::service_sweep_bands() {
                                  std::abs(static_cast<int32_t>(column.dz)) <= kUndergroundFillRadius;
         column.band = sweep::band_for_column(surface.land_h, surface.top_h, fill_column, kWorldChunkSlices);
         column.band_ready = true;
+        // What the band's ±32-block pad costs is a question about the SHAPE of
+        // the distribution, not its mean: record it here, where the band is
+        // built and fill is known. Fill columns are kept out of the histogram
+        // because their band reaches the world floor by design.
+        const int32_t band_slices = sweep::count(column.band);
+        if (fill_column) {
+            ++generation_stats.fill_columns_read;
+            generation_stats.fill_band_slices += static_cast<uint64_t>(band_slices);
+        } else {
+            ++generation_stats.band_size_hist[sweep::band_size_bucket(band_slices)];
+            generation_stats.band_max_slices = std::max(generation_stats.band_max_slices,
+                                                        static_cast<uint64_t>(band_slices));
+        }
         // Decided here, where the band was just computed, rather than by the walk
         // that would otherwise look up every slice of it on every pass. A chunk in
         // flight is not resident yet, so such a column stays walkable until a

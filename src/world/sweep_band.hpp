@@ -34,6 +34,20 @@ struct ChunkBand {
     return empty(band) ? 0 : band.hi - band.lo + 1;
 }
 
+// Which /genstats band-size bucket a slice count is filed under. Boundaries
+// chosen so the near-empty and near-full ends stay legible: 0, 1, 2-3, 4-7,
+// 8-15, 16-23, 24-31, 32 (the whole world height).
+[[nodiscard]] inline int32_t band_size_bucket(int32_t slices) {
+    if (slices <= 0) return 0;
+    if (slices == 1) return 1;
+    if (slices <= 3) return 2;
+    if (slices <= 7) return 3;
+    if (slices <= 15) return 4;
+    if (slices <= 23) return 5;
+    if (slices <= 31) return 6;
+    return 7;
+}
+
 // The filter itself, in one place so the list and the walk cannot disagree.
 [[nodiscard]] inline bool chunk_in_band(int32_t cy, float land_h, float top_h, bool fill_column) {
     const float chunk_bottom = static_cast<float>(cy * CHUNK_HEIGHT);

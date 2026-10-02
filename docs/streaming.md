@@ -166,6 +166,22 @@ player is still generated, just after everything in front of it.
   reaches the end of the list, finds nothing, and retires until something invalidates it). The
   frustum pass is the exception and it is bounded, as above.
 
+- **The band's ±32-block pad is what generations are spent on, and the measurement says so.**
+  A chunk wholly above a column's `top_h` or below its `land_h` can only be offered because of
+  the pad (or the fill rule), and `WorldUpdater::on_chunk_installed` now classifies every install
+  against the column's cached bounds (peeked, never derived — it runs per install on the main
+  thread). Measured over two 24-chunk flights (headless, RD 32, `probes/probe_gen_stats.gd`,
+  11,339 and 12,665 installs): **every single chunk above the column's top came back empty
+  (1,263/1,265 and 1,534/1,534)**, in-range installs were empty ~35% of the time (2,231/6,437
+  and 2,649/7,457), and **0 of 3,637 / 3,674 below-land installs were empty** — those are the
+  fill rule's real rock, not pad waste. The band histogram
+  says the same from the other side: non-fill columns sit in the 4-7 bucket (64,082 of 69,082,
+  mean band 4.56 slices over all columns, tallest 10) — the pad is not making bands huge, it is
+  making the few slices it adds reliably empty. So the lever, if this is worth a change, is not
+  the band size; it is the *top* edge, where a narrower margin above `top_h` would delete ~1,263
+  empty generations per 24-chunk flight without touching the terrain the estimate actually
+  claims. The bottom edge is protected by the fill rule and by `land_h` being the lowest
+  possible surface, and the counter confirms it: no empty generations there.
 - **The sweep list is per-column BANDS, not per-column world height.**
   `src/world/sweep_band.hpp` holds the band filter in one place (`chunk_in_band`) and the exact
   slice range it accepts (`band_for_column`, which TESTS each of the 32 slices instead of

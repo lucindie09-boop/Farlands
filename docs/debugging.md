@@ -37,6 +37,18 @@ bands now. Holes in the world are the thing this instrument exists for: run
 `probes/probe_stream_bench.gd` for the two numbers a player feels (cold start
 after a teleport, and columns without ground during a flight).
 
+The band's **shape** and what its ±32-block pad **bought** are two more readings.
+`band shape` histograms `count(band)` over the 32 world slices for non-fill
+columns (`fill columns` are reported separately, because their band reaches the
+world floor by design); `band_max_slices` is the tallest band seen. The `installs`
+lines classify every installed chunk against its column's estimated content
+bounds: `above column top` and `below land` can only be offered because of the pad
+(or the fill rule), so `above_empty` / `below_empty` count generations the pad
+paid for and got nothing, while `inside [land, top]` is terrain the estimate
+itself claimed and `bounds unknown` is installs with no cached bounds to judge
+against. A fat 24-31 bucket with a large pad-empty count is a pad worth
+narrowing; a small top bucket with few pad-empties says the ±32 is not the cost.
+
 ## 3. Crash reports
 
 The handler is ours, installed before any class registers. It writes

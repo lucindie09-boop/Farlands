@@ -66,10 +66,23 @@ first-person viewmodel - what each one owns and the decisions behind it.
   mouse wheel cycles the hotbar, click-to-hold / drag-drop stack movement, hover/selection
   highlights built by pixel-color-keyed texture recolor (no hand-drawn art)
 - **Health bar**: `healthbar.gd` draws 10 hearts (`heart_full.png` / `heart_half.png` /
-  `heart_empty.png`, 9×9) floating above the hotbar's left edge; sized off the hotbar's
-  on-screen width so the row spans ~40% of it (9-texel sprites on a 10-texel pitch),
-  linear-filtered because nearest sampling wobbles 1-texel outlines at fractional ratios; polls
-  `PlayerController.get_health()` (half-hearts 0–20) and redraws only on change
+  `heart_empty.png`, 9×9) floating above the hotbar's left edge; each heart is its own 9 units
+  on the art's 10-unit pitch (the row spans 99 units), placed through `UIScale`'s helpers and
+  NEAREST like every other HUD surface; polls `PlayerController.get_health()` (half-hearts
+  0–20) and redraws only on change
+- **Damage shatters the hearts.** A hit that takes red off a heart no longer just draws the
+  heart a state emptier: every red texel the hit removed is read off the art (red in the
+  heart's old state, not in its new one — 14 for a full → half drain, 20 for half → empty, 34
+  for a heart lost whole) and each one becomes a pixel thrown outward from the middle of the
+  heart, hardest at the outside, with a little spray in angle and speed per pixel. Gravity acts
+  on all of them equally from there, so the throw rises and fans, turns over and falls out of
+  the frame, and a pixel is gone 1.25 s after the hit. The spray is what varies per pixel; the
+  acceleration is one and the same for all of them, which is what makes the fall read as
+  thrown and then dropped rather than dragged along a line.
+  `probes/probe_heart_shatter.gd` reads the frames back: the red is all still on the screen at
+  the instant of the hit, the heart's own rect then holds its new state alone, the red that left
+  it is below the row (at most one pixel per texel taken, and descending frame to frame), and
+  the frame is the new state alone once the effect is over. Healing drops nothing at all.
 - **2×2 inventory crafting menu** (the crafting table's 3×3 grid is a separate
   `crafting_table_menu.gd` menu): The atlas' color-coded slots (`#7e7d7e` inputs / `#7e7d7f`
   output vs. `#7e7d7d` regular) are located by their fill colors and wired to the C++ RecipeBook

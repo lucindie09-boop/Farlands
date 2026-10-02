@@ -185,7 +185,6 @@ environment = SubResource("Environment_uu6xs")
 render_distance = 32
 player_position = Vector3(0, 280, 0)
 biome_size = 0.25
-squish_enabled = true
 smooth_lighting = true
 lod_distance = 6
 player_light_enabled = false

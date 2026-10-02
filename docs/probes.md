@@ -21,7 +21,7 @@ git add probes/*.gd probes/*.sh probes/*.tscn probes/*.gdshader
 | Runner | Use it for |
 |---|---|
 | `probes/run_probe.sh <probe.gd> [timeout]` | Anything that touches the world. It snapshots `user://chunks`, runs the probe, and restores the snapshot however the probe ended |
-| `probes/run_probe_shot.sh <probe.gd> [timeout]` | Anything visual. Runs **windowed** (a screenshot from the dummy renderer is blank) and harvests `user://menu_shots`, `paste_shots` and `shader_shots` into `probes/shots/` |
+| `probes/run_probe_shot.sh <probe.gd> [timeout]` | Anything visual. Runs **windowed** (a screenshot from the dummy renderer is blank) and harvests `user://menu_shots`, `paste_shots`, `shader_shots` and `heart_shots` into `probes/shots/` |
 | `probes/run_crash_probe.sh [timeout]` | The crash reporter only, with the deliberate fault armed. Separate because it kills the process and because the crash folder must be inspected afterwards |
 
 Both world-touching runners **refuse to start while a Godot game process is
@@ -94,6 +94,7 @@ comment, with the claim each one backs:
 | `probe_preview_cache.gd` | The wand's build preview cache never hands back the WRONG file after re-aiming |
 | `probe_wand_shot.gd` / `probe_wand_menu.gd` | The wand's middle-click menu opens where it should, and its buttons work for real |
 | `probe_slider_travel.gd` | Slider behaviour measured in the rendered frame |
+| `probe_heart_shatter.gd` | The damage shatter, measured in the rendered frame: the red a hit takes off a heart is all still there at the instant of the hit, the heart's new state is what the row draws, the red that left it is below the row and descending, and the frame is the new state alone once it is over |
 | `probe_layout_check.gd` | The startup self-check: the engine agrees with the packing the preview code writes |
 | `probe_mm_layout.gd` | What the engine really expects in `MultiMesh.buffer`, learned from the engine (must run windowed) |
 | `probe_crash_dump.gd` | The crash handler is live in this build and a real fault writes a report |

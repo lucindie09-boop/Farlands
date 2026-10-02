@@ -11,9 +11,11 @@ screen (the shader-effect stack, the animated-liquid tools, the model previews).
   `/clearchat`, `/clearinv`, `/version`), mouse wheel scrolling for chat history, caret blink,
   wrapped messages with proper input box anchoring
 - `hotbar.gd` — Hotbar UI with mouse wheel cycling, click-to-hold block selection
-- `healthbar.gd` — Health bar UI: 10 hearts above the hotbar's left edge (~40% of its width),
-  full/half/empty sprites resolved from the half-heart count polled off
-  `PlayerController.get_health()`
+- `healthbar.gd` — Health bar UI: 10 hearts above the hotbar's left edge, each its own 9 units
+  on the art's 10-unit pitch, full/half/empty sprites resolved from the half-heart count polled
+  off `PlayerController.get_health()`. A hit that takes red off a heart drops it: every red
+  texel the old state had and the new one doesn't is thrown outward from the heart's middle and
+  falls under gravity (see [gui-notes.md](gui-notes.md))
 - `death_screen.gd` — Death overlay: "You died!" + Respawn button, shown on the
   `PlayerController.died` signal and hidden on `respawned`
 - `inventory.gd` - Full inventory screen with drag-drop stack movement, shift-click

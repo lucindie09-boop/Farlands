@@ -619,10 +619,14 @@ Two layers mirroring the ChunkManager/VoxelEngineController pattern:
   are baked onto the true joints (see `tools/rebake_player_pivots.py`), so the head tilts around
   the neck like `vanilla model`.
 - **Health integration** — `healthbar.gd` renders 10 hearts (`heart_full.png` / `heart_half.png`
-  / `heart_empty.png`, 9×9 art) above the hotbar's left edge, sized off the hotbar's on-screen
-  width so the row spans ~40% of it (9-texel sprites on a 10-texel pitch). It polls
-  `get_health()` each frame and redraws only on change. Hearts are linear-filtered: the row's
-  fractional scale makes nearest sampling render 1-texel outlines at inconsistent widths.
+  / `heart_empty.png`, 9×9 art) above the hotbar's left edge. Each heart is its own 9 units on
+  the art's 10-unit pitch, so the row spans 99 units; it is laid out through `UIScale`'s helpers
+  and drawn NEAREST like the rest of the HUD. It polls `get_health()` each frame and redraws
+  only on change.
+  Damage shatters the heart it takes red off: the texels red in the old state and not in the new
+  one are read off the art and each becomes a pixel thrown outward from the heart's middle,
+  then dropped by gravity — see [docs/gui-notes.md](docs/gui-notes.md) and
+  `probes/probe_heart_shatter.gd`, which reads the fall back out of the frames.
 - **Death & respawn** — `set_health` hitting 0 calls `die()`: a `dead_` flag freezes
   `_process`/`_input` (movement, look, break/place, hotbar keys), `update_mouse_mode()` releases
   the cursor, and the `died` signal fires. `respawn()` restores full health, teleports to the

@@ -41,6 +41,9 @@ var _heart_full: Texture2D = preload("res://textures/gui/heart_full.png")
 var _heart_half: Texture2D = preload("res://textures/gui/heart_half.png")
 var _heart_empty: Texture2D = preload("res://textures/gui/heart_empty.png")
 var _hotbar_texture: Texture2D = preload("res://textures/gui/hotbar.png")
+# The hotbar's top edge, read off its art. See _hotbar_floor().
+var _floor: UIShatter.Surface = null
+var _floor_scale := 0.0
 
 var health := MAX_HEALTH
 
@@ -126,11 +129,6 @@ func _shatter(old_health: int, new_health: int) -> void:
 	# left the debris vanishing on the floor at the same rate as a nick.
 	var strength := UIShatter.roll_strength()
 	var intensity := maxi(old_health - new_health, 1)
-	var hotbar_top = UIScale.edge_origin(size.y, _hotbar_texture.get_height(), 0.0)
-	# Full width, and no height: a line, not a box. This node is full-rect, so it
-	# spans the screen, and the shards rest with their bottom on the hotbar's top
-	# edge wherever they land across it.
-	var floor := Rect2(0.0, hotbar_top, size.x, 0.0)
 	for i in range(HEART_COUNT):
 		var before = _heart_state(old_health - i * 2)
 		var after = _heart_state(new_health - i * 2)
@@ -138,7 +136,22 @@ func _shatter(old_health: int, new_health: int) -> void:
 			continue
 		var lost := UIShatter.freed(_red_masks[before], _red_masks[after])
 		_shards.burst(lost, Vector2i(HEART_TEXELS, HEART_TEXELS),
-			_heart_origin(i, ui_scale), ui_scale, SHATTER_RED, strength, PackedColorArray(), intensity, floor)
+			_heart_origin(i, ui_scale), ui_scale, SHATTER_RED, strength, PackedColorArray(), intensity, _hotbar_floor(ui_scale))
+
+## The hotbar's top edge, read off its art, as the floor. The same surface
+## hotbar.gd builds for its own spent stacks -- one reading of one texture, and
+## the two agree by construction rather than by two sets of arithmetic.
+##
+## Read once and kept, but only for as long as the scale it was read at holds: the
+## Surface carries the origin and texel size it was built with, so a UI scale
+## change has to rebuild it. The art itself never changes.
+func _hotbar_floor(ui_scale: float) -> UIShatter.Surface:
+	if _floor == null or not is_equal_approx(_floor_scale, ui_scale):
+		var at := Vector2(UIScale.centered_origin(size.x, _hotbar_texture.get_width()),
+			UIScale.edge_origin(size.y, _hotbar_texture.get_height(), 0.0))
+		_floor = UIShatter.Surface.from_top_edge(_hotbar_texture, at, ui_scale)
+		_floor_scale = ui_scale
+	return _floor
 
 func _heart_state(half_hearts_left: int) -> int:
 	if half_hearts_left >= 2:

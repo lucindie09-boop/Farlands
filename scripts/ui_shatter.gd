@@ -85,6 +85,68 @@ const MAX_FRAGMENTS = 512
 # confirmation it worked, so the crafting boxes stay at the full effect.
 const SPEND = 0.3
 
+## What the shards land on, in one of two shapes, and in the drawing space
+## `origin` was given in.
+##
+## A box is what a slot or a grid wants: a flat top and hard sides, nothing read
+## off any art. A top edge is what a panel wants, and it is measured from the art
+## itself, because a panel's top is not a straight line. The hotbar's, for one,
+## steps down two texels at every gap between slots -- ten times across its
+## width -- so a flat line drawn along it floats above the art at each of those
+## gaps and the shards land on nothing at all. Reading the edge is what makes the
+## dips real, and it costs one pass over the texture, once.
+##
+## One Surface is built per burst and shared by every shard of it, so the
+## per-column profile is paid for once however many shards are in the air.
+class Surface:
+	## Where the art's top-left corner is drawn, and how many GUI units one art
+	## texel covers there.
+	var origin := Vector2.ZERO
+	var texel := 1.0
+	## The topmost row that draws anything, per art column; -1 for a column with
+	## no ink at all, which is a gap and is left as one. Empty for a box.
+	var top := PackedInt32Array()
+	## The extent, and so the sides a shard turns off, in either shape.
+	var rect := Rect2()
+
+	## A flat box. Every column of it is the same height.
+	static func box(r: Rect2) -> Surface:
+		var s := Surface.new()
+		s.rect = r
+		return s
+
+	## The art's own top edge, a texel at a time: for each column of `tex`, the
+	## row of the topmost texel that draws anything.
+	static func from_top_edge(tex: Texture2D, at: Vector2, texel_size: float) -> Surface:
+		var s := Surface.new()
+		s.origin = at
+		s.texel = texel_size
+		var image := tex.get_image()
+		var w := image.get_width()
+		var h := image.get_height()
+		s.top.resize(w)
+		for x in range(w):
+			s.top[x] = -1
+			for y in range(h):
+				if image.get_pixel(x, y).a > 0.0:
+					s.top[x] = y
+					break
+		s.rect = Rect2(at, Vector2(w, h) * texel_size)
+		return s
+
+	## The y the bottom of a shard of `size` at `x` comes to rest on, or INF where
+	## there is nothing there to rest on. A box is its own bottom edge; an edge is
+	## whatever the art has in the shard's own column, sampled at the shard's
+	## middle so it cannot jitter either side of a column boundary.
+	func rest_y(x: float, size: Vector2) -> float:
+		if top.is_empty():
+			return rect.end.y
+		var column := clampi(int(floor((x + size.x * 0.5 - origin.x) / texel)), 0, top.size() - 1)
+		var row: int = top[column]
+		if row < 0:
+			return INF
+		return origin.y + float(row) * texel
+
 # How much of its speed a shard keeps when it hits the side or the floor of a box
 # it was given. Low on purpose: a shard that keeps most of its speed bounces
 # around the box for its whole life and never looks like it settled, and the
@@ -154,19 +216,19 @@ static func colours_from_texture(tex: Texture2D, art: Vector2i) -> PackedColorAr
 ## off it -- passes less, because the same throw every few seconds is not an event
 ## and the shards are still on screen when the next one starts.
 ##
-## `bounds` is the box the shards are kept in, in the same space as `origin`: they
-## bounce off its sides and come to rest on its floor instead of falling out of the
-## frame. Left empty, they fall as they always did, which is what the hearts and
-## the hotbar want -- there is nothing under them to land on.
+## `floor` is a `Surface` -- `Surface.box()` for a slot or a grid, or
+## `Surface.from_top_edge()` for a panel whose top edge is read off its art. Left
+## null they fall as they always did, which is what a caller wants when there is
+## nothing underneath to land on.
 func burst(texels: PackedByteArray, art: Vector2i, origin: Vector2,
 		texel: float, colour: Color, strength := 0.0,
 		colours := PackedColorArray(), intensity := 1.0,
-		bounds := Rect2()) -> void:
+		floor: Surface = null) -> void:
 	var hit := (strength if strength > 0.0 else roll_strength()) * intensity
 	for i in range(texels.size()):
 		if texels[i] == 1:
 			var ink := colours[i] if i < colours.size() else colour
-			_drop(i, art, origin, texel, ink, hit, intensity, bounds)
+			_drop(i, art, origin, texel, ink, hit, intensity, floor)
 
 
 ## Move the shards on by `delta`; returns whether any are still in the air, so
@@ -183,22 +245,26 @@ func advance(delta: float) -> bool:
 			continue
 		pixel["vel"] = pixel["vel"] + Vector2(0.0, GRAVITY * delta)
 		pixel["pos"] = pixel["pos"] + pixel["vel"] * delta
-		if pixel["bounds"].size != Vector2.ZERO:
+		if pixel["floor"] != null:
 			_bounce(pixel)
 	return not _falling.is_empty()
 
 
-## Keep a shard inside the box it was given, and turn it off whatever it hits.
-## Without a box a shard falls out of the frame and is simply never seen again,
-## which reads as the debris thinning away rather than as it landing; the box is
-## what lets a screen hold the mess its own destruction made.
+## Keep a shard on the surface it was given, and turn it off whatever it hits.
+## Without one a shard falls out of the frame and is simply never seen again,
+## which reads as the debris thinning away rather than as it landing.
 func _bounce(pixel: Dictionary) -> void:
-	var box: Rect2 = pixel["bounds"]
+	var floor: Surface = pixel["floor"]
+	var box := floor.rect
 	var at: Vector2 = pixel["pos"]
 	var size: Vector2 = pixel["size"]
 	var vel: Vector2 = pixel["vel"]
-	if at.y + size.y > box.end.y:
-		at.y = box.end.y - size.y
+	# Asked of the surface rather than read off the box, because on a panel the
+	# floor is not a straight line: it is whatever the art has in this shard's own
+	# column, so a shard over a gap in the top edge falls through it.
+	var rest := floor.rest_y(at.x, size)
+	if rest < INF and at.y + size.y > rest:
+		at.y = rest - size.y
 		vel.y = -vel.y * RESTITUTION
 	if at.x < box.position.x:
 		at.x = box.position.x
@@ -206,10 +272,17 @@ func _bounce(pixel: Dictionary) -> void:
 	elif at.x + size.x > box.end.x:
 		at.x = box.end.x - size.x
 		vel.x = -absf(vel.x) * RESTITUTION
-	if at.y + size.y >= box.end.y and absf(vel.y) < REST_SPEED:
+	if rest < INF and absf(at.y + size.y - rest) < texel_epsilon(size) and absf(vel.y) < REST_SPEED:
 		vel.y = 0.0
 	pixel["pos"] = at
 	pixel["vel"] = vel
+
+
+## How close to the floor counts as being on it. The shard's own height, so it is
+## exact for a box and a hair loose for a stepped edge, where "on the floor" means
+## within the column's own texel rather than at one exact y.
+func texel_epsilon(size: Vector2) -> float:
+	return maxf(size.y * 0.5, 0.5)
 
 
 ## Throw away everything still in the air: for a surface that stops drawing them
@@ -238,10 +311,10 @@ func draw(canvas: CanvasItem) -> void:
 ## `hit` has already had the burst's strength and intensity folded into it, so it
 ## is the throw itself; `intensity` comes along separately only to shorten the
 ## life, which is not a matter of how hard something was thrown but of how long
-## debris should sit on a screen before it goes. `bounds`, when it has a size, is
-## the box this shard is kept in.
+## debris should sit on a screen before it goes. `floor`, when given, is the one
+## Surface every shard of this burst shares.
 func _drop(index: int, art: Vector2i, origin: Vector2, texel: float,
-		colour: Color, hit: float, intensity: float, bounds: Rect2) -> void:
+		colour: Color, hit: float, intensity: float, floor: Surface) -> void:
 	if _falling.size() >= MAX_FRAGMENTS:
 		return
 	var tx := index % art.x
@@ -268,5 +341,5 @@ func _drop(index: int, art: Vector2i, origin: Vector2, texel: float,
 		"colour": colour,
 		"life": LIFE * intensity * randf_range(LIFE_VARY, 1.0),
 		"age": 0.0,
-		"bounds": bounds,
+		"floor": floor,
 	})

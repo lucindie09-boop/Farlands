@@ -274,7 +274,7 @@ func _spend_slot(slot: int, block_id: int) -> void:
 	var ui_scale = UIScale.value
 	var origin := Vector2(UIScale.centered_origin(size.x, inventory_texture.get_width()),
 		UIScale.centered_origin(size.y, inventory_texture.get_height()))
-	_burst_from(pixels, BlockIconArt.icon_rect(_slot_screen_rect(slot, origin.x, origin.y), ui_scale), ui_scale, UIShatter.SPEND, _slot_screen_rect(slot, origin.x, origin.y))
+	_burst_from(pixels, BlockIconArt.icon_rect(_slot_screen_rect(slot, origin.x, origin.y), ui_scale), ui_scale, UIShatter.SPEND, UIShatter.Surface.box(_slot_screen_rect(slot, origin.x, origin.y)))
 
 ## The same for one of the crafting boxes (0..3 inputs, 4 the output preview).
 func _spend_craft_cell(cell: int, block_id: int) -> void:
@@ -290,7 +290,7 @@ func _spend_craft_cell(cell: int, block_id: int) -> void:
 	# An input cell's debris lands on the grid they are drawn in; the output
 	# preview is outside that grid, so its own cell is its floor.
 	var floor := rect if cell == 4 else _craft_grid_bounds(origin)
-	_burst_from(pixels, BlockIconArt.icon_rect(rect, ui_scale), ui_scale, 1.0, floor)
+	_burst_from(pixels, BlockIconArt.icon_rect(rect, ui_scale), ui_scale, 1.0, UIShatter.Surface.box(floor))
 
 ## The box the 2x2 crafting grid's own debris stays in: the four input cells
 ## together. A craft's cells come apart in the same box they are drawn in, so the
@@ -304,9 +304,9 @@ func _craft_grid_bounds(origin: Vector2) -> Rect2:
 		box = cell if box.size == Vector2.ZERO else box.merge(cell)
 	return box
 
-func _burst_from(pixels: Dictionary, icon: Rect2, ui_scale: float, intensity := 1.0, bounds := Rect2()) -> void:
+func _burst_from(pixels: Dictionary, icon: Rect2, ui_scale: float, intensity := 1.0, floor: UIShatter.Surface = null) -> void:
 	_shards.burst(pixels["mask"], pixels["art"], icon.position, ui_scale,
-		Color.WHITE, 0.0, pixels["colours"], intensity, bounds)
+		Color.WHITE, 0.0, pixels["colours"], intensity, floor)
 
 func _draw_slot(x, y, width, height, slot_index, is_hotbar):
 	var block_id = 0

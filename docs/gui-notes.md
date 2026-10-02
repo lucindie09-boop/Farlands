@@ -74,22 +74,31 @@ first-person viewmodel - what each one owns and the decisions behind it.
   it is actually drawn at, so a shard is the block the hearts break into rather than a piece of a
   300-unit render, and carries the colour the art had there (the iso render, or the block texture
   where a shape has no icon)
-- **Debris lands instead of falling out of frame.** `burst()` takes an optional `bounds`: a box, in
-  the same space as the shard's origin, that the shards bounce off and come to rest on. Left empty
-  they fall and are simply never seen again, which reads as the debris thinning away rather than
-  as it landing. **Only the hearts' throw has no box** — see the damage note below, they do have a
-  floor, on the hotbar's top edge. The boxes:
-  - an inventory slot's debris stays in **its own slot rect**, in both inventory grids
-  - a **hotbar** slot's debris stays in **its own slot rect** too
-  - a crafting cell's debris lands on **the whole grid it is drawn in** — the 2×2 in `inventory.gd`,
-    the 3×3 in `crafting_table_menu.gd` — via a `_craft_grid_bounds()` that merges the input cells
-  - a crafting **output preview** is outside its grid, so its own cell is its floor
+- **Debris lands instead of falling out of frame.** `burst()` takes an optional `UIShatter.Surface`:
+  what the shards come to rest on. Left null they fall as they always did, which is what a caller
+  wants when there is nothing underneath to land on. A Surface is one of two shapes:
+  - **`Surface.box(rect)`** — a flat top and hard sides, nothing read off any art. What a slot or a
+    grid wants, and all four of those are this:
+    - an inventory slot's debris stays in **its own slot rect**, in both inventory grids
+    - a crafting cell's debris lands on **the whole grid it is drawn in** — the 2×2 in
+      `inventory.gd`, the 3×3 in `crafting_table_menu.gd` — via a `_craft_grid_bounds()` that
+      merges the input cells
+    - a crafting **output preview** is outside its grid, so its own cell is its floor
+  - **`Surface.from_top_edge(tex, origin, texel)`** — the floor measured **off the art**, for a
+    panel whose top edge is not a straight line. The hotbar's is not: it steps down two texels at
+    every gap between slots, ten times across its 182 columns. A flat line along it floated up to
+    three texels above the actual art at each of those gaps, so shards landed on air there.
+    `rest_y()` samples the shard's own column at the shard's *middle*, so it cannot jitter either
+    side of a column boundary, and a column with no ink at all is a gap the shards fall through
+    (the hotbar has none; the 182-column profile is solid).
 
-  The hearts' floor is **the hotbar's top edge**, passed as a full-width zero-height line
-  (`Rect2(0, hotbar_top, size.x, 0.0)`) — `healthbar.gd` is a full-rect `Control`, so it spans the
-  screen, and the shards rest with their bottom on the bar the hearts are measured against. A
-  zero-height rect still collides: the guard is on `bounds.size == Vector2.ZERO`, and this one's
-  width is the screen's.
+  Both the hotbar's spent stacks and the hearts' red land on **that same profile**, read from the
+  same texture — `hotbar.gd:_panel_floor()` and `healthbar.gd:_hotbar_floor()` — so the two agree by
+  construction rather than by two sets of arithmetic agreeing by luck. It is read **once and kept**,
+  but only for as long as the scale it was read at holds, because a Surface carries the origin and
+  texel size it was built with and a UI-scale change has to rebuild it. The art itself never
+  changes, and reading it is a pass over every texel of the panel, which is not worth repeating on
+  every keypress.
 
 - **Damage impulse scales with how much was taken.** `healthbar.gd` passes
   `strength = roll_strength()` and `intensity = maxi(old_health - new_health, 1)`, both counts in

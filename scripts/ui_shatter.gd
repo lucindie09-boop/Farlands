@@ -70,6 +70,21 @@ const FADE = 0.15      # the last stretch of a shard's life, fading out
 # pathological pile-up of bursts while older pixels are still in the air.
 const MAX_FRAGMENTS = 512
 
+# The one deliberate reduction of the effect above, for art that is destroyed as a
+# matter of routine rather than as an event: an inventory slot emptying as a stack
+# is dragged off it. That happens one slot at a time and repeatedly, so at the full
+# throw the shards of one are still falling when the next one empties, and a tidy
+# grid fills with debris that reads as clutter rather than as feedback. At this
+# intensity a burst neither flies nor lingers, so the screen settles between
+# drags.
+#
+# It belongs here rather than in either caller because there are two inventory
+# screens -- inventory.gd, and the grid the crafting table menu draws inside itself
+# -- and the moment is the same one in both. A craft is NOT this: it happens once,
+# it is what the player was reaching for, and its cells coming apart is the
+# confirmation it worked, so the crafting boxes stay at the full effect.
+const SPEND = 0.3
+
 # The shards still in the air: pos and vel in GUI units, size and colour as they
 # are drawn, plus age and life in seconds.
 var _falling: Array = []
@@ -120,15 +135,20 @@ static func colours_from_texture(tex: Texture2D, art: Vector2i) -> PackedColorAr
 
 ## Throw every texel of `texels` that is set. `strength` is one `roll_strength()`
 ## for the whole event; leave it at 0 for a burst of its own. `colours`, when
-## given, is drawn per texel instead of the one `colour`.
+## given, is drawn per texel instead of the one `colour`. `intensity` is how hard
+## the burst throws and how long what it throws lives, as one multiplier on both.
+## 1.0 is the effect as tuned: an event worth shouting about, like losing a heart.
+## A surface whose art is destroyed often -- a slot emptying as a stack is dragged
+## off it -- passes less, because the same throw every few seconds is not an event
+## and the shards are still on screen when the next one starts.
 func burst(texels: PackedByteArray, art: Vector2i, origin: Vector2,
 		texel: float, colour: Color, strength := 0.0,
-		colours := PackedColorArray()) -> void:
-	var hit := strength if strength > 0.0 else roll_strength()
+		colours := PackedColorArray(), intensity := 1.0) -> void:
+	var hit := (strength if strength > 0.0 else roll_strength()) * intensity
 	for i in range(texels.size()):
 		if texels[i] == 1:
 			var ink := colours[i] if i < colours.size() else colour
-			_drop(i, art, origin, texel, ink, hit)
+			_drop(i, art, origin, texel, ink, hit, intensity)
 
 
 ## Move the shards on by `delta`; returns whether any are still in the air, so
@@ -170,8 +190,13 @@ func draw(canvas: CanvasItem) -> void:
 ## very centre has no outward direction to be thrown along, so it takes a random
 ## one; everything else keeps its own direction with a spread around it, which is
 ## what keeps a column of the art from falling as a column.
+##
+## `hit` has already had the burst's strength and intensity folded into it, so it
+## is the throw itself; `intensity` comes along separately only to shorten the
+## life, which is not a matter of how hard something was thrown but of how long
+## debris should sit on a screen before it goes.
 func _drop(index: int, art: Vector2i, origin: Vector2, texel: float,
-		colour: Color, hit: float) -> void:
+		colour: Color, hit: float, intensity: float) -> void:
 	if _falling.size() >= MAX_FRAGMENTS:
 		return
 	var tx := index % art.x
@@ -196,6 +221,6 @@ func _drop(index: int, art: Vector2i, origin: Vector2, texel: float,
 		"vel": vel,
 		"size": Vector2(texel, texel),
 		"colour": colour,
-		"life": LIFE * randf_range(LIFE_VARY, 1.0),
+		"life": LIFE * intensity * randf_range(LIFE_VARY, 1.0),
 		"age": 0.0,
 	})

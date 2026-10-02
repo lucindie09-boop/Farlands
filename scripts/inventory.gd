@@ -271,7 +271,7 @@ func _spend_slot(slot: int, block_id: int) -> void:
 	var ui_scale = UIScale.value
 	var origin := Vector2(UIScale.centered_origin(size.x, inventory_texture.get_width()),
 		UIScale.centered_origin(size.y, inventory_texture.get_height()))
-	_burst_from(pixels, BlockIconArt.icon_rect(_slot_screen_rect(slot, origin.x, origin.y), ui_scale), ui_scale)
+	_burst_from(pixels, BlockIconArt.icon_rect(_slot_screen_rect(slot, origin.x, origin.y), ui_scale), ui_scale, UIShatter.SPEND)
 
 ## The same for one of the crafting boxes (0..3 inputs, 4 the output preview).
 func _spend_craft_cell(cell: int, block_id: int) -> void:
@@ -285,8 +285,11 @@ func _spend_craft_cell(cell: int, block_id: int) -> void:
 		UIScale.centered_origin(size.y, inventory_texture.get_height()))
 	_burst_from(pixels, BlockIconArt.icon_rect(_craft_slot_rect(cell, origin), ui_scale), ui_scale)
 
-func _burst_from(pixels: Dictionary, icon: Rect2, ui_scale: float) -> void:
-	_shards.burst(pixels["mask"], pixels["art"], icon.position, ui_scale, Color.WHITE, 0.0, pixels["colours"])
+## `intensity` is how hard this one burst throws; it defaults to the shatter as
+## tuned, so the crafting cells above get the full effect without saying so.
+func _burst_from(pixels: Dictionary, icon: Rect2, ui_scale: float, intensity := 1.0) -> void:
+	_shards.burst(pixels["mask"], pixels["art"], icon.position, ui_scale,
+		Color.WHITE, 0.0, pixels["colours"], intensity)
 
 func _draw_slot(x, y, width, height, slot_index, is_hotbar):
 	var block_id = 0

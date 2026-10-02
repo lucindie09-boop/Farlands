@@ -74,6 +74,23 @@ first-person viewmodel - what each one owns and the decisions behind it.
   it is actually drawn at, so a shard is the block the hearts break into rather than a piece of a
   300-unit render, and carries the colour the art had there (the iso render, or the block texture
   where a shape has no icon)
+- **The inventory's spent *slots* are much quieter than everything else**
+  (`UIShatter.SPEND = 0.3`, passed as `burst()`'s `intensity`) — the *slots only*. A slot empties as
+  a stack is dragged off it, one at a time and repeatedly, and at the full throw the shards of one
+  are still falling when the next slot empties: a tidy grid fills with debris that reads as clutter
+  rather than as feedback. `intensity` scales both halves of the burst — the throw, through the
+  `strength` it already multiplies, and each shard's life — so a quiet burst neither flies nor
+  lingers, and the screen settles between drags. Everything else is at 1.0, the effect as tuned: the
+  hotbar, **both crafting grids**, and the hearts. A craft is an event like the hearts; it happens
+  once, it is what the player was reaching for, and its cells coming apart is the confirmation it
+  worked.
+  **There are two inventory grids, and both take the quiet throw.** `inventory.gd` draws its own,
+  and `crafting_table_menu.gd` draws a second one inside itself, each with its own `_spend_slot()`;
+  a pickup while the crafting table is open is handled by the *menu's* copy, so quieting only
+  `inventory.gd` left that case at full strength. The constant therefore lives on `UIShatter`
+  rather than in either file, and the quiet is passed at the `_spend_slot` call sites — not inside
+  the shared `_burst_from()` — because both files' `_burst_from()` also serves their crafting
+  boxes, which are the case that must stay loud
 - **Health bar**: `healthbar.gd` draws 10 hearts (`heart_full.png` / `heart_half.png` /
   `heart_empty.png`, 9×9) floating above the hotbar's left edge; each heart is its own 9 units
   on the art's 10-unit pitch (the row spans 99 units), placed through `UIScale`'s helpers and

@@ -73,16 +73,22 @@ first-person viewmodel - what each one owns and the decisions behind it.
 - **Damage shatters the hearts.** A hit that takes red off a heart no longer just draws the
   heart a state emptier: every red texel the hit removed is read off the art (red in the
   heart's old state, not in its new one — 14 for a full → half drain, 20 for half → empty, 34
-  for a heart lost whole) and each one becomes a pixel thrown outward from the middle of the
-  heart, hardest at the outside, with a little spray in angle and speed per pixel. Gravity acts
-  on all of them equally from there, so the throw rises and fans, turns over and falls out of
-  the frame, and a pixel is gone 1.25 s after the hit. The spray is what varies per pixel; the
-  acceleration is one and the same for all of them, which is what makes the fall read as
-  thrown and then dropped rather than dragged along a line.
+  for a heart lost whole). Each of them leaves as a shard of its own, drawn at its own texel
+  size and place — so the frame at the instant of the hit is the frame it was. The hit reads as
+  a pulse from the middle of the heart: every shard is thrown outward from that centre, hardest
+  at the outside, with a little spray in angle and speed per shard, which is what keeps a column
+  of the heart from falling as a column. Gravity then acts on all of them equally: the throw
+  rises, turns over and falls out of the frame, and a shard is gone 1.15 s after the hit. The
+  throw is deliberately much slower than the fall it becomes (26 units/s against 140 units/s² of
+  gravity) — a burst that is faster than the fall reads as a spray dragged along straight lines,
+  which is exactly what a first version of this looked like. The shards are never turned: a shard
+  is one texel, two device pixels across at GUI scale 2, and a square that size covers the same
+  four pixels at every angle it could be drawn at, so a spin could not show.
   `probes/probe_heart_shatter.gd` reads the frames back: the red is all still on the screen at
   the instant of the hit, the heart's own rect then holds its new state alone, the red that left
-  it is below the row (at most one pixel per texel taken, and descending frame to frame), and
-  the frame is the new state alone once the effect is over. Healing drops nothing at all.
+  it is below the row (at most one pixel per texel taken, fewer where the spray overlaps itself,
+  and descending frame to frame), and the frame is the new state alone once the effect is over.
+  Healing drops nothing at all.
 - **2×2 inventory crafting menu** (the crafting table's 3×3 grid is a separate
   `crafting_table_menu.gd` menu): The atlas' color-coded slots (`#7e7d7e` inputs / `#7e7d7f`
   output vs. `#7e7d7d` regular) are located by their fill colors and wired to the C++ RecipeBook

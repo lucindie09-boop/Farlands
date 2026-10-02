@@ -624,9 +624,10 @@ Two layers mirroring the ChunkManager/VoxelEngineController pattern:
   and drawn NEAREST like the rest of the HUD. It polls `get_health()` each frame and redraws
   only on change.
   Damage shatters the heart it takes red off: the texels red in the old state and not in the new
-  one are read off the art and each becomes a pixel thrown outward from the heart's middle,
-  then dropped by gravity — see [docs/gui-notes.md](docs/gui-notes.md) and
-  `probes/probe_heart_shatter.gd`, which reads the fall back out of the frames.
+  one are read off the art, and each leaves as a shard of its own, drawn at its texel's own size
+  and place, thrown outward from the heart's middle, then dropped by gravity — see
+  [docs/gui-notes.md](docs/gui-notes.md) and `probes/probe_heart_shatter.gd`, which reads the
+  fall back out of the frames.
 - **Death & respawn** — `set_health` hitting 0 calls `die()`: a `dead_` flag freezes
   `_process`/`_input` (movement, look, break/place, hotbar keys), `update_mouse_mode()` releases
   the cursor, and the `died` signal fires. `respawn()` restores full health, teleports to the

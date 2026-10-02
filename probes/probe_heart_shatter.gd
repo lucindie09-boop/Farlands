@@ -4,20 +4,23 @@ extends SceneTree
 ## A hit takes red off a heart, and that red does not blink out -- it is thrown
 ## off. This probe pins what a frame can be read for:
 ##
-##   - at the instant of the hit the red is all still on the screen: the pixels
-##     are where the heart drew them, they are just no longer the heart;
-##   - a beat later the red that left the heart is below it -- at most one pixel
-##     per texel the sprite lost, and never more red than the hit took;
-##   - the airborne red descends from frame to frame, and by the time the effect
-##     is over the frame is the new state alone;
+##   - at the instant of the hit the red is all still on the screen, and none of
+##     it has fallen clear of the heart: the pixels are where the heart drew
+##     them, they are just no longer the heart;
+##   - a beat later the red that left the heart is below it -- at least a third of
+##     what the hit freed, and never more than it freed;
+##   - the airborne red descends from frame to frame -- the lowest of it is lower
+##     than it was -- and by the time the effect is over the frame is the new
+##     state alone;
 ##   - healing drops nothing, and neither does a frame with no change at all:
 ##     the shatter is damage, not a redraw.
 ##
 ## The counts come from the sprite, not from this probe: heart_full.png holds 34
 ## red texels, heart_half.png 20, and 14 of the full heart's are not red in the
 ## half one. They are checked as a floor and a ceiling rather than an equality
-## because the spray overlaps itself -- two pixels over one another paint one
-## pixel -- which costs a hit's red a pixel or two, never a whole texel's worth.
+## only because the spray overlaps itself -- two shards over one another paint one
+## pixel. A shard is one texel and is never turned, so it can never paint a pixel
+## its own texel did not.
 ##
 ## Runs WINDOWED through probes/run_probe_shot.sh (a screenshot from the dummy
 ## renderer is blank); the shots land in user://heart_shots/.
@@ -31,11 +34,16 @@ const MAX_HEALTH := 20
 ## The art's red texels by heart state: empty, half, full.
 const HEART_RED := [0, 20, 34]
 ## The hit-time count may lose this much of its red to the spray overlapping
-## itself; the below-the-row count is never more than the art's own texels.
+## itself.
 const RED_FLOOR := 0.7
 ## How far above the row the scan reaches, in units: a pixel thrown off the top
 ## of a heart rises about four, and has not left the row until it comes back.
 const HEADROOM := 12
+## How far below the row's own rect a pixel can be and still count as "not fallen
+## clear of the heart yet": the throw is hard enough that the red at the bottom
+## of a heart is a pixel or two past that line within the two frames the at-hit
+## shot takes.
+const CLEAR_UNITS := 5
 ## How far outside the row's own rect a thrown pixel can still be counted: the
 ## throw is 38 units/s, and everything is measured well inside its first second.
 const MARGIN := 24
@@ -156,34 +164,39 @@ func _hit(from_health: int, to_health: int, label: String) -> void:
 		death_screen.visible = false
 	# At the instant of the hit the frame is the frame it was: the pixels are
 	# still where the heart drew them, they have just started moving. It is read
-	# one frame in, because a pixel thrown from the bottom of a heart is a unit
-	# below the row two frames later.
+	# a frame in, and the shatter has already taken its first step by then, so what
+	# is asserted is that nothing has fallen clear of the heart: the red at the
+	# bottom of a heart is a pixel or two past the row's own line within those
+	# frames, and that is the throw being felt, not a shard in the wrong place.
 	var at_hit := await _capture("%s_hit" % label, 1)
 	_check("%s: at the hit" % label, at_hit, bands[0], int(full * RED_FLOOR), full,
 		"all of the red, %d of it the hit took away" % lost)
-	_check("%s: below at the hit" % label, at_hit, bands[1], 0, 0, "nothing has fallen clear yet")
+	_check("%s: clear at the hit" % label, at_hit, bands[2], 0, 0,
+		"nothing has fallen clear of the heart yet")
 
-	# Most of the throw has landed by now: the frame holds the new state and the
-	# red still in the air, and that red is below the row -- at most one pixel
-	# per texel the hit took, and at least half of them, overlapping as they
-	# spray.
-	await _wait(0.90)
-	var settled := await _capture("%s_settled" % label)
-	_check("%s: settled" % label, settled, bands[0], left, left + lost * px,
+	# A third of a second in, the throw has carried most of the shards clear of
+	# the row and still holds nearly all of them on the screen: the row band holds
+	# the new state plus the red still in the air, and that red is below the row.
+	await _wait(0.35)
+	var flying := await _capture("%s_flying" % label)
+	_check("%s: in the air" % label, flying, bands[0], left,
+		left + lost * px,
 		"the heart's new state plus the %d texels still falling" % lost)
-	_check("%s: red below the row" % label, settled, bands[1], lost * px / 2, lost * px,
-		"the red the hit took, gone from the heart")
+	_check("%s: red below the row" % label, flying, bands[1], lost * px / 3,
+		lost * px, "the red the hit took, gone from the heart")
 
-	# Gravity: the same red is lower a moment later. Nothing new can enter the
-	# band in that window -- every pixel cleared the row before it -- so the two
-	# frames are of the same pixels.
-	await _wait(0.12)
+	# Gravity: the same red is lower a moment later. Shards are still crossing the
+	# row's line in that window, so the reading is the leading edge -- the lowest
+	# red in the band, which no shard can overtake.
+	await _wait(0.08)
 	var falling := await _capture("%s_falling" % label)
-	_check("%s: still falling" % label, falling, bands[1], 1, lost * px, "the same pixels")
-	_descent(label, settled, falling, bands[1])
+	_check("%s: still falling" % label, falling, bands[1], 1,
+		lost * px, "the same shards")
+	_descent(label, flying, falling, bands[1])
 
-	# And once the effect is over, the frame holds the new state and nothing else.
-	await _wait(0.55)
+	# And once the effect is over -- every shard's own life at most, and they are
+	# not all the same length -- the frame holds the new state and nothing else.
+	await _wait(0.85)
 	var after := await _capture("%s_after" % label)
 	_check("%s: after" % label, after, bands[0], left, left, "the heart's new state alone")
 	_check("%s: below after" % label, after, bands[1], 0, 0, "the pixels are gone")
@@ -211,8 +224,9 @@ func _heal(from_health: int, to_health: int, label: String) -> void:
 
 
 ## The row band -- the hearts plus the headroom a thrown pixel rises into, plus
-## everything below them -- and the part of it below the row's own rect, which is
-## where a pixel has to be to have left the heart it came from.
+## everything below them -- the part of it below the row's own rect, which is
+## where a pixel has to be to have left the heart it came from, and the part of
+## that which is clear of the heart as well.
 func _bands() -> Array:
 	var scale := float(ui.get("value"))
 	var origin: Vector2 = bar.call("_heart_origin", 0, scale) + bar.global_position
@@ -224,7 +238,9 @@ func _bands() -> Array:
 	var row := Rect2i(left, top, right - left, bottom - top)
 	var below_top := int(round(origin.y + HEART_TEXELS * scale))
 	var below := Rect2i(left, below_top, right - left, bottom - below_top)
-	return [row, below]
+	var clear_top := int(round(origin.y + (HEART_TEXELS + CLEAR_UNITS) * scale))
+	var clear := Rect2i(left, clear_top, right - left, bottom - clear_top)
+	return [row, below, clear]
 
 
 ## How many device pixels one texel of the art covers at the current scale.
@@ -250,9 +266,9 @@ func _hearts_red(health: int) -> int:
 
 # --- Reading the frame ---------------------------------------------------------
 
-## The red pixels of `rect`, as their count and their mean y. The frame's bytes
-## are read directly rather than through get_pixel, which is what makes a few
-## thousand pixels a scan nobody notices.
+## The red pixels of `rect`: their count, their mean y and the lowest of them.
+## The frame's bytes are read directly rather than through get_pixel, which is
+## what makes a few thousand pixels a scan nobody notices.
 func _red_in(image: Image, rect: Rect2i) -> Dictionary:
 	var x0 := clampi(rect.position.x, 0, image.get_width())
 	var x1 := clampi(rect.end.x, 0, image.get_width())
@@ -261,6 +277,7 @@ func _red_in(image: Image, rect: Rect2i) -> Dictionary:
 	var data := image.get_data()
 	var count := 0
 	var sum_y := 0.0
+	var lowest := -1
 	for y in range(y0, y1):
 		var base := y * image.get_width()
 		for x in range(x0, x1):
@@ -270,7 +287,8 @@ func _red_in(image: Image, rect: Rect2i) -> Dictionary:
 			if data[i] > 128 and data[i + 1] < 100 and data[i + 2] < 100:
 				count += 1
 				sum_y += float(y)
-	return {"count": count, "mean_y": sum_y / maxf(float(count), 1.0)}
+				lowest = maxi(lowest, y)
+	return {"count": count, "mean_y": sum_y / maxf(float(count), 1.0), "lowest": lowest}
 
 
 func _check(label: String, image: Image, rect: Rect2i, low: int, high: int, note: String) -> void:
@@ -281,18 +299,22 @@ func _check(label: String, image: Image, rect: Rect2i, low: int, high: int, note
 	print("probe: %-28s %5d red pixels (%s)" % [label, count, note])
 
 
+## Gravity, read off the leading edge: the lowest red pixel below the row. Every
+## shard is under the same acceleration, so the one out in front of the fall
+## stays in front until it is off the screen, and it can only be lower than it
+## was. The mean y is printed alongside as the bulk's own reading.
 func _descent(label: String, earlier: Image, later: Image, rect: Rect2i) -> void:
 	var a := _red_in(earlier, rect)
 	var b := _red_in(later, rect)
 	if b["count"] == 0:
 		_fail("%s: no red left below the row to fall" % label)
 		return
-	if b["mean_y"] <= a["mean_y"]:
-		_fail("%s: the red below the row did not descend (%.1f -> %.1f)"
-			% [label, a["mean_y"], b["mean_y"]])
+	if b["lowest"] <= a["lowest"]:
+		_fail("%s: the leading red did not descend (row %d -> %d)"
+			% [label, a["lowest"], b["lowest"]])
 		return
-	print("probe: %-28s mean y %.1f -> %.1f: it is falling"
-		% [label + ": descent", a["mean_y"], b["mean_y"]])
+	print("probe: %-28s leading red row %d -> %d (mean y %.1f -> %.1f): it is falling"
+		% [label + ": descent", a["lowest"], b["lowest"], a["mean_y"], b["mean_y"]])
 
 
 # --- Driving the frame ---------------------------------------------------------

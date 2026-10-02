@@ -18,6 +18,10 @@ screen (the shader-effect stack, the animated-liquid tools, the model previews).
   (built by `mask_from_texture`, or a `freed` difference of two masks for what one hit took
   away), where the art is drawn and in what colour, and the helper throws one shard per texel up
   and out, drops them by gravity and draws them from the caller's `_draw()`
+- `block_icon_art.gd` — Block icons as pixels, for every surface that shatters one: the isometric
+  render (or the block's own texture) sampled down to the 16 units an icon is actually drawn at,
+  so a shard is a whole block of the icon rather than a piece of a 300-unit render, cached per
+  block id and carrying each texel's own colour
 - `healthbar.gd` — Health bar UI: 10 hearts above the hotbar's left edge, each its own 9 units
   on the art's 10-unit pitch, full/half/empty sprites resolved from the half-heart count polled
   off `PlayerController.get_health()`. A hit that takes red off a heart drops it: every red texel
@@ -28,7 +32,9 @@ screen (the shader-effect stack, the animated-liquid tools, the model previews).
 - `inventory.gd` - Full inventory screen with drag-drop stack movement, shift-click
   quick-transfer, RMB drag-place, LMB drag-collect, scroll wheel quick-transfer, double-click
   gather; live 2×2 crafting grid + output preview (click/drag/shift/scroll interactions mirrored
-  on the crafting cells; shift-click output crafts as many as possible)
+  on the crafting cells; shift-click output crafts as many as possible). Icons are tracked per
+  slot, and one that is spent -- a stack emptied, a cell drained by a craft, a preview the
+  ingredients no longer support -- comes apart through `ui_shatter.gd` (see [gui-notes.md](gui-notes.md))
 - `data/recipes.json` — Crafting recipes (shaped/shapeless), resolved by block name; loaded into
   `RecipeBook` at startup. A shaped `key` entry may list several acceptable ingredients,
   expanded at load into one concrete recipe per combination (per symbol, so all cells of a

@@ -8,6 +8,8 @@ const HOTBAR_SIZE = 9
 const INVENTORY_SIZE = 27
 const TOTAL_SLOTS = HOTBAR_SIZE + INVENTORY_SIZE
 const MUNRO_FONT: Font = preload("res://fonts/munro.ttf")
+const UIShatter := preload("res://scripts/ui_shatter.gd")
+const BlockIconArt := preload("res://scripts/block_icon_art.gd")
 
 # Slot grid geometry, measured from the #7e7d7d slot-background color.
 # Only these 36 slots (hotbar + main inventory) have real data behind them --
@@ -53,6 +55,12 @@ var craft_result_count = 0
 var _hovered_craft = -1             # 0..3 input cells, 4 output slot, -1 none
 var _craft_hover_texture: Texture2D = null
 var _out_hover_texture: Texture2D = null
+
+# The icons that have been spent since the screen was last drawn, and the slot
+# contents they were spent from: see scripts/ui_shatter.gd.
+var _shards := UIShatter.new()
+var _seen_ids: Array[int] = []
+var _seen_counts: Array[int] = []
 
 # Drag state
 var _drag_button = -1  # which button is currently held, -1 if none
@@ -129,10 +137,22 @@ func _close_inventory():
 	player_controller.set_inventory_open(false)
 	queue_redraw()
 
-func _process(_delta):
+func _process(delta):
 	# Redraw while holding so the held stack follows the mouse; hover
 	# highlight updates are driven by InputEventMouseMotion in _gui_input.
 	if is_open and _is_holding():
+		queue_redraw()
+	if not is_open:
+		# Nothing here is drawn while the screen is shut, so a stack that was
+		# spent in the meantime is only remembered, not thrown.
+		_shards.clear()
+		_track_slots(false)
+		return
+	if _track_slots(true):
+		queue_redraw()
+	# The pixels are moving for as long as they exist, so their fall alone keeps
+	# the redraw gate open.
+	if _shards.advance(delta):
 		queue_redraw()
 
 # ============================================================================
@@ -208,6 +228,65 @@ func _draw():
 				draw_rect(Rect2(mouse_pos.x - drag_size/2, mouse_pos.y - drag_size/2, drag_size, drag_size), block_color)
 		if held_count > 1:
 			_draw_item_count(str(held_count), mouse_pos.x + drag_size / 2, mouse_pos.y + drag_size / 2, drag_size)
+
+	# Spent icons' pixels, over the panel they came off.
+	_shards.draw(self)
+
+## Every slot's contents, and any slot whose stack has just gone empty throws the
+## icon it was drawn as, from the box it was drawn in. `spend` is false where the
+## screen is only catching up (it was shut while the item was spent): then the
+## counts are remembered without a burst.
+func _track_slots(spend: bool) -> bool:
+	if _seen_counts.size() != TOTAL_SLOTS:
+		_seen_counts.resize(TOTAL_SLOTS)
+		_seen_ids.resize(TOTAL_SLOTS)
+		for i in range(TOTAL_SLOTS):
+			_seen_counts[i] = -1
+			_seen_ids[i] = -1
+	var changed := false
+	for i in range(TOTAL_SLOTS):
+		var block_id: int
+		var count: int
+		if i < HOTBAR_SIZE:
+			block_id = player_controller.get_hotbar_slot_block_id(i)
+			count = player_controller.get_hotbar_slot_count(i)
+		else:
+			block_id = player_controller.get_inventory_slot_block_id(i - HOTBAR_SIZE)
+			count = player_controller.get_inventory_slot_count(i - HOTBAR_SIZE)
+		if block_id != _seen_ids[i] or count != _seen_counts[i]:
+			if spend and _seen_counts[i] > 0 and count == 0 and _seen_ids[i] > 0:
+				_spend_slot(i, _seen_ids[i])
+			_seen_ids[i] = block_id
+			_seen_counts[i] = count
+			changed = true
+	return changed
+
+## Throw `block_id`'s icon from the box slot `slot` draws it in.
+func _spend_slot(slot: int, block_id: int) -> void:
+	if inventory_texture == null:
+		return
+	var pixels := BlockIconArt.pixels(block_id)
+	if pixels["mask"].is_empty():
+		return
+	var ui_scale = UIScale.value
+	var origin := Vector2(UIScale.centered_origin(size.x, inventory_texture.get_width()),
+		UIScale.centered_origin(size.y, inventory_texture.get_height()))
+	_burst_from(pixels, BlockIconArt.icon_rect(_slot_screen_rect(slot, origin.x, origin.y), ui_scale), ui_scale)
+
+## The same for one of the crafting boxes (0..3 inputs, 4 the output preview).
+func _spend_craft_cell(cell: int, block_id: int) -> void:
+	if inventory_texture == null:
+		return
+	var pixels := BlockIconArt.pixels(block_id)
+	if pixels["mask"].is_empty():
+		return
+	var ui_scale = UIScale.value
+	var origin := Vector2(UIScale.centered_origin(size.x, inventory_texture.get_width()),
+		UIScale.centered_origin(size.y, inventory_texture.get_height()))
+	_burst_from(pixels, BlockIconArt.icon_rect(_craft_slot_rect(cell, origin), ui_scale), ui_scale)
+
+func _burst_from(pixels: Dictionary, icon: Rect2, ui_scale: float) -> void:
+	_shards.burst(pixels["mask"], pixels["art"], icon.position, ui_scale, Color.WHITE, 0.0, pixels["colours"])
 
 func _draw_slot(x, y, width, height, slot_index, is_hotbar):
 	var block_id = 0
@@ -923,6 +1002,9 @@ func _shift_craft_input_to_inventory(cell: int):
 func _take_craft_output(craft_all := false):
 	# Craft once (or repeatedly while possible on shift-click). Stops when the
 	# grid runs out of ingredients or the cursor can't fit another result.
+	var before_ids: Array = craft_ids.duplicate()
+	var before_counts: Array = craft_counts.duplicate()
+	var before_output: int = craft_result_id
 	while craft_result_id > 0 and craft_result_count > 0:
 		if _is_holding() and (held_block_id != craft_result_id or held_count + craft_result_count > 64):
 			break
@@ -945,3 +1027,10 @@ func _take_craft_output(craft_all := false):
 		if not craft_all:
 			break
 	queue_redraw()
+	# What the craft spent comes apart where it was drawn: the cells it drained,
+	# and the preview itself once the recipe is no longer possible.
+	for i in range(4):
+		if before_counts[i] > 0 and craft_counts[i] <= 0:
+			_spend_craft_cell(i, before_ids[i])
+	if before_output > 0 and craft_result_id == 0:
+		_spend_craft_cell(4, before_output)

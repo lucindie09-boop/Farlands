@@ -65,12 +65,15 @@ first-person viewmodel - what each one owns and the decisions behind it.
 - **GDScript GUI**: `hotbar.gd` / `inventory.gd` `Control` overlays — E toggles the inventory,
   mouse wheel cycles the hotbar, click-to-hold / drag-drop stack movement, hover/selection
   highlights built by pixel-color-keyed texture recolor (no hand-drawn art)
-- **A spent stack comes apart**: when the last item of a hotbar stack is used, the icon is no
-  longer just gone — its own pixels are thrown up and out of the slot and fall away, through the
-  same `scripts/ui_shatter.gd` the hearts use. The icon is sampled down to the 16 units it is
-  actually drawn at before it is shattered, so a shard is the block the hearts break into rather
-  than a piece of a 300-unit render, and each one is drawn in the colour the art had there (the
-  iso render, or the block texture where a shape has no icon)
+- **A spent stack comes apart**: when the last item of a stack is used, the icon is no longer
+  just gone — its own pixels are thrown up and out of the slot and fall away, through the same
+  `scripts/ui_shatter.gd` the hearts use. It is in five places: the hotbar, the inventory (any
+  slot emptied, including by a `/clearinv`), and the two crafting grids, where a craft comes
+  apart into the cells it drained *and* the output preview once the ingredients no longer support
+  it. The art comes from `scripts/block_icon_art.gd`, which samples an icon down to the 16 units
+  it is actually drawn at, so a shard is the block the hearts break into rather than a piece of a
+  300-unit render, and carries the colour the art had there (the iso render, or the block texture
+  where a shape has no icon)
 - **Health bar**: `healthbar.gd` draws 10 hearts (`heart_full.png` / `heart_half.png` /
   `heart_empty.png`, 9×9) floating above the hotbar's left edge; each heart is its own 9 units
   on the art's 10-unit pitch (the row spans 99 units), placed through `UIScale`'s helpers and

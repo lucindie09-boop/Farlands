@@ -148,6 +148,12 @@ func advance(delta: float) -> bool:
 	return not _falling.is_empty()
 
 
+## Throw away everything still in the air: for a surface that stops drawing them
+## (a screen closing), where a fall nobody can see is not worth carrying on with.
+func clear() -> void:
+	_falling.clear()
+
+
 ## Draw the shards. Call it from a CanvasItem's `_draw()`, in the same space
 ## `origin` was given in.
 func draw(canvas: CanvasItem) -> void:

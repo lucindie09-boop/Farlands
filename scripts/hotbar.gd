@@ -8,12 +8,7 @@ const SLOT_SIZE = 48
 const HOTBAR_SIZE = 9
 const MUNRO_FONT: Font = preload("res://fonts/munro.ttf")
 const UIShatter := preload("res://scripts/ui_shatter.gd")
-
-# An icon is sampled down to the size it is drawn at -- one art texel per drawn
-# texel at GUI scale 1 -- before it is shattered, so the red of a spent stack
-# comes apart into the same blocks the hearts do rather than into thousands of
-# pieces of a 300-unit render.
-const ICON_ART = 16
+const BlockIconArt := preload("res://scripts/block_icon_art.gd")
 
 # Slot fill geometry measured from hotbar.png: the #262505 fill is a 16x16 px
 # region inset (3,3) in a 20-px-pitch cell.
@@ -67,9 +62,8 @@ var _last_ui_scale := -1.0
 var _last_size := Vector2.ZERO
 
 # The pixels of a slot's icon still in the air after the last of a stack was
-# spent, and the per-block-id art behind them: see scripts/ui_shatter.gd.
+# spent: see scripts/ui_shatter.gd.
 var _shards := UIShatter.new()
-var _icon_pixels: Dictionary = {}
 
 func _process(delta):
 	if _needs_redraw():
@@ -202,47 +196,14 @@ func _slot_icon_rect(i: int, ui_scale: float) -> Rect2:
 	var texture_y = UIScale.edge_origin(size.y, hotbar_texture.get_height(), 0.0)
 	var fill_x = texture_x + (SLOT_FILL_X + i * SLOT_PITCH) * ui_scale
 	var fill_y = texture_y + SLOT_FILL_Y * ui_scale
-	var icon_size = ICON_SIZE_UNITS * ui_scale
 	var fill_size = SLOT_FILL_SIZE * ui_scale
-	var icon_x = fill_x + (fill_size - icon_size) / 2.0
-	var icon_y = fill_y + (fill_size - icon_size) / 2.0
-	return Rect2(icon_x, icon_y, icon_size, icon_size)
-
-## The icon a slot draws for `block_id`, or null where the fallback is a plain
-## rectangle with no art of its own to come apart.
-func _icon_texture(block_id: int) -> Texture2D:
-	var icon_renderer = get_node_or_null("/root/BlockIconRenderer")
-	if icon_renderer != null:
-		var icon = icon_renderer.get_block_icon(block_id)
-		if icon:
-			return icon
-	return BlockTextures.get_texture(block_id)
-
-## `block_id`'s icon as pixels: which texels are its ink, and what colour each of
-## them is, both read off the art itself. Cached per id -- the art never changes.
-func _icon_pixels_for(block_id: int) -> Dictionary:
-	if not _icon_pixels.has(block_id):
-		var art := Vector2i(ICON_ART, ICON_ART)
-		var tex := _icon_texture(block_id)
-		var mask := PackedByteArray()
-		var colours := PackedColorArray()
-		if tex == null:
-			return {"art": art, "mask": mask, "colours": colours}
-		mask = UIShatter.mask_from_texture(tex, art, _is_ink)
-		colours = UIShatter.colours_from_texture(tex, art)
-		_icon_pixels[block_id] = {"art": art, "mask": mask, "colours": colours}
-	return _icon_pixels[block_id]
-
-## Every texel the icon draws something on is ink; the empty corners around a
-## block's silhouette are what an icon is then not shattering into.
-func _is_ink(px: Color) -> bool:
-	return px.a > 0.5
+	return BlockIconArt.icon_rect(Rect2(fill_x, fill_y, fill_size, fill_size), ui_scale)
 
 ## The last of a stack is gone: throw the icon it was drawn as.
 func _spend_icon(slot: int, block_id: int) -> void:
 	if hotbar_texture == null:
 		return
-	var pixels := _icon_pixels_for(block_id)
+	var pixels := BlockIconArt.pixels(block_id)
 	if pixels["mask"].is_empty():
 		return
 	var ui_scale = UIScale.value

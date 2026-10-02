@@ -74,6 +74,27 @@ first-person viewmodel - what each one owns and the decisions behind it.
   it is actually drawn at, so a shard is the block the hearts break into rather than a piece of a
   300-unit render, and carries the colour the art had there (the iso render, or the block texture
   where a shape has no icon)
+- **Debris lands instead of falling out of frame.** `burst()` takes an optional `bounds`: a box, in
+  the same space as the shard's origin, that the shards bounce off and come to rest on. Left empty
+  they fall and are simply never seen again, which reads as the debris thinning away rather than
+  as it landing. **Only the hearts pass no box**: the row floats at the top of the screen with
+  nothing under it, so falling out of frame is the right end for them. The boxes:
+  - an inventory slot's debris stays in **its own slot rect**, in both inventory grids
+  - a **hotbar** slot's debris stays in **its own slot rect** too
+  - a crafting cell's debris lands on **the whole grid it is drawn in** — the 2×2 in `inventory.gd`,
+    the 3×3 in `crafting_table_menu.gd` — via a `_craft_grid_bounds()` that merges the input cells
+  - a crafting **output preview** is outside its grid, so its own cell is its floor
+
+  **Debris draws UNDER the stack following the cursor.** `_shards.draw(self)` sits before the
+  held-stack block in both `inventory.gd` and `crafting_table_menu.gd`. The stack is the thing
+  being dragged, so debris painting over it hides the very item the player is moving — which is
+  what picking an item up and dragging it out of a slot always looked like. The hotbar draws no
+  cursor item, so it has no such order.
+
+  `RESTITUTION = 0.35` is low on purpose: a shard keeping most of its speed bounces around the box
+  for its whole life and never looks like it settled. `REST_SPEED = 14.0` is what makes "comes to
+  rest" literally true — without it a landed shard is re-accelerated into the floor by gravity every
+  frame and buzzes there for the rest of its life instead of settling.
 - **The inventory's spent *slots* are much quieter than everything else**
   (`UIShatter.SPEND = 0.3`, passed as `burst()`'s `intensity`) — the *slots only*. A slot empties as
   a stack is dragged off it, one at a time and repeatedly, and at the full throw the shards of one

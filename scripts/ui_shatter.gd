@@ -85,6 +85,18 @@ const MAX_FRAGMENTS = 512
 # confirmation it worked, so the crafting boxes stay at the full effect.
 const SPEND = 0.3
 
+# How much of its speed a shard keeps when it hits the side or the floor of a box
+# it was given. Low on purpose: a shard that keeps most of its speed bounces
+# around the box for its whole life and never looks like it settled, and the
+# point of the box is that the debris comes to rest in it.
+const RESTITUTION = 0.35
+
+# Below this speed a shard that has hit a wall or the floor stops instead of
+# bouncing again. Without it a shard that lands never settles: gravity re-
+# accelerates it into the floor every frame and it buzzes there for the rest of
+# its life, which is not the same thing as having come to rest.
+const REST_SPEED = 14.0
+
 # The shards still in the air: pos and vel in GUI units, size and colour as they
 # are drawn, plus age and life in seconds.
 var _falling: Array = []
@@ -141,14 +153,20 @@ static func colours_from_texture(tex: Texture2D, art: Vector2i) -> PackedColorAr
 ## A surface whose art is destroyed often -- a slot emptying as a stack is dragged
 ## off it -- passes less, because the same throw every few seconds is not an event
 ## and the shards are still on screen when the next one starts.
+##
+## `bounds` is the box the shards are kept in, in the same space as `origin`: they
+## bounce off its sides and come to rest on its floor instead of falling out of the
+## frame. Left empty, they fall as they always did, which is what the hearts and
+## the hotbar want -- there is nothing under them to land on.
 func burst(texels: PackedByteArray, art: Vector2i, origin: Vector2,
 		texel: float, colour: Color, strength := 0.0,
-		colours := PackedColorArray(), intensity := 1.0) -> void:
+		colours := PackedColorArray(), intensity := 1.0,
+		bounds := Rect2()) -> void:
 	var hit := (strength if strength > 0.0 else roll_strength()) * intensity
 	for i in range(texels.size()):
 		if texels[i] == 1:
 			var ink := colours[i] if i < colours.size() else colour
-			_drop(i, art, origin, texel, ink, hit, intensity)
+			_drop(i, art, origin, texel, ink, hit, intensity, bounds)
 
 
 ## Move the shards on by `delta`; returns whether any are still in the air, so
@@ -165,7 +183,33 @@ func advance(delta: float) -> bool:
 			continue
 		pixel["vel"] = pixel["vel"] + Vector2(0.0, GRAVITY * delta)
 		pixel["pos"] = pixel["pos"] + pixel["vel"] * delta
+		if pixel["bounds"].size != Vector2.ZERO:
+			_bounce(pixel)
 	return not _falling.is_empty()
+
+
+## Keep a shard inside the box it was given, and turn it off whatever it hits.
+## Without a box a shard falls out of the frame and is simply never seen again,
+## which reads as the debris thinning away rather than as it landing; the box is
+## what lets a screen hold the mess its own destruction made.
+func _bounce(pixel: Dictionary) -> void:
+	var box: Rect2 = pixel["bounds"]
+	var at: Vector2 = pixel["pos"]
+	var size: Vector2 = pixel["size"]
+	var vel: Vector2 = pixel["vel"]
+	if at.y + size.y > box.end.y:
+		at.y = box.end.y - size.y
+		vel.y = -vel.y * RESTITUTION
+	if at.x < box.position.x:
+		at.x = box.position.x
+		vel.x = absf(vel.x) * RESTITUTION
+	elif at.x + size.x > box.end.x:
+		at.x = box.end.x - size.x
+		vel.x = -absf(vel.x) * RESTITUTION
+	if at.y + size.y >= box.end.y and absf(vel.y) < REST_SPEED:
+		vel.y = 0.0
+	pixel["pos"] = at
+	pixel["vel"] = vel
 
 
 ## Throw away everything still in the air: for a surface that stops drawing them
@@ -194,9 +238,10 @@ func draw(canvas: CanvasItem) -> void:
 ## `hit` has already had the burst's strength and intensity folded into it, so it
 ## is the throw itself; `intensity` comes along separately only to shorten the
 ## life, which is not a matter of how hard something was thrown but of how long
-## debris should sit on a screen before it goes.
+## debris should sit on a screen before it goes. `bounds`, when it has a size, is
+## the box this shard is kept in.
 func _drop(index: int, art: Vector2i, origin: Vector2, texel: float,
-		colour: Color, hit: float, intensity: float) -> void:
+		colour: Color, hit: float, intensity: float, bounds: Rect2) -> void:
 	if _falling.size() >= MAX_FRAGMENTS:
 		return
 	var tx := index % art.x
@@ -223,4 +268,5 @@ func _drop(index: int, art: Vector2i, origin: Vector2, texel: float,
 		"colour": colour,
 		"life": LIFE * intensity * randf_range(LIFE_VARY, 1.0),
 		"age": 0.0,
+		"bounds": bounds,
 	})

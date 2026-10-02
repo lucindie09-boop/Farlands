@@ -226,6 +226,11 @@ func _draw():
 		# Fallback: draw without texture
 		_draw_fallback_inventory()
 
+	# Spent icons' pixels: over the menu they came off, but UNDER the held stack
+	# below, for the same reason as inventory.gd -- the stack follows the cursor
+	# and is the thing being dragged.
+	_shards.draw(self)
+
 	# Draw held stack following the mouse
 	if _is_holding():
 		var mouse_pos = get_local_mouse_position()
@@ -238,9 +243,6 @@ func _draw():
 			draw_rect(Rect2(mouse_pos.x - drag_size/2, mouse_pos.y - drag_size/2, drag_size, drag_size), block_color)
 		if held_count > 1:
 			_draw_item_count(str(held_count), mouse_pos.x + drag_size / 2, mouse_pos.y + drag_size / 2, drag_size)
-
-	# Spent icons' pixels, over the menu they came off.
-	_shards.draw(self)
 
 ## Every slot's contents, and any slot whose stack has just gone empty throws the
 ## icon it was drawn as, from the box it was drawn in. `spend` is false where the
@@ -283,7 +285,7 @@ func _spend_slot(slot: int, block_id: int) -> void:
 	var ui_scale = UIScale.value
 	var origin := Vector2(UIScale.centered_origin(size.x, menu_texture.get_width()),
 		UIScale.centered_origin(size.y, menu_texture.get_height()))
-	_burst_from(pixels, BlockIconArt.icon_rect(_slot_screen_rect(slot, origin.x, origin.y), ui_scale), ui_scale, UIShatter.SPEND)
+	_burst_from(pixels, BlockIconArt.icon_rect(_slot_screen_rect(slot, origin.x, origin.y), ui_scale), ui_scale, UIShatter.SPEND, _slot_screen_rect(slot, origin.x, origin.y))
 
 ## The same for one of the crafting boxes (0..8 inputs, 9 the output preview).
 func _spend_craft_cell(cell: int, block_id: int) -> void:
@@ -295,12 +297,25 @@ func _spend_craft_cell(cell: int, block_id: int) -> void:
 	var ui_scale = UIScale.value
 	var origin := Vector2(UIScale.centered_origin(size.x, menu_texture.get_width()),
 		UIScale.centered_origin(size.y, menu_texture.get_height()))
-	_burst_from(pixels, BlockIconArt.icon_rect(_craft_slot_rect(cell, origin), ui_scale), ui_scale)
+	var rect := _craft_slot_rect(cell, origin)
+	# An input cell's debris lands on the grid they are drawn in; the output
+	# preview is outside that grid, so its own cell is its floor.
+	var floor := rect if cell == CRAFT_CELLS else _craft_grid_bounds(origin)
+	_burst_from(pixels, BlockIconArt.icon_rect(rect, ui_scale), ui_scale, 1.0, floor)
+
+## The box the 3x3 crafting grid's own debris stays in: the nine input cells
+## together, the same arrangement as the 2x2 grid in inventory.gd.
+func _craft_grid_bounds(origin: Vector2) -> Rect2:
+	var box: Rect2
+	for i in range(CRAFT_CELLS):
+		var cell_rect := _craft_slot_rect(i, origin)
+		box = cell_rect if box.size == Vector2.ZERO else box.merge(cell_rect)
+	return box
 
 ## `intensity` is how hard this one burst throws; it defaults to the shatter as
 ## tuned, so the crafting cells above get the full effect without saying so.
-func _burst_from(pixels: Dictionary, icon: Rect2, ui_scale: float, intensity := 1.0) -> void:
-	_shards.burst(pixels["mask"], pixels["art"], icon.position, ui_scale, Color.WHITE, 0.0, pixels["colours"], intensity)
+func _burst_from(pixels: Dictionary, icon: Rect2, ui_scale: float, intensity := 1.0, bounds := Rect2()) -> void:
+	_shards.burst(pixels["mask"], pixels["art"], icon.position, ui_scale, Color.WHITE, 0.0, pixels["colours"], intensity, bounds)
 
 func _draw_slot(x, y, width, height, slot_index, is_hotbar):
 	var block_id = 0

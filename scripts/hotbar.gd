@@ -192,12 +192,18 @@ func _draw():
 ## shattering pixels both go through, so a spent stack can only ever come apart
 ## from the place its icon was drawn at.
 func _slot_icon_rect(i: int, ui_scale: float) -> Rect2:
+	return BlockIconArt.icon_rect(_slot_rect(i, ui_scale), ui_scale)
+
+## The slot's own box, which is the floor a spent stack's debris lands on: the
+## icon is centred in this, so the shards come to rest a unit or two outside the
+## art they came from rather than inside it.
+func _slot_rect(i: int, ui_scale: float) -> Rect2:
 	var texture_x = UIScale.centered_origin(size.x, hotbar_texture.get_width())
 	var texture_y = UIScale.edge_origin(size.y, hotbar_texture.get_height(), 0.0)
 	var fill_x = texture_x + (SLOT_FILL_X + i * SLOT_PITCH) * ui_scale
 	var fill_y = texture_y + SLOT_FILL_Y * ui_scale
 	var fill_size = SLOT_FILL_SIZE * ui_scale
-	return BlockIconArt.icon_rect(Rect2(fill_x, fill_y, fill_size, fill_size), ui_scale)
+	return Rect2(fill_x, fill_y, fill_size, fill_size)
 
 ## The last of a stack is gone: throw the icon it was drawn as.
 func _spend_icon(slot: int, block_id: int) -> void:
@@ -208,7 +214,8 @@ func _spend_icon(slot: int, block_id: int) -> void:
 		return
 	var ui_scale = UIScale.value
 	_shards.burst(pixels["mask"], pixels["art"],
-		_slot_icon_rect(slot, ui_scale).position, ui_scale, Color.WHITE, 0.0, pixels["colours"])
+		_slot_icon_rect(slot, ui_scale).position, ui_scale, Color.WHITE, 0.0, pixels["colours"],
+		1.0, _slot_rect(slot, ui_scale))
 
 func _draw_custom_hotbar():
 	# Fallback custom drawing if texture not available

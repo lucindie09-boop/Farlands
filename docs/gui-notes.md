@@ -78,8 +78,9 @@ first-person viewmodel - what each one owns and the decisions behind it.
   what the shards come to rest on. Left null they fall as they always did, which is what a caller
   wants when there is nothing underneath to land on. A Surface is one of two shapes:
   - **`Surface.box(rect)`** — a flat top and hard sides, nothing read off any art. What a slot or a
-    grid wants, and all four of those are this:
+    grid wants, and all five of those are this:
     - an inventory slot's debris stays in **its own slot rect**, in both inventory grids
+    - a **hotbar** slot's debris stays in **its own slot rect**, for the reason below
     - a crafting cell's debris lands on **the whole grid it is drawn in** — the 2×2 in
       `inventory.gd`, the 3×3 in `crafting_table_menu.gd` — via a `_craft_grid_bounds()` that
       merges the input cells
@@ -92,13 +93,20 @@ first-person viewmodel - what each one owns and the decisions behind it.
     side of a column boundary, and a column with no ink at all is a gap the shards fall through
     (the hotbar has none; the 182-column profile is solid).
 
-  Both the hotbar's spent stacks and the hearts' red land on **that same profile**, read from the
-  same texture — `hotbar.gd:_panel_floor()` and `healthbar.gd:_hotbar_floor()` — so the two agree by
-  construction rather than by two sets of arithmetic agreeing by luck. It is read **once and kept**,
-  but only for as long as the scale it was read at holds, because a Surface carries the origin and
-  texel size it was built with and a UI-scale change has to rebuild it. The art itself never
-  changes, and reading it is a pass over every texel of the panel, which is not worth repeating on
-  every keypress.
+- **A floor has to be at or below where the shards spawn.** This is the whole reason the hotbar's
+  spent stacks use their own slot box rather than the panel's texel-accurate top edge, and it cost
+  a bug to find. Those shards spawn *inside* their slot — panel-relative y 3..19 — while the panel's
+  top edge sits at y 0..3, entirely above them. Handed one, every shard fails its **first**
+  collision check (`pos.y + size.y > rest`, trivially true for a shard below its own floor), so
+  `pos.y = rest - size.y` yanks it up to above the bar: about 57 units at scale 3, straight through
+  the hotbar's own art, which is what "teleports outside immediately and glitches" was. Nothing
+  about the profile was wrong; it was the wrong floor for art that was already below it.
+  The **hearts** are the opposite case and the reason the profile exists at all: they are drawn
+  `GAP_ABOVE_HOTBAR` (2 texels) *above* the hotbar, so they fall onto its top edge and land on it
+  texel by texel, dips included. `healthbar.gd:_hotbar_floor()` reads that profile once and keeps
+  it, for as long as the scale it was read at holds — a Surface carries the origin and texel size it
+  was built with, so a UI-scale change has to rebuild it. The art never changes, and reading it is a
+  pass over every texel of the panel, which is not worth repeating on every hit.
 
 - **An edge is a floor, not a box.** `Surface.has_sides()` is false for a top edge and true for a
   box, and that one distinction is three fixes at once. A box **is** the art, so its left and right

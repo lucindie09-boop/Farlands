@@ -64,10 +64,6 @@ var _last_size := Vector2.ZERO
 # The pixels of a slot's icon still in the air after the last of a stack was
 # spent: see scripts/ui_shatter.gd.
 var _shards := UIShatter.new()
-# The panel's top edge, read off its art and kept for as long as the scale it was
-# read at holds. See _panel_floor().
-var _floor: UIShatter.Surface = null
-var _floor_scale := 0.0
 
 func _process(delta):
 	if _needs_redraw():
@@ -198,7 +194,17 @@ func _draw():
 func _slot_icon_rect(i: int, ui_scale: float) -> Rect2:
 	return BlockIconArt.icon_rect(_slot_rect(i, ui_scale), ui_scale)
 
-## The slot's own box, which is what the icon is centred in.
+## The slot's own box, which is what the icon is centred in, and what its debris
+## comes to rest on.
+##
+## NOT the panel's top edge, which is texel-accurate and still not the floor for
+## this. A floor has to be at or below where the shards spawn, and these spawn
+## inside the slot, which is panel-relative y 3..19 -- entirely underneath a top
+## edge that sits at y 0..3. Given one, every shard fails its very first
+## collision check (`pos.y + size.y > rest`) and is yanked up to above the bar,
+## about 57 units straight through the hotbar's art. The panel's edge is the
+## hearts' floor instead, because the hearts are drawn above the hotbar and fall
+## onto it; see healthbar.gd:_hotbar_floor().
 func _slot_rect(i: int, ui_scale: float) -> Rect2:
 	var panel := _panel_rect(ui_scale)
 	return Rect2(panel.position.x + (SLOT_FILL_X + i * SLOT_PITCH) * ui_scale,
@@ -211,20 +217,6 @@ func _panel_rect(ui_scale: float) -> Rect2:
 		UIScale.edge_origin(size.y, hotbar_texture.get_height(), 0.0))
 	return Rect2(at, Vector2(hotbar_texture.get_width(), hotbar_texture.get_height()) * ui_scale)
 
-## The floor a spent stack's shards land on: the hotbar's own top edge, read off
-## the art. Its top is not a straight line -- it steps down two texels at every
-## gap between slots, ten times across -- so a flat line along it would leave the
-## shards resting on air at each of those gaps.
-##
-## Read once and kept, but only for as long as the scale it was read at holds: the
-## Surface carries the origin and the texel size it was built with, so a UI scale
-## change has to rebuild it. The art itself never changes.
-func _panel_floor(ui_scale: float) -> UIShatter.Surface:
-	if _floor == null or not is_equal_approx(_floor_scale, ui_scale):
-		_floor = UIShatter.Surface.from_top_edge(hotbar_texture, _panel_rect(ui_scale).position, ui_scale)
-		_floor_scale = ui_scale
-	return _floor
-
 ## The last of a stack is gone: throw the icon it was drawn as.
 func _spend_icon(slot: int, block_id: int) -> void:
 	if hotbar_texture == null:
@@ -235,7 +227,7 @@ func _spend_icon(slot: int, block_id: int) -> void:
 	var ui_scale = UIScale.value
 	_shards.burst(pixels["mask"], pixels["art"],
 		_slot_icon_rect(slot, ui_scale).position, ui_scale, Color.WHITE, 0.0, pixels["colours"],
-		1.0, _panel_floor(ui_scale))
+		1.0, UIShatter.Surface.box(_slot_rect(slot, ui_scale)))
 
 func _draw_custom_hotbar():
 	# Fallback custom drawing if texture not available

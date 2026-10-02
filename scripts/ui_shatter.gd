@@ -141,11 +141,45 @@ class Surface:
 	func rest_y(x: float, size: Vector2) -> float:
 		if top.is_empty():
 			return rect.end.y
-		var column := clampi(int(floor((x + size.x * 0.5 - origin.x) / texel)), 0, top.size() - 1)
+		return rest_in(column_at(x, size))
+
+	## Which art column a shard of `size` at `x` is over, at its middle. -1 on a
+	## box, which has no columns and is flat everywhere, and -1 again for a shard
+	## that is clear of the art altogether -- past either end of it there is no
+	## panel to land on, and the answer has to say so rather than answer for the
+	## column nearest the end, which is what walls the shards into the panel's
+	## width no matter which way the sides are handled.
+	func column_at(x: float, size: Vector2) -> int:
+		if top.is_empty():
+			return -1
+		var left := origin.x
+		var right := origin.x + float(top.size()) * texel
+		if x + size.x <= left or x >= right:
+			return -1
+		return clampi(int(floor((x + size.x * 0.5 - origin.x) / texel)), 0, top.size() - 1)
+
+	## The y of one specific column's top edge, in the same terms as rest_y().
+	## Kept apart from rest_y() so a shard can be pinned to the column it landed
+	## in instead of re-asking from a position that has drifted since.
+	func rest_in(column: int) -> float:
+		if top.is_empty() or column < 0 or column >= top.size():
+			return rect.end.y if top.is_empty() else INF
 		var row: int = top[column]
 		if row < 0:
 			return INF
 		return origin.y + float(row) * texel
+
+	## Whether this shape has sides that turn a shard off.
+	##
+	## A box does: it IS the thing being drawn, so its edges are the edge of the
+	## art and a shard that reaches one has run out of panel. A top edge does
+	## not. The edge is only the panel's top -- off either end of it there is no
+	## art and no panel either, just open screen -- so clamping to it walls the
+	## shards into the bar's width and stops them dead in mid-air against an
+	## edge nothing drew. Left open they roll off the end and fall, which is what
+	## happens to everything else that misses the hotbar.
+	func has_sides() -> bool:
+		return top.is_empty()
 
 # How much of its speed a shard keeps when it hits the side or the floor of a box
 # it was given. Low on purpose: a shard that keeps most of its speed bounces
@@ -262,18 +296,38 @@ func _bounce(pixel: Dictionary) -> void:
 	# Asked of the surface rather than read off the box, because on a panel the
 	# floor is not a straight line: it is whatever the art has in this shard's own
 	# column, so a shard over a gap in the top edge falls through it.
-	var rest := floor.rest_y(at.x, size)
+	#
+	# And asked of the column it LANDED in, for as long as it is resting there.
+	# Re-asking every frame off the current position lets a settled shard drift a
+	# texel sideways, cross into the next column, and snap up onto the lip of the
+	# dip it was sitting in -- the pop the dip's own depth makes possible and the
+	# eye reads as a glitch rather than as anything settling.
+	var column: int = pixel["column"]
+	if column < 0:
+		column = floor.column_at(at.x, size)
+	var rest := floor.rest_in(column)
 	if rest < INF and at.y + size.y > rest:
 		at.y = rest - size.y
 		vel.y = -vel.y * RESTITUTION
-	if at.x < box.position.x:
-		at.x = box.position.x
-		vel.x = absf(vel.x) * RESTITUTION
-	elif at.x + size.x > box.end.x:
-		at.x = box.end.x - size.x
-		vel.x = -absf(vel.x) * RESTITUTION
+	if floor.has_sides():
+		if at.x < box.position.x:
+			at.x = box.position.x
+			vel.x = absf(vel.x) * RESTITUTION
+		elif at.x + size.x > box.end.x:
+			at.x = box.end.x - size.x
+			vel.x = -absf(vel.x) * RESTITUTION
 	if rest < INF and absf(at.y + size.y - rest) < texel_epsilon(size) and absf(vel.y) < REST_SPEED:
 		vel.y = 0.0
+		# Settled is settled sideways too. A shard resting on an edge with nothing
+		# to stop it walks along the edge the whole time it is down there, which
+		# walks it out of its dip and into the next one, and it is why the edge
+		# reads as a slope rather than as somewhere things come to rest.
+		vel.x = 0.0
+		pixel["column"] = column
+	elif not is_zero_approx(vel.y):
+		# Off the floor, so forget the column: where it comes down is wherever it
+		# happens to be by then, not where it left from.
+		pixel["column"] = -1
 	pixel["pos"] = at
 	pixel["vel"] = vel
 
@@ -342,4 +396,7 @@ func _drop(index: int, art: Vector2i, origin: Vector2, texel: float,
 		"life": LIFE * intensity * randf_range(LIFE_VARY, 1.0),
 		"age": 0.0,
 		"floor": floor,
+		# The art column it came to rest in, or -1 while it is still falling. See
+		# _bounce().
+		"column": -1,
 	})

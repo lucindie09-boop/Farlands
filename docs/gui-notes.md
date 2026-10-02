@@ -100,6 +100,29 @@ first-person viewmodel - what each one owns and the decisions behind it.
   changes, and reading it is a pass over every texel of the panel, which is not worth repeating on
   every keypress.
 
+- **An edge is a floor, not a box.** `Surface.has_sides()` is false for a top edge and true for a
+  box, and that one distinction is three fixes at once. A box **is** the art, so its left and right
+  are real edges and a shard that reaches one has run out of panel. A top edge is only the panel's
+  top: off either end of it there is no art and no panel either, just open screen. Clamping there
+  put a wall in the air at the hotbar's left and right ends — shards stopped dead in mid-air
+  against an edge nothing had drawn, which read as a bug rather than as debris. Left open, they
+  roll off the end and fall. `Surface.column_at()` answers `-1` for a shard that is clear of the art
+  altogether, which is what makes that true rather than merely unobstructed: answering for the
+  column nearest the end instead would wall the shards into the panel's width no matter how the
+  sides were handled. A shard overlapping the last column still lands on it; only one entirely past
+  the art is unsupported.
+
+- **A shard is pinned to the column it landed in.** It rests by asking `rest_in(column)` for the
+  column it settled in, not by re-asking from its current position. Re-asking let a settled shard
+  drift a texel sideways, cross into the next column, and snap up onto the lip of the dip it was
+  sitting in — the pop the dip's own depth makes possible, and something the eye reads as a glitch
+  rather than as anything settling. The column is forgotten the moment the shard leaves the floor
+  (`vel.y != 0`), so where it comes down is wherever it is by then, not where it left from.
+  Settling zeroes `vel.x` too: a shard resting on an edge with nothing to stop it walks along the
+  edge for the whole time it is down there, which is what walks it out of its dip and into the
+  next one. Boxes are unaffected by the pinning (they are flat, so the column is always `-1`) but
+  do settle sideways now, which is the same "settled" reading as before.
+
 - **Damage impulse scales with how much was taken.** `healthbar.gd` passes
   `strength = roll_strength()` and `intensity = maxi(old_health - new_health, 1)`, both counts in
   half-hearts. The shatter is tuned so that what it throws **is** what one half-heart of damage
@@ -121,6 +144,25 @@ first-person viewmodel - what each one owns and the decisions behind it.
   for its whole life and never looks like it settled. `REST_SPEED = 14.0` is what makes "comes to
   rest" literally true — without it a landed shard is re-accelerated into the floor by gravity every
   frame and buzzes there for the rest of its life instead of settling.
+
+- **A dropped item is NOT a shatter — it wants its own effect.** Noted here because the shatter is
+  the obvious thing to reach for and it would be the wrong one. Shatter is for art that is being
+  *destroyed*: what it takes is the difference between the old mask and the new one, so a stack that
+  is spent, and a heart that is lost, come apart into their own pixels and the pixels are what
+  remain. A dropped item is not destroyed, it is *in transit* — the player still has it, and it is
+  coming back. So it should leave as **the whole item texture, intact and rigid**, not as texels.
+  The shape wanted, roughly: it collides as one piece rather than as a thousand shards; it is
+  **thrown toward the crosshair** — out of the slot, toward where the player is looking, which is
+  where they mean it to go — and then falls off the bottom of the screen or tumbles away; and it
+  **rotates** as it goes, because a rigid thing tumbling is the read, and a shatter cannot rotate
+  because it is not one thing any more.
+  Open questions when this gets built, deliberately left open: whether the throw is a genuine aim
+  ray or just a fixed flick toward screen centre; whether the tumbles come from `Transform2D` or
+  from a `Sprite2D`/quad; and whether it collides with the same `Surface` vocabulary as above (very
+  likely yes — a dropped item falling past the hotbar wants the same art-derived edge the hearts
+  use, and `Surface.from_top_edge()` already gives it) or simply falls out of frame (also fine —
+  nothing is below it but empty screen). `UIShatter` should not grow this: one effect for
+  destruction, another for departure.
 - **The inventory's spent *slots* are much quieter than everything else**
   (`UIShatter.SPEND = 0.3`, passed as `burst()`'s `intensity`) — the *slots only*. A slot empties as
   a stack is dragged off it, one at a time and repeatedly, and at the full throw the shards of one

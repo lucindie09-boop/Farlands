@@ -31,6 +31,11 @@ that exists is budgeted A* over the chunk map (`src/pathfinding/`, no Godot deps
 field, so decide whether entities reuse it per-agent or want one shared field; and decide if
 block breaks still insta-pickup or now drop as world items
 
+Dropped items want their own animation, not the shatter - the whole item texture, intact and
+rigid, thrown toward the crosshair, rotating, colliding as one piece, then falling off screen. The
+shatter is for art being *destroyed*, which a drop is not. What is wanted, and what is still open,
+is written up in [docs/gui-notes.md](docs/gui-notes.md) under "A dropped item is NOT a shatter".
+
 ~~Crosshair/outline export codes (CS-style) - small, self-contained, slot in anytime; version
 the code format so future options don't break old codes~~
 

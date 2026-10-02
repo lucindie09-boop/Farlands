@@ -10,6 +10,11 @@ extends SceneTree
 ##   "$GODOT" --headless --path . --script res://probes/check_scripts.gd
 ##
 ## Warnings go to the engine's own log, so run it through grep for WARNING.
+##
+## A script that does not parse still loads as a resource, so "did any fail"
+## cannot be a null check alone: this asks whether each one can be instantiated.
+## godot-cpp is a vendored tree whose fixture scripts have never parsed here, so
+## it is skipped; the check is about the project's own scripts.
 
 func _initialize() -> void:
 	var files: Array = []
@@ -18,7 +23,13 @@ func _initialize() -> void:
 	var failed := 0
 	for path in files:
 		var script: Resource = load(path)
-		if script == null:
+		# A script that does not parse still loads as a resource -- only the
+		# engine's log carries the parse error -- so a null check alone cannot
+		# see one. A script that parsed is a Script that can be instantiated;
+		# one that did not is not. (The two fixture scripts under
+		# godot-cpp/test/project fail on their own superclasses and are counted
+		# here from the start.)
+		if script == null or (script is Script and not (script as Script).can_instantiate()):
 			print("check: FAILED to load %s" % path)
 			failed += 1
 	print("check: %d script(s), %d failed to load" % [files.size(), failed])
@@ -33,6 +44,9 @@ func _walk(dir_path: String, out: Array) -> void:
 	var entry := dir.get_next()
 	while entry != "":
 		if entry.begins_with("."):
+			entry = dir.get_next()
+			continue
+		if dir_path == "res://" and entry == "godot-cpp":
 			entry = dir.get_next()
 			continue
 		var path := dir_path.path_join(entry)

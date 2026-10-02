@@ -10,12 +10,19 @@ screen (the shader-effect stack, the animated-liquid tools, the model previews).
   commands, command execution (`/help`, `/give` with unlimited count, `/tp`, `/fly`,
   `/clearchat`, `/clearinv`, `/version`), mouse wheel scrolling for chat history, caret blink,
   wrapped messages with proper input box anchoring
-- `hotbar.gd` — Hotbar UI with mouse wheel cycling, click-to-hold block selection
+- `hotbar.gd` — Hotbar UI with mouse wheel cycling, click-to-hold block selection; when the
+  last of a stack is spent, the icon it was drawn as comes apart into its own pixels through
+  `ui_shatter.gd` (sampled down to the 16 units it is drawn at, so a shard is the same block a
+  heart breaks into)
+- `ui_shatter.gd` — The shatter's motion, shared: a caller hands over a piece of art's texel mask
+  (built by `mask_from_texture`, or a `freed` difference of two masks for what one hit took
+  away), where the art is drawn and in what colour, and the helper throws one shard per texel up
+  and out, drops them by gravity and draws them from the caller's `_draw()`
 - `healthbar.gd` — Health bar UI: 10 hearts above the hotbar's left edge, each its own 9 units
   on the art's 10-unit pitch, full/half/empty sprites resolved from the half-heart count polled
   off `PlayerController.get_health()`. A hit that takes red off a heart drops it: every red texel
-  the old state had and the new one doesn't leaves as a shard of its own, thrown outward from the
-  heart's middle and falling under gravity (see [gui-notes.md](gui-notes.md))
+  the old state had and the new one doesn't leaves as a shard of its own through `ui_shatter.gd`
+  (see [gui-notes.md](gui-notes.md))
 - `death_screen.gd` — Death overlay: "You died!" + Respawn button, shown on the
   `PlayerController.died` signal and hidden on `respawned`
 - `inventory.gd` - Full inventory screen with drag-drop stack movement, shift-click

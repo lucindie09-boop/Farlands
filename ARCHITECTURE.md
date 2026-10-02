@@ -625,8 +625,9 @@ Two layers mirroring the ChunkManager/VoxelEngineController pattern:
   only on change.
   Damage shatters the heart it takes red off: the texels red in the old state and not in the new
   one are read off the art, and each leaves as a shard of its own, drawn at its texel's own size
-  and place, thrown outward from the heart's middle, then dropped by gravity — see
-  [docs/gui-notes.md](docs/gui-notes.md) and `probes/probe_heart_shatter.gd`, which reads the
+  and place, thrown up and outward from the heart's middle, then dropped by hard gravity — the
+  motion itself is `scripts/ui_shatter.gd`, shared with any other surface whose art comes apart.
+  See [docs/gui-notes.md](docs/gui-notes.md) and `probes/probe_heart_shatter.gd`, which reads the
   fall back out of the frames.
 - **Death & respawn** — `set_health` hitting 0 calls `die()`: a `dead_` flag freezes
   `_process`/`_input` (movement, look, break/place, hotbar keys), `update_mouse_mode()` releases

@@ -65,6 +65,12 @@ first-person viewmodel - what each one owns and the decisions behind it.
 - **GDScript GUI**: `hotbar.gd` / `inventory.gd` `Control` overlays — E toggles the inventory,
   mouse wheel cycles the hotbar, click-to-hold / drag-drop stack movement, hover/selection
   highlights built by pixel-color-keyed texture recolor (no hand-drawn art)
+- **A spent stack comes apart**: when the last item of a hotbar stack is used, the icon is no
+  longer just gone — its own pixels are thrown up and out of the slot and fall away, through the
+  same `scripts/ui_shatter.gd` the hearts use. The icon is sampled down to the 16 units it is
+  actually drawn at before it is shattered, so a shard is the block the hearts break into rather
+  than a piece of a 300-unit render, and each one is drawn in the colour the art had there (the
+  iso render, or the block texture where a shape has no icon)
 - **Health bar**: `healthbar.gd` draws 10 hearts (`heart_full.png` / `heart_half.png` /
   `heart_empty.png`, 9×9) floating above the hotbar's left edge; each heart is its own 9 units
   on the art's 10-unit pitch (the row spans 99 units), placed through `UIScale`'s helpers and
@@ -74,16 +80,18 @@ first-person viewmodel - what each one owns and the decisions behind it.
   heart a state emptier: every red texel the hit removed is read off the art (red in the
   heart's old state, not in its new one — 14 for a full → half drain, 20 for half → empty, 34
   for a heart lost whole). Each of them leaves as a shard of its own, drawn at its own texel
-  size and place — so the frame at the instant of the hit is the frame it was. The hit reads as
-  a pulse from the middle of the heart: every shard is thrown outward from that centre, hardest
-  at the outside, with a little spray in angle and speed per shard, which is what keeps a column
-  of the heart from falling as a column. Gravity then acts on all of them equally: the throw
-  rises, turns over and falls out of the frame, and a shard is gone 1.15 s after the hit. The
-  throw is deliberately much slower than the fall it becomes (26 units/s against 140 units/s² of
-  gravity) — a burst that is faster than the fall reads as a spray dragged along straight lines,
-  which is exactly what a first version of this looked like. The shards are never turned: a shard
-  is one texel, two device pixels across at GUI scale 2, and a square that size covers the same
-  four pixels at every angle it could be drawn at, so a spin could not show.
+  size and place — so the frame at the instant of the hit is the frame it was. The motion lives
+  in `scripts/ui_shatter.gd`, shared with any other surface whose art comes apart. A hit throws
+  the freed red up and out: a lift every shard gets carries the sheet up, and the pulse from the
+  heart's middle fans it outward — only a share of that pulse acts vertically (`PULSE_RISE`), or
+  it would sling the top of the heart up and the bottom down and the lift would be lost in it.
+  Gravity is hard (420 units/s² against a 52.5 units/s lift), so what goes up comes down inside
+  the frame instead of floating, and a shard is gone 0.71–0.95 s after the hit. Angles and
+  speeds are spread half to double per shard and the whole burst lands harder or softer from one
+  hit to the next, which is what stops a heart coming apart from reading as a puff. The shards
+  are never turned: a shard is one texel, two device pixels across at GUI scale 2, and a square
+  that size covers the same four pixels at every angle it could be drawn at, so a spin could not
+  show.
   `probes/probe_heart_shatter.gd` reads the frames back: the red is all still on the screen at
   the instant of the hit, the heart's own rect then holds its new state alone, the red that left
   it is below the row (at most one pixel per texel taken, fewer where the spray overlaps itself,

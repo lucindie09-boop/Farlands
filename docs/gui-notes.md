@@ -118,9 +118,10 @@ first-person viewmodel - what each one owns and the decisions behind it.
   `/clearinv`, `/version`, `/genstats` (what the generation sweep's per-frame check budget is
   spent on — including how many columns were found already built and how many the walk skipped —
   see ARCHITECTURE.md's frustum-loading section for the measured split, and `/genstats reset` to
-  zero it), `/squish [on|off|slice <n>]` (the test toggle that compresses the terrain into one
-  chunk slice and regenerates, for measuring generation without the vertical axis — see
-  [terrain-notes.md](terrain-notes.md)), mouse wheel scrolling for chat history, caret blink, wrapped messages with proper
+  zero it), `/squish [on|off|slice <n>|span <n>]` (the test toggle that compresses the terrain into
+  a kept region of chunk slices — one by default, `span` slices otherwise — and regenerates, for
+  measuring generation without the vertical axis — see [terrain-notes.md](terrain-notes.md)),
+  mouse wheel scrolling for chat history, caret blink, wrapped messages with proper
   input box anchoring
 - **Settings menu**: `settings_menu.gd` with adjustable settings (render — including an MSAA 3D
   Off/2x/4x/8x cycle button that sets the root viewport's `msaa_3d` live — plus lighting,

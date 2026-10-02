@@ -64,6 +64,8 @@ void ChunkManager::set_squish_enabled(bool enabled) { controller->set_squish_ena
 bool ChunkManager::get_squish_enabled() const { return controller->get_squish_enabled(); }
 void ChunkManager::set_squish_slice(int32_t slice) { controller->set_squish_slice(slice); }
 int32_t ChunkManager::get_squish_slice() const { return controller->get_squish_slice(); }
+void ChunkManager::set_squish_span(int32_t span) { controller->set_squish_span(span); }
+int32_t ChunkManager::get_squish_span() const { return controller->get_squish_span(); }
 
 String ChunkManager::get_performance_report() { return controller->get_performance_report(); }
 

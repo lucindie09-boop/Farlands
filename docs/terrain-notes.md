@@ -66,8 +66,9 @@ which file each knob lives in. The description of the generator is in
 
 ## The squish (test toggle, not a world type)
 
-`worldgen/terrain_squish.hpp` compresses the whole vertical relief into **one chunk slice**, so a
-column has a single terrain chunk instead of a band. It exists to answer one question by
+`worldgen/terrain_squish.hpp` compresses the whole vertical relief into a **kept region of chunk
+slices** — one slice by default, so a column has a single terrain chunk instead of a band, and
+`squish_span` widens the region (8 slices = 256 blocks). It exists to answer one question by
 measurement: how much of generation and streaming is the vertical axis? It is deliberately **not**
 superflat — a flat world would be cheap for a different reason (nothing to mesh) and would measure
 the wrong thing.
@@ -98,10 +99,35 @@ the wrong thing.
   run, came up squished. The toggle is a live switch: visible in the inspector, settable from
   GDScript, written nowhere.
 
-Toggle it live with `/squish [on|off|slice <n>]` (the command sets the terrain param and calls
+Toggle it live with `/squish [on|off|slice <n>|span <n>]` (the command sets the terrain param and calls
 `clear_editor_chunks()` so the world regenerates), or from a probe/script via
 `ChunkManager.set_squish_enabled/set_squish_slice` + `clear_editor_chunks()`. Only chunks generated
 afterwards use it; everything else about the world is unchanged.
+
+**The span is the scaling knob.** The map is the one-slice map scaled about the region's centre by
+`squish_span`, so the terrain keeps its shape at every size and the relief amplitude — which decides
+how many chunks a column generates — grows with the knob. That makes a span sweep the cleanest
+reading of what height costs, and both instruments agree: cost tracks **slices per column** almost
+exactly.
+
+| Span (slices tall) | Slices/column | `bin/benchmark` per column | Fill disc, RD 32 | Fill disc, RD 64 |
+|---|---|---|---|---|
+| 1 (the squish) | 1.00 | 0.87 ms | 1.45 s / 157 frames | 3.94 s / 375 frames |
+| 2 | 1.69 | 1.40 ms | 2.24 s / 229 frames | — |
+| 4 | 1.96 | 1.64 ms | 2.32 s / 254 frames | — |
+| 8 (a 256-block world) | 2.68 | 2.20 ms | 3.13 s / 333 frames | 10.25 s / 940 frames |
+| 16 | 4.36 | 4.08 ms | 5.17 s / 524 frames | — |
+| 32 (whole world, stretched) | 7.36 | 6.06 ms | — | — |
+| OFF (normal 1024-tall) | 5.62 | 3.50 ms | 7.28 s / 711 frames | 14.33 s / 1,765 frames |
+
+Read the two cost columns together: the CPU number is per column with no world at all, the fill
+number is the whole scheduler filling a disc of 3,209 columns (RD 32) or 12,853 (RD 64). Both rise
+with slices/column at roughly 0.8–1.1 ms and ~1.1 s per extra slice per column, so the vertical
+axis is priced consistently however you measure it. Two rows are worth staring at: **span 8 is a
+256-block world at 2.68 slices/column and 2.20 ms/column**, less than half the cost of the real
+1024-tall world; and **span 32 costs more than OFF** (7.36 vs 5.62 slices/column), because at full
+span the map is no longer compressing — it is *stretching* the relief past its natural amplitude,
+which is exactly what the OFF comparison exists to catch.
 
 Measured (idle machine, same terrain, same column positions):
 

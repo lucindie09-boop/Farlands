@@ -141,18 +141,24 @@ static BenchResult bench_incremental_meshing(int n) {
 struct SquishBench {
     uint64_t full = 0;
     uint64_t fast = 0;
+    uint64_t slices = 0;  // candidate slices over all columns (the band's size)
     double ms = 0.0;
 };
 
-static SquishBench measure_column_band(bool squished, int columns) {
+// `span` is the squish's kept height in slices; 0 means not squished at all
+// (the normal 1024-tall world), which is the reference every span is read
+// against. The band comes from the generator's own height range, so a span
+// measurement prices exactly the chunks that span would generate.
+static SquishBench measure_column_band(int span, int columns) {
     VoxelEngine::TerrainParams params;
     params.height_base_y = 312.0f;
-    params.squish_enabled = squished;
+    params.squish_enabled = span > 0;
     params.squish_slice = 1;
+    params.squish_span = span > 0 ? span : 1;
     VoxelEngine::ChunkGenerator gen(params);
     VoxelEngine::ChunkData chunk;
     constexpr int32_t kSlices = VoxelEngine::WORLD_HEIGHT_Y / VoxelEngine::CHUNK_HEIGHT;
-    const float pad = squished ? 0.0f : 32.0f;
+    const float pad = params.squish_enabled ? 0.0f : 32.0f;
 
     SquishBench out;
     for (int i = 0; i < columns; ++i) {
@@ -163,6 +169,7 @@ static SquishBench measure_column_band(bool squished, int columns) {
         const float top_h = std::max(range.max_h, range.max_water_h);
         const VoxelEngine::sweep::ChunkBand band =
             VoxelEngine::sweep::band_for_column(land_h, top_h, false, kSlices, pad);
+        out.slices += static_cast<uint64_t>(VoxelEngine::sweep::count(band));
         const auto started = std::chrono::steady_clock::now();
         for (int32_t cy = band.lo; cy <= band.hi; ++cy) {
             if (gen.generate_fast_path(chunk, cx, cy, cz)) {
@@ -178,16 +185,37 @@ static SquishBench measure_column_band(bool squished, int columns) {
     return out;
 }
 
+// The span sweep: how the per-column cost grows with the height the terrain is
+// allowed to occupy. Read against the A/B above, whose span is 1. Printed, not
+// checked, for the same reason as that one.
+static void bench_squish_spans(int n) {
+    printf("  squish spans:   span 0 = the normal 1024-tall world\n");
+    for (int span : {0, 1, 2, 4, 8, 16, 32}) {
+        measure_column_band(span, 16);  // warmup, so the first span is not cold
+        const SquishBench b = measure_column_band(span, n);
+        const double inv = 1.0 / static_cast<double>(n);
+        char label[8];
+        if (span == 0) {
+            std::snprintf(label, sizeof(label), "off");
+        } else {
+            std::snprintf(label, sizeof(label), "%d", span);
+        }
+        printf("    span %-3s    %6.2f slices/col   %8.3f ms/col   %6.2f chunks/col\n",
+               label, static_cast<double>(b.slices) * inv, b.ms * inv,
+               static_cast<double>(b.full + b.fast) * inv);
+    }
+}
+
 // Printed, deliberately NOT added to the results vector: the baseline check
 // flags a metric whose value rose, and this one is better when it rises.
 static void bench_squish_comparison(int n) {
     // Warmup both configurations so neither pays first-call cold caches inside
     // the measured window.
-    measure_column_band(false, 16);
-    measure_column_band(true, 16);
+    measure_column_band(0, 16);
+    measure_column_band(1, 16);
 
-    const SquishBench normal = measure_column_band(false, n);
-    const SquishBench squished = measure_column_band(true, n);
+    const SquishBench normal = measure_column_band(0, n);
+    const SquishBench squished = measure_column_band(1, n);
     const double inv = 1.0 / static_cast<double>(n);
     printf("  squish band:    normal   %.3f ms/column, %.2f chunks (%.2f full, %.2f fast)\n",
            normal.ms * inv, static_cast<double>(normal.full + normal.fast) * inv,
@@ -325,6 +353,7 @@ int main(int argc, char** argv) {
     results.push_back(bench_palette_ops(100));
     results.push_back(bench_light_propagation(1000));
     bench_squish_comparison(200);
+    bench_squish_spans(200);
     results.push_back(bench_memory_usage());
 
     if (!check_mode || !baseline_path) return 0;

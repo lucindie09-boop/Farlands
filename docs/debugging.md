@@ -51,15 +51,19 @@ narrowing; a small top bucket with few pad-empties says the ±32 is not the cost
 
 ## 2b. `/squish` — the one-chunk test toggle
 
-`/squish [on|off|slice <n>]` compresses the whole vertical relief into one chunk
-slice (see [terrain-notes.md](terrain-notes.md#the-squish-test-toggle-not-a-world-type))
-and regenerates, so the vertical half of generation can be taken out of a
+`/squish [on|off|slice <n>|span <n>]` compresses the whole vertical relief into a
+kept region of chunk slices — one by default, `span` slices tall otherwise (8 =
+256 blocks) — for the design and the span sweep see
+[terrain-notes.md](terrain-notes.md#the-squish-test-toggle-not-a-world-type). It
+regenerates, so the vertical half of generation can be taken out of a
 measurement. Three readings together tell the story: `/genstats`' `band shape`
 becomes `1=every column` (one candidate slice per column, `fill columns` 0), the
 `installs` line becomes `inside [land, top]` only with **zero** pad-empties, and
 `probe_gen_stats` prints the same numbers beside the normal world's when run as
 `RD=32 SQUISH=0 VEG=0` / `RD=32 SQUISH=1 VEG=0` (see [probes.md](probes.md)), and
-its `FILL` line is the one that answers "how long to fill". The per-column CPU
+its `FILL` line is the one that answers "how long to fill"; add `SPAN=<n>` to run
+the same fill against a taller kept region (the span sweep in
+[terrain-notes.md](terrain-notes.md)). The per-column CPU
 comparison is `./bin/benchmark.exe`'s `squish band` lines, which need no world
 at all. Two traps: it is a test toggle, not a world — never save a world with it
 on (the properties are bound storage-less precisely so a scene save cannot bake
@@ -131,7 +135,7 @@ fast direction*, so a large improvement is worth re-running before believing too
 ## Before you believe a change is good
 
 ```bash
-scons -j14 && scons test -j14 && ./bin/run_tests.exe   # 594 cases today
+scons -j14 && scons test -j14 && ./bin/run_tests.exe   # 597 cases today
 scons sizecheck && scons portability && scons docscheck
 ./bin/benchmark.exe --check benchmark_baseline.txt
 ```

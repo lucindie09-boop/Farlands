@@ -331,17 +331,18 @@ private:
     static constexpr int32_t kUndergroundFillRadius = 8;
 
     // The slack the band filter adds around a column's content. Zero when
-    // squished: the squished height range is already pinned to its one slice
+    // squished: the squished height range is already pinned to the kept region
     // (worldgen/terrain_squish.hpp), and the usual one-slice pad would put the
-    // slices above and below back — three generated where one holds everything.
+    // slices just above and below that region back — generated to hold nothing.
     [[nodiscard]] float band_pad() const {
         return terrain_params.squish_enabled ? 0.0f : 32.0f;
     }
 
     // Whether a column generates its FULL column (band + underground fill).
-    // Never when squished: the terrain occupies a single slice, and filling
-    // from the surface to the world floor under the player would restore
-    // exactly the vertical work the squish exists to take out of the test.
+    // Never when squished: the terrain occupies the kept region only, and
+    // filling from the surface to the world floor under the player would
+    // restore exactly the vertical work the squish exists to take out of the
+    // test (and with the kept region low, that is most of the world).
     [[nodiscard]] bool column_fill_enabled(int32_t dx, int32_t dz) const {
         return !terrain_params.squish_enabled &&
                std::abs(dx) <= kUndergroundFillRadius &&

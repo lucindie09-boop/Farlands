@@ -308,6 +308,7 @@ ClassDB::bind_method(D_METHOD("get_sun_direction"), &ChunkManager::get_sun_direc
     // probe run labelled "off" was actually the squished world.
     BIND_PROP_VOLATILE(Variant::BOOL, squish_enabled,       "enabled");
     BIND_PROP_VOLATILE(Variant::INT,  squish_slice,         "slice");
+    BIND_PROP_VOLATILE(Variant::INT,  squish_span,          "slices");
     BIND_PROP(Variant::BOOL,    editor_enabled,            "enabled");
     BIND_PROP(Variant::INT,     editor_render_distance,    "distance");
 BIND_PROP(Variant::BOOL, smooth_lighting, "enabled");

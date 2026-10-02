@@ -89,13 +89,16 @@ public:
     void set_biome_size(float size);
     float get_biome_size() const;
 
-    // The squish test toggle: one chunk slice of terrain, for measuring the
-    // horizontal half of generation without the vertical half. See
-    // worldgen/terrain_squish.hpp; only regenerating chunks pick it up.
+    // The squish test toggle: a kept region of terrain one chunk slice tall by
+    // default, for measuring the horizontal half of generation without the
+    // vertical half. See worldgen/terrain_squish.hpp; only regenerating chunks
+    // pick it up.
     void set_squish_enabled(bool enabled);
     bool get_squish_enabled() const;
     void set_squish_slice(int32_t slice);
     int32_t get_squish_slice() const;
+    void set_squish_span(int32_t span);
+    int32_t get_squish_span() const;
 
     godot::String get_performance_report();
 

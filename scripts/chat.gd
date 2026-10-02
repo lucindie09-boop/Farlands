@@ -411,7 +411,7 @@ func _get_command_param_hint(cmd: String, arg_count: int) -> String:
 			return ""
 		"/squish":
 			if arg_count == 1:
-				return "[on|off|slice <n>]"
+				return "[on|off|slice <n>|span <n>]"
 			if arg_count == 2:
 				return "<n>"
 			return ""
@@ -768,11 +768,12 @@ func _run_command(raw: String):
 				stamp = engine.engine_build_stamp()
 			_add_message("Farlands - Godot 4 + C++ GDExtension (%s)" % stamp, COLOR_SYSTEM)
 		"/squish":
-			# Test toggle: compress the whole vertical relief into one chunk slice, so
-			# a column has a single terrain chunk instead of a band of them. The point
-			# is measuring horizontal generation without the vertical axis (see
-			# worldgen/terrain_squish.hpp) -- it is not a world type, and it is not
-			# persisted. The world is regenerated so the change is visible at once.
+			# Test toggle: compress the whole vertical relief into a kept region of
+			# chunk slices (one by default), so a column has that region instead of a
+			# full-height band of them. The point is measuring horizontal generation
+			# without the vertical axis (see worldgen/terrain_squish.hpp) -- it is not
+			# a world type, and it is not persisted. The world is regenerated so the
+			# change is visible at once.
 			var chunk_manager := get_node_or_null("/root/Main/ChunkManager")
 			if chunk_manager == null:
 				_add_message("World not available.", COLOR_ERROR)
@@ -784,6 +785,18 @@ func _run_command(raw: String):
 					return
 				chunk_manager.set_squish_slice(slice)
 				_add_message("Squish slice %d: terrain compressed into y %d-%d. Regenerating." % [slice, slice * 32, slice * 32 + 31], COLOR_SUCCESS)
+			elif parts.size() >= 3 and parts[1].to_lower() == "span":
+				# The kept region's height in slices: 1 is the one-chunk squish, 8 is
+				# a 256-block world. Clamped here the same way the engine clamps it,
+				# so the message names the span that will actually generate.
+				var span := parts[2].to_int()
+				if span < 1 or span > 32:
+					_add_message("Span must be 1-32 slices (1 = one chunk, 8 = 256 blocks).", COLOR_ERROR)
+					return
+				chunk_manager.set_squish_span(span)
+				var from_slice: int = chunk_manager.get_squish_slice()
+				var effective: int = mini(span, 32 - from_slice)
+				_add_message("Squish span %d slices: terrain compressed into y %d-%d. Regenerating." % [effective, from_slice * 32, from_slice * 32 + effective * 32 - 1], COLOR_SUCCESS)
 			else:
 				var on: bool = not chunk_manager.get_squish_enabled()
 				if parts.size() >= 2:
@@ -793,11 +806,13 @@ func _run_command(raw: String):
 						"off":
 							on = false
 						_:
-							_add_message("Usage: /squish [on|off|slice <n>]", COLOR_ERROR)
+							_add_message("Usage: /squish [on|off|slice <n>|span <n>]", COLOR_ERROR)
 							return
 				chunk_manager.set_squish_enabled(on)
 				if on:
-					_add_message("Squish ON: terrain compressed into one chunk slice. Regenerating.", COLOR_SUCCESS)
+					var bottom: int = chunk_manager.get_squish_slice() * 32
+					var span: int = chunk_manager.get_squish_span()
+					_add_message("Squish ON: terrain compressed into %d slice(s), y %d-%d. Regenerating." % [span, bottom, bottom + span * 32 - 1], COLOR_SUCCESS)
 				else:
 					_add_message("Squish OFF: normal terrain. Regenerating.", COLOR_SUCCESS)
 			chunk_manager.clear_editor_chunks()

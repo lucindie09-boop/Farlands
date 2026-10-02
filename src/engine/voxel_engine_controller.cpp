@@ -347,6 +347,17 @@ int32_t VoxelEngineController::get_squish_slice() const {
     return world_updater.get_terrain_params().squish_slice;
 }
 
+void VoxelEngineController::set_squish_span(int32_t span) {
+    constexpr int32_t kWorldChunkSlices = WORLD_HEIGHT_Y / CHUNK_HEIGHT;
+    TerrainParams params = world_updater.get_terrain_params();
+    params.squish_span = std::max(1, std::min(span, kWorldChunkSlices));
+    world_updater.set_terrain_params(params);
+}
+
+int32_t VoxelEngineController::get_squish_span() const {
+    return world_updater.get_terrain_params().squish_span;
+}
+
 void VoxelEngineController::set_vegetation_enabled(bool enabled) { vegetation_enabled = enabled; world_updater.set_vegetation_enabled(enabled); }
 bool VoxelEngineController::is_vegetation_enabled() const { return vegetation_enabled; }
 

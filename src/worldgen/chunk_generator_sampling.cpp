@@ -247,12 +247,14 @@ BiomeAmplification ChunkGenerator::blend_amplification_at(int32_t world_x, int32
 }
 
 // Per-column 3D-shaping envelope (declared in chunk_generator.hpp). The squish
-// branch replaces the biome's envelope with one scaled to the slice: strength
-// and reach both shrink by kBandOuter / SURFACE_BAND_OUTER, so a squished
+// branch replaces the biome's envelope with one scaled to the kept region:
+// strength and reach shrink by band_outer / SURFACE_BAND_OUTER, so a squished
 // surface keeps the proportions of the real one (how far the displacement ramps
-// in, how far it can reach) at about a ninth of the size. The reach is what
-// matters for the scheduler: at kBandOuter no surface can leave its slice, so
-// the band filter's one-slice window is exact rather than a guess.
+// in, how far it can reach) at the region's size. Both the envelope and the
+// kept region grow with squish::span, so the shrink factor only reaches full
+// scale at span 9-10; what matters for the scheduler is that the reach is the
+// band_outer the height range was padded by, so no surface can leave the kept
+// region and the band filter's window is exact rather than a guess.
 ChunkGenerator::ShapeEnvelope ChunkGenerator::shape_envelope(float weirdness,
                                                             float weirdness_size) const {
     const float size = std::max(weirdness_size, 0.0f);
@@ -260,9 +262,10 @@ ChunkGenerator::ShapeEnvelope ChunkGenerator::shape_envelope(float weirdness,
     e.strength = lerp(params.shape_strength_min, params.shape_strength_max,
                       clamp01(weirdness)) * size;
     if (params.squish_enabled) {
-        e.strength *= squish::kBandOuter / SURFACE_BAND_OUTER;
-        e.band_inner = squish::kBandInner;
-        e.band_outer = squish::kBandOuter;
+        const float outer = squish::band_outer(params);
+        e.strength *= outer / SURFACE_BAND_OUTER;
+        e.band_inner = squish::band_inner(params);
+        e.band_outer = outer;
         return e;
     }
     e.band_inner = SURFACE_BAND_INNER * size;

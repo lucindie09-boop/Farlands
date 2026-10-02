@@ -77,7 +77,7 @@ and a wildcard like `src/mesh/mesh_manager*.cpp` means the family a split produc
 | Block icons | `block_icon_renderer.gd` | Isometric 300x300 icons built from each shape's selection boxes, pre-rendered and cached; `/testicons` |
 | Health, death, chat | `healthbar.gd`, `death_screen.gd`, `chat.gd` | 10 hearts, the respawn overlay, autocomplete and the command set |
 | Settings, Skin Maker, Block Maker | `settings_menu.gd` | Render/lighting/crosshair/controls pages, both in-game editors, one share code per category - [notes](docs/gui-notes.md) |
-| Testing & CI | `tests/`, `tools/`, `.github/workflows/build.yml` | 594 cases / 347,656 assertions, four static gates, the soak and fuzz jobs - [notes](docs/testing.md), [contributing](CONTRIBUTING.md) |
+| Testing & CI | `tests/`, `tools/`, `.github/workflows/build.yml` | 597 cases / 347,941 assertions, four static gates, the soak and fuzz jobs - [notes](docs/testing.md), [contributing](CONTRIBUTING.md) |
 | Shader effects | `shader_overlay.gd` + `data/shaders.json` | The effect stack (Hand Drawn, CRT Screen, Phosphor Trail, filters, camera and vertex effects), built from the registry - [rendering](docs/rendering-notes.md) |
 | Liquid texture lab | `liquid_texture_lab.gd`, `liquid_animator.gd` | Generates and animates the water/lava/acid sprites instead of shipping them (O opens the lab) - [rendering](docs/rendering-notes.md) |
 | Texture packs | `src/render/texture_pack_manager.hpp`, `tools/pack_converter.py` | Per-block texture overrides loaded from `user://packs/` |
@@ -339,7 +339,7 @@ vocabulary, [docs/debugging.md](docs/debugging.md) for the instruments,
 rejected. [AGENTS.md](AGENTS.md) is the engineering record: the constraints and the notes that
 cut across systems.
 
-The project has **594 test cases / 347,656 assertions** across the 91 `.cpp` files in `tests/`
+The project has **597 test cases / 347,941 assertions** across the 91 `.cpp` files in `tests/`
 (89 declaring cases, plus the doctest entry point and a stub TU), including 27 tests in
 `test_concurrency.cpp` (shard locking, deadlock prevention, PaletteStorage, cross-chunk writers,
 thread-pool work stealing).

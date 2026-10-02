@@ -15,9 +15,12 @@ extends SceneTree
 ##   RD=<n>     render distance to boot at (default: whatever the game's
 ##              settings hold). The win is radius-dependent, so measure more
 ##              than one.
-##   SQUISH=1   compress the terrain into one chunk slice before booting, so the
-##              vertical half of generation is gone and the same flight can be
-##              diffed against the normal world.
+##   SQUISH=1   compress the terrain into a kept region of slices before
+##              booting, so the vertical half of generation is gone and the same
+##              fill and flight can be diffed against the normal world.
+##   SPAN=<n>   height of that kept region in slices (default 1 = one chunk,
+##              8 = 256 blocks, 32 = the whole world). The relief scales with
+##              it, so this is the "how much does height cost" knob.
 ##   VEG=0      vegetation off. Use it for BOTH sides of the comparison: trees
 ##              are vertical content the squish deliberately removes.
 ## Run the pair as:  VEG=0 ...     and   SQUISH=1 VEG=0 ...
@@ -124,11 +127,16 @@ func _run() -> void:
 
 	# The squish A/B: set the toggle and regenerate before anything is measured,
 	# so the boot below is already the squished world's boot.
+	# Span first: it sizes the region the toggle compresses into.
+	var span_env := OS.get_environment("SPAN")
+	if span_env != "":
+		cm.set_squish_span(int(span_env))
 	var squish_env := OS.get_environment("SQUISH")
 	if squish_env != "":
 		cm.set_squish_enabled(squish_env == "1" or squish_env.to_lower() == "on")
 		cm.clear_editor_chunks()
-		print("PROBE squish=%s slice=%d" % [str(cm.get_squish_enabled()), int(cm.get_squish_slice())])
+	print("PROBE squish=%s slice=%d span=%d" % [
+		str(cm.get_squish_enabled()), int(cm.get_squish_slice()), int(cm.get_squish_span())])
 	if OS.get_environment("VEG") == "0":
 		cm.set_vegetation_enabled(false)
 		print("PROBE vegetation disabled")

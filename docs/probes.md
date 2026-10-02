@@ -105,12 +105,15 @@ comment, with the claim each one backs:
 `probe_gen_stats.gd` is the one with switches worth knowing, and the one whose
 reading changed. `RD=<n>` boots at another render distance (applied after the
 settings menu has loaded, or the saved config overwrites it), `SQUISH=1`
-compresses the terrain into one chunk slice, `VEG=0` turns vegetation off. Its
-`FILL` line is the fill measurement — seconds and frames until the sweep reports
+compresses the terrain into a kept region of chunk slices, `SPAN=<n>` sizes that
+region (1 = one chunk, 8 = a 256-block world: the height-cost sweep in
+[terrain-notes.md](terrain-notes.md)), `VEG=0` turns vegetation off. Its `FILL`
+line is the fill measurement — seconds and frames until the sweep reports
 nothing left to do and generations, installs and rebuilds have been quiet for 30
-frames — and that, not a fixed frame window, is what the squish A/B in
-[terrain-notes.md](terrain-notes.md) compares: a fixed window once made the
-squish look flat at RD 32 by pricing the normal world's unfinished backlog.
+frames — and that, not a fixed frame window, is
+what the squish A/B in [terrain-notes.md](terrain-notes.md) compares: a fixed
+window once made the squish look flat at RD 32 by pricing the normal world's
+unfinished backlog.
 
 The rest of the directory is historical or subject-specific; the header comment
 in each one says which.

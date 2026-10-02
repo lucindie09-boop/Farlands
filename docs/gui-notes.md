@@ -77,13 +77,30 @@ first-person viewmodel - what each one owns and the decisions behind it.
 - **Debris lands instead of falling out of frame.** `burst()` takes an optional `bounds`: a box, in
   the same space as the shard's origin, that the shards bounce off and come to rest on. Left empty
   they fall and are simply never seen again, which reads as the debris thinning away rather than
-  as it landing. **Only the hearts pass no box**: the row floats at the top of the screen with
-  nothing under it, so falling out of frame is the right end for them. The boxes:
+  as it landing. **Only the hearts' throw has no box** — see the damage note below, they do have a
+  floor, on the hotbar's top edge. The boxes:
   - an inventory slot's debris stays in **its own slot rect**, in both inventory grids
   - a **hotbar** slot's debris stays in **its own slot rect** too
   - a crafting cell's debris lands on **the whole grid it is drawn in** — the 2×2 in `inventory.gd`,
     the 3×3 in `crafting_table_menu.gd` — via a `_craft_grid_bounds()` that merges the input cells
   - a crafting **output preview** is outside its grid, so its own cell is its floor
+
+  The hearts' floor is **the hotbar's top edge**, passed as a full-width zero-height line
+  (`Rect2(0, hotbar_top, size.x, 0.0)`) — `healthbar.gd` is a full-rect `Control`, so it spans the
+  screen, and the shards rest with their bottom on the bar the hearts are measured against. A
+  zero-height rect still collides: the guard is on `bounds.size == Vector2.ZERO`, and this one's
+  width is the screen's.
+
+- **Damage impulse scales with how much was taken.** `healthbar.gd` passes
+  `strength = roll_strength()` and `intensity = maxi(old_health - new_health, 1)`, both counts in
+  half-hearts. The shatter is tuned so that what it throws **is** what one half-heart of damage
+  throws; a second half-heart doubles it, a whole heart doubles it again. One `strength` is still
+  shared across all the hearts in one hit, so a big hit throws every heart's red the same way
+  rather than each heart at its own strength.
+  The damage rides on `intensity`, **not** on `strength`, and the distinction is the whole point:
+  `strength` multiplies only the throw, `intensity` multiplies the throw **and** the life. Folding
+  the damage into `strength` scaled the arc while leaving the debris vanishing at the same rate as
+  a nick, so a big hit threw further and hung around no longer than a scratch.
 
   **Debris draws UNDER the stack following the cursor.** `_shards.draw(self)` sits before the
   held-stack block in both `inventory.gd` and `crafting_table_menu.gd`. The stack is the thing

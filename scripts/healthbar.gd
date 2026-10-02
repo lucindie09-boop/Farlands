@@ -108,13 +108,29 @@ func _is_red(px: Color) -> bool:
 
 ## A hit's red: every texel that was red in the heart's old state and is not in
 ## its new one leaves as a shard of its own, from the texel it was drawn at.
+##
+## The floor is the hotbar's top edge. The hearts are drawn just above it, so
+## there is nothing else for their red to reach: without this the shards fell the
+## two-unit gap and off the bottom of the screen, which read as the damage
+## dissolving rather than as it landing on the bar it was measured against.
 func _shatter(old_health: int, new_health: int) -> void:
 	if not _hotbar_texture or _red_masks.is_empty():
 		return
 	var ui_scale = UIScale.value
 	# One strength for the whole hit, so a hit that takes more than one heart
-	# throws each heart's red the same way.
+	# throws each heart's red the same way -- and separately, how hard the hit was.
+	# The damage rides on `intensity` rather than on `strength` for a reason:
+	# `strength` only multiplies the throw, while `intensity` multiplies the throw
+	# AND the life, so a bigger hit not only throws further but hangs around
+	# longer. Folding the damage into `strength` would have scaled the arc and
+	# left the debris vanishing on the floor at the same rate as a nick.
 	var strength := UIShatter.roll_strength()
+	var intensity := maxi(old_health - new_health, 1)
+	var hotbar_top = UIScale.edge_origin(size.y, _hotbar_texture.get_height(), 0.0)
+	# Full width, and no height: a line, not a box. This node is full-rect, so it
+	# spans the screen, and the shards rest with their bottom on the hotbar's top
+	# edge wherever they land across it.
+	var floor := Rect2(0.0, hotbar_top, size.x, 0.0)
 	for i in range(HEART_COUNT):
 		var before = _heart_state(old_health - i * 2)
 		var after = _heart_state(new_health - i * 2)
@@ -122,7 +138,7 @@ func _shatter(old_health: int, new_health: int) -> void:
 			continue
 		var lost := UIShatter.freed(_red_masks[before], _red_masks[after])
 		_shards.burst(lost, Vector2i(HEART_TEXELS, HEART_TEXELS),
-			_heart_origin(i, ui_scale), ui_scale, SHATTER_RED, strength)
+			_heart_origin(i, ui_scale), ui_scale, SHATTER_RED, strength, PackedColorArray(), intensity, floor)
 
 func _heart_state(half_hearts_left: int) -> int:
 	if half_hearts_left >= 2:

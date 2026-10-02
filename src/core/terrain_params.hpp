@@ -102,6 +102,23 @@ struct TerrainParams {
     // Biome size multiplier (1.0 = default, >1 = larger biomes)
     float biome_size = 1.0f;
 
+    // --- The squish (TEST ONLY, never persisted in world.meta) --------------
+    // Compresses the world's whole vertical relief into one chunk slice (see
+    // worldgen/terrain_squish.hpp), so a column has a single terrain chunk and
+    // the vertical axis can be taken out of a generation measurement. Not a
+    // world type: horizontal shape is preserved deliberately, and the fields
+    // below are absent from the world.meta round-trip by design (a squished
+    // world must not be reloadable as if it were real terrain).
+    bool squish_enabled = false;
+    // Slice (absolute chunk y) the terrain is compressed into. Default 1 keeps
+    // the world floor out of the picture: slice 0 holds the bedrock layer the
+    // real world generates down there.
+    int32_t squish_slice = 1;
+    // Relief, in blocks, at which the tanh squash has saturated. Roughly the
+    // scale of typical relief, so typical terrain keeps its shape and only the
+    // extremes compress.
+    float squish_softness = 300.0f;
+
     // Loads macro-surface tuning from JSON. Missing file or keys keep the
     // existing values; returns false only if the file could not load.
     bool load_from_json(const godot::String& json_path) noexcept;

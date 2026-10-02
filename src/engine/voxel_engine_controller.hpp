@@ -146,6 +146,13 @@ public:
     float get_sea_level() const;
     void set_biome_size(float size);
     float get_biome_size() const;
+    // The squish test toggle (worldgen/terrain_squish.hpp): compress the whole
+    // vertical relief into one chunk slice. Only regenerating chunks pick it up,
+    // so a caller comparing worlds should follow it with clear_editor_chunks().
+    void set_squish_enabled(bool enabled);
+    bool get_squish_enabled() const;
+    void set_squish_slice(int32_t slice);
+    int32_t get_squish_slice() const;
     void set_auto_update(bool enabled);
     bool get_auto_update() const;
     void set_editor_enabled(bool enabled);

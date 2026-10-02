@@ -3,6 +3,9 @@
 #include "lighting/block_light_region.hpp"
 #include "core/chunk_data.hpp"
 #include "core/block_types.hpp"
+#include "world/sweep_band.hpp"
+#include <algorithm>
+#include <chrono>
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
@@ -120,6 +123,79 @@ static BenchResult bench_incremental_meshing(int n) {
            avg, perf.get_min(VoxelEngine::TimerID::BuildMesh),
            perf.get_max(VoxelEngine::TimerID::BuildMesh), n);
     return {"incremental_mesh_avg_ms", avg, "ms"};
+}
+
+// The squish A/B (worldgen/terrain_squish.hpp), done where nothing else can
+// confound it: for `columns` columns, walk exactly the work a column costs — its
+// band of slices, each one either the uniform fast path (all air / all bedrock /
+// all solid rock) or a full generate_chunk — and report ms and chunks per column,
+// split by kind. The unsquished band is the sweep's real window (pad 32, the
+// constants in world/sweep_band.hpp); the squished band is the one slice it
+// compresses into (pad 0, as WorldUpdater::band_pad() builds it). Same terrain,
+// same column positions, same process: the only difference is the vertical axis.
+// The two shipped macro knobs (data/terrain_config.json: height_base_y 312, sea
+// level 200) are set explicitly so the terrain sits well above the cave band and
+// the chunks under its surface take the solid fast path, as they do in the game;
+// with the struct's default base the terrain would sit in the cave band and the
+// normal side would full-generate a configuration the game never runs.
+struct SquishBench {
+    uint64_t full = 0;
+    uint64_t fast = 0;
+    double ms = 0.0;
+};
+
+static SquishBench measure_column_band(bool squished, int columns) {
+    VoxelEngine::TerrainParams params;
+    params.height_base_y = 312.0f;
+    params.squish_enabled = squished;
+    params.squish_slice = 1;
+    VoxelEngine::ChunkGenerator gen(params);
+    VoxelEngine::ChunkData chunk;
+    constexpr int32_t kSlices = VoxelEngine::WORLD_HEIGHT_Y / VoxelEngine::CHUNK_HEIGHT;
+    const float pad = squished ? 0.0f : 32.0f;
+
+    SquishBench out;
+    for (int i = 0; i < columns; ++i) {
+        const int32_t cx = i * 7 + 3;
+        const int32_t cz = i * 5 + 1;
+        const VoxelEngine::ChunkGenerator::HeightRange range = gen.get_chunk_height_range(cx, cz);
+        const float land_h = range.min_h;
+        const float top_h = std::max(range.max_h, range.max_water_h);
+        const VoxelEngine::sweep::ChunkBand band =
+            VoxelEngine::sweep::band_for_column(land_h, top_h, false, kSlices, pad);
+        const auto started = std::chrono::steady_clock::now();
+        for (int32_t cy = band.lo; cy <= band.hi; ++cy) {
+            if (gen.generate_fast_path(chunk, cx, cy, cz)) {
+                ++out.fast;
+                continue;
+            }
+            ++out.full;
+            gen.generate_chunk(chunk, cx, cy, cz, nullptr, false);
+        }
+        out.ms += std::chrono::duration<double, std::milli>(
+                      std::chrono::steady_clock::now() - started).count();
+    }
+    return out;
+}
+
+// Printed, deliberately NOT added to the results vector: the baseline check
+// flags a metric whose value rose, and this one is better when it rises.
+static void bench_squish_comparison(int n) {
+    // Warmup both configurations so neither pays first-call cold caches inside
+    // the measured window.
+    measure_column_band(false, 16);
+    measure_column_band(true, 16);
+
+    const SquishBench normal = measure_column_band(false, n);
+    const SquishBench squished = measure_column_band(true, n);
+    const double inv = 1.0 / static_cast<double>(n);
+    printf("  squish band:    normal   %.3f ms/column, %.2f chunks (%.2f full, %.2f fast)\n",
+           normal.ms * inv, static_cast<double>(normal.full + normal.fast) * inv,
+           static_cast<double>(normal.full) * inv, static_cast<double>(normal.fast) * inv);
+    printf("                  squished %.3f ms/column, %.2f chunks (%.2f full, %.2f fast)  speedup=%.2fx\n",
+           squished.ms * inv, static_cast<double>(squished.full + squished.fast) * inv,
+           static_cast<double>(squished.full) * inv, static_cast<double>(squished.fast) * inv,
+           (normal.ms > 0.0 ? normal.ms / squished.ms : 0.0));
 }
 
 static BenchResult bench_palette_ops(int n) {
@@ -248,6 +324,7 @@ int main(int argc, char** argv) {
     results.push_back(bench_incremental_meshing(1000));
     results.push_back(bench_palette_ops(100));
     results.push_back(bench_light_propagation(1000));
+    bench_squish_comparison(200);
     results.push_back(bench_memory_usage());
 
     if (!check_mode || !baseline_path) return 0;

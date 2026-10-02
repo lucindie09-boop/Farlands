@@ -205,13 +205,15 @@ void WorldUpdater::update_generation(bool is_editor, int32_t active_render_dista
             ColumnSurfaceBounds surface = get_column_surface_bounds(cx, cz);
             // Same window the list was built from: full column (band +
             // underground fill) within kUndergroundFillRadius of the player,
-            // near-surface band only beyond it.
+            // near-surface band only beyond it, and the squish's narrower pad
+            // when the test toggle is on (band_pad()).
             const bool fill_column = candidate.fill_column;
-            if (static_cast<float>(chunk_bottom) > surface.top_h + 32.0f) {
+            const float pad = band_pad();
+            if (static_cast<float>(chunk_bottom) > surface.top_h + pad) {
                 ++generation_stats.reject_above;
                 continue;
             }
-            if (!fill_column && static_cast<float>(chunk_top) < surface.land_h - 32.0f) {
+            if (!fill_column && static_cast<float>(chunk_top) < surface.land_h - pad) {
                 ++generation_stats.reject_below;
                 continue;
             }

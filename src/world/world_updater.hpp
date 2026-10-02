@@ -330,6 +330,24 @@ private:
     // see, so they keep the cheap band-only window.
     static constexpr int32_t kUndergroundFillRadius = 8;
 
+    // The slack the band filter adds around a column's content. Zero when
+    // squished: the squished height range is already pinned to its one slice
+    // (worldgen/terrain_squish.hpp), and the usual one-slice pad would put the
+    // slices above and below back — three generated where one holds everything.
+    [[nodiscard]] float band_pad() const {
+        return terrain_params.squish_enabled ? 0.0f : 32.0f;
+    }
+
+    // Whether a column generates its FULL column (band + underground fill).
+    // Never when squished: the terrain occupies a single slice, and filling
+    // from the surface to the world floor under the player would restore
+    // exactly the vertical work the squish exists to take out of the test.
+    [[nodiscard]] bool column_fill_enabled(int32_t dx, int32_t dz) const {
+        return !terrain_params.squish_enabled &&
+               std::abs(dx) <= kUndergroundFillRadius &&
+               std::abs(dz) <= kUndergroundFillRadius;
+    }
+
     // Off-thread producer of the per-column content bounds the band frontier
     // consumes. See column_prefetch.hpp: the bounds are ~181 us of pure
     // computation each and 70% of the sweep's wall time lived in them, so they

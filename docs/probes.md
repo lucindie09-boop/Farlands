@@ -73,7 +73,7 @@ comment, with the claim each one backs:
 | `probe_flow.gd` | Poured water really flows: a radius-7 diamond whose stored depth equals its distance from the source, it settles, a shaft under it fills |
 | `probe_lava_acid.gd` | Lava and acid blocks, buckets and floods through the real use path, plus every frame the animator pushes landing in the array |
 | `probe_stream_bench.gd` | Streaming as the player feels it: time from a 2048-block teleport until the 3×3 columns have ground, a 40 s flight's holes, and what standing still costs |
-| `probe_gen_stats.gd` | What the generation sweep spends its per-frame check budget on, per rejection reason, plus the band-size histogram and the install classification that prices the ±32-block pad |
+| `probe_gen_stats.gd` | What the generation sweep spends its per-frame check budget on, per rejection reason, plus the band-size histogram and the install classification that prices the ±32-block pad. Prints per-phase wall time, chunks/s and the fill line; takes `RD`, `SQUISH` and `VEG` (see below) |
 | `probe_frustum.gd` | The plane convention: Godot's frustum normals point outward, ours assume inward, and the engine's own test agrees |
 | `probe_bend_cull.gd` | The renderer, not the geometry: primitives and draw calls with the culling compensation off and on |
 | `probe_bend_geo.gd` | World Bend's displacement in pixels, against the include's own arithmetic re-run in GDScript |
@@ -101,6 +101,16 @@ comment, with the claim each one backs:
 | `probe_bindings.gd` | The GDExtension binding surface GDScript sees |
 | `probe_bucket.gd` | Bucket fill and pour through the real use path |
 | `probe_registry_digest.gd` | A digest of the loaded registry, for comparing two builds |
+
+`probe_gen_stats.gd` is the one with switches worth knowing, and the one whose
+reading changed. `RD=<n>` boots at another render distance (applied after the
+settings menu has loaded, or the saved config overwrites it), `SQUISH=1`
+compresses the terrain into one chunk slice, `VEG=0` turns vegetation off. Its
+`FILL` line is the fill measurement — seconds and frames until the sweep reports
+nothing left to do and generations, installs and rebuilds have been quiet for 30
+frames — and that, not a fixed frame window, is what the squish A/B in
+[terrain-notes.md](terrain-notes.md) compares: a fixed window once made the
+squish look flat at RD 32 by pricing the normal world's unfinished backlog.
 
 The rest of the directory is historical or subject-specific; the header comment
 in each one says which.

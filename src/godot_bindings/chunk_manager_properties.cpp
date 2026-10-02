@@ -60,6 +60,11 @@ float ChunkManager::get_sea_level() const { return controller->get_sea_level(); 
 void ChunkManager::set_biome_size(float size) { controller->set_biome_size(size); }
 float ChunkManager::get_biome_size() const { return controller->get_biome_size(); }
 
+void ChunkManager::set_squish_enabled(bool enabled) { controller->set_squish_enabled(enabled); }
+bool ChunkManager::get_squish_enabled() const { return controller->get_squish_enabled(); }
+void ChunkManager::set_squish_slice(int32_t slice) { controller->set_squish_slice(slice); }
+int32_t ChunkManager::get_squish_slice() const { return controller->get_squish_slice(); }
+
 String ChunkManager::get_performance_report() { return controller->get_performance_report(); }
 
 void ChunkManager::set_smooth_lighting(bool enabled) { controller->set_smooth_lighting(enabled); }

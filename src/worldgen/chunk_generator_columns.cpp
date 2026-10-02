@@ -102,6 +102,11 @@ ChunkGenerator::ColumnSample ChunkGenerator::sample_column_with_climate(
     // blending is enabled). Oceans are the LAST stage below.
     const BiomeType land_biome = biome_from_climate(temperature, humidity, cont);
     const BiomeAmplification amp = amplification_for(land_biome, blended);
+    // Amplify in RAW space first: the ocean decision below compares against the
+    // configured sea level there, and the squish map is monotone about exactly
+    // that level (its centre is sea level), so deciding before or after mapping
+    // is the same call. Mapping last also keeps the bedrock floor clamp in the
+    // units the bedrock layer is actually placed in.
     float height = params.sea_level + (land_height - params.sea_level) * amp.height;
     height = std::max(static_cast<float>(params.bedrock_height) + 1.0f, height);
 
@@ -114,7 +119,15 @@ ChunkGenerator::ColumnSample ChunkGenerator::sample_column_with_climate(
     // basins drop steeply.
     const bool ocean = height < params.sea_level;
     const BiomeType biome = ocean ? BiomeType::Ocean : land_biome;
-    const float water_level = ocean ? params.sea_level : -1.0f;
+    // Water tops out at the sea level the terrain was generated against. In a
+    // squished world that is the slice centre, not the configured level, and
+    // reading params.sea_level here would drown every squished column under
+    // 150 blocks of water.
+    const float water_level = ocean ? squish::sea_level(params) : -1.0f;
+
+    // The one place the macro height becomes the terrain's height: the squish,
+    // identity when the toggle is off.
+    height = squish::height(params, height);
 
     return ColumnSample{biome, height, water_level, false, saved_land_height, cont, temperature, humidity};
 }

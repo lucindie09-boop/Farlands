@@ -49,11 +49,20 @@ struct ChunkBand {
 }
 
 // The filter itself, in one place so the list and the walk cannot disagree.
-[[nodiscard]] inline bool chunk_in_band(int32_t cy, float land_h, float top_h, bool fill_column) {
+// `pad` is the slack the caller wants around the column's content. The default
+// 32 (one slice) is what the real world's band uses: its height range is padded
+// by the density margin, but the band deliberately reaches one slice past it so
+// a chunk whose only content is the lip of a cliff over the estimate still
+// generates. A squished world passes 0: its height range is already pinned to
+// exactly one slice (see worldgen/terrain_squish.hpp), and the default pad
+// would accept the slices above and below, generating three where the one
+// holds everything.
+[[nodiscard]] inline bool chunk_in_band(int32_t cy, float land_h, float top_h, bool fill_column,
+                                        float pad = 32.0f) {
     const float chunk_bottom = static_cast<float>(cy * CHUNK_HEIGHT);
     const float chunk_top    = static_cast<float>((cy + 1) * CHUNK_HEIGHT);
-    if (chunk_bottom > top_h + 32.0f) return false;
-    if (!fill_column && chunk_top < land_h - 32.0f) return false;
+    if (chunk_bottom > top_h + pad) return false;
+    if (!fill_column && chunk_top < land_h - pad) return false;
     return true;
 }
 
@@ -64,10 +73,10 @@ struct ChunkBand {
 // wall crossing it got skipped and left an invisible-solid hole); 32 comparisons
 // per column is nothing next to the walk it replaces.
 [[nodiscard]] inline ChunkBand band_for_column(float land_h, float top_h, bool fill_column,
-                                              int32_t chunk_slices) {
+                                              int32_t chunk_slices, float pad = 32.0f) {
     ChunkBand band;
     for (int32_t cy = 0; cy < chunk_slices; ++cy) {
-        if (!chunk_in_band(cy, land_h, top_h, fill_column)) continue;
+        if (!chunk_in_band(cy, land_h, top_h, fill_column, pad)) continue;
         if (empty(band)) band.lo = cy;
         band.hi = cy;
     }

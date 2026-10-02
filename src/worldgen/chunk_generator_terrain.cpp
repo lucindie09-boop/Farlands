@@ -91,8 +91,23 @@ ChunkGenerator::HeightRange ChunkGenerator::get_chunk_height_range(int32_t chunk
             }
         }
     }
-    const float max_water_h = any_ocean_node ? params.sea_level : -1.0f;
+    const float max_water_h = any_ocean_node ? squish::sea_level(params) : -1.0f;
     const float margin = density_margin();
+    if (params.squish_enabled) {
+        // Everything above is the RAW macro height; the columns were mapped
+        // through the saturating squash (see terrain_squish.hpp). Mapping the
+        // bound is still a bound -- the map is monotone -- and the padded
+        // result is clamped to the slice because no squished surface can leave
+        // it. The clamp writes the invariant down: with the current constants
+        // the padded range already fits (kHalfRange 10 + margin 5 < half a
+        // slice, 16), and a future tuning slip should stop here rather than
+        // silently widen the band to two slices.
+        min_h = squish::height(params, min_h);
+        max_h = squish::height(params, max_h);
+        const float lo = std::max(min_h - margin, squish::slice_bottom(params));
+        const float hi = std::min(max_h + margin, squish::slice_top(params) - 1.0f);
+        return HeightRange{lo, hi, max_water_h};
+    }
     return HeightRange{min_h - margin, max_h + margin, max_water_h};
 }
 

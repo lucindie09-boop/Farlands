@@ -64,6 +64,76 @@ which file each knob lives in. The description of the generator is in
   for 3D shaping (the blend field is climate-derived and never contains ocean); their macro
   seabed height is the land biome's blended knob applied before the ocean override
 
+## The squish (test toggle, not a world type)
+
+`worldgen/terrain_squish.hpp` compresses the whole vertical relief into **one chunk slice**, so a
+column has a single terrain chunk instead of a band. It exists to answer one question by
+measurement: how much of generation and streaming is the vertical axis? It is deliberately **not**
+superflat — a flat world would be cheap for a different reason (nothing to mesh) and would measure
+the wrong thing.
+
+- **The map is monotone and saturating**, not a linear scale: `c + 10·tanh((h − sea_level)/softness)`
+  (`c` = slice centre, `softness` = `TerrainParams::squish_softness`, 300 blocks). Linear scaling
+  sized for the worst-case relief bound flattens typical terrain to under a block; tanh sends
+  typical relief to most of the slice and compresses only the extremes, so the horizontal shape —
+  what the mesher actually pays for — survives.
+- **Sea level squishes with it** (`squish::sea_level`), so the ocean/land split and water depth
+  survive: every water-fill and near-water site reads that, not `params.sea_level`, or a squished
+  world drowns under a sea level of 200 while its terrain sits at y≈48.
+- **The 3D shape envelope shrinks to `kBandOuter = 3`** (`shape_envelope`), strength and reach scaled
+  by 3/28. Left at ±28 the surface band would leave the slice and the slices above and below would
+  generate to hold nothing. With the clamp, everything a column can contain lies in
+  `[c − 13, c + 13]`, and `kHalfRange (10) + margin (5) < half a slice (16)` keeps the scheduler's
+  height range inside it too.
+- **The band is then exactly one slice**: `WorldUpdater::band_pad()` returns 0 when squished (the
+  sweep's usual ±32 pad would accept three slices where one holds everything), and
+  `column_fill_enabled()` disables the near-player underground fill, which would otherwise put the
+  whole column back under the player. Vegetation is skipped for the same reason: every tree would
+  grow into the slice that is deliberately never generated.
+- **Never persisted, and now not even savable.** `world.meta` stores a fixed list of fields and
+  the squish fields are not in it, so a squished world cannot be reloaded as if it were real
+  terrain. The `ChunkManager` properties are additionally bound without `PROPERTY_USAGE_STORAGE`
+  (`BIND_PROP_VOLATILE`), because the default binding let a *scene save* with the toggle on write
+  `squish_enabled = true` into `Main.tscn` — after which every boot, including every measurement
+  run, came up squished. The toggle is a live switch: visible in the inspector, settable from
+  GDScript, written nowhere.
+
+Toggle it live with `/squish [on|off|slice <n>]` (the command sets the terrain param and calls
+`clear_editor_chunks()` so the world regenerates), or from a probe/script via
+`ChunkManager.set_squish_enabled/set_squish_slice` + `clear_editor_chunks()`. Only chunks generated
+afterwards use it; everything else about the world is unchanged.
+
+Measured (idle machine, same terrain, same column positions):
+
+| Metric | Normal (1024-tall) | Squished |
+|---|---|---|
+| `bin/benchmark` per column | 3.34 ms, 5.62 chunks (4.34 full gens, 1.28 fast-path) | 0.85 ms, 1.00 chunk (1 full gen) — **3.95×** |
+| RD 32 disc, candidates | 20,230 band slices for 3,209 columns | 3,209 (one per column) — 6.3× fewer |
+| **Fill the disc, RD 32** (`probe_gen_stats` `FILL`, `VEG=0`) | **7.28 s** / 711 frames — last install 6.41 s, 16,123 gens | **1.45 s** / 157 frames — last install 1.15 s, 3,061 gens — **5.0×** |
+| **Fill the disc, RD 64** | **14.33 s** / 1,765 frames — last install 13.18 s, 47,939 gens | **3.94 s** / 375 frames — last install 3.37 s, 9,110 gens — **3.6×** |
+| Fill the disc, hand-timed in the game (RD 64) | ≈12 s | ≈3 s — ≈4×, agrees with the probe |
+| Band shape at fill | 6.30 slices/column (max 10) | 1.00 (max 1) |
+| Pad-only empty generations (24-chunk flight) | 3,635 of 10,168 (36%) | 0 of 1,502 |
+| `generate_chunk` cost (24-chunk flight) | 1.15 ms avg over 6,047 | 1.70 ms avg over 250 (one full gen per column) |
+
+So the vertical axis costs about **4× the CPU per column** (3.95× in the benchmark) and the disc
+fills **≈4–5× faster** at both radii measured — the squish is not a large-radius-only win.
+
+Time to **fill** is the metric, and an earlier version of this section got it wrong by measuring
+the wrong thing: it compared a fixed 300-frame flight window and concluded the squish was "flat in
+wall time at RD 32". That window was the artifact — it ran while the normal world was still
+draining its boot queue (no completed sweep, ~40% of the list), so it priced a backlog the squished
+world had already finished, not the cost of filling. The `FILL` line measures the fill itself: it
+waits for the engine's own "the walk found nothing left to do" (`sweeps_completed`) plus a quiet
+window on generations, installs and rebuilds, so both sides are compared at the same point in their
+work, and the numbers above are the result. The remaining asymmetry is only in shape: the normal
+world needs 6.3× the candidate slices per column (6.30 vs 1.00), of which the pad-only ones are
+pure overhead — 36% of its 24-chunk-flight installs came back empty, against 0 for the squish, and
+its `generate_chunk` is cheaper per call because so much of that band is fast-path fill rather than
+terrain. That is also why the per-column CPU gap (3.95×) is slightly wider than the fill gap:
+some of what the squish removes was cheap padding, and what remains — one full generation per
+column, plus its mesh — costs more per chunk.
+
 ## The data files
 
 - **`data/biomes.json`** → `BiomeConfig` (`src/worldgen/biome_config.hpp`): keyed by biome name,

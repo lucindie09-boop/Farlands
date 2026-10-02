@@ -13,6 +13,7 @@
 #include "render/texture_pack_manager.hpp"
 #include "world/block_editor.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 
@@ -317,6 +318,34 @@ void VoxelEngineController::set_sea_level(float level) { sea_level = level; worl
 float VoxelEngineController::get_sea_level() const { return sea_level; }
 void VoxelEngineController::set_biome_size(float size) { biome_size = size; world_updater.set_biome_size(biome_size); }
 float VoxelEngineController::get_biome_size() const { return biome_size; }
+
+// --- The squish test toggle ------------------------------------------------
+// Routed through the terrain params like every other generation knob, which is
+// what makes the change reach all three consumers at once: the scheduler's
+// height estimator, the prefetch workers' published config, and the generation
+// workers' per-call params. Existing chunks keep the terrain they were built
+// with; callers set the toggle and then regenerate (clear_editor_chunks()).
+
+void VoxelEngineController::set_squish_enabled(bool enabled) {
+    TerrainParams params = world_updater.get_terrain_params();
+    params.squish_enabled = enabled;
+    world_updater.set_terrain_params(params);
+}
+
+bool VoxelEngineController::get_squish_enabled() const {
+    return world_updater.get_terrain_params().squish_enabled;
+}
+
+void VoxelEngineController::set_squish_slice(int32_t slice) {
+    constexpr int32_t kWorldChunkSlices = WORLD_HEIGHT_Y / CHUNK_HEIGHT;
+    TerrainParams params = world_updater.get_terrain_params();
+    params.squish_slice = std::max(0, std::min(slice, kWorldChunkSlices - 1));
+    world_updater.set_terrain_params(params);
+}
+
+int32_t VoxelEngineController::get_squish_slice() const {
+    return world_updater.get_terrain_params().squish_slice;
+}
 
 void VoxelEngineController::set_vegetation_enabled(bool enabled) { vegetation_enabled = enabled; world_updater.set_vegetation_enabled(enabled); }
 bool VoxelEngineController::is_vegetation_enabled() const { return vegetation_enabled; }

@@ -1056,7 +1056,7 @@ Every file, with what it owns: [docs/ui.md](docs/ui.md).
   - `textures/0Archive/` — Archived/deprecated textures (old versions kept for reference)
 
 ### Testing
-- `tests/` — 90 `.cpp` files (589 test cases / 346,566 assertions, declared across 88 of them:
+- `tests/` — 91 `.cpp` files (594 test cases / 347,656 assertions, declared across 89 of them:
   `test_main.cpp` is the doctest entry point and `mesh_manager_stub.cpp` supplies link stubs),
   auto-discovered via `Glob("tests/*.cpp")`. A split test file keeps the original name for its
   main subject and takes `_<topic>` files beside it, with the fixtures they share in a

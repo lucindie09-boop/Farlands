@@ -21,6 +21,13 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
     ScopedTimer timer(perf_timer, TimerID::GenerateChunk);
     chunk.clear();
 
+    // Every water fill below tops out at the sea level the terrain was actually
+    // generated against: the configured level normally, the squished slice's
+    // centre when the test toggle is on (see terrain_squish.hpp). Reading
+    // params.sea_level in a squished world would fill every column's slice with
+    // water, since the terrain sits at y≈48 and the configured level is 200.
+    const float sea_level = squish::sea_level(params);
+
     int32_t world_x_start = chunk_x * CHUNK_WIDTH;
     int32_t world_y_start = chunk_y * CHUNK_HEIGHT;
     int32_t world_z_start = chunk_z * CHUNK_DEPTH;
@@ -255,8 +262,8 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
             const ChunkColumn& col = columns[x][z];
             const int32_t wt = col.water_level >= 0
                 ? col.water_level
-                : (col.surface_y >= 0 && col.surface_y < params.sea_level
-                   ? params.sea_level : -1);
+                : (col.surface_y >= 0 && col.surface_y < sea_level
+                   ? static_cast<int32_t>(sea_level) : -1);
             const bool is_water = wt >= 0 && col.surface_y >= 0 && col.surface_y < wt;
             dist[x][z] = is_water ? 0 : INF_DIST;
         }
@@ -304,8 +311,8 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
             const int32_t wz = world_z_start + z;
             const int32_t water_top = col.water_level >= 0
                 ? col.water_level
-                : (col.surface_y >= 0 && col.surface_y < params.sea_level
-                   ? params.sea_level : -1);
+                : (col.surface_y >= 0 && col.surface_y < sea_level
+                   ? static_cast<int32_t>(sea_level) : -1);
             const bool has_surface_water = col.water_level >= 0;
             const BlockID surface_block = get_surface_block(col.biome, col.height, has_surface_water, col.near_water);
             const BlockID subsurface_block = get_subsurface_block(col.biome, col.near_water);
@@ -410,8 +417,8 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
             const ChunkColumn& col = columns[x][z];
             const int32_t wt = col.water_level >= 0
                 ? col.water_level
-                : (col.surface_y >= 0 && col.surface_y < params.sea_level
-                   ? params.sea_level : -1);
+                : (col.surface_y >= 0 && col.surface_y < sea_level
+                   ? static_cast<int32_t>(sea_level) : -1);
             if (wt < 0) continue;
             for (int32_t ly = 1; ly < CHUNK_HEIGHT - 1; ly++) {
                 const int32_t wy = world_y_start + ly;
@@ -436,8 +443,8 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
             const ChunkColumn& col = columns[x][z];
             const int32_t wt = col.water_level >= 0
                 ? col.water_level
-                : (col.surface_y >= 0 && col.surface_y < params.sea_level
-                   ? params.sea_level : -1);
+                : (col.surface_y >= 0 && col.surface_y < sea_level
+                   ? static_cast<int32_t>(sea_level) : -1);
             if (wt < 0) continue;
             for (int32_t ly = CHUNK_HEIGHT - 1; ly >= 0; ly--) {
                 const int32_t wy = world_y_start + ly;
@@ -455,8 +462,10 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
     // Bulk build from dense buffer - avoids palette upgrade thrashing
     chunk.set_data(dense_buffer.data(), CHUNK_VOLUME);
 
-    // Place vegetation
-    if (vegetation_enabled) {
+    // Place vegetation. Never in a squished world: the terrain fills its one
+    // slice to the brim by design, so every tree would grow into the slice above
+    // -- which is exactly the slice the squish never generates.
+    if (vegetation_enabled && !params.squish_enabled) {
         VegetationGenerator veg;
         veg.generate_vegetation(chunk, columns, chunk_x, chunk_z,
                                 world_y_start, world_y_end,

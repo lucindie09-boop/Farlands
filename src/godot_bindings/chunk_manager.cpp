@@ -280,6 +280,16 @@ ClassDB::bind_method(D_METHOD("get_sun_direction"), &ChunkManager::get_sun_direc
     ClassDB::bind_method(D_METHOD("get_" #base), &ChunkManager::get_##base); \
     ADD_PROPERTY(PropertyInfo(type, #base), "set_" #base, "get_" #base)
 
+// Same, but registered without PROPERTY_USAGE_STORAGE: the property is live in
+// the inspector and from GDScript, and the scene saver will not write it. For
+// STATE THAT IS NOT A WORLD SETTING — a scene save with such a property set
+// bakes it into Main.tscn, and every later boot (and every measurement run)
+// then starts in that state.
+#define BIND_PROP_VOLATILE(type, base, param) \
+    ClassDB::bind_method(D_METHOD("set_" #base, param), &ChunkManager::set_##base); \
+    ClassDB::bind_method(D_METHOD("get_" #base), &ChunkManager::get_##base); \
+    ADD_PROPERTY(PropertyInfo(type, #base, PROPERTY_HINT_NONE, "", PROPERTY_USAGE_EDITOR), "set_" #base, "get_" #base)
+
     BIND_PROP(Variant::INT,     seed,                      "seed");
     BIND_PROP(Variant::INT,     render_distance,           "distance");
     BIND_PROP(Variant::NODE_PATH, player_path,             "path");
@@ -289,6 +299,15 @@ ClassDB::bind_method(D_METHOD("get_sun_direction"), &ChunkManager::get_sun_direc
     ClassDB::bind_method(D_METHOD("set_biome_size", "size"), &ChunkManager::set_biome_size);
     ClassDB::bind_method(D_METHOD("get_biome_size"), &ChunkManager::get_biome_size);
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "biome_size", PROPERTY_HINT_RANGE, "0.25,4.0,0.05"), "set_biome_size", "get_biome_size");
+    // The squish test toggle: does not persist, and changing it only affects
+    // chunks generated afterwards (callers regenerate through
+    // clear_editor_chunks() when they want the change applied to the world).
+    // VOLATILE as well as unstored in world.meta: the default binding let a
+    // scene save with the toggle on write `squish_enabled = true` into
+    // Main.tscn, and every boot after that came up squished — which is how a
+    // probe run labelled "off" was actually the squished world.
+    BIND_PROP_VOLATILE(Variant::BOOL, squish_enabled,       "enabled");
+    BIND_PROP_VOLATILE(Variant::INT,  squish_slice,         "slice");
     BIND_PROP(Variant::BOOL,    editor_enabled,            "enabled");
     BIND_PROP(Variant::INT,     editor_render_distance,    "distance");
 BIND_PROP(Variant::BOOL, smooth_lighting, "enabled");

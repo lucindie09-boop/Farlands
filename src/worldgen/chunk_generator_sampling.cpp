@@ -246,6 +246,30 @@ BiomeAmplification ChunkGenerator::blend_amplification_at(int32_t world_x, int32
     return out;
 }
 
+// Per-column 3D-shaping envelope (declared in chunk_generator.hpp). The squish
+// branch replaces the biome's envelope with one scaled to the slice: strength
+// and reach both shrink by kBandOuter / SURFACE_BAND_OUTER, so a squished
+// surface keeps the proportions of the real one (how far the displacement ramps
+// in, how far it can reach) at about a ninth of the size. The reach is what
+// matters for the scheduler: at kBandOuter no surface can leave its slice, so
+// the band filter's one-slice window is exact rather than a guess.
+ChunkGenerator::ShapeEnvelope ChunkGenerator::shape_envelope(float weirdness,
+                                                            float weirdness_size) const {
+    const float size = std::max(weirdness_size, 0.0f);
+    ShapeEnvelope e;
+    e.strength = lerp(params.shape_strength_min, params.shape_strength_max,
+                      clamp01(weirdness)) * size;
+    if (params.squish_enabled) {
+        e.strength *= squish::kBandOuter / SURFACE_BAND_OUTER;
+        e.band_inner = squish::kBandInner;
+        e.band_outer = squish::kBandOuter;
+        return e;
+    }
+    e.band_inner = SURFACE_BAND_INNER * size;
+    e.band_outer = SURFACE_BAND_OUTER * size;
+    return e;
+}
+
 // Effective knobs for a column: with blending disabled (radius 0) every
 // column uses its own biome's knobs exactly — the interpolated blend
 // field is ignored so a border is a clean step, not a 4-block lerp. With
@@ -298,7 +322,10 @@ float ChunkGenerator::quick_height_estimate(int32_t world_x, int32_t world_z) co
         biome, params.climate_blend_radius_nodes > 0
                    ? blend_amplification_at(world_x, world_z)
                    : BiomeAmplification{});
-    return params.sea_level + (raw - params.sea_level) * amp.height;
+    // Routed through the squish map so this estimate keeps tracking the
+    // generated surface when the toggle is on (identity when it is off).
+    return squish::height(params,
+                          params.sea_level + (raw - params.sea_level) * amp.height);
 }
 
 bool ChunkGenerator::is_cave(int32_t x, int32_t y, int32_t z) const {

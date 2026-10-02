@@ -8,6 +8,7 @@
 #include "core/performance_timer.hpp"
 #include "worldgen/biome_config.hpp"
 #include "worldgen/chunk_generator_lattice.hpp"
+#include "worldgen/terrain_squish.hpp"
 #include "worldgen/vegetation_config.hpp"
 #include <utility>
 #include <cstdio>
@@ -164,7 +165,8 @@ private:
     // the shape: how far terrain is displaced (strength) and how many blocks
     // around the macro surface may be altered (the inner/outer band). 1.0 is
     // the neutral envelope from params + SURFACE_BAND_INNER/OUTER; 0 means
-    // the zone alters nothing.
+    // the zone alters nothing. Defined in chunk_generator_sampling.cpp, whose
+    // squish branch is what keeps a squished world inside its one slice.
     struct ShapeEnvelope {
         float strength   = 0.0f;
         float band_inner = 0.0f;
@@ -172,15 +174,7 @@ private:
     };
 
     [[nodiscard]] ShapeEnvelope shape_envelope(float weirdness,
-                                              float weirdness_size) const {
-        const float size = std::max(weirdness_size, 0.0f);
-        ShapeEnvelope e;
-        e.strength = lerp(params.shape_strength_min, params.shape_strength_max,
-                          clamp01(weirdness)) * size;
-        e.band_inner = SURFACE_BAND_INNER * size;
-        e.band_outer = SURFACE_BAND_OUTER * size;
-        return e;
-    }
+                                              float weirdness_size) const;
     float sample_continentalness(float x, float z) const;
     void warp_climate_point(float x, float z, float& out_x, float& out_z) const;
     float sample_temperature_raw(float x, float z) const;
@@ -367,8 +361,11 @@ float max_water_h = -1.0f;
     // Every height range is padded by this, and the fully-above/below chunk
     // fast paths trust it, so it must never be smaller than the largest
     // per-column shape_envelope().band_outer. Neutral config (every
-    // weirdness_size = 1.0) gives SURFACE_BAND_OUTER + slack = 30.
+    // weirdness_size = 1.0) gives SURFACE_BAND_OUTER + slack = 30. A squished
+    // world replaces it with the squish band (see terrain_squish.hpp), which is
+    // what keeps every height range inside the one slice.
     [[nodiscard]] float density_margin() const {
+        if (params.squish_enabled) return squish::margin(params);
         float outer = SURFACE_BAND_OUTER;
         for (const BiomeAmplification& a : biome_config.amplification) {
             outer = std::max(outer, SURFACE_BAND_OUTER * std::max(a.weirdness_size, 0.0f));

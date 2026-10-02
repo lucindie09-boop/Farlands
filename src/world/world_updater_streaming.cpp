@@ -55,10 +55,9 @@ int32_t WorldUpdater::drain_chain_queue(uint64_t epoch, int32_t budget, int32_t 
         }
         // The band the walk generates within. The list was built from these same
         // bounds, so a reject here means the band is exactly the walk's.
-        const bool fill_column = std::abs(dx) <= kUndergroundFillRadius &&
-                                 std::abs(dz) <= kUndergroundFillRadius;
+        const bool fill_column = column_fill_enabled(dx, dz);
         const ColumnSurfaceBounds surface = get_column_surface_bounds(cx, cz);
-        if (!sweep::chunk_in_band(cy, surface.land_h, surface.top_h, fill_column)) {
+        if (!sweep::chunk_in_band(cy, surface.land_h, surface.top_h, fill_column, band_pad())) {
             ++generation_stats.chain_skipped;
             continue;
         }
@@ -206,9 +205,9 @@ void WorldUpdater::service_sweep_bands() {
         const int32_t cz = sweep_origin_cz + column.dz;
         const double before_bounds = band_ms;
         const ColumnSurfaceBounds surface = get_column_surface_bounds(cx, cz);
-        const bool fill_column = std::abs(static_cast<int32_t>(column.dx)) <= kUndergroundFillRadius &&
-                                 std::abs(static_cast<int32_t>(column.dz)) <= kUndergroundFillRadius;
-        column.band = sweep::band_for_column(surface.land_h, surface.top_h, fill_column, kWorldChunkSlices);
+        const bool fill_column = column_fill_enabled(column.dx, column.dz);
+        column.band = sweep::band_for_column(surface.land_h, surface.top_h, fill_column,
+                                             kWorldChunkSlices, band_pad());
         column.band_ready = true;
         // What the band's ±32-block pad costs is a question about the SHAPE of
         // the distribution, not its mean: record it here, where the band is
@@ -317,8 +316,7 @@ bool WorldUpdater::advance_sweep(SweepCursor& cursor, int32_t pcy, SweepCandidat
             out.x = sweep_origin_cx + column.dx;
             out.y = cy;
             out.z = sweep_origin_cz + column.dz;
-            out.fill_column = std::abs(static_cast<int32_t>(column.dx)) <= kUndergroundFillRadius &&
-                              std::abs(static_cast<int32_t>(column.dz)) <= kUndergroundFillRadius;
+            out.fill_column = column_fill_enabled(column.dx, column.dz);
             return true;
         }
         ++cursor.column;

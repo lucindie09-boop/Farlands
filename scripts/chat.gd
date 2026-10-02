@@ -35,7 +35,7 @@ var _tab_cycle_delay: float = 0.1875
 var _up_held: bool = false
 var _up_hold_time: float = 0.0
 
-const COMMANDS := ["/help", "/give", "/tp", "/fly", "/locatebiome", "/paste", "/clearchat", "/clearinv", "/version", "/genstats", "/texturepack", "/testicons"]
+const COMMANDS := ["/help", "/give", "/tp", "/fly", "/locatebiome", "/paste", "/clearchat", "/clearinv", "/version", "/genstats", "/squish", "/texturepack", "/testicons"]
 const BIOME_NAMES := ["ocean", "hills", "plains"]
 # A build bigger than this is refused rather than written. This is a guard
 # against a file that is not a building at all (a corrupted size field turns into
@@ -409,6 +409,12 @@ func _get_command_param_hint(cmd: String, arg_count: int) -> String:
 			if arg_count == 1:
 				return "[reset]"
 			return ""
+		"/squish":
+			if arg_count == 1:
+				return "[on|off|slice <n>]"
+			if arg_count == 2:
+				return "<n>"
+			return ""
 		"/help", "/clearchat", "/clearinv", "/version":
 			# These commands take no arguments
 			return ""
@@ -761,6 +767,41 @@ func _run_command(raw: String):
 			if engine != null and engine.has_method("engine_build_stamp"):
 				stamp = engine.engine_build_stamp()
 			_add_message("Farlands - Godot 4 + C++ GDExtension (%s)" % stamp, COLOR_SYSTEM)
+		"/squish":
+			# Test toggle: compress the whole vertical relief into one chunk slice, so
+			# a column has a single terrain chunk instead of a band of them. The point
+			# is measuring horizontal generation without the vertical axis (see
+			# worldgen/terrain_squish.hpp) -- it is not a world type, and it is not
+			# persisted. The world is regenerated so the change is visible at once.
+			var chunk_manager := get_node_or_null("/root/Main/ChunkManager")
+			if chunk_manager == null:
+				_add_message("World not available.", COLOR_ERROR)
+				return
+			if parts.size() >= 3 and parts[1].to_lower() == "slice":
+				var slice := parts[2].to_int()
+				if slice < 0 or slice >= 32:
+					_add_message("Slice must be 0-31 (the world is 32 chunks tall).", COLOR_ERROR)
+					return
+				chunk_manager.set_squish_slice(slice)
+				_add_message("Squish slice %d: terrain compressed into y %d-%d. Regenerating." % [slice, slice * 32, slice * 32 + 31], COLOR_SUCCESS)
+			else:
+				var on: bool = not chunk_manager.get_squish_enabled()
+				if parts.size() >= 2:
+					match parts[1].to_lower():
+						"on":
+							on = true
+						"off":
+							on = false
+						_:
+							_add_message("Usage: /squish [on|off|slice <n>]", COLOR_ERROR)
+							return
+				chunk_manager.set_squish_enabled(on)
+				if on:
+					_add_message("Squish ON: terrain compressed into one chunk slice. Regenerating.", COLOR_SUCCESS)
+				else:
+					_add_message("Squish OFF: normal terrain. Regenerating.", COLOR_SUCCESS)
+			chunk_manager.clear_editor_chunks()
+			return
 		"/genstats":
 			# What the generation sweep actually spends its per-frame check budget
 			# on. The candidate list spans the whole world height while only a

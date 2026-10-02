@@ -49,6 +49,26 @@ itself claimed and `bounds unknown` is installs with no cached bounds to judge
 against. A fat 24-31 bucket with a large pad-empty count is a pad worth
 narrowing; a small top bucket with few pad-empties says the ±32 is not the cost.
 
+## 2b. `/squish` — the one-chunk test toggle
+
+`/squish [on|off|slice <n>]` compresses the whole vertical relief into one chunk
+slice (see [terrain-notes.md](terrain-notes.md#the-squish-test-toggle-not-a-world-type))
+and regenerates, so the vertical half of generation can be taken out of a
+measurement. Three readings together tell the story: `/genstats`' `band shape`
+becomes `1=every column` (one candidate slice per column, `fill columns` 0), the
+`installs` line becomes `inside [land, top]` only with **zero** pad-empties, and
+`probe_gen_stats` prints the same numbers beside the normal world's when run as
+`RD=32 SQUISH=0 VEG=0` / `RD=32 SQUISH=1 VEG=0` (see [probes.md](probes.md)), and
+its `FILL` line is the one that answers "how long to fill". The per-column CPU
+comparison is `./bin/benchmark.exe`'s `squish band` lines, which need no world
+at all. Two traps: it is a test toggle, not a world — never save a world with it
+on (the properties are bound storage-less precisely so a scene save cannot bake
+it into `Main.tscn`) — and never judge it from a fixed frame window. Comparing a
+fixed 300-frame window once made the squish look *flat* at RD 32, because that
+window was priced against the normal world's unfinished boot backlog; measured
+to fill, it is ≈5× faster there (7.3 s → 1.4 s) and ≈3.6× at RD 64 (14.3 s →
+3.9 s, against ≈12 s → ≈3 s hand-timed in the game).
+
 ## 3. Crash reports
 
 The handler is ours, installed before any class registers. It writes
@@ -84,7 +104,9 @@ reading one:
 ## 5. The benchmark
 
 `./bin/benchmark.exe --check benchmark_baseline.txt` is the regression
-instrument: six metrics, each with 2× headroom. Two traps in using it —
+instrument: six metrics, each with 2× headroom (plus the print-only `squish
+band` A/B below, which is better when its ratio rises and so is deliberately not
+in the baseline file). Two traps in using it —
 **run it on an idle machine**, never straight after a 14-way parallel build (a
 first reading has reported `build_mesh` at 3.97 ms against a 3.80 ms baseline
 that four idle runs put at 3.22–3.54), and remember it is *noise-sensitive in the
@@ -109,7 +131,7 @@ fast direction*, so a large improvement is worth re-running before believing too
 ## Before you believe a change is good
 
 ```bash
-scons -j14 && scons test -j14 && ./bin/run_tests.exe   # 588 cases today
+scons -j14 && scons test -j14 && ./bin/run_tests.exe   # 594 cases today
 scons sizecheck && scons portability && scons docscheck
 ./bin/benchmark.exe --check benchmark_baseline.txt
 ```

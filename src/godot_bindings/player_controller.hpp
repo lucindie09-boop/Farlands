@@ -55,6 +55,11 @@ public:
     int get_selected_hotbar_slot() const;
     void select_hotbar_slot(int slot);
     void set_hotbar_slot(int slot, int block_id, int count);
+    // Whether the whole stack would fit, without taking any of it. The read-only
+    // half of give_block, and the same test the mining collect gates on: a
+    // pickup that asked by giving would keep whatever part fitted and report the
+    // rest as refused, which would duplicate the item it left on the ground.
+    bool can_add_block(int block_id, int count) const;
     int get_inventory_slot_count(int slot) const;
     int get_inventory_slot_block_id(int slot) const;
     void set_inventory_slot(int slot, int block_id, int count);

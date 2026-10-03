@@ -62,6 +62,11 @@ void PlayerController::set_hotbar_slot(int slot, int block_id, int count) {
     inventory_.set_hotbar_slot(slot, block_id, count);
 }
 
+bool PlayerController::can_add_block(int block_id, int count) const {
+    if (block_id <= 0 || count <= 0) return false;
+    return inventory_.can_add_block(static_cast<BlockID>(block_id), count);
+}
+
 int PlayerController::get_inventory_slot_count(int slot) const {
     return inventory_.get_inventory_slot(slot).count;
 }

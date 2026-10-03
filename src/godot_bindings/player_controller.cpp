@@ -65,6 +65,7 @@ void PlayerController::bind_inventory_api() {
     ClassDB::bind_method(D_METHOD("get_inventory_slot_block_id", "slot"), &PlayerController::get_inventory_slot_block_id);
     ClassDB::bind_method(D_METHOD("set_inventory_slot", "slot", "block_id", "count"), &PlayerController::set_inventory_slot);
     ClassDB::bind_method(D_METHOD("give_block", "block_id", "count"), &PlayerController::give_block);
+    ClassDB::bind_method(D_METHOD("can_add_block", "block_id", "count"), &PlayerController::can_add_block);
     ClassDB::bind_method(D_METHOD("clear_inventory"), &PlayerController::clear_inventory);
     ClassDB::bind_method(D_METHOD("match_recipe", "grid_ids", "grid_counts"), &PlayerController::match_recipe);
     ClassDB::bind_method(D_METHOD("craft_recipe", "grid_ids", "grid_counts"), &PlayerController::craft_recipe);

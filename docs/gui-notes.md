@@ -65,6 +65,11 @@ first-person viewmodel - what each one owns and the decisions behind it.
 - **GDScript GUI**: `hotbar.gd` / `inventory.gd` `Control` overlays — E toggles the inventory,
   mouse wheel cycles the hotbar, click-to-hold / drag-drop stack movement, hover/selection
   highlights built by pixel-color-keyed texture recolor (no hand-drawn art)
+- **A dropped stack comes apart too**: Q throws the selected slot's item into the world (Ctrl+Q the
+  whole stack). The hotbar writes the slot back one smaller through the C++ inventory and the world
+  half is `scripts/dropped_items.gd`, so the stack emptying is seen by the same spent-stack hook as
+  any other spend and comes apart on its own — one shard burst per unit as the stack drains, or one
+  for a Ctrl+Q dump. Nothing about the drop needs its own effect code.
 - **A spent stack comes apart**: when the last item of a stack is used, the icon is no longer
   just gone — its own pixels are thrown up and out of the slot and fall away, through the same
   `scripts/ui_shatter.gd` the hearts use. It is in five places: the hotbar, the inventory (any

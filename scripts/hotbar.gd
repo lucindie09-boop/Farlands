@@ -6,9 +6,6 @@ var _highlight_texture: Texture2D = null  # pre-built recolored selected slot
 
 ## The dropped items in the world, found once: the node that owns the throw.
 @onready var _items: Node = _find_dropped_items()
-## How far below the eye an item leaves the hand, in blocks. Only the throw's own
-## height -- the world node owns the rest of the motion.
-const SPAWN_DOWN = 0.12
 
 const SLOT_SIZE = 48
 const HOTBAR_SIZE = 9
@@ -141,11 +138,10 @@ func _drop_selected(all: bool) -> void:
 	# The item is thrown from the hand: where the aim enters the viewmodel, and
 	# along the aim, so a throw from a still camera goes where the crosshair is.
 	var camera := get_viewport().get_camera_3d()
-	var from := camera.global_position + Vector3.DOWN * SPAWN_DOWN
 	var dir := -camera.global_transform.basis.z
 	if _items == null:
 		return
-	_items.spawn(block_id, dropped, from, dir)
+	_items.spawn(block_id, dropped, camera.global_position, dir)
 	player_controller.set_hotbar_slot(slot, block_id, count - dropped)
 	# The same swing a place gets, so the throw has a hand behind it.
 	var viewmodel := get_node_or_null("../Player/Camera3D/Viewmodel")
@@ -153,11 +149,13 @@ func _drop_selected(all: bool) -> void:
 		viewmodel.place()
 
 ## The world node items are thrown into: under Main, beside the player.
+##
+## Asked for by path rather than through the current scene, because the HUD is
+## also instantiated by probes and smoke tests, which add Main.tscn to the tree
+## without it being the tree's current scene. The path is the same one every
+## other script here uses to reach the player.
 func _find_dropped_items() -> Node:
-	var main := get_tree().current_scene
-	if main == null:
-		return null
-	return main.get_node_or_null("DroppedItems")
+	return get_node_or_null("/root/Main/DroppedItems")
 
 func _draw():
 	if not player_controller:

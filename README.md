@@ -366,6 +366,7 @@ Windows).
 | F5 | Cycle camera view: first person → behind the player → in front of the player (looking at your face) |
 | K | Spawn/remove a rigid physics dummy of the player on the aimed block — no animations, falls with vanilla gravity/drag, punchable with left click (debug: shows a cube at each mesh pivot) |
 | 1–9 | Select hotbar slot |
+| Q | Drop one item from the selected hotbar slot into the world (Ctrl+Q drops the whole stack) |
 | E | Toggle inventory |
 | Mouse wheel | Cycle hotbar selection (while the inventory is closed) |
 | Esc | Release the mouse / close the inventory / close chat / open settings menu |
@@ -375,7 +376,7 @@ Windows).
 | Up/Down arrows | Cycle through completions (when chat is open and completions are available) |
 
 Input bindings live in `project.godot` (`move_forward`, `move_back`, `move_left`, `move_right`,
-`jump`, `sprint`, `sneak`, `fly_toggle`, `toggle_inventory`, `toggle_chat`,
+`jump`, `sprint`, `sneak`, `fly_toggle`, `toggle_inventory`, `drop_item`, `toggle_chat`,
 `toggle_third_person`, `mouse_click_left`, `mouse_click_right`, `pose_clone_toggle`,
 `toggle_chunk_borders` — the last one shows the 32-block chunk grid around the player as X-ray
 lines, `chunk_borders.gd`, off by default). The C++ `PlayerController` node owns all movement,

@@ -224,6 +224,8 @@ void ChunkManager::_bind_methods() {
     ClassDB::bind_method(D_METHOD("take_paste_completion"), &ChunkManager::take_paste_completion);
     ClassDB::bind_method(D_METHOD("paste_undo_cells"), &ChunkManager::paste_undo_cells);
     ClassDB::bind_method(D_METHOD("resolve_voxel_collision", "position", "motion", "size"), &ChunkManager::resolve_voxel_collision);
+    ClassDB::bind_method(D_METHOD("contacts_for_points", "points", "radius"), &ChunkManager::contacts_for_points);
+    ClassDB::bind_method(D_METHOD("turned_box_contact", "centre", "half", "basis"), &ChunkManager::turned_box_contact);
     ClassDB::bind_method(D_METHOD("request_path", "from", "to", "max_expansions", "max_ms"),
                          &ChunkManager::request_path, DEFVAL(20000), DEFVAL(32.0));
     ClassDB::bind_method(D_METHOD("poll_paths"), &ChunkManager::poll_paths);

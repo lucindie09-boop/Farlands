@@ -303,6 +303,34 @@ Dictionary ChunkManager::resolve_voxel_collision(const godot::Vector3& position,
     return dict;
 }
 
+Array ChunkManager::contacts_for_points(const godot::PackedVector3Array& points, float radius) {
+    Array out;
+    if (points.is_empty()) return out;
+    std::vector<godot::Vector3> flat;
+    flat.reserve(static_cast<size_t>(points.size()));
+    for (int64_t i = 0; i < points.size(); ++i) flat.push_back(points[i]);
+    const auto contacts = controller->get_collision_resolver().contacts_for_points(
+        flat.data(), flat.size(), radius);
+    for (const auto& c : contacts) {
+        Dictionary contact;
+        contact["point"] = c.point;
+        contact["normal"] = c.normal;
+        contact["depth"] = c.depth;
+        out.push_back(contact);
+    }
+    return out;
+}
+
+Dictionary ChunkManager::turned_box_contact(const godot::Vector3& centre, const godot::Vector3& half,
+                                           const godot::Basis& basis) {
+    const auto contact = controller->get_collision_resolver().turned_box_contact(centre, half, basis);
+    Dictionary out;
+    out["into"] = contact.into;
+    out["normal"] = contact.normal;
+    out["depth"] = contact.depth;
+    return out;
+}
+
 VoxelEngine::CollisionResolver* ChunkManager::get_collision_resolver() {
     return &controller->get_collision_resolver();
 }

@@ -167,6 +167,15 @@ public:
                                  int32_t center_z, int32_t max_radius);
 
     godot::Dictionary resolve_voxel_collision(const godot::Vector3& position, const godot::Vector3& motion, const godot::Vector3& size);
+    // Every point of `points` inside solid geometry: the point, the face normal
+    // that pushes it out, and how deep it is. These are what a solver turns a
+    // body with -- torque comes from WHERE it touched, which a sweep cannot say.
+    godot::Array contacts_for_points(const godot::PackedVector3Array& points, float radius);
+    // How deep a TURNED box is inside the world, with the normal that pushes it
+    // out. An exact convex test, so it holds along an edge and not only at a
+    // corner -- the guard that keeps a body out of the world.
+    godot::Dictionary turned_box_contact(const godot::Vector3& centre, const godot::Vector3& half,
+                                         const godot::Basis& basis);
 
     // Debug pathfinding. request_path queues a ground route between two feet
     // positions on a worker thread and returns its job id (0 when the planner

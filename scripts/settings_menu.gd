@@ -70,6 +70,7 @@ const CONTROL_BINDINGS := [
 	["mouse_click_right", "Place / Use"],
 	["fly_toggle", "Toggle Flight"],
 	["toggle_inventory", "Inventory"],
+	["drop_item", "Drop Item (Ctrl: whole stack)"],
 	["toggle_chat", "Chat"],
 	["toggle_third_person", "Third Person"],
 ]

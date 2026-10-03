@@ -16,6 +16,7 @@
 [ext_resource type="Script" uid="uid://dbeyx08uuwwe7" path="res://scripts/viewmodel.gd" id="18_viewmodel"]
 [ext_resource type="Script" uid="uid://c0wgpq0dxpukx" path="res://scripts/wand.gd" id="19_wand"]
 [ext_resource type="Script" uid="uid://dwlgd33ksdgxq" path="res://scripts/shader_overlay.gd" id="20_shaders"]
+[ext_resource type="Script" path="res://scripts/dropped_items.gd" id="21_dropped"]
 
 [sub_resource type="Environment" id="Environment_uu6xs"]
 background_mode = 2
@@ -180,6 +181,9 @@ grow_vertical = 2
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=1600923077]
 environment = SubResource("Environment_uu6xs")
+
+[node name="DroppedItems" type="Node3D" parent="." unique_id=318602555]
+script = ExtResource("21_dropped")
 
 [node name="ChunkManager" type="ChunkManager" parent="." unique_id=318602554]
 render_distance = 32

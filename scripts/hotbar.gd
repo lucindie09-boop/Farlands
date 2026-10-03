@@ -4,6 +4,12 @@ extends Control
 var hotbar_texture: Texture2D = null
 var _highlight_texture: Texture2D = null  # pre-built recolored selected slot
 
+## The dropped items in the world, found once: the node that owns the throw.
+@onready var _items: Node = _find_dropped_items()
+## How far below the eye an item leaves the hand, in blocks. Only the throw's own
+## height -- the world node owns the rest of the motion.
+const SPAWN_DOWN = 0.12
+
 const SLOT_SIZE = 48
 const HOTBAR_SIZE = 9
 const MUNRO_FONT: Font = preload("res://fonts/munro.ttf")
@@ -102,10 +108,16 @@ func _needs_redraw() -> bool:
 	return false
 
 func _input(event):
-	# Scroll cycles the selected hotbar slot, wrapping around. Ignored while
-	# the inventory is open so the wheel isn't double-purposed there, and while
-	# the chat is open so typing isn't interrupted by slot changes.
+	# Scroll cycles the selected hotbar slot, wrapping around, and Q drops what is
+	# in it. Both are ignored while the inventory is open so the wheel isn't
+	# double-purposed there and a Q meant for the slot under the cursor isn't
+	# swallowed, and while the chat is open so typing isn't interrupted.
 	if not player_controller or player_controller.is_inventory_open() or player_controller.is_chat_open() or player_controller.is_settings_open():
+		return
+	if event.is_action_pressed("drop_item"):
+		# is_action_pressed() is true for key repeats too; holding Q is one drop.
+		if not event.is_echo():
+			_drop_selected(event.ctrl_pressed)
 		return
 	if event is InputEventMouseButton and event.pressed:
 		var current = player_controller.get_selected_hotbar_slot()
@@ -113,6 +125,39 @@ func _input(event):
 			player_controller.select_hotbar_slot((current - 1 + HOTBAR_SIZE) % HOTBAR_SIZE)
 		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
 			player_controller.select_hotbar_slot((current + 1) % HOTBAR_SIZE)
+
+## Q: throw what is in the selected slot into the world. One unit, or the whole
+## stack with Ctrl held. The item leaves through the C++ inventory -- the slot is
+## written back with one fewer -- and what is left of the slot is drawn as it
+## always was: the last unit going is the stack being spent, so the icon comes
+## apart on its own, through _needs_redraw()'s spent-stack hook.
+func _drop_selected(all: bool) -> void:
+	var slot: int = player_controller.get_selected_hotbar_slot()
+	var block_id: int = player_controller.get_hotbar_slot_block_id(slot)
+	var count: int = player_controller.get_hotbar_slot_count(slot)
+	if block_id <= 0 or count <= 0:
+		return
+	var dropped: int = count if all else 1
+	# The item is thrown from the hand: where the aim enters the viewmodel, and
+	# along the aim, so a throw from a still camera goes where the crosshair is.
+	var camera := get_viewport().get_camera_3d()
+	var from := camera.global_position + Vector3.DOWN * SPAWN_DOWN
+	var dir := -camera.global_transform.basis.z
+	if _items == null:
+		return
+	_items.spawn(block_id, dropped, from, dir)
+	player_controller.set_hotbar_slot(slot, block_id, count - dropped)
+	# The same swing a place gets, so the throw has a hand behind it.
+	var viewmodel := get_node_or_null("../Player/Camera3D/Viewmodel")
+	if viewmodel and viewmodel.has_method("place"):
+		viewmodel.place()
+
+## The world node items are thrown into: under Main, beside the player.
+func _find_dropped_items() -> Node:
+	var main := get_tree().current_scene
+	if main == null:
+		return null
+	return main.get_node_or_null("DroppedItems")
 
 func _draw():
 	if not player_controller:

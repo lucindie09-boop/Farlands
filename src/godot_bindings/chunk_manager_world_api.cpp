@@ -321,9 +321,21 @@ Array ChunkManager::contacts_for_points(const godot::PackedVector3Array& points,
     return out;
 }
 
-Dictionary ChunkManager::turned_box_contact(const godot::Vector3& centre, const godot::Vector3& half,
-                                           const godot::Basis& basis) {
-    const auto contact = controller->get_collision_resolver().turned_box_contact(centre, half, basis);
+Dictionary ChunkManager::turned_boxes_contact(const godot::Vector3& centre,
+                                             const godot::PackedVector3Array& offsets,
+                                             const godot::PackedVector3Array& halves,
+                                             const godot::Basis& basis) {
+    std::vector<godot::Vector3> off;
+    std::vector<godot::Vector3> hal;
+    const int64_t n = std::min(offsets.size(), halves.size());
+    off.reserve(static_cast<size_t>(n));
+    hal.reserve(static_cast<size_t>(n));
+    for (int64_t i = 0; i < n; ++i) {
+        off.push_back(offsets[i]);
+        hal.push_back(halves[i]);
+    }
+    const auto contact = controller->get_collision_resolver().turned_boxes_contact(
+        centre, off, hal, basis);
     Dictionary out;
     out["into"] = contact.into;
     out["normal"] = contact.normal;

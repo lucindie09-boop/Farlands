@@ -227,12 +227,18 @@ std::vector<CollisionResolver::PointContact> CollisionResolver::contacts_for_poi
     return out;
 }
 
-CollisionResolver::TurnedContact CollisionResolver::turned_box_contact_fast(
-    const Vector3& centre, const Vector3& half, const Basis& basis) const {
+CollisionResolver::TurnedContact CollisionResolver::turned_boxes_contact_fast(
+    const Vector3& centre, const std::vector<Vector3>& offsets,
+    const std::vector<Vector3>& halves, const Basis& basis) const {
     TurnedContact best;
-    if (!chunk_map_) return best;
+    if (!chunk_map_ || offsets.empty()) return best;
     const BlockRegistry& registry = BlockRegistry::get_instance();
-    const Vector3 reach = turned_reach(basis, half);
+
+    // The whole body's reach, so the cells to visit are known once.
+    Vector3 reach(0.0f, 0.0f, 0.0f);
+    for (size_t i = 0; i < offsets.size(); ++i) {
+        reach = reach.max(turned_reach(basis, halves[i]) + (basis.xform(offsets[i])).abs());
+    }
     const int32_t min_x = static_cast<int32_t>(std::floor(centre.x - reach.x));
     const int32_t min_y = static_cast<int32_t>(std::floor(centre.y - reach.y));
     const int32_t min_z = static_cast<int32_t>(std::floor(centre.z - reach.z));
@@ -248,13 +254,17 @@ CollisionResolver::TurnedContact CollisionResolver::turned_box_contact_fast(
                 const BlockType& bt = registry.get_block_fast(bid);
                 if (!bt.stops_bodies()) continue;
                 if (bt.is_full_cube()) {
-                    const BoxOverlap hit = turned_vs_upright(
-                        centre, half, basis,
-                        Vector3(x + 0.5f, y + 0.5f, z + 0.5f), Vector3(0.5f, 0.5f, 0.5f));
-                    if (hit.overlap && hit.depth > best.depth) {
-                        best.into = true;
-                        best.depth = hit.depth;
-                        best.normal = hit.normal;
+                    const Vector3 cell_centre(x + 0.5f, y + 0.5f, z + 0.5f);
+                    const Vector3 cell_half(0.5f, 0.5f, 0.5f);
+                    for (size_t i = 0; i < offsets.size(); ++i) {
+                        const Vector3 box_centre = centre + basis.xform(offsets[i]);
+                        const BoxOverlap hit = turned_vs_upright(
+                            box_centre, halves[i], basis, cell_centre, cell_half);
+                        if (hit.overlap && hit.depth > best.depth) {
+                            best.into = true;
+                            best.depth = hit.depth;
+                            best.normal = hit.normal;
+                        }
                     }
                     continue;
                 }
@@ -271,11 +281,15 @@ CollisionResolver::TurnedContact CollisionResolver::turned_box_contact_fast(
                     const Vector3 cell_half((box.max[0] - box.min[0]) * 0.5f,
                                             (box.max[1] - box.min[1]) * 0.5f,
                                             (box.max[2] - box.min[2]) * 0.5f);
-                    const BoxOverlap hit = turned_vs_upright(centre, half, basis, cell_centre, cell_half);
-                    if (hit.overlap && hit.depth > best.depth) {
-                        best.into = true;
-                        best.depth = hit.depth;
-                        best.normal = hit.normal;
+                    for (size_t i = 0; i < offsets.size(); ++i) {
+                        const Vector3 box_centre = centre + basis.xform(offsets[i]);
+                        const BoxOverlap hit = turned_vs_upright(
+                            box_centre, halves[i], basis, cell_centre, cell_half);
+                        if (hit.overlap && hit.depth > best.depth) {
+                            best.into = true;
+                            best.depth = hit.depth;
+                            best.normal = hit.normal;
+                        }
                     }
                 }
             }
@@ -284,14 +298,18 @@ CollisionResolver::TurnedContact CollisionResolver::turned_box_contact_fast(
     return best;
 }
 
-CollisionResolver::TurnedContact CollisionResolver::turned_box_contact(
-    const Vector3& centre, const Vector3& half, const Basis& basis) const {
+CollisionResolver::TurnedContact CollisionResolver::turned_boxes_contact(
+    const Vector3& centre, const std::vector<Vector3>& offsets,
+    const std::vector<Vector3>& halves, const Basis& basis) const {
     constexpr float kPad = 1.0f;
-    const Vector3 reach = turned_reach(basis, half);
+    Vector3 reach(0.0f, 0.0f, 0.0f);
+    for (size_t i = 0; i < offsets.size(); ++i) {
+        reach = reach.max(turned_reach(basis, halves[i]) + (basis.xform(offsets[i])).abs());
+    }
     auto lock = chunk_map_->lock_keys(chunk_keys_for_box(
         chunk_map_, centre - reach - Vector3(kPad, kPad, kPad),
         centre + reach + Vector3(kPad, kPad, kPad)));
-    return turned_box_contact_fast(centre, half, basis);
+    return turned_boxes_contact_fast(centre, offsets, halves, basis);
 }
 
 bool CollisionResolver::is_aabb_solid(const AABB& aabb) const {

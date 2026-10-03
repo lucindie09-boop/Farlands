@@ -46,20 +46,29 @@ public:
     std::vector<PointContact> contacts_for_points(const godot::Vector3* points, size_t count,
                                                   float radius) const;
 
-    // How deep a turned box is inside the world, with the normal that pushes it
+    // How deep a turned body is inside the world, with the normal that pushes it
     // out. An EXACT convex test, so it holds along an edge as well as at a corner:
     // sampled points cannot promise that, and a block can sit between two samples
     // and be passed straight through. This is the guard that keeps a body out of
     // the world; the point contacts above are what turn it.
+    //
+    // The body is a SET of boxes, not one: a stair is two boxes and a fence five,
+    // and a body collided as the single box around them is a stair that collides
+    // as a full block. Each box's offset is in the body's own space, from its
+    // origin, and the rotation is shared.
     struct TurnedContact {
         bool into = false;
         godot::Vector3 normal;
         float depth = 0.0f;
     };
-    TurnedContact turned_box_contact(const godot::Vector3& centre, const godot::Vector3& half,
-                                     const godot::Basis& basis) const;
-    TurnedContact turned_box_contact_fast(const godot::Vector3& centre, const godot::Vector3& half,
-                                          const godot::Basis& basis) const;
+    TurnedContact turned_boxes_contact(const godot::Vector3& centre,
+                                       const std::vector<godot::Vector3>& offsets,
+                                       const std::vector<godot::Vector3>& halves,
+                                       const godot::Basis& basis) const;
+    TurnedContact turned_boxes_contact_fast(const godot::Vector3& centre,
+                                            const std::vector<godot::Vector3>& offsets,
+                                            const std::vector<godot::Vector3>& halves,
+                                            const godot::Basis& basis) const;
 
     // True when the cell stops a body. Liquids are NOT solid (see BlockType::stops_bodies).
     bool is_solid_at(int32_t wx, int32_t wy, int32_t wz) const;

@@ -50,11 +50,18 @@ const THROW_SPEED = 6.0
 const THROW_VARY = 0.20       # fraction of that, per drop, so two drops differ
 const THROW_UP = 0.35         # fraction of the throw spent lifting the item
 
-## How finely a body's points are laid out on its surface: the same count on every
-## axis, so a slab's contacts are its own surface and a cube's are its own. These
-## are the points the solve turns the body with, so a body is turned as exactly the
-## shape it is guarded as.
+## How finely each of a body's boxes has its surface laid out in points, per axis.
+## These are the points the solve turns the body with, so a stair is turned by the
+## corners of its two boxes rather than by the corners of the block around them.
 const SURFACE_POINTS = 3
+
+## An item -- a stick, a torch -- is drawn as a flat sprite, and its mesh is a
+## plate a few hundredths thick. Collided as that plate its inertia about its own
+## plane is nearly nothing, so the smallest contact impulse spins it wildly and it
+## reads as being pulled by a force that is not gravity. An item is collided as a
+## small solid cube instead: a sprite has no thickness to collide as, and a cube
+## is what a dropped thing with no shape should behave like.
+const ITEM_BOX = 0.25
 
 ## Item physics, in blocks and seconds. The gravity is a touch under the player's,
 ## and the damping is what stops a throw sailing: without it nothing in the air
@@ -140,8 +147,9 @@ func spawn(block_id: int, count: int, from_eye: Vector3, direction: Vector3) -> 
 		dir = Vector3.FORWARD
 	# Out of the hand, which is below the eye and a little ahead of it.
 	var from := from_eye + Vector3.DOWN * SPAWN_DOWN + dir * SPAWN_FORWARD
-	var shape := _shape_of(block_id)
-	var size: Vector3 = shape["size"]
+	var boxes := _boxes_of(block_id)
+	var centre: Vector3 = _body_centre(boxes)
+	var size: Vector3 = _body_size(boxes, centre)
 	var node := Node3D.new()
 	node.name = "Drop"
 	var mesh_instance := MeshInstance3D.new()
@@ -149,14 +157,13 @@ func spawn(block_id: int, count: int, from_eye: Vector3, direction: Vector3) -> 
 	mesh_instance.material_override = _material_of(block_id, tex)
 	mesh_instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
 	# The mesh's own centre sits at the node's origin, so the node turns the block
-	# about its middle and the body below is the box the mesh draws.
-	mesh_instance.position = -shape["centre"]
+	# about its middle and the body below is the boxes the mesh draws.
+	mesh_instance.position = -_mesh_centre(block_id)
 	node.add_child(mesh_instance)
 	add_child(node)
 
 	var speed := THROW_SPEED * randf_range(1.0 - THROW_VARY, 1.0 + THROW_VARY)
 	var vel := dir * speed + Vector3.UP * (speed * THROW_UP)
-	var half := size * 0.5
 	# The spin is not rolled: it is what the throw does to the body. The hand is
 	# BELOW and BEHIND the centre by `from - from_eye`, so a throw along `dir`
 	# pulls the body about that offset -- the cross product is the lever arm, and
@@ -169,10 +176,15 @@ func spawn(block_id: int, count: int, from_eye: Vector3, direction: Vector3) -> 
 		"count": count,
 		"node": node,
 		"size": size,
-		"half": half,
+		"half": size * 0.5,
+		# The body's own boxes, in its own space: the contacts that turn it and
+		# the guard that keeps it out of the world are both built from these, so a
+		# stair is a stair and not the block around it.
+		"offsets": _box_offsets(boxes, centre),
+		"halves": _box_halves(boxes),
 		# The body's own points, in its own space: the contacts that turn it.
-		"points": _surface_points(half),
-		"inertia": _inertia(half),
+		"points": _body_points(boxes, centre),
+		"inertia": _inertia_of(boxes, centre),
 		# World space. `position` is the CENTRE of the box, which is also the
 		# node's own origin.
 		"position": from,
@@ -336,40 +348,63 @@ func _contacts(item: Dictionary, pos: Vector3, basis: Basis) -> Array:
 ## The exact convex guard: how deep the WHOLE body is in the world, and the normal
 ## that pushes it out. See where it is used -- it is what catches the middle of an
 ## edge, which no set of points can promise.
+##
+## Asked of every box the body is made of, so a stair is guarded as its two boxes
+## rather than as the full block around them.
 func _turned_contact(item: Dictionary, pos: Vector3, basis: Basis) -> Dictionary:
-	if _chunk_manager == null or not _chunk_manager.has_method("turned_box_contact"):
+	if _chunk_manager == null or not _chunk_manager.has_method("turned_boxes_contact"):
 		return {"into": false, "normal": Vector3.UP, "depth": 0.0}
-	return _chunk_manager.turned_box_contact(pos, item["half"], basis)
+	var offsets := PackedVector3Array()
+	for o in item["offsets"]:
+		offsets.append(o)
+	var halves := PackedVector3Array()
+	for h in item["halves"]:
+		halves.append(h)
+	return _chunk_manager.turned_boxes_contact(pos, offsets, halves, basis)
 
 
-## A body's points: SURFACE_POINTS along each axis, on the box's surface. The
-## corners and edges are where a box meets the world, so that is where they are
-## needed; the inside of the box never touches anything.
-func _surface_points(half: Vector3) -> Array:
+## A body's points: every box's surface laid out SURFACE_POINTS to an axis, in the
+## body's own space. The corners and edges are where a box meets the world, so that
+## is where they are needed; the inside of a box never touches anything.
+func _body_points(boxes: Array, centre: Vector3) -> Array:
 	var out := []
 	var n := SURFACE_POINTS
-	for ix in range(n):
-		for iy in range(n):
-			for iz in range(n):
-				# Only the shell: a point in the middle of an axis is interior.
-				if ix != 0 and ix != n - 1 and iy != 0 and iy != n - 1 and iz != 0 and iz != n - 1:
-					continue
-				out.append(Vector3(
-					half.x * (float(ix) / float(n - 1) * 2.0 - 1.0),
-					half.y * (float(iy) / float(n - 1) * 2.0 - 1.0),
-					half.z * (float(iz) / float(n - 1) * 2.0 - 1.0)))
+	for box in boxes:
+		var box_centre: Vector3 = (box["lo"] + box["hi"]) * 0.5 - centre
+		var half: Vector3 = (box["hi"] - box["lo"]) * 0.5
+		for ix in range(n):
+			for iy in range(n):
+				for iz in range(n):
+					# Only the shell: a point in the middle of an axis is interior.
+					if ix != 0 and ix != n - 1 and iy != 0 and iy != n - 1 and iz != 0 and iz != n - 1:
+						continue
+					out.append(box_centre + Vector3(
+						half.x * (float(ix) / float(n - 1) * 2.0 - 1.0),
+						half.y * (float(iy) / float(n - 1) * 2.0 - 1.0),
+						half.z * (float(iz) / float(n - 1) * 2.0 - 1.0)))
 	return out
 
 
-## The body's inertia tensor about its middle, as a diagonal in its own space: the
-## box's own formula, scaled by the mass. Its inverse is what a contact needs --
-## how much angular velocity an impulse about a lever arm produces.
-func _inertia(half: Vector3) -> Vector3:
-	var m := maxf(half.x * half.y * half.z * 8.0, 0.001)
-	var x := m * (half.y * half.y + half.z * half.z) / 3.0
-	var y := m * (half.x * half.x + half.z * half.z) / 3.0
-	var z := m * (half.x * half.x + half.y * half.y) / 3.0
-	return Vector3(maxf(x, 0.0001), maxf(y, 0.0001), maxf(z, 0.0001))
+## The body's inertia tensor about its own origin, as a diagonal in its own space:
+## each box's own formula, moved out to where that box sits (the parallel axis
+## theorem), summed over the boxes and scaled by the mass. Its inverse is what a
+## contact needs -- how much angular velocity an impulse about a lever arm makes.
+func _inertia_of(boxes: Array, centre: Vector3) -> Vector3:
+	var total := Vector3.ZERO
+	var volume := 0.0
+	for box in boxes:
+		var box_centre: Vector3 = (box["lo"] + box["hi"]) * 0.5 - centre
+		var half: Vector3 = (box["hi"] - box["lo"]) * 0.5
+		var m := maxf(half.x * half.y * half.z * 8.0, 0.0001)
+		volume += m
+		total.x += m * (half.y * half.y + half.z * half.z) / 3.0 + m * (box_centre.y * box_centre.y + box_centre.z * box_centre.z)
+		total.y += m * (half.x * half.x + half.z * half.z) / 3.0 + m * (box_centre.x * box_centre.x + box_centre.z * box_centre.z)
+		total.z += m * (half.x * half.x + half.y * half.y) / 3.0 + m * (box_centre.x * box_centre.x + box_centre.y * box_centre.y)
+	# Every axis gets at least a small share of the body's own mass, so a body with
+	# one very thin axis -- which is every item sprite -- cannot have an inertia
+	# that a contact turns into an uncontrollable spin.
+	var floor_m := maxf(volume, 0.001) * 0.02
+	return Vector3(maxf(total.x, floor_m), maxf(total.y, floor_m), maxf(total.z, floor_m))
 
 
 ## The inverse of the inertia tensor, applied in world space: the tensor is diagonal
@@ -456,15 +491,61 @@ func _mesh_of(block_id: int, tex: Texture2D) -> ArrayMesh:
 	return mesh
 
 
-## The box a body is drawn and solved as: the mesh's own bounds, so a slab is a half
-## block and collides as one.
-func _shape_of(block_id: int) -> Dictionary:
+## The boxes a body is drawn and solved as: the block's OWN shape boxes, so a slab
+## is a half block, a stair is its two boxes, and neither is the full block around
+## them. An item is a small cube, because a sprite has no thickness to collide as.
+func _boxes_of(block_id: int) -> Array:
+	var out := []
+	if BlockTextures.is_item(block_id):
+		var half := ITEM_BOX * 0.5
+		out.append({"lo": Vector3(-half, -half, -half), "hi": Vector3(half, half, half)})
+		return out
+	if _chunk_manager != null and _chunk_manager.has_method("get_selection_boxes"):
+		for b in _chunk_manager.get_selection_boxes(block_id):
+			out.append({"lo": Vector3(b[0], b[1], b[2]), "hi": Vector3(b[3], b[4], b[5])})
+	if out.is_empty():
+		out.append({"lo": Vector3.ZERO, "hi": Vector3.ONE})
+	return out
+
+
+## Where the body's own boxes are centred, so the body turns about the middle of
+## the shape it draws rather than about the corner of its cell.
+func _body_centre(boxes: Array) -> Vector3:
+	var lo: Vector3 = boxes[0]["lo"]
+	var hi: Vector3 = boxes[0]["hi"]
+	for box in boxes:
+		lo = lo.min(box["lo"])
+		hi = hi.max(box["hi"])
+	return (lo + hi) * 0.5
+
+
+func _body_size(boxes: Array, centre: Vector3) -> Vector3:
+	var lo: Vector3 = boxes[0]["lo"]
+	var hi: Vector3 = boxes[0]["hi"]
+	for box in boxes:
+		lo = lo.min(box["lo"])
+		hi = hi.max(box["hi"])
+	return (hi - lo).abs().max(Vector3(0.01, 0.01, 0.01))
+
+
+func _box_offsets(boxes: Array, centre: Vector3) -> Array:
+	var out := []
+	for box in boxes:
+		out.append((box["lo"] + box["hi"]) * 0.5 - centre)
+	return out
+
+
+func _box_halves(boxes: Array) -> Array:
+	var out := []
+	for box in boxes:
+		out.append(((box["hi"] - box["lo"]) * 0.5).max(Vector3(0.01, 0.01, 0.01)))
+	return out
+
+
+## The mesh's own centre, so the mesh can be moved to sit on the body's origin.
+func _mesh_centre(block_id: int) -> Vector3:
 	var mesh := _mesh_of(block_id, BlockTextures.get_texture(block_id))
-	var aabb := mesh.get_aabb() if mesh != null else AABB()
-	var size := aabb.size
-	if size.length_squared() < 0.0001:
-		size = Vector3.ONE
-	return {"size": size, "centre": aabb.get_center()}
+	return mesh.get_aabb().get_center() if mesh != null else Vector3.ZERO
 
 
 func _mesh_from(data: Dictionary) -> ArrayMesh:

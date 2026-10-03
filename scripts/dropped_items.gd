@@ -55,13 +55,12 @@ const THROW_UP = 0.35         # fraction of the throw spent lifting the item
 ## corners of its two boxes rather than by the corners of the block around them.
 const SURFACE_POINTS = 3
 
-## An item -- a stick, a torch -- is drawn as a flat sprite, and its mesh is a
-## plate a few hundredths thick. Collided as that plate its inertia about its own
-## plane is nearly nothing, so the smallest contact impulse spins it wildly and it
-## reads as being pulled by a force that is not gravity. An item is collided as a
-## small solid cube instead: a sprite has no thickness to collide as, and a cube
-## is what a dropped thing with no shape should behave like.
-const ITEM_BOX = 0.25
+## The least thickness an item is collided with, in blocks. This is a numerical
+## floor and not a shape: an item is a real 3D mesh, extruded from its sprite
+## (ViewmodelMeshes builds it with front, back and rim faces, 0.05 thick), and its
+## own bounds are what it is collided as. The floor only exists so a mesh that came
+## back degenerate could not produce a body with no volume at all.
+const ITEM_THICKNESS = 0.01
 
 ## Item physics, in blocks and seconds. The gravity is a touch under the player's,
 ## and the damping is what stops a throw sailing: without it nothing in the air
@@ -252,18 +251,19 @@ func _substep(item: Dictionary, delta: float) -> void:
 
 	# Solve the body's own points, several times, so the ones that touch agree on
 	# one motion instead of fighting.
+	#
+	# These points answer MOTION and nothing else. The penetration is not pushed out
+	# here: a face lying on the floor reports nine points at once, and moving the
+	# body out of each would move it out nine times over -- and then again on every
+	# iteration -- so a plate that touched the ground was thrown off it by the size
+	# of its own contact set. One overlap, one correction: the guard below answers
+	# for the WHOLE body, so it cannot count the same overlap twice.
 	var contacts: Array = _contacts(item, pos, basis)
 	for iteration in range(SOLVER_ITERATIONS):
 		for contact in contacts:
 			var r: Vector3 = contact["point"] - pos
 			var normal: Vector3 = contact["normal"]
-			var depth: float = float(contact["depth"])
-			# Resolve the penetration as a POSITION correction, not an impulse: an
-			# impulse of the whole overlap would hand the body the bounce speed of
-			# how deep it is, every substep, which launches it off the floor.
-			if depth > PUSH_SLOP:
-				pos = pos + normal * (depth - PUSH_SLOP) * PUSH_FRACTION
-			# Then answer the motion this point actually sees, at the point itself
+			# Answer the motion this point actually sees, at the point itself
 			# -- not the body's centre. This is the difference between a box that
 			# slides and a body that turns, and it is what makes a corner catch and
 			# topple instead of being ignored.
@@ -294,12 +294,13 @@ func _substep(item: Dictionary, delta: float) -> void:
 					vel = vel + t * t_impulse
 					spin = spin + inv_inertia * r.cross(t * t_impulse)
 
-	# The exact convex guard. Points can only report the places they were put, so a
-	# block sitting against the MIDDLE of an edge lies between two of them and the
-	# edge passes straight through the world -- the clipping that gets worse the
-	# further a spot is from a corner. This test has no such gaps: it answers for the
-	# whole box, so whatever the points missed is caught here and pushed back out. It
-	# only resolves the penetration; the turning already came from the contacts.
+	# The exact convex guard, and the body's ONLY push-out. Points can only report
+	# the places they were put, so a block sitting against the MIDDLE of an edge lies
+	# between two of them and the edge passes straight through the world -- the
+	# clipping that gets worse the further a spot is from a corner. This test has no
+	# such gaps: it answers for the whole box, so it catches the middle of an edge
+	# AND it is the one correction a face-wide contact cannot multiply. The turning
+	# still comes from the points above.
 	var guard: Dictionary = _turned_contact(item, pos, basis)
 	if guard.get("into", false):
 		touching = true
@@ -387,8 +388,17 @@ func _body_points(boxes: Array, centre: Vector3) -> Array:
 
 ## The body's inertia tensor about its own origin, as a diagonal in its own space:
 ## each box's own formula, moved out to where that box sits (the parallel axis
-## theorem), summed over the boxes and scaled by the mass. Its inverse is what a
-## contact needs -- how much angular velocity an impulse about a lever arm makes.
+## theorem), summed over the boxes. Its inverse is what a contact needs -- how much
+## angular velocity an impulse about a lever arm makes.
+##
+## The tensor is for UNIT MASS, not for the body's volume, because the solve's
+## impulse denominator is `1 + ...` -- it has already taken 1/m to be 1. A tensor
+## that still carried the volume would answer a contact with 1/volume times too
+## much spin. A full block hides that, since its volume is exactly 1; an item does
+## not. A torch is a thousandth of a block, so its first touch turned it with a
+## thousand times the spin the contact was worth, which is what threw it at the
+## floor. Dividing by the volume is what makes a body turn by its SHAPE and not by
+## how small it happens to be drawn.
 func _inertia_of(boxes: Array, centre: Vector3) -> Vector3:
 	var total := Vector3.ZERO
 	var volume := 0.0
@@ -400,10 +410,11 @@ func _inertia_of(boxes: Array, centre: Vector3) -> Vector3:
 		total.x += m * (half.y * half.y + half.z * half.z) / 3.0 + m * (box_centre.y * box_centre.y + box_centre.z * box_centre.z)
 		total.y += m * (half.x * half.x + half.z * half.z) / 3.0 + m * (box_centre.x * box_centre.x + box_centre.z * box_centre.z)
 		total.z += m * (half.x * half.x + half.y * half.y) / 3.0 + m * (box_centre.x * box_centre.x + box_centre.y * box_centre.y)
-	# Every axis gets at least a small share of the body's own mass, so a body with
-	# one very thin axis -- which is every item sprite -- cannot have an inertia
-	# that a contact turns into an uncontrollable spin.
-	var floor_m := maxf(volume, 0.001) * 0.02
+	total = total / maxf(volume, 0.0001)
+	# A numerical floor per axis, as a share of the body's own largest one. A body
+	# with one very thin axis -- a torch, whose long axis has almost nothing to turn
+	# against -- would otherwise take a contact the way a bare rod does and drill.
+	var floor_m := maxf(total.x, maxf(total.y, total.z)) * 0.1
 	return Vector3(maxf(total.x, floor_m), maxf(total.y, floor_m), maxf(total.z, floor_m))
 
 
@@ -493,12 +504,18 @@ func _mesh_of(block_id: int, tex: Texture2D) -> ArrayMesh:
 
 ## The boxes a body is drawn and solved as: the block's OWN shape boxes, so a slab
 ## is a half block, a stair is its two boxes, and neither is the full block around
-## them. An item is a small cube, because a sprite has no thickness to collide as.
+## them. An item is its own mesh's bounds -- the sprite's silhouette at the width
+## its mesh was extruded to -- so a stick is a block long and a torch is a quarter
+## of one, each as thick as it is drawn.
 func _boxes_of(block_id: int) -> Array:
 	var out := []
 	if BlockTextures.is_item(block_id):
-		var half := ITEM_BOX * 0.5
-		out.append({"lo": Vector3(-half, -half, -half), "hi": Vector3(half, half, half)})
+		var mesh := _mesh_of(block_id, BlockTextures.get_texture(block_id))
+		var size: Vector3 = mesh.get_aabb().size if mesh != null else Vector3.ONE
+		size = Vector3(maxf(size.x, ITEM_THICKNESS), maxf(size.y, ITEM_THICKNESS),
+			maxf(size.z, ITEM_THICKNESS))
+		var half := size * 0.5
+		out.append({"lo": -half, "hi": half})
 		return out
 	if _chunk_manager != null and _chunk_manager.has_method("get_selection_boxes"):
 		for b in _chunk_manager.get_selection_boxes(block_id):

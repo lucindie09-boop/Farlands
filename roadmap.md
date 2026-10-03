@@ -1,5 +1,9 @@
 **Not in any particular order, important things that will be done soon**
 
+Ten worked-out UI ideas live in [possibility.md](possibility.md) - small, precise, felt-every-
+second things (sound, hurt feedback, item tooltips, the hotbar name popup). They are ideas,
+not tasks; move one in here when it gets picked up.
+
 
 
 ~~Block break animation + hardness values - careful: decide now if hardness gates break time,

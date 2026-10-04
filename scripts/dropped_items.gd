@@ -35,11 +35,21 @@ extends Node3D
 #
 # Bodies collide with the WORLD that way, and with each other the same way in
 # miniature: an overlapping PAIR answers with the two bodies' own points and one
-# deepest-overlap push-out shared between them (see _solve_item_pairs), so a
-# dropped block lands on another and a stack settles as a stack instead of as two
-# blocks in one place. The world's answer belongs to one body and the pair's to
-# both: neither can be moved twice for the same overlap, and a throw hands its
-# momentum over instead of passing through.
+# deepest-overlap push-out shared between them, so a dropped block lands on
+# another and a stack settles as a stack instead of as two blocks in one place.
+# The world's answer belongs to one body and the pair's to both: neither can be
+# moved twice for the same overlap, and a throw hands its momentum over instead
+# of passing through.
+#
+# None of that is solved HERE any more. One substep is one native call over every
+# body at once -- the gravity and the damping, the turn and the move, the world's
+# contacts and their impulses, the exact guard, the pairs, and the rest decision
+# (ChunkManager.solve_item_bodies: engine/item_body_solver.cpp and
+# engine/item_pair_solver.cpp). It is the same maths, in flat arrays, and it moved
+# because a pile made the old cost visible: a substep per body was two native
+# queries wrapped in an impulse loop that read and walked a dictionary per
+# contact, and the more blocks were in the pile the more times over it paid. This
+# script gathers the bodies into the arrays and reads them back, and that is all.
 #
 # An item's node origin is the CENTRE of its box, so that the rotation turns the
 # block about its middle; `position` is that same centre, in world space.
@@ -76,60 +86,15 @@ const SURFACE_POINTS = 3
 ## back degenerate could not produce a body with no volume at all.
 const ITEM_THICKNESS = 0.01
 
-## Item physics, in blocks and seconds. The gravity is a touch under the player's,
-## and the damping is what stops a throw sailing: without it nothing in the air
-## would ever slow down.
-const GRAVITY = 16.0
-const MAX_SPEED = 60.0         # terminal speed, so a long fall cannot tunnel
-const LINEAR_DAMPING = 0.25    # fraction of the velocity shed per second, in the air
-const ANGULAR_DAMPING = 0.30   # and of the spin
-const BOUNCE = 0.25            # how much of the approach speed a contact gives back
-## Below this approach speed a contact does not bounce at all. Restitution applied
-## to a resting body is a perpetual trampoline: gravity adds a hair of downward
-## speed every substep, the contact hands a share of it straight back, and the body
-## buzzes off the ground forever instead of lying on it.
-const RESTING_APPROACH = 0.5
-const FRICTION = 0.6           # how much of the tangential motion a contact takes
-
 ## A body is stepped in slices this long at most, so a fast throw cannot pass
 ## through a block between two frames: the contacts are found at the position the
 ## body is actually at, and a 60-block-a-second fall moves a whole block a frame.
-const MAX_SUBSTEP = 1.0 / 120.0
-
-## How many times the contact set is solved over per substep. One pass is a body
-## whose corners fight each other -- pushing one out pushes another in, and the
-## body buzzes on the spot. Iterating lets the contacts agree on one motion, which
-## is what a resting body needs to be still.
-const SOLVER_ITERATIONS = 6
-## The same, for the item-vs-item solve: fewer passes, because a pair of convex
-## boxes has no face of nine points fighting itself.
-const PAIR_SOLVER_ITERATIONS = 3
-## How far outside its box a point still counts as touching another body's box, in
-## blocks -- the same hair of tolerance the world's point contacts take.
-const PAIR_CONTACT_RADIUS = 0.02
-## How fast a body has to be moving to WAKE a sleeping one it touches. A body merely
-## leaning on a sleeping neighbour moves by gravity's own tickle between substeps
-## (well under this), and counting that as a hit would wake a stack every substep,
-## so it could never come to rest.
-const WAKE_SPEED = 0.75
-## How much of a penetration is corrected per pass, and how deep one is ignored.
-## Correcting all of it in one pass overshoots; leaving a slop lets a resting body
-## sit still instead of being pushed out and pulled back every substep.
-const PUSH_FRACTION = 0.3
-const PUSH_SLOP = 0.001
-
-## What counts as being at rest: slow enough, touching something, and staying that
-## way for long enough. A body that is asleep stops being integrated until
-## something disturbs it -- without that, a block lying on the ground is solved
-## forever.
 ##
-## Nothing else is applied to a resting body: no extra drag, no easing onto a flat
-## orientation. A body that settles on its own is a body whose contacts held it, and
-## a body told to lie flat is a body that cannot balance on an edge when the
-## geometry says it should.
-const REST_SPEED = 0.12
-const REST_SPIN = 0.35
-const REST_TIME = 0.3
+## Everything a slice is stepped BY -- gravity, damping, the bounce and the
+## friction, how many times the contacts are solved over, the push-out, and what
+## counts as being at rest -- is the native solver's, in
+## src/engine/item_body_solver.cpp (world) and item_pair_solver.cpp (pairs).
+const MAX_SUBSTEP = 1.0 / 120.0
 
 ## The item is picked up when the player's feet are within this of it.
 const PICKUP_RADIUS = 1.2
@@ -149,11 +114,48 @@ var _materials: Dictionary = {}
 
 var _chunk_manager: Node = null
 var _player: Node3D = null
+## Whether the world can solve an item's whole substep (ChunkManager.solve_item_bodies).
+## Looked up once: it is the same answer every substep, and has_method is not free.
+var _body_solve_available := false
+
+# The shape table the native solver is handed: every kind of block that has
+# been dropped, once. `_shape_rows` maps a block id to its row; the arrays are
+# the rows flattened (row s owns boxes [_shape_box_start[s], +_shape_box_count[s])
+# and points [_shape_point_start[s], +_shape_point_count[s])). A shape never
+# moves, so this is written only when a block id is dropped for the first time.
+var _shape_rows: Dictionary = {}
+var _shape_box_offsets := PackedVector3Array()
+var _shape_box_halves := PackedVector3Array()
+var _shape_box_start := PackedInt32Array()
+var _shape_box_count := PackedInt32Array()
+var _shape_points := PackedVector3Array()
+var _shape_point_start := PackedInt32Array()
+var _shape_point_count := PackedInt32Array()
+
+# The bodies of one substep, in the same order as _items: the arrays the native
+# solver works in. The half that does not move -- inertia, reach, shape -- is
+# gathered only when the item list changes; the live half is gathered every
+# substep, because every substep is somewhere new.
+var _bodies_static_dirty := true
+var _body_positions := PackedVector3Array()
+var _body_rotations := PackedVector4Array()
+var _body_velocities := PackedVector3Array()
+var _body_spins := PackedVector3Array()
+var _body_inertia := PackedVector3Array()
+var _body_reaches := PackedFloat32Array()
+var _body_shapes := PackedInt32Array()
+var _body_asleep := PackedByteArray()
+## Seconds each body has been slow and touching: the solver's rest timer, kept
+## between substeps for exactly the reason the velocity is.
+var _body_rest := PackedFloat32Array()
+var _body_grounded := PackedByteArray()
 
 
 func _ready() -> void:
 	_chunk_manager = get_node_or_null(chunk_manager_path)
 	_player = get_node_or_null("../Player")
+	_body_solve_available = _chunk_manager != null \
+		and _chunk_manager.has_method("solve_item_bodies")
 
 
 ## Throw `count` of `block_id` into the world from `eye` (the camera), along
@@ -174,6 +176,9 @@ func spawn(block_id: int, count: int, from_eye: Vector3, direction: Vector3) -> 
 	var boxes := _boxes_of(block_id)
 	var centre: Vector3 = _body_centre(boxes)
 	var size: Vector3 = _body_size(boxes, centre)
+	var offsets := _box_offsets(boxes, centre)
+	var halves := _box_halves(boxes)
+	var points := _body_points(boxes, centre)
 	var node := Node3D.new()
 	node.name = "Drop"
 	var mesh_instance := MeshInstance3D.new()
@@ -201,16 +206,13 @@ func spawn(block_id: int, count: int, from_eye: Vector3, direction: Vector3) -> 
 		"node": node,
 		"size": size,
 		"half": size * 0.5,
-		# The body's own boxes, in its own space: the contacts that turn it and
-		# the guard that keeps it out of the world are both built from these, so a
-		# stair is a stair and not the block around it.
-		"offsets": _box_offsets(boxes, centre),
-		"halves": _box_halves(boxes),
-		# The body's own points, in its own space: the contacts that turn it.
-		"points": _body_points(boxes, centre),
 		"inertia": _inertia_of(boxes, centre),
 		# The body's own reach from its origin: the broad phase of the pair solve.
 		"radius": _body_reach(boxes, centre),
+		# The body's shape in the table the native solver is handed: its boxes and
+		# points, flattened once for every item of this block id. They are not kept
+		# on the item as well -- nothing reads them off it any more.
+		"shape": _shape_row(block_id, offsets, halves, points),
 		# World space. `position` is the CENTRE of the box, which is also the
 		# node's own origin.
 		"position": from,
@@ -218,9 +220,9 @@ func spawn(block_id: int, count: int, from_eye: Vector3, direction: Vector3) -> 
 		"spin": spin,
 		"age": 0.0,
 		"grounded": false,
-		"rest": 0.0,
 		"asleep": false,
 	})
+	_bodies_static_dirty = true
 
 
 func _process(delta: float) -> void:
@@ -245,8 +247,8 @@ func _process(delta: float) -> void:
 ## One frame of every body's flight, in slices short enough that nothing can pass
 ## through a block -- or through another body -- between two of them.
 ##
-## Every body moves inside a slice BEFORE the pairs are solved, so both halves of a
-## stack see each other's motion at the same instant. Stepping one body to the end
+## Every body moves inside a slice BEFORE the pairs are solved, so both halves of
+## a stack see each other's motion at the same instant. Stepping one body to the end
 ## of the frame at a time would let it clear a body that had not moved yet.
 func _step_all(delta: float) -> void:
 	if _items.is_empty():
@@ -254,414 +256,140 @@ func _step_all(delta: float) -> void:
 	var slices := maxi(1, int(ceil(delta / MAX_SUBSTEP)))
 	var slice := delta / float(slices)
 	for i in range(slices):
-		for item in _items:
-			if item["asleep"]:
-				continue
-			_substep(item, slice)
-		_solve_item_pairs(slice)
+		_step_items(slice)
 
 
-## One slice: gravity, then the contacts the world reports at the position the body
-## is now at, each one pushing it out and taking its share of the motion.
-func _substep(item: Dictionary, delta: float) -> void:
-	var pos: Vector3 = item["position"]
-	var vel: Vector3 = item["velocity"]
-	var spin: Vector3 = item["spin"]
-	var node: Node3D = item["node"]
-
-	vel.y -= GRAVITY * delta
-	vel = vel * maxf(0.0, 1.0 - LINEAR_DAMPING * delta)
-	spin = spin * maxf(0.0, 1.0 - ANGULAR_DAMPING * delta)
-	if vel.length() > MAX_SPEED:
-		vel = vel.normalized() * MAX_SPEED
-
-	# Turn first, then move, then solve where the body ended up. The rotation has
-	# to be integrated BEFORE the contacts are found: done after, the body turns
-	# into the world every substep with nothing solving it, which is what a block
-	# resting on its edge clips through the floor with.
-	if spin.length_squared() > 0.000001:
-		node.quaternion = (Quaternion(spin.normalized(), spin.length() * delta) * node.quaternion).normalized()
-	pos = pos + vel * delta
-	var basis := Basis(node.quaternion)
-
-	var inv_inertia := _inv_inertia(item["inertia"], basis)
-	var touching := false
-
-	# The exact convex guard, and the body's ONLY push-out. Points can only report
-	# the places they were put, so a block sitting against the MIDDLE of an edge lies
-	# between two of them and the edge passes straight through the world -- the
-	# clipping that gets worse the further a spot is from a corner. This test has no
-	# such gaps: it answers for the whole box, so it catches the middle of an edge
-	# AND it is the one correction a face-wide contact cannot multiply. The turning
-	# still comes from the points.
-	#
-	# Asked BEFORE the impulses, because a point contact is only useful while it
-	# pushes the way the whole body has to go. A point that has sunk past the middle
-	# of a thin block reports the face it is NEAREST, which can be the one it came in
-	# through; an impulse along that face would fight the push-out instead of helping
-	# it, so those contacts are dropped here.
-	var guard: Dictionary = _turned_contact(item, pos, basis)
-	var contacts: Array = _contacts(item, pos, basis)
-	if guard.get("into", false):
-		var separation: Vector3 = guard["normal"]
-		var agreeing := []
-		for contact in contacts:
-			if contact["normal"].dot(separation) >= 0.0:
-				agreeing.append(contact)
-		contacts = agreeing
-
-	# Solve the body's own points, several times, so the ones that touch agree on
-	# one motion instead of fighting.
-	#
-	# These points answer MOTION and nothing else. The penetration is not pushed out
-	# here: a face lying on the floor reports nine points at once, and moving the
-	# body out of each would move it out nine times over -- and then again on every
-	# iteration -- so a plate that touched the ground was thrown off it by the size
-	# of its own contact set. One overlap, one correction: the guard answers for the
-	# WHOLE body, so it cannot count the same overlap twice.
-	for iteration in range(SOLVER_ITERATIONS):
-		for contact in contacts:
-			var r: Vector3 = contact["point"] - pos
-			var normal: Vector3 = contact["normal"]
-			# Answer the motion this point actually sees, at the point itself
-			# -- not the body's centre. This is the difference between a box that
-			# slides and a body that turns, and it is what makes a corner catch and
-			# topple instead of being ignored.
-			var point_vel := vel + spin.cross(r)
-			var approach := point_vel.dot(normal)
-			if approach < 0.0:
-				touching = true
-				# Bounce only a real impact. A body already resting closes on the
-				# surface by gravity's own fall every substep, and returning a share
-				# of THAT is a trampoline; below the threshold the motion is simply
-				# absorbed, which is what lets a body lie still.
-				var restitution := BOUNCE if absf(approach) > RESTING_APPROACH else 0.0
-				var rn := r.cross(normal)
-				var denom := 1.0 + rn.dot(inv_inertia * rn)
-				var impulse := -(1.0 + restitution) * approach / maxf(denom, 0.0001)
-				vel = vel + normal * impulse
-				spin = spin + inv_inertia * r.cross(normal * impulse)
-				# Friction, as the tangential part of the same contact, through the
-				# same effective mass: the surface is what stops a body sliding and
-				# what stops it turning when it is set down on a face.
-				var tangent := point_vel - normal * approach
-				if tangent.length_squared() > 0.000001:
-					var t := tangent.normalized()
-					var rt := r.cross(t)
-					var tdenom := 1.0 + rt.dot(inv_inertia * rt)
-					var t_impulse := -minf(tangent.length() * FRICTION,
-						FRICTION * absf(impulse)) / maxf(tdenom, 0.0001)
-					vel = vel + t * t_impulse
-					spin = spin + inv_inertia * r.cross(t * t_impulse)
-
-	if guard.get("into", false):
-		touching = true
-		var guard_normal: Vector3 = guard["normal"]
-		var guard_depth: float = float(guard["depth"])
-		if guard_depth > PUSH_SLOP:
-			pos = pos + guard_normal * (guard_depth - PUSH_SLOP) * PUSH_FRACTION
-		# Take the motion into the surface out too, or the body keeps its speed into
-		# the world and is pushed out again every substep.
-		var closing := vel.dot(guard_normal)
-		if closing < 0.0:
-			vel = vel - guard_normal * closing
-
-	item["position"] = pos
-	item["velocity"] = vel
-	item["spin"] = spin
-	_settle(item, delta, touching)
-
-
-## The body's own points that are inside the world: where they touch, which way the
-## world pushes each, and how deep. These are what the solve turns the body with,
-## because a contact's torque comes from WHERE it is.
-func _contacts(item: Dictionary, pos: Vector3, basis: Basis) -> Array:
-	if _chunk_manager == null or not _chunk_manager.has_method("contacts_for_points"):
-		return []
-	var local: Array = item["points"]
-	var world := PackedVector3Array()
-	world.resize(local.size())
-	for i in range(local.size()):
-		world[i] = pos + basis * local[i]
-	# A small radius, so a body that is merely touching is a contact at depth 0
-	# rather than one that only appears a hair later.
-	return _chunk_manager.contacts_for_points(world, 0.02)
-
-
-## The exact convex guard: how deep the WHOLE body is in the world, and the normal
-## that pushes it out. See where it is used -- it is what catches the middle of an
-## edge, which no set of points can promise.
+## One slice of every body, solved NATIVELY in one call
+## (ChunkManager.solve_item_bodies, engine/item_body_solver.cpp): the gravity and
+## the damping, the turn and the move, the world's contacts and the impulses that
+## answer them, the exact guard and its push-out, then the bodies against EACH
+## OTHER, then the one rest decision per body. That is everything this script
+## used to do in _substep and _solve_item_pairs, per body, in GDScript.
 ##
-## Asked of every box the body is made of, so a stair is guarded as its two boxes
-## rather than as the full block around them.
-func _turned_contact(item: Dictionary, pos: Vector3, basis: Basis) -> Dictionary:
-	if _chunk_manager == null or not _chunk_manager.has_method("turned_boxes_contact"):
-		return {"into": false, "normal": Vector3.UP, "depth": 0.0}
-	var offsets := PackedVector3Array()
-	for o in item["offsets"]:
-		offsets.append(o)
-	var halves := PackedVector3Array()
-	for h in item["halves"]:
-		halves.append(h)
-	return _chunk_manager.turned_boxes_contact(pos, offsets, halves, basis)
+## This function is the gather and the read-back, and nothing else: the bodies go
+## into flat packed arrays, come back solved, and are written back into the item
+## dictionaries and the nodes. A pile of blocks costs one native call a slice
+## whatever its size, where it used to cost a dictionary or two per contact.
+func _step_items(delta: float) -> void:
+	if not _body_solve_available:
+		return
+	var count := _items.size()
+	if count == 0:
+		return
+	# A pile that is entirely asleep has nothing to solve -- and it is the common
+	# case, so it does not pay for the gather below.
+	var awake := false
+	for item in _items:
+		if not item["asleep"]:
+			awake = true
+			break
+	if not awake:
+		return
+	if _bodies_static_dirty:
+		_gather_static_bodies()
+	for i in range(count):
+		var item: Dictionary = _items[i]
+		var node: Node3D = item["node"]
+		_body_positions[i] = item["position"]
+		# The body's orientation is the node's: the solver turns it and this is
+		# where its own rotation is kept between substeps.
+		var rotation: Quaternion = node.quaternion
+		_body_rotations[i] = Vector4(rotation.x, rotation.y, rotation.z, rotation.w)
+		_body_velocities[i] = item["velocity"]
+		_body_spins[i] = item["spin"]
+		_body_asleep[i] = 1 if item["asleep"] else 0
+	var state := {
+		"positions": _body_positions,
+		"rotations": _body_rotations,
+		"velocities": _body_velocities,
+		"spins": _body_spins,
+		"inertia": _body_inertia,
+		"reach": _body_reaches,
+		"shapes": _body_shapes,
+		"asleep": _body_asleep,
+		"rest": _body_rest,
+		"box_offsets": _shape_box_offsets,
+		"box_halves": _shape_box_halves,
+		"box_start": _shape_box_start,
+		"box_count": _shape_box_count,
+		"points": _shape_points,
+		"point_start": _shape_point_start,
+		"point_count": _shape_point_count,
+	}
+	_chunk_manager.solve_item_bodies(state, delta)
+	# The solved arrays come back as NEW ones (the native pass writes its own
+	# copies of what it is handed), so they are read from the dictionary and not
+	# from the members that were gathered into it.
+	_body_positions = state["positions"]
+	_body_rotations = state["rotations"]
+	_body_velocities = state["velocities"]
+	_body_spins = state["spins"]
+	_body_asleep = state["asleep"]
+	_body_rest = state["rest"]
+	_body_grounded = state["grounded"]
+	for i in range(count):
+		var item: Dictionary = _items[i]
+		var node: Node3D = item["node"]
+		item["position"] = _body_positions[i]
+		item["velocity"] = _body_velocities[i]
+		item["spin"] = _body_spins[i]
+		item["asleep"] = _body_asleep[i] != 0
+		item["grounded"] = _body_grounded[i] != 0
+		var rotation: Vector4 = _body_rotations[i]
+		node.quaternion = Quaternion(rotation.x, rotation.y, rotation.z, rotation.w)
 
 
-## The one place a body decides it has come to rest: slow, touching something, and
-## staying that way for long enough. Called at the end of the world substep and
-## again after the item-vs-item solve, because a body lying on ANOTHER body is as
-## settled as one lying on the ground.
+## The half of the body state that does not move -- inertia, reach, shape row --
+## gathered when the item list changes, and one of the places the live half is
+## SIZED: the gather in _step_items fills by index and does not resize.
 ##
-## Nothing else is applied to a resting body: no extra drag, no easing onto a flat
-## orientation. A body that settles on its own is a body whose contacts held it, and
-## a body told to lie flat is a body that cannot balance on an edge when the
-## geometry says it should.
-func _settle(item: Dictionary, delta: float, touching: bool) -> void:
-	item["grounded"] = touching
-	if touching and item["velocity"].length() < REST_SPEED and item["spin"].length() < REST_SPIN:
-		item["rest"] = item["rest"] + delta
-		if item["rest"] >= REST_TIME:
-			item["asleep"] = true
-			item["velocity"] = Vector3.ZERO
-			item["spin"] = Vector3.ZERO
-	else:
-		item["rest"] = 0.0
+## Some of this is the item dictionaries' own answers, and some of it is the rest
+## timer: a body that arrives or leaves restarts the pile's timers, which is a
+## fraction of a second of grace and never a body that should keep sleeping.
+func _gather_static_bodies() -> void:
+	var count := _items.size()
+	_body_positions.resize(count)
+	_body_rotations.resize(count)
+	_body_velocities.resize(count)
+	_body_spins.resize(count)
+	_body_asleep.resize(count)
+	_body_rest.resize(count)
+	_body_inertia.resize(count)
+	_body_reaches.resize(count)
+	_body_shapes.resize(count)
+	for i in range(count):
+		var item: Dictionary = _items[i]
+		_body_rest[i] = 0.0
+		_body_inertia[i] = item["inertia"]
+		_body_reaches[i] = item["radius"]
+		_body_shapes[i] = item["shape"]
+	_bodies_static_dirty = false
 
 
-## Item against item, once per substep: two bodies whose volumes overlap push each
-## other apart along the shortest way out and answer the motion each sees where
-## they touch, so a dropped block lands on another, a stack leans, and a throw
-## hands its momentum over instead of one body passing through the other.
-##
-## The pair is a two-body contact in the same terms as the world's: the bodies' own
-## surface points carry the turning, and ONE contact -- the deepest box overlap --
-## carries the push-out, so the same overlap cannot be corrected twice.
-##
-## A sleeping body is an OBSTACLE, not a participant: it holds its place and its
-## motion until a body MOVING faster than a resting one touches it, which is what
-## lets a stack settle instead of being jogged awake by the weight above it.
-func _solve_item_pairs(delta: float) -> void:
-	for i in range(_items.size()):
-		var a: Dictionary = _items[i]
-		for j in range(i + 1, _items.size()):
-			var b: Dictionary = _items[j]
-			if a["asleep"] and b["asleep"]:
-				continue
-			_solve_pair(a, b, delta)
+## The shape row for a block id, added to the table the first time that kind of
+## block is dropped. A shape's boxes and points never move, so every item of the
+## same block shares one row and the native pair solve is handed the same table
+## every substep.
+func _shape_row(block_id: int, offsets: Array, halves: Array, points: Array) -> int:
+	if _shape_rows.has(block_id):
+		return _shape_rows[block_id]
+	var row: int = _shape_box_count.size()
+	_shape_rows[block_id] = row
+	_shape_box_start.append(_shape_box_offsets.size())
+	_shape_box_count.append(offsets.size())
+	for box_offset in offsets:
+		_shape_box_offsets.append(box_offset)
+	for box_half in halves:
+		_shape_box_halves.append(box_half)
+	_shape_point_start.append(_shape_points.size())
+	_shape_point_count.append(points.size())
+	for point in points:
+		_shape_points.append(point)
+	return row
 
 
-func _solve_pair(a: Dictionary, b: Dictionary, delta: float) -> void:
-	# Broad phase: the bodies' own reaches, so the box math below only runs for the
-	# pairs that could possibly touch.
-	if (a["position"] - b["position"]).length() > float(a["radius"]) + float(b["radius"]):
-		return
-	var guard: Dictionary = _pair_guard(a, b)
-	if not guard["into"]:
-		return
-
-	# A body that is moving has HIT the sleeping one; a body only leaning on it has
-	# not, and the sleeping body stays an obstacle.
-	var a_velocity: Vector3 = a["velocity"]
-	var b_velocity: Vector3 = b["velocity"]
-	if a["asleep"] and b_velocity.length() > WAKE_SPEED:
-		_wake(a)
-	if b["asleep"] and a_velocity.length() > WAKE_SPEED:
-		_wake(b)
-
-	# Only the contacts that agree with the guard's separation, for the same reason
-	# the world solve drops them: a point sunk past the middle of the other body
-	# reports the face it is nearest, which can be the one it came in through.
-	var guard_normal: Vector3 = guard["normal"]
-	var contacts: Array = _pair_point_contacts(a, b)
-	if not contacts.is_empty():
-		var agreeing := []
-		for contact in contacts:
-			if contact["normal"].dot(guard_normal) * float(contact["side"]) >= 0.0:
-				agreeing.append(contact)
-		contacts = agreeing
-	for iteration in range(PAIR_SOLVER_ITERATIONS):
-		for contact in contacts:
-			_apply_pair_impulse(contact)
-
-	# The pair's push-out, split between the bodies: both can be moved, so each
-	# takes half, and an obstacle takes none of it.
-	var normal: Vector3 = guard["normal"]
-	var depth: float = float(guard["depth"])
-	if depth > PUSH_SLOP:
-		var correction := (depth - PUSH_SLOP) * PUSH_FRACTION
-		var a_free: bool = not a["asleep"]
-		var b_free: bool = not b["asleep"]
-		if a_free and b_free:
-			a["position"] = (a["position"] as Vector3) - normal * (correction * 0.5)
-			b["position"] = (b["position"] as Vector3) + normal * (correction * 0.5)
-		elif a_free:
-			a["position"] = (a["position"] as Vector3) - normal * correction
-		elif b_free:
-			b["position"] = (b["position"] as Vector3) + normal * correction
-
-	# Both bodies are touching something, so each is settled on the same terms as
-	# the world solve: the one standing on the other can come to rest.
-	if not a["asleep"]:
-		_settle(a, delta, true)
-	if not b["asleep"]:
-		_settle(b, delta, true)
-
-
-## A sleeping body that something moving touched: back in the solve from this
-## substep on, with its rest timer cleared so it cannot fall asleep again while the
-## other body is still moving against it.
-func _wake(item: Dictionary) -> void:
-	item["asleep"] = false
-	item["rest"] = 0.0
-
-
-## The shortest way two bodies overlap, over every pair of their boxes -- the guard
-## of the pair solve, as turned_boxes_contact is the guard of the world one. The
-## normal points from `a` to `b`, so moving `a` along -normal and `b` along +normal
-## separates them.
-func _pair_guard(a: Dictionary, b: Dictionary) -> Dictionary:
-	var a_basis := Basis(a["node"].quaternion)
-	var b_basis := Basis(b["node"].quaternion)
-	var best := {"into": false, "normal": Vector3.UP, "depth": 0.0}
-	for i in range(a["offsets"].size()):
-		var a_centre: Vector3 = a["position"] + a_basis * a["offsets"][i]
-		for j in range(b["offsets"].size()):
-			var b_centre: Vector3 = b["position"] + b_basis * b["offsets"][j]
-			var hit := _box_pair_overlap(a_centre, a["halves"][i], a_basis,
-				b_centre, b["halves"][j], b_basis)
-			if hit["overlap"] and hit["depth"] > float(best["depth"]):
-				best = {"into": true, "normal": hit["normal"], "depth": hit["depth"]}
-	return best
-
-
-## Two turned boxes, by the separating axis test: they overlap while no axis
-## separates them, and the axis they overlap along LEAST is the penetration, whose
-## direction is the way out. All fifteen axes have to be tried, not just the six
-## box faces: two boxes resting corner to corner are separated by the cross product
-## of two edges and by nothing else. The normal points from `a` to `b`.
-func _box_pair_overlap(a_centre: Vector3, a_half: Vector3, a_basis: Basis,
-		b_centre: Vector3, b_half: Vector3, b_basis: Basis) -> Dictionary:
-	var delta: Vector3 = b_centre - a_centre
-	var best_depth := INF
-	var best_normal := Vector3.UP
-	var a_axes: Array[Vector3] = [a_basis.x, a_basis.y, a_basis.z]
-	var b_axes: Array[Vector3] = [b_basis.x, b_basis.y, b_basis.z]
-	var axes: Array[Vector3] = [a_basis.x, a_basis.y, a_basis.z,
-		b_basis.x, b_basis.y, b_basis.z]
-	for i in range(3):
-		for j in range(3):
-			axes.append(a_axes[i].cross(b_axes[j]))
-	for axis in axes:
-		if axis.length_squared() < 0.000001:
-			continue
-		var n := axis.normalized()
-		var ra := absf(n.dot(a_axes[0])) * a_half.x + absf(n.dot(a_axes[1])) * a_half.y + absf(n.dot(a_axes[2])) * a_half.z
-		var rb := absf(n.dot(b_axes[0])) * b_half.x + absf(n.dot(b_axes[1])) * b_half.y + absf(n.dot(b_axes[2])) * b_half.z
-		var overlap := ra + rb - absf(n.dot(delta))
-		if overlap <= 0.0:
-			return {"overlap": false, "normal": Vector3.UP, "depth": 0.0}
-		if overlap < best_depth:
-			best_depth = overlap
-			best_normal = n if n.dot(delta) >= 0.0 else -n
-	return {"overlap": true, "normal": best_normal, "depth": best_depth}
-
-
-## Every point of one body's surface that is inside one of the other's boxes, as a
-## contact pushing the FIRST body out of it. Both directions are taken, so the
-## turning is carried by whichever body's points are actually in the other.
-func _pair_point_contacts(a: Dictionary, b: Dictionary) -> Array:
-	var out := []
-	var a_basis := Basis(a["node"].quaternion)
-	var b_basis := Basis(b["node"].quaternion)
-	# `side` is the sign the contact's normal must carry against the pair guard,
-	# which points from a to b: a's contacts push a AWAY from b, b's the other way.
-	_points_into_boxes(a, a_basis, b, b_basis, -1.0, out)
-	_points_into_boxes(b, b_basis, a, a_basis, 1.0, out)
-	return out
-
-
-## `mover`'s own points against `other`'s boxes: each contact carries the point,
-## the normal that pushes `mover` away from `other`, `side` (the sign that normal
-## must carry against the pair guard), and the two bodies, so the impulse can be
-## answered to both of them.
-func _points_into_boxes(mover: Dictionary, mover_basis: Basis, other: Dictionary,
-		other_basis: Basis, side: float, out: Array) -> void:
-	for point in mover["points"]:
-		var p: Vector3 = mover["position"] + mover_basis * point
-		for i in range(other["offsets"].size()):
-			var centre: Vector3 = other["position"] + other_basis * other["offsets"][i]
-			var half: Vector3 = other["halves"][i]
-			var local: Vector3 = other_basis.transposed() * (p - centre)
-			if absf(local.x) > half.x + PAIR_CONTACT_RADIUS \
-				or absf(local.y) > half.y + PAIR_CONTACT_RADIUS \
-				or absf(local.z) > half.z + PAIR_CONTACT_RADIUS:
-				continue
-			var dx := half.x - absf(local.x)
-			var dy := half.y - absf(local.y)
-			var dz := half.z - absf(local.z)
-			var normal := other_basis.x
-			if dx <= dy and dx <= dz:
-				normal = other_basis.x * (1.0 if local.x >= 0.0 else -1.0)
-			elif dz <= dy and dz <= dx:
-				normal = other_basis.z * (1.0 if local.z >= 0.0 else -1.0)
-			else:
-				normal = other_basis.y * (1.0 if local.y >= 0.0 else -1.0)
-			out.append({"point": p, "normal": normal, "side": side, "mover": mover, "other": other})
-
-
-## One point of a pair contact, answered for BOTH bodies: the same impulse, opposite
-## ways, each body taking it at the point through its own lever arm. A sleeping body
-## is static here -- infinite mass -- so a resting item is not pushed by a body that
-## is only leaning on it, and does not have to be woken to hold it up.
-func _apply_pair_impulse(contact: Dictionary) -> void:
-	var mover: Dictionary = contact["mover"]
-	var other: Dictionary = contact["other"]
-	var normal: Vector3 = contact["normal"]
-	var point: Vector3 = contact["point"]
-	var mover_free: float = 0.0 if mover["asleep"] else 1.0
-	var other_free: float = 0.0 if other["asleep"] else 1.0
-	if mover_free == 0.0 and other_free == 0.0:
-		return
-	var mover_basis := Basis(mover["node"].quaternion)
-	var other_basis := Basis(other["node"].quaternion)
-	var r_mover: Vector3 = point - mover["position"]
-	var r_other: Vector3 = point - other["position"]
-	var mover_inv := _inv_inertia(mover["inertia"], mover_basis)
-	var other_inv := _inv_inertia(other["inertia"], other_basis)
-	var mover_velocity: Vector3 = mover["velocity"] + mover["spin"].cross(r_mover)
-	var other_velocity: Vector3 = other["velocity"] + other["spin"].cross(r_other)
-	var relative := mover_velocity - other_velocity
-	var approach := relative.dot(normal)
-	if approach >= 0.0:
-		return
-	var mover_rn := r_mover.cross(normal)
-	var other_rn := r_other.cross(normal)
-	var denom := mover_free + other_free \
-		+ mover_rn.dot(mover_inv * mover_rn) + other_rn.dot(other_inv * other_rn)
-	var restitution := BOUNCE if absf(approach) > RESTING_APPROACH else 0.0
-	var impulse := -(1.0 + restitution) * approach / maxf(denom, 0.0001)
-	mover["velocity"] = mover["velocity"] + normal * (impulse * mover_free)
-	mover["spin"] = mover["spin"] + mover_inv * (r_mover.cross(normal * impulse)) * mover_free
-	other["velocity"] = other["velocity"] - normal * (impulse * other_free)
-	other["spin"] = other["spin"] - other_inv * (r_other.cross(normal * impulse)) * other_free
-	# Friction, the tangential share of the same contact, through the same
-	# effective mass: what stops two stacked blocks sliding across each other.
-	var tangent := relative - normal * approach
-	if tangent.length_squared() > 0.000001:
-		var t := tangent.normalized()
-		var mover_rt := r_mover.cross(t)
-		var other_rt := r_other.cross(t)
-		var t_denom := mover_free + other_free \
-			+ mover_rt.dot(mover_inv * mover_rt) + other_rt.dot(other_inv * other_rt)
-		var t_impulse := -minf(tangent.length() * FRICTION,
-			FRICTION * absf(impulse)) / maxf(t_denom, 0.0001)
-		mover["velocity"] = mover["velocity"] + t * (t_impulse * mover_free)
-		mover["spin"] = mover["spin"] + mover_inv * (r_mover.cross(t * t_impulse)) * mover_free
-		other["velocity"] = other["velocity"] - t * (t_impulse * other_free)
-		other["spin"] = other["spin"] - other_inv * (r_other.cross(t * t_impulse)) * other_free
-
-
-## How far a body reaches from its own origin: the broad phase of the item-vs-item
-## test, so two items on opposite sides of the world cost one distance check.
+## How far a body reaches from its own origin: the broad phase of the native pair
+## solve, so two items on opposite sides of the world cost one distance check.
 func _body_reach(boxes: Array, centre: Vector3) -> float:
 	var reach := 0.0
 	for box in boxes:
@@ -723,16 +451,6 @@ func _inertia_of(boxes: Array, centre: Vector3) -> Vector3:
 	# against -- would otherwise take a contact the way a bare rod does and drill.
 	var floor_m := maxf(total.x, maxf(total.y, total.z)) * 0.1
 	return Vector3(maxf(total.x, floor_m), maxf(total.y, floor_m), maxf(total.z, floor_m))
-
-
-## The inverse of the inertia tensor, applied in world space: the tensor is diagonal
-## in the body's own space, so it is divided per axis there and turned back out into
-## the world by the body's own orientation.
-func _inv_inertia(inertia: Vector3, basis: Basis) -> Basis:
-	var inv := Basis(Vector3(1.0 / inertia.x, 0.0, 0.0),
-		Vector3(0.0, 1.0 / inertia.y, 0.0),
-		Vector3(0.0, 0.0, 1.0 / inertia.z))
-	return basis * inv * basis.transposed()
 
 
 ## Whether the player is close enough to take the item back. The inventory's own
@@ -932,6 +650,9 @@ func _remove(index: int) -> void:
 	if is_instance_valid(node):
 		node.queue_free()
 	_items.remove_at(index)
+	# The body arrays are indexed like _items, so the row that just left has to be
+	# gathered again before the next pair solve.
+	_bodies_static_dirty = true
 
 
 ## Everything currently on the ground, for probes and tests: one entry per item with

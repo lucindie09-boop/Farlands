@@ -1,6 +1,8 @@
 #include "godot_bindings/chunk_manager.hpp"
 
 #include "godot_bindings/cached_node.hpp"
+#include "engine/item_body_solver.hpp"
+#include "engine/item_pair_solver.hpp"
 #include "engine/voxel_engine_controller.hpp"
 #include "pathfinding/path_service.hpp"
 #include "render/multimesh_instance_layout.hpp"
@@ -228,6 +230,8 @@ void ChunkManager::_bind_methods() {
     ClassDB::bind_method(D_METHOD("resolve_voxel_collision", "position", "motion", "size"), &ChunkManager::resolve_voxel_collision);
     ClassDB::bind_method(D_METHOD("contacts_for_points", "points", "radius"), &ChunkManager::contacts_for_points);
     ClassDB::bind_method(D_METHOD("turned_boxes_contact", "centre", "offsets", "halves", "basis"), &ChunkManager::turned_boxes_contact);
+    ClassDB::bind_method(D_METHOD("solve_item_pairs", "bodies", "delta"), &ChunkManager::solve_item_pairs);
+    ClassDB::bind_method(D_METHOD("solve_item_bodies", "bodies", "delta"), &ChunkManager::solve_item_bodies);
     ClassDB::bind_method(D_METHOD("request_path", "from", "to", "max_expansions", "max_ms"),
                          &ChunkManager::request_path, DEFVAL(20000), DEFVAL(32.0));
     ClassDB::bind_method(D_METHOD("poll_paths"), &ChunkManager::poll_paths);

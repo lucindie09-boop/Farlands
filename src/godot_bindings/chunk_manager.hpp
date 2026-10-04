@@ -30,6 +30,8 @@ namespace VoxelEngine {
 class VoxelEngineController;
 class CollisionResolver;
 class Inventory;
+class ItemPairSolver;
+class ItemBodySolver;
 namespace nav {
 class PathService;
 }
@@ -189,6 +191,18 @@ public:
                                            const godot::PackedVector3Array& offsets,
                                            const godot::PackedVector3Array& halves,
                                            const godot::Basis& basis);
+    // The dropped items' own bodies against EACH OTHER, for one substep: the
+    // state dictionary is gathered by the caller (positions, rotations,
+    // velocities, spins, inertia, reach, shapes, asleep -- plus the shape table
+    // and the output keys touched/woken; see engine/item_pair_solver.hpp) and
+    // the solved arrays are written back into the same keys.
+    void solve_item_pairs(godot::Dictionary bodies, float delta);
+    // The same bodies' WHOLE substep -- gravity, damping, the turn, the move,
+    // the world's contacts and guard, the impulses, the push-out, the pair
+    // solve, and the rest decision -- in one call. The state dictionary adds the
+    // rest timer (in and out) and the grounded output; see
+    // engine/item_body_solver.hpp.
+    void solve_item_bodies(godot::Dictionary bodies, float delta);
 
     // Debug pathfinding. request_path queues a ground route between two feet
     // positions on a worker thread and returns its job id (0 when the planner
@@ -360,6 +374,10 @@ private:
     std::unique_ptr<VoxelEngineController> controller;
     // Created on first use: it needs the controller's thread pool and chunk map.
     std::unique_ptr<VoxelEngine::nav::PathService> path_service;
+    // Created on first use. Scratch and settings only: the items' state belongs
+    // to the caller, which is the script that owns them.
+    std::unique_ptr<VoxelEngine::ItemPairSolver> item_pair_solver;
+    std::unique_ptr<VoxelEngine::ItemBodySolver> item_body_solver;
     godot::NodePath player_path = godot::NodePath("../Player");
     // Cached scene nodes are held as ObjectIDs and re-resolved through
     // ObjectDB::get_instance on every use, never as raw pointers: a node this

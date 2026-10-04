@@ -135,7 +135,7 @@ fast direction*, so a large improvement is worth re-running before believing too
 ## Before you believe a change is good
 
 ```bash
-scons -j14 && scons test -j14 && ./bin/run_tests.exe   # 597 cases today
+scons -j14 && scons test -j14 && ./bin/run_tests.exe   # 599 cases today
 scons sizecheck && scons portability && scons docscheck
 ./bin/benchmark.exe --check benchmark_baseline.txt
 ```

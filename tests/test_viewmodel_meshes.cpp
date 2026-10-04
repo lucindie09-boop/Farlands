@@ -21,6 +21,56 @@ int index_count(const MeshGeometry& g) {
 // expected pattern. Looser sanity: indices must stay in bounds and cover each
 // vertex exactly as the push_quad pattern dictates (each quad adds exactly 4
 // new verts and 6 indices, sequentially).
+struct F3 {
+    float x, y, z;
+};
+
+F3 vertex_at(const MeshGeometry& g, int i) {
+    return {g.verts[i * 3], g.verts[i * 3 + 1], g.verts[i * 3 + 2]};
+}
+
+F3 subtract(F3 a, F3 b) {
+    return {a.x - b.x, a.y - b.y, a.z - b.z};
+}
+
+F3 cross(F3 a, F3 b) {
+    return {a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x};
+}
+
+float dot(F3 a, F3 b) {
+    return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+F3 normalized(F3 v) {
+    const float length = std::sqrt(dot(v, v));
+    return {v.x / length, v.y / length, v.z / length};
+}
+
+// Every quad of a box mesh has to agree on both of these, per box:
+// - the cross product of its first three corners (the winding push_quad emits
+//   as triangle 0-1-2) points INTO the box, which is the side Godot's
+//   clockwise-front culling keeps visible. Mirroring one coordinate of an
+//   otherwise correct corner order reverses that cross, which is how the +X
+//   face of build_box_mesh ended up with a hole in it.
+// - the declared vertex normal faces OUT of the box, or the wall is lit as if
+//   it faced into the block.
+void check_quads_face_outward(const MeshGeometry& g, int first_quad, int quad_count, F3 box_centre) {
+    for (int q = 0; q < quad_count; ++q) {
+        const int quad = first_quad + q;
+        const F3 v0 = vertex_at(g, quad * 4 + 0);
+        const F3 v1 = vertex_at(g, quad * 4 + 1);
+        const F3 v2 = vertex_at(g, quad * 4 + 2);
+        const F3 v3 = vertex_at(g, quad * 4 + 3);
+        const F3 quad_centre{ (v0.x + v1.x + v2.x + v3.x) / 4.0f, (v0.y + v1.y + v2.y + v3.y) / 4.0f,
+                              (v0.z + v1.z + v2.z + v3.z) / 4.0f };
+        const F3 outward = normalized(subtract(quad_centre, box_centre));
+        const F3 winding = normalized(cross(subtract(v1, v0), subtract(v2, v0)));
+        CHECK(dot(winding, outward) <= doctest::Approx(-1.0f).epsilon(0.001));
+        const F3 normal{g.normals[quad * 4 * 3 + 0], g.normals[quad * 4 * 3 + 1], g.normals[quad * 4 * 3 + 2]};
+        CHECK(dot(normal, outward) >= doctest::Approx(1.0f).epsilon(0.001));
+    }
+}
+
 bool index_stream_is_sequential(const MeshGeometry& g) {
     for (size_t i = 0; i < g.indices.size(); ++i) {
         const int32_t expected = static_cast<int32_t>((i / 6) * 4 + (i % 6 == 5 ? 3 : (i % 6 == 4 ? 2 : (i % 6 == 3 ? 0 : i % 6))));
@@ -93,6 +143,22 @@ TEST_CASE("viewmodel shaped mesh: slab selection box builds a 0.5-high lean cube
         CHECK(std::abs(g.verts[i * 3 + 2]) <= 0.5f + 1e-6f);
     }
     CHECK(!saw_y_positive);
+}
+
+TEST_CASE("viewmodel cube: all six quads wind inward and face out") {
+    check_quads_face_outward(build_unit_cube_mesh(), 0, 6, {0.0f, 0.0f, 0.0f});
+}
+
+TEST_CASE("viewmodel shaped mesh: every box quads wind inward and face out") {
+    // A stair-like pair, the smallest shape with two boxes. Box centres are the
+    // box's own middle in centred coordinates (each box is shifted by -0.5).
+    std::vector<float> boxes = {
+            0.0f, 0.0f, 0.0f, 1.0f, 0.5f, 1.0f, // bottom slab
+            0.0f, 0.5f, 0.0f, 0.5f, 1.0f, 1.0f, // upper step
+    };
+    const MeshGeometry g = build_box_mesh(boxes);
+    check_quads_face_outward(g, 0, 6, {0.0f, -0.25f, 0.0f});
+    check_quads_face_outward(g, 6, 6, {-0.25f, 0.25f, 0.0f});
 }
 
 TEST_CASE("viewmodel sprite: 1x1 solid texel has front+back plus all four rims") {

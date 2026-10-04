@@ -73,23 +73,34 @@ MeshGeometry build_box_mesh(const std::vector<float>& boxes) {
         const float max_y = boxes[bi + 4] - 0.5f;
         const float max_z = boxes[bi + 5] - 0.5f;
 
+        // Every quad is wound so the cross product of its first three corners
+        // points INTO the box, which is the clockwise-front winding
+        // build_unit_cube_mesh uses (Godot culls the other side). A pair of
+        // opposite faces cannot share a corner order: mirroring the x or y
+        // coordinate reverses the cross, so each side gets its own order. The
+        // +X face used to be a straight copy of -X and was back-facing -- a
+        // hole in the right-hand side of every dropped/held shaped mesh.
         const float faces[6][4][3] = {
                 // +X
-                {{max_x, min_y, min_z}, {max_x, max_y, min_z}, {max_x, max_y, max_z}, {max_x, min_y, max_z}},
+                {{max_x, min_y, max_z}, {max_x, max_y, max_z}, {max_x, max_y, min_z}, {max_x, min_y, min_z}},
                 // -X
                 {{min_x, min_y, min_z}, {min_x, max_y, min_z}, {min_x, max_y, max_z}, {min_x, min_y, max_z}},
                 // +Y
                 {{min_x, max_y, min_z}, {max_x, max_y, min_z}, {max_x, max_y, max_z}, {min_x, max_y, max_z}},
                 // -Y
                 {{min_x, min_y, max_z}, {max_x, min_y, max_z}, {max_x, min_y, min_z}, {min_x, min_y, min_z}},
-                // +Z
+                // -Z (the min_z wall)
                 {{max_x, min_y, min_z}, {max_x, max_y, min_z}, {min_x, max_y, min_z}, {min_x, min_y, min_z}},
-                // -Z
+                // +Z (the max_z wall)
                 {{min_x, min_y, max_z}, {min_x, max_y, max_z}, {max_x, max_y, max_z}, {max_x, min_y, max_z}},
         };
+        // Each normal names the wall its quad sits on (the -Z wall is min_z,
+        // the +Z wall is max_z, as in build_unit_cube_mesh). The two Z entries
+        // used to be swapped, which lit both of those walls as if they faced
+        // into the block.
         const float normals[6][3] = {
                 {1.0f, 0.0f, 0.0f}, {-1.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f},
-                {0.0f, -1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, {0.0f, 0.0f, -1.0f},
+                {0.0f, -1.0f, 0.0f}, {0.0f, 0.0f, -1.0f}, {0.0f, 0.0f, 1.0f},
         };
         static const float uv[4][2] = {{0.0f, 1.0f}, {0.0f, 0.0f}, {1.0f, 0.0f}, {1.0f, 1.0f}};
         for (int f = 0; f < 6; ++f) {

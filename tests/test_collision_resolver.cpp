@@ -252,6 +252,116 @@ TEST_CASE("a body cannot walk into a hollow block from the side") {
     CHECK(sideways.position.z + size.z * 0.5f <= 3.01f);
 }
 
+// A post in the middle of its cell, 2/16 wide and 10/16 tall: the shape
+// data/block_shapes.json's "torch" draws. `solid` decides whether it stops bodies
+// at all -- the placed torch leaves Solid off on purpose, and that is the whole
+// difference between a block a body passes through and a post it collides with.
+static BlockID register_test_post(bool solid) {
+    BlockRegistry& reg = BlockRegistry::get_instance();
+    reg.initialize_default_blocks();
+    BlockType post{};
+    post.name = solid ? "test_solid_post" : "test_torch_post";
+    post.properties = BlockProperty::Opaque | BlockProperty::Emissive;
+    if (solid) {
+        post.properties = post.properties | BlockProperty::Solid;
+    }
+    post.visible_faces = {true, true, true, true, true, true};
+    BlockAABB box;
+    box.min[0] = 0.4375f;
+    box.min[1] = 0.0f;
+    box.min[2] = 0.4375f;
+    box.max[0] = 0.5625f;
+    box.max[1] = 0.625f;
+    box.max[2] = 0.5625f;
+    post.selection_boxes = {box};
+    post.full_cube_ = false;
+    post.greedy_mergeable = false;
+    return reg.register_block(post);
+}
+
+// Flat ground with the post standing on it at (3,1,3).
+static void make_post_fixture(ChunkMap& cm, BlockID post) {
+    auto d = std::make_unique<ChunkData>();
+    for (int x = 0; x < 8; ++x)
+        for (int z = 0; z < 8; ++z)
+            d->set_block(x, 0, z, BlockIDs::STONE);  // floor, top at y=1.0
+    d->set_block(3, 1, 3, post);
+    cm.insert(cm.get_chunk_key(0, 0, 0), make_test_chunk(std::move(d)));
+}
+
+// The placed torch: a block that draws a shape but is deliberately NOT Solid. No
+// collision question about it may answer "the cell", which is what the point
+// contacts a dropped item solves with used to do -- answered that way, a torch
+// held a dropped item off at a block boundary it should fall straight through.
+TEST_CASE("a block without Solid stops no body, however it is shaped") {
+    const BlockID torch = register_test_post(false);
+    if (torch == BlockIDs::AIR) {
+        CHECK(false);
+        return;
+    }
+    const BlockType& bt = BlockRegistry::get_instance().get_block(torch);
+    CHECK(bt.is_full_cube() == false);
+    CHECK(bt.stops_bodies() == false);
+    CHECK(bt.get_collision_boxes().size() == 1);  // the shape is still declared
+
+    ChunkMap cm;
+    make_post_fixture(cm, torch);
+    CollisionResolver cr(&cm);
+
+    // The AABB path the player and the item guard both ask through.
+    CHECK(cr.is_aabb_solid(AABB(Vector3(3.0f, 1.0f, 3.0f), Vector3(1.0f, 1.0f, 1.0f))) == false);
+    // ...and the point contacts a dropped item solves with, even at a point
+    // inside the shape's own box.
+    const Vector3 p(3.5f, 1.3f, 3.5f);
+    CHECK(cr.contacts_for_points(&p, 1, 0.02f).empty());
+}
+
+// The same post WITH Solid: a contact has to be with the post, not with the cell
+// around it. Answered from the cell, a point above the post reported a contact and
+// the body it belonged to rested on a block that was not there.
+TEST_CASE("point contacts read a block's own shape, not the cell around it") {
+    const BlockID post = register_test_post(true);
+    if (post == BlockIDs::AIR) {
+        CHECK(false);
+        return;
+    }
+    ChunkMap cm;
+    make_post_fixture(cm, post);
+    CollisionResolver cr(&cm);
+
+    // The AABB path agrees: a body at the cell's corner misses the post, one over
+    // the post hits it.
+    CHECK(cr.is_aabb_solid(AABB(Vector3(3.0f, 1.05f, 3.0f), Vector3(0.1f, 0.1f, 0.1f))) == false);
+    CHECK(cr.is_aabb_solid(AABB(Vector3(3.44f, 1.20f, 3.44f), Vector3(0.1f, 0.1f, 0.1f))) == true);
+
+    // Against the post's side: one contact, pushing out of the post's own face.
+    {
+        const Vector3 p(3.45f, 1.3f, 3.5f);
+        const auto contacts = cr.contacts_for_points(&p, 1, 0.02f);
+        CHECK(contacts.size() == 1);
+        if (contacts.size() == 1) {
+            CHECK(contacts[0].normal.x == doctest::Approx(-1.0f));
+            CHECK(contacts[0].normal.y == doctest::Approx(0.0f));
+            CHECK(contacts[0].depth == doctest::Approx(0.0125f).epsilon(0.001f));
+        }
+    }
+    // Above the post, still inside its cell: nothing there to touch.
+    {
+        const Vector3 p(3.5f, 1.9f, 3.5f);
+        CHECK(cr.contacts_for_points(&p, 1, 0.02f).empty());
+    }
+    // A full block still answers across the whole cell -- the fast path stays.
+    {
+        const Vector3 p(2.2f, 0.5f, 3.5f);  // inside the stone floor at (2,0,3)
+        const auto contacts = cr.contacts_for_points(&p, 1, 0.02f);
+        CHECK(contacts.size() == 1);
+        if (contacts.size() == 1) {
+            CHECK(contacts[0].normal.x == doctest::Approx(-1.0f));
+            CHECK(contacts[0].depth == doctest::Approx(0.2f).epsilon(0.001f));
+        }
+    }
+}
+
 // A liquid's shape is a surface height, not a wall. Note that the two registries
 // describe water differently — the built-in defaults make it a full cube while
 // data/block_shapes.json gives it a lowered shape — so the answer has to hold for

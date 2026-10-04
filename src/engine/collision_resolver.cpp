@@ -1,4 +1,5 @@
 #include "engine/collision_resolver.hpp"
+#include "engine/collision_resolver_internal.hpp"
 #include "core/chunk_map.hpp"
 #include "core/chunk_coords.hpp"
 #include "core/block_types.hpp"
@@ -11,122 +12,9 @@ namespace VoxelEngine {
 
 using namespace godot;
 
-namespace {
-
-// A neighbour for a shape claim, read through the map the caller has ALREADY
-// locked for this query. is_aabb_solid pads its key set by one block in every
-// direction, so a +-1 neighbour of any cell the loop visits is inside the locked
-// shards: the resolver never reaches outside the caller's lock.
-struct CollisionShapeContext {
-    const ChunkMap* map;
-    int32_t x;
-    int32_t y;
-    int32_t z;
-};
-
-BlockID collision_shape_neighbor(void* ctx, ShapeFace face) {
-    const CollisionShapeContext& c = *static_cast<CollisionShapeContext*>(ctx);
-    switch (face) {
-        case ShapeFace::Top:    return static_cast<BlockID>(c.map->get_block_world_fast(c.x, c.y + 1, c.z));
-        case ShapeFace::Bottom: return static_cast<BlockID>(c.map->get_block_world_fast(c.x, c.y - 1, c.z));
-        case ShapeFace::Right:  return static_cast<BlockID>(c.map->get_block_world_fast(c.x + 1, c.y, c.z));
-        case ShapeFace::Left:   return static_cast<BlockID>(c.map->get_block_world_fast(c.x - 1, c.y, c.z));
-        case ShapeFace::Front:  return static_cast<BlockID>(c.map->get_block_world_fast(c.x, c.y, c.z + 1));
-        case ShapeFace::Back:   break;
-    }
-    return static_cast<BlockID>(c.map->get_block_world_fast(c.x, c.y, c.z - 1));
-}
-
-// Shared-lock only the shards of the chunks intersecting a block-space box,
-// instead of the whole map. Collision probes only ever touch the swept volume of
-// the body asking, so the key set is tiny (usually 1-8 chunks).
-std::vector<uint64_t> chunk_keys_for_box(const ChunkMap* chunk_map,
-                                         const godot::Vector3& box_lo,
-                                         const godot::Vector3& box_hi) {
-    int32_t min_cx, min_cy, min_cz, max_cx, max_cy, max_cz;
-    int32_t dummy;
-    world_to_chunk_local(static_cast<int32_t>(std::floor(box_lo.x)),
-                         static_cast<int32_t>(std::floor(box_lo.y)),
-                         static_cast<int32_t>(std::floor(box_lo.z)),
-                         min_cx, min_cy, min_cz, dummy, dummy, dummy);
-    world_to_chunk_local(static_cast<int32_t>(std::floor(box_hi.x)),
-                         static_cast<int32_t>(std::floor(box_hi.y)),
-                         static_cast<int32_t>(std::floor(box_hi.z)),
-                         max_cx, max_cy, max_cz, dummy, dummy, dummy);
-    std::vector<uint64_t> keys;
-    keys.reserve(static_cast<size_t>(max_cx - min_cx + 1) *
-                 static_cast<size_t>(max_cy - min_cy + 1) *
-                 static_cast<size_t>(max_cz - min_cz + 1));
-    for (int32_t cx = min_cx; cx <= max_cx; ++cx)
-        for (int32_t cy = min_cy; cy <= max_cy; ++cy)
-            for (int32_t cz = min_cz; cz <= max_cz; ++cz)
-                keys.push_back(chunk_map->get_chunk_key(cx, cy, cz));
-    return keys;
-}
-
-// How far a turned box reaches along each world axis.
-Vector3 turned_reach(const Basis& basis, const Vector3& half) {
-    const Vector3 r0 = basis[0];
-    const Vector3 r1 = basis[1];
-    const Vector3 r2 = basis[2];
-    return Vector3(
-        std::abs(r0.x) * half.x + std::abs(r0.y) * half.y + std::abs(r0.z) * half.z,
-        std::abs(r1.x) * half.x + std::abs(r1.y) * half.y + std::abs(r1.z) * half.z,
-        std::abs(r2.x) * half.x + std::abs(r2.y) * half.y + std::abs(r2.z) * half.z);
-}
-
-// A turned box against an upright one, by the separating axis test: the overlap
-// along the axis they overlap LEAST is the penetration, and that axis is the
-// normal that pushes them apart. `a_*` is the turned box, `b_*` the cell.
-struct BoxOverlap {
-    bool overlap = false;
-    Vector3 normal;
-    float depth = 0.0f;
-};
-
-BoxOverlap turned_vs_upright(const Vector3& a_centre, const Vector3& a_half, const Basis& a_basis,
-                             const Vector3& b_centre, const Vector3& b_half) {
-    BoxOverlap out;
-    const Vector3 d = b_centre - a_centre;
-    const Basis& a = a_basis;
-    const Basis b;
-    const float eps = 1e-6f;
-
-    auto overlap_on = [&](const Vector3& axis) {
-        if (axis.length_squared() < eps) return true;
-        const Vector3 n = axis.normalized();
-        const float ra = std::abs(n.dot(a.get_column(0))) * a_half.x
-                       + std::abs(n.dot(a.get_column(1))) * a_half.y
-                       + std::abs(n.dot(a.get_column(2))) * a_half.z;
-        const float rb = std::abs(n.dot(b.get_column(0))) * b_half.x
-                       + std::abs(n.dot(b.get_column(1))) * b_half.y
-                       + std::abs(n.dot(b.get_column(2))) * b_half.z;
-        const float overlap = ra + rb - std::abs(n.dot(d));
-        if (overlap <= 0.0f) {
-            out.overlap = false;
-            return false;
-        }
-        if (overlap < out.depth || out.depth == 0.0f) {
-            out.depth = overlap;
-            // Point the normal out of the cell, toward the box's centre, so
-            // pushing the box along it separates the two.
-            out.normal = n.dot(d) >= 0.0f ? -n : n;
-        }
-        return true;
-    };
-
-    out.overlap = true;
-    for (int i = 0; i < 3; ++i) {
-        if (!overlap_on(a.get_column(i))) return out;
-        if (!overlap_on(b.get_column(i))) return out;
-        for (int j = 0; j < 3; ++j) {
-            if (!overlap_on(a.get_column(i).cross(b.get_column(j)))) return out;
-        }
-    }
-    return out;
-}
-
-} // namespace
+// The shape neighbour context, the neighbour reader and the chunk key set live
+// in collision_resolver_internal.hpp: the turned-box translation unit needs them
+// too, so they are inline there rather than file-local here.
 
 template<typename Pred>
 static void resolve_axis(const godot::Vector3& position,
@@ -184,68 +72,40 @@ std::vector<CollisionResolver::PointContact> CollisionResolver::contacts_for_poi
     const Vector3* points, size_t count, float radius) const {
     std::vector<PointContact> out;
     if (!chunk_map_ || count == 0) return out;
-    for (size_t i = 0; i < count; ++i) {
-        const Vector3 p = points[i];
-        const int32_t cx = static_cast<int32_t>(std::floor(p.x));
-        const int32_t cy = static_cast<int32_t>(std::floor(p.y));
-        const int32_t cz = static_cast<int32_t>(std::floor(p.z));
-        for (int32_t dz = -1; dz <= 1; ++dz) {
-            for (int32_t dy = -1; dy <= 1; ++dy) {
-                for (int32_t dx = -1; dx <= 1; ++dx) {
-                    const int32_t bx = cx + dx;
-                    const int32_t by = cy + dy;
-                    const int32_t bz = cz + dz;
-                    if (!is_solid_at(bx, by, bz)) continue;
-                    const Vector3 cell(bx, by, bz);
-                    const Vector3 local = p - cell;
-                    if (local.x < -radius || local.x > 1.0f + radius ||
-                        local.y < -radius || local.y > 1.0f + radius ||
-                        local.z < -radius || local.z > 1.0f + radius) {
-                        continue;
-                    }
-                    // The point is inside this cell's expanded box: pushed out of
-                    // the face it is nearest, which is the shortest way out.
-                    const float ox = local.x < 0.5f ? local.x : 1.0f - local.x;
-                    const float oy = local.y < 0.5f ? local.y : 1.0f - local.y;
-                    const float oz = local.z < 0.5f ? local.z : 1.0f - local.z;
-                    PointContact contact;
-                    contact.point = p;
-                    contact.normal = Vector3(0.0f, 1.0f, 0.0f);
-                    contact.depth = oy;
-                    if (ox <= oy && ox <= oz) {
-                        contact.normal = Vector3(local.x < 0.5f ? -1.0f : 1.0f, 0.0f, 0.0f);
-                        contact.depth = ox;
-                    } else if (oz <= oy && oz <= ox) {
-                        contact.normal = Vector3(0.0f, 0.0f, local.z < 0.5f ? -1.0f : 1.0f);
-                        contact.depth = oz;
-                    }
-                    out.push_back(contact);
-                }
-            }
-        }
-    }
-    return out;
-}
 
-CollisionResolver::TurnedContact CollisionResolver::turned_boxes_contact_fast(
-    const Vector3& centre, const std::vector<Vector3>& offsets,
-    const std::vector<Vector3>& halves, const Basis& basis) const {
-    TurnedContact best;
-    if (!chunk_map_ || offsets.empty()) return best;
     const BlockRegistry& registry = BlockRegistry::get_instance();
 
-    // The whole body's reach, so the cells to visit are known once.
-    Vector3 reach(0.0f, 0.0f, 0.0f);
-    for (size_t i = 0; i < offsets.size(); ++i) {
-        reach = reach.max(turned_reach(basis, halves[i]) + (basis.xform(offsets[i])).abs());
+    // The union of everything any point can touch, read under ONE lock. The
+    // visit ring below reaches one cell past a point, and a shape rule reaches
+    // one cell past the cell it resolves, so the lock is padded by two.
+    Vector3 lo = points[0];
+    Vector3 hi = points[0];
+    for (size_t i = 1; i < count; ++i) {
+        lo = lo.min(points[i]);
+        hi = hi.max(points[i]);
     }
-    const int32_t min_x = static_cast<int32_t>(std::floor(centre.x - reach.x));
-    const int32_t min_y = static_cast<int32_t>(std::floor(centre.y - reach.y));
-    const int32_t min_z = static_cast<int32_t>(std::floor(centre.z - reach.z));
-    const int32_t max_x = static_cast<int32_t>(std::floor(centre.x + reach.x));
-    const int32_t max_y = static_cast<int32_t>(std::floor(centre.y + reach.y));
-    const int32_t max_z = static_cast<int32_t>(std::floor(centre.z + reach.z));
+    const Vector3 pad(2.0f + radius, 2.0f + radius, 2.0f + radius);
+    auto lock = chunk_map_->lock_keys(chunk_keys_for_box(chunk_map_, lo - pad, hi + pad));
 
+    // Every solid cell a point could touch, resolved ONCE to the boxes it really
+    // collides as. The contact a point makes is with the block's own shape -- a
+    // torch is a post and a slab is half a cell -- and answering from the cell
+    // around them is what had a dropped item rest on the torch's cell boundary
+    // instead of on the ground beside it. A full cube answers as its own cell box,
+    // so the common case still costs no resolution.
+    struct CellBoxes {
+        int32_t x = 0;
+        int32_t y = 0;
+        int32_t z = 0;
+        ShapeBoxes boxes;
+    };
+    std::vector<CellBoxes> cells;
+    const int32_t min_x = static_cast<int32_t>(std::floor(lo.x - radius)) - 1;
+    const int32_t min_y = static_cast<int32_t>(std::floor(lo.y - radius)) - 1;
+    const int32_t min_z = static_cast<int32_t>(std::floor(lo.z - radius)) - 1;
+    const int32_t max_x = static_cast<int32_t>(std::floor(hi.x + radius)) + 1;
+    const int32_t max_y = static_cast<int32_t>(std::floor(hi.y + radius)) + 1;
+    const int32_t max_z = static_cast<int32_t>(std::floor(hi.z + radius)) + 1;
     for (int32_t y = min_y; y <= max_y; ++y) {
         for (int32_t z = min_z; z <= max_z; ++z) {
             for (int32_t x = min_x; x <= max_x; ++x) {
@@ -253,63 +113,75 @@ CollisionResolver::TurnedContact CollisionResolver::turned_boxes_contact_fast(
                 if (bid == BlockIDs::AIR) continue;
                 const BlockType& bt = registry.get_block_fast(bid);
                 if (!bt.stops_bodies()) continue;
+                CellBoxes cell;
+                cell.x = x;
+                cell.y = y;
+                cell.z = z;
                 if (bt.is_full_cube()) {
-                    const Vector3 cell_centre(x + 0.5f, y + 0.5f, z + 0.5f);
-                    const Vector3 cell_half(0.5f, 0.5f, 0.5f);
-                    for (size_t i = 0; i < offsets.size(); ++i) {
-                        const Vector3 box_centre = centre + basis.xform(offsets[i]);
-                        const BoxOverlap hit = turned_vs_upright(
-                            box_centre, halves[i], basis, cell_centre, cell_half);
-                        if (hit.overlap && hit.depth > best.depth) {
-                            best.into = true;
-                            best.depth = hit.depth;
-                            best.normal = hit.normal;
-                        }
+                    // A full cube is the cell's own box, whatever its static list
+                    // says: the built-in default registry (tests, headless tools)
+                    // never fills one in, and a body still has to stand on it.
+                    BlockAABB& full = cell.boxes.resolved[0];
+                    for (int axis = 0; axis < 3; ++axis) {
+                        full.min[axis] = 0.0f;
+                        full.max[axis] = 1.0f;
                     }
-                    continue;
+                    cell.boxes.resolved_count = 1;
+                } else {
+                    CollisionShapeContext shape_ctx{chunk_map_, x, y, z};
+                    resolve_shape_boxes(bt, registry,
+                                        ShapeNeighborFn{&collision_shape_neighbor, &shape_ctx},
+                                        ShapeBoxKind::Collision, cell.boxes);
+                    if (cell.boxes.empty()) continue;
                 }
-                CollisionShapeContext shape_ctx{chunk_map_, x, y, z};
-                ShapeBoxes collision_boxes;
-                resolve_shape_boxes(bt, registry,
-                                    ShapeNeighborFn{&collision_shape_neighbor, &shape_ctx},
-                                    ShapeBoxKind::Collision, collision_boxes);
-                for (uint8_t bi = 0; bi < collision_boxes.count(); ++bi) {
-                    const BlockAABB& box = collision_boxes[bi];
-                    const Vector3 cell_centre(x + (box.min[0] + box.max[0]) * 0.5f,
-                                              y + (box.min[1] + box.max[1]) * 0.5f,
-                                              z + (box.min[2] + box.max[2]) * 0.5f);
-                    const Vector3 cell_half((box.max[0] - box.min[0]) * 0.5f,
-                                            (box.max[1] - box.min[1]) * 0.5f,
-                                            (box.max[2] - box.min[2]) * 0.5f);
-                    for (size_t i = 0; i < offsets.size(); ++i) {
-                        const Vector3 box_centre = centre + basis.xform(offsets[i]);
-                        const BoxOverlap hit = turned_vs_upright(
-                            box_centre, halves[i], basis, cell_centre, cell_half);
-                        if (hit.overlap && hit.depth > best.depth) {
-                            best.into = true;
-                            best.depth = hit.depth;
-                            best.normal = hit.normal;
-                        }
-                    }
-                }
+                cells.push_back(cell);
             }
         }
     }
-    return best;
-}
 
-CollisionResolver::TurnedContact CollisionResolver::turned_boxes_contact(
-    const Vector3& centre, const std::vector<Vector3>& offsets,
-    const std::vector<Vector3>& halves, const Basis& basis) const {
-    constexpr float kPad = 1.0f;
-    Vector3 reach(0.0f, 0.0f, 0.0f);
-    for (size_t i = 0; i < offsets.size(); ++i) {
-        reach = reach.max(turned_reach(basis, halves[i]) + (basis.xform(offsets[i])).abs());
+    // The point is inside (or within `radius` of) one of these boxes: pushed out
+    // of the face it is nearest, which is the shortest way out.
+    auto append = [&out](const Vector3& p, const Vector3& local, const BlockAABB& box) {
+        const float ox = std::min(local.x - box.min[0], box.max[0] - local.x);
+        const float oy = std::min(local.y - box.min[1], box.max[1] - local.y);
+        const float oz = std::min(local.z - box.min[2], box.max[2] - local.z);
+        PointContact contact;
+        contact.point = p;
+        contact.normal = Vector3(0.0f, 1.0f, 0.0f);
+        contact.depth = oy;
+        if (ox <= oy && ox <= oz) {
+            const float cx = (box.min[0] + box.max[0]) * 0.5f;
+            contact.normal = Vector3(local.x < cx ? -1.0f : 1.0f, 0.0f, 0.0f);
+            contact.depth = ox;
+        } else if (oz <= oy && oz <= ox) {
+            const float cz = (box.min[2] + box.max[2]) * 0.5f;
+            contact.normal = Vector3(0.0f, 0.0f, local.z < cz ? -1.0f : 1.0f);
+            contact.depth = oz;
+        } else {
+            const float cy = (box.min[1] + box.max[1]) * 0.5f;
+            contact.normal = Vector3(0.0f, local.y < cy ? -1.0f : 1.0f, 0.0f);
+        }
+        out.push_back(contact);
+    };
+
+    for (size_t i = 0; i < count; ++i) {
+        const Vector3 p = points[i];
+        for (const CellBoxes& cell : cells) {
+            const Vector3 local = p - Vector3(static_cast<float>(cell.x),
+                                              static_cast<float>(cell.y),
+                                              static_cast<float>(cell.z));
+            for (uint8_t bi = 0; bi < cell.boxes.count(); ++bi) {
+                const BlockAABB& box = cell.boxes[bi];
+                if (local.x < box.min[0] - radius || local.x > box.max[0] + radius ||
+                    local.y < box.min[1] - radius || local.y > box.max[1] + radius ||
+                    local.z < box.min[2] - radius || local.z > box.max[2] + radius) {
+                    continue;
+                }
+                append(p, local, box);
+            }
+        }
     }
-    auto lock = chunk_map_->lock_keys(chunk_keys_for_box(
-        chunk_map_, centre - reach - Vector3(kPad, kPad, kPad),
-        centre + reach + Vector3(kPad, kPad, kPad)));
-    return turned_boxes_contact_fast(centre, offsets, halves, basis);
+    return out;
 }
 
 bool CollisionResolver::is_aabb_solid(const AABB& aabb) const {

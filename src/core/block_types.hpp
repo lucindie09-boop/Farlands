@@ -212,13 +212,21 @@ struct BlockType {
     // not a wall: water is drawn 14/16 tall so the surface has a height, but a
     // body swims through it, so collision must not treat that shape as solid.
     //
+    // A block that is not Solid stops nothing either, whatever shape it draws.
+    // The placed torch is the case: data/block_definitions.json leaves Solid off
+    // it on purpose, so its shape is decoration -- the player walks through it,
+    // and a dropped item passes through it the same way. Treating every cell that
+    // is not air as a wall is what had a torch hold a dropped block off at the
+    // cell boundary.
+    //
     // This is the single place that answer lives, because three callers have to
     // agree: the collision resolver, the pathfinder's cell classification and
     // the sneak edge-guard. Before it existed the collider called a liquid box
     // solid while the pathfinder called the same cell passable, and the visible
     // symptom is a poured bucket becoming a walkable step (see AGENTS.md).
     [[nodiscard]] bool stops_bodies() const noexcept {
-        return !is_liquid();
+        if (is_liquid()) return false;
+        return HasProperty(properties, BlockProperty::Solid);
     }
 };
 

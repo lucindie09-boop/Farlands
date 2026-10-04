@@ -33,6 +33,14 @@ extends Node3D
 #     a spot is from a corner. This test has no such gaps, so it is the guard that
 #     pushes the body out of anything the points missed.
 #
+# Bodies collide with the WORLD that way, and with each other the same way in
+# miniature: an overlapping PAIR answers with the two bodies' own points and one
+# deepest-overlap push-out shared between them (see _solve_item_pairs), so a
+# dropped block lands on another and a stack settles as a stack instead of as two
+# blocks in one place. The world's answer belongs to one body and the pair's to
+# both: neither can be moved twice for the same overlap, and a throw hands its
+# momentum over instead of passing through.
+#
 # An item's node origin is the CENTRE of its box, so that the rotation turns the
 # block about its middle; `position` is that same centre, in world space.
 
@@ -93,6 +101,17 @@ const MAX_SUBSTEP = 1.0 / 120.0
 ## body buzzes on the spot. Iterating lets the contacts agree on one motion, which
 ## is what a resting body needs to be still.
 const SOLVER_ITERATIONS = 6
+## The same, for the item-vs-item solve: fewer passes, because a pair of convex
+## boxes has no face of nine points fighting itself.
+const PAIR_SOLVER_ITERATIONS = 3
+## How far outside its box a point still counts as touching another body's box, in
+## blocks -- the same hair of tolerance the world's point contacts take.
+const PAIR_CONTACT_RADIUS = 0.02
+## How fast a body has to be moving to WAKE a sleeping one it touches. A body merely
+## leaning on a sleeping neighbour moves by gravity's own tickle between substeps
+## (well under this), and counting that as a hit would wake a stack every substep,
+## so it could never come to rest.
+const WAKE_SPEED = 0.75
 ## How much of a penetration is corrected per pass, and how deep one is ignored.
 ## Correcting all of it in one pass overshoots; leaving a slop lets a resting body
 ## sit still instead of being pushed out and pulled back every substep.
@@ -190,6 +209,8 @@ func spawn(block_id: int, count: int, from_eye: Vector3, direction: Vector3) -> 
 		# The body's own points, in its own space: the contacts that turn it.
 		"points": _body_points(boxes, centre),
 		"inertia": _inertia_of(boxes, centre),
+		# The body's own reach from its origin: the broad phase of the pair solve.
+		"radius": _body_reach(boxes, centre),
 		# World space. `position` is the CENTRE of the box, which is also the
 		# node's own origin.
 		"position": from,
@@ -204,30 +225,40 @@ func spawn(block_id: int, count: int, from_eye: Vector3, direction: Vector3) -> 
 
 func _process(delta: float) -> void:
 	_push_world_lighting()
+	# Age and expire first, then move every body, then collect and draw. The pair
+	# solve needs the whole set before anything is taken out of it, and an item
+	# picked up this frame must not also be pushed around by one beside it.
 	for i in range(_items.size() - 1, -1, -1):
 		var item: Dictionary = _items[i]
 		item["age"] = item["age"] + delta
 		if item["age"] >= LIFETIME:
 			_remove(i)
-			continue
-		_step(item, delta)
+	_step_all(delta)
+	for i in range(_items.size() - 1, -1, -1):
+		var item: Dictionary = _items[i]
 		if _try_pickup(item):
 			_remove(i)
 			continue
 		_draw_item(item)
 
 
-## One frame of a body's flight, in slices short enough that it cannot pass through
-## a block between two of them.
-func _step(item: Dictionary, delta: float) -> void:
-	if item["asleep"]:
+## One frame of every body's flight, in slices short enough that nothing can pass
+## through a block -- or through another body -- between two of them.
+##
+## Every body moves inside a slice BEFORE the pairs are solved, so both halves of a
+## stack see each other's motion at the same instant. Stepping one body to the end
+## of the frame at a time would let it clear a body that had not moved yet.
+func _step_all(delta: float) -> void:
+	if _items.is_empty():
 		return
 	var slices := maxi(1, int(ceil(delta / MAX_SUBSTEP)))
 	var slice := delta / float(slices)
 	for i in range(slices):
-		_substep(item, slice)
-		if item["asleep"]:
-			return
+		for item in _items:
+			if item["asleep"]:
+				continue
+			_substep(item, slice)
+		_solve_item_pairs(slice)
 
 
 ## One slice: gravity, then the contacts the world reports at the position the body
@@ -256,6 +287,29 @@ func _substep(item: Dictionary, delta: float) -> void:
 	var inv_inertia := _inv_inertia(item["inertia"], basis)
 	var touching := false
 
+	# The exact convex guard, and the body's ONLY push-out. Points can only report
+	# the places they were put, so a block sitting against the MIDDLE of an edge lies
+	# between two of them and the edge passes straight through the world -- the
+	# clipping that gets worse the further a spot is from a corner. This test has no
+	# such gaps: it answers for the whole box, so it catches the middle of an edge
+	# AND it is the one correction a face-wide contact cannot multiply. The turning
+	# still comes from the points.
+	#
+	# Asked BEFORE the impulses, because a point contact is only useful while it
+	# pushes the way the whole body has to go. A point that has sunk past the middle
+	# of a thin block reports the face it is NEAREST, which can be the one it came in
+	# through; an impulse along that face would fight the push-out instead of helping
+	# it, so those contacts are dropped here.
+	var guard: Dictionary = _turned_contact(item, pos, basis)
+	var contacts: Array = _contacts(item, pos, basis)
+	if guard.get("into", false):
+		var separation: Vector3 = guard["normal"]
+		var agreeing := []
+		for contact in contacts:
+			if contact["normal"].dot(separation) >= 0.0:
+				agreeing.append(contact)
+		contacts = agreeing
+
 	# Solve the body's own points, several times, so the ones that touch agree on
 	# one motion instead of fighting.
 	#
@@ -263,9 +317,8 @@ func _substep(item: Dictionary, delta: float) -> void:
 	# here: a face lying on the floor reports nine points at once, and moving the
 	# body out of each would move it out nine times over -- and then again on every
 	# iteration -- so a plate that touched the ground was thrown off it by the size
-	# of its own contact set. One overlap, one correction: the guard below answers
-	# for the WHOLE body, so it cannot count the same overlap twice.
-	var contacts: Array = _contacts(item, pos, basis)
+	# of its own contact set. One overlap, one correction: the guard answers for the
+	# WHOLE body, so it cannot count the same overlap twice.
 	for iteration in range(SOLVER_ITERATIONS):
 		for contact in contacts:
 			var r: Vector3 = contact["point"] - pos
@@ -301,14 +354,6 @@ func _substep(item: Dictionary, delta: float) -> void:
 					vel = vel + t * t_impulse
 					spin = spin + inv_inertia * r.cross(t * t_impulse)
 
-	# The exact convex guard, and the body's ONLY push-out. Points can only report
-	# the places they were put, so a block sitting against the MIDDLE of an edge lies
-	# between two of them and the edge passes straight through the world -- the
-	# clipping that gets worse the further a spot is from a corner. This test has no
-	# such gaps: it answers for the whole box, so it catches the middle of an edge
-	# AND it is the one correction a face-wide contact cannot multiply. The turning
-	# still comes from the points above.
-	var guard: Dictionary = _turned_contact(item, pos, basis)
 	if guard.get("into", false):
 		touching = true
 		var guard_normal: Vector3 = guard["normal"]
@@ -321,20 +366,10 @@ func _substep(item: Dictionary, delta: float) -> void:
 		if closing < 0.0:
 			vel = vel - guard_normal * closing
 
-	item["grounded"] = touching
-	# Asleep when the contacts have actually stopped it: slow, touching, and staying
-	# that way. Nothing else is applied to it -- see REST_SPEED.
-	if touching and vel.length() < REST_SPEED and spin.length() < REST_SPIN:
-		item["rest"] = item["rest"] + delta
-		if item["rest"] >= REST_TIME:
-			item["asleep"] = true
-			item["velocity"] = Vector3.ZERO
-			item["spin"] = Vector3.ZERO
-	else:
-		item["rest"] = 0.0
 	item["position"] = pos
 	item["velocity"] = vel
 	item["spin"] = spin
+	_settle(item, delta, touching)
 
 
 ## The body's own points that are inside the world: where they touch, which way the
@@ -369,6 +404,271 @@ func _turned_contact(item: Dictionary, pos: Vector3, basis: Basis) -> Dictionary
 	for h in item["halves"]:
 		halves.append(h)
 	return _chunk_manager.turned_boxes_contact(pos, offsets, halves, basis)
+
+
+## The one place a body decides it has come to rest: slow, touching something, and
+## staying that way for long enough. Called at the end of the world substep and
+## again after the item-vs-item solve, because a body lying on ANOTHER body is as
+## settled as one lying on the ground.
+##
+## Nothing else is applied to a resting body: no extra drag, no easing onto a flat
+## orientation. A body that settles on its own is a body whose contacts held it, and
+## a body told to lie flat is a body that cannot balance on an edge when the
+## geometry says it should.
+func _settle(item: Dictionary, delta: float, touching: bool) -> void:
+	item["grounded"] = touching
+	if touching and item["velocity"].length() < REST_SPEED and item["spin"].length() < REST_SPIN:
+		item["rest"] = item["rest"] + delta
+		if item["rest"] >= REST_TIME:
+			item["asleep"] = true
+			item["velocity"] = Vector3.ZERO
+			item["spin"] = Vector3.ZERO
+	else:
+		item["rest"] = 0.0
+
+
+## Item against item, once per substep: two bodies whose volumes overlap push each
+## other apart along the shortest way out and answer the motion each sees where
+## they touch, so a dropped block lands on another, a stack leans, and a throw
+## hands its momentum over instead of one body passing through the other.
+##
+## The pair is a two-body contact in the same terms as the world's: the bodies' own
+## surface points carry the turning, and ONE contact -- the deepest box overlap --
+## carries the push-out, so the same overlap cannot be corrected twice.
+##
+## A sleeping body is an OBSTACLE, not a participant: it holds its place and its
+## motion until a body MOVING faster than a resting one touches it, which is what
+## lets a stack settle instead of being jogged awake by the weight above it.
+func _solve_item_pairs(delta: float) -> void:
+	for i in range(_items.size()):
+		var a: Dictionary = _items[i]
+		for j in range(i + 1, _items.size()):
+			var b: Dictionary = _items[j]
+			if a["asleep"] and b["asleep"]:
+				continue
+			_solve_pair(a, b, delta)
+
+
+func _solve_pair(a: Dictionary, b: Dictionary, delta: float) -> void:
+	# Broad phase: the bodies' own reaches, so the box math below only runs for the
+	# pairs that could possibly touch.
+	if (a["position"] - b["position"]).length() > float(a["radius"]) + float(b["radius"]):
+		return
+	var guard: Dictionary = _pair_guard(a, b)
+	if not guard["into"]:
+		return
+
+	# A body that is moving has HIT the sleeping one; a body only leaning on it has
+	# not, and the sleeping body stays an obstacle.
+	var a_velocity: Vector3 = a["velocity"]
+	var b_velocity: Vector3 = b["velocity"]
+	if a["asleep"] and b_velocity.length() > WAKE_SPEED:
+		_wake(a)
+	if b["asleep"] and a_velocity.length() > WAKE_SPEED:
+		_wake(b)
+
+	# Only the contacts that agree with the guard's separation, for the same reason
+	# the world solve drops them: a point sunk past the middle of the other body
+	# reports the face it is nearest, which can be the one it came in through.
+	var guard_normal: Vector3 = guard["normal"]
+	var contacts: Array = _pair_point_contacts(a, b)
+	if not contacts.is_empty():
+		var agreeing := []
+		for contact in contacts:
+			if contact["normal"].dot(guard_normal) * float(contact["side"]) >= 0.0:
+				agreeing.append(contact)
+		contacts = agreeing
+	for iteration in range(PAIR_SOLVER_ITERATIONS):
+		for contact in contacts:
+			_apply_pair_impulse(contact)
+
+	# The pair's push-out, split between the bodies: both can be moved, so each
+	# takes half, and an obstacle takes none of it.
+	var normal: Vector3 = guard["normal"]
+	var depth: float = float(guard["depth"])
+	if depth > PUSH_SLOP:
+		var correction := (depth - PUSH_SLOP) * PUSH_FRACTION
+		var a_free: bool = not a["asleep"]
+		var b_free: bool = not b["asleep"]
+		if a_free and b_free:
+			a["position"] = (a["position"] as Vector3) - normal * (correction * 0.5)
+			b["position"] = (b["position"] as Vector3) + normal * (correction * 0.5)
+		elif a_free:
+			a["position"] = (a["position"] as Vector3) - normal * correction
+		elif b_free:
+			b["position"] = (b["position"] as Vector3) + normal * correction
+
+	# Both bodies are touching something, so each is settled on the same terms as
+	# the world solve: the one standing on the other can come to rest.
+	if not a["asleep"]:
+		_settle(a, delta, true)
+	if not b["asleep"]:
+		_settle(b, delta, true)
+
+
+## A sleeping body that something moving touched: back in the solve from this
+## substep on, with its rest timer cleared so it cannot fall asleep again while the
+## other body is still moving against it.
+func _wake(item: Dictionary) -> void:
+	item["asleep"] = false
+	item["rest"] = 0.0
+
+
+## The shortest way two bodies overlap, over every pair of their boxes -- the guard
+## of the pair solve, as turned_boxes_contact is the guard of the world one. The
+## normal points from `a` to `b`, so moving `a` along -normal and `b` along +normal
+## separates them.
+func _pair_guard(a: Dictionary, b: Dictionary) -> Dictionary:
+	var a_basis := Basis(a["node"].quaternion)
+	var b_basis := Basis(b["node"].quaternion)
+	var best := {"into": false, "normal": Vector3.UP, "depth": 0.0}
+	for i in range(a["offsets"].size()):
+		var a_centre: Vector3 = a["position"] + a_basis * a["offsets"][i]
+		for j in range(b["offsets"].size()):
+			var b_centre: Vector3 = b["position"] + b_basis * b["offsets"][j]
+			var hit := _box_pair_overlap(a_centre, a["halves"][i], a_basis,
+				b_centre, b["halves"][j], b_basis)
+			if hit["overlap"] and hit["depth"] > float(best["depth"]):
+				best = {"into": true, "normal": hit["normal"], "depth": hit["depth"]}
+	return best
+
+
+## Two turned boxes, by the separating axis test: they overlap while no axis
+## separates them, and the axis they overlap along LEAST is the penetration, whose
+## direction is the way out. All fifteen axes have to be tried, not just the six
+## box faces: two boxes resting corner to corner are separated by the cross product
+## of two edges and by nothing else. The normal points from `a` to `b`.
+func _box_pair_overlap(a_centre: Vector3, a_half: Vector3, a_basis: Basis,
+		b_centre: Vector3, b_half: Vector3, b_basis: Basis) -> Dictionary:
+	var delta: Vector3 = b_centre - a_centre
+	var best_depth := INF
+	var best_normal := Vector3.UP
+	var a_axes: Array[Vector3] = [a_basis.x, a_basis.y, a_basis.z]
+	var b_axes: Array[Vector3] = [b_basis.x, b_basis.y, b_basis.z]
+	var axes: Array[Vector3] = [a_basis.x, a_basis.y, a_basis.z,
+		b_basis.x, b_basis.y, b_basis.z]
+	for i in range(3):
+		for j in range(3):
+			axes.append(a_axes[i].cross(b_axes[j]))
+	for axis in axes:
+		if axis.length_squared() < 0.000001:
+			continue
+		var n := axis.normalized()
+		var ra := absf(n.dot(a_axes[0])) * a_half.x + absf(n.dot(a_axes[1])) * a_half.y + absf(n.dot(a_axes[2])) * a_half.z
+		var rb := absf(n.dot(b_axes[0])) * b_half.x + absf(n.dot(b_axes[1])) * b_half.y + absf(n.dot(b_axes[2])) * b_half.z
+		var overlap := ra + rb - absf(n.dot(delta))
+		if overlap <= 0.0:
+			return {"overlap": false, "normal": Vector3.UP, "depth": 0.0}
+		if overlap < best_depth:
+			best_depth = overlap
+			best_normal = n if n.dot(delta) >= 0.0 else -n
+	return {"overlap": true, "normal": best_normal, "depth": best_depth}
+
+
+## Every point of one body's surface that is inside one of the other's boxes, as a
+## contact pushing the FIRST body out of it. Both directions are taken, so the
+## turning is carried by whichever body's points are actually in the other.
+func _pair_point_contacts(a: Dictionary, b: Dictionary) -> Array:
+	var out := []
+	var a_basis := Basis(a["node"].quaternion)
+	var b_basis := Basis(b["node"].quaternion)
+	# `side` is the sign the contact's normal must carry against the pair guard,
+	# which points from a to b: a's contacts push a AWAY from b, b's the other way.
+	_points_into_boxes(a, a_basis, b, b_basis, -1.0, out)
+	_points_into_boxes(b, b_basis, a, a_basis, 1.0, out)
+	return out
+
+
+## `mover`'s own points against `other`'s boxes: each contact carries the point,
+## the normal that pushes `mover` away from `other`, `side` (the sign that normal
+## must carry against the pair guard), and the two bodies, so the impulse can be
+## answered to both of them.
+func _points_into_boxes(mover: Dictionary, mover_basis: Basis, other: Dictionary,
+		other_basis: Basis, side: float, out: Array) -> void:
+	for point in mover["points"]:
+		var p: Vector3 = mover["position"] + mover_basis * point
+		for i in range(other["offsets"].size()):
+			var centre: Vector3 = other["position"] + other_basis * other["offsets"][i]
+			var half: Vector3 = other["halves"][i]
+			var local: Vector3 = other_basis.transposed() * (p - centre)
+			if absf(local.x) > half.x + PAIR_CONTACT_RADIUS \
+				or absf(local.y) > half.y + PAIR_CONTACT_RADIUS \
+				or absf(local.z) > half.z + PAIR_CONTACT_RADIUS:
+				continue
+			var dx := half.x - absf(local.x)
+			var dy := half.y - absf(local.y)
+			var dz := half.z - absf(local.z)
+			var normal := other_basis.x
+			if dx <= dy and dx <= dz:
+				normal = other_basis.x * (1.0 if local.x >= 0.0 else -1.0)
+			elif dz <= dy and dz <= dx:
+				normal = other_basis.z * (1.0 if local.z >= 0.0 else -1.0)
+			else:
+				normal = other_basis.y * (1.0 if local.y >= 0.0 else -1.0)
+			out.append({"point": p, "normal": normal, "side": side, "mover": mover, "other": other})
+
+
+## One point of a pair contact, answered for BOTH bodies: the same impulse, opposite
+## ways, each body taking it at the point through its own lever arm. A sleeping body
+## is static here -- infinite mass -- so a resting item is not pushed by a body that
+## is only leaning on it, and does not have to be woken to hold it up.
+func _apply_pair_impulse(contact: Dictionary) -> void:
+	var mover: Dictionary = contact["mover"]
+	var other: Dictionary = contact["other"]
+	var normal: Vector3 = contact["normal"]
+	var point: Vector3 = contact["point"]
+	var mover_free: float = 0.0 if mover["asleep"] else 1.0
+	var other_free: float = 0.0 if other["asleep"] else 1.0
+	if mover_free == 0.0 and other_free == 0.0:
+		return
+	var mover_basis := Basis(mover["node"].quaternion)
+	var other_basis := Basis(other["node"].quaternion)
+	var r_mover: Vector3 = point - mover["position"]
+	var r_other: Vector3 = point - other["position"]
+	var mover_inv := _inv_inertia(mover["inertia"], mover_basis)
+	var other_inv := _inv_inertia(other["inertia"], other_basis)
+	var mover_velocity: Vector3 = mover["velocity"] + mover["spin"].cross(r_mover)
+	var other_velocity: Vector3 = other["velocity"] + other["spin"].cross(r_other)
+	var relative := mover_velocity - other_velocity
+	var approach := relative.dot(normal)
+	if approach >= 0.0:
+		return
+	var mover_rn := r_mover.cross(normal)
+	var other_rn := r_other.cross(normal)
+	var denom := mover_free + other_free \
+		+ mover_rn.dot(mover_inv * mover_rn) + other_rn.dot(other_inv * other_rn)
+	var restitution := BOUNCE if absf(approach) > RESTING_APPROACH else 0.0
+	var impulse := -(1.0 + restitution) * approach / maxf(denom, 0.0001)
+	mover["velocity"] = mover["velocity"] + normal * (impulse * mover_free)
+	mover["spin"] = mover["spin"] + mover_inv * (r_mover.cross(normal * impulse)) * mover_free
+	other["velocity"] = other["velocity"] - normal * (impulse * other_free)
+	other["spin"] = other["spin"] - other_inv * (r_other.cross(normal * impulse)) * other_free
+	# Friction, the tangential share of the same contact, through the same
+	# effective mass: what stops two stacked blocks sliding across each other.
+	var tangent := relative - normal * approach
+	if tangent.length_squared() > 0.000001:
+		var t := tangent.normalized()
+		var mover_rt := r_mover.cross(t)
+		var other_rt := r_other.cross(t)
+		var t_denom := mover_free + other_free \
+			+ mover_rt.dot(mover_inv * mover_rt) + other_rt.dot(other_inv * other_rt)
+		var t_impulse := -minf(tangent.length() * FRICTION,
+			FRICTION * absf(impulse)) / maxf(t_denom, 0.0001)
+		mover["velocity"] = mover["velocity"] + t * (t_impulse * mover_free)
+		mover["spin"] = mover["spin"] + mover_inv * (r_mover.cross(t * t_impulse)) * mover_free
+		other["velocity"] = other["velocity"] - t * (t_impulse * other_free)
+		other["spin"] = other["spin"] - other_inv * (r_other.cross(t * t_impulse)) * other_free
+
+
+## How far a body reaches from its own origin: the broad phase of the item-vs-item
+## test, so two items on opposite sides of the world cost one distance check.
+func _body_reach(boxes: Array, centre: Vector3) -> float:
+	var reach := 0.0
+	for box in boxes:
+		var box_centre: Vector3 = (box["lo"] + box["hi"]) * 0.5 - centre
+		var half: Vector3 = (box["hi"] - box["lo"]) * 0.5
+		reach = maxf(reach, box_centre.length() + half.length())
+	return reach
 
 
 ## A body's points: every box's surface laid out SURFACE_POINTS to an axis, in the

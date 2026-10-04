@@ -1,5 +1,6 @@
 #include "core/viewmodel_meshes.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <vector>
@@ -80,6 +81,73 @@ bool index_stream_is_sequential(const MeshGeometry& g) {
     }
     return true;
 }
+
+// The (u,v) rectangle each face has to sample: the box's own extent along the
+// face's horizontal and vertical axes. A face covering the whole of both axes is
+// the plain full-cube case (u and v are the full 0..1 texture); a stair step or
+// a slab covers fractions of the cell, and its UV rectangle must be the same
+// fractions -- anything else is the texture stretched over the box.
+struct UvSlice {
+    float u;
+    float v;
+};
+
+UvSlice uv_slice_for_face(int face, const float box[6]) {
+    const float extent_x = box[3] - box[0];
+    const float extent_y = box[4] - box[1];
+    const float extent_z = box[5] - box[2];
+    if (face == 0 || face == 1) {
+        return {extent_z, extent_y}; // +X / -X: u runs along z, v down y
+    }
+    if (face == 2 || face == 3) {
+        return {extent_x, extent_z}; // +Y / -Y: u along x, v along z
+    }
+    return {extent_x, extent_y}; // +Z / -Z: u along x, v down y
+}
+
+void check_face_uv_is_sliced(const MeshGeometry& g, int box_index, const float box[6]) {
+    for (int face = 0; face < 6; ++face) {
+        const int quad = box_index * 6 + face;
+        float u_min = 2.0f;
+        float u_max = -1.0f;
+        float v_min = 2.0f;
+        float v_max = -1.0f;
+        for (int i = 0; i < 4; ++i) {
+            const float u = g.uvs[(quad * 4 + i) * 2 + 0];
+            const float v = g.uvs[(quad * 4 + i) * 2 + 1];
+            u_min = std::min(u_min, u);
+            u_max = std::max(u_max, u);
+            v_min = std::min(v_min, v);
+            v_max = std::max(v_max, v);
+        }
+        const UvSlice slice = uv_slice_for_face(face, box);
+        CHECK(u_max - u_min == doctest::Approx(slice.u).epsilon(0.001));
+        CHECK(v_max - v_min == doctest::Approx(slice.v).epsilon(0.001));
+        // The slice has to stay inside the cell it was cut from.
+        CHECK(u_min >= -0.001f);
+        CHECK(u_max <= 1.001f);
+        CHECK(v_min >= -0.001f);
+        CHECK(v_max <= 1.001f);
+    }
+}
+
+// Every side face (+X, -X, -Z, +Z) of one box must show the v band its own y
+// extent covers, so a slab shows half the texture rather than all of it.
+void check_side_faces_cover_v(const MeshGeometry& g, int box_index, float v_lo, float v_hi) {
+    const int side_faces[4] = {0, 1, 4, 5};
+    for (int k = 0; k < 4; ++k) {
+        const int quad = box_index * 6 + side_faces[k];
+        float v_min = 2.0f;
+        float v_max = -1.0f;
+        for (int i = 0; i < 4; ++i) {
+            const float v = g.uvs[(quad * 4 + i) * 2 + 1];
+            v_min = std::min(v_min, v);
+            v_max = std::max(v_max, v);
+        }
+        CHECK(v_min == doctest::Approx(v_lo).epsilon(0.001));
+        CHECK(v_max == doctest::Approx(v_hi).epsilon(0.001));
+    }
+}
 } // namespace
 
 TEST_CASE("viewmodel cube: 24 verts / 36 indices with per-face normals and UVs") {
@@ -159,6 +227,47 @@ TEST_CASE("viewmodel shaped mesh: every box quads wind inward and face out") {
     const MeshGeometry g = build_box_mesh(boxes);
     check_quads_face_outward(g, 0, 6, {0.0f, -0.25f, 0.0f});
     check_quads_face_outward(g, 6, 6, {-0.25f, 0.25f, 0.0f});
+}
+
+TEST_CASE("viewmodel shaped mesh: each face samples its own slice of the texture cell") {
+    const float slab[6] = {0.0f, 0.0f, 0.0f, 1.0f, 0.5f, 1.0f};
+    check_face_uv_is_sliced(build_box_mesh({0.0f, 0.0f, 0.0f, 1.0f, 0.5f, 1.0f}), 0, slab);
+
+    // A stair's pair of boxes: the full-footprint lower step and the half-depth
+    // upper step -- the shape whose squashed sides/pieces the old full-cell UVs
+    // stretched worst.
+    const MeshGeometry stair = build_box_mesh({
+            0.0f, 0.0f, 0.0f, 1.0f, 0.5f, 1.0f,
+            0.0f, 0.5f, 0.0f, 1.0f, 1.0f, 0.5f,
+    });
+    const float lower[6] = {0.0f, 0.0f, 0.0f, 1.0f, 0.5f, 1.0f};
+    const float upper[6] = {0.0f, 0.5f, 0.0f, 1.0f, 1.0f, 0.5f};
+    check_face_uv_is_sliced(stair, 0, lower);
+    check_face_uv_is_sliced(stair, 1, upper);
+}
+
+TEST_CASE("viewmodel shaped mesh: slab and stair sides sample the matching texture half") {
+    // A bottom slab covers y 0..0.5, so its sides show the bottom half of the
+    // cell (v 0.5..1), the slice a placed bottom slab shows, instead of the
+    // whole texture pressed into the half-height side.
+    check_side_faces_cover_v(build_box_mesh({0.0f, 0.0f, 0.0f, 1.0f, 0.5f, 1.0f}), 0, 0.5f, 1.0f);
+    // A top slab covers y 0.5..1: the top half instead.
+    check_side_faces_cover_v(build_box_mesh({0.0f, 0.5f, 0.0f, 1.0f, 1.0f, 1.0f}), 0, 0.0f, 0.5f);
+
+    // A stair's upper step (the north variant: z 0..0.5, y 0.5..1). Its sides
+    // are the texture's top half, and its top face -- which spans only half the
+    // cell's z axis -- samples the matching half of the v axis: v = 0.5 at the
+    // north edge (z = 0) down to v = 0 at the cut edge (z = 0.5). That is the
+    // placed stair's own stretch-free mapping (the world's Top face uses
+    // offset_v = min_z, mesh_builder_faces_aabb.cpp).
+    const MeshGeometry step = build_box_mesh({0.0f, 0.5f, 0.0f, 1.0f, 1.0f, 0.5f});
+    check_side_faces_cover_v(step, 0, 0.0f, 0.5f);
+    const int top_quad = 2;
+    for (int i = 0; i < 4; ++i) {
+        const float z = step.verts[(top_quad * 4 + i) * 3 + 2] + 0.5f; // back to 0..1
+        const float v = step.uvs[(top_quad * 4 + i) * 2 + 1];
+        CHECK(v == doctest::Approx(0.5f - z).epsilon(0.001));
+    }
 }
 
 TEST_CASE("viewmodel sprite: 1x1 solid texel has front+back plus all four rims") {

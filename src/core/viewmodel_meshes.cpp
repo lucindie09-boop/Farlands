@@ -66,12 +66,20 @@ MeshGeometry build_unit_cube_mesh() {
 MeshGeometry build_box_mesh(const std::vector<float>& boxes) {
     MeshGeometry g;
     for (size_t bi = 0; bi + 5 < boxes.size(); bi += 6) {
-        const float min_x = boxes[bi + 0] - 0.5f;
+        // Block-space extents, kept before the -0.5 centring below: a face's
+        // texture slice is measured in the 0..1 cell the box occupies, so the
+        // formulas need the box's own min/max, not the centred mesh's.
+        const float bz0 = boxes[bi + 2];
+        const float bz1 = boxes[bi + 5];
+        const float bx0 = boxes[bi + 0];
+        const float bx1 = boxes[bi + 3];
+
+        const float min_x = bx0 - 0.5f;
         const float min_y = boxes[bi + 1] - 0.5f;
-        const float min_z = boxes[bi + 2] - 0.5f;
-        const float max_x = boxes[bi + 3] - 0.5f;
+        const float min_z = bz0 - 0.5f;
+        const float max_x = bx1 - 0.5f;
         const float max_y = boxes[bi + 4] - 0.5f;
-        const float max_z = boxes[bi + 5] - 0.5f;
+        const float max_z = bz1 - 0.5f;
 
         // Every quad is wound so the cross product of its first three corners
         // points INTO the box, which is the clockwise-front winding
@@ -102,8 +110,50 @@ MeshGeometry build_box_mesh(const std::vector<float>& boxes) {
                 {1.0f, 0.0f, 0.0f}, {-1.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f},
                 {0.0f, -1.0f, 0.0f}, {0.0f, 0.0f, -1.0f}, {0.0f, 0.0f, 1.0f},
         };
-        static const float uv[4][2] = {{0.0f, 1.0f}, {0.0f, 0.0f}, {1.0f, 0.0f}, {1.0f, 1.0f}};
+        // UVs are derived from each corner's own 0..1 block position, so every
+        // face samples the slice of the texture its box covers -- the way a
+        // placed slab or stair does -- instead of the whole cell, which used to
+        // stretch a full copy of the texture over each half-height step. These
+        // formulas are the partial-block walk in mesh/mesh_builder_faces_aabb.cpp
+        // written position-wise: u along the face's horizontal axis, v down
+        // from the block top (the world's Top/Bottom/Left/Front offsets are
+        // folded into the expressions, and its Right/Back faces are the plain
+        // cases). The old constant table got away with the same values on both
+        // axes of every face only because a full box covers the whole cell.
         for (int f = 0; f < 6; ++f) {
+            float uv[4][2];
+            for (int i = 0; i < 4; ++i) {
+                // Block-space position of this corner (undo the centring).
+                const float x = faces[f][i][0] + 0.5f;
+                const float y = faces[f][i][1] + 0.5f;
+                const float z = faces[f][i][2] + 0.5f;
+                switch (f) {
+                    case 0: // +X, the world's Right face
+                        uv[i][0] = z;
+                        uv[i][1] = 1.0f - y;
+                        break;
+                    case 1: // -X, the world's Left face: u runs from the far side
+                        uv[i][0] = z + (1.0f - bz0 - bz1);
+                        uv[i][1] = 1.0f - y;
+                        break;
+                    case 2: // +Y, the world's Top face
+                        uv[i][0] = x;
+                        uv[i][1] = bz0 + bz1 - z;
+                        break;
+                    case 3: // -Y, the world's Bottom face
+                        uv[i][0] = x;
+                        uv[i][1] = 1.0f - z;
+                        break;
+                    case 4: // -Z (min_z wall), the world's Back face
+                        uv[i][0] = x;
+                        uv[i][1] = 1.0f - y;
+                        break;
+                    default: // +Z (max_z wall), the world's Front face
+                        uv[i][0] = bx0 + bx1 - x;
+                        uv[i][1] = 1.0f - y;
+                        break;
+                }
+            }
             push_quad(g, faces[f], normals[f], uv);
         }
     }

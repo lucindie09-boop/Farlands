@@ -478,9 +478,13 @@ first-person viewmodel - what each one owns and the decisions behind it.
   (slab/stair/wall/pole selection boxes), and extruded-sprite item meshes that `viewmodel.gd`
   used to build inline. The cube builder (texture-top = world-top on every face) is also used by
   `block_break_overlay.gd`, `block_preview.gd`, and the settings_menu block gallery — all four
-  byte-for-byte copies now call the one C++ builder; the sprite mesh (front/back + silhouette
-  rims) is locked byte-for-byte against an independent Python port of the original GDScript in
-  `tests/test_viewmodel_meshes.cpp`.
+  byte-for-byte copies now call the one C++ builder. Shaped meshes wind every quad inward-facing
+  with its normal named for the wall it sits on (the +X face used to mirror -X and left a hole
+  in the right side of every dropped/held shape) and sample the per-face texture slice a placed
+  slab or stair does — the partial-block UV walk in `mesh/mesh_builder_faces_aabb.cpp` — so a
+  half-height step shows its own half of the texture instead of a squashed full copy; the sprite
+  mesh (front/back + silhouette rims) is locked byte-for-byte against an independent Python port
+  of the original GDScript in `tests/test_viewmodel_meshes.cpp`.
 - **Punch/swing animation**: Minecraft-style punch on LMB (0.225s). The depth curve `s` goes
   0→1→0 over the punch, reshaped by a cubic smoothstep (`x*x*(3-2x)`) for a flatter crest; the
   arm traces a two-sided circular arc (`sin(angle)*0.15`, out one side → 0 at peak → other side

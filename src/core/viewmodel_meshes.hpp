@@ -25,8 +25,10 @@ struct MeshGeometry {
 MeshGeometry build_unit_cube_mesh();
 
 // Boxes in block space: six floats per box (min_x..max_z, each in 0..1). The
-// GDScript source subtracted 0.5 to centre them, so this does too. Mirrors
-// viewmodel.gd `_build_shaped_block_mesh` winding/UVs.
+// GDScript source subtracted 0.5 to centre them, so this does too. Every face
+// samples the slice of the texture cell its box covers, mirroring the placed
+// partial-block UV walk in mesh/mesh_builder_faces_aabb.cpp, so a half-height
+// step shows its own half of the texture rather than a squashed full copy.
 MeshGeometry build_box_mesh(const std::vector<float>& boxes);
 
 // Extruded sprite (held item): every texel with alpha > 0 gets a front/back

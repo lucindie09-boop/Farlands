@@ -234,6 +234,18 @@ inline int ChunkMap::get_block_world(int32_t wx, int32_t wy, int32_t wz) const {
     return static_cast<int>(it->second->data->get_block(lx, ly, lz));
 }
 
+inline uint16_t ChunkMap::get_light_world(int32_t wx, int32_t wy, int32_t wz) const {
+    int32_t cx, cy, cz, lx, ly, lz;
+    world_to_chunk_local(wx, wy, wz, cx, cy, cz, lx, ly, lz);
+    uint64_t key = get_chunk_key(cx, cy, cz);
+    auto& s = shards_[key_to_shard(key)];
+    LOCK_ORDER_REQUIRE_SHARED(key_to_shard(key), "get_light_world");
+    auto lock = shard_lock_detail::lock_shared_timed(s.mutex, s.stats);
+    auto it = s.chunks.find(key);
+    if (it == s.chunks.end()) return 0;
+    return it->second->data->get_light_packed_word_unsafe(lx, ly, lz);
+}
+
 inline bool ChunkMap::contains(uint64_t key) const {
     auto& s = shards_[key_to_shard(key)];
     LOCK_ORDER_REQUIRE_SHARED(key_to_shard(key), "contains");

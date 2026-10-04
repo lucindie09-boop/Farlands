@@ -24,6 +24,13 @@ public:
     // light propagator or mesh manager.
     void update(double delta, const godot::Vector3& player_pos);
 
+    // Pushes the world's lighting state into one ITEM material -- a held block,
+    // a dropped item, the first-person arm. The values are the ones last sent to
+    // the terrain material, so an item can never disagree with the ground it is
+    // standing on; the item shader runs the terrain's own light model
+    // (shaders/item_lighting.gdshaderinc) instead of the engine's sky/ambient.
+    void apply_item_shader_lighting(const godot::Ref<godot::ShaderMaterial>& material) const;
+
     DayNightCycle& get_day_night_cycle() { return day_night; }
     const DayNightCycle& get_day_night_cycle() const { return day_night; }
     MaterialManager& get_material_manager() { return material_manager; }
@@ -94,6 +101,19 @@ private:
     godot::Color ao_color = godot::Color(0.0f, 0.0f, 0.0f, 1.0f);
     float ao_strength = 1.0f;
     godot::Color darkness_color = godot::Color(0.0f, 0.0f, 0.0f, 1.0f);
+
+    // The copy of the world lighting that item materials are fed from. Kept
+    // beside the pushes to the terrain material rather than recomputed, so the
+    // two can never drift: whatever the ground was last lit with is what the
+    // item next to it is lit with.
+    float item_sky_intensity = 1.0f;
+    godot::Color item_sky_color = godot::Color(1.0f, 1.0f, 1.0f, 1.0f);
+    godot::Color item_sky_warmth = godot::Color(1.0f, 1.0f, 1.0f, 1.0f);
+    godot::Vector3 item_player_light_position;
+    float item_player_light_radius = 8.0f;
+    float item_player_light_intensity = 0.0f;
+    godot::Color item_player_light_color = PlayerLight::default_color();
+
     bool mipmaps_enabled = true;
     float mipmap_bias = 0.1f;
     bool textures_enabled = true;

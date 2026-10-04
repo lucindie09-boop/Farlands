@@ -13,6 +13,16 @@ extends Node3D
 const PLAYER_MODEL: PackedScene = preload("res://models/player.glb")
 const MODEL_SCALE := 0.05625 # player.glb px -> meters (0.9 / 16)
 
+# The item shaders. Both run the world's own light model
+# (shaders/item_lighting.gdshaderinc) instead of the engine's lighting. The held
+# item/block sit in the world and keep depth testing (item_shader); the arm is
+# drawn over it like the rest of the first-person furniture (viewmodel_shader).
+const ITEM_SHADER: Shader = preload("res://shaders/item_shader.gdshader")
+const ARM_SHADER: Shader = preload("res://shaders/viewmodel_shader.gdshader")
+
+## The node that owns the world, for the item light model. Set in Main.tscn.
+@export var chunk_manager_path: NodePath = NodePath("../../../ChunkManager")
+
 @export var arm_index := 3 # glb child holding the right arm (raw scene vs import mirror)
 @export var arm_side := 1.0 # mirror the arm's placement (x-axis): 1 or -1
 @export var arm_from := Vector3(0.30, 0.25, -0.42) # shoulder, eye space
@@ -22,6 +32,11 @@ const MODEL_SCALE := 0.05625 # player.glb px -> meters (0.9 / 16)
 @export var hold_from := Vector3(0.42, 0.10, -0.55) # held item base, eye space
 
 var _player: Node
+var _chunk_manager: Node = null
+# The arm's mesh instances and the material each surface was given, so the world
+# light can be re-pushed onto them every frame (they are created in _apply_skin).
+var _arm_instances: Array[MeshInstance3D] = []
+var _arm_materials: Array[ShaderMaterial] = []
 var _hand_bob: Node3D
 var _arm_root: Node3D
 var _arm_pivot: Node3D
@@ -186,6 +201,7 @@ const PEAK_POS_BLOCK := Vector3(-0.65, -0.02, -0.16)
 
 func _ready() -> void:
 	_player = get_node_or_null("/root/Main/Player")
+	_chunk_manager = get_node_or_null(chunk_manager_path)
 	if _player != null and _player.has_signal("block_placed"):
 		_player.block_placed.connect(place)
 	# Using a crafting table (right-click opens the 3x3 menu) also swings the
@@ -273,19 +289,15 @@ func _ready() -> void:
 	_item_scale_node = Node3D.new()
 	scale04.add_child(_item_scale_node)
 
-# Fixed Material Setup with Alpha Scissor and proper depth testing
-	var std_mat := StandardMaterial3D.new()
-	std_mat.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
-	std_mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
-	std_mat.cull_mode = BaseMaterial3D.CULL_BACK
-	std_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
-	std_mat.alpha_scissor_threshold = 0.5
-	std_mat.no_depth_test = false  # Enable depth testing to prevent see-through
-	std_mat.render_priority = 5
-	std_mat.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
-	std_mat.roughness = 1.0
-	std_mat.metallic = 0.0
-	_material = std_mat
+# The held item/block is an unshaded item-shader mesh: the engine's sky and
+	# ambient must not touch it, and the world's own light model (the same day/night
+	# uniforms the terrain is fed, plus the light of the cell the eye is in) is
+	# pushed in _process instead. Depth testing stays ON, as before, so a wall
+	# cannot be seen through the held block.
+	var hand_mat := ShaderMaterial.new()
+	hand_mat.shader = ITEM_SHADER
+	hand_mat.render_priority = 5
+	_material = hand_mat
 
 	_cube_mesh = _build_cube_mesh()
 	_stick_mesh = null 
@@ -323,6 +335,9 @@ func _process(delta: float) -> void:
 	if _player == null:
 		return
 	visible = not _player.get_third_person() and not _player.is_dead()
+	# Pushed before the visibility test, so returning to first person never shows a
+	# frame of last-hour lighting on the arm or the item.
+	_push_world_lighting()
 	if not visible:
 		return
 	if _freeze_animations:
@@ -421,6 +436,34 @@ func _is_breaking() -> bool:
 	var state = _player.get_break_state()
 	return state is Dictionary and state.get("active", false)
 
+## The world light half of the item model, onto every viewmodel material, plus
+## the light of the cell the eye is in per mesh instance. Called every frame:
+## the day/night values move continuously, and the eye walks through cells it
+## must be re-read from.
+func _push_world_lighting() -> void:
+	if _chunk_manager == null:
+		return
+	_chunk_manager.apply_item_lighting(_material)
+	for arm_mat in _arm_materials:
+		_chunk_manager.apply_item_lighting(arm_mat)
+	var eye := _eye_position()
+	var light: Vector4 = _chunk_manager.get_light_at(floori(eye.x), floori(eye.y), floori(eye.z))
+	if _item != null:
+		_item.set_instance_shader_parameter("item_light", light)
+	for mi in _arm_instances:
+		mi.set_instance_shader_parameter("item_light", light)
+
+
+## The eye: the camera the viewmodel hangs off, whose cell the light is read from.
+func _eye_position() -> Vector3:
+	var cam := get_parent() as Camera3D
+	if cam != null:
+		return cam.global_position
+	if _player != null:
+		return _player.global_position
+	return global_position
+
+
 func _update_swing_hooks() -> void:
 	# The active swing is the closer-to-rest (larger) punch/place timer, so a
 	# quick place right after a punch doesn't discard the punch's remaining motion.
@@ -498,18 +541,15 @@ func _refresh_held_item() -> void:
 		_item.visible = false
 		return
 	
-	var std_mat := _material as StandardMaterial3D
-	if std_mat != null:
-		std_mat.albedo_texture = tex
+	var hand_mat := _material as ShaderMaterial
+	if hand_mat != null:
+		hand_mat.set_shader_parameter("albedo_texture", tex)
 		# Blocks use fully-opaque textures, so the alpha scissor is pure
 		# downside — it can only DISCARD edge pixels whose UV rounds onto a
 		# texel boundary, which reads as see-through cracks at the block's
 		# edges. Items keep the scissor: their sprite textures need the alpha
 		# test for their transparent silhouette.
-		if BlockTextures.is_item(current_display_id):
-			std_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
-		else:
-			std_mat.transparency = BaseMaterial3D.TRANSPARENCY_DISABLED
+		hand_mat.set_shader_parameter("alpha_scissor", 0.5 if BlockTextures.is_item(current_display_id) else 0.0)
 	
 	_item.visible = true
 	if BlockTextures.is_item(current_display_id):
@@ -614,21 +654,19 @@ func _apply_skin(arm: Node3D) -> void:
 		if mi == null or mi.mesh == null:
 			continue
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		
-		# Use StandardMaterial3D with per-pixel lighting
-		var std_mat := StandardMaterial3D.new()
-		std_mat.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
-		std_mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
-		std_mat.no_depth_test = true
-		std_mat.render_priority = 5
-		std_mat.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
-		std_mat.roughness = 1.0
-		std_mat.metallic = 0.0
+
+		# The arm is lit by the world's own light model, not the engine's, and is
+		# drawn over the world (depth testing off) like the rest of the viewmodel.
+		var arm_mat := ShaderMaterial.new()
+		arm_mat.shader = ARM_SHADER
+		arm_mat.render_priority = 5
 		if tex != null:
-			std_mat.albedo_texture = tex
-		
+			arm_mat.set_shader_parameter("albedo_texture", tex)
+
 		for s in range(mi.mesh.get_surface_count()):
-			mi.set_surface_override_material(s, std_mat)
+			mi.set_surface_override_material(s, arm_mat)
+		_arm_instances.append(mi)
+		_arm_materials.append(arm_mat)
 
 func _build_cube_mesh() -> ArrayMesh:
 	# Same layout as the Block Maker / block-break overlay cube: texture-top =

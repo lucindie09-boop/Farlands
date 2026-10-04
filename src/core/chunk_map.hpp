@@ -106,6 +106,11 @@ public:
     [[nodiscard]] bool has_loaded_chunk(int32_t cx, int32_t cy, int32_t cz) const;
     [[nodiscard]] bool is_block_solid(int32_t wx, int32_t wy, int32_t wz) const;
     [[nodiscard]] int get_block_world(int32_t wx, int32_t wy, int32_t wz) const;
+    // The packed light word (sky/r/g/b nibbles, see core/light_packing.hpp) of a
+    // world block cell, or 0 where no chunk is loaded. Object-level lighting -- a
+    // dropped item, the held block -- reads this so it is lit by the cell it
+    // actually occupies instead of by an engine light that never saw the world.
+    [[nodiscard]] uint16_t get_light_world(int32_t wx, int32_t wy, int32_t wz) const;
     [[nodiscard]] bool contains(uint64_t key) const;
 
     // Wipes the map. See chunk_map_inline.hpp for why every shard is taken

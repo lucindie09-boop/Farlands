@@ -204,6 +204,8 @@ void ChunkManager::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_block", "world_x", "world_y", "world_z", "block_id"), &ChunkManager::set_block);
     ClassDB::bind_method(D_METHOD("get_block", "world_x", "world_y", "world_z"), &ChunkManager::get_block);
     ClassDB::bind_method(D_METHOD("get_block_name", "block_id"), &ChunkManager::get_block_name);
+    ClassDB::bind_method(D_METHOD("get_light_at", "world_x", "world_y", "world_z"), &ChunkManager::get_light_at);
+    ClassDB::bind_method(D_METHOD("apply_item_lighting", "material"), &ChunkManager::apply_item_lighting);
     ClassDB::bind_method(D_METHOD("get_selection_boxes", "block_id"), &ChunkManager::get_selection_boxes);
     ClassDB::bind_method(D_METHOD("get_selection_boxes_at", "block_id", "world_x", "world_y", "world_z"),
                          &ChunkManager::get_selection_boxes_at);

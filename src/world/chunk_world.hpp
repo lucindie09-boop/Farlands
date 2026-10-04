@@ -167,6 +167,7 @@ public:
     bool has_loaded_chunk(int32_t cx, int32_t cy, int32_t cz) const { return chunk_map.has_loaded_chunk(cx, cy, cz); }
     bool is_block_solid(int32_t world_x, int32_t world_y, int32_t world_z) { return chunk_map.is_block_solid(world_x, world_y, world_z); }
     int get_block_world(int32_t wx, int32_t wy, int32_t wz) { return chunk_map.get_block_world(wx, wy, wz); }
+    uint16_t get_light_world(int32_t wx, int32_t wy, int32_t wz) { return chunk_map.get_light_world(wx, wy, wz); }
 
 private:
     // Writes the edit map file. Caller MUST hold file_access_mutex.

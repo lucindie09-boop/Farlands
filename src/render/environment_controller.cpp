@@ -11,12 +11,38 @@ void EnvironmentController::update(double delta, const godot::Vector3& player_po
     // The colour is whatever the light is set to, not a constant: a held torch
     // owns both the level and the tint (see PlayerController::update_held_light),
     // so the glow around the player matches the item being carried.
+    const float player_light_intensity = player_light.get_enabled() ? player_light.get_level() / 15.0f : 0.0f;
+    const godot::Color player_light_color = player_light.get_color();
     material_manager.update_player_light(
         player_pos,
         8.0f,
-        player_light.get_enabled() ? player_light.get_level() / 15.0f : 0.0f,
-        player_light.get_color()
+        player_light_intensity,
+        player_light_color
     );
+
+    // The same glow for the object-level lighting (items held or dropped near
+    // the player are inside this radius), kept so apply_item_shader_lighting can
+    // hand over exactly what the terrain just got.
+    item_player_light_position = player_pos;
+    item_player_light_radius = 8.0f;
+    item_player_light_intensity = player_light_intensity;
+    item_player_light_color = player_light_color;
+}
+
+void EnvironmentController::apply_item_shader_lighting(const godot::Ref<godot::ShaderMaterial>& material) const {
+    if (material.is_null()) return;
+    material->set_shader_parameter("sky_light_intensity", item_sky_intensity);
+    material->set_shader_parameter("sky_light_color", item_sky_color);
+    material->set_shader_parameter("sky_light_warmth", item_sky_warmth);
+    // No AO: an item is a convex body in open air, and the item shader's own
+    // face shading is all the occlusion it has (see the include).
+    material->set_shader_parameter("darkness_color", darkness_color);
+    material->set_shader_parameter("saturation", saturation);
+    material->set_shader_parameter("contrast", contrast);
+    material->set_shader_parameter("player_light_position", item_player_light_position);
+    material->set_shader_parameter("player_light_radius", item_player_light_radius);
+    material->set_shader_parameter("player_light_intensity", item_player_light_intensity);
+    material->set_shader_parameter("player_light_color", item_player_light_color);
 }
 
 void EnvironmentController::set_mipmaps_enabled(bool enabled) {
@@ -50,6 +76,13 @@ void EnvironmentController::update_shader_parameters() {
     const godot::Color sun_color = day_night.get_sun_color();
     const godot::Color sky_warmth = sun_color;
     const float sky_turbidity = day_night.get_sky_turbidity();
+
+    // Item materials are fed from these every frame, independent of the dirty
+    // gate below: it only exists to keep Godot API calls off redundant frames,
+    // and the item pushes are the caller's own decision.
+    item_sky_intensity = sky_intensity;
+    item_sky_color = sky_color;
+    item_sky_warmth = sky_warmth;
 
     const godot::Vector3 sky_horizon_color = sky_controller.get_horizon_color(blend, elevation, sun_color, sky_turbidity);
     const godot::Vector3 sky_zenith_color = sky_controller.get_zenith_color(blend);

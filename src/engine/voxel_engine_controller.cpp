@@ -231,6 +231,10 @@ int VoxelEngineController::get_block_world(int32_t world_x, int32_t world_y, int
     return block_editor.query_block(world_x, world_y, world_z);
 }
 
+uint16_t VoxelEngineController::get_light_world(int32_t world_x, int32_t world_y, int32_t world_z) {
+    return chunk_world.get_light_world(world_x, world_y, world_z);
+}
+
 // -------------------------------------------------------------------------
 // Chunk scenario / editor
 // -------------------------------------------------------------------------

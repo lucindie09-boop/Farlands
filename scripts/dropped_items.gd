@@ -36,6 +36,12 @@ extends Node3D
 # An item's node origin is the CENTRE of its box, so that the rotation turns the
 # block about its middle; `position` is that same centre, in world space.
 
+## The item shader: the world's own light model running on a mesh that belongs to
+## no single block cell (see shaders/item_lighting.gdshaderinc). Unshaded, so the
+## engine's sky and ambient cannot light an item that the world around it lights
+## itself -- the mismatch this shader exists to remove.
+const ITEM_SHADER: Shader = preload("res://shaders/item_shader.gdshader")
+
 ## The node under Main that owns the world. Set in Main.tscn.
 @export var chunk_manager_path: NodePath = NodePath("../ChunkManager")
 
@@ -197,6 +203,7 @@ func spawn(block_id: int, count: int, from_eye: Vector3, direction: Vector3) -> 
 
 
 func _process(delta: float) -> void:
+	_push_world_lighting()
 	for i in range(_items.size() - 1, -1, -1):
 		var item: Dictionary = _items[i]
 		item["age"] = item["age"] + delta
@@ -468,9 +475,10 @@ func _draw_item(item: Dictionary) -> void:
 		fade = clampf(left / FADE_TIME, 0.0, 1.0)
 	var mesh_instance := node.get_child(0) as MeshInstance3D
 	if mesh_instance != null:
-		var mat := mesh_instance.material_override as StandardMaterial3D
-		if mat != null and mat.transparency != BaseMaterial3D.TRANSPARENCY_DISABLED:
-			mat.albedo_color.a = fade
+		# Per instance, not per material: every dropped block of one kind shares
+		# one material, and each item's fade and the cell it lies in are its own.
+		mesh_instance.set_instance_shader_parameter("item_fade", fade)
+		mesh_instance.set_instance_shader_parameter("item_light", _light_at(item["position"]))
 
 
 ## The mesh a block drops as: its own shape, built once per block id.
@@ -579,29 +587,43 @@ func _mesh_from(data: Dictionary) -> ArrayMesh:
 	return mesh
 
 
-## The block's own texture, lit by the world like any other 3D object in it. The
-## same material the viewmodel gives a held block, minus the depth-test tricks that
-## belong to a first-person hand.
-func _material_of(block_id: int, tex: Texture2D) -> StandardMaterial3D:
+## The block's own texture, running the world's light model instead of the
+## engine's: a dropped item has to look like the ground it lands on at noon, at
+## midnight and in a cave, and Godot's own sky/ambient know about none of those.
+## The day/night half of the model is pushed into this material once a frame
+## (_push_world_lighting); the light of the cell an item is lying in is per item
+## (`item_light`, set in _draw_item).
+func _material_of(block_id: int, tex: Texture2D) -> ShaderMaterial:
 	if _materials.has(block_id):
 		return _materials[block_id]
-	var mat := StandardMaterial3D.new()
-	mat.albedo_texture = tex
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
-	mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
-	mat.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
-	mat.roughness = 1.0
-	mat.metallic = 0.0
-	# An item's sprite mesh needs the alpha test for its transparent silhouette; a
-	# block's textures are fully opaque and the scissor can only punch holes in them
-	# where a UV rounds onto a texel boundary.
-	if BlockTextures.is_item(block_id):
-		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
-		mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-	else:
-		mat.transparency = BaseMaterial3D.TRANSPARENCY_DISABLED
+	var mat := ShaderMaterial.new()
+	mat.shader = ITEM_SHADER
+	mat.set_shader_parameter("albedo_texture", tex)
+	# An item's sprite mesh needs its transparent texels cut away; a block's
+	# textures are fully opaque and the scissor can only punch holes in them where
+	# a UV rounds onto a texel boundary.
+	mat.set_shader_parameter("alpha_scissor", 0.5 if BlockTextures.is_item(block_id) else 0.0)
 	_materials[block_id] = mat
 	return mat
+
+
+## The day/night half of the item light model, into every material in use: the
+## values are the ones the terrain was just lit with, so an item and the ground it
+## lies on can never disagree about the hour.
+func _push_world_lighting() -> void:
+	if _chunk_manager == null or _materials.is_empty():
+		return
+	for mat in _materials.values():
+		_chunk_manager.apply_item_lighting(mat)
+
+
+## The world's light where an item is: the block light and sky light of the cell
+## its centre occupies, mapped the way terrain vertices are (see
+## ChunkManager.get_light_at).
+func _light_at(position: Vector3) -> Vector4:
+	if _chunk_manager == null:
+		return Vector4(0.0, 0.0, 0.0, 1.0)
+	return _chunk_manager.get_light_at(floori(position.x), floori(position.y), floori(position.z))
 
 
 func _remove(index: int) -> void:

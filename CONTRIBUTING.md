@@ -6,7 +6,7 @@
 # Standard build (debug)
 scons -j8
 
-# Run tests (601 cases / 348,113 assertions across the 91 .cpp files in tests/)
+# Run tests (603 cases / 348,125 assertions across the 91 .cpp files in tests/)
 scons test -j8
 ./bin/run_tests.exe
 

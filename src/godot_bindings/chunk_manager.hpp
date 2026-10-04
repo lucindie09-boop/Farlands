@@ -23,6 +23,7 @@ class Node3D;
 class WorldEnvironment;
 class DirectionalLight3D;
 class Image;
+class ShaderMaterial;
 }
 
 namespace VoxelEngine {
@@ -123,6 +124,14 @@ public:
     // canonical flattening and needs no world.
     godot::Array get_selection_boxes_at(int block_id, int32_t world_x, int32_t world_y,
                                         int32_t world_z);
+    // The light of a world block cell, brightness-mapped exactly like the light
+    // baked into terrain vertices: (block r, g, b, sky), each 0..1. Items -- a
+    // dropped block, the held one -- read this so they are lit by the cell they
+    // occupy rather than by the engine's own lights.
+    godot::Vector4 get_light_at(int32_t world_x, int32_t world_y, int32_t world_z);
+    // Hands the world's current lighting to one item material, so a held or
+    // dropped mesh runs the terrain's light model instead of the engine's.
+    void apply_item_lighting(const godot::Ref<godot::ShaderMaterial>& material);
 
 #ifdef DEBUG_ENABLED
     // Faults on purpose, to prove the crash-report handler works end to end (see

@@ -66,6 +66,10 @@ public:
 
     void set_block_world(int32_t world_x, int32_t world_y, int32_t world_z, int block_id);
     int  get_block_world(int32_t world_x, int32_t world_y, int32_t world_z);
+    // The packed light word of a world block cell (0 when the chunk is not
+    // loaded). The object-level half of the light grid, for the meshes that are
+    // lit per object rather than per vertex.
+    uint16_t get_light_world(int32_t world_x, int32_t world_y, int32_t world_z);
 
     // Block files from other tools: hand it the bytes of a .schematic (or bare
     // NBT) and an origin, and it decodes, translates and writes in one go.

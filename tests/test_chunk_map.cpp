@@ -1,6 +1,8 @@
 #include "doctest.h"
 #include "chunk_map_fixture.hpp"
+#include "core/chunk_data.hpp"
 #include "core/chunk_map.hpp"
+#include "core/light_packing.hpp"
 
 using namespace VoxelEngine;
 
@@ -173,4 +175,52 @@ TEST_CASE("key encode/decode near max range") {
     CHECK(x == max_val);
     CHECK(y == -max_val);
     CHECK(z == max_val);
+}
+
+// get_light_world answers the light of a WORLD cell, which is what the item
+// shader lights a dropped block from (ChunkManager.get_light_at goes through
+// it). The whole point of the accessor is that the word comes from the chunk
+// that owns the cell, so the per-cell stored word has to survive the trip out.
+TEST_CASE("get_light_world returns the packed word of the cell's own chunk") {
+    ChunkMap cm;
+    // No chunk resident: nothing to read, and the item is drawn unlit rather
+    // than lit by a neighbour's light.
+    CHECK(cm.get_light_world(0, 0, 0) == 0);
+
+    chunktest::insert_chunk(cm, 0, 0, 0, [](ChunkData& d) {
+        d.set_light_rgb(3, 4, 5, 7, 8, 9);
+        d.set_sky_light(3, 4, 5, 12);
+    });
+    const uint16_t word = cm.get_light_world(3, 4, 5);
+    CHECK(unpack_r(word) == 7);
+    CHECK(unpack_g(word) == 8);
+    CHECK(unpack_b(word) == 9);
+    CHECK(unpack_sky(word) == 12);
+}
+
+// Cell light is per chunk, and an item can be lying on either side of the seam
+// (or in the negative-coordinate half of the world), so the same local index in
+// two chunks must answer two different words.
+TEST_CASE("get_light_world resolves across chunk borders, including negative ones") {
+    ChunkMap cm;
+    chunktest::insert_chunk(cm, -1, 0, 0, [](ChunkData& d) {
+        // World x = -1: the last cell of the chunk to the left.
+        d.set_light_rgb(31, 0, 0, 4, 5, 6);
+        d.set_sky_light(31, 0, 0, 3);
+    });
+    chunktest::insert_chunk(cm, 0, 0, 0, [](ChunkData& d) {
+        d.set_light_rgb(0, 0, 0, 1, 2, 3);
+        d.set_sky_light(0, 0, 0, 15);
+    });
+    const uint16_t left = cm.get_light_world(-1, 0, 0);
+    CHECK(unpack_r(left) == 4);
+    CHECK(unpack_g(left) == 5);
+    CHECK(unpack_b(left) == 6);
+    CHECK(unpack_sky(left) == 3);
+    const uint16_t right = cm.get_light_world(0, 0, 0);
+    CHECK(unpack_r(right) == 1);
+    CHECK(unpack_sky(right) == 15);
+    // The chunk owning this cell is not loaded, so there is no light to give --
+    // not the neighbour's, which is one block away and easy to reach by mistake.
+    CHECK(cm.get_light_world(32, 0, 0) == 0);
 }

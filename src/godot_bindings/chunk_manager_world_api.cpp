@@ -7,8 +7,10 @@
 #include "godot_bindings/chunk_manager.hpp"
 
 #include "godot_bindings/cached_node.hpp"
+#include "core/light_packing.hpp"
 #include "debug/crash_dump.hpp"
 #include "engine/voxel_engine_controller.hpp"
+#include "mesh/mesh_builder_types.hpp"
 #include "pathfinding/path_service.hpp"
 #include "render/multimesh_instance_layout.hpp"
 #include "world/block_editor.hpp"
@@ -16,10 +18,12 @@
 #include <godot_cpp/core/object.hpp>
 #include <godot_cpp/classes/node3d.hpp>
 #include <godot_cpp/classes/rendering_server.hpp>
+#include <godot_cpp/classes/shader_material.hpp>
 #include <godot_cpp/classes/viewport.hpp>
 #include <godot_cpp/classes/world3d.hpp>
 #include <godot_cpp/variant/packed_float32_array.hpp>
 #include <godot_cpp/variant/string.hpp>
+#include <godot_cpp/variant/vector4.hpp>
 #include <cmath>
 
 using namespace godot;
@@ -121,6 +125,23 @@ int ChunkManager::get_block(int32_t world_x, int32_t world_y, int32_t world_z) {
 String ChunkManager::get_block_name(int block_id) {
     const auto& block = BlockRegistry::get_instance().get_block(static_cast<BlockID>(block_id));
     return String(block.name);
+}
+
+Vector4 ChunkManager::get_light_at(int32_t world_x, int32_t world_y, int32_t world_z) {
+    // Mapped through kBlockBrightness HERE rather than in the item shader: that
+    // is the one curve the mesher bakes into every terrain vertex, so an item
+    // lit through it matches the blocks around it exactly, with no second copy
+    // of the curve to drift out of step.
+    const uint16_t light = controller->get_light_world(world_x, world_y, world_z);
+    return Vector4(
+        kBlockBrightness[unpack_r(light)],
+        kBlockBrightness[unpack_g(light)],
+        kBlockBrightness[unpack_b(light)],
+        kBlockBrightness[unpack_sky(light)]);
+}
+
+void ChunkManager::apply_item_lighting(const Ref<ShaderMaterial>& material) {
+    controller->get_environment_controller().apply_item_shader_lighting(material);
 }
 
 #ifdef DEBUG_ENABLED

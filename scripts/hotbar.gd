@@ -143,10 +143,14 @@ func _drop_selected(all: bool) -> void:
 		return
 	_items.spawn(block_id, dropped, camera.global_position, dir)
 	player_controller.set_hotbar_slot(slot, block_id, count - dropped)
-	# The same swing a place gets, so the throw has a hand behind it.
-	var viewmodel := get_node_or_null("../Player/Camera3D/Viewmodel")
-	if viewmodel and viewmodel.has_method("place"):
-		viewmodel.place()
+	# The throw PUNCHES: the same full-strength swing the hand makes when it hits
+	# something, not the weaker place stroke -- nothing was put down, the item
+	# left the hand. Reached through the player controller, the node the rest of the
+	# HUD already holds: the viewmodel hangs off the CAMERA, and a path taken from
+	# this HUD node resolves inside the HUD and finds nothing.
+	var viewmodel := player_controller.get_node_or_null("Camera3D/Viewmodel")
+	if viewmodel != null and viewmodel.has_method("punch"):
+		viewmodel.punch()
 
 ## The world node items are thrown into: under Main, beside the player.
 ##

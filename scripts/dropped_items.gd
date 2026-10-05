@@ -142,6 +142,12 @@ const MERGE_STILL_SPEED := 0.1
 const POP_TIME := 0.2
 const POP_GROWTH := 0.22
 
+## The share of POP_GROWTH a pop plays once the pile is already as big as a pile
+## gets (MERGE_SCALE_MAX): half. Such a merge has no size to show -- two heaps at
+## the cap stay the size they were -- so its bounce is a pulse rather than a swell,
+## and it never promises growth that is not coming.
+const POP_GROWTH_AT_MAX := 0.5
+
 ## A body is stepped in slices this long at most, so a fast throw cannot pass
 ## through a block between two frames: the contacts are found at the position the
 ## body is actually at, and a 60-block-a-second fall moves a whole block a frame.
@@ -703,6 +709,16 @@ func _try_pickup(item: Dictionary) -> bool:
 	return true
 
 
+## How strong a pop plays for a pile of `count`: full while the pile still grows
+## with its count, half once it is at its largest (MERGE_SCALE_MAX). The tolerance
+## is for the curve's own arithmetic -- log2(16) lands a hair off four in floating
+## point -- so "at the cap" is a band and not a bit-for-bit comparison.
+func _pop_growth(count: int) -> float:
+	if _merge_scale(count) >= MERGE_SCALE_MAX - 0.001:
+		return POP_GROWTH * POP_GROWTH_AT_MAX
+	return POP_GROWTH
+
+
 ## Put the node where the body is. The node's origin IS the body's centre, so this
 ## is the position the solve has been working in.
 func _draw_item(item: Dictionary, delta: float) -> void:
@@ -734,7 +750,7 @@ func _draw_item(item: Dictionary, delta: float) -> void:
 		if pop > 0.0:
 			pop = maxf(pop - delta, 0.0)
 			item["pop"] = pop
-			draw_scale *= 1.0 + POP_GROWTH * sin(PI * (1.0 - pop / POP_TIME))
+			draw_scale *= 1.0 + _pop_growth(count) * sin(PI * (1.0 - pop / POP_TIME))
 		mesh_instance.scale = Vector3.ONE * draw_scale
 		# Per instance, not per material: every dropped block of one kind shares
 		# one material, and each item's fade and the cell it lies in are its own.

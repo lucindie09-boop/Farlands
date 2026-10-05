@@ -69,10 +69,12 @@ first-person viewmodel - what each one owns and the decisions behind it.
   whole stack). The hotbar writes the slot back one smaller through the C++ inventory and the world
   half is `scripts/dropped_items.gd`, so the stack emptying is seen by the same spent-stack hook as
   any other spend and comes apart on its own — one shard burst per unit as the stack drains, or one
-  for a Ctrl+Q dump. Nothing about the drop needs its own effect code. Two drops of one kind that
-  come to lie next to each other are one pile from the frame they meet: the world half adds their
-  counts (up to the inventory's 64), their sizes and their motions, and the drawn size pops once as
-  it grows.
+  for a Ctrl+Q dump. Nothing about the drop needs its own effect code. The throw punches the
+  viewmodel — the same full-strength swing a left click makes, not the weaker place stroke —
+  because nothing was put down: the item left the hand. Two drops of one kind that come to lie next
+  to each other are one pile from the frame they meet: the world half adds their counts (up to the
+  inventory's 64), their sizes and their motions, and the drawn size pops once as it grows (at half
+  strength once the pile is already at its largest, where a merge adds no size to show).
 - **A spent stack comes apart**: when the last item of a stack is used, the icon is no longer
   just gone — its own pixels are thrown up and out of the slot and fall away, through the same
   `scripts/ui_shatter.gd` the hearts use. It is in five places: the hotbar, the inventory (any
@@ -500,7 +502,8 @@ first-person viewmodel - what each one owns and the decisions behind it.
   breaking** (via `get_break_state()["active"]`) and is gated so clicks in a UI (mouse released)
   never swing. **Place animation** (`place()`) fires only on the C++ `block_placed` signal
   (emitted after a block verifiably lands + inventory is consumed), reusing the same swing at
-  75% endpoint strength.
+  75% endpoint strength. The drop is the opposite case: Q **punches** (`hotbar.gd`,
+  `_drop_selected`), so the hand swings full strength as the item leaves it.
 - **Walk bobbing**: vanilla walk-bob style hand/item/block bob driven by accumulated walk
   distance (`_walk_dist*PI*0.6`) with an amplitude envelope (`_bob`) that ramps with horizontal
   speed and **decays to zero when airborne** (ground state from a new

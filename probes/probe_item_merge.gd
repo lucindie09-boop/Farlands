@@ -17,7 +17,8 @@ extends SceneTree
 ##     count, and a still pile carries a moving stack's motion instead of halving
 ##     it;
 ##   * the drawn size pops past the merged size for POP_TIME and settles back onto
-##     it, while the body is the merged size from the frame it merges;
+##     it -- at half strength once the pile is already at its largest -- while the
+##     body is the merged size from the frame it merges;
 ##   * the frame pipeline itself merges two drops that land together, with no help
 ##     from the probe.
 ##
@@ -285,6 +286,29 @@ func _check_pop() -> void:
 		_fail("the pop is over but %.3f seconds of it are left" % item["pop"])
 	_same("drawn size after the pop", _mesh_scale(item), Vector3.ONE * settled)
 	_same("body after the pop", item["size"], Vector3.ONE * settled)
+	_clear()
+
+	# Two heaps already at the largest size: the merge can add no size, so its pop
+	# plays at half strength -- a pulse, not a swell.
+	_drop(16, Vector3(0.0, 60.0, 0.0), Vector3.ZERO, Vector3.ZERO, 0.0)
+	_drop(16, Vector3(1.2, 60.0, 0.0), Vector3.ZERO, Vector3.ZERO, 0.0)
+	_dropped.merge_pass()
+	if _count() != 1:
+		_fail("two capped heaps did not merge (still %d items)" % _count())
+		_clear()
+		return
+	item = _dropped._items[0]
+	var capped_settled := BASE_SCALE * 2.0
+	if item["count"] != 32:
+		_fail("the capped pair is count %d, expected 32" % item["count"])
+	_same("capped body", item["size"], Vector3.ONE * capped_settled)
+	_dropped._draw_item(item, POP_TIME * 0.5)
+	print("probe: capped pop half way -> mesh %s (settled %s)"
+		% [_mesh_scale(item).x, capped_settled])
+	_same("capped drawn size at its peak",
+		_mesh_scale(item), Vector3.ONE * (capped_settled * (1.0 + POP_GROWTH * 0.5)))
+	_dropped._draw_item(item, POP_TIME)
+	_same("capped drawn size after the pop", _mesh_scale(item), Vector3.ONE * capped_settled)
 	_clear()
 
 

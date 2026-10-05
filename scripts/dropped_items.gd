@@ -107,6 +107,14 @@ const PICKUP_DELAY = 0.6
 const LIFETIME = 300.0
 const FADE_TIME = 8.0          # the last stretch of that, spent fading out
 
+## How long an item's light takes to play out, in seconds (the time constant of
+## the ease): the light of the cell an item is in is a STEP function of where the
+## item is -- one value per block -- so a body rolling, sliding or being shoved
+## across a boundary would otherwise change brightness in one frame. The same
+## ease, over the eye's cell, is what the viewmodel pushes (viewmodel.gd).
+## 0 disables it.
+const LIGHT_EASE_TIME := 0.15
+
 # One entry per item: the mesh, the body's own geometry, and its state.
 var _items: Array = []
 var _meshes: Dictionary = {}
@@ -241,7 +249,7 @@ func _process(delta: float) -> void:
 		if _try_pickup(item):
 			_remove(i)
 			continue
-		_draw_item(item)
+		_draw_item(item, delta)
 
 
 ## One frame of every body's flight, in slices short enough that nothing can pass
@@ -482,7 +490,7 @@ func _try_pickup(item: Dictionary) -> bool:
 
 ## Put the node where the body is. The node's origin IS the body's centre, so this
 ## is the position the solve has been working in.
-func _draw_item(item: Dictionary) -> void:
+func _draw_item(item: Dictionary, delta: float) -> void:
 	var node: Node3D = item["node"]
 	if not is_instance_valid(node):
 		return
@@ -491,12 +499,31 @@ func _draw_item(item: Dictionary) -> void:
 	var left: float = LIFETIME - item["age"]
 	if left < FADE_TIME:
 		fade = clampf(left / FADE_TIME, 0.0, 1.0)
+	# The cell the body is in, eased rather than taken raw (LIGHT_EASE_TIME): the
+	# cell light is a step function of position, so a body that drifts across a
+	# boundary -- or has its cell relit under it -- changes in a single frame
+	# otherwise. The eased value lives on the item, like the fade: every item's
+	# light is its own.
+	var cell_light: Vector4 = _light_at(item["position"])
+	var light: Vector4 = item.get("light", cell_light)
+	light = _ease_light(light, cell_light, delta)
+	item["light"] = light
 	var mesh_instance := node.get_child(0) as MeshInstance3D
 	if mesh_instance != null:
 		# Per instance, not per material: every dropped block of one kind shares
 		# one material, and each item's fade and the cell it lies in are its own.
 		mesh_instance.set_instance_shader_parameter("item_fade", fade)
-		mesh_instance.set_instance_shader_parameter("item_light", _light_at(item["position"]))
+		mesh_instance.set_instance_shader_parameter("item_light", light)
+
+
+## Framerate-independent exponential ease toward `target`: LIGHT_EASE_TIME is the
+## time constant, so a step takes the same time to play out at any frame rate.
+## probes/probe_item_light_smooth.gd holds this rule, for both consumers, to the
+## value the shader is actually handed.
+func _ease_light(current: Vector4, target: Vector4, delta: float) -> Vector4:
+	if LIGHT_EASE_TIME <= 0.0:
+		return target
+	return current.lerp(target, 1.0 - exp(-delta / LIGHT_EASE_TIME))
 
 
 ## The mesh a block drops as: its own shape, built once per block id.

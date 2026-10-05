@@ -20,6 +20,15 @@ const MODEL_SCALE := 0.05625 # player.glb px -> meters (0.9 / 16)
 const ITEM_SHADER: Shader = preload("res://shaders/item_shader.gdshader")
 const ARM_SHADER: Shader = preload("res://shaders/viewmodel_shader.gdshader")
 
+## How long the light of the eye's cell takes to play out, in seconds (the time
+## constant of the ease): the cell light is a STEP function of position -- one
+## value per block, and a block is a fraction of a second of walking -- so the
+## value handed to the shader is pulled toward the cell's own over a few frames
+## instead of jumping to it. Without this, every boundary the eye crosses is a
+## one-frame change of the held item and the arm (see _push_world_lighting); the
+## dropped items run the same ease, per item, in dropped_items.gd. 0 disables it.
+const LIGHT_EASE_TIME := 0.15
+
 ## The node that owns the world, for the item light model. Set in Main.tscn.
 @export var chunk_manager_path: NodePath = NodePath("../../../ChunkManager")
 
@@ -45,6 +54,10 @@ var _swing_node: Node3D
 var _item_scale_node: Node3D
 var _item: MeshInstance3D
 var _material: Material
+# The eye's light, eased (LIGHT_EASE_TIME). Kept between frames because the ease
+# is temporal: the cell's value is the target, not the answer.
+var _eye_light := Vector4(0.0, 0.0, 0.0, 1.0)
+var _eye_light_ready := false
 var _cube_mesh: ArrayMesh
 var _stick_mesh: BoxMesh
 var _block_id := -2
@@ -337,7 +350,7 @@ func _process(delta: float) -> void:
 	visible = not _player.get_third_person() and not _player.is_dead()
 	# Pushed before the visibility test, so returning to first person never shows a
 	# frame of last-hour lighting on the arm or the item.
-	_push_world_lighting()
+	_push_world_lighting(delta)
 	if not visible:
 		return
 	if _freeze_animations:
@@ -440,7 +453,12 @@ func _is_breaking() -> bool:
 ## the light of the cell the eye is in per mesh instance. Called every frame:
 ## the day/night values move continuously, and the eye walks through cells it
 ## must be re-read from.
-func _push_world_lighting() -> void:
+##
+## The cell light is the one part of that which does not move continuously -- it
+## is one value per block, so crossing a boundary is a whole step on one frame --
+## so `delta` is what turns the step into a short fade (LIGHT_EASE_TIME). The
+## day/night half is already continuous and is pushed as it is.
+func _push_world_lighting(delta: float) -> void:
 	if _chunk_manager == null:
 		return
 	_chunk_manager.apply_item_lighting(_material)
@@ -448,10 +466,27 @@ func _push_world_lighting() -> void:
 		_chunk_manager.apply_item_lighting(arm_mat)
 	var eye := _eye_position()
 	var light: Vector4 = _chunk_manager.get_light_at(floori(eye.x), floori(eye.y), floori(eye.z))
+	if not _eye_light_ready:
+		# The first frame has nothing to ease FROM: land on the cell's own value
+		# instead of fading in from a black that was never on screen.
+		_eye_light = light
+		_eye_light_ready = true
+	else:
+		_eye_light = _ease_light(_eye_light, light, delta)
 	if _item != null:
-		_item.set_instance_shader_parameter("item_light", light)
+		_item.set_instance_shader_parameter("item_light", _eye_light)
 	for mi in _arm_instances:
-		mi.set_instance_shader_parameter("item_light", light)
+		mi.set_instance_shader_parameter("item_light", _eye_light)
+
+
+## Framerate-independent exponential ease toward `target`: LIGHT_EASE_TIME is the
+## time constant, so a step takes the same time to play out at any frame rate.
+## probes/probe_item_light_smooth.gd holds this rule, for both consumers, to the
+## value the shader is actually handed.
+func _ease_light(current: Vector4, target: Vector4, delta: float) -> Vector4:
+	if LIGHT_EASE_TIME <= 0.0:
+		return target
+	return current.lerp(target, 1.0 - exp(-delta / LIGHT_EASE_TIME))
 
 
 ## The eye: the camera the viewmodel hangs off, whose cell the light is read from.

@@ -73,16 +73,21 @@ void fragment() {
 
     vec3 world_normal = normalize(item_world_normal);
 
-    // The terrain's static face shade, straight out of voxel_shader.gdshader: a
-    // top face reads full, a bottom half, and the four sides in between by axis.
-    float face_shade = 1.0;
-    if (abs(world_normal.y) > 0.9) {
-        face_shade = world_normal.y > 0.0 ? 1.0 : 0.5;
-    } else if (abs(world_normal.x) > abs(world_normal.z)) {
-        face_shade = 0.6;
-    } else {
-        face_shade = 0.8;
-    }
+    // The terrain's face shade -- a top face full, a bottom half, the four sides
+    // in between by axis (voxel_shader.gdshader) -- but read off a normal that
+    // TURNS. A terrain face never moves, so its table is exact there; here a
+    // tumbling body or a swinging hand sweeps its normals through the whole
+    // sphere, and a table with thresholds in it (top above |y| 0.9, then x
+    // against z) steps a whole shade the moment a face crosses one -- a flicker
+    // on a turning block that has nothing to do with the light arriving on it.
+    //
+    // The squared components are the weights that keep the terrain's own table
+    // exact on the six axes (+/-X 0.6, top 1.0, bottom 0.5, +/-Z 0.8) and slide
+    // continuously between them. probes/probe_item_face_shade.gd re-runs this
+    // arithmetic over a sweep of normals and reads the rendered frame back.
+    float face_shade = 0.60 * world_normal.x * world_normal.x
+                     + 0.80 * world_normal.z * world_normal.z
+                     + (0.75 + 0.25 * world_normal.y) * world_normal.y * world_normal.y;
 
     // The sky half of the light, warm at sunrise/sunset and white at noon: the
     // same mix the terrain does, so an item and the ground agree on the colour

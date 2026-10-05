@@ -22,6 +22,7 @@ var ok := true
 var _hotbar: Control = null
 var _player: Node = null
 var _dropped: Node = null
+var _viewmodel: Node = null
 
 
 func _initialize() -> void:
@@ -67,8 +68,9 @@ func _run() -> void:
 	_player = main.get_node_or_null("Player")
 	_hotbar = main.get_node_or_null("HUD/Hotbar")
 	_dropped = main.get_node_or_null("DroppedItems")
-	if _player == null or _hotbar == null or _dropped == null:
-		_fail("main scene is missing Player, HUD/Hotbar or DroppedItems")
+	_viewmodel = main.get_node_or_null("Player/Camera3D/Viewmodel")
+	if _player == null or _hotbar == null or _dropped == null or _viewmodel == null:
+		_fail("main scene is missing Player, HUD/Hotbar, DroppedItems or the viewmodel")
 		quit(1)
 		return
 	var stone: int = BlockTextures.get_block_id_by_name("stone")
@@ -162,6 +164,13 @@ func _check_empty_slot(slot: int, stone: int) -> void:
 		% [_hotbar._thrown.count(), _hotbar._shards._falling.size()])
 	if _player.get_hotbar_slot_count(slot) != 0:
 		_fail("the slot still holds %d after throwing its last unit" % _player.get_hotbar_slot_count(slot))
+	# A slot holding nothing reports NOTHING, id included: the held item reads the
+	# id alone (viewmodel.gd `_refresh_held_item`), so an id left behind with the
+	# count is a ghost stack in the hand and a slot that other UI treats as occupied.
+	if _player.get_hotbar_slot_block_id(slot) != 0:
+		_fail("the emptied slot still reports block id %d" % _player.get_hotbar_slot_block_id(slot))
+	if int(_viewmodel._block_id) != 0:
+		_fail("the viewmodel still holds the thrown stack (id %d)" % _viewmodel._block_id)
 	if _hotbar._thrown.count() != 1:
 		_fail("throwing the last unit left %d icons in the air, expected 1" % _hotbar._thrown.count())
 	if not _hotbar._shards._falling.is_empty():

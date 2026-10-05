@@ -227,8 +227,18 @@ const InventorySlot& Inventory::get_hotbar_slot(int slot) const {
 
 void Inventory::set_hotbar_slot(int slot, BlockID block_id, int count) {
     if (slot >= 0 && slot < HOTBAR_SIZE) {
-        hotbar_[slot].block_id = block_id;
-        hotbar_[slot].count = count;
+        // A slot holding nothing is stored as NOTHING. is_empty() has always read
+        // count <= 0 (or id 0) as empty, and consume_block() clears the whole slot
+        // when a stack runs out, so the callers that only ask for the block id --
+        // the held item above all -- must not be able to read a ghost out of a slot
+        // that was emptied. Dropping the last unit of a stack used to leave
+        // (id, 0) here, and the viewmodel kept drawing the item that was gone.
+        if (block_id == 0 || count <= 0) {
+            hotbar_[slot] = InventorySlot{};
+        } else {
+            hotbar_[slot].block_id = block_id;
+            hotbar_[slot].count = count;
+        }
     }
 }
 
@@ -242,8 +252,14 @@ const InventorySlot& Inventory::get_inventory_slot(int slot) const {
 
 void Inventory::set_inventory_slot(int slot, BlockID block_id, int count) {
     if (slot >= 0 && slot < INVENTORY_SIZE) {
-        inventory_[slot].block_id = block_id;
-        inventory_[slot].count = count;
+        // Stored as nothing, exactly like set_hotbar_slot: one way to say empty for
+        // every writer, so a reader of the block id alone cannot see a ghost.
+        if (block_id == 0 || count <= 0) {
+            inventory_[slot] = InventorySlot{};
+        } else {
+            inventory_[slot].block_id = block_id;
+            inventory_[slot].count = count;
+        }
     }
 }
 

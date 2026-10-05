@@ -81,6 +81,34 @@ TEST_CASE("inventory basic operations") {
         CHECK(inv.get_hotbar_slot(0).count == 5);
     }
     
+    SUBCASE("setting a slot empty clears its block id too") {
+        // A slot holding nothing is stored as nothing: the readers that ask for the
+        // block id alone must not see a ghost when a stack runs out (dropping the
+        // last unit left (id, 0) behind, and the held item kept being drawn).
+        inv.set_hotbar_slot(0, 4, 10);
+        inv.set_hotbar_slot(0, 4, 0);
+        CHECK(inv.get_hotbar_slot(0).block_id == 0);
+        CHECK(inv.get_hotbar_slot(0).count == 0);
+        
+        inv.set_hotbar_slot(1, 0, 7);
+        CHECK(inv.get_hotbar_slot(1).block_id == 0);
+        CHECK(inv.get_hotbar_slot(1).count == 0);
+        
+        inv.set_inventory_slot(2, 5, 3);
+        inv.set_inventory_slot(2, 5, -1);
+        CHECK(inv.get_inventory_slot(2).block_id == 0);
+        CHECK(inv.get_inventory_slot(2).count == 0);
+        
+        // A slot emptied by writing 0 into it is a normal empty slot again: the
+        // next pickup fills it, rather than being steered away from a slot that
+        // still answers with an id.
+        inv.set_hotbar_slot(0, 4, 1);
+        inv.set_hotbar_slot(0, 4, 0);
+        CHECK(inv.add_block(7, 3));
+        CHECK(inv.get_hotbar_slot(0).block_id == 7);
+        CHECK(inv.get_hotbar_slot(0).count == 3);
+    }
+    
     SUBCASE("clear empties all slots") {
         inv.add_block(1, 10);
         inv.add_block(2, 20);

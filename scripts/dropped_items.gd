@@ -41,6 +41,12 @@ extends Node3D
 # moved twice for the same overlap, and a throw hands its momentum over instead
 # of passing through.
 #
+# Landing together is also how two drops of one kind become ONE: the frame after
+# they come to lie next to each other their counts add -- up to the stack cap the
+# inventory uses -- and the pile is the size, the shape and the motion of the two
+# from then on (merge_pass). The drawn size pops once when it grows, which is the
+# only part of a merge that is animation.
+#
 # None of that is solved HERE any more. One substep is one native call over every
 # body at once -- the gravity and the damping, the turn and the move, the world's
 # contacts and their impulses, the exact guard, the pairs, and the rest decision
@@ -110,6 +116,31 @@ const BASE_SCALE := 0.5
 ## the shape it came from and no bigger.
 const MERGE_SCALE_STEP := 0.25
 const MERGE_SCALE_MAX := 2.0
+
+## The inventory's own stack cap (src/core/inventory.cpp): what one pile can hold,
+## and so the most two items can merge into. A pair whose counts add up past this
+## stays two piles however close they lie.
+const MAX_STACK := 64
+
+## How close two items of one kind must be to merge. MERGE_GAP is the air allowed
+## between their boxes sideways and MERGE_DROP_GAP the air allowed vertically, so a
+## block coming down onto a pile joins it as it lands, two laid out apart keep their
+## distance, and the same kind a storey below is left where it is.
+const MERGE_GAP := 0.5
+const MERGE_DROP_GAP := 0.25
+
+## Under this speed a body counts as lying still, whatever its rest timer says: the
+## solver's rest decision is a moment behind the motion, not ahead of it, and a
+## pile that has just stopped must not halve the speed of the one that hits it.
+const MERGE_STILL_SPEED := 0.1
+
+## The pop a merge plays on the DRAWN size: the mesh overshoots the size the body
+## took by POP_GROWTH for POP_TIME seconds and settles back onto it (a half sine,
+## which starts and ends flat). The pop is on the mesh alone, because the body is
+## the pile's size from the frame it merges and the world must not be moved by a
+## bounce that is only there to be seen.
+const POP_TIME := 0.2
+const POP_GROWTH := 0.22
 
 ## A body is stepped in slices this long at most, so a fast throw cannot pass
 ## through a block between two frames: the contacts are found at the position the
@@ -269,7 +300,9 @@ func spawn(block_id: int, count: int, from_eye: Vector3, direction: Vector3) -> 
 		"age": 0.0,
 		"grounded": false,
 		"asleep": false,
-	})
+		# Seconds of merge pop still owed to the drawn size (POP_TIME).
+		"pop": 0.0,
+		})
 	_bodies_static_dirty = true
 
 
@@ -284,6 +317,9 @@ func _process(delta: float) -> void:
 		if item["age"] >= LIFETIME:
 			_remove(i)
 	_step_all(delta)
+	# The merges come after the move, where the pairs actually are, and before the
+	# pickup, so walking over a pair that has just met collects one pile and not two.
+	merge_pass()
 	for i in range(_items.size() - 1, -1, -1):
 		var item: Dictionary = _items[i]
 		if _try_pickup(item):
@@ -502,6 +538,144 @@ func _inertia_of(boxes: Array, centre: Vector3) -> Vector3:
 	return Vector3(maxf(total.x, floor_m), maxf(total.y, floor_m), maxf(total.z, floor_m))
 
 
+## The frame's merges: two items of one kind lying next to each other become the one
+## pile their counts add up to, when that fits in a stack (MAX_STACK). It runs after
+## the bodies have moved, so a pair is merged where it has actually come to rest --
+## and public, so a probe can set two items down exactly where it wants them and ask
+## for this one step alone.
+##
+## A merge is not an animation: the survivor is the pile from the next solve on,
+## with the count, the size, the shape and the motion of the two, and the other item
+## is gone in the same frame.
+func merge_pass() -> void:
+	if _items.size() < 2:
+		return
+	var i := 0
+	while i < _items.size():
+		# The item at `i` keeps taking on the items after it. Each join makes it
+		# bigger, and the next candidate is judged against the size it has now, so
+		# three of one kind in a heap become one pile in this one pass.
+		var first: Dictionary = _items[i]
+		var j := i + 1
+		while j < _items.size():
+			var second: Dictionary = _items[j]
+			if not _can_merge(first, second):
+				j += 1
+				continue
+			# The fuller pile is the one that STAYS: its place, its lean and its
+			# tumble are what the merged body keeps, and the other is the one that
+			# joins it. Equal counts leave the older item where it lies, and two
+			# the same size and age leave the one that was there first.
+			var survivor := first
+			var joining := second
+			if _is_more(second, first):
+				survivor = second
+				joining = first
+				_items[i] = second
+				_items[j] = first
+				first = second
+			_join(survivor, joining)
+			_remove(j)
+		i += 1
+
+
+## Whether two items are one pile waiting to happen: the same kind, counts that add
+## up inside a stack, and their boxes lying close enough to read as touching. The
+## test is on the boxes the world solves -- a pile is bigger than a single item --
+## so two heaps meet where they nearly touch, not where their centres are half a
+## block from each other; and the vertical air is measured against MERGE_DROP_GAP
+## alone, so a block coming down onto a pile joins it as it lands while the same
+## kind a storey below is left alone.
+func _can_merge(a: Dictionary, b: Dictionary) -> bool:
+	if a["block_id"] != b["block_id"]:
+		return false
+	if a["count"] + b["count"] > MAX_STACK:
+		return false
+	var pa: Vector3 = a["position"]
+	var pb: Vector3 = b["position"]
+	var ha: Vector3 = a["half"]
+	var hb: Vector3 = b["half"]
+	var gap_x := maxf(absf(pa.x - pb.x) - ha.x - hb.x, 0.0)
+	var gap_z := maxf(absf(pa.z - pb.z) - ha.z - hb.z, 0.0)
+	if Vector2(gap_x, gap_z).length() > MERGE_GAP:
+		return false
+	return maxf(absf(pa.y - pb.y) - ha.y - hb.y, 0.0) <= MERGE_DROP_GAP
+
+
+## Which of a pair takes the other on: the fuller pile, and on a tie the older one.
+## A full tie goes to the item that was there first -- a comparison answers this,
+## never a swap (merge_pass), so two drops of the same size and age stay where the
+## first one fell.
+func _is_more(a: Dictionary, b: Dictionary) -> bool:
+	if a["count"] != b["count"]:
+		return a["count"] > b["count"]
+	return a["age"] > b["age"]
+
+
+## The merge: the counts add, the pile takes the younger of the two clocks, and the
+## survivor's body becomes the pile's own -- the size, the boxes, the shape row and
+## the mesh, exactly as if this many had been dropped at once (spawn), so a merge and
+## a spawn can never leave two piles that answer differently. The body takes the new
+## size in the frame it merges, and the guard that pushes a landing body out of the
+## world pushes a pile out of whatever it grew into.
+func _join(survivor: Dictionary, joining: Dictionary) -> void:
+	var count: int = survivor["count"] + joining["count"]
+	# The motion first, while both counts are still the two parts of the pile.
+	_combine_motion(survivor, joining)
+	survivor["count"] = count
+	# An item's age is both its pickup delay and its lifetime, and the pile takes
+	# the younger of the two: a merge cannot be collected the instant the newer part
+	# lands, and the whole pile lives out the newer part's own time.
+	survivor["age"] = minf(survivor["age"], joining["age"])
+	var block_id: int = survivor["block_id"]
+	var body_scale := BASE_SCALE * _merge_scale(count)
+	var boxes := _boxes_of(block_id, body_scale)
+	var centre: Vector3 = _body_centre(boxes)
+	var offsets := _box_offsets(boxes, centre)
+	var halves := _box_halves(boxes)
+	var points := _body_points(boxes, centre)
+	survivor["size"] = _body_size(boxes, centre)
+	survivor["half"] = survivor["size"] * 0.5
+	survivor["inertia"] = _inertia_of(boxes, centre)
+	survivor["radius"] = _body_reach(boxes, centre)
+	survivor["shape"] = _shape_row(block_id, count, offsets, halves, points)
+	var node: Node3D = survivor["node"]
+	var mesh_instance := node.get_child(0) as MeshInstance3D
+	if mesh_instance != null:
+		mesh_instance.scale = Vector3.ONE * body_scale
+		mesh_instance.position = -_mesh_centre(block_id) * body_scale
+	# The merged body is bigger than whatever it was resting on and has just been
+	# handed a motion: it is awake again, and the next slice finds its new rest.
+	survivor["asleep"] = false
+	# And the news is drawn: the size pops past the new one and settles onto it
+	# (_draw_item).
+	survivor["pop"] = POP_TIME
+	_bodies_static_dirty = true
+
+
+## What the merged body does with the two motions. When both were moving, the
+## momenta add -- each weighted by its own count -- so two stacks meeting carry on
+## somewhere between the two instead of either of them suddenly doubling. When only
+## one was moving it carries, because a pile lying on the ground has no business
+## pulling a moving stack to a stop. Below MERGE_STILL_SPEED a body counts as still
+## however it is flagged: the solver's rest decision is a moment behind the motion,
+## not ahead of it.
+func _combine_motion(survivor: Dictionary, joining: Dictionary) -> void:
+	var va: Vector3 = survivor["velocity"]
+	var vb: Vector3 = joining["velocity"]
+	var a_moving := va.length() > MERGE_STILL_SPEED
+	var b_moving := vb.length() > MERGE_STILL_SPEED
+	if a_moving and b_moving:
+		var weight_a := float(survivor["count"])
+		var weight_b := float(joining["count"])
+		var total := weight_a + weight_b
+		survivor["velocity"] = (va * weight_a + vb * weight_b) / total
+		survivor["spin"] = (survivor["spin"] * weight_a + joining["spin"] * weight_b) / total
+	elif b_moving and not a_moving:
+		survivor["velocity"] = vb
+		survivor["spin"] = joining["spin"]
+
+
 ## Whether the player is close enough to take the item back. The inventory's own
 ## answer decides: a full inventory leaves the item on the ground rather than
 ## destroying it, which is the same rule the mined-block collect uses.
@@ -551,6 +725,17 @@ func _draw_item(item: Dictionary, delta: float) -> void:
 	item["light"] = light
 	var mesh_instance := node.get_child(0) as MeshInstance3D
 	if mesh_instance != null:
+		# The drawn size, written every frame: the body's own size (spawn, _join)
+		# times the pop a merge is playing. One assignment, and the mesh can never
+		# be left behind by whatever changed the pile.
+		var count: int = item["count"]
+		var draw_scale := BASE_SCALE * _merge_scale(count)
+		var pop: float = item.get("pop", 0.0)
+		if pop > 0.0:
+			pop = maxf(pop - delta, 0.0)
+			item["pop"] = pop
+			draw_scale *= 1.0 + POP_GROWTH * sin(PI * (1.0 - pop / POP_TIME))
+		mesh_instance.scale = Vector3.ONE * draw_scale
 		# Per instance, not per material: every dropped block of one kind shares
 		# one material, and each item's fade and the cell it lies in are its own.
 		mesh_instance.set_instance_shader_parameter("item_fade", fade)

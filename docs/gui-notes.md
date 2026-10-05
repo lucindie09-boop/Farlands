@@ -69,7 +69,10 @@ first-person viewmodel - what each one owns and the decisions behind it.
   whole stack). The hotbar writes the slot back one smaller through the C++ inventory and the world
   half is `scripts/dropped_items.gd`, so the stack emptying is seen by the same spent-stack hook as
   any other spend and comes apart on its own — one shard burst per unit as the stack drains, or one
-  for a Ctrl+Q dump. Nothing about the drop needs its own effect code.
+  for a Ctrl+Q dump. Nothing about the drop needs its own effect code. Two drops of one kind that
+  come to lie next to each other are one pile from the frame they meet: the world half adds their
+  counts (up to the inventory's 64), their sizes and their motions, and the drawn size pops once as
+  it grows.
 - **A spent stack comes apart**: when the last item of a stack is used, the icon is no longer
   just gone — its own pixels are thrown up and out of the slot and fall away, through the same
   `scripts/ui_shatter.gd` the hearts use. It is in five places: the hotbar, the inventory (any

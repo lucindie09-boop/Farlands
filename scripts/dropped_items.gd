@@ -86,6 +86,15 @@ const SURFACE_POINTS = 3
 ## back degenerate could not produce a body with no volume at all.
 const ITEM_THICKNESS = 0.01
 
+## How big a dropped item is, as a fraction of the cell its shape was authored in.
+## A block that leaves the hand is smaller than a placed one: a dropped cube is
+## half a block on a side, a dropped slab is that same slab at half the scale, and
+## a sprite item is its own silhouette at it. The factor goes on the BODY as well
+## as on the mesh -- the boxes the native solve is handed are the boxes the mesh
+## draws -- so the thing the player sees and the thing the world collides with are
+## always the same size.
+const BASE_SCALE := 0.5
+
 ## A body is stepped in slices this long at most, so a fast throw cannot pass
 ## through a block between two frames: the contacts are found at the position the
 ## body is actually at, and a 60-block-a-second fall moves a whole block a frame.
@@ -194,8 +203,14 @@ func spawn(block_id: int, count: int, from_eye: Vector3, direction: Vector3) -> 
 	mesh_instance.material_override = _material_of(block_id, tex)
 	mesh_instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
 	# The mesh's own centre sits at the node's origin, so the node turns the block
-	# about its middle and the body below is the boxes the mesh draws.
-	mesh_instance.position = -_mesh_centre(block_id)
+	# about its middle and the body below is the boxes the mesh draws. This is also
+	# where the item is drawn at BASE_SCALE, the same factor _boxes_of shrinks the
+	# body by. A node's transform scales its vertices and THEN translates them, so
+	# the centring offset is the scaled one: without that, a shaped mesh whose
+	# centre is not the cell's (a slab, a stair) would drift off the origin by the
+	# shrink and be drawn beside the box it is solved as.
+	mesh_instance.scale = Vector3.ONE * BASE_SCALE
+	mesh_instance.position = -_mesh_centre(block_id) * BASE_SCALE
 	node.add_child(mesh_instance)
 	add_child(node)
 
@@ -557,9 +572,10 @@ func _mesh_of(block_id: int, tex: Texture2D) -> ArrayMesh:
 
 ## The boxes a body is drawn and solved as: the block's OWN shape boxes, so a slab
 ## is a half block, a stair is its two boxes, and neither is the full block around
-## them. An item is its own mesh's bounds -- the sprite's silhouette at the width
-## its mesh was extruded to -- so a stick is a block long and a torch is a quarter
-## of one, each as thick as it is drawn.
+## them -- all of them at BASE_SCALE (_scaled_boxes), the size a dropped item is.
+## An item is its own mesh's bounds -- the sprite's silhouette at the width its
+## mesh was extruded to -- so a stick is a block long and a torch is a quarter of
+## one, each as thick as it is drawn.
 func _boxes_of(block_id: int) -> Array:
 	var out := []
 	if BlockTextures.is_item(block_id):
@@ -569,12 +585,29 @@ func _boxes_of(block_id: int) -> Array:
 			maxf(size.z, ITEM_THICKNESS))
 		var half := size * 0.5
 		out.append({"lo": -half, "hi": half})
-		return out
+		return _scaled_boxes(out)
 	if _chunk_manager != null and _chunk_manager.has_method("get_selection_boxes"):
 		for b in _chunk_manager.get_selection_boxes(block_id):
 			out.append({"lo": Vector3(b[0], b[1], b[2]), "hi": Vector3(b[3], b[4], b[5])})
 	if out.is_empty():
 		out.append({"lo": Vector3.ZERO, "hi": Vector3.ONE})
+	return _scaled_boxes(out)
+
+
+## A shape's own boxes at BASE_SCALE, shrunk about the centre of their bounds: the
+## same shape, at the size every dropped item has. Scaling about that centre is
+## what lets the mesh and the body share one origin -- the node's origin IS the
+## centre (_body_centre), and the mesh is drawn about it too (spawn) -- so the
+## drawn thing and the solved thing stay the same box in the same place whatever
+## the factor is.
+func _scaled_boxes(boxes: Array) -> Array:
+	var centre := _body_centre(boxes)
+	var out := []
+	for box in boxes:
+		out.append({
+			"lo": centre + (box["lo"] - centre) * BASE_SCALE,
+			"hi": centre + (box["hi"] - centre) * BASE_SCALE,
+		})
 	return out
 
 

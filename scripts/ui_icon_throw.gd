@@ -16,8 +16,9 @@ extends RefCounted
 #
 #   # when the art leaves -- `rect` is where it was drawn, `side` is which way out
 #   # of its slot it should be nudged (-1..1), `exit_y` is the line below which
-#   # nothing of it is on screen any more
-#   _thrown.launch(tex, rect, side, exit_y)
+#   # nothing of it is on screen any more, and `scale` is how big things are drawn
+#   # in that space (the caller's GUI scale)
+#   _thrown.launch(tex, rect, side, exit_y, scale)
 #
 #   # every frame
 #   if _thrown.advance(delta):
@@ -31,6 +32,13 @@ extends RefCounted
 # the piece clears the bar it came off, then the fall -- and the caller's own
 # bottom edge as the line it is gone by. Everything is varied per throw, so two
 # drops in a row do not leave on the same arc.
+#
+# These are written for a 16-unit icon and are multiplied by the caller's `scale`
+# (launch), so the throw is as strong in pixels as the thing it throws is big -- a
+# GUI scale of 2 throws twice as far. GRAVITY, LIFT and PUSH are the three that
+# measure LENGTHS, so they scale; the turn (SPIN, radians) and the drag and the
+# clock (DRAG, LIFE, FADE) are already in the shape's own terms and do not, which
+# is what keeps the arc the SAME arc at every scale rather than a different one.
 const GRAVITY = 460.0    # px/s^2, the fall
 const LIFT = 175.0       # px/s, straight up out of the slot
 const LIFT_VARY = 0.25   # fraction of the lift, per throw
@@ -54,12 +62,17 @@ var _pieces: Array = []
 ## Throw one piece of `art` out of the HUD. `rect` is where it was drawn, in the
 ## space the caller draws in; `side` is -1..1 for which way it leaves the slot
 ## sideways (0 is straight up); `exit_y` is the caller's bottom edge -- once the
-## piece is past it, nothing of the piece can be seen and it is gone.
-func launch(art: Texture2D, rect: Rect2, side: float, exit_y: float) -> void:
+## piece is past it, nothing of the piece can be seen and it is gone; `scale` is
+## the caller's GUI scale, so the throw is in the same proportion to the icon as
+## the constants above are to a 16-unit one (1.0 for an unscaled UI).
+func launch(art: Texture2D, rect: Rect2, side: float, exit_y: float, scale: float = 1.0) -> void:
 	if art == null or _pieces.size() >= MAX_PIECES:
 		return
-	var lift := LIFT * randf_range(1.0 - LIFT_VARY, 1.0 + LIFT_VARY)
-	var push := PUSH * randf_range(1.0 - PUSH_VARY, 1.0 + PUSH_VARY)
+	# A scale of zero or less would leave the piece where it was drawn, which is a
+	# slot that still looks occupied; one small factor is a weaker throw, not none.
+	scale = maxf(scale, 0.05)
+	var lift := LIFT * scale * randf_range(1.0 - LIFT_VARY, 1.0 + LIFT_VARY)
+	var push := PUSH * scale * randf_range(1.0 - PUSH_VARY, 1.0 + PUSH_VARY)
 	# The spin follows the throw: a piece pushed off to one side turns that way,
 	# and one thrown straight up takes whichever way it likes.
 	var spin_dir := signf(side) if not is_zero_approx(side) else (1.0 if randf() < 0.5 else -1.0)
@@ -73,6 +86,7 @@ func launch(art: Texture2D, rect: Rect2, side: float, exit_y: float) -> void:
 		"age": 0.0,
 		"life": LIFE,
 		"exit_y": exit_y,
+		"gravity": GRAVITY * scale,
 	})
 
 
@@ -85,7 +99,7 @@ func advance(delta: float) -> bool:
 		var centre: Vector2 = piece["centre"]
 		var size: Vector2 = piece["size"]
 		piece["age"] = piece["age"] + delta
-		vel.y += GRAVITY * delta
+		vel.y += piece["gravity"] * delta
 		vel.x -= vel.x * minf(DRAG * delta, 1.0)
 		centre += vel * delta
 		piece["vel"] = vel

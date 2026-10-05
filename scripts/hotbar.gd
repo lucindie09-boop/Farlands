@@ -175,9 +175,12 @@ func _drop_selected(all: bool) -> void:
 		viewmodel.punch()
 	# The slot's own icon leaves the slot WHOLE and falls out of the bar after the
 	# item (ui_icon_throw.gd), because the throw's own read is that the item is in
-	# transit and not destroyed. `dir.x` is the aim's sideways part read onto the
-	# screen, so a drop while looking east leaves to the right.
-	_throw_icon(slot, block_id, dir.x)
+	# transit and not destroyed. The direction is its own: the aim says where the
+	# item went, and this is the HUD reacting to the slot emptying, not a view of
+	# the world -- so reading the aim's sideways part off the throw made the icon
+	# leave east or west with where the player happened to be looking, and stood
+	# still for a drop straight ahead. It picks a side instead.
+	_throw_icon(slot, block_id)
 	if count - dropped <= 0:
 		# The slot emptying is NOT the spent-stack shatter: the icon that went was
 		# this one (_needs_redraw), not one destroyed in place.
@@ -305,11 +308,20 @@ func _spend_icon(slot: int, block_id: int) -> void:
 ## art is the very texture the slot draws, from the very rect it is drawn in, so
 ## the thing that leaves is the thing that was there; a block with no art of its
 ## own (the coloured-rectangle fallback) has nothing to clone and no throw.
-func _throw_icon(slot: int, block_id: int, side: float) -> void:
+##
+## The side is a random -1..1 rather than the aim's: the HUD is reacting to a slot
+## emptying, and which way the player is facing is not part of that. It is uniform
+## rather than left/right equally by coin flip so two throws rarely leave on the
+## same spot, which is what makes a run of drops read as a run.
+##
+## The scale handed over is the GUI scale, so the throw covers the bar in the same
+## proportion whatever the UI is drawn at -- the icon is bigger on screen at scale
+## 2, and an unscaled throw would drop it a third of the way off the bar.
+func _throw_icon(slot: int, block_id: int) -> void:
 	var art := BlockIconArt.texture(block_id)
 	if art == null:
 		return
-	_thrown.launch(art, _slot_icon_rect(slot, UIScale.value), side, size.y)
+	_thrown.launch(art, _slot_icon_rect(slot, UIScale.value), randf_range(-1.0, 1.0), size.y, UIScale.value)
 
 
 func _draw_custom_hotbar():

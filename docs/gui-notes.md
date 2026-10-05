@@ -170,17 +170,25 @@ first-person viewmodel - what each one owns and the decisions behind it.
   remain. A dropped item is not destroyed, it is *in transit* — the player still has it, and it is
   coming back. So it should leave as **the whole item texture, intact and rigid**, not as texels.
   The shape wanted, roughly: it collides as one piece rather than as a thousand shards; it is
-  **thrown toward the crosshair** — out of the slot, toward where the player is looking, which is
-  where they mean it to go — and then falls off the bottom of the screen or tumbles away; and it
+  **thrown out of its slot** and then falls off the bottom of the screen or tumbles away; and it
   **rotates** as it goes, because a rigid thing tumbling is the read, and a shatter cannot rotate
   because it is not one thing any more.
   It is built that way, in two halves: `scripts/dropped_items.gd` is the item itself (a rigid body
   in the world, solved against the voxels) and `scripts/ui_icon_throw.gd` is the slot's own art
-  leaving the HUD whole. The open questions were settled with it: the nudge out of the slot is not a
-  genuine aim ray but the aim's sideways part read onto the screen (a drop while looking east leaves
-  to the right); the tumble is `CanvasItem.draw_set_transform` about the art's middle, not a second
-  node per piece; and it simply falls out of frame — nothing is below it but empty screen, so there
-  is no `Surface` to land on. `UIShatter` did not grow it: one effect for destruction, another for
+  leaving the HUD whole. The open questions were settled with it, and one of them was settled the
+  other way later: the nudge out of the slot began as the aim's sideways part read onto the screen
+  (a drop while looking east leaves to the right), which is wrong on its own terms. The HUD is
+  reacting to a *slot emptying*, and which way the player is facing is not part of that — so a
+  straight-ahead drop threw straight up with no nudge at all, and every drop on the same heading
+  left the same way. It picks a random side in -1..1 instead (`_throw_icon`), and the tumble is
+  `CanvasItem.draw_set_transform` about the art's middle, not a second node per piece; and it simply
+  falls out of frame — nothing is below it but empty screen, so there is no `Surface` to land on.
+  **The throw is scaled to the icon** (`launch`'s `scale`, the GUI scale the caller passes): the
+  motion's three length terms — gravity, the lift and the sideways push — are multiplied by it, so a
+  UI at scale 2 throws twice as far and the icon still clears the bar it came off. The turn, the
+  drag and the clock are already in the shape's own terms and deliberately do not scale, which is
+  what keeps it the *same* arc at every scale rather than a different one.
+  `UIShatter` did not grow it: one effect for destruction, another for
   departure. The one rule between them: a slot whose last unit left by being THROWN does not also
   shatter (`hotbar.gd`, `_thrown_out`), because the icon that went is already out there falling, and
   pixels coming apart on top of it would say the drop was destroyed.

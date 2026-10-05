@@ -95,7 +95,7 @@ comment, with the claim each one backs:
 | `probe_item_size.gd` | A dropped item is not cell-sized: a cube's body and drawn mesh are both half a block, a slab and a stair keep their own shape at that scale, a sprite keeps its silhouette, and a stack of more than one is both drawn and solved bigger by the capped log2 curve (1.25x at 2 through 2x from sixteen), mesh and body one box at every count |
 | `probe_item_merge.gd` | Two drops of one kind next to each other become one pile: the counts add up to the 64 cap, the fuller keeps its place, body and mesh take the count's own size, motions combine only when both move, and the drawn size pops past the new one and settles back (at half strength once the pile is already at its largest) |
 | `probe_drop_swing.gd` | The drop path itself (`hotbar.gd _drop_selected`) throws the item AND kicks the viewmodel's full punch swing -- the swing timer at 1 with no place stroke -- once per unit and once per Ctrl+Q, writing the slot back each time |
-| `probe_drop_icon.gd` | A throw clones the slot's own icon out of its slot whole: it starts on the slot's icon rect, rises, turns as it falls out of the frame, and a slot thrown empty does NOT also shatter in place (a spend still does) |
+| `probe_drop_icon.gd` | A throw clones the slot's own icon out of its slot whole: it starts on the slot's icon rect, rises, turns as it falls out of the frame, and a slot thrown empty does NOT also shatter in place (a spend still does). Its side is a random pick, not the aim's, and the throw scales with the GUI scale |
 | `probe_chunk_borders.gd` | The 32-block chunk-grid overlay |
 | `probe_preview_cache.gd` | The wand's build preview cache never hands back the WRONG file after re-aiming |
 | `probe_wand_shot.gd` / `probe_wand_menu.gd` | The wand's middle-click menu opens where it should, and its buttons work for real |
@@ -121,6 +121,18 @@ frames — and that, not a fixed frame window, is
 what the squish A/B in [terrain-notes.md](terrain-notes.md) compares: a fixed
 window once made the squish look flat at RD 32 by pricing the normal world's
 unfinished backlog.
+
+The item probes (`probe_item_size.gd`, `probe_item_merge.gd`, `probe_drop_swing.gd`,
+`probe_drop_icon.gd`) restate the script's own constants rather than reading them off it
+(`BASE_SCALE`, `MERGE_SCALE_MAX`, `POP_GROWTH`). That is deliberate — an independent restatement
+is what catches a value changing silently — and the cost is that a *deliberate* change has to be
+made in both places, and nothing fails loudly when only one moves.
+
+`probe_drop_icon.gd` is also where the icon throw's own motion is pinned: the same rect launched
+at GUI scale 2 goes about twice as fast as at scale 1 (`launch`'s `scale`, which scales gravity,
+the lift and the push and deliberately not the turn, the drag or the clock), and eight throws at
+one camera heading leave both ways, which is what an aim-derived side cannot do. It boots
+`main.tscn` and needs a display.
 
 The rest of the directory is historical or subject-specific; the header comment
 in each one says which.

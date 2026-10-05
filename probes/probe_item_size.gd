@@ -2,23 +2,37 @@ extends SceneTree
 ## Headless check for the size a dropped item is drawn and solved as.
 ##
 ## An item that has left the player's hand is not the size of the block it came
-## from. Every dropped item is BASE_SCALE (dropped_items.gd) of the shape it was
-## authored as, and this probe throws one of each kind and holds the two halves of
-## that contract to the same number:
+## from, and a pile of more than one is not the size of a single item. Every drop is
+## BASE_SCALE (dropped_items.gd) of the shape it was authored as, and a stack of
+## more than one is that times a capped, sublinear factor -- 1 + 0.25*log2(count) up
+## to twice the size. The factor goes on the BODY as well as on the mesh, so what a
+## pile collides as is exactly what it is drawn as. This probe throws one of each
+## kind and then one of each count, and holds the contract to the same numbers:
 ##
-##   * the BODY's boxes: `size` on the item, the shape the native solve is handed;
-##   * the MESH as DRAWN: its own bounds times the scale on its node.
+##   * the BODY's boxes: `size` on the item, the shape the native solve is handed.
+##     It must be BASE_SCALE times the count's own factor of the shape's raw boxes;
+##   * the MESH as DRAWN: its own bounds times the scale on its node, which must be
+##     the same size as the body;
+##   * agreement between the two: the mesh's centre sits on the body's origin, so
+##     the drawn thing and the solved thing are one box in one place -- a stacked
+##     pile does not hover over what it should touch or sink into the floor it
+##     stands on.
 ##
-## Both must be BASE_SCALE of the raw shape, and the mesh's drawn centre must sit
-## on the body's origin -- so the thing the player sees and the thing the world
-## collides with are one box in one place. A body left at full size fails against
-## the mesh; a mesh scaled about the wrong point (a slab's centre is not the
-## cell's) shows up in the offset; a sprite still at cell size shows up on the cap.
+## A body left at the single item's size fails against the mesh; a mesh scaled
+## about the wrong point (a slab's centre is not the cell's) shows up in the offset;
+## a sprite still at cell size, or a pile that ignores its count, shows up on the
+## cap and the table.
 ##
 ## Run: Godot --headless --path <project> --script res://probes/probe_item_size.gd
 
 const BASE_SCALE := 0.5
 const EPS := 0.01
+
+## The curve's cap, and count -> the size a pile is drawn AND solved at, as a
+## multiple of the single item's own body. The numbers the curve promises,
+## hardcoded: 1 + 0.25*log2(count), capped at twice the size from sixteen items up.
+const MERGE_SCALE_MAX := 2.0
+const MERGE_TABLE := [[1, 1.0], [2, 1.25], [4, 1.5], [8, 1.75], [16, 2.0], [64, 2.0]]
 
 var ok := true
 
@@ -64,6 +78,10 @@ func _run() -> void:
 	# Sprites: the body is the silhouette the mesh draws, at the same scale.
 	_check(dropped, cm, "stick", "item")
 	_check(dropped, cm, "torch", "item")
+
+	# --- a pile is drawn and solved bigger by its count ------------------------
+	for case in MERGE_TABLE:
+		_check_merge(dropped, case[0], case[1])
 
 	if not ok:
 		quit(1)
@@ -112,3 +130,37 @@ func _check(dropped: Node, cm: Node, name: String, kind: String) -> void:
 			lo = lo.min(Vector3(b[0], b[1], b[2]))
 			hi = hi.max(Vector3(b[3], b[4], b[5]))
 		_same("%s: body against the shape's own boxes" % name, body, (hi - lo) * BASE_SCALE)
+
+
+## One stack count: the solved body and the drawn mesh are one box at the count's
+## own factor of a single item's size -- a pile that reads bigger to the eye is
+## bigger to the world, and only by the curve's capped factor.
+func _check_merge(dropped: Node, count: int, want: float) -> void:
+	var id := BlockTextures.get_block_id_by_name("stone")
+	dropped.spawn(id, count, Vector3(0.0, 60.0, 0.0), Vector3(0.0, 0.0, 1.0))
+	var item: Dictionary = dropped._items[dropped._items.size() - 1]
+	var body: Vector3 = item["size"]
+	var node: Node3D = item["node"]
+	var mesh_instance := node.get_child(0) as MeshInstance3D
+	if mesh_instance == null or mesh_instance.mesh == null:
+		_fail("stone x%d: the drop has no mesh to measure" % count)
+		return
+	var aabb: AABB = mesh_instance.mesh.get_aabb()
+	var drawn: Vector3 = aabb.size * mesh_instance.scale
+	var offset: Vector3 = mesh_instance.position + aabb.get_center() * mesh_instance.scale
+	print("probe: stone x%-3d body %s drawn %s scale %s (x%.2f)"
+		% [count, body, drawn, mesh_instance.scale, want])
+
+	# The BODY has the pile's size: sixty-four items are solved as twice a single
+	# item, so a big pile rests on and against the world at the size it is drawn.
+	_same("stone x%d: body size" % count, body, Vector3.ONE * (BASE_SCALE * want))
+	# The mesh and the body are one box: what is seen is what is solved.
+	_same("stone x%d: body against the drawn mesh" % count, body, drawn)
+	if offset.length() > EPS:
+		_fail("stone x%d: drawn mesh centre is %.4f off the body origin (%s)" % [count, offset.length(), offset])
+	# ...and never past the curve's cap: a pile is at most MERGE_SCALE_MAX of the
+	# single item, and the cap is what keeps it from becoming bigger than the shape
+	# it came from.
+	var body_big := maxf(body.x, maxf(body.y, body.z))
+	if body_big > BASE_SCALE * MERGE_SCALE_MAX + EPS:
+		_fail("stone x%d: body is %s, past the %fx cap" % [count, body, MERGE_SCALE_MAX])

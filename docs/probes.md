@@ -92,7 +92,7 @@ comment, with the claim each one backs:
 | `probe_items.gd` | The item registry's fields and the held-item resting poses |
 | `probe_item_face_shade.gd` | An item's face shade does not snap while the body turns: the include's arithmetic stays within 1% over a 0.25-degree sweep of the normal (the thresholded table it replaced steps 20%), and a block turned in front of a still camera never changes more than a few percent of the sampled frame (the table does 82%, at the 45-degree yaw where x against z flipped) |
 | `probe_item_light_smooth.gd` | The item light model's step: a staged one-frame relight of the held item's/arm's cell and of a dropped item's cell moves the `item_light` the mesh is handed over ~0.35 s (the value is read back off the instance the shader sees), instead of arriving in one frame |
-| `probe_item_size.gd` | A dropped item is not cell-sized: a cube's solved body and drawn mesh are both half a block on a side, a slab and a stair keep their own shape at that scale, a sprite keeps its silhouette at it, and the drawn mesh's centre sits on the body's origin |
+| `probe_item_size.gd` | A dropped item is not cell-sized: a cube's body and drawn mesh are both half a block, a slab and a stair keep their own shape at that scale, a sprite keeps its silhouette, and a stack of more than one is both drawn and solved bigger by the capped log2 curve (1.25x at 2 through 2x from sixteen), mesh and body one box at every count |
 | `probe_chunk_borders.gd` | The 32-block chunk-grid overlay |
 | `probe_preview_cache.gd` | The wand's build preview cache never hands back the WRONG file after re-aiming |
 | `probe_wand_shot.gd` / `probe_wand_menu.gd` | The wand's middle-click menu opens where it should, and its buttons work for real |

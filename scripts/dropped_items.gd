@@ -95,6 +95,22 @@ const ITEM_THICKNESS = 0.01
 ## always the same size.
 const BASE_SCALE := 0.5
 
+## How much bigger a stack of more than one is DRAWN -- and SOLVED -- than a
+## single item. A pile grows with what is in it, but sublinearly and with a cap:
+## the curve is
+##
+##     1 + MERGE_SCALE_STEP * log2(count)
+##
+## up to MERGE_SCALE_MAX, so a pair is 1.25x, four 1.5x, eight 1.75x, and sixteen
+## or more sits at twice the size. A cube root -- the pile as its own volume --
+## would make 64 items four times the size: too big to see past or stand beside.
+## The factor goes on the BODY as well as on the mesh, exactly like BASE_SCALE: a
+## bigger pile is bigger to the world too -- it rests on the ground it covers and
+## bumps into what it reaches -- and the cap keeps the biggest pile at the size of
+## the shape it came from and no bigger.
+const MERGE_SCALE_STEP := 0.25
+const MERGE_SCALE_MAX := 2.0
+
 ## A body is stepped in slices this long at most, so a fast throw cannot pass
 ## through a block between two frames: the contacts are found at the position the
 ## body is actually at, and a 60-block-a-second fall moves a whole block a frame.
@@ -135,11 +151,14 @@ var _player: Node3D = null
 ## Looked up once: it is the same answer every substep, and has_method is not free.
 var _body_solve_available := false
 
-# The shape table the native solver is handed: every kind of block that has
-# been dropped, once. `_shape_rows` maps a block id to its row; the arrays are
-# the rows flattened (row s owns boxes [_shape_box_start[s], +_shape_box_count[s])
-# and points [_shape_point_start[s], +_shape_point_count[s])). A shape never
-# moves, so this is written only when a block id is dropped for the first time.
+# The shape table the native solver is handed: every kind of block that has been
+# dropped at a given count, once -- a pile's body is as big as the pile (spawn), so
+# the same block dropped once and dropped sixty-four times is two shapes.
+# `_shape_rows` maps a block id and a count to a row; the arrays are the rows
+# flattened (row s owns boxes [_shape_box_start[s], +_shape_box_count[s]) and
+# points [_shape_point_start[s], +_shape_point_count[s])). A shape never moves, so
+# this is written only when a stack of that kind and count is dropped for the
+# first time.
 var _shape_rows: Dictionary = {}
 var _shape_box_offsets := PackedVector3Array()
 var _shape_box_halves := PackedVector3Array()
@@ -190,7 +209,12 @@ func spawn(block_id: int, count: int, from_eye: Vector3, direction: Vector3) -> 
 		dir = Vector3.FORWARD
 	# Out of the hand, which is below the eye and a little ahead of it.
 	var from := from_eye + Vector3.DOWN * SPAWN_DOWN + dir * SPAWN_FORWARD
-	var boxes := _boxes_of(block_id)
+	# The pile's own size: BASE_SCALE, the size every dropped item is, times the
+	# count's merge factor. It goes on the body's boxes as well as on the mesh, so
+	# the thing drawn and the thing solved are one box at every count, and a stack
+	# that reads bigger to the eye is bigger to the world too.
+	var body_scale := BASE_SCALE * _merge_scale(count)
+	var boxes := _boxes_of(block_id, body_scale)
 	var centre: Vector3 = _body_centre(boxes)
 	var size: Vector3 = _body_size(boxes, centre)
 	var offsets := _box_offsets(boxes, centre)
@@ -202,15 +226,15 @@ func spawn(block_id: int, count: int, from_eye: Vector3, direction: Vector3) -> 
 	mesh_instance.mesh = _mesh_of(block_id, tex)
 	mesh_instance.material_override = _material_of(block_id, tex)
 	mesh_instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
-	# The mesh's own centre sits at the node's origin, so the node turns the block
-	# about its middle and the body below is the boxes the mesh draws. This is also
-	# where the item is drawn at BASE_SCALE, the same factor _boxes_of shrinks the
-	# body by. A node's transform scales its vertices and THEN translates them, so
-	# the centring offset is the scaled one: without that, a shaped mesh whose
-	# centre is not the cell's (a slab, a stair) would drift off the origin by the
-	# shrink and be drawn beside the box it is solved as.
-	mesh_instance.scale = Vector3.ONE * BASE_SCALE
-	mesh_instance.position = -_mesh_centre(block_id) * BASE_SCALE
+	# The mesh's own centre sits at the node's origin, so the node turns the item
+	# about the middle of the box it draws, and that box is the body's own: the same
+	# boxes _boxes_of returns, at the same `body_scale`. (A node's transform scales
+	# its vertices and THEN translates them, so the centring offset is the scaled
+	# one: without that, a shaped mesh whose centre is not the cell's -- a slab, a
+	# stair -- would drift off the origin by the shrink and be drawn beside the box
+	# it is solved as.)
+	mesh_instance.scale = Vector3.ONE * body_scale
+	mesh_instance.position = -_mesh_centre(block_id) * body_scale
 	node.add_child(mesh_instance)
 	add_child(node)
 
@@ -233,9 +257,10 @@ func spawn(block_id: int, count: int, from_eye: Vector3, direction: Vector3) -> 
 		# The body's own reach from its origin: the broad phase of the pair solve.
 		"radius": _body_reach(boxes, centre),
 		# The body's shape in the table the native solver is handed: its boxes and
-		# points, flattened once for every item of this block id. They are not kept
-		# on the item as well -- nothing reads them off it any more.
-		"shape": _shape_row(block_id, offsets, halves, points),
+		# points, flattened once for every block id at every count (the boxes are
+		# the pile's own size). They are not kept on the item as well -- nothing
+		# reads them off it any more.
+		"shape": _shape_row(block_id, count, offsets, halves, points),
 		# World space. `position` is the CENTRE of the box, which is also the
 		# node's own origin.
 		"position": from,
@@ -389,15 +414,16 @@ func _gather_static_bodies() -> void:
 	_bodies_static_dirty = false
 
 
-## The shape row for a block id, added to the table the first time that kind of
-## block is dropped. A shape's boxes and points never move, so every item of the
-## same block shares one row and the native pair solve is handed the same table
-## every substep.
-func _shape_row(block_id: int, offsets: Array, halves: Array, points: Array) -> int:
-	if _shape_rows.has(block_id):
-		return _shape_rows[block_id]
+## The shape row for a block id at a count, added to the table the first time that
+## kind of block is dropped with that many in its pile. A shape's boxes and points
+## never move, so every item of the same kind and count shares one row and the
+## native pair solve is handed the same table every substep.
+func _shape_row(block_id: int, count: int, offsets: Array, halves: Array, points: Array) -> int:
+	var key := Vector2i(block_id, count)
+	if _shape_rows.has(key):
+		return _shape_rows[key]
 	var row: int = _shape_box_count.size()
-	_shape_rows[block_id] = row
+	_shape_rows[key] = row
 	_shape_box_start.append(_shape_box_offsets.size())
 	_shape_box_count.append(offsets.size())
 	for box_offset in offsets:
@@ -570,13 +596,13 @@ func _mesh_of(block_id: int, tex: Texture2D) -> ArrayMesh:
 	return mesh
 
 
-## The boxes a body is drawn and solved as: the block's OWN shape boxes, so a slab
-## is a half block, a stair is its two boxes, and neither is the full block around
-## them -- all of them at BASE_SCALE (_scaled_boxes), the size a dropped item is.
-## An item is its own mesh's bounds -- the sprite's silhouette at the width its
-## mesh was extruded to -- so a stick is a block long and a torch is a quarter of
-## one, each as thick as it is drawn.
-func _boxes_of(block_id: int) -> Array:
+## The boxes a body is drawn and solved as, at `body_scale` (_scaled_boxes): the
+## block's OWN shape boxes, so a slab is a half block, a stair is its two boxes,
+## and neither is the full block around them. An item is its own mesh's bounds --
+## the sprite's silhouette at the width its mesh was extruded to -- so a stick is a
+## block long and a torch is a quarter of one, each as thick as it is drawn. The
+## mesh is built from these same boxes, so the two at one factor are one thing.
+func _boxes_of(block_id: int, body_scale: float) -> Array:
 	var out := []
 	if BlockTextures.is_item(block_id):
 		var mesh := _mesh_of(block_id, BlockTextures.get_texture(block_id))
@@ -585,30 +611,42 @@ func _boxes_of(block_id: int) -> Array:
 			maxf(size.z, ITEM_THICKNESS))
 		var half := size * 0.5
 		out.append({"lo": -half, "hi": half})
-		return _scaled_boxes(out)
+		return _scaled_boxes(out, body_scale)
 	if _chunk_manager != null and _chunk_manager.has_method("get_selection_boxes"):
 		for b in _chunk_manager.get_selection_boxes(block_id):
 			out.append({"lo": Vector3(b[0], b[1], b[2]), "hi": Vector3(b[3], b[4], b[5])})
 	if out.is_empty():
 		out.append({"lo": Vector3.ZERO, "hi": Vector3.ONE})
-	return _scaled_boxes(out)
+	return _scaled_boxes(out, body_scale)
 
 
-## A shape's own boxes at BASE_SCALE, shrunk about the centre of their bounds: the
-## same shape, at the size every dropped item has. Scaling about that centre is
-## what lets the mesh and the body share one origin -- the node's origin IS the
-## centre (_body_centre), and the mesh is drawn about it too (spawn) -- so the
-## drawn thing and the solved thing stay the same box in the same place whatever
-## the factor is.
-func _scaled_boxes(boxes: Array) -> Array:
+## A shape's own boxes at `body_scale` -- BASE_SCALE, the size every dropped item
+## is, times the pile's own factor -- shrunk about the centre of their bounds: the
+## same shape, at the size the drop is drawn and solved. Scaling about that centre
+## is what lets the mesh and the body share one origin: the node's origin IS the
+## centre (_body_centre), and the mesh is drawn about it too (spawn), so the drawn
+## thing and the solved thing stay the same box in the same place whatever the
+## factor is.
+func _scaled_boxes(boxes: Array, body_scale: float) -> Array:
 	var centre := _body_centre(boxes)
 	var out := []
 	for box in boxes:
 		out.append({
-			"lo": centre + (box["lo"] - centre) * BASE_SCALE,
-			"hi": centre + (box["hi"] - centre) * BASE_SCALE,
+			"lo": centre + (box["lo"] - centre) * body_scale,
+			"hi": centre + (box["hi"] - centre) * body_scale,
 		})
 	return out
+
+
+## The factor a stack of `count` is drawn at, on top of BASE_SCALE: a single item
+## is 1, and a pile grows by MERGE_SCALE_STEP per doubling of the count, up to
+## MERGE_SCALE_MAX (the constants above). log(count)/log(2) is the log2 the curve is
+## written in terms of.
+func _merge_scale(count: int) -> float:
+	if count <= 1:
+		return 1.0
+	var grown := 1.0 + MERGE_SCALE_STEP * log(float(count)) / log(2.0)
+	return minf(grown, MERGE_SCALE_MAX)
 
 
 ## Where the body's own boxes are centred, so the body turns about the middle of

@@ -116,12 +116,17 @@ int32_t ChunkWorld::process_completed_chunks(uint64_t epoch, double budget_ms, i
                 }
                 any_emissive_in_region = any_emissive;
 
-                if (any_emissive && thread_pool) {
+                // The worker task is no longer emitter-gated. The block-light region
+                // pass still wants an emitter in the neighborhood (it wipes and
+                // rebuilds seven slots), but the sky pass runs for every arriving
+                // chunk, and where there is no shade to fill it is a flag test plus a
+                // border sweep. Both need the same exclusive band, so they share one.
+                if ((any_emissive || light_propagator != nullptr) && thread_pool) {
                     took_fire_and_forget = true;
                     int32_t cx = stage.chunk_x;
                     int32_t cy = stage.chunk_y;
                     int32_t cz = stage.chunk_z;
-                    thread_pool->fire_and_forget([this, cx, cy, cz, epoch]() {
+                    thread_pool->fire_and_forget([this, cx, cy, cz, epoch, any_emissive]() {
                         uint32_t modified = 0;
                         {
                             uint64_t keys[27];
@@ -131,35 +136,44 @@ int32_t ChunkWorld::process_completed_chunks(uint64_t epoch, double budget_ms, i
                                     for (int dx = -1; dx <= 1; dx++)
                                         keys[idx++] = chunk_map.get_chunk_key(cx + dx, cy + dy, cz + dz);
                             auto wlock = chunk_map.lock_keys_exclusive(keys);
-                            ChunkData* region_grid[3][3][3] = {};
-                            for (int dz = -1; dz <= 1; dz++) {
-                                for (int dy = -1; dy <= 1; dy++) {
-                                    for (int dx = -1; dx <= 1; dx++) {
-                                        region_grid[dx + 1][dy + 1][dz + 1] = chunk_map.get_chunk_data_fast(cx + dx, cy + dy, cz + dz);
+                            if (any_emissive) {
+                                ChunkData* region_grid[3][3][3] = {};
+                                for (int dz = -1; dz <= 1; dz++) {
+                                    for (int dy = -1; dy <= 1; dy++) {
+                                        for (int dx = -1; dx <= 1; dx++) {
+                                            region_grid[dx + 1][dy + 1][dz + 1] = chunk_map.get_chunk_data_fast(cx + dx, cy + dy, cz + dz);
+                                        }
                                     }
                                 }
+                                BlockLightRegion light_region(region_grid);
+                                std::vector<EmissiveSource> sources;
+                                // Only what this arriving chunk's own blocks can reach: the
+                                // chunk and its six faces. A chunk is 32 wide and light
+                                // travels 15, so wiping the edge and corner slots too was
+                                // rebuilding four fifths of the pass to land exactly where
+                                // it started (11.3 -> 5.3 ms measured, one emitter a chunk).
+                                // Cleared before the collect because the collect asks which
+                                // slots the wipe took, and told `already_cleared` because
+                                // clearing a second time inside the propagation costs half
+                                // of the whole pass.
+                                light_region.clear_block_light_affected();
+                                light_region.collect_emissive_sources(sources, /*only_cleared=*/true);
+                                light_region.propagate_additive(sources, /*already_cleared=*/true);
+                                // What this pass actually CHANGED, for the main thread to
+                                // mark meshes from. Marking the whole 3x3x3 instead — which
+                                // is what it used to do — queued 27 rebuilds per arriving
+                                // chunk, for light that over daylight terrain had not moved
+                                // at all; that is why loading a built-up world cost more
+                                // than building it.
+                                modified = light_region.modified_mask();
                             }
-                            BlockLightRegion light_region(region_grid);
-                            std::vector<EmissiveSource> sources;
-                            // Only what this arriving chunk's own blocks can reach: the
-                            // chunk and its six faces. A chunk is 32 wide and light
-                            // travels 15, so wiping the edge and corner slots too was
-                            // rebuilding four fifths of the pass to land exactly where
-                            // it started (11.3 -> 5.3 ms measured, one emitter a chunk).
-                            // Cleared before the collect because the collect asks which
-                            // slots the wipe took, and told `already_cleared` because
-                            // clearing a second time inside the propagation costs half
-                            // of the whole pass.
-                            light_region.clear_block_light_affected();
-                            light_region.collect_emissive_sources(sources, /*only_cleared=*/true);
-                            light_region.propagate_additive(sources, /*already_cleared=*/true);
-                            // What this pass actually CHANGED, for the main thread to
-                            // mark meshes from. Marking the whole 3x3x3 instead — which
-                            // is what it used to do — queued 27 rebuilds per arriving
-                            // chunk, for light that over daylight terrain had not moved
-                            // at all; that is why loading a built-up world cost more
-                            // than building it.
-                            modified = light_region.modified_mask();
+                            if (light_propagator != nullptr) {
+                                // Additive only: no wipe, no rebuild. The arriving
+                                // chunk's own scan is the source of truth for its cells
+                                // and only its shade and its border planes can be beaten
+                                // by a neighbour, so an open chunk walks nothing.
+                                modified |= light_propagator->scatter_sky_light_region_locked(cx, cy, cz);
+                            }
                         }
                         chunk_scheduler.push_completed_light_propagation({cx, cy, cz, epoch, modified});
                     });
@@ -168,8 +182,13 @@ int32_t ChunkWorld::process_completed_chunks(uint64_t epoch, double budget_ms, i
                 }
             }
 
-            if (!took_fire_and_forget && any_emissive_in_region && light_propagator) {
-                light_propagator->propagate_block_light_region(stage.chunk_x, stage.chunk_y, stage.chunk_z);
+            if (!took_fire_and_forget && light_propagator) {
+                if (any_emissive_in_region) {
+                    light_propagator->propagate_block_light_region(stage.chunk_x, stage.chunk_y, stage.chunk_z);
+                }
+                // No worker pool (tests, standalone tools): the same additive pass,
+                // taking its own band and marking the meshes it changed.
+                light_propagator->scatter_sky_light_region(stage.chunk_x, stage.chunk_y, stage.chunk_z);
             }
 
             continue;

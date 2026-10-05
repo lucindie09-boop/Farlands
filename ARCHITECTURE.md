@@ -107,6 +107,8 @@ them, so a slow worker never blocks a frame.
    STAGE 2 · LIGHT + INSTALL ── runs on MAIN thread
      ChunkWorld::process_completed_chunks        (budgeted)
        · installs chunk into ChunkMap, queues neighbor remeshes
+       · every arriving chunk: additive sky scatter in the same worker task
+         (no shade in the chunk → walks nothing at all)
        · emissive blocks in 3×3×3? → worker task BlockLightRegion::propagate_additive
        · result polled back on main (completed_light_propagations),
          then chunk + rim neighbors marked dirty for remesh
@@ -1036,8 +1038,11 @@ Every file, with what it owns: [docs/ui.md](docs/ui.md).
   galleries
 
 ### Lighting
-- `src/lighting/light_propagator.hpp/cpp` — Public wrappers + `_locked` variants
+- `src/lighting/light_propagator.hpp/cpp` — Block light: public wrappers + `_locked` BFS variants
+- `src/lighting/light_propagator_sky.cpp` — Sky light: the scalar walk, the per-column recompute a
+  block edit runs, and the additive pass a newly installed chunk runs
 - `src/lighting/block_light_region.hpp/cpp` — Single-chunk additive-only propagation
+- The model, the three entry points and what is deliberately left out: [docs/light.md](docs/light.md)
 
 ### Data
 - `data/block_definitions.json` — Single source of truth for block properties
@@ -1064,7 +1069,7 @@ Every file, with what it owns: [docs/ui.md](docs/ui.md).
   - `textures/0Archive/` — Archived/deprecated textures (old versions kept for reference)
 
 ### Testing
-- `tests/` — 93 `.cpp` files (619 test cases / 348,219 assertions, declared across 91 of them:
+- `tests/` — 94 `.cpp` files (629 test cases / 348,277 assertions, declared across 92 of them:
   `test_main.cpp` is the doctest entry point and `mesh_manager_stub.cpp` supplies link stubs),
   auto-discovered via `Glob("tests/*.cpp")`. A split test file keeps the original name for its
   main subject and takes `_<topic>` files beside it, with the fixtures they share in a
@@ -1107,7 +1112,7 @@ Every file, with what it owns: [docs/ui.md](docs/ui.md).
   region, and on a standard attribute placed after a decl-specifier. Both compile on MSVC and
   are fatal on GCC/clang, which is exactly why the tree is compiled by something other than MSVC
   before it is accepted
-- **clang-tidy** — the static-analysis job's gate, over `find src -name '*.cpp'` (110 files)
+- **clang-tidy** — the static-analysis job's gate, over `find src -name '*.cpp'` (111 files)
   with `bugprone-*`, `concurrency-*` and `performance-*` minus the four documented exceptions
   (`.github/workflows/build.yml`: `bugprone-easily-swappable-parameters`,
   `bugprone-narrowing-conversions`, `clang-analyzer-optin.core.EnumCastOutOfRange`,

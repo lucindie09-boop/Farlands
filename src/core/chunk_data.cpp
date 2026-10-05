@@ -15,7 +15,8 @@ ChunkData::ChunkData(const ChunkData& other)
       is_fully_solid(other.is_fully_solid),
       block_count(other.block_count),
       emissive_count(other.emissive_count),
-      liquid_cells(other.liquid_cells) {
+      liquid_cells(other.liquid_cells),
+      has_sky_shade_(other.has_sky_shade_) {
     std::memcpy(section_block_count, other.section_block_count, sizeof(section_block_count));
 }
 
@@ -27,6 +28,7 @@ ChunkData& ChunkData::operator=(const ChunkData& other) {
         block_count    = other.block_count;
         emissive_count = other.emissive_count;
         liquid_cells   = other.liquid_cells;
+        has_sky_shade_ = other.has_sky_shade_;
         std::memcpy(section_block_count, other.section_block_count, sizeof(section_block_count));
     }
     return *this;
@@ -38,13 +40,15 @@ ChunkData::ChunkData(ChunkData&& other) noexcept
       is_fully_solid(other.is_fully_solid),
       block_count(other.block_count),
       emissive_count(other.emissive_count),
-      liquid_cells(other.liquid_cells) {
+      liquid_cells(other.liquid_cells),
+      has_sky_shade_(other.has_sky_shade_) {
     std::memcpy(section_block_count, other.section_block_count, sizeof(section_block_count));
     other.is_empty = true;
     other.is_fully_solid = false;
     other.block_count = 0;
     other.emissive_count = 0;
     other.liquid_cells = 0;
+    other.has_sky_shade_ = false;
     std::memset(other.section_block_count, 0, sizeof(other.section_block_count));
 }
 
@@ -56,12 +60,14 @@ ChunkData& ChunkData::operator=(ChunkData&& other) noexcept {
         block_count    = other.block_count;
         emissive_count = other.emissive_count;
         liquid_cells   = other.liquid_cells;
+        has_sky_shade_ = other.has_sky_shade_;
         std::memcpy(section_block_count, other.section_block_count, sizeof(section_block_count));
         other.is_empty = true;
         other.is_fully_solid = false;
         other.block_count = 0;
         other.emissive_count = 0;
         other.liquid_cells = 0;
+        other.has_sky_shade_ = false;
         std::memset(other.section_block_count, 0, sizeof(other.section_block_count));
     }
     return *this;
@@ -108,6 +114,17 @@ bool ChunkData::clear_block_light() noexcept {
 }
 
 namespace {
+
+// The sky level a cell below `level` ends up with once this block has had its
+// say: an opaque block stops the column outright, an attenuating one subtracts
+// its opacity, anything else passes the level through unchanged.
+[[nodiscard]] uint8_t sky_column_step(uint8_t level, const BlockType& block_type) noexcept {
+    if (HasProperty(block_type.properties, BlockProperty::Opaque)) return 0;
+    if (block_type.light_opacity > 0) {
+        return static_cast<uint8_t>(std::max(0, static_cast<int>(level) - block_type.light_opacity));
+    }
+    return level;
+}
 
 void append_u32(std::vector<uint8_t>& out, uint32_t v) {
     out.push_back(static_cast<uint8_t>(v & 0xFFu));
@@ -166,6 +183,7 @@ bool ChunkData::light_state_equals(const std::vector<uint8_t>& prior) const {
 }
 
 void ChunkData::clear_sky_light() noexcept {
+    has_sky_shade_ = false;
     for (auto& s : storage->light_secs) {
         if (s.is_uniform()) {
             s.palette[0] = s.uniform_val() & 0xFFF0;
@@ -181,11 +199,13 @@ void ChunkData::clear_sky_light() noexcept {
 
 void ChunkData::clear_light() noexcept {
     storage->fill_light_uniform(0);
+    has_sky_shade_ = false;
 }
 
 void ChunkData::clear() noexcept {
     storage->fill_blocks_uniform(BlockIDs::AIR);
     storage->fill_light_uniform(0);
+    has_sky_shade_ = false;
     is_empty       = true;
     is_fully_solid = false;
     block_count    = 0;
@@ -255,6 +275,9 @@ void ChunkData::compute_section_flags() {
 
 void ChunkData::propagate_sky_light(const ChunkData* chunk_above) {
     const BlockRegistry& registry = BlockRegistry::get_instance();
+    // This scan is the authority on every cell of this chunk, so the shade flag it
+    // feeds is recomputed rather than accumulated.
+    has_sky_shade_ = false;
     for (int32_t x = 0; x < CHUNK_WIDTH; ++x) {
         for (int32_t z = 0; z < CHUNK_DEPTH; ++z) {
             uint8_t current_sky_light = chunk_above ? chunk_above->get_sky_light(x, 0, z) : 15;
@@ -262,14 +285,16 @@ void ChunkData::propagate_sky_light(const ChunkData* chunk_above) {
                 const BlockID block_id = get_block_unsafe(x, y, z);
                 if (block_id != BlockIDs::AIR) {
                     const BlockType& block_type = registry.get_block(block_id);
-                    if (HasProperty(block_type.properties, BlockProperty::Opaque)) {
-                        current_sky_light = 0;
-                    } else if (block_type.light_opacity > 0) {
-                        // Light crossing this block pays its opacity. A pool
-                        // darkens with depth (3/block) instead of staying at
-                        // full sky light all the way to the seabed.
-                        current_sky_light = static_cast<uint8_t>(std::max(0, static_cast<int>(current_sky_light) - block_type.light_opacity));
+                    if (current_sky_light < 15 && !HasProperty(block_type.properties, BlockProperty::Opaque) &&
+                        !block_type.is_liquid()) {
+                        has_sky_shade_ = true;
                     }
+                    // Light crossing this block pays its opacity. A pool darkens
+                    // with depth (3/block) instead of staying at full sky light all
+                    // the way to the seabed; an opaque block stops the column.
+                    current_sky_light = sky_column_step(current_sky_light, block_type);
+                } else if (current_sky_light < 15) {
+                    has_sky_shade_ = true;
                 }
                 set_sky_light_unsafe(x, y, z, current_sky_light);
             }
@@ -277,17 +302,26 @@ void ChunkData::propagate_sky_light(const ChunkData* chunk_above) {
     }
 }
 
-void ChunkData::propagate_sky_light_column(int32_t x, int32_t z, const ChunkData* chunk_above) {
+void ChunkData::propagate_sky_light_column(int32_t x, int32_t z, const ChunkData* chunk_above,
+                                           std::vector<SkyColumnChange>* changes) {
     const BlockRegistry& registry = BlockRegistry::get_instance();
     uint8_t current_sky_light = chunk_above ? chunk_above->get_sky_light(x, 0, z) : 15;
     for (int32_t y = CHUNK_HEIGHT - 1; y >= 0; --y) {
         const BlockID block_id = get_block_unsafe(x, y, z);
         if (block_id != BlockIDs::AIR) {
             const BlockType& block_type = registry.get_block(block_id);
-            if (HasProperty(block_type.properties, BlockProperty::Opaque)) {
-                current_sky_light = 0;
-            } else if (block_type.light_opacity > 0) {
-                current_sky_light = static_cast<uint8_t>(std::max(0, static_cast<int>(current_sky_light) - block_type.light_opacity));
+            if (current_sky_light < 15 && !HasProperty(block_type.properties, BlockProperty::Opaque) &&
+                !block_type.is_liquid()) {
+                has_sky_shade_ = true;
+            }
+            current_sky_light = sky_column_step(current_sky_light, block_type);
+        } else if (current_sky_light < 15) {
+            has_sky_shade_ = true;
+        }
+        if (changes != nullptr) {
+            const uint8_t old_level = get_sky_light_unsafe(x, y, z);
+            if (old_level != current_sky_light) {
+                changes->push_back({static_cast<int16_t>(y), old_level, current_sky_light});
             }
         }
         set_sky_light_unsafe(x, y, z, current_sky_light);

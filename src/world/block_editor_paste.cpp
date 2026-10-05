@@ -84,6 +84,10 @@ struct PasteWrite {
     const schematic::PasteOptions& options;
     ChunkMap& cm;
     const BlockRegistry& registry;
+    // The sky walk, when the caller has one (the schematic tests do not). Null
+    // leaves the column re-scan in place, so the paste still shades -- it just
+    // does not fill the shade in until those chunks are reloaded.
+    LightPropagator* light = nullptr;
 
     PasteWriteResult result;
     // Index-aligned with each other: what each written cell displaced, and what
@@ -95,6 +99,12 @@ struct PasteWrite {
     // World positions whose write can change a fluid's answer, decided while the
     // chunk was in hand and woken once every band is released.
     std::vector<std::array<int32_t, 3>> wake_world;
+    // One entry per chunk whose sky batch wrote something: {cx, cy, cz, mask}, the
+    // mask being the 27-bit one the light passes return, relative to that chunk.
+    // A batch can light a neighbour across a border, and those meshes need the same
+    // dirty as the written chunk -- recorded under the band and applied after it,
+    // like every other write here.
+    std::vector<std::array<int32_t, 4>> sky_batch_bases;
     // The subset of `touched` whose BLOCK light can actually have changed. Every
     // chunk a paste writes to needs a remesh, but only these need the 3×3×3 region
     // pass — and that pass is the expensive half of a paste by a wide margin
@@ -258,11 +268,22 @@ void write_paste_group(PasteWrite& write, PasteGroup& group,
         write_paste_cell(write, state, *chunk, render, index);
     }
 
-    // Sky light is a column property: recompute the touched columns of this
-    // chunk while the band is still held, exactly as a single edit does.
-    for (const uint32_t column : state.sky_columns) {
-        chunk->propagate_sky_light_column(static_cast<int32_t>(column >> 16),
-                                          static_cast<int32_t>(column & 0xFFFF), above);
+    // Sky light is a column property: recompute the touched columns of this chunk
+    // while the band is still held, exactly as a single edit does. All of them go in
+    // as ONE batch -- a pasted roof touches every column it covers, and walking the
+    // volume under it once per column would cost the paste a pass per cell.
+    if (write.light != nullptr) {
+        const uint32_t sky_mask = write.light->sky_light_recompute_columns_locked(
+            group.cx, group.cy, group.cz, state.sky_columns);
+        if (sky_mask != 0) {
+            write.sky_batch_bases.push_back(
+                {group.cx, group.cy, group.cz, static_cast<int32_t>(sky_mask)});
+        }
+    } else {
+        for (const uint32_t column : state.sky_columns) {
+            chunk->propagate_sky_light_column(static_cast<int32_t>(column >> 16),
+                                              static_cast<int32_t>(column & 0xFFFF), above);
+        }
     }
     if (state.wrote_here) {
         write.touched.push_back({group.cx, group.cy, group.cz});
@@ -319,6 +340,16 @@ void publish_paste_writes(ChunkWorld& world, MeshManager& meshes, LightPropagato
     for (const std::array<int32_t, 3>& pos : write.light_touched) {
         light.propagate_block_light_region(pos[0], pos[1], pos[2]);
     }
+    // Each sky batch's mask is relative to the chunk its own call was centred on.
+    for (const std::array<int32_t, 4>& base : write.sky_batch_bases) {
+        for (int32_t dz = -1; dz <= 1; ++dz)
+            for (int32_t dy = -1; dy <= 1; ++dy)
+                for (int32_t dx = -1; dx <= 1; ++dx) {
+                    const uint32_t bit = 1u << static_cast<uint32_t>((dx + 1) + (dy + 1) * 3 + (dz + 1) * 9);
+                    if ((static_cast<uint32_t>(base[3]) & bit) == 0) continue;
+                    meshes.queue_dirty_chunk(base[0] + dx, base[1] + dy, base[2] + dz);
+                }
+    }
 }
 } // namespace
 
@@ -329,6 +360,7 @@ PasteWriteResult BlockEditor::apply_paste(const schematic::PastePlan& plan,
     if (plan.empty()) return PasteWriteResult{};
 
     PasteWrite write{plan, options, chunk_world->get_chunk_map(), BlockRegistry::get_instance()};
+    write.light = light_propagator;
     // One entry per planned cell at worst, so a big paste's accumulators never
     // reallocate while it runs.
     write.displaced.reserve(plan.cells.size());

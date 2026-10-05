@@ -16,6 +16,16 @@ namespace VoxelEngine {
 class ChunkData;
 void propagate_chunk_block_light_additive(ChunkData& chunk);
 
+// One cell of a sky-light column rescan whose level changed. The rescan can only
+// say what the column looks like NOW; the edit path needs the old level to
+// un-propagate the light the cell used to hand out, because the sky walk only
+// ever raises a level and cannot lower one on its own.
+struct SkyColumnChange {
+    int16_t y = 0;
+    uint8_t old_level = 0;
+    uint8_t new_level = 0;
+};
+
 // -------------------------------------------------------------------------
 // Chunk Data
 // -------------------------------------------------------------------------
@@ -33,6 +43,14 @@ private:
     // liquid in its data actually has liquid geometry on the GPU.
     uint32_t liquid_cells = 0;
     uint32_t section_block_count[CHUNK_SECTIONS];
+    // Whether any cell of this chunk ended up shaded by its own column scan: a
+    // cell that is neither opaque nor liquid yet holds less than full sky light.
+    // Only ever SET by the scans (cleared by the wipes), never cleared by a
+    // partial one, so a stale true costs a walk that finds nothing and a stale
+    // false cannot exist for a chunk whose light came from a scan. The install
+    // pass reads it to skip its own sweep, which is what keeps a plain or an ocean
+    // from paying for this feature at all.
+    bool has_sky_shade_ = false;
 
     [[nodiscard]] static inline bool is_emissive_block(BlockID id) noexcept {
         return HasProperty(BlockRegistry::get_instance().get_block_fast(id).properties, BlockProperty::Emissive);
@@ -217,7 +235,12 @@ public:
     }
 
     void propagate_sky_light(const ChunkData* chunk_above = nullptr);
-    void propagate_sky_light_column(int32_t x, int32_t z, const ChunkData* chunk_above = nullptr);
+    // When `changes` is given it receives one entry per cell of this column whose
+    // level moved, with the value it held before the rescan overwrote it.
+    void propagate_sky_light_column(int32_t x, int32_t z, const ChunkData* chunk_above = nullptr,
+                                    std::vector<SkyColumnChange>* changes = nullptr);
+
+    [[nodiscard]] bool has_sky_shade() const noexcept { return has_sky_shade_; }
 
     // Bulk load from dense array
     void set_data(const BlockID* data, uint32_t count);

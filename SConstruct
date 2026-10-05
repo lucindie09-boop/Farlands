@@ -277,8 +277,11 @@ test_chunk_data_object = test_env.Object("src/core/chunk_data_test", source="src
 # Add light_propagator for light removal tests (not in shared_sources because it requires MeshManager)
 # Compile separately with the DOCTEST_NO_MULTITHREADED flag
 test_light_propagator_object = test_env.Object("src/lighting/light_propagator_test", source="src/lighting/light_propagator.cpp")
+# The sky walk is a second TU of the same class and carries the same MeshManager
+# reference, so it is compiled the same way.
+test_light_propagator_sky_object = test_env.Object("src/lighting/light_propagator_sky_test", source="src/lighting/light_propagator_sky.cpp")
 # Note: edit_map.cpp and block_light_region.cpp are already in shared_sources via library build
-test_prog = test_env.Program("bin/run_tests", Glob("tests/*.cpp") + shared_objects + [test_chunk_data_object, test_light_propagator_object])
+test_prog = test_env.Program("bin/run_tests", Glob("tests/*.cpp") + shared_objects + [test_chunk_data_object, test_light_propagator_object, test_light_propagator_sky_object])
 Alias("test", test_prog)
 
 # File-size guard: no C++ file under src/, tests/ or tools/ may exceed 500 lines.

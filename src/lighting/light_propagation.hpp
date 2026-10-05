@@ -28,6 +28,19 @@ inline constexpr int16_t kDiamondOffsets[6][3] = {
     {0, 0, 1}, {0, 0, -1}
 };
 
+// One cell of the sky-light walk. The sky channel is a single level 0-15, so a
+// node carries no colour: the six-neighbour relaxation is the same shape as the
+// block-light one, but a scalar.
+struct SkyNode {
+    int32_t cx = 0;
+    int32_t cy = 0;
+    int32_t cz = 0;
+    int16_t x = 0;
+    int16_t y = 0;
+    int16_t z = 0;
+    uint8_t level = 0;
+};
+
 struct EmissiveSource {
     int8_t rdx = 0;
     int8_t rdy = 0;

@@ -11,7 +11,8 @@ per-system, the description and the notes for it now live in `docs/` — shapes
 inventory and GUI ([gui-notes.md](docs/gui-notes.md)), the GDScript UI ([ui.md](docs/ui.md)),
 build files ([schematic-notes.md](docs/schematic-notes.md)), terrain
 ([terrain-notes.md](docs/terrain-notes.md)), pathfinding ([pathfinding.md](docs/pathfinding.md)),
-fluids ([fluids.md](docs/fluids.md)) and the test/CI rules ([testing.md](docs/testing.md)).
+light ([light.md](docs/light.md)), fluids ([fluids.md](docs/fluids.md)) and the test/CI rules
+([testing.md](docs/testing.md)).
 For the tasks, schemas, vocabulary and instruments, [docs/](docs/README.md).
 
 Every heading under *Major completed work* is a summary with a link; the full notes for a
@@ -85,7 +86,7 @@ The four gates this file's constraints describe are `scons sizecheck`, `scons po
   anonymous namespace (or `static`), or its external linkage can collide with the same name in a
   sibling file at link time
 - **The static-analysis job is the third structural gate, and the only one that reads C++
-  semantics rather than shapes.** clang-tidy runs over `find src -name '*.cpp'` (110 files) with
+  semantics rather than shapes.** clang-tidy runs over `find src -name '*.cpp'` (111 files) with
   `bugprone-*`, `concurrency-*` and `performance-*` on `ubuntu-latest`, and any finding in
   project sources fails the job, so a split that smuggles in a new shape surfaces here one
   finding at a time. Two shapes are worth knowing before writing the next helper, and both are
@@ -158,6 +159,21 @@ Full notes: [docs/shapes-notes.md](docs/shapes-notes.md).
   Horizon Curve.
 
 Full notes, effect by effect: [docs/rendering-notes.md](docs/rendering-notes.md).
+
+### Lighting
+- Two channels share one cell: a scalar sky level and a coloured block light level, four bits
+  each in the same 16-bit word. A step costs one level plus the destination's `light_opacity`, and
+  an opaque block takes nothing — one rule, both channels.
+- Sky light is a per-column scan plus a six-neighbour walk. The scan is exact inside a column and
+  says nothing about the cell beside it; the walk is what makes shade a gradient (a 3x3 roof
+  leaves 14 under its edge and 13 under its middle, and a 4x4 leaves a 13 middle inside its 14
+  ring) instead of a hole under any ceiling.
+- It is a relaxation, not a recompute: **the walk only ever raises a level**, so partial passes are
+  safe, re-runs are no-ops, and the order chunks arrive in cannot change the result.
+- The install pass is additive and gated by a flag the column scan sets, so a plain, an ocean and
+  a solid chunk walk nothing while streaming. Liquids are deliberately not filled sideways.
+
+Full notes: [docs/light.md](docs/light.md).
 
 ### Inventory & GUI
 - The C++ inventory, crafting and item-registry cores, and the GDScript screens over
@@ -232,7 +248,7 @@ Full notes: [docs/schematic-notes.md](docs/schematic-notes.md).
 Full notes: [docs/fluids.md](docs/fluids.md).
 
 ### Testing & CI
-- 619 test cases / 348,219 assertions, written with `CHECK`/`CHECK_FALSE` only: this
+- 629 test cases / 348,277 assertions, written with `CHECK`/`CHECK_FALSE` only: this
   build disables exceptions, so `REQUIRE` is a compile error.
 - Move work off the frame before making it cheaper, and prove the move with a total:
   the phases must add up to the frame.

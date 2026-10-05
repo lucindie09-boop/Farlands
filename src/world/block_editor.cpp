@@ -80,9 +80,14 @@ void BlockEditor::place_block(int32_t world_x, int32_t world_y, int32_t world_z,
 
         chunk_data->set_block(local_x, local_y, local_z, new_block);
 
-        if (old_opaque != new_opaque) {
-            ChunkData* above = cm.get_chunk_data_fast(chunk_x, chunk_y + 1, chunk_z);
-            chunk_data->propagate_sky_light_column(local_x, local_z, above);
+        // A change that can move the column's sky light: a block entering or leaving
+        // the Opaque set, or one whose own light_opacity differs from what it
+        // replaced (a leaf, a pool). The recompute re-scans the column and then
+        // un-propagates what the column used to hand out sideways and re-relaxes
+        // what survives, so placing one block in mid-air casts a dimple rather than
+        // a shaft, and breaking one lets the light back in.
+        if (old_opaque != new_opaque || old_type.light_opacity != new_type.light_opacity) {
+            light_propagator->sky_light_recompute_column_locked(chunk_x, chunk_y, chunk_z, local_x, local_z);
         }
 
         light_propagator->update_block_light_incremental_locked(

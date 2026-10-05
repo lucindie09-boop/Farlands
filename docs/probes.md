@@ -5,7 +5,7 @@ the resolver, the fluid rules, the planner and the save formats. A probe is for
 what is left: the real loaded registry, the real texture array, the real world,
 and what actually reaches the screen.
 
-They live in `probes/` (48 `.gd` scripts). **The scripts are repository
+They live in `probes/` (49 `.gd` scripts). **The scripts are repository
 content; what they produce is not.** `.gitignore` ignores `probes/*` except
 `*.gd`, `*.sh`, `*.tscn` and `*.gdshader*`, so screenshots, crash reports and
 generated sheets (hundreds of megabytes) stay scratch while the probes
@@ -95,6 +95,7 @@ comment, with the claim each one backs:
 | `probe_item_size.gd` | A dropped item is not cell-sized: a cube's body and drawn mesh are both half a block, a slab and a stair keep their own shape at that scale, a sprite keeps its silhouette, and a stack of more than one is both drawn and solved bigger by the capped log2 curve (1.25x at 2 through 2x from sixteen), mesh and body one box at every count |
 | `probe_item_merge.gd` | Two drops of one kind next to each other become one pile: the counts add up to the 64 cap, the fuller keeps its place, body and mesh take the count's own size, motions combine only when both move, and the drawn size pops past the new one and settles back (at half strength once the pile is already at its largest) |
 | `probe_drop_swing.gd` | The drop path itself (`hotbar.gd _drop_selected`) throws the item AND kicks the viewmodel's full punch swing -- the swing timer at 1 with no place stroke -- once per unit and once per Ctrl+Q, writing the slot back each time |
+| `probe_drop_icon.gd` | A throw clones the slot's own icon out of its slot whole: it starts on the slot's icon rect, rises, turns as it falls out of the frame, and a slot thrown empty does NOT also shatter in place (a spend still does) |
 | `probe_chunk_borders.gd` | The 32-block chunk-grid overlay |
 | `probe_preview_cache.gd` | The wand's build preview cache never hands back the WRONG file after re-aiming |
 | `probe_wand_shot.gd` / `probe_wand_menu.gd` | The wand's middle-click menu opens where it should, and its buttons work for real |

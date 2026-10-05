@@ -174,13 +174,16 @@ first-person viewmodel - what each one owns and the decisions behind it.
   where they mean it to go — and then falls off the bottom of the screen or tumbles away; and it
   **rotates** as it goes, because a rigid thing tumbling is the read, and a shatter cannot rotate
   because it is not one thing any more.
-  Open questions when this gets built, deliberately left open: whether the throw is a genuine aim
-  ray or just a fixed flick toward screen centre; whether the tumbles come from `Transform2D` or
-  from a `Sprite2D`/quad; and whether it collides with the same `Surface` vocabulary as above (very
-  likely yes — a dropped item falling past the hotbar wants the same art-derived edge the hearts
-  use, and `Surface.from_top_edge()` already gives it) or simply falls out of frame (also fine —
-  nothing is below it but empty screen). `UIShatter` should not grow this: one effect for
-  destruction, another for departure.
+  It is built that way, in two halves: `scripts/dropped_items.gd` is the item itself (a rigid body
+  in the world, solved against the voxels) and `scripts/ui_icon_throw.gd` is the slot's own art
+  leaving the HUD whole. The open questions were settled with it: the nudge out of the slot is not a
+  genuine aim ray but the aim's sideways part read onto the screen (a drop while looking east leaves
+  to the right); the tumble is `CanvasItem.draw_set_transform` about the art's middle, not a second
+  node per piece; and it simply falls out of frame — nothing is below it but empty screen, so there
+  is no `Surface` to land on. `UIShatter` did not grow it: one effect for destruction, another for
+  departure. The one rule between them: a slot whose last unit left by being THROWN does not also
+  shatter (`hotbar.gd`, `_thrown_out`), because the icon that went is already out there falling, and
+  pixels coming apart on top of it would say the drop was destroyed.
 - **The inventory's spent *slots* are much quieter than everything else**
   (`UIShatter.SPEND = 0.3`, passed as `burst()`'s `intensity`) — the *slots only*. A slot empties as
   a stack is dragged off it, one at a time and repeatedly, and at the full throw the shards of one

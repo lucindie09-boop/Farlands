@@ -11,6 +11,7 @@ const SLOT_SIZE = 48
 const HOTBAR_SIZE = 9
 const MUNRO_FONT: Font = preload("res://fonts/munro.ttf")
 const UIShatter := preload("res://scripts/ui_shatter.gd")
+const UIIconThrow := preload("res://scripts/ui_icon_throw.gd")
 const BlockIconArt := preload("res://scripts/block_icon_art.gd")
 
 # Slot fill geometry measured from hotbar.png: the #262505 fill is a 16x16 px
@@ -68,12 +69,23 @@ var _last_size := Vector2.ZERO
 # spent: see scripts/ui_shatter.gd.
 var _shards := UIShatter.new()
 
+# The whole icons in the air after a throw: see scripts/ui_icon_throw.gd.
+var _thrown := UIIconThrow.new()
+
+# Slots whose last unit left by THROWING, so the spent-icon hook does not also
+# come apart on top of the throw's own icon -- a drop is not destruction.
+# Consumed (or forgotten) the next time _needs_redraw() looks at its slot.
+var _thrown_out := {}
+
 func _process(delta):
 	if _needs_redraw():
 		queue_redraw()
-	# The pixels are moving for as long as they exist, so their fall alone keeps
-	# the redraw gate open.
-	if _shards.advance(delta):
+	# The pixels and the thrown icons are moving for as long as they exist, so
+	# their fall alone keeps the redraw gate open. Both advance every frame -- no
+	# short-circuit -- or one of them would freeze behind the other's answer.
+	var falling := _shards.advance(delta)
+	falling = _thrown.advance(delta) or falling
+	if falling:
 		queue_redraw()
 
 # Redraw only when the drawn state actually changed (slot contents, selection,
@@ -94,11 +106,21 @@ func _needs_redraw() -> bool:
 	for i in range(HOTBAR_SIZE):
 		var id: int = player_controller.get_hotbar_slot_block_id(i)
 		var cnt: int = player_controller.get_hotbar_slot_count(i)
+		# A slot refilled before its emptied frame came round is not a throw any
+		# more: forget it, so the next real spend still comes apart.
+		if cnt > 0:
+			_thrown_out.erase(i)
 		if id != _last_ids[i] or cnt != _last_counts[i]:
 			# The last of a stack going is the item being spent: the icon it was
 			# drawn as comes apart instead of just blinking out.
 			if _last_counts[i] > 0 and cnt == 0 and _last_ids[i] > 0:
-				_spend_icon(i, _last_ids[i])
+				if _thrown_out.has(i):
+					# ...unless it left by being THROWN: the whole icon is already
+					# out falling (ui_icon_throw.gd), and a shatter on top of it would
+					# say the dropped item was destroyed.
+					_thrown_out.erase(i)
+				else:
+					_spend_icon(i, _last_ids[i])
 			_last_ids[i] = id
 			_last_counts[i] = cnt
 			return true
@@ -151,6 +173,15 @@ func _drop_selected(all: bool) -> void:
 	var viewmodel := player_controller.get_node_or_null("Camera3D/Viewmodel")
 	if viewmodel != null and viewmodel.has_method("punch"):
 		viewmodel.punch()
+	# The slot's own icon leaves the slot WHOLE and falls out of the bar after the
+	# item (ui_icon_throw.gd), because the throw's own read is that the item is in
+	# transit and not destroyed. `dir.x` is the aim's sideways part read onto the
+	# screen, so a drop while looking east leaves to the right.
+	_throw_icon(slot, block_id, dir.x)
+	if count - dropped <= 0:
+		# The slot emptying is NOT the spent-stack shatter: the icon that went was
+		# this one (_needs_redraw), not one destroyed in place.
+		_thrown_out[slot] = true
 
 ## The world node items are thrown into: under Main, beside the player.
 ##
@@ -208,32 +239,26 @@ func _draw():
 		
 		# Draw block icon if slot has blocks
 		if block_id > 0 and count > 0:
-			# Try to get isometric block icon from BlockIconRenderer
-			var icon_renderer = get_node_or_null("/root/BlockIconRenderer")
-			var block_icon = null
-			if icon_renderer != null:
-				block_icon = icon_renderer.get_block_icon(block_id)
-			
+			# The one lookup the drawing and the throwing share (BlockIconArt): the
+			# isometric render where there is one -- items like the stick have none --
+			# and the block's own texture otherwise, so the art a throw clones is the
+			# art the slot drew.
 			var icon_rect := _slot_icon_rect(i, ui_scale)
-			var icon_x = icon_rect.position.x
-			var icon_y = icon_rect.position.y
-			var icon_size = icon_rect.size.x
+			var block_icon := BlockIconArt.texture(block_id)
 			if block_icon:
-				draw_texture_rect(block_icon, Rect2(icon_x, icon_y, icon_size, icon_size), false)
+				draw_texture_rect(block_icon, icon_rect, false)
 			else:
-				# Fallback to block texture (items like the stick have no iso icon)
-				var block_texture = BlockTextures.get_texture(block_id)
-				if block_texture:
-					draw_texture_rect(block_texture, Rect2(icon_x, icon_y, icon_size, icon_size), false)
-				else:
-					# Fallback to colored rectangle
-					draw_rect(Rect2(icon_x, icon_y, icon_size, icon_size), _get_block_color(block_id))
+				# No art at all: a coloured rectangle stands in, and there is nothing
+				# in it for a throw to clone.
+				draw_rect(icon_rect, _get_block_color(block_id))
 			
 			# Draw count text
 			if count > 1:
 				_draw_item_count(str(count), fill_x + fill_size, fill_y + fill_size, fill_size)
-	# Spent items' pixels, over the bar they came off.
+	# Spent items' pixels, over the bar they came off, and whole icons on their
+	# way out of it after them -- drawn last so a throw is never hidden by debris.
 	_shards.draw(self)
+	_thrown.draw(self)
 
 ## Where slot `i`'s icon sits, in units: the one layout the icons and their
 ## shattering pixels both go through, so a spent stack can only ever come apart
@@ -275,6 +300,17 @@ func _spend_icon(slot: int, block_id: int) -> void:
 	_shards.burst(pixels["mask"], pixels["art"],
 		_slot_icon_rect(slot, ui_scale).position, ui_scale, Color.WHITE, 0.0, pixels["colours"],
 		1.0, UIShatter.Surface.box(_slot_rect(slot, ui_scale)))
+
+## Clone the slot's icon and let it fall out of the bar (ui_icon_throw.gd). The
+## art is the very texture the slot draws, from the very rect it is drawn in, so
+## the thing that leaves is the thing that was there; a block with no art of its
+## own (the coloured-rectangle fallback) has nothing to clone and no throw.
+func _throw_icon(slot: int, block_id: int, side: float) -> void:
+	var art := BlockIconArt.texture(block_id)
+	if art == null:
+		return
+	_thrown.launch(art, _slot_icon_rect(slot, UIScale.value), side, size.y)
+
 
 func _draw_custom_hotbar():
 	# Fallback custom drawing if texture not available

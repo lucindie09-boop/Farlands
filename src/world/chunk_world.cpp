@@ -77,6 +77,7 @@ int32_t ChunkWorld::process_completed_chunks(uint64_t epoch, double budget_ms, i
 
             uint64_t key = chunk_map.get_chunk_key(stage.chunk_x, stage.chunk_y, stage.chunk_z);
             bool any_emissive_in_region = false;
+            bool any_sky_shade_in_region = false;
             bool took_fire_and_forget = false;
             {
                 uint64_t keys[28];
@@ -88,7 +89,8 @@ int32_t ChunkWorld::process_completed_chunks(uint64_t epoch, double budget_ms, i
                             keys[idx++] = chunk_map.get_chunk_key(stage.chunk_x + dx, stage.chunk_y + dy, stage.chunk_z + dz);
                 // SHARED, not exclusive: everything below this line only READS the
                 // map (it checks presence and asks 27 neighbours for their emissive
-                // counts). Taking the exclusive lock here made every chunk install on
+                // count and their shade flag). Taking the exclusive lock here made
+                // every chunk install on
                 // the main thread an exclusive writer of up to 28 shards for a
                 // read-only question, which is what starved the readers that show up
                 // as 100 ms lock waits. The propagation itself — the only real
@@ -103,30 +105,43 @@ int32_t ChunkWorld::process_completed_chunks(uint64_t epoch, double budget_ms, i
                 }
                 light_propagated_chunks.insert(key);
 
+                // One trip over the band for both questions the worker gate needs,
+                // so the gate itself costs no extra chunk lookups. The shade flag is
+                // part of the question because the sky pass is not a no-op for an
+                // open chunk: its own 15s are a legitimate source for a NEIGHBOUR's
+                // dim border cells, so a band whose only shade is next door still
+                // has work. A fully open band is the one case where skipping is
+                // provably safe -- with no shade anywhere, every cell is either 15
+                // (nothing to raise it) or an opaque or liquid cell the pass will not
+                // target.
                 bool any_emissive = false;
-                for (int dz = -1; dz <= 1 && !any_emissive; dz++) {
-                    for (int dy = -1; dy <= 1 && !any_emissive; dy++) {
-                        for (int dx = -1; dx <= 1 && !any_emissive; dx++) {
+                bool any_sky_shade = false;
+                for (int dz = -1; dz <= 1; dz++) {
+                    for (int dy = -1; dy <= 1; dy++) {
+                        for (int dx = -1; dx <= 1; dx++) {
                             ChunkData* n = chunk_map.get_chunk_data_fast(stage.chunk_x + dx, stage.chunk_y + dy, stage.chunk_z + dz);
-                            if (n && n->get_emissive_count() > 0) {
-                                any_emissive = true;
-                            }
+                            if (n == nullptr) continue;
+                            if (n->get_emissive_count() > 0) any_emissive = true;
+                            if (n->has_sky_shade()) any_sky_shade = true;
                         }
                     }
                 }
                 any_emissive_in_region = any_emissive;
+                any_sky_shade_in_region = any_sky_shade;
 
-                // The worker task is no longer emitter-gated. The block-light region
-                // pass still wants an emitter in the neighborhood (it wipes and
-                // rebuilds seven slots), but the sky pass runs for every arriving
-                // chunk, and where there is no shade to fill it is a flag test plus a
-                // border sweep. Both need the same exclusive band, so they share one.
-                if ((any_emissive || light_propagator != nullptr) && thread_pool) {
+                // Both passes need the same exclusive band, so they share one -- but
+                // only when there is something for one of them to do. Taking a
+                // 27-shard EXCLUSIVE band for a chunk that walks nothing is the
+                // shape that starved readers behind the light workers before, and a
+                // plain chunk is the common case while streaming: with no emitter
+                // and no shade in the band the chunk falls through to the dirty-mesh
+                // queue below and takes no band at all.
+                if ((any_emissive || any_sky_shade) && thread_pool) {
                     took_fire_and_forget = true;
                     int32_t cx = stage.chunk_x;
                     int32_t cy = stage.chunk_y;
                     int32_t cz = stage.chunk_z;
-                    thread_pool->fire_and_forget([this, cx, cy, cz, epoch, any_emissive]() {
+                    thread_pool->fire_and_forget([this, cx, cy, cz, epoch, any_emissive, any_sky_shade]() {
                         uint32_t modified = 0;
                         {
                             uint64_t keys[27];
@@ -167,7 +182,7 @@ int32_t ChunkWorld::process_completed_chunks(uint64_t epoch, double budget_ms, i
                                 // than building it.
                                 modified = light_region.modified_mask();
                             }
-                            if (light_propagator != nullptr) {
+                            if (light_propagator != nullptr && any_sky_shade) {
                                 // Additive only: no wipe, no rebuild. The arriving
                                 // chunk's own scan is the source of truth for its cells
                                 // and only its shade and its border planes can be beaten
@@ -182,13 +197,16 @@ int32_t ChunkWorld::process_completed_chunks(uint64_t epoch, double budget_ms, i
                 }
             }
 
-            if (!took_fire_and_forget && light_propagator) {
+            if (!took_fire_and_forget && light_propagator &&
+                (any_emissive_in_region || any_sky_shade_in_region)) {
                 if (any_emissive_in_region) {
                     light_propagator->propagate_block_light_region(stage.chunk_x, stage.chunk_y, stage.chunk_z);
                 }
-                // No worker pool (tests, standalone tools): the same additive pass,
-                // taking its own band and marking the meshes it changed.
-                light_propagator->scatter_sky_light_region(stage.chunk_x, stage.chunk_y, stage.chunk_z);
+                if (any_sky_shade_in_region) {
+                    // No worker pool (tests, standalone tools): the same additive pass,
+                    // taking its own band and marking the meshes it changed.
+                    light_propagator->scatter_sky_light_region(stage.chunk_x, stage.chunk_y, stage.chunk_z);
+                }
             }
 
             continue;

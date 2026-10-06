@@ -47,7 +47,7 @@ mouth fades instead of stopping. 0 is left for volumes no open column can reach.
 | Trigger | Entry point | Cost |
 |---|---|---|
 | A block change that moves a column (opaque set, or opacity) | `sky_light_recompute_column_locked` -- re-scan the column, un-propagate what it used to hand out, relax what survives | one small walk in the 3x3x3 band the edit already holds |
-| A chunk becoming resident | `scatter_sky_light_region_locked`, from the install worker, sharing the band and the completion mask with the block-light pass | flag test and a border sweep when the chunk has no shade; a walk over the shade when it has |
+| A chunk becoming resident | `scatter_sky_light_region_locked`, from the install worker, sharing the band and the completion mask with the block-light pass | nothing at all when no chunk in the band has shade -- the worker is not fired and no band is taken. Otherwise a border sweep, plus a walk over the shade |
 | A chunk whose neighbour just arrived | the same pass, driven from either side of the border | as above |
 | A paste | `sky_light_recompute_columns_locked` -- every column the paste re-scans goes in as one batch, so a pasted roof's volume is walked once, not once per column | one walk per touched chunk, and the mask it returns dirties the neighbours' meshes |
 
@@ -60,11 +60,21 @@ Three properties make it affordable, and each one is load-bearing:
 - **A pass only looks where something can happen.** The install pass reads a flag
   the column scan set (the chunk contains a dim cell that is neither opaque nor
   liquid) and then only the cells that can beat a neighbour. A plain, an ocean and
-  a solid chunk walk nothing at all.
+  a solid chunk walk nothing at all -- and the flag is asked of the whole 3x3x3
+  band, not just the arriving chunk, because an open chunk's own 15s are a
+  legitimate source for a neighbour's dim border cells. A band with no shade in it
+  is skipped before the worker is fired, so it takes no exclusive lock either;
+  with no shade anywhere every cell is either 15, an opaque one the walk cannot
+  enter, or a liquid one it does not target, which is what makes skipping it
+  lossless rather than merely cheap.
 - **A pass cannot leave its band.** A chain from a seed cannot travel more than 15
   cells and a chunk is 32 wide, so the 3x3x3 exclusive band its caller holds is
   always enough -- and a step toward anything outside it is refused rather than
-  taken under a lock nobody holds.
+  taken under a lock nobody holds. The seeds that are already outside the centre
+  chunk are why this is exact rather than merely safe: such a seed is by
+  construction the neighbour's cell one step across the boundary, local 0 or 31 on
+  the axis it crossed, so leaving the band from there would need the neighbour's
+  other 31 cells first -- 32 steps against a budget of 14.
 
 ## What is deliberately left out
 
@@ -86,4 +96,7 @@ Three properties make it affordable, and each one is load-bearing:
 out: the 3x3 dimple and the 4x4 rings, the open chunk that walks nothing, the edit
 path landing on the same field as the install pass, growing a roof darkening the
 ring it swallowed, taking a roof off restoring full light exactly, the gradient
-crossing a chunk line, and the sky walk leaving the block-light channels untouched.
+crossing a chunk line, the sky walk leaving the block-light channels untouched,
+and the two halves of the install gate: a band with no shade in it anywhere (the
+case allowed to skip), and a shaded **neighbour** of an open chunk (the case that
+is not, because the open chunk's border is the only thing that can light it).

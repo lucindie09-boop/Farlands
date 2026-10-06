@@ -108,10 +108,16 @@ void LightPropagator::sky_propagate_add_locked(std::vector<SkyNode>& queue,
 
             wrap_local_to_world(nx, ny, nz, ncx, ncy, ncz);
 
-            // The caller holds an exclusive band around ONE chunk, and a chain from
-            // a seed inside it can never leave the band (max level 15 < chunk size
-            // 32), so a step that would land outside is a step onto a shard nobody
-            // locked. Refusing it loses nothing: no reachable level can get there.
+            // The caller holds an exclusive band around ONE chunk. A seed outside
+            // the centre chunk is ALWAYS on the band's inner edge along the axis it
+            // crossed -- it is the neighbour's cell one step across the boundary, so
+            // local 0 or 31 there -- which is what makes refusing an outward step
+            // lossless rather than merely safe. Leaving the band from such a seed
+            // needs it to cross the neighbour's other 31 cells first: 32 steps,
+            // against a budget of 14 (a level is at most 15 and the first step is
+            // spent). A seed in the centre chunk is 15 steps from the band's own
+            // edge at most. So a step that would land outside is a step onto a shard
+            // nobody locked AND a level no chain here can reach.
             const int32_t dcx = ncx - region_cx;
             const int32_t dcy = ncy - region_cy;
             const int32_t dcz = ncz - region_cz;
@@ -221,11 +227,17 @@ void LightPropagator::sky_light_recompute_column_locked(int32_t cx, int32_t cy, 
                                                         int32_t x, int32_t z) {
     // One column is the degenerate batch, and the two paths must not drift: a
     // single edit and a paste have to leave the same field behind.
-    std::vector<uint32_t> one;
-    one.push_back((static_cast<uint32_t>(x) << 16) | (static_cast<uint32_t>(z) & 0xFFFFu));
+    //
+    // The list is reused rather than rebuilt: a block placement lands here, so a
+    // fresh one-element vector per edit is a heap allocation the edit path can
+    // simply not pay. Reusing it is safe because this is not re-entrant -- nothing
+    // it calls recomputes a column.
+    static thread_local std::vector<uint32_t> one_column;
+    one_column.clear();
+    one_column.push_back((static_cast<uint32_t>(x) << 16) | (static_cast<uint32_t>(z) & 0xFFFFu));
     // The caller is the block-edit path, which dirties the whole 3x3x3 afterwards,
     // so the mask is not needed here.
-    (void)sky_light_recompute_columns_locked(cx, cy, cz, one);
+    (void)sky_light_recompute_columns_locked(cx, cy, cz, one_column);
 }
 
 uint32_t LightPropagator::sky_light_recompute_columns_locked(int32_t cx, int32_t cy, int32_t cz,
@@ -234,7 +246,11 @@ uint32_t LightPropagator::sky_light_recompute_columns_locked(int32_t cx, int32_t
     if (!chunk) return 0;
     ChunkData* above = chunk_map->get_chunk_data_fast(cx, cy + 1, cz);
 
-    std::vector<SkyColumnChange> changes;
+    // Reused across calls and across the columns of one call, so a paste that
+    // re-scans a chunk's worth of columns does not allocate a change list per
+    // column. SkyColumnChange is a plain struct, so the buffer is safe to keep
+    // (the rule about static engine-typed state is about godot-cpp types).
+    static thread_local std::vector<SkyColumnChange> changes;
     sky_remove_buffer.clear();
     sky_add_buffer.clear();
 

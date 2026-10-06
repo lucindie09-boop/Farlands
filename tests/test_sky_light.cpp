@@ -192,6 +192,16 @@ TEST_CASE("sky: an open chunk walks nothing") {
     SkyFixture f;
     CHECK_FALSE(f.chunk_of(0, 0, 0)->has_sky_shade());
     CHECK(f.min_sky_in_chunk(0, 0, 0) == 15);
+    // The install path's gate asks the whole 3x3x3 for shade, so the band it is
+    // allowed to skip is one with no shade anywhere in it. Pin that input here:
+    // if any chunk in the band reported shade, skipping it would drop real work
+    // (the shaded-neighbour case below is what that work looks like).
+    int shaded_in_band = 0;
+    for (int32_t dz = -1; dz <= 1; ++dz)
+        for (int32_t dy = -1; dy <= 1; ++dy)
+            for (int32_t dx = -1; dx <= 1; ++dx)
+                if (f.chunk_of(dx, dy, dz)->has_sky_shade()) ++shaded_in_band;
+    CHECK(shaded_in_band == 0);
     // No writes, no mask: this is the case that has to stay free while streaming.
     CHECK(f.scatter(0, 0, 0) == 0);
     CHECK(f.min_sky_in_chunk(0, 0, 0) == 15);
@@ -294,6 +304,36 @@ TEST_CASE("sky: a roof on a chunk line keeps its gradient across the border") {
     CHECK(f.sky(1, 0, 0, 0, y - 1, 11) == 13);   // middle of the roof, next chunk
     CHECK(f.sky(1, 0, 0, 1, y - 1, 11) == 14);   // outer ring, next chunk
     CHECK(f.sky(1, 0, 0, 2, y - 1, 11) == 15);   // open, next chunk
+}
+
+TEST_CASE("sky: a shaded neighbour is reason enough for the band to run") {
+    // The install gate asks the whole band rather than the arriving chunk, because
+    // an open chunk's own 15s are a LEGITIMATE source for a neighbour's dim border
+    // cells: a band whose only shade is next door still has real work to do.
+    SkyFixture f;
+    const int32_t y = 20;
+    // Roof over the +X neighbour's near columns, so what it shades sits against the
+    // border with the fully open centre chunk.
+    f.roof_install(1, 0, 0, 0, 2, 10, 12, y);
+    CHECK(f.chunk_of(1, 0, 0)->has_sky_shade());
+    CHECK_FALSE(f.chunk_of(0, 0, 0)->has_sky_shade());
+
+    // The neighbour's own scan left its covered columns at 0, and nothing inside it
+    // can reach them: the roof spans the whole 3-wide pocket and its own open
+    // columns are three cells away.
+    CHECK(f.sky(1, 0, 0, 0, y - 1, 11) == 0);
+
+    // Only the centre's pass can help: its cell at the border is open sky, and the
+    // neighbour's cell one step across takes 14 from it. A gate that looked at the
+    // arriving chunk alone would skip this and leave the border a step too dark.
+    const uint32_t modified = f.scatter(0, 0, 0);
+    CHECK(modified != 0);
+    CHECK((modified & BlockLightRegion::slot_bit(1, 0, 0)) != 0);
+    CHECK(f.sky(1, 0, 0, 0, y - 1, 11) == 14);
+    // The walk carries on from there into the pocket.
+    CHECK(f.sky(1, 0, 0, 1, y - 1, 11) == 13);
+    // The centre is untouched: it was already at full sky.
+    CHECK(f.min_sky_in_chunk(0, 0, 0) == 15);
 }
 
 TEST_CASE("sky: the walk never touches the block-light channels") {

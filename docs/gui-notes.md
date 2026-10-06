@@ -535,7 +535,14 @@ first-person viewmodel - what each one owns and the decisions behind it.
   `Idle.anim`), and `PlayerController::_ready` only *finds* it by name and reparents it under
   `ModelPivot`. An editor re-save of `Main.tscn` can drop the node and its ext_resources without
   any other diff, which silently leaves F5 showing no body, so the controller now warns loudly
-  when it can't find one
+  when it can't find one. That is what happened on 2 Oct: the scene's `PackedScene` reference
+  still carried the uid `player.glb` had at the repository root, and that uid lives on only in a
+  leftover root `player.glb.import` whose `source_file` (`res://player.glb`) no longer exists —
+  it never named `models/player.glb`. The node and both of its ext_resources were gone from the
+  saved scene, while the dummy-spawn button kept working, because that preloads the model by
+  *path* and never touches `Main.tscn`. A `Main.tscn` reference to this model must therefore
+  carry `models/player.glb`'s current uid (and its path), and no `.import` for a source that does
+  not exist belongs at the repository root
 - **Minecraft-style head look**: `player_model.gd::_track_head_look()` points the head at the
   player's LOOK, not the camera — it rebuilds the aim basis from the controller's world
   quaternion + pitch (pitch read back out of `get_aim_direction()` in the controller frame) and

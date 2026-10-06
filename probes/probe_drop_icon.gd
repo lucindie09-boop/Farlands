@@ -205,9 +205,13 @@ func _check_sides(slot: int, stone: int) -> void:
 	# art and the piece do not care what the HUD is, so this is the thrower's own
 	# rule checked directly rather than through the hotbar's UIScale.
 	var art := BlockIconArt.texture(stone)
-	var rect := _hotbar._slot_icon_rect(slot, 1.0)
+	# Explicit: `_hotbar` is typed Control, which has no `_slot_icon_rect`, so the
+	# call is a dynamic dispatch on Variant and `:=` cannot infer the type.
+	var rect: Rect2 = _hotbar._slot_icon_rect(slot, 1.0)
 	var at_one := _launch_speed(art, rect, 1.0)
-	var at_two := _launch_speed(art, rect * 2.0, 2.0)
+	# A 2x HUD: the slot box doubles, and `scale` is what the thrower reads for
+	# strength (Rect2 has no `* float`).
+	var at_two := _launch_speed(art, Rect2(rect.position, rect.size * 2.0), 2.0)
 	print("probe: launch lift at scale 1 -> %.1f px/s, at scale 2 -> %.1f px/s" % [at_one, at_two])
 	_clear_effects()
 

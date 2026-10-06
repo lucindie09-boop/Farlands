@@ -7,6 +7,19 @@ signal texel_painted(px: int, py: int, old_color: Color, new_color: Color)
 const UV_OVERLAY_SHADER: Shader = preload("res://shaders/skin_uv_overlay.gdshader")
 const ATLAS_DIM := 64
 
+# The world's own light model, the one the terrain, the dropped items and the
+# first-person arm already run (shaders/item_lighting.gdshaderinc): the light of
+# the CELL this body is in, rather than the engine's sky and ambient, which know
+# nothing about caves, torches or the hour. Only for a body standing in the world
+# -- see _init_world_lighting for why a preview does not get it.
+const ITEM_SHADER: Shader = preload("res://shaders/item_shader.gdshader")
+# The cell light is one value per block, so a body crossing a boundary -- or a
+# cell being relit under it -- steps a whole cell's worth on a single frame. This
+# is the time constant of the fade that turns that step into a move. The same
+# rule, and the same number, as the other two consumers;
+# probes/probe_item_light_smooth.gd holds all of them to it.
+const LIGHT_EASE_TIME := 0.15
+
 var uv_overlay_enabled := false
 var paint_color := Color.WHITE
 # When true the head never rotates (set by the K-key pose clone so the dummy
@@ -19,10 +32,22 @@ var _paint_texture: ImageTexture
 var _anim_player: AnimationPlayer
 var _head: Node3D = null
 
+# The world light model, when this body is in the world: one material for every
+# surface (the whole model is one skin), the cell's light eased between frames.
+var _body_material: ShaderMaterial = null
+var _body_meshes: Array[MeshInstance3D] = []
+var _chunk_manager: Node = null
+var _body_height := 0.0
+var _body_light := Vector4.ZERO
+var _body_light_ready := false
+
 func _manager():
 	return get_node_or_null("/root/SkinManager")
 
 func _ready():
+	# The light model first: it decides what the body is actually drawn WITH, and
+	# apply_skin_texture has to know that before it picks where the skin goes.
+	_init_world_lighting()
 	apply_skin_texture()
 	_anim_player = get_node_or_null("AnimationPlayer")
 	if _anim_player != null:
@@ -49,10 +74,137 @@ func _ready():
 			print("Failed to load Idle.anim")
 	_head = find_child("head", true, false)
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
+	# Before the head-look guard: the pose clone sets skip_head_look, and it is
+	# standing in the world like any other body, so it is lit like one.
+	_push_world_lighting(delta)
 	if skip_head_look:
 		return
 	_track_head_look()
+
+
+## Give the body the world's own light model, when it is standing IN the world.
+##
+## A preview does not get it: the skin maker and the settings gallery put the
+## model in a SubViewport with a world of their own, an orbiting camera and their
+## own sun and fill (skin_preview.gd), where there is no world cell under the
+## body to read a light from. Those keep the engine's lighting, which is what
+## they are lit for. Everything else -- the player's own body, and the K-key pose
+## clone -- is in the real world, and is lit by it.
+##
+## All of the model is one skin, so all of it gets ONE material: one albedo, one
+## set of world uniforms, and one light value for the body it draws.
+func _init_world_lighting() -> void:
+	if get_viewport() is SubViewport:
+		return
+	_chunk_manager = _world_chunk_manager()
+	if _chunk_manager == null:
+		return
+	for child in find_children("", "MeshInstance3D", true, false):
+		var mi := child as MeshInstance3D
+		if mi != null and mi.mesh != null:
+			_body_meshes.append(mi)
+	if _body_meshes.is_empty():
+		_chunk_manager = null
+		return
+
+	_body_material = ShaderMaterial.new()
+	_body_material.shader = ITEM_SHADER
+	_body_material.set_shader_parameter("albedo_texture", _skin_albedo())
+	# Closed opaque boxes: there is no sprite texel here to cut away.
+	_body_material.set_shader_parameter("alpha_scissor", 0.0)
+	for mi in _body_meshes:
+		for surface in range((mi.mesh as Mesh).get_surface_count()):
+			mi.set_surface_override_material(surface, _body_material)
+	# The middle of the body, from its own geometry rather than a constant: the
+	# light is read at that height (see _push_world_lighting).
+	_body_height = _body_centre_height()
+
+
+## The ChunkManager of the world this body is in, if any. The player's body is a
+## child of the Player node, so the manager is found by the same route the
+## controller and the dropped items use.
+func _world_chunk_manager() -> Node:
+	var cm := get_node_or_null("/root/Main/ChunkManager")
+	if cm != null:
+		return cm
+	var scene := get_tree().current_scene
+	if scene != null:
+		return scene.get_node_or_null("ChunkManager")
+	return null
+
+
+## How far above the model's origin -- the feet, for both the player's body and
+## the pose clone -- the middle of the body is, in the model's own units. The
+## union of the parts' own boxes, so a model changed in Blockbench moves this
+## with it instead of leaving a stale number behind.
+func _body_centre_height() -> float:
+	var total := AABB()
+	var any := false
+	for mi in _body_meshes:
+		var box: AABB = mi.transform * (mi.mesh as Mesh).get_aabb()
+		total = box if not any else total.merge(box)
+		any = true
+	return total.get_center().y if any else 0.0
+
+
+## The world light half of the item model, onto the body's material, plus the
+## light of the cell the body is in per mesh instance. Every frame: the day/night
+## values move continuously, and a walking body crosses cells it must be re-read
+## from.
+##
+## The cell light is the one part of that which does not move continuously, so
+## `delta` is what turns its step into a short fade (LIGHT_EASE_TIME) -- the same
+## model, applied the same way, as the dropped items and the first-person arm.
+##
+## The light is read at the body's own middle, one cell for the whole body: a
+## body is not shaded limb by limb, and its middle is the cell it is most in (a
+## body standing on a slab has its feet in the slab's own cell and its middle in
+## the air above it, which is where the light is).
+func _push_world_lighting(delta: float) -> void:
+	if _body_material == null or _chunk_manager == null:
+		return
+	_chunk_manager.apply_item_lighting(_body_material)
+	# ...but NOT the world's midday tint. The `sky_light_warmth` the line above
+	# just wrote is a cream even at noon (the world wants it: it is baked into the
+	# sky, the fog and the terrain alike), and this model is the one sky-lit
+	# surface in the world with nothing between the light and its albedo to hide a
+	# cast in -- a cream that reads as nothing on grass reads as orange on a pale
+	# skin. The body takes the sun's own colour instead, which is WHITE overhead
+	# and still warm at the horizon, so a sunset lights it exactly as it lights the
+	# ground (the two curves land on the same colour there). Written after the
+	# world's value, because that value is rewritten every frame.
+	# probes/probe_body_light.gd reads both materials.
+	var warmth: Color = _chunk_manager.get_body_sky_warmth()
+	_body_material.set_shader_parameter("sky_light_warmth", warmth)
+	var at := to_global(Vector3(0.0, _body_height, 0.0))
+	var cell: Vector4 = _chunk_manager.get_light_at(floori(at.x), floori(at.y), floori(at.z))
+	if not _body_light_ready:
+		# The first frame has nothing to ease FROM: land on the cell's own value
+		# instead of fading in from a black that was never on screen.
+		_body_light = cell
+		_body_light_ready = true
+	else:
+		_body_light = _ease_light(_body_light, cell, delta)
+	for mi in _body_meshes:
+		mi.set_instance_shader_parameter("item_light", _body_light)
+
+
+## Framerate-independent exponential ease toward `target`: LIGHT_EASE_TIME is the
+## time constant, so a step takes the same time to play out at any frame rate.
+## probes/probe_item_light_smooth.gd holds this rule, for all of its consumers, to
+## the value the shader is actually handed.
+func _ease_light(current: Vector4, target: Vector4, delta: float) -> Vector4:
+	if LIGHT_EASE_TIME <= 0.0:
+		return target
+	return current.lerp(target, 1.0 - exp(-delta / LIGHT_EASE_TIME))
+
+
+## The skin in use: the shared SkinManager's texture in game, so the body and the
+## skin maker show the same editable pixels, and the exported fallback otherwise.
+func _skin_albedo() -> Texture2D:
+	var mgr = _manager()
+	return mgr.get_texture() if mgr != null else skin_texture
 
 # Minecraft-style head look: the head follows the player's LOOK direction
 # (mouse yaw+pitch), never the camera. The camera is placed on the look ray in
@@ -140,8 +292,14 @@ func apply_skin_texture():
 	# In-game the skin lives in the shared SkinManager (autoload), so the
 	# in-game model and the skin-maker preview show the same editable texture.
 	# Without the manager, fall back to the base skin texture.
-	var mgr = _manager()
-	var albedo = mgr.get_texture() if mgr != null else skin_texture
+	var albedo := _skin_albedo()
+	if _body_material != null:
+		# In the world the body is one material of the world's own light model
+		# (see _init_world_lighting), and the skin is a uniform of it: there is
+		# no StandardMaterial3D here, and nothing of the engine's lighting for
+		# one to be the albedo of.
+		_body_material.set_shader_parameter("albedo_texture", albedo)
+		return
 	var mesh_instances = find_children("", "MeshInstance3D", true, false)
 	
 	for mesh_instance in mesh_instances:
@@ -288,6 +446,11 @@ func fill_box_local(lo: Vector2, hi: Vector2, color: Color) -> void:
 		_paint_texture.update(_paint_image)
 
 func _swap_albedo_texture(tex: Texture2D) -> void:
+	if _body_material != null:
+		# Same reason as apply_skin_texture: in the world the albedo is a uniform
+		# of the one material every surface of the body is drawn with.
+		_body_material.set_shader_parameter("albedo_texture", tex)
+		return
 	for mesh_instance in find_children("", "MeshInstance3D", true, false):
 		var mi := mesh_instance as MeshInstance3D
 		if mi == null or mi.mesh == null:

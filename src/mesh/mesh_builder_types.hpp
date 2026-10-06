@@ -37,8 +37,18 @@ struct FaceData {
 };
 
 // Pre-computed block-light brightness curve for levels 0–15.
-// Matches the GPU function: level<=2 → 0.0025 + level*0.01875,
-// level>2 → 0.04 + (level-2)^1.5 * 0.008
+// The shape is the GPU's own: level<=2 → 0.0025 + level*0.01875,
+// level>2 → 0.04 + (level-2)^1.5 * 0.008 -- normalised so that the TOP of the
+// curve, a cell in full sun or beside a level-15 light block, is exactly 1.0.
+//
+// That normalisation is a contract the shaders rely on: light is a fraction OF THE
+// TEXEL, so a fully lit surface renders at the colour it was authored with and
+// nothing brighter (see shaders/item_lighting.gdshaderinc and voxel_shader). The
+// un-normalised curve topped out at 0.415, which is why every full-sun surface
+// used to need the shaders' flat +0.15 "bounce" to look lit at all -- and why that
+// bounce could push a texel past its own colour wherever the cell was already
+// bright. probes/probe_sky_brightness.gd reads a known albedo back off the frame
+// and holds both ends of this.
 inline const std::array<float, 16> kBlockBrightness = []() {
     std::array<float, 16> arr{};
     for (int i = 0; i < 16; i++) {
@@ -48,6 +58,10 @@ inline const std::array<float, 16> kBlockBrightness = []() {
             float x = static_cast<float>(i - 2);
             arr[i] = 0.04f + x * std::sqrt(x) * 0.008f;
         }
+    }
+    const float top = arr[15];
+    for (float& value : arr) {
+        value /= top;
     }
     return arr;
 }();

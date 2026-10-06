@@ -31,6 +31,18 @@ public:
     // (shaders/item_lighting.gdshaderinc) instead of the engine's sky/ambient.
     void apply_item_shader_lighting(const godot::Ref<godot::ShaderMaterial>& material) const;
 
+    // The sky warmth the player's BODY is lit with, kept beside the world's own
+    // (item_sky_warmth) because the two are two views of the same instant: the
+    // body takes the sun's own colour -- white overhead, warm at the horizon --
+    // where everything else takes the world's midday cream
+    // (DayNightCycle::get_sun_color_neutral). A chest-height pale model is the
+    // one sky-lit surface in the world with nothing between the light and its
+    // albedo to hide a cast, and a cream that reads as nothing on grass reads as
+    // orange on skin, so scripts/player_model.gd overwrites `sky_light_warmth`
+    // with this on the body's material after apply_item_shader_lighting has
+    // written the world's.
+    godot::Color get_body_sky_warmth() const { return item_body_sky_warmth; }
+
     DayNightCycle& get_day_night_cycle() { return day_night; }
     const DayNightCycle& get_day_night_cycle() const { return day_night; }
     MaterialManager& get_material_manager() { return material_manager; }
@@ -109,6 +121,8 @@ private:
     float item_sky_intensity = 1.0f;
     godot::Color item_sky_color = godot::Color(1.0f, 1.0f, 1.0f, 1.0f);
     godot::Color item_sky_warmth = godot::Color(1.0f, 1.0f, 1.0f, 1.0f);
+    // The same instant, without the world's midday cream: see get_body_sky_warmth.
+    godot::Color item_body_sky_warmth = godot::Color(1.0f, 1.0f, 1.0f, 1.0f);
     godot::Vector3 item_player_light_position;
     float item_player_light_radius = 8.0f;
     float item_player_light_intensity = 0.0f;

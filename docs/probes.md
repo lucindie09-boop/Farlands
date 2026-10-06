@@ -5,7 +5,7 @@ the resolver, the fluid rules, the planner and the save formats. A probe is for
 what is left: the real loaded registry, the real texture array, the real world,
 and what actually reaches the screen.
 
-They live in `probes/` (49 `.gd` scripts). **The scripts are repository
+They live in `probes/` (51 `.gd` scripts). **The scripts are repository
 content; what they produce is not.** `.gitignore` ignores `probes/*` except
 `*.gd`, `*.sh`, `*.tscn` and `*.gdshader*`, so screenshots, crash reports and
 generated sheets (hundreds of megabytes) stay scratch while the probes
@@ -91,7 +91,9 @@ comment, with the claim each one backs:
 | `probe_torch_place.gd` | The torch ITEM places the torch BLOCK through the real bridge (`items.json` `place`) |
 | `probe_items.gd` | The item registry's fields and the held-item resting poses |
 | `probe_item_face_shade.gd` | An item's face shade does not snap while the body turns: the include's arithmetic stays within 1% over a 0.25-degree sweep of the normal (the thresholded table it replaced steps 20%), and a block turned in front of a still camera never changes more than a few percent of the sampled frame (the table does 82%, at the 45-degree yaw where x against z flipped) |
-| `probe_item_light_smooth.gd` | The item light model's step: a staged one-frame relight of the held item's/arm's cell and of a dropped item's cell moves the `item_light` the mesh is handed over ~0.35 s (the value is read back off the instance the shader sees), instead of arriving in one frame |
+| `probe_item_light_smooth.gd` | The item light model's step: a staged one-frame relight of the held item's/arm's cell, of a dropped item's cell and of the player's own body's cell moves the `item_light` the mesh is handed over ~0.35 s (the value is read back off the instance the shader sees), instead of arriving in one frame |
+| `probe_body_light.gd` | The player's own body is lit by the world's light, not the engine's: its rendered luma equals the luma of the pixels it is drawn over, it follows the sun down to midnight, and it is the one consumer handed the sun's own colour instead of the world's midday cream |
+| `probe_sky_brightness.gd` | What a fully sky-lit surface renders AT, against its own albedo: the body is handed a flat known grey (1x1, no atlas to guess from), the frame is read back per albedo, and each one is held to the model's own claim — never above its own texel, and not far below it |
 | `probe_item_size.gd` | A dropped item is not cell-sized: a cube's body and drawn mesh are both half a block, a slab and a stair keep their own shape at that scale, a sprite keeps its silhouette, and a stack of more than one is both drawn and solved bigger by the capped log2 curve (1.25x at 2 through 2x from sixteen), mesh and body one box at every count |
 | `probe_item_merge.gd` | Two drops of one kind next to each other become one pile: the counts add up to the 64 cap, the fuller keeps its place, body and mesh take the count's own size, motions combine only when both move, and the drawn size pops past the new one and settles back (at half strength once the pile is already at its largest) |
 | `probe_drop_swing.gd` | The drop path itself (`hotbar.gd _drop_selected`) throws the item AND kicks the viewmodel's full punch swing -- the swing timer at 1 with no place stroke -- once per unit and once per Ctrl+Q, writing the slot back each time |
@@ -133,6 +135,40 @@ at GUI scale 2 goes about twice as fast as at scale 1 (`launch`'s `scale`, which
 the lift and the push and deliberately not the turn, the drag or the clock), and eight throws at
 one camera heading leave both ways, which is what an aim-derived side cannot do. It boots
 `main.tscn` and needs a display.
+
+`probe_body_light.gd` is the one that reads the player's own body off the screen, and it has to:
+the body is a glb of boxes wearing the item shader's light model (`scripts/player_model.gd`), and
+"a body can never disagree with the ground it stands on" is a claim about pixels, not about the
+uniforms handed to them. The scene is what makes it measurable — `Main.tscn` has no light node at
+all, only a sky ambient at 0.027 energy, so a body left on the engine's lighting is a factor of
+ten dark and cannot move when the sun goes down. The silhouette comes from hiding the body, and
+the mask is taken ONCE and reused: re-derived inside a brighter or darker world it keeps only the
+body's pixels that still contrast with it — the dark ones at noon, the bright ones at midnight —
+and reads a step that is not there. It is also where the body's own midday tint is pinned, in
+both directions at once: the body's material must be handed a white overhead warmth while the
+world is still handed its cream (1.0, 0.85, 0.60) — the second read off a scratch material put
+through the call the terrain's own materials are fed through, so it cannot be a different number
+— and the body's own value must still be warm at the horizon, which is what says its white is a
+curve and not a flat colour. Scoping the cast to the body is therefore a claim that cannot be
+quietly undone. Shots land in `user://body_shots/`.
+
+`probe_sky_brightness.gd` answers a question none of the others can: what a surface in FULL sky
+light actually renders as, against its own texture. It found that the answer was not the texture.
+The light topped out at `kBlockBrightness[15]` (0.415), the sky term added a flat
+`sky_light_intensity * 0.15` keyed off the time of day rather than the cell's own sky light, a
+filmic curve lifted what was left, and no albedo sampler carried `source_color` — so the texel was
+treated as a LINEAR value by a pipeline that encodes on output, and that encode lifted it again.
+Measured at noon on the body's silhouette: a 0.50 albedo came out at 0.68 (1.36x its own texel)
+and a 0.25 at 0.61 (2.43x). The probe puts a known flat grey under all of that (the body's
+material is one uniform, so the input is a number rather than a guess at an atlas) and reads the
+frame back, then holds each albedo to the model's own claim: never above its own texel, and not far
+below it either. With the albedos decoded, the light curve normalised to 1.0 at level 15, and the
+sky bounce and the filmic curve gone, the same run reads 0.50 at 0.45 median (0.89x) and 0.25 at
+0.22 (0.88x) — the shortfall is the body's own side shading, which is 0.6 and 0.8 by design. The
+subject is the body because its albedo can be set exactly; the arithmetic it runs is the terrain's
+and the water shader's, word for word, so the number describes all three. The ground behind the
+body is printed but not asserted on, having no known albedo of its own: its luma went from 0.43 to
+0.31 across this change, which is the same overshoot coming off the terrain.
 
 The rest of the directory is historical or subject-specific; the header comment
 in each one says which.

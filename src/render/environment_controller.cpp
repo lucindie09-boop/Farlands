@@ -79,10 +79,13 @@ void EnvironmentController::update_shader_parameters() {
 
     // Item materials are fed from these every frame, independent of the dirty
     // gate below: it only exists to keep Godot API calls off redundant frames,
-    // and the item pushes are the caller's own decision.
+    // and the item pushes are the caller's own decision. The body's warmth rides
+    // with them: same instant, same curve, no midday cream (see
+    // get_body_sky_warmth in the header).
     item_sky_intensity = sky_intensity;
     item_sky_color = sky_color;
     item_sky_warmth = sky_warmth;
+    item_body_sky_warmth = day_night.get_sun_color_neutral();
 
     const godot::Vector3 sky_horizon_color = sky_controller.get_horizon_color(blend, elevation, sun_color, sky_turbidity);
     const godot::Vector3 sky_zenith_color = sky_controller.get_zenith_color(blend);

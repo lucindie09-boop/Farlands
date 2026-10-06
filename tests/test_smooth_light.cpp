@@ -21,7 +21,7 @@ TEST_CASE("smooth lighting ignores occluding samples at face corners") {
     // window of A's Right/Front face corners, so a blind average of the 4
     // packed-light samples would pull A's z=17 corner edge down to level ~8
     // (sky=40) for the pillar's whole height while the opposite edge stayed
-    // full bright (sky=105) — the reported seam.
+    // full bright (the top of the brightness curve) — the reported seam.
     ChunkData chunk;
     chunk.fill_blocks(BlockIDs::AIR);
     for (int y = 0; y <= 10; y++)
@@ -45,9 +45,13 @@ TEST_CASE("smooth lighting ignores occluding samples at face corners") {
     mb.set_smooth_lighting(true);
     mb.build_mesh(chunk);
 
-    // Full skylight (level 15) scales to ~105 in vertex space. Every mid-body
-    // vertex of pillar A's Right face (x=17) must carry it: the edge adjacent
-    // to B must be identical to the opposite edge (no seam).
+    // Full skylight (level 15) scales to the TOP of the brightness curve in vertex
+    // space -- 1.0, the full byte. That ceiling is a contract rather than a number:
+    // the shaders read light as a fraction of the texel, so a fully sky-lit face
+    // renders at the colour it was authored with. Every mid-body vertex of pillar
+    // A's Right face (x=17) must carry it: the edge adjacent to B must be identical
+    // to the opposite edge (no seam).
+    const float full_sky = kBlockBrightness[15] * 255.0f;
     float min_sky = 1e9f, max_sky = -1e9f;
     int count = 0;
     for (const auto& v : mb.get_vertices()) {
@@ -63,7 +67,7 @@ TEST_CASE("smooth lighting ignores occluding samples at face corners") {
         }
     }
     CHECK(count > 0);
-    CHECK(min_sky == doctest::Approx(105.0f).epsilon(0.01f));
-    CHECK(max_sky == doctest::Approx(105.0f).epsilon(0.01f));
+    CHECK(min_sky == doctest::Approx(full_sky).epsilon(0.01f));
+    CHECK(max_sky == doctest::Approx(full_sky).epsilon(0.01f));
     CHECK(max_sky == min_sky);
 }

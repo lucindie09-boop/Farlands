@@ -144,6 +144,10 @@ void ChunkManager::apply_item_lighting(const Ref<ShaderMaterial>& material) {
     controller->get_environment_controller().apply_item_shader_lighting(material);
 }
 
+Color ChunkManager::get_body_sky_warmth() {
+    return controller->get_environment_controller().get_body_sky_warmth();
+}
+
 #ifdef DEBUG_ENABLED
 void ChunkManager::debug_crash_for_test() {
     // Deliberately ignored: false means the harness was not armed, which is not

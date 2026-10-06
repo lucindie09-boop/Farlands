@@ -134,6 +134,11 @@ public:
     // Hands the world's current lighting to one item material, so a held or
     // dropped mesh runs the terrain's light model instead of the engine's.
     void apply_item_lighting(const godot::Ref<godot::ShaderMaterial>& material);
+    // The player's own body is the one object that does not take the world's
+    // midday cream with it: scripts/player_model.gd overwrites `sky_light_warmth`
+    // with this after apply_item_lighting. See
+    // EnvironmentController::get_body_sky_warmth.
+    godot::Color get_body_sky_warmth();
 
 #ifdef DEBUG_ENABLED
     // Faults on purpose, to prove the crash-report handler works end to end (see

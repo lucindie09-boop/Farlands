@@ -13,8 +13,13 @@ render_mode unshaded, cull_back, depth_draw_always;
 // grains the whole world with one field. See the include.
 #include "res://shaders/block_noise.gdshaderinc"
 
-uniform sampler2DArray texture_array : filter_nearest_mipmap;
-uniform sampler2DArray emissive_array : filter_nearest_mipmap;
+// The block atlas as COLOR: `source_color` decodes sRGB to linear (Godot has no
+// srgb_to_linear() in the shader language), which is what makes the light a
+// fraction OF THE TEXEL -- a fully lit face now renders at the texture it was
+// authored with instead of above it. The emissive atlas is decoded with it, so a
+// lamp's glow is added in the same space as the block it sits on.
+uniform sampler2DArray texture_array : source_color, filter_nearest_mipmap;
+uniform sampler2DArray emissive_array : source_color, filter_nearest_mipmap;
 
 uniform float mipmap_bias = 0.1;
 
@@ -209,23 +214,13 @@ void fragment(){
 
     vec3 lit_color=color.rgb*combinedLight*ao_tint;
 
-    if(sky_light_intensity>0.1){
-
-    vec3 bounce=
-        vec3(1.0,1.0,1.0)*
-        sky_light_intensity*
-        0.15;
-
-    float bounceAmount=
-        world_normal.y*0.5+0.5;
-    bounceAmount=max(bounceAmount,0.5);
-
-        lit_color+=
-            color.rgb*
-            bounce*
-            bounceAmount*
-            ao_tint;
-    }
+    // (No sky "bounce" here any more. It added a flat
+    // sky_light_intensity * 0.15 keyed off the TIME OF DAY rather than the
+    // vertex's own sky light, so an underground cell at noon was handed 15% of
+    // white it had not earned, and on a fully lit face it stacked on the sky term
+    // and pushed the texel past its own colour. It is gone because the light now
+    // reaches 1.0 -- kBlockBrightness[15] -- so a fully sky-lit face shows its
+    // texture exactly and there is no gap left for a bounce to fill.)
 
     // Darkness colour: tinted minimum light where light cannot reach
     float light_amount = clamp(max(max(combinedLight.r, combinedLight.g), combinedLight.b), 0.0, 1.0);
@@ -345,7 +340,11 @@ void fragment(){
 
     final_color += emissive_color;
 
-    final_color = final_color * (2.51 * final_color + 0.03) / (final_color * (2.43 * final_color + 0.59) + 0.14);
+    // (No filmic curve here any more: it lifted every mid-tone, so "a full-sun
+    // face renders at its own texel" could not hold whatever the light did -- 0.5
+    // came out 0.62 through it even with a light of exactly 1. The saturation and
+    // contrast below are the finishing that is left, and both are identity at
+    // their defaults.)
     final_color = clamp(final_color, 0.0, 1.0);
 
     // Saturation

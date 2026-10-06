@@ -530,6 +530,27 @@ first-person viewmodel - what each one owns and the decisions behind it.
   neck (0,24,1.5) on its center axis, torso center) by `tools/rebake_player_pivots.py` —
   Blockbench's glTF export anchored them at cube bottom-corners and glTF has no pivot field, so
   Godot was swinging every part around the wrong point (see the pivot note under Constraints).
+  **The body runs the world's light, not the engine's**: `player_model.gd` gives it one
+  `ShaderMaterial` of `shaders/item_shader.gdshader` — the same include the dropped items and
+  the held arm run — over every surface, and pushes the light of the cell the body's *middle* is
+  in (read from the model's own geometry, so a re-modelled body moves the sample with it) plus
+  the world uniforms once a frame, easing the cell light over 0.15 s exactly as the other two
+  consumers do. The engine's lighting is what this replaces: `Main.tscn` has no light node at
+  all, so a body left on it renders near-black at noon and identically black at midnight. A body
+  inside a **SubViewport** keeps the engine's lighting, because that is a preview — the skin
+  maker and the settings gallery put the model in a world of their own with an orbiting camera
+  and their own sun and fill, and there is no cell under it to read. The K-key pose clone is a
+  plain instance in the main viewport, so it is lit like the player's own body
+  (`probes/probe_body_light.gd` reads the rendered frame back).
+  **...and it is the one consumer that does not take the world's midday tint**: the world's
+  `sky_light_warmth` is a warm cream even at noon — it is what the sky, the fog, the sun light
+  and the terrain are all fed, and it reads as nothing on grass, dirt and stone. On a pale,
+  untextured skin that same cream reads as orange, so `player_model.gd` overwrites the uniform on
+  the body's material with the sun's own colour — white overhead, still warm at the horizon, from
+  `ChunkManager.get_body_sky_warmth` — after the world's value has been written. The fix is the
+  body's alone: at any hour the ground keeps the cast it had, and the two curves meet at the
+  horizon, which is why a sunset still lights the body exactly as it lights the ground
+  (`probes/probe_body_light.gd` reads both materials, at noon and at the horizon).
   **The body is a scene node, not code**: `Main.tscn` instances it as `Player/PlayerModel`
   (scale 0.05625, +0.0844 z, `player_model.gd`, plus a direct `AnimationPlayer` child for
   `Idle.anim`), and `PlayerController::_ready` only *finds* it by name and reparents it under

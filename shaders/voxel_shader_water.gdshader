@@ -22,7 +22,10 @@ uniform float world_bend_sway = 0.0;
 // in the z-buffer, so a side face behind a top face draws anyway — lava/acid
 // sides were visible through their own surface at certain angles.
 
-uniform sampler2DArray texture_array : filter_nearest_mipmap;
+// The block atlas as COLOR: `source_color` decodes sRGB to linear (see the
+// terrain shader), so the light is a fraction OF THE TEXEL instead of a
+// multiplier the output encode then outruns.
+uniform sampler2DArray texture_array : source_color, filter_nearest_mipmap;
 
 uniform float mipmap_bias = 0.1;
 
@@ -251,22 +254,9 @@ void fragment(){
     lit_color+=vec3(1.0,1.0,1.0)*glint;
 
     // Bounce lighting
-    if(sky_light_intensity>0.1){
-        vec3 bounce=
-            vec3(1.0,1.0,1.0)*
-            sky_light_intensity*
-            0.15;
-
-        float bounceAmount=
-            world_normal.y*0.5+0.5;
-        bounceAmount=max(bounceAmount,0.5);
-
-        lit_color+=
-            color.rgb*
-            bounce*
-            bounceAmount*
-            ao_tint;
-    }
+    // (No sky "bounce" here any more -- see the terrain shader. It keyed off the
+    // time of day rather than the vertex's own sky light and stacked on the sky
+    // term; with the light reaching 1.0 there is nothing for it to fill.)
 
     // Darkness colour: tinted minimum light where light cannot reach
     float light_amount = clamp(max(max(combinedLight.r, combinedLight.g), combinedLight.b), 0.0, 1.0);
@@ -388,7 +378,7 @@ void fragment(){
     float lum = dot(final_color, vec3(0.299, 0.587, 0.114));
     final_color = mix(final_color, vec3(lum), desat);
 
-    final_color = final_color * (2.51 * final_color + 0.03) / (final_color * (2.43 * final_color + 0.59) + 0.14);
+    // (No filmic curve here any more -- see the terrain shader.)
     final_color = clamp(final_color, 0.0, 1.0);
 
     // Saturation

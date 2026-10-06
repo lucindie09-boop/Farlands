@@ -1,13 +1,14 @@
 extends SceneTree
 ## The items' light must not change in a single frame.
 ##
-## A dropped block -- of any shape -- a dropped sprite, and the held item and arm
-## are lit by the light of the CELL they are in (ChunkManager.get_light_at, through
-## shaders/item_lighting.gdshaderinc). That value is a step function of position:
+## A dropped block -- of any shape -- a dropped sprite, the held item and arm, and
+## the player's own body are lit by the light of the CELL they are in
+## (ChunkManager.get_light_at, through shaders/item_lighting.gdshaderinc). That value is a step function of position:
 ## crossing one block boundary is a whole cell's worth of light, and read raw it is
 ## applied by the next frame, so every step of a walk is a visible pop. This probe
-## boots Main.tscn and holds both consumers to the rule that the value they PUSH
-## must move toward the new cell's light over several frames, and then settle on it.
+## boots Main.tscn and holds all three consumers to the rule that the value they
+## PUSH must move toward the new cell's light over several frames, and then settle
+## on it.
 ##
 ## The step is staged rather than walked: a light block placed above the subject's
 ## cell changes that cell's light in one frame, exactly as moving into another cell
@@ -254,6 +255,51 @@ func _run() -> void:
 				await _staged_step("dropped item: light arrives", cm, item_light_cell, LIGHT_BLOCK, item_target, item_pushed)
 				await _seconds(SETTLE_SECONDS)
 				await _staged_step("dropped item: light leaves", cm, item_light_cell, AIR, item_target, item_pushed)
+
+	# --- The player's own body: the light of the cell its middle is in. ------
+	# The body is the third consumer of the same model, and the one with a pose
+	# clone: whatever holds here holds for the K-key dummy too, since the clone is
+	# a plain player_model.gd instance in the main viewport.
+	var body: Node3D = player.get_node_or_null("ModelPivot/PlayerModel")
+	if body == null:
+		_ok("player body: fixture", false, "no Player/ModelPivot/PlayerModel in the scene")
+	else:
+		var meshes: Array = body.get("_body_meshes")
+		if meshes.is_empty():
+			# Not a measurement failure but a wiring one: the body never took the
+			# world's light model, so there is no value to smooth at all.
+			_ok("player body: fixture", false,
+				"the body has no world-light meshes (is it in the world? did _init_world_lighting run?)")
+		else:
+			var body_mesh: MeshInstance3D = meshes[0]
+			# The height the model itself reads the light at, so the target and the
+			# pushed value are asked for the same cell.
+			var body_height: float = body.get("_body_height")
+			var mid: Vector3 = body.to_global(Vector3(0.0, body_height, 0.0))
+			var mid_cell := Vector3i(floori(mid.x), floori(mid.y), floori(mid.z))
+			# Where the light is read from, checked against the body itself rather
+			# than against the model's own expression: the glb is 32 units of 16 to
+			# the block, so it is 1.8 m tall and its middle is 0.9 m above the feet.
+			# A height read off the wrong part of the model lands anywhere but here,
+			# and the comparison below would still agree with itself.
+			_ok("player body: the light is read inside the body",
+				absf(mid.y - (player.global_position.y + 0.9)) <= 0.25,
+				"reads %.2f m above the feet (want ~0.90)" % (mid.y - player.global_position.y))
+			var body_target := func() -> Vector4:
+				var at: Vector3 = body.to_global(Vector3(0.0, body_height, 0.0))
+				return cm.get_light_at(floori(at.x), floori(at.y), floori(at.z))
+			var body_pushed := func() -> Vector4:
+				return _pushed_vec(body_mesh)
+			# No floor: the cell below the middle is where the body's own legs are.
+			var body_light_cell: Variant = _pocket(cm, mid_cell, false)
+			if body_light_cell == null:
+				_ok("player body: fixture", false,
+					"could not cut an air pocket at the body's middle (%d,%d,%d)" % [mid_cell.x, mid_cell.y, mid_cell.z])
+			else:
+				await _seconds(SETTLE_SECONDS)
+				await _staged_step("player body: light arrives", cm, body_light_cell, LIGHT_BLOCK, body_target, body_pushed)
+				await _seconds(SETTLE_SECONDS)
+				await _staged_step("player body: light leaves", cm, body_light_cell, AIR, body_target, body_pushed)
 
 	print("PROBE item light smoothing: %d failure(s)" % _failures)
 	quit(1 if _failures > 0 else 0)

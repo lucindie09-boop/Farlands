@@ -85,11 +85,35 @@ void LodGrid::build_tile(const std::shared_ptr<CompletedTile>& result) {
 
     const int32_t origin_x = result->tx * kTileBlocks;
     const int32_t origin_z = result->tz * kTileBlocks;
-    lod::SurfaceSampler sampler = [&ctx](int32_t x, int32_t z) {
+    // One column per world column, shared with every tile that wants it. A tile of
+    // the outer level is ONE cell, so three of its four corners are repeats of a
+    // neighbour's, and the occlusion ring below asks for four more nodes per node --
+    // all of them its neighbours' own. Without the table a 27 km reach samples
+    // 185,017 columns where 46,656 exist, and `sampled` counts the misses, so the
+    // stats keep reporting the sampler's own work rather than everybody's asks.
+    lod::SurfaceSampler raw = [&ctx](int32_t x, int32_t z) {
         return sample_column(ctx, x, z);
     };
+    lod::NodeCache& cache = sink->cache;
+    lod::SurfaceSampler sampler = [&cache, &raw](int32_t x, int32_t z) {
+        return cache.get(x, z, raw);
+    };
+    // The far field's occlusion: how much lower this node sits than the four nodes a
+    // spacing away from it, which are the neighbouring tiles' own corners. A node the
+    // sampler refuses is a hole, not a wall, so it occludes nothing.
+    const int32_t spacing = result->spacing;
+    lod::NodeShade node_shade = [&cache, &raw, spacing](int32_t x, int32_t z) {
+        const lod::SurfaceSample self = cache.get(x, z, raw);
+        if (!self.valid) return 1.0f;
+        auto at = [&](int32_t nx, int32_t nz) {
+            const lod::SurfaceSample s = cache.get(nx, nz, raw);
+            return s.valid ? s.height : self.height;
+        };
+        return lod::concavity_shade(self.height, at(x, z - spacing), at(x, z + spacing),
+                                    at(x + spacing, z), at(x - spacing, z), spacing);
+    };
     result->mesh = lod::build_tile_mesh(origin_x, origin_z, kTileBlocks, result->spacing, sampler,
-                                        water_layer, 8.0f, result->neighbour_spacing);
+                                        water_layer, 8.0f, result->neighbour_spacing, node_shade);
     result->columns_sampled = sampled;
     result->build_ms = std::chrono::duration<double, std::milli>(
                            std::chrono::steady_clock::now() - start)

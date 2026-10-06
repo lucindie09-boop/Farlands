@@ -65,8 +65,15 @@ godot::Dictionary VoxelEngineController::get_lod_grid_stats() const {
     out["failed"] = stats.tiles_failed;
     out["uploads"] = stats.uploads;
     out["quads"] = stats.quads;
-    // The sampler's cost model, in the one unit that scales it: a column.
+    // The sampler's cost model, in the one unit that scales it: a column -- and the
+    // asks the shared table answered instead of running the sampler again, which is
+    // what says whether sharing is working at all.
     out["columns_sampled"] = stats.columns_sampled;
+    out["cache_hits"] = stats.cache_hits;
+    // What one frame of merging costs, averaged since the last ask: the far field's
+    // only main-thread work, and the reason a fill can cost frames while a settled
+    // reach costs none.
+    out["merge_ms"] = stats.merge_ms_per_frame;
     out["spacing"] = stats.spacing_blocks;
     // What the outer level samples at, and where the horizon is: the two numbers a
     // caller checks to see that the reach is a DISTANCE (the same at every spacing)

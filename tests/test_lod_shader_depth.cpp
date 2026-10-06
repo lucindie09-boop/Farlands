@@ -30,6 +30,7 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -77,6 +78,19 @@ bool writes_alpha(const std::string& shader) {
     return false;
 }
 
+// The code lines (comments stripped) that mention a token, for the assertions that
+// are about how one statement is built rather than about a word appearing anywhere.
+std::vector<std::string> code_lines_with(const std::string& shader, const std::string& needle) {
+    std::vector<std::string> out;
+    std::istringstream stream(shader);
+    std::string line;
+    while (std::getline(stream, line)) {
+        const std::string code = strip_comment(line);
+        if (code.find(needle) != std::string::npos) out.push_back(code);
+    }
+    return out;
+}
+
 bool render_mode_has(const std::string& shader, const std::string& mode) {
     std::istringstream stream(shader);
     std::string line;
@@ -107,4 +121,53 @@ TEST_CASE("lod shader: the far mode's material writes depth") {
     // ...and the material must stay OPAQUE: an ALPHA write is the transparent
     // pipeline, and the transparent pipeline is where the depth write goes.
     CHECK_FALSE(writes_alpha(shader));
+}
+
+TEST_CASE("lod shader: the detail term cannot move the average colour") {
+    // The far field read as one flat colour per biome ("just yellow or green"),
+    // because a cell is 32 to 256 blocks wide and the texture coordinate IS the world
+    // coordinate: the sampler legitimately lands on the mip that has averaged the
+    // whole 16x16 face away. The average is the right colour, so what this shader adds
+    // back has to be a RATIO -- the face at a fixed world scale, divided by that same
+    // scale's average -- and never an offset. Two consequences, both of them asserted
+    // here because neither can be seen from C++:
+    //
+    //   1. the composition is a multiplication by something whose neutral value is 1,
+    //      so the block's own colour is redistributed and its mean cannot drift, and
+    //   2. the divisor is a sample at the mip that IS the face's average
+    //      (DETAIL_AVERAGE_MIP), which is also why the term fades itself out: past the
+    //      distance where one repeat is a pixel, both samples are that average and the
+    //      ratio is 1 -- no aliasing, and no fade to keep in step with anything.
+    std::string shader;
+    if (!load_lod_shader(shader)) {
+        MESSAGE("shaders/lod_grid.gdshader not found; the far mode's material was not checked");
+        return;
+    }
+    CHECK(shader.find("DETAIL_AVERAGE_MIP") != std::string::npos);
+    CHECK(shader.find("detail_scale") != std::string::npos);
+    CHECK(shader.find("detail_strength") != std::string::npos);
+
+    // The average the ratio is divided by is read with an explicit LOD, not through
+    // the sampler's own choice -- that is the whole point of it being the average.
+    const std::vector<std::string> average_lines = code_lines_with(shader, "textureLod");
+    CHECK(average_lines.size() == 1);
+    for (const std::string& line : average_lines) {
+        CHECK(line.find("DETAIL_AVERAGE_MIP") != std::string::npos);
+        CHECK(line.find('*') == std::string::npos);  // a sample, not a scale of one
+    }
+
+    // The tiled coordinate: the detail is read at the world coordinate over the
+    // detail scale, so its features are a fixed size in BLOCKS however far away the
+    // cell is.
+    const std::vector<std::string> uv_lines = code_lines_with(shader, "detail_uv");
+    CHECK(uv_lines.size() >= 2);
+    CHECK(shader.find("UV / detail_scale") != std::string::npos);
+
+    // ...and the colour is multiplied by a mix whose neutral value is 1.
+    const std::vector<std::string> albedo_lines = code_lines_with(shader, "albedo *=");
+    CHECK(albedo_lines.size() == 1);
+    for (const std::string& line : albedo_lines) {
+        CHECK(line.find("mix(vec3(1.0)") != std::string::npos);
+        CHECK(line.find("ratio") != std::string::npos);
+    }
 }

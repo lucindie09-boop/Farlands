@@ -205,6 +205,10 @@ void VoxelEngineController::update(double delta, bool is_editor, const godot::Ve
     // world, so nothing it does can depend on this frame's chunks, and the fog
     // range it asks for is derived from the radius the world is using.
     if (lod_grid.is_enabled()) {
+        // Timed as a phase of its own: the far field's main-thread work is the merge
+        // of the levels whose tiles arrived, and on a frame that merged a level it is
+        // the largest thing in this function (see LodGrid::Stats::merge_ms_per_frame).
+        ScopedTimer far_grid_timer(perf_timer, TimerID::FarGridUpdate);
         const int32_t inner_blocks = render_distance * CHUNK_WIDTH;
         lod_grid.set_player_position(player_position);
         lod_grid.set_inner_radius_blocks(inner_blocks);
@@ -277,41 +281,6 @@ void VoxelEngineController::unload_chunk(int32_t chunk_x, int32_t chunk_y, int32
 
 void VoxelEngineController::generate_chunk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z) {
     world_updater.generate_chunk(chunk_x, chunk_y, chunk_z, chunk_world.get_epoch());
-}
-
-// -------------------------------------------------------------------------
-// Debug / perf
-// -------------------------------------------------------------------------
-
-String VoxelEngineController::get_performance_report() {
-    String report = PerfReport::build(
-        frame_time_accumulator,
-        frame_count,
-        2.0, // hardcoded interval
-        chunks_processed_total,
-        chunks_processed_last_interval,
-        perf_timer,
-        thread_pool ? thread_pool->get_worker_count() : 0,
-        thread_pool ? thread_pool->get_queue_size() : 0,
-        chunk_world.get_scheduler().generating_count(),
-        chunk_world.get_scheduler().completed_chunk_count(),
-        chunk_world.get_chunk_map().size(),
-        mesh_manager.gather_render_stats(),
-        &chunk_world.get_chunk_map()
-    );
-    chunks_processed_last_interval = chunks_processed_total;
-    frame_count = 0;
-    frame_time_accumulator = 0.0;
-    perf_timer.reset_all();
-    MeshBuilder::get_perf_timer().reset_all();
-    ChunkGenerator::get_perf_timer().reset_all();
-    MeshBuilder::reset_vertex_tracking();
-    MeshBuilder::reset_greedy_vertical_stats();
-    return report;
-}
-
-void VoxelEngineController::print_debug_info(double delta) {
-    // Debug printing removed
 }
 
 // -------------------------------------------------------------------------

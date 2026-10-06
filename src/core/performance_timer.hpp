@@ -39,7 +39,8 @@ X(GroupMeshBuild) \
 X(GroupMeshUpload) \
 X(PaletteWrite) \
 X(LightPropagation) \
-X(FluidMesh)
+X(FluidMesh) \
+X(FarGridUpdate)
 
 enum class TimerID : uint8_t {
 #define X(name) name,

@@ -55,6 +55,28 @@ uniform vec3 darkness_color = vec3(0.0);
 uniform vec3 water_color = vec3(0.20, 0.42, 0.78);
 uniform float water_mix = 0.55;
 
+// The face's own variation, put back on top of its average.
+//
+// A cell is 32 to 256 blocks wide and the texture coordinate IS the world
+// coordinate (see UV above), so the sampler legitimately lands on a mip that has
+// averaged the whole 16x16 face away -- which is why the far field read as one
+// flat colour per biome, yellow or green or blue and nothing in between. The
+// average is the right colour and it stays the base; what this adds back is the
+// face's variation at a fixed world scale, read with the sampler's OWN mip
+// selection at that scale and divided by that scale's average, so the mean cannot
+// drift (a yellow cell stays exactly as yellow) and the detail fades to nothing on
+// its own as the footprint grows: past the distance where one repeat is a pixel,
+// the sampler hands back the average on both sides of the division and the ratio
+// is 1. Nothing here can alias, and nothing here is a constant to keep in step
+// with the shadow of a mip count.
+uniform float detail_scale = 16.0;    // world blocks per repeat of the detail
+uniform float detail_strength = 0.75; // 0 = the flat average, 1 = the face's own contrast
+
+// The mip that IS the face's average: a face is one 16x16 tile (see
+// src/render/texture_array_generator.cpp and BLOCK_NOISE_TEXELS in
+// shaders/block_noise.gdshaderinc), so mip 4 is a single texel of it.
+const float DETAIL_AVERAGE_MIP = 4.0;
+
 // The far field's own fog: begin at the loaded world's edge, end at the outer
 // tile ring. Colour comes from the same day/night curve the world uses.
 uniform vec3 fog_color = vec3(0.70, 0.80, 0.95);
@@ -90,6 +112,15 @@ void fragment() {
     float is_water = UV2.y;
 
     vec3 albedo = texture(texture_array, vec3(UV, layer), mipmap_bias).rgb;
+
+    if (detail_strength > 0.0 && detail_scale > 0.0) {
+        vec2 detail_uv = UV / detail_scale;
+        vec3 fine = texture(texture_array, vec3(detail_uv, layer), mipmap_bias).rgb;
+        vec3 average = textureLod(texture_array, vec3(detail_uv, layer), DETAIL_AVERAGE_MIP).rgb;
+        vec3 ratio = clamp(fine / max(average, vec3(0.02)), vec3(0.0), vec3(3.0));
+        albedo *= mix(vec3(1.0), ratio, detail_strength);
+    }
+
     albedo = mix(albedo, water_color, is_water * water_mix);
 
     // The sky term, exactly as shaders/item_lighting.gdshaderinc builds it: the

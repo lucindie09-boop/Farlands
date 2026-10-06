@@ -55,9 +55,20 @@ float face_shade(float hx, float hz, int32_t spacing) {
            (0.75f + 0.25f * ny) * ny * ny;
 }
 
+float concavity_shade(float height, float north, float south, float east, float west,
+                      int32_t spacing) {
+    const float around = (north + south + east + west) * 0.25f;
+    // Measured against the node's own spacing: a quarter of a cell of fall around a
+    // node is a hollow, whether the cell is 8 blocks across or 256.
+    const float scale = std::max(1.0f, static_cast<float>(spacing) * 0.25f);
+    const float dip = (around - height) / scale;
+    return 1.0f - kAoStrength * std::clamp(dip, 0.0f, 1.0f);
+}
+
 TileMesh build_tile_mesh(int32_t origin_x, int32_t origin_z, int32_t tile_size, int32_t spacing,
                          const SurfaceSampler& sample, uint8_t water_layer,
-                         float floor_skip_depth, const std::array<int32_t, 4>& neighbour_spacing) {
+                         float floor_skip_depth, const std::array<int32_t, 4>& neighbour_spacing,
+                         const NodeShade& node_shade) {
     TileMesh mesh;
     if (tile_size <= 0 || spacing <= 0 || tile_size % spacing != 0) return mesh;
 
@@ -189,16 +200,28 @@ TileMesh build_tile_mesh(int32_t origin_x, int32_t origin_z, int32_t tile_size, 
                 // cell's shading off a quarter of its surface (see face_shade).
                 const float hx = ((s10.height - s00.height) + (s11.height - s01.height)) * 0.5f;
                 const float hz = ((s01.height - s00.height) + (s11.height - s10.height)) * 0.5f;
-                const float shade = face_shade(hx, hz, spacing);
+                const float cell_shade = face_shade(hx, hz, spacing);
+                // ...and each corner wears the cell's face constant times ITS OWN
+                // occlusion: a dip darkens across the cell instead of taking the
+                // whole cell down a step, which is the difference between a shaded
+                // hollow and a patch.
+                const int32_t n0x = origin_x + i * spacing;
+                const int32_t n1x = origin_x + (i + 1) * spacing;
+                const int32_t n0z = origin_z + j * spacing;
+                const int32_t n1z = origin_z + (j + 1) * spacing;
+                const float ao00 = node_shade ? node_shade(n0x, n0z) : 1.0f;
+                const float ao10 = node_shade ? node_shade(n1x, n0z) : 1.0f;
+                const float ao01 = node_shade ? node_shade(n0x, n1z) : 1.0f;
+                const float ao11 = node_shade ? node_shade(n1x, n1z) : 1.0f;
                 const uint8_t layer = s00.layer;
                 // The world's own top-face order (see MeshBuilder::kFaceVertices):
                 // (x0,z0), (x1,z0), (x1,z1), (x0,z1), triangles 0-1-2 and 0-2-3.
-                push_vertex(mesh, x0, s00.height, z0, layer, 0.0f, shade);
-                push_vertex(mesh, x1, s10.height, z0, layer, 0.0f, shade);
-                push_vertex(mesh, x1, s11.height, z1, layer, 0.0f, shade);
-                push_vertex(mesh, x0, s00.height, z0, layer, 0.0f, shade);
-                push_vertex(mesh, x1, s11.height, z1, layer, 0.0f, shade);
-                push_vertex(mesh, x0, s01.height, z1, layer, 0.0f, shade);
+                push_vertex(mesh, x0, s00.height, z0, layer, 0.0f, cell_shade * ao00);
+                push_vertex(mesh, x1, s10.height, z0, layer, 0.0f, cell_shade * ao10);
+                push_vertex(mesh, x1, s11.height, z1, layer, 0.0f, cell_shade * ao11);
+                push_vertex(mesh, x0, s00.height, z0, layer, 0.0f, cell_shade * ao00);
+                push_vertex(mesh, x1, s11.height, z1, layer, 0.0f, cell_shade * ao11);
+                push_vertex(mesh, x0, s01.height, z1, layer, 0.0f, cell_shade * ao01);
                 ++mesh.terrain_quads;
             }
 

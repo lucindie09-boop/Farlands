@@ -235,6 +235,16 @@ func _run() -> void:
 	_ok("pipeline: the vertices are the ones the tiles hold",
 		verts > 0 and verts == int(batch.get("quads", 0)) * 6,
 		"%d vertices for %s quads" % [verts, str(batch.get("quads"))])
+	# The shared column table's own ledger (lod_node_cache.hpp): a node is a world
+	# column, and every tile that touches one asks for it -- at the outermost level a
+	# tile is ONE cell, so three of its four corners are repeats of a neighbour's. The
+	# sampler must therefore run for FAR fewer columns than the tiles ask for, and the
+	# asks it answered from the table are the difference.
+	var sampled := int(batch.get("columns_sampled", -1))
+	var served := int(batch.get("cache_hits", -1))
+	_ok("pipeline: one column is sampled once, however many tiles want it",
+		served > 0 and sampled > 0 and sampled < served,
+		"%d columns sampled, %d asks served from the table" % [sampled, served])
 	_ok("pipeline: the horizon it covers is the one it reports", outer > RENDER_DISTANCE * 32,
 		"%d blocks" % outer)
 

@@ -92,6 +92,31 @@ inline constexpr float kShadeEastWest = 0.6f;
 // cells that differ by a hair are shaded within a hair of each other.
 float face_shade(float hx, float hz, int32_t spacing);
 
+// The far field's occlusion, for one node: how much LOWER that node sits than the
+// four nodes one spacing away from it (north/south are -/+z and east/west are +/-x,
+// the same axes the face constants above are named for). A node standing level with
+// its neighbours is open and gets nothing; one sitting in a dip is darkened by how
+// deep the dip is, measured against the node's own spacing -- a quarter of a cell of
+// fall around it is a full one -- so the term means the same thing at the innermost
+// spacing and out at the horizon's.
+//
+// This is the far field's AO, and it is the only occlusion a body of geometry with
+// no blocks can have: the near world's comes from the cells around a face, and there
+// are no cells out here. It is baked per CORNER (so a valley darkens across a cell
+// instead of stepping at its edge) and multiplied by the cell's face constant -- the
+// same order the terrain shader applies them in.
+inline constexpr float kAoStrength = 0.35f;
+float concavity_shade(float height, float north, float south, float east, float west,
+                      int32_t spacing);
+
+// A node's occlusion for the tile builder, by world column. The engine layer
+// supplies it from its shared node table (lod_node_cache.hpp), which is why this is
+// a lookup rather than arithmetic over samples: the four nodes this needs per node
+// are its neighbours' own, already wanted by the tiles that own them. An empty
+// callback means "no occlusion", which is what the tests that only care about
+// geometry use.
+using NodeShade = std::function<float(int32_t x, int32_t z)>;
+
 // Builds one tile. `origin_x`/`origin_z` are world block coordinates and are
 // expected to be multiples of `tile_size`, which in turn is a multiple of
 // `spacing`: nodes then land on global multiples of `spacing`, so two tiles at
@@ -112,7 +137,8 @@ float face_shade(float hx, float hz, int32_t spacing);
 TileMesh build_tile_mesh(int32_t origin_x, int32_t origin_z, int32_t tile_size, int32_t spacing,
                          const SurfaceSampler& sample, uint8_t water_layer,
                          float floor_skip_depth = 8.0f,
-                         const std::array<int32_t, 4>& neighbour_spacing = {});
+                         const std::array<int32_t, 4>& neighbour_spacing = {},
+                         const NodeShade& node_shade = {});
 
 } // namespace lod
 } // namespace VoxelEngine

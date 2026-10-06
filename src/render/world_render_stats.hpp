@@ -32,6 +32,24 @@ struct WorldRenderStats {
     int32_t mesh_uploads = 0;
     int32_t mesh_upload_dedup_skips = 0;
     int32_t mesh_upload_swallowed_water_changes = 0;
+
+    // The seed-grid far mode (docs/lod-modes.md), all 0 while the mode is off. Its
+    // instances are created straight on the RenderingServer rather than as nodes, so
+    // they are not in any of the counts above however much of the frame they are:
+    // a 27 km reach is 4 draw calls and 321,384 vertices on screen and 0 instances in
+    // this struct's own ledger. This is where that half gets counted.
+    int32_t far_grid_tiles = 0;
+    int32_t far_grid_built = 0;
+    int32_t far_grid_draw_calls = 0;
+    int32_t far_grid_quads = 0;
+    int32_t far_grid_vertices = 0;
+    // Columns the sampler ran for, and the asks the shared node table answered
+    // instead (lod_node_cache.hpp): the ratio is what sharing the table is worth.
+    int64_t far_grid_columns_sampled = 0;
+    int64_t far_grid_cache_hits = 0;
+    // What one frame of merging cost, averaged since the report last asked. The far
+    // field's only main-thread work; a settled reach pays 0.
+    double far_grid_merge_ms_per_frame = 0.0;
 };
 
 } // namespace VoxelEngine

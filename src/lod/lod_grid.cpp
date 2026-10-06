@@ -221,6 +221,12 @@ void LodGrid::free_all_tiles() {
         bucket.quads = 0;
         bucket.vertices = 0;
     }
+    // The shared column table goes with them. Every call that drops every tile is a
+    // reason to distrust a column: a new seed (set_config), a new world (set_epoch,
+    // reset), a different spacing or reach (the lattice the asks land on changes),
+    // and the mode going off. A table kept across one of those is at best stale work
+    // and at worst terrain from the world before it.
+    sink->cache.clear();
     // Results that finished but were never drained go with them, and so do the
     // requests the dropped tiles were waiting on: there is no count of those to
     // keep in step (see the Sink comment), so nothing can be left counting them.
@@ -390,44 +396,6 @@ void LodGrid::schedule_builds(double /*delta*/) {
     }
 }
 
-RID LodGrid::scenario() const {
-    if (!owner) return RID();
-    Node3D* node = Object::cast_to<Node3D>(owner);
-    if (!node) return RID();
-    Ref<World3D> world = node->get_world_3d();
-    return world.is_valid() ? world->get_scenario() : RID();
-}
-
-Camera3D* LodGrid::find_camera() const {
-    if (!owner) return nullptr;
-    Viewport* viewport = owner->get_viewport();
-    return viewport ? viewport->get_camera_3d() : nullptr;
-}
-
-void LodGrid::push_camera_far() {
-    Camera3D* camera = find_camera();
-    if (!camera) return;
-    // The horizon plus one tile: the outermost ring's tiles are 256 blocks wide and
-    // their far corners are the furthest geometry the mode draws, so a plane on the
-    // horizon itself would clip the last ring's far half away.
-    const float wanted =
-        static_cast<float>(get_outer_radius_blocks() + lod::kTileBlocks);
-    if (!camera_far_raised) {
-        const float current = static_cast<float>(camera->get_far());
-        if (wanted <= current) return;  // godot's own plane already reaches it
-        camera_far_original = current;
-        camera_far_raised = true;
-    }
-    if (wanted > static_cast<float>(camera->get_far())) camera->set_far(wanted);
-}
-
-void LodGrid::restore_camera_far() {
-    if (!camera_far_raised) return;
-    camera_far_raised = false;
-    Camera3D* camera = find_camera();
-    if (camera) camera->set_far(camera_far_original);
-}
-
 void LodGrid::update(double delta) {
     if (!enabled) return;
     const int32_t ptx = player_tile_x();
@@ -443,9 +411,15 @@ void LodGrid::update(double delta) {
     drain_completed(max_uploads_per_frame);
     // Only the levels whose tiles arrived or left are merged again, and the merge
     // is what the frame pays instead of a draw call per tile for the rest of it.
+    // Timed because it is the one thing this mode does on the main thread, and a
+    // fill's frames are the only frames in which it costs anything (see Stats).
+    const std::chrono::steady_clock::time_point merge_start = std::chrono::steady_clock::now();
     for (int32_t level = 0; level < static_cast<int32_t>(buckets.size()); ++level) {
         if (buckets[static_cast<size_t>(level)].dirty) rebuild_bucket(level);
     }
+    sink->merge_ms_window.store(sink->merge_ms_window.load(std::memory_order_relaxed) +
+                                ms_since(merge_start), std::memory_order_relaxed);
+    sink->merge_frames.fetch_add(1, std::memory_order_relaxed);
     schedule_builds(delta);
     push_clip_uniforms();
     // ...and the camera has to be able to SEE that far. Cheap and idempotent: it
@@ -478,6 +452,11 @@ LodGrid::Stats LodGrid::gather_stats() {
     stats.quads = quads;
     stats.vertices = vertices;
     stats.columns_sampled = sink->columns_sampled.load(std::memory_order_relaxed);
+    stats.cache_hits = sink->cache.hits();
+    const int64_t merged_frames = sink->merge_frames.exchange(0, std::memory_order_relaxed);
+    const double merged_ms = sink->merge_ms_window.exchange(0.0, std::memory_order_relaxed);
+    stats.merge_ms_per_frame =
+        merged_frames > 0 ? merged_ms / static_cast<double>(merged_frames) : 0.0;
     return stats;
 }
 

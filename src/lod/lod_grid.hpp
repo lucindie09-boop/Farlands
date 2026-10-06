@@ -1,6 +1,7 @@
 #ifndef FARLANDS_LOD_GRID_HPP
 #define FARLANDS_LOD_GRID_HPP
 #include "core/terrain_params.hpp"
+#include "lod/lod_node_cache.hpp"
 #include "lod/lod_surface.hpp"
 #include "lod/lod_tile_policy.hpp"
 #include "worldgen/biome_config.hpp"
@@ -56,7 +57,12 @@ public:
         int32_t tiles_dropped = 0;
         int32_t tiles_failed = 0;
         int32_t uploads = 0;
+        // Columns the SAMPLER actually ran for (a cache miss), and the asks the table
+        // answered instead. The ratio is what the shared table is worth: without it
+        // every tile samples its own four corners, so a 27 km reach asks for 185,017
+        // columns where 46,656 exist.
         int64_t columns_sampled = 0;
+        int64_t cache_hits = 0;
         int32_t spacing_blocks = 0;
         // What the OUTERMOST level samples at: always the tile size, whatever the base
         // spacing is (lod_spacing_for_level), which is the number that says the reach
@@ -77,6 +83,10 @@ public:
         int32_t clip_radius_blocks = 0;
         double last_build_ms = 0.0;
         double last_schedule_ms = 0.0;
+        // What one frame of merging costs, averaged over the frames since the last
+        // gather (including the frames that merged nothing, which is every frame
+        // once the reach has settled). The far field's only main-thread work.
+        double merge_ms_per_frame = 0.0;
     };
 
     LodGrid();
@@ -210,6 +220,16 @@ private:
         std::mutex mutex;
         std::queue<CompletedTile> completed;
         std::atomic<int64_t> columns_sampled{0};
+        // The column samples every task shares (lod_node_cache.hpp). It lives here
+        // rather than on the grid because this is the half that outlives the grid: a
+        // task still running through a world reset reads its table, not a freed one.
+        lod::NodeCache cache;
+        // What the merge cost the frame it ran in, summed over the frames since the
+        // last gather, and how many frames that was. A fill is the only time this
+        // mode touches the main thread at all, so this pair is where its frame cost
+        // is measured rather than guessed at.
+        std::atomic<double> merge_ms_window{0.0};
+        std::atomic<int64_t> merge_frames{0};
     };
 
     static uint64_t tile_key(int32_t tx, int32_t tz);

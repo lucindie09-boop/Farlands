@@ -101,6 +101,32 @@ procedurally generated liquid textures, and the shader-effect stack end to end.
   the sampler takes the mip level that IS that block's average colour. Writing the
   coordinate as `fract(world)` instead hands the sampler a zero derivative and
   stretches one texel across the whole quad — the reason the coordinate is in blocks.
+- **A cell 32 blocks wide cannot show a block texture, so the face's own variation is
+  added back as a RATIO.** The texture coordinate IS the world coordinate (the bullet
+  above), so at these cell sizes the sampler legitimately lands on the mip that has
+  averaged the whole 16x16 face away, and the field read as one flat colour per biome —
+  "just yellow, blue or green". The average is the right colour and stays the base; the
+  shader reads the face again at a fixed world scale (`detail_scale`, 16 blocks per
+  repeat) with the sampler's own mip selection AT that scale, divides it by that
+  scale's own average (mip 4 is the 16x16 face) and multiplies the result in
+  (`detail_strength`). Two properties are what make it safe to leave on: the ratio
+  cannot move the mean colour — a yellow cell stays exactly as yellow — and it fades
+  itself out, because past the distance where one repeat is a pixel both samples are
+  that same average and the ratio is 1. Nothing here aliases or crawls, and there is
+  no fade constant to keep in step. `tests/test_lod_shader_depth.cpp` pins both halves
+  of that shape against the shader's own text, which is the only place it is declared.
+- **The far field's AO is a hollow rather than a corner: how much LOWER a node sits
+  than the four nodes a spacing away from it** (`lod::concavity_shade`). There are no
+  blocks out here, so the near world's occlusion — the cells around a face — has no
+  equivalent; what a height field does have is curvature, and a node in a dip is what a
+  crease looks like from above. The depth is measured against the node's own spacing (a
+  quarter of a cell of fall around it is full occlusion) so the term means the same
+  thing on a 32-block lattice and on a 256-block one, and it is baked PER CORNER under
+  the cell's face constant, so a hollow darkens across a cell instead of stepping at
+  its edge. A uniform slope cancels — two neighbours up and two down — and a ridge gets
+  nothing, which is what keeps a hillside from being darkened for being a hillside; a
+  water quad keeps the top constant, because a level plane has no hollow in it.
+  `tests/test_lod_surface.cpp` pins every one of those cases.
 - **A reach past 4000 blocks needs the camera's far plane moved, or it is geometry
   nobody sees.** Godot's `Camera3D` defaults to `far = 4000`, which the main scene
   never overrides, so the outer rings a raised reach builds would be frustum-clipped

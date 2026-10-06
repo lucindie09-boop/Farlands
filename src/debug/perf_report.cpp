@@ -83,6 +83,21 @@ String PerfReport::build(
     // Also 0: chunks that have geometry, are in range and are not covered by a far
     // region, but have no instance drawing them.
     report += "  Unrendered:      " + String::num_int64(render_stats.chunks_with_geometry_but_no_instance) + "\n";
+    // The seed-grid far mode, which draws through the RenderingServer instead of
+    // through nodes and so appears in none of the counts above: without this the
+    // report shows the world's own 28 instances and calls the frame accounted for
+    // while four far instances draw three hundred thousand vertices behind them.
+    if (render_stats.far_grid_tiles > 0 || render_stats.far_grid_draw_calls > 0) {
+        report += "  Seed grid:       " + String::num_int64(render_stats.far_grid_tiles) +
+                  " tiles, " + String::num_int64(render_stats.far_grid_built) + " built, " +
+                  String::num_int64(render_stats.far_grid_draw_calls) + " draw calls, " +
+                  String::num_int64(render_stats.far_grid_quads) + " quads, " +
+                  String::num_int64(render_stats.far_grid_vertices) + " vertices\n";
+        report += "  Seed grid work:  " + String::num_int64(render_stats.far_grid_columns_sampled) +
+                  " columns sampled, " + String::num_int64(render_stats.far_grid_cache_hits) +
+                  " asked again from the shared table, " +
+                  String::num(render_stats.far_grid_merge_ms_per_frame, 3) + "ms/frame merging\n";
+    }
 
     report += "--- per-frame breakdown (avg / max — the max column is what a spike frame paid) ---\n";
     auto phase_line = [&](const char* label, TimerID id) {
@@ -113,6 +128,12 @@ String PerfReport::build(
     report += "  world_update:      avg=" + String::num(perf_timer.get_avg(TimerID::WorldUpdate), 3) + "ms\n";
     report += "  scene_update:      avg=" + String::num(perf_timer.get_avg(TimerID::SceneUpdate), 3) + "ms\n";
     report += "  render_time:       avg=" + String::num(perf_timer.get_avg(TimerID::RenderTime), 3) + "ms\n";
+    // The far mode's frame cost, which is 0.000ms whenever it has nothing to merge
+    // (that is, on every frame after the reach has settled).
+    if (perf_timer.get_count(TimerID::FarGridUpdate) > 0) {
+        report += "  far_grid_update:   avg=" + String::num(perf_timer.get_avg(TimerID::FarGridUpdate), 3) +
+                  "ms max=" + String::num(perf_timer.get_max(TimerID::FarGridUpdate), 3) + "ms\n";
+    }
 
     if (proc_count > 0) {
         double accounted = perf_timer.get_avg(TimerID::PlayerPosUpdate);
@@ -121,6 +142,10 @@ String PerfReport::build(
         accounted += perf_timer.get_avg(TimerID::ProcessCompletedChunks);
         accounted += perf_timer.get_avg(TimerID::ProcessCompletedMeshes);
         accounted += perf_timer.get_avg(TimerID::UpdateCollision);
+        // The far mode is a phase of the frame like any other, so it belongs in the
+        // sum the unaccounted column is what is left of: leaving it out would report
+        // its cost twice.
+        accounted += perf_timer.get_avg(TimerID::FarGridUpdate);
         double unaccounted = proc_avg - accounted;
 
         if (unaccounted < 0.0) {

@@ -323,7 +323,8 @@ still a hard edge and the nearest ring still reads as quads.
 
 The mode is `src/lod/lod_grid.cpp` (tiles, budget, scheduling), `lod_grid_upload.cpp`
 (the per-level merge and the one instance each level gets), `lod_grid_build.cpp`
-(the worker's sampler) and the pure geometry in `lod_surface.cpp` / `lod_march.hpp`,
+(the worker's sampler), `lod_grid_camera.cpp` (the scenario and the far plane that has
+to reach the horizon) and the pure geometry in `lod_surface.cpp` / `lod_march.hpp`,
 with `shaders/lod_grid.gdshader` and `materials/lod_grid_material.tres` to draw it.
 A tile is 256 blocks a side and is sampled at 32, 64, 128 or 256 blocks by distance
 level, two tile rings per level, four levels — so a tile is 64, 16, 4 or 1 quad

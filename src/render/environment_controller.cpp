@@ -45,6 +45,16 @@ void EnvironmentController::apply_item_shader_lighting(const godot::Ref<godot::S
     material->set_shader_parameter("player_light_color", item_player_light_color);
 }
 
+void EnvironmentController::set_sky_tint_enabled(bool enabled) {
+    if (sky_tint_enabled == enabled) return;
+    sky_tint_enabled = enabled;
+    // Straight to the materials rather than waiting for the next frame: this is a
+    // setting, and the dirty gate below is what would otherwise swallow it (none of
+    // its other inputs move when the tint does) -- cached_sky_warmth is checked
+    // there so this call is the one that gets through.
+    update_shader_parameters();
+}
+
 void EnvironmentController::set_mipmaps_enabled(bool enabled) {
     if (mipmaps_enabled == enabled) return;
     mipmaps_enabled = enabled;
@@ -74,7 +84,10 @@ void EnvironmentController::update_shader_parameters() {
 
     const float elevation = day_night.get_sun_elevation();
     const godot::Color sun_color = day_night.get_sun_color();
-    const godot::Color sky_warmth = sun_color;
+    // The world's surface tint: the cream, or the sun's own curve when the setting
+    // is off (see set_sky_tint_enabled). Both are warm at the horizon, so the two
+    // differ only where the sun is high.
+    const godot::Color sky_warmth = sky_tint_enabled ? sun_color : day_night.get_sun_color_neutral();
     const float sky_turbidity = day_night.get_sky_turbidity();
 
     // Item materials are fed from these every frame, independent of the dirty
@@ -95,6 +108,7 @@ void EnvironmentController::update_shader_parameters() {
     
     if (std::abs(blend - cached_blend) > PARAM_EPSILON) needs_update = true;
     if (sky_color != cached_sky_color) needs_update = true;
+    if (sky_warmth != cached_sky_warmth) needs_update = true;
     if (sun_dir != cached_sun_dir) needs_update = true;
     if (std::abs(contrast - cached_contrast) > PARAM_EPSILON) needs_update = true;
     if (std::abs(saturation - cached_saturation) > PARAM_EPSILON) needs_update = true;
@@ -121,6 +135,7 @@ void EnvironmentController::update_shader_parameters() {
     // Update cached values
     cached_blend = blend;
     cached_sky_color = sky_color;
+    cached_sky_warmth = sky_warmth;
     cached_sun_dir = sun_dir;
     cached_contrast = contrast;
     cached_saturation = saturation;

@@ -343,6 +343,7 @@ BIND_PROP(Variant::BOOL, smooth_lighting, "enabled");
     BIND_PROP(Variant::COLOR,   player_light_color,        "color");
 BIND_PROP(Variant::FLOAT, day_time, "time");
     BIND_PROP(Variant::BOOL,    day_night_cycle_enabled,   "enabled");
+    BIND_PROP(Variant::BOOL,    sky_tint_enabled,          "enabled");
     BIND_PROP(Variant::FLOAT,   day_duration,              "duration");
     BIND_PROP(Variant::FLOAT,   day_sky_intensity,         "intensity");
     BIND_PROP(Variant::FLOAT,   night_sky_intensity,       "intensity");

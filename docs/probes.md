@@ -5,7 +5,7 @@ the resolver, the fluid rules, the planner and the save formats. A probe is for
 what is left: the real loaded registry, the real texture array, the real world,
 and what actually reaches the screen.
 
-They live in `probes/` (51 `.gd` scripts). **The scripts are repository
+They live in `probes/` (52 `.gd` scripts). **The scripts are repository
 content; what they produce is not.** `.gitignore` ignores `probes/*` except
 `*.gd`, `*.sh`, `*.tscn` and `*.gdshader*`, so screenshots, crash reports and
 generated sheets (hundreds of megabytes) stay scratch while the probes
@@ -94,6 +94,7 @@ comment, with the claim each one backs:
 | `probe_item_light_smooth.gd` | The item light model's step: a staged one-frame relight of the held item's/arm's cell, of a dropped item's cell and of the player's own body's cell moves the `item_light` the mesh is handed over ~0.35 s (the value is read back off the instance the shader sees), instead of arriving in one frame |
 | `probe_body_light.gd` | The player's own body is lit by the world's light, not the engine's: its rendered luma equals the luma of the pixels it is drawn over, it follows the sun down to midnight, and it is the one consumer handed the sun's own colour instead of the world's midday cream |
 | `probe_sky_brightness.gd` | What a fully sky-lit surface renders AT, against its own albedo: the body is handed a flat known grey (1x1, no atlas to guess from), the frame is read back per albedo, and each one is held to the model's own claim — never above its own texel, and not far below it |
+| `probe_sky_tint.gd` | The Sky Tint setting reaches what the world is drawn with: the world's own material is handed the midday cream while it is ON, a white zenith while it is OFF, and both are the same warm colour at the horizon |
 | `probe_item_size.gd` | A dropped item is not cell-sized: a cube's body and drawn mesh are both half a block, a slab and a stair keep their own shape at that scale, a sprite keeps its silhouette, and a stack of more than one is both drawn and solved bigger by the capped log2 curve (1.25x at 2 through 2x from sixteen), mesh and body one box at every count |
 | `probe_item_merge.gd` | Two drops of one kind next to each other become one pile: the counts add up to the 64 cap, the fuller keeps its place, body and mesh take the count's own size, motions combine only when both move, and the drawn size pops past the new one and settles back (at half strength once the pile is already at its largest) |
 | `probe_drop_swing.gd` | The drop path itself (`hotbar.gd _drop_selected`) throws the item AND kicks the viewmodel's full punch swing -- the swing timer at 1 with no place stroke -- once per unit and once per Ctrl+Q, writing the slot back each time |
@@ -151,6 +152,13 @@ through the call the terrain's own materials are fed through, so it cannot be a 
 — and the body's own value must still be warm at the horizon, which is what says its white is a
 curve and not a flat colour. Scoping the cast to the body is therefore a claim that cannot be
 quietly undone. Shots land in `user://body_shots/`.
+
+`probe_sky_tint.gd` is the one that needs no scene, and it is the only probe that can run
+beside a live game: it instantiates a bare `ChunkManager` and never adds it to the tree, so
+nothing is generated, meshed or saved, and the numbers it reads come off the call the terrain's
+own materials are fed through (`apply_item_lighting` on a scratch material). What it holds is the
+behaviour of a *setting* — that `sky_light_warmth` is the cream at noon with the tint on, white
+with it off, and the same colour at the horizon either way.
 
 `probe_sky_brightness.gd` answers a question none of the others can: what a surface in FULL sky
 light actually renders as, against its own texture. It found that the answer was not the texture.

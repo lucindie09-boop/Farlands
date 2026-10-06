@@ -72,6 +72,13 @@ String ChunkManager::get_performance_report() { return controller->get_performan
 void ChunkManager::set_smooth_lighting(bool enabled) { controller->set_smooth_lighting(enabled); }
 bool ChunkManager::get_smooth_lighting() const { return controller->get_smooth_lighting(); }
 
+void ChunkManager::set_sky_tint_enabled(bool enabled) {
+    controller->get_environment_controller().set_sky_tint_enabled(enabled);
+}
+bool ChunkManager::get_sky_tint_enabled() {
+    return controller->get_environment_controller().get_sky_tint_enabled();
+}
+
 void ChunkManager::set_world_bend(bool enabled, double amount, double radius, double rise) {
     controller->set_world_bend(enabled, amount, radius, rise);
 }

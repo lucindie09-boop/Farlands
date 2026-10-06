@@ -61,6 +61,21 @@ public:
     void set_player_light_color(const godot::Color& color) { player_light.set_color(color); }
     godot::Color get_player_light_color() const { return player_light.get_color(); }
 
+    // The world's midday cream, as a setting. `sky_light_warmth` is the tint every
+    // sky-lit surface is multiplied by (shaders/item_lighting.gdshaderinc), and the
+    // sun's own colour carries a warm CREAM at the zenith -- which hides in grass,
+    // dirt and stone and does not hide on a pale skin. ON is that cream, the look
+    // every other lighting default here was tuned against; OFF is the sun's neutral
+    // curve instead: white overhead and still warm at the horizon, so a sunset
+    // lights the ground exactly as it would have. It moves the terrain, the water
+    // and every item together -- they have to agree on the colour of the light --
+    // and it leaves the sky, the fog and the sun light alone, which are their own
+    // settings (see the Day/Night Sky Color rows). probes/probe_sky_tint.gd holds
+    // both ends of it: the cream while ON, white overhead while OFF, and the two
+    // curves meeting at the horizon.
+    void set_sky_tint_enabled(bool enabled);
+    bool get_sky_tint_enabled() const { return sky_tint_enabled; }
+
     void set_day_night_cycle_enabled(bool enabled) { day_night.set_enabled(enabled); update_shader_parameters(); }
     bool get_day_night_cycle_enabled() const { return day_night.get_enabled(); }
     void set_day_duration(double duration) { day_night.set_duration(duration); }
@@ -131,10 +146,12 @@ private:
     bool mipmaps_enabled = true;
     float mipmap_bias = 0.1f;
     bool textures_enabled = true;
+    bool sky_tint_enabled = true;
 
     // Dirty tracking for shader parameters (avoid redundant Godot API calls)
     float cached_blend = -1.0f;
     godot::Color cached_sky_color = godot::Color(0.0f, 0.0f, 0.0f, 1.0f);
+    godot::Color cached_sky_warmth = godot::Color(1.0f, 1.0f, 1.0f, 1.0f);
     godot::Vector3 cached_sun_dir = godot::Vector3(0.0f, 1.0f, 0.0f);
     float cached_contrast = -1.0f;
     float cached_saturation = -1.0f;

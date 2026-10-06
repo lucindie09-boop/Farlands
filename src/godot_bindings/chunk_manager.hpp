@@ -240,8 +240,13 @@ public:
 
     VoxelEngine::CollisionResolver* get_collision_resolver();
 
-void set_smooth_lighting(bool enabled);
-bool get_smooth_lighting() const;
+    void set_smooth_lighting(bool enabled);
+    bool get_smooth_lighting() const;
+
+    // The world's midday sky tint: the terrain, the water and every item together
+    // (see EnvironmentController::set_sky_tint_enabled).
+    void set_sky_tint_enabled(bool enabled);
+    bool get_sky_tint_enabled();
 
     // The Shaders menu's two geometry effects - World Bend and the Horizon
     // Curve - move the world's vertices in a vertex shader, which runs after the

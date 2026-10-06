@@ -108,6 +108,10 @@ var _default_ao_color: Color = Color(0, 0, 0, 1)
 var _default_ao_strength: float = 1.0
 var _default_darkness_color: Color = Color(0, 0, 0, 1)
 var _default_smooth_lighting: bool = false
+# The world's midday sky tint, on by default: the look every other lighting
+# default here was tuned against. Off is not a flat white -- the sun still warms
+# what it lights near the horizon (see EnvironmentController::set_sky_tint_enabled).
+var _default_sky_tint: bool = true
 var _default_fog_mode: int = 3  # 0=disabled, 1=edge, 2=linear, 3=exponential
 var _default_godrays: bool = true
 var _default_mipmaps_enabled: bool = true
@@ -233,6 +237,7 @@ func _ready():
 	_default_ao_strength = chunk_manager.get_ao_strength()
 	_default_darkness_color = chunk_manager.get_darkness_color()
 	_default_smooth_lighting = chunk_manager.get_smooth_lighting()
+	_default_sky_tint = chunk_manager.get_sky_tint_enabled()
 	# Don't load fog_mode from chunk_manager - keep hardcoded default for reset
 	# _default_fog_mode = chunk_manager.get_fog_mode()
 	_default_mipmaps_enabled = chunk_manager.get_mipmaps_enabled()
@@ -285,6 +290,7 @@ func _save_settings():
 	cfg.set_value("lighting", "ao_strength", chunk_manager.get_ao_strength())
 	cfg.set_value("lighting", "darkness_color", chunk_manager.get_darkness_color())
 	cfg.set_value("lighting", "smooth_lighting", chunk_manager.get_smooth_lighting())
+	cfg.set_value("lighting", "sky_tint", chunk_manager.get_sky_tint_enabled())
 	cfg.set_value("render", "distance", chunk_manager.get_render_distance())
 	cfg.set_value("render", "lod_distance", chunk_manager.get_lod_distance())
 	cfg.set_value("render", "lod_detail_level", chunk_manager.get_lod_detail_level())
@@ -336,6 +342,7 @@ func _load_settings():
 	chunk_manager.set_ao_strength(cfg.get_value("lighting", "ao_strength", chunk_manager.get_ao_strength()))
 	chunk_manager.set_darkness_color(cfg.get_value("lighting", "darkness_color", chunk_manager.get_darkness_color()))
 	chunk_manager.set_smooth_lighting(cfg.get_value("lighting", "smooth_lighting", chunk_manager.get_smooth_lighting()))
+	chunk_manager.set_sky_tint_enabled(cfg.get_value("lighting", "sky_tint", chunk_manager.get_sky_tint_enabled()))
 	chunk_manager.set_render_distance(int(cfg.get_value("render", "distance", chunk_manager.get_render_distance())))
 	chunk_manager.set_lod_distance(int(cfg.get_value("render", "lod_distance", chunk_manager.get_lod_distance())))
 	chunk_manager.set_lod_detail_level(cfg.get_value("render", "lod_detail_level", chunk_manager.get_lod_detail_level()))
@@ -1259,6 +1266,18 @@ func _build_lighting_sections() -> Array:
 		_row_value(smooth_lighting, "On" if _default_smooth_lighting else "Off")
 		_schedule_save()
 
+	var sky_tint := Button.new()
+	_row_value(sky_tint, "On" if chunk_manager.get_sky_tint_enabled() else "Off")
+	_style_button(sky_tint, 180.0)
+	sky_tint.pressed.connect(func():
+		chunk_manager.set_sky_tint_enabled(not chunk_manager.get_sky_tint_enabled())
+		_row_value(sky_tint, "On" if chunk_manager.get_sky_tint_enabled() else "Off")
+		_schedule_save())
+	var sky_tint_reset := func():
+		chunk_manager.set_sky_tint_enabled(_default_sky_tint)
+		_row_value(sky_tint, "On" if _default_sky_tint else "Off")
+		_schedule_save()
+
 	var codec := {
 		"export": _export_lighting_code,
 		"import": _import_lighting_code,
@@ -1271,7 +1290,8 @@ func _build_lighting_sections() -> Array:
 			dark_color.color = chunk_manager.get_darkness_color()
 			contrast.get_meta("slider").value = chunk_manager.get_contrast()
 			saturation.get_meta("slider").value = chunk_manager.get_saturation()
-			_row_value(smooth_lighting, "On" if chunk_manager.get_smooth_lighting() else "Off"),
+			_row_value(smooth_lighting, "On" if chunk_manager.get_smooth_lighting() else "Off")
+			_row_value(sky_tint, "On" if chunk_manager.get_sky_tint_enabled() else "Off"),
 		"hint": hint,
 	}
 
@@ -1280,6 +1300,7 @@ func _build_lighting_sections() -> Array:
 			["Day Duration", dur, dur_reset],
 			["Day Sky Color", day_color, day_reset],
 			["Night Sky Color", night_color, night_reset],
+			["Sky Tint", sky_tint, sky_tint_reset],
 		]],
 		["Light", [
 			["AO Colour", ao_color, ao_reset],
@@ -3718,6 +3739,12 @@ func _export_lighting_code() -> String:
 	# One flags byte for the switches, so the next one costs no format change.
 	var flags := 0
 	flags |= (1 if chunk_manager.get_smooth_lighting() else 0) << 0
+	# Bit 1 is the sky tint, INVERTED on purpose: a code written before this
+	# setting existed has the bit clear, and the world those codes were authored
+	# under wore the cream -- so clear has to mean ON, or importing an old code
+	# would quietly de-warm the world. The flag byte was left a byte wide for
+	# exactly this, so the format stays version 1 and old codes still import.
+	flags |= (0 if chunk_manager.get_sky_tint_enabled() else 1) << 1
 	data.append(flags)
 	data.append_array(_pack_float16(chunk_manager.get_day_duration(), 10.0, 600.0, 10.0))
 	data.append_array(_pack_color32(chunk_manager.get_day_sky_color()))
@@ -3744,6 +3771,7 @@ func _import_lighting_code(code: String) -> bool:
 	chunk_manager.set_contrast(_unpack_float16(data, idx, 0.0, 2.0, 100.0)); idx += 2
 	chunk_manager.set_saturation(_unpack_float16(data, idx, 0.0, 2.0, 100.0)); idx += 2
 	chunk_manager.set_smooth_lighting((flags & (1 << 0)) != 0)
+	chunk_manager.set_sky_tint_enabled((flags & (1 << 1)) == 0)
 	_schedule_save()
 	return true
 

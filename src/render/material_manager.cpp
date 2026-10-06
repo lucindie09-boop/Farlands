@@ -225,6 +225,24 @@ Ref<ShaderMaterial> MaterialManager::get_material() {
     return cached_material;
 }
 
+Ref<ShaderMaterial> MaterialManager::get_lod_grid_material() {
+    if (!cached_lod_grid_material.is_valid()) {
+        ResourceLoader* loader = ResourceLoader::get_singleton();
+        cached_lod_grid_material = loader->load("res://materials/lod_grid_material.tres");
+        if (!cached_lod_grid_material.is_valid()) {
+            ERR_PRINT("Failed to load lod_grid_material.tres");
+            return cached_lod_grid_material;
+        }
+        // Only the albedo array: the far field has no per-vertex light to look up
+        // an emissive layer with, so the emissive array would be dead weight.
+        Ref<Texture2DArray> texture_array = TextureArrayGenerator::get_instance().get_texture_array();
+        if (texture_array.is_valid()) {
+            cached_lod_grid_material->set_shader_parameter("texture_array", texture_array);
+        }
+    }
+    return cached_lod_grid_material;
+}
+
 Ref<ShaderMaterial> MaterialManager::get_water_material() {
     if (!cached_water_material.is_valid()) {
         ResourceLoader* loader = ResourceLoader::get_singleton();

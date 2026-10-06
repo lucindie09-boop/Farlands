@@ -126,6 +126,7 @@ shared_sources = [
     "src/schematic/mc_palette_classic_rows.cpp",
     "src/schematic/mc_palette_resolve.cpp",
     "src/schematic/paste_plan.cpp",
+    "src/lod/lod_surface.cpp",
 ]
 # Remove any non-existent .cpp files (like crc32.cpp which is header-only)
 shared_sources = [s for s in shared_sources if os.path.exists(str(s))]
@@ -192,6 +193,12 @@ tcost_env = env.Clone()
 tcost_env.Append(LIBS=[])
 tcost_prog = tcost_env.Program("bin/time_column_cost", ["tools/time_column_cost.cpp"] + terrain_tool_objects + [chunk_data_object])
 Alias("time_column_cost", tcost_prog)
+
+# Seed-grid surface-sampler cost probe (standalone executable).
+lodbench_env = env.Clone()
+lodbench_env.Append(LIBS=[])
+lodbench_prog = lodbench_env.Program("bin/lod_sample_bench", ["tools/lod_sample_bench.cpp"] + terrain_tool_objects + [chunk_data_object])
+Alias("lod_sample_bench", lodbench_prog)
 
 # Planner cost on real generated terrain (standalone executable).
 path_env = env.Clone()

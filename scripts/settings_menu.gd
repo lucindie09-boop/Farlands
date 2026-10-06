@@ -102,6 +102,16 @@ var _default_lod_distance: int = 0
 var _default_lod_detail: float = 0.5
 var _default_far_lod_distance: int = 16
 var _default_far_lod_detail: float = 0.25
+# The seed-grid far mode (docs/lod-modes.md): off by default, and off means no
+# tile exists at all, so the reset row restores the world exactly as it was.
+var _default_lod_grid_enabled: bool = false
+var _default_lod_grid_spacing: int = 32
+# How far past the level ladder the far field reaches, in rings of the OUTERMOST
+# spacing level. The slider below is in blocks, because that is the distance a
+# reader thinks in; the property is in rings, because 256 blocks is what one ring
+# is worth at that spacing (a tile there is a single quad).
+var _default_lod_grid_outer: int = 0
+const FAR_RING_BLOCKS := 256
 var _default_contrast: float = 1.0
 var _default_saturation: float = 1.0
 var _default_ao_color: Color = Color(0, 0, 0, 1)
@@ -231,6 +241,9 @@ func _ready():
 	_default_lod_detail = chunk_manager.get_lod_detail_level()
 	_default_far_lod_distance = chunk_manager.get_far_lod_distance()
 	_default_far_lod_detail = chunk_manager.get_far_lod_detail_level()
+	_default_lod_grid_enabled = chunk_manager.get_lod_grid_enabled()
+	_default_lod_grid_spacing = chunk_manager.get_lod_grid_spacing()
+	_default_lod_grid_outer = chunk_manager.get_lod_grid_outer_rings()
 	_default_contrast = chunk_manager.get_contrast()
 	_default_saturation = chunk_manager.get_saturation()
 	_default_ao_color = chunk_manager.get_ao_color()
@@ -296,6 +309,9 @@ func _save_settings():
 	cfg.set_value("render", "lod_detail_level", chunk_manager.get_lod_detail_level())
 	cfg.set_value("render", "far_lod_distance", chunk_manager.get_far_lod_distance())
 	cfg.set_value("render", "far_lod_detail_level", chunk_manager.get_far_lod_detail_level())
+	cfg.set_value("render", "lod_grid_enabled", chunk_manager.get_lod_grid_enabled())
+	cfg.set_value("render", "lod_grid_spacing", chunk_manager.get_lod_grid_spacing())
+	cfg.set_value("render", "lod_grid_outer_rings", chunk_manager.get_lod_grid_outer_rings())
 	cfg.set_value("render", "fog_mode", chunk_manager.get_fog_mode())
 	cfg.set_value("render", "godrays", godrays_node.visible if godrays_node else _default_godrays)
 	cfg.set_value("render", "mipmaps_enabled", chunk_manager.get_mipmaps_enabled())
@@ -348,6 +364,11 @@ func _load_settings():
 	chunk_manager.set_lod_detail_level(cfg.get_value("render", "lod_detail_level", chunk_manager.get_lod_detail_level()))
 	chunk_manager.set_far_lod_distance(int(cfg.get_value("render", "far_lod_distance", chunk_manager.get_far_lod_distance())))
 	chunk_manager.set_far_lod_detail_level(cfg.get_value("render", "far_lod_detail_level", chunk_manager.get_far_lod_detail_level()))
+	chunk_manager.set_lod_grid_spacing(int(cfg.get_value("render", "lod_grid_spacing", chunk_manager.get_lod_grid_spacing())))
+	chunk_manager.set_lod_grid_outer_rings(int(cfg.get_value("render", "lod_grid_outer_rings", chunk_manager.get_lod_grid_outer_rings())))
+	# Enabled last, so the mode never comes up sampling a configuration the rest of
+	# the load has not applied yet.
+	chunk_manager.set_lod_grid_enabled(bool(cfg.get_value("render", "lod_grid_enabled", chunk_manager.get_lod_grid_enabled())))
 	chunk_manager.set_fog_mode(int(cfg.get_value("render", "fog_mode", chunk_manager.get_fog_mode())))
 	if godrays_node:
 		godrays_node.visible = cfg.get_value("render", "godrays", _default_godrays)
@@ -972,6 +993,25 @@ func _make_spin(value: float, min_value: float, max_value: float, step: float, f
 func _make_spin_outline(value: float, min_value: float, max_value: float, step: float, field: String) -> Control:
 	return _make_slider(value, min_value, max_value, step, func(v: float): _block_outline_set(field, v))
 
+## The spacings the far field can be built at: a power of two that divides a
+## 256-block tile, nearest to the request, ties to the smaller. The engine applies the
+## same rule in `lod_snap_spacing`, which is the authority -- this one exists so the
+## row can show the value the geometry is actually built at instead of the one the
+## drag passed through.
+func _snap_lod_spacing(blocks: int) -> int:
+	var wanted := clampi(blocks, 2, 256)
+	var best := 256
+	var best_gap := 256
+	var spacing := 256
+	while spacing >= 2:
+		var gap: int = absi(wanted - spacing)
+		if gap < best_gap or (gap == best_gap and spacing < best):
+			best = spacing
+			best_gap = gap
+		spacing = int(spacing / 2.0)
+	return best
+
+
 func _make_slider(value: float, min_value: float, max_value: float, step: float, setter: Callable, suffix := "") -> Control:
 	var s := _ui_scale()
 	var box := Control.new()
@@ -1357,6 +1397,61 @@ func _build_render_sections() -> Array:
 		chunk_manager.set_far_lod_detail_level(_default_far_lod_detail)
 		_schedule_save()
 
+	var far_mode_btn := _make_button("", 180.0)
+	var far_mode_names := ["Off", "Seed Grid"]
+	_row_value(far_mode_btn, far_mode_names[1] if chunk_manager.get_lod_grid_enabled() else far_mode_names[0])
+	far_mode_btn.pressed.connect(func():
+		var next: bool = not chunk_manager.get_lod_grid_enabled()
+		chunk_manager.set_lod_grid_enabled(next)
+		_row_value(far_mode_btn, far_mode_names[1] if next else far_mode_names[0])
+		_schedule_save())
+	var far_mode_reset := func():
+		chunk_manager.set_lod_grid_enabled(_default_lod_grid_enabled)
+		_row_value(far_mode_btn, far_mode_names[1] if _default_lod_grid_enabled else far_mode_names[0])
+		_schedule_save()
+
+	var far_spacing := _make_slider(chunk_manager.get_lod_grid_spacing(), 8.0, 128.0, 8.0,
+		func(v: float):
+			chunk_manager.set_lod_grid_spacing(int(v))
+			_schedule_save(), " blocks")
+	# A spacing only builds when it DIVIDES a 256-block tile. Anything else leaves the
+	# tile's edge off the node lattice its neighbours share, and the builder refuses the
+	# tile -- which it has to, and silently: the tile comes back empty, the mode counts
+	# it as built, and that level's ground is simply not drawn, so the slider used to
+	# look like it had four working values. The row snaps the drag onto the values that
+	# work and shows the snapped one, rather than displaying a number the geometry is
+	# not built at.
+	#
+	# This is a DETAIL setting and not a distance one: the level ladder doubles from
+	# here and is capped at the tile, with the outermost level a tile wide at every
+	# base (see LodGrid's spacing rule), so `Far Reach` is what moves the horizon and
+	# this only says how finely the bands nearer than it are drawn.
+	far_spacing.get_meta("slider").value_changed.connect(func(v: float):
+		var snapped := _snap_lod_spacing(int(v))
+		# Assigning the snapped value re-enters this handler once, with a value that is
+		# already snapped, so the correction settles after one pass and the track (and the
+		# label, which the slider's own handler writes) shows what will be built.
+		if snapped != int(v):
+			far_spacing.get_meta("slider").value = float(snapped))
+	var far_spacing_reset := func():
+		far_spacing.get_meta("slider").value = _default_lod_grid_spacing
+		chunk_manager.set_lod_grid_spacing(_default_lod_grid_spacing)
+		_schedule_save()
+
+	# How far the far field goes, as blocks PAST what the level ladder already
+	# reaches. The extra distance is drawn at the outermost spacing (256 blocks a
+	# tile, one quad each), which is what makes this knob nearly free to turn: the
+	# same 256 blocks at the innermost spacing would be a tile of 4,096 quads.
+	var far_reach := _make_slider(float(chunk_manager.get_lod_grid_outer_rings()) * FAR_RING_BLOCKS,
+		0.0, 25600.0, 256.0,
+		func(v: float):
+			chunk_manager.set_lod_grid_outer_rings(int(v / FAR_RING_BLOCKS))
+			_schedule_save(), " blocks")
+	var far_reach_reset := func():
+		far_reach.get_meta("slider").value = float(_default_lod_grid_outer) * FAR_RING_BLOCKS
+		chunk_manager.set_lod_grid_outer_rings(_default_lod_grid_outer)
+		_schedule_save()
+
 	var fog_mode_btn := _make_button("", 180.0)
 	var fog_mode_names := ["Off", "Edge", "Linear", "Exponential"]
 	_row_value(fog_mode_btn, fog_mode_names[chunk_manager.get_fog_mode()])
@@ -1464,6 +1559,9 @@ func _build_render_sections() -> Array:
 			lod_detail.get_meta("slider").value = chunk_manager.get_lod_detail_level()
 			far_lod_dist.get_meta("slider").value = float(chunk_manager.get_far_lod_distance())
 			far_lod_detail.get_meta("slider").value = chunk_manager.get_far_lod_detail_level()
+			_row_value(far_mode_btn, far_mode_names[1] if chunk_manager.get_lod_grid_enabled() else far_mode_names[0])
+			far_spacing.get_meta("slider").value = float(chunk_manager.get_lod_grid_spacing())
+			far_reach.get_meta("slider").value = float(chunk_manager.get_lod_grid_outer_rings()) * FAR_RING_BLOCKS
 			_row_value(fog_mode_btn, fog_mode_names[chunk_manager.get_fog_mode()])
 			_row_value(godrays_btn, "On" if (godrays_node.visible if godrays_node else _default_godrays) else "Off")
 			_row_value(msaa_btn, msaa_names[get_viewport().msaa_3d])
@@ -1481,6 +1579,9 @@ func _build_render_sections() -> Array:
 			["LOD Detail Level", lod_detail, lod_detail_reset],
 			["Far LOD Distance", far_lod_dist, far_lod_reset],
 			["Far LOD Detail Level", far_lod_detail, far_lod_detail_reset],
+			["Far Mode", far_mode_btn, far_mode_reset],
+			["Far Grid Spacing", far_spacing, far_spacing_reset],
+			["Far Reach", far_reach, far_reach_reset],
 		]],
 		# "Sky" is taken by the lighting category's own group.
 		["Atmosphere", [

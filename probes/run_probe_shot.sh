@@ -37,7 +37,7 @@ echo "run_probe_shot: probe exited $status"
 
 # The screenshots are the point of the run: copy them out, leave them in place.
 harvested=0
-for dir in menu_shots paste_shots shader_shots heart_shots body_shots brightness_shots; do
+for dir in menu_shots paste_shots shader_shots heart_shots body_shots brightness_shots lod_grid_shots lod_depth_shots; do
 	if [ -d "$USERDATA/$dir" ]; then
 		mkdir -p "$SHOTS/$dir"
 		cp -r "$USERDATA/$dir"/. "$SHOTS/$dir/" 2>/dev/null && harvested=$((harvested + 1))

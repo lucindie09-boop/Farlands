@@ -72,6 +72,22 @@ String ChunkManager::get_performance_report() { return controller->get_performan
 void ChunkManager::set_smooth_lighting(bool enabled) { controller->set_smooth_lighting(enabled); }
 bool ChunkManager::get_smooth_lighting() const { return controller->get_smooth_lighting(); }
 
+// The seed-grid far mode. Every one of these forwards; the grid's own state, its
+// tiles and its worker tasks all live behind the controller (lod/lod_grid.cpp).
+void ChunkManager::set_lod_grid_enabled(bool enabled) { controller->set_lod_grid_enabled(enabled); }
+bool ChunkManager::get_lod_grid_enabled() const { return controller->get_lod_grid_enabled(); }
+void ChunkManager::set_lod_grid_spacing(int32_t blocks) { controller->set_lod_grid_spacing(blocks); }
+int32_t ChunkManager::get_lod_grid_spacing() const { return controller->get_lod_grid_spacing(); }
+void ChunkManager::set_lod_grid_rings(int32_t rings) { controller->set_lod_grid_rings(rings); }
+int32_t ChunkManager::get_lod_grid_rings() const { return controller->get_lod_grid_rings(); }
+void ChunkManager::set_lod_grid_outer_rings(int32_t rings) {
+    controller->set_lod_grid_outer_rings(rings);
+}
+int32_t ChunkManager::get_lod_grid_outer_rings() const {
+    return controller->get_lod_grid_outer_rings();
+}
+godot::Dictionary ChunkManager::get_lod_grid_stats() const { return controller->get_lod_grid_stats(); }
+
 void ChunkManager::set_sky_tint_enabled(bool enabled) {
     controller->get_environment_controller().set_sky_tint_enabled(enabled);
 }

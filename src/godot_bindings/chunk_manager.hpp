@@ -261,6 +261,18 @@ public:
     // for a settled world rather than guessing a number of frames.
     bool has_pending_mesh_work() const;
 
+    // The seed-grid far mode (docs/lod-modes.md): terrain beyond the loaded
+    // world, sampled from the seed rather than generated.
+    void set_lod_grid_enabled(bool enabled);
+    bool get_lod_grid_enabled() const;
+    void set_lod_grid_spacing(int32_t blocks);
+    int32_t get_lod_grid_spacing() const;
+    void set_lod_grid_rings(int32_t rings);
+    int32_t get_lod_grid_rings() const;
+    void set_lod_grid_outer_rings(int32_t rings);
+    int32_t get_lod_grid_outer_rings() const;
+    godot::Dictionary get_lod_grid_stats() const;
+
     void set_lod_distance(int32_t distance);
     int32_t get_lod_distance() const;
     void set_lod_detail_level(float level);

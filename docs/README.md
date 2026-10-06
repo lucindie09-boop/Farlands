@@ -28,6 +28,7 @@ description of how the system works today.
 |---|---|---|
 | Block shapes, collision, liquids | [shapes.md](shapes.md) | [shapes-notes.md](shapes-notes.md) |
 | Chunk streaming, LOD priority, shard locks | [streaming.md](streaming.md) | — |
+| Far-field LOD modes (voxel tiers, seed-grid sampling) | — | [lod-modes.md](lod-modes.md) |
 | Sky light, block light, what a shadow looks like | [light.md](light.md) | — |
 | Rendering, liquids, the shader stack | — | [rendering-notes.md](rendering-notes.md) |
 | Inventory, crafting, editors, viewmodel | — | [gui-notes.md](gui-notes.md) |

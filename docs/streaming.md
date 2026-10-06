@@ -4,6 +4,11 @@ What gets generated, meshed and kept, in what order, and what it costs. The frus
 decides the ORDER of that work and never whether the work happens: a chunk behind the
 player is still generated, just after everything in front of it.
 
+This page is about streaming the world the engine generates. The far-field LOD
+*modes* — the voxel tiers that reduce detail in those chunks, and the seed-grid
+mode planned beside them, which draws terrain the seed implies without generating
+it — are in [lod-modes.md](lod-modes.md).
+
 - `Camera3D::get_frustum()` provides 6 world-space planes
 - `DirtyChunkEntry` priority: `urgent > in_frustum > dist_sq`, and the `in_frustum` tier is **no
   longer unbounded** — see the backlog reserve below

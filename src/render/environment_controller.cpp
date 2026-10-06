@@ -45,6 +45,51 @@ void EnvironmentController::apply_item_shader_lighting(const godot::Ref<godot::S
     material->set_shader_parameter("player_light_color", item_player_light_color);
 }
 
+void EnvironmentController::set_lod_grid_fog_active(bool active) {
+    if (lod_grid_fog_active == active) return;
+    lod_grid_fog_active = active;
+    // The world's fog range changes with it, and the gate below compares the range
+    // it will push, so a plain repush is what makes the change land.
+    update_shader_parameters();
+}
+
+void EnvironmentController::set_lod_grid_fog_range(int32_t begin_blocks, int32_t end_blocks) {
+    const float begin = static_cast<float>(begin_blocks);
+    const float end = static_cast<float>(std::max(begin_blocks + 1, end_blocks));
+    if (std::abs(begin - lod_grid_fog_begin) <= PARAM_EPSILON &&
+        std::abs(end - lod_grid_fog_end) <= PARAM_EPSILON) {
+        return;
+    }
+    lod_grid_fog_begin = begin;
+    lod_grid_fog_end = end;
+    // Straight to the material: this is a range change, and the dirty gate below
+    // would otherwise swallow it (none of its other inputs move when the mode's
+    // radius does) -- the same reason the sky tint pushes here.
+    update_shader_parameters();
+}
+
+void EnvironmentController::apply_lod_grid_lighting(float sky_intensity,
+                                                   const godot::Color& sky_color,
+                                                   const godot::Color& sky_warmth,
+                                                   const godot::Color& fog_color) {
+    const godot::Ref<godot::ShaderMaterial> material = material_manager.get_lod_grid_material();
+    if (material.is_null()) return;
+    material->set_shader_parameter("sky_light_intensity", sky_intensity);
+    material->set_shader_parameter("sky_light_color",
+                                   godot::Vector3(sky_color.r, sky_color.g, sky_color.b));
+    material->set_shader_parameter("sky_light_warmth",
+                                   godot::Vector3(sky_warmth.r, sky_warmth.g, sky_warmth.b));
+    material->set_shader_parameter("darkness_color",
+                                   godot::Vector3(darkness_color.r, darkness_color.g, darkness_color.b));
+    material->set_shader_parameter("saturation", saturation);
+    material->set_shader_parameter("contrast", contrast);
+    material->set_shader_parameter("fog_color",
+                                   godot::Vector3(fog_color.r, fog_color.g, fog_color.b));
+    material->set_shader_parameter("fog_begin", lod_grid_fog_begin);
+    material->set_shader_parameter("fog_end", lod_grid_fog_end);
+    material->set_shader_parameter("mipmap_bias", mipmaps_enabled ? mipmap_bias : 0.0f);
+}
+
 void EnvironmentController::set_sky_tint_enabled(bool enabled) {
     if (sky_tint_enabled == enabled) return;
     sky_tint_enabled = enabled;
@@ -120,6 +165,11 @@ void EnvironmentController::update_shader_parameters() {
     // Fog parameters
     const float fog_begin = fog_controller.get_fog_begin();
     const float fog_end = fog_controller.get_fog_end();
+    // With the far mode on, the world's terrain is fogged over the same range as
+    // the field that continues it, so the world's own border is not the one place
+    // the fog disagrees. Off, the world keeps the range its render distance implies.
+    const float world_fog_begin = lod_grid_fog_active ? lod_grid_fog_begin : fog_begin;
+    const float world_fog_end = lod_grid_fog_active ? lod_grid_fog_end : fog_end;
     const godot::Color fog_color = fog_controller.get_fog_color(blend, godot::Color(sky_horizon_color.x, sky_horizon_color.y, sky_horizon_color.z), elevation, sun_color, sky_turbidity);
     const float fog_scatter = fog_controller.get_fog_scatter(blend, elevation);
     const int32_t fog_mode = static_cast<int32_t>(fog_controller.get_fog_mode());
@@ -129,6 +179,11 @@ void EnvironmentController::update_shader_parameters() {
     if (fog_color != cached_fog_color) needs_update = true;
     if (std::abs(fog_scatter - cached_fog_scatter) > PARAM_EPSILON) needs_update = true;
     if (fog_mode != cached_fog_mode) needs_update = true;
+    if (std::abs(lod_grid_fog_begin - cached_lod_grid_fog_begin) > PARAM_EPSILON) needs_update = true;
+    if (std::abs(lod_grid_fog_end - cached_lod_grid_fog_end) > PARAM_EPSILON) needs_update = true;
+    // The gate compares what is pushed, so the world's own range is what is cached.
+    if (std::abs(world_fog_begin - cached_fog_begin) > PARAM_EPSILON) needs_update = true;
+    if (std::abs(world_fog_end - cached_fog_end) > PARAM_EPSILON) needs_update = true;
 
     if (!needs_update) return;
 
@@ -143,20 +198,26 @@ void EnvironmentController::update_shader_parameters() {
     cached_ao_strength = ao_strength;
     cached_darkness_color = darkness_color;
     cached_mipmap_bias = mipmap_bias;
-    cached_fog_begin = fog_begin;
-    cached_fog_end = fog_end;
+    cached_fog_begin = world_fog_begin;
+    cached_fog_end = world_fog_end;
     cached_fog_color = fog_color;
     cached_fog_scatter = fog_scatter;
     cached_fog_mode = fog_mode;
+    cached_lod_grid_fog_begin = lod_grid_fog_begin;
+    cached_lod_grid_fog_end = lod_grid_fog_end;
 
     material_manager.update_shader_parameters(sky_intensity, sky_color, sun_dir, sky_warmth, sky_horizon_color, sky_zenith_color, sky_turbidity);
     material_manager.update_color_parameters(contrast, saturation, ao_color, ao_strength, darkness_color);
     material_manager.set_mipmap_bias(mipmaps_enabled ? mipmap_bias : 0.0f);
 
-    material_manager.update_fog_parameters(fog_begin, fog_end, fog_color,
+    material_manager.update_fog_parameters(world_fog_begin, world_fog_end, fog_color,
                                            fog_controller.get_shader_fog_density(), 0.012f, 200.0f, fog_color,
                                            0.35f, fog_scatter, sun_color,
                                            fog_mode);
+
+    // The far mode is lit and faded by the same instant as everything else, and
+    // pushed here so the two can never disagree about the time of day.
+    apply_lod_grid_lighting(sky_intensity, sky_color, sky_warmth, fog_color);
 }
 
 } // namespace VoxelEngine

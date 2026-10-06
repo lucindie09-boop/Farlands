@@ -5,7 +5,7 @@ the resolver, the fluid rules, the planner and the save formats. A probe is for
 what is left: the real loaded registry, the real texture array, the real world,
 and what actually reaches the screen.
 
-They live in `probes/` (52 `.gd` scripts). **The scripts are repository
+They live in `probes/` (54 `.gd` scripts). **The scripts are repository
 content; what they produce is not.** `.gitignore` ignores `probes/*` except
 `*.gd`, `*.sh`, `*.tscn` and `*.gdshader*`, so screenshots, crash reports and
 generated sheets (hundreds of megabytes) stay scratch while the probes
@@ -21,7 +21,8 @@ git add probes/*.gd probes/*.sh probes/*.tscn probes/*.gdshader
 | Runner | Use it for |
 |---|---|
 | `probes/run_probe.sh <probe.gd> [timeout]` | Anything that touches the world. It snapshots `user://chunks`, runs the probe, and restores the snapshot however the probe ended |
-| `probes/run_probe_shot.sh <probe.gd> [timeout]` | Anything visual. Runs **windowed** (a screenshot from the dummy renderer is blank) and harvests `user://menu_shots`, `paste_shots`, `shader_shots` and `heart_shots` into `probes/shots/` |
+| `probes/run_probe_shot.sh <probe.gd> [timeout]` | Anything visual. Runs **windowed** (a screenshot from the dummy renderer is blank) and harvests `user://menu_shots`, `paste_shots`, `shader_shots`, `heart_shots`, `body_shots`, `brightness_shots`, `lod_grid_shots` and `lod_depth_shots` into
+`probes/shots/` |
 | `probes/run_crash_probe.sh [timeout]` | The crash reporter only, with the deliberate fault armed. Separate because it kills the process and because the crash folder must be inspected afterwards |
 
 Both world-touching runners **refuse to start while a Godot game process is
@@ -68,6 +69,9 @@ comment, with the claim each one backs:
 
 | Probe | What it proves |
 |---|---|
+| `probe_lod_grid.gd` | The seed-grid far mode (`docs/lod-modes.md`): the setting's default and round-trip (spacing, rings and the reach), the seam with the loaded world, and the whole pipeline end to end (see below). Headless, so it runs beside a live game |
+| `probe_lod_grid_shot.gd` | That the far field fills the rendered GROUND, near and far, in every direction, off versus on, with an off-versus-off sweep as the control (see below) |
+| `probe_lod_depth.gd` | That the far mode's material writes DEPTH, which is what keeps its merged mesh from drawing far terrain over near terrain: two overlapping quads in ONE mesh (near first, far second), with the colours from a texture array the probe builds itself, so "who won the pixels" is a red-versus-blue comparison with no threshold to tune (see below) |
 | `probe_shapes.gd` | The shape registry, the resolver and the JSON together: every shape's boxes against the documented 16ths model, hidden flags, and the live world's `get_selection_boxes_at` for a fence, a pane and a stair |
 | `probe_crucible.gd` | The crucible's nine-box model landed, read back from the real registry |
 | `probe_flow.gd` | Poured water really flows: a radius-7 diamond whose stored depth equals its distance from the source, it settles, a shaft under it fills |
@@ -90,8 +94,8 @@ comment, with the claim each one backs:
 | `probe_hammer.gd` | The hammers end to end, including the applied-write rule above |
 | `probe_torch_place.gd` | The torch ITEM places the torch BLOCK through the real bridge (`items.json` `place`) |
 | `probe_items.gd` | The item registry's fields and the held-item resting poses |
-| `probe_item_face_shade.gd` | An item's face shade does not snap while the body turns: the include's arithmetic stays within 1% over a 0.25-degree sweep of the normal (the thresholded table it replaced steps 20%), and a block turned in front of a still camera never changes more than a few percent of the sampled frame (the table does 82%, at the 45-degree yaw where x against z flipped) |
-| `probe_item_light_smooth.gd` | The item light model's step: a staged one-frame relight of the held item's/arm's cell, of a dropped item's cell and of the player's own body's cell moves the `item_light` the mesh is handed over ~0.35 s (the value is read back off the instance the shader sees), instead of arriving in one frame |
+| `probe_item_face_shade.gd` | An item's face shade does not snap while the body turns: the include's arithmetic stays within 1% over a 0.25-degree sweep of the normal, and a block turned in front of a still camera barely moves the frame (see below) |
+| `probe_item_light_smooth.gd` | The item light model's step: a staged one-frame relight of the held item's/arm's cell, of a dropped item's cell and of the player's own body's cell moves the `item_light` the mesh is handed over ~0.35 s instead of one frame |
 | `probe_body_light.gd` | The player's own body is lit by the world's light, not the engine's: its rendered luma equals the luma of the pixels it is drawn over, it follows the sun down to midnight, and it is the one consumer handed the sun's own colour instead of the world's midday cream |
 | `probe_sky_brightness.gd` | What a fully sky-lit surface renders AT, against its own albedo: the body is handed a flat known grey (1x1, no atlas to guess from), the frame is read back per albedo, and each one is held to the model's own claim — never above its own texel, and not far below it |
 | `probe_sky_tint.gd` | The Sky Tint setting reaches what the world is drawn with: the world's own material is handed the midday cream while it is ON, a white zenith while it is OFF, and both are the same warm colour at the horizon |
@@ -111,6 +115,42 @@ comment, with the claim each one backs:
 | `probe_bindings.gd` | The GDExtension binding surface GDScript sees |
 | `probe_bucket.gd` | Bucket fill and pour through the real use path |
 | `probe_registry_digest.gd` | A digest of the loaded registry, for comparing two builds |
+
+A few of those rows keep their detail here, because a table cell that long is an essay:
+
+- `probe_lod_grid.gd` — the reach is checked against the horizon the stats REPORT rather than
+  against a table of its own, and the pipeline half of the probe asks for every wanted tile:
+  sampled, built on the pool, uploaded, then gone again when the mode is switched off. That
+  last one is not decoration — the mode once stopped scheduling tiles after a world reset and
+  lost a third of them while every other count read healthy. The seam half needs the tiles
+  that straddle the world's edge to exist AND the clip to be armed just inside that edge, so
+  the two surfaces overlap instead of leaving a sliver nobody draws. Its last section pushes
+  the reach out and waits for the WHOLE wanted set, then reads the tile count against the
+  ladder's own: a reach whose rings are reported but never built is what the coarser spacings
+  did, and it also reads the horizon and the outermost level's spacing back at every value of
+  `Far Grid Spacing`, because a detail setting must not move how far the mode sees.
+- `probe_lod_grid_shot.gd` — a straight-down camera, so a patch's distance from the frame's
+  centre is a ground radius rather than a pitch to guess; each patch is compared with the same
+  patch in the mode-off frame, which is why no sky or fog colour has to be assumed. It exists
+  because the mode once built a ring and drew exactly one mesh, and once left four wedges at
+  the world's edge: neither shows in a count of tiles. An earlier version measured the sun's
+  drift until the day/night cycle was frozen for the run. Its reach is pinned at the start,
+  because two of its radii are statements about the level LADDER (past 2304 blocks is sky) and
+  the scene's settings menu node loads the player's own settings.cfg — a reach somebody moved
+  is a reach this measurement would otherwise inherit. It ends by asserting the camera's far
+  plane follows the horizon (`4000 -> 4352` at 10 rings) and is given back when the mode is
+  off.
+- `probe_lod_depth.gd` — three measurements, because one of them is the control: a lone near
+  quad (the instrument can see red at all), the two quads with the far one first (index order
+  already agrees with depth, so it passes either way), and the subject, near quad first. Before
+  the shader fix that last one came back blue: the far quad painted over the near one. It needs
+  no world, which is what makes it a measurement of the pipeline rather than a coincidence.
+- `probe_item_face_shade.gd` — the thresholded table the include replaced steps 20% where the
+  arithmetic stays within 1%, and the frame test is the same claim seen from outside: the old
+  table moves 82% of a still frame at the 45-degree yaw where x against z flips, the include a
+  few percent.
+- `probe_item_light_smooth.gd` — the eased `item_light` is read back OFF THE INSTANCE the
+  shader sees, so the number measured is the one being drawn rather than the one assigned.
 
 `probe_gen_stats.gd` is the one with switches worth knowing, and the one whose
 reading changed. `RD=<n>` boots at another render distance (applied after the

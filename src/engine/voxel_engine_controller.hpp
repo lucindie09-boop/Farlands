@@ -23,6 +23,7 @@
 #include "world/chunk_world.hpp"
 #include "world/block_editor.hpp"
 #include "render/environment_controller.hpp"
+#include "lod/lod_grid.hpp"
 #include "mesh/mesh_manager.hpp"
 #include "lighting/light_propagator.hpp"
 #include "engine/collision_resolver.hpp"
@@ -177,6 +178,21 @@ public:
     void set_far_lod_detail_level(float l);
     float get_far_lod_detail_level() const;
 
+    // The seed-grid far mode (docs/lod-modes.md): terrain beyond the loaded
+    // world, sampled from the seed instead of generated. Off by default; when off
+    // no tile exists and nothing about the world changes.
+    void set_lod_grid_enabled(bool enabled);
+    bool get_lod_grid_enabled() const;
+    void set_lod_grid_spacing(int32_t blocks);
+    int32_t get_lod_grid_spacing() const;
+    void set_lod_grid_rings(int32_t rings);
+    int32_t get_lod_grid_rings() const;
+    // How far the far field reaches: extra rings of the outermost spacing level,
+    // 0 for the level ladder's own reach.
+    void set_lod_grid_outer_rings(int32_t rings);
+    int32_t get_lod_grid_outer_rings() const;
+    godot::Dictionary get_lod_grid_stats() const;
+
     void set_player_light_enabled(bool enabled);
     bool get_player_light_enabled() const;
     void set_player_light_level(int32_t level);
@@ -273,6 +289,9 @@ private:
     // Subsystems
     ChunkWorld chunk_world;
     MeshManager mesh_manager;
+    // The far mode's tiles. Owned here rather than by MeshManager because it
+    // shares nothing with the voxel path: no chunks, no shard locks, no light.
+    LodGrid lod_grid;
     LightPropagator light_propagator;
     // The part of a paste that is still waiting for chunks. One at a time: a
     // second paste replaces the first (and cancels its waiting cells), because
@@ -338,6 +357,10 @@ bool smooth_lighting = false;
     float lod_detail_level = 0.5f;
     int32_t far_lod_distance = 16;
     float far_lod_detail_level = 0.25f;
+    // The far mode's own copy of the biome configuration, because the grid samples
+    // it on worker threads and the updater does not hand it back out. Its settings
+    // surface lives in engine/voxel_engine_lod_grid.cpp.
+    BiomeConfig lod_grid_biomes;
     float sea_level = 200.0f;
     float biome_size = 1.0f;
     bool vegetation_enabled = true;

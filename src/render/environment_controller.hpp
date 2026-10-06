@@ -104,6 +104,18 @@ public:
     double get_fog_density() const { return static_cast<double>(fog_controller.get_fog_density()); }
     void set_render_distance_blocks(float blocks) { fog_controller.set_render_distance_blocks(blocks); update_shader_parameters(); }
     float get_render_distance_blocks() const { return fog_controller.get_render_distance_blocks(); }
+    // The far mode's fog range: begin at the loaded world's edge, end at the outer
+    // tile ring. Set by the controller each frame the mode is on, because the fog
+    // the world uses is tuned to the loaded radius and would erase the horizon this
+    // mode exists to draw.
+    void set_lod_grid_fog_range(int32_t begin_blocks, int32_t end_blocks);
+    // While the far mode is on, the WORLD's terrain wears that range too. Its own
+    // fog is tuned to the loaded radius, which with the mode on means the loaded
+    // chunks fade out at their border while the seed-grid field beyond them does
+    // not -- a bright ring around the near world, which is the one place the two
+    // halves of the same terrain should agree about distance.
+    void set_lod_grid_fog_active(bool active);
+    [[nodiscard]] bool get_lod_grid_fog_active() const { return lod_grid_fog_active; }
     void set_fog_mode(int32_t mode) { fog_controller.set_fog_mode(static_cast<FogController::FogMode>(mode)); update_shader_parameters(); }
     int32_t get_fog_mode() const { return static_cast<int32_t>(fog_controller.get_fog_mode()); }
 
@@ -147,6 +159,17 @@ private:
     float mipmap_bias = 0.1f;
     bool textures_enabled = true;
     bool sky_tint_enabled = true;
+    void apply_lod_grid_lighting(float sky_intensity, const godot::Color& sky_color,
+                                 const godot::Color& sky_warmth, const godot::Color& fog_color);
+
+    // The material's own defaults until the controller sets a range: a fog range of
+    // zero would erase every far tile, so an unset one must not mean "fade out at
+    // the player's feet".
+    float lod_grid_fog_begin = 512.0f;
+    float lod_grid_fog_end = 4096.0f;
+    float cached_lod_grid_fog_begin = -1.0f;
+    float cached_lod_grid_fog_end = -1.0f;
+    bool lod_grid_fog_active = false;
 
     // Dirty tracking for shader parameters (avoid redundant Godot API calls)
     float cached_blend = -1.0f;

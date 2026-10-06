@@ -335,6 +335,22 @@ BIND_PROP(Variant::BOOL, smooth_lighting, "enabled");
     ClassDB::bind_method(D_METHOD("set_far_lod_distance", "distance"), &ChunkManager::set_far_lod_distance);
     ClassDB::bind_method(D_METHOD("get_far_lod_distance"), &ChunkManager::get_far_lod_distance);
     ADD_PROPERTY(PropertyInfo(Variant::INT, "far_lod_distance", PROPERTY_HINT_RANGE, "0,64,1"), "set_far_lod_distance", "get_far_lod_distance");
+    // The seed-grid far mode (docs/lod-modes.md). Off by default: when it is off
+    // no tile exists, so a settings reset leaves the world as it was.
+    BIND_PROP(Variant::BOOL,    lod_grid_enabled,          "enabled");
+    ClassDB::bind_method(D_METHOD("set_lod_grid_spacing", "blocks"), &ChunkManager::set_lod_grid_spacing);
+    ClassDB::bind_method(D_METHOD("get_lod_grid_spacing"), &ChunkManager::get_lod_grid_spacing);
+    ADD_PROPERTY(PropertyInfo(Variant::INT, "lod_grid_spacing", PROPERTY_HINT_RANGE, "4,256,4"), "set_lod_grid_spacing", "get_lod_grid_spacing");
+    ClassDB::bind_method(D_METHOD("set_lod_grid_rings", "rings"), &ChunkManager::set_lod_grid_rings);
+    ClassDB::bind_method(D_METHOD("get_lod_grid_rings"), &ChunkManager::get_lod_grid_rings);
+    ADD_PROPERTY(PropertyInfo(Variant::INT, "lod_grid_rings", PROPERTY_HINT_RANGE, "1,8,1"), "set_lod_grid_rings", "get_lod_grid_rings");
+    ClassDB::bind_method(D_METHOD("set_lod_grid_outer_rings", "rings"),
+                         &ChunkManager::set_lod_grid_outer_rings);
+    ClassDB::bind_method(D_METHOD("get_lod_grid_outer_rings"),
+                         &ChunkManager::get_lod_grid_outer_rings);
+    ADD_PROPERTY(PropertyInfo(Variant::INT, "lod_grid_outer_rings", PROPERTY_HINT_RANGE, "0,100,1"),
+                 "set_lod_grid_outer_rings", "get_lod_grid_outer_rings");
+    ClassDB::bind_method(D_METHOD("get_lod_grid_stats"), &ChunkManager::get_lod_grid_stats);
     ClassDB::bind_method(D_METHOD("set_far_lod_detail_level", "level"), &ChunkManager::set_far_lod_detail_level);
     ClassDB::bind_method(D_METHOD("get_far_lod_detail_level"), &ChunkManager::get_far_lod_detail_level);
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "far_lod_detail_level", PROPERTY_HINT_RANGE, "0.125,1.0,0.005"), "set_far_lod_detail_level", "get_far_lod_detail_level");

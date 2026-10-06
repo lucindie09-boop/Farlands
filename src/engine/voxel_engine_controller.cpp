@@ -113,6 +113,11 @@ void VoxelEngineController::set_owner(godot::Node* node) {
     mesh_manager.set_owner(node);
     chunk_world.set_owner(node);
     world_updater.set_owner(node);
+    // The far mode's instances live in the same scenario as the chunks, and its
+    // material is loaded here (on the main thread, once) rather than at first
+    // enable, so switching the mode on never loads a resource mid-frame.
+    lod_grid.set_owner(node);
+    lod_grid.set_material(environment_controller.get_material_manager().get_lod_grid_material());
 }
 
 void VoxelEngineController::create_thread_pool() {
@@ -122,6 +127,7 @@ void VoxelEngineController::create_thread_pool() {
     chunk_world.set_thread_pool(thread_pool.get());
     mesh_manager.set_thread_pool(thread_pool.get());
     world_updater.set_thread_pool(thread_pool.get());
+    lod_grid.set_thread_pool(thread_pool.get());
 }
 
 void VoxelEngineController::shutdown_thread_pool() {
@@ -132,6 +138,7 @@ void VoxelEngineController::shutdown_thread_pool() {
     chunk_world.set_thread_pool(nullptr);
     mesh_manager.set_thread_pool(nullptr);
     world_updater.set_thread_pool(nullptr);
+    lod_grid.set_thread_pool(nullptr);
 }
 
 void VoxelEngineController::clear_async_queues() {
@@ -149,6 +156,10 @@ void VoxelEngineController::reset_runtime_state(bool restart_thread_pool) {
     // goes with them (and its pins with it).
     cancel_pending_paste();
     chunk_world.increment_epoch();
+    // The far tiles belong to the world that just went away: drop them before the
+    // pool does, so their workers see the new epoch and refuse their own results.
+    lod_grid.set_epoch(chunk_world.get_epoch());
+    lod_grid.reset();
     shutdown_thread_pool();
     chunk_world.free_loaded_chunks();
     clear_async_queues();
@@ -189,6 +200,18 @@ void VoxelEngineController::update(double delta, bool is_editor, const godot::Ve
     // After the world update, so a chunk that arrived this frame is written into
     // on this frame rather than the next one.
     tick_pending_paste(delta);
+
+    // The far mode, after the world: it owns only the ring beyond the loaded
+    // world, so nothing it does can depend on this frame's chunks, and the fog
+    // range it asks for is derived from the radius the world is using.
+    if (lod_grid.is_enabled()) {
+        const int32_t inner_blocks = render_distance * CHUNK_WIDTH;
+        lod_grid.set_player_position(player_position);
+        lod_grid.set_inner_radius_blocks(inner_blocks);
+        lod_grid.update(delta);
+        environment_controller.set_lod_grid_fog_range(
+            inner_blocks, lod_grid.get_outer_radius_blocks());
+    }
 
     {
         ScopedTimer t(perf_timer, TimerID::SceneUpdate);
@@ -297,12 +320,21 @@ void VoxelEngineController::print_debug_info(double delta) {
 // Every setter/getter that writes a member and forwards it to the world updater or
 // the environment controller: the GDScript-facing knobs.
 
-void VoxelEngineController::set_seed(int32_t s) { seed = s; world_updater.set_seed(seed); }
+void VoxelEngineController::set_seed(int32_t s) {
+    seed = s;
+    world_updater.set_seed(seed);
+    // The far field is sampled from the seed, so a new seed is a different world
+    // for it as much as for generation.
+    lod_grid.set_config(seed, world_updater.get_terrain_params(), lod_grid_biomes);
+}
 int32_t VoxelEngineController::get_seed() const { return seed; }
 
 void VoxelEngineController::set_render_distance(int32_t rd) { 
     render_distance = rd; 
     world_updater.set_render_distance(render_distance); 
+    // Where the far mode starts: the edge of the loaded world, so the two never
+    // overlap and the grid never has to hide or replace a chunk.
+    lod_grid.set_inner_radius_blocks(rd * CHUNK_WIDTH);
     environment_controller.set_render_distance_blocks(static_cast<float>(rd * CHUNK_WIDTH));
     
     // Reserve ChunkMap based on render distance to avoid rehashing during load

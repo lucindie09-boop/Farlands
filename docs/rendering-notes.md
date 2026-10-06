@@ -51,6 +51,96 @@ procedurally generated liquid textures, and the shader-effect stack end to end.
   because side faces merge along Y into one quad and a raw quad count would be testing the merge
   instead)
 
+## The far field (the seed-grid far mode)
+
+- **The second LOD is not a coarser chunk, it is no chunk at all** (`src/lod/`, the
+  design and the numbers in [lod-modes.md](lod-modes.md)). A tile is 256 blocks a
+  side, sampled at 32/64/128/256 blocks by distance level (two tile rings per level,
+  four levels), 64 cells down to 1 per tile, drawn as one instance in its own
+  material. Tiles are world-aligned and are emitted **in world coordinates**, with
+  the instance transform left identity; the cull box is the mesh's own bounds.
+- **"Tiles built" is not "tiles seen" — the trap, and how it hid.** The geometry
+  was world-space AND the instance was given the tile origin as its transform, so
+  every tile but the first drew at double its offset and its cull box (rebuilt from
+  the tile index) described neither place. Everything a state probe can count said
+  the mode worked — tiles built, uploaded, quads — while **one mesh was visible** and
+  the ring was culled or fogged out of view. A screenshot-free probe cannot catch
+  that, and the fix is structural in two places: the transform is set explicitly to
+  identity, and the cull box is derived from the mesh's bounds so geometry and box
+  cannot drift. `probes/probe_lod_grid_shot.gd` now measures the frame instead:
+  horizon coverage in four directions, off versus on.
+- **Terrain drawn through terrain was a missing DEPTH WRITE, and the merge is what
+  exposed it.** A mesh per tile had been ordered for free: the transparent pipeline
+  sorts instances back to front. One merged mesh per spacing level (the draw-call
+  fix, ~130 -> 4) has nothing to sort, so the material's own depth write is the only
+  thing ordering its triangles -- and it had none, because the fragment stage wrote
+  `ALPHA = 1.0` and writing ALPHA is what sends a spatial shader down the transparent
+  pipeline, whose contract is no depth write. `depth_draw_opaque` ("write depth for
+  opaque materials") therefore meant nothing, and triangles landed in index order:
+  a far ridge painted over the near ridge in front of it. The shader now declares
+  `depth_draw_always` and writes no ALPHA, which is also the cheaper pass (opaque,
+  early-Z, no sorting, no per-instance sort). The world's terrain shader writes
+  `ALPHA = 1.0` too and is fine only because each chunk is its own instance and is
+  sorted. Pinned twice: `tests/test_lod_shader_depth.cpp` asserts the shader text,
+  and `probes/probe_lod_depth.gd` renders two overlapping quads in ONE mesh and
+  reports which of them wins the pixels (before the fix: the far one).
+- **A shoreline cell keeps its terrain, so the water and the land meet.** The floor
+  under a deep ocean is skipped -- an opaque water quad is drawn over it -- and
+  "deep" used to be decided from the cell's deepest corner. A cell stepping from a
+  deep floor up onto the land has one, so its terrain was skipped too: the beach
+  vanished with the floor, the water sheet ended at the cell's edge while the land
+  behind it rose above that sheet, and the step between two surfaces stopping at the
+  same line at different heights was bridged by nothing. Rays just above the
+  waterline crossed the tile and the frame showed the inside of the hill. The skip
+  now requires the WHOLE cell under the water; `tests/test_lod_surface.cpp` casts
+  the player's own rays at the built mesh (15 crossed it before the fix) and holds
+  rays above the land as the control.
+- **The far field's textures are the world's own, anchored in world block
+  coordinates.** One block of world is one texture repeat, exactly as a chunk face
+  maps it, so a quad several blocks wide advances the coordinate by its own width and
+  the sampler takes the mip level that IS that block's average colour. Writing the
+  coordinate as `fract(world)` instead hands the sampler a zero derivative and
+  stretches one texel across the whole quad — the reason the coordinate is in blocks.
+- **A reach past 4000 blocks needs the camera's far plane moved, or it is geometry
+  nobody sees.** Godot's `Camera3D` defaults to `far = 4000`, which the main scene
+  never overrides, so the outer rings a raised reach builds would be frustum-clipped
+  away while the counts stayed healthy — a slider whose top half does nothing. The
+  mode raises the plane to its own horizon plus one tile while it is on (never
+  lowers it: a shorter reach only costs a wider depth range) and restores the value it
+  found when the mode goes off, because the plane belongs to the player's camera.
+  `probes/probe_lod_grid_shot.gd` pins both halves: `far 4000 -> 4352` with the reach
+  at 10 rings (horizon 4096), and `far 4000` again once the mode is off.
+- **Why the far field's water is not a second mesh, and the near world's is.** A
+  chunk is meshed twice — an opaque surface and a water one — because water there is
+  a *transparent, animated* material: you swim in it and watch the sea floor through
+  it, and Godot blends that in its own pipeline, which means its own surface and its
+  own draw call per chunk. The far field does the single-mesh version instead: one
+  mesh per spacing level, and a cell under water emits a *quad of that mesh* at the
+  water level, tinted blue in the shader (`water_color`/`water_mix`) rather than
+  blended. There is no separate water material to sort, and nothing to see through,
+  so a distant ocean is one flat sheet: the blue IS the surface, not a colour applied
+  over one. The floor below it is not built at all wherever the whole cell is under
+  the water — one quad per water cell instead of two, which is why the shoreline rule
+  above has to insist that beach cells keep their terrain.
+- **The far mode has its own fog range, and it has to.** The world's fog is tuned to
+  the loaded radius, so drawing the horizon through it erases the thing the mode
+  exists to draw: begin at the loaded world's edge, end at the outer tile ring, with
+  the colour from the same day/night curve. The sky, darkness floor, saturation and
+  contrast are pushed to the far material from the same call that feeds the world's,
+  so the two cannot disagree about the time of day.
+- **A stride-then-bisect surface march is exact only where nothing is thinner than
+  the stride** (`src/lod/lod_march.hpp`, `tests/test_lod_march.cpp`). Bisecting
+  between a known-air sample and a known-solid one finds A transition, not the
+  highest one, so a band with shelves (which this density field has) lands on the
+  wrong side of one: measured on real terrain, 34 of 64 columns mismatched the
+  rigorous search at a 2-block stride and 56 at 16, worst case 15 blocks, which is a
+  mesh hole and not rounding. Walking back up from the first solid sample is exact
+  for every non-empty column at every stride and costs at most `step` more samples.
+  Even then a feature thinner than the stride is invisible to it, and that is pinned
+  as a property rather than pretended away. The march is not used by the tile
+  builder: the public density query re-derives the blended biome amplification per
+  call (~0.53 ms of a 0.58 ms column), so its cost is dominated by the call count.
+
 ## Sky, fog and light
 
 - **Vegetation generation**: Sparse oak trees on hills — a fraction of qualifying chunks get a

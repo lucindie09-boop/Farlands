@@ -51,6 +51,12 @@ call sites to bind to rather than being new work; what is still missing is a dec
 a paste is moddable at all, and on what an `on\_break` hook sees now that drops, `crush_result`
 and family collapse are separate steps
 
+Far-field LOD, second mode - sample the world seed on a world-aligned grid and draw the
+surface from the samples, so the horizon no longer costs a generated chunk each. The two
+modes, the settings toggle, the seam and the staged order are worked out in
+[docs/lod-modes.md](docs/lod-modes.md); the first task is its stage 1 measurement, which
+changes no engine code.
+
 GDScript is the remaining long-file problem: the C++ side is now capped at 500 lines
 (`scons sizecheck`, CI-gated), while `settings_menu.gd` is **4,008** lines and `viewmodel.gd`,
 `liquid_texture_lab.gd`, `inventory.gd`, `chat.gd` and `crafting_table_menu.gd` are each near or

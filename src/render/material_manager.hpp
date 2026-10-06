@@ -50,10 +50,15 @@ void update_player_light(const godot::Vector3& position, float radius, float int
     void reload_textures();
     godot::Ref<godot::ShaderMaterial> get_material();
     godot::Ref<godot::ShaderMaterial> get_water_material();
+    // The seed-grid far mode's own material (shaders/lod_grid.gdshader): loaded
+    // here so it is one resource family with the world's, and given the same
+    // texture array so a far hill wears the same grass a near one does.
+    godot::Ref<godot::ShaderMaterial> get_lod_grid_material();
 
 private:
     godot::Ref<godot::ShaderMaterial> cached_material;
     godot::Ref<godot::ShaderMaterial> cached_water_material;
+    godot::Ref<godot::ShaderMaterial> cached_lod_grid_material;
 
     int texture_filter_mode_ = static_cast<int>(TextureFilterMode::NearestMipmap);
     int filter_hint_applied_for_mode_ = static_cast<int>(TextureFilterMode::NearestMipmap);

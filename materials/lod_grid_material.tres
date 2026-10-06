@@ -1,0 +1,21 @@
+[gd_resource type="ShaderMaterial" format=3 uid="uid://c1odgr1dm4t3r"]
+
+[ext_resource type="Shader" path="res://shaders/lod_grid.gdshader" id="1_lod_grid"]
+
+[resource]
+render_priority = -1
+shader = ExtResource("1_lod_grid")
+shader_parameter/mipmap_bias = 1.0
+shader_parameter/sky_light_intensity = 1.0
+shader_parameter/sky_light_color = Vector3(1, 1, 1)
+shader_parameter/sky_light_warmth = Vector3(1, 0.95, 0.85)
+shader_parameter/saturation = 1.0
+shader_parameter/contrast = 1.0
+shader_parameter/darkness_color = Vector3(0, 0, 0)
+shader_parameter/water_color = Vector3(0.2, 0.42, 0.78)
+shader_parameter/water_mix = 0.55
+shader_parameter/fog_color = Vector3(0.7, 0.8, 0.95)
+shader_parameter/fog_begin = 512.0
+shader_parameter/fog_end = 4096.0
+shader_parameter/clip_center = Vector2(0, 0)
+shader_parameter/clip_radius = 0.0

@@ -24,6 +24,9 @@ void VoxelEngineController::load_world_configs() {
         biomes.reset_defaults();
     }
     world_updater.set_biome_config(biomes);
+    // Kept as well as handed over: the far mode samples this configuration on
+    // worker threads and the updater does not hand its copy back out.
+    lod_grid_biomes = biomes;
 
     VegetationConfig vegetation;
     vegetation.load("res://data/vegetation.json");

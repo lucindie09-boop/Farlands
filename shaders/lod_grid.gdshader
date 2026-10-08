@@ -57,6 +57,9 @@ uniform vec3 darkness_color = vec3(0.0);
 // because an ocean two kilometres out has no waves worth resolving.
 uniform vec3 water_color = vec3(0.20, 0.42, 0.78);
 uniform float water_mix = 0.55;
+// The texture-array layer the liquid quads wear, pushed by LodGrid so the water flag
+// above is an exact test rather than a number written into this file (see there).
+uniform float water_layer = 32.0;
 
 // The face's own variation, put back on top of its average.
 //
@@ -187,11 +190,14 @@ void fragment() {
     // (overlap_nomix) turned every one of those pixels green, which is what named the
     // tint as the thing drawing it.
     //
-    // The layer cannot go wrong the same way: the builder hands the liquid plane
-    // `water_layer` for both of its layers (lod_surface.cpp), the sea floor keeps the
-    // underwater surface, and no biome's surface resolves to the liquid block's own
-    // top face.
-    float is_water = step(31.5, layer);
+    // The layer cannot go wrong the same way (the builder hands the liquid plane
+    // `water_layer` for both of its layers and a dry cell the biome's surface --
+    // lod_surface.cpp), but the VALUE cannot be written down here: the layer is an
+    // index into the texture array, and that array is built from the loaded texture
+    // pack, where the same block gets a different index. A number in this file is
+    // therefore right for one pack and wrong for the next, so LodGrid pushes the one
+    // the mesh was built with and the test is exact.
+    float is_water = step(abs(layer - water_layer), 0.5);
     float layer2 = floor(UV2.y * 0.5);
     float blend = COLOR.a;
 

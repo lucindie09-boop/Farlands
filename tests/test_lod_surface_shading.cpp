@@ -160,11 +160,12 @@ TEST_CASE("the liquid plane has no hollow to be dark in") {
         return out;
     };
     const TileMesh mesh = build_tile_mesh(0, 0, 64, 32, as_sampler(sampler), 9, {}, shade);
-    // The column at x < 32 has a corner above its own water, so it is LAND -- the whole
-    // cell, a ramp from 66 down to 60 with no sheet on it. The column beside it is wet
-    // on both corners, so it is water and nothing else.
+    // The column at x < 32 has a corner above its own water, so its ground is the ramp
+    // from 66 down to 60 CLIPPED at the water -- the part that is above it -- and the
+    // sheet is drawn over the same cell, where depth drops it behind that ramp. The
+    // column beside it is wet on both corners, so it is its sheet and nothing else.
     CHECK(mesh.terrain_quads == 2);
-    CHECK(mesh.water_quads == 2);
+    CHECK(mesh.water_quads == 4);
     int32_t land_verts = 0;
     for (const auto& v : mesh.vertices) {
         if (v.water > 0.5f) {
@@ -172,9 +173,12 @@ TEST_CASE("the liquid plane has no hollow to be dark in") {
         } else {
             ++land_verts;
             // ...while the land wears its own occlusion: the callback's half lands on
-            // it and the sheet's constant does not.
+            // it and the sheet's constant does not. That is also true of the crossing
+            // vertices the water-line clip makes: they interpolate the corners' own
+            // occlusion, so a cut edge is shaded like the ground it cuts.
             CHECK(v.shade < kShadeTop);
             CHECK(v.shade > 0.0f);
+            CHECK(v.y >= 64.0f);
         }
     }
     CHECK(land_verts > 0);

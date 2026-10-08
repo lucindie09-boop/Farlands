@@ -460,20 +460,54 @@ in a frame:
   the crossing only narrows the guess: the waterline is still wherever a straight line
   between two samples hundreds of blocks apart crosses sea level.
 
-  A cell now draws its sheet only when **all four** of its samples are under their own
-  water. A cell with a land sample anywhere on it is drawn as land, whole, and draws no
-  water at all, so a far cell is either water or land and the two can never be two surfaces
-  over one pixel. `tests/test_lod_surface_shore.cpp` pins that on the geometry rather than
-  on the counts — the sum of the tile's triangle areas equals the area of the cells it
-  drew, once — because a count can stay constant while a cell covers its ground twice.
+  The first answer to that was **every corner wet, or no water at all**: a cell drew its
+  sheet only when all four of its samples were under their own water, and any cell with a
+  land sample on it was drawn as land, whole. A far cell was then either water or land and
+  the two could never be two surfaces over one pixel. It cost the coast's last cell — the
+  sea ended at the last wholly wet cell — and that is what the next report was:
 
-  What it costs is the coast's last cell: the sea ends at the last wholly wet cell, up to
-  one cell short of where it should, and the strip beyond reads as beach. That is the
-  trade, and it is bounded by one cell rather than by the guess. It also makes an ocean
-  cell one quad with no corner work at all — four heights under one water level cannot
-  cross it in between, since the world has one sea level
-  (`src/worldgen/chunk_generator_columns.cpp`) and every wet sample carries it — so the
-  floor under a sheet is still never drawn.
+  **...and then gaps between the land and the water, with sand near it speckled light
+  blue.** Both halves are the same sized mistake. A cell here is **128 to 256 blocks**
+  wide, so "the last wholly wet cell" is up to a quarter of a kilometre of sea replaced by
+  beach at every coast, and the cells *before* it are all water: a coastline came back as
+  a strip of dry-looking ground followed by one or two pixels of sheet, cell by cell,
+  which is a blue speckle through the sand rather than a shoreline. The `is_water` flag
+  the shader read had been fixed one report earlier (it was the low bit of a packed
+  attribute, and it was set on the field's own terrain), so what was left in the frame
+  was this alternation and no tint where it did not belong.
+
+  A cell now draws **the sheet over the whole of itself** whenever any corner is under
+  the water, and **its ground only where the ground stands above that water** (the two
+  triangles of the cell's top face, each cut by the water plane; a dry cell keeps both
+  whole and an all-wet cell loses them both). Where the ground is above the sheet the
+  ground is in front and depth drops the sheet behind it, and where the ground is under
+  the sheet the sheet is the surface that shows — so the shoreline inside the cell is the
+  ground's own crossing and nothing has to guess where it is. A cell no longer alternates
+  between two kinds of surface either: the sheet is there whether the cell is all water or
+  straddling, and the coast is one continuous (if cell-resolution) line.
+
+  Cutting the ground away is half the rule rather than a tidy-up: a sea floor one block
+  under the sheet, kilometres out, is two surfaces within one block of each other, and a
+  pair that close is what leaves sand speckled through the water a pixel at a time —
+  picked by the depth buffer's own rounding at that range rather than by either surface.
+  Clipping removes the pair instead of testing how close the buffer can get.
+
+  `tests/test_lod_surface_shore.cpp` pins all of it on the geometry. On its fixture — two
+  columns of ocean, one straddling cell and five of beach, with the ramp crossing the
+  water at x = 89.6 — it checks that the sheet reaches the far side of the straddling
+  cell, that **no ground vertex is ever below the water level**, that the ground's own
+  edge is that crossing, and then casts a ray straight down at every sample point of the
+  tile: **no point is missed, no point is hit by two surfaces of one kind, and the
+  topmost surface changes at x = 89.6 and nowhere else** — the counts are what a straight
+  shoreline at the crossing predicts. A count of quads cannot see any of that: it stays
+  constant while a cell covers its ground twice, or not at all.
+
+  What the change measures out in the field, on the same probe and the same placed camera
+  as the runs above: **51,121 quads** against 45,420 (the sheets the straddling cells now
+  draw), **12,255 tiles carrying water** against 6,506, and **every water vertex still at
+  the world's own sea level** (73,542 vertices, min = max = 200.0, `probe_lod_grid_water.gd`).
+  `probe_lod_grid_overlap.gd` reads 0 pixels of the loaded world's land painted blue, with
+  the sheet on 0.361 of the frame and the land on 0.446.
 - **A patchwork instead of a slope — a face table over a normal that moves.** A
   cell's shade came from the near world's table (top 1.0, north/south 0.8, east/west
   0.6) read off the gradient of ONE corner, with a strict tie-break between x and z.

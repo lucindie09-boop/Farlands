@@ -8,6 +8,42 @@ namespace lod {
 
 namespace {
 
+// One corner of one triangle as the water-line clip below carries it: the position and
+// the two things the clip has to interpolate for a point that did not exist before.
+struct ClipVertex {
+    float x = 0.0f;
+    float y = 0.0f;
+    float z = 0.0f;
+    float ao = 1.0f;
+    float mix = 0.0f;
+};
+
+// The part of one triangle that stands ABOVE `level`. Sutherland-Hodgman over the
+// triangle's own three edges, so the answer is the polygon the water plane cuts off and
+// the crossing points are exact. Returns 0..4 vertices in winding order.
+int32_t clip_above(const ClipVertex tri[3], float level, ClipVertex out[4]) {
+    int32_t n = 0;
+    for (int32_t i = 0; i < 3; ++i) {
+        const ClipVertex& a = tri[i];
+        const ClipVertex& b = tri[(i + 1) % 3];
+        const bool a_in = a.y >= level;
+        const bool b_in = b.y >= level;
+        if (a_in) out[n++] = a;
+        if (a_in != b_in) {
+            const float span = b.y - a.y;
+            const float t = std::fabs(span) > 1.0e-6f ? (level - a.y) / span : 0.0f;
+            ClipVertex cut;
+            cut.x = a.x + (b.x - a.x) * t;
+            cut.y = level;
+            cut.z = a.z + (b.z - a.z) * t;
+            cut.ao = a.ao + (b.ao - a.ao) * t;
+            cut.mix = a.mix + (b.mix - a.mix) * t;
+            out[n++] = cut;
+        }
+    }
+    return n;
+}
+
 void push_vertex(TileMesh& mesh, float x, float y, float z, uint8_t layer, uint8_t layer2,
                  float water, float shade, float mix) {
     LodVertex v;
@@ -216,7 +252,10 @@ TileMesh build_tile_mesh(int32_t origin_x, int32_t origin_z, int32_t tile_size, 
     mesh.min_y = min_y;
     mesh.max_y = max_y;
 
-    mesh.vertices.reserve(static_cast<size_t>(cells) * cells * 6);
+    // Six vertices per cell for the sheet, and six for the ground in a cell that has
+    // none of its own to lose: a coast cell can carry both, and the clip of a split
+    // triangle can add a third triangle to the ground's side.
+    mesh.vertices.reserve(static_cast<size_t>(cells) * cells * 14);
     for (int32_t j = 0; j < cells; ++j) {
         for (int32_t i = 0; i < cells; ++i) {
             const SurfaceSample& s00 = samples[static_cast<size_t>(j) * nodes + i];
@@ -230,45 +269,96 @@ TileMesh build_tile_mesh(int32_t origin_x, int32_t origin_z, int32_t tile_size, 
             const float z0 = static_cast<float>(origin_z + j * spacing);
             const float z1 = static_cast<float>(origin_z + (j + 1) * spacing);
 
-            // EVERY CORNER WET, OR NO WATER AT ALL. A cell with a land sample anywhere on
-            // it is drawn as land, whole, and draws no water at all.
+            // THE SHEET IS THE CELL'S WHOLE QUAD; THE GROUND IS CLIPPED TO WHAT STANDS
+            // ABOVE IT.
             //
-            // The sampler reads the world seed on a lattice a cell apart and joins the
-            // samples with straight lines, so a cell that straddles a coast has an
-            // underwater corner and a dry one and its interpolated surface crosses the water
-            // level somewhere inside it. WHERE it crosses is a guess: the real shoreline
-            // between two samples a cell apart lies anywhere in the cell, and on gentle
-            // ground the guess is wrong by most of a cell's width -- so a sheet drawn from
-            // that crossing is water over ground the samples call land. (Cutting the cell at
-            // the crossing narrows the guess; it does not stop it being a guess, which is
-            // why the report survived the cut.)
+            // A cell that straddles a coast has an underwater corner and a dry one, and its
+            // interpolated surface crosses the water level somewhere inside it. Both halves
+            // are drawn: the sheet over the whole cell at the water level, and the ground
+            // only where the ground is above that level.
             //
-            // "Every corner wet" is the sampler's own answer rather than a guess built on
-            // top of it, and it is all the far field can know about a cell without inventing
-            // detail. What it costs is the coast's last cell: the sea ends at the last
-            // wholly wet cell, up to one cell short of where it should, and the strip beyond
-            // reads as beach (docs/lod-modes.md).
+            // Drawing the sheet over the whole cell is what keeps the coast CONTINUOUS. Its
+            // rule used to be "every corner wet, or no water at all", so the sea ended at the
+            // last wholly wet cell -- up to a cell short of the coast, and a cell is 128 to 256
+            // blocks here, so the far field's shoreline came back as a strip of beach where the
+            // sea should be (the report: "gaps between land and water") alternating with cells
+            // that were all water, one or two pixels each at that distance (the other report:
+            // light blue speckled through the sand, which reads as two surfaces fighting).
             //
-            // The old shape of this cell drew the land AND a sheet over the whole cell, so
-            // the two covered the same ground: the far field's coast came back as the
-            // sheet's light blue and the terrain's grass interleaved one pixel at a time all
-            // along the shore, which is the report (probe_lod_grid_overlap.gd measured
-            // 0.26-0.33 of the far field's drawn pixels covered by both surfaces).
+            // Nothing decides WHERE the shoreline is inside the cell but the ground itself:
+            // where the ground stands above the sheet, the ground is in front and depth drops
+            // the sheet behind it, and where the ground is under the sheet the sheet is the
+            // surface that shows. That is the same arrangement the near world's own ocean uses
+            // -- a water quad at the sea level over blocky terrain -- and it needs no guess
+            // about where the crossing is, which is what the old cut of the cell was.
             //
-            // It also makes the whole of an ocean cell one quad and no corner work: four
-            // heights below one water level cannot cross it in between -- the world has one
-            // water level (src/worldgen/chunk_generator_columns.cpp) and every wet sample
-            // carries it -- so the sheet alone is that cell's surface, and the floor under a
-            // sheet is never drawn.
-            const bool wet = s00.water > s00.height && s10.water > s10.height &&
-                             s01.water > s01.height && s11.water > s11.height;
-            if (wet) {
-                // The shallowest of the four, so the sheet never stands above a corner's own
-                // water. (One water level in this world, so they are the same number.)
-                const float water = std::min(std::min(s00.water, s10.water),
-                                             std::min(s01.water, s11.water));
+            // The GROUND under the sheet is then cut away, and that half is not cosmetic: a
+            // sea floor one block under a sheet, kilometres out, is two surfaces within one
+            // block of each other -- and a pair that close is exactly what leaves the pattern
+            // the report calls "a darker shade of sand": sand the pixel at a time through the
+            // sheet, picked by the depth buffer's own rounding at that range rather than by
+            // either surface. Clipping removes the pair instead of testing how close the
+            // buffer can get, and a clipped cell is also cheaper than it looks: the underwater
+            // piece emits no triangles.
+            const bool any_wet = s00.water > s00.height || s10.water > s10.height ||
+                                 s01.water > s01.height || s11.water > s11.height;
+            // The cell's own water level: the shallowest of the corners that are under
+            // water, so the sheet never stands above a corner's own water. (This world has
+            // one water level -- src/worldgen/chunk_generator_columns.cpp -- so they are the
+            // same number; the minimum is what keeps that an assumption and not a requirement.)
+            float water = 0.0f;
+            if (any_wet) {
+                const float levels[4] = {s00.water, s10.water, s11.water, s01.water};
+                const float heights[4] = {s00.height, s10.height, s11.height, s01.height};
+                water = 1.0e30f;
+                for (int32_t c = 0; c < 4; ++c) {
+                    if (levels[c] > heights[c]) water = std::min(water, levels[c]);
+                }
+            }
+
+            // The cell's slope, as the mean of its two diagonals rather than the
+            // s00 corner's own edges: the corners of a saddle disagree about
+            // which way the cell leans, and reading one of them decided the whole
+            // cell's shading off a quarter of its surface (see face_shade).
+            const float hx = ((s10.height - s00.height) + (s11.height - s01.height)) * 0.5f;
+            const float hz = ((s01.height - s00.height) + (s11.height - s10.height)) * 0.5f;
+            const float cell_shade = face_shade(hx, hz, spacing);
+            // ...and each corner wears the cell's face constant times ITS OWN
+            // occlusion: a dip darkens across the cell instead of taking the
+            // whole cell down a step, which is the difference between a shaded
+            // hollow and a patch.
+            const int32_t n0x = origin_x + i * spacing;
+            const int32_t n1x = origin_x + (i + 1) * spacing;
+            const int32_t n0z = origin_z + j * spacing;
+            const int32_t n1z = origin_z + (j + 1) * spacing;
+            const NodeSurface corner00 = node_surface ? node_surface(n0x, n0z) : NodeSurface{};
+            const NodeSurface corner10 = node_surface ? node_surface(n1x, n0z) : NodeSurface{};
+            const NodeSurface corner01 = node_surface ? node_surface(n0x, n1z) : NodeSurface{};
+            const NodeSurface corner11 = node_surface ? node_surface(n1x, n1z) : NodeSurface{};
+            const std::array<uint8_t, 4> others{corner00.mix.other, corner10.mix.other,
+                                               corner11.mix.other, corner01.mix.other};
+            const LayerPair pair = layer_pair(s00.layer, s10.layer, s11.layer, s01.layer, others);
+            // How much of the pair's OTHER layer a corner wears. A corner of that
+            // layer wears everything its own share leaves -- its share counts the
+            // layers that are not its own -- and a corner of the base layer wears
+            // its own neighbourhood's share of the other. Both come out of the same
+            // five-node neighbourhood, so two cells sharing the corner agree there
+            // and the ramp has no step where they meet.
+            auto corner_mix = [&pair](const NodeSurface& n, uint8_t own) -> float {
+                if (pair.other == pair.base) return 0.0f;
+                if (own == pair.other) return std::clamp(1.0f - n.mix.share, 0.0f, 1.0f);
+                return n.mix.other == pair.other ? n.mix.share : 0.0f;
+            };
+            const float mix00 = corner_mix(corner00, s00.layer);
+            const float mix10 = corner_mix(corner10, s10.layer);
+            const float mix11 = corner_mix(corner11, s11.layer);
+            const float mix01 = corner_mix(corner01, s01.layer);
+
+            if (any_wet) {
                 // Flat and level: a liquid surface has no slope to shade, so it takes the
                 // top constant and the water layer, and only its height comes from the cell.
+                // The world's own top-face order (see MeshBuilder::kFaceVertices):
+                // (x0,z0), (x1,z0), (x1,z1), (x0,z1), triangles 0-1-2 and 0-2-3.
                 push_vertex(mesh, x0, water, z0, water_layer, water_layer, 1.0f, kShadeTop, 0.0f);
                 push_vertex(mesh, x1, water, z0, water_layer, water_layer, 1.0f, kShadeTop, 0.0f);
                 push_vertex(mesh, x1, water, z1, water_layer, water_layer, 1.0f, kShadeTop, 0.0f);
@@ -276,61 +366,39 @@ TileMesh build_tile_mesh(int32_t origin_x, int32_t origin_z, int32_t tile_size, 
                 push_vertex(mesh, x1, water, z1, water_layer, water_layer, 1.0f, kShadeTop, 0.0f);
                 push_vertex(mesh, x0, water, z1, water_layer, water_layer, 1.0f, kShadeTop, 0.0f);
                 ++mesh.water_quads;
-            } else {
-                // The cell's slope, as the mean of its two diagonals rather than the
-                // s00 corner's own edges: the corners of a saddle disagree about
-                // which way the cell leans, and reading one of them decided the whole
-                // cell's shading off a quarter of its surface (see face_shade).
-                const float hx = ((s10.height - s00.height) + (s11.height - s01.height)) * 0.5f;
-                const float hz = ((s01.height - s00.height) + (s11.height - s10.height)) * 0.5f;
-                const float cell_shade = face_shade(hx, hz, spacing);
-                // ...and each corner wears the cell's face constant times ITS OWN
-                // occlusion: a dip darkens across the cell instead of taking the
-                // whole cell down a step, which is the difference between a shaded
-                // hollow and a patch.
-                const int32_t n0x = origin_x + i * spacing;
-                const int32_t n1x = origin_x + (i + 1) * spacing;
-                const int32_t n0z = origin_z + j * spacing;
-                const int32_t n1z = origin_z + (j + 1) * spacing;
-                const NodeSurface corner00 = node_surface ? node_surface(n0x, n0z) : NodeSurface{};
-                const NodeSurface corner10 = node_surface ? node_surface(n1x, n0z) : NodeSurface{};
-                const NodeSurface corner01 = node_surface ? node_surface(n0x, n1z) : NodeSurface{};
-                const NodeSurface corner11 = node_surface ? node_surface(n1x, n1z) : NodeSurface{};
-                const std::array<uint8_t, 4> others{corner00.mix.other, corner10.mix.other,
-                                                   corner11.mix.other, corner01.mix.other};
-                const LayerPair pair = layer_pair(s00.layer, s10.layer, s11.layer, s01.layer, others);
-                // How much of the pair's OTHER layer a corner wears. A corner of that
-                // layer wears everything its own share leaves -- its share counts the
-                // layers that are not its own -- and a corner of the base layer wears
-                // its own neighbourhood's share of the other. Both come out of the same
-                // five-node neighbourhood, so two cells sharing the corner agree there
-                // and the ramp has no step where they meet.
-                auto corner_mix = [&pair](const NodeSurface& n, uint8_t own) -> float {
-                    if (pair.other == pair.base) return 0.0f;
-                    if (own == pair.other) return std::clamp(1.0f - n.mix.share, 0.0f, 1.0f);
-                    return n.mix.other == pair.other ? n.mix.share : 0.0f;
+            }
+
+            {
+                // The ground, as the two triangles of the cell's own top face, each
+                // clipped to the part that stands above the water (a dry cell keeps both
+                // whole, and an all-wet cell loses them both).
+                const ClipVertex corners[4] = {
+                    ClipVertex{x0, s00.height, z0, corner00.ao, mix00},
+                    ClipVertex{x1, s10.height, z0, corner10.ao, mix10},
+                    ClipVertex{x1, s11.height, z1, corner11.ao, mix11},
+                    ClipVertex{x0, s01.height, z1, corner01.ao, mix01},
                 };
-                const float mix00 = corner_mix(corner00, s00.layer);
-                const float mix10 = corner_mix(corner10, s10.layer);
-                const float mix11 = corner_mix(corner11, s11.layer);
-                const float mix01 = corner_mix(corner01, s01.layer);
-                // The world's own top-face order (see MeshBuilder::kFaceVertices):
-                // (x0,z0), (x1,z0), (x1,z1), (x0,z1), triangles 0-1-2 and 0-2-3.
                 constexpr int32_t kTriangles[6] = {0, 1, 2, 0, 2, 3};
-                const float cx[4] = {x0, x1, x1, x0};
-                const float cz[4] = {z0, z0, z1, z1};
-                const float cy[4] = {s00.height, s10.height, s11.height, s01.height};
-                const float cshade[4] = {cell_shade * corner00.ao, cell_shade * corner10.ao,
-                                         cell_shade * corner11.ao, cell_shade * corner01.ao};
-                const float cmix[4] = {mix00, mix10, mix11, mix01};
-                const uint8_t layer = pair.base;
-                const uint8_t blend_layer = pair.other;
-                for (int32_t k = 0; k < 6; ++k) {
-                    const size_t c = static_cast<size_t>(kTriangles[k]);
-                    push_vertex(mesh, cx[c], cy[c], cz[c], layer, blend_layer, 0.0f, cshade[c],
-                                cmix[c]);
+                bool emitted = false;
+                for (int32_t t = 0; t < 6; t += 3) {
+                    const ClipVertex tri[3] = {corners[kTriangles[t]], corners[kTriangles[t + 1]],
+                                               corners[kTriangles[t + 2]]};
+                    ClipVertex poly[4];
+                    const int32_t n = any_wet ? clip_above(tri, water, poly) : 3;
+                    if (!any_wet) {
+                        poly[0] = tri[0];
+                        poly[1] = tri[1];
+                        poly[2] = tri[2];
+                    }
+                    for (int32_t k = 1; k + 1 < n; ++k) {
+                        for (const ClipVertex& v : {poly[0], poly[k], poly[k + 1]}) {
+                            push_vertex(mesh, v.x, v.y, v.z, pair.base, pair.other, 0.0f,
+                                        cell_shade * v.ao, v.mix);
+                        }
+                        emitted = true;
+                    }
                 }
-                ++mesh.terrain_quads;
+                if (emitted) ++mesh.terrain_quads;
             }
         }
     }

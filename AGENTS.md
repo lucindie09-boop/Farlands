@@ -86,7 +86,7 @@ The four gates this file's constraints describe are `scons sizecheck`, `scons po
   anonymous namespace (or `static`), or its external linkage can collide with the same name in a
   sibling file at link time
 - **The static-analysis job is the third structural gate, and the only one that reads C++
-  semantics rather than shapes.** clang-tidy runs over `find src -name '*.cpp'` (119 files) with
+  semantics rather than shapes.** clang-tidy runs over `find src -name '*.cpp'` (120 files) with
   `bugprone-*`, `concurrency-*` and `performance-*` on `ubuntu-latest`, and any finding in
   project sources fails the job, so a split that smuggles in a new shape surfaces here one
   finding at a time. Two shapes are worth knowing before writing the next helper, and both are
@@ -172,7 +172,13 @@ Full notes: [docs/shapes-notes.md](docs/shapes-notes.md).
   the shader; and the fill dispatched 12 tiles a frame because the in-flight ceiling was
   read as a ceiling when it is a per-frame rate -- the reach's 45,369 tiles took 97 s
   that way, 20.5 s once it was (a deeper queue and a per-level merge interval, which
-  leaves the sampler's own 4 ms columns as what is left).
+  leaves the sampler's own 4 ms columns as what is left). Its coastline rule has been
+  through three reports, and the cell's own width is why: a cell is 128 to 256 blocks,
+  so whatever a straddling cell decides is a quarter of a kilometre of shore. A cell
+  now draws its sheet over the whole of itself and its GROUND only above the water
+  plane, which puts the coast wherever the samples' own crossing is -- no gap, no two
+  surfaces over one ground, and no sea floor a block under the sheet for the depth
+  buffer to pick between.
 
 Full notes, effect by effect: [docs/rendering-notes.md](docs/rendering-notes.md).
 
@@ -264,7 +270,7 @@ Full notes: [docs/schematic-notes.md](docs/schematic-notes.md).
 Full notes: [docs/fluids.md](docs/fluids.md).
 
 ### Testing & CI
-- 686 test cases / 363,093 assertions, written with `CHECK`/`CHECK_FALSE` only: this
+- 687 test cases / 363,626 assertions, written with `CHECK`/`CHECK_FALSE` only: this
   build disables exceptions, so `REQUIRE` is a compile error.
 - Move work off the frame before making it cheaper, and prove the move with a total:
   the phases must add up to the frame.

@@ -378,6 +378,9 @@ private:
     uint8_t biome_layers[static_cast<size_t>(BiomeType::Count)] = {0, 0, 0};
     uint8_t underwater_layer = 0;
     uint8_t water_layer = 0;
+    // The liquid layer the material currently carries, so the per-frame push is a
+    // compare. -1 means "never pushed", which is not a layer any array has.
+    int32_t last_water_layer = -1;
 
     Stats stats;
 };

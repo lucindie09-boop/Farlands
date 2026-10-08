@@ -91,10 +91,14 @@ procedurally generated liquid textures, and the shader-effect stack end to end.
   vanished with the floor, the water sheet ended at the cell's edge while the land
   behind it rose above that sheet, and the step between two surfaces stopping at the
   same line at different heights was bridged by nothing. Rays just above the
-  waterline crossed the tile and the frame showed the inside of the hill. The skip
-  now requires the WHOLE cell under the water; `tests/test_lod_surface.cpp` casts
-  the player's own rays at the built mesh (15 crossed it before the fix) and holds
-  rays above the land as the control.
+  waterline crossed the tile and the frame showed the inside of the hill. That rule
+  has been through two more reports since -- a coastline a cell short of its own
+  water, then the half-cell alternation that read as light blue speckled through the
+  sand. A cell now draws its sheet over the whole of itself and its ground only above
+  the water, and `tests/test_lod_surface_shore.cpp` casts a ray straight down at
+  every sample point of a shoreline tile: nothing is missed, nothing is covered
+twice, and the coast is where the samples' own crossing is. The whole sequence, with
+  what each report cost, is in [lod-modes.md](lod-modes.md).
 - **The far field's textures are the world's own, anchored in world block
   coordinates.** One block of world is one texture repeat, exactly as a chunk face
   maps it, so a quad several blocks wide advances the coordinate by its own width and

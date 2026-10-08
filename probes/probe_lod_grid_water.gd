@@ -149,10 +149,17 @@ func _run() -> void:
 		n_water > 0 and float(water["water_min_y"]) == sea and float(water["water_max_y"]) == sea,
 		"%d vertices, Y %.1f .. %.1f, sea level %.1f" % [n_water,
 			float(water["water_min_y"]), float(water["water_max_y"]), sea])
-	# ...and the sampler's own level is the loaded world's, not a second one.
-	_ok("the sampler's water level is the loaded world's water level",
-		world_level < 0 or sea == float(world_level),
-		"sampler %.1f, the world's own water surface %d" % [sea, world_level])
+	# ...and the sampler's own level is the loaded world's, not a second one. The world's
+	# side of the comparison is a scan of the LOADED chunks (the helper above), so a run
+	# whose loaded area has no ocean in it has nothing to compare with: it says so rather
+	# than reporting a check it did not make.
+	if world_level < 0:
+		print("probe: NOTE no water block in the scanned columns, so the sampler's level was")
+		print("probe:      compared with the configured one only (%.1f)" % sea)
+	else:
+		_ok("the sampler's water level is the loaded world's water level",
+			sea == float(world_level),
+			"sampler %.1f, the world's own water surface %d" % [sea, world_level])
 	# A dry column must be handed no water, which is what keeps a sheet off the land.
 	var wet_columns := 0
 	var dry_with_water := 0
@@ -175,13 +182,33 @@ func _run() -> void:
 ## The top of the loaded world's own water at (0, z): the highest y whose block is a
 ## liquid, read through the world rather than through the far mode's sampler -- the two
 ## must agree on where the sea is.
+## The topmost water block in a column, read out of the loaded world. `get_block` takes
+## the world coordinates and answers a block ID, which is then resolved by NAME through
+## the registry's own id -> name call -- `get_block_name` takes a block ID and NOT a
+## position, so passing it (x, y, z) is an error the engine reports as a failed call, and
+## the 0 it answers with reads as a water level of zero rather than as a broken helper.
+## Widened from three far-apart columns to the loaded square: at this seed's spawn the
+## first version scanned three columns and found no water at all, which made the check
+## below pass without comparing anything. The scan is over the chunks the world has (about
+## 224 blocks here), 32 blocks apart.
 func _world_water_top() -> int:
-	for z in [0, 512, 2048]:
-		for y in range(600, 0, -1):
-			var name := String(_cm.get_block_name(0, y, z))
-			if name.contains("water"):
-				return y
-	return -1
+	var found := {}
+	for x in range(-128, 129, 32):
+		for z in range(-128, 129, 32):
+			for y in range(600, 0, -1):
+				var block_id := int(_cm.call("get_block", x, y, z))
+				if block_id <= 0:
+					continue
+				if String(_cm.call("get_block_name", block_id)).contains("water"):
+					found[y] = int(found.get(y, 0)) + 1
+					break
+	if found.is_empty():
+		return -1
+	var best := -1
+	for y in found.keys():
+		if best < 0 or int(found[y]) > int(found[best]):
+			best = int(y)
+	return best
 
 
 func _finish() -> void:

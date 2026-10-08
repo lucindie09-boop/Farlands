@@ -250,12 +250,26 @@ A few of those rows keep their detail here, because a table cell that long is an
     That is the refutation: the report's interleave is not a depth fight at all. It was the mode
     drawing its terrain quad AND a flat sheet over the same shoreline cell — the whole cell
     both, against a guess at where the waterline falls inside it.
+  **The two-mask intersection has since been retired as evidence, and reading it as a regression
+  would be a mistake.** The coastline rule now draws the sheet over the WHOLE of a cell with any
+  corner under the water and clips the ground to the part above the level, so those two masks
+  intersect by design over the ground the sheet is behind: the same probe on the same camera
+  reads **0.765 of the union at the worst heading (yaw 0, 10,205 px), 0.36 at yaw 270, 0.11 and
+  0.01 at 90 and 180**, where it used to read 0.14-0.18 — and the frame is right, because the
+  extra intersection is one surface strictly in front of the other. What tells the two apart is
+  the geometry, not the mask: no ground vertex below the water level, and the topmost surface at
+  every sample point of the tile (`tests/test_lod_surface_shore.cpp`). The same run's own
+  numbers: **51,121 quads** (45,420 before the change; the straddling cells' sheets), the sheet
+  on 0.361 of the frame and the land on 0.446, and **0 pixels** of the loaded world's land
+  painted blue.
   A frame can show the two surfaces and the ordering between them; it can NOT show whether two
   fragments are over the same GROUND, because at a horizon everything is compressed into the
   same few rows and a near sheet in front of distant land is indistinguishable from a sheet
-  drawn over the land it is on. So the probe reports and the geometry test claims:
-  `tests/test_lod_surface_shore.cpp` sums a shoreline tile's triangle areas and compares them
-  with the cells it drew, once each, which is the property the rule is for.
+  drawn over the land it is on.  So the probe reports and the geometry test claims:
+  `tests/test_lod_surface_shore.cpp` casts a ray straight down at every sample point of a
+  shoreline tile and asks what the TOPMOST surface is: no point missed, no point covered by two
+  surfaces of one kind, and the answer changing at the crossing the samples' own straight lines
+  put there -- which is the property the rule is for, and one a count of quads cannot answer.
   Two instrument notes, both paid for. The world SEED is pinned (`seed` 1337): without it a run
   is a different landscape from the next one. And the EYE IS PLACED on the ground at the origin
   rather than read off the player — the spawn is a height that depends on which chunks had

@@ -178,25 +178,27 @@ using NodeSurfaceFn = std::function<NodeSurface(int32_t x, int32_t z)>;
 // the same spacing share their edge nodes exactly and no crack opens between
 // them.
 //
-// EVERY CORNER WET, OR NO WATER AT ALL. A cell draws its sheet only when all four of
-// its samples are under their own water; a cell with a land sample anywhere on it is
-// drawn as land, whole, and draws no water at all.
+// THE SHEET IS THE CELL'S WHOLE QUAD; THE GROUND IS CLIPPED TO WHAT STANDS ABOVE IT.
 //
-// The samples are a cell apart and the cell's corners are joined by straight lines, so
-// a cell that straddles a coast has an underwater corner and a dry one and its
-// interpolated surface crosses the water level somewhere inside it — but WHERE it
-// crosses is a guess, and the real shoreline between two samples that far apart lies
-// anywhere in the cell. A sheet drawn from that guess is water over ground the samples
-// call land, which is what a far coastline's light blue interleaved with its own grass
-// was. Drawing the land AND the sheet over the whole cell instead is the same guess
-// made worse: the two then cover the same ground pixel for pixel.
+// A cell with any corner under its own water draws its sheet over the whole cell at
+// that water level, and its ground only where the ground stands above the level (the
+// two triangles of the cell's top face, each cut by the water plane). A dry cell is
+// ground, whole, and an all-wet cell is its sheet alone.
 //
-// What the rule costs is the coast's last cell — the sea ends at the last wholly wet
-// cell, up to one cell short of where it should, and the strip beyond reads as beach.
-// What it buys is that a far cell can only ever be one surface, so nothing the sampler
-// answered is contradicted, and an ocean cell is one quad with no corner work at all
-// (four heights under one water level cannot cross it in between, so the sheet alone is
-// that cell's surface and the floor under a sheet is never drawn).
+// The sheet covers the whole cell because the ground is what decides where the coast is:
+// where the ground stands above the level it is in front and depth drops the sheet
+// behind it, and where the ground is under the level the sheet is the surface that
+// shows. That leaves no gap at the coast (the rule this replaces drew no sheet in a
+// cell with a land corner in it, so the sea ended up to one cell short — 128 to 256
+// blocks — and the strip beyond read as beach), and no two surfaces over one piece of
+// ground either, because the ground's own half of a straddling cell is not drawn at all:
+// a sea floor a block under the sheet, kilometres out, is a pair the depth buffer's own
+// rounding picks between a pixel at a time, which reads as sand speckled through the
+// water along every shallow coast.
+//
+// The cost of a straddling cell is the cut: its ground comes back as the polygons above
+// the level instead of one quad, and an all-wet cell loses its ground entirely (which is
+// what makes an ocean cell one quad and no corner work at all).
 //
 // `neighbour_spacing` is the spacing of the tile across each edge, in the order
 // -x, +x, -z, +z, with 0 for "no tile there" (the world inside the grid, or off

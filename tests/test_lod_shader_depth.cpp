@@ -219,10 +219,17 @@ TEST_CASE("lod shader: a biome boundary is a blend, and both halves agree on the
     CHECK(shader.find("float blend = COLOR.a") != std::string::npos);
     CHECK(shader.find("blend > 0.002 && layer2 != layer") != std::string::npos);
 
-    // The packing, taken apart the way the upload half wrote it: water in the low bit,
-    // the second layer above it.
-    CHECK(shader.find("mod(UV2.y, 2.0)") != std::string::npos);
+    // The packing, taken apart the way the upload half wrote it: the second layer above
+    // the water bit, as a small exact integer (lod_grid_upload.cpp).
     CHECK(shader.find("floor(UV2.y * 0.5)") != std::string::npos);
+    // ...and the water flag itself, which is the LAYER, against the layer the mesh was
+    // built with. It was the low bit of UV2.y, which the terrain's own vertices also
+    // carry high bits of, so the flag landed on grass and sand -- and it is an exact
+    // test against a pushed uniform rather than a comparison with a number in the
+    // shader, because a texture-array index belongs to the loaded texture pack.
+    CHECK(shader.find("step(abs(layer - water_layer), 0.5)") != std::string::npos);
+    CHECK(shader.find("mod(UV2.y, 2.0)") == std::string::npos);
+    CHECK(shader.find("uniform float water_layer") != std::string::npos);
 
     // ...and the writer of that packing, which is the other end of the contract: a
     // change on one side without the other is a layer read out of the wrong texture.
@@ -233,6 +240,17 @@ TEST_CASE("lod shader: a biome boundary is a blend, and both halves agree on the
     }
     CHECK(upload.find("v.water + 2.0f * v.layer2") != std::string::npos);
     CHECK(upload.find("Color(v.shade, v.shade, v.shade, v.mix)") != std::string::npos);
+
+    // ...and the third end of that contract: the layer the mesh was built with is what
+    // the material is told, once per change (lod/lod_grid_uniforms.cpp, where the mode's
+    // material pushes live).
+    std::string grid;
+    if (!read_text("src/lod/lod_grid_uniforms.cpp", grid) &&
+        !read_text("../src/lod/lod_grid_uniforms.cpp", grid)) {
+        MESSAGE("src/lod/lod_grid_uniforms.cpp not found; the flag was checked on one side only");
+        return;
+    }
+    CHECK(grid.find("set_shader_parameter(\"water_layer\"") != std::string::npos);
 }
 
 TEST_CASE("lod shader: the detail term is faded out where a repeat is too narrow to read") {

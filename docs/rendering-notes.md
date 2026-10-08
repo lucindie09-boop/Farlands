@@ -106,15 +106,45 @@ procedurally generated liquid textures, and the shader-effect stack end to end.
   above), so at these cell sizes the sampler legitimately lands on the mip that has
   averaged the whole 16x16 face away, and the field read as one flat colour per biome —
   "just yellow, blue or green". The average is the right colour and stays the base; the
-  shader reads the face again at a fixed world scale (`detail_scale`, 16 blocks per
-  repeat) with the sampler's own mip selection AT that scale, divides it by that
+  shader reads the face again at a fixed world scale (`detail_scale`, 8 blocks per
+  repeat — it was 16, and "the tiling is a little too big" halved it) with the
+  sampler's own mip selection AT that scale, divides it by that
   scale's own average (mip 4 is the 16x16 face) and multiplies the result in
-  (`detail_strength`). Two properties are what make it safe to leave on: the ratio
-  cannot move the mean colour — a yellow cell stays exactly as yellow — and it fades
-  itself out, because past the distance where one repeat is a pixel both samples are
-  that same average and the ratio is 1. Nothing here aliases or crawls, and there is
-  no fade constant to keep in step. `tests/test_lod_shader_depth.cpp` pins both halves
-  of that shape against the shader's own text, which is the only place it is declared.
+  (`detail_strength`). The property that matters is the mean: a ratio against the
+  face's own average redistributes the face's colour and cannot repaint it, so a
+  yellow cell stays exactly as yellow.
+- **The detail term did NOT fade itself out, and that claim is where "z fighting on
+  every single face" came from.** The two samples only meet when a FINE sample reaches
+  mip 4, and that needs a face texel — a sixteenth of a repeat, half a block here — to
+  be one pixel: at 8 blocks a repeat that is a block an eighth of a pixel wide, some
+  8 km out. Over the ~2 km band before it the ratio is a 2x2-texel pattern of the face
+  divided by the face's average — tens of percent of amplitude — drawn at one or two
+  pixels a repeat, and a repeat that narrow is not texture: the sampler answers with
+  whichever mip level its own 2x2 pixel quad landed on, the divisor stays where it is,
+  and the difference between the two is a speckle that crawls when the camera moves.
+  The fingerprint is in the numbers, and both halves of it are in
+  `probes/probe_lod_grid_zfight.gd`: with the term on, the far field's single-pixel
+  spike rate is 6-8x the same frame with `detail_strength` 0, while the biome blend's
+  contribution at its real weight is **0.0000** on every metric — the blend was the
+  report's own guess and it is not the one.
+- **...so the term is faded by its own footprint, the world's grain's rule in the far
+  field's units.** One repeat of the term in pixels is `detail_scale` over the blocks a
+  pixel covers, which is the world-coordinate UV's own derivative — exact, and free.
+  The term is drawn as authored down to `DETAIL_REPEAT_FULL_PX` (8) and is gone below
+  `DETAIL_REPEAT_MIN_PX` (2); the WIDER of the two axes is read, the same axis the
+  sampler's own mip choice is made on, so ground seen edge-on fades with everything
+  else the screen cannot carry rather than going on texturing the axis that survives.
+  It is the rule and the reason `shaders/block_noise.gdshaderinc` already uses for the
+  world's grain ("the grain is faded out over that footprint, which keeps a distant
+  hillside from boiling"); the two differ only in which unit they count. Nothing the
+  eye can read a texture on changes: the term still carries the field out to the
+  ~1.8 km where a repeat is two pixels, which is the whole reach the ladder builds
+  before the reach knob is touched. Anisotropic and trilinear sampling were measured
+  first and both make the spike rate **worse** (0.0114 against 0.0058 on the same
+  frame), which is what a filter asked to resolve a pattern finer than the screen can
+  carry does — it picks a different mip's noise rather than none of it.
+  `tests/test_lod_shader_depth.cpp` pins the fade's shape and its two constants against
+  the shader's own text, which is the only place either is declared.
 - **The far field's AO is a hollow rather than a corner: how much LOWER a node sits
   than the four nodes a spacing away from it** (`lod::concavity_shade`). There are no
   blocks out here, so the near world's occlusion — the cells around a face — has no
@@ -126,7 +156,23 @@ procedurally generated liquid textures, and the shader-effect stack end to end.
   its edge. A uniform slope cancels — two neighbours up and two down — and a ridge gets
   nothing, which is what keeps a hillside from being darkened for being a hillside; a
   water quad keeps the top constant, because a level plane has no hollow in it.
-  `tests/test_lod_surface.cpp` pins every one of those cases.
+  `tests/test_lod_surface_shading.cpp` pins every one of those cases.
+- **A far biome boundary is a ramp across a cell, not a line along its edge.**
+  Worldgen mixes the near world's biomes before it picks a surface material, so a
+  boundary there is already a gradient; a far cell is ONE flat quad wearing ONE texture
+  array layer, so the same boundary arrived as a straight line as long as the cell is
+  wide — sand against grass with a razor edge. Two things make the fix a blend rather
+  than a wider step: the weight is a SHARE of a five-node neighbourhood (the node and
+  the four a spacing away, the same ring the occlusion reads) so it decays over a
+  node's reach instead of flipping, and it is computed from the NODE rather than the
+  cell, so two cells sharing a corner carry the same value there and the field is
+  continuous across the mesh. A cell names the pair it blends between — the layer most
+  of its corners wear and the one their neighbourhoods do — which is why both cells at
+  a boundary name the same pair from opposite sides. The weight rides in the vertex
+  colour's alpha (dead: it was the water flag that `UV2.y` already carries) and the
+  second layer in `UV2.y` above that flag, so the vertex format did not grow a byte;
+  `tests/test_lod_shader_depth.cpp` checks the two halves of that packing against each
+  other, and `tests/test_lod_surface_blend.cpp` the arithmetic.
 - **A reach past 4000 blocks needs the camera's far plane moved, or it is geometry
   nobody sees.** Godot's `Camera3D` defaults to `far = 4000`, which the main scene
   never overrides, so the outer rings a raised reach builds would be frustum-clipped

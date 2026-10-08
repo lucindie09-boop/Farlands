@@ -115,7 +115,7 @@ void WorldUpdater::update(bool is_editor, uint64_t epoch, uint64_t& chunks_proce
 void WorldUpdater::update_unload(int32_t active_render_distance, int32_t pcx, int32_t pcy, int32_t pcz, bool chunk_changed) {
     if (chunk_changed || (++unload_scan_skip_counter >= kUnloadScanSkipFrames)) {
         unload_scan_skip_counter = 0;
-        int32_t unload_hrd  = active_render_distance + 2;
+        int32_t unload_hrd  = active_render_distance + kChunkRetentionChunks;
         int32_t unload_hrd2 = unload_hrd * unload_hrd;
 
         // Unload is purely horizontal: chunks stay loaded no matter how far
@@ -135,7 +135,7 @@ void WorldUpdater::update_unload(int32_t active_render_distance, int32_t pcx, in
     }
 
     if (!unload_queue.empty()) {
-        int32_t unload_hrd = active_render_distance + 2;
+        int32_t unload_hrd = active_render_distance + kChunkRetentionChunks;
         int32_t unload_hrd2 = unload_hrd * unload_hrd;
         int32_t unloads_this_frame = 0;
         const bool frustum_active = frustum.is_initialized();

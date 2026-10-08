@@ -102,18 +102,36 @@ void LodGrid::build_tile(const std::shared_ptr<CompletedTile>& result) {
     // spacing away from it, which are the neighbouring tiles' own corners. A node the
     // sampler refuses is a hole, not a wall, so it occludes nothing.
     const int32_t spacing = result->spacing;
-    lod::NodeShade node_shade = [&cache, &raw, spacing](int32_t x, int32_t z) {
+    // One read of the ring answers both questions the mesh asks of a node -- how
+    // occluded it is and which surface it is next to -- because they are the same four
+    // nodes. A node the sampler refuses is a hole, not a wall: it occludes nothing and
+    // it wears the node's own layer, so the mix cannot pull in a texture from outside
+    // the world.
+    lod::NodeSurfaceFn node_surface = [&cache, &raw, spacing](int32_t x, int32_t z) {
         const lod::SurfaceSample self = cache.get(x, z, raw);
-        if (!self.valid) return 1.0f;
+        lod::NodeSurface out;
+        if (!self.valid) return out;
         auto at = [&](int32_t nx, int32_t nz) {
-            const lod::SurfaceSample s = cache.get(nx, nz, raw);
+            return cache.get(nx, nz, raw);
+        };
+        const lod::SurfaceSample north = at(x, z - spacing);
+        const lod::SurfaceSample south = at(x, z + spacing);
+        const lod::SurfaceSample east = at(x + spacing, z);
+        const lod::SurfaceSample west = at(x - spacing, z);
+        auto height_or = [&self](const lod::SurfaceSample& s) {
             return s.valid ? s.height : self.height;
         };
-        return lod::concavity_shade(self.height, at(x, z - spacing), at(x, z + spacing),
-                                    at(x + spacing, z), at(x - spacing, z), spacing);
+        out.ao = lod::concavity_shade(self.height, height_or(north), height_or(south),
+                                      height_or(east), height_or(west), spacing);
+        auto layer_or = [&self](const lod::SurfaceSample& s) {
+            return s.valid ? s.layer : self.layer;
+        };
+        out.mix = lod::layer_mix(self.layer, layer_or(north), layer_or(south),
+                                 layer_or(east), layer_or(west));
+        return out;
     };
     result->mesh = lod::build_tile_mesh(origin_x, origin_z, kTileBlocks, result->spacing, sampler,
-                                        water_layer, 8.0f, result->neighbour_spacing, node_shade);
+                                        water_layer, result->neighbour_spacing, node_surface);
     result->columns_sampled = sampled;
     result->build_ms = std::chrono::duration<double, std::milli>(
                            std::chrono::steady_clock::now() - start)

@@ -192,6 +192,11 @@ public:
     void set_lod_grid_outer_rings(int32_t rings);
     int32_t get_lod_grid_outer_rings() const;
     godot::Dictionary get_lod_grid_stats() const;
+    // Probe readouts for the far field's own data (lod/lod_grid_debug.cpp): the
+    // sampler's answer for one column, and the height every water vertex in the
+    // built tiles sits at. Neither is a frame question; see lod_grid.hpp.
+    godot::Dictionary debug_lod_grid_column(int32_t x, int32_t z) const;
+    godot::Dictionary debug_lod_grid_water() const;
 
     void set_player_light_enabled(bool enabled);
     bool get_player_light_enabled() const;

@@ -14,10 +14,13 @@
 
 namespace lod_surface_test {
 
-// A sampler that answers from a plain height function, counting its calls.
+// A sampler that answers from a plain height function, counting its calls. `layer` is
+// fixed at 3 unless a case is about the biome blend and wants the surface to change
+// across the tile.
 struct CountingSampler {
     std::function<float(int32_t, int32_t)> height;
     std::function<float(int32_t, int32_t)> water;
+    std::function<uint8_t(int32_t, int32_t)> layer;
     int32_t calls = 0;
     int32_t valid_until_x = INT32_MAX;
 
@@ -27,7 +30,7 @@ struct CountingSampler {
         s.valid = x < valid_until_x;
         s.height = height ? height(x, z) : 0.0f;
         s.water = water ? water(x, z) : VoxelEngine::lod::kNoWater;
-        s.layer = 3;
+        s.layer = layer ? layer(x, z) : static_cast<uint8_t>(3);
         return s;
     }
 };

@@ -134,11 +134,19 @@ void LodGrid::rebuild_bucket(int32_t level) {
         if (tile.level != level || !tile.has_mesh || tile.raw.vertices.empty()) continue;
         for (const lod::LodVertex& v : tile.raw.vertices) {
             points.set(w, Vector3(v.x, v.y, v.z));
-            // The baked face constant rides in the vertex colour, so the shader has
-            // one multiplier to apply and no normal to derive.
-            colors.set(w, Color(v.shade, v.shade, v.shade, v.water));
+            // The baked face constant rides in the vertex colour, so the shader has one
+            // multiplier to apply and no normal to derive. Its alpha was the water flag
+            // that UV2.y already carries, so it was dead -- the biome blend weight goes
+            // there instead, and the vertex format does not grow a byte for it.
+            colors.set(w, Color(v.shade, v.shade, v.shade, v.mix));
             uvs.set(w, Vector2(v.u, v.v));
-            layers.set(w, Vector2(v.layer, v.water));
+            // UV2: the pair a cell blends between and the water flag, in two floats.
+            //   x = the cell's own layer, y = water + 2 * (the layer it blends toward)
+            // Both parts are small exact integers, so a shader can take them apart again
+            // and a cell's value survives interpolation -- which it has to, because a
+            // layer index interpolated between two different layers would sample a
+            // texture that is neither of them.
+            layers.set(w, Vector2(v.layer, v.water + 2.0f * v.layer2));
             ++w;
         }
     }

@@ -4,19 +4,15 @@
 // worth pinning are the ones that would show up as broken terrain at distance:
 // the winding (a backwards quad is invisible under cull_back), the sampling count
 // (a tile that samples every cell corner four times is four times the cost), the
-// water quad (an ocean drawn without it is a hole), the deep-floor skip (the
-// saving over oceans), and the failure mode (an unsampled column is a hole, never
-// invented terrain).
+// water quad (an ocean drawn without it is a hole, and an ocean is one quad with no
+// corner work at all), and the failure mode (an unsampled column is a hole, never
+// invented terrain). The shoreline -- what a cell does when the water and the land
+// are both inside it -- is test_lod_surface_shore.cpp.
 #include "doctest.h"
 #include "lod/lod_surface.hpp"
 #include "lod_surface_test_support.hpp"
 
-// The shoreline case below casts rays at the built mesh, which is stated in the
-// engine's own vector type.
-#include <godot_cpp/variant/vector3.hpp>
-
 #include <algorithm>
-#include <cmath>
 #include <cstdint>
 #include <vector>
 
@@ -109,7 +105,7 @@ TEST_CASE("a finer edge takes its coarser neighbour's chord, so no crack opens")
     // A ridge along z = 32 that only the finer sampling sees.
     sampler.height = [](int32_t, int32_t z) { return (z % 64 == 32) ? 80.0f : 40.0f; };
     const std::array<int32_t, 4> neighbours{0, 64, 0, 0};  // coarser across +x only
-    const TileMesh mesh = build_tile_mesh(0, 0, 64, 32, as_sampler(sampler), 9, 8.0f, neighbours);
+    const TileMesh mesh = build_tile_mesh(0, 0, 64, 32, as_sampler(sampler), 9, neighbours);
 
     int32_t on_snapped_edge = 0;
     int32_t on_open_edge = 0;
@@ -132,15 +128,18 @@ TEST_CASE("a finer edge takes its coarser neighbour's chord, so no crack opens")
     CHECK(mesh.max_y == doctest::Approx(80.0f));
 }
 
-TEST_CASE("water is drawn over the floor it covers") {
+TEST_CASE("water is drawn over the cell it covers, and the floor under it is not") {
     CountingSampler sampler;
     sampler.height = [](int32_t, int32_t) { return 60.0f; };
     sampler.water = [](int32_t, int32_t) { return 64.0f; };
     const TileMesh mesh = build_tile_mesh(0, 0, 64, 32, as_sampler(sampler), 9);
 
-    // Four cells, each with a floor quad (shallow enough to keep) and a water
-    // quad at the water level.
-    CHECK(mesh.terrain_quads == 4);
+    // The floor is under the sheet, so it is not a second surface: four cells of
+    // sheet at the water level and no terrain at all. The floor used to be kept here
+    // (it is only four blocks down) and it was drawn under the sheet, which is a
+    // surface no frame can show through an opaque one and one a depth buffer can only
+    // fight with.
+    CHECK(mesh.terrain_quads == 0);
     CHECK(mesh.water_quads == 4);
     int32_t water_verts = 0;
     for (const auto& v : mesh.vertices) {
@@ -156,7 +155,10 @@ TEST_CASE("water is drawn over the floor it covers") {
     CHECK(mesh.max_y == doctest::Approx(64.0f));
 }
 
-TEST_CASE("a deep floor is skipped, a shallow one is kept") {
+TEST_CASE("a floor under a sheet is never drawn, deep or shallow") {
+    // A cell whose four samples are all under their own water is its sheet, whatever
+    // its depth: there is no second path to disagree with, and no corner work is done
+    // for it either (the sheet needs no shading and no biome pair).
     CountingSampler deep;
     deep.height = [](int32_t, int32_t) { return 20.0f; };
     deep.water = [](int32_t, int32_t) { return 90.0f; };
@@ -168,8 +170,16 @@ TEST_CASE("a deep floor is skipped, a shallow one is kept") {
     shallow.height = [](int32_t, int32_t) { return 62.0f; };
     shallow.water = [](int32_t, int32_t) { return 64.0f; };
     const TileMesh shallow_mesh = build_tile_mesh(0, 0, 64, 32, as_sampler(shallow), 9);
-    CHECK(shallow_mesh.terrain_quads == 4);
+    CHECK(shallow_mesh.terrain_quads == 0);
     CHECK(shallow_mesh.water_quads == 4);
+
+    // ...and the same surface, too: six vertices per cell, all of them the sheet.
+    CHECK(deep_mesh.vertices.size() == shallow_mesh.vertices.size());
+    CHECK(shallow_mesh.vertices.size() == 24);
+    for (const auto& v : shallow_mesh.vertices) {
+        CHECK(v.water > 0.5f);
+        CHECK(v.y == doctest::Approx(64.0f));
+    }
 }
 
 TEST_CASE("an unsampled column is a hole, not invented terrain") {
@@ -281,99 +291,4 @@ TEST_CASE("the texture coordinates are world block coordinates") {
     }
     // A 32-block quad spans 32 texture repeats.
     CHECK(max_u == doctest::Approx(1024.0f + 32.0f * 2.0f));
-}
-
-namespace {
-
-godot::Vector3 mesh_vertex(const TileMesh& mesh, size_t index) {
-    const VoxelEngine::lod::LodVertex& v = mesh.vertices[index];
-    return godot::Vector3(v.x, v.y, v.z);
-}
-
-// Moller-Trumbore, two-sided: the far field is drawn with cull_disabled, so a hit
-// on either winding is the frame being stopped.
-bool triangle_hit(const godot::Vector3& o, const godot::Vector3& d, const godot::Vector3& a,
-                  const godot::Vector3& b, const godot::Vector3& c) {
-    const godot::Vector3 e1 = b - a;
-    const godot::Vector3 e2 = c - a;
-    const godot::Vector3 p = d.cross(e2);
-    const float det = e1.dot(p);
-    if (std::abs(det) < 1.0e-6f) return false;
-    const float inv = 1.0f / det;
-    const godot::Vector3 s = o - a;
-    const float u = s.dot(p) * inv;
-    if (u < 0.0f || u > 1.0f) return false;
-    const godot::Vector3 q = s.cross(e1);
-    const float v = d.dot(q) * inv;
-    if (v < 0.0f || u + v > 1.0f) return false;
-    return e2.dot(q) * inv > 0.0f;
-}
-
-// A ray travelling +x at height `y`, the ray a player looks along when a far
-// shoreline opens up. It starts outside the tile and crosses all of it.
-bool ray_hits(const TileMesh& mesh, float y) {
-    const godot::Vector3 origin(-512.0f, y, 144.0f);
-    const godot::Vector3 dir(1.0f, 0.0f, 0.0f);
-    for (size_t i = 0; i + 5 < mesh.vertices.size(); i += 6) {
-        for (int32_t t = 0; t < 2; ++t) {
-            const size_t base = i + static_cast<size_t>(t) * 3;
-            if (triangle_hit(origin, dir, mesh_vertex(mesh, base), mesh_vertex(mesh, base + 1),
-                             mesh_vertex(mesh, base + 2))) {
-                return true;
-            }
-        }
-    }
-    return false;
-}
-
-// A shoreline tile, 8x8 cells at 32 blocks: two columns of deep ocean, the cell
-// where the water runs onto the beach, and the land behind it. The measured
-// heights are 40 under the water and 70 on land, with the water level at 64.
-constexpr float kFloor = 40.0f;
-constexpr float kBeach = 70.0f;
-constexpr float kSea = 64.0f;
-
-SurfaceSample shore_sample(int32_t x, int32_t z) {
-    (void)z;
-    SurfaceSample s;
-    s.valid = true;
-    if (x <= 64) {
-        s.height = kFloor;
-        s.water = kSea;
-    } else {
-        s.height = kBeach;
-        s.water = kNoWater;
-    }
-    s.layer = 3;
-    return s;
-}
-
-} // namespace
-
-TEST_CASE("a shoreline cell keeps its terrain, so the water and the land meet") {
-    VoxelEngine::lod::SurfaceSampler sampler = [](int32_t x, int32_t z) {
-        return shore_sample(x, z);
-    };
-    const TileMesh mesh = build_tile_mesh(0, 0, 256, 32, sampler, 9);
-
-    // Only the cells that are UNDER the water are skipped: two columns of ocean.
-    // The cell the water runs onto is drawn, terrain and all, even though its
-    // deepest corner is 24 blocks below the water level -- which is what the skip
-    // used to test, and why the beach disappeared with the floor.
-    CHECK(mesh.terrain_quads == 6 * 8);   // the shoreline column and the five land ones
-    CHECK(mesh.water_quads == 3 * 8);     // the two ocean columns and the shoreline one
-
-    // The frame, not the counts: every ray a player would look along, from just
-    // above the shelf up to just below the land, has to be STOPPED by the surface
-    // that rises out of the water. Before the fix each of these crossed the whole
-    // tile without touching anything -- the beach was gone and the land's own edge
-    // hung above the water sheet with nothing between them, which is what showed
-    // as the inside of the hill through a gap. The last rays are the control: above
-    // the land there is nothing to hit, so a probe that "hits" everywhere is a
-    // probe that measures nothing.
-    for (float y = kFloor + 2.0f; y <= kSea + 4.0f; y += 2.0f) {
-        CHECK_MESSAGE(ray_hits(mesh, y), "a ray at height " << y << " crossed the shoreline");
-    }
-    CHECK_FALSE(ray_hits(mesh, kBeach + 4.0f));
-    CHECK_FALSE(ray_hits(mesh, kBeach + 40.0f));
 }

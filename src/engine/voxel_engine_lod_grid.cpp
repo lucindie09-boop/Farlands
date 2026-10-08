@@ -18,8 +18,9 @@ void VoxelEngineController::set_lod_grid_enabled(bool enabled) {
     // The material is fetched every time rather than cached: it is the far mode's
     // only render state and it is valid to ask for it whether or not the mode is on.
     lod_grid.set_material(environment_controller.get_material_manager().get_lod_grid_material());
-    // The far mode owns the ring beyond the loaded world and nothing inside it.
-    lod_grid.set_inner_radius_blocks(render_distance * CHUNK_WIDTH);
+    // The far mode owns the ring beyond the loaded world and nothing inside it -- the
+    // world's DRAWN edge, retained rings included (see world_drawn_radius_blocks).
+    lod_grid.set_inner_radius_blocks(world_drawn_radius_blocks(render_distance));
     lod_grid.set_config(seed, world_updater.get_terrain_params(), lod_grid_biomes);
     lod_grid.set_epoch(chunk_world.get_epoch());
     lod_grid.set_enabled(enabled);
@@ -94,6 +95,19 @@ godot::Dictionary VoxelEngineController::get_lod_grid_stats() const {
     out["last_build_ms"] = stats.last_build_ms;
     out["last_schedule_ms"] = stats.last_schedule_ms;
     return out;
+}
+
+// The two probe readouts (lod/lod_grid_debug.cpp): what the sampler answers for a
+// column, and where the water quads that have been built are. Both are the far
+// mode's own data rather than anything the frame shows, which is the point of them
+// -- a light blue over far land is either the water sheet in the wrong place or the
+// land's quads wearing the water's layer, and no picture separates the two.
+godot::Dictionary VoxelEngineController::debug_lod_grid_column(int32_t x, int32_t z) const {
+    return lod_grid.debug_column(x, z);
+}
+
+godot::Dictionary VoxelEngineController::debug_lod_grid_water() const {
+    return lod_grid.debug_water_heights();
 }
 
 } // namespace VoxelEngine

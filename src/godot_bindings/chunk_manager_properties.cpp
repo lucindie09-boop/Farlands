@@ -87,6 +87,12 @@ int32_t ChunkManager::get_lod_grid_outer_rings() const {
     return controller->get_lod_grid_outer_rings();
 }
 godot::Dictionary ChunkManager::get_lod_grid_stats() const { return controller->get_lod_grid_stats(); }
+godot::Dictionary ChunkManager::debug_lod_grid_column(int32_t x, int32_t z) const {
+    return controller->debug_lod_grid_column(x, z);
+}
+godot::Dictionary ChunkManager::debug_lod_grid_water() const {
+    return controller->debug_lod_grid_water();
+}
 
 void ChunkManager::set_sky_tint_enabled(bool enabled) {
     controller->get_environment_controller().set_sky_tint_enabled(enabled);

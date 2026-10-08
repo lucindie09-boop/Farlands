@@ -8,6 +8,7 @@
 
 #include <godot_cpp/classes/array_mesh.hpp>
 #include <godot_cpp/classes/shader_material.hpp>
+#include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/rid.hpp>
 #include <godot_cpp/variant/vector3.hpp>
 
@@ -129,6 +130,12 @@ public:
     void reset();
     [[nodiscard]] int32_t get_outer_radius_blocks() const;
     [[nodiscard]] Stats gather_stats();
+    // The two probe readouts (lod/lod_grid_debug.cpp), for the questions a frame
+    // cannot answer: what the sampler gives one column, and where the water quads
+    // that have been built actually are. probes/probe_lod_grid_water.gd is the
+    // caller; neither is on a path the mode itself runs.
+    [[nodiscard]] godot::Dictionary debug_column(int32_t x, int32_t z) const;
+    [[nodiscard]] godot::Dictionary debug_water_heights() const;
     // The scenario every tile instance is registered in (the owner's world).
     [[nodiscard]] godot::RID scenario() const;
     // Per-frame ceilings, injected from FrameBudgets by the engine controller.
@@ -177,6 +184,8 @@ private:
         godot::RID mesh_rid;
         godot::Ref<godot::ArrayMesh> mesh;
         bool dirty = true;
+        // Frames left before this level may be merged again (see kMergeIntervalFrames).
+        int32_t cooldown = 0;
         int32_t tiles = 0;
         int32_t quads = 0;
         int32_t vertices = 0;
@@ -294,20 +303,38 @@ private:
     // Uploading a tile is a move of its geometry now -- the mesh merge happens once
     // per level per frame -- so the ceilings can sit where the build cost is, which
     // is what keeps a ring from arriving as a slow trickle while the player walks.
-    // Six of them are 6 columns of the pool held for a whole ring of the horizon; the
-    // build is the side of this that binds, because the innermost tiles are tens of
-    // milliseconds each and the far ones a couple. Twelve keeps the outer rings coming
-    // without turning the mode into a burst nobody else can get a thread out of.
-    int32_t max_builds_in_flight = 12;
+    // This is the FILL RATE, and it is a per-frame count rather than a concurrency
+    // ceiling, which is what it was mistaken for: schedule_builds tops the in-flight
+    // count up to it once a frame, so the reach arrived at 12 x the frame rate and not
+    // at the pool's throughput at all. Measured at the setting's far end by
+    // probes/probe_lod_grid_fill.gd: 45,369 tiles in 7,365 frames over 97.2 s, which is
+    // 6 tiles a frame and 467 a second -- the pool's fifteen workers idle for most of
+    // it, and "the reach takes forty seconds to arrive" is that arithmetic with nothing
+    // else in it (the same probe reads 20.5 s at 24 tiles a frame with the numbers
+    // below). The pool runs the mode's tasks beside the
+    // world's, so what this wants to be is more than the workers can run: a queue deep
+    // enough that no worker waits on the next frame's dispatch, and still a bounded
+    // one, so a burst cannot hold the pool away from generation and meshing.
+    int32_t max_builds_in_flight = 64;
     // A drained tile is a move of its geometry plus a dirty mark now (the merge
     // happens once per level per frame), so what this budget really controls is how
     // long a freshly moved reach takes to APPEAR. It was 4, which is 4 tiles a frame:
     // the ladder's 289 tiles came up in a second or two, while the 45,369 tiles of the
-    // setting's far end would have taken three minutes. 64 is twice the near world's
-    // own active mesh-upload budget and it is no longer the bound either way -- at
-    // that reach the build is (measured: 600 tiles a second, a level-3 tile being four
-    // columns of ~1.7 ms) -- so the reach arrives ring by ring, nearest first.
-    int32_t max_uploads_per_frame = 64;
+    // setting's far end would have taken three minutes. 64 was picked when the build
+    // side was the bound at 600 tiles a second; with the dispatch rate above it is the
+    // drain that binds next, and it follows the same rule -- far more than one frame's
+    // worth, because the merge is charged once per level per frame whether one tile
+    // arrived or two hundred, so draining more often is nearly free.
+    int32_t max_uploads_per_frame = 256;
+    // How many frames a level waits between merges once it has been merged. A merge is
+    // the whole level rebuilt and re-uploaded -- every vertex of it, into a fresh
+    // ArrayMesh -- and during a fill every level is dirty every frame, so the frame was
+    // paying four full re-uploads of up to 321k vertices. Measured, that is most of what
+    // a filling frame costs: the fill ran at 49 fps with the tiles arriving at 31 a
+    // frame, and both numbers are the merge rather than the mode. Three frames between
+    // merges is 20 Hz at 60 fps, which on a horizon two kilometres out is not a rate
+    // anybody can see, and it hands two frames in three back to the rest of the engine.
+    static constexpr int32_t kMergeIntervalFrames = 3;
     // Long enough that no healthy build is re-asked for (the innermost tile is
     // tens of milliseconds even on a busy pool) and short enough that a lost task
     // is a retry rather than a hole.

@@ -209,7 +209,9 @@ void VoxelEngineController::update(double delta, bool is_editor, const godot::Ve
         // of the levels whose tiles arrived, and on a frame that merged a level it is
         // the largest thing in this function (see LodGrid::Stats::merge_ms_per_frame).
         ScopedTimer far_grid_timer(perf_timer, TimerID::FarGridUpdate);
-        const int32_t inner_blocks = render_distance * CHUNK_WIDTH;
+        // The world's own drawn edge, for the same reason as set_render_distance: the
+        // far field owns the ring beyond it and nothing inside it.
+        const int32_t inner_blocks = world_drawn_radius_blocks(render_distance);
         lod_grid.set_player_position(player_position);
         lod_grid.set_inner_radius_blocks(inner_blocks);
         lod_grid.update(delta);
@@ -302,8 +304,14 @@ void VoxelEngineController::set_render_distance(int32_t rd) {
     render_distance = rd; 
     world_updater.set_render_distance(render_distance); 
     // Where the far mode starts: the edge of the loaded world, so the two never
-    // overlap and the grid never has to hide or replace a chunk.
-    lod_grid.set_inner_radius_blocks(rd * CHUNK_WIDTH);
+    // overlap and the grid never has to hide or replace a chunk. The edge is the radius
+    // the world DRAWS to and not the radius it streams at: the unload pass keeps
+    // kChunkRetentionChunks of hysteresis, and a retained chunk keeps its mesh, so the
+    // drawn edge is that much further out than the streaming one (see
+    // world_drawn_radius_blocks). Cutting the disc from the streaming radius instead left
+    // the far field drawn over the retained rings -- two surfaces over one piece of
+    // ground, which is a seam of fighting cells and covered chunks.
+    lod_grid.set_inner_radius_blocks(world_drawn_radius_blocks(rd));
     environment_controller.set_render_distance_blocks(static_cast<float>(rd * CHUNK_WIDTH));
     
     // Reserve ChunkMap based on render distance to avoid rehashing during load

@@ -3,8 +3,8 @@
 // definition (a lake in a crater is not a dark lake).
 //
 // Split out of test_lod_surface.cpp, which keeps the geometry: the winding, the
-// sampling count, the world coordinates, the deep-floor skip and the shoreline
-// rays.
+// sampling count, the world coordinates and the ocean cell (test_lod_surface_shore.cpp
+// has the shoreline).
 #include "doctest.h"
 #include "lod/lod_surface.hpp"
 #include "lod_surface_test_support.hpp"
@@ -19,6 +19,8 @@ using VoxelEngine::lod::kAoStrength;
 using VoxelEngine::lod::kShadeEastWest;
 using VoxelEngine::lod::kShadeNorthSouth;
 using VoxelEngine::lod::kShadeTop;
+using VoxelEngine::lod::NodeSurface;
+using VoxelEngine::lod::NodeSurfaceFn;
 using VoxelEngine::lod::TileMesh;
 
 using lod_surface_test::as_sampler;
@@ -121,10 +123,12 @@ TEST_CASE("each corner wears its own occlusion, under the cell's face constant")
     sampler.height = [](int32_t, int32_t) { return 64.0f; };  // level: face_shade = top
     // A checkerboard of nodes at the 32-block lattice: two opposite corners of each
     // cell dark, the other two open.
-    VoxelEngine::lod::NodeShade shade = [](int32_t x, int32_t z) {
-        return ((x / 32) + (z / 32)) % 2 == 0 ? 0.5f : 1.0f;
+    NodeSurfaceFn shade = [](int32_t x, int32_t z) {
+        NodeSurface out;
+        out.ao = ((x / 32) + (z / 32)) % 2 == 0 ? 0.5f : 1.0f;
+        return out;
     };
-    const TileMesh mesh = build_tile_mesh(0, 0, 64, 32, as_sampler(sampler), 9, 8.0f, {}, shade);
+    const TileMesh mesh = build_tile_mesh(0, 0, 64, 32, as_sampler(sampler), 9, {}, shade);
     CHECK(mesh.terrain_quads == 4);
     // The first cell's corners in the world's own order: (0,0) dark, (32,0) open,
     // (32,32) dark, then the same pair again for the second triangle.
@@ -144,21 +148,34 @@ TEST_CASE("each corner wears its own occlusion, under the cell's face constant")
 
 TEST_CASE("the liquid plane has no hollow to be dark in") {
     // Water is level, so it takes the top constant whatever the terrain around it
-    // does -- a lake in a crater is not a dark lake.
+    // does -- a lake in a crater is not a dark lake. Neither its own cell's occlusion
+    // nor the slope of the land beside it reaches it: an ocean cell emits its sheet and
+    // nothing else, and a sheet takes the top constant.
     CountingSampler sampler;
-    // Shallow enough that the floor is kept (see the deep skip), so both surfaces are
-    // in the mesh and the two can be told apart.
-    sampler.height = [](int32_t, int32_t) { return 60.0f; };
+    sampler.height = [](int32_t x, int32_t) { return x < 32 ? 66.0f : 60.0f; };
     sampler.water = [](int32_t, int32_t) { return 64.0f; };
-    VoxelEngine::lod::NodeShade shade = [](int32_t, int32_t) { return 0.5f; };
-    const TileMesh mesh = build_tile_mesh(0, 0, 64, 32, as_sampler(sampler), 9, 8.0f, {}, shade);
-    CHECK(mesh.water_quads == 4);
-    CHECK(mesh.terrain_quads == 4);
+    NodeSurfaceFn shade = [](int32_t, int32_t) {
+        NodeSurface out;
+        out.ao = 0.5f;
+        return out;
+    };
+    const TileMesh mesh = build_tile_mesh(0, 0, 64, 32, as_sampler(sampler), 9, {}, shade);
+    // The column at x < 32 has a corner above its own water, so it is LAND -- the whole
+    // cell, a ramp from 66 down to 60 with no sheet on it. The column beside it is wet
+    // on both corners, so it is water and nothing else.
+    CHECK(mesh.terrain_quads == 2);
+    CHECK(mesh.water_quads == 2);
+    int32_t land_verts = 0;
     for (const auto& v : mesh.vertices) {
-        if (v.water > 0.5f) CHECK(v.shade == doctest::Approx(kShadeTop));
-        // ...while the floor under it is level (its face constant is the top one) and
-        // still sampled with the callback, so a submerged crater floor is not lit like
-        // a submerged plain.
-        else CHECK(v.shade == doctest::Approx(kShadeTop * 0.5f));
+        if (v.water > 0.5f) {
+            CHECK(v.shade == doctest::Approx(kShadeTop));
+        } else {
+            ++land_verts;
+            // ...while the land wears its own occlusion: the callback's half lands on
+            // it and the sheet's constant does not.
+            CHECK(v.shade < kShadeTop);
+            CHECK(v.shade > 0.0f);
+        }
     }
+    CHECK(land_verts > 0);
 }

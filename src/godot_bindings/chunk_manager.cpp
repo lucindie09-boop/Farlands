@@ -351,6 +351,9 @@ BIND_PROP(Variant::BOOL, smooth_lighting, "enabled");
     ADD_PROPERTY(PropertyInfo(Variant::INT, "lod_grid_outer_rings", PROPERTY_HINT_RANGE, "0,100,1"),
                  "set_lod_grid_outer_rings", "get_lod_grid_outer_rings");
     ClassDB::bind_method(D_METHOD("get_lod_grid_stats"), &ChunkManager::get_lod_grid_stats);
+    ClassDB::bind_method(D_METHOD("debug_lod_grid_column", "x", "z"),
+                         &ChunkManager::debug_lod_grid_column);
+    ClassDB::bind_method(D_METHOD("debug_lod_grid_water"), &ChunkManager::debug_lod_grid_water);
     ClassDB::bind_method(D_METHOD("set_far_lod_detail_level", "level"), &ChunkManager::set_far_lod_detail_level);
     ClassDB::bind_method(D_METHOD("get_far_lod_detail_level"), &ChunkManager::get_far_lod_detail_level);
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "far_lod_detail_level", PROPERTY_HINT_RANGE, "0.125,1.0,0.005"), "set_far_lod_detail_level", "get_far_lod_detail_level");

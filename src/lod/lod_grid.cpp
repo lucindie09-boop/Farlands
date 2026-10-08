@@ -317,15 +317,22 @@ void LodGrid::push_clip_uniforms() {
     // across it, whereas dropping whole tiles (the first version) left the four
     // corners of the inner square as holes -- outside the disc, so the world did
     // not draw them either.
+    //
+    // `inner_radius_blocks` is the radius the world DRAWS to, not the radius it
+    // streams at (see world_drawn_radius_blocks): the unload pass keeps its hysteresis
+    // as loaded chunks and a loaded chunk keeps its mesh. The disc used to be cut from
+    // the streaming radius instead, which is two chunks inside the world's own drawn
+    // edge -- so the far field drew its cells over the world's retained rings, and two
+    // surfaces over one piece of ground is fighting cells and covered chunks.
     if (player_position == last_clip_center && inner_radius_blocks == last_clip_radius) return;
     last_clip_center = player_position;
     last_clip_radius = inner_radius_blocks;
-    // Half a chunk INSIDE the world's own radius, so the two sides overlap rather
-    // than meet. The world's coverage is a disc of whole chunk squares, so it can
-    // end a few blocks inside the radius it streams with; a clip exactly on that
-    // radius then leaves a sliver that neither side draws, which is what the last
-    // few missing spots along the world's edge were. Overlapping draws the grid
-    // over the world's outermost ring instead, which nothing can see.
+    // Half a chunk INSIDE the world's own drawn radius, so the two sides overlap rather
+    // than meet: the world's coverage is a disc of whole chunk squares and can end a few
+    // blocks inside the radius it draws to, and a clip exactly on that radius leaves a
+    // sliver neither side draws (which is what the last few missing spots along the
+    // world's edge were). Sixteen blocks is the whole of the overlap on purpose -- the
+    // grid's cells are drawn over the world's outermost point and nowhere else.
     const float clip = static_cast<float>(std::max(inner_radius_blocks - 16, 0));
     material->set_shader_parameter("clip_center",
                                    Vector2(player_position.x, player_position.z));
@@ -409,17 +416,39 @@ void LodGrid::update(double delta) {
         refresh_wanted_tiles();
     }
     drain_completed(max_uploads_per_frame);
-    // Only the levels whose tiles arrived or left are merged again, and the merge
-    // is what the frame pays instead of a draw call per tile for the rest of it.
-    // Timed because it is the one thing this mode does on the main thread, and a
-    // fill's frames are the only frames in which it costs anything (see Stats).
+    // Only the levels whose tiles arrived or left are merged again, and the merge is
+    // what the frame pays instead of a draw call per tile for the rest of it. Timed
+    // because it is the one thing this mode does on the main thread, and a fill's
+    // frames are the only frames in which it costs anything (see Stats).
+    //
+    // ...and a level that is still changing waits its turn (kMergeIntervalFrames): a
+    // dirty level is one that has had tiles arrive SINCE the last merge, and during a
+    // fill that is every level on every frame. The dirty flag alone therefore re-uploads
+    // the whole far field four times a frame, which is what a filling frame spends its
+    // time on. The cooldown is only counted down while the level is dirty, so a settled
+    // reach answers a lone arriving tile on the first frame after it and not on the
+    // fourth.
     const std::chrono::steady_clock::time_point merge_start = std::chrono::steady_clock::now();
+    int32_t merged_levels = 0;
     for (int32_t level = 0; level < static_cast<int32_t>(buckets.size()); ++level) {
-        if (buckets[static_cast<size_t>(level)].dirty) rebuild_bucket(level);
+        Bucket& bucket = buckets[static_cast<size_t>(level)];
+        // Counted down every frame, dirty or not, so a settled level's cooldown reaches
+        // zero and stays there: the next tile to arrive is merged on the following
+        // frame, and only a level that is still changing is held to the interval.
+        if (bucket.cooldown > 0) --bucket.cooldown;
+        if (!bucket.dirty || bucket.cooldown > 0) continue;
+        rebuild_bucket(level);
+        bucket.cooldown = kMergeIntervalFrames;
+        ++merged_levels;
     }
-    sink->merge_ms_window.store(sink->merge_ms_window.load(std::memory_order_relaxed) +
-                                ms_since(merge_start), std::memory_order_relaxed);
-    sink->merge_frames.fetch_add(1, std::memory_order_relaxed);
+    if (merged_levels > 0) {
+        sink->merge_ms_window.store(sink->merge_ms_window.load(std::memory_order_relaxed) +
+                                    ms_since(merge_start), std::memory_order_relaxed);
+        // Counted on the frames that merged and not on every frame: the number the
+        // stats call "per frame" is what a merging frame costs, which is the one worth
+        // reporting (see Stats::merge_ms_per_frame).
+        sink->merge_frames.fetch_add(1, std::memory_order_relaxed);
+    }
     schedule_builds(delta);
     push_clip_uniforms();
     // ...and the camera has to be able to SEE that far. Cheap and idempotent: it

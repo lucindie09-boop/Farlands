@@ -1,5 +1,6 @@
 #ifndef FARLANDS_WORLD_UPDATER_HPP
 #define FARLANDS_WORLD_UPDATER_HPP
+#include "core/chunk_coords.hpp"
 #include "core/chunk_types.hpp"
 #include "core/terrain_params.hpp"
 #include "core/frame_budgets.hpp"
@@ -36,6 +37,23 @@ class ThreadPool;
 class PerformanceTimer;
 class MaterialManager;
 
+// The hysteresis the unload pass keeps: a chunk survives until it is this many chunks
+// past the render distance (see WorldUpdater::update_unload). It is also what says how far
+// the world DRAWS, because a retained chunk keeps its mesh and its mesh is what is on
+// screen -- so the far mode's inner disc is cut from that drawn radius rather than from
+// the streaming one (see VoxelEngineController::set_render_distance). A disc inside the
+// world's own edge is a disc of far-field cells laid over real terrain, at a height the
+// two agree on only where the coarse sampling happens to cross the real surface, and what
+// that looks like is chunks hidden under a cell and cells cutting through chunks at once.
+inline constexpr int32_t kChunkRetentionChunks = 2;
+
+// The radius the loaded world draws to, in blocks, from a render distance in CHUNKS: the
+// render distance, the retained rings, and one more chunk for the width of the last ring
+// -- a chunk centred on the far edge spans a whole chunk past it.
+inline int32_t world_drawn_radius_blocks(int32_t render_distance_chunks) {
+    return (render_distance_chunks + kChunkRetentionChunks + 1) * CHUNK_WIDTH;
+}
+
 // -------------------------------------------------------------------------
 // WorldUpdater — owns the per-frame chunk scheduling logic.
 // -------------------------------------------------------------------------
@@ -69,6 +87,7 @@ public:
     void set_biome_config(const BiomeConfig& c);
     void set_vegetation_config(const VegetationConfig& c);
     void set_render_distance(int32_t rd) { render_distance = rd; }
+    int32_t get_render_distance() const { return render_distance; }
     void set_editor_render_distance(int32_t rd) { editor_render_distance = rd; }
     void set_player_position(const godot::Vector3& pos) { player_position = pos; }
     void set_lod_distance(int32_t d) { lod_distance = d; }

@@ -406,6 +406,21 @@ in a frame:
   it can end a few blocks inside the radius it streams with, and a clip exactly on
   that radius left slivers that neither side drew. The clip is now half a chunk
   INSIDE the world's own radius, which turns a possible gap into a guaranteed overlap.
+- **...and the radius it is half a chunk inside is the radius the world DRAWS to, not
+  the radius it streams at.** The unload pass keeps `kChunkRetentionChunks` (2) of
+  hysteresis as loaded chunks, a loaded chunk keeps its mesh, and a chunk of the last
+  ring spans a whole chunk past its centre -- so the world's edge is `render_distance +
+  2 + 1` chunks, not `render_distance`. The clip was cut from the streaming radius:
+  at a render distance of 4 that is a disc of 112 blocks drawn over a world reaching
+  224, and `probe_lod_grid_clip.gd` measures what that costs — the far field painted
+  **45-47% of the frame** from the player's eye, which fell to 15-25% once the disc was
+  cut from the drawn edge (`world_drawn_radius_blocks`). What it does NOT fix is the
+  pixel fight: `probe_lod_grid_seam.gd` renders both radii on one camera and the spike
+  rate is the same at each (0.1624 against 0.1621 at its worst heading), including on
+  headings where the two frames are byte for byte identical because the far field has
+  no pixels inside the old disc at all. The drawn-edge number stands on the coverage it
+  removes, and the fight that remains is the far field's own rendering at a grazing
+  angle rather than chunks racing it.
 - **Fog that disagreed at the border.** The world's fog was tuned to the loaded
   radius, so with the mode on the loaded chunks faded out at their border while the
   field continuing them did not — a bright ring. `set_lod_grid_fog_active` puts the
@@ -418,13 +433,47 @@ in a frame:
   at the cell's edge while the land behind it rose above that sheet. Two surfaces
   stopping at the same line at different heights have nothing bridging the step,
   so a band of rays just above the waterline crossed the whole tile and the frame
-  showed the inside of the hill through the gap the user reported. The skip now
-  needs the WHOLE cell under the water, which leaves the beach where it was and
-  makes every remaining skip strictly below a sheet nothing can be seen through.
-  `tests/test_lod_surface.cpp` pins it in the frame's own terms: rays at the
-  heights between the shelf and the land must be STOPPED by the surface rising out
-  of the water (15 of them crossed the tile before the fix), with rays above the
-  land as the control that a ray which hits nothing is still measurable.
+  showed the inside of the hill through the gap the user reported. `tests/
+  test_lod_surface_shore.cpp` pins it in the frame's own terms: rays at the heights
+  between the shelf and the land must be STOPPED by the surface rising out of the
+  water (15 of them crossed the tile before the fix), with rays above the land as
+  the control that a ray which hits nothing is still measurable.
+- **...and the light blue over the far field's own land: every corner wet, or no water at
+  all.** The fix above answered the gap by drawing the whole cell as terrain AND the whole
+  cell as a flat sheet, which is two surfaces over the same ground. That is the shape the
+  mode carried into the next report — "a light blue texture fighting with a grass texture
+  or sand texture on land, but it doesn't fight with water textures" — and the description
+  is exact: the light blue is the sheet's own `water_color`, the ground it covers is the
+  mode's own grass and sand, and over open water the sheet has nothing to disagree with.
+  `probe_lod_grid_overlap.gd` measured it two ways. Rendering the two surfaces one at a
+  time and intersecting the masks gave **0.26-0.33 of the far field's drawn pixels covered
+  by both**, and the pixels that are light blue with land within a pixel are **99.9-100%
+  the sheet's own fragments**, not land tinted blue. Lifting the sheet's fragments **two
+  centimetres** moved 3-14 pixels of ~250,000, so this was never a depth fight: the two
+  surfaces were simply both there, the land drawn and the sheet laid over it.
+
+  The cause is the sampler's resolution. A cell's four corners are samples a cell apart
+  joined by straight lines, so a cell that straddles a coast has an underwater corner and
+  a dry one and its surface crosses the water level somewhere inside it — but WHERE it
+  crosses is a guess, and on gentle ground the guess is wrong by most of a cell. A sheet
+  drawn from that guess is water over ground the samples call land, and cutting the cell at
+  the crossing only narrows the guess: the waterline is still wherever a straight line
+  between two samples hundreds of blocks apart crosses sea level.
+
+  A cell now draws its sheet only when **all four** of its samples are under their own
+  water. A cell with a land sample anywhere on it is drawn as land, whole, and draws no
+  water at all, so a far cell is either water or land and the two can never be two surfaces
+  over one pixel. `tests/test_lod_surface_shore.cpp` pins that on the geometry rather than
+  on the counts — the sum of the tile's triangle areas equals the area of the cells it
+  drew, once — because a count can stay constant while a cell covers its ground twice.
+
+  What it costs is the coast's last cell: the sea ends at the last wholly wet cell, up to
+  one cell short of where it should, and the strip beyond reads as beach. That is the
+  trade, and it is bounded by one cell rather than by the guess. It also makes an ocean
+  cell one quad with no corner work at all — four heights under one water level cannot
+  cross it in between, since the world has one sea level
+  (`src/worldgen/chunk_generator_columns.cpp`) and every wet sample carries it — so the
+  floor under a sheet is still never drawn.
 - **A patchwork instead of a slope — a face table over a normal that moves.** A
   cell's shade came from the near world's table (top 1.0, north/south 0.8, east/west
   0.6) read off the gradient of ONE corner, with a strict tie-break between x and z.
@@ -460,6 +509,65 @@ in a frame:
   unconditional depth write, `cull_disabled`, and no ALPHA assignment), and
   `probes/probe_lod_depth.gd` renders two overlapping quads in ONE mesh and reports
   which of them wins the pixels.
+- **The fill was dispatching once a frame, and "12 in flight" was read as a ceiling.**
+  `schedule_builds` tops the in-flight count up to `max_builds_in_flight` ONCE PER
+  FRAME, so the ceiling was also a rate: 12 tiles a frame, 12 x the frame rate, however
+  fast the workers were. At the setting's far end that is 45,369 tiles and the reaching
+  took forty seconds — the pool's fifteen workers idle for most of it, and a faster
+  machine unable to change any of it. The ceiling is 64 now (a queue deeper than the
+  workers by enough that none waits for the next frame's dispatch) and the upload
+  budget follows it at 256, because the merge is charged once per level per frame
+  whether one tile arrived or two hundred. Measured headless, one probe, the same
+  100-ring reach: **6 tiles a frame / 467 tiles/s / 97.2 s**, then **31 a frame /
+  30.1 s**.
+- **...and a level that is still filling was re-merging its whole mesh every frame.**
+  The dirty flag means "tiles arrived since the last merge", which during a fill is
+  every level on every frame, so four levels were rebuilt and re-uploaded — up to 321k
+  vertices each — per frame. Those frames ran at 49 fps with the tiles arriving at 31 a
+  frame: the merge was most of what a filling frame cost, which is the "drops to 100 fps
+  while it loads" that prompted this. A level now waits `kMergeIntervalFrames` (3)
+  between merges, counted down every frame so a settled reach still answers a lone
+  arriving tile on the next frame rather than the fourth. 20 Hz at 60 fps is not a rate
+  anybody can see on a horizon two kilometres out, and the same reach now fills in
+  **20.5 s at 92 fps** (2,214 tiles/s, 24 tiles a frame) — 4.7x the 97.2 s the same
+  probe measured before the two changes, and its own assertions fail on that baseline.
+  What is left is the sampler and not this arithmetic: ~73,600 columns at ~4 ms each
+  across fifteen workers is ~20 s of the 20.5, and each column is walked twice by the
+  two public entry points the build calls, so the next lever is one column query that
+  answers both.
+- **The detail term does not fade itself out, and believing it did is what put a speckle
+  on every face.**  The term is a ratio of a sample of the face at the detail scale against the face's own
+  average, so the mean cannot drift — and the first version of it claimed the
+  ratio also went to 1 past the distance where one repeat is a pixel, which is not what the
+  arithmetic does: a FINE sample only reaches the average's mip once a face texel is a pixel,
+  which at 8 blocks a repeat is ~8 km out, and over the ~2 km before that the ratio is a
+  2x2-texel pattern drawn at one or two pixels a repeat. A repeat that narrow is not texture:
+  the sampler answers with whichever mip level its own 2x2 pixel quad landed on, the divisor
+  stays put, and the difference is a speckle that crawls when the camera moves — which came
+  back from the field as "z fighting on every single face". Measured in
+  `probes/probe_lod_grid_zfight.gd`, on one camera and one frame at a time: the term's own
+  spike rate is 6-8x the same frame with the term off, the biome blend's contribution at its
+  real weight is **0.0000** (the blend was the report's own guess and the frame says it is not
+  the one, though its plumbing is fine — driven to full strength it moves everything), and
+  anisotropic and trilinear sampling both make the spike rate **worse** (0.0114 against 0.0058),
+  so the filter was not the lever either. The fix is the world's own: fade the term by its
+  footprint (`fwidth` of the world-coordinate UV, in repeats rather than texels — the same rule
+  and the same reason as `shaders/block_noise.gdshaderinc`), which leaves the term exactly as
+  authored out to ~1.8 km and takes it away where the screen was doing the drawing. Both
+  `tests/test_lod_shader_depth.cpp` and the shader's own comment carry the corrected claim.
+- **A biome boundary is a ramp across a cell, not a line along its edge.** Worldgen
+  mixes the near world's biomes before it picks a surface material; a far cell is one
+  flat quad wearing one texture array layer, so the same boundary arrived as a straight
+  line as long as the cell is wide. The weight is a share of a five-node neighbourhood
+  (the same ring the occlusion reads), so it decays over a node's reach instead of
+  flipping, and it is computed per NODE rather than per cell, so two cells sharing a
+  corner carry the same value there and the blend has no seam along the edge between
+  them. A cell names the pair it blends between — the layer most of its corners wear and
+  the one their neighbourhoods do — and both cells at a boundary name the same pair
+  from their own side, which is what makes the two agree. The weight rides in the vertex
+  colour's alpha and the second layer above the water flag in `UV2.y`, so no vertex
+  attribute had to be added; `tests/test_lod_surface_blend.cpp` pins the arithmetic and
+  `tests/test_lod_shader_depth.cpp` the two halves of the packing against each other.
 
 ## What this is not
 

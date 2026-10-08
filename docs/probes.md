@@ -5,7 +5,7 @@ the resolver, the fluid rules, the planner and the save formats. A probe is for
 what is left: the real loaded registry, the real texture array, the real world,
 and what actually reaches the screen.
 
-They live in `probes/` (54 `.gd` scripts). **The scripts are repository
+They live in `probes/` (58 `.gd` scripts). **The scripts are repository
 content; what they produce is not.** `.gitignore` ignores `probes/*` except
 `*.gd`, `*.sh`, `*.tscn` and `*.gdshader*`, so screenshots, crash reports and
 generated sheets (hundreds of megabytes) stay scratch while the probes
@@ -72,6 +72,12 @@ comment, with the claim each one backs:
 | `probe_lod_grid.gd` | The seed-grid far mode (`docs/lod-modes.md`): the setting's default and round-trip (spacing, rings and the reach), the seam with the loaded world, and the whole pipeline end to end (see below). Headless, so it runs beside a live game |
 | `probe_lod_grid_shot.gd` | That the far field fills the rendered GROUND, near and far, in every direction, off versus on, with an off-versus-off sweep as the control (see below) |
 | `probe_lod_depth.gd` | That the far mode's material writes DEPTH, which is what keeps its merged mesh from drawing far terrain over near terrain: two overlapping quads in ONE mesh (near first, far second), with the colours from a texture array the probe builds itself, so "who won the pixels" is a red-versus-blue comparison with no threshold to tune (see below) |
+| `probe_lod_grid_look.gd` | That the far field LOOKS like the world it continues: the texture detail the shader puts back, measured on the frame the player gets as LOCAL contrast with the mean colour held still, plus whether the engine's own monitor counts the far mesh at all (see below) |
+| `probe_lod_grid_fill.gd` | How long the far field takes to arrive at the top of the reach slider, in tiles a frame and seconds — the number `docs/lod-modes.md` records, and the one a per-frame dispatch rate hides (see below) |
+| `probe_lod_grid_zfight.gd` | Which of the far field's terms puts a high-frequency speckle on its faces — "z fighting on every single face" — by measuring one camera in four states of the same shader (see below) |
+| `probe_lod_grid_seam.gd` | The far field against the loaded world from the player's own EYE, at the player's own settings: the shipped clip radius against the one this build replaced, one number in one line of the shader apart (see below) |
+| `probe_lod_grid_clip.gd` | Where the far field is drawn at all, by painting its fragments flat magenta and counting them from the player's eye — the direct question "is it over the loaded world", with the clip radius read back off the material (see below) |
+| `probe_lod_grid_overlap.gd` | The far field's own two surfaces at the player's eye: each rendered alone, then painted by surface, then painted by surface with the DEPTH TEST OFF, and the sheet's own fragments lifted two centimetres (see below) |
 | `probe_shapes.gd` | The shape registry, the resolver and the JSON together: every shape's boxes against the documented 16ths model, hidden flags, and the live world's `get_selection_boxes_at` for a fence, a pane and a stair |
 | `probe_crucible.gd` | The crucible's nine-box model landed, read back from the real registry |
 | `probe_flow.gd` | Poured water really flows: a radius-7 diamond whose stored depth equals its distance from the source, it settles, a shaft under it fills |
@@ -140,6 +146,123 @@ A few of those rows keep their detail here, because a table cell that long is an
   is a reach this measurement would otherwise inherit. It ends by asserting the camera's far
   plane follows the horizon (`4000 -> 4352` at 10 rings) and is given back when the mode is
   off.
+- `probe_lod_grid_look.gd` — the camera is the PLAYER's, six blocks above their head, four
+  headings, because the detail term lives and dies on how big a cell is on screen: from three
+  kilometres straight up a 256-block cell is thirty pixels and the sampler's own mip for the
+  detail scale is already past the face's average, so the ratio is 1 by construction and the
+  first run of this probe read a spread rise of x1.01 over a frame that turned out to be 464
+  triangles of deep-ocean water quads — a measurement of nothing. The metric is local contrast
+  for the same reason: deviation-from-the-mean over a far-field mask is dominated by the
+  world's own large-scale colour and moved by a hundredth when the term was plainly visible.
+  The fog and the water tint are measured out of the way (both paint the distance with a colour
+  that carries no texture), and the mask is still "the pixels the mode drew", so nothing about
+  the world's own geometry has to be classified. What it measured on the development machine:
+  contrast x2.2 to x2.8 across the four headings with the mean held to 0.0011, and
+  `RENDER_TOTAL_PRIMITIVES_IN_FRAME` moving by exactly the triangles the mode reports — the
+  monitor does count the far mesh, which is the reading that started the question.
+- `probe_lod_grid_fill.gd` — one number, measured three ways with this one instrument: the old
+  budgets gave 6 tiles a frame, 467 tiles/s and 97.2 s for the reach's 45,369 tiles; fixing the
+  dispatch rate gave 31 a frame and 30.1 s; and giving a changing level a merge interval gave 24
+  a frame, 2,214 tiles/s and 20.5 s at 92 fps. The probe's assertions fail on the first of those
+  three, which is what they are for. It prints the columns sampled and the asks the shared table
+  answered beside them, because the arithmetic that remains is the sampler's: ~73,600 columns at
+  ~4 ms each over the pool's fifteen workers is ~20 s of the 20.5. Each column is walked TWICE
+  (both public entry points the build calls re-derive the blended biome amplification), so the
+  next lever is a column query that answers both in one pass.
+- `probe_lod_grid_zfight.gd` — the report was "z fighting on every single face… I think caused
+  by the biome blending", and it is a probe because the difference between a texture artifact
+  and a depth artifact is not something a colour can tell you. Every candidate is a state of
+  the SAME camera, reached by patching the shader's own text rather than by a debug uniform:
+  the detail term with its footprint fade / the same term with that one line removed / the term
+  at the repeat it wore before the tiling was halved / the term off / and the biome blend driven
+  to full strength, which no cell reaches. The metrics are the mean difference between a pixel
+  and the one two along (a pattern's own contrast) and the fraction of pixels that stand out
+  against BOTH neighbours while those two agree (one pixel of another colour, which is what a
+  depth fight leaves and what a pattern wider than a pixel cannot). It answered its question:
+  the blend's own contribution is **0.0000** on every metric at its real weight, while driving
+  it to full strength moves the frame by an order of magnitude — so the plumbing works and the
+  weight is not where the speckle is — and the detail term is the only state that moves the
+  spike rate at all, by 6-8x over the same frame with `detail_strength` 0. Anisotropic and
+  trilinear sampling were measured first, as the other candidate; both make it worse (0.0114
+  against 0.0058 on one frame), which is what a filter resolving a pattern finer than the screen
+  can carry does. Two things the instrument had to learn about its own view: the camera is 140
+  blocks above the player because a ground view from an arbitrary spot in a live world reads a
+  tenth of the frame as far field (y 96 gave 0.41, y 192 gave 0.10, same probe), and the crawl
+  metric is read above the horizon only, because the camera's own 0.05-block step slides the
+  ground at arm's length by twenty-odd pixels. What it settled, and where it was blind: the
+  speckle is the detail term's own grain sampled near one texel a pixel, and the answer is to
+  hold that sampling rate instead of fading the term out — a texel at 4, 8 and 16 screen pixels
+  takes the spike rate from x31 over a no-term control to x5, x2.7 and x1.4, with the term's local
+  contrast within a quarter of where it started. It cannot see the SEAM, because its camera is in
+  the air where the loaded world is below the bottom of the frame.
+- `probe_lod_grid_clip.gd` — "is the far field being drawn over the loaded world", asked directly
+  rather than inferred: its fragments are painted flat magenta and counted, which no other surface
+  in the world can be mistaken for. At the player's eye, the shipped clip (a disc cut from the
+  world's STREAMING radius, `render_distance * 32 - 16` = 112 blocks at a render distance of 4)
+  painted **45-47% of the frame**, and a clip four times wider painted 13-24% of it — so a quarter
+  of the screen was far-field cells laid over ground the world was also drawing, which is what a
+  ring of fighting cells and covered chunks is. The radius prints off the material itself, which
+  is the other half of the point: the uniform was live and correct all along, and the number it
+  carried was the wrong number. Cutting it from the world's drawn edge (208 blocks) drops that
+  share to 15-25%, i.e. to the ring beyond the world, which is the mode's own job.
+- `probe_lod_grid_seam.gd` — the same question at the player's own eye and settings, as the A/B
+  of the two radii in ONE camera and ONE fill. It earned its place by disproving the fix's own
+  premise: the pixel fight is the SAME at both radii (worst heading 0.1624 at the drawn edge
+  against 0.1621 at the old one), and on two of the four headings the two frames are byte for
+  byte identical while still reading a 0.1471 spike rate — headings where the far field has no
+  pixels inside the old disc at all, so what is left is not the world racing the far field but
+  the far field's own rendering at a grazing angle. The drawn-edge radius stands on the coverage
+  it removes (0.22, 0.29, 0.28, 0.16 of the frame against 0.29, 0.29, 0.28, 0.26) and not on a
+  spike rate it never claimed.
+  It now also measures the report's own two colours, because the report named them: **blue|green**
+  is the share of the mask whose water tint (much more blue than green) has the land's green as
+  its neighbour within two pixels, and it reads **0.24-0.29** of the far field — one pixel of each
+  colour interleaved across the field rather than a coastline, which is one contour. Two more
+  states of the same camera rule the candidates out rather than in: dropping the water sheet whole
+  (`if (is_water > 0.5) discard;`) takes that share to 0.09-0.13 and the far field's coverage with
+  it — the sheet is a lot of the blue and none of the pattern — and moving the camera's NEAR plane
+  from 0.05 to 0.209 changes the frame not at all (0.2904 against 0.2905 on the same heading, to
+  four decimals), so a 24-bit depth buffer is not what is failing. Reading the frame out
+  (`look_seam.py`, an offline classifier) puts the interleave in the far field's own half of the
+  screen and leaves the loaded world's half uniform: what is blue there is the far mode's own fog
+  (`vec3(0.70, 0.80, 0.95)`), which is the colour a grain sampled near one texel a pixel turns
+  into at the range where green land and blue fog are the same value.
+- `probe_lod_grid_overlap.gd` — the far field's two surfaces against each other, which is the
+  question the report's own two colours leave ("a light blue texture fighting with a grass
+  texture or sand texture on land, but it doesn't fight with water textures"). It renders them
+  apart (the sheet kept and the land discarded, then the other way round) on ONE camera and ONE
+  fill, so the two masks are pixel-comparable; a second pair of states paints the fragments by
+  SURFACE rather than by texture (red for the sheet, green for the land, no fog and nothing
+  else); a third does the same with the DEPTH TEST OFF, so every pixel the two surfaces both
+  cross shows one of them whatever the depth buffer would have picked; and a fourth lifts the
+  sheet's own fragments two centimetres. What it found, in order:
+  - the two masks intersect over **0.26-0.33 of the far field**, and half of those pixels show
+    each colour, which is what a fight looks like — but the intersection alone cannot tell a
+    contest from a shoreline cell whose land merely stands in front of its own water, and it is
+    reported rather than claimed for exactly that reason;
+  - the flat two-colour frame is **still a one-pixel red-and-green granite** (0.13-0.16 of the
+    frame's pixels are a direct sheet-against-land boundary, median run 2 px), so the interleave
+    is not the detail term, not the biome blend and not the texture sampler;
+  - the pixels that are light blue with land within one pixel are **99.9-100% the sheet's own
+    fragments**, not land tinted blue, and the light blue is the mode's own `water_color`;
+  - and the two centimetres move **3-14 pixels out of the far field's ~250,000**, so no pixel
+    anywhere in the far field is decided by two surfaces within two centimetres of each other.
+    That is the refutation: the report's interleave is not a depth fight at all. It was the mode
+    drawing its terrain quad AND a flat sheet over the same shoreline cell — the whole cell
+    both, against a guess at where the waterline falls inside it.
+  A frame can show the two surfaces and the ordering between them; it can NOT show whether two
+  fragments are over the same GROUND, because at a horizon everything is compressed into the
+  same few rows and a near sheet in front of distant land is indistinguishable from a sheet
+  drawn over the land it is on. So the probe reports and the geometry test claims:
+  `tests/test_lod_surface_shore.cpp` sums a shoreline tile's triangle areas and compares them
+  with the cells it drew, once each, which is the property the rule is for.
+  Two instrument notes, both paid for. The world SEED is pinned (`seed` 1337): without it a run
+  is a different landscape from the next one. And the EYE IS PLACED on the ground at the origin
+  rather than read off the player — the spawn is a height that depends on which chunks had
+  loaded when it was chosen (128 and 192 blocks in two runs, over ground whose surface is at
+  249), so a camera taken from the player is a different camera every run and nothing measured
+  under it can be compared with anything. What the lift pair does NOT need is a reference frame:
+  it is one camera and one fill, so the sky, the eye and the world cancel.
 - `probe_lod_depth.gd` — three measurements, because one of them is the control: a lone near
   quad (the instrument can see red at all), the two quads with the far one first (index order
   already agrees with depth, so it passes either way), and the subject, near quad first. Before

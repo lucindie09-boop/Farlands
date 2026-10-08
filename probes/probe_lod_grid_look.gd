@@ -60,8 +60,15 @@ const MASK_TOL := 0.03
 ## The mean colour may not move by this much on any channel: it is the whole point of
 ## dividing by the face's own average instead of scaling the face.
 const MEAN_TOL := 0.02
-## ...and the spread has to rise by at least this factor in the best of the four
-## headings, on top of beating the frame-to-frame noise by NOISE_MULT.
+## ...and the LOCAL contrast has to rise by at least this factor in the best of the
+## four headings, on top of beating the frame-to-frame noise by NOISE_MULT.
+##
+## Local contrast, not deviation-from-the-mean: the deviation over a far-field mask is
+## dominated by the world's own large-scale colour -- sky against land, sea against
+## coast, the fog's own gradient -- and a per-face pattern added on top of it moves it
+## by a hundredth. Measured the other way round: the detail term read as x1.01 over all
+## four headings while the tiling it puts in is plainly visible in the shot beside it,
+## which is a metric measuring the mask and not the mode.
 const RISE := 1.25
 const NOISE_MULT := 4.0
 const SHOT_DIR := "user://lod_grid_shots"
@@ -152,6 +159,25 @@ func _spread(data: PackedByteArray, idx: PackedInt32Array, mean: Array) -> float
 	return total / float(maxi(idx.size(), 1))
 
 
+## Mean absolute difference between a pixel and the one SAMPLE_STEP pixels along it:
+## the far field's LOCAL contrast, which is what a flat sheet has none of and what a
+## texture's own repeat is made of. The pair is two pixels apart rather than one so it
+## reads the same samples the rest of this probe does.
+func _contrast(data: PackedByteArray, idx: PackedInt32Array) -> float:
+	var total := 0.0
+	var counted := 0
+	const STEP_BYTES := SAMPLE_STEP * 4
+	for i in idx:
+		var j := i + STEP_BYTES
+		if j + 2 >= data.size():
+			continue
+		total += (absf(float(data[i]) - float(data[j]))
+			+ absf(float(data[i + 1]) - float(data[j + 1]))
+			+ absf(float(data[i + 2]) - float(data[j + 2]))) / 3.0 / 255.0
+		counted += 1
+	return total / float(maxi(counted, 1))
+
+
 ## The same measure between two frames of the SAME state: the temporal jitter floor a
 ## real rise has to clear.
 func _drift(a: PackedByteArray, b: PackedByteArray, idx: PackedInt32Array) -> float:
@@ -210,6 +236,12 @@ func _measure(yaw: float, off: PackedByteArray, idx: PackedInt32Array) -> Dictio
 	var mean_detail := _mean(detail, mask)
 	var spread_flat := _spread(flat, mask, mean_flat)
 	var spread_detail := _spread(detail, mask, mean_detail)
+	# The mask's own local contrast, and only its own: the rest of the frame is the loaded
+	# world and the HUD, which the detail term cannot touch. Both readings use the same
+	# mask, so the same pixel pairs are compared either way and the handful of pairs that
+	# straddle the mask's edge cancel out of the comparison.
+	var contrast_flat := _contrast(flat, mask)
+	var contrast_detail := _contrast(detail, mask)
 	var shift := maxf(maxf(absf(mean_flat[0] - mean_detail[0]),
 		absf(mean_flat[1] - mean_detail[1])), absf(mean_flat[2] - mean_detail[2]))
 	var out := {
@@ -218,12 +250,17 @@ func _measure(yaw: float, off: PackedByteArray, idx: PackedInt32Array) -> Dictio
 		"shift": shift,
 		"spread_flat": spread_flat,
 		"spread_detail": spread_detail,
-		"rise": spread_detail / maxf(spread_flat, 1.0e-6),
+		"contrast_flat": contrast_flat,
+		"contrast_detail": contrast_detail,
+		"rise": contrast_detail / maxf(contrast_flat, 1.0e-6),
 		"mask": mask,
+		"flat": flat,
 		"detail": detail,
 	}
-	print("probe: yaw %3d  far field %.2f of frame  spread %.4f -> %.4f (x%.2f)  mean shift %.4f"
-		% [int(yaw), out["coverage"], spread_flat, spread_detail, out["rise"], shift])
+	print("probe: yaw %3d  far field %.2f of frame  contrast %.4f -> %.4f (x%.2f)"
+		% [int(yaw), out["coverage"], contrast_flat, contrast_detail, out["rise"]])
+	print("probe:        spread %.4f -> %.4f, mean shift %.4f"
+		% [spread_flat, spread_detail, shift])
 	return out
 
 
@@ -338,11 +375,15 @@ func _run() -> void:
 	await _frames(SETTLE_FRAMES)
 	var again := _capture("detail_%d_b" % int(best["yaw"]))
 	var noise := _drift(best["detail"], again, best["mask"])
-	print("probe: frame-to-frame noise over the far field, same state: %.4f" % noise)
+	# The metric's own frame-to-frame wobble, since what is compared below is a metric
+	# rather than a pixel.
+	var metric_noise := absf(_contrast(again, best["mask"]) - best["contrast_detail"])
+	print("probe: frame-to-frame noise over the far field, same state: %.4f (contrast wobble %.5f)"
+		% [noise, metric_noise])
 	_ok("the detail term puts the texture's variation back",
-		best["rise"] > RISE and best["spread_detail"] - best["spread_flat"] > noise * NOISE_MULT,
-		"x%.2f spread at yaw %d, %.4f above a %.4f noise floor" % [best["rise"],
-			int(best["yaw"]), best["spread_detail"] - best["spread_flat"], noise])
+		best["rise"] > RISE and best["contrast_detail"] - best["contrast_flat"] > metric_noise * NOISE_MULT,
+		"x%.2f local contrast at yaw %d, %.4f above a %.5f metric noise floor" % [best["rise"],
+			int(best["yaw"]), best["contrast_detail"] - best["contrast_flat"], metric_noise])
 
 	# The material's `mipmap_bias` blurs the detail sample too, while the average it is
 	# divided by is taken at an explicit mip: a bias therefore eats the very separation
@@ -351,8 +392,12 @@ func _run() -> void:
 	_material.set_shader_parameter("mipmap_bias", 0.0)
 	await _frames(SETTLE_FRAMES)
 	var unbiased := _capture("detail_bias0")
-	print("probe: mipmap_bias 1.0 spread %.4f, 0.0 spread %.4f" % [best["spread_detail"],
-		_spread(unbiased, best["mask"], _mean(unbiased, best["mask"]))])
+	# Read on the same metric as the assertion above: the bias is a whole mip of blur on
+	# BOTH samples, so it moves the base colour (and the spread with it) while leaving the
+	# contrast the ratio is made of nearly where it was -- which is the number worth seeing
+	# before changing that uniform.
+	print("probe: mipmap_bias 1.0 contrast %.4f, 0.0 contrast %.4f" % [best["contrast_detail"],
+		_contrast(unbiased, best["mask"])])
 	_material.set_shader_parameter("mipmap_bias", 1.0)
 
 	# --- does the engine's own monitor see the far mesh? -------------------

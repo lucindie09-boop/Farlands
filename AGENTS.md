@@ -86,7 +86,7 @@ The four gates this file's constraints describe are `scons sizecheck`, `scons po
   anonymous namespace (or `static`), or its external linkage can collide with the same name in a
   sibling file at link time
 - **The static-analysis job is the third structural gate, and the only one that reads C++
-  semantics rather than shapes.** clang-tidy runs over `find src -name '*.cpp'` (118 files) with
+  semantics rather than shapes.** clang-tidy runs over `find src -name '*.cpp'` (119 files) with
   `bugprone-*`, `concurrency-*` and `performance-*` on `ubuntu-latest`, and any finding in
   project sources fails the job, so a split that smuggles in a new shape surfaces here one
   finding at a time. Two shapes are worth knowing before writing the next helper, and both are
@@ -163,6 +163,16 @@ Full notes: [docs/shapes-notes.md](docs/shapes-notes.md).
   with distance, the world's own textures). Its trap is recorded: geometry in world
   coordinates plus an instance transform at the tile origin drew every tile but the
   first at double its offset, so a ring of tiles built and one mesh was visible.
+  Three later ones are recorded too, because each looked like a different bug: the
+  texture coordinate is the world coordinate, so a 32-block cell lands on a mip that
+  has averaged the face away ("just yellow, blue or green") and the face is put back
+  as a RATIO at a fixed world scale, `detail_scale` blocks a repeat (8, halved once);
+  a biome boundary was a razor line along a cell edge, so the layer pair and a
+  per-corner weight now come from the node's own five-node neighbourhood and blend in
+  the shader; and the fill dispatched 12 tiles a frame because the in-flight ceiling was
+  read as a ceiling when it is a per-frame rate -- the reach's 45,369 tiles took 97 s
+  that way, 20.5 s once it was (a deeper queue and a per-level merge interval, which
+  leaves the sampler's own 4 ms columns as what is left).
 
 Full notes, effect by effect: [docs/rendering-notes.md](docs/rendering-notes.md).
 
@@ -254,7 +264,7 @@ Full notes: [docs/schematic-notes.md](docs/schematic-notes.md).
 Full notes: [docs/fluids.md](docs/fluids.md).
 
 ### Testing & CI
-- 675 test cases / 362,274 assertions, written with `CHECK`/`CHECK_FALSE` only: this
+- 686 test cases / 363,093 assertions, written with `CHECK`/`CHECK_FALSE` only: this
   build disables exceptions, so `REQUIRE` is a compile error.
 - Move work off the frame before making it cheaper, and prove the move with a total:
   the phases must add up to the frame.

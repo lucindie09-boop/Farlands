@@ -315,6 +315,15 @@ being resampled by a different fraction at each scale.
   controller's world yaw + pitch (`get_aim_direction()`) so the `head` mesh follows the player's
   look in every view, with a camera-follow fallback for scenes without a `PlayerController`
   (skin preview)
+- `clip_retarget.gd` — Re-homes one clip onto another rig by name: maps the source rig's track
+  paths onto this body's nodes, carries a rotation track across (a joint rotation is
+  joint-relative) and rewrites a position track as the destination node's own rest position plus
+  the source's movement away from its first key, scaled — so the bob travels and the pivot does
+  not. Its `frame` argument is the turnaround between the two rigs' axes: the clips come from a
+  model looking down -Z and this body looks down +Z, so each rotation is conjugated and each bob
+  rotated by that half turn, or the body walks backwards (see [gui-notes.md](gui-notes.md)). A
+  track whose limb this body has no node for is dropped and reported, and a limb the body's own
+  code drives every frame (the head) keeps its position track and loses its rotation one
 - `player.glb` — Voxel-style player model with a tightly-packed 64×64 skin-texture atlas; node
   pivots re-baked onto the true Blockbench joints (limb tops, head neck) by
   `tools/rebake_player_pivots.py` because Blockbench's glTF export flattens cube-pivot metadata
@@ -334,6 +343,12 @@ being resampled by a different fraction at each scale.
 - `tools/rebake_player_pivots.py` — Idempotent re-baker for `player.glb`: moves each node origin
   onto its pivot while shifting that mesh's vertices by the delta so world placement is
   byte-identical (glTF has no pivot field — a node's origin is its rotation anchor)
+- `tools/extract_model_animations.gd` — Lifts a model file's own glTF clips out into standalone
+  `Animation` resources under `Animations/` (`Idle_new.anim` from `model.gltf`'s `still_test`,
+  `Walk.anim` from its `walking_test`), because the body loads its clips from a path rather than
+  from the imported scene. `godot --headless --path . --script res://tools/extract_model_animations.gd`;
+  it reads each saved clip back and resolves every track path against the rig it came from, so a
+  renamed limb fails there instead of playing as no motion
 - `viewmodel.gd` — Thin first-person hand + held item/block glue (child of `Camera3D`): node
   tree, `_input`, F12 HUD, and peak-pose constants. Per-frame animation math lives in
   `ViewmodelPose` and held-mesh geometry in `ViewmodelMeshes` (both native C++)

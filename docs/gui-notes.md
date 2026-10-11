@@ -564,6 +564,52 @@ first-person viewmodel - what each one owns and the decisions behind it.
   *path* and never touches `Main.tscn`. A `Main.tscn` reference to this model must therefore
   carry `models/player.glb`'s current uid (and its path), and no `.import` for a source that does
   not exist belongs at the repository root
+- **A clip's track paths name the rig it was baked in, not the one it will play on**.
+  `Animations/Idle_new.anim` and `Animations/Walk.anim` are lifted out of
+  `models/minecraft-idle-and-walking-animation/source/model.gltf` (its `still_test` and
+  `walking_test`) by `tools/extract_model_animations.gd`, because the body loads a clip from a
+  path and can never see one that lives inside an imported scene. Their paths are the importer's
+  rather than the file's: the rig sits one `Node` deeper than the model root, and its animated
+  head and body arrive as `Node/Head2` and `Node/Body2` because the plain `Head`/`Body` names went
+  to their own mesh nodes. Nor is that rig `player.glb`'s, whose parts are `head`/`arm`/`arm2`/
+  `leg`/`leg2` — so the body re-homes them on the way in (`scripts/clip_retarget.gd`, driven by one
+  mapping table in `player_model.gd`), and a path that names nothing plays as no motion rather
+  than as an error: the extractor resolves every path against the rig it came from, and the
+  retarget drops and reports a track whose limb this body does not have.
+  **The numbers inside a track are the rig's too, and only half of them travel.** A rotation is
+  joint-relative, so it copies verbatim onto whichever node hangs that limb off that joint. A
+  position key is where the SOURCE rig's pivot sits, in the SOURCE rig's units (blocks there, 16
+  to one of the body's pixels), so writing it here would teleport the limb: the track is rewritten
+  as the destination node's own rest position plus the source's movement away from its first key,
+  scaled — what carries over is the bob, not the pivot. Measured on the body, the walk's limbs bob
+  1.5–4.6 px and nothing wanders further.
+  **...and the two rigs do not face the same way, which is a WALK PLAYED BACKWARDS.** The pack's
+  own model looks down **-Z**; this body looks down **+Z** (the same half turn the head-look's
+  180-degree offset is about). A faithful copy of the pack's numbers therefore plays the same
+  motion in the destination's axes, which for a turned-around rig is that motion seen from
+  behind: the feet lead away from the body's own face and slide. `CLIP_FRAME` is that half turn,
+  and the retarget applies it to every track — a rotation is *conjugated* by it
+  (`frame * q * frame.inverse()`, so the rest pose stays the rest pose) and a position delta is
+  *rotated* by it, because a bob is a direction. **Both facings are measured, not assumed**: a
+  64x64 skin keeps the head's face texels (the eyes) in the u,v `[8,16)` band, and in
+  `model.gltf` that band sits on the **-Z** face of the head box while on this body's head it
+  sits on the **+Z** one. `probes/probe_player_anim.gd` reads both off the skins at run time and
+  holds each clip to its own rig's face, so the convention cannot drift out from under it, and
+  the check earns its keep: with `CLIP_FRAME` set back to identity the same probe prints
+  "forward swing toward -Z, face on +Z" — the report, in one line.
+  **...and the head keeps its own rotation.** `_track_head_look` writes `head.quaternion` from the
+  player's aim every frame, so the clips keep the head's position track and LOSE its rotation one:
+  two writers of one quaternion is a race decided by node order, one frame at a time, not a
+  feature.
+  **The controller drives this every frame** — `set_animation_state(is_walking)` out of
+  `PlayerController::_process` — so the switch is idempotent by construction: a state already
+  playing is not re-played, because a walk restarted every frame is a walk frozen on frame zero.
+  `Idle.anim` (the older arm-swing idle, `arm_001` → `arm2` and all) is kept on disk and is the
+  fallback when either new clip is missing, so a body is never left with no clip at all.
+  Measured: through the source rig the walk swings the legs 94.6° and the arms ~75° in opposite
+  phase (65° apart at t=0) and returns to its own first pose within 0.04°; through the BODY
+  (`probes/probe_player_anim.gd`) the walk turns `arm`/`arm2` 64.8°, `leg2` 94.6° and the torso
+  6.9°, holds the two legs 65° apart, and the idle stays at 4.8°.
 - **Minecraft-style head look**: `player_model.gd::_track_head_look()` points the head at the
   player's LOOK, not the camera — it rebuilds the aim basis from the controller's world
   quaternion + pitch (pitch read back out of `get_aim_direction()` in the controller frame) and

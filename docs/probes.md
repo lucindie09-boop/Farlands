@@ -5,7 +5,7 @@ the resolver, the fluid rules, the planner and the save formats. A probe is for
 what is left: the real loaded registry, the real texture array, the real world,
 and what actually reaches the screen.
 
-They live in `probes/` (58 `.gd` scripts). **The scripts are repository
+They live in `probes/` (65 `.gd` scripts). **The scripts are repository
 content; what they produce is not.** `.gitignore` ignores `probes/*` except
 `*.gd`, `*.sh`, `*.tscn` and `*.gdshader*`, so screenshots, crash reports and
 generated sheets (hundreds of megabytes) stay scratch while the probes
@@ -103,6 +103,7 @@ comment, with the claim each one backs:
 | `probe_item_face_shade.gd` | An item's face shade does not snap while the body turns: the include's arithmetic stays within 1% over a 0.25-degree sweep of the normal, and a block turned in front of a still camera barely moves the frame (see below) |
 | `probe_item_light_smooth.gd` | The item light model's step: a staged one-frame relight of the held item's/arm's cell, of a dropped item's cell and of the player's own body's cell moves the `item_light` the mesh is handed over ~0.35 s instead of one frame |
 | `probe_body_light.gd` | The player's own body is lit by the world's light, not the engine's: its rendered luma equals the luma of the pixels it is drawn over, it follows the sun down to midnight, and it is the one consumer handed the sun's own colour instead of the world's midday cream |
+| `probe_player_anim.gd` | The body's own idle and walk, asked of the BODY rather than of the files (see below) |
 | `probe_sky_brightness.gd` | What a fully sky-lit surface renders AT, against its own albedo: the body is handed a flat known grey (1x1, no atlas to guess from), the frame is read back per albedo, and each one is held to the model's own claim — never above its own texel, and not far below it |
 | `probe_sky_tint.gd` | The Sky Tint setting reaches what the world is drawn with: the world's own material is handed the midday cream while it is ON, a white zenith while it is OFF, and both are the same warm colour at the horizon |
 | `probe_item_size.gd` | A dropped item is not cell-sized: a cube's body and drawn mesh are both half a block, a slab and a stair keep their own shape at that scale, a sprite keeps its silhouette, and a stack of more than one is both drawn and solved bigger by the capped log2 curve (1.25x at 2 through 2x from sixteen), mesh and body one box at every count |
@@ -288,6 +289,17 @@ A few of those rows keep their detail here, because a table cell that long is an
   few percent.
 - `probe_item_light_smooth.gd` — the eased `item_light` is read back OFF THE INSTANCE the
   shader sees, so the number measured is the one being drawn rather than the one assigned.
+- `probe_player_anim.gd` — the body's clips are asked of the BODY, not of the files: both are in
+  its own player under the names the controller asks for (`default/Idle`, `default/Walk`), every
+  track names a node the body has, and the walk is measured through it — arms and legs turn, the
+  two legs stay OPPOSED rather than moving as one, the bob stays on the body (a re-homed POSITION
+  track carries the source rig's own numbers), and neither clip writes the head rotation the
+  body's own code owns. It reproduces the controller's own call as well: `set_animation_state`
+  once a frame with the state it can see, where telling it the same thing again must NOT restart
+  the clip — a walk restarted every frame is a walk frozen on frame zero, which is what a naive
+  `play()` gives — a body with no AnimationPlayer at all (the K-key clone) must stay frozen, and
+  the legacy clip on its own still idles (the fallback that is the only reason `Idle.anim` is
+  still on disk, driven by hand rather than by deleting the two new clips).
 
 `probe_gen_stats.gd` is the one with switches worth knowing, and the one whose
 reading changed. `RD=<n>` boots at another render distance (applied after the

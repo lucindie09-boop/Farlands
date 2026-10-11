@@ -2,7 +2,7 @@ extends Node
 ## Debug helper: press the bound action (pose_clone_toggle, default K) while
 ## aiming at a block to spawn a standing clone of the player model on top of
 ## that block with NO animation (no AnimationPlayer child, so player_model.gd
-## never loads or plays Idle.anim â€” a frozen dummy), plus a small bright cube
+## never loads or plays its clips â€” a frozen dummy), plus a small bright cube
 ## at the pivot point of each of the model's meshes. Press again to remove the
 ## clone.
 ##
@@ -12,7 +12,7 @@ extends Node
 ##
 ## The clone is built like Main.tscn builds Player/PlayerModel â€” a fresh
 ## player.glb instance carrying player_model.gd â€” but without the
-## AnimationPlayer, so the Idle animation never loads or plays. Pivot markers
+## AnimationPlayer, so its clips never load and play. Pivot markers
 ## are parented to each MeshInstance3D, so they sit at the node origin and
 ## follow the animation if a part moves. The glb was re-baked by
 ## tools/rebake_player_pivots.py so those origins sit on the true Blockbench
@@ -244,7 +244,7 @@ func _spawn() -> void:
 	model.set_script(PLAYER_MODEL_SCRIPT)
 	model.transform = _clone_model_transform()
 	# No AnimationPlayer child on purpose: player_model.gd only loads and plays
-	# Idle.anim when an AnimationPlayer exists, so the clone stays frozen.
+	# its clips when an AnimationPlayer exists, so the clone stays frozen.
 	# Skip head tracking too so the dummy is completely rigid.
 	model.skip_head_look = true
 	host.add_child(model)

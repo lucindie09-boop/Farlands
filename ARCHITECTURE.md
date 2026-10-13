@@ -622,7 +622,8 @@ Two layers mirroring the ChunkManager/VoxelEngineController pattern:
   the neck like `vanilla model`.
 - **Health integration** — `healthbar.gd` renders 10 hearts (`heart_full.png` / `heart_half.png`
   / `heart_empty.png`, 9×9 art) above the hotbar's left edge. Each heart is its own 9 units on
-  the art's 10-unit pitch, so the row spans 99 units; it is laid out through `UIScale`'s helpers
+  an 8-unit pitch, so neighbours share their outline column and the row spans 81 units; it is
+  laid out through `UIScale`'s helpers
   and drawn NEAREST like the rest of the HUD. It polls `get_health()` each frame and redraws
   only on change.
   Damage shatters the heart it takes red off: the texels red in the old state and not in the new

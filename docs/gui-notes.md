@@ -211,7 +211,8 @@ first-person viewmodel - what each one owns and the decisions behind it.
   boxes, which are the case that must stay loud
 - **Health bar**: `healthbar.gd` draws 10 hearts (`heart_full.png` / `heart_half.png` /
   `heart_empty.png`, 9×9) floating above the hotbar's left edge; each heart is its own 9 units
-  on the art's 10-unit pitch (the row spans 99 units), placed through `UIScale`'s helpers and
+  on an 8-unit pitch, so a heart's right outline column is the next heart's left one and the two
+  share a single border pixel (the row spans 81 units), placed through `UIScale`'s helpers and
   NEAREST like every other HUD surface; polls `PlayerController.get_health()` (half-hearts
   0–20) and redraws only on change
 - **Damage shatters the hearts.** A hit that takes red off a heart no longer just draws the
@@ -265,10 +266,10 @@ first-person viewmodel - what each one owns and the decisions behind it.
   * 0.8`) and the cursor-held stack was a flat 48 px, so an icon was resampled by a different
   ratio at every scale and the held stack never grew at all.
 - **The hearts stopped being a fraction of the bar.** They were sized `0.4 / 91` of the hotbar's
-  on-screen width — about 7.2 units for a 9-unit sprite, on a 10-unit pitch — and drawn with
-  `TEXTURE_FILTER_LINEAR` in an otherwise all-NEAREST HUD. A heart is now its own 9 units on the
-  art's 10-unit pitch (the row spans 99 units, about 54% of the bar, rather than the ~43% the
-  fraction gave) with NEAREST, so the sprite is never resampled.
+  on-screen width — about 7.2 units for a 9-unit sprite — and drawn with
+  `TEXTURE_FILTER_LINEAR` in an otherwise all-NEAREST HUD. A heart is now its own 9 units on an
+  8-unit pitch, so neighbours share their outline column (the row spans 81 units, about 44% of
+  the bar, rather than the ~43% the fraction gave) with NEAREST, so the sprite is never resampled.
 - **Crosshair, compass and FPS are in units now.** The crosshair scales inside `draw_crosshair`,
   which both the HUD node and the settings-menu preview call, so the preview cannot show a size
   the live crosshair does not have; the slider values are read as units, which roughly doubles

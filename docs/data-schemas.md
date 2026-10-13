@@ -75,7 +75,7 @@ boxes is overruled and warned about at load.
 
 ## data/items.json
 
-`{"items": [...]}`, 17 entries. Read by `src/core/item_registry.cpp`; the
+`{"items": [...]}`, 25 entries. Read by `src/core/item_registry.cpp`; the
 `texture` name resolves under `res://textures/items/`, because an item is not
 part of the block texture array.
 

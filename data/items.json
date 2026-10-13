@@ -92,6 +92,42 @@
 			"name": "iron_ingot",
 			"texture": "iron_ingot",
 			"pose": "item2"
-		},{"name": "wand", "texture": "wand", "use": {"kind": "wand"}}
+		},{"name": "wand", "texture": "wand", "use": {"kind": "wand"}},
+		{
+			"name": "wooden_axe",
+			"texture": "wooden_axe",
+			"tool": { "class": "axe", "tier": 1, "speed": 2.0 }
+		},
+		{
+			"name": "stone_axe",
+			"texture": "stone_axe",
+			"tool": { "class": "axe", "tier": 1, "speed": 3.0 }
+		},
+		{
+			"name": "copper_axe",
+			"texture": "copper_axe",
+			"tool": { "class": "axe", "tier": 2, "speed": 4.0 }
+		},
+		{
+			"name": "iron_axe",
+			"texture": "iron_axe",
+			"tool": { "class": "axe", "tier": 3, "speed": 5.0 }
+		},
+		{
+			"name": "wooden_sword",
+			"texture": "wooden_sword"
+		},
+		{
+			"name": "stone_sword",
+			"texture": "stone_sword"
+		},
+		{
+			"name": "copper_sword",
+			"texture": "copper_sword"
+		},
+		{
+			"name": "iron_sword",
+			"texture": "iron_sword"
+		}
 	]
 }

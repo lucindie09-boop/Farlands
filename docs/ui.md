@@ -23,7 +23,8 @@ screen (the shader-effect stack, the animated-liquid tools, the model previews).
   so a shard is a whole block of the icon rather than a piece of a 300-unit render, cached per
   block id and carrying each texel's own colour
 - `healthbar.gd` — Health bar UI: 10 hearts above the hotbar's left edge, each its own 9 units
-  on the art's 10-unit pitch, full/half/empty sprites resolved from the half-heart count polled
+  on an 8-unit pitch (neighbours share their outline column), full/half/empty sprites resolved
+  from the half-heart count polled
   off `PlayerController.get_health()`. A hit that takes red off a heart drops it: every red texel
   the old state had and the new one doesn't leaves as a shard of its own through `ui_shatter.gd`
   (see [gui-notes.md](gui-notes.md))

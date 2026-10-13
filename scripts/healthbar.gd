@@ -1,10 +1,12 @@
 extends Control
 
 # Health bar: 10 hearts floating above the hotbar's left edge. A heart is the
-# sprite's own 9 units on the art's 10-unit pitch (1 unit of space between), so
-# the row spans 99 units and every position in it is a whole number of units at
-# every GUI scale. Sizing a heart as a fraction of the hotbar's width instead --
-# what this did before -- resampled the sprite at every setting.
+# sprite's own 9 units on an 8-unit pitch, so neighbours overlap by one unit and
+# share that outline column -- the two heart borders land on the same pixel
+# instead of reading as a two-pixel gap. The row spans 81 units and every
+# position in it is a whole number of units at every GUI scale. Sizing a heart
+# as a fraction of the hotbar's width instead -- what this did before --
+# resampled the sprite at every setting.
 # Health is in half-hearts (0..20), polled from PlayerController.get_health();
 # fall damage drains it.
 #
@@ -23,9 +25,11 @@ const HEART_COUNT = 10
 const MAX_HEALTH = 20
 const GAP_ABOVE_HOTBAR = 2.0  # units between the hearts and the hotbar's top
 
-# Heart layout in art texels: 9x9 sprite, one empty texel between neighbors.
+# Heart layout in art texels: a 9x9 sprite on an 8-unit pitch, so each heart's
+# right outline column is the next heart's left one and the two share a single
+# border pixel.
 const HEART_TEXELS = 9
-const HEART_PITCH_TEXELS = 10
+const HEART_PITCH_TEXELS = 8
 
 # The states a heart is drawn in, in the order `_heart_textures` holds them.
 const HEART_EMPTY = 0

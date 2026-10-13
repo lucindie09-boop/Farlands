@@ -22,6 +22,15 @@ void PlayerSim::reset(const Vector3& initial_pos) {
     accumulator_ = 0.0f;
     fall_distance_ = 0.0f;
     pending_fall_damage_ = 0;
+    // A new body (teleport, respawn, entering fly) starts with no hit in
+    // progress. The defensive snapshot and the absorption buffer are the
+    // player's loadout, not part of a fall, so they survive the reset.
+    incoming_damage_.clear();
+    hurt_resist_ticks_ = 0;
+    hurt_anim_ticks_ = 0;
+    last_damage_ = 0.0f;
+    pending_health_damage_ = 0.0f;
+    pending_hurt_ = false;
 }
 
 float PlayerSim::get_accumulator_fraction() const {
@@ -32,6 +41,88 @@ int PlayerSim::consume_pending_fall_damage() {
     int damage = pending_fall_damage_;
     pending_fall_damage_ = 0;
     return damage;
+}
+
+void PlayerSim::queue_damage(const DamageSource& source) {
+    if (source.amount > 0.0f) {
+        incoming_damage_.push_back(source);
+    }
+}
+
+DamageEvents PlayerSim::consume_damage_events() {
+    DamageEvents events;
+    events.health_delta = pending_health_damage_;
+    events.hurt = pending_hurt_;
+    pending_health_damage_ = 0.0f;
+    pending_hurt_ = false;
+    // The fall-specific view is a slice of the same events, so draining the
+    // unified events drains it too: the node reads this one path and no
+    // accumulator is left growing unwatched.
+    pending_fall_damage_ = 0;
+    return events;
+}
+
+void PlayerSim::resolve_incoming_damage() {
+    for (const DamageSource& source : incoming_damage_) {
+        // Difficulty scales first, before the window: the window and the
+        // reductions both see the amount the player would actually take on this
+        // difficulty, which is what the reference compares and stores.
+        const float scaled = scale_by_difficulty(source.amount, damage_inputs_.difficulty);
+        if (scaled <= 0.0f) {
+            continue;  // peaceful, or a zero hit: nothing lands and no window opens
+        }
+
+        float to_reduce = scaled;
+        bool full_hit = true;
+        if (hurt_resist_ticks_ > kHurtResistWindow) {
+            // Inside the first half of the window: a hit no larger than the one
+            // that opened it is fully resisted, and a larger one lands only by
+            // its excess -- with no feedback and without reopening the window.
+            if (scaled <= last_damage_) {
+                continue;
+            }
+            to_reduce = scaled - last_damage_;
+            full_hit = false;
+        }
+        last_damage_ = scaled;
+
+        DamageInputs inputs = damage_inputs_;
+        inputs.absorption = absorption_;
+        const DamageResult result = reduce_damage(to_reduce, source, inputs);
+
+        if (result.health_delta > 0.0f) {
+            pending_health_damage_ += result.health_delta;
+            if (source.kind == DamageKind::Fall) {
+                // The fall-specific view the legacy accessor reports. Fall
+                // amounts are whole half-hearts and the reduction is exact here,
+                // so this is the same value the pre-model code queued.
+                pending_fall_damage_ += static_cast<int>(std::lround(result.health_delta));
+            }
+        }
+        if (result.absorption_delta > 0.0f) {
+            absorption_ = std::max(0.0f, absorption_ - result.absorption_delta);
+        }
+        if (full_hit) {
+            hurt_resist_ticks_ = kHurtResistTime;
+            hurt_anim_ticks_ = kHurtAnimTime;
+            pending_hurt_ = true;
+            // A hit thrown by an attacker shoves the body; a fall, a drown or
+            // any environmental source does not. The shove rides on a
+            // registered hit even when absorption ate all of it.
+            if (source.by_attacker) {
+                apply_hit_knockback(source.attacker_position);
+            }
+        }
+    }
+    incoming_damage_.clear();
+}
+
+void PlayerSim::apply_hit_knockback(const godot::Vector3& attacker_position) {
+    const godot::Vector3 dir = knockback_direction(position_, attacker_position);
+    velocity_.x = velocity_.x * 0.5f + dir.x * KNOCKBACK_SPEED;
+    velocity_.z = velocity_.z * 0.5f + dir.z * KNOCKBACK_SPEED;
+    velocity_.y = velocity_.y * 0.5f + KNOCKBACK_SPEED;
+    velocity_.y = std::min(velocity_.y, KNOCKBACK_SPEED);
 }
 
 Vector3 PlayerSim::get_render_position(float partial_tick) const {
@@ -67,6 +158,11 @@ void PlayerSim::accumulate_and_tick(double frame_delta, const PlayerInput& input
 
 void PlayerSim::tick(const PlayerInput& input, CollisionResolver& cr, float step_height, float speed_multiplier) {
     prev_position_ = position_;   // snapshot for interpolation — once per tick, not per frame
+
+    // The hurt windows tick down once per sim tick, before anything is resolved,
+    // so a window opened this tick survives exactly kHurtResistTime more ticks.
+    if (hurt_resist_ticks_ > 0) --hurt_resist_ticks_;
+    if (hurt_anim_ticks_ > 0) --hurt_anim_ticks_;
 
     // --- Liquid state, sampled once at the start of the tick ---
     // ANY part of the body inside a liquid counts, not just the feet. The case
@@ -270,8 +366,13 @@ void PlayerSim::tick(const PlayerInput& input, CollisionResolver& cr, float step
         fall_distance_ = 0.0f;
     } else if (on_floor_) {
         if (fall_distance_ > SAFE_FALL_DISTANCE) {
-            pending_fall_damage_ +=
-                static_cast<int>(std::floor(fall_distance_ - SAFE_FALL_DISTANCE));
+            // A landing is just another source: it enters the same queue, the
+            // same hurt window and the same reductions as a weapon hit, which
+            // is why armor or a recent hit can soften it here too.
+            DamageSource fall;
+            fall.kind = DamageKind::Fall;
+            fall.amount = std::floor(fall_distance_ - SAFE_FALL_DISTANCE);
+            queue_damage(fall);
         }
         fall_distance_ = 0.0f;
     }
@@ -284,6 +385,12 @@ void PlayerSim::tick(const PlayerInput& input, CollisionResolver& cr, float step
         velocity_.y -= GRAVITY;
         velocity_.y *= VERTICAL_DRAG;
     }
+
+    // Resolve everything queued this tick (including the landing above) against
+    // the hurt window, so a landing hurts on the tick it happens. Last, so a
+    // knockback launched here is the tick's final velocity and is not damped by
+    // this tick's gravity; the next tick's move carries it.
+    resolve_incoming_damage();
 }
 
 } // namespace VoxelEngine

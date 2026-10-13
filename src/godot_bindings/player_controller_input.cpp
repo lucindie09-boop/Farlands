@@ -100,10 +100,13 @@ void PlayerController::_process(double delta) {
 
     sim_.accumulate_and_tick(delta, pi, *collision_resolver_, PlayerSim::STEP_HEIGHT, speed_multiplier);
 
-    // Apply any fall damage queued by landings during this frame's ticks.
-    int fall_damage = sim_.consume_pending_fall_damage();
-    if (fall_damage > 0) {
-        set_health(health_ - fall_damage);
+    // Apply any health damage this frame's ticks queued (landings now, and
+    // future combat sources through the same door), all through the receiving
+    // model's hurt window. The delta is fractional, so round to whole
+    // half-hearts at the health boundary.
+    DamageEvents damage = sim_.consume_damage_events();
+    if (damage.health_delta > 0.0f) {
+        set_health(health_ - static_cast<int>(std::lround(damage.health_delta)));
     }
 
     // Update player animation based on movement

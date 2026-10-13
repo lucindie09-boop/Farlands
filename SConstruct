@@ -104,6 +104,7 @@ shared_sources = [
     "src/engine/collision_resolver_turned.cpp",
     "src/engine/item_body_solver.cpp",
     "src/engine/item_pair_solver.cpp",
+    "src/engine/player_damage.cpp",
     "src/engine/player_controller.cpp",
     "src/render/texture_pack_manager.cpp",
     "src/render/minecraft_pack_converter.cpp",

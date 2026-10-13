@@ -28,11 +28,14 @@ struct PlayerInput {
 };
 
 // What the hits resolved since the last drain did, in half-hearts. The node
-// turns `health_delta` into a health change and `hurt` into feedback (the hurt
-// animation/sound, and the trigger for the receiving knockback). Both are zero
-// on a frame with no damage, so a caller can act every frame unconditionally.
+// turns `health_delta` into a health change, `amount` into the size of the hit
+// for feedback (it survives absorption, so a hit fully soaked by the yellow
+// buffer still reports its weight), and `hurt` into the visible hurt response.
+// All three are zero on a frame with no damage, so a caller can act every frame
+// unconditionally.
 struct DamageEvents {
     float health_delta = 0.0f;
+    float amount = 0.0f;
     bool hurt = false;
 };
 
@@ -159,6 +162,7 @@ private:
     int hurt_anim_ticks_ = 0;         // 0..kHurtAnimTime
     float last_damage_ = 0.0f;        // the difficulty-scaled amount of the last registered hit
     float pending_health_damage_ = 0.0f;  // this frame's health damage, all sources
+    float pending_hit_amount_ = 0.0f;     // this frame's hit size for feedback, all sources
     bool pending_hurt_ = false;       // a full hit registered this frame
 };
 

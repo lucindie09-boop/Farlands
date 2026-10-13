@@ -284,3 +284,50 @@ TEST_CASE("Damage window: environmental damage never shoves") {
     CHECK(v.z == doctest::Approx(0.0f));
     CHECK(v.y <= 0.0f);  // only the resting gravity, no lift
 }
+
+TEST_CASE("Damage window: an absorbed hit still reports its full weight") {
+    ChunkMap cm;
+    fill_flat_floor(cm);
+    CollisionResolver cr(&cm);
+    PlayerSim pc;
+    pc.reset(Vector3(0.5f, 1.0f, 0.5f));
+    settle(pc, cr);
+    pc.set_absorption(4.0f);
+    PlayerInput idle;
+
+    DamageSource hit;
+    hit.amount = 4.0f;
+    pc.queue_damage(hit);
+    pc.accumulate_and_tick(1.0 / 20.0, idle, cr);
+
+    const DamageEvents e = pc.consume_damage_events();
+    CHECK(e.health_delta == doctest::Approx(0.0f));  // buffer ate it all
+    CHECK(e.amount == doctest::Approx(4.0f));        // but the hit has a size
+    CHECK(e.hurt);                                   // and still counts as a hit
+}
+
+TEST_CASE("Damage window: a repeat that lands only excess reports that excess") {
+    ChunkMap cm;
+    fill_flat_floor(cm);
+    CollisionResolver cr(&cm);
+    PlayerSim pc;
+    pc.reset(Vector3(0.5f, 1.0f, 0.5f));
+    settle(pc, cr);
+    PlayerInput idle;
+
+    DamageSource first;
+    first.amount = 6.0f;
+    pc.queue_damage(first);
+    pc.accumulate_and_tick(1.0 / 20.0, idle, cr);
+    const DamageEvents opened = pc.consume_damage_events();
+    CHECK(opened.amount == doctest::Approx(6.0f));
+
+    DamageSource bigger;
+    bigger.amount = 10.0f;
+    pc.queue_damage(bigger);
+    pc.accumulate_and_tick(1.0 / 20.0, idle, cr);
+    const DamageEvents e = pc.consume_damage_events();
+    CHECK(e.health_delta == doctest::Approx(4.0f));
+    CHECK(e.amount == doctest::Approx(4.0f));  // only the part that landed
+    CHECK_FALSE(e.hurt);
+}

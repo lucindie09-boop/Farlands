@@ -108,6 +108,13 @@ public:
     void die();
     void respawn();
 
+    // Difficulty (0 peaceful, 1 easy, 2 normal, 3 hard): the first stage of the
+    // receiving damage chain. It is kept here and pushed into the sim's
+    // DamageInputs, leaving the other fields alone so the armor/effects added
+    // later are not clobbered by a difficulty change.
+    int get_difficulty() const;
+    void set_difficulty(int value);
+
     // Ground state (true while on the floor) — used to pause walk bobbing midair.
     bool is_on_floor() const;
     bool is_in_water() const;
@@ -212,6 +219,8 @@ private:
     float break_progress_ = 0.0f;
     static constexpr int MAX_HEALTH = 20;
     int health_ = MAX_HEALTH;
+    // 0 peaceful .. 3 hard, vanilla's scale; the sim's DamageInputs.difficulty.
+    int difficulty_ = 2;
     bool dead_ = false;
     bool needs_spawn_calc_ = true;
     int third_person_view_ = 0;

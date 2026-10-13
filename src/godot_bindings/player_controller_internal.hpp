@@ -52,6 +52,11 @@ inline constexpr float kDummyHeight = 1.8f;
 // 10 ticks (0.5 s at 20 tps); the dummy's hurt-resistance gate then
 // throttles actual knockback to the same ~10-tick cadence.
 inline constexpr float kPunchInterval = 0.5f;
+// A hit tilts the view: a short roll of a few degrees that decays with the
+// hurt-animation window. Vanilla does the same (the screen leans on damage), and
+// it is applied to the camera only — block targeting and the aim ray are built
+// from the player's own yaw/pitch, so the tilt never moves the crosshair.
+inline constexpr float kHurtCameraRollMax = 5.0f * kPi / 180.0f;
 
 inline float wrap_pi(float a) {
     return std::remainder(a, kTwoPi);

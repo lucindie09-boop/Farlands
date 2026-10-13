@@ -107,6 +107,8 @@ void PlayerController::bind_state_and_view() {
     ClassDB::bind_method(D_METHOD("is_dead"), &PlayerController::is_dead);
     ClassDB::bind_method(D_METHOD("die"), &PlayerController::die);
     ClassDB::bind_method(D_METHOD("respawn"), &PlayerController::respawn);
+    ClassDB::bind_method(D_METHOD("get_difficulty"), &PlayerController::get_difficulty);
+    ClassDB::bind_method(D_METHOD("set_difficulty", "value"), &PlayerController::set_difficulty);
     ClassDB::bind_method(D_METHOD("is_on_floor"), &PlayerController::is_on_floor);
     ClassDB::bind_method(D_METHOD("is_in_water"), &PlayerController::is_in_water);
 
@@ -125,6 +127,12 @@ void PlayerController::add_signals() {
     ADD_SIGNAL(MethodInfo("block_placed"));
     ADD_SIGNAL(MethodInfo("died"));
     ADD_SIGNAL(MethodInfo("respawned"));
+    // A registered hit landed. `amount` is the size of the hit in half-hearts
+    // after the reduction chain and before absorption, so it reports a hit the
+    // yellow buffer fully soaked too. The visual tilt is applied in-engine; a
+    // listener uses this for anything else (a hurt sound, a red flash, a damage
+    // number). Emitted on the same frame the health is applied.
+    ADD_SIGNAL(MethodInfo("damaged", PropertyInfo(Variant::INT, "amount")));
     // A held wand's clicks: middle opens its menu, right works the tool in the
     // world, left commits what the tool is showing. The wand never reaches the
     // placement path (its item id is above the block registry, so it could not
@@ -138,6 +146,8 @@ void PlayerController::add_signals() {
 void PlayerController::add_properties() {
     ADD_PROPERTY(PropertyInfo(Variant::INT, "health", PROPERTY_HINT_RANGE, "0,20,1"),
                  "set_health", "get_health");
+    ADD_PROPERTY(PropertyInfo(Variant::INT, "difficulty", PROPERTY_HINT_RANGE, "0,3,1"),
+                 "set_difficulty", "get_difficulty");
 
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "sensitivity", PROPERTY_HINT_RANGE, "0.001,0.01,0.001"),
                  "set_sensitivity", "get_sensitivity");
@@ -165,6 +175,17 @@ void PlayerController::set_health(int value) {
     if (health_ <= 0 && !dead_) {
         die();
     }
+}
+
+int PlayerController::get_difficulty() const { return difficulty_; }
+
+void PlayerController::set_difficulty(int value) {
+    difficulty_ = CLAMP(value, 0, 3);
+    // Push onto the sim's snapshot without disturbing the other fields, so the
+    // armor and effects added later survive a difficulty change.
+    DamageInputs inputs = sim_.get_damage_inputs();
+    inputs.difficulty = difficulty_;
+    sim_.set_damage_inputs(inputs);
 }
 
 void PlayerController::die() {
@@ -232,6 +253,7 @@ void PlayerController::_ready() {
 
     sim_.reset(get_global_position());
     spawn_point_ = get_global_position();
+    set_difficulty(difficulty_);  // seed the sim's DamageInputs with the difficulty
 
     // Load inventory from saved data
     load_inventory();
@@ -392,13 +414,24 @@ void PlayerController::update_camera_transform(float eye_height, float delta) {
     if (!camera_) return;
     const Vector3 local_forward = Vector3(0, 0, -1).rotated(Vector3(1, 0, 0), pitch_);
 
+    // A hit leans the view: a roll that is full the frame the hit lands and
+    // decays to nothing over the hurt-animation window. Cosmetic only — the aim
+    // ray is built from the player's own yaw/pitch, not the camera, so the
+    // crosshair does not move with the lean.
+    float hurt_roll = 0.0f;
+    const int hurt_ticks = sim_.get_hurt_anim_ticks();
+    if (hurt_ticks > 0) {
+        hurt_roll = kHurtCameraRollMax
+            * (static_cast<float>(hurt_ticks) / static_cast<float>(kHurtAnimTime));
+    }
+
     if (third_person_view_ == 0) {
         // First person: steady eye-height blend, no walk bob.
         const float target = eye_height;
         rendered_eye_height_ += (target - rendered_eye_height_)
             * static_cast<float>(1.0 - std::pow(0.0001, delta));
         camera_->set_position(Vector3(0, rendered_eye_height_, 0));
-        camera_->set_rotation(Vector3(pitch_, 0.0f, 0.0f));
+        camera_->set_rotation(Vector3(pitch_, 0.0f, hurt_roll));
         return;
     }
 
@@ -423,9 +456,9 @@ void PlayerController::update_camera_transform(float eye_height, float delta) {
     // component of the aim direction vanishes, so the camera's yaw got driven
     // by the body's lagging yaw instead of the mouse.
     if (third_person_view_ == 1) {
-        camera_->set_rotation(Vector3(pitch_, 0.0f, 0.0f));
+        camera_->set_rotation(Vector3(pitch_, 0.0f, hurt_roll));
     } else {
-        camera_->set_rotation(Vector3(-pitch_, kPi, 0.0f));
+        camera_->set_rotation(Vector3(-pitch_, kPi, hurt_roll));
     }
 }
 

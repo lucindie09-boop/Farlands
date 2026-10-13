@@ -30,6 +30,7 @@ void PlayerSim::reset(const Vector3& initial_pos) {
     hurt_anim_ticks_ = 0;
     last_damage_ = 0.0f;
     pending_health_damage_ = 0.0f;
+    pending_hit_amount_ = 0.0f;
     pending_hurt_ = false;
 }
 
@@ -52,8 +53,10 @@ void PlayerSim::queue_damage(const DamageSource& source) {
 DamageEvents PlayerSim::consume_damage_events() {
     DamageEvents events;
     events.health_delta = pending_health_damage_;
+    events.amount = pending_hit_amount_;
     events.hurt = pending_hurt_;
     pending_health_damage_ = 0.0f;
+    pending_hit_amount_ = 0.0f;
     pending_hurt_ = false;
     // The fall-specific view is a slice of the same events, so draining the
     // unified events drains it too: the node reads this one path and no
@@ -90,6 +93,9 @@ void PlayerSim::resolve_incoming_damage() {
         inputs.absorption = absorption_;
         const DamageResult result = reduce_damage(to_reduce, source, inputs);
 
+        // The size of the hit for feedback, before absorption split it: a hit
+        // the yellow buffer soaked still reports its full weight.
+        pending_hit_amount_ += result.total;
         if (result.health_delta > 0.0f) {
             pending_health_damage_ += result.health_delta;
             if (source.kind == DamageKind::Fall) {

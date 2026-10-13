@@ -273,7 +273,7 @@ Full notes: [docs/schematic-notes.md](docs/schematic-notes.md).
 Full notes: [docs/fluids.md](docs/fluids.md).
 
 ### Testing & CI
-- 713 test cases / 363,756 assertions, written with `CHECK`/`CHECK_FALSE` only: this
+- 715 test cases / 363,763 assertions, written with `CHECK`/`CHECK_FALSE` only: this
   build disables exceptions, so `REQUIRE` is a compile error.
 - Move work off the frame before making it cheaper, and prove the move with a total:
   the phases must add up to the frame.
@@ -363,7 +363,12 @@ Full notes: [docs/testing.md](docs/testing.md).
   the base receiving knockback (`apply_hit_knockback`: halve every axis, add 0.4 away from the
   attacker on the horizontal and 0.4 up capped — the same numbers `dummy.gd` applies), while
   environmental sources never shove. The window constants (`kHurtResistTime`/`kHurtResistWindow`/
-  `kHurtAnimTime`) live beside the chain so the player and the dummy read one set
+  `kHurtAnimTime`) live beside the chain so the player and the dummy read one set. The node turns
+  the drain into the game: `damaged(amount)` fires on every registered hit (the amount survives
+  absorption, so a hit the yellow buffer fully ate still announces itself), a `difficulty`
+  property (0-3, normal by default) seeds the chain's first stage, and the animation window tilts
+  the view — a camera roll that is full the frame a hit lands and decays over `kHurtAnimTime`
+  (cosmetic: the aim ray comes from the player's yaw/pitch, so the crosshair never moves)
 - **Death & respawn**: `set_health` reaching 0 triggers `die()` — sets a `dead_` flag that
   freezes `_process`/`_input` (no movement, look, break/place, hotbar), forces the mouse cursor
   visible via `update_mouse_mode()`, and emits `died`; `respawn()` restores full health,

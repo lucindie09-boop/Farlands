@@ -34,10 +34,10 @@ shader (`crosshair.gd`), the pixel-recolor hover/selection highlights, and the w
    hotbar. The mechanism already ships — `tooltip_text` on buttons — slots just never set
    it. Cheap, and right now the inventory assumes you already know what an iso cube is.
 
-4. **Hurt feedback: a directional red vignette plus a crosshair kick.** `dummy.gd` already
-   computes the 20-tick hurt window and the direction a hit came from; none of it reaches
-   the screen. A red edge vignette pulsing from the side you were struck, and the crosshair
-   jumping out a texel and snapping back. The biggest missing *gameplay* feel item here.
+4. **Hurt feedback: a directional red vignette plus a crosshair kick.** The receiving window
+   now tilts the view on a hit and emits `damaged(amount)`, but none of it is directional and no
+   red reaches the screen. A red edge vignette pulsing from the side you were struck, and the
+   crosshair jumping out a texel and snapping back. The biggest missing *gameplay* feel item here.
 
 5. **A heartbeat in the healthbar.** Below full health the hearts breathe; under four
    half-hearts they pulse faster and drift toward red. Hearts already became the one

@@ -103,10 +103,16 @@ void PlayerController::_process(double delta) {
     // Apply any health damage this frame's ticks queued (landings now, and
     // future combat sources through the same door), all through the receiving
     // model's hurt window. The delta is fractional, so round to whole
-    // half-hearts at the health boundary.
+    // half-hearts at the health boundary. A registered hit also announces
+    // itself: the camera lean is applied in update_camera_transform from the
+    // sim's own window, and the signal is the hook for anything else (a hurt
+    // sound, a red flash, a damage number).
     DamageEvents damage = sim_.consume_damage_events();
     if (damage.health_delta > 0.0f) {
         set_health(health_ - static_cast<int>(std::lround(damage.health_delta)));
+    }
+    if (damage.hurt) {
+        emit_signal("damaged", static_cast<int>(std::lround(damage.amount)));
     }
 
     // Update player animation based on movement

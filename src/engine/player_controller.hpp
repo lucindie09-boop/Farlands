@@ -3,6 +3,9 @@
 
 #include <godot_cpp/variant/vector3.hpp>
 #include <cstdint>
+#include <vector>
+
+#include "engine/player_damage.hpp"
 
 namespace VoxelEngine {
 
@@ -22,6 +25,15 @@ struct PlayerInput {
     bool sneak_held = false;
     bool move_forward_held = false;
     float yaw = 0.0f;  // facing angle for sprint-jump boost
+};
+
+// What the hits resolved since the last drain did, in half-hearts. The node
+// turns `health_delta` into a health change and `hurt` into feedback (the hurt
+// animation/sound, and the trigger for the receiving knockback). Both are zero
+// on a frame with no damage, so a caller can act every frame unconditionally.
+struct DamageEvents {
+    float health_delta = 0.0f;
+    bool hurt = false;
 };
 
 class PlayerSim {
@@ -53,6 +65,9 @@ public:
     // Vanilla fall damage: landings further than 3 blocks hurt, 1 half-heart
     // per extra block (floor(fall_distance - 3)).
     static constexpr float SAFE_FALL_DISTANCE = 3.0f;
+    // Receiving knockback (blocks/tick): the same 0.4 base the reference uses
+    // and the combat dummy mirrors, so a hit shoves either body identically.
+    static constexpr float KNOCKBACK_SPEED = 0.4f;
     static constexpr float WALK_MULT = 1.0f;
     static constexpr float SPRINT_MULT = 1.3f;
     static constexpr float SNEAK_MULT = 0.3f;
@@ -85,10 +100,42 @@ public:
     // Half-hearts queued by landings since the last call; consuming clears it.
     int consume_pending_fall_damage();
 
+    // --- Receiving combat (see engine/player_damage.hpp) ---
+    // Queue one hit. It is resolved at the end of a tick, so a caller can queue
+    // from outside the tick (an input handler, later an entity) and every source
+    // is judged against the same window state in a defined order. Calling it
+    // more than once is fine; the sources are resolved in the order queued.
+    void queue_damage(const DamageSource& source);
+    // Everything the resolved hits have done since the last call: health to
+    // remove this frame and whether any hit produced feedback. Consuming clears
+    // the accumulators.
+    DamageEvents consume_damage_events();
+    // The defensive snapshot the reductions read (armor, effects, blocking,
+    // difficulty). Absorption is NOT here because damage spends it; see below.
+    void set_damage_inputs(const DamageInputs& inputs) { damage_inputs_ = inputs; }
+    const DamageInputs& get_damage_inputs() const { return damage_inputs_; }
+    // The yellow-heart buffer, in half-hearts. Spent before health by a hit.
+    void set_absorption(float half_hearts) { absorption_ = half_hearts; }
+    float get_absorption() const { return absorption_; }
+    // Ticks left in each window: the resistance window gates repeats, the anim
+    // window drives the visible hurt. Exposed for tests and HUD-adjacent code.
+    int get_hurt_resist_ticks() const { return hurt_resist_ticks_; }
+    int get_hurt_anim_ticks() const { return hurt_anim_ticks_; }
+
     void queue_jump() { jump_queued_ = true; }
 
 private:
     void tick(const PlayerInput& input, CollisionResolver& cr, float step_height, float speed_multiplier);
+    // Resolve every queued source against the hurt window and accumulate what it
+    // did. Called at the end of a tick, after that tick's fall damage (if any)
+    // has been queued, so a landing hurts on the tick it happens.
+    void resolve_incoming_damage();
+    // Shove the body away from the attacker on a registered full hit: halve the
+    // current velocity on every axis, add the horizontal knockback along
+    // knockback_direction and the vertical one capped at the base speed -- the
+    // reference's base knockback, and the same one dummy.gd applies. The caller
+    // has already decided the hit registers, so this is unconditional.
+    void apply_hit_knockback(const godot::Vector3& attacker_position);
 
     godot::Vector3 position_;
     godot::Vector3 prev_position_;
@@ -102,6 +149,17 @@ private:
     float accumulator_ = 0.0f;
     float fall_distance_ = 0.0f;
     int pending_fall_damage_ = 0;
+
+    // Receiving-combat state. The `incoming_damage_` queue is drained every
+    // tick, so it never grows without bound even if a caller keeps queueing.
+    std::vector<DamageSource> incoming_damage_;
+    DamageInputs damage_inputs_;      // armor/effects/blocking/difficulty
+    float absorption_ = 0.0f;         // yellow-heart buffer, in half-hearts
+    int hurt_resist_ticks_ = 0;       // 0..kHurtResistTime
+    int hurt_anim_ticks_ = 0;         // 0..kHurtAnimTime
+    float last_damage_ = 0.0f;        // the difficulty-scaled amount of the last registered hit
+    float pending_health_damage_ = 0.0f;  // this frame's health damage, all sources
+    bool pending_hurt_ = false;       // a full hit registered this frame
 };
 
 } // namespace VoxelEngine

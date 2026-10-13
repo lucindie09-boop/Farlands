@@ -588,7 +588,13 @@ Two layers mirroring the ChunkManager/VoxelEngineController pattern:
   from the final resolved position (no swept floor probe). Standing/sneaking/landing eye-height
   transitions are smoothed at render time from the accumulator's partial-tick fraction. Also
   tracks fall distance from per-tick position deltas; a landing past `SAFE_FALL_DISTANCE` (3
-  blocks) queues `floor(distance − 3)` half-hearts for `consume_pending_fall_damage()`.
+  blocks) enters the receiving damage window (`src/engine/player_damage.hpp`), drained by
+  `consume_damage_events()`. It also owns the receiving side of combat: `queue_damage()` adds a
+  `DamageSource`, and at the end of each tick the queue is resolved against the hurt window (a
+  full hit opens `kHurtResistTime` ticks of resistance and `kHurtAnimTime` of feedback; a repeat
+  inside the first `kHurtResistWindow` ticks is resisted, or lands only its excess with no
+  feedback), spending absorption before health and, for a registered attacker hit, applying the
+  base receiving knockback away from the attacker.
 - **`PlayerController`** (`src/godot_bindings/player_controller.*`) — Godot `Node3D` scene node
   registered via ClassDB (used directly by `Main.tscn`). Polls input, drives the tick
   accumulator from `_process(delta)`, handles mouse look (pitch clamped ±90°), fly mode
@@ -597,8 +603,8 @@ Two layers mirroring the ChunkManager/VoxelEngineController pattern:
   behind → in front). Left-click punches the K-key pose-clone dummy when it's under the
   crosshair (`try_punch_dummy`, 3.0-block reach, vanilla 1.8.8 knockback with sprint bonus +
   10-tick hurt-resistance gate; mining is suppressed while the dummy blocks the aim). After
-  ticking it consumes queued fall damage into a clamped `health` property (0–20 half-hearts,
-  `get_health`/`set_health` bindings).
+  ticking it consumes the resolved damage events (`consume_damage_events`) into a clamped
+  `health` property (0–20 half-hearts, `get_health`/`set_health` bindings).
 - **Third-person camera & aiming** — The back/front cameras sit on the player's look ray at
   `kThirdPersonOffset` (4.0) blocks and are pulled in before any solid block by
   `camera_clear_distance` (0.25-block samples through `CollisionResolver::is_solid_at`, min
@@ -1070,7 +1076,7 @@ Every file, with what it owns: [docs/ui.md](docs/ui.md).
   - `textures/0Archive/` — Archived/deprecated textures (old versions kept for reference)
 
 ### Testing
-- `tests/` — 102 `.cpp` files (688 test cases / 363,633 assertions, declared across 100 of them:
+- `tests/` — 104 `.cpp` files (713 test cases / 363,756 assertions, declared across 102 of them:
   `test_main.cpp` is the doctest entry point and `mesh_manager_stub.cpp` supplies link stubs),
   auto-discovered via `Glob("tests/*.cpp")`. A split test file keeps the original name for its
   main subject and takes `_<topic>` files beside it, with the fixtures they share in a
@@ -1113,7 +1119,7 @@ Every file, with what it owns: [docs/ui.md](docs/ui.md).
   region, and on a standard attribute placed after a decl-specifier. Both compile on MSVC and
   are fatal on GCC/clang, which is exactly why the tree is compiled by something other than MSVC
   before it is accepted
-- **clang-tidy** — the static-analysis job's gate, over `find src -name '*.cpp'` (120 files)
+- **clang-tidy** — the static-analysis job's gate, over `find src -name '*.cpp'` (121 files)
   with `bugprone-*`, `concurrency-*` and `performance-*` minus the four documented exceptions
   (`.github/workflows/build.yml`: `bugprone-easily-swappable-parameters`,
   `bugprone-narrowing-conversions`, `clang-analyzer-optin.core.EnumCastOutOfRange`,

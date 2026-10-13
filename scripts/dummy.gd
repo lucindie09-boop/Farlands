@@ -30,6 +30,11 @@ extends Node3D
 ## hits are no-ops and knockback lands at most once per ~10 ticks (0.5 s)
 ## no matter how fast the player clicks.
 ##
+## The player's own receiving model now lives in C++ (src/engine/player_damage.hpp
+## and PlayerSim in player_controller.*): the same 20/10 window, the same base
+## 0.4 knockback, and the reduction chain. The constants below mirror it and must
+## stay in step with kHurtResistTime / kHurtResistWindow and KNOCKBACK_SPEED.
+##
 ## Sprint bonus: a sprinting attacker adds 0.5 blocks/tick along their facing
 ## plus 0.1 upward on top of the base knockback, applied after it with no
 ## re-cap, so the victim inherits the attacker's forward momentum. Walking

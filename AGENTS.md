@@ -86,7 +86,7 @@ The four gates this file's constraints describe are `scons sizecheck`, `scons po
   anonymous namespace (or `static`), or its external linkage can collide with the same name in a
   sibling file at link time
 - **The static-analysis job is the third structural gate, and the only one that reads C++
-  semantics rather than shapes.** clang-tidy runs over `find src -name '*.cpp'` (120 files) with
+  semantics rather than shapes.** clang-tidy runs over `find src -name '*.cpp'` (121 files) with
   `bugprone-*`, `concurrency-*` and `performance-*` on `ubuntu-latest`, and any finding in
   project sources fails the job, so a split that smuggles in a new shape surfaces here one
   finding at a time. Two shapes are worth knowing before writing the next helper, and both are
@@ -273,7 +273,7 @@ Full notes: [docs/schematic-notes.md](docs/schematic-notes.md).
 Full notes: [docs/fluids.md](docs/fluids.md).
 
 ### Testing & CI
-- 688 test cases / 363,633 assertions, written with `CHECK`/`CHECK_FALSE` only: this
+- 713 test cases / 363,756 assertions, written with `CHECK`/`CHECK_FALSE` only: this
   build disables exceptions, so `REQUIRE` is a compile error.
 - Move work off the frame before making it cheaper, and prove the move with a total:
   the phases must add up to the frame.
@@ -350,10 +350,20 @@ Full notes: [docs/testing.md](docs/testing.md).
 - **Fall damage**: `PlayerSim` accumulates fall distance from per-tick position deltas
   (including the collision-clipped landing segment — it must be added before the landing check
   or every fall loses its final stretch), and a landing past `SAFE_FALL_DISTANCE` (3 blocks)
-  queues `floor(distance − 3)` half-hearts via `consume_pending_fall_damage()`;
+  queues `floor(distance − 3)` half-hearts through the receiving damage window
+  (`src/engine/player_damage.hpp`), drained by `consume_damage_events()`;
   `PlayerController` applies it to a clamped `health` property (0–20 half-hearts,
   `get_health`/`set_health` bindings) that `healthbar.gd` renders; ascending doesn't accumulate
   and `reset()` (teleport/fly) clears everything
+- **Receiving damage**: the arithmetic is a pure chain in `src/engine/player_damage.hpp`
+  (difficulty → blocking → armor → resistance → protection → absorption, with the caps and the
+  two bypass flags), and the state is `PlayerSim`: queued sources resolve against a per-tick hurt
+  window (a full hit opens 20 ticks of resistance / 10 of feedback; a repeat inside the first
+  half is resisted, or lands only its excess with no feedback). A registered attacker hit adds
+  the base receiving knockback (`apply_hit_knockback`: halve every axis, add 0.4 away from the
+  attacker on the horizontal and 0.4 up capped — the same numbers `dummy.gd` applies), while
+  environmental sources never shove. The window constants (`kHurtResistTime`/`kHurtResistWindow`/
+  `kHurtAnimTime`) live beside the chain so the player and the dummy read one set
 - **Death & respawn**: `set_health` reaching 0 triggers `die()` — sets a `dead_` flag that
   freezes `_process`/`_input` (no movement, look, break/place, hotbar), forces the mouse cursor
   visible via `update_mouse_mode()`, and emits `died`; `respawn()` restores full health,

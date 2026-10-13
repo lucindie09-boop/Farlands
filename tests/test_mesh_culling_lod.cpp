@@ -410,3 +410,59 @@ TEST_CASE("LOD boundary: mixed shoreline footprint still emits opaque face again
          " lod opaque boundary face: ", lod_has_opaque_boundary);
     CHECK(lod_has_opaque_boundary);
 }
+
+namespace {
+void uv_range_for_normal(const std::vector<Vertex>& verts, int8_t nx, int8_t ny, int8_t nz,
+                         float& u_lo, float& u_hi, float& v_lo, float& v_hi) {
+    u_lo = 1e9f;
+    u_hi = -1e9f;
+    v_lo = 1e9f;
+    v_hi = -1e9f;
+    for (const auto& vert : verts) {
+        if (vert.nx != nx || vert.ny != ny || vert.nz != nz) continue;
+        if (vert.u < u_lo) u_lo = vert.u;
+        if (vert.u > u_hi) u_hi = vert.u;
+        if (vert.v < v_lo) v_lo = vert.v;
+        if (vert.v > v_hi) v_hi = vert.v;
+    }
+}
+}
+
+TEST_CASE("LOD stride: unmerged faces tile the texture once per block") {
+    BlockRegistry::get_instance().initialize_default_blocks();
+
+    ChunkData chunk;
+    chunk.fill_blocks(BlockIDs::AIR);
+    for (int x = 0; x < 4; x++) {
+        for (int z = 0; z < 4; z++) {
+            chunk.set_block(x, 10, z, BlockIDs::SAND);
+        }
+    }
+    chunk.compute_section_flags();
+
+    MeshBuilder mb;
+    mb.set_greedy_enabled(false);
+    mb.set_detail_level(0.25f);
+    CHECK(mb.get_stride_xz() == 4);
+    mb.build_mesh(chunk);
+    const auto& verts = mb.get_vertices();
+
+    float u_lo, u_hi, v_lo, v_hi;
+
+    // The top face covers a 4x4 cell: the texture repeats once per block in
+    // both axes. Before the fix a stride face kept the unit-square UVs and one
+    // texture stretched across the whole merged cell.
+    uv_range_for_normal(verts, 0, 127, 0, u_lo, u_hi, v_lo, v_hi);
+    CHECK(u_hi - u_lo == doctest::Approx(4.0f));
+    CHECK(v_hi - v_lo == doctest::Approx(4.0f));
+
+    // A side face is stride wide but one block tall: the horizontal axis tiles
+    // once per block, the vertical stays a single repeat.
+    uv_range_for_normal(verts, 127, 0, 0, u_lo, u_hi, v_lo, v_hi);
+    CHECK(u_hi - u_lo == doctest::Approx(4.0f));
+    CHECK(v_hi - v_lo == doctest::Approx(1.0f));
+
+    uv_range_for_normal(verts, 0, 0, 127, u_lo, u_hi, v_lo, v_hi);
+    CHECK(u_hi - u_lo == doctest::Approx(4.0f));
+    CHECK(v_hi - v_lo == doctest::Approx(1.0f));
+}

@@ -118,11 +118,22 @@ light_keys[0] = light_keys[1] = light_keys[2] = light_keys[3] = light_key;
         v.nx = static_cast<int8_t>(kFaceNormals[dir_index][0] * 127.0f);
         v.ny = static_cast<int8_t>(kFaceNormals[dir_index][1] * 127.0f);
         v.nz = static_cast<int8_t>(kFaceNormals[dir_index][2] * 127.0f);
-        v.u = kFaceUVs[i][0];
-        v.v = kFaceUVs[i][1];
+        float u = kFaceUVs[i][0];
+        float vt = kFaceUVs[i][1];
         if (surface_rotation != 0) {
-            apply_uv_rotation(v.u, v.v, surface_rotation);
+            apply_uv_rotation(u, vt, surface_rotation);
         }
+        // At LOD a face covers `stride` blocks along its horizontal tangent, so
+        // the texture repeats once per block (a merged cell must read as its own
+        // tiles, not one stretched tile); a side face is one block tall.
+        if (stride_xz_ > 1) {
+            u *= static_cast<float>(stride_xz_);
+            if (direction == FaceDirection::Top || direction == FaceDirection::Bottom) {
+                vt *= static_cast<float>(stride_xz_);
+            }
+        }
+        v.u = u;
+        v.v = vt;
         v.texture_index = static_cast<uint16_t>(texture_idx);
         // For liquid faces the AO byte is the water shader's texture-flow
         // channel, not occlusion (it can't darken a sloped surface anyway):

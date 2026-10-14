@@ -100,11 +100,13 @@ float hurt_lean_angle(float window_fraction);
 // The camera's own orientation for the current view after a hit's lean. `base` is
 // that orientation before the lean (the pitch and any view-mode yaw the caller
 // already computed) and `local_push` is the direction the hit shoves the body,
-// expressed in the player's frame (its Y is ignored). The lean is a rotation about
-// the horizontal axis perpendicular to the push, so the top of the view tips in
-// the push direction -- a hit from the left leans the view to the right. At
-// `window_fraction` 0 the base is returned unchanged, so a caller may apply it
-// every frame unconditionally.
+// expressed in the player's frame (its Y is ignored). The shove is felt as a recoil:
+// the top of the view tips back toward the hit, opposite the shove -- a hit from the
+// left shoves the body right and tips the top of the view left. The arc is applied
+// in the view's own frame (a roll carried round into the shove's bearing), so it
+// follows the head when the player looks up or down instead of leaning along a fixed
+// world axis. At `window_fraction` 0 the base is returned unchanged, so a caller may
+// apply it every frame unconditionally.
 godot::Basis hurt_lean_view(const godot::Basis& base, const godot::Vector3& local_push,
                             float window_fraction);
 

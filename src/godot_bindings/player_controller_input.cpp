@@ -112,10 +112,11 @@ void PlayerController::_process(double delta) {
         set_health(health_ - static_cast<int>(std::lround(damage.health_delta)));
     }
     if (damage.hurt) {
-        // Snapshot the lean's direction for the whole window (the reference
+        // Snapshot the shove's direction for the whole window (the reference
         // captures the bearing once, when the hit lands): an attacker-caused hit
-        // leans away from the attacker, an environmental one has no bearing of
-        // its own so the view leans along the look direction.
+        // is shoved away from the attacker and the view recoils back toward them,
+        // an environmental one has no attacker so the shove is taken along the
+        // look direction.
         if (damage.by_attacker) {
             hurt_push_dir_ = knockback_direction(get_global_position(), damage.attacker_position);
         } else {

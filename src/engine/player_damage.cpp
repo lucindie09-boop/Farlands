@@ -124,10 +124,18 @@ godot::Basis hurt_lean_view(const godot::Basis& base, const godot::Vector3& loca
         return base;
     }
     push = push.normalized();
-    // up x push is the horizontal axis whose rotation tips the view's up toward
-    // push, so a hit shoves the view the same way it shoves the body.
-    const godot::Vector3 axis = godot::Vector3(0.0f, 1.0f, 0.0f).cross(push);
-    return godot::Basis(axis, angle) * base;
+    // The hit is an arc in the view's own frame: a roll about the view axis,
+    // carried round into the shove's bearing and back, so the top of the view
+    // recoils toward the hit rather than in a fixed world direction. Applied on
+    // the right of `base` because it acts in the view's frame, not the world's
+    // (the roll follows the head when the player looks up or down). The bearing
+    // is where the body was shoved; the roll's sign is `angle`, and carrying the
+    // axis by that bearing is what makes a hit from the left tip the view left.
+    const float bearing = std::atan2(push.z, push.x);
+    const godot::Basis to_shove(godot::Vector3(0.0f, 1.0f, 0.0f), -bearing);
+    const godot::Basis roll(godot::Vector3(0.0f, 0.0f, 1.0f), angle);
+    const godot::Basis from_shove(godot::Vector3(0.0f, 1.0f, 0.0f), bearing);
+    return base * (to_shove * roll * from_shove);
 }
 
 } // namespace VoxelEngine

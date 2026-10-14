@@ -614,8 +614,8 @@ Two layers mirroring the ChunkManager/VoxelEngineController pattern:
   `damaged(amount)` signal for each registered hit (the amount is post-reduction, pre-absorption,
   so a hit the yellow buffer fully soaked still reports its weight), and leans the camera — a
   14° lean (`hurt_lean_angle`, shaped by `sin(f^4·π)`) that is zero the instant the hit lands,
-  peaks partway through the window and settles back, aimed along the hit's push direction
-  (`hurt_lean_view`: away from the attacker, forward for a fall or drown), sampled forward
+  peaks partway through the window and settles back, aimed back toward the hit
+  (`hurt_lean_view`: toward the attacker, along the look direction for a fall or drown), sampled forward
   between sim ticks (`get_render_hurt_anim_ticks`) so it ramps at the render rate — no 20 Hz
   staircase and no one-tick delay.
   A `difficulty` property (0–3, normal by
@@ -1097,7 +1097,7 @@ Every file, with what it owns: [docs/ui.md](docs/ui.md).
   - `textures/0Archive/` — Archived/deprecated textures (old versions kept for reference)
 
 ### Testing
-- `tests/` — 105 `.cpp` files (726 test cases / 363,805 assertions, declared across 103 of them:
+- `tests/` — 105 `.cpp` files (726 test cases / 363,809 assertions, declared across 103 of them:
   `test_main.cpp` is the doctest entry point and `mesh_manager_stub.cpp` supplies link stubs),
   auto-discovered via `Glob("tests/*.cpp")`. A split test file keeps the original name for its
   main subject and takes `_<topic>` files beside it, with the fixtures they share in a

@@ -35,7 +35,7 @@ shader (`crosshair.gd`), the pixel-recolor hover/selection highlights, and the w
    it. Cheap, and right now the inventory assumes you already know what an iso cube is.
 
 4. **Hurt feedback: a directional red vignette plus a crosshair kick.** The receiving window
-   now leans the view away from the hit and emits `damaged(amount)`, but no red reaches the
+   now recoils the view toward the hit and emits `damaged(amount)`, but no red reaches the
    screen. A red edge vignette pulsing from the side you were struck, and the crosshair jumping
    out a texel and snapping back. The biggest missing *gameplay* feel item here.
 

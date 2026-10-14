@@ -98,18 +98,6 @@ void PlayerController::_process(double delta) {
         pi.yaw = get_rotation().y;
     }
 
-    // The bearing a hit with no attacker shoves and rolls along, picked once a
-    // frame so the shove the sim applies on a landing this tick and the view
-    // roll the drain applies below agree: one of the two side axes, chosen at
-    // random (the reference randomises the bearing when source and victim share
-    // a spot, which a landing always does). Picked here rather than in the sim
-    // so the sim stays free of the engine's RNG and its tests stay deterministic.
-    Vector3 no_attacker_bearing = get_global_transform().basis.get_column(0);
-    no_attacker_bearing.y = 0.0f;
-    if (no_attacker_bearing.length_squared() <= 1e-8f) no_attacker_bearing = Vector3(1, 0, 0);
-    no_attacker_bearing = no_attacker_bearing.normalized() * ((UtilityFunctions::randi() & 1) ? 1.0f : -1.0f);
-    sim_.set_knockback_bearing(no_attacker_bearing);
-
     sim_.accumulate_and_tick(delta, pi, *collision_resolver_, PlayerSim::STEP_HEIGHT, speed_multiplier);
 
     // Apply any health damage this frame's ticks queued (landings now, and
@@ -128,12 +116,16 @@ void PlayerController::_process(double delta) {
         // captures it once, when the hit lands): an attacker-caused hit is shoved
         // away from the attacker and the view recoils back toward them, while an
         // environmental one -- a fall, a drown, a cactus -- has no attacker to take
-        // a bearing from, so the side axis picked for the sim above is reused and
-        // the view rolls about its own axis instead of tipping along the look.
+        // a bearing from, so one of the two side bearings is picked per hit and the
+        // view rolls about its own axis instead of tipping along the look. (The
+        // sim's own fall knockback is vertical only, so this bearing is cosmetic.)
         if (damage.by_attacker) {
             hurt_push_dir_ = knockback_direction(get_global_position(), damage.attacker_position);
         } else {
-            hurt_push_dir_ = no_attacker_bearing;
+            Vector3 side = get_global_transform().basis.get_column(0);
+            side.y = 0.0f;
+            if (side.length_squared() <= 1e-8f) side = Vector3(1, 0, 0);
+            hurt_push_dir_ = side.normalized() * ((UtilityFunctions::randi() & 1) ? 1.0f : -1.0f);
         }
         emit_signal("damaged", static_cast<int>(std::lround(damage.amount)));
     }

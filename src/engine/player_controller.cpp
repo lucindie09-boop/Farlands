@@ -35,9 +35,6 @@ void PlayerSim::reset(const Vector3& initial_pos) {
     pending_hurt_ = false;
     pending_hit_by_attacker_ = false;
     pending_hit_attacker_ = Vector3();
-    // A fresh body has not been shoved from any bearing yet; the node overrides
-    // this every frame with the side it picked, so this is only a safe default.
-    knockback_bearing_ = Vector3(1.0f, 0.0f, 0.0f);
 }
 
 float PlayerSim::get_accumulator_fraction() const {
@@ -126,15 +123,16 @@ void PlayerSim::resolve_incoming_damage() {
             pending_hit_attacker_ = source.attacker_position;
             // A registered hit shoves the body; the shove rides on a hit even
             // when absorption ate all of it. An attacker hit is shoved directly
-            // away from the attacker. A landing is shoved too, yet has no body
-            // to be shoved away from, so it uses the random bearing the node
-            // handed in (the reference randomises the bearing when source and
-            // victim share a spot, which a landing always does). Every other
-            // environmental source -- a drown, a cactus, fire -- does not shove.
+            // away from the attacker. A landing is shoved too, but has no body to
+            // be shoved away from, so it takes no horizontal direction: the same
+            // halving of every axis and the vertical lift, with no horizontal
+            // impulse (the reference applies no horizontal push there). Every
+            // other environmental source -- a drown, a cactus, fire -- does not
+            // shove at all.
             if (source.by_attacker) {
                 apply_knockback(knockback_direction(position_, source.attacker_position));
             } else if (source.kind == DamageKind::Fall) {
-                apply_knockback(knockback_bearing_);
+                apply_knockback(Vector3());
             }
         }
     }

@@ -227,30 +227,32 @@ TEST_CASE("Damage window: an attacker hit shoves the body away and up") {
     (void)pc.consume_damage_events();
 }
 
-TEST_CASE("Damage window: a landing shoves along the bearing it was handed") {
+TEST_CASE("Damage window: a landing shoves vertically with no horizontal impulse") {
     ChunkMap cm;
     fill_flat_floor(cm);
     CollisionResolver cr(&cm);
     PlayerSim pc;
-    // Floor top sits at y=1, so starting at 8.5 is a 7.5-block drop -> 4.
-    pc.reset(Vector3(0.5f, 8.5f, 0.5f));
-    // The node picks the random side bearing; here it is fixed so the shove is
-    // assertable. The sim must not reach for the engine's random, so it applies
-    // exactly the bearing it was handed.
-    pc.set_knockback_bearing(Vector3(0.0f, 0.0f, 1.0f));
+    pc.reset(Vector3(0.5f, 1.0f, 0.5f));
+    settle(pc, cr);
+    // Resting: no horizontal motion (vertical is only this tick's gravity).
+    CHECK(pc.get_velocity().x == doctest::Approx(0.0f));
+    CHECK(pc.get_velocity().z == doctest::Approx(0.0f));
 
     PlayerInput idle;
-    for (int i = 0; i < 60 && !pc.is_on_floor(); ++i) {
-        pc.accumulate_and_tick(1.0 / 20.0, idle, cr);
-    }
-    CHECK(pc.is_on_floor());
+    DamageSource landing;
+    landing.kind = DamageKind::Fall;
+    landing.amount = 4.0f;  // by_attacker defaults to false
+    pc.queue_damage(landing);
+    pc.accumulate_and_tick(1.0 / 20.0, idle, cr);
 
-    // A landing enters the same queue and window as any hit, so it shoves like
-    // one: full speed along the given bearing (the horizontal velocity at the
-    // landing is ~0), and the vertical is the halved fall plus the capped lift.
+    // A landing has no attacker direction, so every axis is halved and only the
+    // vertical gets the lift: the horizontal stays zero (no push) and the
+    // vertical is the resting gravity halved plus the base speed, capped. A fast
+    // fall ends up pushed down instead (v.y*0.5 + 0.4 still negative).
     const Vector3 v = pc.get_velocity();
     CHECK(v.x == doctest::Approx(0.0f));
-    CHECK(v.z == doctest::Approx(PlayerSim::KNOCKBACK_SPEED));
+    CHECK(v.z == doctest::Approx(0.0f));
+    CHECK(v.y > 0.0f);  // from rest, the lift wins
     CHECK(v.y <= PlayerSim::KNOCKBACK_SPEED + 1e-5f);
     CHECK(pc.consume_pending_fall_damage() == 4);
 }

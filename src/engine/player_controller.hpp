@@ -139,11 +139,6 @@ public:
     // The yellow-heart buffer, in half-hearts. Spent before health by a hit.
     void set_absorption(float half_hearts) { absorption_ = half_hearts; }
     float get_absorption() const { return absorption_; }
-    // The horizontal bearing (world, unit) a registered hit with no attacker
-    // shoves along -- a landing, whose source and victim share a spot. The sim
-    // never draws a random itself, so the node picks the bearing per frame and
-    // hands it in; an attacker hit ignores this and shoves away from the body.
-    void set_knockback_bearing(const godot::Vector3& direction) { knockback_bearing_ = direction; }
     // Ticks left in each window: the resistance window gates repeats, the anim
     // window drives the visible hurt. Exposed for tests and HUD-adjacent code.
     int get_hurt_resist_ticks() const { return hurt_resist_ticks_; }
@@ -166,8 +161,9 @@ private:
     // capped at the base speed -- the reference's base knockback, and the same
     // one dummy.gd applies. The caller has already decided the hit registers, so
     // this is unconditional. An attacker hit passes the direction away from the
-    // attacker; a landing has no body to be shoved away from, so it passes the
-    // random bearing the node picked.
+    // attacker; a landing has no body to be shoved away from, so it passes a
+    // zero direction (halving only, no horizontal impulse -- the reference applies
+    // no horizontal push when there is no attacker direction).
     void apply_knockback(const godot::Vector3& direction);
     // Queue this tick's environmental sources: drowning once the breath is gone
     // with the eye under a liquid, suffocation with the head inside a full solid,
@@ -204,7 +200,6 @@ private:
     bool pending_hurt_ = false;       // a full hit registered this frame
     bool pending_hit_by_attacker_ = false;   // ...and whether an attacker caused it
     godot::Vector3 pending_hit_attacker_;    // ...and where that attacker was
-    godot::Vector3 knockback_bearing_;       // bearing a no-attacker hit shoves along (set by the node)
 };
 
 } // namespace VoxelEngine

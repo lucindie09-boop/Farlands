@@ -237,9 +237,10 @@ private:
     godot::Vector3 spawn_point_;
     // The bearing a registered hit shoves the body (world, horizontal, unit),
     // snapshotted the frame a hit lands and held for the whole hurt window, so
-    // the lean the view draws recoils back along that shove. Only meaningful while
-    // the window is open; a hit with no attacker (a fall, a drown) has no bearing,
-    // so the shove is set along a side axis and the view rolls sideways instead.
+    // the lean the view draws recoils back along that shove. An attacker hit
+    // takes it away from the attacker; a hit with no attacker (a fall, whose
+    // shove the sim applies along the same bearing) uses the side axis the frame
+    // picked at random, so the view rolls sideways instead.
     godot::Vector3 hurt_push_dir_ = godot::Vector3(0.0f, 0.0f, -1.0f);
 
     // Re-resolve the cached sibling nodes from their instance IDs, re-looking

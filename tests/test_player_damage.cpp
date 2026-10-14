@@ -216,3 +216,52 @@ TEST_CASE("Knockback direction: stacked bodies fall back to a fixed axis") {
     CHECK(dir.length() == doctest::Approx(1.0f));
     CHECK(dir.x == doctest::Approx(1.0f));
 }
+
+TEST_CASE("Hurt lean: the angle is zero at both ends and peaks partway through") {
+    // A hit's lean is 0 the instant it lands and 0 when the window closes; the
+    // view swings out and settles rather than snapping to full tilt.
+    CHECK(hurt_lean_angle(0.0f) == doctest::Approx(0.0f));
+    CHECK(hurt_lean_angle(1.0f) == doctest::Approx(0.0f));
+
+    // The peak is where the shaped fraction reaches a quarter turn: f^4 == 0.5.
+    const float f_peak = 0.8408964f;
+    CHECK(hurt_lean_angle(f_peak) == doctest::Approx(kHurtLeanMaxRadians));
+    CHECK(hurt_lean_angle(f_peak) > hurt_lean_angle(0.5f));
+    CHECK(hurt_lean_angle(0.5f) > 0.0f);
+
+    // Outside the window it clamps instead of wrapping back into a lean.
+    CHECK(hurt_lean_angle(-0.5f) == doctest::Approx(0.0f));
+    CHECK(hurt_lean_angle(2.0f) == doctest::Approx(0.0f));
+}
+
+TEST_CASE("Hurt lean: the view tips toward the push direction") {
+    const godot::Basis upright;  // no pitch, no yaw
+    const float f = 0.8408964f;  // full lean
+
+    // Pushed toward +Z, the view's up tips toward +Z.
+    {
+        const godot::Basis leaned = hurt_lean_view(upright, godot::Vector3(0, 0, 1), f);
+        const godot::Vector3 up = leaned.get_column(1);
+        CHECK(up.z > 0.0f);
+        CHECK(up.x == doctest::Approx(0.0f));
+    }
+    // Pushed toward +X, the view's up tips toward +X (the lean axis flips).
+    {
+        const godot::Basis leaned = hurt_lean_view(upright, godot::Vector3(1, 0, 0), f);
+        CHECK(leaned.get_column(1).x > 0.0f);
+    }
+    // A vertical push has no horizontal bearing: the view is left alone.
+    {
+        const godot::Basis leaned = hurt_lean_view(upright, godot::Vector3(0, 5, 0), f);
+        CHECK(leaned.get_column(1).y == doctest::Approx(1.0f));
+    }
+    // Outside the window the base orientation is returned unchanged, so a caller
+    // can apply it every frame.
+    {
+        const godot::Basis base = godot::Basis::from_euler(godot::Vector3(0.3f, 0.0f, 0.0f));
+        const godot::Basis leaned = hurt_lean_view(base, godot::Vector3(0, 0, 1), 0.0f);
+        for (int i = 0; i < 3; ++i) {
+            CHECK(leaned.get_column(i).is_equal_approx(base.get_column(i)));
+        }
+    }
+}

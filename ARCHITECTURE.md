@@ -612,10 +612,12 @@ Two layers mirroring the ChunkManager/VoxelEngineController pattern:
   ticking it consumes the resolved damage events (`consume_damage_events`) into a clamped
   `health` property (0–20 half-hearts, `get_health`/`set_health` bindings), emits a
   `damaged(amount)` signal for each registered hit (the amount is post-reduction, pre-absorption,
-  so a hit the yellow buffer fully soaked still reports its weight), and leans the camera by a
-  short roll that decays over the hurt-animation window, sampled forward between sim ticks
-  (`get_render_hurt_anim_ticks`) so it is full the instant the hit lands and falls as a smooth
-  render-rate ramp — no 20 Hz staircase, and no one-tick delay from drawing the previous step.
+  so a hit the yellow buffer fully soaked still reports its weight), and leans the camera — a
+  14° lean (`hurt_lean_angle`, shaped by `sin(f^4·π)`) that is zero the instant the hit lands,
+  peaks partway through the window and settles back, aimed along the hit's push direction
+  (`hurt_lean_view`: away from the attacker, forward for a fall or drown), sampled forward
+  between sim ticks (`get_render_hurt_anim_ticks`) so it ramps at the render rate — no 20 Hz
+  staircase and no one-tick delay.
   A `difficulty` property (0–3, normal by
   default) is pushed into the sim's `DamageInputs` as the chain's first stage.
 - **Third-person camera & aiming** — The back/front cameras sit on the player's look ray at
@@ -1095,7 +1097,7 @@ Every file, with what it owns: [docs/ui.md](docs/ui.md).
   - `textures/0Archive/` — Archived/deprecated textures (old versions kept for reference)
 
 ### Testing
-- `tests/` — 105 `.cpp` files (724 test cases / 363,791 assertions, declared across 103 of them:
+- `tests/` — 105 `.cpp` files (726 test cases / 363,805 assertions, declared across 103 of them:
   `test_main.cpp` is the doctest entry point and `mesh_manager_stub.cpp` supplies link stubs),
   auto-discovered via `Glob("tests/*.cpp")`. A split test file keeps the original name for its
   main subject and takes `_<topic>` files beside it, with the fixtures they share in a

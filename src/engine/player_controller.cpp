@@ -33,6 +33,8 @@ void PlayerSim::reset(const Vector3& initial_pos) {
     pending_health_damage_ = 0.0f;
     pending_hit_amount_ = 0.0f;
     pending_hurt_ = false;
+    pending_hit_by_attacker_ = false;
+    pending_hit_attacker_ = Vector3();
 }
 
 float PlayerSim::get_accumulator_fraction() const {
@@ -56,9 +58,13 @@ DamageEvents PlayerSim::consume_damage_events() {
     events.health_delta = pending_health_damage_;
     events.amount = pending_hit_amount_;
     events.hurt = pending_hurt_;
+    events.by_attacker = pending_hit_by_attacker_;
+    events.attacker_position = pending_hit_attacker_;
     pending_health_damage_ = 0.0f;
     pending_hit_amount_ = 0.0f;
     pending_hurt_ = false;
+    pending_hit_by_attacker_ = false;
+    pending_hit_attacker_ = Vector3();
     // The fall-specific view is a slice of the same events, so draining the
     // unified events drains it too: the node reads this one path and no
     // accumulator is left growing unwatched.
@@ -113,6 +119,8 @@ void PlayerSim::resolve_incoming_damage() {
             hurt_resist_ticks_ = kHurtResistTime;
             hurt_anim_ticks_ = kHurtAnimTime;
             pending_hurt_ = true;
+            pending_hit_by_attacker_ = source.by_attacker;
+            pending_hit_attacker_ = source.attacker_position;
             // A hit thrown by an attacker shoves the body; a fall, a drown or
             // any environmental source does not. The shove rides on a
             // registered hit even when absorption ate all of it.

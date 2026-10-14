@@ -416,24 +416,27 @@ void PlayerController::update_camera_transform(float eye_height, float delta) {
     if (!camera_) return;
     const Vector3 local_forward = Vector3(0, 0, -1).rotated(Vector3(1, 0, 0), pitch_);
 
-    // A hit leans the view: a roll that is full the frame the hit lands and
-    // decays to nothing over the hurt-animation window, sampled between sim
-    // ticks so the decay ramps smoothly at the render rate rather than stepping
+    // A hit leans the view: a short arc that is zero the instant the hit lands,
+    // peaks partway through the hurt-animation window and settles back, aimed
+    // along the direction the hit shoved the body (a hit from the left leans the
+    // view right). Sampled between sim ticks so it ramps at the render rate, not
     // at 20 Hz. Cosmetic only — the aim ray is built from the player's own
     // yaw/pitch, not the camera, so the crosshair does not move with the lean.
-    float hurt_roll = 0.0f;
     const float hurt_ticks = sim_.get_render_hurt_anim_ticks(sim_.get_accumulator_fraction());
-    if (hurt_ticks > 0.0f) {
-        hurt_roll = kHurtCameraRollMax * (hurt_ticks / static_cast<float>(kHurtAnimTime));
-    }
+    const float window_fraction =
+        std::clamp(hurt_ticks / static_cast<float>(kHurtAnimTime), 0.0f, 1.0f);
+    // The push is carried in world space; bring it into the player's own frame so
+    // the lean axis is the view's, not a fixed world axis.
+    const Vector3 local_push = get_global_transform().basis.inverse().xform(hurt_push_dir_);
 
     if (third_person_view_ == 0) {
         // First person: steady eye-height blend, no walk bob.
         const float target = eye_height;
         rendered_eye_height_ += (target - rendered_eye_height_)
             * static_cast<float>(1.0 - std::pow(0.0001, delta));
+        const Basis base = Basis(Vector3(1, 0, 0), pitch_);
+        camera_->set_basis(hurt_lean_view(base, local_push, window_fraction));
         camera_->set_position(Vector3(0, rendered_eye_height_, 0));
-        camera_->set_rotation(Vector3(pitch_, 0.0f, hurt_roll));
         return;
     }
 
@@ -447,21 +450,17 @@ void PlayerController::update_camera_transform(float eye_height, float delta) {
     const Vector3 eye_world = g.xform(Vector3(0.0f, eye_height, 0.0f));
     const Vector3 dir_world = g.basis.xform(local_forward).normalized() * dir_sign;
     const float dist = camera_clear_distance(eye_world, dir_world, kThirdPersonOffset);
-    camera_->set_global_position(eye_world + dir_world * dist);
 
     // vanilla's third-person camera uses the player's look rotation directly
     // (the front view adds 180 to the pitch), NOT an aim-at-player direction:
     // the camera sits exactly on the look ray, so its forward is parallel to
     // the eye-ray that block targeting uses and the crosshair/outline always
-    // agree with first person. Aim-derived rotations were also the cause of
-    // the near-vertical "lock": looking straight down/up the horizontal
-    // component of the aim direction vanishes, so the camera's yaw got driven
-    // by the body's lagging yaw instead of the mouse.
-    if (third_person_view_ == 1) {
-        camera_->set_rotation(Vector3(pitch_, 0.0f, hurt_roll));
-    } else {
-        camera_->set_rotation(Vector3(-pitch_, kPi, hurt_roll));
-    }
+    // agree with first person.
+    const Basis base = (third_person_view_ == 1)
+        ? Basis(Vector3(1, 0, 0), pitch_)
+        : Basis::from_euler(Vector3(-pitch_, kPi, 0.0f));
+    camera_->set_basis(hurt_lean_view(base, local_push, window_fraction));
+    camera_->set_global_position(eye_world + dir_world * dist);
 }
 
 float PlayerController::camera_clear_distance(const Vector3& eye_world, const Vector3& dir,

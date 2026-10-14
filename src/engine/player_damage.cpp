@@ -107,4 +107,27 @@ godot::Vector3 knockback_direction(const godot::Vector3& victim_position,
     return godot::Vector3(dx * inv, 0.0f, dz * inv);
 }
 
+float hurt_lean_angle(float window_fraction) {
+    const float f = std::clamp(window_fraction, 0.0f, 1.0f);
+    const float f4 = f * f * f * f;
+    return kHurtLeanMaxRadians * std::sin(f4 * 3.14159265358979f);
+}
+
+godot::Basis hurt_lean_view(const godot::Basis& base, const godot::Vector3& local_push,
+                            float window_fraction) {
+    const float angle = hurt_lean_angle(window_fraction);
+    if (angle == 0.0f) {
+        return base;
+    }
+    godot::Vector3 push(local_push.x, 0.0f, local_push.z);
+    if (push.length_squared() < 1e-8f) {
+        return base;
+    }
+    push = push.normalized();
+    // up x push is the horizontal axis whose rotation tips the view's up toward
+    // push, so a hit shoves the view the same way it shoves the body.
+    const godot::Vector3 axis = godot::Vector3(0.0f, 1.0f, 0.0f).cross(push);
+    return godot::Basis(axis, angle) * base;
+}
+
 } // namespace VoxelEngine

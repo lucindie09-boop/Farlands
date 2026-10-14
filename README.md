@@ -75,7 +75,7 @@ and a wildcard like `src/mesh/mesh_manager*.cpp` means the family a split produc
 | Items & tool stats | `src/core/item_registry.hpp/cpp`, `mining.hpp` + `data/items.json` | Tool class/tier speed, hammer crushing, block `drops`, held light, bucket use - [notes](docs/gui-notes.md) |
 | Inventory UI | `inventory.gd`, `hotbar.gd`, `crafting_table_menu.gd` | E toggles the full screen, drag/drop and shift-click transfer, 3x3 table from `crafting_table_used`, live 2x2 grid |
 | Block icons | `block_icon_renderer.gd` | Isometric 300x300 icons built from each shape's selection boxes, pre-rendered and cached; `/testicons` |
-| Health, death, chat | `healthbar.gd`, `death_screen.gd`, `chat.gd` | 10 hearts, the respawn overlay, autocomplete and the command set |
+| Health, death, chat | `healthbar.gd`, `airbar.gd`, `death_screen.gd`, `chat.gd` | 10 hearts, the breath bubbles, the respawn overlay, autocomplete and the command set |
 | Settings, Skin Maker, Block Maker | `settings_menu.gd` | Render/lighting/crosshair/controls pages, both in-game editors, one share code per category - [notes](docs/gui-notes.md) |
 | Testing & CI | `tests/`, `tools/`, `.github/workflows/build.yml` | 723 cases / 363,782 assertions, four static gates, the soak and fuzz jobs - [notes](docs/testing.md), [contributing](CONTRIBUTING.md) |
 | Shader effects | `shader_overlay.gd` + `data/shaders.json` | The effect stack (Hand Drawn, CRT Screen, Phosphor Trail, filters, camera and vertex effects), built from the registry - [rendering](docs/rendering-notes.md) |

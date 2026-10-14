@@ -379,7 +379,8 @@ Full notes: [docs/testing.md](docs/testing.md).
   overlapping a `contact_damage` block (`CollisionResolver::contact_damage_for_aabb`, the strict
   `AABB::intersects` over the box's cells) queues `Cactus` for the block's own half-hearts. The
   meter is exposed as `get_air_ticks()` / `MAX_AIR`, surfaced to the node as `get_air` /
-  `get_max_air`.
+  `get_max_air` and drawn by `airbar.gd` as ten bubbles above the hotbar's right edge (the mirror
+  of `healthbar.gd`; hidden while the breath is full).
 - **Death & respawn**: `set_health` reaching 0 triggers `die()` — sets a `dead_` flag that
   freezes `_process`/`_input` (no movement, look, break/place, hotbar), forces the mouse cursor
   visible via `update_mouse_mode()`, and emits `died`; `respawn()` restores full health,

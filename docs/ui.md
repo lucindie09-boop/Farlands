@@ -28,6 +28,11 @@ screen (the shader-effect stack, the animated-liquid tools, the model previews).
   off `PlayerController.get_health()`. A hit that takes red off a heart drops it: every red texel
   the old state had and the new one doesn't leaves as a shard of its own through `ui_shatter.gd`
   (see [gui-notes.md](gui-notes.md))
+- `airbar.gd` — Air bubbles: 10 bubbles above the hotbar's right edge, drawn only while the
+  breath is not full (the eye under a liquid), the same 9-unit sprite on an 8-unit pitch as the
+  hearts, right-aligned in the hotbar's 81-unit row. Each bubble is one tenth of `get_max_air()`,
+  polled from `PlayerController.get_air()`; a depleted slot is the same `bubble.png` under a dark
+  modulate
 - `death_screen.gd` — Death overlay: "You died!" + Respawn button, shown on the
   `PlayerController.died` signal and hidden on `respawned`
 - `inventory.gd` - Full inventory screen with drag-drop stack movement, shift-click

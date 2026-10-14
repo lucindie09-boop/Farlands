@@ -594,7 +594,13 @@ Two layers mirroring the ChunkManager/VoxelEngineController pattern:
   full hit opens `kHurtResistTime` ticks of resistance and `kHurtAnimTime` of feedback; a repeat
   inside the first `kHurtResistWindow` ticks is resisted, or lands only its excess with no
   feedback), spending absorption before health and, for a registered attacker hit, applying the
-  base receiving knockback away from the attacker.
+  base receiving knockback away from the attacker. Each tick, before the queue resolves,
+  `apply_environmental_hazards` also turns three world conditions into queued sources (so the
+  hurt window paces the repeats): suffocation when the head cell is a full solid block
+  (`CollisionResolver::is_suffocating_at`), drowning once the breath meter empties while the
+  **eye** cell stays a liquid (it refills at `AIR_REFILL_PER_TICK` otherwise), and contact damage
+  from a `contact_damage` block the body AABB overlaps
+  (`CollisionResolver::contact_damage_for_aabb`).
 - **`PlayerController`** (`src/godot_bindings/player_controller.*`) — Godot `Node3D` scene node
   registered via ClassDB (used directly by `Main.tscn`). Polls input, drives the tick
   accumulator from `_process(delta)`, handles mouse look (pitch clamped ±90°), fly mode
@@ -1080,7 +1086,7 @@ Every file, with what it owns: [docs/ui.md](docs/ui.md).
   - `textures/0Archive/` — Archived/deprecated textures (old versions kept for reference)
 
 ### Testing
-- `tests/` — 104 `.cpp` files (715 test cases / 363,763 assertions, declared across 102 of them:
+- `tests/` — 105 `.cpp` files (723 test cases / 363,782 assertions, declared across 103 of them:
   `test_main.cpp` is the doctest entry point and `mesh_manager_stub.cpp` supplies link stubs),
   auto-discovered via `Glob("tests/*.cpp")`. A split test file keeps the original name for its
   main subject and takes `_<topic>` files beside it, with the fixtures they share in a
@@ -1104,6 +1110,9 @@ Every file, with what it owns: [docs/ui.md](docs/ui.md).
 - `tests/test_player_controller.cpp` + `_water.cpp` / `_tick.cpp` / `_airborne.cpp` — PlayerSim
   movement/sprint/sneak/collision tests, fall damage (safe jump landing, 7.5-block drop → 4
   half-hearts, teleport reset clearing pending damage)
+- `tests/test_player_damage.cpp` / `_window.cpp` / `test_player_hazards.cpp` — the reduction chain,
+  the hurt window (overlapping sources, absorbed/repeat reporting) and the continuous hazards
+  (drowning on the eye cell, cactus contact, suffocation)
 - `tests/test_soak.cpp` — Multi-threaded fly-through-the-world stress test
 - `tests/test_persistence.cpp`, `tests/test_collision_resolver.cpp`,
   `tests/test_density_field.cpp` — format, collision, and terrain tests

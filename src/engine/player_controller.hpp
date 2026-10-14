@@ -68,6 +68,13 @@ public:
     // Vanilla fall damage: landings further than 3 blocks hurt, 1 half-heart
     // per extra block (floor(fall_distance - 3)).
     static constexpr float SAFE_FALL_DISTANCE = 3.0f;
+    // Air: 15 s of breath (300 ticks) before drowning, refilled at 4 ticks per
+    // tick once the eye is clear. A drowned or suffocated hit is one source among
+    // the others, so the hurt window paces the repeats rather than a timer here.
+    static constexpr int MAX_AIR = 300;
+    static constexpr int AIR_REFILL_PER_TICK = 4;
+    static constexpr float DROWN_DAMAGE = 2.0f;      // half-hearts per drowned hit
+    static constexpr float SUFFOCATE_DAMAGE = 1.0f;  // half-hearts per suffocated hit
     // Receiving knockback (blocks/tick): the same 0.4 base the reference uses
     // and the combat dummy mirrors, so a hit shoves either body identically.
     static constexpr float KNOCKBACK_SPEED = 0.4f;
@@ -125,6 +132,10 @@ public:
     int get_hurt_resist_ticks() const { return hurt_resist_ticks_; }
     int get_hurt_anim_ticks() const { return hurt_anim_ticks_; }
 
+    // Remaining breath in ticks (0..MAX_AIR), for the bubble HUD. 0 means the
+    // eye has been under a liquid long enough that drowning is now ticking.
+    int get_air_ticks() const { return air_ticks_; }
+
     void queue_jump() { jump_queued_ = true; }
 
 private:
@@ -139,6 +150,13 @@ private:
     // reference's base knockback, and the same one dummy.gd applies. The caller
     // has already decided the hit registers, so this is unconditional.
     void apply_hit_knockback(const godot::Vector3& attacker_position);
+    // Queue this tick's environmental sources: drowning once the breath is gone
+    // with the eye under a liquid, suffocation with the head inside a full solid,
+    // and contact damage for a body touching a block that deals it (cactus). They
+    // enter the same queue as everything else, so the hurt window paces the
+    // repeats and the reductions can soften them. Called at the end of a tick,
+    // after the move, right before the queue is resolved.
+    void apply_environmental_hazards(CollisionResolver& cr);
 
     godot::Vector3 position_;
     godot::Vector3 prev_position_;
@@ -152,6 +170,7 @@ private:
     float accumulator_ = 0.0f;
     float fall_distance_ = 0.0f;
     int pending_fall_damage_ = 0;
+    int air_ticks_ = MAX_AIR;         // remaining breath, in ticks
 
     // Receiving-combat state. The `incoming_damage_` queue is drained every
     // tick, so it never grows without bound even if a caller keeps queueing.

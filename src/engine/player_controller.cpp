@@ -22,6 +22,7 @@ void PlayerSim::reset(const Vector3& initial_pos) {
     accumulator_ = 0.0f;
     fall_distance_ = 0.0f;
     pending_fall_damage_ = 0;
+    air_ticks_ = MAX_AIR;
     // A new body (teleport, respawn, entering fly) starts with no hit in
     // progress. The defensive snapshot and the absorption buffer are the
     // player's loadout, not part of a fall, so they survive the reset.
@@ -129,6 +130,48 @@ void PlayerSim::apply_hit_knockback(const godot::Vector3& attacker_position) {
     velocity_.z = velocity_.z * 0.5f + dir.z * KNOCKBACK_SPEED;
     velocity_.y = velocity_.y * 0.5f + KNOCKBACK_SPEED;
     velocity_.y = std::min(velocity_.y, KNOCKBACK_SPEED);
+}
+
+void PlayerSim::apply_environmental_hazards(CollisionResolver& cr) {
+    // The head cell: the eye's own cell, since drowning is about the EYE being
+    // under a liquid, not the feet (a body on a submerged step is still drowning).
+    const int32_t hx = static_cast<int32_t>(std::floor(position_.x));
+    const int32_t hz = static_cast<int32_t>(std::floor(position_.z));
+    const int32_t hy = static_cast<int32_t>(std::floor(position_.y + get_eye_height()));
+
+    if (cr.is_liquid_at(hx, hy, hz)) {
+        if (air_ticks_ > 0) --air_ticks_;
+        // Out of air: one source per tick. The hurt window is what turns that
+        // into a steady one-hit-per-window tick rather than a per-frame drain.
+        if (air_ticks_ <= 0) {
+            DamageSource drown;
+            drown.kind = DamageKind::Drown;
+            drown.amount = DROWN_DAMAGE;
+            queue_damage(drown);
+        }
+    } else if (air_ticks_ < MAX_AIR) {
+        air_ticks_ = std::min(MAX_AIR, air_ticks_ + AIR_REFILL_PER_TICK);
+    }
+
+    if (cr.is_suffocating_at(hx, hy, hz)) {
+        DamageSource suffocate;
+        suffocate.kind = DamageKind::Suffocate;
+        suffocate.amount = SUFFOCATE_DAMAGE;
+        queue_damage(suffocate);
+    }
+
+    // Contact hazards (cactus): the body's own box, so a mere touch of a side
+    // counts while standing on the top face does not.
+    const godot::Vector3 size = (state_ == MoveState::SNEAKING) ? SNEAKING_SIZE : STANDING_SIZE;
+    const AABB body(godot::Vector3(position_.x - size.x * 0.5f, position_.y, position_.z - size.z * 0.5f),
+                    size);
+    const int contact = cr.contact_damage_for_aabb(body);
+    if (contact > 0) {
+        DamageSource touch;
+        touch.kind = DamageKind::Cactus;
+        touch.amount = static_cast<float>(contact);
+        queue_damage(touch);
+    }
 }
 
 Vector3 PlayerSim::get_render_position(float partial_tick) const {
@@ -396,6 +439,7 @@ void PlayerSim::tick(const PlayerInput& input, CollisionResolver& cr, float step
     // the hurt window, so a landing hurts on the tick it happens. Last, so a
     // knockback launched here is the tick's final velocity and is not damped by
     // this tick's gravity; the next tick's move carries it.
+    apply_environmental_hazards(cr);
     resolve_incoming_damage();
 }
 

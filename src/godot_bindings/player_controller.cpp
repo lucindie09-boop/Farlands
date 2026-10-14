@@ -111,6 +111,8 @@ void PlayerController::bind_state_and_view() {
     ClassDB::bind_method(D_METHOD("set_difficulty", "value"), &PlayerController::set_difficulty);
     ClassDB::bind_method(D_METHOD("is_on_floor"), &PlayerController::is_on_floor);
     ClassDB::bind_method(D_METHOD("is_in_water"), &PlayerController::is_in_water);
+    ClassDB::bind_method(D_METHOD("get_air"), &PlayerController::get_air);
+    ClassDB::bind_method(D_METHOD("get_max_air"), &PlayerController::get_max_air);
 
     ClassDB::bind_method(D_METHOD("toggle_third_person"), &PlayerController::toggle_third_person);
     ClassDB::bind_method(D_METHOD("set_third_person", "on"), &PlayerController::set_third_person);

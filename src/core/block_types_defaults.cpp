@@ -21,7 +21,8 @@ void BlockRegistry::initialize_default_blocks() noexcept {
     initialized = true;
 
     // Helper for solid, opaque, AO-generating blocks with all 6 faces visible.
-    const auto solid = [&](const char* name) {
+    // `contact_damage` is the half-hearts a body touching it takes (cactus).
+    const auto solid = [&](const char* name, int contact_damage = 0) {
         BlockType bt{};
         bt.name = name;
         bt.properties = BlockProperty::Solid | BlockProperty::Opaque;
@@ -29,6 +30,7 @@ void BlockRegistry::initialize_default_blocks() noexcept {
         bt.light_pattern = LightEmissionPattern::Diamond;
         bt.slipperiness = 0.6f;
         bt.full_cube_ = true;
+        bt.contact_damage = contact_damage;
         register_block(bt);
     };
 
@@ -208,7 +210,7 @@ void BlockRegistry::initialize_default_blocks() noexcept {
     // 18-20: Snow, Gravel, Cactus
     solid("snow");
     solid("gravel");
-    solid("cactus");
+    solid("cactus", 1);
 
     // Fluid states. APPENDED, never inserted: ids are positional, so a new
     // entry here would re-point every id after it. Nothing in the fluid system

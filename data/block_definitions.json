@@ -243,6 +243,7 @@
   {
     "name": "cactus",
     "hardness": 0.4,
+    "contact_damage": 1,
     "properties": ["Solid", "Opaque"],
     "visible_faces": [true, true, true, true, true, true],
     "textures": ["cactus", "cactus", "cactus", "cactus", "cactus", "cactus"],

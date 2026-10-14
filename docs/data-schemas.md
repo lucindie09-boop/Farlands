@@ -35,6 +35,7 @@ with the cross-block references resolved in `src/core/block_types_families.cpp`.
 | `light` | 3 numbers | The colour this block emits. All zero means it emits nothing |
 | `light_opacity` | number | How much light the block swallows as light passes through it |
 | `hardness` | number | Break time divisor; `0` (or absent) is instant |
+| `contact_damage` | number | Half-hearts a body overlapping this block takes per tick it stays inside it (cactus). `0` (or absent) is harmless |
 | `preferred_tool` | string | The tool class that mines this block quickly |
 | `min_tier` | number | The tool tier below which mining is not rewarded (it never *blocks* the break) |
 | `top_face_offset` | number | Lowering of the drawn top face, for a block whose surface sits below the cell top |

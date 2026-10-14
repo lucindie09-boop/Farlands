@@ -273,7 +273,7 @@ Full notes: [docs/schematic-notes.md](docs/schematic-notes.md).
 Full notes: [docs/fluids.md](docs/fluids.md).
 
 ### Testing & CI
-- 715 test cases / 363,763 assertions, written with `CHECK`/`CHECK_FALSE` only: this
+- 723 test cases / 363,782 assertions, written with `CHECK`/`CHECK_FALSE` only: this
   build disables exceptions, so `REQUIRE` is a compile error.
 - Move work off the frame before making it cheaper, and prove the move with a total:
   the phases must add up to the frame.
@@ -369,6 +369,17 @@ Full notes: [docs/testing.md](docs/testing.md).
   property (0-3, normal by default) seeds the chain's first stage, and the animation window tilts
   the view — a camera roll that is full the frame a hit lands and decays over `kHurtAnimTime`
   (cosmetic: the aim ray comes from the player's yaw/pitch, so the crosshair never moves)
+- **Continuous hazards**: `PlayerSim::apply_environmental_hazards` runs each tick before the
+  queue is resolved and turns three world conditions into the same queued sources, so the hurt
+  window paces the repeats rather than a separate timer. A head cell that is a full solid block
+  (`CollisionResolver::is_suffocating_at` — `stops_bodies() && is_full_cube()`, so a liquid never
+  counts) queues `Suffocate`; the breath meter drains while the **eye** cell is a liquid and
+  refills at `AIR_REFILL_PER_TICK` otherwise, queueing `Drown` once it reaches zero (the eye is
+  `position_.y + get_eye_height()`, so a body with only its feet wet breathes); and a body AABB
+  overlapping a `contact_damage` block (`CollisionResolver::contact_damage_for_aabb`, the strict
+  `AABB::intersects` over the box's cells) queues `Cactus` for the block's own half-hearts. The
+  meter is exposed as `get_air_ticks()` / `MAX_AIR`, surfaced to the node as `get_air` /
+  `get_max_air`.
 - **Death & respawn**: `set_health` reaching 0 triggers `die()` — sets a `dead_` flag that
   freezes `_process`/`_input` (no movement, look, break/place, hotbar), forces the mouse cursor
   visible via `update_mouse_mode()`, and emits `died`; `respawn()` restores full health,

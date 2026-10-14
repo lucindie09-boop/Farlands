@@ -356,6 +356,54 @@ bool CollisionResolver::is_solid_at(int32_t wx, int32_t wy, int32_t wz) const {
     return BlockRegistry::get_instance().get_block(id).stops_bodies();
 }
 
+bool CollisionResolver::is_suffocating_at(int32_t wx, int32_t wy, int32_t wz) const {
+    if (!chunk_map_) return false;
+    const BlockID id = static_cast<BlockID>(chunk_map_->get_block_world(wx, wy, wz));
+    if (id == BlockIDs::AIR) return false;
+    const BlockType& bt = BlockRegistry::get_instance().get_block(id);
+    // A full solid cube fills the whole cell, so a head in it has nowhere to be;
+    // a slab or a liquid leaves the upper part of the cell empty.
+    return bt.stops_bodies() && bt.is_full_cube();
+}
+
+// Reads the cells the box spans under the caller-held lock. Godot's AABB test is
+// strict, so a box resting exactly on a cell's top face does not count as
+// overlapping it.
+int CollisionResolver::contact_damage_for_aabb_fast(const godot::AABB& aabb) const {
+    if (!chunk_map_) return 0;
+    const BlockRegistry& registry = BlockRegistry::get_instance();
+    const int32_t min_x = static_cast<int32_t>(std::floor(aabb.position.x));
+    const int32_t min_y = static_cast<int32_t>(std::floor(aabb.position.y));
+    const int32_t min_z = static_cast<int32_t>(std::floor(aabb.position.z));
+    const int32_t max_x = static_cast<int32_t>(std::floor(aabb.position.x + aabb.size.x));
+    const int32_t max_y = static_cast<int32_t>(std::floor(aabb.position.y + aabb.size.y));
+    const int32_t max_z = static_cast<int32_t>(std::floor(aabb.position.z + aabb.size.z));
+    int worst = 0;
+    for (int32_t y = min_y; y <= max_y; ++y) {
+        for (int32_t z = min_z; z <= max_z; ++z) {
+            for (int32_t x = min_x; x <= max_x; ++x) {
+                const BlockID id = static_cast<BlockID>(chunk_map_->get_block_world_fast(x, y, z));
+                if (id == BlockIDs::AIR) continue;
+                const BlockType& bt = registry.get_block_fast(id);
+                if (bt.contact_damage <= worst) continue;
+                const AABB cell(Vector3(static_cast<float>(x), static_cast<float>(y), static_cast<float>(z)),
+                                Vector3(1.0f, 1.0f, 1.0f));
+                if (aabb.intersects(cell)) worst = bt.contact_damage;
+            }
+        }
+    }
+    return worst;
+}
+
+int CollisionResolver::contact_damage_for_aabb(const godot::AABB& aabb) const {
+    if (!chunk_map_) return 0;
+    constexpr float kPad = 1.0f;
+    auto lock = chunk_map_->lock_keys(chunk_keys_for_box(
+        chunk_map_, aabb.position - Vector3(kPad, kPad, kPad),
+        aabb.position + aabb.size + Vector3(kPad, kPad, kPad)));
+    return contact_damage_for_aabb_fast(aabb);
+}
+
 bool CollisionResolver::is_liquid_at(int32_t wx, int32_t wy, int32_t wz) const {
     if (!chunk_map_) return false;
     const BlockID id = static_cast<BlockID>(chunk_map_->get_block_world(wx, wy, wz));

@@ -235,11 +235,11 @@ private:
     godot::Node3D* model_pivot_ = nullptr;
     float body_yaw_ = 0.0f;
     godot::Vector3 spawn_point_;
-    // The direction a registered hit shoves the body (world, horizontal, unit),
+    // The bearing a registered hit shoves the body (world, horizontal, unit),
     // snapshotted the frame a hit lands and held for the whole hurt window, so
     // the lean the view draws recoils back along that shove. Only meaningful while
-    // the window is open; the forward default is a hit with no attacker (a fall, a
-    // drown), which shoves along the look direction since it has no bearing.
+    // the window is open; a hit with no attacker (a fall, a drown) has no bearing,
+    // so the shove is set along a side axis and the view rolls sideways instead.
     godot::Vector3 hurt_push_dir_ = godot::Vector3(0.0f, 0.0f, -1.0f);
 
     // Re-resolve the cached sibling nodes from their instance IDs, re-looking

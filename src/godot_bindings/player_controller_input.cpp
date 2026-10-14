@@ -112,17 +112,19 @@ void PlayerController::_process(double delta) {
         set_health(health_ - static_cast<int>(std::lround(damage.health_delta)));
     }
     if (damage.hurt) {
-        // Snapshot the shove's direction for the whole window (the reference
-        // captures the bearing once, when the hit lands): an attacker-caused hit
-        // is shoved away from the attacker and the view recoils back toward them,
-        // an environmental one has no attacker so the shove is taken along the
-        // look direction.
+        // Snapshot the shove's bearing for the whole window (the reference
+        // captures it once, when the hit lands): an attacker-caused hit is shoved
+        // away from the attacker and the view recoils back toward them, while an
+        // environmental one -- a fall, a drown, a cactus -- has no attacker to take
+        // a bearing from, so one of the two side bearings is picked per hit and the
+        // view rolls about its own axis instead of tipping along the look.
         if (damage.by_attacker) {
             hurt_push_dir_ = knockback_direction(get_global_position(), damage.attacker_position);
         } else {
-            Vector3 fwd = -get_global_transform().basis.get_column(2);
-            fwd.y = 0.0f;
-            hurt_push_dir_ = fwd.length_squared() > 1e-8f ? fwd.normalized() : Vector3(0, 0, -1);
+            Vector3 side = get_global_transform().basis.get_column(0);
+            side.y = 0.0f;
+            if (side.length_squared() <= 1e-8f) side = Vector3(1, 0, 0);
+            hurt_push_dir_ = side.normalized() * ((UtilityFunctions::randi() & 1) ? 1.0f : -1.0f);
         }
         emit_signal("damaged", static_cast<int>(std::lround(damage.amount)));
     }

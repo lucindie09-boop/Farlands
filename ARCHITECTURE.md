@@ -615,7 +615,7 @@ Two layers mirroring the ChunkManager/VoxelEngineController pattern:
   so a hit the yellow buffer fully soaked still reports its weight), and leans the camera — a
   14° lean (`hurt_lean_angle`, shaped by `sin(f^4·π)`) that is zero the instant the hit lands,
   peaks partway through the window and settles back, aimed back toward the hit
-  (`hurt_lean_view`: toward the attacker, along the look direction for a fall or drown), sampled forward
+  (`hurt_lean_view`: toward the attacker, a sideways roll for a fall or drown), sampled forward
   between sim ticks (`get_render_hurt_anim_ticks`) so it ramps at the render rate — no 20 Hz
   staircase and no one-tick delay.
   A `difficulty` property (0–3, normal by

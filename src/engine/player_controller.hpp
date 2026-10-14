@@ -35,10 +35,10 @@ struct PlayerInput {
 // unconditionally.
 //
 // `by_attacker` and `attacker_position` describe the hit that produced `hurt`,
-// for the visible lean: an attacker-caused hit leans the view away from the
-// attacker, while an environmental one has no direction of its own. They are
-// copied only from a hit that actually registered, so a resisted repeat leaves
-// the previous values alone.
+// for the visible lean: an attacker-caused hit leans the view back toward the
+// attacker, while an environmental one has no bearing of its own and rolls the
+// view instead. They are copied only from a hit that actually registered, so a
+// resisted repeat leaves the previous values alone.
 struct DamageEvents {
     float health_delta = 0.0f;
     float amount = 0.0f;

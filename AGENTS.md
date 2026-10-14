@@ -369,8 +369,8 @@ Full notes: [docs/testing.md](docs/testing.md).
   property (0-3, normal by default) seeds the chain's first stage, and the animation window
   leans the view — a 14° lean (`kHurtLeanMaxRadians`) traced by `sin(f^4·π)` over the window
   (`hurt_lean_angle`), so it is zero the instant the hit lands, peaks partway through and settles
-  back, aimed back toward the hit (`hurt_lean_view`; toward the attacker, or along the
-  look direction for a fall/drown, which has no bearing of its own), sampled forward
+  back, aimed back toward the hit (`hurt_lean_view`; toward the attacker, or a
+  sideways roll for a fall/drown, which has no bearing of its own), sampled forward
   between sim ticks (`get_render_hurt_anim_ticks`) so it ramps at the render rate with no 20 Hz
   step and no one-tick delay (cosmetic: the aim ray comes from the player's yaw/pitch, so the
   crosshair never moves). The push direction rides the drain in `DamageEvents` (attacker flag +

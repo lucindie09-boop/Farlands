@@ -227,7 +227,7 @@ TEST_CASE("Damage window: an attacker hit shoves the body away and up") {
     (void)pc.consume_damage_events();
 }
 
-TEST_CASE("Damage window: a landing shoves vertically with no horizontal impulse") {
+TEST_CASE("Damage window: a landing does not shove") {
     ChunkMap cm;
     fill_flat_floor(cm);
     CollisionResolver cr(&cm);
@@ -245,16 +245,14 @@ TEST_CASE("Damage window: a landing shoves vertically with no horizontal impulse
     pc.queue_damage(landing);
     pc.accumulate_and_tick(1.0 / 20.0, idle, cr);
 
-    // A landing has no attacker direction, so every axis is halved and only the
-    // vertical gets the lift: the horizontal stays zero (no push) and the
-    // vertical is the resting gravity halved plus the base speed, capped. A fast
-    // fall ends up pushed down instead (v.y*0.5 + 0.4 still negative).
+    // A landing is natural damage: it trips the screen tilt but does not shove.
+    // The fall is registered (4 half-hearts) yet the body keeps only its resting
+    // gravity -- no horizontal impulse and no vertical lift.
+    CHECK(pc.consume_pending_fall_damage() == 4);
     const Vector3 v = pc.get_velocity();
     CHECK(v.x == doctest::Approx(0.0f));
     CHECK(v.z == doctest::Approx(0.0f));
-    CHECK(v.y > 0.0f);  // from rest, the lift wins
-    CHECK(v.y <= PlayerSim::KNOCKBACK_SPEED + 1e-5f);
-    CHECK(pc.consume_pending_fall_damage() == 4);
+    CHECK(v.y <= 0.0f);
 }
 
 TEST_CASE("Damage window: a resisted repeat does not shove again") {
@@ -302,8 +300,8 @@ TEST_CASE("Damage window: a non-fall environmental hit never shoves") {
     settle(pc, cr);
     PlayerInput idle;
 
-    // A landing is the one environmental source that shoves (its own test); a
-    // fire, a drown or a cactus still does not.
+    // Natural damage -- a landing, a fire, a drown, a cactus -- does not shove
+    // (the landing has its own test); only an attacker hit does.
     DamageSource fire;
     fire.kind = DamageKind::Fire;
     fire.amount = 4.0f;  // by_attacker defaults to false

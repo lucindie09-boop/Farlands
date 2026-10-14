@@ -593,9 +593,9 @@ Two layers mirroring the ChunkManager/VoxelEngineController pattern:
   `DamageSource`, and at the end of each tick the queue is resolved against the hurt window (a
   full hit opens `kHurtResistTime` ticks of resistance and `kHurtAnimTime` of feedback; a repeat
   inside the first `kHurtResistWindow` ticks is resisted, or lands only its excess with no
-  feedback), spending absorption before health and, for a registered hit, applying the
-  base receiving knockback: away from the attacker, or vertical-only (halve every axis and
-  lift, no horizontal push) for a landing, which has no attacker. Each tick,
+  feedback), spending absorption before health and, for a registered hit that has an attacker,
+  applying the base receiving knockback away from the attacker. Natural damage (a landing, a
+  drown, a cactus, fire) has no attacker and does not shove. Each tick,
   before the queue resolves,
   `apply_environmental_hazards` also turns three world conditions into queued sources (so the
   hurt window paces the repeats): suffocation when the head cell is a full solid block
@@ -1099,7 +1099,7 @@ Every file, with what it owns: [docs/ui.md](docs/ui.md).
   - `textures/0Archive/` — Archived/deprecated textures (old versions kept for reference)
 
 ### Testing
-- `tests/` — 105 `.cpp` files (727 test cases / 363,816 assertions, declared across 103 of them:
+- `tests/` — 105 `.cpp` files (727 test cases / 363,815 assertions, declared across 103 of them:
   `test_main.cpp` is the doctest entry point and `mesh_manager_stub.cpp` supplies link stubs),
   auto-discovered via `Glob("tests/*.cpp")`. A split test file keeps the original name for its
   main subject and takes `_<topic>` files beside it, with the fixtures they share in a

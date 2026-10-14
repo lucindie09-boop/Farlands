@@ -121,18 +121,13 @@ void PlayerSim::resolve_incoming_damage() {
             pending_hurt_ = true;
             pending_hit_by_attacker_ = source.by_attacker;
             pending_hit_attacker_ = source.attacker_position;
-            // A registered hit shoves the body; the shove rides on a hit even
-            // when absorption ate all of it. An attacker hit is shoved directly
-            // away from the attacker. A landing is shoved too, but has no body to
-            // be shoved away from, so it takes no horizontal direction: the same
-            // halving of every axis and the vertical lift, with no horizontal
-            // impulse (the reference applies no horizontal push there). Every
-            // other environmental source -- a drown, a cactus, fire -- does not
-            // shove at all.
+            // A registered hit shoves the body only when it has an attacker: the
+            // shove rides on a hit even when absorption ate all of it, and points
+            // directly away from the attacker. Every source with no attacker -- a
+            // landing, a drown, a cactus, fire -- is natural damage: it trips the
+            // screen tilt but does not shove.
             if (source.by_attacker) {
                 apply_knockback(knockback_direction(position_, source.attacker_position));
-            } else if (source.kind == DamageKind::Fall) {
-                apply_knockback(Vector3());
             }
         }
     }

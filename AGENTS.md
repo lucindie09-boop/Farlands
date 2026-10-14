@@ -273,7 +273,7 @@ Full notes: [docs/schematic-notes.md](docs/schematic-notes.md).
 Full notes: [docs/fluids.md](docs/fluids.md).
 
 ### Testing & CI
-- 724 test cases / 363,790 assertions, written with `CHECK`/`CHECK_FALSE` only: this
+- 724 test cases / 363,791 assertions, written with `CHECK`/`CHECK_FALSE` only: this
   build disables exceptions, so `REQUIRE` is a compile error.
 - Move work off the frame before making it cheaper, and prove the move with a total:
   the phases must add up to the frame.
@@ -368,9 +368,9 @@ Full notes: [docs/testing.md](docs/testing.md).
   absorption, so a hit the yellow buffer fully ate still announces itself), a `difficulty`
   property (0-3, normal by default) seeds the chain's first stage, and the animation window tilts
   the view — a camera roll that is full the frame a hit lands and decays over `kHurtAnimTime`,
-  sampled between sim ticks (`get_render_hurt_anim_ticks`) so the decay ramps smoothly at the
-  render rate rather than stepping at 20 Hz (cosmetic: the aim ray comes from the player's
-  yaw/pitch, so the crosshair never moves)
+  sampled forward between sim ticks (`get_render_hurt_anim_ticks`) so it falls smoothly at the
+  render rate with no 20 Hz step and no one-tick delay (cosmetic: the aim ray comes from the
+  player's yaw/pitch, so the crosshair never moves)
 - **Continuous hazards**: `PlayerSim::apply_environmental_hazards` runs each tick before the
   queue is resolved and turns three world conditions into the same queued sources, so the hurt
   window paces the repeats rather than a separate timer. A head cell that is a full solid block

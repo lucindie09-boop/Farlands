@@ -613,7 +613,9 @@ Two layers mirroring the ChunkManager/VoxelEngineController pattern:
   `health` property (0–20 half-hearts, `get_health`/`set_health` bindings), emits a
   `damaged(amount)` signal for each registered hit (the amount is post-reduction, pre-absorption,
   so a hit the yellow buffer fully soaked still reports its weight), and leans the camera by a
-  short roll that decays over the hurt-animation window. A `difficulty` property (0–3, normal by
+  short roll that decays over the hurt-animation window, sampled between sim ticks
+  (`get_render_hurt_anim_ticks`) so the decay is a smooth render-rate ramp rather than a 20 Hz
+  staircase. A `difficulty` property (0–3, normal by
   default) is pushed into the sim's `DamageInputs` as the chain's first stage.
 - **Third-person camera & aiming** — The back/front cameras sit on the player's look ray at
   `kThirdPersonOffset` (4.0) blocks and are pulled in before any solid block by
@@ -1092,7 +1094,7 @@ Every file, with what it owns: [docs/ui.md](docs/ui.md).
   - `textures/0Archive/` — Archived/deprecated textures (old versions kept for reference)
 
 ### Testing
-- `tests/` — 105 `.cpp` files (723 test cases / 363,782 assertions, declared across 103 of them:
+- `tests/` — 105 `.cpp` files (724 test cases / 363,790 assertions, declared across 103 of them:
   `test_main.cpp` is the doctest entry point and `mesh_manager_stub.cpp` supplies link stubs),
   auto-discovered via `Glob("tests/*.cpp")`. A split test file keeps the original name for its
   main subject and takes `_<topic>` files beside it, with the fixtures they share in a

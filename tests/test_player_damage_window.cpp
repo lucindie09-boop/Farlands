@@ -331,3 +331,36 @@ TEST_CASE("Damage window: a repeat that lands only excess reports that excess") 
     CHECK(e.amount == doctest::Approx(4.0f));  // only the part that landed
     CHECK_FALSE(e.hurt);
 }
+
+TEST_CASE("Damage window: the hurt view interpolates between ticks") {
+    ChunkMap cm;
+    fill_flat_floor(cm);
+    CollisionResolver cr(&cm);
+    PlayerSim pc;
+    pc.reset(Vector3(0.5f, 1.0f, 0.5f));
+    settle(pc, cr);
+    PlayerInput idle;
+
+    DamageSource hit;
+    hit.amount = 6.0f;
+    pc.queue_damage(hit);
+    pc.accumulate_and_tick(1.0 / 20.0, idle, cr);
+    (void)pc.consume_damage_events();
+
+    // A hit is shown at full on its own tick, whatever the partial tick is: the
+    // lean must not fade in.
+    CHECK(pc.get_hurt_anim_ticks() == kHurtAnimTime);
+    CHECK(pc.get_render_hurt_anim_ticks(0.0f) == doctest::Approx(static_cast<float>(kHurtAnimTime)));
+    CHECK(pc.get_render_hurt_anim_ticks(0.5f) == doctest::Approx(static_cast<float>(kHurtAnimTime)));
+
+    // One decay tick, left part-way through (0.02 s of the 0.05 s step remains).
+    pc.accumulate_and_tick(1.0 / 20.0 + 0.02, idle, cr);
+    CHECK(pc.get_hurt_anim_ticks() == kHurtAnimTime - 1);
+    // The value sits strictly between the tick before and this one...
+    const float mid = pc.get_render_hurt_anim_ticks(pc.get_accumulator_fraction());
+    CHECK(mid < static_cast<float>(kHurtAnimTime));
+    CHECK(mid > static_cast<float>(kHurtAnimTime - 1));
+    // ...and the step's ends are the two ticks it spans.
+    CHECK(pc.get_render_hurt_anim_ticks(0.0f) == doctest::Approx(static_cast<float>(kHurtAnimTime)));
+    CHECK(pc.get_render_hurt_anim_ticks(1.0f) == doctest::Approx(static_cast<float>(kHurtAnimTime - 1)));
+}

@@ -29,6 +29,7 @@ void PlayerSim::reset(const Vector3& initial_pos) {
     incoming_damage_.clear();
     hurt_resist_ticks_ = 0;
     hurt_anim_ticks_ = 0;
+    prev_hurt_anim_ticks_ = 0;
     last_damage_ = 0.0f;
     pending_health_damage_ = 0.0f;
     pending_hit_amount_ = 0.0f;
@@ -178,6 +179,19 @@ Vector3 PlayerSim::get_render_position(float partial_tick) const {
     return prev_position_.lerp(position_, partial_tick);
 }
 
+float PlayerSim::get_render_hurt_anim_ticks(float partial_tick) const {
+    // A window that opened this tick (or jumped) is shown at full at once -- a
+    // hit must not fade in. A tick-down is interpolated between the value the
+    // body had before this tick and the one it has now, so the decay reads as a
+    // smooth ramp at any frame rate instead of stepping at the sim's 20 Hz.
+    if (hurt_anim_ticks_ >= prev_hurt_anim_ticks_) {
+        return static_cast<float>(hurt_anim_ticks_);
+    }
+    const float prev = static_cast<float>(prev_hurt_anim_ticks_);
+    const float cur = static_cast<float>(hurt_anim_ticks_);
+    return prev + (cur - prev) * partial_tick;
+}
+
 Vector3 PlayerSim::get_camera_position(float partial_tick) const {
     Vector3 render_pos = get_render_position(partial_tick);
     render_pos.y += get_eye_height();
@@ -207,6 +221,7 @@ void PlayerSim::accumulate_and_tick(double frame_delta, const PlayerInput& input
 
 void PlayerSim::tick(const PlayerInput& input, CollisionResolver& cr, float step_height, float speed_multiplier) {
     prev_position_ = position_;   // snapshot for interpolation — once per tick, not per frame
+    prev_hurt_anim_ticks_ = hurt_anim_ticks_;  // same snapshot, for the hurt-view interpolation
 
     // The hurt windows tick down once per sim tick, before anything is resolved,
     // so a window opened this tick survives exactly kHurtResistTime more ticks.

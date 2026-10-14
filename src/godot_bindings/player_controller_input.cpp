@@ -112,6 +112,17 @@ void PlayerController::_process(double delta) {
         set_health(health_ - static_cast<int>(std::lround(damage.health_delta)));
     }
     if (damage.hurt) {
+        // Snapshot the lean's direction for the whole window (the reference
+        // captures the bearing once, when the hit lands): an attacker-caused hit
+        // leans away from the attacker, an environmental one has no bearing of
+        // its own so the view leans along the look direction.
+        if (damage.by_attacker) {
+            hurt_push_dir_ = knockback_direction(get_global_position(), damage.attacker_position);
+        } else {
+            Vector3 fwd = -get_global_transform().basis.get_column(2);
+            fwd.y = 0.0f;
+            hurt_push_dir_ = fwd.length_squared() > 1e-8f ? fwd.normalized() : Vector3(0, 0, -1);
+        }
         emit_signal("damaged", static_cast<int>(std::lround(damage.amount)));
     }
 

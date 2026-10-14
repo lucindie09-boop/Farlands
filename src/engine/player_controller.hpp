@@ -33,10 +33,18 @@ struct PlayerInput {
 // buffer still reports its weight), and `hurt` into the visible hurt response.
 // All three are zero on a frame with no damage, so a caller can act every frame
 // unconditionally.
+//
+// `by_attacker` and `attacker_position` describe the hit that produced `hurt`,
+// for the visible lean: an attacker-caused hit leans the view away from the
+// attacker, while an environmental one has no direction of its own. They are
+// copied only from a hit that actually registered, so a resisted repeat leaves
+// the previous values alone.
 struct DamageEvents {
     float health_delta = 0.0f;
     float amount = 0.0f;
     bool hurt = false;
+    bool by_attacker = false;
+    godot::Vector3 attacker_position;
 };
 
 class PlayerSim {
@@ -187,6 +195,8 @@ private:
     float pending_health_damage_ = 0.0f;  // this frame's health damage, all sources
     float pending_hit_amount_ = 0.0f;     // this frame's hit size for feedback, all sources
     bool pending_hurt_ = false;       // a full hit registered this frame
+    bool pending_hit_by_attacker_ = false;   // ...and whether an attacker caused it
+    godot::Vector3 pending_hit_attacker_;    // ...and where that attacker was
 };
 
 } // namespace VoxelEngine

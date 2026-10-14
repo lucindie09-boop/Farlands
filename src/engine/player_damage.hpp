@@ -3,6 +3,7 @@
 
 #include <cstdint>
 
+#include <godot_cpp/variant/basis.hpp>
 #include <godot_cpp/variant/vector3.hpp>
 
 // The receiving half of combat, with no Godot node and no state: one incoming
@@ -85,6 +86,27 @@ struct DamageResult {
 constexpr int kHurtResistTime = 20;
 constexpr int kHurtResistWindow = 10;
 constexpr int kHurtAnimTime = 10;
+
+// The visible face of the hurt window: a short lean on the view. `window_fraction`
+// is the hurt-animation window as a fraction -- 1 the instant a hit lands, falling
+// to 0 as the window closes. The lean is 0 at both ends of the window and peaks
+// partway through, so the view swings out and settles instead of snapping to full
+// tilt; the amplitude and the shape are the reference's (a 14-degree lean traced
+// by sin(f^4 * pi)). Kept as a pure function of the fraction so the curve can be
+// pinned without a camera, a world or a frame.
+inline constexpr float kHurtLeanMaxRadians = 14.0f * 3.14159265358979f / 180.0f;
+float hurt_lean_angle(float window_fraction);
+
+// The camera's own orientation for the current view after a hit's lean. `base` is
+// that orientation before the lean (the pitch and any view-mode yaw the caller
+// already computed) and `local_push` is the direction the hit shoves the body,
+// expressed in the player's frame (its Y is ignored). The lean is a rotation about
+// the horizontal axis perpendicular to the push, so the top of the view tips in
+// the push direction -- a hit from the left leans the view to the right. At
+// `window_fraction` 0 the base is returned unchanged, so a caller may apply it
+// every frame unconditionally.
+godot::Basis hurt_lean_view(const godot::Basis& base, const godot::Vector3& local_push,
+                            float window_fraction);
 
 // --- The chain, one pure stage per function ---
 // Each takes the amount leaving the previous stage and returns the amount

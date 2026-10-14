@@ -235,6 +235,12 @@ private:
     godot::Node3D* model_pivot_ = nullptr;
     float body_yaw_ = 0.0f;
     godot::Vector3 spawn_point_;
+    // The direction a registered hit shoves the body (world, horizontal, unit),
+    // snapshotted the frame a hit lands and held for the whole hurt window, so
+    // the lean the view draws points the same way the body was shoved. Only
+    // meaningful while the window is open; the forward default is a hit with no
+    // attacker (a fall, a drown), which has no direction of its own.
+    godot::Vector3 hurt_push_dir_ = godot::Vector3(0.0f, 0.0f, -1.0f);
 
     // Re-resolve the cached sibling nodes from their instance IDs, re-looking
     // them up when the ID no longer answers. Called once per frame before any of

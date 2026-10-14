@@ -97,6 +97,7 @@ ALLOWED_MISSING = {
     "core/chunk_types.hpp": "deleted; the junk drawer was dismantled into mesh/ and render/",
     "chunk_persistence.hpp": "deleted in 68a725b; whole-chunk snapshots became sparse edit maps",
     "patch_slim.py": "a one-off script from an earlier session, never in the repo",
+    "look_seam.py": "a one-off probe classifier, written into the gitignored .freebuff/ playground",
     "light_block_emit.png": "documented as ABSENT by textures/README.md",
     "light_red_emit.png": "documented as ABSENT by textures/README.md",
     "light_green_emit.png": "documented as ABSENT by textures/README.md",

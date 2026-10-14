@@ -418,15 +418,16 @@ void PlayerController::update_camera_transform(float eye_height, float delta) {
 
     // A hit leans the view: a short arc that is zero the instant the hit lands,
     // peaks partway through the hurt-animation window and settles back, aimed
-    // along the direction the hit shoved the body (a hit from the left leans the
-    // view right). Sampled between sim ticks so it ramps at the render rate, not
-    // at 20 Hz. Cosmetic only — the aim ray is built from the player's own
-    // yaw/pitch, not the camera, so the crosshair does not move with the lean.
+    // back toward the hit -- opposite the shove (a hit from the left shoves the
+    // body right and tips the top of the view left). Sampled between sim ticks so
+    // it ramps at the render rate, not at 20 Hz. Cosmetic only — the aim ray is
+    // built from the player's own yaw/pitch, not the camera, so the crosshair does
+    // not move with the lean.
     const float hurt_ticks = sim_.get_render_hurt_anim_ticks(sim_.get_accumulator_fraction());
     const float window_fraction =
         std::clamp(hurt_ticks / static_cast<float>(kHurtAnimTime), 0.0f, 1.0f);
-    // The push is carried in world space; bring it into the player's own frame so
-    // the lean axis is the view's, not a fixed world axis.
+    // The shove is carried in world space; bring it into the player's own frame so
+    // the lean is built in the view's frame, not a fixed world axis.
     const Vector3 local_push = get_global_transform().basis.inverse().xform(hurt_push_dir_);
 
     if (third_person_view_ == 0) {

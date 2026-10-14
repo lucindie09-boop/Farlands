@@ -1,5 +1,7 @@
 #include "doctest.h"
 
+#include <cmath>
+
 #include "engine/player_damage.hpp"
 
 using namespace VoxelEngine;
@@ -234,26 +236,40 @@ TEST_CASE("Hurt lean: the angle is zero at both ends and peaks partway through")
     CHECK(hurt_lean_angle(2.0f) == doctest::Approx(0.0f));
 }
 
-TEST_CASE("Hurt lean: the view tips toward the push direction") {
+TEST_CASE("Hurt lean: the view recoils toward the hit, opposite the shove") {
     const godot::Basis upright;  // no pitch, no yaw
     const float f = 0.8408964f;  // full lean
+    const float angle = hurt_lean_angle(f);
 
-    // Pushed toward +Z, the view's up tips toward +Z.
+    // The body is shoved toward +Z (the attacker is behind, at -Z): the top of
+    // the view tips back toward the attacker, i.e., toward -Z.
     {
         const godot::Basis leaned = hurt_lean_view(upright, godot::Vector3(0, 0, 1), f);
         const godot::Vector3 up = leaned.get_column(1);
-        CHECK(up.z > 0.0f);
+        CHECK(up.z < 0.0f);
+        CHECK(up.z == doctest::Approx(-std::sin(angle)));
         CHECK(up.x == doctest::Approx(0.0f));
     }
-    // Pushed toward +X, the view's up tips toward +X (the lean axis flips).
+    // Shoved toward +X (attacker at -X): the view tips toward -X.
     {
         const godot::Basis leaned = hurt_lean_view(upright, godot::Vector3(1, 0, 0), f);
-        CHECK(leaned.get_column(1).x > 0.0f);
+        CHECK(leaned.get_column(1).x < 0.0f);
+        CHECK(leaned.get_column(1).x == doctest::Approx(-std::sin(angle)));
     }
     // A vertical push has no horizontal bearing: the view is left alone.
     {
         const godot::Basis leaned = hurt_lean_view(upright, godot::Vector3(0, 5, 0), f);
         CHECK(leaned.get_column(1).y == doctest::Approx(1.0f));
+    }
+    // The lean lives in the view's own frame: looking up and taking a side shove
+    // is still a pure roll of the view (no twist about the look axis locally),
+    // which is what "in frame" means -- the tilt follows the head.
+    {
+        const godot::Basis base = godot::Basis(godot::Vector3(1, 0, 0), 0.7f);
+        const godot::Basis leaned = hurt_lean_view(base, godot::Vector3(1, 0, 0), f);
+        const godot::Vector3 up_local = base.inverse().xform(leaned.get_column(1));
+        CHECK(up_local.z == doctest::Approx(0.0f));
+        CHECK(up_local.x == doctest::Approx(-std::sin(angle)));
     }
     // Outside the window the base orientation is returned unchanged, so a caller
     // can apply it every frame.

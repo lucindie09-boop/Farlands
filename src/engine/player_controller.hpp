@@ -96,9 +96,9 @@ public:
     float get_accumulator_fraction() const;
     godot::Vector3 get_render_position(float partial_tick) const;
     godot::Vector3 get_camera_position(float partial_tick) const;
-    // The visible hurt, sampled between sim ticks for the render rate: a hit is
-    // shown at full the tick it lands, then the decay is interpolated so it ramps
-    // smoothly instead of stepping at 20 Hz.
+    // The visible hurt, sampled between sim ticks for the render rate. The clock
+    // falls one per tick, so it is sampled forward to the next tick: full the
+    // instant the hit lands, then falling immediately with no fixed-step lag.
     float get_render_hurt_anim_ticks(float partial_tick) const;
     // Freezes the interpolated view exactly on position_ — used on death, so
     // the camera lands where the body did instead of mid-lerp above it.
@@ -183,7 +183,6 @@ private:
     float absorption_ = 0.0f;         // yellow-heart buffer, in half-hearts
     int hurt_resist_ticks_ = 0;       // 0..kHurtResistTime
     int hurt_anim_ticks_ = 0;         // 0..kHurtAnimTime
-    int prev_hurt_anim_ticks_ = 0;    // hurt_anim_ticks_ before the last tick, for the render lerp
     float last_damage_ = 0.0f;        // the difficulty-scaled amount of the last registered hit
     float pending_health_damage_ = 0.0f;  // this frame's health damage, all sources
     float pending_hit_amount_ = 0.0f;     // this frame's hit size for feedback, all sources

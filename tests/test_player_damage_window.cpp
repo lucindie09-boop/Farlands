@@ -332,7 +332,7 @@ TEST_CASE("Damage window: a repeat that lands only excess reports that excess") 
     CHECK_FALSE(e.hurt);
 }
 
-TEST_CASE("Damage window: the hurt view interpolates between ticks") {
+TEST_CASE("Damage window: the hurt view samples the clock forward, with no lag") {
     ChunkMap cm;
     fill_flat_floor(cm);
     CollisionResolver cr(&cm);
@@ -347,20 +347,25 @@ TEST_CASE("Damage window: the hurt view interpolates between ticks") {
     pc.accumulate_and_tick(1.0 / 20.0, idle, cr);
     (void)pc.consume_damage_events();
 
-    // A hit is shown at full on its own tick, whatever the partial tick is: the
-    // lean must not fade in.
+    // On the hit's own tick the lean is full, and it is already falling: no
+    // one-tick hold at the top (the fixed-step render lag).
     CHECK(pc.get_hurt_anim_ticks() == kHurtAnimTime);
     CHECK(pc.get_render_hurt_anim_ticks(0.0f) == doctest::Approx(static_cast<float>(kHurtAnimTime)));
-    CHECK(pc.get_render_hurt_anim_ticks(0.5f) == doctest::Approx(static_cast<float>(kHurtAnimTime)));
+    CHECK(pc.get_render_hurt_anim_ticks(0.5f) == doctest::Approx(static_cast<float>(kHurtAnimTime) - 0.5f));
 
-    // One decay tick, left part-way through (0.02 s of the 0.05 s step remains).
+    // A decay tick left part-way through (0.02 s of the 0.05 s step remains):
+    // the value falls smoothly from this tick toward the next, meeting it exactly.
     pc.accumulate_and_tick(1.0 / 20.0 + 0.02, idle, cr);
+    const float partial = pc.get_accumulator_fraction();
     CHECK(pc.get_hurt_anim_ticks() == kHurtAnimTime - 1);
-    // The value sits strictly between the tick before and this one...
-    const float mid = pc.get_render_hurt_anim_ticks(pc.get_accumulator_fraction());
-    CHECK(mid < static_cast<float>(kHurtAnimTime));
-    CHECK(mid > static_cast<float>(kHurtAnimTime - 1));
-    // ...and the step's ends are the two ticks it spans.
-    CHECK(pc.get_render_hurt_anim_ticks(0.0f) == doctest::Approx(static_cast<float>(kHurtAnimTime)));
-    CHECK(pc.get_render_hurt_anim_ticks(1.0f) == doctest::Approx(static_cast<float>(kHurtAnimTime - 1)));
+    CHECK(pc.get_render_hurt_anim_ticks(0.0f) == doctest::Approx(static_cast<float>(kHurtAnimTime - 1)));
+    CHECK(pc.get_render_hurt_anim_ticks(partial) == doctest::Approx(static_cast<float>(kHurtAnimTime - 1) - partial));
+    CHECK(pc.get_render_hurt_anim_ticks(1.0f) == doctest::Approx(static_cast<float>(kHurtAnimTime - 2)));
+
+    // Once the window is spent the sample never goes negative.
+    for (int i = 0; i < kHurtAnimTime; ++i) {
+        pc.accumulate_and_tick(1.0 / 20.0, idle, cr);
+    }
+    CHECK(pc.get_hurt_anim_ticks() == 0);
+    CHECK(pc.get_render_hurt_anim_ticks(0.5f) == doctest::Approx(0.0f));
 }

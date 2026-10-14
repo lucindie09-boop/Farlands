@@ -273,7 +273,7 @@ Full notes: [docs/schematic-notes.md](docs/schematic-notes.md).
 Full notes: [docs/fluids.md](docs/fluids.md).
 
 ### Testing & CI
-- 727 test cases / 363,814 assertions, written with `CHECK`/`CHECK_FALSE` only: this
+- 727 test cases / 363,816 assertions, written with `CHECK`/`CHECK_FALSE` only: this
   build disables exceptions, so `REQUIRE` is a compile error.
 - Move work off the frame before making it cheaper, and prove the move with a total:
   the phases must add up to the frame.
@@ -360,11 +360,11 @@ Full notes: [docs/testing.md](docs/testing.md).
   two bypass flags), and the state is `PlayerSim`: queued sources resolve against a per-tick hurt
   window (a full hit opens 20 ticks of resistance / 10 of feedback; a repeat inside the first
   half is resisted, or lands only its excess with no feedback). A registered full hit adds
-  the base receiving knockback (`apply_knockback`: halve every axis, add 0.4 along the hit's
-  bearing on the horizontal and 0.4 up capped — the same numbers `dummy.gd` applies): an
-  attacker hit is pushed directly away from the attacker, a landing along the random side
-  bearing the node picks (it has no attacker to be pushed away from, and the reference
-  randomises the bearing there), while a fire, a drown or a cactus never shoves. The window
+  the base receiving knockback (`apply_knockback`: halve every axis, add the horizontal push
+  along the hit's bearing and 0.4 up capped — the same numbers `dummy.gd` applies): an
+  attacker hit is pushed directly away from the attacker, while a landing — which has no
+  attacker to take a bearing from — is halved and lifted with no horizontal push. A fire, a
+  drown or a cactus never shoves. The window
   constants (`kHurtResistTime`/`kHurtResistWindow`/
   `kHurtAnimTime`) live beside the chain so the player and the dummy read one set. The node turns
   the drain into the game: `damaged(amount)` fires on every registered hit (the amount survives

@@ -72,11 +72,22 @@ public:
 
     // True when the cell stops a body. Liquids are NOT solid (see BlockType::stops_bodies).
     bool is_solid_at(int32_t wx, int32_t wy, int32_t wz) const;
+    // True when the cell is a full solid cube — the shape that suffocates a body
+    // whose head is inside it. A slab, a stair or a liquid is not one: the head
+    // sits in the empty part of the cell, which is how the vanilla normal-cube
+    // test sees it too.
+    bool is_suffocating_at(int32_t wx, int32_t wy, int32_t wz) const;
     // True when the cell holds a liquid, whatever state it is drawn in.
     bool is_liquid_at(int32_t wx, int32_t wy, int32_t wz) const;
     float get_slipperiness_at(int32_t wx, int32_t wy, int32_t wz) const;
+    // The largest contact damage among the cells `aabb` overlaps, in half-hearts
+    // per contact tick (block_definitions.json "contact_damage"; 0 = harmless).
+    // A body only touching a cell's face does not overlap it, so standing on top
+    // of a cactus is safe while pressing into its side is not.
+    int contact_damage_for_aabb(const godot::AABB& aabb) const;
 
 private:
+    int contact_damage_for_aabb_fast(const godot::AABB& aabb) const;
     ChunkMap* chunk_map_;
 };
 

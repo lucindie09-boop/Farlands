@@ -199,6 +199,16 @@ void parse_tool(const godot::Dictionary& d, BlockType& bt) {
     }
 }
 
+// "contact_damage": half-hearts a body touching this block takes per contact
+// tick (cactus). Negative is clamped away rather than trusted, since the value
+// is applied straight to health.
+void parse_hazard(const godot::Dictionary& d, BlockType& bt) {
+    if (d.has("contact_damage")) {
+        const int64_t damage = static_cast<int64_t>(d["contact_damage"]);
+        bt.contact_damage = damage < 0 ? 0 : static_cast<int>(damage);
+    }
+}
+
 // "fluid": which fluid state this block IS (see fluids/fluid_state_table.hpp). An
 // entry the table does not know is logged and left None rather than guessed at,
 // because a block that is silently not a fluid stops the simulation from ever
@@ -294,6 +304,7 @@ BlockType parse_block_entry(const godot::Dictionary& d, const ShapeTable& shapes
     parse_light(d, bt);
     parse_physics(d, bt);
     parse_tool(d, bt);
+    parse_hazard(d, bt);
     parse_fluid_state(d, bt, name_str);
     parse_geometry(d, bt, name_str, shapes);
 

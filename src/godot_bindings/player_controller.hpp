@@ -118,6 +118,10 @@ public:
     // Ground state (true while on the floor) — used to pause walk bobbing midair.
     bool is_on_floor() const;
     bool is_in_water() const;
+    // Remaining breath and its ceiling, in ticks (0 = the eye has been under a
+    // liquid long enough that drowning is ticking). For a bubble HUD.
+    int get_air() const { return sim_.get_air_ticks(); }
+    int get_max_air() const { return VoxelEngine::PlayerSim::MAX_AIR; }
     
     void set_sensitivity(float s);
     float get_sensitivity() const;

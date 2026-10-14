@@ -55,6 +55,12 @@ struct BlockType {
     // -1.0 = unbreakable (bedrock, water) — never cracks or breaks.
     float hardness = 1.0f;
 
+    // Half-hearts this block deals to a body whose box touches it, per contact
+    // tick (block_definitions.json "contact_damage"; 0 = harmless). Cactus is
+    // the block that declares it. Read by CollisionResolver::contact_damage_for_aabb;
+    // the receiving model decides the cadence (the hurt window paces it).
+    int contact_damage = 0;
+
     // Tool class this block is mined fastest with ("pickaxe", "axe", "shovel",
     // ...). Empty = no preference, bare-hand speed. Parsed from
     // block_definitions.json.

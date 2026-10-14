@@ -273,7 +273,7 @@ Full notes: [docs/schematic-notes.md](docs/schematic-notes.md).
 Full notes: [docs/fluids.md](docs/fluids.md).
 
 ### Testing & CI
-- 726 test cases / 363,809 assertions, written with `CHECK`/`CHECK_FALSE` only: this
+- 727 test cases / 363,814 assertions, written with `CHECK`/`CHECK_FALSE` only: this
   build disables exceptions, so `REQUIRE` is a compile error.
 - Move work off the frame before making it cheaper, and prove the move with a total:
   the phases must add up to the frame.
@@ -359,10 +359,13 @@ Full notes: [docs/testing.md](docs/testing.md).
   (difficulty → blocking → armor → resistance → protection → absorption, with the caps and the
   two bypass flags), and the state is `PlayerSim`: queued sources resolve against a per-tick hurt
   window (a full hit opens 20 ticks of resistance / 10 of feedback; a repeat inside the first
-  half is resisted, or lands only its excess with no feedback). A registered attacker hit adds
-  the base receiving knockback (`apply_hit_knockback`: halve every axis, add 0.4 away from the
-  attacker on the horizontal and 0.4 up capped — the same numbers `dummy.gd` applies), while
-  environmental sources never shove. The window constants (`kHurtResistTime`/`kHurtResistWindow`/
+  half is resisted, or lands only its excess with no feedback). A registered full hit adds
+  the base receiving knockback (`apply_knockback`: halve every axis, add 0.4 along the hit's
+  bearing on the horizontal and 0.4 up capped — the same numbers `dummy.gd` applies): an
+  attacker hit is pushed directly away from the attacker, a landing along the random side
+  bearing the node picks (it has no attacker to be pushed away from, and the reference
+  randomises the bearing there), while a fire, a drown or a cactus never shoves. The window
+  constants (`kHurtResistTime`/`kHurtResistWindow`/
   `kHurtAnimTime`) live beside the chain so the player and the dummy read one set. The node turns
   the drain into the game: `damaged(amount)` fires on every registered hit (the amount survives
   absorption, so a hit the yellow buffer fully ate still announces itself), a `difficulty`
@@ -370,7 +373,7 @@ Full notes: [docs/testing.md](docs/testing.md).
   leans the view — a 14° lean (`kHurtLeanMaxRadians`) traced by `sin(f^4·π)` over the window
   (`hurt_lean_angle`), so it is zero the instant the hit lands, peaks partway through and settles
   back, aimed back toward the hit (`hurt_lean_view`; toward the attacker, or a
-  sideways roll for a fall/drown, which has no bearing of its own), sampled forward
+  sideways roll for a fall/drown, whose bearing is the random side the node picked), sampled forward
   between sim ticks (`get_render_hurt_anim_ticks`) so it ramps at the render rate with no 20 Hz
   step and no one-tick delay (cosmetic: the aim ray comes from the player's yaw/pitch, so the
   crosshair never moves). The push direction rides the drain in `DamageEvents` (attacker flag +

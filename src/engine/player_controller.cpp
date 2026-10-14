@@ -35,6 +35,9 @@ void PlayerSim::reset(const Vector3& initial_pos) {
     pending_hurt_ = false;
     pending_hit_by_attacker_ = false;
     pending_hit_attacker_ = Vector3();
+    // A fresh body has not been shoved from any bearing yet; the node overrides
+    // this every frame with the side it picked, so this is only a safe default.
+    knockback_bearing_ = Vector3(1.0f, 0.0f, 0.0f);
 }
 
 float PlayerSim::get_accumulator_fraction() const {
@@ -121,21 +124,26 @@ void PlayerSim::resolve_incoming_damage() {
             pending_hurt_ = true;
             pending_hit_by_attacker_ = source.by_attacker;
             pending_hit_attacker_ = source.attacker_position;
-            // A hit thrown by an attacker shoves the body; a fall, a drown or
-            // any environmental source does not. The shove rides on a
-            // registered hit even when absorption ate all of it.
+            // A registered hit shoves the body; the shove rides on a hit even
+            // when absorption ate all of it. An attacker hit is shoved directly
+            // away from the attacker. A landing is shoved too, yet has no body
+            // to be shoved away from, so it uses the random bearing the node
+            // handed in (the reference randomises the bearing when source and
+            // victim share a spot, which a landing always does). Every other
+            // environmental source -- a drown, a cactus, fire -- does not shove.
             if (source.by_attacker) {
-                apply_hit_knockback(source.attacker_position);
+                apply_knockback(knockback_direction(position_, source.attacker_position));
+            } else if (source.kind == DamageKind::Fall) {
+                apply_knockback(knockback_bearing_);
             }
         }
     }
     incoming_damage_.clear();
 }
 
-void PlayerSim::apply_hit_knockback(const godot::Vector3& attacker_position) {
-    const godot::Vector3 dir = knockback_direction(position_, attacker_position);
-    velocity_.x = velocity_.x * 0.5f + dir.x * KNOCKBACK_SPEED;
-    velocity_.z = velocity_.z * 0.5f + dir.z * KNOCKBACK_SPEED;
+void PlayerSim::apply_knockback(const godot::Vector3& direction) {
+    velocity_.x = velocity_.x * 0.5f + direction.x * KNOCKBACK_SPEED;
+    velocity_.z = velocity_.z * 0.5f + direction.z * KNOCKBACK_SPEED;
     velocity_.y = velocity_.y * 0.5f + KNOCKBACK_SPEED;
     velocity_.y = std::min(velocity_.y, KNOCKBACK_SPEED);
 }

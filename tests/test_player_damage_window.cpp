@@ -227,6 +227,34 @@ TEST_CASE("Damage window: an attacker hit shoves the body away and up") {
     (void)pc.consume_damage_events();
 }
 
+TEST_CASE("Damage window: a landing shoves along the bearing it was handed") {
+    ChunkMap cm;
+    fill_flat_floor(cm);
+    CollisionResolver cr(&cm);
+    PlayerSim pc;
+    // Floor top sits at y=1, so starting at 8.5 is a 7.5-block drop -> 4.
+    pc.reset(Vector3(0.5f, 8.5f, 0.5f));
+    // The node picks the random side bearing; here it is fixed so the shove is
+    // assertable. The sim must not reach for the engine's random, so it applies
+    // exactly the bearing it was handed.
+    pc.set_knockback_bearing(Vector3(0.0f, 0.0f, 1.0f));
+
+    PlayerInput idle;
+    for (int i = 0; i < 60 && !pc.is_on_floor(); ++i) {
+        pc.accumulate_and_tick(1.0 / 20.0, idle, cr);
+    }
+    CHECK(pc.is_on_floor());
+
+    // A landing enters the same queue and window as any hit, so it shoves like
+    // one: full speed along the given bearing (the horizontal velocity at the
+    // landing is ~0), and the vertical is the halved fall plus the capped lift.
+    const Vector3 v = pc.get_velocity();
+    CHECK(v.x == doctest::Approx(0.0f));
+    CHECK(v.z == doctest::Approx(PlayerSim::KNOCKBACK_SPEED));
+    CHECK(v.y <= PlayerSim::KNOCKBACK_SPEED + 1e-5f);
+    CHECK(pc.consume_pending_fall_damage() == 4);
+}
+
 TEST_CASE("Damage window: a resisted repeat does not shove again") {
     ChunkMap cm;
     fill_flat_floor(cm);
@@ -263,7 +291,7 @@ TEST_CASE("Damage window: a resisted repeat does not shove again") {
     CHECK(std::abs(after.z - before.z) < PlayerSim::KNOCKBACK_SPEED);
 }
 
-TEST_CASE("Damage window: environmental damage never shoves") {
+TEST_CASE("Damage window: a non-fall environmental hit never shoves") {
     ChunkMap cm;
     fill_flat_floor(cm);
     CollisionResolver cr(&cm);
@@ -272,6 +300,8 @@ TEST_CASE("Damage window: environmental damage never shoves") {
     settle(pc, cr);
     PlayerInput idle;
 
+    // A landing is the one environmental source that shoves (its own test); a
+    // fire, a drown or a cactus still does not.
     DamageSource fire;
     fire.kind = DamageKind::Fire;
     fire.amount = 4.0f;  // by_attacker defaults to false

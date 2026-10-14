@@ -1,6 +1,8 @@
 #ifndef FARLANDS_PLAYER_DAMAGE_HPP
 #define FARLANDS_PLAYER_DAMAGE_HPP
 
+#include <cstdint>
+
 #include <godot_cpp/variant/vector3.hpp>
 
 // The receiving half of combat, with no Godot node and no state: one incoming
@@ -20,7 +22,7 @@ namespace VoxelEngine {
 // What harmed the player. The kind is recorded so an event, a death message or
 // a future status effect can key on it; none of the reduction stages branch on
 // it, they branch on the two flags below.
-enum class DamageKind {
+enum class DamageKind : std::uint8_t {
     Generic,
     Fall,
     Drown,

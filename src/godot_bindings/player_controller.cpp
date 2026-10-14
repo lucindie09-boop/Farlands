@@ -417,14 +417,14 @@ void PlayerController::update_camera_transform(float eye_height, float delta) {
     const Vector3 local_forward = Vector3(0, 0, -1).rotated(Vector3(1, 0, 0), pitch_);
 
     // A hit leans the view: a roll that is full the frame the hit lands and
-    // decays to nothing over the hurt-animation window. Cosmetic only — the aim
-    // ray is built from the player's own yaw/pitch, not the camera, so the
-    // crosshair does not move with the lean.
+    // decays to nothing over the hurt-animation window, sampled between sim
+    // ticks so the decay ramps smoothly at the render rate rather than stepping
+    // at 20 Hz. Cosmetic only — the aim ray is built from the player's own
+    // yaw/pitch, not the camera, so the crosshair does not move with the lean.
     float hurt_roll = 0.0f;
-    const int hurt_ticks = sim_.get_hurt_anim_ticks();
-    if (hurt_ticks > 0) {
-        hurt_roll = kHurtCameraRollMax
-            * (static_cast<float>(hurt_ticks) / static_cast<float>(kHurtAnimTime));
+    const float hurt_ticks = sim_.get_render_hurt_anim_ticks(sim_.get_accumulator_fraction());
+    if (hurt_ticks > 0.0f) {
+        hurt_roll = kHurtCameraRollMax * (hurt_ticks / static_cast<float>(kHurtAnimTime));
     }
 
     if (third_person_view_ == 0) {

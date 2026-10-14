@@ -160,10 +160,9 @@ private:
     // every axis, add `direction`'s horizontal knockback and the vertical one
     // capped at the base speed -- the reference's base knockback, and the same
     // one dummy.gd applies. The caller has already decided the hit registers, so
-    // this is unconditional. An attacker hit passes the direction away from the
-    // attacker; a landing has no body to be shoved away from, so it passes a
-    // zero direction (halving only, no horizontal impulse -- the reference applies
-    // no horizontal push when there is no attacker direction).
+    // this is unconditional. Only an attacker hit calls it, with the direction
+    // away from the attacker; natural damage (a landing, a drown, a cactus, fire)
+    // has no attacker to be shoved away from and does not shove at all.
     void apply_knockback(const godot::Vector3& direction);
     // Queue this tick's environmental sources: drowning once the breath is gone
     // with the eye under a liquid, suffocation with the head inside a full solid,

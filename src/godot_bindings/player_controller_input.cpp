@@ -117,8 +117,8 @@ void PlayerController::_process(double delta) {
         // away from the attacker and the view recoils back toward them, while an
         // environmental one -- a fall, a drown, a cactus -- has no attacker to take
         // a bearing from, so one of the two side bearings is picked per hit and the
-        // view rolls about its own axis instead of tipping along the look. (The
-        // sim's own fall knockback is vertical only, so this bearing is cosmetic.)
+        // view rolls about its own axis instead of tipping along the look. (Such a
+        // hit does not shove the body at all, so this bearing only drives the lean.)
         if (damage.by_attacker) {
             hurt_push_dir_ = knockback_direction(get_global_position(), damage.attacker_position);
         } else {

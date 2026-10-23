@@ -726,6 +726,12 @@ Two layers mirroring the ChunkManager/VoxelEngineController pattern:
 - **Block drops** — a block's optional `drops` names what it yields when broken, whatever the
   tool; it is separate from `crush_result` (a crush wins) and both resolve in the same
   post-pass. Stone → cobblestone, so stone blocks themselves are no longer obtainable by mining.
+- **Break debris** — `break_block()` emits `block_broken(block_id, position)` after the edit,
+  where `block_id` is the block that was there rather than the drop it yielded. The scene's
+  `scripts/block_break_particles.gd` answers it with one one-shot `CPUParticles3D` burst of 16
+  chips at the cell, drawn with the item shader (`shaders/item_shader.gdshader`) and the cell's
+  own light as the burst's `item_light` instance uniform, so debris in a dark cave is dark. A
+  burst frees itself on `finished`; at most 16 are alive and the oldest is dropped past that.
 
 - **Liquids are passable** — `BlockType::stops_bodies()` (false for any block with the `Liquid`
   property) is the single answer used by `CollisionResolver::is_aabb_solid_fast`, the sneak

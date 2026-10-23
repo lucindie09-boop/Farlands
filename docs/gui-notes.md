@@ -432,9 +432,11 @@ first-person viewmodel - what each one owns and the decisions behind it.
   slot (1.0 for a bare hand or a non-matching tool) (mouse captured, no UI open, inventory gate
   matching `break_block`), then performs the existing instant-break logic. `get_break_state()`
   exposes {active, x/y/z, stage 0-9} to `block_break_overlay.gd`, a `BlockBreakOverlay` node
-  that draws a slightly-enlarged transparent cube over the mined block and swaps the 10 stage
-  textures (`textures/animated/l0_sprite_01..10.png`); faces against solid neighbors are
-  depth-occluded so cracks only show on visible faces. **Progress resets on release** (releasing
+  that draws ONE slightly-enlarged transparent cube per **selection box** of the mined block's
+  resolved shape (`ChunkManager.get_selection_boxes_at`, the same boxes the outline uses, so a
+  stair cracks on both of its boxes and a pole on its post rather than on the whole cell) and
+  swaps the 10 stage textures (`textures/animated/l0_sprite_01..10.png`); faces against solid
+  neighbors are depth-occluded so cracks only show on visible faces. **Progress resets on release** (releasing
   LMB or losing the block resets `break_progress_`/`break_target_valid_`), so the crack vanishes
   and the viewmodel's looping punch stops when you stop mining.
 - **Hammer crushing (`crush_result`)**: a block may name the block a HAMMER leaves behind

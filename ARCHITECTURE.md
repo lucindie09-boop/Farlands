@@ -716,7 +716,10 @@ Two layers mirroring the ChunkManager/VoxelEngineController pattern:
   `preferred_tool`/`min_tier` (plus a `hammer` against any block carrying a `crush_result`);
   releasing LMB or losing the target resets `break_progress_`/`break_target_valid_` (so the
   crack and looping punch stop). `get_break_state()` exposes `{active, x/y/z, stage 0-9}` to
-  `block_break_overlay.gd`. The same pass resolves the drop through `resolve_block_drop()`, so
+  `block_break_overlay.gd`, which draws one crack cube per selection box of the block's
+  RESOLVED shape (`get_selection_boxes_at`, so a slab, stair or fence cracks on its own
+  geometry and the boxes follow a world-dependent shape) and rebuilds only when the set
+  changes. The same pass resolves the drop through `resolve_block_drop()`, so
   the inventory gate and `break_block()` agree on what a break yields.
 - **Hammer crushing** — a block's optional `crush_result` (`data/block_definitions.json`,
   resolved to an id in a `load_from_json` post-pass) is the hammer's whole contract: a

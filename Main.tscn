@@ -20,6 +20,7 @@
 [ext_resource type="Script" uid="uid://dwlgd33ksdgxq" path="res://scripts/shader_overlay.gd" id="20_shaders"]
 [ext_resource type="Script" path="res://scripts/dropped_items.gd" id="21_dropped"]
 [ext_resource type="Script" path="res://scripts/airbar.gd" id="22_airbar"]
+[ext_resource type="Script" path="res://scripts/block_break_particles.gd" id="23_breakchips"]
 
 [sub_resource type="Environment" id="Environment_uu6xs"]
 background_mode = 2
@@ -186,6 +187,9 @@ script = ExtResource("12_deathscreen")
 
 [node name="BlockBreakOverlay" type="Node3D" parent="." unique_id=135246794]
 script = ExtResource("16_breakoverlay")
+
+[node name="BlockBreakParticles" type="Node3D" parent="."]
+script = ExtResource("23_breakchips")
 
 [node name="Hotbar#HotbarTexture" type="TextureRect" parent="." unique_id=702814611]
 anchors_preset = 7

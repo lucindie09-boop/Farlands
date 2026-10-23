@@ -127,6 +127,10 @@ void PlayerController::bind_state_and_view() {
 void PlayerController::add_signals() {
     ADD_SIGNAL(MethodInfo("crafting_table_used"));
     ADD_SIGNAL(MethodInfo("block_placed"));
+    // A hold-to-break break: the id before the drop rule (so debris wears the
+    // block's own texture) and the cell it left, after the edit.
+    ADD_SIGNAL(MethodInfo("block_broken", PropertyInfo(Variant::INT, "block_id"),
+                          PropertyInfo(Variant::VECTOR3I, "position")));
     ADD_SIGNAL(MethodInfo("died"));
     ADD_SIGNAL(MethodInfo("respawned"));
     // A registered hit landed. `amount` is the size of the hit in half-hearts

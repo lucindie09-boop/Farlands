@@ -51,6 +51,11 @@ void PlayerController::break_block() {
 
             // Increment edit counter to invalidate block outline
             block_edit_counter_++;
+
+            // The chips have a listener of their own (scripts/block_break_particles.gd);
+            // the id is the block that went in, not the drop it yielded, so the
+            // debris wears the texture of the block the player was looking at.
+            emit_signal("block_broken", block_type, Vector3i(bx, by, bz));
         }
     }
 }

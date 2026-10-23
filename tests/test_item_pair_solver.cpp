@@ -52,8 +52,10 @@ public:
         rotations[body] = Vector4(q.x, q.y, q.z, q.w);
     }
 
-    // One substep, with the arrays' results left in place for the checks.
-    void solve(float delta = 0.0083f) {
+    // One substep, with the arrays' results left in place for the checks. With
+    // `outputs` false the two optional output arrays are left off the struct,
+    // as a caller that only wants the motion is allowed to do.
+    void solve(float delta = 0.0083f, bool outputs = true) {
         touched.assign(positions.size(), 0);
         woken.assign(positions.size(), 0);
         ItemShapeTable table;
@@ -76,8 +78,8 @@ public:
         bodies.shapes = shapes.data();
         bodies.asleep = asleep.data();
         bodies.rest = rest.data();
-        bodies.touched = touched.data();
-        bodies.woken = woken.data();
+        bodies.touched = outputs ? touched.data() : nullptr;
+        bodies.woken = outputs ? woken.data() : nullptr;
         bodies.grounded = grounded.data();
         bodies.count = static_cast<int32_t>(positions.size());
         solver.solve(table, bodies, delta);
@@ -226,6 +228,25 @@ TEST_CASE("ItemPairSolver wakes a sleeping body something fast hits") {
     CHECK(f.asleep[1] == 0);
     CHECK(f.woken[1] == 1);
     CHECK(f.velocities[1].x > 0.0f);
+}
+
+TEST_CASE("ItemPairSolver runs with no output arrays") {
+    // `touched` and `woken` are optional (item_body_state.hpp), so a solve with
+    // neither still separates the pair instead of writing through a null.
+    Fixture push;
+    push.add_body(Vector3(0.0f, 0.0f, 0.0f));
+    push.add_body(Vector3(0.5f, 0.0f, 0.0f));
+    push.solve(0.0083f, false);
+    CHECK(push.positions[0].x == doctest::Approx(-kHalfDepthPush).epsilon(1e-4));
+    CHECK(push.positions[1].x == doctest::Approx(0.5f + kHalfDepthPush).epsilon(1e-4));
+
+    // The wake path writes `woken` too, so it is the other one to cover.
+    Fixture hit;
+    hit.add_body(Vector3(0.0f, 0.0f, 0.0f), 0, false, Vector3(3.0f, 0.0f, 0.0f));
+    hit.add_body(Vector3(0.98f, 0.0f, 0.0f), 0, true);
+    hit.solve(0.0083f, false);
+    CHECK(hit.asleep[1] == 0);
+    CHECK(hit.velocities[1].x > 0.0f);
 }
 
 TEST_CASE("ItemPairSolver ignores two sleeping bodies") {

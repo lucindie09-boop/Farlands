@@ -46,6 +46,8 @@ struct ItemShapeTable {
 //     too, as the GDScript it replaces did);
 //   * rest     -- seconds it has been slow and touching, in and out: the caller
 //     keeps it between substeps, the settle reads it.
+// An output array may be left null by a caller that does not want it, so a
+// solver writes one only after checking it.
 struct ItemBodies {
     godot::Vector3* positions = nullptr;
     godot::Vector4* rotations = nullptr;  // quaternion (x, y, z, w)

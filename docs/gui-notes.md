@@ -192,6 +192,17 @@ first-person viewmodel - what each one owns and the decisions behind it.
   departure. The one rule between them: a slot whose last unit left by being THROWN does not also
   shatter (`hotbar.gd`, `_thrown_out`), because the icon that went is already out there falling, and
   pixels coming apart on top of it would say the drop was destroyed.
+- **A pickup is the throw's mirror, and it plays in both places the item was and is.** The body is
+  handed to the inventory on the frame it is touched (so the flight can never lose it) and then
+  leaves the physics list for a 0.16 s quadratic from where it lay to the player's chest, lifted
+  0.45 above the straight line and shrinking to 0.15 of its drawn size (`dropped_items.gd`,
+  `_begin_collect`/`_advance_collect`, `COLLECT_*`). It is out of `_items` while it flies, so the
+  native solve, the pair pass, the merge pass and the pickup walk never see a body that is no longer
+  there — the same rule `_remove` obeys. The receiving slot's icon then plays the **arrival pop**:
+  `hotbar.gd` already compares every slot's id and count each frame (`_needs_redraw`), and a count
+  going UP sets that slot's pop, which swells the icon by 22% about its centre and settles over
+  0.18 s. A pickup that lands in the main inventory (full hotbar, existing stack there) has no
+  hotbar slot to pop, and that is correct: nothing in the bar changed.
 - **The inventory's spent *slots* are much quieter than everything else**
   (`UIShatter.SPEND = 0.3`, passed as `burst()`'s `intensity`) — the *slots only*. A slot empties as
   a stack is dragged off it, one at a time and repeatedly, and at the full throw the shards of one

@@ -13,7 +13,9 @@ screen (the shader-effect stack, the animated-liquid tools, the model previews).
 - `hotbar.gd` — Hotbar UI with mouse wheel cycling, click-to-hold block selection; when the
   last of a stack is spent, the icon it was drawn as comes apart into its own pixels through
   `ui_shatter.gd` (sampled down to the 16 units it is drawn at, so a shard is the same block a
-  heart breaks into)
+  heart breaks into); a slot whose count goes UP plays the arrival pop instead (a 22% swell of
+  its icon about its centre, settling over 0.18 s), which is the receiving half of
+  `ui_icon_throw.gd` and lands a pickup in the bar
 - `ui_shatter.gd` — The shatter's motion, shared: a caller hands over a piece of art's texel mask
   (built by `mask_from_texture`, or a `freed` difference of two masks for what one hit took
   away), where the art is drawn and in what colour, and the helper throws one shard per texel up

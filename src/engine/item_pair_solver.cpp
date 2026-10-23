@@ -137,11 +137,15 @@ void ItemPairSolver::solve_pair(const ItemShapeTable& shapes, ItemBodies& bodies
     // settle instead of being jogged awake by the weight above it.
     if (bodies.asleep[a] != 0 && bodies.velocities[b].length() > kWakeSpeed) {
         bodies.asleep[a] = 0;
-        bodies.woken[a] = 1;
+        if (bodies.woken != nullptr) {
+            bodies.woken[a] = 1;
+        }
     }
     if (bodies.asleep[b] != 0 && bodies.velocities[a].length() > kWakeSpeed) {
         bodies.asleep[b] = 0;
-        bodies.woken[b] = 1;
+        if (bodies.woken != nullptr) {
+            bodies.woken[b] = 1;
+        }
     }
 
     // Both directions, so the turning is carried by whichever body's points are
@@ -184,8 +188,10 @@ void ItemPairSolver::solve_pair(const ItemShapeTable& shapes, ItemBodies& bodies
 
     // Both bodies are touching something, which is half of what coming to rest
     // takes: the caller settles them on the same terms as the world's contacts.
-    bodies.touched[a] = 1;
-    bodies.touched[b] = 1;
+    if (bodies.touched != nullptr) {
+        bodies.touched[a] = 1;
+        bodies.touched[b] = 1;
+    }
 }
 
 ItemPairSolver::Guard ItemPairSolver::pair_guard(const ItemShapeTable& shapes, const ItemBodies& bodies,

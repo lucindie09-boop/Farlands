@@ -359,7 +359,9 @@ being resampled by a different fraction at each scale.
   tree, `_input`, F12 HUD, and peak-pose constants. Per-frame animation math lives in
   `ViewmodelPose` and held-mesh geometry in `ViewmodelMeshes` (both native C++)
 - `block_break_overlay.gd` — Draws the 10-stage crack overlay
-  (`textures/animated/l0_sprite_01..10.png`) on the mined block, driven by `get_break_state()`
+  (`textures/animated/l0_sprite_01..10.png`) on the mined block, one cube per selection box
+  of its resolved shape, driven by `get_break_state()`, with the boxes re-resolved when the
+  block or its neighbour-dependent box set changes
 - `block_textures.gd` — ~~Block texture atlas generation from `textures/blocks/`~~ ported to the
   native `BlockTextures` GDExtension binding (registered in
   `src/godot_bindings/register_types.cpp`); the GDScript file has been deleted

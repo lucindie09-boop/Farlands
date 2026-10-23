@@ -1427,12 +1427,12 @@ func _build_render_sections() -> Array:
 	# base (see LodGrid's spacing rule), so `Far Reach` is what moves the horizon and
 	# this only says how finely the bands nearer than it are drawn.
 	far_spacing.get_meta("slider").value_changed.connect(func(v: float):
-		var snapped := _snap_lod_spacing(int(v))
+		var snapped_value := _snap_lod_spacing(int(v))
 		# Assigning the snapped value re-enters this handler once, with a value that is
 		# already snapped, so the correction settles after one pass and the track (and the
 		# label, which the slider's own handler writes) shows what will be built.
-		if snapped != int(v):
-			far_spacing.get_meta("slider").value = float(snapped))
+		if snapped_value != int(v):
+			far_spacing.get_meta("slider").value = float(snapped_value))
 	var far_spacing_reset := func():
 		far_spacing.get_meta("slider").value = _default_lod_grid_spacing
 		chunk_manager.set_lod_grid_spacing(_default_lod_grid_spacing)

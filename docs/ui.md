@@ -318,11 +318,14 @@ being resampled by a different fraction at each scale.
   drag-orbits a cube; DRAW/FILL/BOX painting over primitive triangle raycasts, undo (Ctrl+Z),
   noise slider integration, and clamped zoom
 - `player_model.gd` — Applies the skin texture to `player.glb`'s `StandardMaterial3D` surfaces
-  with nearest filtering (no mipmaps, avoiding smeared UV islands), and drives the
+  with nearest filtering (no mipmaps, avoiding smeared UV islands), loads the body's one clip
+  (`Animations/Idle.anim`, the old arm-swing idle, its `arm_001`/`leg_001` tracks renamed to this
+  body's `arm2`/`leg2`), and drives the
   Minecraft-style head look (`_track_head_look`): it rebuilds the aim basis from the
   controller's world yaw + pitch (`get_aim_direction()`) so the `head` mesh follows the player's
   look in every view, with a camera-follow fallback for scenes without a `PlayerController`
-  (skin preview)
+  (skin preview). It has no walk: `set_animation_state`, the controller's once-a-frame call, plays
+  the idle for every state
 - `clip_retarget.gd` — Re-homes one clip onto another rig by name: maps the source rig's track
   paths onto this body's nodes, carries a rotation track across (a joint rotation is
   joint-relative) and rewrites a position track as the destination node's own rest position plus
@@ -331,7 +334,9 @@ being resampled by a different fraction at each scale.
   model looking down -Z and this body looks down +Z, so each rotation is conjugated and each bob
   rotated by that half turn, or the body walks backwards (see [gui-notes.md](gui-notes.md)). A
   track whose limb this body has no node for is dropped and reported, and a limb the body's own
-  code drives every frame (the head) keeps its position track and loses its rotation one
+  code drives every frame (the head) keeps its position track and loses its rotation one. **Parked:
+  nothing on the player's body loads the clips this re-homes** — the body plays
+  `Animations/Idle.anim` and has no walk ([gui-notes.md](gui-notes.md))
 - `player.glb` — Voxel-style player model with a tightly-packed 64×64 skin-texture atlas; node
   pivots re-baked onto the true Blockbench joints (limb tops, head neck) by
   `tools/rebake_player_pivots.py` because Blockbench's glTF export flattens cube-pivot metadata
@@ -356,7 +361,9 @@ being resampled by a different fraction at each scale.
   `Walk.anim` from its `walking_test`), because the body loads its clips from a path rather than
   from the imported scene. `godot --headless --path . --script res://tools/extract_model_animations.gd`;
   it reads each saved clip back and resolves every track path against the rig it came from, so a
-  renamed limb fails there instead of playing as no motion
+  renamed limb fails there instead of playing as no motion. Nothing on the player's body loads
+  the two clips at the moment — it plays `Animations/Idle.anim` — so this and its output are kept
+  for the parked pair
 - `viewmodel.gd` — Thin first-person hand + held item/block glue (child of `Camera3D`): node
   tree, `_input`, F12 HUD, and peak-pose constants. Per-frame animation math lives in
   `ViewmodelPose` and held-mesh geometry in `ViewmodelMeshes` (both native C++)

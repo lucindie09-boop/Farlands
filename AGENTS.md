@@ -206,9 +206,10 @@ Full notes: [docs/light.md](docs/light.md).
   guards, block break animation and hardness, hammer crushing, and block `drops`.
 - The first-person viewmodel (held item/block, swing, bob, head look, F5 camera cycle,
   eye-ray targeting) and the overlay tools around it.
-- The player's own body plays a re-homed idle and walk: the clips come from another
-  rig and are joined to this one by name on the way in, the head's rotation stays the
-  code's, and `set_animation_state` is safe to call every frame.
+- The player's own body plays the old arm-swing idle and has no walk: the one clip is
+  `Animations/Idle.anim`, `set_animation_state` answers every state with it (safe to call
+  every frame), the head's rotation stays the code's, and the pack's re-homed idle and
+  walk are parked on disk, not loaded.
 
 Full notes: [docs/gui-notes.md](docs/gui-notes.md).
 

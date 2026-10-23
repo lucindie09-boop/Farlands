@@ -237,7 +237,11 @@ static func colours_from_texture(tex: Texture2D, art: Vector2i) -> PackedColorAr
 	colours.resize(art.x * art.y)
 	for y in range(art.y):
 		for x in range(art.x):
-			colours[y * art.x + x] = image.get_pixel(x * image.get_width() / art.x, y * image.get_height() / art.y)
+			# The texel's own cell, in whole pixels: written as a float divide and an
+			# int cast so the discard is explicit rather than a warning.
+			colours[y * art.x + x] = image.get_pixel(
+				int(x * image.get_width() / float(art.x)),
+				int(y * image.get_height() / float(art.y)))
 	return colours
 
 
@@ -250,19 +254,22 @@ static func colours_from_texture(tex: Texture2D, art: Vector2i) -> PackedColorAr
 ## off it -- passes less, because the same throw every few seconds is not an event
 ## and the shards are still on screen when the next one starts.
 ##
-## `floor` is a `Surface` -- `Surface.box()` for a slot or a grid, or
+## `surface` is a `Surface` -- `Surface.box()` for a slot or a grid, or
 ## `Surface.from_top_edge()` for a panel whose top edge is read off its art. Left
 ## null they fall as they always did, which is what a caller wants when there is
 ## nothing underneath to land on.
+##
+## (The parameter was called `floor`, which shadowed the built-in; the word still
+## names the idea in the comments below, the identifier just cannot.)
 func burst(texels: PackedByteArray, art: Vector2i, origin: Vector2,
 		texel: float, colour: Color, strength := 0.0,
 		colours := PackedColorArray(), intensity := 1.0,
-		floor: Surface = null) -> void:
+		surface: Surface = null) -> void:
 	var hit := (strength if strength > 0.0 else roll_strength()) * intensity
 	for i in range(texels.size()):
 		if texels[i] == 1:
 			var ink := colours[i] if i < colours.size() else colour
-			_drop(i, art, origin, texel, ink, hit, intensity, floor)
+			_drop(i, art, origin, texel, ink, hit, intensity, surface)
 
 
 ## Move the shards on by `delta`; returns whether any are still in the air, so
@@ -279,7 +286,7 @@ func advance(delta: float) -> bool:
 			continue
 		pixel["vel"] = pixel["vel"] + Vector2(0.0, GRAVITY * delta)
 		pixel["pos"] = pixel["pos"] + pixel["vel"] * delta
-		if pixel["floor"] != null:
+		if pixel["surface"] != null:
 			_bounce(pixel)
 	return not _falling.is_empty()
 
@@ -288,8 +295,8 @@ func advance(delta: float) -> bool:
 ## Without one a shard falls out of the frame and is simply never seen again,
 ## which reads as the debris thinning away rather than as it landing.
 func _bounce(pixel: Dictionary) -> void:
-	var floor: Surface = pixel["floor"]
-	var box := floor.rect
+	var surface: Surface = pixel["surface"]
+	var box := surface.rect
 	var at: Vector2 = pixel["pos"]
 	var size: Vector2 = pixel["size"]
 	var vel: Vector2 = pixel["vel"]
@@ -304,12 +311,12 @@ func _bounce(pixel: Dictionary) -> void:
 	# eye reads as a glitch rather than as anything settling.
 	var column: int = pixel["column"]
 	if column < 0:
-		column = floor.column_at(at.x, size)
-	var rest := floor.rest_in(column)
+		column = surface.column_at(at.x, size)
+	var rest := surface.rest_in(column)
 	if rest < INF and at.y + size.y > rest:
 		at.y = rest - size.y
 		vel.y = -vel.y * RESTITUTION
-	if floor.has_sides():
+	if surface.has_sides():
 		if at.x < box.position.x:
 			at.x = box.position.x
 			vel.x = absf(vel.x) * RESTITUTION
@@ -365,14 +372,14 @@ func draw(canvas: CanvasItem) -> void:
 ## `hit` has already had the burst's strength and intensity folded into it, so it
 ## is the throw itself; `intensity` comes along separately only to shorten the
 ## life, which is not a matter of how hard something was thrown but of how long
-## debris should sit on a screen before it goes. `floor`, when given, is the one
+## debris should sit on a screen before it goes. `surface`, when given, is the one
 ## Surface every shard of this burst shares.
 func _drop(index: int, art: Vector2i, origin: Vector2, texel: float,
-		colour: Color, hit: float, intensity: float, floor: Surface) -> void:
+		colour: Color, hit: float, intensity: float, surface: Surface) -> void:
 	if _falling.size() >= MAX_FRAGMENTS:
 		return
 	var tx := index % art.x
-	var ty := index / art.x
+	var ty := int(index / float(art.x))
 	var from_centre := Vector2(tx, ty) - Vector2(art.x - 1, art.y - 1) * 0.5
 	var angle := from_centre.angle() if from_centre.length_squared() > 0.01 else randf() * TAU
 	angle += (randf() * 2.0 - 1.0) * SPRAY_ANGLE
@@ -395,7 +402,7 @@ func _drop(index: int, art: Vector2i, origin: Vector2, texel: float,
 		"colour": colour,
 		"life": LIFE * intensity * randf_range(LIFE_VARY, 1.0),
 		"age": 0.0,
-		"floor": floor,
+		"surface": surface,
 		# The art column it came to rest in, or -1 while it is still falling. See
 		# _bounce().
 		"column": -1,

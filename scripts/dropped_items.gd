@@ -400,8 +400,8 @@ func _step_items(delta: float) -> void:
 		_body_positions[i] = item["position"]
 		# The body's orientation is the node's: the solver turns it and this is
 		# where its own rotation is kept between substeps.
-		var rotation: Quaternion = node.quaternion
-		_body_rotations[i] = Vector4(rotation.x, rotation.y, rotation.z, rotation.w)
+		var body_rotation: Quaternion = node.quaternion
+		_body_rotations[i] = Vector4(body_rotation.x, body_rotation.y, body_rotation.z, body_rotation.w)
 		_body_velocities[i] = item["velocity"]
 		_body_spins[i] = item["spin"]
 		_body_asleep[i] = 1 if item["asleep"] else 0
@@ -442,8 +442,8 @@ func _step_items(delta: float) -> void:
 		item["spin"] = _body_spins[i]
 		item["asleep"] = _body_asleep[i] != 0
 		item["grounded"] = _body_grounded[i] != 0
-		var rotation: Vector4 = _body_rotations[i]
-		node.quaternion = Quaternion(rotation.x, rotation.y, rotation.z, rotation.w)
+		var body_rotation: Vector4 = _body_rotations[i]
+		node.quaternion = Quaternion(body_rotation.x, body_rotation.y, body_rotation.z, body_rotation.w)
 
 
 ## The half of the body state that does not move -- inertia, reach, shape row --
@@ -941,7 +941,7 @@ func _body_centre(boxes: Array) -> Vector3:
 	return (lo + hi) * 0.5
 
 
-func _body_size(boxes: Array, centre: Vector3) -> Vector3:
+func _body_size(boxes: Array, _centre: Vector3) -> Vector3:
 	var lo: Vector3 = boxes[0]["lo"]
 	var hi: Vector3 = boxes[0]["hi"]
 	for box in boxes:
@@ -1017,10 +1017,10 @@ func _push_world_lighting() -> void:
 ## The world's light where an item is: the block light and sky light of the cell
 ## its centre occupies, mapped the way terrain vertices are (see
 ## ChunkManager.get_light_at).
-func _light_at(position: Vector3) -> Vector4:
+func _light_at(at: Vector3) -> Vector4:
 	if _chunk_manager == null:
 		return Vector4(0.0, 0.0, 0.0, 1.0)
-	return _chunk_manager.get_light_at(floori(position.x), floori(position.y), floori(position.z))
+	return _chunk_manager.get_light_at(floori(at.x), floori(at.y), floori(at.z))
 
 
 func _remove(index: int) -> void:

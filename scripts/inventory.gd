@@ -289,8 +289,8 @@ func _spend_craft_cell(cell: int, block_id: int) -> void:
 	var rect := _craft_slot_rect(cell, origin)
 	# An input cell's debris lands on the grid they are drawn in; the output
 	# preview is outside that grid, so its own cell is its floor.
-	var floor := rect if cell == 4 else _craft_grid_bounds(origin)
-	_burst_from(pixels, BlockIconArt.icon_rect(rect, ui_scale), ui_scale, 1.0, UIShatter.Surface.box(floor))
+	var landing := rect if cell == 4 else _craft_grid_bounds(origin)
+	_burst_from(pixels, BlockIconArt.icon_rect(rect, ui_scale), ui_scale, 1.0, UIShatter.Surface.box(landing))
 
 ## The box the 2x2 crafting grid's own debris stays in: the four input cells
 ## together. A craft's cells come apart in the same box they are drawn in, so the
@@ -304,9 +304,9 @@ func _craft_grid_bounds(origin: Vector2) -> Rect2:
 		box = cell if box.size == Vector2.ZERO else box.merge(cell)
 	return box
 
-func _burst_from(pixels: Dictionary, icon: Rect2, ui_scale: float, intensity := 1.0, floor: UIShatter.Surface = null) -> void:
+func _burst_from(pixels: Dictionary, icon: Rect2, ui_scale: float, intensity := 1.0, surface: UIShatter.Surface = null) -> void:
 	_shards.burst(pixels["mask"], pixels["art"], icon.position, ui_scale,
-		Color.WHITE, 0.0, pixels["colours"], intensity, floor)
+		Color.WHITE, 0.0, pixels["colours"], intensity, surface)
 
 func _draw_slot(x, y, width, height, slot_index, is_hotbar):
 	var block_id = 0

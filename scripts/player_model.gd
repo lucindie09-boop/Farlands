@@ -6,8 +6,6 @@ signal texel_painted(px: int, py: int, old_color: Color, new_color: Color)
 
 const UV_OVERLAY_SHADER: Shader = preload("res://shaders/skin_uv_overlay.gdshader")
 const ATLAS_DIM := 64
-# The join between a clip's rig and this body's: scripts/clip_retarget.gd.
-const ClipRetarget := preload("res://scripts/clip_retarget.gd")
 
 # The world's own light model, the one the terrain, the dropped items and the
 # first-person arm already run (shaders/item_lighting.gdshaderinc): the light of
@@ -22,58 +20,17 @@ const ITEM_SHADER: Shader = preload("res://shaders/item_shader.gdshader")
 # probes/probe_item_light_smooth.gd holds all of them to it.
 const LIGHT_EASE_TIME := 0.15
 
-# The body's two clips, and the rig they are re-homed from. They are
-# Animations/Idle_new.anim and Animations/Walk.anim, lifted out of
-# models/minecraft-idle-and-walking-animation/source/model.gltf by
-# tools/extract_model_animations.gd, and their tracks name THAT rig's nodes
-# (`Node/Head2`, `Node/RightArm`, ...) in ITS units -- so they are re-homed onto
-# this body's own parts on the way in (scripts/clip_retarget.gd). The mapping is
-# by limb, and the sides are the two rigs' own: right is +x on both.
-const CLIP_SOURCES := {
-	"Idle": "res://Animations/Idle_new.anim",
-	"Walk": "res://Animations/Walk.anim",
-}
-## ...and the sides are the CHARACTER's, which the x sign does not tell you. A rig
-## that looks down -Z has its own right hand at +X (that is where the pack's
-## `RightArm` sits), and a rig that looks down +Z -- this body -- has its right at
-## -X. So turning a clip from the first onto the second inverts the sides as well:
-## `RightArm` belongs on `arm`, not on `arm2`. Pairing by x sign instead is a
-## MIRROR rather than a flip -- the same limbs, the other way round on the body,
-## which is a walk that reads as a mirrored character rather than a turned one.
-const CLIP_TRACK_MAP := {
-	"Node/Head2": "head",
-	"Node/Body2": "torso",
-	"Node/RightArm": "arm",
-	"Node/LeftArm": "arm2",
-	"Node/RightLeg": "leg",
-	"Node/LeftLeg": "leg2",
-}
-# How many of this body's units one of the clip rig's is: the body measures in
-# Blockbench pixels (16 to the block, head pivot y=24) and model.gltf in blocks
-# (head pivot y=1.5). Only a position track ever needs it -- a rotation is
-# joint-relative and means the same thing on either rig.
-const CLIP_UNIT_SCALE := 16.0
-# The half turn between the clip rig's axes and this body's, and it is not
-# optional: the pack's own model faces -Z while this body faces +Z. Measured off
-# each rig's own skin rather than assumed -- a 64x64 skin's head has its face
-# texels (the eyes) in the u,v [8,16) band, and that band sits on the -Z face of
-# the head box in model.gltf and on the +Z face here. So the clips are lifted out
-# of a rig looking the other way, and WITHOUT this they are a faithful copy of
-# that rig's numbers seen from behind: the body walks backwards, feet leading
-# away from its own face.
-const CLIP_FRAME := Quaternion(Vector3.UP, PI)
-# ...and the one limb a clip must not turn: the head tracks the player's AIM every
-# frame (_track_head_look), so a clip that also wrote head.quaternion would win or
-# lose by node order, one frame at a time. Its position track is still taken --
-# that is the head's own bob, which nothing else writes.
-const CLIP_CODE_OWNED_ROTATION := ["head"]
-# Seconds a change of state takes to cross from one clip into the other.
+# The clip the body plays, and the only one it loads: an arm-swing idle for an
+# older rig, whose tracks name the limbs `arm_001`/`leg_001` where this body has
+# `arm2`/`leg2` -- so they are renamed on the way in (_load_legacy_idle).
+#
+# The body has NO walk. Animations/Idle_new.anim and Animations/Walk.anim are the
+# pack's own still_test and walking_test, lifted out by
+# tools/extract_model_animations.gd and re-homed by scripts/clip_retarget.gd; the
+# body loads neither of them, so every state it is asked for plays this clip.
+const BODY_CLIP := "res://Animations/Idle.anim"
+# Seconds a change of clip takes to cross into the next one.
 const CLIP_BLEND := 0.15
-# The clip the body played before it could walk: an arm-swing idle for an older
-# rig, still what plays when the two above are missing, so a body is never left
-# with no clip at all. (This is the file the extractor deliberately does not
-# touch.)
-const LEGACY_IDLE := "res://Animations/Idle.anim"
 
 var uv_overlay_enabled := false
 var paint_color := Color.WHITE
@@ -109,46 +66,21 @@ func _ready():
 	apply_skin_texture()
 	_anim_player = get_node_or_null("AnimationPlayer")
 	if _anim_player != null:
-		_load_clips()
+		_load_legacy_idle()
 	_head = find_child("head", true, false)
 
 
-## The body's clips, re-homed onto its own parts and handed to its player as one
-## library.
+## The body's clip: the old arm-swing idle, whose tracks are renamed by hand on
+## the way in (arm_001/leg_001 are what that file calls this body's arm2/leg2).
 ##
 ## Only ever called when there IS an AnimationPlayer: the K-key pose clone has
-## none on purpose and stays frozen.
-##
-## Either clip missing falls back to the legacy Idle.anim rather than to no clip
-## at all, and says which: a body with no clip is a body held in its rest pose,
-## which reads as a broken model rather than as a missing file.
-func _load_clips() -> void:
-	var library := AnimationLibrary.new()
-	for state in CLIP_SOURCES:
-		var source: Animation = load(CLIP_SOURCES[state])
-		if source == null:
-			print("player_model: no clip at %s -- falling back to %s"
-				% [CLIP_SOURCES[state], LEGACY_IDLE])
-			_load_legacy_idle()
-			return
-		var clip := ClipRetarget.retarget(source, CLIP_TRACK_MAP, self, CLIP_UNIT_SCALE,
-			CLIP_FRAME, CLIP_CODE_OWNED_ROTATION)
-		var missing := ClipRetarget.unresolved(clip, self)
-		if not missing.is_empty():
-			print("player_model: %s turns nothing -- this body has no %s"
-				% [CLIP_SOURCES[state], ", ".join(missing)])
-		library.add_animation(state, clip)
-	_anim_player.add_animation_library("default", library)
-	_play_state("Idle")
-
-
-## The pre-Walk body: one clip, written for an older rig, whose tracks are renamed
-## by hand on the way in (arm_001/leg_001 are what that file calls this body's
-## arm2/leg2). Still the fallback, so the body idles with no new clips on disk.
+## none on purpose and stays frozen. A missing file says so -- a body with no
+## clip at all is a body held in its rest pose, which reads as a broken model
+## rather than as a missing file.
 func _load_legacy_idle() -> void:
-	var idle: Animation = load(LEGACY_IDLE)
+	var idle: Animation = load(BODY_CLIP)
 	if idle == null:
-		print("player_model: no body clip at all -- %s is missing too" % LEGACY_IDLE)
+		print("player_model: no body clip at all -- %s is missing" % BODY_CLIP)
 		return
 	var fixed: Animation = idle.duplicate()
 	for t in range(fixed.get_track_count()):
@@ -166,16 +98,17 @@ func _load_legacy_idle() -> void:
 ##
 ## The controller tells the body the state it can see EVERY frame, so this has to
 ## be free to call and free to call again: a state already playing is left alone,
-## because re-playing it restarts the clip -- and a walk restarted every frame is
-## a walk frozen on its first pose.
+## because re-playing it restarts the clip -- and a clip restarted every frame is
+## a clip frozen on its first pose.
 func _play_state(state: String) -> void:
-	var name := "default/" + state
-	if not _anim_player.has_animation(name):
+	# Not `name`: that is Node.name, and a local of that name shadows it.
+	var clip := "default/" + state
+	if not _anim_player.has_animation(clip):
 		return
 	if _clip_state == state and _anim_player.is_playing():
 		return
 	_clip_state = state
-	_anim_player.play(name, CLIP_BLEND)
+	_anim_player.play(clip, CLIP_BLEND)
 
 
 func _process(delta: float) -> void:
@@ -322,8 +255,8 @@ func _skin_albedo() -> Texture2D:
 # ray. Unwinding the parent's global transform makes it work regardless of the
 # model's scale, export flip, body-yaw lag or the player's yaw. Runs on the
 # real (third-person) model and the pose clone alike. Nothing fights it: the
-# clips' own head ROTATION tracks are dropped on the way in (CLIP_CODE_OWNED_
-# ROTATION), and only the head's position track -- its bob -- is left to them.
+# body's clip turns its two arms and never the head, so this quaternion has one
+# writer.
 func _look_controller() -> Node:
 	# The live model lives under PlayerController's ModelPivot, so its ancestor
 	# chain has the controller. The pose clone is a detached copy under a plain
@@ -367,10 +300,13 @@ func _track_head_look() -> void:
 		var cam_q: Quaternion = cam.global_transform.basis.get_rotation_quaternion()
 		_head.quaternion = parent_q.inverse() * cam_q * Quaternion(Vector3.UP, PI)
 
-## The player's body in its two states, called every frame by the controller
+## The player's body state, called every frame by the controller
 ## (PlayerController::update_player_animation) with whether it is moving on the
-## ground. Walk where there is a walk to play, Idle otherwise -- so a body on the
-## legacy clip idles instead of asking for an animation it does not have.
+## ground.
+##
+## The body has one clip and no walk, so both states land on it: a state with no
+## clip is never played, and an idle already playing is left alone rather than
+## restarted every frame.
 func set_animation_state(is_walking: bool) -> void:
 	if _anim_player == null:
 		return

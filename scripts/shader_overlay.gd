@@ -138,11 +138,15 @@ func _ready() -> void:
 	# The layers are decoration: the pointer belongs to whatever HUD art is under
 	# them, exactly like the god-rays overlay.
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
-	set_anchors_preset(Control.PRESET_FULL_RECT)
-	# The anchors alone are not enough: this node's parent is a CanvasLayer, not a
-	# Control, and a full-rect preset on it has been seen to leave the node at zero
-	# size - which is a whole stack of zero-sized rects, drawing nothing, with no
-	# error to say so. So the frame is set here as well, and kept in step below.
+	# The size is set by hand, so the anchors are reset to the top-left corner (the
+	# scene declares full-rect ones). Two reasons, both recorded here: this node's
+	# parent is a CanvasLayer, not a Control, and a full-rect preset on it has been
+	# seen to leave the node at zero size -- a whole stack of zero-sized rects,
+	# drawing nothing, with no error to say so; and with opposite anchors the engine
+	# owns the size, overrides this script's, and warns at every assignment. Corner
+	# anchors make the size this script's, kept in step below, and the passes under
+	# it are laid out against it.
+	set_anchors_preset(Control.PRESET_TOP_LEFT)
 	size = get_viewport().get_visible_rect().size
 	_load_definitions()
 	for definition in _definitions:
@@ -720,7 +724,8 @@ func _uniform_names(shader: Shader) -> Dictionary:
 func _push_frame_size() -> void:
 	var frame := Vector2(get_viewport().get_visible_rect().size)
 	# A pass is a full-rect child of this node, so a node without a size is a stack of
-	# passes without one; see _ready.
+	# passes without one; see _ready. The anchors are top-left on purpose, so this
+	# assignment is the one that decides the frame.
 	size = frame
 	for id in _layers:
 		_push(_layers[id], "frame_size", frame)

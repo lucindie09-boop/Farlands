@@ -21,6 +21,7 @@
 [ext_resource type="Script" path="res://scripts/dropped_items.gd" id="21_dropped"]
 [ext_resource type="Script" path="res://scripts/airbar.gd" id="22_airbar"]
 [ext_resource type="Script" path="res://scripts/block_break_particles.gd" id="23_breakchips"]
+[ext_resource type="Script" path="res://scripts/hurt_overlay.gd" id="24_hurtoverlay"]
 
 [sub_resource type="Environment" id="Environment_uu6xs"]
 background_mode = 2
@@ -173,6 +174,14 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("10_compass")
+
+[node name="HurtOverlay" type="ColorRect" parent="HUD"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+color = Color(0, 0, 0, 0)
+script = ExtResource("24_hurtoverlay")
 
 [node name="DeathScreen" type="Control" parent="HUD" unique_id=1526793449]
 layout_mode = 3

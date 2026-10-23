@@ -726,6 +726,12 @@ Two layers mirroring the ChunkManager/VoxelEngineController pattern:
 - **Block drops** — a block's optional `drops` names what it yields when broken, whatever the
   tool; it is separate from `crush_result` (a crush wins) and both resolve in the same
   post-pass. Stone → cobblestone, so stone blocks themselves are no longer obtainable by mining.
+- **Hurt overlay** — `scripts/hurt_overlay.gd` (`HUD/HurtOverlay`, a full-rect `ColorRect`
+  with `shaders/hurt_vignette.gdshader`) is the screen's half of taking damage: the `damaged`
+  signal flashes a red edge that fades over `FLASH_SECONDS`, and health at or below
+  `LOW_HEALTH` (two hearts) runs a two-thump heartbeat that beats harder the closer to zero.
+  It reads the same health the bar does, draws under the death screen, takes no input, and is
+  the HUD counterpart of the engine's camera lean (`hurt_lean_view`).
 - **Break debris** — `break_block()` emits `block_broken(block_id, position)` after the edit,
   where `block_id` is the block that was there rather than the drop it yielded. The scene's
   `scripts/block_break_particles.gd` answers it with one one-shot `CPUParticles3D` burst of 16

@@ -164,6 +164,18 @@ const PICKUP_RADIUS = 1.2
 ## that put it on the ground is also the step that collects it again.
 const PICKUP_DELAY = 0.6
 
+## The collect flight, played AFTER the item has been handed to the inventory (so
+## nothing about it can lose an item): seconds it takes to come to the player, the
+## height its path lifts above the straight line, and how small it shrinks by the
+## time it arrives. A short, visible answer to "where did that go" instead of the
+## body being freed where it lay.
+const COLLECT_TIME = 0.16
+const COLLECT_LIFT = 0.45
+const COLLECT_SHRINK = 0.15
+## How high up the body it is pulled to: the chest. Pulling to the eye instead
+## would read as the item flying into the player's face.
+const COLLECT_HEIGHT = 1.1
+
 ## How long an item lies there before it is gone. Not persisted across a save in
 ## this version: an item on the ground does not survive a quit.
 const LIFETIME = 300.0
@@ -179,6 +191,10 @@ const LIGHT_EASE_TIME := 0.15
 
 # One entry per item: the mesh, the body's own geometry, and its state.
 var _items: Array = []
+# Items already collected whose nodes are playing the flight to the chest. They are
+# NOT in _items: the solver, the pair pass, the merge pass and the pickup walk only
+# ever see what is still on the ground.
+var _collecting: Array = []
 var _meshes: Dictionary = {}
 var _materials: Dictionary = {}
 
@@ -323,13 +339,14 @@ func _process(delta: float) -> void:
 		if item["age"] >= LIFETIME:
 			_remove(i)
 	_step_all(delta)
+	_advance_collect(delta)
 	# The merges come after the move, where the pairs actually are, and before the
 	# pickup, so walking over a pair that has just met collects one pile and not two.
 	merge_pass()
 	for i in range(_items.size() - 1, -1, -1):
 		var item: Dictionary = _items[i]
 		if _try_pickup(item):
-			_remove(i)
+			_begin_collect(i)
 			continue
 		_draw_item(item, delta)
 
@@ -707,6 +724,69 @@ func _try_pickup(item: Dictionary) -> bool:
 		return false
 	_player.give_block(block_id, count)
 	return true
+
+
+## The item was just handed to the inventory (so nothing can lose it); this takes
+## the body out of the simulation and gives its node the short flight to the
+## chest instead of freeing it where it lay. It leaves _items entirely, which is
+## what keeps the solver, the pairs, the merge pass and the pickup from touching
+## a body that is no longer there.
+func _begin_collect(index: int) -> void:
+	var item: Dictionary = _items[index]
+	var node: Node3D = item["node"]
+	var drawn := 1.0
+	var mesh := node.get_child(0) as MeshInstance3D
+	if mesh != null:
+		drawn = mesh.scale.x
+	_collecting.append({
+		"node": node,
+		"block_id": item["block_id"],
+		"from": node.global_position,
+		# The target is fixed when the flight starts, not followed every frame: a
+		# player walking through a collection should not drag it around.
+		"to": _collect_target(node.global_position),
+		"t": 0.0,
+		"scale": drawn,
+	})
+	_items.remove_at(index)
+	# The body arrays are indexed like _items, so the row that just left has to be
+	# gathered again before the next pair solve.
+	_bodies_static_dirty = true
+
+
+## One frame of every collect flight: a quadratic from where the item lay to the
+## chest, lifted COLLECT_LIFT above the straight line so it comes up out of the
+## ground and in rather than sliding through it. The drawn size shrinks toward
+## COLLECT_SHRINK as it arrives; the node is freed at the end.
+func _advance_collect(delta: float) -> void:
+	for i in range(_collecting.size() - 1, -1, -1):
+		var flight: Dictionary = _collecting[i]
+		var t: float = minf(float(flight["t"]) + delta / maxf(COLLECT_TIME, 0.001), 1.0)
+		flight["t"] = t
+		# Quick off the ground, settling into the chest: the arc is the throw's
+		# quadratic and the ease is the arrival's.
+		var e := 1.0 - pow(1.0 - t, 3.0)
+		var from: Vector3 = flight["from"]
+		var to: Vector3 = flight["to"]
+		var control := (from + to) * 0.5 + Vector3.UP * COLLECT_LIFT
+		var node: Node3D = flight["node"]
+		if is_instance_valid(node):
+			node.global_position = from.lerp(control, e).lerp(control.lerp(to, e), e)
+			var mesh := node.get_child(0) as MeshInstance3D
+			if mesh != null:
+				mesh.scale = Vector3.ONE * float(flight["scale"]) * lerpf(1.0, COLLECT_SHRINK, e)
+		if t >= 1.0:
+			if is_instance_valid(node):
+				node.queue_free()
+			_collecting.remove_at(i)
+
+
+## Where a collected item is headed: the player's chest, or (with no player) where
+## it already is, so the flight degrades to shrinking in place.
+func _collect_target(at: Vector3) -> Vector3:
+	if _player == null:
+		return at
+	return _player.global_position + Vector3.UP * COLLECT_HEIGHT
 
 
 ## How strong a pop plays for a pile of `count`: full while the pile still grows

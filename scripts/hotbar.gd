@@ -32,9 +32,17 @@ const FILL_BASE = Color(0.149, 0.145, 0.0196)      # #262505
 const FILL_HIGHLIGHT = Color(0.227, 0.224, 0.027)  # #3a3907
 const FILL_TOLERANCE = 0.012  # per channel, in 0..1 color space (~3/255)
 
+# The pop a slot's icon plays when something ARRIVES in it -- the receiving half
+# of the throw (ui_icon_throw.gd sends art out; a pickup lands it). The icon
+# swells by POP_GROW about its centre and settles back over POP_TIME, so a pickup
+# ends in the bar instead of a count silently ticking up beside it.
+const POP_TIME = 0.18
+const POP_GROW = 0.22
+
 func _ready():
 	# Load the hotbar texture directly
 	hotbar_texture = load("res://textures/gui/hotbar.png")
+	_slot_pop.resize(HOTBAR_SIZE)
 	# Set nearest-neighbor filtering on this Control to keep hard edges when scaling
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	_highlight_texture = _build_fill_highlight_texture()
@@ -77,6 +85,11 @@ var _thrown := UIIconThrow.new()
 # Consumed (or forgotten) the next time _needs_redraw() looks at its slot.
 var _thrown_out := {}
 
+# Per-slot arrival pops, 0..1: how much of POP_TIME's swell each slot's icon is
+# still owed. Driven by a count going UP in _needs_redraw(), which is the one
+# place the HUD already sees every slot change.
+var _slot_pop := PackedFloat32Array()
+
 func _process(delta):
 	if _needs_redraw():
 		queue_redraw()
@@ -85,6 +98,12 @@ func _process(delta):
 	# short-circuit -- or one of them would freeze behind the other's answer.
 	var falling := _shards.advance(delta)
 	falling = _thrown.advance(delta) or falling
+	# The arrival pops are their own clock, and they keep the redraw gate open for
+	# as long as any slot's icon is still settling.
+	for i in range(HOTBAR_SIZE):
+		if _slot_pop[i] > 0.0:
+			_slot_pop[i] = maxf(0.0, _slot_pop[i] - delta / POP_TIME)
+			falling = true
 	if falling:
 		queue_redraw()
 
@@ -111,6 +130,11 @@ func _needs_redraw() -> bool:
 		if cnt > 0:
 			_thrown_out.erase(i)
 		if id != _last_ids[i] or cnt != _last_counts[i]:
+			# More of it than there was: something ARRIVED in this slot, so its
+			# icon plays the arrival pop. `_last_counts` starts at -1, which is
+			# what makes the first look at a slot (a loaded inventory) not one.
+			if cnt > _last_counts[i] and _last_counts[i] >= 0:
+				_slot_pop[i] = 1.0
 			# The last of a stack going is the item being spent: the icon it was
 			# drawn as comes apart instead of just blinking out.
 			if _last_counts[i] > 0 and cnt == 0 and _last_ids[i] > 0:
@@ -247,6 +271,13 @@ func _draw():
 			# and the block's own texture otherwise, so the art a throw clones is the
 			# art the slot drew.
 			var icon_rect := _slot_icon_rect(i, ui_scale)
+			# A slot that has just received something swells about its centre and
+			# settles back onto it (squared, so the pop starts fast and eases out).
+			var pop: float = _slot_pop[i]
+			if pop > 0.0:
+				var grow := 1.0 + POP_GROW * pop * pop
+				icon_rect = Rect2(icon_rect.get_center() - icon_rect.size * grow * 0.5,
+					icon_rect.size * grow)
 			var block_icon := BlockIconArt.texture(block_id)
 			if block_icon:
 				draw_texture_rect(block_icon, icon_rect, false)

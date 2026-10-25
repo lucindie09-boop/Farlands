@@ -225,20 +225,31 @@ func _check_update_log() -> void:
 		"the column starts under the wordmark, not a third down (%.0f px gap)" % gap)
 	_check(not title._log_entries.is_empty(),
 		"the log lists the build's entries (%d)" % title._log_entries.size())
-	# The card belongs to the bottom left: under the column, above the version line, and in the
-	# left half - up in the sky it floated over the part of the screen the world owns.
-	_check(rect.position.x < title.size.x * 0.5, "the card is in the left-hand half")
-	_check(rect.position.y > title.size.y * 0.5, "the card is in the lower half")
-	_check(absf(rect.position.x - title._margin * s) <= title._cell,
-		"the card's left edge is on the margin (%.0f)" % rect.position.x)
+	# The card belongs to the top right: on the wordmark's line, on the right margin, in the
+	# upper half, and clear of the column - the one part of the screen with nothing behind it
+	# but sky, so it balances the wordmark without covering the world.
+	_check(rect.position.x > title.size.x * 0.5, "the card is in the right-hand half")
+	_check(rect.position.y < title.size.y * 0.5, "the card is in the upper half")
+	var column_right: float = (title._margin + Title.COLUMN) * s
+	_check(rect.position.x >= column_right,
+		"the card sits right of the column (%.0f >= %.0f)" % [rect.position.x, column_right])
+	_check(absf(rect.end.x - (title.size.x - title._margin * s)) <= title._cell,
+		"the card's right edge is on the margin (%.0f)" % rect.end.x)
+	# The log is the second panel in the right-hand stack: the profile card is on the wordmark's
+	# line and the log starts under it, one cell down.
+	var profile: Rect2 = title._profile_rect
+	_check(absf(profile.position.y - title._wordmark_y * s) <= title._cell,
+		"the profile card's top is on the wordmark's line (%.0f)" % profile.position.y)
+	_check(absf(profile.end.x - (title.size.x - title._margin * s)) <= title._cell,
+		"the profile card's right edge is on the margin (%.0f)" % profile.end.x)
+	_check(absf(profile.size.x - Title.COLUMN * s) <= title._cell,
+		"the profile card is the column's width (%.0f)" % profile.size.x)
+	_check(rect.position.y >= profile.end.y,
+		"the log sits under the profile card (%.0f >= %.0f)" % [rect.position.y, profile.end.y])
+	_check(rect.position.y - profile.end.y <= title._cell * 2.0,
+		"they are one stack, not two islands (%.0f apart)" % (rect.position.y - profile.end.y))
 	_check(absf(rect.size.x - Title.COLUMN * s) <= title._cell,
 		"the card is the column's width (%.0f of %.0f)" % [rect.size.x, Title.COLUMN * s])
-	var column_bottom: float = (title._rows_y
-		+ float(title._buttons.size()) * (Title.ROW_H + Title.ROW_GAP) - Title.ROW_GAP) * s
-	_check(rect.position.y >= column_bottom,
-		"the card sits under the column (%.0f >= %.0f)" % [rect.position.y, column_bottom])
-	_check(rect.end.y <= title._footer.position.y,
-		"the card stays clear of the version line (%.0f <= %.0f)" % [rect.end.y, title._footer.position.y])
 	# Snapped to the scrim's grid on every edge, so the panel lines up with the squares behind
 	# it rather than cutting across them.
 	var cell: float = title._cell
@@ -284,6 +295,26 @@ func _check_update_log() -> void:
 		sky.b * (1.0 - a) + tint.b * a)
 	var ratio := (_relative_luminance(Title.LOG_TEXT) + 0.05) / (_relative_luminance(card) + 0.05)
 	_check(ratio >= 4.5, "the entries hold %.2f:1 on the brightest sky" % ratio)
+
+	# The profile card: three rows, real Buttons, inside the card - and each one answers in the
+	# footer, because there is nothing behind them yet.
+	_check(title._profile_rows.size() == Title.PROFILE_ROWS.size(),
+		"the profile card has %d rows" % title._profile_rows.size())
+	for i in range(title._profile_rows.size()):
+		var row: Button = title._profile_rows[i]
+		_check(row.visible and row is Button, "row %d is a live button" % i)
+		_check(String(row.text) == String(Title.PROFILE_ROWS[i][0]),
+			"row %d is %s" % [i, row.text])
+		var inside: Rect2 = Rect2(row.position, row.size)
+		_check(profile.encloses(inside), "row %d sits inside the card" % i)
+	_check(absf(profile.size.y - (Title.PROFILE_HEADER + 3.0 * Title.PROFILE_ROW_H
+		+ Title.PROFILE_PAD) * s) <= title._cell,
+		"the card is its header plus three rows (%.0f tall)" % profile.size.y)
+	title._on_profile_row(1)
+	_check(String(title._footer.text).contains("CAPE"),
+		"a profile row answers in the footer: %s" % title._footer.text)
+	title._process(Title.NOTE_SECONDS + 0.1)
+	_check(String(title._footer.text).contains("v0.1"), "the answer clears itself")
 
 	# The file names the running build, or the card is advertising another one.
 	var version := String(ProjectSettings.get_setting("application/config/version", "dev"))

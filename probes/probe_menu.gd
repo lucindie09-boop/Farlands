@@ -225,10 +225,26 @@ func _check_update_log() -> void:
 		"the column starts under the wordmark, not a third down (%.0f px gap)" % gap)
 	_check(not title._log_entries.is_empty(),
 		"the log lists the build's entries (%d)" % title._log_entries.size())
-	var column_right: float = (title._margin + Title.COLUMN) * s
-	_check(rect.position.x >= column_right,
-		"the card sits right of the column (%.0f >= %.0f)" % [rect.position.x, column_right])
-	_check(rect.end.x <= title.size.x, "the card stays on screen")
+	# The card belongs to the bottom left: under the column, above the version line, and in the
+	# left half - up in the sky it floated over the part of the screen the world owns.
+	_check(rect.position.x < title.size.x * 0.5, "the card is in the left-hand half")
+	_check(rect.position.y > title.size.y * 0.5, "the card is in the lower half")
+	_check(absf(rect.position.x - title._margin * s) <= title._cell,
+		"the card's left edge is on the margin (%.0f)" % rect.position.x)
+	_check(absf(rect.size.x - Title.COLUMN * s) <= title._cell,
+		"the card is the column's width (%.0f of %.0f)" % [rect.size.x, Title.COLUMN * s])
+	var column_bottom: float = (title._rows_y
+		+ float(title._buttons.size()) * (Title.ROW_H + Title.ROW_GAP) - Title.ROW_GAP) * s
+	_check(rect.position.y >= column_bottom,
+		"the card sits under the column (%.0f >= %.0f)" % [rect.position.y, column_bottom])
+	_check(rect.end.y <= title._footer.position.y,
+		"the card stays clear of the version line (%.0f <= %.0f)" % [rect.end.y, title._footer.position.y])
+	# Snapped to the scrim's grid on every edge, so the panel lines up with the squares behind
+	# it rather than cutting across them.
+	var cell: float = title._cell
+	var off_grid := maxf(maxf(fposmod(rect.position.x, cell), fposmod(rect.position.y, cell)),
+		maxf(fposmod(rect.size.x, cell), fposmod(rect.size.y, cell)))
+	_check(off_grid < 0.01, "the card's edges land on the square grid (%.2f px off)" % off_grid)
 	var body := int(Title.LOG_BODY_UNITS * s)
 	var widest := 0.0
 	for entry in title._log_entries:

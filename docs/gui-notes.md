@@ -820,17 +820,28 @@ first-person viewmodel - what each one owns and the decisions behind it.
   second, louder interface; they are deliberately NOT in `_buttons`, which is the action column
   and whose index positions the accent bar. Each row answers in the footer - the same channel
   Multiplayer uses - until there is something behind it.
-- **The right-hand side is one stack, not two islands.** The profile card sits on the wordmark's
-  line and the log starts one cell under it, both the column's width, both on the cell grid: the
-  left edge of the screen is wordmark and rows, the right edge is card and log, and the probe
-  holds the gap between them to two cells so they cannot drift apart.
+- **The right-hand rail FILLS the column, and the friends list is the panel that pays for it.**
+  Three panels one cell apart, the column's width, every edge on the cell grid: profile card on
+  the wordmark's line, friends panel under it, update log last. The stack is sized so the log
+  card's bottom edge is exactly as far from the bottom of the screen as the profile card's top is
+  from the top - 108 px each at 1080p - which is what stops a tall window leaving a third of the
+  column empty under the last card. The room has to go somewhere and only one panel can take it:
+  the profile card is its head plus three rows, and the log is its entries, so a stretched card in
+  either place is a card with empty space at the bottom. The friends panel is a list, so the room
+  goes into the list - its header, search, tabs and `Add Friend` stay pinned top and bottom where
+  they were. Two details make it work: the panel's measured content height is kept separate from
+  its stretched height (otherwise the cell-rounding inset would lift the chrome into the middle of
+  a tall box), and the log's height in cells is computed by `_log_cell_rows()` before the panel is
+  placed, because the stack's bottom edge is what sizes the friends panel. The probe checks both
+  numbers - the two gaps against each other, within a cell, and the chrome's distance from the
+  panel's top - at every size it opens the screen at.
 - **The log is the column's own width, and every edge of it is on the cell grid.** The width and
   the right edge are both rounded to the nearest cell - which can move either by up to half a
   cell and never cuts a square in half - and the probe checks all four edges against the grid,
-  plus the width against `COLUMN`, rather than trusting the look. It has been placed in three
-  corners while this screen settled (top right, bottom left, and now the right-hand column under
-  the profile card); the grid and the width are what survived every move, so they are what is
-  pinned in the probe.
+  plus the width against `COLUMN`, rather than trusting the look. It has been placed in four
+  positions while this screen settled (top right, then the bottom-left corner, then under the
+  profile card, and now the bottom of the rail, where its bottom edge closes the stack); the grid
+  and the width are what survived every move, so they are what is pinned in the probe.
 - **The card is one flat fill; the noise and the wind are the plate's.** The noise exists to break
   up a gradient, and the card has no gradient - so per-square noise there only read as a patchwork
   of squares sitting slightly proud of each other, which is what "its squares are flying away"

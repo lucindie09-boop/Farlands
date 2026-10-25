@@ -225,11 +225,12 @@ func _check_update_log() -> void:
 		"the column starts under the wordmark, not a third down (%.0f px gap)" % gap)
 	_check(not title._log_entries.is_empty(),
 		"the log lists the build's entries (%d)" % title._log_entries.size())
-	# The card belongs to the top right: on the wordmark's line, on the right margin, in the
-	# upper half, and clear of the column - the one part of the screen with nothing behind it
-	# but sky, so it balances the wordmark without covering the world.
+	# The card is the BOTTOM of the right-hand rail: under the friends panel, in the right-hand
+	# half and clear of the column - and its bottom edge is what closes the stack, so its own
+	# balance against the top of the screen is checked below against the profile card's.
 	_check(rect.position.x > title.size.x * 0.5, "the card is in the right-hand half")
-	_check(rect.position.y < title.size.y * 0.5, "the card is in the upper half")
+	_check(rect.position.y > title.size.y * 0.5,
+		"the card is the bottom of the rail (top %.0f)" % rect.position.y)
 	var column_right: float = (title._margin + Title.COLUMN) * s
 	_check(rect.position.x >= column_right,
 		"the card sits right of the column (%.0f >= %.0f)" % [rect.position.x, column_right])
@@ -240,6 +241,16 @@ func _check_update_log() -> void:
 	var profile: Rect2 = title._profile_rect
 	_check(absf(profile.position.y - title._wordmark_y * s) <= title._cell,
 		"the profile card's top is on the wordmark's line (%.0f)" % profile.position.y)
+	# ...and the stack FILLS the column: the top card's top edge is as far from the top of the
+	# screen as the log's bottom edge is from the bottom. The friends panel stretches to make it
+	# so, which is why its chrome must stay at the top of a taller box rather than floating in it.
+	var top_gap: float = profile.position.y
+	var bottom_gap: float = title.size.y - rect.end.y
+	_check(absf(top_gap - bottom_gap) <= title._cell,
+		"the stack is balanced top and bottom (%.0f / %.0f)" % [top_gap, bottom_gap])
+	_check(title._friends_search.position.y - title._friends_rect.position.y <= title._cell * 2.0,
+		"the stretched friends panel keeps its chrome at the top (%.0f in)" % (
+			title._friends_search.position.y - title._friends_rect.position.y))
 	_check(absf(profile.end.x - (title.size.x - title._margin * s)) <= title._cell,
 		"the profile card's right edge is on the margin (%.0f)" % profile.end.x)
 	_check(absf(profile.size.x - Title.COLUMN * s) <= title._cell,

@@ -754,8 +754,10 @@ func _position_profile() -> void:
 
 
 ## The friends panel is the MIDDLE panel of the right-hand column: under the profile card, above
-## the update log, the same width as both. Its height is its own content - header, search, tabs,
-## a list with room for its two lines, Add Friend - so it is the same panel at any window size.
+## the update log, the same width as both. It is also the panel that STRETCHES: the stack fills
+## the column, its last card's bottom edge as far from the bottom of the screen as the profile
+## card's top is from the top, and the list is where that room goes. The chrome - header, search,
+## tabs, Add Friend - stays where it is, pinned to the top and bottom of the taller box.
 func _position_friends() -> void:
 	_friends_rect = Rect2()
 	var s := maxf(UIScale.value, 1.0)
@@ -769,7 +771,18 @@ func _position_friends() -> void:
 	var content_h := FRIENDS_HEADER_H + FRIENDS_SEARCH_H + FRIENDS_TABS_H \
 		+ FRIENDS_LIST_H + FRIENDS_FOOTER_H + FRIENDS_GAPS
 	var cols := int(round(w_units * s / cell))
-	var rows := int(ceil(content_h * s / cell))
+	var natural := int(ceil(content_h * s / cell))
+	var rows := natural
+	# The stack FILLS the column: the log card's bottom edge sits exactly as far from the bottom
+	# of the screen as the profile card's top does from the top. The friends list is the panel
+	# that stretches for it - a list is what has somewhere for the room to go, and its chrome
+	# stays at the top with Add Friend pinned to the bottom. The log keeps its content's height,
+	# because a changelog card with a foot of empty card under its last line reads as broken.
+	var log_rows := _log_cell_rows()
+	if log_rows > 0:
+		var want := size.y - _profile_rect.position.y * 2.0 - _profile_rect.size.y \
+			- cell * 2.0 - float(log_rows) * cell
+		rows = maxi(rows, int(round(want / cell)))
 	var w := float(cols) * cell
 	var h := float(rows) * cell
 	var right := roundf((size.x - _margin * s) / cell) * cell
@@ -777,8 +790,9 @@ func _position_friends() -> void:
 	var top := roundf((_profile_rect.end.y + cell) / cell) * cell
 	_friends_rect = Rect2(Vector2(left, top), Vector2(w, h))
 	# The same half-and-half of the cell rounding the profile card gets, so the chrome sits in the
-	# middle of its box rather than against the top of it.
-	_friends_top_inset = (h - content_h * s) * 0.5
+	# middle of its box rather than against the top of it - measured against the CONTENT's height,
+	# not the stretched panel's, or a taller list would lift the header into the middle of the box.
+	_friends_top_inset = (float(natural) * cell - content_h * s) * 0.5
 
 	var boxes := _friends_boxes()
 	_friends_search.visible = true
@@ -839,13 +853,26 @@ func _hide_friends() -> void:
 ## The log card's rect for this window, snapped to whole scrim cells so the card is made of
 ## the same squares as the plate rather than a rectangle laid over a grid.
 ##
-## It sits in the TOP right, its top on the wordmark's line and its right edge on the same margin
-## the column's left edge uses. That is the one part of the screen with nothing in it and nothing
-## behind it but sky, so the card balances the wordmark across the top and leaves the middle of
-## the screen - the part the world owns - to the world.
+## It is the BOTTOM of the right-hand rail: one cell under the friends panel, its right edge on
+## the same margin the column's left edge uses, and its bottom edge closing the stack - as far
+## from the bottom of the screen as the profile card's top is from the top. It keeps its
+## content's height rather than stretching: a changelog with a hand's width of empty card under
+## its last line reads as a card that failed to fill.
 ##
 ## The card is dropped rather than shrunk below the point where a line still fits: a changelog
 ## in a column narrower than its own words is worse than no changelog.
+##
+## Its height is its content's, in whole cells. `_position_friends` reads this number before the
+## card is placed, because the stack's bottom edge is what sizes the friends panel.
+func _log_cell_rows() -> int:
+	if _log_entries.is_empty():
+		return 0
+	var s := maxf(UIScale.value, 1.0)
+	var h_units := LOG_PAD + (LOG_HEADING_UNITS + 9.0) + (LOG_BODY_UNITS + 8.0) \
+		+ float(_log_entries.size()) * LOG_LINE_H + LOG_PAD * 0.6
+	return int(ceil(h_units * s / maxf(_cell, 2.0)))
+
+
 func _position_log() -> void:
 	_log_rect = Rect2()
 	if _log_entries.is_empty():
@@ -858,9 +885,8 @@ func _position_log() -> void:
 	var w_units := minf(LOG_W, room)
 	if w_units < LOG_W * 0.6:
 		return
-	var h_units := LOG_PAD + (LOG_HEADING_UNITS + 9.0) + (LOG_BODY_UNITS + 8.0) \
-		+ float(_log_entries.size()) * LOG_LINE_H + LOG_PAD * 0.6
 	var cell := maxf(_cell, 2.0)
+	var natural := _log_cell_rows()
 	# Rounded, not filled: a card that took the next whole cell would sit a cell past the
 	# buttons' right edge, and the point of the width is that it is the column's.
 	var cols := int(round(w_units * s / cell))
@@ -872,7 +898,7 @@ func _position_log() -> void:
 	var anchor := _friends_rect if _friends_rect.size.x > 0.0 else _profile_rect
 	var stack_top := anchor.end.y + cell if anchor.size.x > 0.0 else _wordmark_y * s
 	var top := roundf(stack_top / cell) * cell
-	var rows := mini(int(ceil(h_units * s / cell)), int(floor((floor_y - top) / cell)))
+	var rows := mini(natural, int(floor((floor_y - top) / cell)))
 	var w := float(cols) * cell
 	var h := float(rows) * cell
 	# Both edges land on cell boundaries, so the panel never cuts a square behind it in half.

@@ -201,8 +201,8 @@ the world: it is the world.
 
 ## data/changelog.json
 
-Read by `title_screen.gd` for the update-log card in the top right of the title
-screen. Read-only, once per open; a missing or broken file leaves the card off and
+Read by `title_screen.gd` for the update-log card at the bottom of the title
+screen's right-hand rail. Read-only, once per open; a missing or broken file leaves the card off and
 logs an error rather than taking the screen down with it.
 
 | Key | Type | Meaning |

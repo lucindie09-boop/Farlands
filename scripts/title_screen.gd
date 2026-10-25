@@ -19,18 +19,19 @@ signal quit_pressed
 const MUNRO_FONT: Font = preload("res://fonts/munro.ttf")
 const BUTTON_TEX: Texture2D = preload("res://textures/gui/button.png")
 
-# Units. The column is wider and the rows taller than the settings menu's, because
-# a title screen is read from further away and has one job rather than thirty.
+# Units. The rows are the game's own row: 200 x 20 units with an 8-unit label, which is what
+# the death screen and the settings menu use. A title screen is not a different interface - a
+# button that is 40% taller and 50% larger in the text reads as a widget from another game.
 const MARGIN := 40.0
-const COLUMN := 240.0
-const ROW_H := 28.0
-const ROW_GAP := 6.0
+const COLUMN := 200.0
+const ROW_H := 20.0
+const ROW_GAP := 5.0
 const FIRST_ROW := 168.0
 const WORDMARK_UNITS := 40
-const LABEL_UNITS := 12
+const LABEL_UNITS := 8
 const FOOTER_UNITS := 7
 const FOCUS_BAR_W := 3.0
-const FOCUS_BAR_INSET := 11.0
+const FOCUS_BAR_INSET := 8.0
 # The scrim is ONE darkening: the plate the interface sits on. It is darkest at the left
 # edge, where the labels start, eases down across the column, and is gone just past the
 # buttons - so the world is back to itself for the other four fifths of the screen. The
@@ -65,6 +66,26 @@ const SCRIM_TINT := Color(0.015, 0.018, 0.024)
 # The accent, mixed with the world's own sky warmth when one is available. One
 # accent for the primary action and the focus state, and nothing else.
 const ACCENT := Color(1.0, 0.76, 0.42)
+# What each row turns while it is the current one. The colour says what the row does before it
+# is pressed: green to go in, steel to open housekeeping, red to end the session - and Quit is
+# already two presses, so the colour is a warning, not the only warning. Pressed takes the same
+# hue darker rather than a different state.
+#
+# The green and the red are MUTED, each pulled about a third of the way to the button's own
+# grey. At full strength (#66a93d and #a83c32) they read as signals on a dark plate - the green
+# like a status light, the red like an error message - which is louder than a menu row should
+# be. The steel is the full-strength colour because a desaturated blue is already quiet.
+# Written to the 8-bit values of their hex rather than to three decimals: the probe multiplies
+# each modulate back through the fill and compares it to the hex, so a rounded constant would
+# be a different colour by four times the tolerance.
+const TINT_PLAY := Color(0.407843, 0.580392, 0.305882)  # #68944e, was #66a93d
+const TINT_SETTINGS := Color(0.356863, 0.450980, 0.568627)  # #5b7391
+const TINT_QUIT := Color(0.576471, 0.301961, 0.278431)  # #934d47, was #a83c32
+# The one number a tint depends on: the button texture's own fill, #6d6d6d. A stylebox tint is
+# a MULTIPLY of it, so a target colour is divided by this - and for the green that makes the
+# modulate 1.36 in green, which is allowed and is the only way a grey texture gets there.
+const BUTTON_FILL := Color(0.427, 0.427, 0.427)
+const PRESSED_DARKEN := 0.78
 
 var _wordmark: Label
 var _rows: VBoxContainer
@@ -124,9 +145,9 @@ func _ready() -> void:
 	# Row order is the interaction contract: the primary action first, housekeeping
 	# after it, Quit last. Not reordered at runtime — only the first row's LABEL
 	# changes with the save state, so a returning player's muscle memory holds.
-	_add_row("PLAY", _on_start)
-	_add_row("SETTINGS", _on_settings)
-	_add_row("QUIT", _on_quit)
+	_add_row("PLAY", _on_start, TINT_PLAY)
+	_add_row("SETTINGS", _on_settings, TINT_SETTINGS)
+	_add_row("QUIT", _on_quit, TINT_QUIT)
 
 	_footer = Label.new()
 	_footer.add_theme_font_override("font", MUNRO_FONT)
@@ -184,28 +205,36 @@ func has_world() -> bool:
 	return _world_exists
 
 
-func _add_row(text: String, handler: Callable) -> void:
+func _add_row(text: String, handler: Callable, tint: Color) -> void:
 	var btn := Button.new()
 	btn.text = text
 	btn.clip_text = true
 	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	btn.add_theme_font_override("font", MUNRO_FONT)
-	btn.add_theme_color_override("font_color", Color(0.88, 0.90, 0.93))
+	btn.add_theme_color_override("font_color", Color.WHITE)
 	btn.add_theme_color_override("font_focus_color", Color.WHITE)
 	btn.add_theme_color_override("font_hover_color", Color.WHITE)
-	btn.add_theme_color_override("font_pressed_color", Color(0.85, 0.85, 0.85))
+	btn.add_theme_color_override("font_pressed_color", Color.WHITE)
+	# The house fill, exactly as the death screen and the settings menu use it: the texture at
+	# its own grey, not darkened - and then the row's own colour while it is the current one.
+	# A darker resting row was tried to sit the list into the plate and it read as a dark-mode
+	# menu dropped into a game whose buttons are all this one, so the resting state stays the
+	# house grey and only the state you are on is coloured.
+	#
+	# The focus stylebox is EMPTY on purpose: Godot draws it over the state's own box, so a
+	# filled one hides the press and the row would look identical down and held. Selection is
+	# the accent bar in `_draw` instead, which also leaves the tint free to be the state's.
 	var normal := StyleBoxTexture.new()
 	normal.texture = BUTTON_TEX
-	normal.modulate_color = Color(0.62, 0.64, 0.70)
+	var tinted := _tint(tint)
 	var hover := StyleBoxTexture.new()
 	hover.texture = BUTTON_TEX
-	hover.modulate_color = Color(1.0, 1.0, 1.0)
-	var focused := StyleBoxTexture.new()
-	focused.texture = BUTTON_TEX
-	focused.modulate_color = Color(1.06, 1.03, 0.98)
+	hover.modulate_color = tinted
+	var focused := StyleBoxEmpty.new()
 	var pressed := StyleBoxTexture.new()
 	pressed.texture = BUTTON_TEX
-	pressed.modulate_color = Color(0.80, 0.80, 0.80)
+	pressed.modulate_color = Color(tinted.r * PRESSED_DARKEN, tinted.g * PRESSED_DARKEN,
+		tinted.b * PRESSED_DARKEN)
 	btn.add_theme_stylebox_override("normal", normal)
 	btn.add_theme_stylebox_override("hover", hover)
 	btn.add_theme_stylebox_override("pressed", pressed)
@@ -224,6 +253,12 @@ func _add_row(text: String, handler: Callable) -> void:
 			btn.grab_focus())
 	_rows.add_child(btn)
 	_buttons.append(btn)
+
+
+## The modulate that makes the grey texture read as `target`: the fill it multiplies is
+## `BUTTON_FILL`, so the tint is that target over the grey.
+func _tint(target: Color) -> Color:
+	return Color(target.r / BUTTON_FILL.r, target.g / BUTTON_FILL.g, target.b / BUTTON_FILL.b)
 
 
 func _set_row_text(index: int, text: String) -> void:
@@ -247,12 +282,13 @@ func _layout() -> void:
 	for btn in _buttons:
 		btn.custom_minimum_size = Vector2(COLUMN, ROW_H) * s
 		btn.add_theme_font_size_override("font_size", int(LABEL_UNITS * s))
-		# Only the text inset is rewritten here, so the per-state fills above
-		# survive a re-layout.
-		for state in ["normal", "hover", "focus", "pressed", "disabled"]:
-			var box: StyleBoxTexture = btn.get_theme_stylebox(state).duplicate()
-			box.content_margin_left = 9.0 * s
-			box.content_margin_right = 9.0 * s
+		# Only the text inset is rewritten here, so the per-state tints above survive a
+		# re-layout. Focus is not in this list: it is an empty box (it is drawn over the
+		# state's own, see `_add_row`), so it has no texture to inset.
+		for state in ["normal", "hover", "pressed", "disabled"]:
+			var box := btn.get_theme_stylebox(state).duplicate() as StyleBoxTexture
+			box.content_margin_left = 6.0 * s
+			box.content_margin_right = 6.0 * s
 			btn.add_theme_stylebox_override(state, box)
 	_footer.position = Vector2(_margin, (height_units - _margin - FOOTER_UNITS * 1.7) * s)
 	_footer.add_theme_font_size_override("font_size", int(FOOTER_UNITS * s))

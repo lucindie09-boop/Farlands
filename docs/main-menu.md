@@ -263,8 +263,9 @@ with the window so a 720p screen does not push Quit into the footer):
 |---|---|
 | scrim | one plate: 0.58 at the left edge, easing to nothing 36 units past the buttons' right edge (23 sampled tones across 632 px at 1080p), flat top to bottom; the rest of the screen is undarkened. Drawn as square cells (cell = height / 40), one flat fill each, each with its own ±0.06 noise offset |
 | wind | one random square lifts off the plate every 0.09 s, carried right at 7 cells/s with a little vertical drift, fading over the last 45% of its 1.1 s life; the hole fades back in over 0.5 s. Reduce Motion stops it and keeps the noise |
-| margin | 40; column 240 wide |
-| rows | three at 28 tall, 6 apart, first at 168; labels 12, buttons from `button.png` |
+| margin | 40; column 200 wide |
+| rows | three at 20 tall, 5 apart, first at 168; labels 8, buttons from `button.png` — the same row and label size as the death screen and the settings menu, and the same resting fill: the texture at its own grey, undarkened, with white labels |
+| tint | the row that is current turns its own colour — PLAY `#68944e`, SETTINGS `#5b7391`, QUIT `#934d47` — and presses to 0.78 of it. The green and the red are pulled a third of the way to the button's grey, because `#66a93d` and a saturated red read as signals on the dark plate. The tint is a multiply of the texture's fill (`#6d6d6d`), so green's modulate is 1.36 |
 | wordmark | 40 units cap height at 54 down, one accent underline |
 | footer | 7 units: `v0.1 · seed 12345` |
 | accent | one colour for the underline and the focused row's bar, 35% toward the sky warmth |

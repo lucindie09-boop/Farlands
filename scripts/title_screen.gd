@@ -122,21 +122,21 @@ const LOG_TITLE := "WHAT'S NEW"
 const LOG_PLATE_ALPHA := 0.52
 const LOG_TEXT := Color(0.91, 0.93, 0.96)
 const LOG_DIM := Color(0.80, 0.83, 0.87)
-# The card's border is the button's own bevel, one texel thick, in the texture's own colours:
-# #262626 as the outline, then the texture's two inner tones - #9b9b9b lit along the top and
-# left, #424242 shaded along the bottom and right. They are read out of
-# `textures/gui/button.png` rather than picked by eye, so the frame and the buttons are the same
-# object at two sizes, and `probe_menu.gd` reads those texels back and compares them.
+# The card's border is the button's own bevel, one texel thick: the tones come out of
+# `textures/gui/button.png` rather than being picked by eye - an outline of #262626 and a
+# shaded bottom and right of #424242, exactly as the texture has them, so the frame and the
+# buttons are the same object at two sizes. `probe_menu.gd` reads those two texels back and
+# compares them to these constants.
 #
-# The inner pair is TRANSLUCENT, which is the one departure. On a button they sit over a
-# #6d6d6d fill; over the card's near-black one the same two tones read as a bright frame drawn
-# round the panel. At half alpha they tint the card's own fill instead of replacing it - a lit
-# edge on the panel rather than a second panel painted on top - and the whole bevel quiets down
-# without turning any of its colours into a new one.
+# The lit top and left is the one tone that does NOT survive the move. On a button the fill is
+# #6d6d6d, so the texture's #9b9b9b is a +42 step and reads as a bevel; the card's fill is far
+# darker, and the same tone read as a bright outline drawn round a nearly black panel - out of
+# place in a screen made of quiet greys. It is the button's tone pulled to about 0.67 and
+# cooled toward the card: #686e76. Darker still and the bevel stops being legible, which is the
+# whole point of having one - the shade beside it is #424242, so there is still a step.
 const LOG_EDGE_OUTER := Color8(38, 38, 38)
-const LOG_EDGE_LIGHT := Color8(155, 155, 155)
+const LOG_EDGE_LIGHT := Color8(104, 110, 118)
 const LOG_EDGE_SHADE := Color8(66, 66, 66)
-const LOG_EDGE_ALPHA := 0.5
 # A note that replaces the footer for a moment: the honest answer to a row that cannot
 # act, in the place the screen already uses for status.
 const NOTE_SECONDS := 3.0
@@ -553,14 +553,12 @@ func _draw_log() -> void:
 	draw_rect(Rect2(Vector2(r.position.x, r.end.y - px), Vector2(r.size.x, px)), LOG_EDGE_OUTER)
 	draw_rect(Rect2(r.position, Vector2(px, r.size.y)), LOG_EDGE_OUTER)
 	draw_rect(Rect2(Vector2(r.end.x - px, r.position.y), Vector2(px, r.size.y)), LOG_EDGE_OUTER)
-	var lit := LOG_EDGE_LIGHT
-	lit.a = LOG_EDGE_ALPHA
-	var shade := LOG_EDGE_SHADE
-	shade.a = LOG_EDGE_ALPHA
-	draw_rect(Rect2(inner.position, Vector2(inner.size.x, px)), lit)
-	draw_rect(Rect2(inner.position, Vector2(px, inner.size.y)), lit)
-	draw_rect(Rect2(Vector2(inner.position.x, inner.end.y - px), Vector2(inner.size.x, px)), shade)
-	draw_rect(Rect2(Vector2(inner.end.x - px, inner.position.y), Vector2(px, inner.size.y)), shade)
+	draw_rect(Rect2(inner.position, Vector2(inner.size.x, px)), LOG_EDGE_LIGHT)
+	draw_rect(Rect2(inner.position, Vector2(px, inner.size.y)), LOG_EDGE_LIGHT)
+	draw_rect(Rect2(Vector2(inner.position.x, inner.end.y - px), Vector2(inner.size.x, px)),
+		LOG_EDGE_SHADE)
+	draw_rect(Rect2(Vector2(inner.end.x - px, inner.position.y), Vector2(px, inner.size.y)),
+		LOG_EDGE_SHADE)
 
 	var pad := LOG_PAD * s
 	var x := _log_rect.position.x + pad

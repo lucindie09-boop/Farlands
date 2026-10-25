@@ -42,16 +42,21 @@ screen (the shader-effect stack, the animated-liquid tools, the model previews).
   hand-made fixture never gets a menu), hides the gameplay HUD, freezes the player through the
   existing `set_settings_open` gate, and drifts the body slowly so the backdrop is not a still
   frame. CONTINUE / PLAY is decided by whether `world.meta` existed *before* this launch, since
-  the world behind the title is already running and writes it
-- `title_screen.gd` — Wordmark, the action list and the footer, in units: a scrim of squares,
-  each its own flat tone — one plate darkening only the left column, 0.58 at the edge easing to
-  nothing just past the buttons, every square ±0.06 of its own noise — with squares lifting off
-  it at random and blowing to the right while the holes fade back in (still under Reduce
-  Motion) — plus one accent (mixed
-  with the world's own sky warmth) for the wordmark underline and the focused row's bar. The
-  rows are real `Button`s so mouse hover,
+  the world behind the title is already running and writes it. It also owns the world list
+  (`_worlds()`): one entry today, because the engine keeps a single save at a fixed path
+- `title_screen.gd` — Wordmark, the five-row action list, the update log and the footer, in
+  units: a scrim of squares, each its own flat tone — one plate darkening only the left column,
+  0.58 at the edge easing to nothing just past the buttons, every square ±0.06 of its own noise
+  — with squares lifting off it at random and blowing to the right while the holes fade back in
+  (still under Reduce Motion) — plus one accent (mixed with the world's own sky warmth) for the
+  wordmark underline and the focused row's bar. The rows are real `Button`s so mouse hover,
   keyboard focus and gamepad focus all come from the engine; hover moves the focus rather than
-  sitting beside it, and focus is restored on every open
+  sitting beside it, and focus is restored on every open. The column is CONTINUE/PLAY,
+  SINGLEPLAYER, MULTIPLAYER, SETTINGS, QUIT, starting 14 units under the wordmark's underline;
+  the right-hand update log is a card of the scrim's squares read from
+  `data/changelog.json`; SINGLEPLAYER swaps the column for the world list as a second PAGE of
+  the same screen (rows per save plus BACK, the footer becoming the focused world's seed and
+  last save), and MULTIPLAYER says it is not in this build in the footer for three seconds
 - `ui_block_curtain.gd` — The screen-change cover: twelve columns of **rigid bodies** are let go
   above the top edge, fall under gravity, collide with each other and with a floor and two walls,
   pile up and hold, then drop away when the floor is removed. Every part is the engine's physics:

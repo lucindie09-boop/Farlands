@@ -213,8 +213,15 @@ Full notes: [docs/light.md](docs/light.md).
   not loaded, the head's rotation stays the code's, and the pack's files are not vendored
   (its terms) — the credit is in docs/gui-notes.md.
 - The title screen (`scripts/menu_layer.gd` over the live world, `title_screen.gd` drawing it)
-  offers CONTINUE when a world existed before launch and PLAY when it did not, then Settings and
-  Quit. Entering the world is covered by `ui_block_curtain.gd` — 12 columns of pure-black rigid
+  offers five rows, starting 14 units under the wordmark's underline: CONTINUE (PLAY when no
+  world existed before launch), SINGLEPLAYER, MULTIPLAYER, SETTINGS, QUIT. SINGLEPLAYER is a
+  second PAGE of the same screen - the column becomes the world list, the footer the selected
+  world's seed and last save, BACK and Escape return - because a separate screen would copy the
+  scrim, the wind and the focus handling; MULTIPLAYER has no netcode and answers in the footer
+  for three seconds instead of swallowing the press. The right-hand emptiness holds the update
+  log: a card of the scrim's own squares, 0.52 of its tint (4.75:1 on the brightest sky), read
+  from `data/changelog.json`, whose `version` a probe holds against the build's. Entering the
+  world is covered by `ui_block_curtain.gd` — 12 columns of pure-black rigid
   bodies, let go at rest, that fall, collide and pile on the engine's own physics; each square then
   swells until a scanline pass proves the viewport is covered with no gap, and the pile is swapped
   for a lattice that drops cell by cell from the bottom up, so the exit reads as cubes rather than a

@@ -199,6 +199,18 @@ those materials *sample* — the block textures themselves, grained or recoloure
 for every block at once. Neither gets a layer, because neither is a picture of
 the world: it is the world.
 
+## data/changelog.json
+
+Read by `title_screen.gd` for the update-log card in the top right of the title
+screen. Read-only, once per open; a missing or broken file leaves the card off and
+logs an error rather than taking the screen down with it.
+
+| Key | Type | Meaning |
+|---|---|---|
+| `version` | string | The build these entries belong to. A probe checks it equals `application/config/version`, so the card cannot advertise another release's changelog |
+| `entries` | list of strings | One line each, newest first. The card **clips** rather than wraps, so an entry has to fit its width (~46 characters at 6 units); `probe_menu.gd` measures every line against the card |
+| `_comment` | string | Ignored; the file's own note about the two fields above |
+
 ## data/minecraft_blocks.json
 
 The translation table for imported build files. Read by

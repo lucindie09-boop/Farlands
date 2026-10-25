@@ -1,6 +1,11 @@
 extends Control
-## The title screen: the wordmark, one primary action, Settings, Quit, and the
-## world's seed in the footer.
+## The title screen: the wordmark, the action column, the world's seed in the
+## footer, and the update log on the right.
+##
+## Two pages share the screen: the title itself (five rows) and the world list that
+## SINGLEPLAYER opens. A page swap rather than a second scene, because everything a
+## second screen would need - the scrim, the wind, the row factory, the focus
+## machinery, the accent bar - is already here, and a copy of it would drift.
 ##
 ## It is drawn in units (`scripts/ui_scale.gd`), so at GUI scale 2 a 240-unit row
 ## is 480 px and the whole screen grows with the rest of the interface. The list
@@ -15,6 +20,9 @@ extends Control
 signal start_pressed
 signal settings_pressed
 signal quit_pressed
+## A world was picked out of the list. The layer treats it exactly as it treats the
+## primary action: the player is already standing in that world.
+signal world_chosen
 
 const MUNRO_FONT: Font = preload("res://fonts/munro.ttf")
 const BUTTON_TEX: Texture2D = preload("res://textures/gui/button.png")
@@ -26,7 +34,18 @@ const MARGIN := 40.0
 const COLUMN := 200.0
 const ROW_H := 20.0
 const ROW_GAP := 5.0
-const FIRST_ROW := 168.0
+# The column starts close under the wordmark's underline, not a screen-third down. At 168
+# the gap between the underline and CONTINUE was 62 units - a band of nothing wide enough
+# to read as a missing row, which is exactly what it looked like. 120 leaves 14 units, under
+# one row's worth of air: the wordmark and the list read as one block, with the underline
+# acting as the list's own rule.
+const FIRST_ROW := 120.0
+# Five rows is the documented ceiling for this screen (docs/main-menu.md): the sixth
+# is a sign the menu is carrying somebody's feature request. CONTINUE is the primary
+# action, SINGLEPLAYER is the world list, MULTIPLAYER is not in this build yet, and
+# then the two housekeeping rows.
+const ROW_TEXT_PRIMARY := "PLAY"
+const ROW_TEXT_RESUME := "CONTINUE"
 const WORDMARK_UNITS := 40
 const LABEL_UNITS := 8
 const FOOTER_UNITS := 7
@@ -81,6 +100,36 @@ const ACCENT := Color(1.0, 0.76, 0.42)
 const TINT_PLAY := Color(0.407843, 0.580392, 0.305882)  # #68944e, was #66a93d
 const TINT_SETTINGS := Color(0.356863, 0.450980, 0.568627)  # #5b7391
 const TINT_QUIT := Color(0.576471, 0.301961, 0.278431)  # #934d47, was #a83c32
+# SINGLEPLAYER is a second door into the same world, so it is a second green rather than
+# a different colour: a teal, which reads as "go" and still tells the two rows apart.
+const TINT_SINGLE := Color(0.329412, 0.564706, 0.478431)  # #54907a
+# MULTIPLAYER does nothing in this build. Its colour is a muted violet - desaturated,
+# because a row that cannot act must not advertise itself with a live-looking hue.
+const TINT_MULTI := Color(0.435294, 0.415686, 0.549020)  # #6f6a8c
+# The update log. It sits in the emptiness on the right, which is not emptiness any more
+# once something is there - and it is a CARD, not floating text, because the right-hand
+# sky is the brightest thing on the screen and grey text on it fails contrast outright.
+# 0.52 of the scrim's tint puts the brightest sky at ~96 luminence, which is 4.9:1 against
+# the entries; the research's own case (NN/g) is the same move, raising a black backing
+# until the labels pass.
+const LOG_PATH := "res://data/changelog.json"
+const LOG_W := 232.0
+const LOG_PAD := 9.0
+const LOG_HEADING_UNITS := 7
+const LOG_BODY_UNITS := 6
+const LOG_LINE_H := 9.0
+const LOG_TITLE := "WHAT'S NEW"
+const LOG_PLATE_ALPHA := 0.52
+const LOG_TEXT := Color(0.91, 0.93, 0.96)
+const LOG_DIM := Color(0.80, 0.83, 0.87)
+# A note that replaces the footer for a moment: the honest answer to a row that cannot
+# act, in the place the screen already uses for status.
+const NOTE_SECONDS := 3.0
+# The two pages the column can show. A page, not a second scene: the scrim, the wind, the
+# row factory and the focus machinery all belong to this screen, and a second screen would
+# be a copy of them that drifts.
+const PAGE_TITLE := 0
+const PAGE_WORLDS := 1
 # The one number a tint depends on: the button texture's own fill, #6d6d6d. A stylebox tint is
 # a MULTIPLY of it, so a target colour is divided by this - and for the green that makes the
 # modulate 1.36 in green, which is allowed and is the only way a grey texture gets there.
@@ -106,13 +155,27 @@ var _rng := RandomNumberGenerator.new()
 var _accent := ACCENT
 var _focus_index := 0
 var _world_exists := false
+# Which page the column is showing, and the rows it is showing: the layer hands the
+# worlds in, because it is the side that already knows where a save lives.
+var _page := 0
+var _worlds: Array = []
+var _quit_index := 4
+# The update log: the parsed file, the lines it draws, and the card's rect for this window.
+var _log_version := ""
+var _log_entries: Array = []
+var _log_rect := Rect2()
+# The footer is the screen's status line: version and seed on the title page, the selected
+# world's detail on the list page, and a transient note over either.
+var _footer_default := ""
+var _note := ""
+var _note_timer := 0.0
 # Layout values that depend on the window, resolved in _layout() and read back by
 # _draw(): a small window must not push the column off the bottom of the screen.
 var _margin := MARGIN
 var _wordmark_y := 54.0
 var _rows_y := FIRST_ROW
 # Quit is two presses, not one: a mis-click on the bottom row of the only screen
-# standing between the player and the game should not end the session. No modal —
+# standing between the player and the game should not end the session. No modal -
 # the row itself changes, and it changes back if the second press never comes.
 const QUIT_ARM_SECONDS := 2.5
 var _quit_armed := false
@@ -142,12 +205,10 @@ func _ready() -> void:
 	_rows.add_theme_constant_override("separation", 12)
 	add_child(_rows)
 
-	# Row order is the interaction contract: the primary action first, housekeeping
-	# after it, Quit last. Not reordered at runtime — only the first row's LABEL
-	# changes with the save state, so a returning player's muscle memory holds.
-	_add_row("PLAY", _on_start, TINT_PLAY)
-	_add_row("SETTINGS", _on_settings, TINT_SETTINGS)
-	_add_row("QUIT", _on_quit, TINT_QUIT)
+	# Row order is the interaction contract: the primary action first, the two modes, then
+	# housekeeping, and Quit last. Not reordered at runtime - only the first row's LABEL
+	# changes with the save state - so a returning player's muscle memory holds.
+	_build_page()
 
 	_footer = Label.new()
 	_footer.add_theme_font_override("font", MUNRO_FONT)
@@ -165,13 +226,111 @@ func _fit() -> void:
 	_layout()
 
 
+## Rebuild the column for `_page`. The rows are freed and made again rather than hidden,
+## because a hidden row still takes part in focus order and in `_buttons` - and the one
+## thing this screen cannot get wrong is which rows the player can reach.
+func _build_page() -> void:
+	for child in _rows.get_children():
+		_rows.remove_child(child)
+		child.queue_free()
+	_buttons.clear()
+	_focus_index = 0
+	if _page == PAGE_WORLDS:
+		if _worlds.is_empty():
+			# Nothing to pick. The row says so instead of the list being silently blank.
+			_add_row("NO WORLDS YET", _on_back, TINT_MULTI)
+		for i in range(_worlds.size()):
+			_add_row(String(_worlds[i]["name"]), func(): _on_world(i), TINT_PLAY)
+		_add_row("BACK", _on_back, TINT_SETTINGS)
+		_quit_index = -1
+	else:
+		_add_row(ROW_TEXT_RESUME if _world_exists else ROW_TEXT_PRIMARY, _on_start, TINT_PLAY)
+		_add_row("SINGLEPLAYER", _on_singleplayer, TINT_SINGLE)
+		_add_row("MULTIPLAYER", _on_multiplayer, TINT_MULTI)
+		_add_row("SETTINGS", _on_settings, TINT_SETTINGS)
+		_quit_index = _buttons.size()
+		_add_row("QUIT", _on_quit, TINT_QUIT)
+
+
+## Move between the two pages: the column is rebuilt, the layout re-taken (a new set of
+## rows changes nothing about the window, but `_layout` also re-measures the log card) and
+## the footer re-read, because on the list page it is the selected world's detail.
+func _set_page(page: int) -> void:
+	_page = page
+	_build_page()
+	_layout()
+	_refresh_footer()
+	refocus()
+
+
+## The footer describes what the screen is showing: the launch's own save on the title
+## page, and the world under the focus on the list. A note, when there is one, wins.
+func _refresh_footer() -> void:
+	if _footer == null:
+		return
+	if _note != "":
+		_footer.text = _note
+		return
+	if _page == PAGE_WORLDS and not _worlds.is_empty():
+		var index := clampi(_focus_index, 0, _worlds.size() - 1)
+		_footer.text = _world_detail(_worlds[index])
+		return
+	_footer.text = _footer_default
+
+
+func _world_detail(world: Dictionary) -> String:
+	var seed_text := "seed %d" % int(world["seed"]) if world["seed"] != null else "new world"
+	var when := int(world.get("when", 0))
+	if when <= 0:
+		return seed_text
+	return "%s  ·  %s" % [seed_text, _format_age(when)]
+
+
+## How long ago a world was last written, in the one unit that matters on a menu. Coarse
+## on purpose: a player reads "2 h ago", never "1 h 58 m".
+func _format_age(modified_unix: int) -> String:
+	var ago := maxi(0, int(Time.get_unix_time_from_system()) - modified_unix)
+	if ago < 90:
+		return "just saved"
+	if ago < 3600:
+		return "%d m ago" % (ago / 60)
+	if ago < 86400:
+		return "%d h ago" % (ago / 3600)
+	return "%d d ago" % (ago / 86400)
+
+
+## The update log, read once per open. Missing or broken falls back to an empty log: a
+## title screen that cannot draw its changelog still has to draw its buttons.
+func _load_log() -> void:
+	_log_version = ""
+	_log_entries.clear()
+	var file := FileAccess.open(LOG_PATH, FileAccess.READ)
+	if file == null:
+		push_error("Failed to load " + LOG_PATH)
+		return
+	var text := file.get_as_text()
+	file.close()
+	var json := JSON.new()
+	if json.parse(text) != OK:
+		push_error("Failed to parse %s: %s" % [LOG_PATH, json.get_error_message()])
+		return
+	var data = json.data
+	if typeof(data) != TYPE_DICTIONARY:
+		return
+	_log_version = String(data.get("version", ""))
+	for entry in data.get("entries", []):
+		_log_entries.append(String(entry))
+
+
 ## Show the screen for a given world. `world_exists` is whether a save was there
 ## before this launch: false turns the primary action from CONTINUE into PLAY.
 ## `live_seed` is the seed the running world is using, shown in the footer whether
-## or not that world was already saved — on a first run it is the seed about to be
-## played, which is the one fact worth knowing before pressing Play.
+## or not that world was already saved - on a first run it is the seed about to be
+## played, which is the one fact worth knowing before pressing Play. `worlds` is the
+## list SINGLEPLAYER opens, handed in by the layer because it is the side that knows
+## where a save lives.
 func open(world_exists: bool, live_seed, version_text: String, accent: Color,
-		motion: bool = true) -> void:
+		motion: bool = true, worlds: Array = []) -> void:
 	_accent = ACCENT.lerp(accent, 0.35) if accent != null else ACCENT
 	# Reduce Motion comes from the settings menu through `menu_layer.gd`, like the
 	# transition's: the plate keeps its noise and stops losing squares, which is the switch.
@@ -180,10 +339,16 @@ func open(world_exists: bool, live_seed, version_text: String, accent: Color,
 	_healing.clear()
 	_emit = 0.0
 	_world_exists = world_exists
-	_set_row_text(0, "CONTINUE" if _world_exists else "PLAY")
+	_worlds = worlds
+	_page = PAGE_TITLE
 	var seed_text := "seed %d" % int(live_seed) if live_seed != null else "new world"
-	_footer.text = "v%s  ·  %s" % [version_text, seed_text]
+	_footer_default = "v%s  ·  %s" % [version_text, seed_text]
+	_note = ""
+	_note_timer = 0.0
+	_load_log()
 	_disarm_quit()
+	_build_page()
+	_refresh_footer()
 	# Re-taken every open: a window resized while the title was behind another
 	# screen fires its signal at a Control that is not listening, and the layout
 	# would still be the old viewport's.
@@ -244,6 +409,9 @@ func _add_row(text: String, handler: Callable, tint: Color) -> void:
 	var index := _buttons.size()
 	btn.focus_entered.connect(func():
 		_focus_index = index
+		# The footer describes the row under the focus on the world list, so it is re-read
+		# here and not only when the page changes.
+		_refresh_footer()
 		queue_redraw())
 	# Hover moves the focus rather than sitting beside it: two highlighted rows at
 	# once is the state a menu must never be in, and a mouse player who then
@@ -293,7 +461,36 @@ func _layout() -> void:
 	_footer.position = Vector2(_margin, (height_units - _margin - FOOTER_UNITS * 1.7) * s)
 	_footer.add_theme_font_size_override("font_size", int(FOOTER_UNITS * s))
 	_build_grid()
+	_position_log()
 	queue_redraw()
+
+
+## The log card's rect for this window, snapped to whole scrim cells so the card is made
+## of the same squares as the plate rather than a rectangle laid over a grid. The card is
+## dropped rather than shrunk below the point where a line still fits: a changelog in a
+## column narrower than its own words is worse than no changelog.
+func _position_log() -> void:
+	_log_rect = Rect2()
+	if _log_entries.is_empty():
+		return
+	var s := maxf(UIScale.value, 1.0)
+	var width_units := size.x / s
+	# One column plus the card plus a gap between them, or the card is not drawn: this is
+	# the same "shrink with the window" rule the margin and the first row follow.
+	var room := width_units - (_margin + COLUMN) - 24.0 - _margin
+	var w_units := minf(LOG_W, room)
+	if w_units < LOG_W * 0.6:
+		return
+	var h_units := LOG_PAD + (LOG_HEADING_UNITS + 9.0) + (LOG_BODY_UNITS + 8.0) \
+		+ float(_log_entries.size()) * LOG_LINE_H + LOG_PAD * 0.6
+	var cell := maxf(_cell, 2.0)
+	var cols := int(ceil(w_units * s / cell))
+	var rows := int(ceil(h_units * s / cell))
+	var w := float(cols) * cell
+	var h := float(rows) * cell
+	var left := maxf(_margin * s, size.x - _margin * s - w)
+	var top := roundf(_wordmark_y * s / cell) * cell
+	_log_rect = Rect2(Vector2(left, top), Vector2(w, h))
 
 
 func _draw() -> void:
@@ -306,6 +503,52 @@ func _draw() -> void:
 		var row_y := _rows_y + float(_focus_index) * (ROW_H + ROW_GAP)
 		draw_rect(Rect2((_margin - FOCUS_BAR_INSET) * s, row_y * s + ROW_H * 0.10 * s,
 			FOCUS_BAR_W * s, ROW_H * 0.80 * s), _accent)
+	_draw_log()
+
+
+## The update log: a card of the scrim's own squares on the right, one flat tone each, so
+## it belongs to the plate's family instead of being a panel dropped on the screen.
+##
+## It is a card because the sky is the brightest thing here and grey text laid straight on
+## it fails contrast; the entries are near-white over a 0.52 tint, which holds 4.9:1 against
+## the brightest sky the world can put behind it.
+func _draw_log() -> void:
+	if _log_rect.size.x <= 0.0 or _log_rect.size.y <= 0.0:
+		return
+	var s := maxf(UIScale.value, 1.0)
+	var cell := maxf(_cell, 2.0)
+	var cols := int(round(_log_rect.size.x / cell))
+	var rows := int(round(_log_rect.size.y / cell))
+	for row in range(rows):
+		for col in range(cols):
+			var tint := SCRIM_TINT
+			# The same per-square noise the plate carries, at a third of its strength: the
+			# card is a surface, not a rectangle with a pattern near it.
+			tint.a = LOG_PLATE_ALPHA + (_hash01(col + 97, row + 31) * 2.0 - 1.0) * NOISE_ALPHA * 0.35
+			draw_rect(Rect2(_log_rect.position + Vector2(float(col), float(row)) * cell,
+				Vector2(cell, cell)), tint)
+
+	var pad := LOG_PAD * s
+	var x := _log_rect.position.x + pad
+	var head_size := int(LOG_HEADING_UNITS * s)
+	var body_size := int(LOG_BODY_UNITS * s)
+	var y := _log_rect.position.y + pad + float(MUNRO_FONT.get_ascent(head_size))
+	draw_string(MUNRO_FONT, Vector2(x, y), LOG_TITLE, HORIZONTAL_ALIGNMENT_LEFT, -1,
+		head_size, LOG_TEXT)
+	y += (LOG_HEADING_UNITS + 9.0) * s - float(MUNRO_FONT.get_ascent(body_size))
+	var version := "v" + _log_version if _log_version != "" else ""
+	draw_string(MUNRO_FONT, Vector2(x, y), version, HORIZONTAL_ALIGNMENT_LEFT, -1,
+		body_size, LOG_DIM)
+	y += (LOG_BODY_UNITS + 8.0) * s - float(MUNRO_FONT.get_descent(body_size))
+	var bullet := Vector2(2.0, 2.0) * s
+	for entry in _log_entries:
+		var baseline := y + float(MUNRO_FONT.get_ascent(body_size))
+		# A two-unit square instead of a hyphen: the smallest thing on the card is still
+		# a square, which is the whole screen's unit.
+		draw_rect(Rect2(Vector2(x, baseline - 3.0 * s), bullet), LOG_DIM)
+		draw_string(MUNRO_FONT, Vector2(x + 6.0 * s, baseline), String(entry),
+			HORIZONTAL_ALIGNMENT_LEFT, _log_rect.size.x - pad - 6.0 * s, body_size, LOG_TEXT)
+		y += LOG_LINE_H * s
 
 
 ## The scrim behind the menu, as a grid of SQUARES. It used to be 48 bands across the width
@@ -459,6 +702,11 @@ func _process(delta: float) -> void:
 	if _motion and visible:
 		_advance(delta)
 		queue_redraw()
+	if _note_timer > 0.0:
+		_note_timer -= delta
+		if _note_timer <= 0.0:
+			_note = ""
+			_refresh_footer()
 	if not _quit_armed:
 		return
 	_quit_timer -= delta
@@ -471,21 +719,63 @@ func _on_start() -> void:
 	start_pressed.emit()
 
 
+## The world list is a page of this screen, not a second screen: same scrim, same rows,
+## same focus. The list itself was handed in by the layer with `open`.
+func _on_singleplayer() -> void:
+	_disarm_quit()
+	_set_page(PAGE_WORLDS)
+
+
+## Multiplayer is not in this build. The row answers in the footer - the place this screen
+## already uses for status - rather than doing nothing at all, which reads as a bug.
+func _on_multiplayer() -> void:
+	_disarm_quit()
+	_note = "MULTIPLAYER IS NOT IN THIS BUILD YET"
+	_note_timer = NOTE_SECONDS
+	_refresh_footer()
+
+
+func _on_back() -> void:
+	_disarm_quit()
+	_set_page(PAGE_TITLE)
+
+
+func _on_world(index: int) -> void:
+	_disarm_quit()
+	if index < 0 or index >= _worlds.size():
+		return
+	world_chosen.emit()
+
+
 func _on_settings() -> void:
 	_disarm_quit()
 	settings_pressed.emit()
 
 
 func _on_quit() -> void:
+	if _quit_index < 0:
+		return
 	if _quit_armed:
 		quit_pressed.emit()
 		return
 	_quit_armed = true
 	_quit_timer = QUIT_ARM_SECONDS
-	_set_row_text(2, "QUIT?  PRESS AGAIN")
+	_set_row_text(_quit_index, "QUIT?  PRESS AGAIN")
 
 
 func _disarm_quit() -> void:
 	_quit_armed = false
 	_quit_timer = 0.0
-	_set_row_text(2, "QUIT")
+	if _quit_index >= 0:
+		_set_row_text(_quit_index, "QUIT")
+
+
+## Escape (or a pad's back button) leaves the world list for the title. It is handled here
+## rather than by the layer because it is the screen's own state, and there is nothing else
+## for Escape to mean while the player is frozen behind the title.
+func _unhandled_key_input(event: InputEvent) -> void:
+	if _page != PAGE_WORLDS:
+		return
+	if event.is_action_pressed("ui_cancel"):
+		_on_back()
+		accept_event()

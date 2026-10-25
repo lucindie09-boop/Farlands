@@ -37,6 +37,7 @@ func _run() -> void:
 	Curtain = load("res://scripts/ui_block_curtain.gd")
 	Title = load("res://scripts/title_screen.gd")
 	await _check_title_scrim()
+	await _check_title_rows()
 	await _check_curtain()
 	await _check_curtain_fuse()
 	await _check_curtain_skip()
@@ -141,6 +142,36 @@ func _check_title_scrim() -> void:
 	_check(title._lifted.is_empty(), "Reduce Motion leaves the plate still")
 	_check(not title._jitter.is_empty(), "Reduce Motion keeps the noise")
 	title._motion = true
+	title.queue_free()
+	await process_frame
+
+
+## The rows are the game's own button, and the one thing this screen adds is the colour each
+## one turns while it is current. A stylebox tint is a MULTIPLY of the texture's own fill, so
+## the check multiplies it back: what the button draws is the hex the screen means, not a
+## modulate near it. It also pins the empty focus box, because Godot draws that stylebox OVER
+## the state's, and a filled one would hide the press without failing anything else.
+func _check_title_rows() -> void:
+	var title: Control = Title.new()
+	root.add_child(title)
+	await process_frame
+	var wanted := [Color("68944e"), Color("5b7391"), Color("934d47")]
+	var fill: Color = Title.BUTTON_FILL
+	var drop: float = Title.PRESSED_DARKEN
+	for i in range(title._buttons.size()):
+		var btn: Button = title._buttons[i]
+		var hover := btn.get_theme_stylebox("hover") as StyleBoxTexture
+		var got := Color(hover.modulate_color.r * fill.r, hover.modulate_color.g * fill.g,
+			hover.modulate_color.b * fill.b)
+		_check(got.is_equal_approx(wanted[i]),
+			"%s turns its own colour (%s)" % [btn.text, got.to_html(false)])
+		var down := btn.get_theme_stylebox("pressed") as StyleBoxTexture
+		var pressed := Color(down.modulate_color.r * fill.r, down.modulate_color.g * fill.g,
+			down.modulate_color.b * fill.b)
+		var darker := Color(wanted[i].r * drop, wanted[i].g * drop, wanted[i].b * drop)
+		_check(pressed.is_equal_approx(darker), "%s presses darker than it hovers" % btn.text)
+		_check(btn.get_theme_stylebox("focus") is StyleBoxEmpty,
+			"%s has no focus fill to cover its press" % btn.text)
 	title.queue_free()
 	await process_frame
 

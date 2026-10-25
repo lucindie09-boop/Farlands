@@ -726,6 +726,29 @@ first-person viewmodel - what each one owns and the decisions behind it.
   `Main.tscn` by hand and then drive the player; a title screen living in that scene would freeze
   every one of them. `menu_layer.gd` arms itself only when `SceneTree.current_scene` is that
   scene, which is the one property a normal boot has and a hand-made fixture does not.
+- **A title button is still a button.** The rows were designed at 240x28 units with 12-unit
+  labels, against the 200x20 and 8-unit rows the death screen and the settings menu draw from
+  the same `button.png` - so on the title they were 40% taller and half again in the text, and
+  the focused row was near-white while the other two were dark blue-grey. Read together that is
+  one bright slab among two placeholders, in an interface that does not match the game behind
+  it. They are now the house row at the house fill: the same 200 x 20 units and 8-unit labels,
+  the texture at its own grey with white labels, and the selected row lifted to 1.10 with the
+  accent bar rather than becoming a different button. Darkening the three rows to sit them into
+  the plate was tried between those two and looked like a dark-mode menu: the game's buttons are
+  all this one light texture, and the title is the first screen, so it should show that
+  interface rather than a variant of it. The row size is not a matter of taste here either -
+  the texture, font and scale are already fixed by every other screen.
+- **The row you are on turns its own colour.** Play goes green, Settings steel, Quit red, so the
+  row says what it does before it is pressed; Quit is already two presses, and this is a second
+  warning rather than the only one. Two details are not obvious from the code. The tint is a
+  MULTIPLY of the texture's own fill (`#6d6d6d`), so a target hex is divided by that grey - the
+  green's modulate is 1.36 in green, over 1 and fine, and that is the only way a grey texture
+  reaches `#68944e`. And **Godot draws the focus stylebox OVER the state's box**, so a filled
+  focus hides the pressed state entirely - the row would look identical held and hovered. Focus
+  is therefore an empty box and the accent bar carries selection; `probe_menu.gd` checks that
+  rather than trusting it, alongside multiplying each row's modulate back to its hex. At full
+  strength the green and the red read as signals on a dark plate (a status light and an error),
+  so both are pulled a third of the way toward the button's grey before use.
 - **The freeze reuses `set_settings_open`.** That flag is already the gate every system respects
   (movement, look, mouse capture, the block outline, the crosshair, the compass, the interaction
   door), so the title cannot be the one overlay a later system forgets. The cost is a semantic

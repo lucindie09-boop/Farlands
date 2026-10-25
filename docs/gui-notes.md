@@ -767,6 +767,16 @@ first-person viewmodel - what each one owns and the decisions behind it.
   a press reads as a bug. It puts `MULTIPLAYER IS NOT IN THIS BUILD YET` in the footer for three
   seconds - the footer is already this screen's status line - and clears itself on a timer, so
   the message cannot outlive the moment it answered.
+- **The friends panel is the shell, and its list is empty because there are no friends.** The
+  reference is a social panel with a live count, tabs, a search field and a friend per row; what
+  this build can honestly have is the chrome - header, search, tabs, Add Friend - over an empty
+  list that says `NO FRIENDS YET / MULTIPLAYER IS NOT IN THIS BUILD`. The state in the header is
+  `Not connected` rather than a number, because there is no service to count. The tabs and the
+  search field are wired rather than decorative: a tab is state on the panel, and the field
+  filters the list, so the empty state changes to "nothing matched" - the code is the same code a
+  full list would use. What is deliberately NOT written is a friend-row renderer: rows arrive
+  with multiplayer, and a renderer for data that cannot exist yet is a guess at what it will look
+  like.
 - **The profile card is a placeholder with nothing to lie about.** There is no account system and
   no network, so the name is a constant and the state says `Online` because that is what the
   reference has - the card is a piece of furniture for the layout, and the one thing it does

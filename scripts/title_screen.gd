@@ -250,7 +250,11 @@ var _friends_add: Button
 var _friends_tab := 0
 # The half of the cell rounding that sits above the chrome, for the panel and the profile card.
 var _friends_top_inset := 0.0
-var _profile_top_inset := 0.0
+# The profile card's three equal gaps (above the head, under it, under the rows) and the two
+# positions they produce. Kept on the node so the drawing and the layout cannot disagree.
+var _profile_gap := 0.0
+var _profile_head_y := 0.0
+var _profile_rule_y := 0.0
 # Layout values that depend on the window, resolved in _layout() and read back by
 # _draw(): a small window must not push the column off the bottom of the screen.
 var _margin := MARGIN
@@ -706,14 +710,23 @@ func _position_profile() -> void:
 	var left := maxf(_margin * s, right - w)
 	var top := roundf(_wordmark_y * s / cell) * cell
 	_profile_rect = Rect2(Vector2(left, top), Vector2(w, h))
-	# The grid rounds the card UP to a whole cell, so the spare goes half above the content and
-	# half below instead of all of it landing under the last row.
-	_profile_top_inset = (h - h_units * s) * 0.5
 
+	# THREE equal gaps, measured from what the eye sees rather than from the boxes: above the
+	# head, between the head and the first row, and under the last row's TEXT - which sits in the
+	# middle of its row, so that slack is ADDED to the split rather than taken off it. Splitting
+	# the cell rounding evenly was not enough: it left the bottom gap bigger by that slack, and
+	# taking the slack off made it bigger by the same amount in the other direction.
 	var px := maxf(1.0, roundf(s))
 	var inset := px + PROFILE_PAD * 0.6 * s
+	var body := int(PROFILE_SMALL_UNITS * s)
+	var head_h := PROFILE_HEAD * s
+	var rows_h := float(_profile_rows.size()) * PROFILE_ROW_H * s
+	var slack := maxf(0.0, (PROFILE_ROW_H * s - float(MUNRO_FONT.get_height(body))) * 0.5)
+	_profile_gap = maxf(0.0, (h - head_h - rows_h + slack) / 3.0)
+	_profile_head_y = top + _profile_gap
+	_profile_rule_y = _profile_head_y + head_h + _profile_gap * 0.5
 	var row_w := w - inset * 2.0
-	var row_y := top + _profile_top_inset + PROFILE_HEADER * s
+	var row_y := _profile_head_y + head_h + _profile_gap
 	for i in range(_profile_rows.size()):
 		var btn: Button = _profile_rows[i]
 		btn.visible = true
@@ -902,10 +915,7 @@ func _draw_profile() -> void:
 	var s := maxf(UIScale.value, 1.0)
 	var px := maxf(1.0, roundf(s))
 	var inset := px + PROFILE_PAD * 0.6 * s
-	# The head sits in the header band, centred in it: the band is the head plus even air.
-	var head_y := _profile_rect.position.y + _profile_top_inset \
-		+ (PROFILE_HEADER - PROFILE_HEAD) * 0.5 * s
-	var head := Rect2(Vector2(_profile_rect.position.x + inset, head_y),
+	var head := Rect2(Vector2(_profile_rect.position.x + inset, _profile_head_y),
 		Vector2(PROFILE_HEAD, PROFILE_HEAD) * s)
 	draw_texture_rect_region(SKIN_TEX, head, SKIN_HEAD_REGION)
 	var name_size := int(PROFILE_NAME_UNITS * s)
@@ -930,8 +940,7 @@ func _draw_profile() -> void:
 		HORIZONTAL_ALIGNMENT_LEFT, -1, name_size, PROFILE_DIM)
 	# The rule under the header: the shade tone, so it reads as a groove in the panel rather
 	# than a second outline.
-	var rule_y := _profile_rect.position.y + _profile_top_inset + PROFILE_HEADER * s
-	draw_rect(Rect2(Vector2(_profile_rect.position.x + px, rule_y),
+	draw_rect(Rect2(Vector2(_profile_rect.position.x + px, _profile_rule_y),
 		Vector2(_profile_rect.size.x - 2.0 * px, px)), LOG_EDGE_SHADE)
 
 

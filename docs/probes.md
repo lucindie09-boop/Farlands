@@ -120,7 +120,7 @@ comment, with the claim each one backs:
 | `probe_crash_dump.gd` | The crash handler is live in this build and a real fault writes a report |
 | `probe_boot.gd` | The world boots at all — the first thing to run after a change to registration |
 | `probe_bindings.gd` | The GDExtension binding surface GDScript sees |
-| `probe_menu.gd` | The title screen and the block curtain: the blocks are rigid bodies, they tumble, stack and settle on their own physics, the hold is motionless, skip lands it at once, Reduce Motion draws no bodies, and the live scene is frozen, handed back at the covered frame, and frozen again around Settings (see below) |
+| `probe_menu.gd` | The title screen and the block curtain: real bodies that settle, a wall closed scanline by scanline, the fuses, the skip blast, Reduce Motion, and the live scene's freeze and hand-back (see below) |
 | `probe_bucket.gd` | Bucket fill and pour through the real use path |
 | `probe_registry_digest.gd` | A digest of the loaded registry, for comparing two builds |
 
@@ -302,10 +302,15 @@ A few of those rows keep their detail here, because a table cell that long is an
   claim is physical: 96 of them are `RigidBody2D`, they are tumbling ten physics frames in, and
   by the frame the curtain reports `covered` every one of them has landed. The pile is measured,
   not assumed — a separating-axis check between every pair proves blocks are stacked on each
-  other and that none is driven more than a sixth of itself into a neighbour, and a viewport
-  sample proves the swollen wall covers 99.9% of the screen before the swap — the hold is timed
-  from the settle to the emit with the blocks' positions compared before and after (worst
-  0.00 px), and the reveal is timed to the `revealed` signal. Two measurements are also about
+  other and that none is driven more than a sixth of itself into a neighbour, and an exact
+  scanline pass (`_scanline_coverage`, one-pixel lines, stricter than the wall's own two) proves
+  the swollen wall leaves no gap anywhere before the swap, at five window sizes from 1280×720 to
+  2560×1440. The hold is timed from the settle to the emit with the blocks' positions compared
+  before and after (worst 0.00 px) and the closed wall's own stillness checked separately, and
+  the reveal is timed to the `revealed` signal. Two failure paths are exercised on purpose: a
+  wall whose blocks are moved off the side of the screen still covers and still reveals on its
+  fuse, and `skip()` is called mid-fall to assert the wall goes up and every cell moves away from
+  the press point. Two measurements are also about
   the harness, because both were silently wrong at first: the curtain has to be given one idle
   frame before it is sized and played, or `_ready` runs afterwards and switches the whole process
   loop off, and the overlap test has to use a separating axis rather than "close in x", because

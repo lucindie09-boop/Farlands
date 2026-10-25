@@ -301,9 +301,12 @@ wall then holds, and the drop takes **1.2 s**.
 What happens at the end is deliberately not simulated, and it is the one place the effect fakes
 something. A rigid pile does not tile: it keeps a scattering of hairline cracks, so a wall made of
 its blocks is never quite the whole screen. Each square therefore **swells where it landed** until
-the viewport measures covered — a measured size, not a constant, because the pile is different every
-time (it has needed 1.3 to 1.8 of a cell) — and once it is covered, the pile is **replaced by a
-lattice** that tiles the screen exactly. The swap is invisible: both are the same pure black, and
+the viewport is genuinely covered — a size measured for this pile, not a constant, because the pile
+is different every time (it has needed 1.6 to 1.9 of a cell). "Covered" is asked of **every
+horizontal scanline across the screen**, not of a sample grid: a coarse sample steps over a crack
+between its points, which is exactly how a wall reported as 99.9% still showed a line of world before
+the swap. Once no scanline has a gap, the pile is **replaced by a lattice** that tiles the screen
+exactly. The swap is invisible: both are the same pure black, and
 the lattice covers at least what the pile covered. The lattice is what stands for the hold, and it
 is what drops: cell by cell, bottom row first, with a little drift and spin, so the wall comes apart
 into cubes on the way out rather than sliding down as one rectangle. The fall was the effect; the
@@ -327,9 +330,16 @@ measuring rather than by eye:
   with each other below the surface are invisible, because the wall is pure black and so is the
   backing behind it.
 - **The cover is structural at the swap, and it is not a pile.** The wall is handed over only once
-  the swollen squares measure the viewport covered; the lattice that replaces them tiles it by
-  construction. `covered` is emitted behind that frame, so the swap can never depend on a heap
-  happening to leave no gaps.
+  the swollen squares measure the viewport covered, scanline by scanline; the lattice that replaces
+  them tiles it by construction. `covered` is emitted behind that frame, so the swap can never depend
+  on a heap happening to leave no gaps.
+- **The transition can never wait for a click.** A pile that will not report itself settled, or a
+  swell that cannot close the screen (a window resized under it, a body flung out of the box, a
+  first entry where the renderer is still streaming and physics runs behind), used to leave the
+  player behind a see-through wall until they pressed something. The fix is two wall-clock fuses and
+  a loop change: the cover and the hold now run on **physics ticks**, not render frames, and each
+  phase has a deadline (4 s to settle, 2 s to close) after which it moves forward anyway. The exit
+  is always the lattice, so the screen finishes fully covered either way.
 - **The drop is per cell.** A lattice of pure black squares leaving as one sheet is a black
   rectangle falling — there is nothing in it to see, and the eye reads a slab, not cubes. Each cell
   leaves on its own beat instead, bottom rows first, so the wall is eaten away from underneath and
@@ -341,8 +351,13 @@ swells to whatever closes the wall once it lands. All of it is black on black, s
 packing gaps nor the overlaps between neighbours can be seen, while the bodies get the room a
 discrete solver needs.
 
-**It is skippable.** Any key or click after 80 ms lands the cover at once and finishes the reveal
-at once. A transition is not allowed to hold the player, however good the fall is.
+**It is skippable, and skipping is an explosion.** Any key or click after 80 ms ends the transition
+at once — and a click does it from where it landed: the wall goes up instantly (invisible, since
+both walls are pure black) and is then **thrown outward from the press point**, every cell taking an
+impulse away from it with its own spin and drag, so the screen comes apart around the cursor in
+about half a second. A key or pad button has no position, so it bursts from the centre. A
+transition is not allowed to hold the player, however good the fall is; the blast is what makes an
+early exit read as a decision rather than a glitch.
 
 Reduce Motion (`Settings → General → Interface → Reduce Motion`) drops the cells entirely and
 fades both ways in 0.14 s. That switch exists because a full-screen field of falling objects is

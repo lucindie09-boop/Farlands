@@ -35,6 +35,7 @@ func _check(condition: bool, message: String) -> void:
 func _run() -> void:
 	Curtain = load("res://scripts/ui_block_curtain.gd")
 	await _check_curtain()
+	await _check_curtain_fuse()
 	await _check_curtain_skip()
 	await _check_reduce_motion()
 	await _check_live_menu()
@@ -124,37 +125,28 @@ func _check_curtain() -> void:
 	# The squares swell until the viewport is covered, so the size is measured rather
 	# than assumed: it is whatever this pile needed.
 	var seal_at := Time.get_ticks_msec()
-	while not curtain._sealed and Time.get_ticks_msec() - seal_at < 1500:
+	while not curtain._sealed and Time.get_ticks_msec() - seal_at < 2500:
 		await physics_frame
 	var sealed_in := float(Time.get_ticks_msec() - settled_at) / 1000.0
-	_check(curtain._sealed and sealed_in <= 0.45,
+	_check(curtain._sealed,
 		"the wall closes while it holds (%.2f s in, squares at %.2f)" % [sealed_in, curtain._draw_scale])
+	_check(curtain._draw_scale < float(Curtain.MAX_SCALE),
+		"it closed by swelling, not by reaching the ceiling")
 
-	# Filling the screen, measured after closing: sample the viewport and count what the
-	# drawn squares cover. They are smaller while they fall - that is what makes the
-	# sheet read as blocks - and are judged here in the state the player holds.
-	var drawn: float = side * curtain._draw_scale * 0.5
-	var filled := 0
-	var samples := 0
-	for gy in range(27):
-		for gx in range(48):
-			var point := Vector2((float(gx) + 0.5) * 40.0, (float(gy) + 0.5) * 40.0)
-			samples += 1
-			for body in curtain._bodies:
-				var local: Vector2 = body.transform.affine_inverse() * point
-				if absf(local.x) <= drawn and absf(local.y) <= drawn:
-					filled += 1
-					break
-	var fill_ratio := float(filled) / float(samples)
-	_check(fill_ratio >= 0.999, "the wall fills the screen (%.2f%% covered)" % (fill_ratio * 100.0))
+	# Filling the screen, exactly: every scanline across the viewport, not a sample grid.
+	# A sampled check is what passed a wall with a visible hairline in it.
+	var exact: Dictionary = curtain._scanline_coverage(1.0, 0.2)
+	_check(int(exact.gaps) == 0 and exact.ratio >= 0.99999,
+		"the wall covers every scanline before the swap (%d gaps, %.4f)" % [int(exact.gaps), exact.ratio])
 
 	while hits[0] == 0 and Time.get_ticks_msec() - settled_at < 4000:
 		await physics_frame
 	var hold_seconds := float(Time.get_ticks_msec() - settled_at) / 1000.0
 	_check(hits[0] == 1, "the cover emits covered once (%d)" % hits[0])
 	_check(hold_seconds >= 0.5, "the wall stood still for %.2f s before the swap" % hold_seconds)
+	_check(curtain._sealed_at >= 0.0 and curtain._hold - curtain._sealed_at >= 0.45,
+		"the closed wall itself held still for %.2f s" % (curtain._hold - curtain._sealed_at))
 	_check(curtain._grid_up, "the pile is replaced by a lattice before the drop")
-	_check(curtain._bodies.is_empty(), "the lattice lets the pile's bodies go")
 
 	# Reveal: the lattice drops out of frame.
 	var revealed := [0]
@@ -169,6 +161,40 @@ func _check_curtain() -> void:
 	_check(not curtain.visible and curtain._bodies.is_empty(),
 		"the curtain hides itself and frees the bodies")
 	curtain.queue_free()
+
+
+## The transition cannot strand itself. A wall that will not close is the failure the
+## player sees as "nothing happened until I clicked", so the hold has a wall-clock fuse:
+## the lattice goes up and the beat runs out anyway. Sabotaged here by moving the whole
+## pile off the side of the screen, where no swell can ever cover anything.
+func _check_curtain_fuse() -> void:
+	var curtain: Control = Curtain.new()
+	root.add_child(curtain)
+	await process_frame
+	curtain.size = Vector2(1280, 720)
+	var hits := [0]
+	curtain.covered.connect(func(): hits[0] += 1)
+	curtain.play_cover(false)
+	var started := Time.get_ticks_msec()
+	while curtain._phase != Curtain.PHASE_HOLD and Time.get_ticks_msec() - started < 8000:
+		await physics_frame
+	for body in curtain._bodies:
+		body.position.x = 6000.0
+		body.freeze = true
+	var covered_in := -1.0
+	while hits[0] == 0 and Time.get_ticks_msec() - started < 12000:
+		await physics_frame
+		covered_in = float(Time.get_ticks_msec() - started) / 1000.0
+	_check(hits[0] == 1, "a wall that cannot close still covers, with no input (%.2f s)" % covered_in)
+	_check(curtain._grid_up, "the fuse hands over to the lattice")
+	_check(hits[0] == 1 and covered_in <= 8.0, "the fuse is bounded (%.2f s)" % covered_in)
+	curtain.play_reveal()
+	var reveal_at := Time.get_ticks_msec()
+	while curtain.visible and Time.get_ticks_msec() - reveal_at < 4000:
+		await physics_frame
+	_check(not curtain.visible, "the sabotage still ends in a reveal")
+	curtain.queue_free()
+	await process_frame
 
 
 ## Separating-axis overlap of two rotated squares: how far one is inside the
@@ -188,22 +214,45 @@ func _overlap_depth(a: RigidBody2D, b: RigidBody2D, side: float) -> float:
 	return depth
 
 
-## Skip presents the opaque frame at once and is idempotent.
+## Skip is the escape hatch, and it is thrown rather than cut: the wall goes up at once
+## and comes apart away from where the player pressed.
 func _check_curtain_skip() -> void:
 	var curtain: Control = Curtain.new()
 	root.add_child(curtain)
 	await process_frame
 	curtain.size = Vector2(1280, 720)
 	var hits := [0]
+	var revealed := [0]
 	curtain.covered.connect(func(): hits[0] += 1)
+	curtain.revealed.connect(func(): revealed[0] += 1)
 	curtain.play_cover(false)
-	curtain.skip()
+	# Pressed while the sheet is still falling: the case that used to skip with nothing
+	# on screen to throw.
+	for i in range(4):
+		await physics_frame
+	var press := Vector2(320.0, 240.0)
+	curtain.skip(press)
 	_check(hits[0] == 1, "skip emits covered at once (%d)" % hits[0])
-	_check(curtain._grid_up, "skip presents the lattice at once")
-	_check(curtain._grid_up and curtain._bodies.is_empty(),
-		"skip puts the lattice up and lets the bodies go")
-	curtain.skip()
-	_check(hits[0] == 1, "a second skip does not re-emit covered (%d)" % hits[0])
+	_check(curtain._phase == Curtain.PHASE_REVEAL and curtain._grid_up,
+		"skip raises the whole wall and starts throwing it")
+	var thrown: int = curtain._cells.size()
+	_check(thrown > 12, "the blast is the wall, not a few blocks (%d)" % thrown)
+	for i in range(8):
+		await process_frame
+	var away := 0
+	for cell in curtain._cells:
+		var home: Vector2 = Vector2(cell.x, cell.y) + Vector2(cell.size, cell.size) * 0.5
+		if ((home + cell.offset) - press).length() > (home - press).length() + 2.0:
+			away += 1
+	_check(away >= thrown * 9 / 10,
+		"the blocks fly away from the press (%d of %d)" % [away, thrown])
+	var started := Time.get_ticks_msec()
+	while revealed[0] == 0 and Time.get_ticks_msec() - started < 3000:
+		await process_frame
+	_check(revealed[0] == 1, "the blast finishes the transition")
+	_check(float(Time.get_ticks_msec() - started) / 1000.0 <= 1.6,
+		"the blast is quick (%.2f s)" % (float(Time.get_ticks_msec() - started) / 1000.0))
+	_check(not curtain.visible, "the curtain hides itself after the blast")
 	curtain.queue_free()
 
 

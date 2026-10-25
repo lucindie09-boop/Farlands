@@ -63,7 +63,8 @@ var _quit_timer := 0.0
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	set_anchors_preset(Control.PRESET_FULL_RECT)
+	# No anchors: the parent is a CanvasLayer, not a Control, so a full-rect preset only
+	# makes the layout overwrite the size `_fit` sets. The viewport is the authority.
 
 	_wordmark = Label.new()
 	_wordmark.text = "FARLANDS"
@@ -91,9 +92,8 @@ func _ready() -> void:
 	_footer.add_theme_color_override("font_color", Color(0.72, 0.75, 0.80))
 	add_child(_footer)
 
-	# A Control whose parent is a CanvasLayer has no parent rect to anchor
-	# against, so the full-rect preset leaves it at zero: the screen's size has to
-	# be taken from the viewport and kept on resize.
+	# The screen's size is taken from the viewport and kept on resize: there is no parent
+	# Control under a CanvasLayer to derive it from.
 	get_viewport().size_changed.connect(_fit)
 	_fit()
 

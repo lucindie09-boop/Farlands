@@ -161,8 +161,11 @@ const PROFILE_NAME := "VoxelSteve"
 const PROFILE_W := COLUMN
 const PROFILE_PAD := 6.0
 const PROFILE_HEAD := 20.0
-const PROFILE_HEADER := 32.0
-const PROFILE_ROW_H := 13.0
+# The header is the head's box plus even air above and below it; the rows are the reference's
+# smaller height, and the card's own height is the sum of the two, centred in its cell-rounded
+# rect - which is what keeps the head's gap equal top and bottom.
+const PROFILE_HEADER := 30.0
+const PROFILE_ROW_H := 11.0
 const PROFILE_NAME_UNITS := 8
 const PROFILE_SMALL_UNITS := 6
 const PROFILE_TEXT := Color(0.94, 0.95, 0.97)
@@ -181,10 +184,14 @@ const FRIENDS_EMPTY := "NO FRIENDS YET"
 const FRIENDS_REASON := "MULTIPLAYER IS NOT IN THIS BUILD"
 const FRIENDS_NO_MATCH := "NO FRIENDS MATCH THAT"
 const FRIENDS_EMPTY_TAB := ["NO FRIEND REQUESTS", "NOBODY IS BLOCKED"]
-const FRIENDS_HEADER_H := 13.0
+const FRIENDS_HEADER_H := 12.0
 const FRIENDS_SEARCH_H := 11.0
-const FRIENDS_TABS_H := 11.0
-const FRIENDS_FOOTER_H := 13.0
+const FRIENDS_TABS_H := 10.0
+const FRIENDS_LIST_H := 24.0
+const FRIENDS_FOOTER_H := 12.0
+const FRIENDS_PAD := 4.0
+# The three gaps between the bands (search to tabs, tabs to list, list to the footer rule).
+const FRIENDS_GAPS := 11.0 + FRIENDS_PAD
 const FRIENDS_LABEL_UNITS := 7
 const FRIENDS_SMALL_UNITS := 6
 const FRIENDS_DOT := Color(0.62, 0.65, 0.70)
@@ -241,6 +248,9 @@ var _friends_tabs: Array = []
 var _friends_search: LineEdit
 var _friends_add: Button
 var _friends_tab := 0
+# The half of the cell rounding that sits above the chrome, for the panel and the profile card.
+var _friends_top_inset := 0.0
+var _profile_top_inset := 0.0
 # Layout values that depend on the window, resolved in _layout() and read back by
 # _draw(): a small window must not push the column off the bottom of the screen.
 var _margin := MARGIN
@@ -388,16 +398,21 @@ func _flat_button(text: String) -> Button:
 	btn.clip_text = true
 	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	btn.add_theme_font_override("font", MUNRO_FONT)
-	for key in ["font_color", "font_focus_color", "font_hover_color", "font_pressed_color"]:
-		btn.add_theme_color_override(key, PROFILE_TEXT)
+	# The row shows where you are with its TEXT, not with a box: a filled highlight rectangle
+	# inside a panel is the panel drawing a second, lighter panel around the pointer. Rest is
+	# recessed, the row you are on is white, and it presses to the accent.
+	btn.add_theme_color_override("font_color", PROFILE_DIM)
+	btn.add_theme_color_override("font_hover_color", PROFILE_TEXT)
+	btn.add_theme_color_override("font_focus_color", PROFILE_TEXT)
+	btn.add_theme_color_override("font_pressed_color", PROFILE_TEXT)
 	var normal := StyleBoxFlat.new()
 	normal.bg_color = Color(0.0, 0.0, 0.0, 0.0)
 	var hover := StyleBoxFlat.new()
-	hover.bg_color = Color(1.0, 1.0, 1.0, 0.05)
+	hover.bg_color = Color(0.0, 0.0, 0.0, 0.0)
 	var pressed := StyleBoxFlat.new()
-	pressed.bg_color = Color(1.0, 1.0, 1.0, 0.10)
+	pressed.bg_color = Color(0.0, 0.0, 0.0, 0.0)
 	var focus := StyleBoxFlat.new()
-	focus.bg_color = Color(1.0, 1.0, 1.0, 0.05)
+	focus.bg_color = Color(0.0, 0.0, 0.0, 0.0)
 	focus.border_width_left = 2
 	# The accent bar on the left edge, the same marker the column uses for the row you are on.
 	focus.border_width_left = 2
@@ -417,8 +432,12 @@ func _style_flat(btn: Button, s: float, left_inset: float) -> void:
 		box.content_margin_left = left_inset * s
 		box.content_margin_right = 2.0 * s
 		if state == "focus":
+			# The bar alone marks the row you are on; there is no fill behind it.
 			box.border_color = _accent
 		btn.add_theme_stylebox_override(state, box)
+	# Pressed is the accent for the moment the finger is down: feedback without a shape change,
+	# and it cannot be known at build time because the accent is mixed with the sky's warmth.
+	btn.add_theme_color_override("font_pressed_color", _accent)
 
 
 func _on_friends_tab(index: int) -> void:
@@ -655,10 +674,11 @@ func _layout() -> void:
 	_footer.position = Vector2(_margin, (height_units - _margin - FOOTER_UNITS * 1.7) * s)
 	_footer.add_theme_font_size_override("font_size", int(FOOTER_UNITS * s))
 	_build_grid()
+	# The right-hand stack, top to bottom: each panel's top depends on where the one above it
+	# ended, so the order of these three calls is the layout.
 	_position_profile()
-	# The log's top depends on where the profile card ended, so the order matters.
-	_position_log()
 	_position_friends()
+	_position_log()
 	queue_redraw()
 
 
@@ -686,11 +706,14 @@ func _position_profile() -> void:
 	var left := maxf(_margin * s, right - w)
 	var top := roundf(_wordmark_y * s / cell) * cell
 	_profile_rect = Rect2(Vector2(left, top), Vector2(w, h))
+	# The grid rounds the card UP to a whole cell, so the spare goes half above the content and
+	# half below instead of all of it landing under the last row.
+	_profile_top_inset = (h - h_units * s) * 0.5
 
 	var px := maxf(1.0, roundf(s))
 	var inset := px + PROFILE_PAD * 0.6 * s
 	var row_w := w - inset * 2.0
-	var row_y := top + PROFILE_HEADER * s
+	var row_y := top + _profile_top_inset + PROFILE_HEADER * s
 	for i in range(_profile_rows.size()):
 		var btn: Button = _profile_rows[i]
 		btn.visible = true
@@ -699,48 +722,46 @@ func _position_profile() -> void:
 		_style_flat(btn, s, 4.0)
 
 
-## The friends panel, bottom left: the column's width, its left edge on the margin, from one
-## cell under the column's last row down to one cell above the version line. It fills the empty
-## corner the column leaves, and its controls are laid out inside it in the order the reference
-## reads: header, search, tabs, list, Add Friend.
+## The friends panel is the MIDDLE panel of the right-hand column: under the profile card, above
+## the update log, the same width as both. Its height is its own content - header, search, tabs,
+## a list with room for its two lines, Add Friend - so it is the same panel at any window size.
 func _position_friends() -> void:
 	_friends_rect = Rect2()
 	var s := maxf(UIScale.value, 1.0)
 	var width_units := size.x / s
-	var w_units := minf(COLUMN, width_units - _margin * 2.0)
-	var fits := w_units >= COLUMN * 0.6
-	if not fits:
+	var room := width_units - (_margin + COLUMN) - 24.0 - _margin
+	var w_units := minf(COLUMN, room)
+	if w_units < COLUMN * 0.6 or _profile_rect.size.x <= 0.0:
 		_hide_friends()
 		return
 	var cell := maxf(_cell, 2.0)
-	var foot_top := _footer.position.y if _footer != null else size.y - _margin * s
-	var col_bottom := (_rows_y + float(_buttons.size()) * (ROW_H + ROW_GAP) - ROW_GAP) * s
-	var top := roundf((col_bottom + cell) / cell) * cell
-	var bottom := floorf((foot_top - cell) / cell) * cell
+	var content_h := FRIENDS_HEADER_H + FRIENDS_SEARCH_H + FRIENDS_TABS_H \
+		+ FRIENDS_LIST_H + FRIENDS_FOOTER_H + FRIENDS_GAPS
 	var cols := int(round(w_units * s / cell))
-	var rows := int(floor((bottom - top) / cell)) - 1
-	if rows < 6:
-		# A panel that cannot hold its own chrome is worse than no panel.
-		_hide_friends()
-		return
-	_friends_rect = Rect2(Vector2(roundf(_margin * s / cell) * cell, top),
-		Vector2(float(cols) * cell, float(rows) * cell))
+	var rows := int(ceil(content_h * s / cell))
+	var w := float(cols) * cell
+	var h := float(rows) * cell
+	var right := roundf((size.x - _margin * s) / cell) * cell
+	var left := maxf(_margin * s, right - w)
+	var top := roundf((_profile_rect.end.y + cell) / cell) * cell
+	_friends_rect = Rect2(Vector2(left, top), Vector2(w, h))
+	# The same half-and-half of the cell rounding the profile card gets, so the chrome sits in the
+	# middle of its box rather than against the top of it.
+	_friends_top_inset = (h - content_h * s) * 0.5
 
-	var px := maxf(1.0, roundf(s))
-	var pad := px + PROFILE_PAD * 0.5 * s
-	var inner_w := _friends_rect.size.x - pad * 2.0
-	var y := _friends_rect.position.y + FRIENDS_HEADER_H * s
+	var boxes := _friends_boxes()
 	_friends_search.visible = true
-	_friends_search.position = Vector2(_friends_rect.position.x + pad, y)
-	_friends_search.size = Vector2(inner_w, FRIENDS_SEARCH_H * s)
+	var search_box: Rect2 = boxes["search"]
+	_friends_search.position = search_box.position
+	_friends_search.size = search_box.size
 	_friends_search.add_theme_font_size_override("font_size", int(FRIENDS_SMALL_UNITS * s))
-	y += (FRIENDS_SEARCH_H + 3.0) * s
-	var tab_w := inner_w / float(FRIENDS_TABS.size())
+	var tabs_box: Rect2 = boxes["tabs"]
+	var tab_w := tabs_box.size.x / float(FRIENDS_TABS.size())
 	for i in range(_friends_tabs.size()):
 		var tab: Button = _friends_tabs[i]
 		tab.visible = true
-		tab.position = Vector2(_friends_rect.position.x + pad + tab_w * float(i), y)
-		tab.size = Vector2(tab_w, FRIENDS_TABS_H * s)
+		tab.position = Vector2(tabs_box.position.x + tab_w * float(i), tabs_box.position.y)
+		tab.size = Vector2(tab_w, tabs_box.size.y)
 		tab.add_theme_constant_override("h_separation", 0)
 		_style_flat(tab, s, 3.0)
 		# The active tab is the bright label; the others are dim, so the tab you are on is
@@ -749,10 +770,30 @@ func _position_friends() -> void:
 		for key in ["font_color", "font_hover_color", "font_focus_color", "font_pressed_color"]:
 			tab.add_theme_color_override(key, PROFILE_TEXT if on else PROFILE_DIM)
 	_friends_add.visible = true
-	_friends_add.position = Vector2(_friends_rect.position.x + pad,
-		_friends_rect.end.y - FRIENDS_FOOTER_H * s - pad)
-	_friends_add.size = Vector2(inner_w, FRIENDS_FOOTER_H * s)
+	var add_box: Rect2 = boxes["add"]
+	_friends_add.position = add_box.position
+	_friends_add.size = add_box.size
 	_style_flat(_friends_add, s, 4.0)
+
+
+## The panel's interior, computed once so the layout and the drawing cannot drift: the header
+## band at the top, then search, tabs, the list, and Add Friend at the bottom.
+func _friends_boxes() -> Dictionary:
+	var s := maxf(UIScale.value, 1.0)
+	var px := maxf(1.0, roundf(s))
+	var pad := px + FRIENDS_PAD * 0.5 * s
+	var x := _friends_rect.position.x + pad
+	var w := _friends_rect.size.x - pad * 2.0
+	var y := _friends_rect.position.y + _friends_top_inset + FRIENDS_PAD * 0.5 * s
+	var search := Rect2(Vector2(x, y + FRIENDS_HEADER_H * s), Vector2(w, FRIENDS_SEARCH_H * s))
+	var tabs := Rect2(Vector2(x, search.end.y + 3.0 * s), Vector2(w, FRIENDS_TABS_H * s))
+	var add := Rect2(Vector2(x, _friends_rect.end.y - _friends_top_inset
+		- FRIENDS_PAD * 0.5 * s - FRIENDS_FOOTER_H * s), Vector2(w, FRIENDS_FOOTER_H * s))
+	var list := Rect2(Vector2(x, tabs.end.y + 3.0 * s),
+		Vector2(w, maxf(0.0, add.position.y - 5.0 * s - (tabs.end.y + 3.0 * s))))
+	return {"search": search, "tabs": tabs, "add": add, "list": list, "pad": pad,
+		"header_y": _friends_rect.position.y + _friends_top_inset,
+		"header_h": FRIENDS_HEADER_H * s}
 
 
 func _hide_friends() -> void:
@@ -797,7 +838,8 @@ func _position_log() -> void:
 	var floor_y := size.y - _margin * s
 	# Directly under the profile card, one cell of air between them - the right-hand column is
 	# one stack, profile then log, the way the left one is wordmark then rows.
-	var stack_top := _profile_rect.end.y + cell if _profile_rect.size.x > 0.0 else _wordmark_y * s
+	var anchor := _friends_rect if _friends_rect.size.x > 0.0 else _profile_rect
+	var stack_top := anchor.end.y + cell if anchor.size.x > 0.0 else _wordmark_y * s
 	var top := roundf(stack_top / cell) * cell
 	var rows := mini(int(ceil(h_units * s / cell)), int(floor((floor_y - top) / cell)))
 	var w := float(cols) * cell
@@ -860,7 +902,10 @@ func _draw_profile() -> void:
 	var s := maxf(UIScale.value, 1.0)
 	var px := maxf(1.0, roundf(s))
 	var inset := px + PROFILE_PAD * 0.6 * s
-	var head := Rect2(_profile_rect.position + Vector2(inset, inset * 1.15),
+	# The head sits in the header band, centred in it: the band is the head plus even air.
+	var head_y := _profile_rect.position.y + _profile_top_inset \
+		+ (PROFILE_HEADER - PROFILE_HEAD) * 0.5 * s
+	var head := Rect2(Vector2(_profile_rect.position.x + inset, head_y),
 		Vector2(PROFILE_HEAD, PROFILE_HEAD) * s)
 	draw_texture_rect_region(SKIN_TEX, head, SKIN_HEAD_REGION)
 	var name_size := int(PROFILE_NAME_UNITS * s)
@@ -885,7 +930,7 @@ func _draw_profile() -> void:
 		HORIZONTAL_ALIGNMENT_LEFT, -1, name_size, PROFILE_DIM)
 	# The rule under the header: the shade tone, so it reads as a groove in the panel rather
 	# than a second outline.
-	var rule_y := _profile_rect.position.y + PROFILE_HEADER * s
+	var rule_y := _profile_rect.position.y + _profile_top_inset + PROFILE_HEADER * s
 	draw_rect(Rect2(Vector2(_profile_rect.position.x + px, rule_y),
 		Vector2(_profile_rect.size.x - 2.0 * px, px)), LOG_EDGE_SHADE)
 
@@ -900,11 +945,12 @@ func _draw_friends() -> void:
 	_draw_panel(_friends_rect)
 	var s := maxf(UIScale.value, 1.0)
 	var px := maxf(1.0, roundf(s))
-	var pad := px + PROFILE_PAD * 0.5 * s
+	var boxes := _friends_boxes()
+	var pad := float(boxes["pad"])
 	var label := int(FRIENDS_LABEL_UNITS * s)
 	var small := int(FRIENDS_SMALL_UNITS * s)
 	var x := _friends_rect.position.x + pad
-	var head_mid := _friends_rect.position.y + FRIENDS_HEADER_H * s * 0.5
+	var head_mid := float(boxes["header_y"]) + float(boxes["header_h"]) * 0.5
 	# Two heads and two shoulders, six rects: the smallest thing that reads as "people" at
 	# this size, and no new asset for it.
 	var u := 2.0 * s
@@ -930,7 +976,7 @@ func _draw_friends() -> void:
 	draw_string(MUNRO_FONT, Vector2(st_x, st_y), FRIENDS_STATUS, HORIZONTAL_ALIGNMENT_LEFT, -1,
 		small, PROFILE_DIM)
 	draw_rect(Rect2(Vector2(_friends_rect.position.x + px,
-		_friends_rect.position.y + FRIENDS_HEADER_H * s),
+		float(boxes["header_y"]) + float(boxes["header_h"])),
 		Vector2(_friends_rect.size.x - 2.0 * px, px)), LOG_EDGE_SHADE)
 
 	# The tab underline: the accent under the tab that is on, the same marker the menu column
@@ -942,9 +988,10 @@ func _draw_friends() -> void:
 				Vector2(tab.size.x - 4.0 * s, px * 2.0)), _accent)
 
 	# The list. Its first two lines are the same on every tab where nothing can be here.
-	var list_top := _friends_rect.position.y + (FRIENDS_HEADER_H + FRIENDS_SEARCH_H
-		+ FRIENDS_TABS_H + 9.0) * s
-	var list_bottom := _friends_add.position.y - 6.0 * s
+	var list: Rect2 = boxes["list"]
+	var list_top := list.position.y
+	var list_bottom := list.end.y
+	var add_top: float = float(boxes["add"].position.y)
 	var lines := []
 	var query := _friends_search.text.strip_edges() if _friends_search != null else ""
 	if _friends_tab == 0:
@@ -964,8 +1011,7 @@ func _draw_friends() -> void:
 			Vector2(_friends_rect.get_center().x - w * 0.5, line_y + float(MUNRO_FONT.get_ascent(size))),
 			text, HORIZONTAL_ALIGNMENT_LEFT, -1, size, colour)
 		line_y += LOG_LINE_H * s
-	draw_rect(Rect2(Vector2(_friends_rect.position.x + px,
-		_friends_add.position.y - 4.0 * s),
+	draw_rect(Rect2(Vector2(_friends_rect.position.x + px, add_top - 5.0 * s),
 		Vector2(_friends_rect.size.x - 2.0 * px, px)), LOG_EDGE_SHADE)
 
 

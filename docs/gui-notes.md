@@ -767,10 +767,23 @@ first-person viewmodel - what each one owns and the decisions behind it.
   a press reads as a bug. It puts `MULTIPLAYER IS NOT IN THIS BUILD YET` in the footer for three
   seconds - the footer is already this screen's status line - and clears itself on a timer, so
   the message cannot outlive the moment it answered.
+- **A row shows where you are with its text, not with a box.** The first version of the flat rows
+  gave hover and focus a 5% white fill, which inside a dark panel draws a lighter rectangle around
+  whatever the pointer is near - the panel painting a second panel. Rest is now the recessed grey,
+  the current row is white with one 2-unit accent bar on its left edge, and pressed turns the label
+  the accent colour for as long as the finger is down. Nothing changes shape on hover.
+- **The right-hand column is one stack of three panels, and the rounding is split.** Profile card,
+  friends panel, log, one cell apart, all the column's width and all right-aligned. Each panel's
+  height is its content rounded UP to whole cells, so the spare has to be halved above and below
+  the content - all of it below is what made the profile card's head sit high in its box with a
+  gap under it. `_friends_boxes()` exists so the layout and the drawing compute the panel's
+  interior once instead of twice.
 - **The friends panel is the shell, and its list is empty because there are no friends.** The
   reference is a social panel with a live count, tabs, a search field and a friend per row; what
   this build can honestly have is the chrome - header, search, tabs, Add Friend - over an empty
-  list that says `NO FRIENDS YET / MULTIPLAYER IS NOT IN THIS BUILD`. The state in the header is
+  list that says `NO FRIENDS YET / MULTIPLAYER IS NOT IN THIS BUILD`. It sits between the profile
+  card and the log rather than in the bottom-left corner, because the corner is part of the
+  world's picture and the right-hand column is where this screen's information lives. The state in the header is
   `Not connected` rather than a number, because there is no service to count. The tabs and the
   search field are wired rather than decorative: a tab is state on the panel, and the field
   filters the list, so the empty state changes to "nothing matched" - the code is the same code a

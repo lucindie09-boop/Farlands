@@ -244,10 +244,13 @@ func _check_update_log() -> void:
 		"the profile card's right edge is on the margin (%.0f)" % profile.end.x)
 	_check(absf(profile.size.x - Title.COLUMN * s) <= title._cell,
 		"the profile card is the column's width (%.0f)" % profile.size.x)
-	_check(rect.position.y >= profile.end.y,
-		"the log sits under the profile card (%.0f >= %.0f)" % [rect.position.y, profile.end.y])
-	_check(rect.position.y - profile.end.y <= title._cell * 2.0,
-		"they are one stack, not two islands (%.0f apart)" % (rect.position.y - profile.end.y))
+	var friends_rect: Rect2 = title._friends_rect
+	_check(rect.position.y >= friends_rect.end.y,
+		"the log is the last panel of the stack (%.0f >= %.0f)" % [rect.position.y,
+			friends_rect.end.y])
+	_check(rect.position.y - friends_rect.end.y <= title._cell * 2.0,
+		"they are one stack, not two islands (%.0f apart)" % (rect.position.y
+			- friends_rect.end.y))
 	_check(absf(rect.size.x - Title.COLUMN * s) <= title._cell,
 		"the card is the column's width (%.0f of %.0f)" % [rect.size.x, Title.COLUMN * s])
 	# Snapped to the scrim's grid on every edge, so the panel lines up with the squares behind
@@ -307,40 +310,39 @@ func _check_update_log() -> void:
 			"row %d is %s" % [i, row.text])
 		var inside: Rect2 = Rect2(row.position, row.size)
 		_check(profile.encloses(inside), "row %d sits inside the card" % i)
-	_check(absf(profile.size.y - (Title.PROFILE_HEADER + 3.0 * Title.PROFILE_ROW_H
-		+ Title.PROFILE_PAD) * s) <= title._cell,
+	var content: float = (Title.PROFILE_HEADER + 3.0 * Title.PROFILE_ROW_H
+		+ Title.PROFILE_PAD) * s
+	_check(absf(profile.size.y - content) <= title._cell,
 		"the card is its header plus three rows (%.0f tall)" % profile.size.y)
+	# The cell grid rounds the card up, and an uneven split is visible as a head that sits high
+	# in its box: the spare has to be half above the content and half below.
+	_check(absf(title._profile_top_inset * 2.0 + content - profile.size.y) <= 0.5,
+		"the rounding is split evenly above and below (%.1f of %.1f)" % [
+			title._profile_top_inset, profile.size.y - content])
 	title._on_profile_row(1)
 	_check(String(title._footer.text).contains("CAPE"),
 		"a profile row answers in the footer: %s" % title._footer.text)
 	title._process(Title.NOTE_SECONDS + 0.1)
 	_check(String(title._footer.text).contains("v0.1"), "the answer clears itself")
 
-	# The friends panel fills the corner the column leaves: bottom left, the column's width, on
-	# the grid, under the last row and clear of the version line - and its four controls inside
-	# it. The list is empty on purpose, so what is checked is the shell, not a friend row.
-	var column_bottom: float = (title._rows_y
-		+ float(title._buttons.size()) * (Title.ROW_H + Title.ROW_GAP) - Title.ROW_GAP) * s
+	# The friends panel is the middle panel of the right-hand stack: the column's width, under the
+	# profile card and above the log, all three right-aligned and one cell apart - and its four
+	# controls inside it. The list is empty on purpose, so what is checked is the shell.
 	var friends: Rect2 = title._friends_rect
 	_check(friends.size.x > 0.0, "the friends panel has a rect (%.0f x %.0f)" % [friends.size.x,
 		friends.size.y])
-	_check(friends.position.x < title.size.x * 0.5
-		and friends.get_center().y > title.size.y * 0.5,
-		"the friends panel is in the bottom left (centre %.0f, %.0f)" % [friends.get_center().x,
-			friends.get_center().y])
-	_check(friends.end.y <= title._footer.position.y
-		and friends.end.y > title.size.y * 0.75,
-		"its bottom fills the corner without touching the version line (%.0f, %.0f gap)" % [
-			friends.end.y, title._footer.position.y - friends.end.y])
-	_check(absf(friends.position.x - title._margin * s) <= title._cell,
-		"its left edge is on the margin (%.0f)" % friends.position.x)
+	_check(friends.position.x > title.size.x * 0.5, "it is in the right-hand column")
+	_check(absf(friends.position.x - profile.position.x) <= title._cell,
+		"it lines up with the profile card above it (%.0f of %.0f)" % [friends.position.x,
+			profile.position.x])
+	_check(absf(friends.end.x - profile.end.x) <= title._cell,
+		"and shares its right edge (%.0f)" % friends.end.x)
 	_check(absf(friends.size.x - Title.COLUMN * s) <= title._cell,
 		"it is the column's width (%.0f)" % friends.size.x)
-	_check(friends.position.y >= column_bottom,
-		"it starts under the column (%.0f >= %.0f)" % [friends.position.y, column_bottom])
-	_check(friends.end.y <= title._footer.position.y,
-		"it stays clear of the version line (%.0f <= %.0f)" % [friends.end.y,
-			title._footer.position.y])
+	_check(friends.position.y >= profile.end.y,
+		"it sits under the profile card (%.0f >= %.0f)" % [friends.position.y, profile.end.y])
+	_check(friends.position.y - profile.end.y <= title._cell * 2.0,
+		"one stack, not two islands (%.0f apart)" % (friends.position.y - profile.end.y))
 	var f_off := maxf(maxf(fposmod(friends.position.x, title._cell),
 		fposmod(friends.position.y, title._cell)),
 		maxf(fposmod(friends.size.x, title._cell), fposmod(friends.size.y, title._cell)))

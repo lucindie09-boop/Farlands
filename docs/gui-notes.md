@@ -765,10 +765,40 @@ first-person viewmodel - what each one owns and the decisions behind it.
   speed is unchanged in feel because it comes from gravity alone.
 - **A pile does not tile, so the wall stops being a pile.** Rotated squares leave hairline cracks
   at their seams, and no amount of settling closes the last of them. Each square therefore swells
-  where it landed until a coarse viewport sample reports covered, and then the pile is swapped for
-  a lattice that tiles the screen by construction. Both halves are invisible under pure black, and
-  the size is measured rather than assumed because the pile is different every run (it has needed
-  1.3 to 1.8 of a cell to close).
+  where it landed until the wall is covered, and then the pile is swapped for a lattice that tiles
+  the screen by construction. Both halves are invisible under pure black, and the size is measured
+  rather than assumed because the pile is different every run (it has needed 1.6 to 1.9 of a cell
+  to close).
+- **A sampled coverage grid is a check that passes a hole.** The swell used to stop when a stamp grid
+  reported every cell covered, and a cell is twelve pixels wide: a crack narrower than that could
+  run between two sample points and survive to the swap, where it closed in one frame - a line of
+  world flickering shut. The answer is the question the eye asks, per horizontal line across the
+  screen: the union of the x-intervals the squares cover, against the width. Each square's
+  intersection with a scanline is one interval (both of its local-axis constraints are linear in x),
+  so it is two native sorts and a merge per line, which runs in a few milliseconds at 1080p. The
+  measure is a count of uncovered *lines*, not a ratio, because a ratio of 0.9999 is still a crack.
+  Its one trap: the merged length is what IS covered, so the gap is `width - reach` - the first
+  version accumulated `width - reach` as the covered total and reported 0.0 coverage on a wall with
+  no gaps at all, which the probe caught immediately because it printed the number.
+- **A transition that can stall will stall on the one player who is not clicking.** Reported as
+  "if the only click was Continue, the growing part never happens and the blocks only drop when I
+  click": the curtain was sitting in its cover phase, so the swell (which lives in the hold) never
+  ran, and a press was the only thing that could move it on. The cause is environmental - a first
+  entry has the world streaming in, so frames are long, and at the transition's 300 Hz the default
+  eight physics steps per frame turn the fall into slow motion, during which the pile never reports
+  itself settled. Three changes, in order of importance: the cover and the hold are driven by
+  **physics ticks** rather than the render loop, so neither can be starved by a frame; each phase
+  has a **wall-clock fuse** (4 s to settle, 2 s to close) that moves it forward regardless; and the
+  engine's `max_physics_steps_per_frame` is raised with the rate, so slow frames no longer slow the
+  fall down. `probes/probe_menu.gd` sabotages a wall that cannot close and asserts it still covers
+  with no input.
+- **The skip throws the wall; it does not cut to black.** The early exit is a click's own position
+  becoming a blast: the lattice goes up first (invisible, same pure black) and every cell gets an
+  impulse away from the press, with its own spin and drag. The lattice is what is thrown rather than
+  the pile, because a skip can land while the sheet is still in the air above the screen - throwing
+  those would be a blast of off-screen blocks and an instant, invisible end. The first version did
+  exactly that and the probe measured 0 of 96 blocks moving, all of them already outside the
+  viewport.
 - **The drop has to be per cell, or it is a rectangle.** A lattice of black squares that leaves as
   one sheet has nothing in it for the eye to read as cubes — it is a sliding black bar. Each cell
   departs on its own beat instead, bottom rows first, with a little drift and spin, so the wall is

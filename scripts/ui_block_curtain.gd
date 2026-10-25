@@ -87,6 +87,13 @@ const TOP_STILL_SLACK := 0.25
 # The wall is up when this much of the sheet has reached the screen. Not all of it:
 # the last block in is the one the measurement would otherwise wait for.
 const COVER_FILL := 0.9
+# How the wall's closure is decided. The cheap stamp says when the squares are close;
+# only then is the exact scanline pass run, because that one is the honest answer and it
+# costs real time. Two pixels between lines on a 1080p screen: anything narrower than
+# that is not a gap a player can see.
+const SEAL_LINE_STEP := 2.0
+const SEAL_LINE_SLACK := 0.45
+
 # Physics rate for the transition. At the project's 60 Hz a block landing at 3,100
 # px/s moves over fifty pixels between two contact checks - a third of the block - so
 # the solver discovers the floor late and resolves the overlap it finds, which is both
@@ -98,11 +105,20 @@ const COVER_TICKS := 300
 # The opaque frame behind the blocks, for the swap.
 const BACKING_TIME := 0.1
 const REVEAL_BACKING_TIME := 0.12
-# Failsafes, not schedule: a pile that will not sleep (a wedged block jittering
-# forever) is forced flat rather than holding the player on a black screen.
-const COVER_GUARD := 5.0
+# Fuses, not schedule, and measured on the wall clock rather than in frames. A pile that
+# will not report itself settled - a wedged block, a first entry where the physics is
+# running behind the frames - must not be able to strand the transition: the player would
+# sit behind a see-through wall until something was pressed. Every one of these ends the
+# phase it guards by moving forward, never by giving up, and the wall always finishes as
+# the lattice, which covers the screen exactly.
+const COVER_FUSE := 4.0
+const HOLD_FUSE := 2.0
 const REVEAL_GUARD := 1.5
 
+# How long the closed wall stands before it is dropped. The hold above is the beat the
+# effect is for; this is the part of it that is guaranteed to be a still, closed wall,
+# so the swell that closes the last crack cannot eat the pause.
+const SEALED_HOLD := 0.5
 const PHASE_IDLE := 0
 const PHASE_COVER := 1
 const PHASE_HOLD := 2
@@ -131,9 +147,19 @@ const PHYS_SCALE := 0.86
 # while they grow, with a ceiling only as a failsafe.
 const FALL_SCALE := 0.92
 const SEAL_RATE := 2.4
-const MAX_SCALE := 1.9
-const COVER_TARGET := 0.999
-const SEAL_SAMPLE := 0.05
+# A ceiling for the swell, not the goal: it exists so a body flung out of the box cannot
+# make the squares grow forever. It is set well past the point where the wall closes, so
+# reaching it means something went wrong, not that the screen is as closed as it gets.
+const MAX_SCALE := 3.4
+# Full coverage, not nearly: the wall keeps swelling until no scanline across it has a
+# visible gap, because "99.9% of the screen" is still a crack somewhere.
+const COVER_TARGET := 1.0
+const SEAL_SAMPLE := 0.06
+# The cheap stamp grid, in cells across and down: twelve pixels a cell on a 1080p screen.
+# It is a trigger, not the verdict - a grid this coarse can step over a crack - which is
+# why the exact scanline pass runs as soon as it reports the wall is worth measuring.
+const SEAL_CELLS := 160
+const SEAL_ROWS := 90
 # The lattice that takes over from the pile, and the drop that ends the cover. Both
 # are drawn, not simulated: the fall was the effect, and what is left has to be exact.
 #
@@ -147,6 +173,18 @@ const REVEAL_ROW_STAGGER := 0.045
 const REVEAL_SPREAD := 0.06
 const REVEAL_DRIFT := 45.0
 const REVEAL_SPIN := 1.1
+# The skip. A press during the transition does not cut the screen away, it blows it
+# apart from where the player pressed: every block takes an impulse away from that
+# point, keeps its spin, and is gone inside half a second. It is the same physics the
+# fall used - the pile's own bodies are thrown, not a drawn copy of them - and it is
+# what makes an early exit feel like a decision rather than a glitch.
+const BLAST_SPEED := 2900.0
+const BLAST_VARY := 0.28
+const BLAST_SPIN := 7.0
+const BLAST_DAMP := 1.5
+# A thrown block that has left the screen is done; the margin keeps a corner of a
+# spinning square from popping out of view a frame after it was called gone.
+const BLAST_MARGIN := 8.0
 
 var _bodies: Array = []
 # Where each body was when its stillness window opened, and how long that window
@@ -157,6 +195,8 @@ var _still_time: Dictionary = {}
 var _draw_scale := FALL_SCALE
 var _sealed := false
 var _seal_timer := 0.0
+# When the wall closed, on the hold's own clock. Negative while it is still swelling.
+var _sealed_at := -1.0
 # The lattice: what the wall becomes once the pile has landed, and what drops out.
 var _grid_up := false
 var _cells: Array = []
@@ -168,21 +208,31 @@ var _material: PhysicsMaterial
 var _phase := PHASE_IDLE
 var _side := 0.0
 var _elapsed := 0.0
+# Wall clock for the fuses: `_elapsed` only advances while the frame loop runs, which is
+# exactly what a stalled transition would stop.
+var _started_ms := 0
+var _hold_ms := 0
 var _hold := 0.0
 var _backing := 0.0
 var _reduce_motion := false
 var _has_emitted := false
 var _reveal_requested := false
+# Where the skip was pressed, and whether this reveal is that blast. INF is "no press":
+# the normal reveal drops the lattice instead.
+var _blast_from := Vector2.INF
+var _blast := false
 var _floor: StaticBody2D
 var _saved_ticks := 0
+var _saved_steps := 0
 
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	set_anchors_preset(Control.PRESET_FULL_RECT)
-	# No Control parent to anchor against under a CanvasLayer: take the size from
-	# the viewport, and follow it if the window changes.
+	# No anchors: the parent is a CanvasLayer, which is not a Control, so there is no parent
+	# rect to anchor against - the full-rect preset would only make the layout overwrite the
+	# size that `_fit` sets (and warn about it). The viewport is the authority instead, and
+	# `size_changed` keeps it current.
 	get_viewport().size_changed.connect(_fit)
 	_fit()
 	set_process(false)
@@ -203,9 +253,14 @@ func _exit_tree() -> void:
 ## Start covering the screen. `reduce_motion` swaps the pile for a short fade.
 func play_cover(reduce_motion: bool = false) -> void:
 	_clear_world()
+	# The wall is built for the rectangle the node has now. That is kept current by the
+	# viewport's own resize signal, so a window resized while the title was up is already
+	# the size the sheet falls into.
 	_reduce_motion = reduce_motion
 	_phase = PHASE_COVER
 	_elapsed = 0.0
+	_started_ms = Time.get_ticks_msec()
+	_hold_ms = _started_ms
 	_hold = 0.0
 	_backing = 0.0
 	_has_emitted = false
@@ -213,7 +268,10 @@ func play_cover(reduce_motion: bool = false) -> void:
 	_draw_scale = FALL_SCALE
 	_sealed = false
 	_seal_timer = 0.0
+	_sealed_at = -1.0
 	_grid_up = false
+	_blast = false
+	_blast_from = Vector2.INF
 	_cells.clear()
 	show()
 	if not _reduce_motion:
@@ -231,18 +289,25 @@ func play_reveal() -> void:
 		_begin_reveal()
 
 
-## Jump to the end of the part that is running. Idempotent, safe while idle.
-func skip() -> void:
+## Jump to the end of the part that is running, throwing the wall away from `from` (in
+## viewport coordinates; the screen centre when the press had no position, as a pad's
+## has none). Idempotent, safe while idle.
+func skip(from: Vector2 = Vector2.INF) -> void:
 	if _phase == PHASE_IDLE:
 		return
 	if _phase == PHASE_REVEAL:
 		_finish_reveal()
 		return
-	# Anything before the swap becomes the swap: the lattice goes up at once, and it is
-	# opaque by construction.
-	_show_grid()
-	_phase = PHASE_COVERED
-	_emit_covered()
+	_blast = true
+	_blast_from = from
+	if _phase != PHASE_COVERED:
+		_phase = PHASE_COVERED
+		_emit_covered()
+		if _phase == PHASE_COVERED:
+			_begin_reveal()
+		return
+	_reveal_requested = false
+	_begin_reveal()
 
 
 func is_active() -> bool:
@@ -250,19 +315,24 @@ func is_active() -> bool:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if _elapsed < 0.08:
+	# Wall clock, like the fuses: a click on the row that started the transition arrives
+	# within a frame or two, and must not be read as a request to skip it.
+	if Time.get_ticks_msec() - _started_ms < 80:
 		return
 	if _phase != PHASE_COVER and _phase != PHASE_HOLD:
 		return
 	var pressed := false
+	var from := Vector2.INF
 	if event is InputEventKey:
 		pressed = event.pressed and not event.echo
 	elif event is InputEventMouseButton:
 		pressed = event.pressed
+		# Where the player pressed IS the blast: the wall comes apart around it.
+		from = event.position
 	elif event is InputEventJoypadButton:
 		pressed = event.pressed
 	if pressed:
-		skip()
+		skip(from)
 		get_viewport().set_input_as_handled()
 
 
@@ -270,22 +340,25 @@ func _process(delta: float) -> void:
 	_elapsed += delta
 	if _reduce_motion:
 		_process_fade(delta)
-	else:
-		match _phase:
-			PHASE_HOLD:
-				_process_hold(delta)
-			PHASE_REVEAL:
-				_process_reveal(delta)
+	elif _phase == PHASE_REVEAL:
+		_process_reveal(delta)
 	queue_redraw()
 
 
-## The pile is measured on physics ticks, not process frames: this is motion, and a
-## frame that renders without a physics step would count as a frame in which
-## nothing moved. On a 300 fps renderer that made a falling sheet look settled.
+## The cover and the hold are driven by physics ticks, not process frames. This is
+## motion, and a frame that renders without a physics step would count as a frame in
+## which nothing moved; worse, the swell that closes the wall used to run on the render
+## loop only, so a transition could sit in the hold with no growth at all and wait to be
+## clicked past. Physics is the loop that the pile itself is animated by, so the two
+## cannot disagree about time.
 func _physics_process(delta: float) -> void:
-	if _reduce_motion or _phase != PHASE_COVER:
+	if _reduce_motion:
 		return
-	_process_cover(delta)
+	match _phase:
+		PHASE_COVER:
+			_process_cover(delta)
+		PHASE_HOLD:
+			_process_hold(delta)
 
 
 ## Reduce motion: one rect, a hold of the same length, and back again. No bodies
@@ -356,37 +429,48 @@ func _process_cover(delta: float) -> void:
 	else:
 		_top_y = surface
 		_top_settled = 0.0
-	if _elapsed >= COVER_GUARD or (filled >= COVER_FILL and _top_settled >= TOP_STILL_TIME):
+	var waited := float(Time.get_ticks_msec() - _started_ms) / 1000.0
+	if waited >= COVER_FUSE or (filled >= COVER_FILL and _top_settled >= TOP_STILL_TIME):
 		_freeze_bodies()
 		_enter_hold()
 
 
-## The transition's own physics rate, remembered so it can be put back exactly.
+## The transition's own physics rate, remembered so it can be put back exactly. The step
+## ceiling goes up with it: at 300 Hz a 20 fps frame needs fifteen steps, and the default
+## eight would run the whole fall in slow motion - which on a first entry, with the world
+## streaming in, is exactly when the frame rate is lowest.
 func set_physics_rate(ticks: int) -> void:
 	if ticks <= 0:
 		return
 	if _saved_ticks == 0:
 		_saved_ticks = Engine.physics_ticks_per_second
+		_saved_steps = Engine.max_physics_steps_per_frame
 	Engine.physics_ticks_per_second = maxi(_saved_ticks, ticks)
+	Engine.max_physics_steps_per_frame = maxi(_saved_steps, 16)
 
 
 func _restore_physics_rate() -> void:
 	if _saved_ticks != 0:
 		Engine.physics_ticks_per_second = _saved_ticks
 		_saved_ticks = 0
+	if _saved_steps != 0:
+		Engine.max_physics_steps_per_frame = _saved_steps
+		_saved_steps = 0
 
 
 func _enter_hold() -> void:
 	_phase = PHASE_HOLD
 	_hold = 0.0
+	_hold_ms = Time.get_ticks_msec()
 
 
 
 
 
-## The hold is also when the wall closes: every square swells where it landed, and the
-## swell stops when the viewport is covered. A rigid pile does not tile, so without
-## this the wall would keep a few hairline cracks of world for the whole beat.
+## The hold is also when the wall closes: every square swells where it landed, and it
+## keeps swelling until the whole viewport is covered. A rigid pile does not tile, so this
+## is what seals the wall - and it must reach 100%, measured exactly, because a single
+## open hairline is a line of world the player sees vanish at the swap.
 func _process_hold(delta: float) -> void:
 	if _phase != PHASE_HOLD:
 		return
@@ -396,39 +480,162 @@ func _process_hold(delta: float) -> void:
 		_seal_timer += delta
 		if _seal_timer >= SEAL_SAMPLE:
 			_seal_timer = 0.0
-			_sealed = _coverage(24, 14) >= COVER_TARGET or _draw_scale >= MAX_SCALE
-	# The cover is not handed over until the wall is closed and has stood still for the
-	# whole beat: the drop must never begin from a wall the world can be seen through.
-	# The last check before the swap is at a finer sampling than the one that drove the
-	# growth - a coarse sample can step over a crack - and if it finds one the squares
-	# keep swelling instead of handing over.
-	if _sealed and _hold >= HOLD_TIME:
-		if _draw_scale < MAX_SCALE and _coverage(48, 27) < COVER_TARGET:
-			_sealed = false
-			return
+			# The cheap pass says when the wall is worth measuring properly. Until then
+			# there is no point paying for the scanlines: a wall at 70% has gaps everywhere.
+			if _coverage(SEAL_CELLS, SEAL_ROWS) >= COVER_TARGET or _draw_scale >= MAX_SCALE:
+				var exact := _scanline_coverage(SEAL_LINE_STEP, SEAL_LINE_SLACK)
+				_sealed = int(exact.gaps) == 0
+	# The lattice takes over the moment the wall is closed: from that frame on the screen
+# is covered by construction. It stays up for a beat before the drop, so the player sees
+# a wall standing still rather than a swell running straight into an exit.
+	# The fuse is the promise that the player is never left behind a wall with holes in
+	# it: if the swell cannot close the screen in time, the exact lattice takes over
+	# anyway. Both end in the same place, so there is no state in which the transition is
+	# waiting for a click.
+	if not _sealed and float(Time.get_ticks_msec() - _hold_ms) / 1000.0 >= HOLD_FUSE:
+		_sealed = true
+	if _sealed:
+		if _sealed_at < 0.0:
+			_sealed_at = _hold
 		_show_grid()
-		_phase = PHASE_COVERED
-		_emit_covered()
+		if _hold >= HOLD_TIME and _hold - _sealed_at >= SEALED_HOLD:
+			_phase = PHASE_COVERED
+			# Emitting runs the menu's continuation, which asks for the reveal, and that
+			# rewrites the phase: nothing may be touched afterwards.
+			_emit_covered()
+			return
 
 
-## How much of the viewport the drawn squares cover. Coarse on purpose: it is asked only
-## whether the wall has closed, and the squares are swelling continuously, so a sample
-## every fiftieth of a second is plenty.
+## A cheap read on whether the wall is close to closed: each square is stamped into the
+## cells of a coarse grid inside its own bounding box, so the work is proportional to the
+## blocks' area rather than to cells x blocks. It is the driving measurement while the
+## squares swell, because it is fast enough to run several times a second - but a sample
+## grid can step over a crack, so it is never the one that decides the swap.
 func _coverage(columns: int, rows: int) -> float:
 	var half := _side * _draw_scale * 0.5
-	var hits := 0
-	for row in range(rows):
-		for col in range(columns):
-			var point := Vector2((float(col) + 0.5) * size.x / float(columns),
-				(float(row) + 0.5) * size.y / float(rows))
-			for body in _bodies:
-				if not is_instance_valid(body):
+	var cell_w := size.x / float(columns)
+	var cell_h := size.y / float(rows)
+	var grid := PackedByteArray()
+	grid.resize(columns * rows)
+	for node in _bodies:
+		var body := node as RigidBody2D
+		if not is_instance_valid(body):
+			continue
+		var c := cos(body.rotation)
+		var s := sin(body.rotation)
+		var at: Vector2 = body.position
+		var reach := half * (absf(c) + absf(s))
+		var x0 := maxi(int(floor((at.x - reach) / cell_w)), 0)
+		var x1 := mini(int(ceil((at.x + reach) / cell_w)), columns)
+		var y0 := maxi(int(floor((at.y - reach) / cell_h)), 0)
+		var y1 := mini(int(ceil((at.y + reach) / cell_h)), rows)
+		for gy in range(y0, y1):
+			var py: float = (float(gy) + 0.5) * cell_h - at.y
+			for gx in range(x0, x1):
+				var index := gy * columns + gx
+				if grid[index] == 1:
 					continue
-				var local: Vector2 = body.transform.affine_inverse() * point
-				if absf(local.x) <= half and absf(local.y) <= half:
-					hits += 1
-					break
-	return float(hits) / float(columns * rows)
+				var px: float = (float(gx) + 0.5) * cell_w - at.x
+				if absf(px * c + py * s) <= half and absf(py * c - px * s) <= half:
+					grid[index] = 1
+	var painted := 0
+	for value in grid:
+		painted += value
+	return float(painted) / float(columns * rows)
+
+
+## Exact coverage, by scanline. A sample grid answers "was this point covered?" and can
+## step over a crack between two of its points; this asks the question the eye asks - of
+## every horizontal line across the screen, how much of it is not covered by any square -
+## and finds every gap wider than the line spacing. Each square's intersection with a
+## scanline is one interval in x, so the union is a merge of at most one interval per
+## block, which is a native sort plus a walk. `gaps` counts lines that still have an
+## uncovered stretch wider than `slack`, so a wall with a hairline somewhere is not
+## declared closed.
+func _scanline_coverage(step: float, slack: float) -> Dictionary:
+	var half := _side * _draw_scale * 0.5
+	var bodies: Array[RigidBody2D] = []
+	var cosines := PackedFloat32Array()
+	var sines := PackedFloat32Array()
+	for node in _bodies:
+		var body := node as RigidBody2D
+		if not is_instance_valid(body):
+			continue
+		bodies.append(body)
+		cosines.append(cos(body.rotation))
+		sines.append(sin(body.rotation))
+	var width := size.x
+	var lines := int(ceil(size.y / step))
+	var starts := PackedFloat32Array()
+	var ends := PackedFloat32Array()
+	var walked := 0.0
+	var gaps := 0
+	for line in range(lines):
+		var y := (float(line) + 0.5) * step
+		starts.clear()
+		ends.clear()
+		for i in range(bodies.size()):
+			var at: Vector2 = bodies[i].position
+			var dy := y - at.y
+			var c := cosines[i]
+			var s := sines[i]
+			# The square is |(p - centre).u| <= half and |(p - centre).v| <= half for its
+			# own axes u, v. Both are linear in x on a fixed line, so each is one interval,
+			# and the feasible x is their intersection.
+			var lo := -INF
+			var hi := INF
+			if absf(c) > 1e-6:
+				var a := (-half - dy * s) / c
+				var b := (half - dy * s) / c
+				lo = maxf(lo, minf(a, b))
+				hi = minf(hi, maxf(a, b))
+			elif absf(dy * s) > half:
+				continue
+			if absf(s) > 1e-6:
+				var a2 := (dy * c - half) / s
+				var b2 := (dy * c + half) / s
+				lo = maxf(lo, minf(a2, b2))
+				hi = minf(hi, maxf(a2, b2))
+			elif absf(dy * c) > half:
+				continue
+			if lo >= hi:
+				continue
+			starts.append(maxf(lo + at.x, 0.0))
+			ends.append(minf(hi + at.x, width))
+		if starts.is_empty():
+			gaps += 1
+			continue
+		starts.sort()
+		ends.sort()
+		# Sweep the sorted boundaries: an opening adds coverage, a closing takes it away.
+		var depth := 0
+		var reach := 0.0
+		var open := 0.0
+		var si := 0
+		var ei := 0
+		while si < starts.size() or ei < ends.size():
+			if ei >= ends.size() or (si < starts.size() and starts[si] <= ends[ei]):
+				var x := starts[si]
+				si += 1
+				if depth == 0:
+					open = x
+				depth += 1
+			else:
+				var x2 := ends[ei]
+				ei += 1
+				depth -= 1
+				if depth == 0:
+					# `reach` is what the squares cover on this line; the rest of the width is
+					# the gap the eye would see.
+					reach += maxf(x2 - open, 0.0)
+		walked += reach
+		if width - reach > slack:
+			gaps += 1
+	return {
+		"ratio": walked / (width * float(lines)),
+		"gaps": gaps,
+		"lines": lines,
+	}
 
 
 ## The pile has done its job: it was the fall. From here the wall has to be exact, so it
@@ -437,7 +644,13 @@ func _coverage(columns: int, rows: int) -> float:
 ## the pile covered - but the drop after it is a clean grid of cubes rather than an
 ## arbitrary heap.
 func _show_grid() -> void:
+	if _grid_up:
+		return
 	_grid_up = true
+	# The bodies stay for now - frozen, so they cost nothing - because the swap has to
+	# happen on the same frame as the measurement that earned it. They are freed when
+	# the curtain finishes.
+	_freeze_bodies()
 	_cells.clear()
 	var cell := size.x / float(GRID_COLS)
 	var rows := int(ceil(size.y / cell))
@@ -453,11 +666,11 @@ func _show_grid() -> void:
 				"delay": depth * REVEAL_ROW_STAGGER + randf() * REVEAL_SPREAD,
 				"drift": randf_range(-REVEAL_DRIFT, REVEAL_DRIFT),
 				"vy": 0.0,
+				"vel": Vector2.ZERO,
 				"offset": Vector2.ZERO,
 				"angle": 0.0,
 				"spin": randf_range(-REVEAL_SPIN, REVEAL_SPIN),
 			})
-	_clear_world()
 
 
 func _process_reveal(delta: float) -> void:
@@ -466,6 +679,15 @@ func _process_reveal(delta: float) -> void:
 		if cell.delay > 0.0:
 			cell.delay -= delta
 			falling = true
+			continue
+		if _blast:
+			# Thrown, not dropped: the impulse is away from the press and the drag is what
+			# takes the speed out of it, so nothing hangs at the edge of the screen.
+			cell.offset += cell.vel * delta
+			cell.vel *= maxf(0.0, 1.0 - BLAST_DAMP * delta)
+			cell.angle += cell.spin * delta
+			if _cell_on_screen(cell):
+				falling = true
 			continue
 		cell.vy += REVEAL_ACCEL * delta
 		cell.offset += Vector2(cell.drift, cell.vy) * delta
@@ -476,12 +698,22 @@ func _process_reveal(delta: float) -> void:
 		_finish_reveal()
 
 
+func _cell_on_screen(cell: Dictionary) -> bool:
+	var half: float = cell.size * 0.5
+	var centre: Vector2 = Vector2(cell.x, cell.y) + cell.offset + Vector2(half, half)
+	var reach := half * 1.5
+	return centre.x + reach > -BLAST_MARGIN and centre.x - reach < size.x + BLAST_MARGIN \
+		and centre.y + reach > -BLAST_MARGIN and centre.y - reach < size.y + BLAST_MARGIN
+
+
 func _begin_reveal() -> void:
 	_reveal_requested = false
-	# Reduce Motion has no lattice: its reveal is the fade, and drawing cubes over it
+	# Reduce Motion has no blocks: its reveal is the fade, and throwing squares over it
 	# would be the very thing the setting is asking not to see.
 	if not _reduce_motion:
-		if not _grid_up:
+		if _blast:
+			_begin_blast()
+		elif not _grid_up:
 			_show_grid()
 		else:
 			# The lattice was already up for the hold: start it from rest, intact.
@@ -495,12 +727,35 @@ func _begin_reveal() -> void:
 	set_physics_process(false)
 
 
+## The wall comes apart around the press. It is the lattice that is thrown, not the pile:
+## a skip can land while the sheet is still in the air above the screen, and those blocks
+## are not what the player is looking at - the lattice is, because it covers the screen by
+## construction. Both are pure black, so raising it first costs no visible cut, and the
+## blast is always the whole wall rather than a handful of blocks on their way down.
+func _begin_blast() -> void:
+	var origin := _blast_from
+	if origin == Vector2.INF:
+		origin = size * 0.5
+	_show_grid()
+	for cell in _cells:
+		var centre: Vector2 = Vector2(cell.x, cell.y) + Vector2(cell.size, cell.size) * 0.5
+		var away: Vector2 = centre - origin
+		if away.length() < 1.0:
+			away = Vector2.RIGHT.rotated(randf() * TAU)
+		cell.delay = 0.0
+		cell.vy = 0.0
+		cell.vel = away.normalized() * BLAST_SPEED * randf_range(1.0 - BLAST_VARY, 1.0 + BLAST_VARY)
+		cell.spin = randf_range(-BLAST_SPIN, BLAST_SPIN)
+
+
 func _finish_reveal() -> void:
 	if _phase == PHASE_IDLE:
 		return
 	_phase = PHASE_IDLE
 	_clear_world()
 	_grid_up = false
+	_blast = false
+	_blast_from = Vector2.INF
 	_cells.clear()
 	_restore_physics_rate()
 	_backing = 0.0

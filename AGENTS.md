@@ -216,11 +216,13 @@ Full notes: [docs/light.md](docs/light.md).
   offers CONTINUE when a world existed before launch and PLAY when it did not, then Settings and
   Quit. Entering the world is covered by `ui_block_curtain.gd` — 12 columns of pure-black rigid
   bodies, let go at rest, that fall, collide and pile on the engine's own physics; each square then
-  swells until the viewport measures covered, and the pile is swapped for a lattice that drops cell
-  by cell from the bottom up, so the exit reads as cubes rather than a sliding sheet. Reduce Motion
-  swaps the whole thing for one fade. Its physics runs at 300 Hz while it is up: at 60 a block
-  arriving at 3,100 px/s moves 52 px between contact checks, which is the difference between a wall
-  landing and a wall shaking.
+  swells until a scanline pass proves the viewport is covered with no gap, and the pile is swapped
+  for a lattice that drops cell by cell from the bottom up, so the exit reads as cubes rather than a
+  sliding sheet. A press during the transition blows that wall apart outward from the press instead
+  of cutting it. Reduce Motion swaps the whole thing for one fade. Its physics runs at 300 Hz while
+  it is up: at 60 a block arriving at 3,100 px/s moves 52 px between contact checks, which is the
+  difference between a wall landing and a wall shaking. Both the settle and the swell have
+  wall-clock fuses, because a transition that cannot finish is a screen that waits for a click.
   There is no New World button until the engine can reset a world safely. The research behind
   the layout, colour and timing is [docs/main-menu.md](docs/main-menu.md).
 

@@ -143,8 +143,14 @@ public:
     godot::Vector3 get_aim_origin() const;
     godot::Vector3 get_aim_direction() const;
 
-    // Player animation API
-    void update_player_animation(bool is_walking);
+    // Body state for the animated model (scripts/body_animator.gd), read once a
+    // frame. The sim keeps the truth -- these are its own flags, not the body's
+    // guesses from position deltas -- so a pose cannot lag a state change by a
+    // frame. The velocity is in blocks per TICK (the sim's unit); a caller that
+    // wants per-second scales it by TICK_RATE, the same convention as the sim.
+    bool is_sneaking() const;
+    bool is_sprinting() const;
+    godot::Vector3 get_velocity() const;
 
 protected:
     static void _bind_methods();

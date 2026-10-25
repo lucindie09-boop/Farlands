@@ -26,7 +26,8 @@ const METHODS := [
 	# bind_state_and_view
 	"get_health", "set_health", "is_dead", "die", "respawn", "is_on_floor", "is_in_water",
 	"toggle_third_person", "set_third_person", "get_third_person", "set_third_person_view",
-	"get_third_person_view", "update_player_animation", "get_aim_origin", "get_aim_direction",
+	"get_third_person_view", "is_sneaking", "is_sprinting", "get_velocity",
+	"get_aim_origin", "get_aim_direction",
 ]
 
 const SIGNALS := ["crafting_table_used", "block_placed", "died", "respawned",

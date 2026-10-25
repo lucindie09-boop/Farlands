@@ -115,6 +115,13 @@ public:
     bool is_on_floor() const { return on_floor_; }
     // True when this tick's feet are inside a liquid cell.
     bool is_in_water() const { return in_water_; }
+    // Sneaking is the same test the movement multiplier uses -- a sneak input
+    // held with the feet on the floor -- so the body's pose cannot disagree with
+    // the speed the sim actually moved at.
+    bool is_sneaking() const { return sneaking_; }
+    // The sprint state machine's own flag: sticky while forward is held, cleared
+    // by letting go or by hitting a wall, and one tick stale while airborne.
+    bool is_sprinting() const { return sprint_active_; }
     float get_eye_height() const;
     godot::Vector3 get_velocity() const { return velocity_; }
     godot::Vector3 get_position() const { return position_; }
@@ -178,6 +185,7 @@ private:
     MoveState state_ = MoveState::AIRBORNE;
     bool on_floor_ = false;
     bool in_water_ = false;
+    bool sneaking_ = false;
     bool jump_queued_ = false;
     bool sprint_active_ = false;
     bool prev_sprint_active_ = false;

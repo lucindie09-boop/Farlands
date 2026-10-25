@@ -9,10 +9,10 @@ not tasks; move one in here when it gets picked up.
 ~~Block break animation + hardness values - careful: decide now if hardness gates break time,
 since that changes the break-block code path~~
 
-Player model animations - `Animations/Idle.anim` shipped and plays (`player_model.gd` loads it
-into an `AnimationLibrary` for the `default/Idle` clip); walk, run, jump and the third-person
-body still have no clips, so locomotion is the head-tracking and `ModelPivot` yaw lag described
-in ARCHITECTURE.md
+~~Player model animations - the body is posed per frame from sim state
+(`scripts/body_animator.gd`, a hand-port of FA+Player's moves: idle, walk, sprint, jump/fall,
+sneak, swim). No clips are loaded; `Animations/Idle.anim` and the parked `Idle_new`/`Walk` pair
+stay on disk unused~~
 
 ~~First-person viewmodel + items/blocks in hand~~
 

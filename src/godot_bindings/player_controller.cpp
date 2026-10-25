@@ -119,7 +119,9 @@ void PlayerController::bind_state_and_view() {
     ClassDB::bind_method(D_METHOD("get_third_person"), &PlayerController::get_third_person);
     ClassDB::bind_method(D_METHOD("set_third_person_view", "view"), &PlayerController::set_third_person_view);
     ClassDB::bind_method(D_METHOD("get_third_person_view"), &PlayerController::get_third_person_view);
-    ClassDB::bind_method(D_METHOD("update_player_animation", "is_walking"), &PlayerController::update_player_animation);
+    ClassDB::bind_method(D_METHOD("is_sneaking"), &PlayerController::is_sneaking);
+    ClassDB::bind_method(D_METHOD("is_sprinting"), &PlayerController::is_sprinting);
+    ClassDB::bind_method(D_METHOD("get_velocity"), &PlayerController::get_velocity);
     ClassDB::bind_method(D_METHOD("get_aim_origin"), &PlayerController::get_aim_origin);
     ClassDB::bind_method(D_METHOD("get_aim_direction"), &PlayerController::get_aim_direction);
 }
@@ -484,12 +486,11 @@ float PlayerController::camera_clear_distance(const Vector3& eye_world, const Ve
     return max_dist;
 }
 
-void PlayerController::update_player_animation(bool is_walking) {
-    if (model_) {
-        // Call the GDScript method on the PlayerModel node
-        model_->call("set_animation_state", is_walking);
-    }
-}
+bool PlayerController::is_sneaking() const { return sim_.is_sneaking(); }
+
+bool PlayerController::is_sprinting() const { return sim_.is_sprinting(); }
+
+godot::Vector3 PlayerController::get_velocity() const { return sim_.get_velocity(); }
 
 void PlayerController::teleport_to(const Vector3& pos) {
     set_global_position(pos);

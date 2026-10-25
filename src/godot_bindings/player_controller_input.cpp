@@ -130,9 +130,8 @@ void PlayerController::_process(double delta) {
         emit_signal("damaged", static_cast<int>(std::lround(damage.amount)));
     }
 
-    // Update player animation based on movement
-    bool is_walking = pi.wish_direction.length_squared() > 0.01f && sim_.is_on_floor();
-    update_player_animation(is_walking);
+    // The body's pose is read from the sim by scripts/body_animator.gd on its own
+    // frame, so there is nothing to push from here.
 
     float partial = sim_.get_accumulator_fraction();
     set_global_position(sim_.get_render_position(partial));

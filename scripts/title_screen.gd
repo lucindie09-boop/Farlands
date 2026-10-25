@@ -35,7 +35,21 @@ const FOCUS_BAR_INSET := 11.0
 # read against the bottom half, which is where the darker end has to be.
 const SCRIM_TOP := 0.34
 const SCRIM_BOTTOM := 0.80
-const PLATE_ALPHA := 0.30
+# The left plate is the strongest of the scrim's three darkenings, because it is the one
+# the labels are read against: a column of text over a moving sky needs the world pushed
+# back rather than tinted. Its tail is in units past the column, not pixels, so it grows
+# with the rest of the interface.
+const PLATE_ALPHA := 0.42
+const PLATE_TAIL := 120.0
+# A vignette, carried by the same squares rather than drawn as its own layer: the top and
+# bottom of the frame fall away with the same grain as everything else. Small on purpose -
+# the world behind the title is still meant to be visible.
+const VIGNETTE_ALPHA := 0.16
+# What makes a square solid is that it is ONE fill, not that its neighbours are far from
+# it. Quantising the tone to make the grid obvious costs the gradient: nine steps turn a
+# smooth vignette into a handful of visible terraces. So the tone is continuous, sampled
+# once per cell at its centre, and each cell is filled flat - the gradient is the gradient,
+# carried by squares.
 # The accent, mixed with the world's own sky warmth when one is available. One
 # accent for the primary action and the focus state, and nothing else.
 const ACCENT := Color(1.0, 0.76, 0.42)
@@ -215,22 +229,7 @@ func _draw() -> void:
 	var s := UIScale.value
 	var w := size.x
 	var h := size.y
-	# The scrim, in bands: a vertical gradient dark enough at the bottom for the
-	# column to be read against, and a left plate so the labels never depend on
-	# whichever frame of the world happens to be behind them.
-	var bands := 48
-	for i in range(bands):
-		var t := float(i) / float(bands - 1)
-		var alpha := lerpf(SCRIM_TOP, SCRIM_BOTTOM, t * t)
-		draw_rect(Rect2(0.0, h * float(i) / float(bands), w, h / float(bands) + 1.0),
-			Color(0.015, 0.018, 0.024, alpha))
-	var plate_w := (_margin + COLUMN + 60.0) * s
-	var plate_bands := 12
-	for i in range(plate_bands):
-		var t := float(i) / float(plate_bands - 1)
-		var alpha := PLATE_ALPHA * (1.0 - t)
-		draw_rect(Rect2(plate_w * float(i) / float(plate_bands), 0.0,
-			plate_w / float(plate_bands) + 1.0, h), Color(0.01, 0.012, 0.018, alpha))
+	_draw_scrim(w, h, s)
 	# The accent: one underline for the wordmark and one bar on the focused row.
 	draw_rect(Rect2(_margin * s, (_wordmark_y + WORDMARK_UNITS * 1.30) * s,
 		COLUMN * 0.42 * s, 2.0 * s), _accent)
@@ -238,6 +237,40 @@ func _draw() -> void:
 		var row_y := _rows_y + float(_focus_index) * (ROW_H + ROW_GAP)
 		draw_rect(Rect2((_margin - FOCUS_BAR_INSET) * s, row_y * s + ROW_H * 0.10 * s,
 			FOCUS_BAR_W * s, ROW_H * 0.80 * s), _accent)
+
+
+## The scrim behind the menu, as a grid of SQUARES. It used to be 48 bands across the width
+## with a dozen tall rectangles for the left plate: two grids with two different cell shapes,
+## so the lattice they overlapped into was made of rectangles (57 x 22 px on the left,
+## full-width strips above and below it). Now there is one cell, the same size on both axes
+## and a whole number of pixels, filled with a single tone: the vertical gradient, the left
+## plate and the vignette combined into one number, then quantised so the squares are flat
+## blocks rather than a smooth wash.
+func _draw_scrim(w: float, h: float, s: float) -> void:
+	# Square by construction and snapped to whole pixels: a fractional cell leaves the
+	# cells on half pixels, and the eye reads that as a blur where two tones meet.
+	var cell := maxf(2.0, roundf(h / 40.0))
+	var cols := int(ceil(w / cell))
+	var rows := int(ceil(h / cell))
+	var plate_w := (_margin + COLUMN + PLATE_TAIL) * s
+	for row in range(rows):
+		var y := float(row) * cell
+		var middle_y := y + cell * 0.5
+		var ty := clampf(middle_y / h, 0.0, 1.0)
+		var scrim := lerpf(SCRIM_TOP, SCRIM_BOTTOM, ty * ty)
+		# Vertical distance from the centre line, for the vignette.
+		var ny := absf(middle_y / h * 2.0 - 1.0)
+		for col in range(cols):
+			var x := float(col) * cell
+			var middle_x := x + cell * 0.5
+			var tx := clampf(middle_x / plate_w, 0.0, 1.0)
+			var nx := absf(middle_x / w * 2.0 - 1.0)
+			# Three darkenings of the same near-black, composed in one number: the order
+			# they used to be laid on in changed nothing but the rounding.
+			var plate := PLATE_ALPHA * (1.0 - tx)
+			var vignette := VIGNETTE_ALPHA * smoothstep(0.55, 1.0, maxf(nx, ny))
+			var shade := 1.0 - (1.0 - scrim) * (1.0 - plate) * (1.0 - vignette)
+			draw_rect(Rect2(x, y, cell, cell), Color(0.015, 0.018, 0.024, shade))
 
 
 func _process(delta: float) -> void:

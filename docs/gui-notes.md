@@ -763,6 +763,16 @@ first-person viewmodel - what each one owns and the decisions behind it.
   nearly gone (0.08 linear) so the whole of the acceleration is gravity, the tumble is 0.3–1.4
   rad/s, and friction is 0.98, so a block stops where it lands instead of sliding. The landing
   speed is unchanged in feel because it comes from gravity alone.
+- **A square scrim is solid because it is one fill, not because its neighbours are far away.**
+  The title's backdrop was horizontal bands plus a dozen tall plate rectangles, and the one-pixel
+  overlap each band had to stop seams showed as a lattice of rectangles. Two follow-up mistakes
+  are worth keeping: drawing a darker square under each cell to make the grid visible put a
+  one-pixel line around every square, which read as a grid drawn on the screen rather than as
+  tiles; and quantising the tone into a handful of steps made the grid obvious at the cost of the
+  gradient itself - the vignette became five uneven terraces. What it is now: one cell size for
+  both axes, one flat fill per cell sampled at its centre, no second layer and no rounding, and
+  the vertical gradient, the left plate and the vignette combined into that one number. Each
+  square is a solid colour; the gradient between them is as smooth as it was before.
 - **A pile does not tile, so the wall stops being a pile.** Rotated squares leave hairline cracks
   at their seams, and no amount of settling closes the last of them. Each square therefore swells
   where it landed until the wall is covered, and then the pile is swapped for a lattice that tiles

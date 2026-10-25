@@ -261,7 +261,7 @@ with the window so a 720p screen does not push Quit into the footer):
 
 | Element | Value |
 |---|---|
-| scrim | 0.34 at the top to 0.80 at the bottom, in bands, plus a left plate at 0.30 |
+| scrim | 0.34 at the top to 0.80 at the bottom, as a grid of square cells (cell = height / 40), each one flat tone sampled at its centre, plus a left plate at 0.42 and a vignette at 0.16 |
 | margin | 40; column 240 wide |
 | rows | three at 28 tall, 6 apart, first at 168; labels 12, buttons from `button.png` |
 | wordmark | 40 units cap height at 54 down, one accent underline |

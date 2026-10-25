@@ -234,8 +234,30 @@ func _check_update_log() -> void:
 	for entry in title._log_entries:
 		widest = maxf(widest, Title.MUNRO_FONT.get_string_size(String(entry),
 			HORIZONTAL_ALIGNMENT_LEFT, -1, body).x)
-	var room: float = rect.size.x - Title.LOG_PAD * s - 6.0 * s
+	# The bevel is inside the card's rect, so it comes off the text's room as well.
+	var room: float = rect.size.x - 4.0 * s - Title.LOG_PAD * s - 6.0 * s
 	_check(widest <= room, "every entry fits without clipping (%.0f of %.0f)" % [widest, room])
+
+	# The frame is the button texture's own bevel, so the three tones are read back out of
+	# `button.png` rather than trusted: outline from its left edge, the lit edge one texel in,
+	# and the shade from its bottom edge (the right edge carries a slightly different one).
+	var img: Image = Title.BUTTON_TEX.get_image()
+	var mid := img.get_height() / 2
+	var edge := img.get_pixel(0, mid)
+	var lit := img.get_pixel(1, mid)
+	var shade := img.get_pixel(10, img.get_height() - 3)
+	_check(edge.is_equal_approx(Title.LOG_EDGE_OUTER),
+		"the card's outline is the button's (#%s)" % edge.to_html(false))
+	_check(shade.is_equal_approx(Title.LOG_EDGE_SHADE),
+		"the card's shade is the button's (#%s)" % shade.to_html(false))
+	# The lit tone is the button's, pulled down: at full strength #9b9b9b on a nearly black card
+	# reads as a bright outline rather than a bevel. It still has to stay lighter than the
+	# shade, or the frame loses the lit-from-above reading that all four edges agree on.
+	_check(Title.LOG_EDGE_LIGHT.v < lit.v,
+		"the card's lit edge is pulled down from the button's (#%s, was #%s)" % [
+			Title.LOG_EDGE_LIGHT.to_html(false), lit.to_html(false)])
+	_check(Title.LOG_EDGE_LIGHT.v > Title.LOG_EDGE_SHADE.v,
+		"the lit edge still reads lighter than the shade")
 
 	# The brightest sky this world can put behind the card, composited out of the same two
 	# numbers the draw uses, then the two luminances turned into a WCAG ratio.

@@ -122,6 +122,21 @@ const LOG_TITLE := "WHAT'S NEW"
 const LOG_PLATE_ALPHA := 0.52
 const LOG_TEXT := Color(0.91, 0.93, 0.96)
 const LOG_DIM := Color(0.80, 0.83, 0.87)
+# The card's border is the button's own bevel, one texel thick: the tones come out of
+# `textures/gui/button.png` rather than being picked by eye - an outline of #262626 and a
+# shaded bottom and right of #424242, exactly as the texture has them, so the frame and the
+# buttons are the same object at two sizes. `probe_menu.gd` reads those two texels back and
+# compares them to these constants.
+#
+# The lit top and left is the one tone that does NOT survive the move. On a button the fill is
+# #6d6d6d, so the texture's #9b9b9b is a +42 step and reads as a bevel; the card's fill is far
+# darker, and the same tone read as a bright outline drawn round a nearly black panel - out of
+# place in a screen made of quiet greys. It is the button's tone pulled to 0.80 and cooled
+# toward the card: #7c828c. Darker still and the bevel stops being legible, which is the whole
+# point of having one.
+const LOG_EDGE_OUTER := Color8(38, 38, 38)
+const LOG_EDGE_LIGHT := Color8(124, 130, 140)
+const LOG_EDGE_SHADE := Color8(66, 66, 66)
 # A note that replaces the footer for a moment: the honest answer to a row that cannot
 # act, in the place the screen already uses for status.
 const NOTE_SECONDS := 3.0
@@ -527,6 +542,23 @@ func _draw_log() -> void:
 			tint.a = LOG_PLATE_ALPHA + (_hash01(col + 97, row + 31) * 2.0 - 1.0) * NOISE_ALPHA * 0.35
 			draw_rect(Rect2(_log_rect.position + Vector2(float(col), float(row)) * cell,
 				Vector2(cell, cell)), tint)
+
+	# The bevel, outside-in: one texel of outline all the way round, then one texel of light
+	# on the top and left and of shade on the bottom and right. At GUI scale 2 a texel is 2 px,
+	# so the frame thickens with the rest of the interface instead of staying a hairline.
+	var px := maxf(1.0, roundf(s))
+	var r := _log_rect
+	var inner := Rect2(r.position + Vector2(px, px), r.size - Vector2(px, px) * 2.0)
+	draw_rect(Rect2(r.position, Vector2(r.size.x, px)), LOG_EDGE_OUTER)
+	draw_rect(Rect2(Vector2(r.position.x, r.end.y - px), Vector2(r.size.x, px)), LOG_EDGE_OUTER)
+	draw_rect(Rect2(r.position, Vector2(px, r.size.y)), LOG_EDGE_OUTER)
+	draw_rect(Rect2(Vector2(r.end.x - px, r.position.y), Vector2(px, r.size.y)), LOG_EDGE_OUTER)
+	draw_rect(Rect2(inner.position, Vector2(inner.size.x, px)), LOG_EDGE_LIGHT)
+	draw_rect(Rect2(inner.position, Vector2(px, inner.size.y)), LOG_EDGE_LIGHT)
+	draw_rect(Rect2(Vector2(inner.position.x, inner.end.y - px), Vector2(inner.size.x, px)),
+		LOG_EDGE_SHADE)
+	draw_rect(Rect2(Vector2(inner.end.x - px, inner.position.y), Vector2(px, inner.size.y)),
+		LOG_EDGE_SHADE)
 
 	var pad := LOG_PAD * s
 	var x := _log_rect.position.x + pad

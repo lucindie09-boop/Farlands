@@ -314,20 +314,33 @@ func _check_update_log() -> void:
 		+ Title.PROFILE_PAD) * s
 	_check(absf(profile.size.y - content) <= title._cell,
 		"the card is its header plus three rows (%.0f tall)" % profile.size.y)
-	# The card's air has to LOOK even: above the head, between the head and the first row, and
-	# under the last row's TEXT all equal. The last one is measured from the text, not the row
-	# box, because the text is centred in its row - that slack is what made the bottom gap read
-	# bigger in every earlier version.
+	# The head's air is one number on all four sides - not closer to the bottom than the top, and
+	# not closer to the side than either - and it is the rows' left inset, so the face and the
+	# labels share a margin. Then the labels' air: what is left under the rule, split evenly.
 	var head_h: float = Title.PROFILE_HEAD * s
 	var gap_body := int(Title.PROFILE_SMALL_UNITS * s)
 	var slack := maxf(0.0, (Title.PROFILE_ROW_H * s
 		- float(Title.MUNRO_FONT.get_height(gap_body))) * 0.5)
+	var first: Button = title._profile_rows[0]
 	var gap_top: float = title._profile_head_y - profile.position.y
-	var gap_mid: float = title._profile_rows[0].position.y - (title._profile_head_y + head_h)
+	var gap_under: float = title._profile_rule_y - (title._profile_head_y + head_h)
+	var gap_side: float = first.position.x - profile.position.x
+	_check(absf(gap_top - gap_under) <= 1.0 and absf(gap_side - gap_top) <= 1.0,
+		"the head's air is even on all four sides (%.1f top / %.1f under / %.1f side)" % [
+			gap_top, gap_under, gap_side])
 	var last: Button = title._profile_rows[title._profile_rows.size() - 1]
-	var gap_bot: float = profile.end.y - (last.position.y + last.size.y - slack)
-	_check(absf(gap_top - gap_mid) <= 1.0 and absf(gap_bot - gap_top) <= 1.0,
-		"the card's three gaps are equal (%.1f / %.1f / %.1f)" % [gap_top, gap_mid, gap_bot])
+	var above: float = first.position.y - title._profile_rule_y + slack
+	var below: float = profile.end.y - (last.position.y + last.size.y) + slack
+	_check(absf(above - below) <= 1.0,
+		"the rows' labels have the same air above and below (%.1f / %.1f)" % [above, below])
+	# Hovering a row puts the chevron on THAT row: the arrow follows the pointer, and an exit
+	# from the row next door does not take it off.
+	title._on_profile_hover(1, true)
+	_check(title._profile_hover == 1, "hovering a row marks it (row %d)" % title._profile_hover)
+	title._on_profile_hover(0, false)
+	_check(title._profile_hover == 1, "the chevron stays on the row you are on")
+	title._on_profile_hover(1, false)
+	_check(title._profile_hover == -1, "leaving the card takes the chevron off")
 	title._on_profile_row(1)
 	_check(String(title._footer.text).contains("CAPE"),
 		"a profile row answers in the footer: %s" % title._footer.text)

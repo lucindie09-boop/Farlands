@@ -161,9 +161,13 @@ const PROFILE_NAME := "VoxelSteve"
 const PROFILE_W := COLUMN
 const PROFILE_PAD := 6.0
 const PROFILE_HEAD := 20.0
-# The header is the head's box plus even air above and below it; the rows are the reference's
-# smaller height, and the card's own height is the sum of the two, centred in its cell-rounded
-# rect - which is what keeps the head's gap equal top and bottom.
+# The head's air: the same number above it, under it (to the rule) and on both sides, and the
+# same again as the rows' left inset, so the face and the labels share one left margin.
+const PROFILE_AIR := 5.0
+# The header is the head's box plus one unit of air above it and one below it (the band ends at
+# the rule); the rows are the reference's smaller height. The card's own height is that sum
+# rounded UP to whole cells, and what the rounding leaves goes half under the rule and half under
+# the last row - so the labels have the same air above and below them.
 const PROFILE_HEADER := 30.0
 const PROFILE_ROW_H := 11.0
 const PROFILE_NAME_UNITS := 8
@@ -250,11 +254,11 @@ var _friends_add: Button
 var _friends_tab := 0
 # The half of the cell rounding that sits above the chrome, for the panel and the profile card.
 var _friends_top_inset := 0.0
-# The profile card's three equal gaps (above the head, under it, under the rows) and the two
-# positions they produce. Kept on the node so the drawing and the layout cannot disagree.
-var _profile_gap := 0.0
+# The profile card's resolved geometry - the head's line, the rule under the header - and the
+# row the pointer is over. Kept on the node so the drawing and the layout cannot disagree.
 var _profile_head_y := 0.0
 var _profile_rule_y := 0.0
+var _profile_hover := -1
 # Layout values that depend on the window, resolved in _layout() and read back by
 # _draw(): a small window must not push the column off the bottom of the screen.
 var _margin := MARGIN
@@ -350,8 +354,21 @@ func _build_profile_rows() -> void:
 	for i in range(PROFILE_ROWS.size()):
 		var btn := _flat_button(String(PROFILE_ROWS[i][0]))
 		btn.pressed.connect(_on_profile_row.bind(i))
+		btn.mouse_entered.connect(_on_profile_hover.bind(i, true))
+		btn.mouse_exited.connect(_on_profile_hover.bind(i, false))
 		add_child(btn)
 		_profile_rows.append(btn)
+
+
+## Which row the pointer is on, for the chevron `_draw_profile` adds to it. The exit is filtered
+## by the row's own index because leaving row A can arrive after entering row B, and an
+## unfiltered exit would take the arrow off the row the pointer is actually on.
+func _on_profile_hover(index: int, entered: bool) -> void:
+	var wanted := index if entered else (-1 if _profile_hover == index else _profile_hover)
+	if wanted == _profile_hover:
+		return
+	_profile_hover = wanted
+	queue_redraw()
 
 
 ## The friends panel's controls: a search field, three tabs and Add Friend. All flat, all the
@@ -711,28 +728,29 @@ func _position_profile() -> void:
 	var top := roundf(_wordmark_y * s / cell) * cell
 	_profile_rect = Rect2(Vector2(left, top), Vector2(w, h))
 
-	# THREE equal gaps, measured from what the eye sees rather than from the boxes: above the
-	# head, between the head and the first row, and under the last row's TEXT - which sits in the
-	# middle of its row, so that slack is ADDED to the split rather than taken off it. Splitting
-	# the cell rounding evenly was not enough: it left the bottom gap bigger by that slack, and
-	# taking the slack off made it bigger by the same amount in the other direction.
+	# The head's air is ONE number on all four sides, and it is the same number as the rows' left
+	# inset - so the face is not closer to the side than to the top, and its left edge is the
+	# labels' left edge. Three gaps of equal size were the previous answer and they were still
+	# wrong: the rule sitting half a gap under the head made the header read low. The band now
+	# ends one `air` under the head, and whatever the cell rounding leaves below the rule is split
+	# evenly between the first row and the bottom, so the labels have equal air above and below.
 	var px := maxf(1.0, roundf(s))
-	var inset := px + PROFILE_PAD * 0.6 * s
-	var body := int(PROFILE_SMALL_UNITS * s)
+	var air := px + PROFILE_AIR * s
 	var head_h := PROFILE_HEAD * s
 	var rows_h := float(_profile_rows.size()) * PROFILE_ROW_H * s
-	var slack := maxf(0.0, (PROFILE_ROW_H * s - float(MUNRO_FONT.get_height(body))) * 0.5)
-	_profile_gap = maxf(0.0, (h - head_h - rows_h + slack) / 3.0)
-	_profile_head_y = top + _profile_gap
-	_profile_rule_y = _profile_head_y + head_h + _profile_gap * 0.5
-	var row_w := w - inset * 2.0
-	var row_y := _profile_head_y + head_h + _profile_gap
+	_profile_head_y = top + air
+	_profile_rule_y = _profile_head_y + head_h + air
+	var spare := maxf(0.0, h - (_profile_rule_y - top) - rows_h)
+	var row_w := w - air * 2.0
+	var row_y := _profile_rule_y + spare * 0.5
 	for i in range(_profile_rows.size()):
 		var btn: Button = _profile_rows[i]
 		btn.visible = true
-		btn.position = Vector2(left + inset, row_y + float(i) * PROFILE_ROW_H * s)
+		btn.position = Vector2(left + air, row_y + float(i) * PROFILE_ROW_H * s)
 		btn.size = Vector2(row_w, PROFILE_ROW_H * s)
-		_style_flat(btn, s, 4.0)
+		# The label is indented past a chevron's width even at rest, so the arrow that appears on
+		# hover has a gutter of its own and the row does not move when the pointer arrives.
+		_style_flat(btn, s, 6.0)
 
 
 ## The friends panel is the MIDDLE panel of the right-hand column: under the profile card, above
@@ -914,7 +932,7 @@ func _draw_profile() -> void:
 	_draw_panel(_profile_rect)
 	var s := maxf(UIScale.value, 1.0)
 	var px := maxf(1.0, roundf(s))
-	var inset := px + PROFILE_PAD * 0.6 * s
+	var inset := px + PROFILE_AIR * s
 	var head := Rect2(Vector2(_profile_rect.position.x + inset, _profile_head_y),
 		Vector2(PROFILE_HEAD, PROFILE_HEAD) * s)
 	draw_texture_rect_region(SKIN_TEX, head, SKIN_HEAD_REGION)
@@ -942,6 +960,22 @@ func _draw_profile() -> void:
 	# than a second outline.
 	draw_rect(Rect2(Vector2(_profile_rect.position.x + px, _profile_rule_y),
 		Vector2(_profile_rect.size.x - 2.0 * px, px)), LOG_EDGE_SHADE)
+	# A row the pointer is on gets a chevron in the gutter BEFORE its label, at the row's own
+	# size - the row already turns its label white, and the arrow says "this one goes somewhere"
+	# without a fill, which is the rule for every flat row in this screen. It is drawn into the
+	# space the row's own left inset leaves, so the label does not move when the arrow appears.
+	if _profile_hover >= 0 and _profile_hover < _profile_rows.size():
+		var hovered: Button = _profile_rows[_profile_hover]
+		var glyph := ">"
+		var glyph_size := int(PROFILE_SMALL_UNITS * s)
+		# On the row's own left edge - the head's line - because the label's inset already reserves
+		# room for it (`_style_flat(btn, s, 6.0)`); the arrow fills the gutter instead of pushing
+		# the text aside, so hovering a row moves nothing.
+		var base := (hovered.position.y + (hovered.size.y
+			+ float(MUNRO_FONT.get_height(glyph_size))) * 0.5
+			- float(MUNRO_FONT.get_descent(glyph_size)))
+		draw_string(MUNRO_FONT, Vector2(hovered.position.x, base), glyph,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, glyph_size, PROFILE_TEXT)
 
 
 ## The friends panel: header, search (a real field, drawn by itself), tabs with an accent

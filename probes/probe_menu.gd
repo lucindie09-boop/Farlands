@@ -16,6 +16,7 @@ extends SceneTree
 # Loaded at run time, not preloaded: a preload compiles before the autoloads exist,
 # and a script that names the UIScale singleton cannot compile that early.
 var Curtain: GDScript
+var Title: GDScript
 
 var ok := true
 
@@ -34,6 +35,8 @@ func _check(condition: bool, message: String) -> void:
 
 func _run() -> void:
 	Curtain = load("res://scripts/ui_block_curtain.gd")
+	Title = load("res://scripts/title_screen.gd")
+	await _check_title_scrim()
 	await _check_curtain()
 	await _check_curtain_fuse()
 	await _check_curtain_skip()
@@ -41,6 +44,105 @@ func _run() -> void:
 	await _check_live_menu()
 	print("PROBE menu ", "passed" if ok else "FAILED")
 	quit(0 if ok else 1)
+
+
+## The scrim is one plate, so there are seven things to check: it is dark where the labels
+## start, it is gone a little past the buttons, it is gone everywhere else, it is a gradient
+## rather than a handful of tones, that gradient carries per-square noise, squares lift off it
+## and travel right while the holes heal behind them, and Reduce Motion stops the wind without
+## touching the noise. The tone checks matter because a plate held flat and dropped over a short
+## tail has two tones plus two or three cells of tail, which reads as a blob of four colours;
+## the noise is checked PER SQUARE rather than on the ramp, because the ramp by construction
+## cannot vary down a column.
+func _check_title_scrim() -> void:
+	var title: Control = Title.new()
+	root.add_child(title)
+	await process_frame
+	title.size = Vector2(1920, 1080)
+	title._layout()
+	# The autoload by look-up, not by name: this script compiles before autoloads exist,
+	# so naming `UIScale` here would fail to compile the probe itself.
+	var ui: Node = root.get_node_or_null("UIScale")
+	var s: float = float(ui.get("value")) if ui != null else 1.0
+	var column_end: float = (title._margin + Title.COLUMN) * s
+	var reach: float = (title._margin + Title.COLUMN + Title.PLATE_TAIL) * s
+	_check(title._scrim_shade(0.0) >= 0.5,
+		"the plate is darkest at the left edge (%.2f)" % title._scrim_shade(0.0))
+	_check(title._scrim_shade(title._margin * s) >= 0.35,
+		"the labels start on the plate (%.2f)" % title._scrim_shade(title._margin * s))
+	_check(title._scrim_shade(reach + 2.0) <= 0.01,
+		"the plate is gone a little past the buttons (%.0f px)" % reach)
+	_check(title._scrim_shade(960.0) <= 0.01, "the middle of the screen is undarkened")
+	_check(title._scrim_shade(1900.0) <= 0.01, "the right edge is undarkened")
+	# One sample per drawn square, which is what the eye gets: a plate with a short tail has
+	# four of them and a ramp has two dozen.
+	var cell: float = title._cell_size()
+	var tones := {}
+	var sample := cell * 0.5
+	while sample < reach:
+		tones[snappedf(title._scrim_shade(sample), 0.001)] = true
+		sample += cell
+	_check(tones.size() >= 10,
+		"the plate is a gradient, not a handful of tones (%d over %.0f px)" % [tones.size(), reach])
+	var lightens := true
+	var last: float = title._scrim_shade(0.0)
+	var probe_x := 0.0
+	while probe_x < reach:
+		probe_x += 4.0
+		var now: float = title._scrim_shade(probe_x)
+		if now > last + 0.001:
+			lightens = false
+		last = now
+	_check(lightens, "the plate only ever lightens towards the world")
+
+	# The noise is per square, so the question is whether neighbouring squares actually
+	# differ. A plate that only ramps has one tone per column, and no amount of sampling
+	# inside a column finds a second one - so a 6 x 6 block of plate is thirty-six squares
+	# and should be close to thirty-six tones, not six.
+	var block_tones := {}
+	for row in range(10, 16):
+		for col in range(2, 8):
+			block_tones[snappedf(title._cell_alpha(col, row), 0.001)] = true
+	_check(block_tones.size() >= 24,
+		"the plate carries per-square noise (%d tones in a 6x6 block)" % block_tones.size())
+	var column_tones := {}
+	for row in range(10, 20):
+		column_tones[snappedf(title._cell_alpha(3, row), 0.001)] = true
+	_check(column_tones.size() >= 6,
+		"the noise varies down a column too (%d tones)" % column_tones.size())
+
+	# The wind: squares leave the plate to the right and the plate heals behind them. The probe
+	# steps the same `_process` the screen runs, so what it measures is the real timing.
+	title._lifted.clear()
+	title._healing.clear()
+	for i in range(40):
+		title._process(1.0 / 30.0)
+	_check(not title._lifted.is_empty(),
+		"squares lift off the plate (%d in the air)" % title._lifted.size())
+	if not title._lifted.is_empty():
+		var lift: Dictionary = title._lifted.values()[0]
+		var at_start: Vector2 = lift["origin"] + lift["velocity"] * float(lift["age"])
+		title._process(0.1)
+		var at_now: Vector2 = lift["origin"] + lift["velocity"] * float(lift["age"])
+		_check(at_now.x > at_start.x + 1.0,
+			"a lifted square travels to the right (%.0f px)" % (at_now.x - at_start.x))
+		_check(absf(lift["velocity"].y) > 0.0, "the wind is not perfectly level")
+	for i in range(60):
+		title._process(1.0 / 30.0)
+	_check(not title._healing.is_empty(),
+		"the plate heals behind it (%d fading back in)" % title._healing.size())
+
+	# Reduce Motion keeps the noise and stops the wind.
+	title._motion = false
+	title._lifted.clear()
+	title._healing.clear()
+	for i in range(60):
+		title._process(1.0 / 30.0)
+	_check(title._lifted.is_empty(), "Reduce Motion leaves the plate still")
+	_check(not title._jitter.is_empty(), "Reduce Motion keeps the noise")
+	title._motion = true
+	title.queue_free()
+	await process_frame
 
 
 ## The cover: real bodies, real collisions, a real settle, then hold and swap.

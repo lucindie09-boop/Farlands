@@ -769,10 +769,45 @@ first-person viewmodel - what each one owns and the decisions behind it.
   are worth keeping: drawing a darker square under each cell to make the grid visible put a
   one-pixel line around every square, which read as a grid drawn on the screen rather than as
   tiles; and quantising the tone into a handful of steps made the grid obvious at the cost of the
-  gradient itself - the vignette became five uneven terraces. What it is now: one cell size for
-  both axes, one flat fill per cell sampled at its centre, no second layer and no rounding, and
-  the vertical gradient, the left plate and the vignette combined into that one number. Each
-  square is a solid colour; the gradient between them is as smooth as it was before.
+  gradient itself - the darkening became five uneven terraces. What it is now: one cell size
+  for both axes, one flat fill per cell sampled at its centre, no second layer and no rounding.
+  The scrim itself is a single plate: 0.58 at the left edge, easing to nothing just past the
+  buttons, and no darkening anywhere else on the screen. Holding it flat to the column's edge
+  and dropping it over a short tail was the last version and it read as a blob of four colours -
+  one tone across 90% of the plate and two or three cells of tail - so the ramp across the
+  plate's own width is what gives it the 23 tones the probe counts at 1080p. `probe_menu.gd`
+  asks the tone function for those numbers directly rather than re-deriving the arithmetic,
+  which is the only way "does it end where it should" can be a test instead of an opinion.
+  On top of that ramp the plate carries NOISE, and the noise is per square: each cell gets its
+  own offset of ±0.06 alpha, keyed on (col, row) so it survives a resize, and scaled by how much
+  plate is at that point so the lit end of the falloff is not noisy and the dark end is not
+  patchy. That is the difference between texture and a field: a screen of flat squares reads as
+  squares, so what varies the plate has to vary per square - a smooth value-noise wash laid under
+  the grid (two octaves, drifting upward, tried first) looked like a printed gradient with a
+  hidden second grid in it, and was replaced. `probe_menu.gd` asks for a 6 x 6 block of the
+  plate's own tones: a ramp has six (one per column), noise has thirty-three.
+  The animation is the plate coming apart: every 0.09 s one square is picked at random from the
+  plate, leaves its hole behind and is carried to the right at 7 cells/s with a little vertical
+  drift, fading out over the last 45% of its 1.1 s life. The hole fades back in over half a
+  second, so the plate is a surface with wind on it rather than one being eaten away, and a square
+  in the air stays a square - same size, same flat tone, just moved. Picks are spread over the
+  whole plate rather than along its right edge, so the wind arrives from everywhere; a square
+  already in the air, or still healing, is skipped, so the plate never tears open. Reduce Motion
+  stops the wind and keeps the noise - the plate becomes a still texture, which is what the
+  setting promises - and the probe checks both halves: squares in the air, a lifted square moving
+  right, holes healing behind them, and nothing lifting at all with the switch on.
+  The scrim was drawn as one baked texture for a while, so that the whole plate was a single
+  draw call. That path is gone, and the reason is worth keeping: **a tiled texture draw does
+  not stretch a texture, it repeats it at its native size**, so a 72 x 40 texel tile across
+  1920 px became fifty 72 px bands of the plate - vertical stripes with the world showing
+  between them. A moving, per-square effect wants per-square drawing anyway; the grid is a few
+  thousand `draw_rect` calls, which is what this screen did before the bake.
+  Three darkenings were tried and removed along the way, and each looked reasonable on paper:
+  a vertical gradient (it darkened the world at the top for nothing), a frame vignette on all
+  four edges (with only one plate, the edges it darkened were the ones with no interface on
+  them), and a soft oval behind the rows to lift them off the plate's falloff (once the plate
+  is full strength to the column's right edge, there is nothing left for the oval to do). One
+  darkening where the interface is beats three overlapping ones.
 - **A pile does not tile, so the wall stops being a pile.** Rotated squares leave hairline cracks
   at their seams, and no amount of settling closes the last of them. Each square therefore swells
   where it landed until the wall is covered, and then the pile is swapped for a lattice that tiles

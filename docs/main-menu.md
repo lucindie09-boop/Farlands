@@ -292,21 +292,32 @@ Play. What it must not do is cost the player anything they can feel — so it is
 ms in, and it never runs before the world is ready.
 
 It is also not an animation. A sheet of **12 × 8 rigid bodies** (one more row than fills a 16:9
-screen) is released above the top edge and the engine does the rest: gravity, random mass and spin
-per block, friction, collisions with each other and with a floor and two walls. Nothing schedules
-an arrival. Measured by `probes/probe_menu.gd` on a 1080p surface: the wall covers **97% by about
-1.3 s**, every block has landed by **1.0–1.4 s**, the pile holds for **0.6 s**, the swap happens
-behind an opaque frame, and the reveal — the floor removed, nothing pushed — takes **0.9 s**.
+screen) is released above the top edge and the engine does the rest: gravity, per-block mass and
+spin, friction, collisions with each other and with a floor and two walls. Nothing schedules an
+arrival, and nothing is thrown — the sheet is let go at rest, so **all** of its speed is gravity's.
+Measured by `probes/probe_menu.gd` on a 1080p surface: every block has landed by **1.0–1.4 s**, the
+wall then holds, and the drop takes **1.2 s**.
+
+What happens at the end is deliberately not simulated, and it is the one place the effect fakes
+something. A rigid pile does not tile: it keeps a scattering of hairline cracks, so a wall made of
+its blocks is never quite the whole screen. Each square therefore **swells where it landed** until
+the viewport measures covered — a measured size, not a constant, because the pile is different every
+time (it has needed 1.3 to 1.8 of a cell) — and once it is covered, the pile is **replaced by a
+lattice** that tiles the screen exactly. The swap is invisible: both are the same pure black, and
+the lattice covers at least what the pile covered. The lattice is what stands for the hold, and it
+is what drops: cell by cell, bottom row first, with a little drift and spin, so the wall comes apart
+into cubes on the way out rather than sliding down as one rectangle. The fall was the effect; the
+exit only has to look like weight leaving.
 
 Four things had to be true for that to look like weight instead of a glitch, and each was found by
 measuring rather than by eye:
 
 - **The solver has to see the landing.** A block falling a screen and a half under 4.4× gravity
-  arrives at ~2,600 px/s, which at 60 Hz is forty pixels between contact checks — a quarter of the
-  block. The engine then discovers the floor late and resolves the overlap it finds, which is the
-  shake. The transition therefore runs its own physics at **240 Hz** and puts the project's rate
-  back when the curtain is done; same gravity, same masses, just resolved. The deepest overlap
-  between two colliders fell from ~63 px to ~15 px of a 138 px block.
+  arrives at ~3,100 px/s, which at 60 Hz is over fifty pixels between contact checks — a third of
+  the block. The engine then discovers the floor late and resolves the overlap it finds, which is
+  the shake. The transition therefore runs its own physics at **300 Hz** and puts the project's
+  rate back when the curtain is done; same gravity, same masses, just resolved. The deepest
+  overlap between two colliders fell from ~63 px to **5–7 px of a 138 px block**.
 - **A landed block becomes the pile.** Each body freezes as soon as it has stayed within 8 px of
   its window's start for 0.06 s while resting on the floor, a wall, or a block that has already
   landed. Frozen is static in the engine, so the pile cannot shiver itself — an awake block
@@ -315,14 +326,20 @@ measuring rather than by eye:
   90% of the sheet has to be on screen; only then does the hold begin. The blocks still negotiating
   with each other below the surface are invisible, because the wall is pure black and so is the
   backing behind it.
-- **The cover is structural at the swap.** The pile does not tile, so an opaque backing fades in
-  under it at the end of the hold and `covered` is emitted behind that frame. There is no frame on
-  which the world can show through, and the swap never depends on the pile being perfect.
+- **The cover is structural at the swap, and it is not a pile.** The wall is handed over only once
+  the swollen squares measure the viewport covered; the lattice that replaces them tiles it by
+  construction. `covered` is emitted behind that frame, so the swap can never depend on a heap
+  happening to leave no gaps.
+- **The drop is per cell.** A lattice of pure black squares leaving as one sheet is a black
+  rectangle falling — there is nothing in it to see, and the eye reads a slab, not cubes. Each cell
+  leaves on its own beat instead, bottom rows first, so the wall is eaten away from underneath and
+  the world shows through the widening gaps.
 
 Two details are invisible for the same reason the effect works: the collider is 0.86 of the drawn
-square and the drawn square is 1.18 of its cell. Both are black on black, so neither the packing
-gaps nor the overlaps between neighbours can be seen, while the bodies get the room a discrete
-solver needs. It is what makes a wall of 96 hard squares rest instead of grinding.
+square, and the square is drawn at 0.92 of its cell while falling (so the sheet reads as blocks) and
+swells to whatever closes the wall once it lands. All of it is black on black, so neither the
+packing gaps nor the overlaps between neighbours can be seen, while the bodies get the room a
+discrete solver needs.
 
 **It is skippable.** Any key or click after 80 ms lands the cover at once and finishes the reveal
 at once. A transition is not allowed to hold the player, however good the fall is.

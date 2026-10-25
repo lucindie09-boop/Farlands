@@ -747,15 +747,34 @@ first-person viewmodel - what each one owns and the decisions behind it.
   until the two were connected.
 - **A pile of driven squares shivers until the solver can see it land.** The curtain is real
   physics, so its failure modes are physics failures. Three of them looked like the same bug and
-  were not. A thin floor at 60 Hz was stepped through (a block arriving at 2,600 px/s travels 40
+  were not. A thin floor at 60 Hz was stepped through (a block arriving at 3,100 px/s travels 52
   px between contact checks); a box exactly the screen's width put the pile under compression,
   and a compressed pile reports a few hundred px/s downward while its position does not change;
   and `RigidBody2D`'s own sleep is island-wide, so one block still grinding keeps every block it
-  touches awake. The three fixes are one shape: a 240 Hz rate and CCD so the landing is seen, the
+  touches awake. The three fixes are one shape: a 300 Hz rate and CCD so the landing is seen, the
   collider at 0.86 of the drawn square so the packing has room, and a per-block landing rule that
   freezes a block into the pile once it has stopped drifting — frozen is static, so the next
   landing lands on a wall rather than on a negotiating crowd. Deepest collider overlap went from
-  63 px to 15 px of a 138 px block, and the pile holds with a worst-case motion of 0.00 px.
+  63 px to 5–7 px of a 138 px block, and the pile holds with a worst-case motion of 0.00 px.
+- **Weight is the absence of help.** The first version looked light for a reason that had nothing
+  to do with mass: the blocks were released with an initial downward speed, the linear damping
+  braked them on the way down, and they spun at up to 4.5 rad/s. Fast rotation is the strongest
+  cue for "small", and air drag is a feather's property. They are now let go at rest, damping is
+  nearly gone (0.08 linear) so the whole of the acceleration is gravity, the tumble is 0.3–1.4
+  rad/s, and friction is 0.98, so a block stops where it lands instead of sliding. The landing
+  speed is unchanged in feel because it comes from gravity alone.
+- **A pile does not tile, so the wall stops being a pile.** Rotated squares leave hairline cracks
+  at their seams, and no amount of settling closes the last of them. Each square therefore swells
+  where it landed until a coarse viewport sample reports covered, and then the pile is swapped for
+  a lattice that tiles the screen by construction. Both halves are invisible under pure black, and
+  the size is measured rather than assumed because the pile is different every run (it has needed
+  1.3 to 1.8 of a cell to close).
+- **The drop has to be per cell, or it is a rectangle.** A lattice of black squares that leaves as
+  one sheet has nothing in it for the eye to read as cubes — it is a sliding black bar. Each cell
+  departs on its own beat instead, bottom rows first, with a little drift and spin, so the wall is
+  eaten away from underneath and the world shows through the gaps. The same reason applies to the
+  fall: a tidy grid released at once falls as one object, exactly, so the sheet is spaced wider
+  than a block, bonded half a row, and jittered per column before it reads as blocks at all.
 - **"Settled" has to be measured where the eye measures it.** The internal pile keeps squashing
   for a while after it looks landed, and a velocity test calls that "still moving" forever. What
   is visible is the top edge, so that is the criterion: the edge stops climbing for 0.3 s while

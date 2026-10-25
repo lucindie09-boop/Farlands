@@ -48,18 +48,23 @@ screen (the shader-effect stack, the animated-liquid tools, the model previews).
   wordmark underline and the focused row's bar. The rows are real `Button`s so mouse hover,
   keyboard focus and gamepad focus all come from the engine; hover moves the focus rather than
   sitting beside it, and focus is restored on every open
-- `ui_block_curtain.gd` — The screen-change cover: twelve columns of **rigid bodies** are
-  released above the top edge, fall under gravity, collide with each other and with a floor and
-  two walls, pile up and hold, then drop away when the floor is removed. Every part is the
-  engine's physics: random mass and spin per block, friction 0.95, no restitution, and a landing
-  rule (within 8 px of where it was for 0.06 s while supported) that freezes each block into the
-  pile as it lands. The pile is "settled" when its top edge has stopped climbing and 90% of the
-  sheet is on screen, so the hold follows geometry rather than a timer. It runs its own physics
-  at 240 Hz while up (a 2,600 px/s landing is 40 px per tick at 60) and restores the project's
-  rate afterwards, keeps the collider at 0.86 of the drawn square and draws at 1.18 of the cell
-  — both invisible under pure black — and emits `covered` only behind an opaque backing frame,
-  so the swap can never depend on the pile tiling. `skip()` lands it at once; `play_cover(true)`
-  is the Reduce Motion path, a short fade with no bodies at all
+- `ui_block_curtain.gd` — The screen-change cover: twelve columns of **rigid bodies** are let go
+  above the top edge, fall under gravity, collide with each other and with a floor and two walls,
+  pile up and hold, then drop away when the floor is removed. Every part is the engine's physics:
+  released at rest, per-block mass and a slow tumble, friction 0.98, no restitution and almost no
+  air drag, plus a landing rule (within 8 px of where it was for 0.06 s while supported, and not
+  while being crushed into a neighbour) that freezes each block into the pile as it lands. The
+  pile is "settled" when its top edge has stopped climbing and 90% of the sheet is on screen, so
+  the hold follows geometry rather than a timer. It then stops being a pile: each square swells
+  where it landed until the viewport measures covered (a measured size, 1.3–1.8 of a cell), and the
+  pile is replaced by a lattice that tiles the screen exactly — invisible, because both are pure
+  black — and that lattice is what drops, one cell at a time from the bottom up, with drift and
+  spin, so the wall comes apart into cubes instead of sliding down as a sheet. It runs its own
+  physics at 300 Hz while up (a 3,100 px/s landing is 52 px per tick at 60) and restores the
+  project's rate afterwards, and keeps the collider at 0.86 of the drawn square, drawn at 0.92 of a
+  cell while falling — both invisible under pure black, and together what lets 96 hard squares rest
+  as a wall. `skip()` puts the lattice up at once; `play_cover(true)` is the Reduce Motion path, a
+  short fade with no bodies and no lattice at all
 - `inventory.gd` - Full inventory screen with drag-drop stack movement, shift-click
   quick-transfer, RMB drag-place, LMB drag-collect, scroll wheel quick-transfer, double-click
   gather; live 2×2 crafting grid + output preview (click/drag/shift/scroll interactions mirrored

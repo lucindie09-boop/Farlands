@@ -772,12 +772,18 @@ first-person viewmodel - what each one owns and the decisions behind it.
   whatever the pointer is near - the panel painting a second panel. Rest is now the recessed grey,
   the current row is white with one 2-unit accent bar on its left edge, and pressed turns the label
   the accent colour for as long as the finger is down. Nothing changes shape on hover.
-- **The right-hand column is one stack of three panels, and the rounding is split.** Profile card,
-  friends panel, log, one cell apart, all the column's width and all right-aligned. Each panel's
-  height is its content rounded UP to whole cells, so the spare has to be halved above and below
-  the content - all of it below is what made the profile card's head sit high in its box with a
-  gap under it. `_friends_boxes()` exists so the layout and the drawing compute the panel's
-  interior once instead of twice.
+- **The right-hand column is one stack of three panels, and the profile card's air is three equal
+  gaps.** Profile card, friends panel, log, one cell apart, all the column's width and all
+  right-aligned. Each panel's height is its content rounded UP to whole cells, so the spare has to
+  go somewhere. Halving it above and below the content was the first answer and it was still
+  visibly wrong: the last row's label is centred in its 11-unit row, so the box ends five-ish units
+  under the text, and that slack lands on the bottom gap on top of everything else. The card now
+  splits what is left into **three** gaps - above the head, between the head and the first row, and
+  under the last row's *text* - and adds that row slack back into the sum before dividing
+  (`(h - head - rows + slack) / 3`). Subtracting it instead moves the error to the other side by the
+  same amount, which is how the first attempt shipped. `probe_menu.gd` measures all three from the
+  drawn geometry and fails if they differ by more than a pixel. `_friends_boxes()` exists so the
+  layout and the drawing compute a panel's interior once instead of twice.
 - **The friends panel is the shell, and its list is empty because there are no friends.** The
   reference is a social panel with a live count, tabs, a search field and a friend per row; what
   this build can honestly have is the chrome - header, search, tabs, Add Friend - over an empty

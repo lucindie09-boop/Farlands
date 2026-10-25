@@ -314,11 +314,20 @@ func _check_update_log() -> void:
 		+ Title.PROFILE_PAD) * s
 	_check(absf(profile.size.y - content) <= title._cell,
 		"the card is its header plus three rows (%.0f tall)" % profile.size.y)
-	# The cell grid rounds the card up, and an uneven split is visible as a head that sits high
-	# in its box: the spare has to be half above the content and half below.
-	_check(absf(title._profile_top_inset * 2.0 + content - profile.size.y) <= 0.5,
-		"the rounding is split evenly above and below (%.1f of %.1f)" % [
-			title._profile_top_inset, profile.size.y - content])
+	# The card's air has to LOOK even: above the head, between the head and the first row, and
+	# under the last row's TEXT all equal. The last one is measured from the text, not the row
+	# box, because the text is centred in its row - that slack is what made the bottom gap read
+	# bigger in every earlier version.
+	var head_h: float = Title.PROFILE_HEAD * s
+	var gap_body := int(Title.PROFILE_SMALL_UNITS * s)
+	var slack := maxf(0.0, (Title.PROFILE_ROW_H * s
+		- float(Title.MUNRO_FONT.get_height(gap_body))) * 0.5)
+	var gap_top: float = title._profile_head_y - profile.position.y
+	var gap_mid: float = title._profile_rows[0].position.y - (title._profile_head_y + head_h)
+	var last: Button = title._profile_rows[title._profile_rows.size() - 1]
+	var gap_bot: float = profile.end.y - (last.position.y + last.size.y - slack)
+	_check(absf(gap_top - gap_mid) <= 1.0 and absf(gap_bot - gap_top) <= 1.0,
+		"the card's three gaps are equal (%.1f / %.1f / %.1f)" % [gap_top, gap_mid, gap_bot])
 	title._on_profile_row(1)
 	_check(String(title._footer.text).contains("CAPE"),
 		"a profile row answers in the footer: %s" % title._footer.text)

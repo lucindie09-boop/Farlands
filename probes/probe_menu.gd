@@ -386,6 +386,15 @@ func _check_update_log() -> void:
 		var tab: Button = title._friends_tabs[i]
 		_check(tab.visible and friends.encloses(Rect2(tab.position, tab.size)),
 			"tab %d (%s) is inside the panel" % [i, tab.text])
+		# The three tabs are segments of ONE box: centred labels, no gaps between them, and the
+		# same height - so the strip reads as a control rather than three lines of text.
+		_check(tab.alignment == HORIZONTAL_ALIGNMENT_CENTER,
+			"tab %d centres its label" % i)
+		if i > 0:
+			var prev: Button = title._friends_tabs[i - 1]
+			_check(absf(prev.position.x + prev.size.x - tab.position.x) <= 0.5
+				and absf(prev.size.y - tab.size.y) <= 0.5,
+				"tabs %d and %d share an edge" % [i - 1, i])
 	_check(title._friends_search.visible
 		and friends.encloses(Rect2(title._friends_search.position, title._friends_search.size)),
 		"the search field is inside the panel")

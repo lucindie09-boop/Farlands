@@ -171,6 +171,23 @@ const STATUS_ONLINE := Color(0.36, 0.78, 0.42)
 const CROWN := Color(0.95, 0.78, 0.32)
 # What each row answers while there is nothing behind it. The footer is this screen's status
 # line, so a row that cannot act says so there instead of doing nothing at all.
+# The friends panel in the bottom-left corner. There is no service, no account and no friends
+# list, so this is the panel's SHAPE with nothing in it: the tabs, the search field and Add
+# Friend are real controls that do what they say over a list that is empty, and the list says
+# why it is empty. When multiplayer exists the rows, the counts and the status arrive with it.
+const FRIENDS_TABS := ["Friends", "Requests", "Blocked"]
+const FRIENDS_STATUS := "Not connected"
+const FRIENDS_EMPTY := "NO FRIENDS YET"
+const FRIENDS_REASON := "MULTIPLAYER IS NOT IN THIS BUILD"
+const FRIENDS_NO_MATCH := "NO FRIENDS MATCH THAT"
+const FRIENDS_EMPTY_TAB := ["NO FRIEND REQUESTS", "NOBODY IS BLOCKED"]
+const FRIENDS_HEADER_H := 13.0
+const FRIENDS_SEARCH_H := 11.0
+const FRIENDS_TABS_H := 11.0
+const FRIENDS_FOOTER_H := 13.0
+const FRIENDS_LABEL_UNITS := 7
+const FRIENDS_SMALL_UNITS := 6
+const FRIENDS_DOT := Color(0.62, 0.65, 0.70)
 const PROFILE_ROWS := [
 	["Change Skin", "CHANGE SKIN IS NOT WIRED HERE YET"],
 	["Cape", "CAPES ARE NOT IN THIS BUILD YET"],
@@ -218,6 +235,12 @@ var _note_timer := 0.0
 # The profile card's geometry for this window, and its three rows.
 var _profile_rect := Rect2()
 var _profile_rows: Array = []
+# The friends panel, bottom left: its rect, the three tabs, the search field and Add Friend.
+var _friends_rect := Rect2()
+var _friends_tabs: Array = []
+var _friends_search: LineEdit
+var _friends_add: Button
+var _friends_tab := 0
 # Layout values that depend on the window, resolved in _layout() and read back by
 # _draw(): a small window must not push the column off the bottom of the screen.
 var _margin := MARGIN
@@ -260,6 +283,7 @@ func _ready() -> void:
 	_build_page()
 
 	_build_profile_rows()
+	_build_friends()
 
 	_footer = Label.new()
 	_footer.add_theme_font_override("font", MUNRO_FONT)
@@ -310,32 +334,106 @@ func _build_page() -> void:
 ## that array is the action column, and its index drives the accent bar's position.
 func _build_profile_rows() -> void:
 	for i in range(PROFILE_ROWS.size()):
-		var btn := Button.new()
-		btn.text = String(PROFILE_ROWS[i][0])
-		btn.clip_text = true
-		btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
-		btn.add_theme_font_override("font", MUNRO_FONT)
-		for key in ["font_color", "font_focus_color", "font_hover_color", "font_pressed_color"]:
-			btn.add_theme_color_override(key, PROFILE_TEXT)
-		var normal := StyleBoxFlat.new()
-		normal.bg_color = Color(0.0, 0.0, 0.0, 0.0)
-		var hover := StyleBoxFlat.new()
-		hover.bg_color = Color(1.0, 1.0, 1.0, 0.05)
-		var pressed := StyleBoxFlat.new()
-		pressed.bg_color = Color(1.0, 1.0, 1.0, 0.10)
-		var focus := StyleBoxFlat.new()
-		focus.bg_color = Color(1.0, 1.0, 1.0, 0.05)
-		# The accent bar on the left edge, the same marker the column uses for the row you are
-		# on - so focus reads the same way everywhere on this screen.
-		focus.border_width_left = 2
-		focus.border_color = _accent
-		btn.add_theme_stylebox_override("normal", normal)
-		btn.add_theme_stylebox_override("hover", hover)
-		btn.add_theme_stylebox_override("pressed", pressed)
-		btn.add_theme_stylebox_override("focus", focus)
+		var btn := _flat_button(String(PROFILE_ROWS[i][0]))
 		btn.pressed.connect(_on_profile_row.bind(i))
 		add_child(btn)
 		_profile_rows.append(btn)
+
+
+## The friends panel's controls: a search field, three tabs and Add Friend. All flat, all the
+## same treatment as the profile rows - they live inside a panel, not on it.
+func _build_friends() -> void:
+	_friends_search = LineEdit.new()
+	_friends_search.placeholder_text = "Search friends..."
+	_friends_search.max_length = 32
+	_friends_search.add_theme_font_override("font", MUNRO_FONT)
+	_friends_search.add_theme_color_override("font_color", PROFILE_TEXT)
+	_friends_search.add_theme_color_override("font_placeholder_color", PROFILE_DIM)
+	_friends_search.add_theme_color_override("caret_color", _accent)
+	var field := StyleBoxFlat.new()
+	field.bg_color = Color(0.0, 0.0, 0.0, 0.25)
+	field.border_color = LOG_EDGE_SHADE
+	field.border_width_bottom = 1
+	field.border_width_top = 1
+	field.border_width_left = 1
+	field.border_width_right = 1
+	field.content_margin_left = 4.0
+	field.content_margin_right = 4.0
+	_friends_search.add_theme_stylebox_override("normal", field)
+	var focused := field.duplicate() as StyleBoxFlat
+	focused.border_color = _accent
+	_friends_search.add_theme_stylebox_override("focus", focused)
+	# The field filters the list. With no friends the result is the same either way, but the field
+	# is wired rather than decorative: the empty state changes to say nothing matched.
+	_friends_search.text_changed.connect(func(_text: String) -> void: queue_redraw())
+	add_child(_friends_search)
+
+	for i in range(FRIENDS_TABS.size()):
+		var tab := _flat_button(String(FRIENDS_TABS[i]))
+		tab.pressed.connect(_on_friends_tab.bind(i))
+		add_child(tab)
+		_friends_tabs.append(tab)
+
+	_friends_add = _flat_button("+  Add Friend")
+	_friends_add.pressed.connect(func() -> void:
+		_flash("FRIENDS NEED MULTIPLAYER, WHICH IS NOT IN THIS BUILD"))
+	add_child(_friends_add)
+
+
+## One flat row button, the shape both panels use: no texture, a transient tint, the engine's
+## own hover/focus/press and an accent bar on the focused one.
+func _flat_button(text: String) -> Button:
+	var btn := Button.new()
+	btn.text = text
+	btn.clip_text = true
+	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	btn.add_theme_font_override("font", MUNRO_FONT)
+	for key in ["font_color", "font_focus_color", "font_hover_color", "font_pressed_color"]:
+		btn.add_theme_color_override(key, PROFILE_TEXT)
+	var normal := StyleBoxFlat.new()
+	normal.bg_color = Color(0.0, 0.0, 0.0, 0.0)
+	var hover := StyleBoxFlat.new()
+	hover.bg_color = Color(1.0, 1.0, 1.0, 0.05)
+	var pressed := StyleBoxFlat.new()
+	pressed.bg_color = Color(1.0, 1.0, 1.0, 0.10)
+	var focus := StyleBoxFlat.new()
+	focus.bg_color = Color(1.0, 1.0, 1.0, 0.05)
+	focus.border_width_left = 2
+	# The accent bar on the left edge, the same marker the column uses for the row you are on.
+	focus.border_width_left = 2
+	btn.add_theme_stylebox_override("normal", normal)
+	btn.add_theme_stylebox_override("hover", hover)
+	btn.add_theme_stylebox_override("pressed", pressed)
+	btn.add_theme_stylebox_override("focus", focus)
+	return btn
+
+
+## Every flat row's metrics take the window's scale, and its focus bar takes the accent - which
+## is mixed with the world's sky warmth in `open`, so it cannot be known when the rows are built.
+func _style_flat(btn: Button, s: float, left_inset: float) -> void:
+	btn.add_theme_font_size_override("font_size", int(FRIENDS_SMALL_UNITS * s))
+	for state in ["normal", "hover", "pressed", "focus"]:
+		var box := btn.get_theme_stylebox(state).duplicate() as StyleBoxFlat
+		box.content_margin_left = left_inset * s
+		box.content_margin_right = 2.0 * s
+		if state == "focus":
+			box.border_color = _accent
+		btn.add_theme_stylebox_override(state, box)
+
+
+func _on_friends_tab(index: int) -> void:
+	if index == _friends_tab:
+		return
+	_friends_tab = index
+	queue_redraw()
+
+
+## A message in the footer, for three seconds. Every row on this screen that cannot act yet
+## answers here, so there is one place to look for "why did nothing happen".
+func _flash(text: String) -> void:
+	_note = text
+	_note_timer = NOTE_SECONDS
+	_refresh_footer()
 
 
 ## A profile row with nothing behind it answers in the footer, the place this screen already
@@ -560,6 +658,7 @@ func _layout() -> void:
 	_position_profile()
 	# The log's top depends on where the profile card ended, so the order matters.
 	_position_log()
+	_position_friends()
 	queue_redraw()
 
 
@@ -597,16 +696,72 @@ func _position_profile() -> void:
 		btn.visible = true
 		btn.position = Vector2(left + inset, row_y + float(i) * PROFILE_ROW_H * s)
 		btn.size = Vector2(row_w, PROFILE_ROW_H * s)
-		btn.add_theme_font_size_override("font_size", int(PROFILE_SMALL_UNITS * s))
-		for state in ["normal", "hover", "pressed", "focus"]:
-			var box := btn.get_theme_stylebox(state).duplicate() as StyleBoxFlat
-			box.content_margin_left = 4.0 * s
-			box.content_margin_right = 2.0 * s
-			if state == "focus":
-				# Re-taken every layout: the accent is mixed with the world's own sky warmth in
-				# `open`, so it is not known when the rows are built.
-				box.border_color = _accent
-			btn.add_theme_stylebox_override(state, box)
+		_style_flat(btn, s, 4.0)
+
+
+## The friends panel, bottom left: the column's width, its left edge on the margin, from one
+## cell under the column's last row down to one cell above the version line. It fills the empty
+## corner the column leaves, and its controls are laid out inside it in the order the reference
+## reads: header, search, tabs, list, Add Friend.
+func _position_friends() -> void:
+	_friends_rect = Rect2()
+	var s := maxf(UIScale.value, 1.0)
+	var width_units := size.x / s
+	var w_units := minf(COLUMN, width_units - _margin * 2.0)
+	var fits := w_units >= COLUMN * 0.6
+	if not fits:
+		_hide_friends()
+		return
+	var cell := maxf(_cell, 2.0)
+	var foot_top := _footer.position.y if _footer != null else size.y - _margin * s
+	var col_bottom := (_rows_y + float(_buttons.size()) * (ROW_H + ROW_GAP) - ROW_GAP) * s
+	var top := roundf((col_bottom + cell) / cell) * cell
+	var bottom := floorf((foot_top - cell) / cell) * cell
+	var cols := int(round(w_units * s / cell))
+	var rows := int(floor((bottom - top) / cell)) - 1
+	if rows < 6:
+		# A panel that cannot hold its own chrome is worse than no panel.
+		_hide_friends()
+		return
+	_friends_rect = Rect2(Vector2(roundf(_margin * s / cell) * cell, top),
+		Vector2(float(cols) * cell, float(rows) * cell))
+
+	var px := maxf(1.0, roundf(s))
+	var pad := px + PROFILE_PAD * 0.5 * s
+	var inner_w := _friends_rect.size.x - pad * 2.0
+	var y := _friends_rect.position.y + FRIENDS_HEADER_H * s
+	_friends_search.visible = true
+	_friends_search.position = Vector2(_friends_rect.position.x + pad, y)
+	_friends_search.size = Vector2(inner_w, FRIENDS_SEARCH_H * s)
+	_friends_search.add_theme_font_size_override("font_size", int(FRIENDS_SMALL_UNITS * s))
+	y += (FRIENDS_SEARCH_H + 3.0) * s
+	var tab_w := inner_w / float(FRIENDS_TABS.size())
+	for i in range(_friends_tabs.size()):
+		var tab: Button = _friends_tabs[i]
+		tab.visible = true
+		tab.position = Vector2(_friends_rect.position.x + pad + tab_w * float(i), y)
+		tab.size = Vector2(tab_w, FRIENDS_TABS_H * s)
+		tab.add_theme_constant_override("h_separation", 0)
+		_style_flat(tab, s, 3.0)
+		# The active tab is the bright label; the others are dim, so the tab you are on is
+		# legible without a second marker beside the underline `_draw_friends` paints.
+		var on := i == _friends_tab
+		for key in ["font_color", "font_hover_color", "font_focus_color", "font_pressed_color"]:
+			tab.add_theme_color_override(key, PROFILE_TEXT if on else PROFILE_DIM)
+	_friends_add.visible = true
+	_friends_add.position = Vector2(_friends_rect.position.x + pad,
+		_friends_rect.end.y - FRIENDS_FOOTER_H * s - pad)
+	_friends_add.size = Vector2(inner_w, FRIENDS_FOOTER_H * s)
+	_style_flat(_friends_add, s, 4.0)
+
+
+func _hide_friends() -> void:
+	if _friends_search != null:
+		_friends_search.visible = false
+	for tab in _friends_tabs:
+		tab.visible = false
+	if _friends_add != null:
+		_friends_add.visible = false
 
 
 ## The log card's rect for this window, snapped to whole scrim cells so the card is made of
@@ -667,6 +822,7 @@ func _draw() -> void:
 			FOCUS_BAR_W * s, ROW_H * 0.80 * s), _accent)
 	_draw_profile()
 	_draw_log()
+	_draw_friends()
 
 
 ## One panel: a flat fill, then the button texture's bevel outside-in - one texel of outline
@@ -732,6 +888,85 @@ func _draw_profile() -> void:
 	var rule_y := _profile_rect.position.y + PROFILE_HEADER * s
 	draw_rect(Rect2(Vector2(_profile_rect.position.x + px, rule_y),
 		Vector2(_profile_rect.size.x - 2.0 * px, px)), LOG_EDGE_SHADE)
+
+
+## The friends panel: header, search (a real field, drawn by itself), tabs with an accent
+## underline on the active one, the list - which is empty, and says why - and Add Friend.
+## Nothing here draws a friend row, because there are no friends to draw: the rows arrive with
+## multiplayer, and a renderer for data that cannot exist yet is a guess.
+func _draw_friends() -> void:
+	if _friends_rect.size.x <= 0.0:
+		return
+	_draw_panel(_friends_rect)
+	var s := maxf(UIScale.value, 1.0)
+	var px := maxf(1.0, roundf(s))
+	var pad := px + PROFILE_PAD * 0.5 * s
+	var label := int(FRIENDS_LABEL_UNITS * s)
+	var small := int(FRIENDS_SMALL_UNITS * s)
+	var x := _friends_rect.position.x + pad
+	var head_mid := _friends_rect.position.y + FRIENDS_HEADER_H * s * 0.5
+	# Two heads and two shoulders, six rects: the smallest thing that reads as "people" at
+	# this size, and no new asset for it.
+	var u := 2.0 * s
+	var glyph_x := x
+	draw_rect(Rect2(Vector2(glyph_x, head_mid - u * 2.0), Vector2(u * 1.4, u * 1.4)), PROFILE_DIM)
+	draw_rect(Rect2(Vector2(glyph_x - u * 0.4, head_mid - u * 0.4), Vector2(u * 2.2, u * 1.4)),
+		PROFILE_DIM)
+	draw_rect(Rect2(Vector2(glyph_x + u * 1.6, head_mid - u * 1.6),
+		Vector2(u * 1.2, u * 1.2)), PROFILE_DIM)
+	draw_rect(Rect2(Vector2(glyph_x + u * 1.2, head_mid - u * 0.2),
+		Vector2(u * 1.8, u * 1.2)), PROFILE_DIM)
+	var title_x := glyph_x + u * 4.0
+	draw_string(MUNRO_FONT, Vector2(title_x, head_mid + float(MUNRO_FONT.get_ascent(label)) * 0.5),
+		"FRIENDS", HORIZONTAL_ALIGNMENT_LEFT, -1, label, PROFILE_TEXT)
+	# The state, right-aligned: there is no service to count, so it says what is true.
+	var st_w := MUNRO_FONT.get_string_size(FRIENDS_STATUS, HORIZONTAL_ALIGNMENT_LEFT, -1,
+		small).x
+	var st_x := _friends_rect.end.x - pad - st_w
+	var dot := 3.0 * s
+	var st_y := head_mid + float(MUNRO_FONT.get_ascent(small)) * 0.5
+	draw_rect(Rect2(Vector2(st_x - dot - 3.0 * s, st_y - dot * 1.35), Vector2(dot, dot)),
+		FRIENDS_DOT)
+	draw_string(MUNRO_FONT, Vector2(st_x, st_y), FRIENDS_STATUS, HORIZONTAL_ALIGNMENT_LEFT, -1,
+		small, PROFILE_DIM)
+	draw_rect(Rect2(Vector2(_friends_rect.position.x + px,
+		_friends_rect.position.y + FRIENDS_HEADER_H * s),
+		Vector2(_friends_rect.size.x - 2.0 * px, px)), LOG_EDGE_SHADE)
+
+	# The tab underline: the accent under the tab that is on, the same marker the menu column
+	# uses for the row you are on.
+	if _friends_tab >= 0 and _friends_tab < _friends_tabs.size():
+		var tab: Button = _friends_tabs[_friends_tab]
+		if tab.visible:
+			draw_rect(Rect2(Vector2(tab.position.x + 2.0 * s, tab.position.y + tab.size.y - px),
+				Vector2(tab.size.x - 4.0 * s, px * 2.0)), _accent)
+
+	# The list. Its first two lines are the same on every tab where nothing can be here.
+	var list_top := _friends_rect.position.y + (FRIENDS_HEADER_H + FRIENDS_SEARCH_H
+		+ FRIENDS_TABS_H + 9.0) * s
+	var list_bottom := _friends_add.position.y - 6.0 * s
+	var lines := []
+	var query := _friends_search.text.strip_edges() if _friends_search != null else ""
+	if _friends_tab == 0:
+		if query != "":
+			lines = [FRIENDS_NO_MATCH]
+		else:
+			lines = [FRIENDS_EMPTY, FRIENDS_REASON]
+	else:
+		lines = [String(FRIENDS_EMPTY_TAB[_friends_tab - 1])]
+	var line_y := (list_top + list_bottom) * 0.5 - float(lines.size()) * LOG_LINE_H * s * 0.5
+	for i in range(lines.size()):
+		var size := small if i > 0 or _friends_tab > 0 else int(FRIENDS_SMALL_UNITS * s)
+		var text := String(lines[i])
+		var w := MUNRO_FONT.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
+		var colour := PROFILE_TEXT if i == 0 else PROFILE_DIM
+		draw_string(MUNRO_FONT,
+			Vector2(_friends_rect.get_center().x - w * 0.5, line_y + float(MUNRO_FONT.get_ascent(size))),
+			text, HORIZONTAL_ALIGNMENT_LEFT, -1, size, colour)
+		line_y += LOG_LINE_H * s
+	draw_rect(Rect2(Vector2(_friends_rect.position.x + px,
+		_friends_add.position.y - 4.0 * s),
+		Vector2(_friends_rect.size.x - 2.0 * px, px)), LOG_EDGE_SHADE)
 
 
 ## A five-unit crown of three spikes and a band. Drawn rather than shipped as a texture: it is

@@ -316,6 +316,56 @@ func _check_update_log() -> void:
 	title._process(Title.NOTE_SECONDS + 0.1)
 	_check(String(title._footer.text).contains("v0.1"), "the answer clears itself")
 
+	# The friends panel fills the corner the column leaves: bottom left, the column's width, on
+	# the grid, under the last row and clear of the version line - and its four controls inside
+	# it. The list is empty on purpose, so what is checked is the shell, not a friend row.
+	var column_bottom: float = (title._rows_y
+		+ float(title._buttons.size()) * (Title.ROW_H + Title.ROW_GAP) - Title.ROW_GAP) * s
+	var friends: Rect2 = title._friends_rect
+	_check(friends.size.x > 0.0, "the friends panel has a rect (%.0f x %.0f)" % [friends.size.x,
+		friends.size.y])
+	_check(friends.position.x < title.size.x * 0.5
+		and friends.get_center().y > title.size.y * 0.5,
+		"the friends panel is in the bottom left (centre %.0f, %.0f)" % [friends.get_center().x,
+			friends.get_center().y])
+	_check(friends.end.y <= title._footer.position.y
+		and friends.end.y > title.size.y * 0.75,
+		"its bottom fills the corner without touching the version line (%.0f, %.0f gap)" % [
+			friends.end.y, title._footer.position.y - friends.end.y])
+	_check(absf(friends.position.x - title._margin * s) <= title._cell,
+		"its left edge is on the margin (%.0f)" % friends.position.x)
+	_check(absf(friends.size.x - Title.COLUMN * s) <= title._cell,
+		"it is the column's width (%.0f)" % friends.size.x)
+	_check(friends.position.y >= column_bottom,
+		"it starts under the column (%.0f >= %.0f)" % [friends.position.y, column_bottom])
+	_check(friends.end.y <= title._footer.position.y,
+		"it stays clear of the version line (%.0f <= %.0f)" % [friends.end.y,
+			title._footer.position.y])
+	var f_off := maxf(maxf(fposmod(friends.position.x, title._cell),
+		fposmod(friends.position.y, title._cell)),
+		maxf(fposmod(friends.size.x, title._cell), fposmod(friends.size.y, title._cell)))
+	_check(f_off < 0.01, "its edges land on the square grid (%.2f px off)" % f_off)
+	_check(title._friends_tabs.size() == Title.FRIENDS_TABS.size(),
+		"it has the three tabs (%d)" % title._friends_tabs.size())
+	for i in range(title._friends_tabs.size()):
+		var tab: Button = title._friends_tabs[i]
+		_check(tab.visible and friends.encloses(Rect2(tab.position, tab.size)),
+			"tab %d (%s) is inside the panel" % [i, tab.text])
+	_check(title._friends_search.visible
+		and friends.encloses(Rect2(title._friends_search.position, title._friends_search.size)),
+		"the search field is inside the panel")
+	_check(title._friends_add.visible
+		and friends.encloses(Rect2(title._friends_add.position, title._friends_add.size)),
+		"Add Friend is inside the panel")
+	# A tab switch is state, not a screen: the panel stays, the list under it changes.
+	title._on_friends_tab(1)
+	_check(title._friends_tab == 1, "a tab press moves the panel to that tab")
+	title._on_friends_tab(0)
+	title._friends_add.pressed.emit()
+	_check(String(title._footer.text).contains("MULTIPLAYER"),
+		"Add Friend says why it cannot work: %s" % title._footer.text)
+	title._process(Title.NOTE_SECONDS + 0.1)
+
 	# The file names the running build, or the card is advertising another one.
 	var version := String(ProjectSettings.get_setting("application/config/version", "dev"))
 	_check(title._log_version == version,

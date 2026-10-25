@@ -131,11 +131,11 @@ const LOG_DIM := Color(0.80, 0.83, 0.87)
 # The lit top and left is the one tone that does NOT survive the move. On a button the fill is
 # #6d6d6d, so the texture's #9b9b9b is a +42 step and reads as a bevel; the card's fill is far
 # darker, and the same tone read as a bright outline drawn round a nearly black panel - out of
-# place in a screen made of quiet greys. It is the button's tone pulled to 0.80 and cooled
-# toward the card: #7c828c. Darker still and the bevel stops being legible, which is the whole
-# point of having one.
+# place in a screen made of quiet greys. It is the button's tone pulled to about 0.74 and
+# cooled toward the card: #727881. Darker still and the bevel stops being legible, which is the
+# whole point of having one.
 const LOG_EDGE_OUTER := Color8(38, 38, 38)
-const LOG_EDGE_LIGHT := Color8(124, 130, 140)
+const LOG_EDGE_LIGHT := Color8(114, 120, 129)
 const LOG_EDGE_SHADE := Color8(66, 66, 66)
 # A note that replaces the footer for a moment: the honest answer to a row that cannot
 # act, in the place the screen already uses for status.

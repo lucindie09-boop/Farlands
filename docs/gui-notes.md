@@ -784,7 +784,7 @@ first-person viewmodel - what each one owns and the decisions behind it.
   tone is the one that did not survive the move: `#9b9b9b` is a +42 step over the button's
   `#6d6d6d` fill and reads as a bevel there, but over a nearly black card it read as a bright
   outline drawn round the panel - out of place in a screen of quiet greys - so it is pulled to
-  `#7c828c`. The probe reads the outline and shade texels back and compares them to the
+  `#727881` (about 0.74 of the texture's tone, and cooler). The probe reads the outline and shade texels back and compares them to the
   constants, and holds the lit tone below the texture's while keeping it above the shade, so
   the frame can be tuned without ceasing to be the button's bevel.
 - **The freeze reuses `set_settings_open`.** That flag is already the gate every system respects

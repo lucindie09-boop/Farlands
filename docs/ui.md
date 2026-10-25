@@ -37,6 +37,29 @@ screen (the shader-effect stack, the animated-liquid tools, the model previews).
   modulate
 - `death_screen.gd` — Death overlay: "You died!" + Respawn button, shown on the
   `PlayerController.died` signal and hidden on `respawned`
+- `menu_layer.gd` — The title screen and the transition, as one autoload `CanvasLayer` above
+  the HUD. It arms itself only when `SceneTree.current_scene` is the world (so a probe's
+  hand-made fixture never gets a menu), hides the gameplay HUD, freezes the player through the
+  existing `set_settings_open` gate, and drifts the body slowly so the backdrop is not a still
+  frame. CONTINUE / PLAY is decided by whether `world.meta` existed *before* this launch, since
+  the world behind the title is already running and writes it
+- `title_screen.gd` — Wordmark, the action list and the footer, in units: a scrim in bands, a
+  left plate behind the column, one accent (mixed with the world's own sky warmth) for the
+  wordmark underline and the focused row's bar. The rows are real `Button`s so mouse hover,
+  keyboard focus and gamepad focus all come from the engine; hover moves the focus rather than
+  sitting beside it, and focus is restored on every open
+- `ui_block_curtain.gd` — The screen-change cover: twelve columns of **rigid bodies** are
+  released above the top edge, fall under gravity, collide with each other and with a floor and
+  two walls, pile up and hold, then drop away when the floor is removed. Every part is the
+  engine's physics: random mass and spin per block, friction 0.95, no restitution, and a landing
+  rule (within 8 px of where it was for 0.06 s while supported) that freezes each block into the
+  pile as it lands. The pile is "settled" when its top edge has stopped climbing and 90% of the
+  sheet is on screen, so the hold follows geometry rather than a timer. It runs its own physics
+  at 240 Hz while up (a 2,600 px/s landing is 40 px per tick at 60) and restores the project's
+  rate afterwards, keeps the collider at 0.86 of the drawn square and draws at 1.18 of the cell
+  — both invisible under pure black — and emits `covered` only behind an opaque backing frame,
+  so the swap can never depend on the pile tiling. `skip()` lands it at once; `play_cover(true)`
+  is the Reduce Motion path, a short fade with no bodies at all
 - `inventory.gd` - Full inventory screen with drag-drop stack movement, shift-click
   quick-transfer, RMB drag-place, LMB drag-collect, scroll wheel quick-transfer, double-click
   gather; live 2×2 crafting grid + output preview (click/drag/shift/scroll interactions mirrored

@@ -223,6 +223,9 @@ var _crosshair_defaults := {
 
 var _save_timer: Timer = null
 var _fps_cap: int = 0
+# The transition and any other full-screen motion read this instead of moving.
+# Off by default: it is an accessibility choice, not a look.
+var _reduce_motion := false
 
 func _ready():
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -323,6 +326,7 @@ func _save_settings():
 	cfg.set_value("gui", "skin_dark_mode", _skin_dark_mode)
 	cfg.set_value("gui", "skin_noise", _skin_noise)
 	cfg.set_value("gui", "block_noise", _block_noise)
+	cfg.set_value("gui", "reduce_motion", _reduce_motion)
 	# A shader's state is its switch plus one value per uniform, keyed by the
 	# shader's id and the uniform's name (see data/shaders.json).
 	if shader_overlay:
@@ -383,6 +387,7 @@ func _load_settings():
 	_skin_dark_mode = cfg.get_value("gui", "skin_dark_mode", _skin_dark_mode)
 	_skin_noise = float(cfg.get_value("gui", "skin_noise", _skin_noise))
 	_block_noise = float(cfg.get_value("gui", "block_noise", _block_noise))
+	_reduce_motion = bool(cfg.get_value("gui", "reduce_motion", _reduce_motion))
 	if shader_overlay:
 		for definition in shader_overlay.get_definitions():
 			var id := String(definition.get("id", ""))
@@ -776,6 +781,20 @@ func _build_general_sections() -> Array:
 		UIScale.set_scale(_default_gui_scale)
 		_row_value(scale_btn, str(int(round(_default_gui_scale))) + "x")
 
+	# A switch, not a slider: the transition either moves or it does not. It sits
+	# with GUI Scale because both are about how the interface behaves rather than
+	# what the world looks like.
+	var motion_btn := _make_widget_button("", 60.0)
+	_row_value(motion_btn, "On" if _reduce_motion else "Off")
+	motion_btn.pressed.connect(func():
+		_reduce_motion = not _reduce_motion
+		_row_value(motion_btn, "On" if _reduce_motion else "Off")
+		_schedule_save())
+	var motion_reset := func():
+		_reduce_motion = false
+		_row_value(motion_btn, "Off")
+		_schedule_save()
+
 	var rd := _make_slider(chunk_manager.get_render_distance(), 2.0, 64.0, 1.0,
 		func(v: float):
 			chunk_manager.set_render_distance(int(v))
@@ -809,6 +828,7 @@ func _build_general_sections() -> Array:
 	return [
 		["Interface", [
 			["GUI Scale", scale_btn, reset],
+			["Reduce Motion", motion_btn, motion_reset],
 		]],
 		["Performance", [
 			["Render Distance", rd, rd_reset],

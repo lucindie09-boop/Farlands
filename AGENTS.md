@@ -212,6 +212,15 @@ Full notes: [docs/light.md](docs/light.md).
   rest rotations. `Animations/Idle.anim` and the parked `Idle_new`/`Walk` pair are on disk but
   not loaded, the head's rotation stays the code's, and the pack's files are not vendored
   (its terms) — the credit is in docs/gui-notes.md.
+- The title screen (`scripts/menu_layer.gd` over the live world, `title_screen.gd` drawing it)
+  offers CONTINUE when a world existed before launch and PLAY when it did not, then Settings and
+  Quit. Entering the world is covered by `ui_block_curtain.gd` — 12 columns of pure-black rigid
+  bodies that fall, collide, pile and hold on the engine's own physics, with an opaque backing
+  frame, not the pile's tiling, as the guarantee — and Reduce Motion swaps it for one fade. Its
+  physics runs at 240 Hz while it is up: at 60 a block arriving at 2,600 px/s moves 40 px between
+  contact checks, which is the difference between a wall landing and a wall shaking.
+  There is no New World button until the engine can reset a world safely. The research behind
+  the layout, colour and timing is [docs/main-menu.md](docs/main-menu.md).
 
 Full notes: [docs/gui-notes.md](docs/gui-notes.md).
 

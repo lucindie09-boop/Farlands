@@ -776,17 +776,20 @@ first-person viewmodel - what each one owns and the decisions behind it.
   probe also checks that the file's `version` matches `application/config/version`, so a build
   cannot advertise another one's changelog. The card is dropped, not squeezed, when the window
   is too narrow for its lines: a changelog narrower than its own words is worse than none.
-- **The card is framed in the button's bevel, at one texel.** Read out of `textures/gui/button.png`
-  rather than matched by eye: `#262626` outline, `#9b9b9b` lit top and left, `#424242` shaded
-  bottom and right, over the fill - a three-tone bevel with the light coming from above, drawn
-  procedurally as four rects per ring. It grows with the GUI scale, so a texel is 2 px at scale 2
-  and the frame thickens with the rest of the interface instead of staying a hairline. The lit
-  tone is the one that did not survive the move: `#9b9b9b` is a +42 step over the button's
-  `#6d6d6d` fill and reads as a bevel there, but over a nearly black card it read as a bright
-  outline drawn round the panel - out of place in a screen of quiet greys - so it is pulled to
-  `#686e76` (about 0.67 of the texture's tone, and cooler). The probe reads the outline and shade texels back and compares them to the
-  constants, and holds the lit tone below the texture's while keeping it above the shade, so
-  the frame can be tuned without ceasing to be the button's bevel.
+- **The card is framed in the button's bevel, at one texel, and its inner pair is
+  translucent.** The tones are read out of `textures/gui/button.png` rather than matched by eye -
+  `#262626` outline, `#9b9b9b` lit top and left, `#424242` shaded bottom and right, a three-tone
+  bevel with the light coming from above - drawn procedurally as four rects per ring, sized from
+  the GUI scale so a texel is 2 px at scale 2 and the frame thickens with the rest of the
+  interface instead of staying a hairline. Two rounds of darkening the lit tone (`#7c828c`, then
+  `#686e76`) fixed the symptom without fixing the cause: the tone was *replacing* the card's near
+  black fill with a lighter grey, which is why it read as a bright frame drawn round the panel
+  rather than as a lit edge on it. At half alpha the texture's own tone tints what is underneath
+  instead, so the bevel quiets down without inventing a colour that is not in the art. The probe
+  reads all three texels back against the constants, and measures the **composite** at that
+  alpha over the card (1.44:1 against the worst case, which is the brightest sky) rather than the
+  constant on its own - a translucent edge that is only bright in the source is decoration in the
+  source only.
 - **The freeze reuses `set_settings_open`.** That flag is already the gate every system respects
   (movement, look, mouse capture, the block outline, the crosshair, the compass, the interaction
   door), so the title cannot be the one overlay a later system forgets. The cost is a semantic

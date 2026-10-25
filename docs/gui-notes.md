@@ -767,6 +767,16 @@ first-person viewmodel - what each one owns and the decisions behind it.
   a press reads as a bug. It puts `MULTIPLAYER IS NOT IN THIS BUILD YET` in the footer for three
   seconds - the footer is already this screen's status line - and clears itself on a timer, so
   the message cannot outlive the moment it answered.
+- **The friends tabs are a segmented control, not three labels in the open.** The first version was
+  three flat `Button`s sharing a row with an accent underline under the active one, and it read as
+  loose text rather than as a control - the report was that they "look like they are out in the
+  open". The strip now has one 1-texel box round the three segments (the same `#424242` the search
+  field above uses, so the panel's two controls look like a family), a hairline between each pair
+  of segments, and the accent along the bottom edge of the active one. Their labels are CENTRED,
+  which is the other half of the fix: a left-aligned label inside an even third of a box reads as
+  a paragraph that got cut up, and centring is what says "one of three". The probe pins the two
+  properties that make it a strip rather than three buttons - every label centred, and each tab's
+  right edge on the next one's left edge.
 - **A row shows where you are with its text, not with a box.** The first version of the flat rows
   gave hover and focus a 5% white fill, which inside a dark panel draws a lighter rectangle around
   whatever the pointer is near - the panel painting a second panel. Rest is now the recessed grey,

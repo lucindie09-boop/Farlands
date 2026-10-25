@@ -808,7 +808,10 @@ func _position_friends() -> void:
 		tab.position = Vector2(tabs_box.position.x + tab_w * float(i), tabs_box.position.y)
 		tab.size = Vector2(tab_w, tabs_box.size.y)
 		tab.add_theme_constant_override("h_separation", 0)
-		_style_flat(tab, s, 3.0)
+		# Centred, because the three tabs are segments of one box of equal width: a label pinned
+		# to the left of an even box reads as text that fell into it, not as a tab.
+		tab.alignment = HORIZONTAL_ALIGNMENT_CENTER
+		_style_flat(tab, s, 2.0)
 		# The active tab is the bright label; the others are dim, so the tab you are on is
 		# legible without a second marker beside the underline `_draw_friends` paints.
 		var on := i == _friends_tab
@@ -1048,13 +1051,28 @@ func _draw_friends() -> void:
 		float(boxes["header_y"]) + float(boxes["header_h"])),
 		Vector2(_friends_rect.size.x - 2.0 * px, px)), LOG_EDGE_SHADE)
 
-	# The tab underline: the accent under the tab that is on, the same marker the menu column
-	# uses for the row you are on.
-	if _friends_tab >= 0 and _friends_tab < _friends_tabs.size():
-		var tab: Button = _friends_tabs[_friends_tab]
-		if tab.visible:
-			draw_rect(Rect2(Vector2(tab.position.x + 2.0 * s, tab.position.y + tab.size.y - px),
-				Vector2(tab.size.x - 4.0 * s, px * 2.0)), _accent)
+	# The tabs are a SEGMENTED CONTROL, not three labels sitting in the open: one 1-texel box
+	# round the strip, a hairline between the segments, and the accent along the bottom edge of
+	# the one that is on - the same marker the menu column uses for the row you are on. The box is
+	# what stops them reading as loose text, and the segments are why the labels are centred
+	# rather than left-aligned like the rows elsewhere on the panel (a left-aligned label inside
+	# an even third of a box reads as a paragraph someone cut up).
+	if not _friends_tabs.is_empty() and _friends_tabs[0].visible:
+		var strip := Rect2(_friends_tabs[0].position, _friends_tabs[0].size)
+		for tab in _friends_tabs:
+			strip = strip.merge(Rect2(tab.position, tab.size))
+		draw_rect(strip, LOG_EDGE_SHADE, false, px)
+		for i in range(1, _friends_tabs.size()):
+			var divider: Button = _friends_tabs[i]
+			draw_rect(Rect2(Vector2(divider.position.x, strip.position.y), Vector2(px, strip.size.y)),
+				LOG_EDGE_SHADE)
+		if _friends_tab >= 0 and _friends_tab < _friends_tabs.size():
+			var on: Button = _friends_tabs[_friends_tab]
+			# One texel, sitting exactly on the strip's bottom border where the active segment's
+			# edge would be - an accent EDGE, not a bar laid over the frame. The 2-texel version
+			# read as a thick stripe that floated across the bottom of the box.
+			draw_rect(Rect2(Vector2(on.position.x + px, strip.end.y - px),
+				Vector2(on.size.x - px * 2.0, px)), _accent)
 
 	# The list. Its first two lines are the same on every tab where nothing can be here.
 	var list: Rect2 = boxes["list"]

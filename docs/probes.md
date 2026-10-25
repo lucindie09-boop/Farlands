@@ -103,7 +103,7 @@ comment, with the claim each one backs:
 | `probe_item_face_shade.gd` | An item's face shade does not snap while the body turns: the include's arithmetic stays within 1% over a 0.25-degree sweep of the normal, and a block turned in front of a still camera barely moves the frame (see below) |
 | `probe_item_light_smooth.gd` | The item light model's step: a staged one-frame relight of the held item's/arm's cell, of a dropped item's cell and of the player's own body's cell moves the `item_light` the mesh is handed over ~0.35 s instead of one frame |
 | `probe_body_light.gd` | The player's own body is lit by the world's light, not the engine's: its rendered luma equals the luma of the pixels it is drawn over, it follows the sun down to midnight, and it is the one consumer handed the sun's own colour instead of the world's midday cream |
-| `probe_player_anim.gd` | The body's old idle — and that it has no walk — asked of the BODY rather than of the files (see below) |
+| `probe_player_anim.gd` | The body's ported pose — idle, walk, sprint, jump/fall, sneak, swim — and the live body it is applied to (see below) |
 | `probe_sky_brightness.gd` | What a fully sky-lit surface renders AT, against its own albedo: the body is handed a flat known grey (1x1, no atlas to guess from), the frame is read back per albedo, and each one is held to the model's own claim — never above its own texel, and not far below it |
 | `probe_sky_tint.gd` | The Sky Tint setting reaches what the world is drawn with: the world's own material is handed the midday cream while it is ON, a white zenith while it is OFF, and both are the same warm colour at the horizon |
 | `probe_item_size.gd` | A dropped item is not cell-sized: a cube's body and drawn mesh are both half a block, a slab and a stair keep their own shape at that scale, a sprite keeps its silhouette, and a stack of more than one is both drawn and solved bigger by the capped log2 curve (1.25x at 2 through 2x from sixteen), mesh and body one box at every count |
@@ -289,14 +289,14 @@ A few of those rows keep their detail here, because a table cell that long is an
   few percent.
 - `probe_item_light_smooth.gd` — the eased `item_light` is read back OFF THE INSTANCE the
   shader sees, so the number measured is the one being drawn rather than the one assigned.
-- `probe_player_anim.gd` — what the player's BODY plays is asked of the body, not of the files:
-  its AnimationPlayer holds `default/Idle` and NOT `default/Walk`, it is playing it, every track
-  names a node the body has and none is left under the source rig's `arm_001`/`leg_001`, the clip
-  turns both arms and no head (whose quaternion the body's own `_track_head_look` writes), and the
-  controller's own call — `set_animation_state` once a frame with the state it can see — neither
-  switches the clip nor restarts it (a clip restarted every frame is frozen on frame zero, which
-  is what a naive `play()` gives). A body with no AnimationPlayer at all (the K-key clone) stays
-  frozen rather than quietly animating.
+- `probe_player_anim.gd` — the body's pose is measured twice. The maths, state by state: idle
+  (the old clip's 3.4° of arm sway, still legs), walk (60° of opposed stride, each arm against its
+  own leg), sprint (a longer stride and the lean into it), jump and fall (a different shape each,
+  the legs split and the arms up), sneak (chest forward, stride all but gone), swim (the paddle),
+  and a stop that decays over its own frames rather than cutting. The body: the live arms sway
+  while it stands on the floor, a pose handed to it is applied in degrees about the rig's own
+  axis, and the K-key pose clone stays frozen — `skip_head_look` gates the body pose as well as
+  the head, or the dummy would breathe while it is being punched.
 
 `probe_gen_stats.gd` is the one with switches worth knowing, and the one whose
 reading changed. `RD=<n>` boots at another render distance (applied after the

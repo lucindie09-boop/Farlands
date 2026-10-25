@@ -573,8 +573,7 @@ first-person viewmodel - what each one owns and the decisions behind it.
   horizon, which is why a sunset still lights the body exactly as it lights the ground
   (`probes/probe_body_light.gd` reads both materials, at noon and at the horizon).
   **The body is a scene node, not code**: `Main.tscn` instances it as `Player/PlayerModel`
-  (scale 0.05625, +0.0844 z, `player_model.gd`, plus a direct `AnimationPlayer` child for
-  `Idle.anim`), and `PlayerController::_ready` only *finds* it by name and reparents it under
+  (scale 0.05625, +0.0844 z, `player_model.gd`), and `PlayerController::_ready` only *finds* it by name and reparents it under
   `ModelPivot`. An editor re-save of `Main.tscn` can drop the node and its ext_resources without
   any other diff, which silently leaves F5 showing no body, so the controller now warns loudly
   when it can't find one. That is what happened on 2 Oct: the scene's `PackedScene` reference
@@ -585,26 +584,40 @@ first-person viewmodel - what each one owns and the decisions behind it.
   *path* and never touches `Main.tscn`. A `Main.tscn` reference to this model must therefore
   carry `models/player.glb`'s current uid (and its path), and no `.import` for a source that does
   not exist belongs at the repository root
-- **The body plays the old arm-swing idle, and has no walk.** `player_model.gd` loads
-  `Animations/Idle.anim` — two tracks, `arm_001` and `leg_001`, renamed to this body's
-  `arm2`/`leg2` on the way in — and that is the body's only clip. `set_animation_state(is_walking)`
-  still runs every frame, out of `PlayerController::update_player_animation`, but a state this body
-  has no clip for is never played: walking lands on the idle and standing still keeps it. The
-  switch is idempotent by construction — a state already playing is not re-played, because a clip
-  restarted every frame is a clip frozen on frame zero. The clip is a 4.2 s gentle sway (each arm
-  turns 3.5 degrees, measured) with **no head track at all**, so `_track_head_look`'s quaternion has
-  one writer. `probes/probe_player_anim.gd` holds the body to all of it: the player holds
-  `default/Idle` and NOT `default/Walk`, every track names a node the body has, both arms move, and
-  the controller's repeated call neither switches nor restarts it.
-  **The pack's two clips are parked, not deleted.** `Animations/Idle_new.anim` and
-  `Animations/Walk.anim` (the pack's `still_test` and `walking_test`, lifted out by
-  `tools/extract_model_animations.gd`) and the retargeter that re-homes them
-  (`scripts/clip_retarget.gd`) are all still on disk; nothing on the body loads them. Two things
-  about them are worth having in hand before switching back: their track paths name the pack's rig
-  (`Node/Head2`, `Node/RightArm`, ...) rather than this one, so they have to be re-homed by name --
-  a path that names nothing plays as no motion rather than as an error — and that rig faces **-Z**
-  where this body faces **+Z**, so a faithful copy of its numbers is that motion seen from behind
-  (the feet lead backwards) unless the half turn between the two rigs is applied.
+- **The body's animation is a hand-port of FA+Player, and it is code rather than clips.**
+  `scripts/body_animator.gd` computes a pose per frame from what the sim is doing -- horizontal
+  speed and vertical velocity (`get_velocity()`), `is_on_floor`, `is_in_water`, `is_sneaking`,
+  `is_sprinting` -- and `player_model.gd` composes it onto each part's rest rotation
+  (`rest * X * Z`, degrees per channel), so no pose can drift and a part the pose does not name
+  stays exactly as the model shipped. It replaces the clip loader entirely: the body plays no
+  `.anim` any more. `Animations/Idle.anim` and the parked `Idle_new`/`Walk` pair stay on disk and
+  none of them is loaded; the `AnimationPlayer` node in `Main.tscn` is now unused.
+  **What was ported, and from where**: the signature moves of Fresh Animations' player add-on
+  (FA+Player v1.1, CEM animations by FreshLX) -- the idle's arm sway, the opposed leg/arm stride,
+  a sprint's lean, the split legs and raised arms of a jump and a fall, a sneak's crouch and a
+  swim's paddle. The pack is not a set of clips either: its `.jem`/`.jpm` files (677 expressions
+  over 27 parts) recompute every part from live state each frame, so a port of it is a pose
+  driver, not a file import. **Credit is required and its files are NOT in this repository**: its
+  terms allow transforming its work with credit but not redistributing unedited assets, and this
+  repository is GPL, so nothing of the pack is vendored -- the moves are authored here.
+  **The model is this body's, not the pack's.** FA+Player also models the jacket, sleeves, pants,
+  headwear, cape and a first-person hand; `player.glb` has head/torso/arm/arm2/leg/leg2, so the
+  limb motion ports and the clothing layers do not, and the head stays the code's
+  (`_track_head_look` owns it, and no pose channel names it).
+  **How the pose is weighted**: one pose per state, each claimed by an eased weight, with the
+  walk's amplitude (`_swing`, from speed against `WALK_SPEED`) inside the pose and the weight
+  only choosing the state -- scaling both by speed squared the stride, and a creep at a third of
+  walking speed swung a ninth of the way, which read as no motion. A stop and a landing are the
+  same weights crossing back out at `EASE_RATE`, which is what stops them reading as a cut.
+  Measured by `probes/probe_player_anim.gd` (24 checks): the idle keeps the old clip's 3.4
+  degrees of arm sway, a walk is 60 degrees of opposed stride with each arm against its own leg,
+  a sprint is 1.5x the stride and 9.6 degrees of lean, the jump/fall/sneak/swim shapes differ as
+  they should, a stop decays instead of cutting, the live body's own arms sway while it stands
+  there, and the K-key pose clone stays frozen.
+  **The CEM files** live outside the project (`FA+Player-v1.1/assets/minecraft/emf/cem`), and two
+  things in them are worth knowing before revisiting: their tracks name the pack's rig
+  (`Node/Head2`, `Node/RightArm`, ...) in its units, and that rig faces -Z where this body faces
+  +Z, so a copy of its numbers is that motion seen from behind.
 - **Minecraft-style head look**: `player_model.gd::_track_head_look()` points the head at the
   player's LOOK, not the camera — it rebuilds the aim basis from the controller's world
   quaternion + pitch (pitch read back out of `get_aim_direction()` in the controller frame) and

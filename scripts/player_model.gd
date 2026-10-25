@@ -20,17 +20,16 @@ const ITEM_SHADER: Shader = preload("res://shaders/item_shader.gdshader")
 # probes/probe_item_light_smooth.gd holds all of them to it.
 const LIGHT_EASE_TIME := 0.15
 
-# The clip the body plays, and the only one it loads: an arm-swing idle for an
-# older rig, whose tracks name the limbs `arm_001`/`leg_001` where this body has
-# `arm2`/`leg2` -- so they are renamed on the way in (_load_legacy_idle).
-#
-# The body has NO walk. Animations/Idle_new.anim and Animations/Walk.anim are the
-# pack's own still_test and walking_test, lifted out by
-# tools/extract_model_animations.gd and re-homed by scripts/clip_retarget.gd; the
-# body loads neither of them, so every state it is asked for plays this clip.
-const BODY_CLIP := "res://Animations/Idle.anim"
-# Seconds a change of clip takes to cross into the next one.
-const CLIP_BLEND := 0.15
+# The body's pose, per frame: a hand-port of FA+Player's signature moves
+# (scripts/body_animator.gd). It is code rather than an Animation clip because the
+# pack it is ported from is code too -- its CEM files recompute every limb from
+# live state each frame -- and because a walk has to follow the speed the body is
+# actually moving at, which a clip of one length cannot. The credit and the
+# reasoning are in docs/gui-notes.md.
+const BodyAnimator := preload("res://scripts/body_animator.gd")
+# The rig parts the animator drives, in its own channel names. The head is not
+# among them: _track_head_look owns it.
+const RIG_PARTS := ["arm", "arm2", "leg", "leg2", "torso"]
 
 var uv_overlay_enabled := false
 var paint_color := Color.WHITE
@@ -41,11 +40,12 @@ var skip_head_look := false
 var _uv_overlay_mat: ShaderMaterial
 var _paint_image: Image
 var _paint_texture: ImageTexture
-var _anim_player: AnimationPlayer
 var _head: Node3D = null
-# Which clip the body is in, so that being told the same state again costs
-# nothing (see _play_state).
-var _clip_state := ""
+# The pose driver, the parts it moves, and their rest rotations -- composed onto
+# the rest pose every frame rather than accumulated, so no pose can drift.
+var _animator: BodyAnimator = null
+var _rig: Dictionary = {}
+var _rest_q: Dictionary = {}
 
 # The world light model, when this body is in the world: one material for every
 # surface (the whole model is one skin), the cell's light eased between frames.
@@ -64,51 +64,23 @@ func _ready():
 	# apply_skin_texture has to know that before it picks where the skin goes.
 	_init_world_lighting()
 	apply_skin_texture()
-	_anim_player = get_node_or_null("AnimationPlayer")
-	if _anim_player != null:
-		_load_legacy_idle()
+	_init_body_animation()
 	_head = find_child("head", true, false)
 
 
-## The body's clip: the old arm-swing idle, whose tracks are renamed by hand on
-## the way in (arm_001/leg_001 are what that file calls this body's arm2/leg2).
-##
-## Only ever called when there IS an AnimationPlayer: the K-key pose clone has
-## none on purpose and stays frozen. A missing file says so -- a body with no
-## clip at all is a body held in its rest pose, which reads as a broken model
-## rather than as a missing file.
-func _load_legacy_idle() -> void:
-	var idle: Animation = load(BODY_CLIP)
-	if idle == null:
-		print("player_model: no body clip at all -- %s is missing" % BODY_CLIP)
-		return
-	var fixed: Animation = idle.duplicate()
-	for t in range(fixed.get_track_count()):
-		var path := str(fixed.track_get_path(t))
-		path = path.replace("arm_001", "arm2")
-		path = path.replace("leg_001", "leg2")
-		fixed.track_set_path(t, NodePath(path))
-	var library := AnimationLibrary.new()
-	library.add_animation("Idle", fixed)
-	_anim_player.add_animation_library("default", library)
-	_play_state("Idle")
-
-
-## Move the body into one of its clips, fading across from whatever it was in.
-##
-## The controller tells the body the state it can see EVERY frame, so this has to
-## be free to call and free to call again: a state already playing is left alone,
-## because re-playing it restarts the clip -- and a clip restarted every frame is
-## a clip frozen on its first pose.
-func _play_state(state: String) -> void:
-	# Not `name`: that is Node.name, and a local of that name shadows it.
-	var clip := "default/" + state
-	if not _anim_player.has_animation(clip):
-		return
-	if _clip_state == state and _anim_player.is_playing():
-		return
-	_clip_state = state
-	_anim_player.play(clip, CLIP_BLEND)
+## The parts this body animates, and the rotation each one rests at. The rest
+## quaternions are what every pose is composed onto: the animator hands out an
+## angle per channel and _apply_pose multiplies it onto the rest, so a frame that
+## writes nothing leaves the body exactly as the model was shipped.
+func _init_body_animation() -> void:
+	for part in RIG_PARTS:
+		var node := find_child(part, true, false) as Node3D
+		if node == null:
+			print("player_model: no '%s' on this body -- it will not be posed" % part)
+			continue
+		_rig[part] = node
+		_rest_q[part] = node.quaternion
+	_animator = BodyAnimator.new()
 
 
 func _process(delta: float) -> void:
@@ -116,8 +88,51 @@ func _process(delta: float) -> void:
 	# standing in the world like any other body, so it is lit like one.
 	_push_world_lighting(delta)
 	if skip_head_look:
+		# ...and a pose clone is frozen: no head look AND no body pose.
 		return
+	_animate_body(delta)
 	_track_head_look()
+
+
+## One frame of pose from what the sim is doing.
+##
+## A body in a preview has no controller in its ancestry (skin maker, settings
+## gallery), so it gets the idle's sway and nothing else -- which is right: there
+## is no movement there to animate.
+func _animate_body(delta: float) -> void:
+	if _animator == null:
+		return
+	var speed := 0.0
+	var vertical := 0.0
+	var on_floor := true
+	var in_water := false
+	var sneaking := false
+	var sprinting := false
+	var ctrl := _look_controller()
+	if ctrl != null and ctrl.has_method("get_velocity"):
+		# The sim's velocity is blocks per TICK; the animator works in blocks per
+		# second, so one walk cycle is one speed everywhere.
+		var v: Vector3 = ctrl.get_velocity() * BodyAnimator.TICK_RATE
+		speed = Vector2(v.x, v.z).length()
+		vertical = v.y
+		on_floor = ctrl.is_on_floor() if ctrl.has_method("is_on_floor") else true
+		in_water = ctrl.is_in_water() if ctrl.has_method("is_in_water") else false
+		sneaking = ctrl.is_sneaking() if ctrl.has_method("is_sneaking") else false
+		sprinting = ctrl.is_sprinting() if ctrl.has_method("is_sprinting") else false
+	_apply_pose(_animator.step(delta, speed, vertical, on_floor, in_water, sneaking,
+		sprinting))
+
+
+## Write one pose onto the rig: rest rotation * X (the swing) * Z (the roll).
+func _apply_pose(pose: Dictionary) -> void:
+	for part in _rig:
+		var node: Node3D = _rig[part]
+		var swing := deg_to_rad(float(pose.get(part, 0.0)))
+		var roll := deg_to_rad(float(pose.get(part + "_roll", 0.0)))
+		var q: Quaternion = _rest_q[part] * Quaternion(Vector3.RIGHT, swing)
+		if roll != 0.0:
+			q = q * Quaternion(Vector3.BACK, roll)
+		node.quaternion = q
 
 
 ## Give the body the world's own light model, when it is standing IN the world.
@@ -299,21 +314,6 @@ func _track_head_look() -> void:
 			return
 		var cam_q: Quaternion = cam.global_transform.basis.get_rotation_quaternion()
 		_head.quaternion = parent_q.inverse() * cam_q * Quaternion(Vector3.UP, PI)
-
-## The player's body state, called every frame by the controller
-## (PlayerController::update_player_animation) with whether it is moving on the
-## ground.
-##
-## The body has one clip and no walk, so both states land on it: a state with no
-## clip is never played, and an idle already playing is left alone rather than
-## restarted every frame.
-func set_animation_state(is_walking: bool) -> void:
-	if _anim_player == null:
-		return
-	var state := "Walk" if is_walking else "Idle"
-	if not _anim_player.has_animation("default/" + state):
-		state = "Idle"
-	_play_state(state)
 
 func set_uv_overlay(enabled: bool) -> void:
 	uv_overlay_enabled = enabled

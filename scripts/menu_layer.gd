@@ -119,7 +119,8 @@ func _try_boot() -> void:
 	var warmth: Color = _chunk_manager.get_body_sky_warmth() \
 		if _chunk_manager.has_method("get_body_sky_warmth") else Color(1.0, 0.76, 0.42)
 	_title.open(_had_world, _current_seed(),
-		String(ProjectSettings.get_setting("application/config/version", "dev")), warmth)
+		String(ProjectSettings.get_setting("application/config/version", "dev")), warmth,
+		not _reduce_motion())
 
 
 func _on_start() -> void:
@@ -167,7 +168,8 @@ func _show_title() -> void:
 	_title.open(_had_world, _current_seed(),
 		String(ProjectSettings.get_setting("application/config/version", "dev")),
 		_chunk_manager.get_body_sky_warmth() \
-			if _chunk_manager.has_method("get_body_sky_warmth") else Color(1.0, 0.76, 0.42))
+			if _chunk_manager.has_method("get_body_sky_warmth") else Color(1.0, 0.76, 0.42),
+		not _reduce_motion())
 	_title.refocus()
 
 

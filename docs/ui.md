@@ -43,10 +43,13 @@ screen (the shader-effect stack, the animated-liquid tools, the model previews).
   existing `set_settings_open` gate, and drifts the body slowly so the backdrop is not a still
   frame. CONTINUE / PLAY is decided by whether `world.meta` existed *before* this launch, since
   the world behind the title is already running and writes it
-- `title_screen.gd` — Wordmark, the action list and the footer, in units: a scrim drawn as a
-  grid of squares, each one flat fill sampled at its centre, carrying the vertical gradient,
-  the stronger left plate behind the column and a small vignette, and one accent (mixed with
-  the world's own sky warmth) for the wordmark underline and the focused row's bar. The rows are real `Button`s so mouse hover,
+- `title_screen.gd` — Wordmark, the action list and the footer, in units: a scrim of squares,
+  each its own flat tone — one plate darkening only the left column, 0.58 at the edge easing to
+  nothing just past the buttons, every square ±0.06 of its own noise — with squares lifting off
+  it at random and blowing to the right while the holes fade back in (still under Reduce
+  Motion) — plus one accent (mixed
+  with the world's own sky warmth) for the wordmark underline and the focused row's bar. The
+  rows are real `Button`s so mouse hover,
   keyboard focus and gamepad focus all come from the engine; hover moves the focus rather than
   sitting beside it, and focus is restored on every open
 - `ui_block_curtain.gd` — The screen-change cover: twelve columns of **rigid bodies** are let go

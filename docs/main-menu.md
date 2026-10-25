@@ -126,7 +126,7 @@ reserved for what should stand out most, used consistently
 shape of that:
 
 - 60% the scene (sky, terrain, the game itself);
-- 30% the quiet zone (scrim, plate, vignette);
+- 30% the quiet zone (scrim and plate);
 - 10% the accent — the primary action **and** the focus state, nothing else.
 
 Putting the accent on the wordmark, the primary button and the selected row at once is three
@@ -261,7 +261,8 @@ with the window so a 720p screen does not push Quit into the footer):
 
 | Element | Value |
 |---|---|
-| scrim | 0.34 at the top to 0.80 at the bottom, as a grid of square cells (cell = height / 40), each one flat tone sampled at its centre, plus a left plate at 0.42 and a vignette at 0.16 |
+| scrim | one plate: 0.58 at the left edge, easing to nothing 36 units past the buttons' right edge (23 sampled tones across 632 px at 1080p), flat top to bottom; the rest of the screen is undarkened. Drawn as square cells (cell = height / 40), one flat fill each, each with its own ±0.06 noise offset |
+| wind | one random square lifts off the plate every 0.09 s, carried right at 7 cells/s with a little vertical drift, fading over the last 45% of its 1.1 s life; the hole fades back in over 0.5 s. Reduce Motion stops it and keeps the noise |
 | margin | 40; column 240 wide |
 | rows | three at 28 tall, 6 apart, first at 168; labels 12, buttons from `button.png` |
 | wordmark | 40 units cap height at 54 down, one accent underline |

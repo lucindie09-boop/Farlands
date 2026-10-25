@@ -26,6 +26,10 @@ signal world_chosen
 
 const MUNRO_FONT: Font = preload("res://fonts/munro.ttf")
 const BUTTON_TEX: Texture2D = preload("res://textures/gui/button.png")
+# The player's own skin, for the profile card's portrait: the head's front face is the 8 x 8
+# region at (8, 8) of Minecraft's 64 x 64 skin layout, drawn nearest so it stays pixels.
+const SKIN_TEX: Texture2D = preload("res://textures/skin.png")
+const SKIN_HEAD_REGION := Rect2(8, 8, 8, 8)
 
 # Units. The rows are the game's own row: 200 x 20 units with an 8-unit label, which is what
 # the death screen and the settings menu use. A title screen is not a different interface - a
@@ -148,6 +152,30 @@ const NOTE_SECONDS := 3.0
 # be a copy of them that drifts.
 const PAGE_TITLE := 0
 const PAGE_WORLDS := 1
+
+# The profile card, above the update log in the right-hand column. There is no account system,
+# so the name and the state are the one thing this card cannot discover: it says who the save
+# belongs to and nothing about a service, and its rows answer in the footer until there is
+# something behind them. The head is the player's own skin, so it cannot disagree with the body.
+const PROFILE_NAME := "VoxelSteve"
+const PROFILE_W := COLUMN
+const PROFILE_PAD := 6.0
+const PROFILE_HEAD := 20.0
+const PROFILE_HEADER := 32.0
+const PROFILE_ROW_H := 13.0
+const PROFILE_NAME_UNITS := 8
+const PROFILE_SMALL_UNITS := 6
+const PROFILE_TEXT := Color(0.94, 0.95, 0.97)
+const PROFILE_DIM := Color(0.74, 0.77, 0.82)
+const STATUS_ONLINE := Color(0.36, 0.78, 0.42)
+const CROWN := Color(0.95, 0.78, 0.32)
+# What each row answers while there is nothing behind it. The footer is this screen's status
+# line, so a row that cannot act says so there instead of doing nothing at all.
+const PROFILE_ROWS := [
+	["Change Skin", "CHANGE SKIN IS NOT WIRED HERE YET"],
+	["Cape", "CAPES ARE NOT IN THIS BUILD YET"],
+	["Account Settings", "ACCOUNT SETTINGS ARE NOT WIRED HERE YET"],
+]
 # The one number a tint depends on: the button texture's own fill, #6d6d6d. A stylebox tint is
 # a MULTIPLY of it, so a target colour is divided by this - and for the green that makes the
 # modulate 1.36 in green, which is allowed and is the only way a grey texture gets there.
@@ -187,6 +215,9 @@ var _log_rect := Rect2()
 var _footer_default := ""
 var _note := ""
 var _note_timer := 0.0
+# The profile card's geometry for this window, and its three rows.
+var _profile_rect := Rect2()
+var _profile_rows: Array = []
 # Layout values that depend on the window, resolved in _layout() and read back by
 # _draw(): a small window must not push the column off the bottom of the screen.
 var _margin := MARGIN
@@ -228,6 +259,8 @@ func _ready() -> void:
 	# changes with the save state - so a returning player's muscle memory holds.
 	_build_page()
 
+	_build_profile_rows()
+
 	_footer = Label.new()
 	_footer.add_theme_font_override("font", MUNRO_FONT)
 	_footer.add_theme_color_override("font_color", Color(0.72, 0.75, 0.80))
@@ -268,6 +301,51 @@ func _build_page() -> void:
 		_add_row("SETTINGS", _on_settings, TINT_SETTINGS)
 		_quit_index = _buttons.size()
 		_add_row("QUIT", _on_quit, TINT_QUIT)
+
+
+## The profile card's three rows, as real Buttons: hover, focus, click and press all come from
+## the engine, which is the same reason the menu column uses Buttons. They are FLAT - a
+## transient tint of their own rather than `button.png` - because they sit inside a panel and a
+## grey button on a dark card reads as a second, louder interface. They are NOT in `_buttons`:
+## that array is the action column, and its index drives the accent bar's position.
+func _build_profile_rows() -> void:
+	for i in range(PROFILE_ROWS.size()):
+		var btn := Button.new()
+		btn.text = String(PROFILE_ROWS[i][0])
+		btn.clip_text = true
+		btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		btn.add_theme_font_override("font", MUNRO_FONT)
+		for key in ["font_color", "font_focus_color", "font_hover_color", "font_pressed_color"]:
+			btn.add_theme_color_override(key, PROFILE_TEXT)
+		var normal := StyleBoxFlat.new()
+		normal.bg_color = Color(0.0, 0.0, 0.0, 0.0)
+		var hover := StyleBoxFlat.new()
+		hover.bg_color = Color(1.0, 1.0, 1.0, 0.05)
+		var pressed := StyleBoxFlat.new()
+		pressed.bg_color = Color(1.0, 1.0, 1.0, 0.10)
+		var focus := StyleBoxFlat.new()
+		focus.bg_color = Color(1.0, 1.0, 1.0, 0.05)
+		# The accent bar on the left edge, the same marker the column uses for the row you are
+		# on - so focus reads the same way everywhere on this screen.
+		focus.border_width_left = 2
+		focus.border_color = _accent
+		btn.add_theme_stylebox_override("normal", normal)
+		btn.add_theme_stylebox_override("hover", hover)
+		btn.add_theme_stylebox_override("pressed", pressed)
+		btn.add_theme_stylebox_override("focus", focus)
+		btn.pressed.connect(_on_profile_row.bind(i))
+		add_child(btn)
+		_profile_rows.append(btn)
+
+
+## A profile row with nothing behind it answers in the footer, the place this screen already
+## uses for status - the same answer Multiplayer gives.
+func _on_profile_row(index: int) -> void:
+	if index < 0 or index >= PROFILE_ROWS.size():
+		return
+	_note = String(PROFILE_ROWS[index][1])
+	_note_timer = NOTE_SECONDS
+	_refresh_footer()
 
 
 ## Move between the two pages: the column is rebuilt, the layout re-taken (a new set of
@@ -479,17 +557,65 @@ func _layout() -> void:
 	_footer.position = Vector2(_margin, (height_units - _margin - FOOTER_UNITS * 1.7) * s)
 	_footer.add_theme_font_size_override("font_size", int(FOOTER_UNITS * s))
 	_build_grid()
+	_position_profile()
+	# The log's top depends on where the profile card ended, so the order matters.
 	_position_log()
 	queue_redraw()
+
+
+## The profile card's rect and its rows for this window. Same three rules as the log: the
+## column's width rounded to whole cells, the right edge on the margin snapped to a cell, the
+## top on the wordmark's line - and the rows are placed inside it, under the header rule.
+func _position_profile() -> void:
+	_profile_rect = Rect2()
+	var s := maxf(UIScale.value, 1.0)
+	var width_units := size.x / s
+	var room := width_units - (_margin + COLUMN) - 24.0 - _margin
+	var w_units := minf(PROFILE_W, room)
+	var fits := w_units >= PROFILE_W * 0.6
+	if not fits:
+		for btn in _profile_rows:
+			btn.visible = false
+		return
+	var h_units := PROFILE_HEADER + float(_profile_rows.size()) * PROFILE_ROW_H + PROFILE_PAD
+	var cell := maxf(_cell, 2.0)
+	var cols := int(round(w_units * s / cell))
+	var rows := int(ceil(h_units * s / cell))
+	var w := float(cols) * cell
+	var h := float(rows) * cell
+	var right := roundf((size.x - _margin * s) / cell) * cell
+	var left := maxf(_margin * s, right - w)
+	var top := roundf(_wordmark_y * s / cell) * cell
+	_profile_rect = Rect2(Vector2(left, top), Vector2(w, h))
+
+	var px := maxf(1.0, roundf(s))
+	var inset := px + PROFILE_PAD * 0.6 * s
+	var row_w := w - inset * 2.0
+	var row_y := top + PROFILE_HEADER * s
+	for i in range(_profile_rows.size()):
+		var btn: Button = _profile_rows[i]
+		btn.visible = true
+		btn.position = Vector2(left + inset, row_y + float(i) * PROFILE_ROW_H * s)
+		btn.size = Vector2(row_w, PROFILE_ROW_H * s)
+		btn.add_theme_font_size_override("font_size", int(PROFILE_SMALL_UNITS * s))
+		for state in ["normal", "hover", "pressed", "focus"]:
+			var box := btn.get_theme_stylebox(state).duplicate() as StyleBoxFlat
+			box.content_margin_left = 4.0 * s
+			box.content_margin_right = 2.0 * s
+			if state == "focus":
+				# Re-taken every layout: the accent is mixed with the world's own sky warmth in
+				# `open`, so it is not known when the rows are built.
+				box.border_color = _accent
+			btn.add_theme_stylebox_override(state, box)
 
 
 ## The log card's rect for this window, snapped to whole scrim cells so the card is made of
 ## the same squares as the plate rather than a rectangle laid over a grid.
 ##
-## It sits in the BOTTOM left, under the column and one square above the version line. Top-aligned
-## it floated in the sky over the middle of the screen, which is where the world is the subject;
-## down here it fills the empty corner under the buttons, and the eye's path is wordmark, column,
-## log - one straight run down the left edge.
+## It sits in the TOP right, its top on the wordmark's line and its right edge on the same margin
+## the column's left edge uses. That is the one part of the screen with nothing in it and nothing
+## behind it but sky, so the card balances the wordmark across the top and leaves the middle of
+## the screen - the part the world owns - to the world.
 ##
 ## The card is dropped rather than shrunk below the point where a line still fits: a changelog
 ## in a column narrower than its own words is worse than no changelog.
@@ -511,19 +637,21 @@ func _position_log() -> void:
 	# Rounded, not filled: a card that took the next whole cell would sit a cell past the
 	# buttons' right edge, and the point of the width is that it is the column's.
 	var cols := int(round(w_units * s / cell))
-	# The card's bottom is one square above the version line rather than on it: the footer is
-	# the bottom-left corner's other occupant and the two must not overlap.
-	var floor_y := _footer.position.y - cell if _footer != null else size.y - _margin * s
-	var col_bottom := (_rows_y + float(_buttons.size()) * (ROW_H + ROW_GAP) - ROW_GAP) * s
-	var rows := mini(int(ceil(h_units * s / cell)),
-		int(floor((floor_y - col_bottom) / cell)))
+	# At most down to the footer's line: on a short window the card stops growing before it
+	# reaches the bottom of the screen rather than running off it.
+	var floor_y := size.y - _margin * s
+	# Directly under the profile card, one cell of air between them - the right-hand column is
+	# one stack, profile then log, the way the left one is wordmark then rows.
+	var stack_top := _profile_rect.end.y + cell if _profile_rect.size.x > 0.0 else _wordmark_y * s
+	var top := roundf(stack_top / cell) * cell
+	var rows := mini(int(ceil(h_units * s / cell)), int(floor((floor_y - top) / cell)))
 	var w := float(cols) * cell
 	var h := float(rows) * cell
 	# Both edges land on cell boundaries, so the panel never cuts a square behind it in half.
-	# The left edge is the margin snapped to the nearest cell: up to half a cell of movement,
+	# The right edge is the margin snapped to the nearest cell: up to half a cell of movement,
 	# invisible against the margin and the price of the grid.
-	var left := roundf(_margin * s / cell) * cell
-	var top := floorf((floor_y - h) / cell) * cell
+	var right := roundf((size.x - _margin * s) / cell) * cell
+	var left := maxf(_margin * s, right - w)
 	_log_rect = Rect2(Vector2(left, top), Vector2(w, h))
 
 
@@ -537,7 +665,84 @@ func _draw() -> void:
 		var row_y := _rows_y + float(_focus_index) * (ROW_H + ROW_GAP)
 		draw_rect(Rect2((_margin - FOCUS_BAR_INSET) * s, row_y * s + ROW_H * 0.10 * s,
 			FOCUS_BAR_W * s, ROW_H * 0.80 * s), _accent)
+	_draw_profile()
 	_draw_log()
+
+
+## One panel: a flat fill, then the button texture's bevel outside-in - one texel of outline
+## all the way round, then one texel of light on the top and left and of shade on the bottom
+## and right. At GUI scale 2 a texel is 2 px, so the frame thickens with the rest of the
+## interface instead of staying a hairline. The profile card and the update log are both this.
+func _draw_panel(rect: Rect2) -> void:
+	var s := maxf(UIScale.value, 1.0)
+	var tint := SCRIM_TINT
+	tint.a = LOG_PLATE_ALPHA
+	draw_rect(rect, tint)
+	var px := maxf(1.0, roundf(s))
+	var inner := Rect2(rect.position + Vector2(px, px), rect.size - Vector2(px, px) * 2.0)
+	draw_rect(Rect2(rect.position, Vector2(rect.size.x, px)), LOG_EDGE_OUTER)
+	draw_rect(Rect2(Vector2(rect.position.x, rect.end.y - px), Vector2(rect.size.x, px)),
+		LOG_EDGE_OUTER)
+	draw_rect(Rect2(rect.position, Vector2(px, rect.size.y)), LOG_EDGE_OUTER)
+	draw_rect(Rect2(Vector2(rect.end.x - px, rect.position.y), Vector2(px, rect.size.y)),
+		LOG_EDGE_OUTER)
+	draw_rect(Rect2(inner.position, Vector2(inner.size.x, px)), LOG_EDGE_LIGHT)
+	draw_rect(Rect2(inner.position, Vector2(px, inner.size.y)), LOG_EDGE_LIGHT)
+	draw_rect(Rect2(Vector2(inner.position.x, inner.end.y - px), Vector2(inner.size.x, px)),
+		LOG_EDGE_SHADE)
+	draw_rect(Rect2(Vector2(inner.end.x - px, inner.position.y), Vector2(px, inner.size.y)),
+		LOG_EDGE_SHADE)
+
+
+## The profile card: the player's own face, their name, one state, and three rows that the
+## rows' own Buttons draw the interaction for. Everything here is the head's side - the name,
+## the crown beside it, the dot and the word under it, and the chevron on the right.
+func _draw_profile() -> void:
+	if _profile_rect.size.x <= 0.0:
+		return
+	_draw_panel(_profile_rect)
+	var s := maxf(UIScale.value, 1.0)
+	var px := maxf(1.0, roundf(s))
+	var inset := px + PROFILE_PAD * 0.6 * s
+	var head := Rect2(_profile_rect.position + Vector2(inset, inset * 1.15),
+		Vector2(PROFILE_HEAD, PROFILE_HEAD) * s)
+	draw_texture_rect_region(SKIN_TEX, head, SKIN_HEAD_REGION)
+	var name_size := int(PROFILE_NAME_UNITS * s)
+	var small := int(PROFILE_SMALL_UNITS * s)
+	var text_x := head.end.x + 5.0 * s
+	var name_y := head.position.y + float(MUNRO_FONT.get_ascent(name_size))
+	draw_string(MUNRO_FONT, Vector2(text_x, name_y), PROFILE_NAME, HORIZONTAL_ALIGNMENT_LEFT,
+		-1, name_size, PROFILE_TEXT)
+	var name_w := MUNRO_FONT.get_string_size(PROFILE_NAME, HORIZONTAL_ALIGNMENT_LEFT, -1,
+		name_size).x
+	_draw_crown(Vector2(text_x + name_w + 4.0 * s, name_y - 5.0 * s), s)
+	# The dot and the word share a baseline at the bottom of the head, so the pair reads as one
+	# line rather than a bullet floating beside a label.
+	var dot := 3.0 * s
+	var status_y := head.end.y - float(MUNRO_FONT.get_descent(small))
+	draw_rect(Rect2(Vector2(text_x, status_y - dot * 1.4), Vector2(dot, dot)), STATUS_ONLINE)
+	draw_string(MUNRO_FONT, Vector2(text_x + dot + 4.0 * s, status_y), "Online",
+		HORIZONTAL_ALIGNMENT_LEFT, -1, small, PROFILE_DIM)
+	var chev := ">"
+	var chev_w := MUNRO_FONT.get_string_size(chev, HORIZONTAL_ALIGNMENT_LEFT, -1, name_size).x
+	draw_string(MUNRO_FONT, Vector2(_profile_rect.end.x - inset - chev_w, name_y), chev,
+		HORIZONTAL_ALIGNMENT_LEFT, -1, name_size, PROFILE_DIM)
+	# The rule under the header: the shade tone, so it reads as a groove in the panel rather
+	# than a second outline.
+	var rule_y := _profile_rect.position.y + PROFILE_HEADER * s
+	draw_rect(Rect2(Vector2(_profile_rect.position.x + px, rule_y),
+		Vector2(_profile_rect.size.x - 2.0 * px, px)), LOG_EDGE_SHADE)
+
+
+## A five-unit crown of three spikes and a band. Drawn rather than shipped as a texture: it is
+## six rects, and a new image for it would be the only asset on the screen that is not used
+## somewhere else in the game.
+func _draw_crown(at: Vector2, s: float) -> void:
+	var u := 1.5 * s
+	draw_rect(Rect2(at + Vector2(0.0, u * 2.0), Vector2(u * 5.0, u * 1.3)), CROWN)
+	for i in range(3):
+		draw_rect(Rect2(at + Vector2(u * (0.4 + 2.0 * float(i)), 0.0), Vector2(u * 1.1, u * 2.2)),
+			CROWN)
 
 
 ## The update log: one flat card, its rect snapped to the scrim's own grid.
@@ -554,27 +759,8 @@ func _draw_log() -> void:
 	if _log_rect.size.x <= 0.0 or _log_rect.size.y <= 0.0:
 		return
 	var s := maxf(UIScale.value, 1.0)
-	var tint := SCRIM_TINT
-	tint.a = LOG_PLATE_ALPHA
-	draw_rect(_log_rect, tint)
-
-	# The bevel, outside-in: one texel of outline all the way round, then one texel of light
-	# on the top and left and of shade on the bottom and right. At GUI scale 2 a texel is 2 px,
-	# so the frame thickens with the rest of the interface instead of staying a hairline.
 	var px := maxf(1.0, roundf(s))
-	var r := _log_rect
-	var inner := Rect2(r.position + Vector2(px, px), r.size - Vector2(px, px) * 2.0)
-	draw_rect(Rect2(r.position, Vector2(r.size.x, px)), LOG_EDGE_OUTER)
-	draw_rect(Rect2(Vector2(r.position.x, r.end.y - px), Vector2(r.size.x, px)), LOG_EDGE_OUTER)
-	draw_rect(Rect2(r.position, Vector2(px, r.size.y)), LOG_EDGE_OUTER)
-	draw_rect(Rect2(Vector2(r.end.x - px, r.position.y), Vector2(px, r.size.y)), LOG_EDGE_OUTER)
-	draw_rect(Rect2(inner.position, Vector2(inner.size.x, px)), LOG_EDGE_LIGHT)
-	draw_rect(Rect2(inner.position, Vector2(px, inner.size.y)), LOG_EDGE_LIGHT)
-	draw_rect(Rect2(Vector2(inner.position.x, inner.end.y - px), Vector2(inner.size.x, px)),
-		LOG_EDGE_SHADE)
-	draw_rect(Rect2(Vector2(inner.end.x - px, inner.position.y), Vector2(px, inner.size.y)),
-		LOG_EDGE_SHADE)
-
+	_draw_panel(_log_rect)
 	var pad := LOG_PAD * s
 	var x := _log_rect.position.x + pad
 	var head_size := int(LOG_HEADING_UNITS * s)
@@ -589,6 +775,10 @@ func _draw_log() -> void:
 	y += (LOG_BODY_UNITS + 8.0) * s - float(MUNRO_FONT.get_descent(body_size))
 	var bullet := Vector2(2.0, 2.0) * s
 	for entry in _log_entries:
+		# A short window can leave fewer cells for the card than it has entries: the last ones
+		# stop at the frame rather than drawing over it.
+		if y + LOG_LINE_H * s > _log_rect.end.y - px * 2.0:
+			break
 		var baseline := y + float(MUNRO_FONT.get_ascent(body_size))
 		# A two-unit square instead of a hyphen: the smallest thing on the card is still
 		# a square, which is the whole screen's unit.

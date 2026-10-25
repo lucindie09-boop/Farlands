@@ -53,7 +53,8 @@ screen (the shader-effect stack, the animated-liquid tools, the model previews).
   keyboard focus and gamepad focus all come from the engine; hover moves the focus rather than
   sitting beside it, and focus is restored on every open. The column is CONTINUE/PLAY,
   SINGLEPLAYER, MULTIPLAYER, SETTINGS, QUIT, starting 14 units under the wordmark's underline;
-  the right-hand update log is a card of the scrim's squares read from
+  the right-hand column is the profile card (the player's own skin head, a name, one state and
+  three flat rows that answer in the footer) with the update log under it, read from
   `data/changelog.json`; SINGLEPLAYER swaps the column for the world list as a second PAGE of
   the same screen (rows per save plus BACK, the footer becoming the focused world's seed and
   last save), and MULTIPLAYER says it is not in this build in the footer for three seconds

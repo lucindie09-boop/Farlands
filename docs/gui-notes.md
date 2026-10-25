@@ -767,14 +767,26 @@ first-person viewmodel - what each one owns and the decisions behind it.
   a press reads as a bug. It puts `MULTIPLAYER IS NOT IN THIS BUILD YET` in the footer for three
   seconds - the footer is already this screen's status line - and clears itself on a timer, so
   the message cannot outlive the moment it answered.
-- **The update log belongs to the bottom left, and it is the column's width.** Top-aligned it
-  floated in the sky over the middle of the screen - the part the world owns - and read as a
-  second heading beside the wordmark. It sits under the column now, one cell above the version
-  line, at the column's own 200 units: the left edge of the screen is one vertical block instead
-  of three widths, and the eye's path is wordmark, column, log. Every edge of it is snapped to
-  the scrim's cell grid - the width and the left edge are both rounded to the nearest cell, which
-  can move either by up to half a cell and never cuts a square in half - and the probe checks all
-  four edges against the grid, plus the width against `COLUMN`, rather than trusting the look.
+- **The profile card is a placeholder with nothing to lie about.** There is no account system and
+  no network, so the name is a constant and the state says `Online` because that is what the
+  reference has - the card is a piece of furniture for the layout, and the one thing it does
+  honestly is draw the head from the player's own `textures/skin.png` (the 8×8 front face at (8,
+  8), nearest-filtered), so it cannot disagree with the body. Its three rows are real `Button`s
+  with flat styleboxes rather than `button.png`, because a grey button inside a dark panel is a
+  second, louder interface; they are deliberately NOT in `_buttons`, which is the action column
+  and whose index positions the accent bar. Each row answers in the footer - the same channel
+  Multiplayer uses - until there is something behind it.
+- **The right-hand side is one stack, not two islands.** The profile card sits on the wordmark's
+  line and the log starts one cell under it, both the column's width, both on the cell grid: the
+  left edge of the screen is wordmark and rows, the right edge is card and log, and the probe
+  holds the gap between them to two cells so they cannot drift apart.
+- **The log is the column's own width, and every edge of it is on the cell grid.** The width and
+  the right edge are both rounded to the nearest cell - which can move either by up to half a
+  cell and never cuts a square in half - and the probe checks all four edges against the grid,
+  plus the width against `COLUMN`, rather than trusting the look. It has been placed in three
+  corners while this screen settled (top right, bottom left, and now the right-hand column under
+  the profile card); the grid and the width are what survived every move, so they are what is
+  pinned in the probe.
 - **The card is one flat fill; the noise and the wind are the plate's.** The noise exists to break
   up a gradient, and the card has no gradient - so per-square noise there only read as a patchwork
   of squares sitting slightly proud of each other, which is what "its squares are flying away"

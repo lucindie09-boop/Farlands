@@ -113,7 +113,10 @@ const TINT_MULTI := Color(0.435294, 0.415686, 0.549020)  # #6f6a8c
 # the entries; the research's own case (NN/g) is the same move, raising a black backing
 # until the labels pass.
 const LOG_PATH := "res://data/changelog.json"
-const LOG_W := 232.0
+# The column's own width, rounded to whole cells below - so the card is as wide as the buttons
+# and the left side of the screen is one vertical block rather than three widths. The longest
+# entry needs 129 of these units, so there is room to spare at every label size.
+const LOG_W := COLUMN
 const LOG_PAD := 9.0
 const LOG_HEADING_UNITS := 7
 const LOG_BODY_UNITS := 6
@@ -480,10 +483,16 @@ func _layout() -> void:
 	queue_redraw()
 
 
-## The log card's rect for this window, snapped to whole scrim cells so the card is made
-## of the same squares as the plate rather than a rectangle laid over a grid. The card is
-## dropped rather than shrunk below the point where a line still fits: a changelog in a
-## column narrower than its own words is worse than no changelog.
+## The log card's rect for this window, snapped to whole scrim cells so the card is made of
+## the same squares as the plate rather than a rectangle laid over a grid.
+##
+## It sits in the BOTTOM left, under the column and one square above the version line. Top-aligned
+## it floated in the sky over the middle of the screen, which is where the world is the subject;
+## down here it fills the empty corner under the buttons, and the eye's path is wordmark, column,
+## log - one straight run down the left edge.
+##
+## The card is dropped rather than shrunk below the point where a line still fits: a changelog
+## in a column narrower than its own words is worse than no changelog.
 func _position_log() -> void:
 	_log_rect = Rect2()
 	if _log_entries.is_empty():
@@ -499,12 +508,22 @@ func _position_log() -> void:
 	var h_units := LOG_PAD + (LOG_HEADING_UNITS + 9.0) + (LOG_BODY_UNITS + 8.0) \
 		+ float(_log_entries.size()) * LOG_LINE_H + LOG_PAD * 0.6
 	var cell := maxf(_cell, 2.0)
-	var cols := int(ceil(w_units * s / cell))
-	var rows := int(ceil(h_units * s / cell))
+	# Rounded, not filled: a card that took the next whole cell would sit a cell past the
+	# buttons' right edge, and the point of the width is that it is the column's.
+	var cols := int(round(w_units * s / cell))
+	# The card's bottom is one square above the version line rather than on it: the footer is
+	# the bottom-left corner's other occupant and the two must not overlap.
+	var floor_y := _footer.position.y - cell if _footer != null else size.y - _margin * s
+	var col_bottom := (_rows_y + float(_buttons.size()) * (ROW_H + ROW_GAP) - ROW_GAP) * s
+	var rows := mini(int(ceil(h_units * s / cell)),
+		int(floor((floor_y - col_bottom) / cell)))
 	var w := float(cols) * cell
 	var h := float(rows) * cell
-	var left := maxf(_margin * s, size.x - _margin * s - w)
-	var top := roundf(_wordmark_y * s / cell) * cell
+	# Both edges land on cell boundaries, so the panel never cuts a square behind it in half.
+	# The left edge is the margin snapped to the nearest cell: up to half a cell of movement,
+	# invisible against the margin and the price of the grid.
+	var left := roundf(_margin * s / cell) * cell
+	var top := floorf((floor_y - h) / cell) * cell
 	_log_rect = Rect2(Vector2(left, top), Vector2(w, h))
 
 
@@ -521,27 +540,23 @@ func _draw() -> void:
 	_draw_log()
 
 
-## The update log: a card of the scrim's own squares on the right, one flat tone each, so
-## it belongs to the plate's family instead of being a panel dropped on the screen.
+## The update log: one flat card, its rect snapped to the scrim's own grid.
 ##
 ## It is a card because the sky is the brightest thing here and grey text laid straight on
-## it fails contrast; the entries are near-white over a 0.52 tint, which holds 4.9:1 against
+## it fails contrast; the entries are near-white over a 0.52 tint, which holds 4.75:1 against
 ## the brightest sky the world can put behind it.
+##
+## The card has NO per-square noise and no wind, which is the plate's and not the panel's: on
+## the plate the noise breaks up a gradient, and here there is no gradient to break, so it only
+## read as a patchwork of squares sitting slightly proud of each other. One fill makes it a
+## surface; the grid is honoured by the rect's edges landing on cell boundaries.
 func _draw_log() -> void:
 	if _log_rect.size.x <= 0.0 or _log_rect.size.y <= 0.0:
 		return
 	var s := maxf(UIScale.value, 1.0)
-	var cell := maxf(_cell, 2.0)
-	var cols := int(round(_log_rect.size.x / cell))
-	var rows := int(round(_log_rect.size.y / cell))
-	for row in range(rows):
-		for col in range(cols):
-			var tint := SCRIM_TINT
-			# The same per-square noise the plate carries, at a third of its strength: the
-			# card is a surface, not a rectangle with a pattern near it.
-			tint.a = LOG_PLATE_ALPHA + (_hash01(col + 97, row + 31) * 2.0 - 1.0) * NOISE_ALPHA * 0.35
-			draw_rect(Rect2(_log_rect.position + Vector2(float(col), float(row)) * cell,
-				Vector2(cell, cell)), tint)
+	var tint := SCRIM_TINT
+	tint.a = LOG_PLATE_ALPHA
+	draw_rect(_log_rect, tint)
 
 	# The bevel, outside-in: one texel of outline all the way round, then one texel of light
 	# on the top and left and of shade on the bottom and right. At GUI scale 2 a texel is 2 px,

@@ -767,6 +767,18 @@ first-person viewmodel - what each one owns and the decisions behind it.
   a press reads as a bug. It puts `MULTIPLAYER IS NOT IN THIS BUILD YET` in the footer for three
   seconds - the footer is already this screen's status line - and clears itself on a timer, so
   the message cannot outlive the moment it answered.
+- **The update log belongs to the bottom left, and it is the column's width.** Top-aligned it
+  floated in the sky over the middle of the screen - the part the world owns - and read as a
+  second heading beside the wordmark. It sits under the column now, one cell above the version
+  line, at the column's own 200 units: the left edge of the screen is one vertical block instead
+  of three widths, and the eye's path is wordmark, column, log. Every edge of it is snapped to
+  the scrim's cell grid - the width and the left edge are both rounded to the nearest cell, which
+  can move either by up to half a cell and never cuts a square in half - and the probe checks all
+  four edges against the grid, plus the width against `COLUMN`, rather than trusting the look.
+- **The card is one flat fill; the noise and the wind are the plate's.** The noise exists to break
+  up a gradient, and the card has no gradient - so per-square noise there only read as a patchwork
+  of squares sitting slightly proud of each other, which is what "its squares are flying away"
+  looked like. One fill makes it a surface, and the grid is still honoured by its edges.
 - **The update log is a card, because the sky is the brightest thing here.** The right-hand
   emptiness was the composition's dead space until something went in it, and plain text cannot:
   grey labels on that sky measure about 1.1:1. So it is a card of the scrim's own squares at

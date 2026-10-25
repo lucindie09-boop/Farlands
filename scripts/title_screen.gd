@@ -527,10 +527,10 @@ func _format_age(modified_unix: int) -> String:
 	if ago < 90:
 		return "just saved"
 	if ago < 3600:
-		return "%d m ago" % (ago / 60)
+		return "%d m ago" % int(ago / 60.0)
 	if ago < 86400:
-		return "%d h ago" % (ago / 3600)
-	return "%d d ago" % (ago / 86400)
+		return "%d h ago" % int(ago / 3600.0)
+	return "%d d ago" % int(ago / 86400.0)
 
 
 ## The update log, read once per open. Missing or broken falls back to an empty log: a
@@ -1090,13 +1090,14 @@ func _draw_friends() -> void:
 		lines = [String(FRIENDS_EMPTY_TAB[_friends_tab - 1])]
 	var line_y := (list_top + list_bottom) * 0.5 - float(lines.size()) * LOG_LINE_H * s * 0.5
 	for i in range(lines.size()):
-		var size := small if i > 0 or _friends_tab > 0 else int(FRIENDS_SMALL_UNITS * s)
+		var text_px := small if i > 0 or _friends_tab > 0 else int(FRIENDS_SMALL_UNITS * s)
 		var text := String(lines[i])
-		var w := MUNRO_FONT.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
+		var w := MUNRO_FONT.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, text_px).x
 		var colour := PROFILE_TEXT if i == 0 else PROFILE_DIM
 		draw_string(MUNRO_FONT,
-			Vector2(_friends_rect.get_center().x - w * 0.5, line_y + float(MUNRO_FONT.get_ascent(size))),
-			text, HORIZONTAL_ALIGNMENT_LEFT, -1, size, colour)
+			Vector2(_friends_rect.get_center().x - w * 0.5,
+				line_y + float(MUNRO_FONT.get_ascent(text_px))),
+			text, HORIZONTAL_ALIGNMENT_LEFT, -1, text_px, colour)
 		line_y += LOG_LINE_H * s
 	draw_rect(Rect2(Vector2(_friends_rect.position.x + px, add_top - 5.0 * s),
 		Vector2(_friends_rect.size.x - 2.0 * px, px)), LOG_EDGE_SHADE)

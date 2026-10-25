@@ -719,3 +719,52 @@ first-person viewmodel - what each one owns and the decisions behind it.
   resolution with AABB centering so all blocks appear at consistent distance. Integrated into
   hotbar, inventory slots, crafting cells, and drag operations with fallback to BlockTextures
   during initial load. `/testicons` command saves test renders to `user://`.
+
+## The title screen and its transition
+
+- **The title is an autoload layer, not a node in `Main.tscn`.** Seventeen probes instantiate
+  `Main.tscn` by hand and then drive the player; a title screen living in that scene would freeze
+  every one of them. `menu_layer.gd` arms itself only when `SceneTree.current_scene` is that
+  scene, which is the one property a normal boot has and a hand-made fixture does not.
+- **The freeze reuses `set_settings_open`.** That flag is already the gate every system respects
+  (movement, look, mouse capture, the block outline, the crosshair, the compass, the interaction
+  door), so the title cannot be the one overlay a later system forgets. The cost is a semantic
+  one: `is_settings_open()` is true while the title is up, so a reader of either side should know
+  that. The alternative — a second flag — buys a cleaner name and a new way to fail.
+- **`world.meta` always exists by the time the title is up.** The world behind the menu is
+  already running and writes the file on boot, so asking the filesystem then reports CONTINUE on
+  a first run. The menu layer reads the file's existence in `_ready`, which is the moment before
+  the scene is instantiated; `PLAY` comes from that value, not from a later check.
+- **A Control under a `CanvasLayer` has no parent rect.** The full-rect anchor preset leaves its
+  size at zero (measured: 64×64, the headless viewport's default), so both the title and the
+  curtain take their size from `get_viewport().get_visible_rect()`, follow `size_changed`, and
+  re-fit on every open — a window resized while the title was hidden fires that signal at a
+  Control nobody is listening to.
+- **`preload` compiles before the autoloads exist.** A script that names the `UIScale` singleton
+  cannot be preloaded by a `--script` probe: the compile fails, the const becomes null, and the
+  cached failure then poisons the autoload's own copy of the same class. `probes/probe_menu.gd`
+  loads the curtain at run time for that reason, and the failure looked like two unrelated bugs
+  until the two were connected.
+- **A pile of driven squares shivers until the solver can see it land.** The curtain is real
+  physics, so its failure modes are physics failures. Three of them looked like the same bug and
+  were not. A thin floor at 60 Hz was stepped through (a block arriving at 2,600 px/s travels 40
+  px between contact checks); a box exactly the screen's width put the pile under compression,
+  and a compressed pile reports a few hundred px/s downward while its position does not change;
+  and `RigidBody2D`'s own sleep is island-wide, so one block still grinding keeps every block it
+  touches awake. The three fixes are one shape: a 240 Hz rate and CCD so the landing is seen, the
+  collider at 0.86 of the drawn square so the packing has room, and a per-block landing rule that
+  freezes a block into the pile once it has stopped drifting — frozen is static, so the next
+  landing lands on a wall rather than on a negotiating crowd. Deepest collider overlap went from
+  63 px to 15 px of a 138 px block, and the pile holds with a worst-case motion of 0.00 px.
+- **"Settled" has to be measured where the eye measures it.** The internal pile keeps squashing
+  for a while after it looks landed, and a velocity test calls that "still moving" forever. What
+  is visible is the top edge, so that is the criterion: the edge stops climbing for 0.3 s while
+  90% of the sheet is on screen. Below the surface, black on black, nothing can be seen to move.
+- **A probe can measure a dead harness.** `_ready` runs on the first idle frame, so a probe that
+  adds the curtain, sizes it and starts it in the same frame gets a node whose own `_ready` then
+  calls `set_process(false)` — the bodies still fall under physics, so it looks alive while the
+  phase machine never advances. One `await process_frame` before sizing is the fix, and the
+  give-away was a settle that never happened with every body at exactly zero velocity.
+- **Reduce Motion lives where the settings live.** `settings_menu.gd` owns the switch and writes
+  it to `settings.cfg`; `menu_layer.gd` reads that file rather than reaching into the menu scene,
+  so the transition works whether or not the settings screen has ever been opened.

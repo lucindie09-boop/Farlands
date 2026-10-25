@@ -5,7 +5,7 @@ the resolver, the fluid rules, the planner and the save formats. A probe is for
 what is left: the real loaded registry, the real texture array, the real world,
 and what actually reaches the screen.
 
-They live in `probes/` (65 `.gd` scripts). **The scripts are repository
+They live in `probes/` (66 `.gd` scripts). **The scripts are repository
 content; what they produce is not.** `.gitignore` ignores `probes/*` except
 `*.gd`, `*.sh`, `*.tscn` and `*.gdshader*`, so screenshots, crash reports and
 generated sheets (hundreds of megabytes) stay scratch while the probes
@@ -120,6 +120,7 @@ comment, with the claim each one backs:
 | `probe_crash_dump.gd` | The crash handler is live in this build and a real fault writes a report |
 | `probe_boot.gd` | The world boots at all — the first thing to run after a change to registration |
 | `probe_bindings.gd` | The GDExtension binding surface GDScript sees |
+| `probe_menu.gd` | The title screen and the block curtain: the blocks are rigid bodies, they tumble, stack and settle on their own physics, the hold is motionless, skip lands it at once, Reduce Motion draws no bodies, and the live scene is frozen, handed back at the covered frame, and frozen again around Settings (see below) |
 | `probe_bucket.gd` | Bucket fill and pour through the real use path |
 | `probe_registry_digest.gd` | A digest of the loaded registry, for comparing two builds |
 
@@ -297,6 +298,22 @@ A few of those rows keep their detail here, because a table cell that long is an
   while it stands on the floor, a pose handed to it is applied in degrees about the rig's own
   axis, and the K-key pose clone stays frozen — `skip_head_look` gates the body pose as well as
   the head, or the dummy would breathe while it is being punched.
+- `probe_menu.gd` — the curtain is asked what its bodies did, rather than watched, because the
+  claim is physical: 96 of them are `RigidBody2D`, they are tumbling ten physics frames in, and
+  by the frame the curtain reports `covered` every one of them has landed. The pile is measured,
+  not assumed — a separating-axis check between every pair proves blocks are stacked on each
+  other and that none is driven more than a sixth of itself into a neighbour — the hold is timed
+  from the settle to the emit with the blocks' positions compared before and after (worst
+  0.00 px), and the reveal is timed to the `revealed` signal. Two measurements are also about
+  the harness, because both were silently wrong at first: the curtain has to be given one idle
+  frame before it is sized and played, or `_ready` runs afterwards and switches the whole process
+  loop off, and the overlap test has to use a separating axis rather than "close in x", because
+  two blocks side by side in the same row are legitimately level. The live half boots the real
+  scene and asks the layer what it did: player frozen, hotbar gone, primary action naming the
+  save state, focus on it, Settings handing the screen over and giving it back, Reduce Motion
+  round-tripping through `settings.cfg`, and Play restoring the HUD at the covered frame. It is
+  also the probe that proved a preload cannot name `UIScale`: `preload` compiles before the
+  autoloads exist, so the curtain is loaded at run time.
 
 `probe_gen_stats.gd` is the one with switches worth knowing, and the one whose
 reading changed. `RD=<n>` boots at another render distance (applied after the

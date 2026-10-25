@@ -776,6 +776,17 @@ first-person viewmodel - what each one owns and the decisions behind it.
   probe also checks that the file's `version` matches `application/config/version`, so a build
   cannot advertise another one's changelog. The card is dropped, not squeezed, when the window
   is too narrow for its lines: a changelog narrower than its own words is worse than none.
+- **The card is framed in the button's bevel, at one texel.** Read out of `textures/gui/button.png`
+  rather than matched by eye: `#262626` outline, `#9b9b9b` lit top and left, `#424242` shaded
+  bottom and right, over the fill - a three-tone bevel with the light coming from above, drawn
+  procedurally as four rects per ring. It grows with the GUI scale, so a texel is 2 px at scale 2
+  and the frame thickens with the rest of the interface instead of staying a hairline. The lit
+  tone is the one that did not survive the move: `#9b9b9b` is a +42 step over the button's
+  `#6d6d6d` fill and reads as a bevel there, but over a nearly black card it read as a bright
+  outline drawn round the panel - out of place in a screen of quiet greys - so it is pulled to
+  `#7c828c`. The probe reads the outline and shade texels back and compares them to the
+  constants, and holds the lit tone below the texture's while keeping it above the shade, so
+  the frame can be tuned without ceasing to be the button's bevel.
 - **The freeze reuses `set_settings_open`.** That flag is already the gate every system respects
   (movement, look, mouse capture, the block outline, the crosshair, the compass, the interaction
   door), so the title cannot be the one overlay a later system forgets. The cost is a semantic

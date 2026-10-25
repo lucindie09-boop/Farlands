@@ -108,7 +108,7 @@ func _check_curtain() -> void:
 	_check(deepest <= collider * 0.15,
 		"no two blocks are driven into each other (deepest %.1f px of %.0f)" % [deepest, collider])
 
-	# The hold: the pile must stand still, and the swap must wait for it.
+	# The hold: the pile must stand still while the wall closes.
 	var settled_at := Time.get_ticks_msec()
 	var standing := []
 	for body in curtain._bodies:
@@ -121,14 +121,42 @@ func _check_curtain() -> void:
 		moved = maxf(moved, (curtain._bodies[i].position - standing[i]).length())
 	_check(moved < 0.5, "no block moves during the hold (worst %.2f px)" % moved)
 
+	# The squares swell until the viewport is covered, so the size is measured rather
+	# than assumed: it is whatever this pile needed.
+	var seal_at := Time.get_ticks_msec()
+	while not curtain._sealed and Time.get_ticks_msec() - seal_at < 1500:
+		await physics_frame
+	var sealed_in := float(Time.get_ticks_msec() - settled_at) / 1000.0
+	_check(curtain._sealed and sealed_in <= 0.45,
+		"the wall closes while it holds (%.2f s in, squares at %.2f)" % [sealed_in, curtain._draw_scale])
+
+	# Filling the screen, measured after closing: sample the viewport and count what the
+	# drawn squares cover. They are smaller while they fall - that is what makes the
+	# sheet read as blocks - and are judged here in the state the player holds.
+	var drawn: float = side * curtain._draw_scale * 0.5
+	var filled := 0
+	var samples := 0
+	for gy in range(27):
+		for gx in range(48):
+			var point := Vector2((float(gx) + 0.5) * 40.0, (float(gy) + 0.5) * 40.0)
+			samples += 1
+			for body in curtain._bodies:
+				var local: Vector2 = body.transform.affine_inverse() * point
+				if absf(local.x) <= drawn and absf(local.y) <= drawn:
+					filled += 1
+					break
+	var fill_ratio := float(filled) / float(samples)
+	_check(fill_ratio >= 0.999, "the wall fills the screen (%.2f%% covered)" % (fill_ratio * 100.0))
+
 	while hits[0] == 0 and Time.get_ticks_msec() - settled_at < 4000:
 		await physics_frame
 	var hold_seconds := float(Time.get_ticks_msec() - settled_at) / 1000.0
 	_check(hits[0] == 1, "the cover emits covered once (%d)" % hits[0])
 	_check(hold_seconds >= 0.5, "the wall stood still for %.2f s before the swap" % hold_seconds)
-	_check(is_equal_approx(curtain._backing, 1.0), "the swap frame is opaque")
+	_check(curtain._grid_up, "the pile is replaced by a lattice before the drop")
+	_check(curtain._bodies.is_empty(), "the lattice lets the pile's bodies go")
 
-	# Reveal: the floor goes away and the pile falls out.
+	# Reveal: the lattice drops out of frame.
 	var revealed := [0]
 	curtain.revealed.connect(func(): revealed[0] += 1)
 	curtain.play_reveal()
@@ -171,12 +199,9 @@ func _check_curtain_skip() -> void:
 	curtain.play_cover(false)
 	curtain.skip()
 	_check(hits[0] == 1, "skip emits covered at once (%d)" % hits[0])
-	_check(is_equal_approx(curtain._backing, 1.0), "skip presents the opaque frame")
-	var moving := 0
-	for body in curtain._bodies:
-		if not body.freeze:
-			moving += 1
-	_check(moving == 0, "skip freezes the pile (%d still moving)" % moving)
+	_check(curtain._grid_up, "skip presents the lattice at once")
+	_check(curtain._grid_up and curtain._bodies.is_empty(),
+		"skip puts the lattice up and lets the bodies go")
 	curtain.skip()
 	_check(hits[0] == 1, "a second skip does not re-emit covered (%d)" % hits[0])
 	curtain.queue_free()

@@ -44,17 +44,20 @@ const GRID_COLS := 12
 const EXTRA_ROWS := 1
 # Gravity, as a multiple of the project's 2D gravity (980 px/s^2). A block this
 # size is a heavy object on a tall screen; at 1x it would drift down like a leaf. It
-# is also a collision budget: at 4x a block crosses the screen in 0.5 s and arrives
-# at ~3000 px/s, which is 50 px per physics step, and a 50 px step through a thin
-# floor is how a pile ends up on the far side of it. The fall has to stay in the
-# range where contacts are resolved, or there is nothing to settle.
+# is also a collision budget: a screen and a half of drop at this rate ends at about
+# 3,100 px/s, which is 52 px per step at 60 Hz and 10 px at the rate this effect runs
+# at. The fall has to stay in the range where contacts are resolved, or there is
+# nothing to settle.
 const GRAVITY_SCALE := 4.4
-# Released already falling, because they are in motion when they enter frame
-# rather than being dropped from a hover.
-const ENTRY_SPEED := 260.0
-const ENTRY_SPEED_VARY := 120.0
-const SPIN_MIN := 1.2
-const SPIN_MAX := 4.5
+# Released, not thrown: a wall of blocks this size has no one pushing it, and the
+# difference is what makes it read as heavy rather than as a shower. All of the
+# speed comes from gravity.
+const ENTRY_SPEED := 0.0
+const ENTRY_SPEED_VARY := 25.0
+# A block the width of a twelfth of the screen turns over slowly. Fast spin is the
+# single strongest cue for "small and light", so it is deliberately small here.
+const SPIN_MIN := 0.3
+const SPIN_MAX := 1.4
 # How long the pile must stand still before it may be lifted. This is the
 # "settle" the effect is for.
 const HOLD_TIME := 0.6
@@ -63,11 +66,11 @@ const HOLD_TIME := 0.6
 # second downward while its position does not change: the solver pushes it back up
 # every tick by as much as gravity pulls it down. That is a limit cycle, and a
 # velocity test reads it as "still moving" forever. "Has not gone anywhere for
-# 0.1 s while touching something" is both what the eye sees and what a landed block
-# is. A block that meets it becomes part of the pile: frozen, which in the engine is
-# a static body. That is the cascade the effect needs. An awake block pressing on
-# frozen ones cannot shiver them, so each landing calms the next, and the pile stops
-# as a pile instead of as eighty-four bodies negotiating with the solver.
+# 0.06 s while resting on something solid" is both what the eye sees and what a
+# landed block is. A block that meets it becomes part of the pile: frozen, which in
+# the engine is a static body. That is the cascade the effect needs. An awake block
+# pressing on frozen ones cannot shiver them, so each landing calms the next, and the
+# pile stops as a pile instead of as ninety-six bodies negotiating with the solver.
 const STILL_RADIUS := 8.0
 const STILL_ANGLE := 0.2
 const STILL_TIME := 0.06
@@ -79,20 +82,19 @@ const CRUSH_LIMIT := 6.0
 # the height stops climbing. That is the measurement, and it is why the cover is
 # finished by geometry rather than by a clock: the edge has to stand still for
 # `TOP_STILL_TIME` AND the wall has to reach the top of the screen.
-# Physics rate for the transition. The fall is a screen and a half under 3x gravity,
-# so a block is moving at two thousand pixels per second when it lands, and at 60 Hz
-# that is thirty-odd pixels of travel between two contact checks - a quarter of the
-# block. The solver then discovers the floor late and resolves the overlap it finds,
-# which is both the squash and the kick that follows it. Four times the rate makes
-# that step a few pixels. It is set only while the curtain is up and put back when
-# it is done, and it changes nothing about the simulation's rules: same gravity, same
-# masses, same friction, just resolved properly.
-const COVER_TICKS := 240
 const TOP_STILL_TIME := 0.3
 const TOP_STILL_SLACK := 0.25
 # The wall is up when this much of the sheet has reached the screen. Not all of it:
 # the last block in is the one the measurement would otherwise wait for.
 const COVER_FILL := 0.9
+# Physics rate for the transition. At the project's 60 Hz a block landing at 3,100
+# px/s moves over fifty pixels between two contact checks - a third of the block - so
+# the solver discovers the floor late and resolves the overlap it finds, which is both
+# the squash and the kick after it. Five times the rate makes that step ten pixels. It
+# is set only while the curtain is up and put back when it is done, and it changes
+# nothing about the simulation's rules: same gravity, same masses, same friction,
+# just resolved properly.
+const COVER_TICKS := 300
 # The opaque frame behind the blocks, for the swap.
 const BACKING_TIME := 0.1
 const REVEAL_BACKING_TIME := 0.12
@@ -104,7 +106,6 @@ const REVEAL_GUARD := 1.5
 const PHASE_IDLE := 0
 const PHASE_COVER := 1
 const PHASE_HOLD := 2
-const PHASE_BACKING := 3
 const PHASE_COVERED := 4
 const PHASE_REVEAL := 5
 
@@ -121,7 +122,31 @@ const PHYS_SCALE := 0.86
 # still closes over the screen even though the bodies pack with gaps. Both halves of
 # that are invisible for the same reason: the blocks are pure black, so neither an
 # overlap nor a hairline gap between two of them can be seen.
-const DRAW_SCALE := 1.18
+# The drawn square has two sizes, because the fall and the wall want opposite things.
+# Falling, a block must be smaller than the gap it falls through or the sheet reads as
+# one object however the bodies are arranged: the gaps are what make it blocks. Landed,
+# the wall must close, or the screen is never filled. So each square swells where it
+# lies until the wall is closed. That size is not a constant, because the pile is not:
+# it is whatever the squares have to reach to cover the viewport this time, measured
+# while they grow, with a ceiling only as a failsafe.
+const FALL_SCALE := 0.92
+const SEAL_RATE := 2.4
+const MAX_SCALE := 1.9
+const COVER_TARGET := 0.999
+const SEAL_SAMPLE := 0.05
+# The lattice that takes over from the pile, and the drop that ends the cover. Both
+# are drawn, not simulated: the fall was the effect, and what is left has to be exact.
+#
+# The drop is per cell, not per wall. A lattice of pure black squares that leaves as
+# one sheet is a black rectangle falling - there is nothing in it to see - so each
+# cell departs on its own beat, bottom rows first, with a little side drift and spin.
+# The wall then comes apart into cubes as it goes, and the gaps between them are the
+# world showing through, which is what a reveal is for.
+const REVEAL_ACCEL := 3800.0
+const REVEAL_ROW_STAGGER := 0.045
+const REVEAL_SPREAD := 0.06
+const REVEAL_DRIFT := 45.0
+const REVEAL_SPIN := 1.1
 
 var _bodies: Array = []
 # Where each body was when its stillness window opened, and how long that window
@@ -129,6 +154,12 @@ var _bodies: Array = []
 # every block it touches awake, so a dense pile shivers instead of settling.
 var _still_anchor: Dictionary = {}
 var _still_time: Dictionary = {}
+var _draw_scale := FALL_SCALE
+var _sealed := false
+var _seal_timer := 0.0
+# The lattice: what the wall becomes once the pile has landed, and what drops out.
+var _grid_up := false
+var _cells: Array = []
 # Highest block (smallest y) and how long that height has held.
 var _top_y := INF
 var _top_settled := 0.0
@@ -179,6 +210,11 @@ func play_cover(reduce_motion: bool = false) -> void:
 	_backing = 0.0
 	_has_emitted = false
 	_reveal_requested = false
+	_draw_scale = FALL_SCALE
+	_sealed = false
+	_seal_timer = 0.0
+	_grid_up = false
+	_cells.clear()
 	show()
 	if not _reduce_motion:
 		_build_world()
@@ -202,10 +238,9 @@ func skip() -> void:
 	if _phase == PHASE_REVEAL:
 		_finish_reveal()
 		return
-	# Anything before the swap becomes the swap: freeze the pile where it is and
-	# present the opaque frame.
-	_freeze_bodies()
-	_backing = 1.0
+	# Anything before the swap becomes the swap: the lattice goes up at once, and it is
+	# opaque by construction.
+	_show_grid()
 	_phase = PHASE_COVERED
 	_emit_covered()
 
@@ -239,11 +274,6 @@ func _process(delta: float) -> void:
 		match _phase:
 			PHASE_HOLD:
 				_process_hold(delta)
-			PHASE_BACKING:
-				_backing = minf(_backing + delta / BACKING_TIME, 1.0)
-				if _backing >= 1.0:
-					_phase = PHASE_COVERED
-					_emit_covered()
 			PHASE_REVEAL:
 				_process_reveal(delta)
 	queue_redraw()
@@ -354,39 +384,115 @@ func _enter_hold() -> void:
 
 
 
+## The hold is also when the wall closes: every square swells where it landed, and the
+## swell stops when the viewport is covered. A rigid pile does not tile, so without
+## this the wall would keep a few hairline cracks of world for the whole beat.
 func _process_hold(delta: float) -> void:
 	if _phase != PHASE_HOLD:
 		return
 	_hold += delta
-	if _hold >= HOLD_TIME:
-		_phase = PHASE_BACKING
+	if not _sealed:
+		_draw_scale = minf(MAX_SCALE, _draw_scale + SEAL_RATE * delta)
+		_seal_timer += delta
+		if _seal_timer >= SEAL_SAMPLE:
+			_seal_timer = 0.0
+			_sealed = _coverage(24, 14) >= COVER_TARGET or _draw_scale >= MAX_SCALE
+	# The cover is not handed over until the wall is closed and has stood still for the
+	# whole beat: the drop must never begin from a wall the world can be seen through.
+	# The last check before the swap is at a finer sampling than the one that drove the
+	# growth - a coarse sample can step over a crack - and if it finds one the squares
+	# keep swelling instead of handing over.
+	if _sealed and _hold >= HOLD_TIME:
+		if _draw_scale < MAX_SCALE and _coverage(48, 27) < COVER_TARGET:
+			_sealed = false
+			return
+		_show_grid()
+		_phase = PHASE_COVERED
+		_emit_covered()
+
+
+## How much of the viewport the drawn squares cover. Coarse on purpose: it is asked only
+## whether the wall has closed, and the squares are swelling continuously, so a sample
+## every fiftieth of a second is plenty.
+func _coverage(columns: int, rows: int) -> float:
+	var half := _side * _draw_scale * 0.5
+	var hits := 0
+	for row in range(rows):
+		for col in range(columns):
+			var point := Vector2((float(col) + 0.5) * size.x / float(columns),
+				(float(row) + 0.5) * size.y / float(rows))
+			for body in _bodies:
+				if not is_instance_valid(body):
+					continue
+				var local: Vector2 = body.transform.affine_inverse() * point
+				if absf(local.x) <= half and absf(local.y) <= half:
+					hits += 1
+					break
+	return float(hits) / float(columns * rows)
+
+
+## The pile has done its job: it was the fall. From here the wall has to be exact, so it
+## is replaced by a lattice that tiles the viewport, and the bodies are let go. The swap
+## cannot be seen - both are the same pure black, and the lattice covers at least what
+## the pile covered - but the drop after it is a clean grid of cubes rather than an
+## arbitrary heap.
+func _show_grid() -> void:
+	_grid_up = true
+	_cells.clear()
+	var cell := size.x / float(GRID_COLS)
+	var rows := int(ceil(size.y / cell))
+	for row in range(rows):
+		# The bottom row goes first, so the wall is eaten away from underneath rather
+		# than dissolving everywhere at once.
+		var depth := float(rows - 1 - row)
+		for col in range(GRID_COLS):
+			_cells.append({
+				"x": float(col) * cell,
+				"y": float(row) * cell,
+				"size": cell,
+				"delay": depth * REVEAL_ROW_STAGGER + randf() * REVEAL_SPREAD,
+				"drift": randf_range(-REVEAL_DRIFT, REVEAL_DRIFT),
+				"vy": 0.0,
+				"offset": Vector2.ZERO,
+				"angle": 0.0,
+				"spin": randf_range(-REVEAL_SPIN, REVEAL_SPIN),
+			})
+	_clear_world()
 
 
 func _process_reveal(delta: float) -> void:
-	_backing = maxf(_backing - delta / REVEAL_BACKING_TIME, 0.0)
-	var clear := true
-	for body in _bodies:
-		if is_instance_valid(body) and body.position.y - _side < size.y:
-			clear = false
-			break
-	if clear or _elapsed >= REVEAL_GUARD:
+	var falling := false
+	for cell in _cells:
+		if cell.delay > 0.0:
+			cell.delay -= delta
+			falling = true
+			continue
+		cell.vy += REVEAL_ACCEL * delta
+		cell.offset += Vector2(cell.drift, cell.vy) * delta
+		cell.angle += cell.spin * delta
+		if cell.y + cell.offset.y < size.y:
+			falling = true
+	if not falling or _elapsed >= REVEAL_GUARD:
 		_finish_reveal()
 
 
 func _begin_reveal() -> void:
 	_reveal_requested = false
+	# Reduce Motion has no lattice: its reveal is the fade, and drawing cubes over it
+	# would be the very thing the setting is asking not to see.
+	if not _reduce_motion:
+		if not _grid_up:
+			_show_grid()
+		else:
+			# The lattice was already up for the hold: start it from rest, intact.
+			for cell in _cells:
+				cell.vy = 0.0
+				cell.offset = Vector2.ZERO
+				cell.angle = 0.0
 	_phase = PHASE_REVEAL
 	_elapsed = 0.0
-	# The floor is what made a pile; taking it away is the reveal.
-	if is_instance_valid(_floor):
-		_floor.queue_free()
-	_floor = null
-	# No impulse: with the floor gone, the pile is a stack with nothing under it, so
-	# gravity is the whole of the reveal. Unfreezing is all this needs to do.
-	for body in _bodies:
-		if is_instance_valid(body):
-			body.freeze = false
 	set_process(true)
+	set_physics_process(false)
 
 
 func _finish_reveal() -> void:
@@ -394,6 +500,8 @@ func _finish_reveal() -> void:
 		return
 	_phase = PHASE_IDLE
 	_clear_world()
+	_grid_up = false
+	_cells.clear()
 	_restore_physics_rate()
 	_backing = 0.0
 	set_process(false)
@@ -468,7 +576,7 @@ func _freeze_bodies() -> void:
 func _build_world() -> void:
 	_side = size.x / float(GRID_COLS)
 	_material = PhysicsMaterial.new()
-	_material.friction = 0.95
+	_material.friction = 0.98
 	_material.bounce = 0.0
 
 	# The box: a floor and two sides, tall enough to contain the whole fall and thick
@@ -493,16 +601,31 @@ func _build_world() -> void:
 
 	var rows_fit := int(ceil(size.y / _side))
 	var rows := rows_fit + EXTRA_ROWS
-	# A hair of spacing at spawn, so no two bodies start interpenetrating: the
-	# engine would push them apart in the first frame and the sheet would explode.
-	# The gaps are also what lets the sheet break apart into a pile instead of
-	# landing as a single rigid wall.
-	var spacing := _side * 1.08
+	# The sheet is not a slab, and that is a physical property rather than a styling
+	# one: bodies released from the same height with the same velocity fall as one
+	# object, exactly, so a tidy grid reads as a wall dropping rather than as blocks
+	# landing. Three things break it up. Rows are spaced wider than a block, so there
+	# are gaps between them all the way down. Each column starts at its own height, so
+	# the columns arrive one after another instead of together. And every block gets a
+	# little of its own vertical jitter, so even the members of one row do not cross the
+	# top edge in step. None of it is a schedule: they are still all released at the
+	# same instant, and the order they land in is the fall's answer.
+	# Wider than the DRAWN square, not just wider than the cell: the blocks are drawn
+	# at 1.32 of a cell, so any spacing below that still reads as one continuous slab
+	# of black even though the bodies are apart.
+	var row_gap := _side * 1.95
+	var column_drop := []
+	for col in range(GRID_COLS):
+		column_drop.append(randf_range(0.0, _side * 1.6))
 	for row in range(rows):
 		for col in range(GRID_COLS):
+			# Alternate columns sit half a row lower, so no block falls directly under
+			# its neighbour and the sheet is a bond rather than a grid of columns.
+			var bond := (float(row_gap) * 0.5) if (col % 2 == 1) else 0.0
 			var at := Vector2(
-				(float(col) + 0.5) * _side + randf_range(-6.0, 6.0),
-				-_side * 0.5 - float(row) * spacing)
+				(float(col) + 0.5) * _side + randf_range(-8.0, 8.0),
+				-_side * 0.5 - float(row) * row_gap - bond - float(column_drop[col])
+					+ randf_range(-0.18, 0.18) * _side)
 			_add_body(at)
 
 
@@ -524,11 +647,11 @@ func _add_wall(centre: Vector2, extents: Vector2, is_floor: bool) -> void:
 func _add_body(at: Vector2) -> void:
 	var body := RigidBody2D.new()
 	body.gravity_scale = GRAVITY_SCALE
-	# Damping is what lets a pile come to rest instead of breathing forever, and it
-	# is what soaks up the first contact: two blocks meeting at 3,000 px/s would
-	# otherwise trade that energy back and forth as a shiver.
-	body.linear_damp = 0.7
-	body.angular_damp = 1.8
+	# Almost no air drag. Damping is what a feather has; a heavy block accelerates
+	# under gravity and stops when it hits something. Only the spin is damped, because
+	# a block rocking in place is the thing that keeps a pile awake.
+	body.linear_damp = 0.08
+	body.angular_damp = 0.9
 	body.contact_monitor = true
 	body.max_contacts_reported = 4
 	# Shape-cast CCD. A block crosses tens of pixels per tick when it lands, and
@@ -546,7 +669,7 @@ func _add_body(at: Vector2) -> void:
 	# Slightly uneven masses: a sheet of identical blocks reads as a pattern, and a
 	# pile of them compacts the same way every time. Mass is the one property the
 	# engine uses that does not cost a visible difference per block.
-	body.mass = randf_range(0.85, 1.15)
+	body.mass = randf_range(0.9, 1.1)
 	var shape := CollisionShape2D.new()
 	var rect := RectangleShape2D.new()
 	rect.size = Vector2(_side * PHYS_SCALE, _side * PHYS_SCALE)
@@ -579,10 +702,27 @@ func _draw() -> void:
 		draw_rect(Rect2(Vector2.ZERO, size), Color(0, 0, 0, _backing))
 	if _reduce_motion:
 		return
+	if _grid_up:
+		_draw_cells()
+		return
 	for body in _bodies:
 		if not is_instance_valid(body):
 			continue
-		var drawn := _side * DRAW_SCALE
+		var drawn := _side * _draw_scale
 		draw_set_transform(body.position, body.rotation, Vector2.ONE)
 		draw_rect(Rect2(Vector2(-drawn, -drawn) * 0.5, Vector2(drawn, drawn)), CELL_COLOR)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
+## The lattice: twelve square cells across, however many rows the screen needs. Each
+## cell is drawn a pixel larger than its cell while it is still in place, so the tiling
+## has no seams to show the world through; once it starts falling, that same pixel is
+## what puts a gap between it and its neighbours.
+func _draw_cells() -> void:
+	for cell in _cells:
+		var size_px: float = cell.size
+		var centre: Vector2 = Vector2(cell.x + size_px * 0.5, cell.y + size_px * 0.5) + cell.offset
+		draw_set_transform(centre, cell.angle, Vector2.ONE)
+		draw_rect(Rect2(Vector2(-size_px, -size_px) * 0.5,
+			Vector2(size_px + 1.0, size_px + 1.0)), CELL_COLOR)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)

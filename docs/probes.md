@@ -302,7 +302,8 @@ A few of those rows keep their detail here, because a table cell that long is an
   claim is physical: 96 of them are `RigidBody2D`, they are tumbling ten physics frames in, and
   by the frame the curtain reports `covered` every one of them has landed. The pile is measured,
   not assumed — a separating-axis check between every pair proves blocks are stacked on each
-  other and that none is driven more than a sixth of itself into a neighbour — the hold is timed
+  other and that none is driven more than a sixth of itself into a neighbour, and a viewport
+  sample proves the swollen wall covers 99.9% of the screen before the swap — the hold is timed
   from the settle to the emit with the blocks' positions compared before and after (worst
   0.00 px), and the reveal is timed to the `revealed` signal. Two measurements are also about
   the harness, because both were silently wrong at first: the curtain has to be given one idle

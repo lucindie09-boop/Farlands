@@ -749,6 +749,33 @@ first-person viewmodel - what each one owns and the decisions behind it.
   rather than trusting it, alongside multiplying each row's modulate back to its hex. At full
   strength the green and the red read as signals on a dark plate (a status light and an error),
   so both are pulled a third of the way toward the button's grey before use.
+- **The column starts under the wordmark, and the gap is a bug once you can see it.** At a first
+  row of 168 units the band between the wordmark's underline and CONTINUE was 62 units - wide
+  enough to read as a missing row, which is what a screenshot showed it as. It is 14 units now
+  (28 px at 1080p), so the underline works as the list's own rule and the wordmark and the five
+  rows read as one block. `probe_menu.gd` bounds the gap rather than pinning the constant, since
+  the point is the proportion on screen and not the number in the file.
+- **SINGLEPLAYER is a page, not a screen.** The world list swaps the column and the footer on the
+  same `Control`: same scrim, same wind, same row factory, same focus machinery, one `_page`.
+  A second scene would have to copy all of that, and the copy is what drifts out of step. The
+  list itself is handed in by `menu_layer._worlds()`, which is the side that knows where a save
+  lives and the only thing that has to change when the engine can hold more than one world.
+  Two states are worth having in code: BACK rebuilds the title column and restores the launch's
+  own footer, and Escape is the same gesture, handled by the screen because the list is the
+  screen's own state and there is nothing else for Escape to mean while the player is frozen.
+- **MULTIPLAYER says so instead of doing nothing.** There is no netcode, and a row that swallows
+  a press reads as a bug. It puts `MULTIPLAYER IS NOT IN THIS BUILD YET` in the footer for three
+  seconds - the footer is already this screen's status line - and clears itself on a timer, so
+  the message cannot outlive the moment it answered.
+- **The update log is a card, because the sky is the brightest thing here.** The right-hand
+  emptiness was the composition's dead space until something went in it, and plain text cannot:
+  grey labels on that sky measure about 1.1:1. So it is a card of the scrim's own squares at
+  0.52 of the tint, which composites the brightest sky down to a measured **4.75:1** against the
+  entries - the AA figure for normal text - and the probe recomputes that ratio from the two
+  constants rather than trusting the design. The entries live in `data/changelog.json`, and the
+  probe also checks that the file's `version` matches `application/config/version`, so a build
+  cannot advertise another one's changelog. The card is dropped, not squeezed, when the window
+  is too narrow for its lines: a changelog narrower than its own words is worse than none.
 - **The freeze reuses `set_settings_open`.** That flag is already the gate every system respects
   (movement, look, mouse capture, the block outline, the crosshair, the compass, the interaction
   door), so the title cannot be the one overlay a later system forgets. The cost is a semantic

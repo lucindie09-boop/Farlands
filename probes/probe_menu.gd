@@ -38,6 +38,8 @@ func _run() -> void:
 	Title = load("res://scripts/title_screen.gd")
 	await _check_title_scrim()
 	await _check_title_rows()
+	await _check_update_log()
+	await _check_world_page()
 	await _check_curtain()
 	await _check_curtain_fuse()
 	await _check_curtain_skip()
@@ -155,7 +157,16 @@ func _check_title_rows() -> void:
 	var title: Control = Title.new()
 	root.add_child(title)
 	await process_frame
-	var wanted := [Color("68944e"), Color("5b7391"), Color("934d47")]
+	# In column order: the primary action, the two modes, Settings, Quit. Five is the
+	# documented ceiling for this screen (docs/main-menu.md).
+	var wanted := [Color("68944e"), Color("54907a"), Color("6f6a8c"), Color("5b7391"),
+		Color("934d47")]
+	var labels := ["PLAY", "SINGLEPLAYER", "MULTIPLAYER", "SETTINGS", "QUIT"]
+	_check(title._buttons.size() == labels.size(),
+		"the column is %d rows: %s" % [labels.size(), _labels(title)])
+	for i in range(mini(title._buttons.size(), labels.size())):
+		_check(String(title._buttons[i].text) == labels[i],
+			"row %d is %s (%s)" % [i, labels[i], title._buttons[i].text])
 	var fill: Color = Title.BUTTON_FILL
 	var drop: float = Title.PRESSED_DARKEN
 	for i in range(title._buttons.size()):
@@ -177,6 +188,162 @@ func _check_title_rows() -> void:
 
 
 ## The cover: real bodies, real collisions, a real settle, then hold and swap.
+func _labels(title: Control) -> String:
+	var out := PackedStringArray()
+	for btn in title._buttons:
+		out.append(String(btn.text))
+	return ", ".join(out)
+
+
+## The update log is a card, not floating text: the right-hand sky is the brightest thing on
+## the screen, and grey labels laid straight on it fail contrast. So the checks are that the
+## card exists where the emptiness was, that each entry fits at the body size (the card clips
+## rather than wraps), and that the composite of the card over the brightest sky still carries
+## the entries at 4.5:1 - the AA figure for normal text, measured against the brightest frame
+## rather than against a convenient one.
+func _check_update_log() -> void:
+	var title: Control = Title.new()
+	root.add_child(title)
+	await process_frame
+	title.size = Vector2(1920, 1080)
+	title.open(true, 12345, "0.1", Color(1.0, 0.76, 0.42), true,
+		[{"name": "MY WORLD", "seed": 12345, "when": int(Time.get_unix_time_from_system()) - 7200}])
+	# `open` re-takes the size from the viewport, which in a headless run is 64 x 64. The
+	# screen's real geometry is the one the window sets, so set it after opening.
+	title.size = Vector2(1920, 1080)
+	title._layout()
+	# The autoload by look-up, not by name, for the same reason as the scrim check.
+	var ui: Node = root.get_node_or_null("UIScale")
+	var s: float = maxf(float(ui.get("value")) if ui != null else 1.0, 1.0)
+	var rect: Rect2 = title._log_rect
+	_check(rect.size.x > 0.0, "the update log has a card (%.0f x %.0f)" % [rect.size.x, rect.size.y])
+	# The column starts just under the wordmark's underline. At 62 units of air the band read
+	# as a missing row, so the gap is bounded here rather than left to the constant alone.
+	var underline_y: float = (title._wordmark_y + Title.WORDMARK_UNITS * 1.30) * s
+	var gap: float = title._rows_y * s - underline_y
+	_check(gap > 0.0 and gap <= 30.0 * s,
+		"the column starts under the wordmark, not a third down (%.0f px gap)" % gap)
+	_check(not title._log_entries.is_empty(),
+		"the log lists the build's entries (%d)" % title._log_entries.size())
+	var column_right: float = (title._margin + Title.COLUMN) * s
+	_check(rect.position.x >= column_right,
+		"the card sits right of the column (%.0f >= %.0f)" % [rect.position.x, column_right])
+	_check(rect.end.x <= title.size.x, "the card stays on screen")
+	var body := int(Title.LOG_BODY_UNITS * s)
+	var widest := 0.0
+	for entry in title._log_entries:
+		widest = maxf(widest, Title.MUNRO_FONT.get_string_size(String(entry),
+			HORIZONTAL_ALIGNMENT_LEFT, -1, body).x)
+	var room: float = rect.size.x - Title.LOG_PAD * s - 6.0 * s
+	_check(widest <= room, "every entry fits without clipping (%.0f of %.0f)" % [widest, room])
+
+	# The brightest sky this world can put behind the card, composited out of the same two
+	# numbers the draw uses, then the two luminances turned into a WCAG ratio.
+	var sky := Color(0.765, 0.835, 0.945)
+	var tint: Color = Title.SCRIM_TINT
+	var a: float = Title.LOG_PLATE_ALPHA
+	var card := Color(sky.r * (1.0 - a) + tint.r * a, sky.g * (1.0 - a) + tint.g * a,
+		sky.b * (1.0 - a) + tint.b * a)
+	var ratio := (_relative_luminance(Title.LOG_TEXT) + 0.05) / (_relative_luminance(card) + 0.05)
+	_check(ratio >= 4.5, "the entries hold %.2f:1 on the brightest sky" % ratio)
+
+	# The file names the running build, or the card is advertising another one.
+	var version := String(ProjectSettings.get_setting("application/config/version", "dev"))
+	_check(title._log_version == version,
+		"the log's version matches the build (%s / %s)" % [title._log_version, version])
+	title.queue_free()
+	await process_frame
+
+
+## WCAG relative luminance: the sRGB curve per channel, then the 0.2126/0.7152/0.0722
+## weights. Written out because `Color` has no channelwise decode, and a contrast claim
+## computed any other way is a guess.
+func _relative_luminance(c: Color) -> float:
+	return 0.2126 * _srgb_to_linear(c.r) + 0.7152 * _srgb_to_linear(c.g) \
+		+ 0.0722 * _srgb_to_linear(c.b)
+
+
+func _srgb_to_linear(c: float) -> float:
+	return c / 12.92 if c <= 0.04045 else pow((c + 0.055) / 1.055, 2.4)
+
+
+## The world list is a page of the title screen: SINGLEPLAYER swaps the column, one row per
+## save plus BACK, and the footer becomes the selected world's detail instead of the launch's
+## seed. Escape is the same gesture as BACK, and a picked world is the layer's business.
+func _check_world_page() -> void:
+	var title: Control = Title.new()
+	root.add_child(title)
+	await process_frame
+	title.size = Vector2(1920, 1080)
+	var world := {"name": "MY WORLD", "seed": 12345,
+		"when": int(Time.get_unix_time_from_system()) - 7200}
+	title.open(true, 12345, "0.1", Color(1.0, 0.76, 0.42), true, [world])
+	title.size = Vector2(1920, 1080)
+	title._layout()
+
+	title._on_singleplayer()
+	_check(title._page == Title.PAGE_WORLDS, "Singleplayer opens the world list")
+	_check(title._buttons.size() == 2, "the list is one world and Back (%s)" % _labels(title))
+	if title._buttons.size() == 2:
+		_check(String(title._buttons[0].text) == "MY WORLD", "the world row is named")
+		_check(String(title._buttons[1].text) == "BACK", "Back is the last row")
+	_check(String(title._footer.text).contains("seed 12345"),
+		"the footer is the selected world's detail: %s" % title._footer.text)
+	_check(String(title._footer.text).contains("2 h ago"),
+		"the detail says when it was last saved: %s" % title._footer.text)
+	_check(title._buttons[0].has_focus(), "the world row holds focus on the list")
+
+	# The quit row does not exist on this page, so arming it must do nothing rather than
+	# index the list's rows.
+	title._on_quit()
+	_check(not title._quit_armed, "Quit is not armed on a page with no Quit row")
+
+	# A picked world is the same signal as the primary action.
+	var hits := [0]
+	title.world_chosen.connect(func(): hits[0] += 1)
+	title._on_world(0)
+	_check(hits[0] == 1, "picking a world asks the layer to enter it")
+	title._on_world(7)
+	_check(hits[0] == 1, "a world index that is not there does nothing")
+
+	title._on_back()
+	_check(title._page == Title.PAGE_TITLE, "Back returns to the title")
+	_check(title._buttons.size() == 5, "the title column is back to five rows")
+	_check(String(title._footer.text).contains("v0.1"),
+		"the footer returns to the launch's own status: %s" % title._footer.text)
+
+	# Multiplayer answers in the footer, and the answer expires on its own.
+	title._on_multiplayer()
+	_check(String(title._footer.text).contains("MULTIPLAYER"),
+		"Multiplayer says it is not here: %s" % title._footer.text)
+	title._process(Title.NOTE_SECONDS + 0.1)
+	_check(String(title._footer.text).contains("v0.1"),
+		"the note clears itself: %s" % title._footer.text)
+
+	# Escape is the same gesture as Back.
+	title._on_singleplayer()
+	var esc := InputEventAction.new()
+	esc.action = "ui_cancel"
+	esc.pressed = true
+	title._unhandled_key_input(esc)
+	_check(title._page == Title.PAGE_TITLE, "Escape leaves the world list")
+
+	# A first run with no save still has a page, and it says so.
+	var empty: Control = Title.new()
+	root.add_child(empty)
+	await process_frame
+	empty.size = Vector2(1920, 1080)
+	empty.open(false, null, "0.1", Color(1.0, 0.76, 0.42), true, [])
+	empty.size = Vector2(1920, 1080)
+	empty._layout()
+	empty._on_singleplayer()
+	_check(empty._buttons.size() == 2 and String(empty._buttons[0].text) == "NO WORLDS YET",
+		"no saves reads as no worlds: %s" % _labels(empty))
+	empty.queue_free()
+	title.queue_free()
+	await process_frame
+
+
 func _check_curtain() -> void:
 	var curtain: Control = Curtain.new()
 	root.add_child(curtain)
@@ -450,12 +617,14 @@ func _check_live_menu() -> void:
 		"the footer names the world: %s" % title._footer.text)
 	_check(title._buttons[0].has_focus(), "the primary action holds focus on open")
 
+
 	# Quit is two presses: the first arms the row, and it disarms on its own.
 	title._on_quit()
-	_check(String(title._buttons[2].text).begins_with("QUIT?"),
-		"the first Quit press only arms it: %s" % title._buttons[2].text)
+	_check(String(title._buttons[title._quit_index].text).begins_with("QUIT?"),
+		"the first Quit press only arms it: %s" % title._buttons[title._quit_index].text)
 	title._process(3.0)
-	_check(String(title._buttons[2].text) == "QUIT", "an armed Quit disarms itself")
+	_check(String(title._buttons[title._quit_index].text) == "QUIT",
+		"an armed Quit disarms itself")
 
 	# Settings hands the screen over and comes back to the title.
 	menu._on_settings()

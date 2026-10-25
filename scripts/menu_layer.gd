@@ -59,6 +59,9 @@ func _ready() -> void:
 	add_child(_title)
 	_title.hide()
 	_title.start_pressed.connect(_on_start)
+	# A picked world is the same action as the primary row: the world behind the title is
+	# already running, so there is nothing to load and the same cover hides the change.
+	_title.world_chosen.connect(_on_start)
 	_title.settings_pressed.connect(_on_settings)
 	_title.quit_pressed.connect(_on_quit)
 	_curtain = BlockCurtain.new()
@@ -120,7 +123,7 @@ func _try_boot() -> void:
 		if _chunk_manager.has_method("get_body_sky_warmth") else Color(1.0, 0.76, 0.42)
 	_title.open(_had_world, _current_seed(),
 		String(ProjectSettings.get_setting("application/config/version", "dev")), warmth,
-		not _reduce_motion())
+		not _reduce_motion(), _worlds())
 
 
 func _on_start() -> void:
@@ -169,7 +172,7 @@ func _show_title() -> void:
 		String(ProjectSettings.get_setting("application/config/version", "dev")),
 		_chunk_manager.get_body_sky_warmth() \
 			if _chunk_manager.has_method("get_body_sky_warmth") else Color(1.0, 0.76, 0.42),
-		not _reduce_motion())
+		not _reduce_motion(), _worlds())
 	_title.refocus()
 
 
@@ -188,6 +191,20 @@ func _restore_hud() -> void:
 		if is_instance_valid(node):
 			node.visible = _hidden[node]
 	_hidden.clear()
+
+
+## The saves this install has, for the world list. There is one: the engine keeps a single
+## save at a fixed path, so the list is this screen's shape rather than its content - when
+## the engine can hold more than one world, this is the function that grows, and nothing
+## in the title screen changes.
+func _worlds() -> Array:
+	if not FileAccess.file_exists(META_PATH):
+		return []
+	return [{
+		"name": "MY WORLD",
+		"seed": _current_seed(),
+		"when": int(FileAccess.get_modified_time(META_PATH)),
+	}]
 
 
 ## The seed of the world that is running now, or null when the file is not there

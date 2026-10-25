@@ -264,16 +264,35 @@ with the window so a 720p screen does not push Quit into the footer):
 | scrim | one plate: 0.58 at the left edge, easing to nothing 36 units past the buttons' right edge (23 sampled tones across 632 px at 1080p), flat top to bottom; the rest of the screen is undarkened. Drawn as square cells (cell = height / 40), one flat fill each, each with its own ±0.06 noise offset |
 | wind | one random square lifts off the plate every 0.09 s, carried right at 7 cells/s with a little vertical drift, fading over the last 45% of its 1.1 s life; the hole fades back in over 0.5 s. Reduce Motion stops it and keeps the noise |
 | margin | 40; column 200 wide |
-| rows | three at 20 tall, 5 apart, first at 168; labels 8, buttons from `button.png` — the same row and label size as the death screen and the settings menu, and the same resting fill: the texture at its own grey, undarkened, with white labels |
-| tint | the row that is current turns its own colour — PLAY `#68944e`, SETTINGS `#5b7391`, QUIT `#934d47` — and presses to 0.78 of it. The green and the red are pulled a third of the way to the button's grey, because `#66a93d` and a saturated red read as signals on the dark plate. The tint is a multiply of the texture's fill (`#6d6d6d`), so green's modulate is 1.36 |
-| wordmark | 40 units cap height at 54 down, one accent underline |
-| footer | 7 units: `v0.1 · seed 12345` |
+| rows | five at 20 tall, 5 apart, first at 120; labels 8, buttons from `button.png` — the same row and label size as the death screen and the settings menu, and the same resting fill: the texture at its own grey, undarkened, with white labels |
+| tint | the row that is current turns its own colour — PLAY/CONTINUE `#68944e`, SINGLEPLAYER `#54907a`, MULTIPLAYER `#6f6a8c`, SETTINGS `#5b7391`, QUIT `#934d47` — and presses to 0.78 of it. The green and the red are pulled a third of the way to the button's grey, because `#66a93d` and a saturated red read as signals on the dark plate. The tint is a multiply of the texture's fill (`#6d6d6d`), so green's modulate is 1.36 |
+| wordmark | 40 units cap height at 54 down, one accent underline; the list starts 14 units under that underline, so the two read as one block |
+| update log | a card of the scrim's own squares, 232 units wide (243 px at 1080p), top-aligned with the wordmark, at 0.52 of the scrim's tint; `WHAT'S NEW`, the version, then one line per entry with a 2-unit square bullet, 6-unit text |
+| footer | 7 units: `v0.1 · seed 12345` on the title page, the selected world's seed and last save on the world list |
 | accent | one colour for the underline and the focused row's bar, 35% toward the sky warmth |
 
-Sequence: CONTINUE when a save existed before this launch, PLAY when it did not, then SETTINGS,
-then QUIT. Settings is the existing `scripts/settings_menu.gd` on its `pause` page, so there is
-one settings screen rather than two, and closing it returns to the title with focus on the
-primary action.
+The column is exactly the five rows the geometry above allows: CONTINUE (PLAY on a first run),
+SINGLEPLAYER, MULTIPLAYER, SETTINGS, QUIT. Settings is the existing
+`scripts/settings_menu.gd` on its `pause` page, so there is one settings screen rather than two,
+and closing it returns to the title with focus on the primary action.
+
+**SINGLEPLAYER is a page of the same screen, not a second screen.** It swaps the column for the
+world list (one row per save, then BACK) and swaps the footer for the selected world's seed and
+last save; Escape and BACK return. A second scene would need its own copy of the scrim, the wind,
+the row factory and the focus handling, and the copy is what drifts. There is one save in the
+engine today, so the list holds one row — that is the screen's shape, not its content, and
+`menu_layer._worlds()` is the only thing that would grow.
+
+**MULTIPLAYER answers instead of lying.** There is no netcode, so the row puts
+`MULTIPLAYER IS NOT IN THIS BUILD YET` in the footer for three seconds. The footer is already
+this screen's status line, so the message needs no new widget, and a press that did nothing at
+all would read as a bug.
+
+**The update log is a card because the sky is bright.** Grey labels laid straight on the
+right-hand sky measure about 1.1:1 — invisible. Compositing the card (0.52 of the scrim's tint)
+over the brightest sky the world can produce puts it at 4.75:1 against the entries, which is the
+AA figure for normal text, and the card is drawn in the plate's own squares so it belongs to the
+screen rather than sitting on it. Its entries come from `data/changelog.json`.
 
 **No New World yet, on purpose.** A safe reset needs the chunk map, the edit maps, the save
 generation and the files on disk cleared as one operation; from GDScript a wipe races the exit
@@ -385,6 +404,20 @@ Two equally styled primaries; a greyed Continue on first run; nothing focused on
 that travel under the cursor; nine top-level items; a logo bigger than the actions; an unskippable
 intro; news in front of Play; colour-only focus; music at full volume on the first frame;
 unconfirmed Quit; unconfirmed New World overwrite; the entrance replayed on every return.
+
+## The world list page
+
+| Element | Value |
+|---|---|
+| rows | one per save plus BACK, same 20-unit row and 5-unit gap as the title page, starting where the title's column starts |
+| footer | `seed 12345 · 2 h ago` — the focused row's detail, refreshed on every focus change; coarse units on purpose, because a player reads "2 h ago" and never "1 h 58 m" |
+| empty | a first run with no save shows `NO WORLDS YET` and BACK rather than an empty column |
+| escaping | Escape (or a pad's back) is the same gesture as BACK, and it is handled by the screen because the list is the screen's own state |
+| returning | BACK restores the column, the launch's own footer and the focus on the primary action |
+
+A picked world emits the same signal the primary action does. That is honest in this engine: the
+world behind the title is already running, so entering it is not a load — the cover only has to
+hide the mouse-mode change.
 
 ## Where the numbers come from
 

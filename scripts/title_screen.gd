@@ -25,24 +25,25 @@ signal quit_pressed
 signal world_chosen
 
 const MUNRO_FONT: Font = preload("res://fonts/munro.ttf")
-const BUTTON_TEX: Texture2D = preload("res://textures/gui/button.png")
+# The row's texture, swapped to the candidate asset (`test_menu_button.png`, 200 x 40) while it
+# is looked at. The log's frame is still cut from the house `button.png`, which is why the probe
+# reads those three bevel tones out of that file by path rather than through this constant.
+const BUTTON_TEX: Texture2D = preload("res://textures/gui/test_menu_button.png")
 # The player's own skin, for the profile card's portrait: the head's front face is the 8 x 8
 # region at (8, 8) of Minecraft's 64 x 64 skin layout, drawn nearest so it stays pixels.
 const SKIN_TEX: Texture2D = preload("res://textures/skin.png")
 const SKIN_HEAD_REGION := Rect2(8, 8, 8, 8)
 
-# Units. The rows are the game's own row: 200 x 20 units with an 8-unit label, which is what
-# the death screen and the settings menu use. A title screen is not a different interface - a
-# button that is 40% taller and 50% larger in the text reads as a widget from another game.
+# Units. The row is the asset's own box: 200 x 40 for the test button, twice the house row's
+# height, so the texture is drawn 1:1 instead of being squashed into a shape nobody can judge.
+# The gap is the house 5, unchanged, so the five still read as one evenly spaced list.
 const MARGIN := 40.0
 const COLUMN := 200.0
-const ROW_H := 20.0
+const ROW_H := 40.0
 const ROW_GAP := 5.0
-# The column starts close under the wordmark's underline, not a screen-third down. At 168
-# the gap between the underline and CONTINUE was 62 units - a band of nothing wide enough
-# to read as a missing row, which is exactly what it looked like. 120 leaves 14 units, under
-# one row's worth of air: the wordmark and the list read as one block, with the underline
-# acting as the list's own rule.
+# The column starts close under the wordmark's underline, not a screen-third down: the air
+# between the two is `WORDMARK_AIR`, and this is only the floor under it - a wordmark that has
+# grown to the column's width pushes the list down rather than landing on the first row.
 const FIRST_ROW := 120.0
 # Five rows is the documented ceiling for this screen (docs/main-menu.md): the sixth
 # is a sign the menu is carrying somebody's feature request. CONTINUE is the primary
@@ -50,7 +51,39 @@ const FIRST_ROW := 120.0
 # then the two housekeeping rows.
 const ROW_TEXT_PRIMARY := "PLAY"
 const ROW_TEXT_RESUME := "CONTINUE"
-const WORDMARK_UNITS := 40
+# The wordmark is the column's width: its right edge is the buttons' right edge, which is the one
+# relationship here the eye can check on the screen. Its size is therefore MEASURED from the font
+# rather than tabled - `WORDMARK_REF` is only the size it is measured at. The rule's drop is a
+# multiple of the size and the air above the first row a fixed number, so the block moves as one.
+const WORDMARK_REF := 40.0
+const WORDMARK_RULE := 1.30
+const WORDMARK_AIR := 14.0
+const WORDMARK_TEXT := "FARLANDS"
+# The border: the word again, in black, one copy per direction, drawn BEHIND the white one. It is
+# a copy at the same size and not a larger font size, which is the obvious way to write this and
+# the one that does not work: growing the font grows the WORD's width about six times faster than
+# its height. Measured at +8 px on the fitted 111 px word, the black came out 15 px wide at the
+# sides, 2.5 px above and below it, and the word itself 7.7% wider - past the right edge the
+# white word is fitted to, which is the one relationship this screen can check by eye. Offsetting
+# copies of the same word gives the same border everywhere instead.
+# Eight copies, not four: a cross stops the edge but leaves the inside corner of every step bare,
+# and on a pixel face that is exactly where a border is looked at. The diagonals are 1/sqrt(2) of
+# the straight ones so no corner is thicker than an edge, and every offset is rounded to a whole
+# device pixel in _layout(), because a border on a half pixel is a soft border.
+# The thickness, in units, is the other half of that measurement. The letters of this word keep
+# about 10 px of air between them at 1080p - `WORDMARK_GAP`, and it scales with the word, so the
+# budget is scale-free. A border takes its share out of that air from BOTH sides, so anything over
+# half the gap closes it: at 3 units (6 px) the neighbouring letters' borders met and the word drew
+# as one black mass with a wedge in every gap, which is what a first pass at this did. 1.5 units
+# leaves 2.5 of the 5 units of air open, and the letters keep their own edges.
+const WORDMARK_BORDER := 1.5
+const WORDMARK_GAP := 5.0
+const WORDMARK_BORDER_COLOR := Color(0, 0, 0)
+const WORDMARK_BORDER_DIRS := [
+	Vector2(-1.0, 0.0), Vector2(1.0, 0.0), Vector2(0.0, -1.0), Vector2(0.0, 1.0),
+	Vector2(-0.70710678, -0.70710678), Vector2(0.70710678, -0.70710678),
+	Vector2(-0.70710678, 0.70710678), Vector2(0.70710678, 0.70710678),
+]
 const LABEL_UNITS := 8
 const FOOTER_UNITS := 7
 const FOCUS_BAR_W := 3.0
@@ -211,13 +244,16 @@ const PROFILE_ROWS := [
 	["Cape", "CAPES ARE NOT IN THIS BUILD YET"],
 	["Account Settings", "ACCOUNT SETTINGS ARE NOT WIRED HERE YET"],
 ]
-# The one number a tint depends on: the button texture's own fill, #6d6d6d. A stylebox tint is
-# a MULTIPLY of it, so a target colour is divided by this - and for the green that makes the
-# modulate 1.36 in green, which is allowed and is the only way a grey texture gets there.
-const BUTTON_FILL := Color(0.427, 0.427, 0.427)
+# The one number a tint depends on: the row texture's own fill, which for the test asset is the
+# dark blue-grey (35, 39, 45). A stylebox tint is a MULTIPLY of it, so a target colour is divided
+# by this - the hover state comes out at the target itself, which is why this has to be re-read
+# from the texture whenever the asset changes.
+const BUTTON_FILL := Color(35.0 / 255.0, 39.0 / 255.0, 45.0 / 255.0)
 const PRESSED_DARKEN := 0.78
 
 var _wordmark: Label
+# The word's border, one black copy of it per direction, drawn under the white word.
+var _wordmark_border: Array[Label] = []
 var _rows: VBoxContainer
 var _footer: Label
 var _buttons: Array = []
@@ -270,6 +306,8 @@ var _profile_hover := -1
 # _draw(): a small window must not push the column off the bottom of the screen.
 var _margin := MARGIN
 var _wordmark_y := 54.0
+# The rule's own line, resolved in _layout() from the wordmark's measured size.
+var _mark_rule_y := 0.0
 var _rows_y := FIRST_ROW
 # Quit is two presses, not one: a mis-click on the bottom row of the only screen
 # standing between the player and the game should not end the session. No modal -
@@ -288,13 +326,25 @@ func _ready() -> void:
 	# No anchors: the parent is a CanvasLayer, not a Control, so a full-rect preset only
 	# makes the layout overwrite the size `_fit` sets. The viewport is the authority.
 
+	# The border goes in BEFORE the word it borders, because Godot draws children in order: these
+	# are behind the white text by position in the tree, not by a depth setting. They carry no size
+	# of their own - _layout() gives each one the offset and the size the word was fitted to, so the
+	# border rides whatever the wordmark is, candidate face and all.
+	for i in range(WORDMARK_BORDER_DIRS.size()):
+		var copy := Label.new()
+		copy.text = WORDMARK_TEXT
+		copy.add_theme_color_override("font_color", WORDMARK_BORDER_COLOR)
+		copy.add_theme_constant_override("outline_size", 0)
+		_wordmark_border.append(copy)
+		add_child(copy)
+
 	_wordmark = Label.new()
-	_wordmark.text = "FARLANDS"
+	_wordmark.text = WORDMARK_TEXT
 	_wordmark.add_theme_font_override("font", MUNRO_FONT)
 	_wordmark.add_theme_color_override("font_color", Color(0.96, 0.97, 0.99))
-	_wordmark.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.55))
-	_wordmark.add_theme_constant_override("shadow_offset_x", 2)
-	_wordmark.add_theme_constant_override("shadow_offset_y", 3)
+	# One face, no shadow: an outline of one texel (the default) would feather the letters
+	# themselves, and a pixel font drawn soft is a pixel font drawn wrong. The border is copies
+	# of the word rather than a shadow of it, which is why `font_shadow_color` stays off.
 	_wordmark.add_theme_constant_override("outline_size", 0)
 	add_child(_wordmark)
 
@@ -675,6 +725,25 @@ func _set_row_text(index: int, text: String) -> void:
 		_buttons[index].text = text
 
 
+## The font size, in units, at which the wordmark is exactly as wide as the column. Measured
+## rather than tabled, because a font's advance widths are not linear enough in the size to trust
+## one multiplication: it scales from the reference size and corrects once against what that
+## produced, which lands on the column's edge within a pixel.
+func _wordmark_size(s: float) -> float:
+	var target := COLUMN * s
+	var px := WORDMARK_REF * s
+	# The font the label actually draws with, not the house constant: measuring one face and
+	# drawing another is how a candidate font ends up overflowing the column it was fitted to.
+	var face: Font = _wordmark.get_theme_font("font")
+	for _pass in 2:
+		var w := face.get_string_size(_wordmark.text, HORIZONTAL_ALIGNMENT_LEFT, -1,
+			int(round(px))).x
+		if w <= 0.0:
+			break
+		px *= target / w
+	return px / s
+
+
 func _layout() -> void:
 	var s := maxf(UIScale.value, 1.0)
 	var height_units := size.y / s
@@ -683,9 +752,29 @@ func _layout() -> void:
 	# would run the Quit row into the footer on anything shorter.
 	_margin = minf(MARGIN, height_units * 0.08)
 	_wordmark_y = minf(54.0, height_units * 0.10)
-	_rows_y = minf(FIRST_ROW, height_units * 0.34)
-	_wordmark.position = Vector2(_margin, _wordmark_y) * s
-	_wordmark.add_theme_font_size_override("font_size", int(WORDMARK_UNITS * s))
+	# The title is the column's width, and the list follows its rule down: the air between the rule
+	# and the first row is the one relationship the two keep, so a bigger wordmark lengthens the
+	# block instead of landing on CONTINUE. The row is rounded up to a whole unit so the labels
+	# stay on the pixel grid at any GUI scale.
+	var mark := _wordmark_size(s)
+	var mark_px := int(round(mark * s))
+	var at := Vector2(_margin, _wordmark_y) * s
+	_wordmark.position = at
+	_wordmark.add_theme_font_size_override("font_size", mark_px)
+	# The border: one copy per direction, one border out from the word, at the word's own size and
+	# face - the face read back off the LABEL rather than the house constant, so a candidate font
+	# borders itself and measuring one face while drawing another cannot happen here either. The
+	# offsets are rounded to whole device pixels, which is what keeps a pixel face's border a hard
+	# edge rather than a soft one.
+	var border := WORDMARK_BORDER * s
+	for i in range(_wordmark_border.size()):
+		var copy: Label = _wordmark_border[i]
+		var dir: Vector2 = WORDMARK_BORDER_DIRS[i]
+		copy.add_theme_font_override("font", _wordmark.get_theme_font("font"))
+		copy.add_theme_font_size_override("font_size", mark_px)
+		copy.position = at + Vector2(roundf(dir.x * border), roundf(dir.y * border))
+	_mark_rule_y = _wordmark_y + mark * WORDMARK_RULE
+	_rows_y = ceilf(maxf(minf(FIRST_ROW, height_units * 0.34), _mark_rule_y + WORDMARK_AIR))
 	_rows.position = Vector2(_margin, _rows_y) * s
 	_rows.add_theme_constant_override("separation", int(ROW_GAP * s))
 	for btn in _buttons:
@@ -923,8 +1012,7 @@ func _draw() -> void:
 	var s := UIScale.value
 	_draw_scrim()
 	# The accent: one underline for the wordmark and one bar on the focused row.
-	draw_rect(Rect2(_margin * s, (_wordmark_y + WORDMARK_UNITS * 1.30) * s,
-		COLUMN * 0.42 * s, 2.0 * s), _accent)
+	draw_rect(Rect2(_margin * s, _mark_rule_y * s, COLUMN * 0.42 * s, 2.0 * s), _accent)
 	if _focus_index >= 0 and _focus_index < _buttons.size():
 		var row_y := _rows_y + float(_focus_index) * (ROW_H + ROW_GAP)
 		draw_rect(Rect2((_margin - FOCUS_BAR_INSET) * s, row_y * s + ROW_H * 0.10 * s,

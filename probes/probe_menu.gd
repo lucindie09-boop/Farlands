@@ -301,14 +301,38 @@ func _check_update_log() -> void:
 		"the lit edge still reads lighter than the shade")
 
 	# The brightest sky this world can put behind the card, composited out of the same two
-	# numbers the draw uses, then the two luminances turned into a WCAG ratio.
+	# numbers the draw uses, then the two luminances turned into a WCAG ratio. It is measured on
+	# the LIGHTEST cell, not on the panel's mean: the fill carries the plate's per-square noise,
+	# so the cell with the most noise taken off it is the one the entries can fail on.
 	var sky := Color(0.765, 0.835, 0.945)
 	var tint: Color = Title.SCRIM_TINT
-	var a: float = Title.LOG_PLATE_ALPHA
+	var a: float = Title.LOG_PLATE_ALPHA - Title.NOISE_ALPHA
 	var card := Color(sky.r * (1.0 - a) + tint.r * a, sky.g * (1.0 - a) + tint.g * a,
 		sky.b * (1.0 - a) + tint.b * a)
 	var ratio := (_relative_luminance(Title.LOG_TEXT) + 0.05) / (_relative_luminance(card) + 0.05)
-	_check(ratio >= 4.5, "the entries hold %.2f:1 on the brightest sky" % ratio)
+	_check(ratio >= 4.5, "the entries hold %.2f:1 on the palest cell over the brightest sky" % ratio)
+
+	# The three right-hand panels are made of cells with the plate's own noise, so the squares
+	# the user reads as cubes are not a property of the plate alone. Sampled across the log's
+	# own rect, every tone has to stay inside one noise step of the panel's fill, and there has
+	# to be more than a handful of them - a panel filled flat is the thing this checks against.
+	var log_cell: float = maxf(title._cell, 2.0)
+	var log_gx := int(round(rect.position.x / log_cell))
+	var log_gy := int(round(rect.position.y / log_cell))
+	var log_tones: Dictionary = {}
+	var cell_lo := 1.0
+	var cell_hi := 0.0
+	for gy in range(log_gy, log_gy + 6):
+		for gx in range(log_gx, log_gx + 6):
+			var tone: float = title._panel_alpha(gx, gy)
+			log_tones[snappedf(tone, 0.001)] = true
+			cell_lo = minf(cell_lo, tone)
+			cell_hi = maxf(cell_hi, tone)
+	_check(log_tones.size() >= 12,
+		"the panels carry per-square tone variation (%d tones in a 6x6 block)" % log_tones.size())
+	_check(cell_lo >= Title.LOG_PLATE_ALPHA - Title.NOISE_ALPHA - 0.001
+		and cell_hi <= Title.LOG_PLATE_ALPHA + Title.NOISE_ALPHA + 0.001,
+		"every panel cell is within one noise step of the fill (%.3f..%.3f)" % [cell_lo, cell_hi])
 
 	# The profile card: three rows, real Buttons, inside the card - and each one answers in the
 	# footer, because there is nothing behind them yet.

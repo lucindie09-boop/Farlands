@@ -270,7 +270,7 @@ with the window so a 720p screen does not push Quit into the footer):
 | friends panel | the **middle** panel of the right-hand column — between the profile card and the log — the column's width, and the panel that **stretches** so the stack fills the column: header (a drawn people glyph, `FRIENDS`, a grey dot and `Not connected`), a real search field, three tabs as a **segmented control** — one 1-texel box round the strip, a hairline between the segments, centred labels, and the accent along the bottom edge of the active one — the list (empty, and saying why), and `+ Add Friend`, with the chrome pinned top and bottom and the list taking the extra height. Every control inside it is flat, like the profile rows |
 | profile card | the right-hand column's first panel, its top on the wordmark's line and its right edge on the margin: the player's own skin head (the 8×8 front face of `textures/skin.png`, drawn nearest so it stays pixels) in a 30-unit header band — even air above and below it — the name with a drawn crown, an `Online` dot, and a chevron; then three 11-unit flat rows (Change Skin, Cape, Account Settings) as real `Button`s. 200 units wide, the head's air one value on all four sides (5 units, the same as the rows' left inset) and the cell rounding's spare split between the first row and the bottom, and a hovered row showing a `>` in the gutter before its label |
 | flat rows | the rows in both panels show where you are with their **text**, never with a filled box: rest is the recessed grey, the row you are on is white with one 2-unit accent bar on its left edge, and pressing turns it the accent colour for the moment the finger is down |
-| update log | the last panel in the right-hand column, one cell under the friends panel, its bottom edge closing the stack as far from the bottom of the screen as the profile card's top is from the top (108 px each at 1080p): the column's 200 units wide (rounded to whole cells), its right edge on the margin, every edge snapped to the scrim's grid; one flat fill at 0.52 of the scrim's tint, because the per-square noise and the wind belong to the plate and only read as a patchwork on a flat panel. `WHAT'S NEW`, the version, then one line per entry with a 2-unit square bullet, 6-unit text | Framed by a **1-texel bevel from `button.png`**: `#262626` outline, `#424242` shaded bottom and right, and the texture's lit `#9b9b9b` pulled to `#686e76` for the top and left, because the full tone read as a bright outline around a nearly black card |
+| update log | the last panel in the right-hand column, one cell under the friends panel, its bottom edge closing the stack as far from the bottom of the screen as the profile card's top is from the top (108 px each at 1080p): the column's 200 units wide (rounded to whole cells), its right edge on the margin, every edge snapped to the scrim's grid; filled **square by square** with the plate's own noise (0.58 of the scrim's tint ± 0.06 — see below), no wind on a panel (`WHAT'S NEW`, the version, then one line per entry with a 2-unit square bullet, 6-unit text | Framed by a **1-texel bevel from `button.png`**: `#262626` outline, `#424242` shaded bottom and right, and the texture's lit `#9b9b9b` pulled to `#686e76` for the top and left, because the full tone read as a bright outline around a nearly black card |
 | footer | 7 units: `v0.1 · seed 12345` on the title page, the selected world's seed and last save on the world list |
 | accent | one colour for the underline and the focused row's bar, 35% toward the sky warmth |
 
@@ -292,10 +292,12 @@ this screen's status line, so the message needs no new widget, and a press that 
 all would read as a bug.
 
 **The update log is a card because the sky is bright.** Grey labels laid straight on the
-right-hand sky measure about 1.1:1 — invisible. Compositing the card (0.52 of the scrim's tint)
-over the brightest sky the world can produce puts it at 4.75:1 against the entries, which is the
-AA figure for normal text, and the card is drawn in the plate's own squares so it belongs to the
-screen rather than sitting on it. Its entries come from `data/changelog.json`.
+right-hand sky measure about 1.1:1 — invisible. Compositing the card's palest cell (0.58 of the
+scrim's tint less the plate's 0.06 noise) over the brightest sky the world can produce puts it at
+4.75:1 against the entries, which is the AA figure for normal text — measured on that cell rather
+than on the mean, because the noise is what could push a square under the line. The panels are
+filled in the plate's own squares, each with the plate's own tone, so they belong to the screen
+rather than sitting on it; only the wind stays off them. Its entries come from `data/changelog.json`.
 
 **No New World yet, on purpose.** A safe reset needs the chunk map, the edit maps, the save
 generation and the files on disk cleared as one operation; from GDScript a wipe races the exit

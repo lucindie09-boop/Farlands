@@ -126,7 +126,14 @@ const LOG_HEADING_UNITS := 7
 const LOG_BODY_UNITS := 6
 const LOG_LINE_H := 9.0
 const LOG_TITLE := "WHAT'S NEW"
-const LOG_PLATE_ALPHA := 0.52
+# The card's fill is the plate's full strength rather than a lighter 0.52, and the reason is the
+# noise below: every square of a panel carries the same per-square offset the plate does, so the
+# LIGHTEST a cell can get is `LOG_PLATE_ALPHA - NOISE_ALPHA`. At 0.52 that lightest cell measured
+# 3.96:1 against the brightest sky - below the 4.5 the entries need - so the mean moved down by
+# exactly one noise step. A cell at the top of the noise is now the 0.52 card that was measured
+# at 4.75:1, and the rest are darker; nothing on the panel got lighter, so the AA figure holds
+# for the worst cell rather than for an average one.
+const LOG_PLATE_ALPHA := 0.58
 const LOG_TEXT := Color(0.91, 0.93, 0.96)
 const LOG_DIM := Color(0.80, 0.83, 0.87)
 # The card's border is the button's own bevel, one texel thick: the tones come out of
@@ -927,15 +934,36 @@ func _draw() -> void:
 	_draw_friends()
 
 
-## One panel: a flat fill, then the button texture's bevel outside-in - one texel of outline
+## One panel: the fill, then the button texture's bevel outside-in - one texel of outline
 ## all the way round, then one texel of light on the top and left and of shade on the bottom
 ## and right. At GUI scale 2 a texel is 2 px, so the frame thickens with the rest of the
 ## interface instead of staying a hairline. The profile card and the update log are both this.
+##
+## The fill is CELLS, not one rect: the three right-hand panels are made of the same squares as
+## the plate behind them and carry the same per-square darkness, so a panel reads as a piece of
+## the same material rather than a sheet laid over a grid. Every panel's rect is snapped to the
+## cell grid, so its cells ARE the plate's cells - and the noise is keyed on the cell's place in
+## the SCREEN grid, so a square that the plate has and a panel covers carries one tone in both.
 func _draw_panel(rect: Rect2) -> void:
 	var s := maxf(UIScale.value, 1.0)
+	var cell := maxf(_cell, 2.0)
 	var tint := SCRIM_TINT
-	tint.a = LOG_PLATE_ALPHA
-	draw_rect(rect, tint)
+	var cols := maxi(1, int(ceil(rect.size.x / cell)))
+	var rows := maxi(1, int(ceil(rect.size.y / cell)))
+	var grid_x := int(round(rect.position.x / cell))
+	var grid_y := int(round(rect.position.y / cell))
+	for row in range(rows):
+		var y := rect.position.y + float(row) * cell
+		var h := minf(cell, rect.end.y - y)
+		if h <= 0.0:
+			continue
+		for col in range(cols):
+			var x := rect.position.x + float(col) * cell
+			var w := minf(cell, rect.end.x - x)
+			if w <= 0.0:
+				continue
+			tint.a = _panel_alpha(grid_x + col, grid_y + row)
+			draw_rect(Rect2(Vector2(x, y), Vector2(w, h)), tint)
 	var px := maxf(1.0, roundf(s))
 	var inner := Rect2(rect.position + Vector2(px, px), rect.size - Vector2(px, px) * 2.0)
 	draw_rect(Rect2(rect.position, Vector2(rect.size.x, px)), LOG_EDGE_OUTER)
@@ -1120,10 +1148,9 @@ func _draw_crown(at: Vector2, s: float) -> void:
 ## it fails contrast; the entries are near-white over a 0.52 tint, which holds 4.75:1 against
 ## the brightest sky the world can put behind it.
 ##
-## The card has NO per-square noise and no wind, which is the plate's and not the panel's: on
-## the plate the noise breaks up a gradient, and here there is no gradient to break, so it only
-## read as a patchwork of squares sitting slightly proud of each other. One fill makes it a
-## surface; the grid is honoured by the rect's edges landing on cell boundaries.
+## It is filled square by square, with the same per-square noise the plate carries - see
+## `_draw_panel`. There is no wind on a panel: a square of the changelog flying off to the right
+## would take the words with it, so a panel's squares vary but never move.
 func _draw_log() -> void:
 	if _log_rect.size.x <= 0.0 or _log_rect.size.y <= 0.0:
 		return
@@ -1216,6 +1243,15 @@ func _build_grid() -> void:
 	# teleported; the plate refills on its own within a second.
 	_lifted.clear()
 	_healing.clear()
+
+
+## One square of a panel: the panel's own tone plus its share of the same per-square noise, in
+## the plate's own amount (`NOISE_ALPHA`), so the three cards and the plate vary by one rule.
+## Keyed on the cell's place on the SCREEN grid - the panels' rects are snapped to it - so the
+## pattern is anchored to the plate's rather than restarting at each panel's corner, and a resize
+## hands a square the same tone it had before.
+func _panel_alpha(grid_x: int, grid_y: int) -> float:
+	return clampf(LOG_PLATE_ALPHA + (_hash01(grid_x, grid_y) * 2.0 - 1.0) * NOISE_ALPHA, 0.0, 1.0)
 
 
 ## One square's tone: the plate's ramp where it sits, plus its own share of the noise.

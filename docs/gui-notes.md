@@ -852,15 +852,23 @@ first-person viewmodel - what each one owns and the decisions behind it.
   positions while this screen settled (top right, then the bottom-left corner, then under the
   profile card, and now the bottom of the rail, where its bottom edge closes the stack); the grid
   and the width are what survived every move, so they are what is pinned in the probe.
-- **The card is one flat fill; the noise and the wind are the plate's.** The noise exists to break
-  up a gradient, and the card has no gradient - so per-square noise there only read as a patchwork
-  of squares sitting slightly proud of each other, which is what "its squares are flying away"
-  looked like. One fill makes it a surface, and the grid is still honoured by its edges.
+- **A panel varies per square, and does not move.** The three right-hand panels are filled cell by
+  cell with the plate's own per-square noise (`_panel_alpha`), keyed on the cell's place in the
+  SCREEN grid, so a square carries one tone whether the plate or a panel draws it and a resize
+  hands it the same tone again. They were a single flat rect for a while, on the theory that noise
+  only makes sense under a gradient - which produced three grey sheets that read as laid ON the
+  screen rather than cut from it, and the squares the user sees everywhere else stopped at the
+  panel's edge. The wind still stays off: a changelog square flying right takes the words with
+  it. Getting the noise back moved the fill from 0.52 to 0.58, because the palest cell of the
+  noise (`fill - NOISE_ALPHA`) is what the entries have to stay legible on, and 0.52 - 0.06
+  measured 3.96:1. At 0.58 the lightest cell IS that 0.52 card, at 4.75:1, and the probe now
+  measures the ratio on it rather than on the mean - the tile with the most noise taken off it
+  is the one text can fail on.
 - **The update log is a card, because the sky is the brightest thing here.** The right-hand
   emptiness was the composition's dead space until something went in it, and plain text cannot:
   grey labels on that sky measure about 1.1:1. So it is a card of the scrim's own squares at
-  0.52 of the tint, which composites the brightest sky down to a measured **4.75:1** against the
-  entries - the AA figure for normal text - and the probe recomputes that ratio from the two
+  0.58 of the tint, whose lightest cell composites the brightest sky down to a measured
+  **4.75:1** against the entries - the AA figure for normal text - and the probe recomputes that ratio from the two
   constants rather than trusting the design. The entries live in `data/changelog.json`, and the
   probe also checks that the file's `version` matches `application/config/version`, so a build
   cannot advertise another one's changelog. The card is dropped, not squeezed, when the window

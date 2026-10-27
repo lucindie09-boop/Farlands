@@ -219,7 +219,9 @@ Full notes: [docs/light.md](docs/light.md).
   world's seed and last save, BACK and Escape return - because a separate screen would copy the
   scrim, the wind and the focus handling; MULTIPLAYER has no netcode and answers in the footer
   for three seconds instead of swallowing the press. The right-hand emptiness holds the update
-  log: a card of the scrim's own squares, 0.52 of its tint (4.75:1 on the brightest sky), read
+  log: a card of the scrim's own squares, 0.58 of its tint ± the plate's own 0.06 per-square
+  noise, the palest cell of which is the 4.75:1 measured on the brightest sky (the three
+  right-hand panels vary per square and never move), read
   from `data/changelog.json`, whose `version` a probe holds against the build's. Entering the
   world is covered by `ui_block_curtain.gd` — 12 columns of pure-black rigid
   bodies, let go at rest, that fall, collide and pile on the engine's own physics; each square then

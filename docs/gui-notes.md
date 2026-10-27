@@ -749,6 +749,46 @@ first-person viewmodel - what each one owns and the decisions behind it.
   rather than trusting it, alongside multiplying each row's modulate back to its hex. At full
   strength the green and the red read as signals on a dark plate (a status light and an error),
   so both are pulled a third of the way toward the button's grey before use.
+- **The wordmark is the column's width, measured from the face it draws with, and it has no
+  shadow.** At 40 units the title rendered 144.5 of the column's 200 - it stopped at 72% of the
+  thing under it, the only element on the screen sized against nothing - so the size is now
+  MEASURED from the font: `FARLANDS` is drawn at whatever size puts its right edge on the
+  buttons' right edge (111 px at 1080p, 478 against 480; the 2 px is the font size being an
+  integer, not slack). The list follows the rule down by the same 14 units, so a bigger title
+  lengthens the block instead of landing on CONTINUE. The measurement reads the font off the
+  LABEL rather than the house constant, which is the one line that makes a candidate face safe to
+  try: measuring one face and drawing another fits the column to the wrong word.
+  The shadow is gone after two attempts at one, and both attempts are worth knowing before the
+  third. First: a `font_shadow_*` copy is feathered - `shadow_outline_size` defaults to one texel,
+  so at 2-3 px of offset on an 11 px design pixel the copy came out soft while the letters were
+  crisp, which read as soft-focus rather than raised. Second: one copy at a DIAGONAL offset is
+  wrong for a pixel font however sharp it is, because a pixel letter is built out of steps and a
+  diagonal copy leaves the corner of every step to the glyph's own antialiasing - a notch in the
+  shadow wherever the letter turns - so it became two copies, one a design pixel straight down and
+  one straight right, as real `Label`s the theme default cannot feather. That was correct and
+  still removed: the word is the one element that is already a hard white on a dark plate, and a
+  stepped shadow of it added mass the composition did not want. The title is now ONE face with no
+  `font_shadow_color` of its own, and `probe_menu.gd` checks both halves of that - the resolved
+  shadow colour is transparent, and nothing else on the screen holds the word.
+- **The title's border is copies of the word, and the size that makes it is half of what the
+  letters have to spare.** The obvious build - one black copy at a slightly larger font size,
+  which is how it was asked for - is the one that cannot work, and the measurement says why: a
+  bigger font grows the WORD's width about six times faster than its height (at +8 px on the
+  fitted 110 px word, 15 px of black at the sides against 2.5 above and below) and leaves the word
+  7.7% wider, i.e. past the right edge the white word is fitted to. The black version was also
+  *not* a border at those sizes: it is the same word stretched, so the letters drift apart and the
+  black smears off the right-hand end while the top of the word has none at all. Eight copies of
+  the word at its own size, one per direction, offset by one border, give the same edge
+  everywhere - and they are Labels, added BEFORE the white one so the tree order puts them behind
+  it, which also means their alignment is Godot's own rather than a baseline the code computes.
+  The thickness is the other measured number, and it is a budget rather than a taste: the letters
+  keep ~10 px (5 units) of air between them, a border spends it from both sides, so anything over
+  half the gap closes it. 3 units (6 px) fused the word into one black mass with a wedge in every
+  gap - a screenshot of it is what prompted this - and 1.5 units leaves 2.5 of the 5 units of air
+  open with every letter keeping its own edge. Diagonals are 1/sqrt(2) of the straight offsets so
+  no corner is thicker than an edge, and every offset is rounded to a whole device pixel, because
+  a border on a half pixel is a soft border. `probe_menu.gd` pins the geometry - eight directions,
+  one border out, whole pixels, black, behind, the word's own size - and the budget.
 - **The column starts under the wordmark, and the gap is a bug once you can see it.** At a first
   row of 168 units the band between the wordmark's underline and CONTINUE was 62 units - wide
   enough to read as a missing row, which is what a screenshot showed it as. It is 14 units now

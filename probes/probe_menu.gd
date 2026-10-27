@@ -219,10 +219,78 @@ func _check_update_log() -> void:
 	_check(rect.size.x > 0.0, "the update log has a card (%.0f x %.0f)" % [rect.size.x, rect.size.y])
 	# The column starts just under the wordmark's underline. At 62 units of air the band read
 	# as a missing row, so the gap is bounded here rather than left to the constant alone.
-	var underline_y: float = (title._wordmark_y + Title.WORDMARK_UNITS * 1.30) * s
+	var underline_y: float = title._mark_rule_y * s
 	var gap: float = title._rows_y * s - underline_y
 	_check(gap > 0.0 and gap <= 30.0 * s,
 		"the column starts under the wordmark, not a third down (%.0f px gap)" % gap)
+	# The wordmark is sized to the column, so the check is an EDGE against an edge rather than a
+	# font size: what the title is for is that its right edge is the buttons' right edge. The
+	# width is measured off the font at the size the label was given, which is what it will draw.
+	var mark_px := int(round(title._wordmark.get_theme_font_size("font_size")))
+	# Measured off the face the label DRAWS with, not the house constant: `_wordmark_size` measures
+	# the same way, and a candidate font is the case where the two could come apart - measuring
+	# Munro while drawing something else fits the column to the wrong word.
+	var mark_face: Font = title._wordmark.get_theme_font("font")
+	var mark_w: float = mark_face.get_string_size(title._wordmark.text,
+		HORIZONTAL_ALIGNMENT_LEFT, -1, mark_px).x
+	var mark_right: float = title._wordmark.position.x + mark_w
+	var buttons_right: float = (title._margin + Title.COLUMN) * s
+	_check(absf(mark_right - buttons_right) <= 2.0,
+		"the wordmark reaches the buttons' right edge (%.1f vs %.1f)" % [mark_right, buttons_right])
+	# One white face and no shadow: the border is copies of the word, not a shadow of it, which is
+	# why `font_shadow_color` stays at its transparent default.
+	_check(title._wordmark.get_theme_color("font_shadow_color").a == 0.0,
+		"the wordmark's font shadow is off")
+	# The border: the word again, in black, one copy per direction, drawn UNDER the white one. Each
+	# copy is checked against the direction it stands for, so what is pinned is the geometry - eight
+	# directions, one border out, on whole device pixels - rather than "there are some black labels".
+	var border_px: float = Title.WORDMARK_BORDER * s
+	var copies: Array[Label] = []
+	for child in title.get_children():
+		if child is Label and String(child.text) == title._wordmark.text and child != title._wordmark:
+			copies.append(child)
+	_check(copies.size() == Title.WORDMARK_BORDER_DIRS.size(),
+		"the word is bordered by one copy per direction (%d of %d)" % [
+			copies.size(), Title.WORDMARK_BORDER_DIRS.size()])
+	var behind := 0
+	var black := 0
+	var same_size := 0
+	var dirs_hit := {}
+	var worst := 0.0
+	for copy in copies:
+		if copy.get_index() < title._wordmark.get_index():
+			behind += 1
+		if copy.get_theme_color("font_color").to_html(false) == "000000":
+			black += 1
+		if copy.get_theme_font_size("font_size") == mark_px:
+			same_size += 1
+		var offset: Vector2 = copy.position - title._wordmark.position
+		var best := INF
+		var hit := -1
+		for i in range(Title.WORDMARK_BORDER_DIRS.size()):
+			var dir: Vector2 = Vector2(Title.WORDMARK_BORDER_DIRS[i])
+			var want := Vector2(roundf(dir.x * border_px), roundf(dir.y * border_px))
+			if (offset - want).length() < best:
+				best = (offset - want).length()
+				hit = i
+		worst = maxf(worst, best)
+		if not dirs_hit.has(hit):
+			dirs_hit[hit] = 0
+		dirs_hit[hit] += 1
+	_check(behind == copies.size(), "every border copy is drawn behind the word (%d)" % behind)
+	_check(black == copies.size(), "the border is black (%d of %d)" % [black, copies.size()])
+	_check(same_size == copies.size(),
+		"the border is the word's own size, not a bigger one (%d of %d at %d px)" % [
+			same_size, copies.size(), mark_px])
+	_check(dirs_hit.size() == Title.WORDMARK_BORDER_DIRS.size() and worst <= 0.51,
+		"one copy per direction, one border out (worst %.2f px off of %.0f)" % [worst, border_px])
+	# The border is drawn inside the air the letters keep: half the gap from each side is all there
+	# is, and past it the word fuses into one black mass (the 3-unit version did).
+	_check(Title.WORDMARK_BORDER * 2.0 < Title.WORDMARK_GAP,
+		"the border fits in the air between the letters (%.1f of %.1f units)" % [
+			Title.WORDMARK_BORDER * 2.0, Title.WORDMARK_GAP])
+	_check(title._wordmark.position.x - border_px >= 0.0,
+		"the border stays on screen (left edge %.0f px)" % (title._wordmark.position.x - border_px))
 	_check(not title._log_entries.is_empty(),
 		"the log lists the build's entries (%d)" % title._log_entries.size())
 	# The card is the BOTTOM of the right-hand rail: under the friends panel, in the right-hand
@@ -282,7 +350,9 @@ func _check_update_log() -> void:
 	# The frame is the button texture's own bevel, so the three tones are read back out of
 	# `button.png` rather than trusted: outline from its left edge, the lit edge one texel in,
 	# and the shade from its bottom edge (the right edge carries a slightly different one).
-	var img: Image = Title.BUTTON_TEX.get_image()
+	# Read out of the HOUSE button by path: the rows are the test asset at the moment, and the
+	# card's frame was cut from this one, so swapping the rows does not move the card.
+	var img: Image = load("res://textures/gui/button.png").get_image()
 	var mid := img.get_height() / 2
 	var edge := img.get_pixel(0, mid)
 	var lit := img.get_pixel(1, mid)

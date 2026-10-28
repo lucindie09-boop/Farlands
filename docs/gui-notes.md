@@ -749,6 +749,54 @@ first-person viewmodel - what each one owns and the decisions behind it.
   rather than trusting it, alongside multiplying each row's modulate back to its hex. At full
   strength the green and the red read as signals on a dark plate (a status light and an error),
   so both are pulled a third of the way toward the button's grey before use.
+- **The light is wide streaks on a dark face, and it was two other things before it was that.**
+  Each of those is worth knowing, because both look plausible in code. A soft band with a long
+  tail (the first build) read as a moving gradient rather than a reflection: a ramp's profile
+  never actually reaches zero, so the whole face went purple and drifted. A fine hatch (the
+  second) is closer to what the effect is built from - single-pixel streaks at two angles - and on
+  a 380 x 56 button it reads as FABRIC; a menu row made of purple cloth is not an enchanted item,
+  and the report was exactly that. What is  recognised at menu size is the SWEEP: a few wide
+  diagonals of light crossing the face with real dark between them, at a strength low enough that
+  the row's own colour still shows. The shape was measured off the effect itself (a gif of it on
+  black, 240 px square, 128 frames): the dominant bands there are 85 to 170 px apart, i.e. a
+  third to two thirds of the frame, and what separates them is BLACK - it is mostly lit field with
+  voids in it, not thin lines on nothing.  Ours is `shaders/ui_sheen.gdshader`, driven by
+  `scripts/ui_sheen.gd`: a 240-unit period along a -42 degree axis, 28% of it lit, the edges pushed
+  in and out by a slow 2-D noise (the warp is what stops a band being a straight stripe) and the
+  inside mottled by a finer one in 7-unit cells, from `#421780` through `#8C54DB`. The period is
+  deliberately longer than the surface it is drawn on, so **only one band is ever on a surface**:
+  a sheet crosses it and the rest is dark. That is the difference between a light passing over
+  something and a pattern painted on it, and it is why the spacing is not a taste number - two
+  bands is the hatching mistake at a bigger scale. It travels at 120 units/s, measured in interface
+  units so the bands keep their proportions at any GUI scale. Three traps, each of which cost a
+  pass:
+  `VERTEX` in a canvas_item FRAGMENT arrives in the item's parent space, so a control's own
+  position reads as distance from the origin (the cards lit face-on while the rows lit not at all,
+  which looks like two unrelated bugs - the local pixel is `UV * size_px`); a face has to be masked
+  with a rounded-rect distance field rather than an inset rectangle, or a square of light pokes
+  over the bevel at all four corners; and the sheen controls lie ON TOP of the rows and of the
+  profile and friends controls, so `mouse_filter` must be IGNORE or the default swallows every
+  hover in the column.
+- **The light is on the cards' frames and nowhere else, and both other placements were tried.**
+  The rows went first. A 40-unit face takes the whole band, so every row was being crossed by a
+  sheet of violet; that reads as a texture on a button rather than as light passing, and a row's
+  own colour is a signal - green for play, red for quit - that the wash argued with. The wordmark
+  went next, and it is the one worth recording, because the obvious build is wrong in a way that
+  looks right in code. A Control laid over the word lights a rectangle, and a label's glyphs are
+  sparse, so what it actually paints is the AIR between the letters. The material therefore has to
+  go on the LABEL itself (`_wordmark.material`), and two measurements follow from that: on a Label,
+  `UV` is the glyph's place in the FONT ATLAS - a sweep built from it restarts inside every letter,
+  and the fragment's screen position (`SCREEN_UV / SCREEN_PIXEL_SIZE`) is the only continuous space
+  a label has; and the blend has to be mix with the label's own colour preserved, because additive
+  light on near-white text clips to white and the band vanishes there. That version worked and was
+  still taken off: the title is the one element on this screen that has to read instantly as a
+  word, and a band travelling through its letters is motion in the middle of it. What is left is
+  the cards' 2-texel frames at 0.21, which is the part of a card that is an edge - and the reason
+  the effect survives there rather than nowhere is that a frame is a border, so light along it
+  cannot be mistaken for a change in what the panel says. `probe_menu.gd` pins the absence rather
+  than the picture, since both removals would come back as "a subtle addition" in a diff: no row
+  carries the light, the wordmark has no material, the cards' light is on their own rects and
+  ring-only, the Controls are pointer-transparent, and Reduce Motion puts the cards' light out.
 - **The wordmark is the column's width, measured from the face it draws with, and it has no
   shadow.** At 40 units the title rendered 144.5 of the column's 200 - it stopped at 72% of the
   thing under it, the only element on the screen sized against nothing - so the size is now
@@ -789,12 +837,54 @@ first-person viewmodel - what each one owns and the decisions behind it.
   no corner is thicker than an edge, and every offset is rounded to a whole device pixel, because
   a border on a half pixel is a soft border. `probe_menu.gd` pins the geometry - eight directions,
   one border out, whole pixels, black, behind, the word's own size - and the budget.
+- **The wordmark's rule is a piece of steel, and each part of that is a fix.** It was one flat
+  accent-coloured bar under 42% of the word, which measured against nothing - the word's right
+  edge is the buttons' right edge, and a stub under it left the title looking unfinished at the
+  end the eye reads last. It is the column's full width now, four 1-unit bands (`#a6adb4` lit top,
+  `#7b828a` face, `#575d64`, `#2b2f35` underside) with a 1-unit black rim (2 px at 1080p, the same
+  texel the buttons and cards bevel with), and both ends taper to a point 8 units in: a beam that
+  stops in a flat wall leaves two square corners on the one horizontal the eye follows across the
+  screen. The tones are the LEFT COLUMN's family rather than a steel of their own: the buttons are
+  neutral grey (`#6d6d6d` fill, `#9b9b9b` lit, `#424242` shaded) and the log's bevel is `#686e76`,
+  so the rule carries the same near-neutral with 14 points of blue over red (the log's own bias) -
+  the first version was a saturated steel 40 points blue, which read as a blue object parked beside
+  grey ones. 8 units is not a taste number - at 3 the point is 37 degrees and what it showed was four
+  coarse 2-px steps. Four things had to be right to draw it, and every one was a bug first. The
+  beam is on the DEVICE grid (`roundf(_margin * s)`, `roundf(_mark_rule_y * s)`): at fractional
+  coordinates the two diagonals rasterise differently, so the lower one covered a column the
+  upper one missed and one end of the point read longer than the other - the shape was symmetric,
+  the grid it landed on was not. The taper is one straight edge across all four bands, and its
+  insets are deliberately NOT rounded per row: rounding them is a staircase, which is what the
+  end looked like when the taper was drawn a row at a time. And the rim is the beam OFFSET
+  perpendicular, one polygon - which is the only reason a rim this thin reads at all. Three
+  earlier rims, and what each taught: `Geometry2D.offset_polygon` of the beam came out a
+  five-pixel nose wider than the steel behind it ("the point is too thick"); a slanted cap per
+  row was continuous only when the band was wide enough ACROSS the edge, so at 1 px it rasterised
+  as a dotted line ("the outline is messed up on the point"); and a band drawn a pixel in from
+  each row's edge is one dot per row for the same reason - the taper is 14 degrees, so a pixel of
+  width ACROSS it is four or five pixels long in every row, and a pixel of inset is one. Once the
+  rim is the offset of a STRAIGHT taper, its edge is parallel to the steel's and the black is the
+  same width the whole way in, with the tip pulled out by exactly the rim's width.
+  `probe_menu.gd` pins the two things that are easy to break later: the rule clears the first row
+  (the gap check above it measures from the rule's TOP, so a thicker rule would hide inside that
+  number) and its four tones still run light to dark, so it is a bevel and not a groove.
 - **The column starts under the wordmark, and the gap is a bug once you can see it.** At a first
   row of 168 units the band between the wordmark's underline and CONTINUE was 62 units - wide
-  enough to read as a missing row, which is what a screenshot showed it as. It is 14 units now
-  (28 px at 1080p), so the underline works as the list's own rule and the wordmark and the five
-  rows read as one block. `probe_menu.gd` bounds the gap rather than pinning the constant, since
-  the point is the proportion on screen and not the number in the file.
+  enough to read as a missing row, which is what a screenshot showed it as. It is 22 units now
+  (44 px at 1080p), so the underline works as the list's own rule and the wordmark and the five
+  rows read as one block. `probe_menu.gd` bounds the gap rather than pinning the constant - by ONE
+  ROW now, because that is the only thing that says where "wide enough to be a missing row" is.
+- **The rule hangs 14 units under the word's BASELINE, which is why the two gaps are not equal.**
+  It used to be a multiple of the font size (1.30), which is a number about the face rather than
+  about the word: a menu question - should the rule be nearer the title than the buttons? - found
+  the answer was yes, and the multiple could not express it. The rule is now 14 units under the
+  baseline and the list 22 under the rule (28 px of air between the letters and the beam, 34 under
+  the beam to CONTINUE at 1080p): the rule is part of the
+  title, and the rows are the next thing on the screen. `WORDMARK_AIR` grew by the 8 units the rule
+  rose, so the five rows did NOT move when the rule did - move the title's furniture, not the
+  column. Two smaller gaps were tried first and both read wrong: 3 units (6 px) touching, the
+  letters standing on the beam like a shelf, and 6 units still a shelf. The baseline is measured
+  off the face the label draws with, like its width, so a candidate font gets its own rule line.
 - **SINGLEPLAYER is a page, not a screen.** The world list swaps the column and the footer on the
   same `Control`: same scrim, same wind, same row factory, same focus machinery, one `_page`.
   A second scene would have to copy all of that, and the copy is what drifts out of step. The

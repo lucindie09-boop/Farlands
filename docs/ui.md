@@ -49,10 +49,19 @@ screen (the shader-effect stack, the animated-liquid tools, the model previews).
   0.58 at the edge easing to nothing just past the buttons, every square ±0.06 of its own noise
   — with squares lifting off it at random and blowing to the right while the holes fade back in
   (still under Reduce Motion) — plus one accent (mixed with the world's own sky warmth) for the
-  wordmark underline and the focused row's bar. The rows are real `Button`s so mouse hover,
-  keyboard focus and gamepad focus all come from the engine; hover moves the focus rather than
-  sitting beside it, and focus is restored on every open. The column is CONTINUE/PLAY,
-  SINGLEPLAYER, MULTIPLAYER, SETTINGS, QUIT, starting 14 units under the wordmark's underline;
+  focused row's bar, and the wordmark's rule in steel: the column's full width, four 1-unit bevel
+  bands from `#a6adb4` down to `#2b2f35` (the buttons' near-neutral grey, not a blue of its own), a
+  1-unit black rim and a point 8 units in at each end —
+  and one wide diagonal of violet light travelling
+  along the three cards' bevels (`shaders/ui_sheen.gdshader`, additive and faint, ring-only; off
+  under Reduce Motion). It crossed the rows and the wordmark in earlier builds and both were
+  removed - the rows because a band over a 40-unit face reads as a texture against the row's own
+  colour signal, the title because a word being travelled through is motion in the middle of the
+  thing being read - so the cards' frames are the only surface it is on now. The rows are real
+  `Button`s so mouse hover, keyboard focus and gamepad focus all come from the engine; hover moves
+  the focus rather than sitting beside it, and focus is restored on every open. The column is
+  CONTINUE/PLAY,
+  SINGLEPLAYER, MULTIPLAYER, SETTINGS, QUIT, starting 22 units under the wordmark's underline;
   the right-hand column is the profile card (the player's own skin head, a name, one state and
   three flat rows that answer in the footer) with the update log under it, read from
   `data/changelog.json`; SINGLEPLAYER swaps the column for the world list as a second PAGE of

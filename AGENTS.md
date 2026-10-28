@@ -213,7 +213,8 @@ Full notes: [docs/light.md](docs/light.md).
   not loaded, the head's rotation stays the code's, and the pack's files are not vendored
   (its terms) — the credit is in docs/gui-notes.md.
 - The title screen (`scripts/menu_layer.gd` over the live world, `title_screen.gd` drawing it)
-  offers five rows, starting 14 units under the wordmark's underline: CONTINUE (PLAY when no
+  offers five rows, starting 22 units under the wordmark's rule — a steel beam 14 units under the
+  word's own baseline, the column's full width, tapering to a point at both ends: CONTINUE (PLAY when no
   world existed before launch), SINGLEPLAYER, MULTIPLAYER, SETTINGS, QUIT. SINGLEPLAYER is a
   second PAGE of the same screen - the column becomes the world list, the footer the selected
   world's seed and last save, BACK and Escape return - because a separate screen would copy the
@@ -222,7 +223,12 @@ Full notes: [docs/light.md](docs/light.md).
   log: a card of the scrim's own squares, 0.58 of its tint ± the plate's own 0.06 per-square
   noise, the palest cell of which is the 4.75:1 measured on the brightest sky (the three
   right-hand panels vary per square and never move), read
-  from `data/changelog.json`, whose `version` a probe holds against the build's. Entering the
+  from `data/changelog.json`, whose `version` a probe holds against the build's. A travelling sheen
+  runs along the three cards' bevels and nowhere else: one broad warped violet band (240 units
+  apart, 28% of each period lit, mottled insides) from `shaders/ui_sheen.gdshader`, at low strength
+  and off under Reduce Motion. It crossed the rows and then the wordmark and both were removed - a
+  sheet of violet over a 40-unit row fought the row's own colour signal, and a band moving through
+  the title's letters is motion in the middle of the thing being read. Entering the
   world is covered by `ui_block_curtain.gd` — 12 columns of pure-black rigid
   bodies, let go at rest, that fall, collide and pile on the engine's own physics; each square then
   swells until a scanline pass proves the viewport is covered with no gap, and the pile is swapped

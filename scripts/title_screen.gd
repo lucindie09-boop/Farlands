@@ -53,11 +53,17 @@ const ROW_TEXT_PRIMARY := "PLAY"
 const ROW_TEXT_RESUME := "CONTINUE"
 # The wordmark is the column's width: its right edge is the buttons' right edge, which is the one
 # relationship here the eye can check on the screen. Its size is therefore MEASURED from the font
-# rather than tabled - `WORDMARK_REF` is only the size it is measured at. The rule's drop is a
-# multiple of the size and the air above the first row a fixed number, so the block moves as one.
+# rather than tabled - `WORDMARK_REF` is only the size it is measured at. The rule hangs a fixed
+# air under the word's own BASELINE (below), not at a multiple of its size, and the air above the
+# first row is a fixed number, so the block moves as one.
 const WORDMARK_REF := 40.0
-const WORDMARK_RULE := 1.30
-const WORDMARK_AIR := 14.0
+# Units between the letters and the rule. It is smaller than `WORDMARK_AIR`: the rule belongs to
+# the word - it is the word's underline - and the list is the next thing on the screen, so the title
+# and its rule read as one object with the rows below them. 14 units is 28 px at 1080p, against 44
+# under the rule to CONTINUE: close enough to belong, far enough to be an underline rather than a
+# shelf the letters stand on (6 units was tried, and read as the second).
+const WORDMARK_RULE_AIR := 14.0
+const WORDMARK_AIR := 22.0
 const WORDMARK_TEXT := "FARLANDS"
 # The border: the word again, in black, one copy per direction, drawn BEHIND the white one. It is
 # a copy at the same size and not a larger font size, which is the obvious way to write this and
@@ -119,9 +125,49 @@ const SCRIM_TINT := Color(0.015, 0.018, 0.024)
 # smooth plate into a handful of visible terraces. So the tone is continuous, sampled once
 # per cell at its centre, and each cell is filled flat - the gradient is the gradient, carried
 # by squares.
-# The accent, mixed with the world's own sky warmth when one is available. One
-# accent for the primary action and the focus state, and nothing else.
+# The accent, mixed with the world's own sky warmth when one is available: the focused row's
+# bar and its border. The wordmark's rule is NOT the accent any more - it is steel (below),
+# because the rule and the title are one object and a warm bar under a white word reads as a
+# second, competing accent on the one element that is not asking for attention.
 const ACCENT := Color(1.0, 0.76, 0.42)
+# The wordmark's rule, as a piece of steel: a lit top edge, the face, the face turning away, and
+# the underside in shadow. Four bands rather than one flat colour, because a single colour is a
+# stroke - a bevel is an object, and the bevel is the language the buttons and both cards already
+# speak (one texel of light above, one of shade below). The tones are the ROW's family, not a separate
+# blue: the button texture is neutral grey (#6d6d6d fill, #9b9b9b lit, #424242 shaded) and the log's
+# own bevel is #686e76, so the rule is the same near-neutral with a few points of blue in it - 14
+# between red and blue, the log's own bias. The first version was a saturated steel (#b4c2ce to
+# #2e3843, 40 points of blue over red) which read as a blue object parked next to grey ones. Written
+# to the 8-bit values of their hex, like the row tints, so a measured colour and the constant are
+# the same number.
+const RULE_HI := Color(0.650980, 0.678431, 0.705882)  # #a6adb4
+const RULE_FACE := Color(0.482353, 0.509804, 0.541176)  # #7b828a
+const RULE_LOW := Color(0.341176, 0.364706, 0.392157)  # #575d64
+const RULE_SHADE := Color(0.168627, 0.184314, 0.207843)  # #2b2f35
+# One band is one interface unit, so the rule thickens with the rest of the interface instead of
+# staying a hairline at 4K or a slab at 720p.
+const RULE_BAND := 1.0
+# The ends come to a point. A beam that stops in a flat wall leaves two square corners on the one
+# horizontal the eye follows across the whole screen; tapering to a point at the rule's mid-line
+# ends it in a shape instead. Every band's end lands on the same diagonal, so the silhouette is two
+# straight edges meeting at a tip - not a stair of four steps, which at 2 px per unit is what a
+# per-band inset would look like. The TIP, in units, is measured in from the column's edge and
+# takes the same share of each end, so the rule still spans exactly the wordmark's width.
+#
+# 8 units for a 4-unit bar: a long, shallow taper. The first version was 3 units, which is a 37
+# degree point - the diagonal climbs faster than the eye reads it, so what it actually showed was
+# four coarse 2-px steps on each end rather than a point. A shallow taper also spends more of its
+# length on the ramp, which is what "a transition into the edge" means here.
+const RULE_TIP := 8.0
+# A black edge round the beam, the way the buttons and both cards carry one. It is what separates
+# a light object from whatever is behind it, and behind this one is the plate at its brightest end
+# - the rule's own underside and the plate are close enough in tone that the point would otherwise
+# dissolve into it. A whole unit: at 1080p that is 2 px, the same texel the buttons and both cards
+# bevel with, and half a unit came out a hairline. It is drawn as an offset of the beam rather
+# than an inset of it, which is why 2 px stays an edge and does not become the cap that made the
+# point look thick.
+const RULE_EDGE := 1.0
+const RULE_EDGE_COLOR := Color(0.043137, 0.047059, 0.054902)  # #0b0c0e
 # What each row turns while it is the current one. The colour says what the row does before it
 # is pressed: green to go in, steel to open housekeeping, red to end the session - and Quit is
 # already two presses, so the colour is a warning, not the only warning. Pressed takes the same
@@ -251,12 +297,27 @@ const PROFILE_ROWS := [
 const BUTTON_FILL := Color(35.0 / 255.0, 39.0 / 255.0, 45.0 / 255.0)
 const PRESSED_DARKEN := 0.78
 
+# The sheen: one light travelling round the three right-hand cards' frames. It used to cross the
+# ROWS' faces as well, and that was what made the buttons read as busy - a 40-unit face takes the
+# whole band, and a row's own colour is a signal (green for play, red for quit) that a wash of
+# violet argued with. It spent one build on the wordmark, masked to the letters, and came off
+# there too: the title is the one element on this screen that has to read instantly as a word,
+# and a band moving through its letters is motion in the middle of it. The cards keep it on their
+# frames, which is the part of a card that is an edge.
+const SHEEN_SCRIPT: GDScript = preload("res://scripts/ui_sheen.gd")
+const SHEEN_CARD_STRENGTH := 0.21
+# Fraction of a period: where the cards sit in the light's cycle. They are phase-shifted from each
+# other so three frames never light in step.
+const SHEEN_CARD_PHASE := [0.31, 0.57, 0.83]
+
 var _wordmark: Label
 # The word's border, one black copy of it per direction, drawn under the white word.
 var _wordmark_border: Array[Label] = []
 var _rows: VBoxContainer
 var _footer: Label
 var _buttons: Array = []
+# One Control over each right-hand card's frame, grown once and re-placed by `_layout`.
+var _card_sheen: Array = []
 # The grid the scrim is drawn on, and the per-square darkness offset on it.
 var _cell := 27.0
 var _grid_w := 1
@@ -359,6 +420,15 @@ func _ready() -> void:
 
 	_build_profile_rows()
 	_build_friends()
+
+	# The three cards' frames, grown once and re-placed by `_layout` from the rects the positioning
+	# passes resolve. Children of the screen, so they lie over the fills, the bevels and the text
+	# `_draw` puts inside them - and they are not part of the column, because the cards never
+	# change identity, only geometry.
+	for i in range(SHEEN_CARD_PHASE.size()):
+		var card: Control = SHEEN_SCRIPT.new()
+		add_child(card)
+		_card_sheen.append(card)
 
 	_footer = Label.new()
 	_footer.add_theme_font_override("font", MUNRO_FONT)
@@ -773,7 +843,12 @@ func _layout() -> void:
 		copy.add_theme_font_override("font", _wordmark.get_theme_font("font"))
 		copy.add_theme_font_size_override("font_size", mark_px)
 		copy.position = at + Vector2(roundf(dir.x * border), roundf(dir.y * border))
-	_mark_rule_y = _wordmark_y + mark * WORDMARK_RULE
+	# Under the BASELINE, which is where the letters actually end: a multiple of the font size puts
+	# the rule wherever the face's own proportions land, so a face with deep descent left a band of
+	# nothing between the word and its own underline. The ascent is read off the label's face, like
+	# the width is, for the same reason.
+	var face: Font = _wordmark.get_theme_font("font")
+	_mark_rule_y = _wordmark_y + float(face.get_ascent(mark_px)) / s + WORDMARK_RULE_AIR
 	_rows_y = ceilf(maxf(minf(FIRST_ROW, height_units * 0.34), _mark_rule_y + WORDMARK_AIR))
 	_rows.position = Vector2(_margin, _rows_y) * s
 	_rows.add_theme_constant_override("separation", int(ROW_GAP * s))
@@ -796,6 +871,7 @@ func _layout() -> void:
 	_position_profile()
 	_position_friends()
 	_position_log()
+	_place_card_sheen()
 	queue_redraw()
 
 
@@ -1008,11 +1084,82 @@ func _position_log() -> void:
 	_log_rect = Rect2(Vector2(left, top), Vector2(w, h))
 
 
+## The same light on the three cards, confined to their frames. A card's inside is a surface with
+## text on it, and additive light over text is a smudge - but its edge is where a reflection would
+## catch, so that is what is lit. The ring is two texels because that is what `_draw_panel` draws a
+## frame with: one of outline and one of lit or shaded edge. A card with no rect this window (one
+## dropped for room, the log before its entries load) has its light put out rather than left at a
+## stale size.
+func _place_card_sheen() -> void:
+	var s := maxf(UIScale.value, 1.0)
+	var ring := 2.0 * maxf(1.0, roundf(s))
+	var rects := [_profile_rect, _friends_rect, _log_rect]
+	for i in range(_card_sheen.size()):
+		var sheen: Control = _card_sheen[i]
+		var rect: Rect2 = rects[i]
+		if rect.size.x <= 0.0 or rect.size.y <= 0.0:
+			sheen.set_moving(false)
+			continue
+		sheen.position = rect.position
+		sheen.size = rect.size
+		sheen.configure(SHEEN_CARD_STRENGTH, float(SHEEN_CARD_PHASE[i]), ring, 0.0, s)
+		sheen.set_moving(_motion)
+
+
 func _draw() -> void:
 	var s := UIScale.value
 	_draw_scrim()
-	# The accent: one underline for the wordmark and one bar on the focused row.
-	draw_rect(Rect2(_margin * s, _mark_rule_y * s, COLUMN * 0.42 * s, 2.0 * s), _accent)
+	# The wordmark's rule: the full column, in steel. Full width because the wordmark is - its
+	# right edge is the buttons' right edge, and a rule stopping at 42% of that measured against
+	# nothing and left the title looking unfinished at the end the eye reads last. The four bands
+	# are stacked, not smoothed: a pixel rule that fades is a soft line, and every other edge on
+	# this screen is hard.
+	# On the device grid, like the wordmark's border: neither the margin nor the rule's drop is a
+	# whole pixel once the GUI scale has been through them (51.8 and 208.4 at 1080p), and a beam
+	# drawn from a fractional origin rasterises its two diagonals differently - the lower one covers
+	# a column the upper one misses, so one end of the point reads longer than the other. The shape
+	# is symmetric; the pixel grid it landed on was not.
+	var rule_x := roundf(_margin * s)
+	var rule_y := roundf(_mark_rule_y * s)
+	var rule_w := COLUMN * s
+	var band := RULE_BAND * s
+	var half := band * 2.0
+	var tip := RULE_TIP * s
+	var tall := half * 2.0
+	var tones: Array[Color] = [RULE_HI, RULE_FACE, RULE_LOW, RULE_SHADE]
+	# The rim: the same beam OFFSET perpendicular by half a unit, one polygon. Offsetting rather
+	# than insetting is the whole of it. At this angle the taper is nearly horizontal, so a rim
+	# drawn a pixel in from each row's edge is one dot per row - a dotted line, which is what "the
+	# outline is messed up on the point" was - while a rim one pixel away ACROSS the edge runs four
+	# or five pixels in every row and reads as a line, because that is how any line this shallow
+	# rasterises. The tip is dragged out by `edge` and no further: a true miter at 28 degrees is a
+	# needle, and a clipped one is the fat black nose that read as a thick point.
+	var edge := roundf(RULE_EDGE * s)
+	if edge > 0.0:
+		var diagonal := sqrt(tip * tip + half * half)
+		var out_x := edge * half / diagonal
+		var out_y := edge * tip / diagonal
+		draw_colored_polygon(PackedVector2Array([
+			Vector2(rule_x - edge, rule_y + half),
+			Vector2(rule_x + tip - out_x, rule_y - out_y),
+			Vector2(rule_x + rule_w - tip + out_x, rule_y - out_y),
+			Vector2(rule_x + rule_w + edge, rule_y + half),
+			Vector2(rule_x + rule_w - tip + out_x, rule_y + tall + out_y),
+			Vector2(rule_x + tip - out_x, rule_y + tall + out_y)]), RULE_EDGE_COLOR)
+	# The beam itself: four bands, each a trapezoid, so the taper is one straight edge across the
+	# whole bar. The insets are deliberately NOT rounded - a row's own inset rounded to the pixel is
+	# what turned the end into a staircase in an earlier build, and the staircase is also what the
+	# rim cannot be parallel to.
+	for i in range(tones.size()):
+		var top := float(i) * band
+		var low := top + band
+		var it := tip * absf(top - half) / half
+		var ib := tip * absf(low - half) / half
+		draw_colored_polygon(PackedVector2Array([
+			Vector2(rule_x + it, rule_y + top), Vector2(rule_x + rule_w - it, rule_y + top),
+			Vector2(rule_x + rule_w - ib, rule_y + low), Vector2(rule_x + ib, rule_y + low)]),
+			tones[i])
+	# The accent: one bar on the focused row.
 	if _focus_index >= 0 and _focus_index < _buttons.size():
 		var row_y := _rows_y + float(_focus_index) * (ROW_H + ROW_GAP)
 		draw_rect(Rect2((_margin - FOCUS_BAR_INSET) * s, row_y * s + ROW_H * 0.10 * s,

@@ -183,6 +183,22 @@ func _check_title_rows() -> void:
 		_check(pressed.is_equal_approx(darker), "%s presses darker than it hovers" % btn.text)
 		_check(btn.get_theme_stylebox("focus") is StyleBoxEmpty,
 			"%s has no focus fill to cover its press" % btn.text)
+
+	# The light is on the right-hand cards' frames and nowhere else. It crossed the rows and then the
+	# wordmark, and both were taken off: a 40-unit face takes the whole band and reads as a texture,
+	# and a title has to read as a word before it is allowed to be lit. The check is that neither can
+	# come back by accident - a Control under a row, or a material on the label - because both look
+	# like "a subtle addition" in a diff and both are visible motion over the thing being read.
+	title.size = Vector2(1920, 1080)
+	title._layout()
+	var on_rows := 0
+	for btn in title._buttons:
+		for child in btn.get_children():
+			var mat := (child as CanvasItem).material as ShaderMaterial if child is CanvasItem else null
+			if mat != null and mat.shader == Title.SHEEN_SCRIPT.SHEEN:
+				on_rows += 1
+	_check(on_rows == 0, "no row carries the light (%d found)" % on_rows)
+	_check(title._wordmark.material == null, "the wordmark is not lit (it has a material)")
 	title.queue_free()
 	await process_frame
 
@@ -221,8 +237,24 @@ func _check_update_log() -> void:
 	# as a missing row, so the gap is bounded here rather than left to the constant alone.
 	var underline_y: float = title._mark_rule_y * s
 	var gap: float = title._rows_y * s - underline_y
-	_check(gap > 0.0 and gap <= 30.0 * s,
-		"the column starts under the wordmark, not a third down (%.0f px gap)" % gap)
+	# Bounded by ONE ROW, not by a taste number: the failure this guards is a band wide enough to
+	# read as a row someone forgot, and a row is the only thing that can say what that width is.
+	# Since the rule hangs under the word's baseline the gap is often the column's own floor
+	# (`FIRST_ROW`), not the 14 units above it, so a tight pixel bound would fail on a tall window.
+	_check(gap > 0.0 and gap < Title.ROW_H * s,
+		"the column starts under the wordmark, not a row's width down (%.0f px gap, one row is %.0f)"
+		% [gap, Title.ROW_H * s])
+	# The gap above is measured from the rule's TOP edge, so a rule that grew into it would hide
+	# inside that number. It is four bands plus a rim now, and the bands are a bevel: the lit edge
+	# has to be the top one, or the rule reads as a groove somebody turned upside down.
+	var rule_bottom: float = (title._mark_rule_y + Title.RULE_BAND * 4.0) * s + Title.RULE_EDGE * s
+	_check(rule_bottom <= title._rows_y * s,
+		"the rule's bands and rim end above the first row (%.1f vs %.1f)"
+		% [rule_bottom, title._rows_y * s])
+	_check(Title.RULE_HI.get_luminance() > Title.RULE_FACE.get_luminance()
+		and Title.RULE_FACE.get_luminance() > Title.RULE_LOW.get_luminance()
+		and Title.RULE_LOW.get_luminance() > Title.RULE_SHADE.get_luminance(),
+		"the rule's four tones go light to dark, like a bevel and not a groove")
 	# The wordmark is sized to the column, so the check is an EDGE against an edge rather than a
 	# font size: what the title is for is that its right edge is the buttons' right edge. The
 	# width is measured off the font at the size the label was given, which is what it will draw.
@@ -508,6 +540,41 @@ func _check_update_log() -> void:
 	var version := String(ProjectSettings.get_setting("application/config/version", "dev"))
 	_check(title._log_version == version,
 		"the log's version matches the build (%s / %s)" % [title._log_version, version])
+
+	# The same light on the three cards, which is the other half of it: one surface per card, on the
+	# card's own rect, and confined to two texels of frame - light across a card's inside would wash
+	# the entries out. These nodes sit over the profile and friends controls, so the pointer has to
+	# pass through them or those rows stop answering.
+	_check(title._card_sheen.size() == 3,
+		"each right-hand card carries a sheen (%d)" % title._card_sheen.size())
+	var cards := [title._profile_rect, title._friends_rect, title._log_rect]
+	var on_card := 0
+	var framed := 0
+	var pass_through := 0
+	for i in range(mini(cards.size(), title._card_sheen.size())):
+		var light: Control = title._card_sheen[i]
+		var want: Rect2 = cards[i]
+		if light.visible and light.position.is_equal_approx(want.position) \
+				and light.size.is_equal_approx(want.size):
+			on_card += 1
+		if light.mouse_filter == Control.MOUSE_FILTER_IGNORE:
+			pass_through += 1
+		var mat := light.material as ShaderMaterial
+		if mat != null and float(mat.get_shader_parameter("ring_width")) >= 2.0 * s:
+			framed += 1
+	_check(on_card == 3, "the sheen is on each card's own rect (%d of 3)" % on_card)
+	_check(pass_through == 3, "the cards' sheen lets the pointer through (%d of 3)"
+		% pass_through)
+	_check(framed == 3, "the card's light is on its frame, not its face (%d of 3)" % framed)
+	title._motion = false
+	title._layout()
+	var card_out := 0
+	for light in title._card_sheen:
+		if not light.visible:
+			card_out += 1
+	_check(card_out == 3, "Reduce Motion puts the cards' light out (%d of 3)" % card_out)
+	title._motion = true
+	title._layout()
 	title.queue_free()
 	await process_frame
 

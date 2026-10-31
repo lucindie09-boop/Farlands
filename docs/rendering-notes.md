@@ -226,8 +226,14 @@ twice, and the coast is where the samples' own crossing is. The whole sequence, 
 - **Soft curved AO**: Non-linear power-curve smoothing to eliminate diagonal triangulation seams
 - **Fog system**: 4 fog modes (Disabled, Edge, Linear, Exponential) with fog color matching sky
   color throughout day/night cycle
-- **God rays**: Toggleable atmospheric lighting effects with dynamic sample count and twilight
-  optimization
+- **God rays**: Toggleable screen-space crepuscular rays with dynamic sample count and twilight
+  optimization. The radial march is capped in screen space and only the sky around the light
+  seeds it, so a light away from the crosshair no longer makes every ray longer and brighter (the
+  bug that could tint the whole frame); off-frame taps are rejected rather than clamped to the
+  border, so a light just outside the screen cannot repeat a bright edge texel down every ray.
+  Looking straight at the sun or moon keeps its rays: the old screen-centre fade is gone, and the
+  accumulation runs continuously up to the light itself — masking the disc out of the result
+  punched a dark hole there that read as a dark disc through whatever the light sat behind
 - **Sky turbidity**: Rayleigh/Mie haze effects gated by sky light for proper night darkness
 
 ## Procedurally animated liquid textures

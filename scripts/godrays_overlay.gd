@@ -71,9 +71,6 @@ func _process(_delta: float) -> void:
 				sun_visibility *= smoothstep(1.0 + edge_margin, 1.0, sun_uv.x)
 				sun_visibility *= smoothstep(-edge_margin, 0.0, sun_uv.y)
 				sun_visibility *= smoothstep(1.0 + edge_margin, 1.0, sun_uv.y)
-				# Fade when sun projects near screen center (prevents crosshair hotspot)
-				var sun_center_dist: float = (sun_uv - Vector2(0.5, 0.5)).length()
-				sun_visibility *= smoothstep(0.05, 0.25, sun_center_dist)
 				shader_material.set_shader_parameter("sun_screen_uv", sun_uv)
 	shader_material.set_shader_parameter("sun_visibility", sun_visibility)
 
@@ -96,7 +93,5 @@ func _process(_delta: float) -> void:
 				moon_visibility *= smoothstep(1.0 + edge_margin, 1.0, moon_uv.x)
 				moon_visibility *= smoothstep(-edge_margin, 0.0, moon_uv.y)
 				moon_visibility *= smoothstep(1.0 + edge_margin, 1.0, moon_uv.y)
-				var moon_center_dist: float = (moon_uv - Vector2(0.5, 0.5)).length()
-				moon_visibility *= smoothstep(0.05, 0.25, moon_center_dist)
 				shader_material.set_shader_parameter("moon_screen_uv", moon_uv)
 	shader_material.set_shader_parameter("moon_visibility", moon_visibility)

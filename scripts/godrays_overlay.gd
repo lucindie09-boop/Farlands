@@ -10,6 +10,9 @@ const SUN_DISTANCE := 5000.0
 const FRONT_FADE_START := -0.5   # dot(cam_forward, sun_dir) below this = fully hidden
 const FRONT_FADE_END := 0.25     # dot(cam_forward, sun_dir) above this = fully visible
 const HORIZON_FADE := 0.10       # sun_dir.y below this starts fading rays out
+const LOW_SUN_FADE_START := 0.0  # sun_dir.y where the effect starts fading in
+const LOW_SUN_FADE_END := 0.85   # ...and where it is back to full strength
+const LOW_SUN_FADE_FLOOR := 0.0  # no god rays at the horizon itself
 
 var camera: Camera3D
 var chunk_manager: Node
@@ -54,9 +57,16 @@ func _process(_delta: float) -> void:
 	var sun_facing: float = cam_forward.dot(sun_dir)
 	var sun_facing_fade: float = smoothstep(FRONT_FADE_START, FRONT_FADE_END, sun_facing)
 	var sun_horizon_fade: float = smoothstep(-HORIZON_FADE, HORIZON_FADE, sun_dir.y)
+	# The sunset sky is bright enough to sit above the ray threshold on its own,
+	# so a sun sitting in it fed the whole frame back through the pass and washed
+	# the sky white. Fade the effect in with the sun's height instead of letting
+	# the bright low sky act as a source. The ramp is long on purpose: a short one
+	# reached its steepest rise around 15 degrees, which read as the rays switching
+	# on there instead of as the sky brightening.
+	var sun_low_sun_fade: float = lerpf(LOW_SUN_FADE_FLOOR, 1.0, smoothstep(LOW_SUN_FADE_START, LOW_SUN_FADE_END, sun_dir.y))
 	var sun_visibility: float = 0.0
 	if sun_facing > 0.0:
-		sun_visibility = sun_facing_fade * sun_horizon_fade
+		sun_visibility = sun_facing_fade * sun_horizon_fade * sun_low_sun_fade
 		if sun_visibility > 0.0:
 			var sun_world_pos: Vector3 = camera.global_position + sun_dir * SUN_DISTANCE
 			# Unprojecting a point on the camera plane is undefined (the engine

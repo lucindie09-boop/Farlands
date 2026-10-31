@@ -233,7 +233,16 @@ twice, and the coast is where the samples' own crossing is. The whole sequence, 
   border, so a light just outside the screen cannot repeat a bright edge texel down every ray.
   Looking straight at the sun or moon keeps its rays: the old screen-centre fade is gone, and the
   accumulation runs continuously up to the light itself — masking the disc out of the result
-  punched a dark hole there that read as a dark disc through whatever the light sat behind
+  punched a dark hole there that read as a dark disc through whatever the light sat behind. The
+  pass is scaled to nothing at the horizon and back to full by 0.85 in `sun_dir.y`, because the
+  sunset sky is itself above the ray threshold and the whole frame was being fed back through the
+  pass. The ramp is long on purpose: a short one finished its steepest rise around 15 degrees and
+  read as the rays switching on there rather than as the sky brightening
+- **Low-sun extinction**: the sky shader scales the sun's disc and glow through the band just
+  above the horizon (0.35 at the horizon, full by 0.85 in `sun_elevation`), because it otherwise
+  kept its full noon brightness while the warm horizon built up behind it. The ramp is deliberately
+  long so the sun brightens with the sky instead of stepping up around 15 degrees. This is the sun
+  itself, not the god-ray pass; the rays only inherit the dimmer source
 - **Sky turbidity**: Rayleigh/Mie haze effects gated by sky light for proper night darkness
 
 ## Procedurally animated liquid textures

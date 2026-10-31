@@ -18,10 +18,10 @@
 [ext_resource type="Script" uid="uid://dbeyx08uuwwe7" path="res://scripts/viewmodel.gd" id="18_viewmodel"]
 [ext_resource type="Script" uid="uid://c0wgpq0dxpukx" path="res://scripts/wand.gd" id="19_wand"]
 [ext_resource type="Script" uid="uid://dwlgd33ksdgxq" path="res://scripts/shader_overlay.gd" id="20_shaders"]
-[ext_resource type="Script" path="res://scripts/dropped_items.gd" id="21_dropped"]
-[ext_resource type="Script" path="res://scripts/airbar.gd" id="22_airbar"]
-[ext_resource type="Script" path="res://scripts/block_break_particles.gd" id="23_breakchips"]
-[ext_resource type="Script" path="res://scripts/hurt_overlay.gd" id="24_hurtoverlay"]
+[ext_resource type="Script" uid="uid://juh018mi8r1u" path="res://scripts/dropped_items.gd" id="21_dropped"]
+[ext_resource type="Script" uid="uid://crc4bnynbq6yk" path="res://scripts/airbar.gd" id="22_airbar"]
+[ext_resource type="Script" uid="uid://s02lq0mwsy4m" path="res://scripts/block_break_particles.gd" id="23_breakchips"]
+[ext_resource type="Script" uid="uid://bkh0fnhk5jxms" path="res://scripts/hurt_overlay.gd" id="24_hurtoverlay"]
 
 [sub_resource type="Environment" id="Environment_uu6xs"]
 background_mode = 2
@@ -175,7 +175,7 @@ grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("10_compass")
 
-[node name="HurtOverlay" type="ColorRect" parent="HUD"]
+[node name="HurtOverlay" type="ColorRect" parent="HUD" unique_id=1570586959]
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
@@ -197,7 +197,7 @@ script = ExtResource("12_deathscreen")
 [node name="BlockBreakOverlay" type="Node3D" parent="." unique_id=135246794]
 script = ExtResource("16_breakoverlay")
 
-[node name="BlockBreakParticles" type="Node3D" parent="."]
+[node name="BlockBreakParticles" type="Node3D" parent="." unique_id=1873902061]
 script = ExtResource("23_breakchips")
 
 [node name="Hotbar#HotbarTexture" type="TextureRect" parent="." unique_id=702814611]

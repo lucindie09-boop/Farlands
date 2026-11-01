@@ -57,34 +57,23 @@ float value_noise(vec2 p) {
 
 void sky() {
     vec3 dir = normalize(EYEDIR);
-    float up = max(dir.y, 0.0);
-
     vec3 sun_fwd = normalize(sun_direction);
     float sun_elevation = sun_fwd.y;
     float sun_dot = max(dot(dir, sun_fwd), 0.0);
 
-    float gradient = 1.0 - (1.0 - up) * sqrt(1.0 - up);
-
-    // Turbidity: Mie haze washes horizon, desaturates zenith
+    // Turbidity widens the sun's glow.
     float haze = clamp(sky_turbidity * 1.4 - 0.2, 0.0, 1.0);
     haze *= smoothstep(0.0, 0.35, blend);
-    vec3 haze_color = mix(vec3(0.95, 0.92, 0.88), sun_color, 0.25);
-    vec3 turb_horizon = mix(horizon_color, haze_color, haze * 0.55);
-    float z_luma = dot(zenith_color, vec3(0.299, 0.587, 0.114));
-    vec3 pale_zenith = mix(zenith_color, vec3(z_luma) * vec3(0.75, 0.80, 0.92), haze * 0.60);
 
-    vec3 base_sky = mix(turb_horizon, pale_zenith, gradient);
+    // Flat sky: the sky's own zenith blue, so it is the same blue the normal
+    // gradient reaches overhead. The sun, moon, stars and glow are unchanged.
+    vec3 base_sky = zenith_color;
 
     // Sun glow widens with turbidity
     float sun_glow_w = mix(1.0, 2.2, haze);
     float sun_glow = (pow(sun_dot, 20.0) * 0.04 + pow(sun_dot, 60.0 / sun_glow_w) * 0.08);
     float sun_vis = smoothstep(-0.08, 0.08, sun_elevation);
-    // Atmospheric extinction: a low sun is seen through more air, so its disc
-    // and glow are dimmed through the band above the horizon. Without this the
-    // sunset sun kept its full noon brightness on top of the warm horizon. The
-    // ramp runs all the way to 0.85 so it never reads as a step around 15 degrees.
-    float sun_extinction = mix(0.35, 1.0, smoothstep(0.0, 0.85, sun_elevation));
-    base_sky += sun_color * sun_glow * sun_vis * sun_extinction;
+    base_sky += sun_color * sun_glow * sun_vis;
     // Sun using texture
     vec3 sun_right = normalize(cross(vec3(0.0, 1.0, 0.0), sun_fwd + vec3(0.001, 0.0, 0.0)));
     vec3 sun_up_vec = cross(sun_fwd, sun_right);
@@ -96,7 +85,7 @@ void sky() {
         vec4 texel = texture(sun_texture, tex_uv);
         float alpha = texel.a * (1.0 - edge * 0.4) * in_range;
         vec3 sun_tex_col = texel.rgb * vec3(1.0, 0.5, 0.08) * 2.0;
-        base_sky += (sun_tex_col * alpha + exp(-length(suv) * 5.0) * 0.04) * sun_vis * sun_extinction;
+        base_sky += (sun_tex_col * alpha + exp(-length(suv) * 5.0) * 0.04) * sun_vis;
     }
 
     // Moon using texture

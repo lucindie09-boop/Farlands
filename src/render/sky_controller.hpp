@@ -65,9 +65,13 @@ void sky() {
     float haze = clamp(sky_turbidity * 1.4 - 0.2, 0.0, 1.0);
     haze *= smoothstep(0.0, 0.35, blend);
 
-    // Flat sky: the sky's own zenith blue, so it is the same blue the normal
-    // gradient reaches overhead. The sun, moon, stars and glow are unchanged.
-    vec3 base_sky = zenith_color;
+    // Flat day sky: the zenith blue. At night the horizon is black and the sky
+    // grades up to the night zenith colour; the sun, moon, stars and glow are
+    // unchanged.
+    float night = 1.0 - blend;
+    float night_up = smoothstep(0.0, 0.65, max(dir.y, 0.0));
+    vec3 night_sky = mix(vec3(0.0), zenith_color, night_up);
+    vec3 base_sky = mix(zenith_color, night_sky, night);
 
     // Sun glow widens with turbidity
     float sun_glow_w = mix(1.0, 2.2, haze);

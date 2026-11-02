@@ -320,6 +320,11 @@ void toggle_day_night_cycle();
     void set_night_sky_color(const godot::Color& color);
     godot::Color get_night_sky_color() const;
 
+    void set_day_horizon_color(const godot::Color& color);
+    godot::Color get_day_horizon_color() const;
+    void set_night_horizon_color(const godot::Color& color);
+    godot::Color get_night_horizon_color() const;
+
     void set_contrast(double contrast);
     double get_contrast() const;
 

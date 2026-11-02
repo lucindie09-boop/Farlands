@@ -433,6 +433,12 @@ godot::Color VoxelEngineController::get_day_sky_color() const { return environme
 void VoxelEngineController::set_night_sky_color(const godot::Color& color) { environment_controller.set_night_sky_color(color); }
 godot::Color VoxelEngineController::get_night_sky_color() const { return environment_controller.get_night_sky_color(); }
 
+void VoxelEngineController::set_day_horizon_color(const godot::Color& color) { environment_controller.set_day_horizon_color(color); }
+godot::Color VoxelEngineController::get_day_horizon_color() const { return environment_controller.get_day_horizon_color(); }
+
+void VoxelEngineController::set_night_horizon_color(const godot::Color& color) { environment_controller.set_night_horizon_color(color); }
+godot::Color VoxelEngineController::get_night_horizon_color() const { return environment_controller.get_night_horizon_color(); }
+
 void VoxelEngineController::set_contrast(double contrast) { environment_controller.set_contrast(contrast); }
 double VoxelEngineController::get_contrast() const { return environment_controller.get_contrast(); }
 void VoxelEngineController::set_saturation(double saturation) { environment_controller.set_saturation(saturation); }

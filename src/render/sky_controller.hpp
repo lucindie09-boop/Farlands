@@ -20,7 +20,7 @@ uniform float blend = 1.0;
 uniform vec3 sun_direction = vec3(0.0, 1.0, 0.0);
 uniform vec3 sun_color = vec3(1.0, 0.95, 0.7);
 uniform float exposure = 1.0;
-uniform vec3 horizon_color = vec3(0.30, 0.52, 0.85);
+uniform vec3 horizon_color = vec3(0.356863, 0.917647, 0.772549);
 uniform vec3 zenith_color = vec3(0.06, 0.20, 0.85);
 uniform float sky_turbidity = 0.35;
 uniform float moon_phase = 0.5;
@@ -65,13 +65,15 @@ void sky() {
     float haze = clamp(sky_turbidity * 1.4 - 0.2, 0.0, 1.0);
     haze *= smoothstep(0.0, 0.35, blend);
 
-    // Flat day sky: the zenith blue. At night the horizon is black and the sky
-    // grades up to the night zenith colour; the sun, moon, stars and glow are
+    // Day grades from the live day horizon to the zenith; night grades from the
+    // live night horizon (black by default). The sun, moon, stars and glow are
     // unchanged.
+    float day_up = smoothstep(0.0, 0.65, max(dir.y, 0.0));
+    vec3 day_sky = mix(horizon_color, zenith_color, day_up);
     float night = 1.0 - blend;
     float night_up = smoothstep(0.0, 0.65, max(dir.y, 0.0));
-    vec3 night_sky = mix(vec3(0.0), zenith_color, night_up);
-    vec3 base_sky = mix(zenith_color, night_sky, night);
+    vec3 night_sky = mix(horizon_color, zenith_color, night_up);
+    vec3 base_sky = mix(day_sky, night_sky, night);
 
     // Sun glow widens with turbidity
     float sun_glow_w = mix(1.0, 2.2, haze);
@@ -164,8 +166,8 @@ void sky() {
 class SkyController {
 private:
     godot::Vector3 compute_horizon_color(float blend, float sun_elevation, const godot::Color& sun_color, float sky_turbidity) const {
-        godot::Vector3 day_horizon(0.30f, 0.52f, 0.85f);
-        godot::Vector3 night_horizon(0.025f, 0.045f, 0.090f);
+        godot::Vector3 day_horizon = day_horizon_color;
+        godot::Vector3 night_horizon = night_horizon_color;
 
         float sunset_factor = std::clamp(std::abs(sun_elevation) / 0.35f, 0.0f, 1.0f);
         godot::Vector3 sunset_horizon(0.95f, 0.70f, 0.40f);
@@ -195,6 +197,22 @@ public:
 
     [[nodiscard]] godot::Vector3 get_zenith_color(float blend) const {
         return compute_zenith_color(blend);
+    }
+
+    void set_day_horizon_color(const godot::Color& color) {
+        day_horizon_color = godot::Vector3(color.r, color.g, color.b);
+    }
+
+    [[nodiscard]] godot::Color get_day_horizon_color() const {
+        return godot::Color(day_horizon_color.x, day_horizon_color.y, day_horizon_color.z, 1.0f);
+    }
+
+    void set_night_horizon_color(const godot::Color& color) {
+        night_horizon_color = godot::Vector3(color.r, color.g, color.b);
+    }
+
+    [[nodiscard]] godot::Color get_night_horizon_color() const {
+        return godot::Color(night_horizon_color.x, night_horizon_color.y, night_horizon_color.z, 1.0f);
     }
 
     void ensure_sky(godot::Environment* env) {
@@ -261,6 +279,8 @@ private:
     bool sun_texture_loaded = false;
     bool star_texture_loaded = false;
     godot::Ref<godot::ShaderMaterial> cached_mat;
+    godot::Vector3 day_horizon_color = godot::Vector3(0.35686275f, 0.91764706f, 0.77254903f);
+    godot::Vector3 night_horizon_color = godot::Vector3(0.0f, 0.0f, 0.0f);
     godot::StringName p_blend = godot::StringName("blend");
     godot::StringName p_sun_dir = godot::StringName("sun_direction");
     godot::StringName p_sun_color = godot::StringName("sun_color");

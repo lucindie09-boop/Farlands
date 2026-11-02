@@ -114,13 +114,15 @@ screen (the shader-effect stack, the animated-liquid tools, the model previews).
   resettable row's reset is the square `undo_button.png` icon (20 units, 1:1 with the row
   height); a transparent content box draws no border, which is why the settings/controls/tools
   pages show no grey frame over the world. Each category heading is an HBox: beside the title
-  sit square export/import icons (`export_button.png`/`import_button.png`) and a reset-all icon
-  (the same `undo_button.png`), all at `UNIT_HEADING_ICON_W` (half the row reset) and tight
-  against the non-expanding title. Export, import and reset all are all wired: each category
-  carries a codec (its own `FG`/`FO`/`FC`/`FAR`/`FR` code plus a refresh callable that resyncs
-  its rows), and the three icons beside its title drive it; reset all replays the section's own
-  row resets. A switch added after a code existed has to import as the behaviour those older
-  codes were exported from: **Advanced Rendering → Sky → Sky Tint** (the world's midday tint,
+  sit a reset-all icon (the same `undo_button.png`) and, when the category has a codec, square
+  export/import icons (`export_button.png`/`import_button.png`), all at `UNIT_HEADING_ICON_W`
+  (half the row reset) and tight against the non-expanding title. Export, import and reset all
+  are wired: a category with a codec (its own `FG`/`FO`/`FC`/`FAR`/`FR` code plus a refresh
+  callable that resyncs its rows) shows the export/import icons, and reset all replays the
+  section's own row resets. The Sky section has no code of its own — its rows travel in the
+  Advanced Rendering `FAR` code — so its heading shows only the reset icon. A switch added after
+  a code existed has to import as the behaviour those older codes were exported from:
+  **Sky → Sky Tint** (the world's midday tint,
   `chunk_manager.sky_tint_enabled`) rides in `FAR`'s flag byte *inverted*, so a code written
   before the setting existed — bit clear — comes back with the cream ON, which is the look that
   code was exported from, and the format stays version 1. Every settings area (GUI, lighting, video, controls, crosshair, block outline, the

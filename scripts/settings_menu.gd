@@ -10,6 +10,11 @@ const SETTINGS_TEX: Texture2D = preload("res://textures/gui/settings_button.png"
 const SLIDER_TRACK_TEX: Texture2D = preload("res://textures/gui/slider_button.png")
 const SLIDER_THUMB_TEX: Texture2D = preload("res://textures/gui/slider.png")
 const SETTINGS_PATH := "user://settings.cfg"
+# The day-horizon variants saved for later; #5beac5 is the default. The tooltip
+# on the Day Horizon picker lists them, so the hex values stay with the control
+# that uses them, and a saved settings.cfg still wins over the default.
+const DAY_HORIZON_DEFAULT_HEX := "5beac5"
+const DAY_HORIZON_VARIANTS := ["ff1212", "1b9131", "1b7b91", "28de0e", "5beac5"]
 
 # -----------------------------------------------------------------------------
 # The metrics. Every size the menu draws is one of these, in interface units:
@@ -91,12 +96,17 @@ var _bg: ColorRect
 var _pages: Dictionary = {}
 # Each shader page's title label, by page name, so the pulse below can reach it.
 var _shader_page_titles: Dictionary = {}
+# The Sky category's rows, re-read after an imported FAR code changes the sky
+# colours out of band: the FAR codec lives on Advanced Rendering.
+var _sky_visual_syncs: Array = []
 var _title_pulse := 0.0
 
 var _default_gui_scale: float = 2.0
 var _default_day_duration: float = 10.0
 var _default_day_sky: Color = Color(1, 1, 1, 1)
 var _default_night_sky: Color = Color(0, 0, 0, 1)
+var _default_day_horizon: Color = Color(DAY_HORIZON_DEFAULT_HEX)
+var _default_night_horizon: Color = Color(0.0, 0.0, 0.0, 1.0)
 var _default_render_distance: int = 32
 var _default_lod_distance: int = 0
 var _default_lod_detail: float = 0.5
@@ -239,6 +249,8 @@ func _ready():
 	_default_day_duration = chunk_manager.get_day_duration()
 	_default_day_sky = chunk_manager.get_day_sky_color()
 	_default_night_sky = chunk_manager.get_night_sky_color()
+	_default_day_horizon = chunk_manager.get_day_horizon_color()
+	_default_night_horizon = chunk_manager.get_night_horizon_color()
 	_default_render_distance = chunk_manager.get_render_distance()
 	_default_lod_distance = chunk_manager.get_lod_distance()
 	_default_lod_detail = chunk_manager.get_lod_detail_level()
@@ -300,6 +312,8 @@ func _save_settings():
 	cfg.set_value("lighting", "day_duration", chunk_manager.get_day_duration())
 	cfg.set_value("lighting", "day_sky_color", chunk_manager.get_day_sky_color())
 	cfg.set_value("lighting", "night_sky_color", chunk_manager.get_night_sky_color())
+	cfg.set_value("lighting", "day_horizon_color", chunk_manager.get_day_horizon_color())
+	cfg.set_value("lighting", "night_horizon_color", chunk_manager.get_night_horizon_color())
 	cfg.set_value("lighting", "contrast", chunk_manager.get_contrast())
 	cfg.set_value("lighting", "saturation", chunk_manager.get_saturation())
 	cfg.set_value("lighting", "ao_color", chunk_manager.get_ao_color())
@@ -356,6 +370,8 @@ func _load_settings():
 	chunk_manager.set_day_duration(cfg.get_value("lighting", "day_duration", chunk_manager.get_day_duration()))
 	chunk_manager.set_day_sky_color(cfg.get_value("lighting", "day_sky_color", chunk_manager.get_day_sky_color()))
 	chunk_manager.set_night_sky_color(cfg.get_value("lighting", "night_sky_color", chunk_manager.get_night_sky_color()))
+	chunk_manager.set_day_horizon_color(cfg.get_value("lighting", "day_horizon_color", chunk_manager.get_day_horizon_color()))
+	chunk_manager.set_night_horizon_color(cfg.get_value("lighting", "night_horizon_color", chunk_manager.get_night_horizon_color()))
 	chunk_manager.set_contrast(cfg.get_value("lighting", "contrast", chunk_manager.get_contrast()))
 	chunk_manager.set_saturation(cfg.get_value("lighting", "saturation", chunk_manager.get_saturation()))
 	chunk_manager.set_ao_color(cfg.get_value("lighting", "ao_color", chunk_manager.get_ao_color()))
@@ -421,6 +437,7 @@ func _rebuild_pages():
 		if is_instance_valid(p):
 			p.queue_free()
 	_pages.clear()
+	_sky_visual_syncs.clear()
 	_pages["pause"] = _build_pause_page()
 	# One settings page for the general categories; controls is its own page.
 	_pages["settings"] = _build_settings_page()
@@ -513,6 +530,7 @@ func _build_settings_page() -> Control:
 	sections.append_array(_category("General", _build_general_sections()))
 	sections.append_array(_category("Block Outline", _build_block_outline_sections()))
 	sections.append_array(_category("Crosshair", _build_crosshair_sections()))
+	sections.append_array(_category("Sky", _build_sky_sections()))
 	sections.append_array(_category("Advanced Rendering", _build_lighting_sections()))
 	sections.append_array(_category("Render", _build_render_sections()))
 
@@ -1224,11 +1242,7 @@ func _block_outline_refresh_controls(controls: Dictionary):
 		elif c is ColorPickerButton:
 			c.color = v
 
-func _build_lighting_sections() -> Array:
-	var u := _ui_scale()
-	# Status hint for import/export feedback, as the last row of the list.
-	var hint := _make_hint_label(u)
-
+func _build_sky_sections() -> Array:
 	var dur := _make_slider(chunk_manager.get_day_duration(), 10.0, 600.0, 10.0,
 		func(v: float):
 			chunk_manager.set_day_duration(v)
@@ -1251,9 +1265,9 @@ func _build_lighting_sections() -> Array:
 		_schedule_save()
 
 	var night_color := ColorPickerButton.new()
+	night_color.color = chunk_manager.get_night_sky_color()
 	_style_button(night_color, UNIT_OPTION_W)
 	_add_color_caption(night_color)
-	night_color.color = chunk_manager.get_night_sky_color()
 	night_color.color_changed.connect(func(c: Color):
 		chunk_manager.set_night_sky_color(c)
 		_schedule_save())
@@ -1261,6 +1275,69 @@ func _build_lighting_sections() -> Array:
 		night_color.color = _default_night_sky
 		chunk_manager.set_night_sky_color(_default_night_sky)
 		_schedule_save()
+
+	var day_horizon := ColorPickerButton.new()
+	day_horizon.color = chunk_manager.get_day_horizon_color()
+	_style_button(day_horizon, UNIT_OPTION_W)
+	_add_color_caption(day_horizon)
+	var variant_text := ""
+	for variant in DAY_HORIZON_VARIANTS:
+		variant_text += ("  #" if variant_text != "" else "#") + variant
+	day_horizon.tooltip_text = "Saved day-horizon variants: " + variant_text
+	day_horizon.color_changed.connect(func(c: Color):
+		chunk_manager.set_day_horizon_color(c)
+		_schedule_save())
+	var day_horizon_reset := func():
+		day_horizon.color = _default_day_horizon
+		chunk_manager.set_day_horizon_color(_default_day_horizon)
+		_schedule_save()
+
+	var night_horizon := ColorPickerButton.new()
+	night_horizon.color = chunk_manager.get_night_horizon_color()
+	_style_button(night_horizon, UNIT_OPTION_W)
+	_add_color_caption(night_horizon)
+	night_horizon.color_changed.connect(func(c: Color):
+		chunk_manager.set_night_horizon_color(c)
+		_schedule_save())
+	var night_horizon_reset := func():
+		night_horizon.color = _default_night_horizon
+		chunk_manager.set_night_horizon_color(_default_night_horizon)
+		_schedule_save()
+
+	var sky_tint := Button.new()
+	_row_value(sky_tint, "On" if chunk_manager.get_sky_tint_enabled() else "Off")
+	_style_button(sky_tint, 180.0)
+	sky_tint.pressed.connect(func():
+		chunk_manager.set_sky_tint_enabled(not chunk_manager.get_sky_tint_enabled())
+		_row_value(sky_tint, "On" if chunk_manager.get_sky_tint_enabled() else "Off")
+		_schedule_save())
+	var sky_tint_reset := func():
+		chunk_manager.set_sky_tint_enabled(_default_sky_tint)
+		_row_value(sky_tint, "On" if _default_sky_tint else "Off")
+		_schedule_save()
+
+	_sky_visual_syncs.append(func(): dur.get_meta("slider").value = chunk_manager.get_day_duration())
+	_sky_visual_syncs.append(func(): day_color.color = chunk_manager.get_day_sky_color())
+	_sky_visual_syncs.append(func(): night_color.color = chunk_manager.get_night_sky_color())
+	_sky_visual_syncs.append(func(): day_horizon.color = chunk_manager.get_day_horizon_color())
+	_sky_visual_syncs.append(func(): night_horizon.color = chunk_manager.get_night_horizon_color())
+	_sky_visual_syncs.append(func(): _row_value(sky_tint, "On" if chunk_manager.get_sky_tint_enabled() else "Off"))
+
+	return [
+		["", [
+			["Day Duration", dur, dur_reset],
+			["Day Sky Color", day_color, day_reset],
+			["Night Sky Color", night_color, night_reset],
+			["Day Horizon", day_horizon, day_horizon_reset],
+			["Night Horizon", night_horizon, night_horizon_reset],
+			["Sky Tint", sky_tint, sky_tint_reset],
+		]],
+	]
+
+func _build_lighting_sections() -> Array:
+	var u := _ui_scale()
+	# Status hint for import/export feedback, as the last row of the list.
+	var hint := _make_hint_label(u)
 
 	var ao_color := ColorPickerButton.new()
 	_style_button(ao_color, UNIT_OPTION_W)
@@ -1326,42 +1403,22 @@ func _build_lighting_sections() -> Array:
 		_row_value(smooth_lighting, "On" if _default_smooth_lighting else "Off")
 		_schedule_save()
 
-	var sky_tint := Button.new()
-	_row_value(sky_tint, "On" if chunk_manager.get_sky_tint_enabled() else "Off")
-	_style_button(sky_tint, 180.0)
-	sky_tint.pressed.connect(func():
-		chunk_manager.set_sky_tint_enabled(not chunk_manager.get_sky_tint_enabled())
-		_row_value(sky_tint, "On" if chunk_manager.get_sky_tint_enabled() else "Off")
-		_schedule_save())
-	var sky_tint_reset := func():
-		chunk_manager.set_sky_tint_enabled(_default_sky_tint)
-		_row_value(sky_tint, "On" if _default_sky_tint else "Off")
-		_schedule_save()
-
 	var codec := {
 		"export": _export_lighting_code,
 		"import": _import_lighting_code,
 		"refresh": func():
-			dur.get_meta("slider").value = chunk_manager.get_day_duration()
-			day_color.color = chunk_manager.get_day_sky_color()
-			night_color.color = chunk_manager.get_night_sky_color()
 			ao_color.color = chunk_manager.get_ao_color()
 			ao_strength.get_meta("slider").value = chunk_manager.get_ao_strength()
 			dark_color.color = chunk_manager.get_darkness_color()
 			contrast.get_meta("slider").value = chunk_manager.get_contrast()
 			saturation.get_meta("slider").value = chunk_manager.get_saturation()
 			_row_value(smooth_lighting, "On" if chunk_manager.get_smooth_lighting() else "Off")
-			_row_value(sky_tint, "On" if chunk_manager.get_sky_tint_enabled() else "Off"),
+			for sync in _sky_visual_syncs:
+				sync.call(),
 		"hint": hint,
 	}
 
 	return [
-		["Sky", [
-			["Day Duration", dur, dur_reset],
-			["Day Sky Color", day_color, day_reset],
-			["Night Sky Color", night_color, night_reset],
-			["Sky Tint", sky_tint, sky_tint_reset],
-		]],
 		["Light", [
 			["AO Colour", ao_color, ao_reset],
 			["AO Strength", ao_strength, ao_strength_reset],
@@ -3308,14 +3365,17 @@ func _build_scrolling_page(title_text: String, sections: Array, actions: Array,
 			heading_row.add_child(heading)
 
 			if category:
-				var export_btn := _make_icon_button(EXPORT_TEX, UNIT_HEADING_ICON_W)
-				export_btn.tooltip_text = "Export this section"
-				export_btn.pressed.connect(func(): _export_section_code(codec))
-				heading_row.add_child(export_btn)
-				var import_btn := _make_icon_button(IMPORT_TEX, UNIT_HEADING_ICON_W)
-				import_btn.tooltip_text = "Import this section"
-				import_btn.pressed.connect(func(): _import_section_code(codec))
-				heading_row.add_child(import_btn)
+				# The Sky category has no code of its own: its rows travel in the
+				# Advanced Rendering FAR code, so only its reset icon is shown.
+				if codec.has("export") and codec.has("import"):
+					var export_btn := _make_icon_button(EXPORT_TEX, UNIT_HEADING_ICON_W)
+					export_btn.tooltip_text = "Export this section"
+					export_btn.pressed.connect(func(): _export_section_code(codec))
+					heading_row.add_child(export_btn)
+					var import_btn := _make_icon_button(IMPORT_TEX, UNIT_HEADING_ICON_W)
+					import_btn.tooltip_text = "Import this section"
+					import_btn.pressed.connect(func(): _import_section_code(codec))
+					heading_row.add_child(import_btn)
 				var reset_all_btn := _make_icon_button(UNDO_TEX, UNIT_HEADING_ICON_W)
 				reset_all_btn.tooltip_text = "Reset this section"
 				var section_resets: Array = []
@@ -3875,6 +3935,10 @@ func _export_lighting_code() -> String:
 	data.append_array(_pack_color32(chunk_manager.get_darkness_color()))
 	data.append_array(_pack_float16(chunk_manager.get_contrast(), 0.0, 2.0, 100.0))
 	data.append_array(_pack_float16(chunk_manager.get_saturation(), 0.0, 2.0, 100.0))
+	# Appended in version 1: a code without these colours still imports and
+	# leaves each horizon at its current value, so old FAR codes remain valid.
+	data.append_array(_pack_color32(chunk_manager.get_day_horizon_color()))
+	data.append_array(_pack_color32(chunk_manager.get_night_horizon_color()))
 	return _format_cs_code("FAR", _base32_encode(data))
 
 func _import_lighting_code(code: String) -> bool:
@@ -3891,6 +3955,10 @@ func _import_lighting_code(code: String) -> bool:
 	chunk_manager.set_darkness_color(_unpack_color32(data, idx)); idx += 4
 	chunk_manager.set_contrast(_unpack_float16(data, idx, 0.0, 2.0, 100.0)); idx += 2
 	chunk_manager.set_saturation(_unpack_float16(data, idx, 0.0, 2.0, 100.0)); idx += 2
+	if data.size() >= 30:
+		chunk_manager.set_day_horizon_color(_unpack_color32(data, idx)); idx += 4
+	if data.size() >= 34:
+		chunk_manager.set_night_horizon_color(_unpack_color32(data, idx)); idx += 4
 	chunk_manager.set_smooth_lighting((flags & (1 << 0)) != 0)
 	chunk_manager.set_sky_tint_enabled((flags & (1 << 1)) == 0)
 	_schedule_save()

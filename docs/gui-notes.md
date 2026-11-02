@@ -307,6 +307,12 @@ first-person viewmodel - what each one owns and the decisions behind it.
   measuring generation without the vertical axis — see [terrain-notes.md](terrain-notes.md)),
   mouse wheel scrolling for chat history, caret blink, wrapped messages with proper
   input box anchoring
+- **Sky section**: Settings → Sky holds Day Duration, Day Sky Color, Night Sky Color, Day
+  Horizon, Night Horizon and Sky Tint. The horizon pickers change the sky gradient and the
+  engine fog immediately, save to `settings.cfg` with the other lighting settings, and ride in
+  share code (old codes still import). The day horizon defaults to `#5beac5`; the saved
+  variants `#ff1212 #1b9131 #1b7b91 #28de0e` are listed on its tooltip, and the night horizon
+  defaults to black.
 - **Settings menu**: `settings_menu.gd` with adjustable settings (render — including an MSAA 3D
   Off/2x/4x/8x cycle button that sets the root viewport's `msaa_3d` live — plus lighting,
   crosshair; Controls and Shaders are their own Escape-menu pages) opened with Escape key, all
@@ -316,7 +322,7 @@ first-person viewmodel - what each one owns and the decisions behind it.
   Shaders, Controls and Tools on their own over the dimmed world, no title band, no content box,
   no footer (the column is sized from that list, so a page is one more entry and nothing else) —
   and **Settings** is the single `_build_scrolling_page` with the categories **General, Block
-  Outline, Crosshair, Advanced Rendering, Render** stacked on it (no content-box background —
+  Outline, Crosshair, Sky, Advanced Rendering, Render** stacked on it (no content-box background —
   the world shows through). The page itself is bare too — the title and the Back/Done actions
   have no dark bar behind them (`_bar` is gone), they stand directly on the dimmed world;
   **Controls** (`_build_controls_page`), **Shaders** (`_build_shaders_page`, one switch row per
@@ -682,10 +688,12 @@ first-person viewmodel - what each one owns and the decisions behind it.
   tested `BlockOutlineBuilder`/`block_outline_mesh.cpp` core
 - **Crosshair customization**: Adjustable crosshair with rotation, spacing, dot, and
   color-inversion modes
-- **Shareable setting codes — one per settings category**: every category on the settings page
-  (General, Block Outline, Crosshair, Advanced Rendering, Render) exports and imports its own
-  settings as one compact base32 string, written by the export icon beside its title and read
+- **Shareable setting codes — one per codec-bearing category**: the categories with a codec
+  (General, Block Outline, Crosshair, Advanced Rendering, Render) export and import their
+  settings as one compact base32 string, written by the export icon beside their title and read
   back by the import icon (`FC-ABCDE-FGHIJ-KLMNO`, `FO-...`, `FG-...`, `FAR-...`, `FR-...`). The
+  Sky section has no code of its own; its rows are carried in the Advanced Rendering `FAR` code,
+  so its heading shows only the reset icon. The
   prefix names the area the code belongs to, so a code is only accepted by the section that made
   it — the import reports `Invalid code format` into that section's hint line and leaves the
   settings alone. Format: a version byte, then that area's values packed as tightly as their

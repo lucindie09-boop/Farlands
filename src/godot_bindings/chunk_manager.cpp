@@ -368,6 +368,8 @@ BIND_PROP(Variant::FLOAT, day_time, "time");
     BIND_PROP(Variant::FLOAT,   night_sky_intensity,       "intensity");
     BIND_PROP(Variant::COLOR,   day_sky_color,             "color");
     BIND_PROP(Variant::COLOR,   night_sky_color,           "color");
+    BIND_PROP(Variant::COLOR,   day_horizon_color,         "color");
+    BIND_PROP(Variant::COLOR,   night_horizon_color,       "color");
     BIND_PROP(Variant::FLOAT,   contrast,                  "value");
     BIND_PROP(Variant::FLOAT,   saturation,                "value");
     BIND_PROP(Variant::COLOR,   ao_color,                  "color");

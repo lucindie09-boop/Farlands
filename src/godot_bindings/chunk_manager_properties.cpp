@@ -154,6 +154,12 @@ godot::Color ChunkManager::get_day_sky_color() const { return controller->get_da
 void ChunkManager::set_night_sky_color(const godot::Color& color) { controller->set_night_sky_color(color); }
 godot::Color ChunkManager::get_night_sky_color() const { return controller->get_night_sky_color(); }
 
+void ChunkManager::set_day_horizon_color(const godot::Color& color) { controller->set_day_horizon_color(color); }
+godot::Color ChunkManager::get_day_horizon_color() const { return controller->get_day_horizon_color(); }
+
+void ChunkManager::set_night_horizon_color(const godot::Color& color) { controller->set_night_horizon_color(color); }
+godot::Color ChunkManager::get_night_horizon_color() const { return controller->get_night_horizon_color(); }
+
 void ChunkManager::set_contrast(double contrast) { controller->set_contrast(contrast); }
 double ChunkManager::get_contrast() const { return controller->get_contrast(); }
 

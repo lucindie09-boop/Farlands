@@ -89,6 +89,23 @@ public:
     void set_night_sky_color(const godot::Color& color) { day_night.set_night_color(color); update_shader_parameters(); }
     godot::Color get_night_sky_color() const { return day_night.get_night_color(); }
 
+    // Both horizon colours are carried by the sky shader AND by the day/night
+    // cycle: the shader paints them, while the cycle is what the engine's own
+    // fog uses, so the two horizons cannot disagree about the same instant.
+    void set_day_horizon_color(const godot::Color& color) {
+        sky_controller.set_day_horizon_color(color);
+        day_night.set_day_horizon_color(color);
+        update_shader_parameters();
+    }
+    godot::Color get_day_horizon_color() const { return sky_controller.get_day_horizon_color(); }
+
+    void set_night_horizon_color(const godot::Color& color) {
+        sky_controller.set_night_horizon_color(color);
+        day_night.set_night_horizon_color(color);
+        update_shader_parameters();
+    }
+    godot::Color get_night_horizon_color() const { return sky_controller.get_night_horizon_color(); }
+
     void set_contrast(double value) { contrast = static_cast<float>(value); update_shader_parameters(); }
     double get_contrast() const { return contrast; }
     void set_saturation(double value) { saturation = static_cast<float>(value); update_shader_parameters(); }

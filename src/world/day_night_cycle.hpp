@@ -227,7 +227,7 @@ private:
     godot::Color night_color = godot::Color(0.0f, 0.0f, 0.0f, 1.0f);
     godot::Color dawn_color = godot::Color(1.0f, 1.0f, 1.0f, 1.0f);
     godot::Color dusk_color = godot::Color(1.0f, 1.0f, 1.0f, 1.0f);
-    godot::Color day_horizon_color = godot::Color(1.0f, 1.0f, 1.0f, 1.0f);
+    godot::Color day_horizon_color = godot::Color(0.35686275f, 0.91764706f, 0.77254903f, 1.0f);
     godot::Color night_horizon_color = godot::Color(0.0f, 0.0f, 0.0f, 1.0f);
     godot::Color dawn_horizon_color = godot::Color(1.0f, 1.0f, 1.0f, 1.0f);
     godot::Color dusk_horizon_color = godot::Color(1.0f, 1.0f, 1.0f, 1.0f);

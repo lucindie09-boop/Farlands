@@ -15,6 +15,10 @@ const CLOUD_TILE := 3072.0
 const CLOUD_THICKNESS := 4.0
 const WIND_SPEED := 1.2
 const CLOUD_OPACITY := 0.82
+const CLOUD_DAY_COLOR := Color(1.0, 1.0, 1.0, 1.0)
+const CLOUD_NIGHT_COLOR := Color(0.0, 0.0, 0.0, 1.0)
+const CLOUD_NIGHT_ELEVATION := -0.08
+const CLOUD_DAY_ELEVATION := 0.08
 
 const TEXTURE_SIZE := 256
 const MASK_TILES := 2
@@ -26,11 +30,14 @@ const NOISE_SEED := 20261103
 const CLOUD_THRESHOLD := 0.58
 
 var _player: Node3D
+var _chunk_manager: Node
+var _cloud_material: ShaderMaterial
 var _wind_offset := 0.0
 
 
 func _ready() -> void:
 	_player = get_node_or_null("../Player") as Node3D
+	_chunk_manager = get_node_or_null("../ChunkManager")
 
 	var cloud_mask := _generate_cloud_mask()
 	mesh = _build_cloud_mesh(cloud_mask)
@@ -44,6 +51,7 @@ func _ready() -> void:
 	# lets liquid in front hide the cloud, while liquid behind shows through it.
 	cloud_material.render_priority = 2
 	material_override = cloud_material
+	_cloud_material = cloud_material
 
 	cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	global_position = Vector3(0.0, CLOUD_HEIGHT, 0.0)
@@ -53,6 +61,7 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	_wind_offset = fmod(_wind_offset + WIND_SPEED * delta, CLOUD_TILE)
 	_place_cloud_tile()
+	_update_cloud_color()
 
 
 func _place_cloud_tile() -> void:
@@ -65,6 +74,29 @@ func _place_cloud_tile() -> void:
 	var tile_x: float = round((player_x - _wind_offset) / CLOUD_TILE) * CLOUD_TILE
 	var tile_z: float = round(player_z / CLOUD_TILE) * CLOUD_TILE
 	global_position = Vector3(tile_x + _wind_offset, CLOUD_HEIGHT, tile_z)
+
+
+func _update_cloud_color() -> void:
+	if _cloud_material == null:
+		return
+	# Match the environment's blend exactly. Its cycle reports day while it is
+	# disabled, even if the stored time is midnight.
+	var sun_elevation := 1.0
+	if _chunk_manager != null and _chunk_manager.has_method("get_sun_direction"):
+		var cycle_value: Variant = _chunk_manager.get("day_night_cycle_enabled")
+		var cycle_enabled := true
+		if cycle_value != null:
+			cycle_enabled = bool(cycle_value)
+		if cycle_enabled:
+			var sun_direction: Vector3 = _chunk_manager.get_sun_direction()
+			sun_elevation = sun_direction.normalized().y
+	var blend := clampf(
+		(sun_elevation - CLOUD_NIGHT_ELEVATION) /
+			(CLOUD_DAY_ELEVATION - CLOUD_NIGHT_ELEVATION),
+		0.0,
+		1.0)
+	_cloud_material.set_shader_parameter(
+		"cloud_color", CLOUD_NIGHT_COLOR.lerp(CLOUD_DAY_COLOR, blend))
 
 
 func _generate_cloud_mask() -> PackedByteArray:

@@ -94,13 +94,6 @@ godot::Dictionary ChunkManager::debug_lod_grid_water() const {
     return controller->debug_lod_grid_water();
 }
 
-void ChunkManager::set_sky_tint_enabled(bool enabled) {
-    controller->get_environment_controller().set_sky_tint_enabled(enabled);
-}
-bool ChunkManager::get_sky_tint_enabled() {
-    return controller->get_environment_controller().get_sky_tint_enabled();
-}
-
 void ChunkManager::set_world_bend(bool enabled, double amount, double radius, double rise) {
     controller->set_world_bend(enabled, amount, radius, rise);
 }
@@ -153,6 +146,12 @@ godot::Color ChunkManager::get_day_sky_color() const { return controller->get_da
 
 void ChunkManager::set_night_sky_color(const godot::Color& color) { controller->set_night_sky_color(color); }
 godot::Color ChunkManager::get_night_sky_color() const { return controller->get_night_sky_color(); }
+
+void ChunkManager::set_day_zenith_color(const godot::Color& color) { controller->set_day_zenith_color(color); }
+godot::Color ChunkManager::get_day_zenith_color() const { return controller->get_day_zenith_color(); }
+
+void ChunkManager::set_night_zenith_color(const godot::Color& color) { controller->set_night_zenith_color(color); }
+godot::Color ChunkManager::get_night_zenith_color() const { return controller->get_night_zenith_color(); }
 
 void ChunkManager::set_day_horizon_color(const godot::Color& color) { controller->set_day_horizon_color(color); }
 godot::Color ChunkManager::get_day_horizon_color() const { return controller->get_day_horizon_color(); }

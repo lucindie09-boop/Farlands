@@ -222,6 +222,10 @@ public:
     godot::Color get_day_sky_color() const;
     void set_night_sky_color(const godot::Color& color);
     godot::Color get_night_sky_color() const;
+    void set_day_zenith_color(const godot::Color& color);
+    godot::Color get_day_zenith_color() const;
+    void set_night_zenith_color(const godot::Color& color);
+    godot::Color get_night_zenith_color() const;
     void set_day_horizon_color(const godot::Color& color);
     godot::Color get_day_horizon_color() const;
     void set_night_horizon_color(const godot::Color& color);

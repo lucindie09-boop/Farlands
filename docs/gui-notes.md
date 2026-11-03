@@ -308,9 +308,12 @@ first-person viewmodel - what each one owns and the decisions behind it.
   mouse wheel scrolling for chat history, caret blink, wrapped messages with proper
   input box anchoring
 - **Sky section**: Settings → Sky holds Day Duration, Day Sky Color, Night Sky Color, Day
-  Horizon, Night Horizon and Sky Tint. The horizon pickers change the sky gradient and the
-  engine fog immediately, save to `settings.cfg` with the other lighting settings, and ride in
-  share code (old codes still import). The day horizon defaults to `#2652a6`; the saved variants
+  Horizon, Night Horizon and God Rays. The two sky colours are the real zenith: the sky shader
+  blends them with the day/night cycle, while the horizon pickers change the sky gradient and
+  the engine fog immediately. Everything saves to `settings.cfg` with the other lighting
+  settings and rides in share code (old codes still import); God Rays moved here from Render.
+  The old ground-light rows now sit under Advanced Rendering → Light as Day Ground Light and
+  Night Ground Light. The day horizon defaults to `#2652a6`; the saved variants
   `#ff1212 #1b9131 #1b7b91 #28de0e #5beac5` are listed on its
   tooltip, and the night horizon defaults to black.
 - **Settings menu**: `settings_menu.gd` with adjustable settings (render — including an MSAA 3D
@@ -569,15 +572,11 @@ first-person viewmodel - what each one owns and the decisions behind it.
   and their own sun and fill, and there is no cell under it to read. The K-key pose clone is a
   plain instance in the main viewport, so it is lit like the player's own body
   (`probes/probe_body_light.gd` reads the rendered frame back).
-  **...and it is the one consumer that does not take the world's midday tint**: the world's
-  `sky_light_warmth` is a warm cream even at noon — it is what the sky, the fog, the sun light
-  and the terrain are all fed, and it reads as nothing on grass, dirt and stone. On a pale,
-  untextured skin that same cream reads as orange, so `player_model.gd` overwrites the uniform on
-  the body's material with the sun's own colour — white overhead, still warm at the horizon, from
-  `ChunkManager.get_body_sky_warmth` — after the world's value has been written. The fix is the
-  body's alone: at any hour the ground keeps the cast it had, and the two curves meet at the
-  horizon, which is why a sunset still lights the body exactly as it lights the ground
-  (`probes/probe_body_light.gd` reads both materials, at noon and at the horizon).
+  **...and it shares the world's sky light**: `player_model.gd` feeds the body through
+  `apply_item_lighting`, so it gets the same `sky_light_warmth` as the terrain and dropped
+  items — the neutral curve, white overhead and warm at the horizon. `ChunkManager.get_body_sky_warmth`
+  remains as the menu accent's source, but it is now the same warmth rather than a body-only
+  exception (`probes/probe_body_light.gd` reads both materials, at noon and at the horizon).
   **The body is a scene node, not code**: `Main.tscn` instances it as `Player/PlayerModel`
   (scale 0.05625, +0.0844 z, `player_model.gd`), and `PlayerController::_ready` only *finds* it by name and reparents it under
   `ModelPivot`. An editor re-save of `Main.tscn` can drop the node and its ext_resources without

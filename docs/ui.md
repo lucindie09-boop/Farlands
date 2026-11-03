@@ -119,13 +119,9 @@ screen (the shader-effect stack, the animated-liquid tools, the model previews).
   (half the row reset) and tight against the non-expanding title. Export, import and reset all
   are wired: a category with a codec (its own `FG`/`FO`/`FC`/`FAR`/`FR` code plus a refresh
   callable that resyncs its rows) shows the export/import icons, and reset all replays the
-  section's own row resets. The Sky section has no code of its own — its rows travel in the
-  Advanced Rendering `FAR` code — so its heading shows only the reset icon. A switch added after
-  a code existed has to import as the behaviour those older codes were exported from:
-  **Sky → Sky Tint** (the world's midday tint,
-  `chunk_manager.sky_tint_enabled`) rides in `FAR`'s flag byte *inverted*, so a code written
-  before the setting existed — bit clear — comes back with the cream ON, which is the look that
-  code was exported from, and the format stays version 1. Every settings area (GUI, lighting, video, controls, crosshair, block outline, the
+  section's own row resets. The Sky section has no code of its own — its lighting rows travel in
+  the Advanced Rendering `FAR` code — so its heading shows only the reset icon. God Rays moved
+  onto the Sky page but still travels in the Render `FR` code. Every settings area (GUI, lighting, video, controls, crosshair, block outline, the
   two editors) is a section of that page, each introduced by a `"category"`-marked section
   heading — the reference interface's Video Settings layout, with the areas stacked instead of
   split across screens; the crosshair category interleaves its Cross and Dot rows so each reads

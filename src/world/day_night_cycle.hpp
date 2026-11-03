@@ -80,17 +80,10 @@ public:
         return night_horizon_color.lerp(day_horizon_color, get_blend());
     }
 
-    // The world's sky-lit tint: a warm CREAM even at the zenith (1.0, 0.85,
-    // 0.60), warming to orange as the sun drops, and exactly orange by the
-    // horizon (horizon_factor^2 is 1 there, so the cream has no weight left).
-    // EnvironmentController hands it to the sky, the fog, the sun light, the
-    // terrain and every item as their `sky_light_warmth`, where it is mixed in at
-    // FULL strength at noon (the mix factor is sky_light_intensity, which is 1.0
-    // there) -- so this is the cast every sky-lit surface in the world carries at
-    // midday. On grass, dirt and stone it reads as nothing; on a pale, untextured
-    // albedo it reads as orange, which is why the player's own body is the one
-    // consumer that takes get_sun_color_neutral() instead (see that function, and
-    // EnvironmentController::item_body_sky_warmth).
+    // The sun's own warm light, used for the sun light, the fog edge and the
+    // scatter: a warm CREAM even at the zenith (1.0, 0.85, 0.60), warming to
+    // orange as the sun drops, and exactly orange by the horizon. The world's
+    // sky-lit tint is the neutral curve below, not this one.
     [[nodiscard]] godot::Color get_sun_color() const {
         if (!enabled) return day_color;
         const float elevation = get_sun_elevation();
@@ -100,14 +93,13 @@ public:
         return zenith_sun.lerp(warm_sun, horizon_factor * horizon_factor);
     }
 
-    // The same curve with a WHITE zenith: the sun's own colour, white overhead
-    // and warm at the horizon, with none of the world's midday cream in it. It
-    // agrees with get_sun_color() to the last digit at the horizon (both curves
-    // land on warm_sun once horizon_factor is 1) and differs only where the sun
-    // is high -- which is precisely the half of the day the player's body must
-    // not take it in, being the one sky-lit surface in the world with no texture
-    // between the light and its albedo. probes/probe_body_light.gd reads both
-    // values off the live materials, at noon and at the horizon.
+    // The same curve with a WHITE zenith: white overhead and warm at the
+    // horizon. This is the world's sky-light tint now that Sky Tint is retired:
+    // EnvironmentController hands it to the terrain, water and every item (the
+    // body included) as `sky_light_warmth`. It agrees with get_sun_color() at
+    // the horizon and differs only where the sun is high.
+    // probes/probe_body_light.gd reads it off both materials, at noon and at the
+    // horizon.
     [[nodiscard]] godot::Color get_sun_color_neutral() const {
         if (!enabled) return day_color;
         const float elevation = get_sun_elevation();

@@ -90,16 +90,6 @@ void EnvironmentController::apply_lod_grid_lighting(float sky_intensity,
     material->set_shader_parameter("mipmap_bias", mipmaps_enabled ? mipmap_bias : 0.0f);
 }
 
-void EnvironmentController::set_sky_tint_enabled(bool enabled) {
-    if (sky_tint_enabled == enabled) return;
-    sky_tint_enabled = enabled;
-    // Straight to the materials rather than waiting for the next frame: this is a
-    // setting, and the dirty gate below is what would otherwise swallow it (none of
-    // its other inputs move when the tint does) -- cached_sky_warmth is checked
-    // there so this call is the one that gets through.
-    update_shader_parameters();
-}
-
 void EnvironmentController::set_mipmaps_enabled(bool enabled) {
     if (mipmaps_enabled == enabled) return;
     mipmaps_enabled = enabled;
@@ -129,21 +119,19 @@ void EnvironmentController::update_shader_parameters() {
 
     const float elevation = day_night.get_sun_elevation();
     const godot::Color sun_color = day_night.get_sun_color();
-    // The world's surface tint: the cream, or the sun's own curve when the setting
-    // is off (see set_sky_tint_enabled). Both are warm at the horizon, so the two
-    // differ only where the sun is high.
-    const godot::Color sky_warmth = sky_tint_enabled ? sun_color : day_night.get_sun_color_neutral();
+    // The sky-light tint is the neutral curve: white overhead and warm only as the
+    // sun reaches the horizon. The retired sky-tint toggle no longer has a branch.
+    const godot::Color sky_warmth = day_night.get_sun_color_neutral();
     const float sky_turbidity = day_night.get_sky_turbidity();
 
     // Item materials are fed from these every frame, independent of the dirty
     // gate below: it only exists to keep Godot API calls off redundant frames,
-    // and the item pushes are the caller's own decision. The body's warmth rides
-    // with them: same instant, same curve, no midday cream (see
-    // get_body_sky_warmth in the header).
+    // and the item pushes are the caller's own decision. The body uses the same
+    // neutral warmth as every other item; get_body_sky_warmth remains for the
+    // menu accent.
     item_sky_intensity = sky_intensity;
     item_sky_color = sky_color;
     item_sky_warmth = sky_warmth;
-    item_body_sky_warmth = day_night.get_sun_color_neutral();
 
     const godot::Vector3 sky_horizon_color = sky_controller.get_raw_horizon_color(blend);
     const godot::Vector3 sky_zenith_color = sky_controller.get_zenith_color(blend);

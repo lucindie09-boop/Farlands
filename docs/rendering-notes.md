@@ -227,6 +227,15 @@ twice, and the coast is where the samples' own crossing is. The whole sequence, 
   water all use the same raw picker colours, and the fog passes that colour through the
   sky's ACES curve; sun scatter only feathers the transition, so full fog is the sky colour.
 - **Night sky & starfield**: Dynamic procedural twinkling starfield during night sun elevations
+- **Cloud layer**: A Minecraft-style cloud volume at y=408: one 6,144-unit volume (two 3,072
+  tiles), four blocks thick, with a generated 256×256 blocky alpha mask (periodic value noise in
+  `scripts/cloud_layer.gd`, no texture asset) whose cells cover 12×12 blocks. The mask is
+  greedily meshed into top and bottom quads with side walls at every boundary. The node snaps
+  to the 3,072-block tile grid and carries the wind offset, and the mask is sampled in local
+  cloud space, so the mask and extruded walls move together instead of the walls sliding with
+  the player. The cloud material uses render priority 2, after the transparent liquids (priority
+  1, which write depth), so a liquid in front hides the cloud and one behind is seen through it.
+  The layer is unshaded, double-sided, depth-write-free and fog-disabled.
 - **Emissive texture support**: Second `Texture2DArray` for per-face glow maps
 - **Soft curved AO**: Non-linear power-curve smoothing to eliminate diagonal triangulation seams
 - **Fog system**: 4 fog modes (Disabled, Edge, Linear, Exponential) with fog color matching sky

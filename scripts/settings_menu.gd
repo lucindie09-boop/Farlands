@@ -10,10 +10,10 @@ const SETTINGS_TEX: Texture2D = preload("res://textures/gui/settings_button.png"
 const SLIDER_TRACK_TEX: Texture2D = preload("res://textures/gui/slider_button.png")
 const SLIDER_THUMB_TEX: Texture2D = preload("res://textures/gui/slider.png")
 const SETTINGS_PATH := "user://settings.cfg"
-# The day-horizon variants saved for later; #5beac5 is the default. The tooltip
-# on the Day Horizon picker lists them, so the hex values stay with the control
-# that uses them, and a saved settings.cfg still wins over the default.
-const DAY_HORIZON_DEFAULT_HEX := "5beac5"
+# The day-horizon variants saved for later; the default is the sky's zenith
+# blue. The tooltip on the Day Horizon picker lists the variants, so the hex
+# values stay with the control that uses them, and a saved settings.cfg still
+# wins over the default.
 const DAY_HORIZON_VARIANTS := ["ff1212", "1b9131", "1b7b91", "28de0e", "5beac5"]
 
 # -----------------------------------------------------------------------------
@@ -105,7 +105,7 @@ var _default_gui_scale: float = 2.0
 var _default_day_duration: float = 10.0
 var _default_day_sky: Color = Color(1, 1, 1, 1)
 var _default_night_sky: Color = Color(0, 0, 0, 1)
-var _default_day_horizon: Color = Color(DAY_HORIZON_DEFAULT_HEX)
+var _default_day_horizon: Color = Color(0.06, 0.20, 0.85, 1.0)
 var _default_night_horizon: Color = Color(0.0, 0.0, 0.0, 1.0)
 var _default_render_distance: int = 32
 var _default_lod_distance: int = 0

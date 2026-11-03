@@ -235,9 +235,10 @@ twice, and the coast is where the samples' own crossing is. The whole sequence, 
   continuous sheet. The mask is greedily meshed into top and bottom quads with side walls at
   every boundary. The material tint follows the same day/night blend as the sky: white in
   daylight, pure black at night. Faces use the world's face constants: top 1.0, bottom 0.5,
-  north/south 0.8, east/west 0.6, so the face shading still multiplies that tint. The node snaps
-  to the 3,072-block tile grid and carries the wind offset, and the mask is sampled in local
-  cloud space, so the mask and extruded walls move together instead of the walls sliding with
+  north/south 0.8, east/west 0.6, so the face shading still multiplies that tint. Settings →
+  Sky exposes the blend's day and night colours as live cloud tints; the node snaps to the
+  3,072-block tile grid and carries the wind offset, and the mask is sampled in local cloud
+  space, so the mask and extruded walls move together instead of the walls sliding with
   the player. The cloud material uses render priority 2, after the transparent liquids (priority
   1, which write depth), so a liquid in front hides the cloud and one behind is seen through it.
   The layer is unshaded, depth-write-free and fog-disabled; the shader discards back faces from

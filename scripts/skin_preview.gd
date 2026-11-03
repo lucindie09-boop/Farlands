@@ -167,7 +167,7 @@ func _input(event):
 	if not is_visible_in_tree():
 		return
 	if event is InputEventKey and event.pressed and event.keycode == KEY_Z \
-			and (event.ctrl_pressed or event.command_pressed):
+			and event.is_command_or_control_pressed():
 		undo_last()
 		return
 	if event is InputEventMouseButton:

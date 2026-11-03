@@ -288,10 +288,12 @@ first-person viewmodel - what each one owns and the decisions behind it.
   `TEXTURE_FILTER_LINEAR` in an otherwise all-NEAREST HUD. A heart is now its own 9 units on an
   8-unit pitch, so neighbours share their outline column (the row spans 81 units, about 44% of
   the bar, rather than the ~43% the fraction gave) with NEAREST, so the sprite is never resampled.
-- **Crosshair, compass and FPS are in units now.** The crosshair scales inside `draw_crosshair`,
-  which both the HUD node and the settings-menu preview call, so the preview cannot show a size
-  the live crosshair does not have; the slider values are read as units, which roughly doubles
-  the on-screen crosshair at GUI scale 2 compared with the fixed-pixel version.
+- **Crosshair, compass and FPS are in units now, the crosshair excepted.** The compass and the
+  FPS counter still multiply by `UIScale.value`. The crosshair does not: `draw_crosshair` is the
+  one place it is sized and both the HUD node and the settings-menu preview call it, so the two
+  cannot disagree, but its values are literal screen pixels. The reticle marks where the aim ray
+  lands, so a GUI scale that grew the HUD around it also grew the crosshair over the block it was
+  pointing at; the preview therefore shows the live size at every scale.
 
 ## Chat and the settings menu
 
@@ -312,7 +314,8 @@ first-person viewmodel - what each one owns and the decisions behind it.
   Spacing and God Rays. The two sky colours are the real zenith: the sky shader blends them with
   the day/night cycle, while the horizon pickers change the sky gradient and the engine fog
   immediately, and the cloud colours tint the active cloud volumes at the same day/night blend.
-  Cloud Layers selects 1–3 volumes and Cloud Layer Spacing sets their 16–512-block gaps.
+  Cloud Layers selects 0–3 volumes (0 leaves a bare sky) and Cloud Layer Spacing sets their
+  16–512-block gaps.
   Everything saves to `settings.cfg` with the other lighting settings and rides in share code
   (old codes still import); God Rays moved here from Render.
   The old ground-light rows now sit under Advanced Rendering → Light as Day Ground Light and

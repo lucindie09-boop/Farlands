@@ -308,10 +308,12 @@ first-person viewmodel - what each one owns and the decisions behind it.
   mouse wheel scrolling for chat history, caret blink, wrapped messages with proper
   input box anchoring
 - **Sky section**: Settings → Sky holds Day Duration, Day Sky Color, Night Sky Color, Day
-  Horizon, Night Horizon and God Rays. The two sky colours are the real zenith: the sky shader
-  blends them with the day/night cycle, while the horizon pickers change the sky gradient and
-  the engine fog immediately. Everything saves to `settings.cfg` with the other lighting
-  settings and rides in share code (old codes still import); God Rays moved here from Render.
+  Horizon, Night Horizon, Day Cloud Colour, Night Cloud Colour and God Rays. The two sky
+  colours are the real zenith: the sky shader blends them with the day/night cycle, while the
+  horizon pickers change the sky gradient and the engine fog immediately, and the cloud colours
+  tint the cloud volume at the same day/night blend. Everything saves to `settings.cfg` with the
+  other lighting settings and rides in share code (old codes still import); God Rays moved here
+  from Render.
   The old ground-light rows now sit under Advanced Rendering → Light as Day Ground Light and
   Night Ground Light. The day horizon defaults to `#2652a6`; the saved variants
   `#ff1212 #1b9131 #1b7b91 #28de0e #5beac5` are listed on its

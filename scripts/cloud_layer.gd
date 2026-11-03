@@ -20,6 +20,11 @@ const CLOUD_NIGHT_COLOR := Color(0.0, 0.0, 0.0, 1.0)
 const CLOUD_NIGHT_ELEVATION := -0.08
 const CLOUD_DAY_ELEVATION := 0.08
 
+## The live cloud tint. The constants above are the shipped defaults; Settings
+## -> Sky writes these, and the shader is fed their blend every frame.
+@export var day_color: Color = CLOUD_DAY_COLOR
+@export var night_color: Color = CLOUD_NIGHT_COLOR
+
 const TEXTURE_SIZE := 256
 const MASK_TILES := 2
 const MASK_SIZE := TEXTURE_SIZE * MASK_TILES
@@ -96,7 +101,7 @@ func _update_cloud_color() -> void:
 		0.0,
 		1.0)
 	_cloud_material.set_shader_parameter(
-		"cloud_color", CLOUD_NIGHT_COLOR.lerp(CLOUD_DAY_COLOR, blend))
+		"cloud_color", night_color.lerp(day_color, blend))
 
 
 func _generate_cloud_mask() -> PackedByteArray:

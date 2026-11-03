@@ -85,6 +85,7 @@ const CONTROL_BINDINGS := [
 @onready var crosshair_node = get_node_or_null("/root/Main/HUD/Crosshair")
 @onready var block_outline_node = get_node_or_null("/root/Main/BlockOutline")
 @onready var godrays_node = get_node_or_null("/root/Main/HUD/GodRaysOverlay")
+@onready var cloud_layer_node = get_node_or_null("/root/Main/CloudLayer")
 # The screen-shader stack (data/shaders.json). It owns the shaders' live state;
 # this menu is the one that persists it, because this menu owns settings.cfg.
 @onready var shader_overlay = get_node_or_null("/root/Main/HUD/ShaderOverlay")
@@ -111,6 +112,8 @@ var _default_day_zenith: Color = Color(0.06, 0.20, 0.85, 1.0)
 var _default_night_zenith: Color = Color(0.001, 0.004, 0.015, 1.0)
 var _default_day_horizon: Color = Color(0.1490196, 0.3215686, 0.6509804, 1.0)
 var _default_night_horizon: Color = Color(0.0, 0.0, 0.0, 1.0)
+var _default_day_cloud: Color = Color(1.0, 1.0, 1.0, 1.0)
+var _default_night_cloud: Color = Color(0.0, 0.0, 0.0, 1.0)
 var _default_render_distance: int = 32
 var _default_lod_distance: int = 0
 var _default_lod_detail: float = 0.5
@@ -253,6 +256,8 @@ func _ready():
 	_default_night_zenith = chunk_manager.get_night_zenith_color()
 	_default_day_horizon = chunk_manager.get_day_horizon_color()
 	_default_night_horizon = chunk_manager.get_night_horizon_color()
+	_default_day_cloud = cloud_layer_node.day_color if cloud_layer_node else _default_day_cloud
+	_default_night_cloud = cloud_layer_node.night_color if cloud_layer_node else _default_night_cloud
 	_default_render_distance = chunk_manager.get_render_distance()
 	_default_lod_distance = chunk_manager.get_lod_distance()
 	_default_lod_detail = chunk_manager.get_lod_detail_level()
@@ -317,6 +322,8 @@ func _save_settings():
 	cfg.set_value("lighting", "night_zenith_color", chunk_manager.get_night_zenith_color())
 	cfg.set_value("lighting", "day_horizon_color", chunk_manager.get_day_horizon_color())
 	cfg.set_value("lighting", "night_horizon_color", chunk_manager.get_night_horizon_color())
+	cfg.set_value("lighting", "day_cloud_color", _cloud_day_color())
+	cfg.set_value("lighting", "night_cloud_color", _cloud_night_color())
 	cfg.set_value("lighting", "contrast", chunk_manager.get_contrast())
 	cfg.set_value("lighting", "saturation", chunk_manager.get_saturation())
 	cfg.set_value("lighting", "ao_color", chunk_manager.get_ao_color())
@@ -376,6 +383,8 @@ func _load_settings():
 	chunk_manager.set_night_zenith_color(cfg.get_value("lighting", "night_zenith_color", chunk_manager.get_night_zenith_color()))
 	chunk_manager.set_day_horizon_color(cfg.get_value("lighting", "day_horizon_color", chunk_manager.get_day_horizon_color()))
 	chunk_manager.set_night_horizon_color(cfg.get_value("lighting", "night_horizon_color", chunk_manager.get_night_horizon_color()))
+	_set_cloud_day_color(cfg.get_value("lighting", "day_cloud_color", _cloud_day_color()))
+	_set_cloud_night_color(cfg.get_value("lighting", "night_cloud_color", _cloud_night_color()))
 	chunk_manager.set_contrast(cfg.get_value("lighting", "contrast", chunk_manager.get_contrast()))
 	chunk_manager.set_saturation(cfg.get_value("lighting", "saturation", chunk_manager.get_saturation()))
 	chunk_manager.set_ao_color(cfg.get_value("lighting", "ao_color", chunk_manager.get_ao_color()))
@@ -1245,6 +1254,20 @@ func _block_outline_refresh_controls(controls: Dictionary):
 		elif c is ColorPickerButton:
 			c.color = v
 
+func _cloud_day_color() -> Color:
+	return cloud_layer_node.day_color if cloud_layer_node else _default_day_cloud
+
+func _cloud_night_color() -> Color:
+	return cloud_layer_node.night_color if cloud_layer_node else _default_night_cloud
+
+func _set_cloud_day_color(color: Color) -> void:
+	if cloud_layer_node:
+		cloud_layer_node.day_color = color
+
+func _set_cloud_night_color(color: Color) -> void:
+	if cloud_layer_node:
+		cloud_layer_node.night_color = color
+
 func _sync_sky_visuals() -> void:
 	for sync in _sky_visual_syncs:
 		sync.call()
@@ -1311,6 +1334,30 @@ func _build_sky_sections() -> Array:
 		chunk_manager.set_night_horizon_color(_default_night_horizon)
 		_schedule_save()
 
+	var day_cloud := ColorPickerButton.new()
+	day_cloud.color = _cloud_day_color()
+	_style_button(day_cloud, UNIT_OPTION_W)
+	_add_color_caption(day_cloud)
+	day_cloud.color_changed.connect(func(c: Color):
+		_set_cloud_day_color(c)
+		_schedule_save())
+	var day_cloud_reset := func():
+		day_cloud.color = _default_day_cloud
+		_set_cloud_day_color(_default_day_cloud)
+		_schedule_save()
+
+	var night_cloud := ColorPickerButton.new()
+	night_cloud.color = _cloud_night_color()
+	_style_button(night_cloud, UNIT_OPTION_W)
+	_add_color_caption(night_cloud)
+	night_cloud.color_changed.connect(func(c: Color):
+		_set_cloud_night_color(c)
+		_schedule_save())
+	var night_cloud_reset := func():
+		night_cloud.color = _default_night_cloud
+		_set_cloud_night_color(_default_night_cloud)
+		_schedule_save()
+
 	var godrays_btn := Button.new()
 	var godrays_enabled: bool = godrays_node.visible if godrays_node else _default_godrays
 	_row_value(godrays_btn, "On" if godrays_enabled else "Off")
@@ -1333,16 +1380,20 @@ func _build_sky_sections() -> Array:
 	_sky_visual_syncs.append(func(): night_color.color = chunk_manager.get_night_zenith_color())
 	_sky_visual_syncs.append(func(): day_horizon.color = chunk_manager.get_day_horizon_color())
 	_sky_visual_syncs.append(func(): night_horizon.color = chunk_manager.get_night_horizon_color())
+	_sky_visual_syncs.append(func(): day_cloud.color = _cloud_day_color())
+	_sky_visual_syncs.append(func(): night_cloud.color = _cloud_night_color())
 	_sky_visual_syncs.append(func(): _row_value(godrays_btn, "On" if (godrays_node.visible if godrays_node else _default_godrays) else "Off"))
 
 	return [
 		["", [
+			["God Rays", godrays_btn, godrays_reset],
 			["Day Duration", dur, dur_reset],
 			["Day Sky Color", day_color, day_reset],
-			["Night Sky Color", night_color, night_reset],
 			["Day Horizon", day_horizon, day_horizon_reset],
+			["Night Sky Color", night_color, night_reset],
 			["Night Horizon", night_horizon, night_horizon_reset],
-			["God Rays", godrays_btn, godrays_reset],
+			["Day Cloud Colour", day_cloud, day_cloud_reset],
+			["Night Cloud Colour", night_cloud, night_cloud_reset],
 		]],
 	]
 
@@ -3965,6 +4016,8 @@ func _export_lighting_code() -> String:
 	# existed still imports and leaves both zenith colours at their current value.
 	data.append_array(_pack_color32(chunk_manager.get_day_zenith_color()))
 	data.append_array(_pack_color32(chunk_manager.get_night_zenith_color()))
+	data.append_array(_pack_color32(_cloud_day_color()))
+	data.append_array(_pack_color32(_cloud_night_color()))
 	return _format_cs_code("FAR", _base32_encode(data))
 
 func _import_lighting_code(code: String) -> bool:
@@ -3989,6 +4042,10 @@ func _import_lighting_code(code: String) -> bool:
 		chunk_manager.set_day_zenith_color(_unpack_color32(data, idx)); idx += 4
 	if data.size() >= 42:
 		chunk_manager.set_night_zenith_color(_unpack_color32(data, idx)); idx += 4
+	if data.size() >= 46:
+		_set_cloud_day_color(_unpack_color32(data, idx)); idx += 4
+	if data.size() >= 50:
+		_set_cloud_night_color(_unpack_color32(data, idx)); idx += 4
 	chunk_manager.set_smooth_lighting((flags & (1 << 0)) != 0)
 	_schedule_save()
 	return true

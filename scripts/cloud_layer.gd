@@ -20,10 +20,10 @@ const TEXTURE_SIZE := 256
 const MASK_TILES := 2
 const MASK_SIZE := TEXTURE_SIZE * MASK_TILES
 const CELL_SIZE := 12.0
-const BASE_LATTICE := 16
+const BASE_LATTICE := 28
 const OCTAVES := 3
 const NOISE_SEED := 20261103
-const CLOUD_THRESHOLD := 0.54
+const CLOUD_THRESHOLD := 0.58
 
 var _player: Node3D
 var _wind_offset := 0.0

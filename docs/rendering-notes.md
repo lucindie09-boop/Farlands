@@ -228,21 +228,25 @@ twice, and the coast is where the samples' own crossing is. The whole sequence, 
   water all use the same raw picker colours, and the fog passes that colour through the
   sky's ACES curve; sun scatter only feathers the transition, so full fog is the sky colour.
 - **Night sky & starfield**: Dynamic procedural twinkling starfield during night sun elevations
-- **Cloud layer**: A Minecraft-style cloud volume at y=408: one 6,144-unit volume (two 3,072
-  tiles), four blocks thick, with a generated 256×256 blocky alpha mask (periodic value noise in
-  `scripts/cloud_layer.gd`, no texture asset) whose cells cover 12×12 blocks. Its 28-cell base
-  lattice and 0.58 threshold give about 30% cover in many separate patches rather than one
-  continuous sheet. The mask is greedily meshed into top and bottom quads with side walls at
-  every boundary. The material tint follows the same day/night blend as the sky: white in
-  daylight, pure black at night. Faces use the world's face constants: top 1.0, bottom 0.5,
-  north/south 0.8, east/west 0.6, so the face shading still multiplies that tint. Settings →
-  Sky exposes the blend's day and night colours as live cloud tints; the node snaps to the
-  3,072-block tile grid and carries the wind offset, and the mask is sampled in local cloud
-  space, so the mask and extruded walls move together instead of the walls sliding with
-  the player. The cloud material uses render priority 2, after the transparent liquids (priority
-  1, which write depth), so a liquid in front hides the cloud and one behind is seen through it.
-  The layer is unshaded, depth-write-free and fog-disabled; the shader discards back faces from
-  the outward normals, so the inside of the volume is not drawn.
+- **Cloud layers**: Three Minecraft-style cloud volumes with a default 256-block spacing
+  (y=408, 664 and 920): each is a 6,144-unit volume (two 3,072 tiles), four blocks thick, with a
+  generated 256×256 blocky alpha mask (periodic value noise in `scripts/cloud_layer.gd`, no
+  texture asset) whose cells cover 12×12 blocks. Settings → Sky selects 1–3 layers and a
+  16–512-block spacing. The 28-cell base lattice and 0.58 threshold give about 30% cover in many
+  separate patches rather than one continuous sheet. The upper layers use independent noise
+  seeds, so they are separate cloud maps rather than denser cores of the base; their thresholds
+  are set to 50% and 25% of the base layer's actual coverage, and their opacities are 0.41 and
+  0.205 against the base's 0.82. Each mask is greedily meshed into top and bottom quads with side
+  walls at every boundary. The material tint follows the same day/night blend as the sky: white
+  in daylight, pure black at night. Faces use the world's face constants: top 1.0, bottom 0.5,
+  north/south 0.8, east/west 0.6, so the face shading still multiplies that tint. Settings → Sky
+  exposes the blend's day and night colours as live cloud tints; the base node snaps to the
+  3,072-block tile grid and carries the wind offset, and the upper layers are its children, so
+  every mask and extruded wall moves together instead of sliding with the player. The cloud
+  materials use render priorities 2, 3 and 4, after the transparent liquids (priority 1, which
+  write depth), so a liquid in front hides the cloud and one behind is seen through it. The
+  layers are unshaded, depth-write-free and fog-disabled; the shader discards back faces from
+  the outward normals, so the inside of each volume is not drawn.
 - **Emissive texture support**: Second `Texture2DArray` for per-face glow maps
 - **Soft curved AO**: Non-linear power-curve smoothing to eliminate diagonal triangulation seams
 - **Fog system**: 4 fog modes (Disabled, Edge, Linear, Exponential) with fog color matching sky

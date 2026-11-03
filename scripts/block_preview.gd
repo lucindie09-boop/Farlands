@@ -184,7 +184,7 @@ func _input(event: InputEvent) -> void:
 		return
 	
 	if event is InputEventKey and event.pressed and event.keycode == KEY_Z \
-			and (event.ctrl_pressed or event.command_pressed):
+			and event.is_command_or_control_pressed():
 		undo()
 		get_viewport().set_input_as_handled()
 		return

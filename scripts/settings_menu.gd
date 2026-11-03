@@ -1380,7 +1380,7 @@ func _build_sky_sections() -> Array:
 		_set_cloud_night_color(_default_night_cloud)
 		_schedule_save()
 
-	var cloud_layers_slider := _make_slider(float(_cloud_layers_value()), 1.0, 3.0, 1.0,
+	var cloud_layers_slider := _make_slider(float(_cloud_layers_value()), 0.0, 3.0, 1.0,
 		func(v: float):
 			_set_cloud_layers(int(v))
 			_schedule_save())
@@ -4062,7 +4062,7 @@ func _export_lighting_code() -> String:
 	data.append_array(_pack_color32(chunk_manager.get_night_zenith_color()))
 	data.append_array(_pack_color32(_cloud_day_color()))
 	data.append_array(_pack_color32(_cloud_night_color()))
-	data.append(clampi(_cloud_layers_value(), 1, 3))
+	data.append(clampi(_cloud_layers_value(), 0, 3))
 	data.append_array(_pack_float16(_cloud_spacing_value(), 16.0, 512.0, 16.0))
 	return _format_cs_code("FAR", _base32_encode(data))
 

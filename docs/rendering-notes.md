@@ -231,9 +231,10 @@ twice, and the coast is where the samples' own crossing is. The whole sequence, 
 - **Cloud layers**: Three Minecraft-style cloud volumes with a default 256-block spacing
   (y=408, 664 and 920): each is a 6,144-unit volume (two 3,072 tiles), four blocks thick, with a
   generated 256×256 blocky alpha mask (periodic value noise in `scripts/cloud_layer.gd`, no
-  texture asset) whose cells cover 12×12 blocks. Settings → Sky selects 1–3 layers and a
-  16–512-block spacing. The 28-cell base lattice and 0.58 threshold give about 30% cover in many
-  separate patches rather than one continuous sheet. The upper layers use independent noise
+  texture asset) whose cells cover 12×12 blocks. Settings → Sky selects 0–3 layers (0 hides
+  every volume and leaves the sky bare) and a 16–512-block spacing. The 28-cell base lattice
+  and 0.58 threshold give about 30% cover in many separate patches rather than one continuous
+  sheet. The upper layers use independent noise
   seeds, so they are separate cloud maps rather than denser cores of the base; their thresholds
   are set to 50% and 25% of the base layer's actual coverage, and their opacities are 0.41 and
   0.205 against the base's 0.82. Each mask is greedily meshed into top and bottom quads with side

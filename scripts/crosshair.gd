@@ -66,7 +66,6 @@ func _draw_signature() -> int:
 	h ^= (1 if dot_contrast else 0) * 8117
 	h ^= (1 if cross_dot_collision else 0) * 6221
 	h ^= int(round(dot_rotation * 8)) * 4967
-	h ^= int(round(ui_scale() * 8)) * 3571
 	return h
 
 func _sync_material():
@@ -103,26 +102,13 @@ func _draw():
 		cross_dot_collision,
 		cross_contrast or dot_contrast)
 
-# The one reader of the GUI scale. Both the HUD crosshair and the settings-menu
-# preview draw through `draw_crosshair`, so reading it here is what stops the
-# preview from showing a size the live crosshair does not have.
-static func ui_scale() -> float:
-	var tree := Engine.get_main_loop() as SceneTree
-	if tree == null:
-		return 1.0
-	var node := tree.root.get_node_or_null("/root/UIScale")
-	if node == null:
-		return 1.0
-	return float(node.get("value"))
-
+# The sizes are SCREEN PIXELS and are deliberately not multiplied by the GUI
+# scale: the reticle marks where the aim ray lands, so it has to stay the size
+# it was configured at however much the HUD around it grows (at scale 4 a
+# scaled crosshair covered the block it was pointing at). The settings-menu
+# preview draws through this same function, so what it shows is what the HUD
+# draws at every scale.
 static func draw_crosshair(canvas: CanvasItem, cx: int, cy: int, cross_on: bool, w: int, seg: int, gap: int, cross_col: Color, cross_opa: float, top_line: bool, dot_on: bool, d: int, dot_col: Color, dot_opa: float, cross_deg: float, dot_deg: float, collision: bool, marker_mode: bool):
-	# The settings are in GUI units, so the crosshair grows with the rest of the
-	# HUD instead of holding a fixed pixel size while everything scales past it.
-	var u := ui_scale()
-	w = maxi(1, int(round(float(w) * u)))
-	seg = int(round(float(seg) * u))
-	gap = int(round(float(gap) * u))
-	d = maxi(1, int(round(float(d) * u)))
 	if cross_on:
 		var cross_fill := MARKER_CROSS if marker_mode else cross_col
 		var cross_alpha := 1.0 if marker_mode else cross_opa

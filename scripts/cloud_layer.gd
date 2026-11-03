@@ -42,7 +42,7 @@ const CLOUD_LAYER_OPACITY_SCALE := [1.0, 0.5, 0.25]
 const CLOUD_LAYER_COVERAGE_SCALE := [1.0, 0.5, 0.25]
 const CLOUD_LAYER_SEED_STEP := 7919
 
-@export_range(1, 3, 1) var cloud_layers: int = 3
+@export_range(0, 3, 1) var cloud_layers: int = 3
 @export_range(16.0, 512.0, 16.0) var cloud_layer_spacing: float = CLOUD_LAYER_SPACING
 
 var _player: Node3D
@@ -95,7 +95,8 @@ func _ready() -> void:
 
 
 func set_cloud_layers(value: int) -> void:
-	cloud_layers = clampi(value, 1, 3)
+	# 0 means no cloud at all: every layer hides, sky only.
+	cloud_layers = clampi(value, 0, 3)
 	_apply_layer_count()
 
 

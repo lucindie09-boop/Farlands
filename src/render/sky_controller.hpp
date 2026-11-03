@@ -166,9 +166,7 @@ void sky() {
 class SkyController {
 private:
     godot::Vector3 compute_zenith_color(float blend) const {
-        godot::Vector3 day_zenith(0.06f, 0.20f, 0.85f);
-        godot::Vector3 night_zenith(0.001f, 0.004f, 0.015f);
-        return night_zenith.lerp(day_zenith, blend);
+        return night_zenith_color.lerp(day_zenith_color, blend);
     }
 
 public:
@@ -196,6 +194,24 @@ public:
 
     [[nodiscard]] godot::Color get_night_horizon_color() const {
         return godot::Color(night_horizon_color.x, night_horizon_color.y, night_horizon_color.z, 1.0f);
+    }
+
+    // The zenith is the colour directly overhead; the horizon colours above only
+    // grade toward it. These are the live settings behind Sky -> Day/Night Sky Color.
+    void set_day_zenith_color(const godot::Color& color) {
+        day_zenith_color = godot::Vector3(color.r, color.g, color.b);
+    }
+
+    [[nodiscard]] godot::Color get_day_zenith_color() const {
+        return godot::Color(day_zenith_color.x, day_zenith_color.y, day_zenith_color.z, 1.0f);
+    }
+
+    void set_night_zenith_color(const godot::Color& color) {
+        night_zenith_color = godot::Vector3(color.r, color.g, color.b);
+    }
+
+    [[nodiscard]] godot::Color get_night_zenith_color() const {
+        return godot::Color(night_zenith_color.x, night_zenith_color.y, night_zenith_color.z, 1.0f);
     }
 
     void ensure_sky(godot::Environment* env) {
@@ -263,6 +279,8 @@ private:
     // The default day horizon is #2652a6; the zenith keeps the sky's blue.
     godot::Vector3 day_horizon_color = godot::Vector3(0.1490196f, 0.3215686f, 0.6509804f);
     godot::Vector3 night_horizon_color = godot::Vector3(0.0f, 0.0f, 0.0f);
+    godot::Vector3 day_zenith_color = godot::Vector3(0.06f, 0.20f, 0.85f);
+    godot::Vector3 night_zenith_color = godot::Vector3(0.001f, 0.004f, 0.015f);
     godot::StringName p_blend = godot::StringName("blend");
     godot::StringName p_sun_dir = godot::StringName("sun_direction");
     godot::StringName p_sun_color = godot::StringName("sun_color");

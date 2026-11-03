@@ -134,10 +134,9 @@ public:
     // Hands the world's current lighting to one item material, so a held or
     // dropped mesh runs the terrain's light model instead of the engine's.
     void apply_item_lighting(const godot::Ref<godot::ShaderMaterial>& material);
-    // The player's own body is the one object that does not take the world's
-    // midday cream with it: scripts/player_model.gd overwrites `sky_light_warmth`
-    // with this after apply_item_lighting. See
-    // EnvironmentController::get_body_sky_warmth.
+    // The neutral sky-light warmth used by the menu accent. The body and every
+    // other item now get the same value through apply_item_lighting; this accessor
+    // remains for the UI. See EnvironmentController::get_body_sky_warmth.
     godot::Color get_body_sky_warmth();
 
 #ifdef DEBUG_ENABLED
@@ -243,11 +242,6 @@ public:
     void set_smooth_lighting(bool enabled);
     bool get_smooth_lighting() const;
 
-    // The world's midday sky tint: the terrain, the water and every item together
-    // (see EnvironmentController::set_sky_tint_enabled).
-    void set_sky_tint_enabled(bool enabled);
-    bool get_sky_tint_enabled();
-
     // The Shaders menu's two geometry effects - World Bend and the Horizon
     // Curve - move the world's vertices in a vertex shader, which runs after the
     // engine has culled it, so the chunks would be culled against where they used
@@ -319,6 +313,11 @@ void toggle_day_night_cycle();
 
     void set_night_sky_color(const godot::Color& color);
     godot::Color get_night_sky_color() const;
+
+    void set_day_zenith_color(const godot::Color& color);
+    godot::Color get_day_zenith_color() const;
+    void set_night_zenith_color(const godot::Color& color);
+    godot::Color get_night_zenith_color() const;
 
     void set_day_horizon_color(const godot::Color& color);
     godot::Color get_day_horizon_color() const;

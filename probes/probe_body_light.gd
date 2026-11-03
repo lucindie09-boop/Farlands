@@ -17,16 +17,10 @@ extends SceneTree
 ##     day/night uniforms the terrain is fed, which is a change the engine cannot
 ##     produce AT ALL in this scene: there is nothing for it to move. A body on
 ##     the engine's lighting reads identically at noon and at midnight.
-##   * the body does NOT wear the world's midday tint, and the world still does.
-##     The sky half of the light is tinted by `sky_light_warmth`, which the world
-##     is handed as a warm CREAM even at noon: a cast that hides in grass, dirt
-##     and stone, and reads as orange on a pale skin -- the one sky-lit surface
-##     with no texture to hide it behind. So the body's own material is handed the
-##     sun's own colour instead, WHITE overhead, while the world keeps the cream.
-##     Both ends are read off the live materials at noon, which is the hour the
-##     cast is at full strength; the horizon is checked too, because the body's
-##     white is a curve and not a flat colour (a flat white would take the sunset
-##     out of it).
+##   * the body and the world share one neutral sky-light curve: white overhead,
+##     still warm at the horizon. The retired Sky Tint setting no longer gives the
+##     world a different midday cast, so both materials are checked at noon; the
+##     horizon check still says the white is a curve, not a flat colour.
 ##
 ## The silhouette comes from hiding the body: the only thing that differs between
 ## a frame with it and a frame without it is whether it was drawn. The mask is
@@ -53,9 +47,6 @@ const HORIZON_TIME := 0.25     # day_time: the sun ON the horizon (elevation == 
 const MIDNIGHT := 0.0          # day_time: the sun lowest (elevation == -1)
 const SLOW_DAY := 600.0        # the settings slider's own maximum, see _run
 const WHITE_TOL := 0.02        # "white overhead" -- all three channels this close
-const CREAM_TOL := 0.02        # the world's own midday cast, per channel
-const WORLD_CREAM_G := 0.85    # DayNightCycle::get_sun_color() at the zenith
-const WORLD_CREAM_B := 0.60
 
 var _failures := 0
 
@@ -228,11 +219,11 @@ func _run() -> void:
 	else:
 		_ok("body: found in the frame", share >= MIN_BODY_SHARE, "%.1f%% of the frame" % (100.0 * share))
 
-	# The tint, at the top of the day -- the two halves of it, because the claim is
-	# about the pair: the body's is white, the world's is still its cream. The
-	# world's is read by putting a scratch material through the call the terrain's
-	# own materials are fed through, from the same cached value, so it cannot be a
-	# different number from the one the terrain gets.
+	# The sky light at the top of the day: both materials are handed the same
+	# neutral curve now that the Sky Tint setting is gone, so both must be white
+	# overhead. The world's is read by putting a scratch material through the call
+	# the terrain's own materials are fed through, from the same cached value, so it
+	# cannot be a different number from the one the terrain gets.
 	var body_material: ShaderMaterial = model.get("_body_material")
 	if body_material == null:
 		_ok("sky light: the body has a world material", false, "no _body_material")
@@ -243,10 +234,9 @@ func _run() -> void:
 				and absf(overhead.b - 1.0) <= WHITE_TOL,
 			"warmth handed to the body's material at noon is %s" % str(overhead))
 		var world: Color = _world_warmth(cm)
-		_ok("sky light: the world keeps its midday cream",
-			world.r >= 0.98 and world.g > world.b
-				and absf(world.g - WORLD_CREAM_G) <= CREAM_TOL
-				and absf(world.b - WORLD_CREAM_B) <= CREAM_TOL,
+		_ok("sky light: the world is white overhead too",
+			absf(world.r - 1.0) <= WHITE_TOL and absf(world.g - 1.0) <= WHITE_TOL
+				and absf(world.b - 1.0) <= WHITE_TOL,
 			"warmth handed to the world at noon is %s" % str(world))
 
 	var noon: Dictionary = await _measure(model, mask)

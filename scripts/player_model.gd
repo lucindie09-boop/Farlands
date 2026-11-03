@@ -217,18 +217,8 @@ func _push_world_lighting(delta: float) -> void:
 	if _body_material == null or _chunk_manager == null:
 		return
 	_chunk_manager.apply_item_lighting(_body_material)
-	# ...but NOT the world's midday tint. The `sky_light_warmth` the line above
-	# just wrote is a cream even at noon (the world wants it: it is baked into the
-	# sky, the fog and the terrain alike), and this model is the one sky-lit
-	# surface in the world with nothing between the light and its albedo to hide a
-	# cast in -- a cream that reads as nothing on grass reads as orange on a pale
-	# skin. The body takes the sun's own colour instead, which is WHITE overhead
-	# and still warm at the horizon, so a sunset lights it exactly as it lights the
-	# ground (the two curves land on the same colour there). Written after the
-	# world's value, because that value is rewritten every frame.
-	# probes/probe_body_light.gd reads both materials.
-	var warmth: Color = _chunk_manager.get_body_sky_warmth()
-	_body_material.set_shader_parameter("sky_light_warmth", warmth)
+	# The body is fed the same neutral sky-light curve as the world and every
+	# other item; probes/probe_body_light.gd reads both materials.
 	var at := to_global(Vector3(0.0, _body_height, 0.0))
 	var cell: Vector4 = _chunk_manager.get_light_at(floori(at.x), floori(at.y), floori(at.z))
 	if not _body_light_ready:

@@ -22,6 +22,7 @@
 [ext_resource type="Script" uid="uid://crc4bnynbq6yk" path="res://scripts/airbar.gd" id="22_airbar"]
 [ext_resource type="Script" uid="uid://s02lq0mwsy4m" path="res://scripts/block_break_particles.gd" id="23_breakchips"]
 [ext_resource type="Script" uid="uid://bkh0fnhk5jxms" path="res://scripts/hurt_overlay.gd" id="24_hurtoverlay"]
+[ext_resource type="Script" uid="uid://1uoi2qsnal7a" path="res://scripts/cloud_layer.gd" id="25_clouds"]
 
 [sub_resource type="Environment" id="Environment_uu6xs"]
 background_mode = 2
@@ -214,6 +215,9 @@ grow_vertical = 2
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=1600923077]
 environment = SubResource("Environment_uu6xs")
+
+[node name="CloudLayer" type="MeshInstance3D" parent="."]
+script = ExtResource("25_clouds")
 
 [node name="DroppedItems" type="Node3D" parent="." unique_id=318602555]
 script = ExtResource("21_dropped")

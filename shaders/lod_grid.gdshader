@@ -119,6 +119,15 @@ const float DETAIL_REPEAT_FULL_PX = 8.0;
 // The far field's own fog: begin at the loaded world's edge, end at the outer
 // tile ring. Colour comes from the same day/night curve the world uses.
 uniform vec3 fog_color = vec3(0.70, 0.80, 0.95);
+
+vec3 aces_tonemap(vec3 x) {
+    float a = 2.51;
+    float b = 0.03;
+    float c = 2.43;
+    float d = 0.59;
+    float e = 0.14;
+    return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+}
 uniform float fog_begin = 512.0;
 uniform float fog_end = 4096.0;
 
@@ -235,5 +244,5 @@ void fragment() {
     // No ALPHA write: it is what puts a shader in the transparent pipeline and
     // takes the depth write with it (see render_mode above). The far field is
     // opaque -- its water is mixed into ALBEDO rather than blended.
-    ALBEDO = mix(lit, fog_color, fade);
+    ALBEDO = mix(lit, aces_tonemap(fog_color), fade);
 }

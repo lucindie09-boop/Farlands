@@ -221,12 +221,11 @@ twice, and the coast is where the samples' own crossing is. The whole sequence, 
 
 - **Vegetation generation**: Sparse oak trees on hills — a fraction of qualifying chunks get a
   single isolated tree (chance/spacing from `data/vegetation.json`), deferred cross-chunk writes
-- **Day and night horizons**: The day base grades from the live `day_horizon_color` (default:
-  the sky's zenith blue, so the default horizon introduces no separate colour band) to the
-  zenith; the night base grades from the live night horizon (default black) to the night
-  zenith. Settings → Sky holds both, updating the sky and the engine fog live. The sky
-  uses the picker colours directly; the fog and water horizon adds the sunset blend, so a
-  low sun warms them without brightening the god-ray source.
+- **Day and night horizons**: The day base grades from the live `day_horizon_color` (default
+  `#2652a6`) to the zenith; the night base grades from the live night horizon (default black) to the night
+  zenith. Settings → Sky holds both, updating the sky and the fog live. The sky, fog and
+  water all use the same raw picker colours, and the fog passes that colour through the
+  sky's ACES curve; sun scatter only feathers the transition, so full fog is the sky colour.
 - **Night sky & starfield**: Dynamic procedural twinkling starfield during night sun elevations
 - **Emissive texture support**: Second `Texture2DArray` for per-face glow maps
 - **Soft curved AO**: Non-linear power-curve smoothing to eliminate diagonal triangulation seams

@@ -20,7 +20,7 @@ uniform float blend = 1.0;
 uniform vec3 sun_direction = vec3(0.0, 1.0, 0.0);
 uniform vec3 sun_color = vec3(1.0, 0.95, 0.7);
 uniform float exposure = 1.0;
-uniform vec3 day_horizon_color = vec3(0.06, 0.20, 0.85);
+uniform vec3 day_horizon_color = vec3(0.1490196, 0.3215686, 0.6509804);
 uniform vec3 night_horizon_color = vec3(0.0, 0.0, 0.0);
 uniform vec3 zenith_color = vec3(0.06, 0.20, 0.85);
 uniform float sky_turbidity = 0.35;
@@ -67,8 +67,8 @@ void sky() {
     haze *= smoothstep(0.0, 0.35, blend);
 
     // Day and night grade from their own live horizon to the zenith. Keeping the
-    // two uniforms separate means the day picker cannot tint the night side, and
-    // the sky does not inherit the sunset/haze blend used by the fog and water.
+    // two uniforms separate means the day picker cannot tint the night side. The
+    // fog and water are handed the same raw pair, so their horizon matches.
     float day_up = smoothstep(0.0, 0.65, max(dir.y, 0.0));
     vec3 day_sky = mix(day_horizon_color, zenith_color, day_up);
     float night = 1.0 - blend;
@@ -166,23 +166,6 @@ void sky() {
 
 class SkyController {
 private:
-    godot::Vector3 compute_horizon_color(float blend, float sun_elevation,
-                                         const godot::Color& /*sun_color*/,
-                                         float /*sky_turbidity*/) const {
-        godot::Vector3 day_horizon = day_horizon_color;
-        godot::Vector3 night_horizon = night_horizon_color;
-
-        float sunset_factor = std::clamp(std::abs(sun_elevation) / 0.35f, 0.0f, 1.0f);
-        godot::Vector3 sunset_horizon(0.95f, 0.70f, 0.40f);
-
-        godot::Vector3 base_color = night_horizon.lerp(day_horizon, blend);
-        // The horizon used by the fog and water: the configured day/night colour
-        // plus the sunset blend. Turbidity only widens the sun's glow in the sky
-        // shader; the sky itself uses the raw day/night colours, so this blend
-        // cannot brighten the god-ray source.
-        return base_color.lerp(sunset_horizon, (1.0f - sunset_factor) * 0.5f * blend);
-    }
-
     godot::Vector3 compute_zenith_color(float blend) const {
         godot::Vector3 day_zenith(0.06f, 0.20f, 0.85f);
         godot::Vector3 night_zenith(0.001f, 0.004f, 0.015f);
@@ -190,8 +173,10 @@ private:
     }
 
 public:
-    [[nodiscard]] godot::Vector3 get_horizon_color(float blend, float sun_elevation = 0.0f, const godot::Color& sun_color = godot::Color(1.0f, 1.0f, 1.0f), float sky_turbidity = 0.35f) const {
-        return compute_horizon_color(blend, sun_elevation, sun_color, sky_turbidity);
+    // The horizon the sky, fog and water share: the day/night picker colours at
+    // this instant, with no sunset or haze term.
+    [[nodiscard]] godot::Vector3 get_raw_horizon_color(float blend) const {
+        return night_horizon_color.lerp(day_horizon_color, blend);
     }
 
     [[nodiscard]] godot::Vector3 get_zenith_color(float blend) const {
@@ -276,9 +261,8 @@ private:
     bool sun_texture_loaded = false;
     bool star_texture_loaded = false;
     godot::Ref<godot::ShaderMaterial> cached_mat;
-    // The default day horizon is the sky's own zenith blue, so an untouched day
-    // sky has no separate horizon colour band.
-    godot::Vector3 day_horizon_color = godot::Vector3(0.06f, 0.20f, 0.85f);
+    // The default day horizon is #2652a6; the zenith keeps the sky's blue.
+    godot::Vector3 day_horizon_color = godot::Vector3(0.1490196f, 0.3215686f, 0.6509804f);
     godot::Vector3 night_horizon_color = godot::Vector3(0.0f, 0.0f, 0.0f);
     godot::StringName p_blend = godot::StringName("blend");
     godot::StringName p_sun_dir = godot::StringName("sun_direction");

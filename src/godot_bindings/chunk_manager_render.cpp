@@ -196,7 +196,7 @@ void ChunkManager::update_environment() {
                                    day_night.get_moon_phase(), 1.0f, day_night.get_sky_turbidity(), 1.0f,
                                    ec.get_fog_controller().get_fog_scatter(blend, elevation));
     ec.get_fog_controller().update(env.ptr(), blend, horizon_color,
-                                   ec.get_fog_controller().get_fog_color(blend, horizon_color, elevation, sun_color, day_night.get_sky_turbidity()),
+                                   ec.get_fog_controller().get_fog_color(horizon_color),
                                    ec.get_fog_controller().get_fog_scatter(blend, elevation));
 
     env->set_ambient_source(Environment::AMBIENT_SOURCE_SKY);

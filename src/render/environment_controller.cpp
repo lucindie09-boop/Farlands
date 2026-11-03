@@ -145,7 +145,7 @@ void EnvironmentController::update_shader_parameters() {
     item_sky_warmth = sky_warmth;
     item_body_sky_warmth = day_night.get_sun_color_neutral();
 
-    const godot::Vector3 sky_horizon_color = sky_controller.get_horizon_color(blend, elevation, sun_color, sky_turbidity);
+    const godot::Vector3 sky_horizon_color = sky_controller.get_raw_horizon_color(blend);
     const godot::Vector3 sky_zenith_color = sky_controller.get_zenith_color(blend);
 
     // Check if any values changed meaningfully (epsilon-gated dirty check)
@@ -170,7 +170,8 @@ void EnvironmentController::update_shader_parameters() {
     // the fog disagrees. Off, the world keeps the range its render distance implies.
     const float world_fog_begin = lod_grid_fog_active ? lod_grid_fog_begin : fog_begin;
     const float world_fog_end = lod_grid_fog_active ? lod_grid_fog_end : fog_end;
-    const godot::Color fog_color = fog_controller.get_fog_color(blend, godot::Color(sky_horizon_color.x, sky_horizon_color.y, sky_horizon_color.z), elevation, sun_color, sky_turbidity);
+    const godot::Color fog_color = fog_controller.get_fog_color(
+        godot::Color(sky_horizon_color.x, sky_horizon_color.y, sky_horizon_color.z));
     const float fog_scatter = fog_controller.get_fog_scatter(blend, elevation);
     const int32_t fog_mode = static_cast<int32_t>(fog_controller.get_fog_mode());
 

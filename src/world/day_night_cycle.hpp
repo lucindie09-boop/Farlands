@@ -73,25 +73,11 @@ public:
         return night_color.lerp(day_color, blend);
     }
 
+    // The same raw horizon the sky and fog use. There is deliberately no
+    // dawn/dusk override: the fog edge cannot pick a colour the sky is not drawing.
     [[nodiscard]] godot::Color get_horizon_color() const {
         if (!enabled) return day_horizon_color;
-        const float blend = get_blend();
-        const float elevation = get_sun_elevation();
-        float derivative = std::cos(static_cast<float>(time - 0.25) * 3.14159265f * 2.0f);
-        float abs_el = std::abs(elevation);
-        bool is_sunrise = (derivative > 0.0f && abs_el < 0.15f && time < 0.5f);
-        bool is_sunset = (derivative < 0.0f && abs_el < 0.15f && time > 0.5f);
-        bool is_dawn_dusk = is_sunrise || is_sunset;
-
-        if (is_dawn_dusk) {
-            float dawn_dusk_t = std::clamp(1.0f - abs_el / 0.15f, 0.0f, 1.0f);
-            if (is_sunrise) {
-                return night_horizon_color.lerp(dawn_horizon_color, dawn_dusk_t).lerp(day_horizon_color, blend);
-            } else {
-                return night_horizon_color.lerp(dusk_horizon_color, dawn_dusk_t).lerp(day_horizon_color, blend);
-            }
-        }
-        return night_horizon_color.lerp(day_horizon_color, blend);
+        return night_horizon_color.lerp(day_horizon_color, get_blend());
     }
 
     // The world's sky-lit tint: a warm CREAM even at the zenith (1.0, 0.85,
@@ -210,12 +196,6 @@ public:
     void set_night_horizon_color(const godot::Color& c) { night_horizon_color = c; }
     [[nodiscard]] godot::Color get_night_horizon_color() const { return night_horizon_color; }
 
-    void set_dawn_horizon_color(const godot::Color& c) { dawn_horizon_color = c; }
-    [[nodiscard]] godot::Color get_dawn_horizon_color() const { return dawn_horizon_color; }
-
-    void set_dusk_horizon_color(const godot::Color& c) { dusk_horizon_color = c; }
-    [[nodiscard]] godot::Color get_dusk_horizon_color() const { return dusk_horizon_color; }
-
 private:
     double time = 0.0;
     double duration = 10.0;
@@ -227,11 +207,9 @@ private:
     godot::Color night_color = godot::Color(0.0f, 0.0f, 0.0f, 1.0f);
     godot::Color dawn_color = godot::Color(1.0f, 1.0f, 1.0f, 1.0f);
     godot::Color dusk_color = godot::Color(1.0f, 1.0f, 1.0f, 1.0f);
-    // Defaults to the sky's zenith blue, so the fog's horizon matches the sky.
-    godot::Color day_horizon_color = godot::Color(0.06f, 0.20f, 0.85f, 1.0f);
+    // Default day horizon: #2652a6.
+    godot::Color day_horizon_color = godot::Color(0.1490196f, 0.3215686f, 0.6509804f, 1.0f);
     godot::Color night_horizon_color = godot::Color(0.0f, 0.0f, 0.0f, 1.0f);
-    godot::Color dawn_horizon_color = godot::Color(1.0f, 1.0f, 1.0f, 1.0f);
-    godot::Color dusk_horizon_color = godot::Color(1.0f, 1.0f, 1.0f, 1.0f);
 };
 
 } // namespace VoxelEngine

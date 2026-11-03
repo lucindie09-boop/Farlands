@@ -33,10 +33,22 @@ const BASE_LATTICE := 28
 const OCTAVES := 3
 const NOISE_SEED := 20261103
 const CLOUD_THRESHOLD := 0.58
+const CLOUD_LAYER_SPACING := 256.0
+# Base is opaque-ish. Each layer above is twice as transparent and keeps half
+# the cloud cover of the layer below it. The upper layers also use independent
+# noise seeds, so they are their own cloud maps rather than denser cores of the
+# base layer's map.
+const CLOUD_LAYER_OPACITY_SCALE := [1.0, 0.5, 0.25]
+const CLOUD_LAYER_COVERAGE_SCALE := [1.0, 0.5, 0.25]
+const CLOUD_LAYER_SEED_STEP := 7919
+
+@export_range(1, 3, 1) var cloud_layers: int = 3
+@export_range(16.0, 512.0, 16.0) var cloud_layer_spacing: float = CLOUD_LAYER_SPACING
 
 var _player: Node3D
 var _chunk_manager: Node
-var _cloud_material: ShaderMaterial
+var _layer_nodes: Array[MeshInstance3D] = []
+var _layer_materials: Array[ShaderMaterial] = []
 var _wind_offset := 0.0
 
 
@@ -44,23 +56,62 @@ func _ready() -> void:
 	_player = get_node_or_null("../Player") as Node3D
 	_chunk_manager = get_node_or_null("../ChunkManager")
 
-	var cloud_mask := _generate_cloud_mask()
-	mesh = _build_cloud_mesh(cloud_mask)
+	var layer_values: Array[PackedFloat32Array] = []
+	var thresholds: Array[float] = []
+	layer_values.append(_cloud_values(NOISE_SEED))
+	thresholds.append(CLOUD_THRESHOLD)
+	var base_count := _count_above(layer_values[0], CLOUD_THRESHOLD)
+	for index in range(1, CLOUD_LAYER_OPACITY_SCALE.size()):
+		var values := _cloud_values(NOISE_SEED + CLOUD_LAYER_SEED_STEP * index)
+		layer_values.append(values)
+		var target_count := int(round(float(base_count) * CLOUD_LAYER_COVERAGE_SCALE[index]))
+		thresholds.append(_threshold_for_count(values, target_count))
+	for index in CLOUD_LAYER_OPACITY_SCALE.size():
+		var mask := _generate_cloud_mask(layer_values[index], thresholds[index])
+		var layer: MeshInstance3D = self if index == 0 else MeshInstance3D.new()
+		if index > 0:
+			layer.name = "CloudLayerUpper%d" % index
+			add_child(layer)
+		layer.mesh = _build_cloud_mesh(mask)
+		layer.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
-	var cloud_material := ShaderMaterial.new()
-	cloud_material.shader = CLOUD_SHADER
-	cloud_material.set_shader_parameter("cloud_texture", _mask_to_texture(cloud_mask))
-	cloud_material.set_shader_parameter("cloud_span", CLOUD_SPAN)
-	cloud_material.set_shader_parameter("opacity", CLOUD_OPACITY)
-	# The water material is priority 1 and writes depth. Drawing the cloud after it
-	# lets liquid in front hide the cloud, while liquid behind shows through it.
-	cloud_material.render_priority = 2
-	material_override = cloud_material
-	_cloud_material = cloud_material
+		var cloud_material := ShaderMaterial.new()
+		cloud_material.shader = CLOUD_SHADER
+		cloud_material.set_shader_parameter("cloud_texture", _mask_to_texture(mask))
+		cloud_material.set_shader_parameter("cloud_span", CLOUD_SPAN)
+		cloud_material.set_shader_parameter("opacity", CLOUD_OPACITY * CLOUD_LAYER_OPACITY_SCALE[index])
+		# The water material is priority 1 and writes depth. Every cloud layer is
+		# drawn after it; the upper layers are ordered after the base so their
+		# transparency composites over it.
+		cloud_material.render_priority = 2 + index
+		layer.material_override = cloud_material
+		_layer_nodes.append(layer)
+		_layer_materials.append(cloud_material)
 
-	cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_apply_layer_count()
+	_apply_layer_positions()
 	global_position = Vector3(0.0, CLOUD_HEIGHT, 0.0)
 	_place_cloud_tile()
+
+
+func set_cloud_layers(value: int) -> void:
+	cloud_layers = clampi(value, 1, 3)
+	_apply_layer_count()
+
+
+func set_cloud_layer_spacing(value: float) -> void:
+	cloud_layer_spacing = clampf(value, 16.0, 512.0)
+	_apply_layer_positions()
+
+
+func _apply_layer_count() -> void:
+	for index in _layer_nodes.size():
+		_layer_nodes[index].visible = index < cloud_layers
+
+
+func _apply_layer_positions() -> void:
+	for index in _layer_nodes.size():
+		_layer_nodes[index].position = Vector3(0.0, cloud_layer_spacing * float(index), 0.0)
 
 
 func _process(delta: float) -> void:
@@ -82,7 +133,7 @@ func _place_cloud_tile() -> void:
 
 
 func _update_cloud_color() -> void:
-	if _cloud_material == null:
+	if _layer_materials.is_empty():
 		return
 	# Match the environment's blend exactly. Its cycle reports day while it is
 	# disabled, even if the stored time is midnight.
@@ -100,17 +151,43 @@ func _update_cloud_color() -> void:
 			(CLOUD_DAY_ELEVATION - CLOUD_NIGHT_ELEVATION),
 		0.0,
 		1.0)
-	_cloud_material.set_shader_parameter(
-		"cloud_color", night_color.lerp(day_color, blend))
+	var color := night_color.lerp(day_color, blend)
+	for material in _layer_materials:
+		material.set_shader_parameter("cloud_color", color)
 
 
-func _generate_cloud_mask() -> PackedByteArray:
-	var mask := PackedByteArray()
-	mask.resize(MASK_SIZE * MASK_SIZE)
+func _cloud_values(seed_value: int) -> PackedFloat32Array:
+	var values := PackedFloat32Array()
+	values.resize(MASK_SIZE * MASK_SIZE)
 	for y in MASK_SIZE:
 		for x in MASK_SIZE:
-			if _cloud_value(x % TEXTURE_SIZE, y % TEXTURE_SIZE) > CLOUD_THRESHOLD:
-				mask[y * MASK_SIZE + x] = 1
+			values[y * MASK_SIZE + x] = _cloud_value(x % TEXTURE_SIZE, y % TEXTURE_SIZE, seed_value)
+	return values
+
+
+func _count_above(values: PackedFloat32Array, threshold: float) -> int:
+	var count := 0
+	for value in values:
+		if value > threshold:
+			count += 1
+	return count
+
+
+func _threshold_for_count(values: PackedFloat32Array, target_count: int) -> float:
+	if target_count <= 0:
+		return 2.0
+	var sorted := values.duplicate()
+	sorted.sort()
+	var index := clampi(sorted.size() - target_count, 0, sorted.size() - 1)
+	return sorted[index]
+
+
+func _generate_cloud_mask(values: PackedFloat32Array, threshold: float) -> PackedByteArray:
+	var mask := PackedByteArray()
+	mask.resize(values.size())
+	for i in values.size():
+		if values[i] > threshold:
+			mask[i] = 1
 	return mask
 
 
@@ -248,7 +325,7 @@ func _add_quad(vertices: PackedVector3Array, colors: PackedColorArray, normals: 
 	indices.push_back(base + 3)
 
 
-func _cloud_value(px: int, py: int) -> float:
+func _cloud_value(px: int, py: int, seed_value: int) -> float:
 	# Sample a periodic lattice so the texture tiles without a visible seam.
 	var u := float(px) / float(TEXTURE_SIZE) * float(BASE_LATTICE)
 	var v := float(py) / float(TEXTURE_SIZE) * float(BASE_LATTICE)
@@ -258,7 +335,7 @@ func _cloud_value(px: int, py: int) -> float:
 	var period := BASE_LATTICE
 	var frequency := 1.0
 	for _octave in OCTAVES:
-		total += _periodic_noise(u * frequency, v * frequency, period) * weight
+		total += _periodic_noise(u * frequency, v * frequency, period, seed_value) * weight
 		total_weight += weight
 		weight *= 0.5
 		period *= 2
@@ -266,7 +343,7 @@ func _cloud_value(px: int, py: int) -> float:
 	return total / total_weight
 
 
-func _periodic_noise(x: float, y: float, period: int) -> float:
+func _periodic_noise(x: float, y: float, period: int, seed_value: int) -> float:
 	var x0 := floori(x)
 	var y0 := floori(y)
 	var tx := x - float(x0)
@@ -275,13 +352,13 @@ func _periodic_noise(x: float, y: float, period: int) -> float:
 	ty = ty * ty * (3.0 - 2.0 * ty)
 	var x1 := x0 + 1
 	var y1 := y0 + 1
-	var a := _cell(x0, y0, period)
-	var b := _cell(x1, y0, period)
-	var c := _cell(x0, y1, period)
-	var d := _cell(x1, y1, period)
+	var a := _cell(x0, y0, period, seed_value)
+	var b := _cell(x1, y0, period, seed_value)
+	var c := _cell(x0, y1, period, seed_value)
+	var d := _cell(x1, y1, period, seed_value)
 	return lerpf(lerpf(a, b, tx), lerpf(c, d, tx), ty)
 
 
-func _cell(x: int, y: int, period: int) -> float:
-	var h := hash(Vector3i(wrapi(x, 0, period), wrapi(y, 0, period), NOISE_SEED))
+func _cell(x: int, y: int, period: int, seed_value: int) -> float:
+	var h := hash(Vector3i(wrapi(x, 0, period), wrapi(y, 0, period), seed_value))
 	return float(h & 0xffff) / 65535.0

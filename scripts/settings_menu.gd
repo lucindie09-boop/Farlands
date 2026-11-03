@@ -114,6 +114,8 @@ var _default_day_horizon: Color = Color(0.1490196, 0.3215686, 0.6509804, 1.0)
 var _default_night_horizon: Color = Color(0.0, 0.0, 0.0, 1.0)
 var _default_day_cloud: Color = Color(1.0, 1.0, 1.0, 1.0)
 var _default_night_cloud: Color = Color(0.0, 0.0, 0.0, 1.0)
+var _default_cloud_layers: int = 3
+var _default_cloud_spacing: float = 256.0
 var _default_render_distance: int = 32
 var _default_lod_distance: int = 0
 var _default_lod_detail: float = 0.5
@@ -258,6 +260,8 @@ func _ready():
 	_default_night_horizon = chunk_manager.get_night_horizon_color()
 	_default_day_cloud = cloud_layer_node.day_color if cloud_layer_node else _default_day_cloud
 	_default_night_cloud = cloud_layer_node.night_color if cloud_layer_node else _default_night_cloud
+	_default_cloud_layers = cloud_layer_node.cloud_layers if cloud_layer_node else _default_cloud_layers
+	_default_cloud_spacing = cloud_layer_node.cloud_layer_spacing if cloud_layer_node else _default_cloud_spacing
 	_default_render_distance = chunk_manager.get_render_distance()
 	_default_lod_distance = chunk_manager.get_lod_distance()
 	_default_lod_detail = chunk_manager.get_lod_detail_level()
@@ -324,6 +328,8 @@ func _save_settings():
 	cfg.set_value("lighting", "night_horizon_color", chunk_manager.get_night_horizon_color())
 	cfg.set_value("lighting", "day_cloud_color", _cloud_day_color())
 	cfg.set_value("lighting", "night_cloud_color", _cloud_night_color())
+	cfg.set_value("lighting", "cloud_layers", _cloud_layers_value())
+	cfg.set_value("lighting", "cloud_layer_spacing", _cloud_spacing_value())
 	cfg.set_value("lighting", "contrast", chunk_manager.get_contrast())
 	cfg.set_value("lighting", "saturation", chunk_manager.get_saturation())
 	cfg.set_value("lighting", "ao_color", chunk_manager.get_ao_color())
@@ -385,6 +391,8 @@ func _load_settings():
 	chunk_manager.set_night_horizon_color(cfg.get_value("lighting", "night_horizon_color", chunk_manager.get_night_horizon_color()))
 	_set_cloud_day_color(cfg.get_value("lighting", "day_cloud_color", _cloud_day_color()))
 	_set_cloud_night_color(cfg.get_value("lighting", "night_cloud_color", _cloud_night_color()))
+	_set_cloud_layers(cfg.get_value("lighting", "cloud_layers", _cloud_layers_value()))
+	_set_cloud_layer_spacing(cfg.get_value("lighting", "cloud_layer_spacing", _cloud_spacing_value()))
 	chunk_manager.set_contrast(cfg.get_value("lighting", "contrast", chunk_manager.get_contrast()))
 	chunk_manager.set_saturation(cfg.get_value("lighting", "saturation", chunk_manager.get_saturation()))
 	chunk_manager.set_ao_color(cfg.get_value("lighting", "ao_color", chunk_manager.get_ao_color()))
@@ -1268,6 +1276,20 @@ func _set_cloud_night_color(color: Color) -> void:
 	if cloud_layer_node:
 		cloud_layer_node.night_color = color
 
+func _cloud_layers_value() -> int:
+	return cloud_layer_node.cloud_layers if cloud_layer_node else _default_cloud_layers
+
+func _cloud_spacing_value() -> float:
+	return cloud_layer_node.cloud_layer_spacing if cloud_layer_node else _default_cloud_spacing
+
+func _set_cloud_layers(value: int) -> void:
+	if cloud_layer_node:
+		cloud_layer_node.set_cloud_layers(value)
+
+func _set_cloud_layer_spacing(value: float) -> void:
+	if cloud_layer_node:
+		cloud_layer_node.set_cloud_layer_spacing(value)
+
 func _sync_sky_visuals() -> void:
 	for sync in _sky_visual_syncs:
 		sync.call()
@@ -1358,6 +1380,24 @@ func _build_sky_sections() -> Array:
 		_set_cloud_night_color(_default_night_cloud)
 		_schedule_save()
 
+	var cloud_layers_slider := _make_slider(float(_cloud_layers_value()), 1.0, 3.0, 1.0,
+		func(v: float):
+			_set_cloud_layers(int(v))
+			_schedule_save())
+	var cloud_layers_reset := func():
+		cloud_layers_slider.get_meta("slider").value = _default_cloud_layers
+		_set_cloud_layers(_default_cloud_layers)
+		_schedule_save()
+
+	var cloud_spacing_slider := _make_slider(_cloud_spacing_value(), 16.0, 512.0, 16.0,
+		func(v: float):
+			_set_cloud_layer_spacing(v)
+			_schedule_save(), " blocks")
+	var cloud_spacing_reset := func():
+		cloud_spacing_slider.get_meta("slider").value = _default_cloud_spacing
+		_set_cloud_layer_spacing(_default_cloud_spacing)
+		_schedule_save()
+
 	var godrays_btn := Button.new()
 	var godrays_enabled: bool = godrays_node.visible if godrays_node else _default_godrays
 	_row_value(godrays_btn, "On" if godrays_enabled else "Off")
@@ -1382,6 +1422,8 @@ func _build_sky_sections() -> Array:
 	_sky_visual_syncs.append(func(): night_horizon.color = chunk_manager.get_night_horizon_color())
 	_sky_visual_syncs.append(func(): day_cloud.color = _cloud_day_color())
 	_sky_visual_syncs.append(func(): night_cloud.color = _cloud_night_color())
+	_sky_visual_syncs.append(func(): cloud_layers_slider.get_meta("slider").value = float(_cloud_layers_value()))
+	_sky_visual_syncs.append(func(): cloud_spacing_slider.get_meta("slider").value = _cloud_spacing_value())
 	_sky_visual_syncs.append(func(): _row_value(godrays_btn, "On" if (godrays_node.visible if godrays_node else _default_godrays) else "Off"))
 
 	return [
@@ -1394,6 +1436,8 @@ func _build_sky_sections() -> Array:
 			["Night Horizon", night_horizon, night_horizon_reset],
 			["Day Cloud Colour", day_cloud, day_cloud_reset],
 			["Night Cloud Colour", night_cloud, night_cloud_reset],
+			["Cloud Layers", cloud_layers_slider, cloud_layers_reset],
+			["Cloud Layer Spacing", cloud_spacing_slider, cloud_spacing_reset],
 		]],
 	]
 
@@ -4018,6 +4062,8 @@ func _export_lighting_code() -> String:
 	data.append_array(_pack_color32(chunk_manager.get_night_zenith_color()))
 	data.append_array(_pack_color32(_cloud_day_color()))
 	data.append_array(_pack_color32(_cloud_night_color()))
+	data.append(clampi(_cloud_layers_value(), 1, 3))
+	data.append_array(_pack_float16(_cloud_spacing_value(), 16.0, 512.0, 16.0))
 	return _format_cs_code("FAR", _base32_encode(data))
 
 func _import_lighting_code(code: String) -> bool:
@@ -4046,6 +4092,10 @@ func _import_lighting_code(code: String) -> bool:
 		_set_cloud_day_color(_unpack_color32(data, idx)); idx += 4
 	if data.size() >= 50:
 		_set_cloud_night_color(_unpack_color32(data, idx)); idx += 4
+	if data.size() >= 51:
+		_set_cloud_layers(data[idx]); idx += 1
+	if data.size() >= 53:
+		_set_cloud_layer_spacing(_unpack_float16(data, idx, 16.0, 512.0, 16.0)); idx += 2
 	chunk_manager.set_smooth_lighting((flags & (1 << 0)) != 0)
 	_schedule_save()
 	return true

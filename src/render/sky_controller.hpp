@@ -25,7 +25,7 @@ uniform vec3 night_horizon_color = vec3(0.0, 0.0, 0.0);
 uniform vec3 zenith_color = vec3(0.06, 0.20, 0.85);
 uniform float sky_turbidity = 0.35;
 uniform float moon_phase = 0.5;
-uniform sampler2D sun_texture;
+uniform sampler2D sun_texture : filter_nearest;
 uniform sampler2D star_texture;
 
 vec3 aces_tonemap(vec3 x) {
@@ -80,7 +80,7 @@ void sky() {
     float sun_glow_w = mix(1.0, 2.2, haze);
     float sun_glow = (pow(sun_dot, 20.0) * 0.04 + pow(sun_dot, 60.0 / sun_glow_w) * 0.08);
     float sun_vis = smoothstep(-0.08, 0.08, sun_elevation);
-    base_sky += sun_color * sun_glow * sun_vis;
+    base_sky += vec3(1.0) * sun_glow * sun_vis;
     // Sun using texture
     vec3 sun_right = normalize(cross(vec3(0.0, 1.0, 0.0), sun_fwd + vec3(0.001, 0.0, 0.0)));
     vec3 sun_up_vec = cross(sun_fwd, sun_right);
@@ -91,7 +91,7 @@ void sky() {
         float in_range = float(tex_uv.x >= -0.01 && tex_uv.x <= 1.01 && tex_uv.y >= -0.01 && tex_uv.y <= 1.01);
         vec4 texel = texture(sun_texture, tex_uv);
         float alpha = texel.a * (1.0 - edge * 0.4) * in_range;
-        vec3 sun_tex_col = texel.rgb * vec3(1.0, 0.5, 0.08) * 2.0;
+        vec3 sun_tex_col = texel.rgb * 2.0;
         base_sky += (sun_tex_col * alpha + exp(-length(suv) * 5.0) * 0.04) * sun_vis;
     }
 
@@ -107,9 +107,8 @@ void sky() {
         float in_range = float(tex_uv.x >= -0.01 && tex_uv.x <= 1.01 && tex_uv.y >= -0.01 && tex_uv.y <= 1.01);
         vec4 texel = texture(sun_texture, tex_uv);
         float alpha = texel.a * (1.0 - edge * 0.4) * in_range;
-        vec3 moon_tint = vec3(0.5, 0.65, 1.0);
         float halo = exp(-length(muv) * 5.0) * 0.02;
-        base_sky += (texel.rgb * moon_tint * alpha * 1.5 + halo) * moon_vis * moon_dim;
+        base_sky += (texel.rgb * alpha * 1.5 + halo) * moon_vis * moon_dim;
     }
 
     // Stars

@@ -89,6 +89,7 @@ func _mask_to_texture(mask: PackedByteArray) -> ImageTexture:
 func _build_cloud_mesh(mask: PackedByteArray) -> ArrayMesh:
 	var vertices := PackedVector3Array()
 	var colors := PackedColorArray()
+	var normals := PackedVector3Array()
 	var indices := PackedInt32Array()
 	var half := CLOUD_SIZE * 0.5
 
@@ -127,18 +128,18 @@ func _build_cloud_mesh(mask: PackedByteArray) -> ArrayMesh:
 			var x1 := float(x + width) * CELL_SIZE - half
 			var z0 := float(z) * CELL_SIZE - half
 			var z1 := float(z + depth) * CELL_SIZE - half
-			_add_quad(vertices, colors, indices,
+			_add_quad(vertices, colors, normals, indices,
 				Vector3(x0, CLOUD_THICKNESS, z0),
 				Vector3(x0, CLOUD_THICKNESS, z1),
 				Vector3(x1, CLOUD_THICKNESS, z1),
 				Vector3(x1, CLOUD_THICKNESS, z0),
-				false)
-			_add_quad(vertices, colors, indices,
+				false, 1.0, Vector3.UP)
+			_add_quad(vertices, colors, normals, indices,
 				Vector3(x0, 0.0, z0),
 				Vector3(x0, 0.0, z1),
 				Vector3(x1, 0.0, z1),
 				Vector3(x1, 0.0, z0),
-				false)
+				false, 0.5, Vector3.DOWN)
 
 	# A side wall where a cloud cell meets empty space. The outer edge of the
 	# tile counts as empty: the volume has to close even though the mask tiles.
@@ -152,54 +153,56 @@ func _build_cloud_mesh(mask: PackedByteArray) -> ArrayMesh:
 			var z0 := float(z) * CELL_SIZE - half
 			var z1 := float(z + 1) * CELL_SIZE - half
 			if x == 0 or mask[cell - 1] == 0:
-				_add_quad(vertices, colors, indices,
+				_add_quad(vertices, colors, normals, indices,
 					Vector3(x0, 0.0, z0),
 					Vector3(x0, 0.0, z1),
 					Vector3(x0, CLOUD_THICKNESS, z1),
 					Vector3(x0, CLOUD_THICKNESS, z0),
-					true)
+					true, 0.6, Vector3.LEFT)
 			if x == MASK_SIZE - 1 or mask[cell + 1] == 0:
-				_add_quad(vertices, colors, indices,
+				_add_quad(vertices, colors, normals, indices,
 					Vector3(x1, 0.0, z0),
 					Vector3(x1, 0.0, z1),
 					Vector3(x1, CLOUD_THICKNESS, z1),
 					Vector3(x1, CLOUD_THICKNESS, z0),
-					true)
+					true, 0.6, Vector3.RIGHT)
 			if z == 0 or mask[cell - MASK_SIZE] == 0:
-				_add_quad(vertices, colors, indices,
+				_add_quad(vertices, colors, normals, indices,
 					Vector3(x0, 0.0, z0),
 					Vector3(x1, 0.0, z0),
 					Vector3(x1, CLOUD_THICKNESS, z0),
 					Vector3(x0, CLOUD_THICKNESS, z0),
-					true)
+					true, 0.8, Vector3.FORWARD)
 			if z == MASK_SIZE - 1 or mask[cell + MASK_SIZE] == 0:
-				_add_quad(vertices, colors, indices,
+				_add_quad(vertices, colors, normals, indices,
 					Vector3(x0, 0.0, z1),
 					Vector3(x1, 0.0, z1),
 					Vector3(x1, CLOUD_THICKNESS, z1),
 					Vector3(x0, CLOUD_THICKNESS, z1),
-					true)
+					true, 0.8, Vector3.BACK)
 
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = vertices
 	arrays[Mesh.ARRAY_COLOR] = colors
+	arrays[Mesh.ARRAY_NORMAL] = normals
 	arrays[Mesh.ARRAY_INDEX] = indices
 	var cloud_mesh := ArrayMesh.new()
 	cloud_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 	return cloud_mesh
 
 
-func _add_quad(vertices: PackedVector3Array, colors: PackedColorArray, indices: PackedInt32Array,
-		p0: Vector3, p1: Vector3, p2: Vector3, p3: Vector3, side: bool) -> void:
+func _add_quad(vertices: PackedVector3Array, colors: PackedColorArray, normals: PackedVector3Array, indices: PackedInt32Array,
+		p0: Vector3, p1: Vector3, p2: Vector3, p3: Vector3, side: bool, shade: float, normal: Vector3) -> void:
 	var base := vertices.size()
 	vertices.push_back(p0)
 	vertices.push_back(p1)
 	vertices.push_back(p2)
 	vertices.push_back(p3)
-	var color := Color(1.0, 1.0, 1.0, 1.0) if side else Color(0.0, 0.0, 0.0, 1.0)
+	var color := Color(1.0 if side else 0.0, shade, 0.0, 1.0)
 	for _i in 4:
 		colors.push_back(color)
+		normals.push_back(normal)
 	indices.push_back(base)
 	indices.push_back(base + 1)
 	indices.push_back(base + 2)

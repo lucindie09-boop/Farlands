@@ -310,8 +310,8 @@ first-person viewmodel - what each one owns and the decisions behind it.
 - **Sky section**: Settings → Sky holds Day Duration, Day Sky Color, Night Sky Color, Day
   Horizon, Night Horizon and Sky Tint. The horizon pickers change the sky gradient and the
   engine fog immediately, save to `settings.cfg` with the other lighting settings, and ride in
-  share code (old codes still import). The day horizon defaults to the sky's zenith blue
-  (`#0f33d9`); the saved variants `#ff1212 #1b9131 #1b7b91 #28de0e #5beac5` are listed on its
+  share code (old codes still import). The day horizon defaults to `#2652a6`; the saved variants
+  `#ff1212 #1b9131 #1b7b91 #28de0e #5beac5` are listed on its
   tooltip, and the night horizon defaults to black.
 - **Settings menu**: `settings_menu.gd` with adjustable settings (render — including an MSAA 3D
   Off/2x/4x/8x cycle button that sets the root viewport's `msaa_3d` live — plus lighting,

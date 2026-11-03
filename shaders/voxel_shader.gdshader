@@ -13,6 +13,15 @@ render_mode unshaded, cull_back, depth_draw_always;
 // grains the whole world with one field. See the include.
 #include "res://shaders/block_noise.gdshaderinc"
 
+vec3 aces_tonemap(vec3 x) {
+    float a = 2.51;
+    float b = 0.03;
+    float c = 2.43;
+    float d = 0.59;
+    float e = 0.14;
+    return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+}
+
 // The block atlas as COLOR: `source_color` decodes sRGB to linear (Godot has no
 // srgb_to_linear() in the shader language), which is what makes the light a
 // fraction OF THE TEXEL -- a fully lit face now renders at the texture it was
@@ -229,7 +238,7 @@ void fragment(){
     // ========= FOG =========
 	float fog_amount = 0.0;
 	float dist_factor = 0.0;
-	vec3 finalFogColor = fog_color;
+vec3 finalFogColor = aces_tonemap(fog_color);
 	vec3 scatter = vec3(0.0);
 
 	if (fog_mode > 0 && fog_density > 0.001) {
@@ -317,7 +326,7 @@ void fragment(){
     	float sun_glow_turb = sd4 * 0.25 + sd2w * 0.15 + sd4w * 0.08;
 
     	vec3 warmFog = mix(fog_color, fog_scatter_color, 0.05);
-    	finalFogColor = mix(finalFogColor, warmFog, sun_glow_turb * sun_vis * sun_glow_width * 0.2);
+    // Full fog is the sky colour; sun scatter only feathers the transition.
     	finalFogColor += scatter * (1.0 - fog_amount) * 0.3;
 	}
 
@@ -332,9 +341,9 @@ void fragment(){
 
     // ========= FINAL BLEND =========
     vec3 final_color = mix(sceneColor, finalFogColor, fog_amount);
-    final_color += scatter * fog_amount * 0.20;
+    final_color += scatter * (1.0 - fog_amount) * 0.20;
 
-    float desat = smoothstep(0.0, 1.0, fog_amount) * 0.12;
+    float desat = smoothstep(0.0, 1.0, fog_amount) * (1.0 - fog_amount) * 0.12;
     float lum = dot(final_color, vec3(0.299, 0.587, 0.114));
     final_color = mix(final_color, vec3(lum), desat);
 

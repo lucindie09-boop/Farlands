@@ -232,8 +232,9 @@ twice, and the coast is where the samples' own crossing is. The whole sequence, 
   `scripts/cloud_layer.gd`, no texture asset) whose cells cover 12×12 blocks. Its 28-cell base
   lattice and 0.58 threshold give about 30% cover in many separate patches rather than one
   continuous sheet. The mask is greedily meshed into top and bottom quads with side walls at
-  every boundary. Faces use the
-  world's face constants: top 1.0, bottom 0.5, north/south 0.8, east/west 0.6. The node snaps
+  every boundary. The material tint follows the same day/night blend as the sky: white in
+  daylight, pure black at night. Faces use the world's face constants: top 1.0, bottom 0.5,
+  north/south 0.8, east/west 0.6, so the face shading still multiplies that tint. The node snaps
   to the 3,072-block tile grid and carries the wind offset, and the mask is sampled in local
   cloud space, so the mask and extruded walls move together instead of the walls sliding with
   the player. The cloud material uses render priority 2, after the transparent liquids (priority

@@ -211,12 +211,10 @@ func _labels(title: Control) -> String:
 	return ", ".join(out)
 
 
-## The update log is a card, not floating text: the right-hand sky is the brightest thing on
-## the screen, and grey labels laid straight on it fail contrast. So the checks are that the
-## card exists where the emptiness was, that each entry fits at the body size (the card clips
-## rather than wraps), and that the composite of the card over the brightest sky still carries
-## the entries at 4.5:1 - the AA figure for normal text, measured against the brightest frame
-## rather than against a convenient one.
+## The patch card is the last card of the right-hand rail: the supplied 240 x 100 artwork at one
+## art pixel per unit, with the heading and version on the guide's marks and the changelog's
+## entries in its body. The checks are that it exists under the friends card, that its rect is the
+## artwork's, and that every entry fits the body it is drawn into.
 func _check_update_log() -> void:
 	var title: Control = Title.new()
 	root.add_child(title)
@@ -334,10 +332,10 @@ func _check_update_log() -> void:
 	var column_right: float = (title._margin + Title.COLUMN) * s
 	_check(rect.position.x >= column_right,
 		"the card sits right of the column (%.0f >= %.0f)" % [rect.position.x, column_right])
-	_check(absf(rect.end.x - (title.size.x - title._margin * s)) <= title._cell,
+	_check(absf(rect.end.x - (title.size.x - title._margin * s)) <= 0.01,
 		"the card's right edge is on the margin (%.0f)" % rect.end.x)
-	# The log is the second panel in the right-hand stack: the profile card is on the wordmark's
-	# line and the log starts under it, one cell down.
+	# The patch card is the last card of the right-hand stack: the profile card is on the
+	# wordmark's line, the friends card under it and the patch card under that, one cell apart.
 	var profile: Rect2 = title._profile_rect
 	_check(absf(profile.position.y - title._wordmark_y * s) <= title._cell,
 		"the profile card's top is on the wordmark's line (%.0f)" % profile.position.y)
@@ -349,84 +347,32 @@ func _check_update_log() -> void:
 		"and its artwork's height (%.0f)" % profile.size.y)
 	var friends_rect: Rect2 = title._friends_rect
 	_check(rect.position.y >= friends_rect.end.y,
-		"the log is the last panel of the stack (%.0f >= %.0f)" % [rect.position.y,
+		"the patch card is the last card of the stack (%.0f >= %.0f)" % [rect.position.y,
 			friends_rect.end.y])
 	_check(rect.position.y - friends_rect.end.y <= title._cell * 2.0,
 		"they are one stack, not two islands (%.0f apart)" % (rect.position.y
 			- friends_rect.end.y))
-	_check(absf(rect.size.x - Title.COLUMN * s) <= title._cell,
-		"the card is the column's width (%.0f of %.0f)" % [rect.size.x, Title.COLUMN * s])
-	# Snapped to the scrim's grid on every edge, so the panel lines up with the squares behind
-	# it rather than cutting across them.
-	var cell: float = title._cell
-	var off_grid := maxf(maxf(fposmod(rect.position.x, cell), fposmod(rect.position.y, cell)),
-		maxf(fposmod(rect.size.x, cell), fposmod(rect.size.y, cell)))
-	_check(off_grid < 0.01, "the card's edges land on the square grid (%.2f px off)" % off_grid)
+	_check(absf(rect.size.x - Title.LOG_CARD_W * s) <= 0.01,
+		"the patch card is its artwork's width, at the buttons' scale (%.0f)" % rect.size.x)
+	_check(absf(rect.size.y - Title.LOG_CARD_H * s) <= 0.01,
+		"and its artwork's height (%.0f)" % rect.size.y)
 	var body := int(Title.LOG_BODY_UNITS * s)
 	var widest := 0.0
 	for entry in title._log_entries:
 		widest = maxf(widest, Title.MUNRO_FONT.get_string_size(String(entry),
 			HORIZONTAL_ALIGNMENT_LEFT, -1, body).x)
-	# The bevel is inside the card's rect, so it comes off the text's room as well.
-	var room: float = rect.size.x - 4.0 * s - Title.LOG_PAD * s - 6.0 * s
-	_check(widest <= room, "every entry fits without clipping (%.0f of %.0f)" % [widest, room])
+	var room: float = rect.size.x - (Title.LOG_TEXT_X + 8.0) * s
+	_check(widest <= room, "every entry fits the art's body (%.0f of %.0f)" % [widest, room])
+	var last: float = Title.LOG_FIRST_BASELINE \
+		+ float(title._log_entries.size() - 1) * Title.LOG_LINE_H
+	_check(last <= Title.LOG_CARD_H - 8.0,
+		"the entries end inside the art (%.0f of %.0f)" % [last, Title.LOG_CARD_H])
 
-	# The frame is the button texture's own bevel, so the three tones are read back out of
-	# `button.png` rather than trusted: outline from its left edge, the lit edge one texel in,
-	# and the shade from its bottom edge (the right edge carries a slightly different one).
-	# Read out of the HOUSE button by path: the rows are the test asset at the moment, and the
-	# card's frame was cut from this one, so swapping the rows does not move the card.
-	var img: Image = load("res://textures/gui/button.png").get_image()
-	var mid := img.get_height() / 2
-	var edge := img.get_pixel(0, mid)
-	var lit := img.get_pixel(1, mid)
-	var shade := img.get_pixel(10, img.get_height() - 3)
-	_check(edge.is_equal_approx(Title.LOG_EDGE_OUTER),
-		"the card's outline is the button's (#%s)" % edge.to_html(false))
-	_check(shade.is_equal_approx(Title.LOG_EDGE_SHADE),
-		"the card's shade is the button's (#%s)" % shade.to_html(false))
-	# The lit tone is the button's, pulled down: at full strength #9b9b9b on a nearly black card
-	# reads as a bright outline rather than a bevel. It still has to stay lighter than the
-	# shade, or the frame loses the lit-from-above reading that all four edges agree on.
-	_check(Title.LOG_EDGE_LIGHT.v < lit.v,
-		"the card's lit edge is pulled down from the button's (#%s, was #%s)" % [
-			Title.LOG_EDGE_LIGHT.to_html(false), lit.to_html(false)])
-	_check(Title.LOG_EDGE_LIGHT.v > Title.LOG_EDGE_SHADE.v,
-		"the lit edge still reads lighter than the shade")
-
-	# The brightest sky this world can put behind the card, composited out of the same two
-	# numbers the draw uses, then the two luminances turned into a WCAG ratio. It is measured on
-	# the LIGHTEST cell, not on the panel's mean: the fill carries the plate's per-square noise,
-	# so the cell with the most noise taken off it is the one the entries can fail on.
-	var sky := Color(0.765, 0.835, 0.945)
-	var tint: Color = Title.SCRIM_TINT
-	var a: float = Title.LOG_PLATE_ALPHA - Title.NOISE_ALPHA
-	var card := Color(sky.r * (1.0 - a) + tint.r * a, sky.g * (1.0 - a) + tint.g * a,
-		sky.b * (1.0 - a) + tint.b * a)
-	var ratio := (_relative_luminance(Title.LOG_TEXT) + 0.05) / (_relative_luminance(card) + 0.05)
-	_check(ratio >= 4.5, "the entries hold %.2f:1 on the palest cell over the brightest sky" % ratio)
-
-	# The three right-hand panels are made of cells with the plate's own noise, so the squares
-	# the user reads as cubes are not a property of the plate alone. Sampled across the log's
-	# own rect, every tone has to stay inside one noise step of the panel's fill, and there has
-	# to be more than a handful of them - a panel filled flat is the thing this checks against.
-	var log_cell: float = maxf(title._cell, 2.0)
-	var log_gx := int(round(rect.position.x / log_cell))
-	var log_gy := int(round(rect.position.y / log_cell))
-	var log_tones: Dictionary = {}
-	var cell_lo := 1.0
-	var cell_hi := 0.0
-	for gy in range(log_gy, log_gy + 6):
-		for gx in range(log_gx, log_gx + 6):
-			var tone: float = title._panel_alpha(gx, gy)
-			log_tones[snappedf(tone, 0.001)] = true
-			cell_lo = minf(cell_lo, tone)
-			cell_hi = maxf(cell_hi, tone)
-	_check(log_tones.size() >= 12,
-		"the panels carry per-square tone variation (%d tones in a 6x6 block)" % log_tones.size())
-	_check(cell_lo >= Title.LOG_PLATE_ALPHA - Title.NOISE_ALPHA - 0.001
-		and cell_hi <= Title.LOG_PLATE_ALPHA + Title.NOISE_ALPHA + 0.001,
-		"every panel cell is within one noise step of the fill (%.3f..%.3f)" % [cell_lo, cell_hi])
+	# The words sit on the guide's two marks: `WHAT'S NEW` at x 28, the version ending on x 227.
+	_check(absf(Title.LOG_TITLE_AT.x - 28.0) <= 0.01
+		and absf(Title.LOG_VERSION_RIGHT - 227.0) <= 0.01,
+		"the heading and version are on the guide's marks (%.0f, %.0f)" % [
+			Title.LOG_TITLE_AT.x, Title.LOG_VERSION_RIGHT])
 
 	# The profile card: the artwork at one art pixel per unit, with the four things it cannot
 	# know drawn into its own boxes - the face in the HEAD box, the name and state at the guide's
@@ -579,18 +525,6 @@ func _check_update_log() -> void:
 	title._layout()
 	title.queue_free()
 	await process_frame
-
-
-## WCAG relative luminance: the sRGB curve per channel, then the 0.2126/0.7152/0.0722
-## weights. Written out because `Color` has no channelwise decode, and a contrast claim
-## computed any other way is a guess.
-func _relative_luminance(c: Color) -> float:
-	return 0.2126 * _srgb_to_linear(c.r) + 0.7152 * _srgb_to_linear(c.g) \
-		+ 0.0722 * _srgb_to_linear(c.b)
-
-
-func _srgb_to_linear(c: float) -> float:
-	return c / 12.92 if c <= 0.04045 else pow((c + 0.055) / 1.055, 2.4)
 
 
 ## The world list is a page of the title screen: SINGLEPLAYER swaps the column, one row per

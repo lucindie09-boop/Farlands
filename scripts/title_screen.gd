@@ -273,27 +273,43 @@ const PROFILE_TEXT := Color(0.94, 0.95, 0.97)
 const PROFILE_DIM := Color(0.74, 0.77, 0.82)
 # What each row answers while there is nothing behind it. The footer is this screen's status
 # line, so a row that cannot act says so there instead of doing nothing at all.
-# The friends panel in the bottom-left corner. There is no service, no account and no friends
-# list, so this is the panel's SHAPE with nothing in it: the tabs, the search field and Add
-# Friend are real controls that do what they say over a list that is empty, and the list says
-# why it is empty. When multiplayer exists the rows, the counts and the status arrive with it.
+# The friends card in the right-hand rail. There is no service, no account and no friends list,
+# so this is the card's SHAPE with nothing in it: the tabs, the search field and Add Friend are
+# real controls that do what they say over a list that is empty, and the list says why it is
+# empty. When multiplayer exists the rows, the counts and the status arrive with it.
 const FRIENDS_TABS := ["Friends", "Requests", "Blocked"]
 const FRIENDS_STATUS := "Not connected"
 const FRIENDS_EMPTY := "NO FRIENDS YET"
 const FRIENDS_REASON := "MULTIPLAYER IS NOT IN THIS BUILD"
 const FRIENDS_NO_MATCH := "NO FRIENDS MATCH THAT"
 const FRIENDS_EMPTY_TAB := ["NO FRIEND REQUESTS", "NOBODY IS BLOCKED"]
-const FRIENDS_HEADER_H := 12.0
-const FRIENDS_SEARCH_H := 11.0
-const FRIENDS_TABS_H := 10.0
-const FRIENDS_LIST_H := 24.0
-const FRIENDS_FOOTER_H := 12.0
-const FRIENDS_PAD := 4.0
-# The three gaps between the bands (search to tabs, tabs to list, list to the footer rule).
-const FRIENDS_GAPS := 11.0 + FRIENDS_PAD
-const FRIENDS_LABEL_UNITS := 7
-const FRIENDS_SMALL_UNITS := 6
-const FRIENDS_DOT := Color(0.62, 0.65, 0.70)
+# The card is its own artwork too: 240 x 180 at one art pixel per UI unit (the profile card's
+# scale), so at 1080p it is 480 x 360 px. The art carries the frame, the people glyph, the search
+# box with its magnifier, the three tab boxes and the Add Friend pill with its plus; the screen
+# draws only what art cannot know - the words, and the real controls on the art's boxes.
+const FRIENDS_CARD_TEX: Texture2D = preload("res://textures/gui/Friendscard.png")
+const FRIENDS_CARD_W := 240.0
+const FRIENDS_CARD_H := 180.0
+# The guide's mark: the header label starts on x 28. The search text starts on x 24 - just past
+# the art's magnifier, which ends at 22 - and that is the field's left inset (14) plus its box's
+# x (10), not a constant of its own. Both baselines are the art's own bands, so the words sit in
+# the boxes rather than near them.
+const FRIENDS_TITLE_AT := Vector2(28, 20)
+# The state's text ends on the guide's x 219, three units before the art's green dot (x 223..227);
+# the dot is drawn by the art, so only the text's right edge is ours.
+const FRIENDS_STATUS_RIGHT := 219.0
+# The art's boxes, in its own pixels: the search field, one tab segment (three, 2 units apart)
+# and the Add Friend pill. The controls are placed on these, so art and engine cannot drift.
+const FRIENDS_SEARCH_BOX := Rect2(10, 26, 220, 14)
+const FRIENDS_TAB_BOX := Rect2(10, 44, 72, 16)
+const FRIENDS_TAB_STEP := 74.0
+const FRIENDS_ADD_BOX := Rect2(84, 157, 72, 15)
+# Six units after the art's plus (which ends at x 104), the label's left edge.
+const FRIENDS_ADD_LABEL_X := 26.0
+const FRIENDS_LIST_TOP := 60.0
+const FRIENDS_LIST_BOTTOM := 157.0
+const FRIENDS_LABEL_UNITS := 9
+const FRIENDS_SMALL_UNITS := 7
 const PROFILE_ROWS := [
 	["Change Skin", "CHANGE SKIN IS NOT WIRED HERE YET"],
 	["Cape", "CAPES ARE NOT IN THIS BUILD YET"],
@@ -359,14 +375,13 @@ var _note_timer := 0.0
 # The profile card's geometry for this window, and its three rows.
 var _profile_rect := Rect2()
 var _profile_rows: Array = []
-# The friends panel, bottom left: its rect, the three tabs, the search field and Add Friend.
+# The friends card in the right-hand rail: its rect, the three tabs, the search field and Add
+# Friend.
 var _friends_rect := Rect2()
 var _friends_tabs: Array = []
 var _friends_search: LineEdit
 var _friends_add: Button
 var _friends_tab := 0
-# The half of the cell rounding that sits above the chrome, for the panel and the profile card.
-var _friends_top_inset := 0.0
 # Layout values that depend on the window, resolved in _layout() and read back by
 # _draw(): a small window must not push the column off the bottom of the screen.
 var _margin := MARGIN
@@ -489,7 +504,7 @@ func _build_profile_rows() -> void:
 		_profile_rows.append(btn)
 
 
-## The friends panel's controls: a search field, three tabs and Add Friend. All flat, all the
+## The friends card's controls: a search field, three tabs and Add Friend. All flat, all the
 ## same treatment as the profile rows - they live inside a panel, not on it.
 func _build_friends() -> void:
 	_friends_search = LineEdit.new()
@@ -499,19 +514,21 @@ func _build_friends() -> void:
 	_friends_search.add_theme_color_override("font_color", PROFILE_TEXT)
 	_friends_search.add_theme_color_override("font_placeholder_color", PROFILE_DIM)
 	_friends_search.add_theme_color_override("caret_color", _accent)
+	# The art supplies the box and the magnifier, so the field itself is invisible: no fill, no
+	# border, and 14 units of left inset put the text on the guide's x 24 (the box starts at 10).
+	# Focus is drawn in `_draw_friends` on the art's own 1-unit frame, because the field's rect is
+	# one unit taller than that frame - the extra unit is what lands its baseline on y 36.
 	var field := StyleBoxFlat.new()
-	field.bg_color = Color(0.0, 0.0, 0.0, 0.25)
-	field.border_color = LOG_EDGE_SHADE
-	field.border_width_bottom = 1
-	field.border_width_top = 1
-	field.border_width_left = 1
-	field.border_width_right = 1
-	field.content_margin_left = 4.0
+	field.bg_color = Color(0.0, 0.0, 0.0, 0.0)
+	field.content_margin_left = 14.0
 	field.content_margin_right = 4.0
+	field.content_margin_top = 0.0
+	field.content_margin_bottom = 0.0
 	_friends_search.add_theme_stylebox_override("normal", field)
-	var focused := field.duplicate() as StyleBoxFlat
-	focused.border_color = _accent
-	_friends_search.add_theme_stylebox_override("focus", focused)
+	_friends_search.add_theme_stylebox_override("focus", field.duplicate())
+	# The accent frame is this screen's drawing, so a focus change has to ask for a repaint.
+	_friends_search.focus_entered.connect(queue_redraw)
+	_friends_search.focus_exited.connect(queue_redraw)
 	# The field filters the list. With no friends the result is the same either way, but the field
 	# is wired rather than decorative: the empty state changes to say nothing matched.
 	_friends_search.text_changed.connect(func(_text: String) -> void: queue_redraw())
@@ -523,7 +540,7 @@ func _build_friends() -> void:
 		add_child(tab)
 		_friends_tabs.append(tab)
 
-	_friends_add = _flat_button("+  Add Friend")
+	_friends_add = _flat_button("Add Friend")
 	_friends_add.pressed.connect(func() -> void:
 		_flash("FRIENDS NEED MULTIPLAYER, WHICH IS NOT IN THIS BUILD"))
 	add_child(_friends_add)
@@ -901,61 +918,49 @@ func _position_profile() -> void:
 		_style_flat(btn, s, 6.0, PROFILE_SMALL_UNITS)
 
 
-## The friends panel is the MIDDLE panel of the right-hand column: under the profile card, above
-## the update log, the log's width (the profile card is its own artwork, 40 units wider). It is
-## also the panel that STRETCHES: the stack fills
-## the column, its last card's bottom edge as far from the bottom of the screen as the profile
-## card's top is from the top, and the list is where that room goes. The chrome - header, search,
-## tabs, Add Friend - stays where it is, pinned to the top and bottom of the taller box.
+## The friends card is the MIDDLE card of the right-hand rail: under the profile card, above the
+## update log, right-aligned to the margin with the profile card's own 240 units - it is its
+## artwork's size too, the 240 x 180 image at one art pixel per unit. It does not stretch: the
+## list area is the art's, so the log is placed under the card's bottom edge instead of the card
+## growing to fill the column. The controls are the art's own boxes, so a resize moves them with
+## the card and never redraws its frame.
 func _position_friends() -> void:
 	_friends_rect = Rect2()
 	var s := maxf(UIScale.value, 1.0)
-	var width_units := size.x / s
-	var room := width_units - (_margin + COLUMN) - 24.0 - _margin
-	var w_units := minf(COLUMN, room)
-	if w_units < COLUMN * 0.6 or _profile_rect.size.x <= 0.0:
+	var room := size.x / s - (_margin + COLUMN) - 24.0 - _margin
+	if room < FRIENDS_CARD_W or _profile_rect.size.x <= 0.0:
 		_hide_friends()
 		return
-	var cell := maxf(_cell, 2.0)
-	var content_h := FRIENDS_HEADER_H + FRIENDS_SEARCH_H + FRIENDS_TABS_H \
-		+ FRIENDS_LIST_H + FRIENDS_FOOTER_H + FRIENDS_GAPS
-	var cols := int(round(w_units * s / cell))
-	var natural := int(ceil(content_h * s / cell))
-	var rows := natural
-	# The stack FILLS the column: the log card's bottom edge sits exactly as far from the bottom
-	# of the screen as the profile card's top does from the top. The friends list is the panel
-	# that stretches for it - a list is what has somewhere for the room to go, and its chrome
-	# stays at the top with Add Friend pinned to the bottom. The log keeps its content's height,
-	# because a changelog card with a foot of empty card under its last line reads as broken.
-	var log_rows := _log_cell_rows()
-	if log_rows > 0:
-		var want := size.y - _profile_rect.position.y * 2.0 - _profile_rect.size.y \
-			- cell * 2.0 - float(log_rows) * cell
-		rows = maxi(rows, int(round(want / cell)))
-	var w := float(cols) * cell
-	var h := float(rows) * cell
-	var right := roundf((size.x - _margin * s) / cell) * cell
-	var left := maxf(_margin * s, right - w)
-	var top := roundf((_profile_rect.end.y + cell) / cell) * cell
-	_friends_rect = Rect2(Vector2(left, top), Vector2(w, h))
-	# The same half-and-half of the cell rounding the profile card gets, so the chrome sits in the
-	# middle of its box rather than against the top of it - measured against the CONTENT's height,
-	# not the stretched panel's, or a taller list would lift the header into the middle of the box.
-	_friends_top_inset = (float(natural) * cell - content_h * s) * 0.5
+	var right := roundf(size.x - _margin * s)
+	var top := roundf(_profile_rect.end.y + _cell)
+	_friends_rect = Rect2(Vector2(right - FRIENDS_CARD_W * s, top),
+		Vector2(FRIENDS_CARD_W, FRIENDS_CARD_H) * s)
 
-	var boxes := _friends_boxes()
+	var field := _friends_box(FRIENDS_SEARCH_BOX)
+	# One unit taller than the art's box: a LineEdit centres its text on a whole font line, and
+	# the art's 14 units land the baseline half a unit above the guide's y 36; 15 lands it on 36.
+	field.size.y += s
 	_friends_search.visible = true
-	var search_box: Rect2 = boxes["search"]
-	_friends_search.position = search_box.position
-	_friends_search.size = search_box.size
+	_friends_search.position = field.position
+	_friends_search.size = field.size
 	_friends_search.add_theme_font_size_override("font_size", int(FRIENDS_SMALL_UNITS * s))
-	var tabs_box: Rect2 = boxes["tabs"]
-	var tab_w := tabs_box.size.x / float(FRIENDS_TABS.size())
+	# The inset is in units, so it is applied here rather than in `_build_friends`: 14 units
+	# after the art's box starts at 10 is the guide's x 24 for the text's left edge.
+	for state in ["normal", "focus"]:
+		var field_box := _friends_search.get_theme_stylebox(state).duplicate() as StyleBoxFlat
+		field_box.content_margin_left = 14.0 * s
+		field_box.content_margin_right = 4.0 * s
+		_friends_search.add_theme_stylebox_override(state, field_box)
 	for i in range(_friends_tabs.size()):
 		var tab: Button = _friends_tabs[i]
+		# The art's segment less its bottom border: the label's baseline needs an odd height,
+		# and that last row is where the active tab's accent underline goes.
+		var seg := Rect2(FRIENDS_TAB_BOX.position + Vector2(FRIENDS_TAB_STEP * float(i), 0.0),
+			Vector2(FRIENDS_TAB_BOX.size.x, FRIENDS_TAB_BOX.size.y - 1.0))
+		var box := _friends_box(seg)
 		tab.visible = true
-		tab.position = Vector2(tabs_box.position.x + tab_w * float(i), tabs_box.position.y)
-		tab.size = Vector2(tab_w, tabs_box.size.y)
+		tab.position = box.position
+		tab.size = box.size
 		tab.add_theme_constant_override("h_separation", 0)
 		# Centred, because the three tabs are segments of one box of equal width: a label pinned
 		# to the left of an even box reads as text that fell into it, not as a tab.
@@ -967,31 +972,16 @@ func _position_friends() -> void:
 		for key in ["font_color", "font_hover_color", "font_focus_color", "font_pressed_color"]:
 			tab.add_theme_color_override(key, PROFILE_TEXT if on else PROFILE_DIM)
 	_friends_add.visible = true
-	var add_box: Rect2 = boxes["add"]
-	_friends_add.position = add_box.position
-	_friends_add.size = add_box.size
-	_style_flat(_friends_add, s, 4.0)
+	var add := _friends_box(FRIENDS_ADD_BOX)
+	_friends_add.position = add.position
+	_friends_add.size = add.size
+	_style_flat(_friends_add, s, FRIENDS_ADD_LABEL_X)
 
 
-## The panel's interior, computed once so the layout and the drawing cannot drift: the header
-## band at the top, then search, tabs, the list, and Add Friend at the bottom.
-func _friends_boxes() -> Dictionary:
+## One of the card's boxes, from the art's own pixels to this window's.
+func _friends_box(local: Rect2) -> Rect2:
 	var s := maxf(UIScale.value, 1.0)
-	var px := maxf(1.0, roundf(s))
-	var pad := px + FRIENDS_PAD * 0.5 * s
-	var x := _friends_rect.position.x + pad
-	var w := _friends_rect.size.x - pad * 2.0
-	var y := _friends_rect.position.y + _friends_top_inset + FRIENDS_PAD * 0.5 * s
-	var search := Rect2(Vector2(x, y + FRIENDS_HEADER_H * s), Vector2(w, FRIENDS_SEARCH_H * s))
-	var tabs := Rect2(Vector2(x, search.end.y + 3.0 * s), Vector2(w, FRIENDS_TABS_H * s))
-	var add := Rect2(Vector2(x, _friends_rect.end.y - _friends_top_inset
-		- FRIENDS_PAD * 0.5 * s - FRIENDS_FOOTER_H * s), Vector2(w, FRIENDS_FOOTER_H * s))
-	var list := Rect2(Vector2(x, tabs.end.y + 3.0 * s),
-		Vector2(w, maxf(0.0, add.position.y - 5.0 * s - (tabs.end.y + 3.0 * s))))
-	return {"search": search, "tabs": tabs, "add": add, "list": list, "pad": pad,
-		"header_y": _friends_rect.position.y + _friends_top_inset,
-		"header_h": FRIENDS_HEADER_H * s}
-
+	return Rect2(_friends_rect.position + local.position * s, local.size * s)
 
 func _hide_friends() -> void:
 	if _friends_search != null:
@@ -1005,17 +995,16 @@ func _hide_friends() -> void:
 ## The log card's rect for this window, snapped to whole scrim cells so the card is made of
 ## the same squares as the plate rather than a rectangle laid over a grid.
 ##
-## It is the BOTTOM of the right-hand rail: one cell under the friends panel, its right edge on
-## the same margin the column's left edge uses, and its bottom edge closing the stack - as far
-## from the bottom of the screen as the profile card's top is from the top. It keeps its
-## content's height rather than stretching: a changelog with a hand's width of empty card under
-## its last line reads as a card that failed to fill.
+## It is the BOTTOM of the right-hand rail: one cell under the friends card, its right edge on
+## the same margin the column's left edge uses. The two cards above it are fixed artwork, so the
+## rail ends where the log's content ends rather than filling the screen. It keeps its content's
+## height rather than stretching: a changelog with a hand's width of empty card under its last
+## line reads as a card that failed to fill.
 ##
 ## The card is dropped rather than shrunk below the point where a line still fits: a changelog
 ## in a column narrower than its own words is worse than no changelog.
 ##
-## Its height is its content's, in whole cells. `_position_friends` reads this number before the
-## card is placed, because the stack's bottom edge is what sizes the friends panel.
+## Its height is its content's, in whole cells.
 func _log_cell_rows() -> int:
 	if _log_entries.is_empty():
 		return 0
@@ -1045,12 +1034,16 @@ func _position_log() -> void:
 	# At most down to the footer's line: on a short window the card stops growing before it
 	# reaches the bottom of the screen rather than running off it.
 	var floor_y := size.y - _margin * s
-	# Directly under the friends panel, one cell of air between them - the right-hand column is
+	# Directly under the friends card, one cell of air between them - the right-hand column is
 	# one stack, profile, friends, log, the way the left one is wordmark then rows.
 	var anchor := _friends_rect if _friends_rect.size.x > 0.0 else _profile_rect
 	var stack_top := anchor.end.y + cell if anchor.size.x > 0.0 else _wordmark_y * s
 	var top := roundf(stack_top / cell) * cell
 	var rows := mini(natural, int(floor((floor_y - top) / cell)))
+	# A short window can leave no room under the fixed cards: the log is dropped rather than
+	# given a negative height by the floor above.
+	if rows <= 0:
+		return
 	var w := float(cols) * cell
 	var h := float(rows) * cell
 	# Both edges land on cell boundaries, so the panel never cuts a square behind it in half.
@@ -1149,13 +1142,14 @@ func _draw() -> void:
 ## One panel: the fill, then the button texture's bevel outside-in - one texel of outline
 ## all the way round, then one texel of light on the top and left and of shade on the bottom
 ## and right. At GUI scale 2 a texel is 2 px, so the frame thickens with the rest of the
-## interface instead of staying a hairline. The friends panel and the update log are both this.
+## interface instead of staying a hairline. The update log is this; the two cards above it are
+## their own artwork.
 ##
-## The fill is CELLS, not one rect: the friends panel and the log are made of the same squares as
-## the plate behind them and carry the same per-square darkness, so a panel reads as a piece of
-## the same material rather than a sheet laid over a grid. Every panel's rect is snapped to the
-## cell grid, so its cells ARE the plate's cells - and the noise is keyed on the cell's place in
-## the SCREEN grid, so a square that the plate has and a panel covers carries one tone in both.
+## The fill is CELLS, not one rect: the log is made of the same squares as the plate behind it and
+## carries the same per-square darkness, so a panel reads as a piece of the same material rather
+## than a sheet laid over a grid. The card's rect is snapped to the cell grid, so its cells ARE
+## the plate's cells - and the noise is keyed on the cell's place in the SCREEN grid, so a square
+## that the plate has and a panel covers carries one tone in both.
 func _draw_panel(rect: Rect2) -> void:
 	var s := maxf(UIScale.value, 1.0)
 	var cell := maxf(_cell, 2.0)
@@ -1210,78 +1204,44 @@ func _draw_profile() -> void:
 		-1, int(PROFILE_SMALL_UNITS * s), PROFILE_DIM)
 
 
-## The friends panel: header, search (a real field, drawn by itself), tabs with an accent
-## underline on the active one, the list - which is empty, and says why - and Add Friend.
-## Nothing here draws a friend row, because there are no friends to draw: the rows arrive with
-## multiplayer, and a renderer for data that cannot exist yet is a guess.
+## The friends card: the supplied artwork at one art pixel per UI unit, and only the things it
+## cannot know drawn into it - `FRIENDS` on the guide's mark, the state right-aligned in the
+## header, the accent on the search box while it has focus, and the empty list. The controls are
+## child nodes placed on the art's boxes by `_position_friends`. Nothing here draws a friend row,
+## because there are no friends to draw: rows arrive with multiplayer, and a renderer for data
+## that cannot exist yet is a guess.
 func _draw_friends() -> void:
 	if _friends_rect.size.x <= 0.0:
 		return
-	_draw_panel(_friends_rect)
 	var s := maxf(UIScale.value, 1.0)
 	var px := maxf(1.0, roundf(s))
-	var boxes := _friends_boxes()
-	var pad := float(boxes["pad"])
-	var label := int(FRIENDS_LABEL_UNITS * s)
-	var small := int(FRIENDS_SMALL_UNITS * s)
-	var x := _friends_rect.position.x + pad
-	var head_mid := float(boxes["header_y"]) + float(boxes["header_h"]) * 0.5
-	# Two heads and two shoulders, six rects: the smallest thing that reads as "people" at
-	# this size, and no new asset for it.
-	var u := 2.0 * s
-	var glyph_x := x
-	draw_rect(Rect2(Vector2(glyph_x, head_mid - u * 2.0), Vector2(u * 1.4, u * 1.4)), PROFILE_DIM)
-	draw_rect(Rect2(Vector2(glyph_x - u * 0.4, head_mid - u * 0.4), Vector2(u * 2.2, u * 1.4)),
-		PROFILE_DIM)
-	draw_rect(Rect2(Vector2(glyph_x + u * 1.6, head_mid - u * 1.6),
-		Vector2(u * 1.2, u * 1.2)), PROFILE_DIM)
-	draw_rect(Rect2(Vector2(glyph_x + u * 1.2, head_mid - u * 0.2),
-		Vector2(u * 1.8, u * 1.2)), PROFILE_DIM)
-	var title_x := glyph_x + u * 4.0
-	draw_string(MUNRO_FONT, Vector2(title_x, head_mid + float(MUNRO_FONT.get_ascent(label)) * 0.5),
-		"FRIENDS", HORIZONTAL_ALIGNMENT_LEFT, -1, label, PROFILE_TEXT)
+	draw_texture_rect(FRIENDS_CARD_TEX, _friends_rect, false)
+	var at := _friends_rect.position
+	draw_string(MUNRO_FONT, at + FRIENDS_TITLE_AT * s, "FRIENDS", HORIZONTAL_ALIGNMENT_LEFT,
+		-1, int(FRIENDS_LABEL_UNITS * s), PROFILE_TEXT)
 	# The state, right-aligned: there is no service to count, so it says what is true.
+	var small := int(FRIENDS_SMALL_UNITS * s)
 	var st_w := MUNRO_FONT.get_string_size(FRIENDS_STATUS, HORIZONTAL_ALIGNMENT_LEFT, -1,
 		small).x
-	var st_x := _friends_rect.end.x - pad - st_w
-	var dot := 3.0 * s
-	var st_y := head_mid + float(MUNRO_FONT.get_ascent(small)) * 0.5
-	draw_rect(Rect2(Vector2(st_x - dot - 3.0 * s, st_y - dot * 1.35), Vector2(dot, dot)),
-		FRIENDS_DOT)
-	draw_string(MUNRO_FONT, Vector2(st_x, st_y), FRIENDS_STATUS, HORIZONTAL_ALIGNMENT_LEFT, -1,
-		small, PROFILE_DIM)
-	draw_rect(Rect2(Vector2(_friends_rect.position.x + px,
-		float(boxes["header_y"]) + float(boxes["header_h"])),
-		Vector2(_friends_rect.size.x - 2.0 * px, px)), LOG_EDGE_SHADE)
-
-	# The tabs are a SEGMENTED CONTROL, not three labels sitting in the open: one 1-texel box
-	# round the strip, a hairline between the segments, and the accent along the bottom edge of
-	# the one that is on - the same marker the menu column uses for the row you are on. The box is
-	# what stops them reading as loose text, and the segments are why the labels are centred
-	# rather than left-aligned like the rows elsewhere on the panel (a left-aligned label inside
-	# an even third of a box reads as a paragraph someone cut up).
-	if not _friends_tabs.is_empty() and _friends_tabs[0].visible:
-		var strip := Rect2(_friends_tabs[0].position, _friends_tabs[0].size)
-		for tab in _friends_tabs:
-			strip = strip.merge(Rect2(tab.position, tab.size))
-		draw_rect(strip, LOG_EDGE_SHADE, false, px)
-		for i in range(1, _friends_tabs.size()):
-			var divider: Button = _friends_tabs[i]
-			draw_rect(Rect2(Vector2(divider.position.x, strip.position.y), Vector2(px, strip.size.y)),
-				LOG_EDGE_SHADE)
-		if _friends_tab >= 0 and _friends_tab < _friends_tabs.size():
-			var on: Button = _friends_tabs[_friends_tab]
-			# One texel, sitting exactly on the strip's bottom border where the active segment's
-			# edge would be - an accent EDGE, not a bar laid over the frame. The 2-texel version
-			# read as a thick stripe that floated across the bottom of the box.
-			draw_rect(Rect2(Vector2(on.position.x + px, strip.end.y - px),
-				Vector2(on.size.x - px * 2.0, px)), _accent)
+	draw_string(MUNRO_FONT,
+		Vector2(at.x + FRIENDS_STATUS_RIGHT * s - st_w, at.y + FRIENDS_TITLE_AT.y * s),
+		FRIENDS_STATUS, HORIZONTAL_ALIGNMENT_LEFT, -1, small, PROFILE_DIM)
+	# The accent is drawn on the art's own 1-unit frame, not by the field's stylebox: the field's
+	# rect is one unit taller than the frame (its baseline needs that), so a stylebox border
+	# would sit a unit below the box the art drew.
+	if _friends_search != null and _friends_search.has_focus():
+		draw_rect(_friends_box(FRIENDS_SEARCH_BOX), _accent, false, px)
+	# The tabs are a SEGMENTED CONTROL, and the art draws the box and the dividers: all that is
+	# left is the accent along the bottom edge of the one that is on - the same marker the menu
+	# column uses for the row you are on.
+	var on_tab := _friends_tab >= 0 and _friends_tab < _friends_tabs.size()
+	if on_tab and _friends_tabs[_friends_tab].visible:
+		var on: Button = _friends_tabs[_friends_tab]
+		var seg := _friends_box(FRIENDS_TAB_BOX)
+		draw_rect(Rect2(Vector2(on.position.x + px, seg.end.y - px),
+			Vector2(on.size.x - px * 2.0, px)), _accent)
 
 	# The list. Its first two lines are the same on every tab where nothing can be here.
-	var list: Rect2 = boxes["list"]
-	var list_top := list.position.y
-	var list_bottom := list.end.y
-	var add_top: float = float(boxes["add"].position.y)
 	var lines := []
 	var query := _friends_search.text.strip_edges() if _friends_search != null else ""
 	if _friends_tab == 0:
@@ -1291,20 +1251,20 @@ func _draw_friends() -> void:
 			lines = [FRIENDS_EMPTY, FRIENDS_REASON]
 	else:
 		lines = [String(FRIENDS_EMPTY_TAB[_friends_tab - 1])]
-	var line_y := (list_top + list_bottom) * 0.5 - float(lines.size()) * LOG_LINE_H * s * 0.5
+	var top := at.y + FRIENDS_LIST_TOP * s
+	var block := (FRIENDS_LIST_BOTTOM - FRIENDS_LIST_TOP) * s
+	var step := LOG_LINE_H * s
+	var first := top + (block - float(lines.size()) * step) * 0.5
 	for i in range(lines.size()):
-		var text_px := small if i > 0 or _friends_tab > 0 else int(FRIENDS_SMALL_UNITS * s)
 		var text := String(lines[i])
-		var w := MUNRO_FONT.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, text_px).x
-		var colour := PROFILE_TEXT if i == 0 else PROFILE_DIM
+		var w := MUNRO_FONT.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, small).x
+		# Rounded, because a pixel face on a half pixel is a soft face; the block is centred on
+		# the art's list area either way.
+		var baseline := roundf(first + float(i) * step + float(MUNRO_FONT.get_ascent(small)))
 		draw_string(MUNRO_FONT,
-			Vector2(_friends_rect.get_center().x - w * 0.5,
-				line_y + float(MUNRO_FONT.get_ascent(text_px))),
-			text, HORIZONTAL_ALIGNMENT_LEFT, -1, text_px, colour)
-		line_y += LOG_LINE_H * s
-	draw_rect(Rect2(Vector2(_friends_rect.position.x + px, add_top - 5.0 * s),
-		Vector2(_friends_rect.size.x - 2.0 * px, px)), LOG_EDGE_SHADE)
-
+			Vector2(_friends_rect.get_center().x - w * 0.5, baseline),
+			text, HORIZONTAL_ALIGNMENT_LEFT, -1, small,
+			PROFILE_TEXT if i == 0 else PROFILE_DIM)
 
 ## The update log: one flat card, its rect snapped to the scrim's own grid.
 ##

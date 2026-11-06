@@ -939,23 +939,36 @@ first-person viewmodel - what each one owns and the decisions behind it.
   the constants in `title_screen.gd` are those numbers. `probe_menu.gd` holds the card to the art's
   own geometry: the 240 x 100 rect, the square HEAD box, and each row centred on its icon with its
   label on the guide's mark.
-- **The card is 40 units wider than the panels under it, and that is the art's own size.** It is
-  right-aligned to the margin like the friends panel and the log, so the stack shares an edge
-  rather than an outline; its width is the artwork's 240 units, not the column's 200. It is also
-  the one panel NOT snapped to the scrim's cells: it is an image rather than a cell fill, and
-  rounding its edges to the grid would resample its 1-texel frame.
-- **The friends panel is the shell, and its list is empty because there are no friends.** The
+- **The two cards are their artwork's size, and the log is the column's.** Both the profile card
+  and the friends card are right-aligned to the margin at their 240-unit artwork's width, so they
+  share both edges and the stack reads as one rail; the update log under them is the column's 200
+  units. Neither art card is snapped to the scrim's cells: they are images rather than cell fills,
+  and rounding their edges to the grid would resample their 1-texel frames. The log keeps the grid
+  because it is still a cell fill.
+- **The friends card is the shell, and its list is empty because there are no friends.** The
   reference is a social panel with a live count, tabs, a search field and a friend per row; what
   this build can honestly have is the chrome - header, search, tabs, Add Friend - over an empty
-  list that says `NO FRIENDS YET / MULTIPLAYER IS NOT IN THIS BUILD`. It sits between the profile
-  card and the log rather than in the bottom-left corner, because the corner is part of the
-  world's picture and the right-hand column is where this screen's information lives. The state in the header is
-  `Not connected` rather than a number, because there is no service to count. The tabs and the
-  search field are wired rather than decorative: a tab is state on the panel, and the field
-  filters the list, so the empty state changes to "nothing matched" - the code is the same code a
-  full list would use. What is deliberately NOT written is a friend-row renderer: rows arrive
-  with multiplayer, and a renderer for data that cannot exist yet is a guess at what it will look
-  like.
+  list that says `NO FRIENDS YET / MULTIPLAYER IS NOT IN THIS BUILD`. It is the supplied
+  `textures/gui/Friendscard.png` (240 x 180) at **one art pixel per UI unit**, the profile card's
+  scale, so at 1080p it is 480 x 360 px: the art carries the frame, the people glyph, the search
+  box with its magnifier, the three tab boxes, the Add Friend pill with its plus and the green
+  state dot. The screen draws only the words - `FRIENDS` at x 28 / baseline 20, `Not connected`
+  right-aligned on that same baseline and ending on the guide's x 219 (three units before the
+  dot), the empty list centred in the art's list area - and places the real controls on the
+  art's own boxes: the `LineEdit` in the search box (its text at x 24, the field's 14-unit
+  inset after the box's x 10), the three tabs centred on their 72-unit segments, and `Add Friend`
+  starting six units after the art's plus. The tabs, the field and the pill are the same flat
+  controls as the profile rows; the field's focus accent is drawn on the art's 1-unit frame
+  because the field's rect is one unit taller than that frame - the extra unit is what lands its
+  baseline on y 36. `textures/gui/Friendscardguide.png` is the authoring copy, its red bars
+  marking the header label and the search text, and `friendscardconnectedtextfuide.png` marks
+  the state text's right edge; the constants in `title_screen.gd` are those numbers. The state in
+  the header is `Not connected` rather than a number, because there is no service to count. The
+  tabs and the search field are wired rather than decorative: a tab is
+  state on the card, and the field filters the list, so the empty state changes to "nothing
+  matched" - the code is the same code a full list would use. What is deliberately NOT written is
+  a friend-row renderer: rows arrive with multiplayer, and a renderer for data that cannot exist
+  yet is a guess at what it will look like.
 - **The profile card is a placeholder with nothing to lie about.** There is no account system and
   no network, so the name is a constant and the state says `Online` because that is what the
   reference has - the card is a piece of furniture for the layout, and the one thing it does
@@ -965,31 +978,22 @@ first-person viewmodel - what each one owns and the decisions behind it.
   second, louder interface; they are deliberately NOT in `_buttons`, which is the action column
   and whose index positions the accent bar. Each row answers in the footer - the same channel
   Multiplayer uses - until there is something behind it.
-- **The right-hand rail FILLS the column, and the friends list is the panel that pays for it.**
-  Three panels one cell apart, right-aligned to the margin: the profile card on the wordmark's
-  line, the friends panel under it, the update log last. The friends panel and the log are the
-  column's 200 units and every edge is on the cell grid; the profile card is its artwork's 240 x
-  100 (see above), so it runs 40 units further left than they do. The stack is sized so the log
-  card's bottom edge is exactly as far from the bottom of the screen as the profile card's top is
-  from the top - 108 px each at 1080p - which is what stops a tall window leaving a third of the
-  column empty under the last card. The room has to go somewhere and only one panel can take it:
-  the profile card's height is fixed by its art and the log's is its entries, so a stretched card
-  in either place is a card with empty space at the bottom. The friends panel is a list, so the room
-  goes into the list - its header, search, tabs and `Add Friend` stay pinned top and bottom where
-  they were. Two details make it work: the panel's measured content height is kept separate from
-  its stretched height (otherwise the cell-rounding inset would lift the chrome into the middle of
-  a tall box), and the log's height in cells is computed by `_log_cell_rows()` before the panel is
-  placed, because the stack's bottom edge is what sizes the friends panel. The probe checks both
-  numbers - the two gaps against each other, within a cell, and the chrome's distance from the
-  panel's top - at every size it opens the screen at.
+- **The right-hand rail is a stack of three cards, and it no longer fills the column.** The
+  profile card sits on the wordmark's line, the friends card one cell under it, the log one cell
+  under that; both art cards have a fixed height (100 and 180 units), so the rail ends where the
+  log's content ends. The old friends panel stretched to make the log's bottom edge balance the
+  profile card's top; with a fixed artwork there is nothing to stretch, and a card with a hand's
+  width of empty list under its last line is worse than a column that stops early. The log keeps
+  its content's height, and on a window too short to fit it under the cards it is dropped rather
+  than given a negative height.
 - **The log is the column's own width, and every edge of it is on the cell grid.** The width and
   the right edge are both rounded to the nearest cell - which can move either by up to half a
   cell and never cuts a square in half - and the probe checks all four edges against the grid,
   plus the width against `COLUMN`, rather than trusting the look. It has been placed in four
   positions while this screen settled (top right, then the bottom-left corner, then under the
-  profile card, and now the bottom of the rail, where its bottom edge closes the stack); the grid
+  profile card, and now the bottom of the rail); the grid
   and the width are what survived every move, so they are what is pinned in the probe.
-- **A panel varies per square, and does not move.** The friends panel and the log are filled cell
+- **A panel varies per square, and does not move.** The log is filled cell
   by cell with the plate's own per-square noise (`_panel_alpha`), keyed on the cell's place in the
   SCREEN grid, so a square carries one tone whether the plate or a panel draws it and a resize
   hands it the same tone again. They were a single flat rect for a while, on the theory that noise

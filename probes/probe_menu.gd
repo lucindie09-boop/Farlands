@@ -325,9 +325,9 @@ func _check_update_log() -> void:
 		"the border stays on screen (left edge %.0f px)" % (title._wordmark.position.x - border_px))
 	_check(not title._log_entries.is_empty(),
 		"the log lists the build's entries (%d)" % title._log_entries.size())
-	# The card is the BOTTOM of the right-hand rail: under the friends panel, in the right-hand
-	# half and clear of the column - and its bottom edge is what closes the stack, so its own
-	# balance against the top of the screen is checked below against the profile card's.
+	# The card is the BOTTOM of the right-hand rail: under the friends card, in the right-hand
+	# half and clear of the column. The two cards above it are fixed artwork, so its height is its
+	# own content's and its edges are the only thing keeping it on the grid.
 	_check(rect.position.x > title.size.x * 0.5, "the card is in the right-hand half")
 	_check(rect.position.y > title.size.y * 0.5,
 		"the card is the bottom of the rail (top %.0f)" % rect.position.y)
@@ -341,16 +341,6 @@ func _check_update_log() -> void:
 	var profile: Rect2 = title._profile_rect
 	_check(absf(profile.position.y - title._wordmark_y * s) <= title._cell,
 		"the profile card's top is on the wordmark's line (%.0f)" % profile.position.y)
-	# ...and the stack FILLS the column: the top card's top edge is as far from the top of the
-	# screen as the log's bottom edge is from the bottom. The friends panel stretches to make it
-	# so, which is why its chrome must stay at the top of a taller box rather than floating in it.
-	var top_gap: float = profile.position.y
-	var bottom_gap: float = title.size.y - rect.end.y
-	_check(absf(top_gap - bottom_gap) <= title._cell,
-		"the stack is balanced top and bottom (%.0f / %.0f)" % [top_gap, bottom_gap])
-	_check(title._friends_search.position.y - title._friends_rect.position.y <= title._cell * 2.0,
-		"the stretched friends panel keeps its chrome at the top (%.0f in)" % (
-			title._friends_search.position.y - title._friends_rect.position.y))
 	_check(absf(profile.end.x - (title.size.x - title._margin * s)) <= title._cell,
 		"the profile card's right edge is on the margin (%.0f)" % profile.end.x)
 	_check(absf(profile.size.x - Title.PROFILE_CARD_W * s) <= 0.01,
@@ -477,49 +467,68 @@ func _check_update_log() -> void:
 	title._process(Title.NOTE_SECONDS + 0.1)
 	_check(String(title._footer.text).contains("v0.1"), "the answer clears itself")
 
-	# The friends panel is the middle panel of the right-hand stack: the log's width, under the
-	# profile card and above the log, right-aligned with both and one cell apart - and its four
-	# controls inside it. The list is empty on purpose, so what is checked is the shell.
+	# The friends card is the middle card of the right-hand rail: its own 240 x 180 artwork at one
+	# art pixel per unit, under the profile card and above the log, right-aligned to the margin.
+	# Its controls sit on the art's own boxes, which is what the constants are for.
 	var friends: Rect2 = title._friends_rect
-	_check(friends.size.x > 0.0, "the friends panel has a rect (%.0f x %.0f)" % [friends.size.x,
+	_check(friends.size.x > 0.0, "the friends card has a rect (%.0f x %.0f)" % [friends.size.x,
 		friends.size.y])
 	_check(friends.position.x > title.size.x * 0.5, "it is in the right-hand column")
-	_check(absf(friends.end.x - profile.end.x) <= title._cell,
+	_check(absf(friends.end.x - profile.end.x) <= 0.01,
 		"it shares the profile card's right edge (%.0f)" % friends.end.x)
-	_check(friends.size.x < profile.size.x,
-		"the artwork above it is wider than the panels (%.0f < %.0f)" % [friends.size.x,
-			profile.size.x])
-	_check(absf(friends.size.x - Title.COLUMN * s) <= title._cell,
-		"it is the column's width (%.0f)" % friends.size.x)
+	_check(absf(friends.size.x - Title.FRIENDS_CARD_W * s) <= 0.01,
+		"it is its artwork's width, at the buttons' scale (%.0f)" % friends.size.x)
+	_check(absf(friends.size.y - Title.FRIENDS_CARD_H * s) <= 0.01,
+		"and its artwork's height (%.0f)" % friends.size.y)
 	_check(friends.position.y >= profile.end.y,
 		"it sits under the profile card (%.0f >= %.0f)" % [friends.position.y, profile.end.y])
 	_check(friends.position.y - profile.end.y <= title._cell * 2.0,
 		"one stack, not two islands (%.0f apart)" % (friends.position.y - profile.end.y))
-	var f_off := maxf(maxf(fposmod(friends.position.x, title._cell),
-		fposmod(friends.position.y, title._cell)),
-		maxf(fposmod(friends.size.x, title._cell), fposmod(friends.size.y, title._cell)))
-	_check(f_off < 0.01, "its edges land on the square grid (%.2f px off)" % f_off)
+	# The words start where the guide's red bars do: `FRIENDS` at x 28, the search text at x 24
+	# (the field's 14-unit inset after its box's x 10) and `Add Friend` six units after the plus.
+	_check(absf(Title.FRIENDS_TITLE_AT.x - 28.0) <= 0.01,
+		"the header label starts on the guide's mark (%.0f)" % Title.FRIENDS_TITLE_AT.x)
+	_check(absf(Title.FRIENDS_STATUS_RIGHT - 219.0) <= 0.01,
+		"the state ends on the guide's mark (%.0f, clear of the dot at 223)" % (
+			Title.FRIENDS_STATUS_RIGHT))
+	var field_box: Rect2 = title._friends_box(Title.FRIENDS_SEARCH_BOX)
+	var field_inset: float = (title._friends_search.get_theme_stylebox("normal")
+		as StyleBoxFlat).content_margin_left
+	_check(absf(title._friends_search.position.x + field_inset
+		- (friends.position.x + 24.0 * s)) <= 0.5,
+		"the search text starts on the guide's mark (%.1f)" % (
+			title._friends_search.position.x + field_inset - friends.position.x))
+	var field_rect := Rect2(title._friends_search.position, title._friends_search.size)
+	_check(title._friends_search.visible
+		and field_rect.position.is_equal_approx(field_box.position)
+		and absf(field_rect.size.x - field_box.size.x) <= 0.5
+		and absf(field_rect.size.y - (field_box.size.y + s)) <= 0.5,
+		"the search field is on the art's box, one unit taller for its baseline")
 	_check(title._friends_tabs.size() == Title.FRIENDS_TABS.size(),
 		"it has the three tabs (%d)" % title._friends_tabs.size())
 	for i in range(title._friends_tabs.size()):
 		var tab: Button = title._friends_tabs[i]
-		_check(tab.visible and friends.encloses(Rect2(tab.position, tab.size)),
-			"tab %d (%s) is inside the panel" % [i, tab.text])
-		# The three tabs are segments of ONE box: centred labels, no gaps between them, and the
-		# same height - so the strip reads as a control rather than three lines of text.
+		var seg: Rect2 = title._friends_box(Rect2(
+			Title.FRIENDS_TAB_BOX.position + Vector2(Title.FRIENDS_TAB_STEP * float(i), 0.0),
+			Title.FRIENDS_TAB_BOX.size))
+		_check(tab.visible and seg.encloses(Rect2(tab.position, tab.size)),
+			"tab %d (%s) is on its art segment" % [i, tab.text])
+		_check(absf(tab.position.x - seg.position.x) <= 0.5
+			and absf(tab.size.x - seg.size.x) <= 0.5,
+			"tab %d covers its segment's width" % i)
 		_check(tab.alignment == HORIZONTAL_ALIGNMENT_CENTER,
 			"tab %d centres its label" % i)
-		if i > 0:
-			var prev: Button = title._friends_tabs[i - 1]
-			_check(absf(prev.position.x + prev.size.x - tab.position.x) <= 0.5
-				and absf(prev.size.y - tab.size.y) <= 0.5,
-				"tabs %d and %d share an edge" % [i - 1, i])
-	_check(title._friends_search.visible
-		and friends.encloses(Rect2(title._friends_search.position, title._friends_search.size)),
-		"the search field is inside the panel")
-	_check(title._friends_add.visible
-		and friends.encloses(Rect2(title._friends_add.position, title._friends_add.size)),
-		"Add Friend is inside the panel")
+	var add_box: Rect2 = title._friends_box(Title.FRIENDS_ADD_BOX)
+	var add_inset: float = (title._friends_add.get_theme_stylebox("normal")
+		as StyleBoxFlat).content_margin_left
+	_check(title._friends_add.visible and title._friends_add.text == "Add Friend",
+		"Add Friend is a real control (%s)" % title._friends_add.text)
+	_check(add_box.encloses(Rect2(title._friends_add.position, title._friends_add.size)),
+		"Add Friend is on the art's pill")
+	_check(absf(title._friends_add.position.x + add_inset
+		- (friends.position.x + 110.0 * s)) <= 0.5,
+		"its label starts six units after the art's plus (%.1f)" % (
+			title._friends_add.position.x + add_inset - friends.position.x))
 	# A tab switch is state, not a screen: the panel stays, the list under it changes.
 	title._on_friends_tab(1)
 	_check(title._friends_tab == 1, "a tab press moves the panel to that tab")

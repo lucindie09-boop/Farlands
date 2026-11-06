@@ -80,7 +80,12 @@ void sky() {
     float sun_glow_w = mix(1.0, 2.2, haze);
     float sun_glow = (pow(sun_dot, 20.0) * 0.04 + pow(sun_dot, 60.0 / sun_glow_w) * 0.08);
     float sun_vis = smoothstep(-0.08, 0.08, sun_elevation);
-    base_sky += vec3(1.0) * sun_glow * sun_vis;
+    // Atmospheric extinction: a low sun is seen through more air, so its disc
+    // and glow are dimmed through the band above the horizon. The ramp is long
+    // on purpose so the sun brightens with the sky instead of stepping up
+    // around 15 degrees.
+    float sun_extinction = mix(0.35, 1.0, smoothstep(0.0, 0.85, sun_elevation));
+    base_sky += vec3(1.0) * sun_glow * sun_vis * sun_extinction;
     // Sun using texture
     vec3 sun_right = normalize(cross(vec3(0.0, 1.0, 0.0), sun_fwd + vec3(0.001, 0.0, 0.0)));
     vec3 sun_up_vec = cross(sun_fwd, sun_right);
@@ -92,7 +97,7 @@ void sky() {
         vec4 texel = texture(sun_texture, tex_uv);
         float alpha = texel.a * (1.0 - edge * 0.4) * in_range;
         vec3 sun_tex_col = texel.rgb * 2.0;
-        base_sky += (sun_tex_col * alpha + exp(-length(suv) * 5.0) * 0.04) * sun_vis;
+        base_sky += (sun_tex_col * alpha + exp(-length(suv) * 5.0) * 0.04) * sun_vis * sun_extinction;
     }
 
     // Moon using texture

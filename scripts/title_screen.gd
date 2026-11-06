@@ -189,47 +189,31 @@ const TINT_SINGLE := Color(0.329412, 0.564706, 0.478431)  # #54907a
 # MULTIPLAYER does nothing in this build. Its colour is a muted violet - desaturated,
 # because a row that cannot act must not advertise itself with a live-looking hue.
 const TINT_MULTI := Color(0.435294, 0.415686, 0.549020)  # #6f6a8c
-# The update log. It sits in the emptiness on the right, which is not emptiness any more
-# once something is there - and it is a CARD, not floating text, because the right-hand
-# sky is the brightest thing on the screen and grey text on it fails contrast outright.
-# 0.52 of the scrim's tint puts the brightest sky at ~96 luminence, which is 4.9:1 against
-# the entries; the research's own case (NN/g) is the same move, raising a black backing
-# until the labels pass.
+# The patch card. It sits in the emptiness on the right, which is not emptiness any more once
+# something is there - and it is a CARD, not floating text, because the right-hand sky is the
+# brightest thing on the screen and grey text on it fails contrast outright. The art's fill is
+# opaque, so the entries keep their contrast wherever the card sits.
 const LOG_PATH := "res://data/changelog.json"
-# The column's own width, rounded to whole cells below - so the card is as wide as the buttons
-# and the left side of the screen is one vertical block rather than three widths. The longest
-# entry needs 129 of these units, so there is room to spare at every label size.
-const LOG_W := COLUMN
-const LOG_PAD := 9.0
-const LOG_HEADING_UNITS := 7
-const LOG_BODY_UNITS := 6
+# The card is its own artwork too: 240 x 100 at one art pixel per unit - the profile card's size
+# and scale - so at 1080p it is 480 x 200 px. The art carries the frame, the megaphone glyph and
+# the rule under the header; the screen draws the heading on the guide's x 28 / baseline 18, the
+# version right-aligned on x 227, and the entries in the body under the rule.
+const LOG_CARD_TEX: Texture2D = preload("res://textures/gui/Patchcard.png")
+const LOG_CARD_W := 240.0
+const LOG_CARD_H := 100.0
+const LOG_TITLE_AT := Vector2(28, 18)
+const LOG_VERSION_RIGHT := 227.0
+# The body: a 2-unit square bullet at x 12, its text at x 18, the first baseline 30 and 9 units
+# per line. Five entries end at y 66, well inside the art's 96-unit body.
+const LOG_BULLET_X := 12.0
+const LOG_TEXT_X := 18.0
+const LOG_FIRST_BASELINE := 30.0
+const LOG_HEADING_UNITS := 9
+const LOG_BODY_UNITS := 7
 const LOG_LINE_H := 9.0
 const LOG_TITLE := "WHAT'S NEW"
-# The card's fill is the plate's full strength rather than a lighter 0.52, and the reason is the
-# noise below: every square of a panel carries the same per-square offset the plate does, so the
-# LIGHTEST a cell can get is `LOG_PLATE_ALPHA - NOISE_ALPHA`. At 0.52 that lightest cell measured
-# 3.96:1 against the brightest sky - below the 4.5 the entries need - so the mean moved down by
-# exactly one noise step. A cell at the top of the noise is now the 0.52 card that was measured
-# at 4.75:1, and the rest are darker; nothing on the panel got lighter, so the AA figure holds
-# for the worst cell rather than for an average one.
-const LOG_PLATE_ALPHA := 0.58
 const LOG_TEXT := Color(0.91, 0.93, 0.96)
 const LOG_DIM := Color(0.80, 0.83, 0.87)
-# The card's border is the button's own bevel, one texel thick: the tones come out of
-# `textures/gui/button.png` rather than being picked by eye - an outline of #262626 and a
-# shaded bottom and right of #424242, exactly as the texture has them, so the frame and the
-# buttons are the same object at two sizes. `probe_menu.gd` reads those two texels back and
-# compares them to these constants.
-#
-# The lit top and left is the one tone that does NOT survive the move. On a button the fill is
-# #6d6d6d, so the texture's #9b9b9b is a +42 step and reads as a bevel; the card's fill is far
-# darker, and the same tone read as a bright outline drawn round a nearly black panel - out of
-# place in a screen made of quiet greys. It is the button's tone pulled to about 0.67 and
-# cooled toward the card: #686e76. Darker still and the bevel stops being legible, which is the
-# whole point of having one - the shade beside it is #424242, so there is still a step.
-const LOG_EDGE_OUTER := Color8(38, 38, 38)
-const LOG_EDGE_LIGHT := Color8(104, 110, 118)
-const LOG_EDGE_SHADE := Color8(66, 66, 66)
 # A note that replaces the footer for a moment: the honest answer to a row that cannot
 # act, in the place the screen already uses for status.
 const NOTE_SECONDS := 3.0
@@ -239,7 +223,8 @@ const NOTE_SECONDS := 3.0
 const PAGE_TITLE := 0
 const PAGE_WORLDS := 1
 
-# The profile card, above the update log in the right-hand column. There is no account system,
+# The profile card, above the friends and patch cards in the right-hand column. There is no
+# account system,
 # so the name and the state are the one thing this card cannot discover: it says who the save
 # belongs to and nothing about a service, and its rows answer in the footer until there is
 # something behind them. The head is the player's own skin, so it cannot disagree with the body.
@@ -992,74 +977,40 @@ func _hide_friends() -> void:
 		_friends_add.visible = false
 
 
-## The log card's rect for this window, snapped to whole scrim cells so the card is made of
-## the same squares as the plate rather than a rectangle laid over a grid.
-##
-## It is the BOTTOM of the right-hand rail: one cell under the friends card, its right edge on
-## the same margin the column's left edge uses. The two cards above it are fixed artwork, so the
-## rail ends where the log's content ends rather than filling the screen. It keeps its content's
-## height rather than stretching: a changelog with a hand's width of empty card under its last
-## line reads as a card that failed to fill.
-##
-## The card is dropped rather than shrunk below the point where a line still fits: a changelog
-## in a column narrower than its own words is worse than no changelog.
-##
-## Its height is its content's, in whole cells.
-func _log_cell_rows() -> int:
-	if _log_entries.is_empty():
-		return 0
-	var s := maxf(UIScale.value, 1.0)
-	var h_units := LOG_PAD + (LOG_HEADING_UNITS + 9.0) + (LOG_BODY_UNITS + 8.0) \
-		+ float(_log_entries.size()) * LOG_LINE_H + LOG_PAD * 0.6
-	return int(ceil(h_units * s / maxf(_cell, 2.0)))
-
-
+## The patch card is the last card of the right-hand rail: the 240 x 100 artwork at one art pixel
+## per unit, one cell under the friends card and right-aligned to the margin with it. Like the two
+## cards above, it is not snapped to the scrim's cells, and its height is its art's rather than its
+## entries'. It is dropped rather than clipped when the window has no room under the friends
+## card, and its bottom bound is the window's own margin rather than the footer's line: the
+## footer is on the far left and does not share the rail's column.
 func _position_log() -> void:
 	_log_rect = Rect2()
 	if _log_entries.is_empty():
 		return
 	var s := maxf(UIScale.value, 1.0)
-	var width_units := size.x / s
-	# One column plus the card plus a gap between them, or the card is not drawn: this is
-	# the same "shrink with the window" rule the margin and the first row follow.
-	var room := width_units - (_margin + COLUMN) - 24.0 - _margin
-	var w_units := minf(LOG_W, room)
-	if w_units < LOG_W * 0.6:
+	var room := size.x / s - (_margin + COLUMN) - 24.0 - _margin
+	if room < LOG_CARD_W:
 		return
-	var cell := maxf(_cell, 2.0)
-	var natural := _log_cell_rows()
-	# Rounded, not filled: a card that took the next whole cell would sit a cell past the
-	# buttons' right edge, and the point of the width is that it is the column's.
-	var cols := int(round(w_units * s / cell))
-	# At most down to the footer's line: on a short window the card stops growing before it
-	# reaches the bottom of the screen rather than running off it.
-	var floor_y := size.y - _margin * s
-	# Directly under the friends card, one cell of air between them - the right-hand column is
-	# one stack, profile, friends, log, the way the left one is wordmark then rows.
 	var anchor := _friends_rect if _friends_rect.size.x > 0.0 else _profile_rect
-	var stack_top := anchor.end.y + cell if anchor.size.x > 0.0 else _wordmark_y * s
-	var top := roundf(stack_top / cell) * cell
-	var rows := mini(natural, int(floor((floor_y - top) / cell)))
-	# A short window can leave no room under the fixed cards: the log is dropped rather than
-	# given a negative height by the floor above.
-	if rows <= 0:
+	if anchor.size.x <= 0.0:
 		return
-	var w := float(cols) * cell
-	var h := float(rows) * cell
-	# Both edges land on cell boundaries, so the panel never cuts a square behind it in half.
-	# The right edge is the margin snapped to the nearest cell: up to half a cell of movement,
-	# invisible against the margin and the price of the grid.
-	var right := roundf((size.x - _margin * s) / cell) * cell
-	var left := maxf(_margin * s, right - w)
-	_log_rect = Rect2(Vector2(left, top), Vector2(w, h))
+	var top := roundf(anchor.end.y + _cell)
+	# The footer's line is the left column's floor, not the rail's: the card is on the far
+	# right, so it may run past that line to the window's own margin. That is what keeps it on
+	# a window where the old footer-line bound dropped the whole card.
+	var floor_y := size.y - 2.0 * s
+	if top + LOG_CARD_H * s > floor_y:
+		return
+	var right := roundf(size.x - _margin * s)
+	_log_rect = Rect2(Vector2(right - LOG_CARD_W * s, top),
+		Vector2(LOG_CARD_W, LOG_CARD_H) * s)
 
 
 ## The same light on the three cards, confined to their frames. A card's inside is a surface with
 ## text on it, and additive light over text is a smudge - but its edge is where a reflection would
-## catch, so that is what is lit. The ring is two texels because that is what `_draw_panel` draws a
-## frame with: one of outline and one of lit or shaded edge. A card with no rect this window (one
-## dropped for room, the log before its entries load) has its light put out rather than left at a
-## stale size.
+## catch, so that is what is lit. The ring is two units, on the outer edge of each art card's
+## four-unit frame. A card with no rect this window (one dropped for room, the log before its
+## entries load) has its light put out rather than left at a stale size.
 func _place_card_sheen() -> void:
 	var s := maxf(UIScale.value, 1.0)
 	var ring := 2.0 * maxf(1.0, roundf(s))
@@ -1137,53 +1088,6 @@ func _draw() -> void:
 	_draw_profile()
 	_draw_log()
 	_draw_friends()
-
-
-## One panel: the fill, then the button texture's bevel outside-in - one texel of outline
-## all the way round, then one texel of light on the top and left and of shade on the bottom
-## and right. At GUI scale 2 a texel is 2 px, so the frame thickens with the rest of the
-## interface instead of staying a hairline. The update log is this; the two cards above it are
-## their own artwork.
-##
-## The fill is CELLS, not one rect: the log is made of the same squares as the plate behind it and
-## carries the same per-square darkness, so a panel reads as a piece of the same material rather
-## than a sheet laid over a grid. The card's rect is snapped to the cell grid, so its cells ARE
-## the plate's cells - and the noise is keyed on the cell's place in the SCREEN grid, so a square
-## that the plate has and a panel covers carries one tone in both.
-func _draw_panel(rect: Rect2) -> void:
-	var s := maxf(UIScale.value, 1.0)
-	var cell := maxf(_cell, 2.0)
-	var tint := SCRIM_TINT
-	var cols := maxi(1, int(ceil(rect.size.x / cell)))
-	var rows := maxi(1, int(ceil(rect.size.y / cell)))
-	var grid_x := int(round(rect.position.x / cell))
-	var grid_y := int(round(rect.position.y / cell))
-	for row in range(rows):
-		var y := rect.position.y + float(row) * cell
-		var h := minf(cell, rect.end.y - y)
-		if h <= 0.0:
-			continue
-		for col in range(cols):
-			var x := rect.position.x + float(col) * cell
-			var w := minf(cell, rect.end.x - x)
-			if w <= 0.0:
-				continue
-			tint.a = _panel_alpha(grid_x + col, grid_y + row)
-			draw_rect(Rect2(Vector2(x, y), Vector2(w, h)), tint)
-	var px := maxf(1.0, roundf(s))
-	var inner := Rect2(rect.position + Vector2(px, px), rect.size - Vector2(px, px) * 2.0)
-	draw_rect(Rect2(rect.position, Vector2(rect.size.x, px)), LOG_EDGE_OUTER)
-	draw_rect(Rect2(Vector2(rect.position.x, rect.end.y - px), Vector2(rect.size.x, px)),
-		LOG_EDGE_OUTER)
-	draw_rect(Rect2(rect.position, Vector2(px, rect.size.y)), LOG_EDGE_OUTER)
-	draw_rect(Rect2(Vector2(rect.end.x - px, rect.position.y), Vector2(px, rect.size.y)),
-		LOG_EDGE_OUTER)
-	draw_rect(Rect2(inner.position, Vector2(inner.size.x, px)), LOG_EDGE_LIGHT)
-	draw_rect(Rect2(inner.position, Vector2(px, inner.size.y)), LOG_EDGE_LIGHT)
-	draw_rect(Rect2(Vector2(inner.position.x, inner.end.y - px), Vector2(inner.size.x, px)),
-		LOG_EDGE_SHADE)
-	draw_rect(Rect2(Vector2(inner.end.x - px, inner.position.y), Vector2(px, inner.size.y)),
-		LOG_EDGE_SHADE)
 
 
 ## The profile card: the supplied artwork at one art pixel per UI unit, and the four things it
@@ -1266,46 +1170,39 @@ func _draw_friends() -> void:
 			text, HORIZONTAL_ALIGNMENT_LEFT, -1, small,
 			PROFILE_TEXT if i == 0 else PROFILE_DIM)
 
-## The update log: one flat card, its rect snapped to the scrim's own grid.
-##
-## It is a card because the sky is the brightest thing here and grey text laid straight on
-## it fails contrast; the entries are near-white over a 0.52 tint, which holds 4.75:1 against
-## the brightest sky the world can put behind it.
-##
-## It is filled square by square, with the same per-square noise the plate carries - see
-## `_draw_panel`. There is no wind on a panel: a square of the changelog flying off to the right
-## would take the words with it, so a panel's squares vary but never move.
+## The patch card: the supplied artwork at one art pixel per UI unit, and only the words it
+## cannot know drawn into it - `WHAT'S NEW` on the guide's mark, the version right-aligned on the
+## other, and the changelog's entries in the body under the art's rule. The last entry that would
+## run into the frame stops, because the card's height is the art's now.
 func _draw_log() -> void:
-	if _log_rect.size.x <= 0.0 or _log_rect.size.y <= 0.0:
+	if _log_rect.size.x <= 0.0:
 		return
 	var s := maxf(UIScale.value, 1.0)
-	var px := maxf(1.0, roundf(s))
-	_draw_panel(_log_rect)
-	var pad := LOG_PAD * s
-	var x := _log_rect.position.x + pad
+	draw_texture_rect(LOG_CARD_TEX, _log_rect, false)
+	var at := _log_rect.position
 	var head_size := int(LOG_HEADING_UNITS * s)
 	var body_size := int(LOG_BODY_UNITS * s)
-	var y := _log_rect.position.y + pad + float(MUNRO_FONT.get_ascent(head_size))
-	draw_string(MUNRO_FONT, Vector2(x, y), LOG_TITLE, HORIZONTAL_ALIGNMENT_LEFT, -1,
-		head_size, LOG_TEXT)
-	y += (LOG_HEADING_UNITS + 9.0) * s - float(MUNRO_FONT.get_ascent(body_size))
-	var version := "v" + _log_version if _log_version != "" else ""
-	draw_string(MUNRO_FONT, Vector2(x, y), version, HORIZONTAL_ALIGNMENT_LEFT, -1,
-		body_size, LOG_DIM)
-	y += (LOG_BODY_UNITS + 8.0) * s - float(MUNRO_FONT.get_descent(body_size))
-	var bullet := Vector2(2.0, 2.0) * s
-	for entry in _log_entries:
-		# A short window can leave fewer cells for the card than it has entries: the last ones
-		# stop at the frame rather than drawing over it.
-		if y + LOG_LINE_H * s > _log_rect.end.y - px * 2.0:
+	draw_string(MUNRO_FONT, at + LOG_TITLE_AT * s, LOG_TITLE, HORIZONTAL_ALIGNMENT_LEFT,
+		-1, head_size, LOG_TEXT)
+	var version := ("v" + _log_version) if _log_version != "" else ""
+	var ver_w := MUNRO_FONT.get_string_size(version, HORIZONTAL_ALIGNMENT_LEFT, -1,
+		body_size).x
+	draw_string(MUNRO_FONT,
+		Vector2(at.x + LOG_VERSION_RIGHT * s - ver_w, at.y + LOG_TITLE_AT.y * s),
+		version, HORIZONTAL_ALIGNMENT_LEFT, -1, body_size, LOG_DIM)
+	var bullet := 2.0 * s
+	var room_w := _log_rect.size.x - (LOG_TEXT_X + 8.0) * s
+	for i in range(_log_entries.size()):
+		var baseline_y: float = at.y + (LOG_FIRST_BASELINE + float(i) * LOG_LINE_H) * s
+		if baseline_y > _log_rect.end.y - 8.0 * s:
 			break
-		var baseline := y + float(MUNRO_FONT.get_ascent(body_size))
-		# A two-unit square instead of a hyphen: the smallest thing on the card is still
-		# a square, which is the whole screen's unit.
-		draw_rect(Rect2(Vector2(x, baseline - 3.0 * s), bullet), LOG_DIM)
-		draw_string(MUNRO_FONT, Vector2(x + 6.0 * s, baseline), String(entry),
-			HORIZONTAL_ALIGNMENT_LEFT, _log_rect.size.x - pad - 6.0 * s, body_size, LOG_TEXT)
-		y += LOG_LINE_H * s
+		var text := String(_log_entries[i])
+		# A two-unit square instead of a hyphen: the smallest thing on the card is still a
+		# square, which is the whole screen's unit.
+		draw_rect(Rect2(Vector2(at.x + LOG_BULLET_X * s, baseline_y - 4.0 * s),
+			Vector2(bullet, bullet)), LOG_DIM)
+		draw_string(MUNRO_FONT, Vector2(at.x + LOG_TEXT_X * s, baseline_y), text,
+			HORIZONTAL_ALIGNMENT_LEFT, int(room_w), body_size, LOG_TEXT)
 
 
 ## The scrim behind the menu, as a grid of SQUARES. It used to be 48 bands across the width
@@ -1367,15 +1264,6 @@ func _build_grid() -> void:
 	# teleported; the plate refills on its own within a second.
 	_lifted.clear()
 	_healing.clear()
-
-
-## One square of a panel: the panel's own tone plus its share of the same per-square noise, in
-## the plate's own amount (`NOISE_ALPHA`), so the three cards and the plate vary by one rule.
-## Keyed on the cell's place on the SCREEN grid - the panels' rects are snapped to it - so the
-## pattern is anchored to the plate's rather than restarting at each panel's corner, and a resize
-## hands a square the same tone it had before.
-func _panel_alpha(grid_x: int, grid_y: int) -> float:
-	return clampf(LOG_PLATE_ALPHA + (_hash01(grid_x, grid_y) * 2.0 - 1.0) * NOISE_ALPHA, 0.0, 1.0)
 
 
 ## One square's tone: the plate's ramp where it sits, plus its own share of the noise.

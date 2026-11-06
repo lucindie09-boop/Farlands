@@ -939,12 +939,10 @@ first-person viewmodel - what each one owns and the decisions behind it.
   the constants in `title_screen.gd` are those numbers. `probe_menu.gd` holds the card to the art's
   own geometry: the 240 x 100 rect, the square HEAD box, and each row centred on its icon with its
   label on the guide's mark.
-- **The two cards are their artwork's size, and the log is the column's.** Both the profile card
-  and the friends card are right-aligned to the margin at their 240-unit artwork's width, so they
-  share both edges and the stack reads as one rail; the update log under them is the column's 200
-  units. Neither art card is snapped to the scrim's cells: they are images rather than cell fills,
-  and rounding their edges to the grid would resample their 1-texel frames. The log keeps the grid
-  because it is still a cell fill.
+- **The three cards are their artwork's size.** All three are right-aligned to the margin at
+  their own 240-unit width, so they share both edges and the rail reads as one stack; none of
+  them is snapped to the scrim's cells, because they are images rather than cell fills and
+  rounding their edges would resample their 1-texel frames.
 - **The friends card is the shell, and its list is empty because there are no friends.** The
   reference is a social panel with a live count, tabs, a search field and a friend per row; what
   this build can honestly have is the chrome - header, search, tabs, Add Friend - over an empty
@@ -978,53 +976,30 @@ first-person viewmodel - what each one owns and the decisions behind it.
   second, louder interface; they are deliberately NOT in `_buttons`, which is the action column
   and whose index positions the accent bar. Each row answers in the footer - the same channel
   Multiplayer uses - until there is something behind it.
-- **The right-hand rail is a stack of three cards, and it no longer fills the column.** The
-  profile card sits on the wordmark's line, the friends card one cell under it, the log one cell
-  under that; both art cards have a fixed height (100 and 180 units), so the rail ends where the
-  log's content ends. The old friends panel stretched to make the log's bottom edge balance the
-  profile card's top; with a fixed artwork there is nothing to stretch, and a card with a hand's
-  width of empty list under its last line is worse than a column that stops early. The log keeps
-  its content's height, and on a window too short to fit it under the cards it is dropped rather
-  than given a negative height.
-- **The log is the column's own width, and every edge of it is on the cell grid.** The width and
-  the right edge are both rounded to the nearest cell - which can move either by up to half a
-  cell and never cuts a square in half - and the probe checks all four edges against the grid,
-  plus the width against `COLUMN`, rather than trusting the look. It has been placed in four
-  positions while this screen settled (top right, then the bottom-left corner, then under the
-  profile card, and now the bottom of the rail); the grid
-  and the width are what survived every move, so they are what is pinned in the probe.
-- **A panel varies per square, and does not move.** The log is filled cell
-  by cell with the plate's own per-square noise (`_panel_alpha`), keyed on the cell's place in the
-  SCREEN grid, so a square carries one tone whether the plate or a panel draws it and a resize
-  hands it the same tone again. They were a single flat rect for a while, on the theory that noise
-  only makes sense under a gradient - which produced three grey sheets that read as laid ON the
-  screen rather than cut from it, and the squares the user sees everywhere else stopped at the
-  panel's edge. The wind still stays off: a changelog square flying right takes the words with
-  it. Getting the noise back moved the fill from 0.52 to 0.58, because the palest cell of the
-  noise (`fill - NOISE_ALPHA`) is what the entries have to stay legible on, and 0.52 - 0.06
-  measured 3.96:1. At 0.58 the lightest cell IS that 0.52 card, at 4.75:1, and the probe now
-  measures the ratio on it rather than on the mean - the tile with the most noise taken off it
-  is the one text can fail on.
-- **The update log is a card, because the sky is the brightest thing here.** The right-hand
-  emptiness was the composition's dead space until something went in it, and plain text cannot:
-  grey labels on that sky measure about 1.1:1. So it is a card of the scrim's own squares at
-  0.58 of the tint, whose lightest cell composites the brightest sky down to a measured
-  **4.75:1** against the entries - the AA figure for normal text - and the probe recomputes that ratio from the two
-  constants rather than trusting the design. The entries live in `data/changelog.json`, and the
-  probe also checks that the file's `version` matches `application/config/version`, so a build
-  cannot advertise another one's changelog. The card is dropped, not squeezed, when the window
-  is too narrow for its lines: a changelog narrower than its own words is worse than none.
-- **The card is framed in the button's bevel, at one texel.** Read out of `textures/gui/button.png`
-  rather than matched by eye: `#262626` outline, `#9b9b9b` lit top and left, `#424242` shaded
-  bottom and right, over the fill - a three-tone bevel with the light coming from above, drawn
-  procedurally as four rects per ring. It grows with the GUI scale, so a texel is 2 px at scale 2
-  and the frame thickens with the rest of the interface instead of staying a hairline. The lit
-  tone is the one that did not survive the move: `#9b9b9b` is a +42 step over the button's
-  `#6d6d6d` fill and reads as a bevel there, but over a nearly black card it read as a bright
-  outline drawn round the panel - out of place in a screen of quiet greys - so it is pulled to
-  `#686e76` (about 0.67 of the texture's tone, and cooler). The probe reads the outline and shade texels back and compares them to the
-  constants, and holds the lit tone below the texture's while keeping it above the shade, so
-  the frame can be tuned without ceasing to be the button's bevel.
+- **The right-hand rail is a stack of three cards, and it does not fill the column.** The profile
+  card sits on the wordmark's line, the friends card one cell under it, the patch card one cell
+  under that; all three have a fixed height from their art (100, 180 and 100 units), so the rail
+  ends where the patch card ends. The old friends panel stretched to make the log's bottom edge
+  balance the profile card's top; with fixed artworks there is nothing to stretch, and a card
+  with a hand's width of empty list under its last line is worse than a column that stops early.
+  On a window too short to fit the patch card under the friends card it is dropped rather than
+  clipped.
+- **The patch card is the third piece of artwork, and its words sit on the guide's marks.** The
+  supplied `textures/gui/Patchcard.png` (240 x 100) at **one art pixel per UI unit**, right-aligned
+  to the margin like the two above it: the art carries the frame, the megaphone glyph and the rule
+  under the header. `WHAT'S NEW` starts on x 28 / baseline 18, the version ends on x 227 on the
+  same baseline, and the changelog's entries are drawn in the body under the rule - a 2-unit
+  square bullet at x 12 and its text at x 18, the first baseline at 30 and 9 units per line. The
+  card is a fixed height, so the last entry that would run into its frame stops. Its bottom
+  bound is the window's own margin rather than the footer's line - the footer sits at the far
+  left, not under the rail - so a window where the old bound dropped it keeps the card, with the
+  same one-cell spacing under the friends card that the friends card has under the profile.
+- **The patch card is opaque, because the sky is the brightest thing here.** The right-hand
+  emptiness was the composition's dead space until something went in it, and plain text cannot go
+  there: grey labels on that sky measure about 1.1:1. The art's fill is opaque, so the near-white
+  entries keep their contrast wherever the card sits. The entries live in `data/changelog.json`,
+  and the probe also checks that the file's `version` matches `application/config/version`, so a
+  build cannot advertise another one's changelog.
 - **The freeze reuses `set_settings_open`.** That flag is already the gate every system respects
   (movement, look, mouse capture, the block outline, the crosshair, the compass, the interaction
   door), so the title cannot be the one overlay a later system forgets. The cost is a semantic

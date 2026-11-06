@@ -83,6 +83,7 @@ const CONTROL_BINDINGS := [
 @onready var player_controller = get_node("/root/Main/Player")
 @onready var chunk_manager = get_node("/root/Main/ChunkManager")
 @onready var crosshair_node = get_node_or_null("/root/Main/HUD/Crosshair")
+@onready var fps_counter_node = get_node_or_null("/root/Main/HUD/FPSCounter")
 @onready var block_outline_node = get_node_or_null("/root/Main/BlockOutline")
 @onready var godrays_node = get_node_or_null("/root/Main/HUD/GodRaysOverlay")
 @onready var cloud_layer_node = get_node_or_null("/root/Main/CloudLayer")
@@ -144,6 +145,7 @@ var _default_mipmap_bias: float = 0.1
 var _default_textures_enabled: bool = true
 var _default_compression_enabled: bool = false
 var _default_fps_cap: int = 0
+var _default_fps_counter_interval: float = 0.25
 var _default_msaa_3d: int = 0
 
 var _skin_dark_mode := false
@@ -238,6 +240,7 @@ var _crosshair_defaults := {
 
 var _save_timer: Timer = null
 var _fps_cap: int = 0
+var _fps_counter_interval: float = 0.25
 # The transition and any other full-screen motion read this instead of moving.
 # Off by default: it is an accessibility choice, not a look.
 var _reduce_motion := false
@@ -283,6 +286,9 @@ func _ready():
 	_default_textures_enabled = chunk_manager.get_textures_enabled()
 	_default_compression_enabled = chunk_manager.get_compression_enabled()
 	_default_msaa_3d = get_viewport().msaa_3d
+	if fps_counter_node:
+		_default_fps_counter_interval = fps_counter_node.update_interval
+	_fps_counter_interval = _default_fps_counter_interval
 	if crosshair_node:
 		for k in _crosshair_defaults:
 			_crosshair_defaults[k] = crosshair_node.get(k)
@@ -296,9 +302,17 @@ func _ready():
 		_controls_defaults[cb[0]] = InputMap.action_get_events(cb[0]).duplicate()
 	_load_settings()
 	Engine.max_fps = _fps_cap
+	_apply_fps_counter_interval()
 	hide()
 func _exit_tree():
 	_save_settings()
+
+# The FPS readout's repaint period, in seconds. The menu owns the value (it is
+# what settings.cfg stores); the node only renders at it, so a slider drag changes
+# the cadence on the spot rather than at the next launch.
+func _apply_fps_counter_interval() -> void:
+	if fps_counter_node:
+		fps_counter_node.update_interval = _fps_counter_interval
 
 func _schedule_save():
 	if _save_timer == null:
@@ -351,6 +365,7 @@ func _save_settings():
 	cfg.set_value("render", "textures_enabled", chunk_manager.get_textures_enabled())
 	cfg.set_value("render", "compression_enabled", chunk_manager.get_compression_enabled())
 	cfg.set_value("render", "fps_cap", _fps_cap)
+	cfg.set_value("render", "fps_counter_interval", _fps_counter_interval)
 	cfg.set_value("render", "msaa_3d", get_viewport().msaa_3d)
 	cfg.set_value("gui", "skin_dark_mode", _skin_dark_mode)
 	cfg.set_value("gui", "skin_noise", _skin_noise)
@@ -419,6 +434,9 @@ func _load_settings():
 	var loaded_fps_cap = cfg.get_value("render", "fps_cap", _default_fps_cap)
 	_fps_cap = loaded_fps_cap if loaded_fps_cap != 60 else _default_fps_cap
 	Engine.max_fps = _fps_cap
+	_fps_counter_interval = clampf(float(cfg.get_value("render", "fps_counter_interval",
+		_default_fps_counter_interval)), 0.05, 2.0)
+	_apply_fps_counter_interval()
 	get_viewport().msaa_3d = int(cfg.get_value("render", "msaa_3d", _default_msaa_3d)) as Viewport.MSAA
 	_skin_dark_mode = cfg.get_value("gui", "skin_dark_mode", _skin_dark_mode)
 	_skin_noise = float(cfg.get_value("gui", "skin_noise", _skin_noise))
@@ -853,6 +871,20 @@ func _build_general_sections() -> Array:
 		Engine.max_fps = _default_fps_cap
 		_schedule_save()
 
+	# How often the readout repaints: short intervals show a burst of frames, long
+	# ones average over it, and the counter counts frames itself so the number
+	# matches the interval rather than the engine's rolling average.
+	var counter_interval := _make_slider(_fps_counter_interval, 0.05, 2.0, 0.05,
+		func(v: float):
+			_fps_counter_interval = v
+			_apply_fps_counter_interval()
+			_schedule_save(), " s")
+	var counter_interval_reset := func():
+		counter_interval.get_meta("slider").value = _default_fps_counter_interval
+		_fps_counter_interval = _default_fps_counter_interval
+		_apply_fps_counter_interval()
+		_schedule_save()
+
 	var codec := {
 		"export": _export_general_code,
 		"import": _import_general_code,
@@ -871,6 +903,7 @@ func _build_general_sections() -> Array:
 		["Performance", [
 			["Render Distance", rd, rd_reset],
 			["FPS Cap", fps_cap, fps_cap_reset],
+			["FPS Counter Update Interval", counter_interval, counter_interval_reset],
 		]],
 		["", [], codec],
 		["", [["", hint, null, "span"]]],

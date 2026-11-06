@@ -31,9 +31,9 @@ public:
     // (shaders/item_lighting.gdshaderinc) instead of the engine's sky/ambient.
     void apply_item_shader_lighting(const godot::Ref<godot::ShaderMaterial>& material) const;
 
-    // The neutral sky-light warmth the player's body and the menu accent use.
-    // With the retired Sky Tint setting there is one curve: white overhead, warm
-    // at the horizon, and it is the same value item materials are fed.
+    // The world's sky-light tint, which the player's body and the menu accent use
+    // too: white at every hour now that the sunrise/sunset ground tint is gone,
+    // and the same value item materials are fed.
     godot::Color get_body_sky_warmth() const { return item_sky_warmth; }
 
     DayNightCycle& get_day_night_cycle() { return day_night; }

@@ -93,19 +93,17 @@ public:
         return zenith_sun.lerp(warm_sun, horizon_factor * horizon_factor);
     }
 
-    // The same curve with a WHITE zenith: white overhead and warm at the
-    // horizon. This is the world's sky-light tint now that Sky Tint is retired:
-    // EnvironmentController hands it to the terrain, water and every item (the
-    // body included) as `sky_light_warmth`. It agrees with get_sun_color() at
-    // the horizon and differs only where the sun is high.
-    // probes/probe_body_light.gd reads it off both materials, at noon and at the
-    // horizon.
+    // The world's sky-light tint, and it is WHITE at every hour. This used to
+    // warm toward the sun's orange as the sun reached the horizon, which
+    // multiplied every grass, sand and stone face by it and turned the ground
+    // yellow at sunrise and sunset. The sun's own warmth still reaches the sky,
+    // its disc and the fog's glow through get_sun_color(); the surfaces are not
+    // tinted by the height of the sun any more.
+    // EnvironmentController hands this to the terrain, water and every item (the
+    // body included) as `sky_light_warmth`, and probes/probe_body_light.gd reads
+    // it off both materials, at noon and at the horizon.
     [[nodiscard]] godot::Color get_sun_color_neutral() const {
-        if (!enabled) return day_color;
-        const float elevation = get_sun_elevation();
-        float horizon_factor = std::clamp(1.0f - std::abs(elevation) * 2.0f, 0.0f, 1.0f);
-        godot::Color warm_sun = godot::Color(1.0f, 0.60f, 0.18f, 1.0f);
-        return godot::Color(1.0f, 1.0f, 1.0f, 1.0f).lerp(warm_sun, horizon_factor * horizon_factor);
+        return godot::Color(1.0f, 1.0f, 1.0f, 1.0f);
     }
 
     [[nodiscard]] godot::Vector3 get_sun_direction() const {

@@ -1,8 +1,19 @@
 extends Label
 
+# How often the readout repaints, in seconds. The settings menu owns the value
+# ("FPS Counter Update Interval"); the node only renders at it, so a slider drag
+# changes the cadence on the spot. This default is what the scene starts with and
+# what that row's reset restores.
+const DEFAULT_UPDATE_INTERVAL: float = 0.25
+var update_interval: float = DEFAULT_UPDATE_INTERVAL
+
 # Track elapsed time to avoid updating the text every single frame
 var timer: float = 0.0
-const UPDATE_INTERVAL: float = 0.25 # Update 4 times a second
+# Frames drawn since the last repaint. The count is the reading, not the engine's
+# Performance.TIME_FPS: that monitor is a rolling average of about a second, so at
+# an interval shorter than that it would repeat a stale number, and at a longer one
+# it would report the last second rather than the interval that was asked for.
+var _frames: int = 0
 
 # The label's font in GUI units: 15 units is the 30 px the scene used to pin, so
 # the readout tracks the GUI scale like the rest of the HUD instead of staying
@@ -29,17 +40,18 @@ func _process(delta: float) -> void:
 		_apply_font_size()
 	timer += delta
 	perf_timer += delta
-	
-	if timer >= UPDATE_INTERVAL:
-		# Performance.get_monitor fetches the exact engine metrics
-		var current_fps = Performance.get_monitor(Performance.TIME_FPS)
-		
+	_frames += 1
+
+	# The floor keeps a hand-edited zero from repainting on every frame; the
+	# menu's own slider stops at 0.05 s.
+	if timer >= maxf(update_interval, 0.01):
 		# Update text string smoothly
-		text = "FPS: " + str(int(current_fps))
-		
-		# Reset timer tracking loop
+		text = "FPS: " + str(int(round(float(_frames) / timer)))
+
+		# Reset the window the next reading will average over
 		timer = 0.0
-	
+		_frames = 0
+
 	# Print performance report to console periodically
 	if perf_timer >= PERF_UPDATE_INTERVAL and chunk_manager:
 		print(chunk_manager.get_performance_report())

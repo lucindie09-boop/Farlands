@@ -353,8 +353,10 @@ func _check_update_log() -> void:
 			title._friends_search.position.y - title._friends_rect.position.y))
 	_check(absf(profile.end.x - (title.size.x - title._margin * s)) <= title._cell,
 		"the profile card's right edge is on the margin (%.0f)" % profile.end.x)
-	_check(absf(profile.size.x - Title.COLUMN * s) <= title._cell,
-		"the profile card is the column's width (%.0f)" % profile.size.x)
+	_check(absf(profile.size.x - Title.PROFILE_CARD_W * s) <= 0.01,
+		"the profile card is its artwork's width, at the buttons' scale (%.0f)" % profile.size.x)
+	_check(absf(profile.size.y - Title.PROFILE_CARD_H * s) <= 0.01,
+		"and its artwork's height (%.0f)" % profile.size.y)
 	var friends_rect: Rect2 = title._friends_rect
 	_check(rect.position.y >= friends_rect.end.y,
 		"the log is the last panel of the stack (%.0f >= %.0f)" % [rect.position.y,
@@ -436,10 +438,22 @@ func _check_update_log() -> void:
 		and cell_hi <= Title.LOG_PLATE_ALPHA + Title.NOISE_ALPHA + 0.001,
 		"every panel cell is within one noise step of the fill (%.3f..%.3f)" % [cell_lo, cell_hi])
 
-	# The profile card: three rows, real Buttons, inside the card - and each one answers in the
-	# footer, because there is nothing behind them yet.
+	# The profile card: the artwork at one art pixel per unit, with the four things it cannot
+	# know drawn into its own boxes - the face in the HEAD box, the name and state at the guide's
+	# marks, and three real Buttons whose labels sit on the art's icon bands. The numbers come
+	# from `textures/gui/PlayerCardGuide.png`; this checks the drawing against them.
 	_check(title._profile_rows.size() == Title.PROFILE_ROWS.size(),
 		"the profile card has %d rows" % title._profile_rows.size())
+	var head_box := Rect2(profile.position + Title.PROFILE_HEAD.position * s,
+		Title.PROFILE_HEAD.size * s)
+	_check(profile.encloses(head_box), "the skin head fits the artwork's HEAD box")
+	_check(is_equal_approx(Title.PROFILE_HEAD.size.x, Title.PROFILE_HEAD.size.y),
+		"the HEAD box is square, so the 8x8 face is not stretched")
+	_check(absf(head_box.position.x - profile.position.x - 12.0 * s) <= 0.5
+		and absf(head_box.position.y - profile.position.y - 10.0 * s) <= 0.5,
+		"the head is on the guide's box (%.1f, %.1f)" % [
+			head_box.position.x - profile.position.x,
+			head_box.position.y - profile.position.y])
 	for i in range(title._profile_rows.size()):
 		var row: Button = title._profile_rows[i]
 		_check(row.visible and row is Button, "row %d is a live button" % i)
@@ -447,55 +461,34 @@ func _check_update_log() -> void:
 			"row %d is %s" % [i, row.text])
 		var inside: Rect2 = Rect2(row.position, row.size)
 		_check(profile.encloses(inside), "row %d sits inside the card" % i)
-	var content: float = (Title.PROFILE_HEADER + 3.0 * Title.PROFILE_ROW_H
-		+ Title.PROFILE_PAD) * s
-	_check(absf(profile.size.y - content) <= title._cell,
-		"the card is its header plus three rows (%.0f tall)" % profile.size.y)
-	# The head's air is one number on all four sides - not closer to the bottom than the top, and
-	# not closer to the side than either - and it is the rows' left inset, so the face and the
-	# labels share a margin. Then the labels' air: what is left under the rule, split evenly.
-	var head_h: float = Title.PROFILE_HEAD * s
-	var gap_body := int(Title.PROFILE_SMALL_UNITS * s)
-	var slack := maxf(0.0, (Title.PROFILE_ROW_H * s
-		- float(Title.MUNRO_FONT.get_height(gap_body))) * 0.5)
-	var first: Button = title._profile_rows[0]
-	var gap_top: float = title._profile_head_y - profile.position.y
-	var gap_under: float = title._profile_rule_y - (title._profile_head_y + head_h)
-	var gap_side: float = first.position.x - profile.position.x
-	_check(absf(gap_top - gap_under) <= 1.0 and absf(gap_side - gap_top) <= 1.0,
-		"the head's air is even on all four sides (%.1f top / %.1f under / %.1f side)" % [
-			gap_top, gap_under, gap_side])
-	var last: Button = title._profile_rows[title._profile_rows.size() - 1]
-	var above: float = first.position.y - title._profile_rule_y + slack
-	var below: float = profile.end.y - (last.position.y + last.size.y) + slack
-	_check(absf(above - below) <= 1.0,
-		"the rows' labels have the same air above and below (%.1f / %.1f)" % [above, below])
-	# Hovering a row puts the chevron on THAT row: the arrow follows the pointer, and an exit
-	# from the row next door does not take it off.
-	title._on_profile_hover(1, true)
-	_check(title._profile_hover == 1, "hovering a row marks it (row %d)" % title._profile_hover)
-	title._on_profile_hover(0, false)
-	_check(title._profile_hover == 1, "the chevron stays on the row you are on")
-	title._on_profile_hover(1, false)
-	_check(title._profile_hover == -1, "leaving the card takes the chevron off")
+		# The art's icons are 8-unit squares on y 51..58, 67..74 and 82..89, so the rows march at
+		# 15.5 units; a label on its icon is the whole point of the guide's marks.
+		var icon_centre := profile.position.y + (54.5 + 15.5 * float(i)) * s
+		_check(absf(row.position.y + row.size.y * 0.5 - icon_centre) <= 1.0,
+			"row %d is centred on its icon (%.1f of %.1f)" % [i,
+				row.position.y + row.size.y * 0.5, icon_centre])
+		var label_x: float = row.position.x + 6.0 * s
+		_check(absf(label_x - (profile.position.x + 30.0 * s)) <= 0.5,
+			"row %d's label starts on the guide's mark (%.0f)" % [
+				i, label_x - profile.position.x])
 	title._on_profile_row(1)
 	_check(String(title._footer.text).contains("CAPE"),
 		"a profile row answers in the footer: %s" % title._footer.text)
 	title._process(Title.NOTE_SECONDS + 0.1)
 	_check(String(title._footer.text).contains("v0.1"), "the answer clears itself")
 
-	# The friends panel is the middle panel of the right-hand stack: the column's width, under the
-	# profile card and above the log, all three right-aligned and one cell apart - and its four
+	# The friends panel is the middle panel of the right-hand stack: the log's width, under the
+	# profile card and above the log, right-aligned with both and one cell apart - and its four
 	# controls inside it. The list is empty on purpose, so what is checked is the shell.
 	var friends: Rect2 = title._friends_rect
 	_check(friends.size.x > 0.0, "the friends panel has a rect (%.0f x %.0f)" % [friends.size.x,
 		friends.size.y])
 	_check(friends.position.x > title.size.x * 0.5, "it is in the right-hand column")
-	_check(absf(friends.position.x - profile.position.x) <= title._cell,
-		"it lines up with the profile card above it (%.0f of %.0f)" % [friends.position.x,
-			profile.position.x])
 	_check(absf(friends.end.x - profile.end.x) <= title._cell,
-		"and shares its right edge (%.0f)" % friends.end.x)
+		"it shares the profile card's right edge (%.0f)" % friends.end.x)
+	_check(friends.size.x < profile.size.x,
+		"the artwork above it is wider than the panels (%.0f < %.0f)" % [friends.size.x,
+			profile.size.x])
 	_check(absf(friends.size.x - Title.COLUMN * s) <= title._cell,
 		"it is the column's width (%.0f)" % friends.size.x)
 	_check(friends.position.y >= profile.end.y,

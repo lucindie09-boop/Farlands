@@ -243,25 +243,34 @@ const PAGE_WORLDS := 1
 # so the name and the state are the one thing this card cannot discover: it says who the save
 # belongs to and nothing about a service, and its rows answer in the footer until there is
 # something behind them. The head is the player's own skin, so it cannot disagree with the body.
+#
+# The card is ARTWORK (`textures/gui/Playercard.png`, 240 x 100): its frame, rule, green state dot
+# and three row icons are the texture, and this screen draws only what the art cannot know - the
+# face, the name, the state's word and the row labels. It is drawn at ONE ART PIXEL PER UNIT, the
+# scale the left column's 200 x 40 button texture already gets, so at GUI scale 2 it is 480 x 200
+# px and its frame thickens with the interface instead of being resampled. Every number below is a
+# pixel in that art, read off `textures/gui/PlayerCardGuide.png`: the red box is the head, each red
+# bar a label's left edge and cap band. `probe_menu.gd` holds the drawing to them.
+const PROFILE_CARD_TEX: Texture2D = preload("res://textures/gui/Playercard.png")
+const PROFILE_CARD_W := 240.0
+const PROFILE_CARD_H := 100.0
+# The head's box in the art; the name's baseline, and the state's word beside the art's own dot
+# (the dot is at x 44..48, y 29..33).
+const PROFILE_HEAD := Rect2(12, 10, 26, 26)
+const PROFILE_NAME_AT := Vector2(44, 20)
+const PROFILE_STATUS_AT := Vector2(55, 34)
+# There is no account system, so the name is a constant: the card says who the save belongs to.
 const PROFILE_NAME := "VoxelSteve"
-const PROFILE_W := COLUMN
-const PROFILE_PAD := 6.0
-const PROFILE_HEAD := 20.0
-# The head's air: the same number above it, under it (to the rule) and on both sides, and the
-# same again as the rows' left inset, so the face and the labels share one left margin.
-const PROFILE_AIR := 5.0
-# The header is the head's box plus one unit of air above it and one below it (the band ends at
-# the rule); the rows are the reference's smaller height. The card's own height is that sum
-# rounded UP to whole cells, and what the rounding leaves goes half under the rule and half under
-# the last row - so the labels have the same air above and below them.
-const PROFILE_HEADER := 30.0
-const PROFILE_ROW_H := 11.0
-const PROFILE_NAME_UNITS := 8
-const PROFILE_SMALL_UNITS := 6
+# The art's icons are 8-unit squares on y 51..58, 67..74 and 82..89, so the rows march at 15.5
+# units: each button is a 15-unit band centred on its icon, and its label starts at the guide's
+# x = 30 - six units into a row whose left edge is just past the icon.
+const PROFILE_ROW_TOPS := [47.0, 62.5, 78.0]
+const PROFILE_ROW_H := 15.0
+const PROFILE_ROW_INSET := 24.0
+const PROFILE_NAME_UNITS := 9
+const PROFILE_SMALL_UNITS := 7
 const PROFILE_TEXT := Color(0.94, 0.95, 0.97)
 const PROFILE_DIM := Color(0.74, 0.77, 0.82)
-const STATUS_ONLINE := Color(0.36, 0.78, 0.42)
-const CROWN := Color(0.95, 0.78, 0.32)
 # What each row answers while there is nothing behind it. The footer is this screen's status
 # line, so a row that cannot act says so there instead of doing nothing at all.
 # The friends panel in the bottom-left corner. There is no service, no account and no friends
@@ -358,11 +367,6 @@ var _friends_add: Button
 var _friends_tab := 0
 # The half of the cell rounding that sits above the chrome, for the panel and the profile card.
 var _friends_top_inset := 0.0
-# The profile card's resolved geometry - the head's line, the rule under the header - and the
-# row the pointer is over. Kept on the node so the drawing and the layout cannot disagree.
-var _profile_head_y := 0.0
-var _profile_rule_y := 0.0
-var _profile_hover := -1
 # Layout values that depend on the window, resolved in _layout() and read back by
 # _draw(): a small window must not push the column off the bottom of the screen.
 var _margin := MARGIN
@@ -481,21 +485,8 @@ func _build_profile_rows() -> void:
 	for i in range(PROFILE_ROWS.size()):
 		var btn := _flat_button(String(PROFILE_ROWS[i][0]))
 		btn.pressed.connect(_on_profile_row.bind(i))
-		btn.mouse_entered.connect(_on_profile_hover.bind(i, true))
-		btn.mouse_exited.connect(_on_profile_hover.bind(i, false))
 		add_child(btn)
 		_profile_rows.append(btn)
-
-
-## Which row the pointer is on, for the chevron `_draw_profile` adds to it. The exit is filtered
-## by the row's own index because leaving row A can arrive after entering row B, and an
-## unfiltered exit would take the arrow off the row the pointer is actually on.
-func _on_profile_hover(index: int, entered: bool) -> void:
-	var wanted := index if entered else (-1 if _profile_hover == index else _profile_hover)
-	if wanted == _profile_hover:
-		return
-	_profile_hover = wanted
-	queue_redraw()
 
 
 ## The friends panel's controls: a search field, three tabs and Add Friend. All flat, all the
@@ -573,8 +564,11 @@ func _flat_button(text: String) -> Button:
 
 ## Every flat row's metrics take the window's scale, and its focus bar takes the accent - which
 ## is mixed with the world's sky warmth in `open`, so it cannot be known when the rows are built.
-func _style_flat(btn: Button, s: float, left_inset: float) -> void:
-	btn.add_theme_font_size_override("font_size", int(FRIENDS_SMALL_UNITS * s))
+## The font is the panel's own size by default; the profile rows ask for the card's slightly
+## larger one, because the card's art is drawn larger than the panels beside it.
+func _style_flat(btn: Button, s: float, left_inset: float,
+		font_units: float = FRIENDS_SMALL_UNITS) -> void:
+	btn.add_theme_font_size_override("font_size", int(font_units * s))
 	for state in ["normal", "hover", "pressed", "focus"]:
 		var box := btn.get_theme_stylebox(state).duplicate() as StyleBoxFlat
 		box.content_margin_left = left_inset * s
@@ -875,58 +869,41 @@ func _layout() -> void:
 	queue_redraw()
 
 
-## The profile card's rect and its rows for this window. Same three rules as the log: the
-## column's width rounded to whole cells, the right edge on the margin snapped to a cell, the
-## top on the wordmark's line - and the rows are placed inside it, under the header rule.
+## The profile card's rect and its rows for this window. The card is its artwork at one art pixel
+## per unit - the scale the left column's 200 x 40 button texture already gets - so at GUI scale
+## 2 it is 480 x 200 px. It is right-aligned to the margin and its top is on the wordmark's line,
+## and it is NOT snapped to the scrim's cells: it is an image, not a cell fill, and rounding its
+## edges to the grid would resample its frame. It needs room to the right of the action column; on
+## a window too narrow for that the card is dropped, like the log.
 func _position_profile() -> void:
 	_profile_rect = Rect2()
 	var s := maxf(UIScale.value, 1.0)
-	var width_units := size.x / s
-	var room := width_units - (_margin + COLUMN) - 24.0 - _margin
-	var w_units := minf(PROFILE_W, room)
-	var fits := w_units >= PROFILE_W * 0.6
-	if not fits:
+	var room := size.x / s - (_margin + COLUMN) - 24.0 - _margin
+	if room < PROFILE_CARD_W:
 		for btn in _profile_rows:
 			btn.visible = false
 		return
-	var h_units := PROFILE_HEADER + float(_profile_rows.size()) * PROFILE_ROW_H + PROFILE_PAD
-	var cell := maxf(_cell, 2.0)
-	var cols := int(round(w_units * s / cell))
-	var rows := int(ceil(h_units * s / cell))
-	var w := float(cols) * cell
-	var h := float(rows) * cell
-	var right := roundf((size.x - _margin * s) / cell) * cell
-	var left := maxf(_margin * s, right - w)
-	var top := roundf(_wordmark_y * s / cell) * cell
+	var w := PROFILE_CARD_W * s
+	var h := PROFILE_CARD_H * s
+	var right := roundf(size.x - _margin * s)
+	var left := right - w
+	var top := roundf(_wordmark_y * s)
 	_profile_rect = Rect2(Vector2(left, top), Vector2(w, h))
-
-	# The head's air is ONE number on all four sides, and it is the same number as the rows' left
-	# inset - so the face is not closer to the side than to the top, and its left edge is the
-	# labels' left edge. Three gaps of equal size were the previous answer and they were still
-	# wrong: the rule sitting half a gap under the head made the header read low. The band now
-	# ends one `air` under the head, and whatever the cell rounding leaves below the rule is split
-	# evenly between the first row and the bottom, so the labels have equal air above and below.
-	var px := maxf(1.0, roundf(s))
-	var air := px + PROFILE_AIR * s
-	var head_h := PROFILE_HEAD * s
-	var rows_h := float(_profile_rows.size()) * PROFILE_ROW_H * s
-	_profile_head_y = top + air
-	_profile_rule_y = _profile_head_y + head_h + air
-	var spare := maxf(0.0, h - (_profile_rule_y - top) - rows_h)
-	var row_w := w - air * 2.0
-	var row_y := _profile_rule_y + spare * 0.5
+	# The rows are the only controls on the card. Each is a band centred on its icon in the art,
+	# and its label starts where the guide's red bar does: six units into a row that begins just
+	# past the icon.
 	for i in range(_profile_rows.size()):
 		var btn: Button = _profile_rows[i]
 		btn.visible = true
-		btn.position = Vector2(left + air, row_y + float(i) * PROFILE_ROW_H * s)
-		btn.size = Vector2(row_w, PROFILE_ROW_H * s)
-		# The label is indented past a chevron's width even at rest, so the arrow that appears on
-		# hover has a gutter of its own and the row does not move when the pointer arrives.
-		_style_flat(btn, s, 6.0)
+		btn.position = Vector2(left + PROFILE_ROW_INSET * s,
+			top + float(PROFILE_ROW_TOPS[i]) * s)
+		btn.size = Vector2(w - (PROFILE_ROW_INSET + 6.0) * s, PROFILE_ROW_H * s)
+		_style_flat(btn, s, 6.0, PROFILE_SMALL_UNITS)
 
 
 ## The friends panel is the MIDDLE panel of the right-hand column: under the profile card, above
-## the update log, the same width as both. It is also the panel that STRETCHES: the stack fills
+## the update log, the log's width (the profile card is its own artwork, 40 units wider). It is
+## also the panel that STRETCHES: the stack fills
 ## the column, its last card's bottom edge as far from the bottom of the screen as the profile
 ## card's top is from the top, and the list is where that room goes. The chrome - header, search,
 ## tabs, Add Friend - stays where it is, pinned to the top and bottom of the taller box.
@@ -1068,8 +1045,8 @@ func _position_log() -> void:
 	# At most down to the footer's line: on a short window the card stops growing before it
 	# reaches the bottom of the screen rather than running off it.
 	var floor_y := size.y - _margin * s
-	# Directly under the profile card, one cell of air between them - the right-hand column is
-	# one stack, profile then log, the way the left one is wordmark then rows.
+	# Directly under the friends panel, one cell of air between them - the right-hand column is
+	# one stack, profile, friends, log, the way the left one is wordmark then rows.
 	var anchor := _friends_rect if _friends_rect.size.x > 0.0 else _profile_rect
 	var stack_top := anchor.end.y + cell if anchor.size.x > 0.0 else _wordmark_y * s
 	var top := roundf(stack_top / cell) * cell
@@ -1172,9 +1149,9 @@ func _draw() -> void:
 ## One panel: the fill, then the button texture's bevel outside-in - one texel of outline
 ## all the way round, then one texel of light on the top and left and of shade on the bottom
 ## and right. At GUI scale 2 a texel is 2 px, so the frame thickens with the rest of the
-## interface instead of staying a hairline. The profile card and the update log are both this.
+## interface instead of staying a hairline. The friends panel and the update log are both this.
 ##
-## The fill is CELLS, not one rect: the three right-hand panels are made of the same squares as
+## The fill is CELLS, not one rect: the friends panel and the log are made of the same squares as
 ## the plate behind them and carry the same per-square darkness, so a panel reads as a piece of
 ## the same material rather than a sheet laid over a grid. Every panel's rect is snapped to the
 ## cell grid, so its cells ARE the plate's cells - and the noise is keyed on the cell's place in
@@ -1215,59 +1192,22 @@ func _draw_panel(rect: Rect2) -> void:
 		LOG_EDGE_SHADE)
 
 
-## The profile card: the player's own face, their name, one state, and three rows that the
-## rows' own Buttons draw the interaction for. Everything here is the head's side - the name,
-## the crown beside it, the dot and the word under it, and the chevron on the right.
+## The profile card: the supplied artwork at one art pixel per UI unit, and the four things it
+## cannot know drawn into its own boxes - the player's face in the HEAD box, the name, the state's
+## word beside the art's dot, and the three row labels over the art's icons. The labels are the
+## row `Button`s' own text, so hover and focus still come from the engine.
 func _draw_profile() -> void:
 	if _profile_rect.size.x <= 0.0:
 		return
-	_draw_panel(_profile_rect)
 	var s := maxf(UIScale.value, 1.0)
-	var px := maxf(1.0, roundf(s))
-	var inset := px + PROFILE_AIR * s
-	var head := Rect2(Vector2(_profile_rect.position.x + inset, _profile_head_y),
-		Vector2(PROFILE_HEAD, PROFILE_HEAD) * s)
+	var at := _profile_rect.position
+	draw_texture_rect(PROFILE_CARD_TEX, _profile_rect, false)
+	var head := Rect2(at + PROFILE_HEAD.position * s, PROFILE_HEAD.size * s)
 	draw_texture_rect_region(SKIN_TEX, head, SKIN_HEAD_REGION)
-	var name_size := int(PROFILE_NAME_UNITS * s)
-	var small := int(PROFILE_SMALL_UNITS * s)
-	var text_x := head.end.x + 5.0 * s
-	var name_y := head.position.y + float(MUNRO_FONT.get_ascent(name_size))
-	draw_string(MUNRO_FONT, Vector2(text_x, name_y), PROFILE_NAME, HORIZONTAL_ALIGNMENT_LEFT,
-		-1, name_size, PROFILE_TEXT)
-	var name_w := MUNRO_FONT.get_string_size(PROFILE_NAME, HORIZONTAL_ALIGNMENT_LEFT, -1,
-		name_size).x
-	_draw_crown(Vector2(text_x + name_w + 4.0 * s, name_y - 5.0 * s), s)
-	# The dot and the word share a baseline at the bottom of the head, so the pair reads as one
-	# line rather than a bullet floating beside a label.
-	var dot := 3.0 * s
-	var status_y := head.end.y - float(MUNRO_FONT.get_descent(small))
-	draw_rect(Rect2(Vector2(text_x, status_y - dot * 1.4), Vector2(dot, dot)), STATUS_ONLINE)
-	draw_string(MUNRO_FONT, Vector2(text_x + dot + 4.0 * s, status_y), "Online",
-		HORIZONTAL_ALIGNMENT_LEFT, -1, small, PROFILE_DIM)
-	var chev := ">"
-	var chev_w := MUNRO_FONT.get_string_size(chev, HORIZONTAL_ALIGNMENT_LEFT, -1, name_size).x
-	draw_string(MUNRO_FONT, Vector2(_profile_rect.end.x - inset - chev_w, name_y), chev,
-		HORIZONTAL_ALIGNMENT_LEFT, -1, name_size, PROFILE_DIM)
-	# The rule under the header: the shade tone, so it reads as a groove in the panel rather
-	# than a second outline.
-	draw_rect(Rect2(Vector2(_profile_rect.position.x + px, _profile_rule_y),
-		Vector2(_profile_rect.size.x - 2.0 * px, px)), LOG_EDGE_SHADE)
-	# A row the pointer is on gets a chevron in the gutter BEFORE its label, at the row's own
-	# size - the row already turns its label white, and the arrow says "this one goes somewhere"
-	# without a fill, which is the rule for every flat row in this screen. It is drawn into the
-	# space the row's own left inset leaves, so the label does not move when the arrow appears.
-	if _profile_hover >= 0 and _profile_hover < _profile_rows.size():
-		var hovered: Button = _profile_rows[_profile_hover]
-		var glyph := ">"
-		var glyph_size := int(PROFILE_SMALL_UNITS * s)
-		# On the row's own left edge - the head's line - because the label's inset already reserves
-		# room for it (`_style_flat(btn, s, 6.0)`); the arrow fills the gutter instead of pushing
-		# the text aside, so hovering a row moves nothing.
-		var base := (hovered.position.y + (hovered.size.y
-			+ float(MUNRO_FONT.get_height(glyph_size))) * 0.5
-			- float(MUNRO_FONT.get_descent(glyph_size)))
-		draw_string(MUNRO_FONT, Vector2(hovered.position.x, base), glyph,
-			HORIZONTAL_ALIGNMENT_LEFT, -1, glyph_size, PROFILE_TEXT)
+	draw_string(MUNRO_FONT, at + PROFILE_NAME_AT * s, PROFILE_NAME, HORIZONTAL_ALIGNMENT_LEFT,
+		-1, int(PROFILE_NAME_UNITS * s), PROFILE_TEXT)
+	draw_string(MUNRO_FONT, at + PROFILE_STATUS_AT * s, "Online", HORIZONTAL_ALIGNMENT_LEFT,
+		-1, int(PROFILE_SMALL_UNITS * s), PROFILE_DIM)
 
 
 ## The friends panel: header, search (a real field, drawn by itself), tabs with an accent
@@ -1364,17 +1304,6 @@ func _draw_friends() -> void:
 		line_y += LOG_LINE_H * s
 	draw_rect(Rect2(Vector2(_friends_rect.position.x + px, add_top - 5.0 * s),
 		Vector2(_friends_rect.size.x - 2.0 * px, px)), LOG_EDGE_SHADE)
-
-
-## A five-unit crown of three spikes and a band. Drawn rather than shipped as a texture: it is
-## six rects, and a new image for it would be the only asset on the screen that is not used
-## somewhere else in the game.
-func _draw_crown(at: Vector2, s: float) -> void:
-	var u := 1.5 * s
-	draw_rect(Rect2(at + Vector2(0.0, u * 2.0), Vector2(u * 5.0, u * 1.3)), CROWN)
-	for i in range(3):
-		draw_rect(Rect2(at + Vector2(u * (0.4 + 2.0 * float(i)), 0.0), Vector2(u * 1.1, u * 2.2)),
-			CROWN)
 
 
 ## The update log: one flat card, its rect snapped to the scrim's own grid.

@@ -580,9 +580,10 @@ first-person viewmodel - what each one owns and the decisions behind it.
   (`probes/probe_body_light.gd` reads the rendered frame back).
   **...and it shares the world's sky light**: `player_model.gd` feeds the body through
   `apply_item_lighting`, so it gets the same `sky_light_warmth` as the terrain and dropped
-  items — the neutral curve, white overhead and warm at the horizon. `ChunkManager.get_body_sky_warmth`
-  remains as the menu accent's source, but it is now the same warmth rather than a body-only
-  exception (`probes/probe_body_light.gd` reads both materials, at noon and at the horizon).
+  items — white at every hour, since the sunrise/sunset ground tint was removed.
+  `ChunkManager.get_body_sky_warmth` remains as the menu accent's source, but it is the same
+  tint rather than a body-only exception (`probes/probe_body_light.gd` reads both materials,
+  at noon and at the horizon).
   **The body is a scene node, not code**: `Main.tscn` instances it as `Player/PlayerModel`
   (scale 0.05625, +0.0844 z, `player_model.gd`), and `PlayerController::_ready` only *finds* it by name and reparents it under
   `ModelPivot`. An editor re-save of `Main.tscn` can drop the node and its ext_resources without
@@ -925,33 +926,24 @@ first-person viewmodel - what each one owns and the decisions behind it.
   whatever the pointer is near - the panel painting a second panel. Rest is now the recessed grey,
   the current row is white with one 2-unit accent bar on its left edge, and pressed turns the label
   the accent colour for as long as the finger is down. Nothing changes shape on hover.
-- **The right-hand column is one stack of three panels, and the profile card's head has ONE air
-  value on all four sides.** Profile card, friends panel, log, one cell apart, all the column's
-  width and all right-aligned. Each panel's height is its content rounded UP to whole cells, so the
-  spare has to go somewhere, and the card went through three answers before this one. Halving the
-  spare above and below the content left the bottom gap wider, because the last row's label is
-  centred in its 11-unit row and that slack lands under the text. Splitting the card into three
-  equal gaps (above the head, head to first row, under the last row's text) then made the *header*
-  read low: the rule sits half a gap under the head, so what the eye measures is 20 units above the
-  face and 10 below it, and the side inset was 9 against a 20-unit gap - closer to the edge than to
-  the top or bottom, which is exactly what the next report said. The model is now:
-  **`PROFILE_AIR` (5 units) is the head's air on all four sides and the rows' left inset**, so the
-  face and the labels share one margin and the body air is the same above and below it; the header
-  band ends one `air` under the head at the rule, and the spare the cell rounding leaves below the
-  rule is split evenly between the first row and the bottom edge. The labels' text is then the same
-  distance from the rule as from the card's bottom. `probe_menu.gd` measures all four of the head's
-  gaps and the two label gaps from the drawn geometry and fails if either pair differs by more
-  than a pixel. `_friends_boxes()` exists so the layout and the drawing compute a panel's interior
-  once instead of twice.
-- **A hovered profile row gets a chevron BEFORE its label, in a gutter it reserves at rest.** The
-  row already turns its text from recessed grey to white on hover; the arrow adds "this one goes
-  somewhere" without a fill, which is the rule for every flat row on this screen. Two details make
-  it not move anything: the label's content margin is 6 units (the arrow's width plus a gap) so the
-  chevron has its own column even when it is absent, and the arrow is drawn on the row's own left
-  edge - the head's line - rather than after the text, which is what the first version did. Hover
-  state is `_profile_hover` on the node, fed by `mouse_entered`/`mouse_exited`; the EXIT is filtered
-  by row index because Godot can deliver the exit from row A after the enter of row B, and an
-  unfiltered exit would take the arrow off the row the pointer is actually on.
+- **The profile card is artwork, drawn at the same scale as the rows' buttons.** The card used to
+  be drawn: cell-noise fill, `button.png`'s bevel, a skin head, a crown, a dot and a chevron. It is
+  now one 240 x 100 image (`textures/gui/Playercard.png`) at **one art pixel per UI unit** - the
+  scale the 200 x 40 row texture already gets - so at 1080p it is 480 x 200 px and its frame grows
+  with the interface instead of being resampled. The art carries everything that cannot change:
+  the frame, the rule, the green state dot and the three row icons. The screen draws only what art
+  cannot know - the face in the image's 26 x 26 HEAD box, the name at x 44 / baseline 20, `Online`
+  beside the dot, and the three flat row labels over the icons (the labels are the `Button`s' own
+  text, so hover and focus still come from the engine). `textures/gui/PlayerCardGuide.png` is the
+  authoring copy - a red box on the head and a red bar on each label's left edge and cap band - and
+  the constants in `title_screen.gd` are those numbers. `probe_menu.gd` holds the card to the art's
+  own geometry: the 240 x 100 rect, the square HEAD box, and each row centred on its icon with its
+  label on the guide's mark.
+- **The card is 40 units wider than the panels under it, and that is the art's own size.** It is
+  right-aligned to the margin like the friends panel and the log, so the stack shares an edge
+  rather than an outline; its width is the artwork's 240 units, not the column's 200. It is also
+  the one panel NOT snapped to the scrim's cells: it is an image rather than a cell fill, and
+  rounding its edges to the grid would resample its 1-texel frame.
 - **The friends panel is the shell, and its list is empty because there are no friends.** The
   reference is a social panel with a live count, tabs, a search field and a friend per row; what
   this build can honestly have is the chrome - header, search, tabs, Add Friend - over an empty
@@ -974,13 +966,15 @@ first-person viewmodel - what each one owns and the decisions behind it.
   and whose index positions the accent bar. Each row answers in the footer - the same channel
   Multiplayer uses - until there is something behind it.
 - **The right-hand rail FILLS the column, and the friends list is the panel that pays for it.**
-  Three panels one cell apart, the column's width, every edge on the cell grid: profile card on
-  the wordmark's line, friends panel under it, update log last. The stack is sized so the log
+  Three panels one cell apart, right-aligned to the margin: the profile card on the wordmark's
+  line, the friends panel under it, the update log last. The friends panel and the log are the
+  column's 200 units and every edge is on the cell grid; the profile card is its artwork's 240 x
+  100 (see above), so it runs 40 units further left than they do. The stack is sized so the log
   card's bottom edge is exactly as far from the bottom of the screen as the profile card's top is
   from the top - 108 px each at 1080p - which is what stops a tall window leaving a third of the
   column empty under the last card. The room has to go somewhere and only one panel can take it:
-  the profile card is its head plus three rows, and the log is its entries, so a stretched card in
-  either place is a card with empty space at the bottom. The friends panel is a list, so the room
+  the profile card's height is fixed by its art and the log's is its entries, so a stretched card
+  in either place is a card with empty space at the bottom. The friends panel is a list, so the room
   goes into the list - its header, search, tabs and `Add Friend` stay pinned top and bottom where
   they were. Two details make it work: the panel's measured content height is kept separate from
   its stretched height (otherwise the cell-rounding inset would lift the chrome into the middle of
@@ -995,8 +989,8 @@ first-person viewmodel - what each one owns and the decisions behind it.
   positions while this screen settled (top right, then the bottom-left corner, then under the
   profile card, and now the bottom of the rail, where its bottom edge closes the stack); the grid
   and the width are what survived every move, so they are what is pinned in the probe.
-- **A panel varies per square, and does not move.** The three right-hand panels are filled cell by
-  cell with the plate's own per-square noise (`_panel_alpha`), keyed on the cell's place in the
+- **A panel varies per square, and does not move.** The friends panel and the log are filled cell
+  by cell with the plate's own per-square noise (`_panel_alpha`), keyed on the cell's place in the
   SCREEN grid, so a square carries one tone whether the plate or a panel draws it and a resize
   hands it the same tone again. They were a single flat rect for a while, on the theory that noise
   only makes sense under a gradient - which produced three grey sheets that read as laid ON the

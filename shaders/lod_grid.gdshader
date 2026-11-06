@@ -222,8 +222,9 @@ void fragment() {
 
     albedo = mix(albedo, water_color, is_water * water_mix);
 
-    // The sky term, exactly as shaders/item_lighting.gdshaderinc builds it: the
-    // sun's warmth fades in with the day, so the two channels stay one model.
+    // The sky term, exactly as shaders/item_lighting.gdshaderinc builds it. The
+    // tint is white at every hour (the sunrise/sunset ground tint is gone), but
+    // the mix stays: one uniform, one model, for all three surfaces.
     float sky = sky_light_intensity;
     vec3 sky_temp = mix(vec3(1.0), sky_light_warmth, sky);
     vec3 combined = sky_temp * sky * sky_light_color;

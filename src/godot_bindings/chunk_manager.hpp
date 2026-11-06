@@ -134,9 +134,10 @@ public:
     // Hands the world's current lighting to one item material, so a held or
     // dropped mesh runs the terrain's light model instead of the engine's.
     void apply_item_lighting(const godot::Ref<godot::ShaderMaterial>& material);
-    // The neutral sky-light warmth used by the menu accent. The body and every
-    // other item now get the same value through apply_item_lighting; this accessor
-    // remains for the UI. See EnvironmentController::get_body_sky_warmth.
+    // The world's sky-light tint used by the menu accent. The body and every other
+    // item get the same value through apply_item_lighting, and it is white at every
+    // hour since the sunrise/sunset ground tint was removed; this accessor remains
+    // for the UI. See EnvironmentController::get_body_sky_warmth.
     godot::Color get_body_sky_warmth();
 
 #ifdef DEBUG_ENABLED

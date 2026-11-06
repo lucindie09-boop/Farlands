@@ -119,16 +119,18 @@ void EnvironmentController::update_shader_parameters() {
 
     const float elevation = day_night.get_sun_elevation();
     const godot::Color sun_color = day_night.get_sun_color();
-    // The sky-light tint is the neutral curve: white overhead and warm only as the
-    // sun reaches the horizon. The retired sky-tint toggle no longer has a branch.
+    // The ground's sky-light tint is white at every hour: the sun's height no
+    // longer multiplies the surfaces toward orange at sunrise and sunset (see
+    // DayNightCycle::get_sun_color_neutral). The sky, the sun's disc and the fog's
+    // glow keep the warm get_sun_color().
     const godot::Color sky_warmth = day_night.get_sun_color_neutral();
     const float sky_turbidity = day_night.get_sky_turbidity();
 
     // Item materials are fed from these every frame, independent of the dirty
     // gate below: it only exists to keep Godot API calls off redundant frames,
     // and the item pushes are the caller's own decision. The body uses the same
-    // neutral warmth as every other item; get_body_sky_warmth remains for the
-    // menu accent.
+    // tint as every other item, so an item and the ground it lies on cannot
+    // disagree about it; get_body_sky_warmth remains for the menu accent.
     item_sky_intensity = sky_intensity;
     item_sky_color = sky_color;
     item_sky_warmth = sky_warmth;

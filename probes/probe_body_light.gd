@@ -17,10 +17,9 @@ extends SceneTree
 ##     day/night uniforms the terrain is fed, which is a change the engine cannot
 ##     produce AT ALL in this scene: there is nothing for it to move. A body on
 ##     the engine's lighting reads identically at noon and at midnight.
-##   * the body and the world share one neutral sky-light curve: white overhead,
-##     still warm at the horizon. The retired Sky Tint setting no longer gives the
-##     world a different midday cast, so both materials are checked at noon; the
-##     horizon check still says the white is a curve, not a flat colour.
+##   * the body and the world share one sky-light tint, and it is white at every
+##     hour: the sunrise/sunset ground tint has been removed, so both materials are
+##     checked at noon and again at the horizon.
 ##
 ## The silhouette comes from hiding the body: the only thing that differs between
 ## a frame with it and a frame without it is whether it was drawn. The mask is
@@ -259,16 +258,17 @@ func _run() -> void:
 	var night: Dictionary = await _measure(model, mask)
 	await _seconds(0.2)
 	_shot(_frame(), "midnight")
-	# ...and the other end of it: the body's own value at the horizon must still be
-	# warm, or "white overhead" would have been bought by flattening its sunset.
-	# Given a few frames rather than the tick after the assignment, because it is
-	# the body's own _process that writes it.
+	# ...and the other end of it: the tint is white at the horizon too, so no hour
+	# tints the ground (the sunrise/sunset tint this probe used to hold in place is
+	# gone). Given a few frames rather than the tick after the assignment, because
+	# it is the body's own _process that writes it.
 	if body_material != null:
 		cm.set("day_time", HORIZON_TIME)
 		await _seconds(0.2)
 		var horizon: Color = body_material.get_shader_parameter("sky_light_warmth")
-		_ok("sky light: the body is still warm at the horizon",
-			horizon.g < horizon.r and horizon.b < 0.6 * horizon.r,
+		_ok("sky light: white at the horizon too",
+			absf(horizon.r - 1.0) <= WHITE_TOL and absf(horizon.g - 1.0) <= WHITE_TOL
+				and absf(horizon.b - 1.0) <= WHITE_TOL,
 			"warmth at the horizon is %s" % str(horizon))
 
 	cm.set("day_time", was_time)

@@ -46,16 +46,13 @@
 // probes/probe_body_light.gd reads the rendered frame back to hold it to this
 // file's own claim that a body can never disagree with the ground it stands on.
 //
-// It is also the one consumer that does not take `sky_light_warmth` as written.
-// That uniform is the world's sky-lit tint: a warm CREAM at the zenith even at
-// noon (DayNightCycle::get_sun_color), mixed in at full strength there, and
-// orange by the horizon. Grass, dirt and stone hide a cast that pale skin shows,
-// and the body is the one surface here with nothing to hide it, so
-// player_model.gd overwrites the uniform with the sun's own colour -- white
-// overhead, still warm at the horizon, `ChunkManager.get_body_sky_warmth` --
-// after the world's has been applied. That is the body's entire difference: the
-// cell light in `item_light`, the face shading, the player glow and the
-// finishing below are the ground's own, and the terrain keeps the world's warmth.
+// It is also the one consumer that overwrites `sky_light_warmth`: player_model.gd
+// sets the uniform from ChunkManager.get_body_sky_warmth after the world's has
+// been applied. That value is the world's own tint -- white at every hour, since
+// the sunrise/sunset ground tint was removed -- so the overwrite is a no-op today
+// and stays as the seam where the body could take a colour of its own without the
+// terrain following it. The cell light in `item_light`, the face shading, the
+// player glow and the finishing below are the ground's own.
 
 // World lighting, pushed into every item material once a frame by
 // EnvironmentController::apply_item_shader_lighting. Same names and meanings as

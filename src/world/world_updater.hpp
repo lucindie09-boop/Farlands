@@ -226,6 +226,17 @@ private:
 
     FrameBudgets budgets;
 
+    // The initial stream is a MODE, not the first 500 loaded chunks. The old
+    // loaded-count test switched RD32 back to the 8-rebuild/32-upload gameplay
+    // budgets while ~19,700 chunks and all of the far-region tail were still
+    // arriving. This latch starts only after the CHUNK load is quiet, so the
+    // larger loading budgets do not compete with the install/light work that is
+    // still filling the chunk map; then it keeps them until the mesh/far tail
+    // has been quiet for a second. The cap is for a world that cannot settle.
+    bool initial_loading_ = false;
+    double initial_loading_elapsed_ = 0.0;
+    double initial_loading_quiet_sec_ = 0.0;
+
     GenerationStats generation_stats;
 
     // --- The generation chain -------------------------------------------

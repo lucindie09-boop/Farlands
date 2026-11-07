@@ -53,6 +53,19 @@ it — are in [lod-modes.md](lod-modes.md).
   `dirty_mesh_queue` from a **~1.0 ms median to ~2.7 ms** in a live session (that phase is
   measured per report interval, `avg`/`max`) with no visible gain, because the extra rebuilds
   are not more terrain — the same chunks arrive in the same order, only sooner
+- **The initial fill's loading budgets start after the chunk load, not at chunk 500.**
+  `WorldUpdater::process_mesh_budgets` now latches a startup mode only when the loaded set
+  is quiet (generation and completed queues empty, at least `loading_threshold` chunks
+  resident) and mesh work is outstanding; it keeps the 64-rebuild/64-upload budgets and
+  the 2 ms `mesh_queue_loading_budget_ms` until the pipeline has been quiet for a second.
+  The old count test switched back to 8 rebuilds/32 uploads while ~19,700 chunks and the
+  whole far tail were still arriving. Applying the larger budget from the first frame was
+  measured and is worse (chunk load **6.01 -> 9.86 s**, and 20 far regions were left with
+  active gaps), because it competes with install and light work; the latch is post-load
+  for that reason. `probes/probe_start_fill.gd` at RD32 on one world, two runs:
+  loaded **6.01 -> 5.95-6.07 s**, mesh + far fill **11.78 -> 7.97-8.08 s**. The remaining
+  floor is the chunk-load phase, so this change alone is a ~32% fill reduction rather
+  than half
 - **A merged far-region mesh is published only after its upload finishes.** The build on the
   pool fills a fresh RID; the region keeps drawing its previous mesh and the instance is
   swapped only when the server reports at least one surface on the new RID. Publishing at dispatch is the

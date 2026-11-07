@@ -201,13 +201,33 @@ void WorldUpdater::update_unload(int32_t active_render_distance, int32_t pcx, in
 void WorldUpdater::process_mesh_budgets(bool is_editor, uint64_t epoch, uint64_t& chunks_processed_total,
                                         int32_t active_render_distance, double delta) {
     const int32_t loaded_count_post = static_cast<int32_t>(chunk_world->get_chunk_map().size());
-    const bool is_initial_loading = loaded_count_post < budgets.loading_threshold;
-
     const size_t generating_count = chunk_world->get_scheduler().generating_count();
-    const bool pipelines_busy =
-        generating_count > 0 ||
-        chunk_world->get_scheduler().completed_chunk_count() > 0 ||
-        (mesh_manager && mesh_manager->has_pending_mesh_work());
+    const size_t completed_count = chunk_world->get_scheduler().completed_chunk_count();
+    const bool pending_mesh = mesh_manager && mesh_manager->has_pending_mesh_work();
+
+    // Phase one is the chunk load. Keep the gameplay mesh budgets there: the
+    // loading mesh budget competes with the completion/light work on the main
+    // thread and made the chunk count settle later (9.86 s vs 6.01 s measured).
+    // Phase two is the mesh/far tail, after generation has gone quiet; that is
+    // where the larger budgets are useful and cannot delay the chunk map.
+    const bool chunk_load_done =
+        loaded_count_post >= budgets.loading_threshold &&
+        generating_count == 0 &&
+        completed_count == 0;
+    if (!initial_loading_ && chunk_load_done && pending_mesh) {
+        initial_loading_ = true;
+        initial_loading_elapsed_ = 0.0;
+        initial_loading_quiet_sec_ = 0.0;
+    }
+    if (initial_loading_) {
+        initial_loading_elapsed_ += delta;
+        initial_loading_quiet_sec_ = pending_mesh ? 0.0 : initial_loading_quiet_sec_ + delta;
+        if (initial_loading_quiet_sec_ >= 1.0 || initial_loading_elapsed_ >= 30.0) {
+            initial_loading_ = false;
+        }
+    }
+    const bool is_initial_loading = initial_loading_;
+    const bool pipelines_busy = generating_count > 0 || completed_count > 0 || pending_mesh;
 
     int32_t mesh_rebuild_budget = 0;
     int32_t upload_budget = 0;
@@ -266,10 +286,13 @@ void WorldUpdater::process_mesh_budgets(bool is_editor, uint64_t epoch, uint64_t
 
     {
         ScopedTimer t(*perf_timer, TimerID::DirtyMeshQueue);
+        const double mesh_queue_budget_ms = is_initial_loading
+            ? budgets.mesh_queue_loading_budget_ms
+            : budgets.mesh_queue_budget_ms;
         mesh_manager->process_queue(
             budgets.mesh_rebuilds_immediate,
             mesh_rebuild_budget,
-            budgets.mesh_queue_budget_ms
+            mesh_queue_budget_ms
         );
     }
 }
@@ -334,6 +357,9 @@ void WorldUpdater::clear() {
     // record of a flood (they are in the edit maps), so the schedule is derived
     // again when those chunks load.
     fluid_sim.clear();
+    initial_loading_ = false;
+    initial_loading_elapsed_ = 0.0;
+    initial_loading_quiet_sec_ = 0.0;
     sweep_columns.clear();
     carry_bands.clear();
     carry_ready.clear();

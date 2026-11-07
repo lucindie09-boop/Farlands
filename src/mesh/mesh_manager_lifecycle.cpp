@@ -90,6 +90,10 @@ bool MeshManager::has_pending_mesh_work() const {
             break;
         }
     }
+    // The incremental far-visibility pass is part of the initial fill too. If it
+    // still has members to walk, the world is not quiet even when the mesh queues
+    // are empty; the startup latch must not switch back to idle budgets yet.
+    if (far_visibility_pending_) return true;
     if (!chunk_scheduler) {
         return mesh_queue.size() > 0 ||
                mesh_queue.immediate_size() > 0 ||

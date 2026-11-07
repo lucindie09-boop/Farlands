@@ -18,11 +18,15 @@ void MeshManager::set_player_chunk(int32_t cx, int32_t cy, int32_t cz) {
     last_player_chunk_x = cx;
     last_player_chunk_y = cy;
     last_player_chunk_z = cz;
-    refresh_far_region_visibility();
+    request_far_region_visibility_refresh();
 }
 
 void MeshManager::hide_chunk_instance(ChunkRenderData* render_data) {
-    if (!render_data || !render_data->instance_rid.is_valid()) {
+    if (!render_data) {
+        return;
+    }
+    render_data->instance_visible = false;
+    if (!render_data->instance_rid.is_valid()) {
         return;
     }
     RenderingServer::get_singleton()->instance_set_visible(render_data->instance_rid, false);
@@ -64,6 +68,7 @@ void MeshManager::show_chunk_instance(ChunkRenderData* render_data, int32_t cx, 
         rs->instance_set_base(render_data->instance_rid, render_data->mesh_rid);
     }
     rs->instance_set_visible(render_data->instance_rid, true);
+    render_data->instance_visible = true;
 }
 
 void MeshManager::queue_dirty_chunk(int32_t cx, int32_t cy, int32_t cz) {
@@ -72,7 +77,7 @@ void MeshManager::queue_dirty_chunk(int32_t cx, int32_t cy, int32_t cz) {
     if (render_data) {
         render_data->is_mesh_dirty = true;
         if (render_data->far_mesh_cache) {
-            mark_far_region_dirty_for_chunk(cx, cy, cz);
+            mark_far_region_dirty_for_chunk(cx, cy, cz, render_data->far_mesh_cache);
         }
     }
     int32_t dx = cx - last_player_chunk_x;
@@ -88,7 +93,7 @@ void MeshManager::queue_dirty_chunk_fast(int32_t cx, int32_t cy, int32_t cz) {
     if (render_data) {
         render_data->is_mesh_dirty = true;
         if (render_data->far_mesh_cache) {
-            mark_far_region_dirty_for_chunk(cx, cy, cz);
+            mark_far_region_dirty_for_chunk(cx, cy, cz, render_data->far_mesh_cache);
         }
     }
     int32_t dx = cx - last_player_chunk_x;
@@ -104,7 +109,7 @@ void MeshManager::queue_immediate_dirty_chunk(int32_t cx, int32_t cy, int32_t cz
     if (render_data) {
         render_data->is_mesh_dirty = true;
         if (render_data->far_mesh_cache) {
-            mark_far_region_dirty_for_chunk(cx, cy, cz);
+            mark_far_region_dirty_for_chunk(cx, cy, cz, render_data->far_mesh_cache);
         }
     }
     uint64_t key = chunk_map->get_chunk_key(cx, cy, cz);
@@ -123,7 +128,7 @@ void MeshManager::reprioritize(int32_t player_cx, int32_t player_cy, int32_t pla
     mesh_queue.reprioritize(player_cx, player_cy, player_cz, frustum);
 
     if (lod_distance <= 0 || !chunk_map) {
-        refresh_far_region_visibility();
+        request_far_region_visibility_refresh();
         return;
     }
 
@@ -153,7 +158,7 @@ void MeshManager::reprioritize(int32_t player_cx, int32_t player_cy, int32_t pla
         if (render_data && !render_data->is_mesh_dirty) {
             render_data->is_mesh_dirty = true;
             render_data->mesh_version++;
-            mark_far_region_dirty_for_chunk(cx, cy, cz);
+            mark_far_region_dirty_for_chunk(cx, cy, cz, render_data->far_mesh_cache);
             queue_dirty_chunk(cx, cy, cz);
             ++queued;
         }
@@ -177,7 +182,7 @@ void MeshManager::reprioritize(int32_t player_cx, int32_t player_cy, int32_t pla
         if (render_data && !render_data->is_mesh_dirty) {
             render_data->is_mesh_dirty = true;
             render_data->mesh_version++;
-            mark_far_region_dirty_for_chunk(cx, cy, cz);
+            mark_far_region_dirty_for_chunk(cx, cy, cz, render_data->far_mesh_cache);
             queue_dirty_chunk(cx, cy, cz);
             ++queued;
         }
@@ -198,7 +203,7 @@ void MeshManager::reprioritize(int32_t player_cx, int32_t player_cy, int32_t pla
         if (render_data && !render_data->is_mesh_dirty) {
             render_data->is_mesh_dirty = true;
             render_data->mesh_version++;
-            mark_far_region_dirty_for_chunk(cx, cy, cz);
+            mark_far_region_dirty_for_chunk(cx, cy, cz, render_data->far_mesh_cache);
             queue_dirty_chunk(cx, cy, cz);
             ++queued;
         }
@@ -222,7 +227,7 @@ void MeshManager::reprioritize(int32_t player_cx, int32_t player_cy, int32_t pla
         if (render_data && !render_data->is_mesh_dirty) {
             render_data->is_mesh_dirty = true;
             render_data->mesh_version++;
-            mark_far_region_dirty_for_chunk(cx, cy, cz);
+            mark_far_region_dirty_for_chunk(cx, cy, cz, render_data->far_mesh_cache);
             queue_dirty_chunk(cx, cy, cz);
             ++queued;
         }
@@ -232,33 +237,38 @@ void MeshManager::reprioritize(int32_t player_cx, int32_t player_cy, int32_t pla
     // Pass B: scan the transition shells of both LOD tiers (mid and far).
     // Chunks newly inside a tier's render start are upgraded in place to the
     // tier's detail level (full res at the lod ring, mid detail at the far ring).
-    const int32_t transition_starts[2] = {lod_distance, far_lod_distance};
-    for (int32_t tier_start : transition_starts) {
-        if (tier_start <= 0) continue;
-        const int32_t shell_min = tier_start - 1;
-        const int32_t shell_max = tier_start + 1;
-        for_each_shell_cell(shell_min, shell_max, vert_range, [&](int32_t dx, int32_t dy, int32_t dz) {
-            if (queued >= kMaxLodRemeshPerFrame) return false;
-            const int32_t cx = player_cx + dx;
-            const int32_t cy = player_cy + dy;
-            const int32_t cz = player_cz + dz;
+    // The active-set pass above covers every built chunk, so this shell walk only
+    // has to run when that pass queued nothing; otherwise it is a second full
+    // sweep of the same boundary and was measured at 1.5 ms on every crossing.
+    if (queued == 0) {
+        const int32_t transition_starts[2] = {lod_distance, far_lod_distance};
+        for (int32_t tier_start : transition_starts) {
+            if (tier_start <= 0) continue;
+            const int32_t shell_min = tier_start - 1;
+            const int32_t shell_max = tier_start + 1;
+            for_each_shell_cell(shell_min, shell_max, vert_range, [&](int32_t dx, int32_t dy, int32_t dz) {
+                if (queued >= kMaxLodRemeshPerFrame) return false;
+                const int32_t cx = player_cx + dx;
+                const int32_t cy = player_cy + dy;
+                const int32_t cz = player_cz + dz;
 
-            ChunkRenderData* render_data = chunk_map->get_chunk_render_data(cx, cy, cz);
-            if (!render_data) return true;
+                ChunkRenderData* render_data = chunk_map->get_chunk_render_data(cx, cy, cz);
+                if (!render_data) return true;
 
-            float target = compute_chunk_detail_level(cx, cy, cz);
-            if (target != render_data->last_built_detail_level && !render_data->is_mesh_dirty) {
-                render_data->is_mesh_dirty = true;
-                render_data->mesh_version++;
-                mark_far_region_dirty_for_chunk(cx, cy, cz);
-                queue_dirty_chunk(cx, cy, cz);
-                ++queued;
-            }
-            return true;
-        });
+                float target = compute_chunk_detail_level(cx, cy, cz);
+                if (target != render_data->last_built_detail_level && !render_data->is_mesh_dirty) {
+                    render_data->is_mesh_dirty = true;
+                    render_data->mesh_version++;
+                    mark_far_region_dirty_for_chunk(cx, cy, cz, render_data->far_mesh_cache);
+                    queue_dirty_chunk(cx, cy, cz);
+                    ++queued;
+                }
+                return true;
+            });
+        }
     }
 
-    refresh_far_region_visibility();
+    request_far_region_visibility_refresh();
 }
 
 // One chunk's light changed and it needs a remesh. Split out of the region form
@@ -315,7 +325,7 @@ void MeshManager::process_queue(int32_t max_immediate, int32_t max_rebuilds, dou
         chunk_budget,
         budget_ms
     );
-    process_far_region_queue(far_region_budget);
+    process_far_region_queue(far_region_budget, kFarRegionScheduleBudgetMs);
 }
 
 // ---------------------------------------------------------------------------

@@ -16,6 +16,10 @@ namespace VoxelEngine {
 struct CachedFarChunkMesh {
     PackedBuiltMeshData mesh_data;
     PackedBuiltMeshData water_mesh_data;
+    // The chunk upload's content hash (covers both surfaces). The far-region
+    // upload combines these so a region rebuild with identical child geometry
+    // does not repeat the whole 8x8 GPU upload.
+    uint64_t content_hash = 0;
 };
 
 struct ChunkRenderData {
@@ -98,6 +102,16 @@ struct ChunkRenderData {
 
     // Track the last built detail level for LOD transitions
     float last_built_detail_level = 1.0f;
+
+    // The detail level actually uploaded to the GPU. last_built_detail_level is
+    // assigned when a build is enqueued, so it can lead the mesh by a frame or
+    // more; this one follows the mesh RID's surfaces exactly.
+    float uploaded_detail_level = 0.0f;
+
+    // Our mirror of the instance's RenderingServer visibility. The logical
+    // helpers (is_chunk_within_render_distance, is_far_region_active_for_chunk)
+    // are not enough to tell what the frame actually draws.
+    bool instance_visible = false;
 
     // Quad cache + light checksums from the last build, used for partial
     // remeshing of block edits (carried forward for everything outside the

@@ -67,7 +67,8 @@ void MeshManager::process_completed_meshes(uint64_t epoch, double budget_ms, int
     arrays.resize(Mesh::ARRAY_MAX);
 
     if (chunk_scheduler->completed_mesh_count() <= 0) {
-        process_completed_region_meshes(epoch, region_upload_budget, material, water_material);
+        process_completed_region_meshes(epoch, region_upload_budget, kFarRegionUploadBudgetMs,
+                                        material, water_material);
         return;
     }
 
@@ -125,13 +126,16 @@ void MeshManager::process_completed_meshes(uint64_t epoch, double budget_ms, int
             const bool had_far_cache = static_cast<bool>(render_data->far_mesh_cache);
             render_data->far_mesh_cache.reset();
             if (had_far_cache) {
-                mark_far_region_dirty_for_chunk(completed.chunk_x, completed.chunk_y, completed.chunk_z);
+                mark_far_region_dirty_for_chunk(completed.chunk_x, completed.chunk_y, completed.chunk_z,
+                                                render_data->far_mesh_cache);
             }
             // Nothing is on the GPU any more, so the mirror of it must go too — a
             // stale count here would hide a chunk that produced no geometry at
             // all from note_liquid_geometry.
             render_data->uploaded_solid_vertices = 0;
             render_data->uploaded_water_vertices = 0;
+            render_data->uploaded_detail_level = 0.0f;
+            render_data->instance_visible = false;
             note_liquid_geometry(completed.chunk_x, completed.chunk_y, completed.chunk_z, *render_data);
             uploads_this_frame++;
             continue;
@@ -223,6 +227,7 @@ void MeshManager::process_completed_meshes(uint64_t epoch, double budget_ms, int
 
             render_data->material_set = true;
             render_data->mesh_content_hash = completed.mesh_content_hash;
+            render_data->uploaded_detail_level = completed.detail_level;
             // The GPU now holds exactly these two surfaces. (A deduplicated
             // upload leaves both alone, because the RID did not change either.)
             render_data->uploaded_solid_vertices =
@@ -238,16 +243,20 @@ void MeshManager::process_completed_meshes(uint64_t epoch, double budget_ms, int
             auto far_cache = std::make_shared<CachedFarChunkMesh>();
             far_cache->mesh_data = completed.mesh_data;
             far_cache->water_mesh_data = completed.water_mesh_data;
+            far_cache->content_hash = completed.mesh_content_hash;
             render_data->far_mesh_cache = std::move(far_cache);
-            mark_far_region_dirty_for_chunk(completed.chunk_x, completed.chunk_y, completed.chunk_z);
+            mark_far_region_dirty_for_chunk(completed.chunk_x, completed.chunk_y, completed.chunk_z,
+                                            render_data->far_mesh_cache);
         } else if (render_data->far_mesh_cache) {
             render_data->far_mesh_cache.reset();
-            mark_far_region_dirty_for_chunk(completed.chunk_x, completed.chunk_y, completed.chunk_z);
+            mark_far_region_dirty_for_chunk(completed.chunk_x, completed.chunk_y, completed.chunk_z,
+                                            render_data->far_mesh_cache);
         }
 
         const bool show_instance =
             is_chunk_within_render_distance(completed.chunk_x, completed.chunk_y, completed.chunk_z) &&
             !is_far_region_active_for_chunk(completed.chunk_x, completed.chunk_y, completed.chunk_z);
+        render_data->instance_visible = show_instance;
         if (render_data->instance_rid.is_valid()) {
             rs->instance_geometry_set_cast_shadows_setting(
                 render_data->instance_rid,
@@ -291,22 +300,28 @@ void MeshManager::process_completed_meshes(uint64_t epoch, double budget_ms, int
         uploads_this_frame++;
     }
 
-    process_completed_region_meshes(epoch, region_upload_budget, material, water_material);
+    process_completed_region_meshes(epoch, region_upload_budget, kFarRegionUploadBudgetMs,
+                                    material, water_material);
 }
 
-void MeshManager::process_completed_region_meshes(uint64_t epoch, int32_t max_uploads,
+void MeshManager::process_completed_region_meshes(uint64_t epoch, int32_t max_uploads, double budget_ms,
                                                   const Ref<ShaderMaterial>& material,
                                                   const Ref<ShaderMaterial>& water_material) {
+    // Finished uploads first: this is the only point at which a region mesh is
+    // allowed to replace the one on screen.
+    process_completed_region_uploads(epoch, max_uploads > 0 ? max_uploads : 1);
     if (max_uploads <= 0) {
         return;
     }
 
     RenderingServer* rs = RenderingServer::get_singleton();
-    Array arrays;
-    arrays.resize(Mesh::ARRAY_MAX);
     int32_t uploads = 0;
+    const auto start_time = std::chrono::high_resolution_clock::now();
 
     while (uploads < max_uploads) {
+        const double elapsed_ms = std::chrono::duration<double, std::milli>(
+            std::chrono::high_resolution_clock::now() - start_time).count();
+        if (elapsed_ms >= budget_ms) break;
         CompletedRegionMesh completed;
         {
             std::lock_guard<std::mutex> lock(completed_far_region_meshes_mutex);
@@ -335,97 +350,35 @@ void MeshManager::process_completed_region_meshes(uint64_t epoch, int32_t max_up
             (completed.mesh_data.empty && completed.water_mesh_data.empty)) {
             ensure_far_region_instance(region, completed.region_key, false);
             region.active_chunk_keys.clear();
-            for (uint64_t old_key : previous_members) {
-                int32_t cx, cy, cz;
-                ChunkMap::decode_chunk_key(old_key, cx, cy, cz);
-                ChunkRenderData* render_data = chunk_map ? chunk_map->get_chunk_render_data(cx, cy, cz) : nullptr;
-                if (render_data && render_data->mesh_rid.is_valid() && is_chunk_within_render_distance(cx, cy, cz)) {
-                    show_chunk_instance(render_data, cx, cy, cz);
-                }
-            }
+            region.visibility_extra_keys.insert(region.visibility_extra_keys.end(),
+                                               previous_members.begin(), previous_members.end());
+            request_far_region_visibility_refresh();
             free_far_region_resources(region);
             continue;
         }
 
-        if (!region.mesh_rid.is_valid()) {
-            region.mesh_rid = rs->mesh_create();
-        } else {
-            rs->mesh_clear(region.mesh_rid);
-        }
-        rs->mesh_set_custom_aabb(
-            region.mesh_rid,
-            AABB(Vector3(0, 0, 0), Vector3(region.region_size_xz * CHUNK_WIDTH, CHUNK_HEIGHT, region.region_size_xz * CHUNK_DEPTH)));
-
-        int64_t fmt = 0;
-        fmt |= RenderingServer::ARRAY_FORMAT_VERTEX;
-        fmt |= RenderingServer::ARRAY_FORMAT_INDEX;
-        fmt |= RenderingServer::ARRAY_FORMAT_CUSTOM0;
-        fmt |= static_cast<int64_t>(RenderingServer::ARRAY_CUSTOM_RGBA8_UNORM) << RenderingServer::ARRAY_FORMAT_CUSTOM0_SHIFT;
-        fmt |= RenderingServer::ARRAY_FORMAT_CUSTOM1;
-        fmt |= static_cast<int64_t>(RenderingServer::ARRAY_CUSTOM_RGBA8_UNORM) << RenderingServer::ARRAY_FORMAT_CUSTOM1_SHIFT;
-        fmt |= RenderingServer::ARRAY_FORMAT_CUSTOM2;
-        fmt |= static_cast<int64_t>(RenderingServer::ARRAY_CUSTOM_RG_HALF) << RenderingServer::ARRAY_FORMAT_CUSTOM2_SHIFT;
-        fmt |= RenderingServer::ARRAY_FLAG_COMPRESS_ATTRIBUTES;
-
-        int surface_index = 0;
-        if (!completed.mesh_data.empty) {
-            arrays[Mesh::ARRAY_VERTEX] = completed.mesh_data.vertices;
-            arrays[Mesh::ARRAY_INDEX] = completed.mesh_data.indices;
-            arrays[Mesh::ARRAY_CUSTOM0] = completed.mesh_data.custom0;
-            arrays[Mesh::ARRAY_CUSTOM1] = completed.mesh_data.custom1;
-            arrays[Mesh::ARRAY_CUSTOM2] = completed.mesh_data.custom2;
-            if (perf_timer) {
-                ScopedTimer t(*perf_timer, TimerID::MeshUploadGpu);
-                rs->mesh_add_surface_from_arrays(region.mesh_rid, RenderingServer::PRIMITIVE_TRIANGLES, arrays, Array(), Dictionary(), BitField<RenderingServer::ArrayFormat>(fmt));
-            } else {
-                rs->mesh_add_surface_from_arrays(region.mesh_rid, RenderingServer::PRIMITIVE_TRIANGLES, arrays, Array(), Dictionary(), BitField<RenderingServer::ArrayFormat>(fmt));
-            }
-            if (material.is_valid()) {
-                rs->mesh_surface_set_material(region.mesh_rid, surface_index, material->get_rid());
-            }
-            ++surface_index;
-        }
-        if (!completed.water_mesh_data.empty) {
-            arrays[Mesh::ARRAY_VERTEX] = completed.water_mesh_data.vertices;
-            arrays[Mesh::ARRAY_INDEX] = completed.water_mesh_data.indices;
-            arrays[Mesh::ARRAY_CUSTOM0] = completed.water_mesh_data.custom0;
-            arrays[Mesh::ARRAY_CUSTOM1] = completed.water_mesh_data.custom1;
-            arrays[Mesh::ARRAY_CUSTOM2] = completed.water_mesh_data.custom2;
-            if (perf_timer) {
-                ScopedTimer t(*perf_timer, TimerID::MeshUploadGpu);
-                rs->mesh_add_surface_from_arrays(region.mesh_rid, RenderingServer::PRIMITIVE_TRIANGLES, arrays, Array(), Dictionary(), BitField<RenderingServer::ArrayFormat>(fmt));
-            } else {
-                rs->mesh_add_surface_from_arrays(region.mesh_rid, RenderingServer::PRIMITIVE_TRIANGLES, arrays, Array(), Dictionary(), BitField<RenderingServer::ArrayFormat>(fmt));
-            }
-            if (water_material.is_valid()) {
-                rs->mesh_surface_set_material(region.mesh_rid, surface_index, water_material->get_rid());
-            }
+        // A child cache was replaced but produced the same merged geometry
+        // (the common case after a crossing: the far cache is re-created for
+        // every chunk completion, even when the content hash did not change).
+        // The region mesh on the GPU is already correct; do not upload it again.
+        if (completed.content_hash != 0 &&
+            completed.content_hash == region.uploaded_content_hash &&
+            region.mesh_rid.is_valid()) {
+            region.active_chunk_keys = completed.member_chunk_keys;
+            ensure_far_region_instance(region, completed.region_key, true);
+            request_far_region_visibility_refresh();
+            continue;
         }
 
-        region.active_chunk_keys = completed.member_chunk_keys;
-        bool any_visible_members = false;
-        for (uint64_t chunk_key : region.active_chunk_keys) {
-            int32_t cx, cy, cz;
-            ChunkMap::decode_chunk_key(chunk_key, cx, cy, cz);
-            if (should_use_far_region_for_chunk(cx, cy, cz)) {
-                any_visible_members = true;
-                break;
-            }
+        // Do NOT clear or publish the region's RID here. The new surface is
+        // built on a fresh mesh and swapped in only after the worker reports
+        // it complete (queue_far_region_upload / process_completed_region_uploads).
+        // Publishing now is what made chunks flash: the instance pointed at an
+        // empty mesh while the members were already hidden.
+        if (!queue_far_region_upload(region, completed, completed.region_key,
+                                     std::move(previous_members), material, water_material)) {
+            continue;
         }
-        ensure_far_region_instance(region, completed.region_key, any_visible_members);
-
-        for (uint64_t old_key : previous_members) {
-            if (std::find(region.active_chunk_keys.begin(), region.active_chunk_keys.end(), old_key) != region.active_chunk_keys.end()) {
-                continue;
-            }
-            int32_t cx, cy, cz;
-            ChunkMap::decode_chunk_key(old_key, cx, cy, cz);
-            ChunkRenderData* render_data = chunk_map ? chunk_map->get_chunk_render_data(cx, cy, cz) : nullptr;
-            if (render_data && render_data->mesh_rid.is_valid() && is_chunk_within_render_distance(cx, cy, cz)) {
-                show_chunk_instance(render_data, cx, cy, cz);
-            }
-        }
-        sync_far_region_members_visibility(region);
         ++uploads;
     }
 }

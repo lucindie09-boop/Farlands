@@ -123,7 +123,7 @@ void MeshManager::rebuild_rendering_server_mesh(int32_t chunk_x, int32_t chunk_y
             active_far_detail_chunks_.erase(key);
             if (render_data->far_mesh_cache) {
                 render_data->far_mesh_cache.reset();
-                mark_far_region_dirty_for_chunk(chunk_x, chunk_y, chunk_z);
+                mark_far_region_dirty_for_chunk(chunk_x, chunk_y, chunk_z, render_data->far_mesh_cache);
             }
             render_data->is_mesh_dirty = false;
             render_data->dirty_subchunks = 0;

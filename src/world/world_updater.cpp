@@ -98,8 +98,11 @@ void WorldUpdater::update(bool is_editor, uint64_t epoch, uint64_t& chunks_proce
         mesh_manager->set_far_lod_distance(far_lod_distance);
         mesh_manager->set_far_lod_detail_level(far_lod_detail_level);
         mesh_manager->set_player_chunk(player_chunk_x, player_chunk_y, player_chunk_z);
-        mesh_manager->reprioritize(player_chunk_x, player_chunk_y, player_chunk_z,
-                                   frustum.is_initialized() ? &frustum : nullptr);
+        {
+            ScopedTimer t(*perf_timer, TimerID::MeshReprioritize);
+            mesh_manager->reprioritize(player_chunk_x, player_chunk_y, player_chunk_z,
+                                       frustum.is_initialized() ? &frustum : nullptr);
+        }
     }
 
     update_generation(is_editor, active_render_distance, epoch, player_chunk_x, player_chunk_y, player_chunk_z, chunk_changed);
@@ -107,12 +110,23 @@ void WorldUpdater::update(bool is_editor, uint64_t epoch, uint64_t& chunks_proce
     // Fluids tick after generation/unload (so the cells it looks at are the ones
     // that exist now) and before the mesh budgets (so the chunks it dirties can
     // remesh this same frame).
-    fluid_sim.advance(delta);
+    {
+        ScopedTimer t(*perf_timer, TimerID::FluidSimAdvance);
+        fluid_sim.advance(delta);
+    }
     process_mesh_budgets(is_editor, epoch, chunks_processed_total, active_render_distance, delta);
-    flush_dirty(delta);
+    {
+        ScopedTimer t(*perf_timer, TimerID::FarRegionVisibility);
+        mesh_manager->process_far_region_visibility(budgets.far_region_visibility_budget_ms);
+    }
+    {
+        ScopedTimer t(*perf_timer, TimerID::FlushDirty);
+        flush_dirty(delta);
+    }
 }
 
 void WorldUpdater::update_unload(int32_t active_render_distance, int32_t pcx, int32_t pcy, int32_t pcz, bool chunk_changed) {
+    ScopedTimer t(*perf_timer, TimerID::ChunkUnload);
     if (chunk_changed || (++unload_scan_skip_counter >= kUnloadScanSkipFrames)) {
         unload_scan_skip_counter = 0;
         int32_t unload_hrd  = active_render_distance + kChunkRetentionChunks;
@@ -321,12 +335,15 @@ void WorldUpdater::clear() {
     // again when those chunks load.
     fluid_sim.clear();
     sweep_columns.clear();
+    carry_bands.clear();
+    carry_ready.clear();
     built_columns.clear();
     chain_queue.clear();
     chain_queued.clear();
     sweep_bands_dirty = true;
     sweep_origin_cx = INT32_MIN;
     sweep_origin_cz = INT32_MIN;
+    sweep_band_budget_ms = 2.0;
     unload_queue.clear();
     unload_pending.clear();
     invalidate_height_cache();

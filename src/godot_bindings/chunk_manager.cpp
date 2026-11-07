@@ -96,6 +96,11 @@ void ChunkManager::_process(double delta) {
     bool is_editor = engine && engine->is_editor_hint();
     if (is_editor && !controller->get_editor_enabled()) return;
 
+    // The guard must be declared before the callback timer so it is destroyed
+    // after it: the timer records its sample, then the capture reads the frame.
+    FrameCaptureGuard frame_capture_guard = controller->begin_frame_capture(delta);
+    ScopedTimer callback_timer(get_perf_timer(), TimerID::ChunkManagerProcess);
+
     godot::Vector3 player_pos;
     godot::Camera3D* cam = nullptr;
     if (is_editor) {
@@ -171,10 +176,16 @@ void ChunkManager::_process(double delta) {
     // Both world effects are measured from the camera, so the boxes the chunks
     // are culled against depend on where it is. This is a no-op unless one of
     // them is on or the camera has moved a whole block since the last refresh.
-    controller->update_world_cull(player_pos);
+    {
+        ScopedTimer world_cull_timer(get_perf_timer(), TimerID::WorldCull);
+        controller->update_world_cull(player_pos);
+    }
 
     controller->update(delta, is_editor, player_pos);
-    update_environment();
+    {
+        ScopedTimer environment_timer(get_perf_timer(), TimerID::EnvironmentUpdate);
+        update_environment();
+    }
 }
 
 void ChunkManager::_exit_tree() {
@@ -187,6 +198,9 @@ void ChunkManager::_exit_tree() {
     // we must not let the process exit while background saves are outstanding.
     if (controller) {
         controller->flush_dirty_chunks(true, 5.0);
+        // Region uploads run on the pool with the RenderingServer alive; drain
+        // them here so a worker cannot wake up after the engine tears it down.
+        controller->shutdown_mesh_uploads();
     }
 }
 
@@ -200,6 +214,8 @@ void ChunkManager::_bind_methods() {
     ClassDB::bind_method(D_METHOD("generate_chunk", "chunk_x", "chunk_y", "chunk_z"), &ChunkManager::generate_chunk);
     ClassDB::bind_method(D_METHOD("unload_chunk", "chunk_x", "chunk_y", "chunk_z"), &ChunkManager::unload_chunk);
     ClassDB::bind_method(D_METHOD("get_performance_report"), &ChunkManager::get_performance_report);
+    ClassDB::bind_method(D_METHOD("get_slow_frame_report", "frames", "slow_frame_ms"),
+                         &ChunkManager::get_slow_frame_report);
     ClassDB::bind_method(D_METHOD("set_chunk_scenario", "chunk_x", "chunk_y", "chunk_z"), &ChunkManager::set_chunk_scenario);
     ClassDB::bind_method(D_METHOD("clear_editor_chunks"), &ChunkManager::clear_editor_chunks);
     ClassDB::bind_method(D_METHOD("raycast_from_camera", "max_distance"), &ChunkManager::raycast_from_camera);

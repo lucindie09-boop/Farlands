@@ -282,6 +282,13 @@ private:
     };
 
     std::vector<SweepColumn> sweep_columns;
+    // A band is a property of an absolute column, not of where the player
+    // stands, so a movement rebuild carries the bands of every column that is
+    // still in the disc. Without this the rebuild marks all ~3,200 bands
+    // unknown and service_sweep_bands re-reads them, spending its whole 2 ms
+    // budget on every crossing even though only the entering rim is new.
+    std::vector<sweep::ChunkBand> carry_bands;
+    std::vector<uint8_t> carry_ready;
     // Columns whose whole band is resident, keyed by the chunk-map key at slice 0
     // (same packing, so one convention covers both and a negative coordinate
     // cannot collide with a positive one). A column lands here when its band is
@@ -292,7 +299,15 @@ private:
     // First column whose band is still unknown. Because the list is sorted nearest
     // first and the bands are read in that order, the walk (which also goes
     // nearest first) can always run up to this frontier and never past it.
+    // service_sweep_bands skips carried, already-ready entries, so a frontier
+    // that starts at 0 after a movement rebuild costs a walk, not a band read.
     size_t  sweep_band_frontier = 0;
+    // The per-frame band-read budget. A movement rebuild carries every band it
+    // already had, so only the entering rim is left; spreading that rim over a
+    // few frames is cheaper than one boot-sized batch, which is exactly the
+    // frame the player feels when they cross a border. A full rebuild keeps the
+    // larger budget because it has the whole disc to read.
+    double  sweep_band_budget_ms = 2.0;
     int32_t sweep_origin_cx = INT32_MIN;  // player chunk the list was built around
     int32_t sweep_origin_cz = INT32_MIN;
     bool sweep_bands_dirty = true;        // terrain changed under the bands

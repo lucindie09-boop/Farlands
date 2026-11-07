@@ -188,19 +188,25 @@ void WorldUpdater::service_sweep_bands() {
     pump_column_prefetch();
     if (sweep_band_frontier >= sweep_columns.size()) return;  // caught up
     constexpr int32_t kWorldChunkSlices = WORLD_HEIGHT_Y / CHUNK_HEIGHT;
-    // Two milliseconds of a 16 ms frame, always at least one column so the
-    // frontier can never stall on a column slower than the budget. The list is
-    // nearest-first, so this always banks the terrain the player is standing in
-    // before anything far away.
-    constexpr double kBandBudgetMs = 2.0;
+    // Always at least one column, so the frontier can never stall on a column
+    // slower than the budget. The list is nearest-first, so this always banks
+    // the terrain the player is standing in before anything far away.
+    const double kBandBudgetMs = sweep_band_budget_ms;
     const auto start = std::chrono::steady_clock::now();
     double band_ms = 0.0;
     uint64_t columns_read = 0;
     double worst_column_ms = 0.0;
     double worst_bounds_ms = 0.0, worst_resident_ms = 0.0;
     while (sweep_band_frontier < sweep_columns.size()) {
-        const double before_column_ms = band_ms;
         SweepColumn& column = sweep_columns[sweep_band_frontier];
+        // A movement rebuild carried this band across: it is already read and
+        // its columns are already in candidate_offsets. Skipping it is what
+        // turns "re-read the whole list" into "read the entering rim".
+        if (column.band_ready) {
+            ++sweep_band_frontier;
+            continue;
+        }
+        const double before_column_ms = band_ms;
         const int32_t cx = sweep_origin_cx + column.dx;
         const int32_t cz = sweep_origin_cz + column.dz;
         const double before_bounds = band_ms;
@@ -328,6 +334,37 @@ bool WorldUpdater::advance_sweep(SweepCursor& cursor, int32_t pcy, SweepCandidat
 void WorldUpdater::rebuild_sweep_columns(int32_t horizontal_rd, int32_t pcx, int32_t pcz) {
     const auto rebuild_start = std::chrono::steady_clock::now();
     ++generation_stats.rebuilds;
+    // A movement rebuild can carry the bands it already has. A band is derived
+    // from the column's own terrain, not from the player's position, so the
+    // columns shared by the old and new discs keep exactly the band they had;
+    // only the crescent entering the disc is new. Without this, every crossing
+    // marked all ~3,200 bands unknown and the frontier re-read them through
+    // service_sweep_bands' 2 ms budget -- a 2 ms main-thread bill on every
+    // crossing, for columns whose answers were already in hand. Only a pure
+    // move qualifies: a render-distance change or a terrain invalidation has to
+    // rebuild every band. The old disc is saved in a dense grid (one cell per
+    // offset) so the new list can look its band up without allocating a map
+    // per crossing.
+    const bool can_carry = !sweep_columns.empty() && !sweep_bands_dirty &&
+                           horizontal_rd == current_render_distance &&
+                           sweep_origin_cx != INT32_MIN && sweep_origin_cz != INT32_MIN;
+    const int32_t old_origin_cx = sweep_origin_cx;
+    const int32_t old_origin_cz = sweep_origin_cz;
+    const int32_t old_rd = current_render_distance;
+    const int32_t old_side = 2 * old_rd + 1;
+    if (can_carry) {
+        const size_t side = static_cast<size_t>(old_side);
+        carry_bands.assign(side * side, sweep::ChunkBand{});
+        carry_ready.assign(side * side, 0);
+        for (const SweepColumn& column : sweep_columns) {
+            const int32_t ix = static_cast<int32_t>(column.dx) + old_rd;
+            const int32_t iz = static_cast<int32_t>(column.dz) + old_rd;
+            if (ix < 0 || ix >= old_side || iz < 0 || iz >= old_side) continue;
+            const size_t index = static_cast<size_t>(iz) * side + static_cast<size_t>(ix);
+            carry_bands[index] = column.band;
+            carry_ready[index] = column.band_ready ? 1 : 0;
+        }
+    }
     // Created once, never reconfigured here. Every setter that changes the
     // terrain (seed, sea level, biome size, terrain params, biome config) already
     // pushes the new settings into the estimator AND invalidates the height cache
@@ -359,32 +396,63 @@ void WorldUpdater::rebuild_sweep_columns(int32_t horizontal_rd, int32_t pcx, int
     sweep_origin_cz = pcz;
     sweep_bands_dirty = false;
     sweep_columns.clear();
-    // Every band in the new list is unknown, and a column's contents may have
-    // changed under the old marks, so the whole set goes with the list and is
-    // re-earned as the frontier reads each new band.
-    built_columns.clear();
+    // On a pure move the bands are still valid, and so is every "this whole
+    // column is resident" mark: the loaded map only loses a column through
+    // try_unload, which already erases that mark. Prune the columns that left
+    // the disc rather than throwing the set away; on a full rebuild the set
+    // goes with the bands it was earned against.
+    if (can_carry) {
+        for (auto it = built_columns.begin(); it != built_columns.end();) {
+            int32_t cx = 0, cy = 0, cz = 0;
+            ChunkMap::decode_chunk_key(*it, cx, cy, cz);
+            const int32_t dx = cx - pcx;
+            const int32_t dz = cz - pcz;
+            if (dx * dx + dz * dz > horizontal_rd * horizontal_rd) {
+                it = built_columns.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    } else {
+        built_columns.clear();
+    }
     sweep_band_frontier = 0;
     // Queued neighbours were keyed to positions the OLD list served; a rebuild
     // re-earns everything, so the chain starts clean rather than draining stale
     // offers through the new list's disc test.
     chain_queue.clear();
     chain_queued.clear();
-    // Every band in the new list is unknown, so the candidate total starts over
-    // and climbs as the frontier reads them (it reaches the true total within a
-    // frame or two once the heights are cached, and over a couple of seconds on
-    // the very first build, where every one of them is cold).
+    // A carried band is already read, so the candidate total starts at what
+    // those bands account for; the frontier adds the entering rim as it reads
+    // it. A full rebuild starts from zero and climbs as before.
     generation_stats.candidate_offsets = 0;
+    // A move only has to read the entering rim; a full rebuild has the disc.
+    sweep_band_budget_ms = can_carry ? 0.6 : 2.0;
     unload_queue.clear();
 
     for (int32_t dx = -horizontal_rd; dx <= horizontal_rd; ++dx) {
         for (int32_t dz = -horizontal_rd; dz <= horizontal_rd; ++dz) {
             if (dx * dx + dz * dz > horizontal_rd * horizontal_rd) continue;
-            // A column's band is read later, in list order (service_sweep_bands).
-            // Columns whose band turns out to be empty are simply walked past.
-            sweep_columns.push_back(SweepColumn{ static_cast<int16_t>(dx),
-                                                 static_cast<int16_t>(dz),
-                                                 sweep::ChunkBand{},
-                                                 false });
+            SweepColumn column{ static_cast<int16_t>(dx), static_cast<int16_t>(dz),
+                                sweep::ChunkBand{}, false };
+            if (can_carry) {
+                // The same absolute column in the old disc: its band is still the
+                // answer. An absolute column outside the old disc is new terrain
+                // to this list and keeps band_ready = false for the frontier.
+                const int32_t odx = pcx + dx - old_origin_cx;
+                const int32_t odz = pcz + dz - old_origin_cz;
+                if (odx >= -old_rd && odx <= old_rd && odz >= -old_rd && odz <= old_rd) {
+                    const size_t index = static_cast<size_t>(odz + old_rd) *
+                                         static_cast<size_t>(old_side) +
+                                         static_cast<size_t>(odx + old_rd);
+                    column.band = carry_bands[index];
+                    column.band_ready = carry_ready[index] != 0;
+                    if (column.band_ready) {
+                        generation_stats.candidate_offsets += sweep::count(column.band);
+                    }
+                }
+            }
+            sweep_columns.push_back(column);
         }
     }
 

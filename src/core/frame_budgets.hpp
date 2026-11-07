@@ -7,12 +7,12 @@
 namespace VoxelEngine {
 
 struct FrameBudgets {
-    int32_t chunk_generations = 256;
+    int32_t chunk_generations = 64;
     int32_t chunk_completions_initial = 128;
     int32_t chunk_completions_gameplay = 64;
-    int32_t mesh_rebuilds_immediate = 16;
+    int32_t mesh_rebuilds_immediate = 4;
     int32_t mesh_rebuilds_idle = 4;
-    int32_t mesh_rebuilds_active = 16;
+    int32_t mesh_rebuilds_active = 8;
     int32_t mesh_rebuilds_loading = 64;
     int32_t mesh_uploads_idle = 2;
     int32_t mesh_uploads_active = 32;
@@ -24,8 +24,16 @@ struct FrameBudgets {
 
     int32_t max_loaded_chunks = 50000;
 
-    double processing_budget_ms = 2.5;
-    double mesh_completion_budget_ms = 0.75;
+    double processing_budget_ms = 0.75;
+    double mesh_completion_budget_ms = 0.5;
+    // The generation ring walk used to run to its full count/check budget; on
+    // a crossing that was 3.15 ms in one frame. Enqueueing is main-thread work,
+    // so cap it in wall time like the other phases.
+    double generation_budget_ms = 1.0;
+    // The incremental far-region visibility walk. The full walk cost ~2.4 ms on
+    // every crossing frame; a slice this size keeps the same work in the frame
+    // but out of one frame's critical path.
+    double far_region_visibility_budget_ms = 0.1;
     int32_t max_mesh_completions_per_frame = 16;
     int32_t loading_threshold = 500;
 
@@ -36,7 +44,7 @@ struct FrameBudgets {
     // visit is a decode, a distance test and a hash-set lookup under one shard's
     // SHARED lock (see ChunkMap::for_each_limited_resumable — no longer lock_all),
     // so a visit is tens of nanoseconds and the scan can afford to be thorough.
-    int32_t unload_checks_per_frame = 4096;
+    int32_t unload_checks_per_frame = 512;
     int32_t unloads_per_frame = 200;
     int32_t max_generation_checks_per_frame = 100000;
     int32_t generating_per_worker = 2;

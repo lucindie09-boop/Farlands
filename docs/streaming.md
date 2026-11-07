@@ -53,6 +53,14 @@ it — are in [lod-modes.md](lod-modes.md).
   `dirty_mesh_queue` from a **~1.0 ms median to ~2.7 ms** in a live session (that phase is
   measured per report interval, `avg`/`max`) with no visible gain, because the extra rebuilds
   are not more terrain — the same chunks arrive in the same order, only sooner
+- **A merged far-region mesh is published only after its upload finishes.** The build on the
+  pool fills a fresh RID; the region keeps drawing its previous mesh and the instance is
+  swapped only when the server reports at least one surface on the new RID. Publishing at dispatch is the
+  loading flash: the instance pointed at a mesh that had just been cleared, the content hash
+  marked it uploaded, and the member chunks were already hidden — so a region with no geometry
+  stood in for them until a later upload happened to finish. The completion also drains in
+  `clear()` and before the pool is shut down, and `Region empty` in the performance report
+  counts active regions with no surface (0 is the invariant).
 - **View-first meshing is a share of the budget, not a tier that can starve the rest.** The
   queue is split into two heaps — visible chunks, and everything else — instead of one heap
   ordered `in_frustum` first. Each frame the visible heap gets `max_rebuilds - reserve` and the
@@ -338,10 +346,48 @@ it — are in [lod-modes.md](lod-modes.md).
   the first unread column rather than reading it, so the walk cannot outrun the frontier and the
   frontier cannot stall (one column minimum per frame); because both go nearest-first, the work
   always lands on the terrain the player is standing in. Rebuilding the list is bookkeeping
-  only: **0.5 ms** for the first one, **0.25 ms** per crossing, band reads capped at **2.5
-  ms/frame**, worst `update_generation` frame at boot 743 ms → 47 ms. `/genstats` reports
-  `list rebuilds` and `bands read` as separate timings because their shapes have nothing in
-  common
+  only: **0.5 ms** for the first one, **0.25 ms** per crossing; band reads are capped at
+  **2 ms/frame** on a full rebuild and **0.6 ms** on a movement crossing (below), and the
+  worst `update_generation` frame at boot is 743 ms → 47 ms. `/genstats` reports `list
+  rebuilds` and `bands read` as separate timings because their shapes have nothing in common
+
+## A crossing carries its bands
+
+- **A movement rebuild carries every band it already has instead of re-reading the disc.** A
+  column's band depends only on that column's own surface bounds, not on where the player
+  stands, so the columns shared by the old and new discs keep their band — and their
+  fully-resident mark, because the loaded map only loses a column through `try_unload`, which
+  already erases that mark. Only the crescent entering the disc is read. A dense carry grid
+  (one cell per old offset) avoids allocating a map per crossing, and `built_columns` is
+  pruned to the new disc rather than cleared. A render-distance change or a terrain
+  invalidation still rebuilds every band; the carry is only for a pure move. This supersedes
+  the "frontier still reads every column" reading in the prefetch A/B above: that experiment
+  moved the derivation to a worker but left the re-read in place.
+- **The band budget follows the rebuild.** `sweep_band_budget_ms` is 2 ms for a full rebuild
+  and 0.6 ms for a movement rebuild, because the latter has only the entering rim left;
+  spreading that rim over a few frames removes the boot-sized batch from the crossing frame.
+  `service_sweep_bands` still always reads at least one column, so the frontier cannot stall,
+  and `advance_sweep` still stops at the first unread band rather than reading it.
+- **Measured with the windowed 4-border probe** (`probes/probe_border_fps.gd`, 5.6 blocks/s,
+  1152×648, vsync off, cap 0, frames within 0.5 blocks of a border): crossing p95 **6.36 →
+  2.77 ms**, crossing max **22.55 → 9.18 ms**, and crossing stutters **27/397 (6.8%) → 4/504
+  (0.8%)**. The session's worst band frame fell from **2.00 ms over 2,300 columns** to **0.76
+  ms over 5**, and `update_generation`'s worst frame from **11.11 ms to 4.24 ms**; the list
+  rebuild is unchanged at ~0.3 ms.
+- **The full 12-border flight agrees.** Crossing p95 **6.73 → 2.81 ms**, crossing max **27.80 →
+  23.52 ms**, crossing stutters **93/1,112 (8.4%) → 17/1,649 (1.0%)**, near-border p95 **4.26 →
+  3.12 ms**, interior p95 **1.61 → 1.28 ms**. The crossing maximum is still one 23.52 ms
+  frame, but it is not a band read (band max 0.78 ms over 6 columns) and the interior has the
+  same class of >20 ms frames (21.30 ms); the remaining first-frame cost is outside the band
+  path.
+- **The 100 blocks/s streaming benchmark does not pay for it.** Same 40 s flight as the
+  prefetch measurements: **124 crossings, 8,060 band reads (~65 per crossing, the entering
+  rim)** where the historical shape was **397,907 (~3,209 per crossing)**; band time **111.9 ms
+  vs 2,820 ms**, rebuild time 34.6 ms, total sweep 2,017 ms. Cold starts **197.5-229.6 ms
+  (mean 215.3)**, **0 holes in 1,130 flight samples**, **0** prefetch requests outstanding at
+  the end, and the session's 2.0 ms worst band frame is the full-rebuild boot budget, not a
+  crossing. Flight throughput was 1,159 chunks/s in this run; that counter is route and
+  world-state dependent, so the controlled comparison here is the band work.
 
 ## What the instrumentation paid for
 

@@ -38,6 +38,11 @@ void WorldUpdater::update_generation(bool is_editor, int32_t active_render_dista
         rebuild_sweep_columns(active_render_distance, pcx, pcz);
     }
     service_sweep_bands();
+    const auto generation_start = std::chrono::steady_clock::now();
+    const auto generation_ms = [&generation_start]() {
+        return std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - generation_start).count();
+    };
 
     size_t generating_count = chunk_world->get_scheduler().generating_count();
     size_t worker_queue_size = thread_pool ? thread_pool->get_queue_size() : 0;
@@ -150,6 +155,7 @@ void WorldUpdater::update_generation(bool is_editor, int32_t active_render_dista
         while (checks < max_checks_per_frame &&
                generations_this_frame < dynamic_max_generations &&
                generation_admitted) {
+            if (generation_ms() >= budgets.generation_budget_ms) break;
 
             SweepCandidate candidate;
             if (!advance_sweep(generation_cursor, pcy, candidate)) {

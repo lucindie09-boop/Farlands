@@ -22,6 +22,7 @@ using namespace godot;
 using namespace VoxelEngine;
 using namespace player_detail;
 void PlayerController::_process(double delta) {
+    ScopedTimer process_timer(VoxelEngineController::get_perf_timer(), TimerID::PlayerProcess);
     refresh_cached_nodes();
     if (needs_spawn_calc_ && chunk_manager_) {
         // Scan the column at (0, 0) from top down to find the first solid block.

@@ -118,6 +118,7 @@ void VoxelEngineController::set_owner(godot::Node* node) {
     // enable, so switching the mode on never loads a resource mid-frame.
     lod_grid.set_owner(node);
     lod_grid.set_material(environment_controller.get_material_manager().get_lod_grid_material());
+    bind_render_viewport(node);
 }
 
 void VoxelEngineController::create_thread_pool() {
@@ -160,6 +161,10 @@ void VoxelEngineController::reset_runtime_state(bool restart_thread_pool) {
     // pool does, so their workers see the new epoch and refuse their own results.
     lod_grid.set_epoch(chunk_world.get_epoch());
     lod_grid.reset();
+    // Region surfaces are filled on the pool with the RenderingServer alive.
+    // Drain them before the pool is joined and the engine tears the server
+    // down, or a worker wakes up against a destroyed singleton.
+    mesh_manager.shutdown_region_uploads();
     shutdown_thread_pool();
     chunk_world.free_loaded_chunks();
     clear_async_queues();
@@ -167,6 +172,7 @@ void VoxelEngineController::reset_runtime_state(bool restart_thread_pool) {
     runtime_elapsed = 0.0;
     frame_time_accumulator = 0.0;
     frame_count = 0;
+    frame_capture.clear();
 
     if (restart_thread_pool) {
         create_thread_pool();

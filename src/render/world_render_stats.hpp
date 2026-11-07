@@ -9,8 +9,34 @@ struct WorldRenderStats {
     int32_t mesh_rids = 0;
     int32_t chunk_instances = 0;
     int32_t far_region_instances = 0;
+    // Actual RenderingServer visibility, not the logical "not covered by a
+    // region" count above. A chunk can have an instance that is hidden, and a
+    // chunk can be both logically visible and still covered by an old region
+    // mesh during a handoff; the two must be distinguishable in a draw spike.
+    int32_t visible_chunk_instances_actual = 0;
+    int32_t visible_chunk_full = 0;
+    int32_t visible_chunk_mid = 0;
+    int32_t visible_chunk_far = 0;
+    int32_t visible_chunk_detail_unknown = 0;
+    int32_t visible_chunk_region_overlap = 0;
+    int32_t visible_chunk_detail_mismatch = 0;
+    int32_t region_member_full = 0;
+    int32_t region_member_mid = 0;
+    int32_t region_member_far = 0;
+    int32_t region_member_unknown = 0;
+    // Why an individually drawn far-detail chunk is not covered by a region.
+    int32_t visible_far_region_keys = 0;
+    int32_t visible_far_no_region = 0;
+    int32_t visible_far_inactive_region = 0;
+    int32_t visible_far_active_uncovered = 0;
+    int32_t visible_far_pending_region = 0;
+    int32_t visible_far_debounced_region = 0;
     int32_t chunk_mesh_rids = 0;
     int32_t far_region_mesh_rids = 0;
+    // Active regions whose RID carries no surface. Must stay 0: a region is
+    // published only after its worker upload finishes, and an instance with no
+    // geometry would hide the members that cover it (the loading flash).
+    int32_t far_region_meshes_without_surfaces = 0;
     int32_t eligible_far_chunks = 0;
     int32_t cached_far_chunks = 0;
     int32_t active_region_member_chunks = 0;

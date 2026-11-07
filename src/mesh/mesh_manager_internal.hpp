@@ -10,8 +10,24 @@
 namespace VoxelEngine {
 
 inline constexpr int32_t kGreedyDisableBlockRadius = 16;
+// A far-region surface is far larger than a chunk surface. Eight per frame
+// (32/4) measured a 2.0 ms upload phase; four per frame took the near-border p95
+// from 2.53 to 2.60 ms and the max from 5.00 to 6.29 ms, because the extra chunk
+// uploads collided with the outline pass while the regions drained slower.
 inline constexpr int32_t kFarRegionUploadDivisor = 4;
 inline constexpr int32_t kFarRegionBuildDivisor = 4;
+// A merged 8x8 region surface uploads far more vertices than a chunk surface.
+// Eight of them in one frame measured 3.34 ms (2.06 ms on the GPU), which is
+// the near-border p95's largest single phase. Stop at a wall-clock ceiling and
+// leave the rest queued: the regions drain over the next frames instead of
+// landing in one frame's critical path.
+inline constexpr double kFarRegionUploadBudgetMs = 1.0;
+// The far-region scheduler gathers an 8x8 region's sources on the main thread
+// before handing the build to the pool. It used to do that for every region the
+// count budget allowed, with no wall-clock ceiling, so a border frame could pay
+// several region walks on top of the chunk queue's whole slice. The rest of the
+// regions stay dirty and are picked up next frame.
+inline constexpr double kFarRegionScheduleBudgetMs = 0.75;
 // Coalescing window for far-region rebuilds: cache arrivals within this window
 // are batched into a single rebuild instead of one rebuild per arrival.
 inline constexpr double kFarRegionDebounceMs = 250.0;

@@ -11,8 +11,61 @@
 #include "mesh/mesh_builder.hpp"
 #include "worldgen/chunk_generator.hpp"
 
+#include <algorithm>
+
+#include <godot_cpp/classes/node.hpp>
+#include <godot_cpp/classes/performance.hpp>
+#include <godot_cpp/classes/rendering_server.hpp>
+#include <godot_cpp/classes/viewport.hpp>
+
 namespace VoxelEngine {
 using namespace godot;
+
+void VoxelEngineController::bind_render_viewport(godot::Node* node) {
+    render_viewport_ = node ? node->get_viewport() : nullptr;
+    if (!render_viewport_) return;
+    if (RenderingServer* rs = RenderingServer::get_singleton()) {
+        rs->viewport_set_measure_render_time(render_viewport_->get_viewport_rid(), true);
+    }
+}
+
+FrameCaptureGuard VoxelEngineController::begin_frame_capture(double delta) {
+    return FrameCaptureGuard(frame_capture, perf_timer, delta, sample_render_stats(),
+                             sample_engine_stats());
+}
+
+FrameRenderStats VoxelEngineController::sample_render_stats() {
+    FrameRenderStats stats;
+    if (!render_viewport_) return stats;
+    RenderingServer* rs = RenderingServer::get_singleton();
+    if (!rs) return stats;
+    const RID viewport_rid = render_viewport_->get_viewport_rid();
+    stats.setup_cpu_ms = rs->get_frame_setup_time_cpu();
+    stats.render_cpu_ms = rs->viewport_get_measured_render_time_cpu(viewport_rid);
+    stats.render_gpu_ms = rs->viewport_get_measured_render_time_gpu(viewport_rid);
+    if (Performance* perf = Performance::get_singleton()) {
+        const auto count = [perf](Performance::Monitor monitor) {
+            return static_cast<uint64_t>(std::max(0.0, perf->get_monitor(monitor)));
+        };
+        stats.draw_calls = count(Performance::RENDER_TOTAL_DRAW_CALLS_IN_FRAME);
+        stats.objects = count(Performance::RENDER_TOTAL_OBJECTS_IN_FRAME);
+        stats.primitives = count(Performance::RENDER_TOTAL_PRIMITIVES_IN_FRAME);
+    }
+    return stats;
+}
+
+FrameEngineStats VoxelEngineController::sample_engine_stats() {
+    FrameEngineStats stats;
+    if (Performance* perf = Performance::get_singleton()) {
+        const auto ms = [perf](Performance::Monitor monitor) {
+            return std::max(0.0, static_cast<double>(perf->get_monitor(monitor))) * 1000.0;
+        };
+        stats.process_ms = ms(Performance::TIME_PROCESS);
+        stats.physics_ms = ms(Performance::TIME_PHYSICS_PROCESS);
+        stats.navigation_ms = ms(Performance::TIME_NAVIGATION_PROCESS);
+    }
+    return stats;
+}
 
 String VoxelEngineController::get_performance_report() {
     // The far mode's own ledger, merged into the render stats here rather than read
@@ -48,11 +101,20 @@ String VoxelEngineController::get_performance_report() {
     frame_count = 0;
     frame_time_accumulator = 0.0;
     perf_timer.reset_all();
+    // Start a new delta baseline; the captured history stays, so a dump after
+    // this report can still describe the frames that produced it.
+    frame_capture.restart_baseline();
     MeshBuilder::get_perf_timer().reset_all();
     ChunkGenerator::get_perf_timer().reset_all();
     MeshBuilder::reset_vertex_tracking();
     MeshBuilder::reset_greedy_vertical_stats();
     return report;
+}
+
+String VoxelEngineController::get_slow_frame_report(int32_t frames, double slow_frame_ms) {
+    const std::string dump =
+        frame_capture.describe_window(perf_timer, frames, slow_frame_ms);
+    return String(dump.c_str());
 }
 
 void VoxelEngineController::print_debug_info(double delta) {

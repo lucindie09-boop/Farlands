@@ -269,7 +269,7 @@ void WorldUpdater::process_mesh_budgets(bool is_editor, uint64_t epoch, uint64_t
         mesh_manager->process_queue(
             budgets.mesh_rebuilds_immediate,
             mesh_rebuild_budget,
-            budgets.processing_budget_ms
+            budgets.mesh_queue_budget_ms
         );
     }
 }

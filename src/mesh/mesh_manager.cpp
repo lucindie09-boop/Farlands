@@ -310,22 +310,28 @@ void MeshManager::process_queue(int32_t max_immediate, int32_t max_rebuilds, dou
     int32_t mesh_rd_sq = mesh_render_distance ? mesh_render_distance * mesh_render_distance : INT32_MAX;
     int32_t pcx = last_player_chunk_x;
     int32_t pcz = last_player_chunk_z;
-        mesh_queue.process(
-            [this, mesh_rd_sq, pcx, pcz](int32_t cx, int32_t cy, int32_t cz) -> bool {
-                int32_t dx = cx - pcx;
-                int32_t dz = cz - pcz;
-                // Horizontal-only: no vertical render distance.
-                if (dx*dx + dz*dz > mesh_rd_sq) {
-                    return false;
-                }
-                rebuild_chunk_mesh(cx, cy, cz, async_epoch ? async_epoch->load(std::memory_order_acquire) : 0);
-                return true;
-            },
+    const auto queue_start = std::chrono::steady_clock::now();
+    mesh_queue.process(
+        [this, mesh_rd_sq, pcx, pcz](int32_t cx, int32_t cy, int32_t cz) -> bool {
+            int32_t dx = cx - pcx;
+            int32_t dz = cz - pcz;
+            // Horizontal-only: no vertical render distance.
+            if (dx*dx + dz*dz > mesh_rd_sq) {
+                return false;
+            }
+            rebuild_chunk_mesh(cx, cy, cz, async_epoch ? async_epoch->load(std::memory_order_acquire) : 0);
+            return true;
+        },
         max_immediate,
         chunk_budget,
         budget_ms
     );
-    process_far_region_queue(far_region_budget, kFarRegionScheduleBudgetMs);
+    // The chunk queue owns the same budget as the far-region scheduler; give the
+    // scheduler only what the chunk pass did not spend. One shared ceiling is the
+    // difference between a 0.35 ms phase and two 0.75 ms phases in a row.
+    const double queue_ms = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - queue_start).count();
+    process_far_region_queue(far_region_budget, std::max(0.0, budget_ms - queue_ms));
 }
 
 // ---------------------------------------------------------------------------

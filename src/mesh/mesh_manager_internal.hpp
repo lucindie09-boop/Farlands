@@ -22,12 +22,6 @@ inline constexpr int32_t kFarRegionBuildDivisor = 4;
 // leave the rest queued: the regions drain over the next frames instead of
 // landing in one frame's critical path.
 inline constexpr double kFarRegionUploadBudgetMs = 1.0;
-// The far-region scheduler gathers an 8x8 region's sources on the main thread
-// before handing the build to the pool. It used to do that for every region the
-// count budget allowed, with no wall-clock ceiling, so a border frame could pay
-// several region walks on top of the chunk queue's whole slice. The rest of the
-// regions stay dirty and are picked up next frame.
-inline constexpr double kFarRegionScheduleBudgetMs = 0.75;
 // Coalescing window for far-region rebuilds: cache arrivals within this window
 // are batched into a single rebuild instead of one rebuild per arrival.
 inline constexpr double kFarRegionDebounceMs = 250.0;

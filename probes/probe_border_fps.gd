@@ -574,6 +574,28 @@ func _traverse_count() -> int:
 			n += 1
 	return n
 
+# The FPS label averages `_frames / timer` over its update interval. Rebroadcast
+# that as the worst window that can start on any traverse frame, so a short
+# setting (0.05 s) and the default (0.25 s) can be compared directly. Pinned
+# frames are excluded, as they are from every other statistic.
+func _window_min_fps(window_sec: float) -> float:
+	var best := INF
+	var limit_ms := window_sec * 1000.0
+	for start in range(_ms.size()):
+		if _phase[start] != 1 or _pin[start]:
+			continue
+		var total := 0.0
+		var count := 0
+		for i in range(start, _ms.size()):
+			if _phase[i] != 1 or _pin[i]:
+				break
+			total += _ms[i]
+			count += 1
+			if total >= limit_ms:
+				best = minf(best, 1000.0 * float(count) / total)
+				break
+	return 0.0 if is_inf(best) else best
+
 func _report() -> void:
 	if _ms.is_empty():
 		_fail("no frames were recorded")
@@ -609,6 +631,8 @@ func _report() -> void:
 
 	_line("baseline", _stats(base_idx, base_gate), base_gate)
 	_line("traverse", _stats(all_idx, gate), gate)
+	print("PROBE fps-min windows: 0.05s=%.0f 0.25s=%.0f (traverse, unpinned)" % [
+		_window_min_fps(0.05), _window_min_fps(0.25)])
 
 	var cross_idx: Array = []
 	var near_idx: Array = []

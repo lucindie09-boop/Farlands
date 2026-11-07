@@ -26,6 +26,10 @@ struct FrameBudgets {
 
     double processing_budget_ms = 0.75;
     double mesh_completion_budget_ms = 0.5;
+    // The dirty chunk queue and the far-region scheduler share one wall-clock
+    // budget. They used to get 0.75 ms each, so a crossing could spend 1.5 ms in
+    // DirtyMeshQueue alone; the immediate queue is inside this budget too.
+    double mesh_queue_budget_ms = 0.35;
     // The generation ring walk used to run to its full count/check budget; on
     // a crossing that was 3.15 ms in one frame. Enqueueing is main-thread work,
     // so cap it in wall time like the other phases.

@@ -30,6 +30,11 @@ struct FrameBudgets {
     // budget. They used to get 0.75 ms each, so a crossing could spend 1.5 ms in
     // DirtyMeshQueue alone; the immediate queue is inside this budget too.
     double mesh_queue_budget_ms = 0.35;
+    // Initial streaming is allowed to spend more on the mesh queue than live
+    // play. The 0.35 ms budget is a border-smoothness budget; with it the 64
+    // loading rebuilds below can only schedule a handful, which is why the
+    // far/mesh tail outlived the chunk load by five seconds.
+    double mesh_queue_loading_budget_ms = 2.0;
     // The generation ring walk used to run to its full count/check budget; on
     // a crossing that was 3.15 ms in one frame. Enqueueing is main-thread work,
     // so cap it in wall time like the other phases.

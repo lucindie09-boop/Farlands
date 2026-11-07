@@ -131,9 +131,17 @@ template<typename RebuildCallback>
                     double budget_ms) {
         int32_t total_processed = 0;
         int32_t immediate_processed = 0;
+        const auto start_time = std::chrono::high_resolution_clock::now();
+        const auto elapsed_ms = [&start_time]() {
+            const auto now = std::chrono::high_resolution_clock::now();
+            return std::chrono::duration<double, std::milli>(now - start_time).count();
+        };
 
         while (!immediate_dirty_mesh_queue.empty() &&
                immediate_processed < max_immediate_rebuilds) {
+            // The immediate queue used to run outside the timed drain; it must
+            // spend the shared mesh-queue budget too.
+            if (elapsed_ms() >= budget_ms) break;
             const uint64_t key = immediate_dirty_mesh_queue.front();
             immediate_dirty_mesh_queue.pop_front();
             immediate_dirty_mesh_pending.erase(key);
@@ -145,11 +153,6 @@ template<typename RebuildCallback>
         }
         total_processed += immediate_processed;
 
-        const auto start_time = std::chrono::high_resolution_clock::now();
-        const auto elapsed_ms = [&start_time]() {
-            const auto now = std::chrono::high_resolution_clock::now();
-            return std::chrono::duration<double, std::milli>(now - start_time).count();
-        };
         // Bound the number of heap operations per frame. Entries that resolve to
         // no work are consumed silently, so without a cap a queue of thousands of
         // out-of-range entries could spin until the time budget expired.

@@ -104,6 +104,7 @@ public:
     int32_t get_squish_span() const;
 
     godot::String get_performance_report();
+    godot::String get_slow_frame_report(int32_t frames, double slow_frame_ms);
 
     void set_chunk_scenario(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z);
     void clear_editor_chunks();

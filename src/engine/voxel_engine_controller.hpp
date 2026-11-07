@@ -19,6 +19,7 @@
 #include "core/crafting.hpp"
 #include "core/frustum.hpp"
 #include "core/performance_timer.hpp"
+#include "debug/frame_capture.hpp"
 #include "world/world_updater.hpp"
 #include "world/chunk_world.hpp"
 #include "world/block_editor.hpp"
@@ -28,6 +29,11 @@
 #include "lighting/light_propagator.hpp"
 #include "engine/collision_resolver.hpp"
 #include "schematic/mc_palette.hpp"
+
+namespace godot {
+class Node;
+class Viewport;
+}
 
 namespace VoxelEngine {
 
@@ -43,6 +49,9 @@ public:
 
     void initialize();
     void shutdown();
+    // Stops, waits out and frees in-flight far-region uploads. Safe while the
+    // RenderingServer is alive; called at scene exit and before a world reset.
+    void shutdown_mesh_uploads() { mesh_manager.shutdown_region_uploads(); }
     void reset_runtime_state(bool restart_thread_pool);
     void set_owner(godot::Node* node);
 
@@ -131,6 +140,11 @@ public:
     void generate_chunk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z);
 
     godot::String get_performance_report();
+    // The slowest frame in the FPS label's current sample, as a phase dump.
+    godot::String get_slow_frame_report(int32_t frames, double slow_frame_ms);
+    // Starts a per-frame capture at the beginning of the main-thread callback;
+    // the returned guard records the complete frame when it leaves scope.
+    FrameCaptureGuard begin_frame_capture(double delta);
 
     // The flow simulation, for stats and probes. Const: callers read it, they do
     // not drive it (WorldUpdater::update owns that).
@@ -425,6 +439,14 @@ bool smooth_lighting = false;
     // write) what the world actually took.
     static godot::Dictionary plan_counters(const schematic::PastePlan& plan);
 
+    // Per-frame phase history behind the FPS counter's slow-sample dump.
+    FrameCapture frame_capture;
+    // The viewport the dump reads measured render times from; bind it from the
+    // owner node, and sample the last completed frame at the start of update().
+    godot::Viewport* render_viewport_ = nullptr;
+    void bind_render_viewport(godot::Node* node);
+    FrameRenderStats sample_render_stats();
+    FrameEngineStats sample_engine_stats();
     static PerformanceTimer perf_timer;
 };
 

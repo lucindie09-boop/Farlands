@@ -13,6 +13,11 @@ namespace VoxelEngine {
 #define TIMER_LIST(X) \
     X(UpdateCollision) \
     X(ChunkLoadUnload) \
+    X(MeshReprioritize) \
+    X(ChunkUnload) \
+    X(FluidSimAdvance) \
+    X(FlushDirty) \
+    X(FarRegionVisibility) \
     X(DirtyMeshQueue) \
     X(ProcessCompleted) \
     X(BuildMesh) \
@@ -20,6 +25,11 @@ namespace VoxelEngine {
     X(MeshDataCopy) \
     X(MeshGpuUpload) \
     X(ProcessTotal) \
+    X(ChunkManagerProcess) \
+    X(PlayerProcess) \
+    X(BlockOutlineProcess) \
+    X(WorldCull) \
+    X(EnvironmentUpdate) \
     X(PlayerPosUpdate) \
     X(GenerateChunk) \
     X(ConvertToGodotMesh) \
@@ -106,6 +116,11 @@ public:
     
     uint64_t get_count(TimerID id) const {
         return timers[static_cast<size_t>(id)].count.load(std::memory_order_relaxed);
+    }
+
+    // Cumulative time since the last reset, for per-frame delta snapshots.
+    double get_total_ms(TimerID id) const {
+        return static_cast<double>(timers[static_cast<size_t>(id)].total_ns.load(std::memory_order_relaxed)) / 1e6;
     }
     
     void reset(TimerID id) {

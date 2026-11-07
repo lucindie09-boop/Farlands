@@ -11,7 +11,9 @@
 #include "core/performance_timer.hpp"
 #include "render/world_render_stats.hpp"
 #include <godot_cpp/classes/shader_material.hpp>
+#include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <functional>
 #include <memory>
 #include <cstdint>
@@ -33,6 +35,11 @@ public:
     void set_owner(godot::Node* node) { owner = node; }
 
     void set_player_chunk(int32_t cx, int32_t cy, int32_t cz);
+    // Incremental far-region visibility refresh: processes a bounded slice of the
+    // regions whose members' far/full visibility can change as the player moves.
+    // The old full walk over every region and every active member cost ~2.4 ms
+    // on the crossing frame, twice (set_player_chunk and reprioritize).
+    void process_far_region_visibility(double budget_ms);
 
     void set_player_block(int32_t bx, int32_t by, int32_t bz) {
         last_player_block_x = bx;
@@ -86,6 +93,10 @@ public:
     void process_queue(int32_t max_immediate, int32_t max_rebuilds, double budget_ms);
     void notify_chunk_unloaded(int32_t cx, int32_t cy, int32_t cz, const ChunkRenderData* render_data);
     void clear();
+    // Waits out region uploads that are already on the pool and frees the RIDs
+    // they were building. Called on the way out while the RenderingServer is
+    // still alive, so a worker can never wake up against a dead singleton.
+    void shutdown_region_uploads();
     size_t size() const { return mesh_queue.size(); }
     bool erase_urgent(uint64_t key) { return mesh_queue.erase_urgent(key); }
 
@@ -120,6 +131,9 @@ private:
         PackedBuiltMeshData mesh_data;
         PackedBuiltMeshData water_mesh_data;
         std::vector<uint64_t> member_chunk_keys;
+        // Hash of the source keys and their child content hashes. Equal means
+        // the region mesh already on the GPU has the same geometry.
+        uint64_t content_hash = 0;
     };
 
     struct FarRegionRenderData {
@@ -131,16 +145,74 @@ private:
         godot::Vector2 cull_growth = godot::Vector2(-1.0f, -1.0f);
         bool dirty = false;
         bool active = false;
+        // An active region with a far chunk missing from its current mesh has a
+        // visible coverage gap, and one with a full-detail chunk still in its
+        // mesh draws that chunk twice. Skip the coalescing delay for both.
+        bool needs_immediate_rebuild = false;
         std::atomic<int> pending_builds{0};
         uint64_t revision = 0;
         std::vector<uint64_t> active_chunk_keys;
+        // The incremental visibility pass walks this region's members a few at a
+        // time; the full walk was measured at 4.2 ms on one crossing frame.
+        size_t member_sync_cursor = 0;
+        bool member_sync_pending = false;
+        // Every far-cached child of this region, maintained by the dirty marks
+        // themselves. The scheduler used to rescan all 64 chunk-map shards per
+        // build, which cost ~3 ms on a crossing frame.
+        std::unordered_map<uint64_t, std::shared_ptr<CachedFarChunkMesh>> far_sources;
+        // Chunks that left the active mesh in the last upload. They must be
+        // shown again on the incremental pass rather than by a 64-member walk
+        // inside the upload itself.
+        std::vector<uint64_t> visibility_extra_keys;
+        size_t visibility_extra_cursor = 0;
+        // What the region's mesh RID currently holds. Reset by
+        // free_far_region_resources, so a skipped upload can never leave the
+        // region without geometry.
+        uint64_t uploaded_content_hash = 0;
+        // Uploads in flight for this region. A newer build must not clear or
+        // reuse the RID that is on screen; the region keeps drawing the last
+        // complete mesh until the replacement is finished and swapped in.
+        int32_t pending_uploads = 0;
         std::chrono::steady_clock::time_point last_dirty_at{};
         int32_t region_size_xz = 4; // 4 for mid LOD, 8 for far LOD
     };
 
+    struct CompletedRegionUpload {
+        uint64_t region_key = 0;
+        uint64_t epoch = 0;
+        uint64_t revision = 0;
+        uint64_t content_hash = 0;
+        godot::RID mesh_rid;
+        std::vector<uint64_t> member_chunk_keys;
+        std::vector<uint64_t> previous_members;
+        // False when the worker could not touch the RenderingServer (shutdown).
+        // The RID still has to come back to main so it can be freed.
+        bool surfaces_added = false;
+        // Frames spent waiting for the server to apply the worker's surface
+        // command. Publishing before that is the loading flash.
+        int32_t publish_retries = 0;
+    };
+
+    struct RegionUploadChannel {
+        std::mutex mutex;
+        std::queue<CompletedRegionUpload> completed;
+        std::atomic<int32_t> in_flight{0};
+        std::condition_variable idle_cv;
+        std::atomic<bool> stopping{false};
+    };
+
+    bool queue_far_region_upload(FarRegionRenderData& region, CompletedRegionMesh& completed,
+                                 uint64_t region_key, std::vector<uint64_t> previous_members,
+                                 const godot::Ref<godot::ShaderMaterial>& material,
+                                 const godot::Ref<godot::ShaderMaterial>& water_material);
+    void process_completed_region_uploads(uint64_t epoch, int32_t max_uploads);
+    bool pop_completed_region_upload(CompletedRegionUpload& out);
+    void discard_region_upload_completions();
+    void wait_for_region_uploads(int32_t timeout_ms);
+
     void hide_chunk_instance(ChunkRenderData* render_data);
     void show_chunk_instance(ChunkRenderData* render_data, int32_t cx, int32_t cy, int32_t cz);
-    void process_completed_region_meshes(uint64_t epoch, int32_t max_uploads,
+    void process_completed_region_meshes(uint64_t epoch, int32_t max_uploads, double budget_ms,
                                          const godot::Ref<godot::ShaderMaterial>& material,
                                          const godot::Ref<godot::ShaderMaterial>& water_material);
 
@@ -152,14 +224,17 @@ private:
     void cull_apply(const godot::RID& instance, godot::Vector2& remembered, const godot::AABB& local_aabb,
                     const godot::Vector3& origin);
     void refresh_world_cull_region(FarRegionRenderData& region, uint64_t region_key);
-    void process_far_region_queue(int32_t max_rebuilds);
-    void mark_far_region_dirty_for_chunk(int32_t cx, int32_t cy, int32_t cz);
-    void refresh_far_region_visibility();
+    void process_far_region_queue(int32_t max_rebuilds, double budget_ms);
+    void mark_far_region_dirty_for_chunk(int32_t cx, int32_t cy, int32_t cz,
+                                         const std::shared_ptr<CachedFarChunkMesh>& cache);
+    void request_far_region_visibility_refresh();
     bool should_use_far_region_for_chunk(int32_t cx, int32_t cy, int32_t cz) const;
     bool is_chunk_within_render_distance(int32_t cx, int32_t cy, int32_t cz) const;
     uint64_t get_far_region_key(int32_t cx, int32_t cy, int32_t cz) const;
     bool is_far_region_active_for_chunk(int32_t cx, int32_t cy, int32_t cz) const;
     void sync_far_region_members_visibility(FarRegionRenderData& region);
+    void sync_far_region_member(FarRegionRenderData& region, uint64_t chunk_key);
+    void sync_visibility_extra_member(uint64_t chunk_key);
     void ensure_far_region_instance(FarRegionRenderData& region, uint64_t region_key, bool visible);
     void free_far_region_resources(FarRegionRenderData& region);
 
@@ -193,6 +268,9 @@ private:
     int32_t far_lod_distance = 16;
     float far_lod_detail_level = 0.25f;
     std::unordered_map<uint64_t, FarRegionRenderData> far_regions;
+    std::vector<uint64_t> far_visibility_keys_;
+    size_t far_visibility_cursor_ = 0;
+    bool far_visibility_pending_ = false;
     std::unordered_set<uint64_t> active_full_detail_chunks_;
     // Chunks currently built at the mid tier, used to remesh mid->far
     // downgrades that fall outside the reprioritize transition shells.
@@ -203,6 +281,9 @@ private:
     std::queue<CompletedRegionMesh> completed_far_region_meshes;
     mutable std::mutex completed_far_region_meshes_mutex;
     std::atomic<int32_t> completed_far_region_mesh_count{0};
+    // Shared with the upload task, so a worker finishing after the manager is
+    // torn down still has somewhere safe to deposit its RID.
+    std::shared_ptr<RegionUploadChannel> region_upload_channel = std::make_shared<RegionUploadChannel>();
     int32_t far_regions_partial_missing_cache_last = 0;
     // Chunks remeshed because their data held liquid while the GPU held no liquid
     // geometry for them. Main-thread only (upload path).

@@ -61,8 +61,28 @@ String PerfReport::build(
               "  Meshes: " + String::num_int64(render_stats.mesh_rids) + "\n";
     report += "  Chunk instances: " + String::num_int64(render_stats.chunk_instances) +
               "  Region instances: " + String::num_int64(render_stats.far_region_instances) + "\n";
+    report += "  Visible chunk detail: full=" + String::num_int64(render_stats.visible_chunk_full) +
+              " mid=" + String::num_int64(render_stats.visible_chunk_mid) +
+              " far=" + String::num_int64(render_stats.visible_chunk_far) +
+              " unknown=" + String::num_int64(render_stats.visible_chunk_detail_unknown) + "\n";
+    report += "  Actual vs logical: actual=" + String::num_int64(render_stats.visible_chunk_instances_actual) +
+              " region overlap=" + String::num_int64(render_stats.visible_chunk_region_overlap) +
+              " detail lag=" + String::num_int64(render_stats.visible_chunk_detail_mismatch) + "\n";
+    report += "  Region member detail: full=" + String::num_int64(render_stats.region_member_full) +
+              " mid=" + String::num_int64(render_stats.region_member_mid) +
+              " far=" + String::num_int64(render_stats.region_member_far) +
+              " unknown=" + String::num_int64(render_stats.region_member_unknown) + "\n";
+    report += "  Far uncovered: regions=" + String::num_int64(render_stats.visible_far_region_keys) +
+              " no_region=" + String::num_int64(render_stats.visible_far_no_region) +
+              " inactive=" + String::num_int64(render_stats.visible_far_inactive_region) +
+              " active_uncovered=" + String::num_int64(render_stats.visible_far_active_uncovered) +
+              " pending=" + String::num_int64(render_stats.visible_far_pending_region) +
+              " debounced=" + String::num_int64(render_stats.visible_far_debounced_region) + "\n";
     report += "  Chunk meshes:    " + String::num_int64(render_stats.chunk_mesh_rids) +
               "  Region meshes:    " + String::num_int64(render_stats.far_region_mesh_rids) + "\n";
+    // Its own line: a region published before its upload has no surface, draws
+    // nothing, and hides the member chunks that cover it.
+    report += "  Region empty:    " + String::num_int64(render_stats.far_region_meshes_without_surfaces) + "\n";
     report += "  Far eligible:    " + String::num_int64(render_stats.eligible_far_chunks) +
               "  Far cached:      " + String::num_int64(render_stats.cached_far_chunks) + "\n";
     report += "  Region members:  " + String::num_int64(render_stats.active_region_member_chunks) +
@@ -106,9 +126,19 @@ String PerfReport::build(
     };
     phase_line("player_pos_update: avg=", TimerID::PlayerPosUpdate);
     phase_line("chunk_load_unload: avg=", TimerID::ChunkLoadUnload);
+    phase_line("mesh_reprioritize: avg=", TimerID::MeshReprioritize);
+    phase_line("chunk_unload: avg=", TimerID::ChunkUnload);
+    phase_line("fluid_sim_advance: avg=", TimerID::FluidSimAdvance);
+    phase_line("flush_dirty: avg=", TimerID::FlushDirty);
+    phase_line("far_region_visibility: avg=", TimerID::FarRegionVisibility);
     phase_line("dirty_mesh_queue:  avg=", TimerID::DirtyMeshQueue);
     phase_line("process_completed_chunks: avg=", TimerID::ProcessCompletedChunks);
     phase_line("process_completed_meshes: avg=", TimerID::ProcessCompletedMeshes);
+    phase_line("chunk_manager_process: avg=", TimerID::ChunkManagerProcess);
+    phase_line("player_process: avg=", TimerID::PlayerProcess);
+    phase_line("block_outline_process: avg=", TimerID::BlockOutlineProcess);
+    phase_line("world_cull: avg=", TimerID::WorldCull);
+    phase_line("environment_update: avg=", TimerID::EnvironmentUpdate);
     uint64_t col_count = perf_timer.get_count(TimerID::UpdateCollision);
     if (col_count > 0) {
         double col_min = perf_timer.get_min(TimerID::UpdateCollision);
@@ -138,6 +168,11 @@ String PerfReport::build(
     if (proc_count > 0) {
         double accounted = perf_timer.get_avg(TimerID::PlayerPosUpdate);
         accounted += perf_timer.get_avg(TimerID::ChunkLoadUnload);
+        accounted += perf_timer.get_avg(TimerID::MeshReprioritize);
+        accounted += perf_timer.get_avg(TimerID::ChunkUnload);
+        accounted += perf_timer.get_avg(TimerID::FluidSimAdvance);
+        accounted += perf_timer.get_avg(TimerID::FlushDirty);
+        accounted += perf_timer.get_avg(TimerID::FarRegionVisibility);
         accounted += perf_timer.get_avg(TimerID::DirtyMeshQueue);
         accounted += perf_timer.get_avg(TimerID::ProcessCompletedChunks);
         accounted += perf_timer.get_avg(TimerID::ProcessCompletedMeshes);
@@ -153,6 +188,12 @@ String PerfReport::build(
                       "ms (NEGATIVE \342\200\224 two timers overlap; see comment in perf_report.cpp)\n";
         } else {
             report += "  unaccounted:     avg=" + String::num(unaccounted, 3) + "ms\n";
+        }
+        if (perf_timer.get_count(TimerID::ChunkManagerProcess) > 0) {
+            const double callback_outside = std::max(
+                0.0, perf_timer.get_avg(TimerID::ChunkManagerProcess) - proc_avg);
+            report += "  callback_outside_controller: avg=" +
+                      String::num(callback_outside, 3) + "ms\n";
         }
     }
 

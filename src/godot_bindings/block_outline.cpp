@@ -3,6 +3,7 @@
 #include "godot_bindings/cached_node.hpp"
 #include "godot_bindings/chunk_manager.hpp"
 #include "godot_bindings/player_controller.hpp"
+#include "engine/voxel_engine_controller.hpp"
 
 #include <algorithm>
 
@@ -68,6 +69,9 @@ void BlockOutline::_ready() {
 }
 
 void BlockOutline::_process(double delta) {
+    VoxelEngine::ScopedTimer process_timer(
+        VoxelEngine::VoxelEngineController::get_perf_timer(),
+        VoxelEngine::TimerID::BlockOutlineProcess);
     PlayerController* player = get_player_controller();
     VoxelEngine::ChunkManager* chunks = get_chunk_manager();
     if (player == nullptr || chunks == nullptr) {

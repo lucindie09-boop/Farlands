@@ -1,12 +1,20 @@
 ﻿#include "mesh/mesh_manager_internal.hpp"
 
 #include <algorithm>
+#include <cmath>
+#include <unordered_set>
+
+#include <godot_cpp/classes/rendering_server.hpp>
 
 namespace VoxelEngine {
 
 using namespace godot;
 void MeshManager::clear() {
     mesh_queue.clear();
+    // Stop, drain and free in-flight region uploads while the RenderingServer
+    // is still up. Without this, an upload finishing after the world reset
+    // publishes into a region that no longer exists.
+    shutdown_region_uploads();
     for (auto& entry : far_regions) {
         FarRegionRenderData& region = entry.second;
         free_far_region_resources(region);
@@ -22,6 +30,9 @@ void MeshManager::clear() {
     active_full_detail_chunks_.clear();
     active_mid_detail_chunks_.clear();
     active_far_detail_chunks_.clear();
+    far_visibility_keys_.clear();
+    far_visibility_cursor_ = 0;
+    far_visibility_pending_ = false;
     far_regions_partial_missing_cache_last = 0;
     last_player_chunk_x = INT32_MIN;
     last_player_chunk_y = INT32_MIN;
@@ -41,7 +52,7 @@ void MeshManager::notify_chunk_unloaded(int32_t cx, int32_t cy, int32_t cz, cons
         ensure_far_region_instance(it->second, region_key, false);
         sync_far_region_members_visibility(it->second);
     }
-    mark_far_region_dirty_for_chunk(cx, cy, cz);
+    mark_far_region_dirty_for_chunk(cx, cy, cz, std::shared_ptr<CachedFarChunkMesh>{});
 }
 
 
@@ -60,7 +71,7 @@ void MeshManager::mark_all_chunks_dirty() {
         int32_t cx, cy, cz;
         ChunkMap::decode_chunk_key(key, cx, cy, cz);
         if (render_data->far_mesh_cache) {
-            mark_far_region_dirty_for_chunk(cx, cy, cz);
+            mark_far_region_dirty_for_chunk(cx, cy, cz, render_data->far_mesh_cache);
         }
         const int32_t dx = cx - last_player_chunk_x;
         const int32_t dy = cy - last_player_chunk_y;
@@ -73,7 +84,8 @@ bool MeshManager::has_pending_mesh_work() const {
     bool far_region_dirty = false;
     for (const auto& entry : far_regions) {
         const FarRegionRenderData& region = entry.second;
-        if (region.dirty || region.pending_builds.load(std::memory_order_relaxed) > 0) {
+        if (region.dirty || region.pending_builds.load(std::memory_order_relaxed) > 0 ||
+            region.pending_uploads > 0) {
             far_region_dirty = true;
             break;
         }
@@ -96,6 +108,22 @@ WorldRenderStats MeshManager::gather_render_stats() {
     if (!chunk_map) {
         return stats;
     }
+    RenderingServer* rs = RenderingServer::get_singleton();
+
+    // Active membership WITHOUT the target-detail check: a full-detail chunk
+    // can still be part of the previous region mesh during the debounced
+    // handoff. This is the predicate that tells whether the frame can be
+    // drawing that chunk twice.
+    std::unordered_set<uint64_t> visible_far_region_keys;
+    auto active_region_contains = [this](int32_t cx, int32_t cy, int32_t cz) -> bool {
+        const auto it = far_regions.find(get_far_region_key(cx, cy, cz));
+        if (it == far_regions.end() || !it->second.active) {
+            return false;
+        }
+        const uint64_t key = chunk_map->get_chunk_key(cx, cy, cz);
+        const auto& members = it->second.active_chunk_keys;
+        return std::find(members.begin(), members.end(), key) != members.end();
+    };
 
     chunk_map->for_each([&](uint64_t key, const std::unique_ptr<ChunkRenderData>& render_data) {
         int32_t cx, cy, cz;
@@ -127,6 +155,45 @@ WorldRenderStats MeshManager::gather_render_stats() {
             ++stats.chunks_with_geometry_but_no_instance;
         }
 
+        if (render_data->instance_visible) {
+            ++stats.visible_chunk_instances_actual;
+            const float uploaded = render_data->uploaded_detail_level;
+            if (uploaded >= 0.75f) {
+                ++stats.visible_chunk_full;
+            } else if (uploaded >= 0.375f) {
+                ++stats.visible_chunk_mid;
+            } else if (uploaded > 0.0f) {
+                ++stats.visible_chunk_far;
+            } else {
+                ++stats.visible_chunk_detail_unknown;
+            }
+            const bool region_covered = active_region_contains(cx, cy, cz);
+            if (region_covered) {
+                ++stats.visible_chunk_region_overlap;
+            }
+            if (uploaded > 0.0f && uploaded < 0.375f) {
+                visible_far_region_keys.insert(get_far_region_key(cx, cy, cz));
+                const auto region_it = far_regions.find(get_far_region_key(cx, cy, cz));
+                if (region_it == far_regions.end()) {
+                    ++stats.visible_far_no_region;
+                } else if (region_it->second.active) {
+                    if (!region_covered) {
+                        ++stats.visible_far_active_uncovered;
+                    }
+                } else if (region_it->second.pending_builds.load(std::memory_order_relaxed) > 0) {
+                    ++stats.visible_far_pending_region;
+                } else if (region_it->second.dirty) {
+                    ++stats.visible_far_debounced_region;
+                } else {
+                    ++stats.visible_far_inactive_region;
+                }
+            }
+            const float target = compute_chunk_detail_level(cx, cy, cz);
+            if (uploaded > 0.0f && std::fabs(uploaded - target) > 0.01f) {
+                ++stats.visible_chunk_detail_mismatch;
+            }
+        }
+
         if (render_data->mesh_rid.is_valid()) {
             ++stats.mesh_rids;
             ++stats.chunk_mesh_rids;
@@ -149,14 +216,32 @@ WorldRenderStats MeshManager::gather_render_stats() {
         if (region.mesh_rid.is_valid()) {
             ++stats.mesh_rids;
             ++stats.far_region_mesh_rids;
+            if (region.active && rs != nullptr && rs->mesh_get_surface_count(region.mesh_rid) == 0) {
+                ++stats.far_region_meshes_without_surfaces;
+            }
         }
         if (region.instance_rid.is_valid() && region.active) {
             ++stats.visible_instances;
             ++stats.far_region_instances;
             stats.active_region_member_chunks += static_cast<int32_t>(region.active_chunk_keys.size());
+            for (uint64_t member_key : region.active_chunk_keys) {
+                int32_t cx, cy, cz;
+                ChunkMap::decode_chunk_key(member_key, cx, cy, cz);
+                const float target = compute_chunk_detail_level(cx, cy, cz);
+                if (target >= 0.75f) {
+                    ++stats.region_member_full;
+                } else if (target >= 0.375f) {
+                    ++stats.region_member_mid;
+                } else if (target > 0.0f) {
+                    ++stats.region_member_far;
+                } else {
+                    ++stats.region_member_unknown;
+                }
+            }
         }
     }
 
+    stats.visible_far_region_keys = static_cast<int32_t>(visible_far_region_keys.size());
     stats.regions_partial_missing_cache = far_regions_partial_missing_cache_last;
     stats.liquid_geometry_repairs = liquid_geometry_repairs;
     stats.mesh_uploads = mesh_uploads;

@@ -1160,7 +1160,7 @@ Every file, with what it owns: [docs/ui.md](docs/ui.md).
   region, and on a standard attribute placed after a decl-specifier. Both compile on MSVC and
   are fatal on GCC/clang, which is exactly why the tree is compiled by something other than MSVC
   before it is accepted
-- **clang-tidy** — the static-analysis job's gate, over `find src -name '*.cpp'` (121 files)
+- **clang-tidy** — the static-analysis job's gate, over `find src -name '*.cpp'` (122 files)
   with `bugprone-*`, `concurrency-*` and `performance-*` minus the four documented exceptions
   (`.github/workflows/build.yml`: `bugprone-easily-swappable-parameters`,
   `bugprone-narrowing-conversions`, `clang-analyzer-optin.core.EnumCastOutOfRange`,

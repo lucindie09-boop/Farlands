@@ -409,6 +409,25 @@ it — are in [lod-modes.md](lod-modes.md).
   filter it replaced, including the `vert_range` smaller than the shell case, so the fast walk
   cannot silently disagree with the filter
 
+- **The per-chunk worker body is 2.25 ms, and a fifth of it was the edit-map probe.** Eight
+  `GenSliceTimer` slices (off unless `FARLANDS_GEN_PROFILE=1`, appended to the path profile's
+  line as `slices/chunk ...`) sum exactly to `work` over 20,230 chunks: **fast-path 0.50,
+  columns 0.38, light 0.38, edit 0.48, density 0.28, materials 0.23, vegetation 0.00, solid
+  0.00**. The edit slice was not parsing anything - a world with no saved edits still took
+  `file_access_mutex` and probed two paths per chunk. `ChunkWorld::has_edit_files_on_disk`
+  now lists `user://chunks/` once (cached, reset by `clear()`, forced to "some" by both edit
+  writers, and `.edit.bak` counts so a crash-recovery backup is never skipped), and
+  `load_edit_map_from_disk` probes existence before the lock, so a chunk with no file never
+  queues on the save lock. Same-world A/B, the real world copied into a scratch `APPDATA`
+  with the same `world.meta` and the 628 `.edit` files present or absent: **A1 (0) wall
+  7.19 s / load 3.91 s, B (628) 7.72 / 4.43, A2 (0) 7.22 / 3.68**; `edit` 0.00/0.16/0.00 ms,
+  `work` 1.86/2.06/1.87, `wait` 8.2/9.8/8.6 ms, `drain` 31/45/26 ms. The load is **0.5-0.75 s
+  faster with no edit files**, more than 0.16 ms x 20,230 / 15 workers ~ 0.22 s of worker
+  time: the per-chunk use of the global file lock was also in the way of saves and the drain.
+  The dev world itself has 628 edit files, so it takes the "found" branch; the zero-edit
+  branch was verified with a scratch user dir (`gen edit scan: saved edit files none`), a
+  line `run_probe_shot.sh`'s stdout grep hides from the log unless the filter is widened.
+
 ## The frustum generation pass was replaced
 
 - **The frustum generation pass was REPLACED by the generation chain — the priority is "spread

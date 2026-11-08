@@ -56,6 +56,9 @@ var tail_queue_samples := 0
 var queue_at_load := -1
 var builds_at_load := 0
 var rejects_at_load := 0
+var rebuild_budget_at_load := 0
+var stops_view_at_load := 0
+var stops_backlog_at_load := 0
 
 func _initialize() -> void:
 	_run()
@@ -187,6 +190,18 @@ func _print_fill_phases(wall_s: float, load_s: float, light_report: String) -> v
 		_light_ms(light_report, "hold total=") / 1000.0,
 		_light_ms(light_report, "wait total=") / 1000.0])
 
+func _unpack_stops(packed: int) -> Array:
+	return [(packed >> 48) & 0xFFF, (packed >> 36) & 0xFFF, (packed >> 24) & 0xFFF,
+		(packed >> 12) & 0xFFF, packed & 0xFFF]
+
+func _stops_line(tag: String, now: int, at_load: int) -> void:
+	var a: Array = _unpack_stops(now)
+	var b: Array = _unpack_stops(at_load)
+	print("PROBE fill stops %s budget=%d done=%d popcap=%d empty=%d zero=%d tail_budget=%d tail_done=%d tail_popcap=%d tail_empty=%d tail_zero=%d" % [
+		tag, a[0], a[1], a[2], a[3], a[4],
+		int(a[0]) - int(b[0]), int(a[1]) - int(b[1]), int(a[2]) - int(b[2]),
+		int(a[3]) - int(b[3]), int(a[4]) - int(b[4])])
+
 func _run() -> void:
 	var scene: PackedScene = load("res://main.tscn")
 	if scene == null:
@@ -309,6 +324,9 @@ func _run() -> void:
 			queue_at_load = queue_depth
 			builds_at_load = queue_builds
 			rejects_at_load = queue_rejects
+			rebuild_budget_at_load = int(cm.call("get_mesh_rebuild_budget"))
+			stops_view_at_load = int(cm.call("get_mesh_queue_stop_counts_view"))
+			stops_backlog_at_load = int(cm.call("get_mesh_queue_stop_counts_backlog"))
 			last_loaded = loaded
 
 		if loaded_at >= 0.0 and mesh_at < 0.0:
@@ -361,10 +379,13 @@ func _run() -> void:
 	if tail_queue_samples > 0:
 		print("PROBE fill tail queue depth avg=%.1f max=%d at_load=%d samples=%d" % [
 			tail_queue_sum / float(tail_queue_samples), tail_queue_max, queue_at_load, tail_queue_samples])
+	_stops_line("view", int(cm.call("get_mesh_queue_stop_counts_view")), stops_view_at_load)
+	_stops_line("backlog", int(cm.call("get_mesh_queue_stop_counts_backlog")), stops_backlog_at_load)
 	var builds_end := int(cm.call("get_mesh_queue_builds"))
 	var rejects_end := int(cm.call("get_mesh_queue_rejects"))
-	print("PROBE fill queue drain builds=%d rejects=%d tail_builds=%d tail_rejects=%d" % [
-		builds_end, rejects_end, builds_end - builds_at_load, rejects_end - rejects_at_load])
+	print("PROBE fill queue drain builds=%d rejects=%d tail_builds=%d tail_rejects=%d rebuild_budget_at_load=%d rebuild_budget_end=%d" % [
+		builds_end, rejects_end, builds_end - builds_at_load, rejects_end - rejects_at_load,
+		rebuild_budget_at_load, int(cm.call("get_mesh_rebuild_budget"))])
 	var g: Dictionary = cm.get_generation_stats()
 	var gen_frames := int(g.get("frames", 0))
 	var gen_checks := int(g.get("checks", 0))

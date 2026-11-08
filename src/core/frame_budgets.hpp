@@ -13,6 +13,18 @@ struct FrameBudgets {
     int32_t mesh_rebuilds_immediate = 4;
     int32_t mesh_rebuilds_idle = 4;
     int32_t mesh_rebuilds_active = 8;
+    // The tail's cap, paired with mesh_queue_loading_budget_ms below. In the tail
+    // the visible heap is empty and every build comes from the backlog drain,
+    // which stopped on this cap in 40% of tail frames and on the 2 ms clock in
+    // 48%, so raising either alone just hands the stop to the other. Raising both
+    // together (128 and 4.0 ms) was measured and lost: tail 3.56/3.84 s against
+    // 3.28/3.30 and wall 7.99/8.36 against 7.68/7.81, with fewer builds a frame
+    // (6.6 against 11.9) over more tail frames (695 against 446). The stop
+    // counters said why: the drains were handing entries to each other through
+    // the stale-revision re-route, so both reported "empty" while thousands
+    // were still queued and the ceiling only moved the stop. That re-route is
+    // fixed now (each entry finishes in its own heap) and the fill was neutral,
+    // so the ceiling is left alone.
     int32_t mesh_rebuilds_loading = 64;
     int32_t mesh_uploads_idle = 2;
     int32_t mesh_uploads_active = 32;
@@ -34,11 +46,13 @@ struct FrameBudgets {
     // play. The 0.35 ms budget is a border-smoothness budget; with it the 64
     // loading rebuilds below can only schedule a handful, which is why the
     // far/mesh tail outlived the chunk load by five seconds.
-    // 2.0 -> 4.0 measured and reverted: the tail ran 4.05/3.78 s against 3.55 s
-    // and wall 8.25/8.22 against 8.05, because the call never spends its 2 ms -
-    // it ends on the pop cap. Stamping entries to drop unchanged ones fired 52
-    // times in 24,600 pops, so the cost was not stale work either. 91% of the
-    // phase was the buried test's worldgen probes; those are memoised now.
+    // 2.0 kept. Alone, 4.0 lost (tail 4.05/3.78 s against 3.55) because the
+    // drain kept stopping on the 64-rebuild cap; paired with a 128 cap it lost
+    // too (3.56/3.84 against 3.28/3.30) because the heaps then empty into each
+    // other and stop early - see mesh_rebuilds_loading. Stamped entries to drop
+    // unchanged ones fired 52 times in 24,600 pops, so the cost was not stale
+    // work either; 91% of the phase was the buried test's worldgen probes, now
+    // memoised.
     double mesh_queue_loading_budget_ms = 2.0;
     // The generation ring walk used to run to its full count/check budget; on
     // a crossing that was 3.15 ms in one frame. Enqueueing is main-thread work,

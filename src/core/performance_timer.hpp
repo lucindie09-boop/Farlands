@@ -19,6 +19,16 @@ namespace VoxelEngine {
     X(FlushDirty) \
     X(FarRegionVisibility) \
     X(DirtyMeshQueue) \
+    X(MeshQueueChunks) \
+    X(MeshQueueFar) \
+    X(MeshPopCallback) \
+    X(MeshPopDetail) \
+    X(MeshPopFarMark) \
+    X(MeshPopLookup) \
+    X(MeshPopConstruct) \
+    X(MeshPopEarly) \
+    X(MeshPopBuried) \
+    X(MeshPopRequeue) \
     X(ProcessCompleted) \
     X(BuildMesh) \
     X(MeshArrayAlloc) \

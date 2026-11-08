@@ -148,7 +148,7 @@ template<typename RebuildCallback>
 
             int32_t cx, cy, cz;
             ChunkMap::decode_chunk_key(key, cx, cy, cz);
-            rebuild_callback(cx, cy, cz);
+            if (rebuild_callback(cx, cy, cz)) ++builds_; else ++rejects_;
             immediate_processed++;
         }
         total_processed += immediate_processed;
@@ -185,6 +185,8 @@ template<typename RebuildCallback>
     }
 
     [[nodiscard]] size_t size() const { return dirty_mesh_queue.size() + backlog_queue.size(); }
+    [[nodiscard]] int64_t builds() const { return builds_; }
+    [[nodiscard]] int64_t rejects() const { return rejects_; }
     [[nodiscard]] size_t immediate_size() const { return immediate_dirty_mesh_queue.size(); }
 
 private:
@@ -239,6 +241,9 @@ private:
             ChunkMap::decode_chunk_key(entry.key, cx, cy, cz);
             if (rebuild_callback(cx, cy, cz)) {
                 ++done;
+                ++builds_;
+            } else {
+                ++rejects_;
             }
         }
         return done;
@@ -256,6 +261,8 @@ private:
     int32_t player_chunk_z_ = INT32_MIN;
     const Frustum* frustum_ = nullptr;
     uint32_t priority_revision_ = 0;
+    int64_t builds_ = 0;
+    int64_t rejects_ = 0;
 };
 
 } // namespace VoxelEngine

@@ -1,5 +1,6 @@
 ﻿#include "mesh/mesh_manager_internal.hpp"
 #include "mesh/lod_shell.hpp"
+#include "core/performance_timer.hpp"
 
 #include <godot_cpp/classes/rendering_server.hpp>
 #include <godot_cpp/classes/node3d.hpp>
@@ -311,6 +312,8 @@ void MeshManager::process_queue(int32_t max_immediate, int32_t max_rebuilds, dou
     int32_t pcx = last_player_chunk_x;
     int32_t pcz = last_player_chunk_z;
     const auto queue_start = std::chrono::steady_clock::now();
+    {
+    ScopedTimer chunk_timer(*perf_timer, TimerID::MeshQueueChunks);
     mesh_queue.process(
         [this, mesh_rd_sq, pcx, pcz](int32_t cx, int32_t cy, int32_t cz) -> bool {
             int32_t dx = cx - pcx;
@@ -326,12 +329,13 @@ void MeshManager::process_queue(int32_t max_immediate, int32_t max_rebuilds, dou
         chunk_budget,
         budget_ms
     );
+    }
     // The chunk queue owns the same budget as the far-region scheduler; give the
     // scheduler only what the chunk pass did not spend. One shared ceiling is the
     // difference between a 0.35 ms phase and two 0.75 ms phases in a row.
     const double queue_ms = std::chrono::duration<double, std::milli>(
         std::chrono::steady_clock::now() - queue_start).count();
-    process_far_region_queue(far_region_budget, std::max(0.0, budget_ms - queue_ms));
+    { ScopedTimer far_timer(*perf_timer, TimerID::MeshQueueFar); process_far_region_queue(far_region_budget, std::max(0.0, budget_ms - queue_ms)); }
 }
 
 // ---------------------------------------------------------------------------

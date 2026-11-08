@@ -98,6 +98,8 @@ public:
     // still alive, so a worker can never wake up against a dead singleton.
     void shutdown_region_uploads();
     size_t size() const { return mesh_queue.size(); }
+    int64_t queue_builds() const { return mesh_queue.builds(); }
+    int64_t queue_rejects() const { return mesh_queue.rejects(); }
     bool erase_urgent(uint64_t key) { return mesh_queue.erase_urgent(key); }
 
     void set_smooth_lighting(bool enabled) { smooth_lighting_enabled = enabled; }
@@ -112,6 +114,9 @@ public:
     // the void. Set by the engine controller; may be null.
     void set_chunk_would_be_solid_fn(std::function<bool(int32_t, int32_t, int32_t)> fn) {
         chunk_would_be_solid_fn_ = std::move(fn);
+        // A new predicate means a new world (or a new seed): every memoised
+        // answer was for the old one.
+        solid_probe_cache_.clear();
     }
 
     void set_lod_distance(int32_t d) { lod_distance = d; }
@@ -302,6 +307,15 @@ private:
     float compute_chunk_detail_level(int32_t cx, int32_t cy, int32_t cz) const;
 
     std::function<bool(int32_t, int32_t, int32_t)> chunk_would_be_solid_fn_;
+    // Memo for chunk_would_be_solid_fn_. The predicate is deterministic for a
+    // world seed and is asked the same frontier coordinates over and over as the
+    // world streams in; one sample cost ~25 us on the main thread and the probes
+    // were 91% of the mesh queue's time (1.07 s of 1.18 s in the fill probe).
+    // Main-thread only: read and written by the queue drain. Reaching the limit
+    // drops everything rather than tracking recency, because a re-probe is
+    // merely slower, never wrong.
+    std::unordered_map<uint64_t, uint8_t> solid_probe_cache_;
+    static constexpr size_t kSolidProbeCacheLimit = 8192;
 };
 
 } // namespace VoxelEngine

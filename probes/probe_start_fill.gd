@@ -33,6 +33,10 @@ var sampled_frames := 0
 var skip_next_frame := false
 var phase_ms := {}
 var phase_count := {}
+# The same totals as they stood when the chunk load settled, so the tail (load ->
+# mesh/far done) can be read on its own instead of being diluted by the load.
+var phase_ms_at_load := {}
+var phase_count_at_load := {}
 var inflight_sum := 0.0
 var inflight_max := 0
 var completed_sum := 0.0
@@ -44,6 +48,14 @@ var dirty_stage_sum := 0.0
 var dirty_stage_max := 0
 var inflight_samples := 0
 var sweep_at_load := {}
+# Dirty chunk-queue depth during the mesh tail, and at the moment the chunk
+# load settled: decides whether the tail drains a backlog or waits for arrivals.
+var tail_queue_sum := 0.0
+var tail_queue_max := 0
+var tail_queue_samples := 0
+var queue_at_load := -1
+var builds_at_load := 0
+var rejects_at_load := 0
 
 func _initialize() -> void:
 	_run()
@@ -145,9 +157,13 @@ func _print_sweep_at_load(g: Dictionary, load_s: float) -> void:
 		float(g.get("max_ms", 0.0)), load_s])
 
 func _print_fill_phases(wall_s: float, load_s: float, light_report: String) -> void:
-	print("PROBE fill phases wall=%.2fs load=%.2fs" % [wall_s, load_s])
+	print("PROBE fill phases wall=%.2fs load=%.2fs tail=%.2fs" % [wall_s, load_s, wall_s - load_s])
 	for label in ["generate_chunk", "process_completed_chunks", "build_mesh",
-			"process_completed_meshes", "dirty_mesh_queue", "chunk_load_unload",
+			"process_completed_meshes", "dirty_mesh_queue", "mesh_queue_chunks",
+			"mesh_queue_far", "mesh_pop_callback", "mesh_pop_detail", "mesh_pop_far",
+			"mesh_pop_lookup", "mesh_pop_construct", "mesh_pop_early", "mesh_pop_buried",
+			"mesh_pop_requeue",
+			"chunk_load_unload",
 			"far_region_visibility", "mesh_reprioritize", "process_total"]:
 		var total_ms := float(phase_ms.get(label, 0.0))
 		var count := int(phase_count.get(label, 0))
@@ -161,6 +177,12 @@ func _print_fill_phases(wall_s: float, load_s: float, light_report: String) -> v
 			var share := 100.0 * total_ms / (wall_s * 1000.0) if wall_s > 0.0 else 0.0
 			print("PROBE fill phase %s total=%.2fs count=%d avg=%.2fms share=%.1f%%" % [
 				label, total_ms / 1000.0, count, each, share])
+		var tail_total := total_ms - float(phase_ms_at_load.get(label, 0.0))
+		var tail_count := count - int(phase_count_at_load.get(label, 0))
+		var tail_each := tail_total / float(tail_count) if tail_count > 0 else 0.0
+		var tail_share := 100.0 * tail_total / ((wall_s - load_s) * 1000.0) if wall_s > load_s else 0.0
+		print("PROBE fill tail phase %s total=%.2fs count=%d avg=%.2fms share=%.1f%%" % [
+			label, tail_total / 1000.0, tail_count, tail_each, tail_share])
 	print("PROBE fill phase light hold=%.2fs wait=%.2fs" % [
 		_light_ms(light_report, "hold total=") / 1000.0,
 		_light_ms(light_report, "wait total=") / 1000.0])
@@ -267,17 +289,32 @@ func _run() -> void:
 		var region_empty := _value(last_report, "Region empty:")
 		var active_uncovered := _far_uncovered(last_report)
 		var pending_mesh := bool(cm.call("has_pending_mesh_work"))
+		var queue_depth := int(cm.call("get_pending_chunk_mesh_count"))
+		var queue_builds := int(cm.call("get_mesh_queue_builds"))
+		var queue_rejects := int(cm.call("get_mesh_queue_rejects"))
 
-		if loaded != last_loaded or generating > 0 or completed > 0:
+		# Settle on the counts alone: a fast idle frame rate (this probe can run at
+		# 1,000 fps headless) makes the old "loaded changed" reset fire every
+		# sample, because last_loaded only advanced once the latch was set.
+		var load_quiet := loaded >= 500 and generating == 0 and completed == 0
+		if not load_quiet:
 			stable_since = elapsed
-		if loaded_at < 0.0 and loaded >= 500 and generating == 0 and completed == 0 \
-				and elapsed - stable_since >= LOADED_STABLE_SECS:
+		if loaded_at < 0.0 and load_quiet and elapsed - stable_since >= LOADED_STABLE_SECS:
 			loaded_at = elapsed
 			# The counters at settle are the load window; the session totals at
 			# the end also include the mesh/far tail and the idle frames.
 			sweep_at_load = cm.get_generation_stats()
-		last_loaded = loaded
+			phase_ms_at_load = phase_ms.duplicate(true)
+			phase_count_at_load = phase_count.duplicate(true)
+			queue_at_load = queue_depth
+			builds_at_load = queue_builds
+			rejects_at_load = queue_rejects
+			last_loaded = loaded
 
+		if loaded_at >= 0.0 and mesh_at < 0.0:
+			tail_queue_sum += float(queue_depth)
+			tail_queue_max = maxi(tail_queue_max, queue_depth)
+			tail_queue_samples += 1
 		if mesh_at < 0.0 and loaded_at >= 0.0 and not pending_mesh:
 			mesh_at = elapsed
 		if far_at < 0.0 and loaded_at >= 0.0 and not pending_mesh \
@@ -312,6 +349,22 @@ func _run() -> void:
 	if not sweep_at_load.is_empty():
 		_print_sweep_at_load(sweep_at_load, maxf(0.0, loaded_at - LOADED_STABLE_SECS))
 	_print_fill_phases(far_at, maxf(0.0, loaded_at - LOADED_STABLE_SECS), light_report)
+	var q_ms := float(phase_ms.get("mesh_queue_chunks", 0.0))
+	var cb_ms := float(phase_ms.get("mesh_pop_callback", 0.0))
+	print("PROBE fill pop split bookkeeping=%.2fs callback=%.2fs early=%.2fs lookup=%.2fs buried=%.2fs requeue=%.2fs construct=%.2fs" % [
+		(q_ms - cb_ms) / 1000.0, cb_ms / 1000.0,
+		float(phase_ms.get("mesh_pop_early", 0.0)) / 1000.0,
+		float(phase_ms.get("mesh_pop_lookup", 0.0)) / 1000.0,
+		float(phase_ms.get("mesh_pop_buried", 0.0)) / 1000.0,
+		float(phase_ms.get("mesh_pop_requeue", 0.0)) / 1000.0,
+		float(phase_ms.get("mesh_pop_construct", 0.0)) / 1000.0])
+	if tail_queue_samples > 0:
+		print("PROBE fill tail queue depth avg=%.1f max=%d at_load=%d samples=%d" % [
+			tail_queue_sum / float(tail_queue_samples), tail_queue_max, queue_at_load, tail_queue_samples])
+	var builds_end := int(cm.call("get_mesh_queue_builds"))
+	var rejects_end := int(cm.call("get_mesh_queue_rejects"))
+	print("PROBE fill queue drain builds=%d rejects=%d tail_builds=%d tail_rejects=%d" % [
+		builds_end, rejects_end, builds_end - builds_at_load, rejects_end - rejects_at_load])
 	var g: Dictionary = cm.get_generation_stats()
 	var gen_frames := int(g.get("frames", 0))
 	var gen_checks := int(g.get("checks", 0))

@@ -73,6 +73,10 @@ public:
     // wants to measure what the renderer draws has to wait for the world to stop
     // arriving, and a frame count is a guess at that.
     [[nodiscard]] bool has_pending_mesh_work() const { return mesh_manager.has_pending_mesh_work(); }
+    // Entries waiting in the dirty chunk queue (not far regions, not uploads).
+    [[nodiscard]] size_t pending_chunk_mesh_count() const { return mesh_manager.size(); }
+    [[nodiscard]] int64_t mesh_queue_builds() const { return mesh_manager.queue_builds(); }
+    [[nodiscard]] int64_t mesh_queue_rejects() const { return mesh_manager.queue_rejects(); }
 
     void set_block_world(int32_t world_x, int32_t world_y, int32_t world_z, int block_id);
     int  get_block_world(int32_t world_x, int32_t world_y, int32_t world_z);

@@ -34,6 +34,11 @@ struct FrameBudgets {
     // play. The 0.35 ms budget is a border-smoothness budget; with it the 64
     // loading rebuilds below can only schedule a handful, which is why the
     // far/mesh tail outlived the chunk load by five seconds.
+    // 2.0 -> 4.0 measured and reverted: the tail ran 4.05/3.78 s against 3.55 s
+    // and wall 8.25/8.22 against 8.05, because the call never spends its 2 ms -
+    // it ends on the pop cap. Stamping entries to drop unchanged ones fired 52
+    // times in 24,600 pops, so the cost was not stale work either. 91% of the
+    // phase was the buried test's worldgen probes; those are memoised now.
     double mesh_queue_loading_budget_ms = 2.0;
     // The generation ring walk used to run to its full count/check budget; on
     // a crossing that was 3.15 ms in one frame. Enqueueing is main-thread work,

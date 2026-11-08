@@ -287,10 +287,53 @@ bool ChunkWorld::world_metadata_exists() const {
     return FileAccess::file_exists(filename);
 }
 
+// A world with no saved edits should not pay for the question once per chunk.
+// The load path takes file_access_mutex - the same lock every chunk save takes -
+// and probes two paths, which measured 0.48 ms of a 2.25 ms worker body on the
+// RD 32 fill, all of it for files that do not exist. One directory listing per
+// world answers it for every chunk after it.
+//
+// `.edit.bak` counts as a hit: a crash between the atomic renames leaves the
+// backup as the only copy of the edits, and skipping the load would lose it.
+bool ChunkWorld::has_edit_files_on_disk() {
+    const uint8_t known = edit_scan_.load(std::memory_order_acquire);
+    if (known != 0) return known == 2;
+    std::lock_guard<std::mutex> lock(file_access_mutex);
+    const uint8_t again = edit_scan_.load(std::memory_order_relaxed);
+    if (again != 0) return again == 2;
+    bool found = false;
+    Ref<DirAccess> dir = DirAccess::open("user://chunks/");
+    if (dir.is_valid() && dir->list_dir_begin() == OK) {
+        for (String name = dir->get_next(); !name.is_empty(); name = dir->get_next()) {
+            if (dir->current_is_dir()) continue;
+            if (name.contains(".edit")) {
+                found = true;
+                break;
+            }
+        }
+        dir->list_dir_end();
+    }
+    edit_scan_.store(found ? 2 : 1, std::memory_order_release);
+    if (GenerationPathProfile::enabled()) {
+        print_line(vformat("gen edit scan: saved edit files %s", found ? "found" : "none"));
+    }
+    return found;
+}
+
 bool ChunkWorld::load_edit_map_from_disk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, EditMap& out_edit_map, const BlockRegistry& registry) {
     String save_dir = "user://chunks/";
     String filename = save_dir + "chunk_" + String::num_int64(chunk_x) + "_" + String::num_int64(chunk_y) + "_" + String::num_int64(chunk_z) + ".edit";
     String backup_filename = filename + ".bak";
+
+    // Probe for the file BEFORE taking the global file lock. Every generated
+    // chunk used to queue on file_access_mutex just to learn there is no edit
+    // file, and that lock is held across every chunk save: 15 workers on one
+    // mutex is the shape of the 0.48 ms this slice measured. Only a chunk that
+    // HAS edits needs the lock, and read_file re-checks under it, so a save that
+    // lands between probe and lock is still read correctly.
+    if (!FileAccess::file_exists(filename) && !FileAccess::file_exists(backup_filename)) {
+        return false;
+    }
 
     std::lock_guard<std::mutex> lock(file_access_mutex);
 

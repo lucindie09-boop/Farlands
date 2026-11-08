@@ -97,6 +97,9 @@ void ChunkWorld::clear() {
         std::lock_guard<std::mutex> lock(edit_maps_mutex);
         chunk_edit_maps.clear();
     }
+    // The next generation must ask the directory again: this world may be a
+    // different save with its own edits, or the same one with none left.
+    edit_scan_.store(0, std::memory_order_release);
     chunk_scheduler.clear();
     pending_chunk_installs.clear();
     pending_chunk_lighting.clear();
@@ -241,6 +244,9 @@ void ChunkWorld::add_block_edit(int32_t chunk_x, int32_t chunk_y, int32_t chunk_
         std::lock_guard<std::mutex> lock(edit_maps_mutex);
         chunk_edit_maps[key].set_block(local_x, local_y, local_z, block_id);
     }
+    // This chunk now has an edit that will be saved, so a later load of it must
+    // not be skipped by a scan from before the edit existed.
+    edit_scan_.store(2, std::memory_order_release);
     mark_chunk_dirty(chunk_x, chunk_y, chunk_z);
 
     // Outside the edit-map lock on purpose: the listener reads the chunk map,
@@ -275,6 +281,7 @@ void ChunkWorld::add_block_edits(int32_t chunk_x, int32_t chunk_y, int32_t chunk
 
     // Once for the chunk, not once per cell: a dirty mark takes its own lock, and a
     // bulk writer marks the chunks it touches dirty itself anyway.
+    edit_scan_.store(2, std::memory_order_release);
     mark_chunk_dirty(chunk_x, chunk_y, chunk_z);
 }
 

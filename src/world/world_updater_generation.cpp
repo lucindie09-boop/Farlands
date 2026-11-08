@@ -61,6 +61,9 @@ void WorldUpdater::update_generation(bool is_editor, int32_t active_render_dista
         dynamic_max_generations = std::clamp(static_cast<int32_t>(std::lround(rate)), 1,
                                              budgets.chunk_generations * 2);
     }
+    generation_stats.dynamic_max_last = static_cast<uint64_t>(dynamic_max_generations);
+    generation_stats.dynamic_max_max = std::max(generation_stats.dynamic_max_max,
+                                                static_cast<uint64_t>(dynamic_max_generations));
 
     // --- Admission control: cap the in-flight generation set -----------------
     // The pressure above only scales the per-frame generation budget, so the set

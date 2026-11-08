@@ -129,6 +129,8 @@ Dictionary ChunkManager::get_generation_stats() {
     out["stop_band"] = static_cast<int64_t>(stats.stop_band);
     out["stop_spent"] = static_cast<int64_t>(stats.stop_spent);
     out["stop_admission"] = static_cast<int64_t>(stats.stop_admission);
+    out["dynamic_max_generations"] = static_cast<int64_t>(stats.dynamic_max_last);
+    out["dynamic_max_generations_max"] = static_cast<int64_t>(stats.dynamic_max_max);
     out["chain_budget_stops"] = static_cast<int64_t>(stats.chain_budget_stops);
     out["chain_pending_max"] = static_cast<int64_t>(stats.chain_pending_max);
     out["urgent_pending_max"] = static_cast<int64_t>(stats.urgent_pending_max);

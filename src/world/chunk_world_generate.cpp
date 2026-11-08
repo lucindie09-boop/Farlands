@@ -3,6 +3,7 @@
 #include <memory>
 
 #include "worldgen/chunk_generator.hpp"
+#include "worldgen/generation_slice_profile.hpp"
 #include "core/edit_map.hpp"
 
 namespace VoxelEngine {
@@ -26,6 +27,7 @@ bool ChunkWorld::generate_chunk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_
         [this](uint64_t k) { return chunk_map.contains(k); },
         [this, params = params, biomes = biomes, veg_config = veg_config, key, path_id](int32_t cx, int32_t cy, int32_t cz, bool& loaded) {
             generation_path_profile_.started(path_id);
+            gen_slice_count_chunk();
             auto chunk_data = std::make_unique<ChunkData>();
             
             // Always generate - edit maps are applied as a diff on top
@@ -39,7 +41,12 @@ bool ChunkWorld::generate_chunk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_
             // fully-solid bookkeeping is shared and testable. Handled chunks
             // skip the lattice/density/material passes below. The member call
             // reuses this configured generator (no per-call construction).
-            if (generator.generate_fast_path(*chunk_data, cx, cy, cz)) {
+            bool handled_by_fast_path = false;
+            {
+                GenSliceTimer t(GenSlice::FastPath);
+                handled_by_fast_path = generator.generate_fast_path(*chunk_data, cx, cy, cz);
+            }
+            if (handled_by_fast_path) {
                 generation_path_profile_.finished(path_id);
                 return chunk_data;
             }
@@ -71,7 +78,8 @@ bool ChunkWorld::generate_chunk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_
                 std::lock_guard<std::mutex> lock(edit_maps_mutex);
                 edit_map_known = chunk_edit_maps.find(key) != chunk_edit_maps.end();
             }
-            if (!edit_map_known) {
+            if (!edit_map_known && has_edit_files_on_disk()) {
+                GenSliceTimer t(GenSlice::EditMap);
                 // Read and PARSE outside the map's mutex. This is a file read plus a
                 // deserialize, and holding `edit_maps_mutex` across it put one disk
                 // access in the way of every other chunk's generation: generation
@@ -89,13 +97,23 @@ bool ChunkWorld::generate_chunk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_
                     chunk_edit_maps.emplace(key, std::move(loaded));
                 }
             }
-            apply_edit_map_to_chunk(key, cx, cy, cz, *chunk_data);
-
-            chunk_data->propagate_sky_light(chunk_map.get_chunk_data(cx, cy + 1, cz));
-            if (chunk_data->get_emissive_count() > 0) {
-                chunk_data->propagate_light();
+            {
+                GenSliceTimer t(GenSlice::EditMap);
+                apply_edit_map_to_chunk(key, cx, cy, cz, *chunk_data);
             }
-            chunk_data->compute_fully_solid();            generation_path_profile_.finished(path_id);
+
+            {
+                GenSliceTimer t(GenSlice::Light);
+                chunk_data->propagate_sky_light(chunk_map.get_chunk_data(cx, cy + 1, cz));
+                if (chunk_data->get_emissive_count() > 0) {
+                    chunk_data->propagate_light();
+                }
+            }
+            {
+                GenSliceTimer t(GenSlice::Solid);
+                chunk_data->compute_fully_solid();
+            }
+            generation_path_profile_.finished(path_id);
             return chunk_data;
         },
         [this]() { return async_epoch.load(std::memory_order_acquire); }

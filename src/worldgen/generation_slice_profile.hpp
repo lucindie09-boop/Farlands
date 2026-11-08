@@ -19,8 +19,7 @@ namespace VoxelEngine {
 // slice is one relaxed atomic add per chunk and one clock read: eight reads
 // against a 3 ms body is noise, and a mutex here would be the profile's own cost.
 enum class GenSlice : int {
-    FastPath = 0,
-    Columns,
+    Columns = 0,
     Density,
     Materials,
     Vegetation,
@@ -86,9 +85,9 @@ private:
     char buf[512];
     std::snprintf(
         buf, sizeof(buf),
-        "slices/chunk fast=%.2f columns=%.2f density=%.2f materials=%.2f veget=%.2f "
+        "slices/chunk columns=%.2f density=%.2f materials=%.2f veget=%.2f "
         "edit=%.2f light=%.2f solid=%.2f chunks=%llu",
-        per_chunk_ms(GenSlice::FastPath), per_chunk_ms(GenSlice::Columns),
+        per_chunk_ms(GenSlice::Columns),
         per_chunk_ms(GenSlice::Density), per_chunk_ms(GenSlice::Materials),
         per_chunk_ms(GenSlice::Vegetation), per_chunk_ms(GenSlice::EditMap),
         per_chunk_ms(GenSlice::Light), per_chunk_ms(GenSlice::Solid),

@@ -298,9 +298,8 @@ void MeshManager::mark_chunks_dirty_for_light(int32_t center_cx, int32_t center_
 }
 
 void MeshManager::process_queue(int32_t max_immediate, int32_t max_rebuilds, double budget_ms) {
-    if (max_rebuilds <= 0) {
-        return;
-    }
+    last_rebuild_budget_ = max_rebuilds;
+    if (max_rebuilds <= 0) return;
     int32_t far_region_budget = max_rebuilds / kFarRegionBuildDivisor;
     if (max_rebuilds > 1) {
         far_region_budget = std::max(1, far_region_budget);

@@ -75,6 +75,11 @@ public:
     [[nodiscard]] bool has_pending_mesh_work() const { return mesh_manager.has_pending_mesh_work(); }
     // Entries waiting in the dirty chunk queue (not far regions, not uploads).
     [[nodiscard]] size_t pending_chunk_mesh_count() const { return mesh_manager.size(); }
+    [[nodiscard]] int32_t mesh_rebuild_budget() const { return mesh_manager.last_rebuild_budget(); }
+    [[nodiscard]] int64_t mesh_queue_stop_counts_view() const { return mesh_manager.queue_stop_counts_view(); }
+    [[nodiscard]] int64_t mesh_queue_stop_counts_backlog() const {
+        return mesh_manager.queue_stop_counts_backlog();
+    }
     [[nodiscard]] int64_t mesh_queue_builds() const { return mesh_manager.queue_builds(); }
     [[nodiscard]] int64_t mesh_queue_rejects() const { return mesh_manager.queue_rejects(); }
 

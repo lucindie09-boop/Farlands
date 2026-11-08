@@ -98,6 +98,9 @@ public:
     // still alive, so a worker can never wake up against a dead singleton.
     void shutdown_region_uploads();
     size_t size() const { return mesh_queue.size(); }
+    int32_t last_rebuild_budget() const { return last_rebuild_budget_; }
+    int64_t queue_stop_counts_view() const { return mesh_queue.stop_counts_view(); }
+    int64_t queue_stop_counts_backlog() const { return mesh_queue.stop_counts_backlog(); }
     int64_t queue_builds() const { return mesh_queue.builds(); }
     int64_t queue_rejects() const { return mesh_queue.rejects(); }
     bool erase_urgent(uint64_t key) { return mesh_queue.erase_urgent(key); }
@@ -316,6 +319,10 @@ private:
     // merely slower, never wrong.
     std::unordered_map<uint64_t, uint8_t> solid_probe_cache_;
     static constexpr size_t kSolidProbeCacheLimit = 8192;
+    // The rebuild cap the last process_queue() ran under (8 gameplay, 64 once
+    // the load settles). Exposed so the fill probe can tell a tail paced by the
+    // cap from one paced by the queue budget.
+    int32_t last_rebuild_budget_ = 0;
 };
 
 } // namespace VoxelEngine

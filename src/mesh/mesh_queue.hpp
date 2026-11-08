@@ -164,13 +164,15 @@ template<typename RebuildCallback>
         const int32_t view_budget = std::max(0, max_rebuilds - backlog_reserve);
 
         const int32_t view_done =
-            drain(dirty_mesh_queue, view_budget, pops, pop_cap, budget_ms, elapsed_ms, rebuild_callback);
+            drain(dirty_mesh_queue, view_budget, pops, pop_cap, budget_ms, elapsed_ms, rebuild_callback,
+                  stops_view_);
         // Whatever the view pass could not spend (an empty or thin visible set) is
         // handed to the backlog, so a frame with nothing visible to build still
         // drains a full budget instead of idling at the reserve.
         const int32_t backlog_budget = backlog_reserve + (view_budget - view_done);
         const int32_t backlog_done =
-            drain(backlog_queue, backlog_budget, pops, pop_cap, budget_ms, elapsed_ms, rebuild_callback);
+            drain(backlog_queue, backlog_budget, pops, pop_cap, budget_ms, elapsed_ms, rebuild_callback,
+                  stops_backlog_);
         total_processed += view_done + backlog_done;
 
         return total_processed;
@@ -185,6 +187,10 @@ template<typename RebuildCallback>
     }
 
     [[nodiscard]] size_t size() const { return dirty_mesh_queue.size() + backlog_queue.size(); }
+    // Stop reasons of each drain, five 12-bit counts packed as
+    // budget << 48 | done << 36 | pop cap << 24 | heap empty << 12 | zero budget.
+    [[nodiscard]] int64_t stop_counts_view() const { return pack_stops(stops_view_); }
+    [[nodiscard]] int64_t stop_counts_backlog() const { return pack_stops(stops_backlog_); }
     [[nodiscard]] int64_t builds() const { return builds_; }
     [[nodiscard]] int64_t rejects() const { return rejects_; }
     [[nodiscard]] size_t immediate_size() const { return immediate_dirty_mesh_queue.size(); }
@@ -192,6 +198,8 @@ template<typename RebuildCallback>
 private:
     using EntryHeap = std::priority_queue<DirtyChunkEntry, std::vector<DirtyChunkEntry>, std::greater<DirtyChunkEntry>>;
 
+    // Enqueue-time routing only: a pop's re-insert must stay in its own heap
+    // (see drain), or the two heaps ping-pong and the drain ends on emptiness.
     void push_entry(const DirtyChunkEntry& entry) {
         // Without a frustum there is no view to prioritise, so everything goes
         // into the distance-ordered heap and the whole budget drains it.
@@ -209,7 +217,8 @@ private:
     // view-first tier and the distance-ordered backlog as the player turns.
     template<typename ElapsedFn, typename RebuildCallback>
     int32_t drain(EntryHeap& heap, int32_t budget, int32_t& pops, int32_t pop_cap,
-                  double budget_ms, ElapsedFn&& elapsed_ms, RebuildCallback&& rebuild_callback) {
+                  double budget_ms, ElapsedFn&& elapsed_ms, RebuildCallback&& rebuild_callback,
+                  int32_t (&stops)[5]) {
         int32_t done = 0;
         while (done < budget && pops < pop_cap && !heap.empty()) {
             if (elapsed_ms() >= budget_ms) break;
@@ -228,7 +237,15 @@ private:
                 entry.urgent = entry.urgent || is_urgent(entry.key);
                 entry.in_frustum = frustum_ ? frustum_->is_chunk_visible(cx, cy, cz) : false;
                 entry.priority_revision = priority_revision_;
-                push_entry(entry);
+                // Re-insert into the heap this entry came from. push_entry()
+                // routes by the new in_frustum flag, and with that a
+                // reprioritise made the two drains hand entries back and forth:
+                // each heap emptied into the other, both then reported "empty"
+                // with thousands still queued, and a frame built a handful. The
+                // frustum decides the heap when an entry is enqueued; one that
+                // is already in a drain finishes in its own heap, a single pop
+                // later, carrying the new distance.
+                heap.push(entry);
                 continue;
             }
 
@@ -246,6 +263,14 @@ private:
                 ++rejects_;
             }
         }
+        // Why this drain stopped. A zero budget is its own reason: the backlog
+        // drain gets 0 whenever the view pass spent its whole share, and
+        // counting that as "done" made the previous numbers unreadable.
+        if (budget <= 0) ++stops[4];
+        else if (done >= budget) ++stops[1];
+        else if (pops >= pop_cap) ++stops[2];
+        else if (heap.empty()) ++stops[3];
+        else ++stops[0];
         return done;
     }
 
@@ -261,8 +286,15 @@ private:
     int32_t player_chunk_z_ = INT32_MIN;
     const Frustum* frustum_ = nullptr;
     uint32_t priority_revision_ = 0;
+    static int64_t pack_stops(const int32_t (&s)[5]) {
+        return (static_cast<int64_t>(s[0]) << 48) | (static_cast<int64_t>(s[1]) << 36) |
+               (static_cast<int64_t>(s[2]) << 24) | (static_cast<int64_t>(s[3]) << 12) |
+               static_cast<int64_t>(s[4]);
+    }
     int64_t builds_ = 0;
     int64_t rejects_ = 0;
+    int32_t stops_view_[5] = {0, 0, 0, 0, 0};
+    int32_t stops_backlog_[5] = {0, 0, 0, 0, 0};
 };
 
 } // namespace VoxelEngine

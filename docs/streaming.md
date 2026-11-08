@@ -351,6 +351,28 @@ it — are in [lod-modes.md](lod-modes.md).
   because `build_mesh` is 2.49 s of it, so the next lever is the builder, not the queue. About
   four probes in five still miss: the frontier asks mostly new coordinates, so a larger cache
   would buy memory, not hits.
+- **Raising the tail's rebuild cap and queue budget together lost, and the stop counters say why.**
+  In the tail the visible heap is empty in 96% of frames (everything in the frustum is already
+  meshed) and every build comes from the backlog drain, which stopped on the 2 ms clock in 48% of
+  tail frames and on the 64-rebuild cap in 40%, with the pop cap never firing. Raising both to
+  128 and 4.0 ms, after the load settled and with the load's own 8/0.35 ms budgets untouched, ran
+  the tail 3.56/3.84 s against 3.28/3.30 and the wall 7.99/8.36 against 7.68/7.81. It also
+  dispatched fewer builds a frame (6.6 against 11.9) over more tail frames (695 against 446):
+  with more room each drain empties its heap into the other through the stale-revision re-route
+  and then reports "empty" while thousands of entries are still queued, so the bigger ceiling
+  only changes where the drain stops. Reverted to 64 and 2.0 ms.
+- **The two heaps no longer hand entries to each other, and the fill did not move.** A pop whose
+  priority was stale was re-inserted through `push_entry`, which routes on `in_frustum`, so a
+  reprioritise made each drain empty its own heap into the other. At the raised ceilings that was
+  visible as 563-608 backlog-empty stops in a tail while ~3,800 entries were still queued and only
+  6.6 builds were dispatched a frame. Re-inserting into the heap the entry came from (the frustum
+  decides the heap at enqueue; an entry in a drain finishes in its own heap one pop later) removes
+  the exchange by construction, leaves the backlog's tail-empty stops at 111-117, and keeps all 53
+  mesh/lod/concurrency tests passing. The fill, however, is unchanged:
+  wall 7.76/8.22 s and tail 3.31/3.52 s against 7.68/7.81 and 3.28/3.30. The migration was costing
+  pops, and pops were not what the tail was short of; it still spends 75-78% of its time in
+  `build_mesh` and stops on the 2 ms clock and the 64-rebuild cap in roughly equal shares. Kept as
+  the structural fix, not as a speedup.
 - **A merged far-region mesh is published only after its upload finishes.** The build on the
   pool fills a fresh RID; the region keeps drawing its previous mesh and the instance is
   swapped only when the server reports at least one surface on the new RID. Publishing at dispatch is the

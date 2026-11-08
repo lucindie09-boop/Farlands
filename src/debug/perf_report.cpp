@@ -80,6 +80,11 @@ String PerfReport::build(
               " debounced=" + String::num_int64(render_stats.visible_far_debounced_region) + "\n";
     report += "  Chunk meshes:    " + String::num_int64(render_stats.chunk_mesh_rids) +
               "  Region meshes:    " + String::num_int64(render_stats.far_region_mesh_rids) + "\n";
+    // The buried test's six neighbour probes, by how they answered: a loaded
+    // chunk's flag, the predicate memo, or a fresh 25 us worldgen sample.
+    report += "  Solid probes:    " + String::num_int64(static_cast<int64_t>(render_stats.solid_probe_resident)) +
+              " resident " + String::num_int64(static_cast<int64_t>(render_stats.solid_probe_hits)) +
+              " hits " + String::num_int64(static_cast<int64_t>(render_stats.solid_probe_misses)) + " misses\n";
     // Its own line: a region published before its upload has no surface, draws
     // nothing, and hides the member chunks that cover it.
     report += "  Region empty:    " + String::num_int64(render_stats.far_region_meshes_without_surfaces) + "\n";
@@ -143,6 +148,10 @@ String PerfReport::build(
     phase_line("mesh_pop_construct: avg=", TimerID::MeshPopConstruct);
     phase_line("mesh_pop_early: avg=", TimerID::MeshPopEarly);
     phase_line("mesh_pop_buried: avg=", TimerID::MeshPopBuried);
+    phase_line("mesh_pop_buried_probes: avg=", TimerID::MeshPopBuriedProbes);
+    phase_line("mesh_pop_buried_frees: avg=", TimerID::MeshPopBuriedFrees);
+    phase_line("mesh_pop_buried_farmark: avg=", TimerID::MeshPopBuriedFarMark);
+    phase_line("mesh_pop_buried_rest: avg=", TimerID::MeshPopBuriedRest);
     phase_line("mesh_pop_requeue: avg=", TimerID::MeshPopRequeue);
     phase_line("process_completed_chunks: avg=", TimerID::ProcessCompletedChunks);
     phase_line("process_completed_meshes: avg=", TimerID::ProcessCompletedMeshes);

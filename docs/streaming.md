@@ -428,6 +428,100 @@ it — are in [lod-modes.md](lod-modes.md).
   branch was verified with a scratch user dir (`gen edit scan: saved edit files none`), a
   line `run_probe_shot.sh`'s stdout grep hides from the log unless the filter is widened.
 
+- **Half the band's top pad was air, and cutting it bought no fill time.** The band pads one
+  slice (32 blocks) on both sides of a column's surface estimate, and the install counters put
+  **3,181 of 3,209** above-top installs EMPTY: 15.7% of the 20,230 generations were chunks of
+  sky, while the only content that can sit above the estimate is a tree (5 trunk plus a canopy,
+  under 10 blocks). Splitting the pad - the bottom keeps 32, the top becomes 16, via a new
+  `top_pad` on `sweep::chunk_in_band`/`band_for_column` - removed exactly the predicted work:
+  candidates 20,230 -> 18,606, empty installs 7,640 -> 6,026, above-top 3,209 -> 1,585. The
+  fill did not move: wall 8.24/8.08/7.97 s against 7.49 for the same build, load
+  4.18/4.03/4.07 against 3.93, tail 4.06/4.05/3.90 against 3.56. The worker total says why:
+  19.46 s for 18,739 chunks became 19.74-21.07 s for 16,993-18,166, because the slices removed
+  are the uniform-air fast path - the cheapest generations in the fill, already running in the
+  workers' spare capacity (4.95 busy across the load's 4.0 s). The fill is paced by how long
+  the expensive chunks take, not by how many empty ones are in the list. Reverted; the
+  above-top install counters stay in the report.
+
+- **The light slice is 62% smaller and the fill is 0.7 s slower: the load is install-bound.**
+  The worker's initial sky scan walked all 32,768 cells even for the two uniform shapes the band
+  generates by the thousand - 3,209 chunks of air above the surface (15 in every cell) and 4,806
+  chunks of stone below it (0 from the column's first opaque block) - so `propagate_sky_light`
+  was changed to answer those two with one section fill (`fill_sky_light(15)`, and
+  `clear_sky_light()` for the solid shape, with the above chunk's first row deciding "open
+  sky"). The slice did exactly what it says: `light` **0.53/0.54 -> 0.20/0.21 ms a chunk**, the
+  worker body 1.81/1.87 -> 1.54-1.60 ms, **-13%**. The fill went the other way, consistently
+  over four runs: wall **8.48/8.80/8.83/9.11 s** against 7.81/8.30, load 4.43-4.82 against
+  4.22/4.25. The mechanism is the completion queue: `drain` (finished -> installed) doubled on
+  three of the four runs, **52 -> 81-105 ms**, because the workers now finish ahead of the main
+  thread's install budget. The load is bounded by install, not by generation, so freed worker
+  time becomes queue depth and the nearest-first drain pays for it. Reverted. This is the
+  measurement that says a cheaper generator cannot shorten this fill until the install path
+  can.
+
+- **The install path is 22 us a chunk, and it is not what the fill waits for.** The load window
+  (every phase counter snapshotted when the chunk set settled, printed as
+  `PROBE load phase ... per_install=`) puts `process_completed_chunks` at 0.69 ms of its 0.75 ms
+  clock a frame - **22.0 us an install**, 30-31 installs a frame - with the generation walk at
+  21.8 us an install and the whole updater at **1.42 s of the 4.75 s load**. That clock was at
+  96% of its budget, which is why the light-slice arm above lost: it was the ceiling the freed
+  worker time ran into. Raising it to 2.0 ms while more than 128 completions were queued did
+  absorb the faster workers - load **4.18/4.40 s** against the 4.43-4.82 the light cut alone
+  measured (baseline 4.25/4.22) - but the tail grew to **4.63/4.59 s** against 3.55/4.08, so the
+  wall was 8.81/8.99 against 7.81/8.30. The wall is load + tail and the tail is a fixed pile of
+  mesh builds drained at a fixed rate: generation finishing sooner only hands the tail more work
+  at the load boundary, so no cut upstream of the mesh drain moves it. Both halves reverted; the
+  load-window print stays as the instrument.
+
+- **The tail's builds are far-tier region sources, and what paces them is the buried test.** At
+  RD 32 the far tier starts at `far_lod_distance + 2`, so most of the 5-6k meshes the tail builds
+  are per-chunk sources for the 8x8 region meshes: already merged, with nothing left to merge,
+  and not the limit either - `build_mesh` is 70-89% of the tail on 0.6-0.8 of the pool's workers.
+  The paced work is the drain: ~34 pops in its 2 ms, ~11 of them constructing. 5.5k of the pops
+  are the buried test at **0.15 ms each**, 0.8 s of a 4.1 s tail spent deciding *not* to build.
+  That is not the solid-probe memo - raising its cap from 8k to 64k moved `mesh_pop_buried` not
+  at all (0.83/0.85 s), so the 25 us worldgen sample it guards is not what the pop pays. A 0.5 ms
+  floor for the far scheduler (the drain otherwise eats the whole shared ceiling) was the other
+  arm: also a no-op, because the far pass has no dirty region in the tail at all and spends
+  0.03 ms a frame, so its starvation is not what holds the tail open. Both reverted; the caps and
+  the budget are back where they were.
+
+- **The buried test is the six neighbour lookups, and nothing else in the branch.** `MeshPopBuried`
+  was split into probes / RID frees / far-cache mark / bookkeeping and measured over two fills:
+  the six `neighbor_solid` calls are **0.77/0.80 s of the branch's 0.77/0.80 s** (0.15 ms a pop,
+  5,064/5,310 pops), the two `free_rid`s are **0.00 s** over the 2,875/3,018 pops that reach them,
+  the bookkeeping is **0.00 s**, and the far-cache mark never runs at all (count 0 - no buried
+  chunk in the tail still holds a far cache). `ChunkData::fully_solid()` is a cached flag, so the
+  ~25 us a probe is the ungenerated-neighbour predicate (`chunk_would_be_fully_solid` ->
+  `get_chunk_height_range`), not the loaded-neighbour check. That the memo for exactly that
+  predicate moved nothing when raised from 8k to 64k means it is not capacity thrash: the next
+  instrument is a hit/miss count on the memo, not a bigger table. The four sub-timers stay (they
+  nest inside `MeshPopBuried`, so they sum rather than double-count).
+
+- **The probe memo is not thrashing - it is barely reachable.** Counting each resolution of the six
+  neighbour tests: **9,562** probes before the chunk set settled (174 a loaded chunk's cached flag,
+  781 memo hits, **8,607 misses**) and **30,707** by the end (860 resident, 3,757 hits, **26,090
+  misses**). That is about one fresh coordinate per loaded chunk: the frontier pops each boundary
+  chunk once and asks about neighbours outside the loaded band that will mostly never be
+  generated, so there is almost nothing for a memo to reuse and its 8k ceiling was never the
+  reason it missed (which is why 64k changed nothing). The ~25 us is one
+  `get_chunk_height_range` worldgen sample per new coordinate. Whatever cuts this has to sample
+  fewer coordinates - one column range answers both vertical probes and the horizontal pair lookups
+  ask distinct columns - not cache harder.
+
+- **One height sample per column instead of one per neighbour cut the tail by 0.7-1.2 s.** The
+  six probes around a pop span five columns, and 87% of them missed the chunk-keyed memo; the
+  column's lowest possible surface is already in `WorldUpdater`'s column cache (the sweep derives
+  it, a worker may have prefetched it), so `chunk_would_be_solid` now reads `land_h` from there and
+  calls `chunk_would_be_fully_solid_at_column` - the same rule minus the sample. Measured
+  same-session against the probe-count arm: wall **8.60/8.43 s** against 9.03/9.69, tail
+  **3.58/3.34 s** against 4.30/4.59, `mesh_pop_buried` **0.07/0.06 s** against 0.81/0.83 s (0.01 ms
+  a pop against 0.15), and `dirty_mesh_queue` **0.16/0.15 s** against 0.91/0.92. The load window is
+  unchanged (5.03/5.09 against 4.73/5.10): the probe now pays the cold sample for a column the
+  sweep had not asked for yet, which is the same work moved, not added. With the drain no longer
+  probe-bound the tail is worker-build-bound (`build_mesh` 3.55/3.62 s over a 3.3-3.6 s tail),
+  which is where the next arm points.
+
 ## The frustum generation pass was replaced
 
 - **The frustum generation pass was REPLACED by the generation chain — the priority is "spread

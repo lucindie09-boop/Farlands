@@ -28,6 +28,10 @@ namespace VoxelEngine {
     X(MeshPopConstruct) \
     X(MeshPopEarly) \
     X(MeshPopBuried) \
+    X(MeshPopBuriedProbes) \
+    X(MeshPopBuriedFrees) \
+    X(MeshPopBuriedFarMark) \
+    X(MeshPopBuriedRest) \
     X(MeshPopRequeue) \
     X(ProcessCompleted) \
     X(BuildMesh) \

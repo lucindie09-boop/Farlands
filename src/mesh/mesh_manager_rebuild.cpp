@@ -99,7 +99,10 @@ void MeshManager::rebuild_rendering_server_mesh(int32_t chunk_x, int32_t chunk_y
         // next to actual air (cliffs, excavations, world edges) keep
         // rendering their faces.
         const auto neighbor_solid = [this](ChunkRenderData* n, int32_t nx, int32_t ny, int32_t nz) {
-            if (n && n->data) return n->data->fully_solid();
+            if (n && n->data) {
+                ++solid_probe_resident_;
+                return n->data->fully_solid();
+            }
             if (!chunk_would_be_solid_fn_) return false;
             // The answer depends only on the world seed and the coordinate, and
             // the frontier asks for the same six coordinates for chunk after
@@ -107,29 +110,44 @@ void MeshManager::rebuild_rendering_server_mesh(int32_t chunk_x, int32_t chunk_y
             // probes were 1.07 s of the fill's 1.18 s mesh queue.
             const uint64_t nkey = chunk_map->get_chunk_key(nx, ny, nz);
             const auto cached = solid_probe_cache_.find(nkey);
-            if (cached != solid_probe_cache_.end()) return cached->second != 0;
+            if (cached != solid_probe_cache_.end()) {
+                ++solid_probe_hits_;
+                return cached->second != 0;
+            }
+            ++solid_probe_misses_;
             const bool solid = chunk_would_be_solid_fn_(nx, ny, nz);
             if (solid_probe_cache_.size() >= kSolidProbeCacheLimit) solid_probe_cache_.clear();
             solid_probe_cache_.emplace(nkey, solid ? uint8_t{1} : uint8_t{0});
             return solid;
         };
-        const bool buried =
-            neighbor_solid(d_x_neg, chunk_x - 1, chunk_y,     chunk_z) &&
-            neighbor_solid(d_x_pos, chunk_x + 1, chunk_y,     chunk_z) &&
-            neighbor_solid(d_y_pos, chunk_x,     chunk_y + 1, chunk_z) &&
-            neighbor_solid(d_z_neg, chunk_x,     chunk_y,     chunk_z - 1) &&
-            neighbor_solid(d_z_pos, chunk_x,     chunk_y,     chunk_z + 1) &&
-            (neighbor_solid(d_y_neg, chunk_x, chunk_y - 1, chunk_z) || chunk_y == 0);
+        // The four sub-timers split this branch's measured 0.15 ms a pop: the test
+        // that decides not to build is the drain's largest term, and 0.8 s of a
+        // 4.1 s tail sits here. They nest inside MeshPopBuried, so the parts sum to
+        // the whole rather than double-counting it.
+        bool buried = false;
+        {
+            ScopedTimer probes_timer(*perf_timer, TimerID::MeshPopBuriedProbes);
+            buried =
+                neighbor_solid(d_x_neg, chunk_x - 1, chunk_y,     chunk_z) &&
+                neighbor_solid(d_x_pos, chunk_x + 1, chunk_y,     chunk_z) &&
+                neighbor_solid(d_y_pos, chunk_x,     chunk_y + 1, chunk_z) &&
+                neighbor_solid(d_z_neg, chunk_x,     chunk_y,     chunk_z - 1) &&
+                neighbor_solid(d_z_pos, chunk_x,     chunk_y,     chunk_z + 1) &&
+                (neighbor_solid(d_y_neg, chunk_x, chunk_y - 1, chunk_z) || chunk_y == 0);
+        }
         if (buried) {
-            if (render_data->mesh_rid.is_valid()) {
-                RenderingServer* rs = RenderingServer::get_singleton();
-                rs->free_rid(render_data->mesh_rid);
-                render_data->mesh_rid = RID();
-            }
-            if (render_data->instance_rid.is_valid()) {
-                RenderingServer* rs = RenderingServer::get_singleton();
-                rs->free_rid(render_data->instance_rid);
-                render_data->instance_rid = RID();
+            {
+                ScopedTimer frees_timer(*perf_timer, TimerID::MeshPopBuriedFrees);
+                if (render_data->mesh_rid.is_valid()) {
+                    RenderingServer* rs = RenderingServer::get_singleton();
+                    rs->free_rid(render_data->mesh_rid);
+                    render_data->mesh_rid = RID();
+                }
+                if (render_data->instance_rid.is_valid()) {
+                    RenderingServer* rs = RenderingServer::get_singleton();
+                    rs->free_rid(render_data->instance_rid);
+                    render_data->instance_rid = RID();
+                }
             }
             // Drop stale LOD/far caches referencing this chunk so the detail
             // sweeps and far regions don't keep drawing the old box geometry.
@@ -138,22 +156,26 @@ void MeshManager::rebuild_rendering_server_mesh(int32_t chunk_x, int32_t chunk_y
             active_mid_detail_chunks_.erase(key);
             active_far_detail_chunks_.erase(key);
             if (render_data->far_mesh_cache) {
+                ScopedTimer mark_timer(*perf_timer, TimerID::MeshPopBuriedFarMark);
                 render_data->far_mesh_cache.reset();
                 { ScopedTimer far_timer(*perf_timer, TimerID::MeshPopFarMark);
                   mark_far_region_dirty_for_chunk(chunk_x, chunk_y, chunk_z, render_data->far_mesh_cache); }
             }
-            render_data->is_mesh_dirty = false;
-            render_data->dirty_subchunks = 0;
-            render_data->reset_dirty_bbox();
-            render_data->cached_quads.clear();
-            render_data->light_checksums = {};
-            render_data->uploaded_solid_vertices = 0;
-            render_data->uploaded_water_vertices = 0;
+            {
+                ScopedTimer rest_timer(*perf_timer, TimerID::MeshPopBuriedRest);
+                render_data->is_mesh_dirty = false;
+                render_data->dirty_subchunks = 0;
+                render_data->reset_dirty_bbox();
+                render_data->cached_quads.clear();
+                render_data->light_checksums = {};
+                render_data->uploaded_solid_vertices = 0;
+                render_data->uploaded_water_vertices = 0;
 
-            render_data->last_built_version = render_data->mesh_version;
-            ChunkRenderData* neighbors[6] = { d_x_neg, d_x_pos, d_y_neg, d_y_pos, d_z_neg, d_z_pos };
-            for (int i = 0; i < 6; ++i) {
-                render_data->last_built_neighbor_versions[i] = neighbors[i] ? neighbors[i]->mesh_version : 0;
+                render_data->last_built_version = render_data->mesh_version;
+                ChunkRenderData* neighbors[6] = { d_x_neg, d_x_pos, d_y_neg, d_y_pos, d_z_neg, d_z_pos };
+                for (int i = 0; i < 6; ++i) {
+                    render_data->last_built_neighbor_versions[i] = neighbors[i] ? neighbors[i]->mesh_version : 0;
+                }
             }
             return;
         }

@@ -112,6 +112,10 @@ bool MeshManager::has_pending_mesh_work() const {
 
 WorldRenderStats MeshManager::gather_render_stats() {
     WorldRenderStats stats;
+    // Independent of the chunk map: these are the drain's own counters.
+    stats.solid_probe_resident = solid_probe_resident_;
+    stats.solid_probe_hits = solid_probe_hits_;
+    stats.solid_probe_misses = solid_probe_misses_;
     if (!chunk_map) {
         return stats;
     }

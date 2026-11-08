@@ -108,15 +108,21 @@ TEST_CASE("an enqueue sets the filter and the worker's completion clears it") {
     CHECK(free_keys >= 32);
     CHECK(other != key);
 
-    // Released: the worker finishes, clears its bits, and the chunk lands.
-    gate.wait_released([&] { return !scheduler.may_be_generating(key); });
-    CHECK_FALSE(scheduler.may_be_generating(key));
+    // Released: the worker finishes and the chunk lands. Its claim, and the filter
+    // bits with it, outlive the worker on purpose -- the chunk is not resident until
+    // the main thread installs it, and a generation admitted in that window only
+    // produces a result the install discards. So the filter must still say "in
+    // flight" here, and the install's release is what clears it.
+    gate.released.store(true);
     CompletedChunk completed;
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
     while (!scheduler.poll_completed_chunk(completed) && std::chrono::steady_clock::now() < deadline) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     CHECK(completed.chunk_data != nullptr);
+    CHECK(scheduler.may_be_generating(key));
+    scheduler.release_claim(key);
+    CHECK_FALSE(scheduler.may_be_generating(key));
 }
 
 TEST_CASE("clear() empties the filter along with the in-flight set") {

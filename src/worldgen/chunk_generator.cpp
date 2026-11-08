@@ -132,6 +132,9 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
             }
         }
         chunk.set_data(above_terrain_buffer.data(), CHUNK_VOLUME);
+        // Light and fully_solid are the worker lambda's shared tail, which every
+        // branch that returns here reaches; the old pre-check had to do them
+        // itself only because it returned from the lambda.
         return;
     }
 

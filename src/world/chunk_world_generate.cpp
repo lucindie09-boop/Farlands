@@ -41,17 +41,11 @@ bool ChunkWorld::generate_chunk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_
             // fully-solid bookkeeping is shared and testable. Handled chunks
             // skip the lattice/density/material passes below. The member call
             // reuses this configured generator (no per-call construction).
-            bool handled_by_fast_path = false;
-            {
-                GenSliceTimer t(GenSlice::FastPath);
-                handled_by_fast_path = generator.generate_fast_path(*chunk_data, cx, cy, cz);
-            }
-            if (handled_by_fast_path) {
-                generation_path_profile_.finished(path_id);
-                return chunk_data;
-            }
-
-            // Surface chunk: generate normally
+            // The uniform-chunk classification lives inside generate_chunk now:
+            // the old pre-check rebuilt the climate, land-shape and amplification
+            // lattices from scratch, only for the writer to build them again from
+            // its own copy. Its light and fully-solid bookkeeping moved to the
+            // same branch, which already runs on the exact column heights.
             {
                 // Cross-chunk vegetation writes are deferred: the worker only pushes to
                 // vegetation queues (no shard locking). The main thread applies them

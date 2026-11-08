@@ -99,6 +99,9 @@ int32_t ChunkWorld::process_completed_chunks(uint64_t epoch, double budget_ms, i
                 // scope, so it is not a nested exclusive acquisition.
                 auto lock = chunk_map.lock_keys(keys);
                 if (!chunk_map.contains_fast(key)) continue;
+                uint64_t present[28];
+                int present_count = 0;
+                present[present_count++] = key;
 
                 if (light_propagated_chunks.find(key) != light_propagated_chunks.end()) {
                     continue;
@@ -121,6 +124,7 @@ int32_t ChunkWorld::process_completed_chunks(uint64_t epoch, double budget_ms, i
                         for (int dx = -1; dx <= 1; dx++) {
                             ChunkData* n = chunk_map.get_chunk_data_fast(stage.chunk_x + dx, stage.chunk_y + dy, stage.chunk_z + dz);
                             if (n == nullptr) continue;
+                            present[present_count++] = chunk_map.get_chunk_key(stage.chunk_x + dx, stage.chunk_y + dy, stage.chunk_z + dz);
                             if (n->get_emissive_count() > 0) any_emissive = true;
                             if (n->has_sky_shade()) any_sky_shade = true;
                         }
@@ -141,7 +145,7 @@ int32_t ChunkWorld::process_completed_chunks(uint64_t epoch, double budget_ms, i
                     int32_t cx = stage.chunk_x;
                     int32_t cy = stage.chunk_y;
                     int32_t cz = stage.chunk_z;
-                    thread_pool->fire_and_forget([this, cx, cy, cz, epoch, any_emissive, any_sky_shade]() {
+                    thread_pool->fire_and_forget([this, cx, cy, cz, epoch, any_emissive, any_sky_shade, present, present_count]() {
                         uint32_t modified = 0;
                         uint32_t source_count = 0;
                         uint64_t block_clear_ns = 0, block_collect_ns = 0, block_propagate_ns = 0;
@@ -153,24 +157,24 @@ int32_t ChunkWorld::process_completed_chunks(uint64_t epoch, double budget_ms, i
                         const bool profile = light_profile_.enabled();
                         const auto t_lock_start = std::chrono::steady_clock::now();
                         {
-                            uint64_t keys[27];
-                            int idx = 0;
-                            for (int dz = -1; dz <= 1; dz++)
-                                for (int dy = -1; dy <= 1; dy++)
-                                    for (int dx = -1; dx <= 1; dx++)
-                                        keys[idx++] = chunk_map.get_chunk_key(cx + dx, cy + dy, cz + dz);
-                            auto wlock = chunk_map.lock_keys_exclusive(keys);
+                            // Lock only what the gate found resident; the pass touches
+                            // nothing outside this grid, so an unlocked chunk is safe.
+                            std::vector<uint64_t> locked(present, present + present_count);
+                            auto wlock = chunk_map.lock_keys_exclusive(locked);
                             const auto t_acquired = std::chrono::steady_clock::now();
                             const auto t_block_start = std::chrono::steady_clock::now();
-                            if (any_emissive) {
-                                ChunkData* region_grid[3][3][3] = {};
-                                for (int dz = -1; dz <= 1; dz++) {
-                                    for (int dy = -1; dy <= 1; dy++) {
-                                        for (int dx = -1; dx <= 1; dx++) {
+                            ChunkData* region_grid[3][3][3] = {};
+                            for (int dz = -1; dz <= 1; dz++)
+                                for (int dy = -1; dy <= 1; dy++)
+                                    for (int dx = -1; dx <= 1; dx++) {
+                                        const uint64_t nk = chunk_map.get_chunk_key(cx + dx, cy + dy, cz + dz);
+                                        for (int i = 0; i < present_count; ++i) {
+                                            if (present[i] != nk) continue;
                                             region_grid[dx + 1][dy + 1][dz + 1] = chunk_map.get_chunk_data_fast(cx + dx, cy + dy, cz + dz);
+                                            break;
                                         }
                                     }
-                                }
+                            if (any_emissive) {
                                 BlockLightRegion light_region(region_grid);
                                 std::vector<EmissiveSource> sources;
                                 // Only what this arriving chunk's own blocks can reach: the
@@ -207,7 +211,7 @@ int32_t ChunkWorld::process_completed_chunks(uint64_t epoch, double budget_ms, i
                                 // chunk's own scan is the source of truth for its cells
                                 // and only its shade and its border planes can be beaten
                                 // by a neighbour, so an open chunk walks nothing.
-                                modified |= light_propagator->scatter_sky_light_region_locked(cx, cy, cz);
+                                modified |= light_propagator->scatter_sky_light_region_locked(cx, cy, cz, region_grid);
                             }
                             const auto t_end = std::chrono::steady_clock::now();
                             sky_ns = elapsed_ns(t_sky_start, t_end);
@@ -314,6 +318,9 @@ int32_t ChunkWorld::process_completed_chunks(uint64_t epoch, double budget_ms, i
                 if (chunk_scheduler.poll_completed_chunk(completed)) {
                     if (completed.chunk_data) {
                         pending_chunk_installs.push_back(std::move(completed));
+                    } else {
+                        chunk_scheduler.release_claim(chunk_map.get_chunk_key(
+                            completed.chunk_x, completed.chunk_y, completed.chunk_z));
                     }
                 }
             }
@@ -326,13 +333,15 @@ int32_t ChunkWorld::process_completed_chunks(uint64_t epoch, double budget_ms, i
             pending_chunk_installs.pop_front();
             installs_this_frame++;
 
-            if (completed.epoch != epoch) {
-                continue;
-            }
-
             uint64_t key = chunk_map.get_chunk_key(completed.chunk_x, completed.chunk_y, completed.chunk_z);
 
-            if (chunk_map.contains(key)) continue;
+            // Both drops release the generation claim: a finished chunk is not
+            // resident yet, so its key stays claimed until install (see
+            // ChunkScheduler::release_claim).
+            if (completed.epoch != epoch || chunk_map.contains(key)) {
+                chunk_scheduler.release_claim(key);
+                continue;
+            }
 
             // Read BEFORE the move below hands the data to the chunk: after it,
             // completed.chunk_data is null and this would be a null dereference.
@@ -341,6 +350,9 @@ int32_t ChunkWorld::process_completed_chunks(uint64_t epoch, double budget_ms, i
             auto render_data = std::make_unique<ChunkRenderData>();
             render_data->data = std::move(completed.chunk_data);
             render_data->is_mesh_dirty = true;
+            // Moved into the map, not copied: this pointer stays valid, so the
+            // neighbour fan-out needs neither the self shard nor a map lookup.
+            ChunkData* installed_data = render_data->data.get();
             // NOTE: mesh_rid and instance_rid are created lazily in MeshManager
             // when a chunk actually needs a visible mesh. This avoids creating
             // 83,000+ Godot resources for invisible chunks.
@@ -350,6 +362,8 @@ apply_vegetation_placements(key, completed.chunk_x, completed.chunk_y, completed
 
             chunk_map.insert(key, std::move(render_data));
             generation_path_profile_.installed(completed.path_id);
+            // Resident now: anything may generate it again.
+            chunk_scheduler.release_claim(key);
 
             // The generation chain seeds itself from installs: one listener call
             // per chunk, on this thread, AFTER the chunk is resident (so the
@@ -369,8 +383,7 @@ if (mesh_manager) {
     const int32_t ncx = completed.chunk_x;
     const int32_t ncy = completed.chunk_y;
     const int32_t ncz = completed.chunk_z;
-    uint64_t neighbor_keys[7] = {
-        key,
+    uint64_t neighbor_keys[6] = {
         chunk_map.get_chunk_key(ncx - 1, ncy,     ncz    ),
         chunk_map.get_chunk_key(ncx + 1, ncy,     ncz    ),
         chunk_map.get_chunk_key(ncx,     ncy - 1, ncz    ),
@@ -379,8 +392,7 @@ if (mesh_manager) {
         chunk_map.get_chunk_key(ncx,     ncy,     ncz + 1)
     };
     auto lock = chunk_map.lock_keys(neighbor_keys);
-    ChunkData* installed_chunk = chunk_map.get_chunk_data_fast(ncx, ncy, ncz);
-    if (installed_chunk) {
+    if (installed_data) {
         const int32_t kOff[6][3] = {
             {-1, 0, 0}, {1, 0, 0},
             {0,-1, 0}, {0, 1, 0},
@@ -394,7 +406,7 @@ if (mesh_manager) {
         for (int i = 0; i < 6; ++i) {
             ChunkData* neighbor = chunk_map.get_chunk_data_fast(
                 ncx + kOff[i][0], ncy + kOff[i][1], ncz + kOff[i][2]);
-            if (should_dirty_neighbor(neighbor, kDirs[i], installed_chunk)) {
+            if (should_dirty_neighbor(neighbor, kDirs[i], installed_data)) {
                 mesh_manager->queue_dirty_chunk_fast(
                     ncx + kOff[i][0], ncy + kOff[i][1], ncz + kOff[i][2]);
             }

@@ -355,7 +355,12 @@ uint32_t LightPropagator::scatter_sky_light_region(int32_t cx, int32_t cy, int32
                 for (int32_t dx = -1; dx <= 1; ++dx)
                     keys[idx++] = chunk_map->get_chunk_key(cx + dx, cy + dy, cz + dz);
         auto lock = chunk_map->lock_keys_exclusive(keys);
-        modified = scatter_sky_light_region_locked(cx, cy, cz);
+        ChunkData* region[3][3][3] = {};
+        for (int32_t dz = -1; dz <= 1; ++dz)
+            for (int32_t dy = -1; dy <= 1; ++dy)
+                for (int32_t dx = -1; dx <= 1; ++dx)
+                    region[dx + 1][dy + 1][dz + 1] = chunk_map->get_chunk_data_fast(cx + dx, cy + dy, cz + dz);
+        modified = scatter_sky_light_region_locked(cx, cy, cz, region);
     }
     if (mesh_manager != nullptr && modified != 0) {
         for (int32_t dz = -1; dz <= 1; ++dz)
@@ -367,8 +372,9 @@ uint32_t LightPropagator::scatter_sky_light_region(int32_t cx, int32_t cy, int32
     return modified;
 }
 
-uint32_t LightPropagator::scatter_sky_light_region_locked(int32_t cx, int32_t cy, int32_t cz) {
-    ChunkData* centre = chunk_map->get_chunk_data_fast(cx, cy, cz);
+uint32_t LightPropagator::scatter_sky_light_region_locked(int32_t cx, int32_t cy, int32_t cz,
+                                                          ChunkData* const region[3][3][3]) {
+    ChunkData* centre = region[1][1][1];
     if (!centre) return 0;
 
     SkyRegionGrid grid;
@@ -378,7 +384,7 @@ uint32_t LightPropagator::scatter_sky_light_region_locked(int32_t cx, int32_t cy
     for (int32_t dz = -1; dz <= 1; ++dz) {
         for (int32_t dy = -1; dy <= 1; ++dy) {
             for (int32_t dx = -1; dx <= 1; ++dx) {
-                grid.chunks[dx + 1][dy + 1][dz + 1] = chunk_map->get_chunk_data_fast(cx + dx, cy + dy, cz + dz);
+                grid.chunks[dx + 1][dy + 1][dz + 1] = region[dx + 1][dy + 1][dz + 1];
             }
         }
     }

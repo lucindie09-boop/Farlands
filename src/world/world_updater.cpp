@@ -80,6 +80,7 @@ void WorldUpdater::set_vegetation_enabled(bool enabled) {
 }
 
 void WorldUpdater::update(bool is_editor, uint64_t epoch, uint64_t& chunks_processed_total, double delta) {
+    last_frame_ms = delta * 1000.0;
     int32_t player_chunk_x = 0, player_chunk_y = 0, player_chunk_z = 0;
     chunk_world->get_chunk_map().get_chunk_coords(player_position, player_chunk_x, player_chunk_y, player_chunk_z);
 

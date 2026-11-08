@@ -329,6 +329,11 @@ private:
     int32_t last_player_chunk_y = INT32_MIN;
     int32_t last_player_chunk_z = INT32_MIN;
 
+    // The previous frame's wall time, in ms. The generation budget is a rate
+    // (see world_updater_generation.cpp), so it needs the frame it is admitting
+    // into; update() refreshes this before the generation half runs.
+    double last_frame_ms = 6.8;
+
     double dirty_flush_accumulator = 0.0;
 
     // Surface-aware generation: cached per-column content bounds, derived from

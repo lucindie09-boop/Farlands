@@ -21,6 +21,7 @@ public:
     void clear() {
         std::scoped_lock lock(generating_mutex, completed_mutex, completed_mesh_mutex, completed_light_mutex);
         generating_chunks.clear();
+        claimed_chunks.clear();
         for (auto& word : inflight_bits_) word.store(0, std::memory_order_relaxed);
         while (!completed_chunks.empty()) completed_chunks.pop();
         while (!completed_meshes.empty()) completed_meshes.pop_front();
@@ -52,11 +53,12 @@ public:
     //
     // Approximate by construction, and safe in exactly the direction that matters.
     // A false POSITIVE defers a chunk to the walk's next cycle — the bits are
-    // cleared when that generation finishes, and a bit shared with another
-    // in-flight chunk is cleared no later than that chunk landing. A false
-    // NEGATIVE only means the caller finds out the old way (enqueue_generation
-    // refuses it). Neither can lose a chunk: the walk re-offers every candidate on
-    // every cycle, so nothing is skipped permanently.
+    // cleared when the chunk is INSTALLED (or the result dropped), not when its
+    // worker finishes: between the two the chunk is not resident, and a caller that
+    // saw it as free there would generate it a second time only for the install to
+    // discard the copy. A false NEGATIVE only means the caller finds out the old
+    // way (enqueue_generation refuses it). Neither can lose a chunk: the walk
+    // re-offers every candidate on every cycle, so nothing is skipped permanently.
     static constexpr size_t kFilterBits = 1u << 16;   // 8 KB, several hundred in flight
     static constexpr size_t kFilterWords = kFilterBits / 64;
     static constexpr size_t kFilterProbes = 3;
@@ -81,10 +83,11 @@ public:
 
         {
             std::lock_guard<std::mutex> lock(generating_mutex);
-            if (is_already_loaded(chunk_key) || generating_chunks.find(chunk_key) != generating_chunks.end()) {
+            if (is_already_loaded(chunk_key) || claimed_chunks.find(chunk_key) != claimed_chunks.end()) {
                 return false;
             }
             generating_chunks.insert(chunk_key);
+            claimed_chunks.insert(chunk_key);
             filter_set(chunk_key);
         }
 
@@ -103,16 +106,22 @@ public:
             completed.chunk_data = std::move(chunk_data);
             completed.was_loaded_from_disk = loaded;
 
+            const bool epoch_ok = epoch == epoch_provider();
             {
                 std::lock_guard<std::mutex> lock(generating_mutex);
                 generating_chunks.erase(chunk_key);
-                // Cleared unconditionally, and BEFORE the epoch check below: a
-                // generation dropped for a stale epoch still has to stop claiming
-                // to be in flight, or the filter would defer that chunk forever.
-                filter_clear(chunk_key);
+                // The claim and its filter bits deliberately outlive the worker: the
+                // chunk is not resident until the main thread installs it, and a
+                // generation admitted in that window only produces a result the
+                // install discards. A stale epoch has no install coming, so it has
+                // to release here or the filter would defer that key forever.
+                if (!epoch_ok) {
+                    claimed_chunks.erase(chunk_key);
+                    filter_clear(chunk_key);
+                }
             }
 
-            if (epoch != epoch_provider()) {
+            if (!epoch_ok) {
                 return;
             }
 
@@ -225,6 +234,17 @@ public:
         return generating_chunks.size();
     }
 
+    // Drops the claim taken by enqueue_generation. The main thread calls this once
+    // the chunk is installed, or when it discards the result (stale epoch, already
+    // resident, no data). Until then a second enqueue is refused, which is what
+    // stops the chain from generating a chunk that is merely waiting in the
+    // completed queue.
+    void release_claim(uint64_t chunk_key) {
+        std::lock_guard<std::mutex> lock(generating_mutex);
+        claimed_chunks.erase(chunk_key);
+        filter_clear(chunk_key);
+    }
+
     // Lock-free count: uses atomic counter maintained by push/poll.
     // May be momentarily stale by ??1 ??? safe for the "is anything pending?" fast-path.
     [[nodiscard]] size_t completed_chunk_count() const noexcept {
@@ -283,7 +303,8 @@ private:
     }
 
     std::array<std::atomic<uint64_t>, kFilterWords> inflight_bits_{};
-    std::unordered_set<uint64_t> generating_chunks;
+    std::unordered_set<uint64_t> generating_chunks;   // a worker is on it
+    std::unordered_set<uint64_t> claimed_chunks;      // admitted until installed
     std::queue<CompletedChunk> completed_chunks;
     std::deque<CompletedMesh> completed_meshes;
     std::deque<CompletedMesh> completed_meshes_high_priority;

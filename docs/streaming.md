@@ -182,6 +182,80 @@ it — are in [lod-modes.md](lod-modes.md).
   5.04/5.30 s — the same work in larger, later arrivals, not more of it. So the two constants are
   not additive: the 180 cap is worth having *because* the budget at 2 keeps the set small enough
   for the gate to stay open.
+- **The generation claim now lasts until install, not until the worker finishes.** A finished
+  chunk waits 37–62 ms in the completed queue, and the in-flight claim (and its filter bits) used
+  to be cleared at the worker's handoff — so the chain generated 3,667 chunks in that window and
+  the install discarded each one as already resident (23,897 finished for 20,230 installed).
+  `ChunkScheduler::release_claim` now drops the claim on install or on any drop (stale epoch,
+  already resident, no data), and `generating_count()` deliberately still counts only
+  worker-held chunks so the admission cap behaves exactly as measured above. A fill now admits
+  exactly its 20,230 candidates (`admitted = finished = installed`, `pending = 0`) at 28.9/28.6
+  admits per frame instead of 32.5/30.3, in 700/706 frames instead of 735/790. The load barely
+  moved (5.04/4.98 s against 5.04/5.30) because the pool had those 3,667 generations' worth of
+  idle time to absorb: the removed work was real, but the load is paced by how many unique
+  chunks the per-frame budget admits, not by worker throughput.
+- **A feed-forward budget was tried and lost.** Replacing the pressure law with
+  `workers × frame / work-per-chunk × 0.9` — at 15 workers, a 6.8 ms frame and a 2.46 ms chunk,
+  about **39 admits a frame** — is the rate the pool could finish, but it is not the rate the
+  pipeline can *drain*: the set hit the 180 cap in **569/525** frames (admission stops 5 → 569/525),
+  the completed queue grew to **333/361** chunks per drain (drain 43 → 150/159 ms), admitted
+  throughput fell to **18/frame** (12.8 + 5.2) and the load ran **6.73/6.56 s** against 5.04/4.98.
+  The exit table shows the inversion — gen-cap stops fell 428 → 224, because the in-flight gate,
+  not the budget, now ended the frame. The pressure law was right by accident: 180 in flight at
+  ~43 ms drain sustains  ~29/frame, which is what it admitted. A rate above that only deepens the
+  queue, so the budget is paced by the install pass rather than the workers.
+  **Retested after the light band narrowed to the resident set, because the collapse had been
+  blamed on exactly that contention.** It is smaller and it is still a loss: load 6.13/5.50 s
+  against 4.75/4.51 at the pressure law's 29/frame, admission stops 363/286 against 16/4, drain
+  131/115 ms against 62/46, gen-cap stops 299/313 against 443/449. Band wait fell to 0.44/0.40 ms
+  per band (from 0.68/0.65 in the first arm), so the previous 6.73/6.56 s improved with it -- the
+  contention was real and worth a second or so. The rest is the completed queue: at 39 admissions
+  a frame a 180-deep in-flight set still hands the drain several hundred chunks at once, and the
+  drain's per-iteration cost rises with that depth whatever the bands cost. That arm was reverted
+  on its own; the next bullet is the same rate with a cap that keeps the queue shallow.
+- **The rate and the cap only work together.** The feed-forward rate was retried under a 6-per-worker
+  in-flight cap (90 in flight, half of 180). Load 4.44/4.46 s against 4.75/4.51 for the pressure
+  law at 180, wall 7.72/7.76 s against 8.29/8.32, drain 33/37 ms against 62/46, and per-chunk work
+  2.21/2.23 ms against 2.46 -- a shallow queue makes every drain iteration cheaper, which is the
+  cost the deep arm added. Admission stops rise to 251/271 because the in-flight gate is now what
+  ends a frame (gen-cap stops fall 443/449 -> 239/243), which is the intended shape: the cap paces
+  to the drain instead of the budget outrunning it. Both runs admit exactly 20,230 chunks
+  (`admitted = finished = installed`, `pending = 0`). Kept.
+- **The install pass now skips the work that is almost never there.** Each install used to take
+  three unconditional mutexes and one 7-shard band per chunk: `pending_block_placements`,,
+  `pending_vegetation_placements` and `pending_light_removals_` were locked and hash-probed even
+  when empty (and the vegetation one is pushed by every generation worker, so the install
+  contended with the pool), and the self+6-neighbour fan-out band included the chunk's own
+  shard. The three maps carry atomic entry counts that answer "nothing waiting" without the
+  mutex, and the fan-out reuses the pointer the install already holds, so it takes a 6-key band
+  and no self lookup. The fill moves only in the right direction rather than by seconds —
+  admission stops 14 -> 3 in the run after, drain 56 -> 47 ms, load 4.77 s in both — which is
+  the expected size: the drain is ~0.4 ms of a 6.9 ms frame. The budget is the pace, not this
+  pass.
+- **The drain is supply-bound, not budget-bound.** `process_completed_chunks` runs installs, light
+  results, lighting bands and dirty stages out of one wall-clock budget, and one install costs
+  several loop iterations (install -> lighting band -> dirty stage), so the obvious test is that
+  budget: doubling it for loading (0.75 -> 1.5 ms) left installs at 28.1/29.3 a frame and the
+  load at 5.04/4.78 s against 4.77 — no change. The loop stops when no completed chunk is
+  waiting at that instant, and the arrivals are paced by the generation budget above it. The
+  light-result wait is not the stopper either: the light stage runs ~13 bands a frame and a
+  result usually marks nothing (its `modified_mask` is empty over daylight terrain). The
+  feed-forward arm's collapse at 39 admissions was therefore not a missing drain budget — with
+  a 180-deep in-flight set every drain iteration competes with more worker light bands (27-shard
+  exclusive) and a deeper completed queue, so the same budget bought fewer installs (18 a frame).
+  Budget and contention are different problems, and the fill is bounded by neither at 29/frame.
+- **The light worker now locks only the chunks that exist, and the band wait halved.** 27 keys is
+  the floor for correctness (a diagonal neighbour is two steps from the centre chunk's corner and
+  light travels 15), but not every one of those chunks is resident. The install gate already walks
+  the 3x3x3; it now records which of them are present and hands the list to the worker, which
+  locks exactly those. Both passes run from the caller's grid and never the map:
+  `scatter_sky_light_region_locked` takes the `ChunkData*[3][3][3]` the worker built, so a chunk
+  installed between the gate and the band is simply absent from the grid -- it cannot be read or
+  written without its shard -- and its own stage covers the boundary from its side. Measured over
+  ~8,800 bands: lock wait 10.2/10.1 -> 4.6/5.2 s, 0.52/0.59 ms per band instead of 1.16; hold
+  unchanged at ~0.19 ms; the fill wall stayed flat at 8.29/8.32 s against 8.33/8.59 and load
+  4.51/4.75 s against 4.78. The band cost was real and is down by half; the wall is bound by
+  admission, so recovering worker time did not move it.
 - **The walk's second pass was the load's largest block of wasted checks, and it is gone.** The
   band is exact — `above`/`below`/`oob` rejects are 0 in every run — and fixed until the list is
   rebuilt, so once the cursor reaches the end, every in-band chunk of every column has been

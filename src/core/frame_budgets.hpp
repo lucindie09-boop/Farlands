@@ -74,12 +74,18 @@ struct FrameBudgets {
     // ~181 us each), and makes the walk burn its check budget on refusals. Capping
     // the set keeps the pipeline full — a worker is 1 ms of work, so a few dozen in
     // flight saturate 15 workers — without letting it grow into a backlog.
+    // 6 per worker (90 in flight) under the feed-forward rate above. The shallow
+    // cap is what makes the rate work: it keeps the completed queue short enough
+    // that every drain iteration stays cheap. RD 32 fill 4.44/4.46 s against
+    // 4.75/4.51 at 12 per worker under the pressure law, wall 7.72/7.76 s against
+    // 8.29/8.32, drain 33/37 ms against 62/46. The 12-per-worker numbers below are
+    // the historical comparison.
     // 12 per worker (180 in flight at 15 workers). At 8 the gate closed in ~12% of
     // an RD 32 load's frames and the load ran 6.41 s; at 12 it closed in ~1% and the
     // load ran 5.04/5.30 s, load frame 9.76 -> 8.23/7.93 ms, slow frames 80 -> 18/21.
     // The set still averages ~30 and peaks ~110, so this bounds the tail rather than
     // pre-loading the pool with thousands of chunks.
-    int32_t max_generating_in_flight_per_worker = 12;
+    int32_t max_generating_in_flight_per_worker = 6;
 
     double flush_interval = 5.0;
 };

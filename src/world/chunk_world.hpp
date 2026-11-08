@@ -211,6 +211,11 @@ private:
     std::unordered_map<uint64_t, std::vector<PendingBlockPlacement>> pending_block_placements;
     std::mutex pending_placement_mutex;
     std::unordered_map<uint64_t, std::vector<PendingBlockPlacement>> pending_vegetation_placements;
+    // Entry counts for the two maps above, so an install can skip their mutexes
+    // and hash lookups when nothing is waiting — the fill's normal state. Only
+    // over-counts (a prune leaves the count high), which costs a lock, never work.
+    std::atomic<size_t> pending_placement_count{0};
+    std::atomic<size_t> pending_vegetation_count{0};
     std::mutex vegetation_placement_mutex;
     // Chunks a caller asked for urgently, in request order (the deque is what
     // keeps the order; the set is what keeps the queue free of duplicates).

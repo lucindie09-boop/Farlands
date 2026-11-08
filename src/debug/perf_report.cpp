@@ -134,6 +134,16 @@ String PerfReport::build(
     phase_line("flush_dirty: avg=", TimerID::FlushDirty);
     phase_line("far_region_visibility: avg=", TimerID::FarRegionVisibility);
     phase_line("dirty_mesh_queue:  avg=", TimerID::DirtyMeshQueue);
+    phase_line("mesh_queue_chunks: avg=", TimerID::MeshQueueChunks);
+    phase_line("mesh_queue_far: avg=", TimerID::MeshQueueFar);
+    phase_line("mesh_pop_callback: avg=", TimerID::MeshPopCallback);
+    phase_line("mesh_pop_detail: avg=", TimerID::MeshPopDetail);
+    phase_line("mesh_pop_far: avg=", TimerID::MeshPopFarMark);
+    phase_line("mesh_pop_lookup: avg=", TimerID::MeshPopLookup);
+    phase_line("mesh_pop_construct: avg=", TimerID::MeshPopConstruct);
+    phase_line("mesh_pop_early: avg=", TimerID::MeshPopEarly);
+    phase_line("mesh_pop_buried: avg=", TimerID::MeshPopBuried);
+    phase_line("mesh_pop_requeue: avg=", TimerID::MeshPopRequeue);
     phase_line("process_completed_chunks: avg=", TimerID::ProcessCompletedChunks);
     phase_line("process_completed_meshes: avg=", TimerID::ProcessCompletedMeshes);
     phase_line("chunk_manager_process: avg=", TimerID::ChunkManagerProcess);

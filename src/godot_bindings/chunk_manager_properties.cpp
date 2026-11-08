@@ -111,6 +111,11 @@ void ChunkManager::set_world_horizon(bool enabled, double radius) {
 }
 
 bool ChunkManager::has_pending_mesh_work() const { return controller->has_pending_mesh_work(); }
+int32_t ChunkManager::get_pending_chunk_mesh_count() const {
+    return static_cast<int32_t>(controller->pending_chunk_mesh_count());
+}
+int64_t ChunkManager::get_mesh_queue_builds() const { return controller->mesh_queue_builds(); }
+int64_t ChunkManager::get_mesh_queue_rejects() const { return controller->mesh_queue_rejects(); }
 
 void ChunkManager::set_lod_distance(int32_t distance) { controller->set_lod_distance(distance); }
 int32_t ChunkManager::get_lod_distance() const { return controller->get_lod_distance(); }

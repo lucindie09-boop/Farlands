@@ -344,6 +344,9 @@ BIND_PROP(Variant::BOOL, smooth_lighting, "enabled");
     ClassDB::bind_method(D_METHOD("set_world_horizon", "enabled", "radius"),
                          &ChunkManager::set_world_horizon);
     ClassDB::bind_method(D_METHOD("has_pending_mesh_work"), &ChunkManager::has_pending_mesh_work);
+    ClassDB::bind_method(D_METHOD("get_pending_chunk_mesh_count"), &ChunkManager::get_pending_chunk_mesh_count);
+    ClassDB::bind_method(D_METHOD("get_mesh_queue_builds"), &ChunkManager::get_mesh_queue_builds);
+    ClassDB::bind_method(D_METHOD("get_mesh_queue_rejects"), &ChunkManager::get_mesh_queue_rejects);
     ClassDB::bind_method(D_METHOD("set_lod_distance", "distance"), &ChunkManager::set_lod_distance);
     ClassDB::bind_method(D_METHOD("get_lod_distance"), &ChunkManager::get_lod_distance);
     ADD_PROPERTY(PropertyInfo(Variant::INT, "lod_distance", PROPERTY_HINT_RANGE, "0,64,1"), "set_lod_distance", "get_lod_distance");

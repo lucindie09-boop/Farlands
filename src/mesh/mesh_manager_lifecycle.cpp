@@ -11,6 +11,9 @@ namespace VoxelEngine {
 using namespace godot;
 void MeshManager::clear() {
     mesh_queue.clear();
+    // The world (or its seed) is going away: the memoised "would be solid"
+    // answers described the old one.
+    solid_probe_cache_.clear();
     // Stop, drain and free in-flight region uploads while the RenderingServer
     // is still up. Without this, an upload finishing after the world reset
     // publishes into a region that no longer exists.

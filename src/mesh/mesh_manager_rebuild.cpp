@@ -1,4 +1,5 @@
 ﻿#include "mesh/mesh_manager_internal.hpp"
+#include "core/performance_timer.hpp"
 
 #include <godot_cpp/classes/rendering_server.hpp>
 
@@ -34,6 +35,8 @@ void MeshManager::rebuild_rendering_server_mesh(int32_t chunk_x, int32_t chunk_y
     bool needs_enqueue = false;
     bool own_version_changed = false;
     bool neighbor_version_changed = false;
+    {
+    ScopedTimer early_timer(*perf_timer, TimerID::MeshPopEarly);
     if (render_data->mesh_version != render_data->last_built_version) {
         needs_enqueue = true;
         own_version_changed = true;
@@ -54,6 +57,7 @@ void MeshManager::rebuild_rendering_server_mesh(int32_t chunk_x, int32_t chunk_y
         render_data->dirty_subchunks = 0;
         render_data->reset_dirty_bbox();
         return;
+    }
     }
 
     // Occlusion culling: skip mesh generation for completely invisible chunks
@@ -86,6 +90,7 @@ void MeshManager::rebuild_rendering_server_mesh(int32_t chunk_x, int32_t chunk_y
     }
 
     if (render_data->data && render_data->data->fully_solid()) {
+        ScopedTimer buried_timer(*perf_timer, TimerID::MeshPopBuried);
         // A missing neighbor is treated as opaque when it would itself be
         // entirely solid if generated (deep underground). That keeps fully
         // buried chunks from rendering box walls into the ungenerated void
@@ -95,7 +100,18 @@ void MeshManager::rebuild_rendering_server_mesh(int32_t chunk_x, int32_t chunk_y
         // rendering their faces.
         const auto neighbor_solid = [this](ChunkRenderData* n, int32_t nx, int32_t ny, int32_t nz) {
             if (n && n->data) return n->data->fully_solid();
-            return chunk_would_be_solid_fn_ && chunk_would_be_solid_fn_(nx, ny, nz);
+            if (!chunk_would_be_solid_fn_) return false;
+            // The answer depends only on the world seed and the coordinate, and
+            // the frontier asks for the same six coordinates for chunk after
+            // chunk. One sample measured ~25 us on the main thread, and these
+            // probes were 1.07 s of the fill's 1.18 s mesh queue.
+            const uint64_t nkey = chunk_map->get_chunk_key(nx, ny, nz);
+            const auto cached = solid_probe_cache_.find(nkey);
+            if (cached != solid_probe_cache_.end()) return cached->second != 0;
+            const bool solid = chunk_would_be_solid_fn_(nx, ny, nz);
+            if (solid_probe_cache_.size() >= kSolidProbeCacheLimit) solid_probe_cache_.clear();
+            solid_probe_cache_.emplace(nkey, solid ? uint8_t{1} : uint8_t{0});
+            return solid;
         };
         const bool buried =
             neighbor_solid(d_x_neg, chunk_x - 1, chunk_y,     chunk_z) &&
@@ -123,7 +139,8 @@ void MeshManager::rebuild_rendering_server_mesh(int32_t chunk_x, int32_t chunk_y
             active_far_detail_chunks_.erase(key);
             if (render_data->far_mesh_cache) {
                 render_data->far_mesh_cache.reset();
-                mark_far_region_dirty_for_chunk(chunk_x, chunk_y, chunk_z, render_data->far_mesh_cache);
+                { ScopedTimer far_timer(*perf_timer, TimerID::MeshPopFarMark);
+                  mark_far_region_dirty_for_chunk(chunk_x, chunk_y, chunk_z, render_data->far_mesh_cache); }
             }
             render_data->is_mesh_dirty = false;
             render_data->dirty_subchunks = 0;
@@ -143,14 +160,19 @@ void MeshManager::rebuild_rendering_server_mesh(int32_t chunk_x, int32_t chunk_y
     }
 
     if (render_data->pending_mesh_builds.load(std::memory_order_acquire) > 0) {
-        queue_immediate_dirty_chunk(chunk_x, chunk_y, chunk_z);
+        { ScopedTimer requeue_timer(*perf_timer, TimerID::MeshPopRequeue);
+          queue_immediate_dirty_chunk(chunk_x, chunk_y, chunk_z); }
         return;
     }
     render_data->is_mesh_dirty = false;
     render_data->pending_mesh_builds.fetch_add(1, std::memory_order_relaxed);
     render_data->pending_mesh_uploads.fetch_add(1, std::memory_order_relaxed);
     const uint64_t mesh_job_serial = render_data->mesh_job_serial.fetch_add(1, std::memory_order_acq_rel) + 1;
-    const float detail = compute_chunk_detail_level(chunk_x, chunk_y, chunk_z);
+    float detail = 0.0f;
+    {
+        ScopedTimer detail_timer(*perf_timer, TimerID::MeshPopDetail);
+        detail = compute_chunk_detail_level(chunk_x, chunk_y, chunk_z);
+    }
     render_data->last_built_detail_level = detail;
     uint64_t key = chunk_map->get_chunk_key(chunk_x, chunk_y, chunk_z);
     if (detail >= 1.0f) {
@@ -239,6 +261,7 @@ void MeshManager::rebuild_rendering_server_mesh(int32_t chunk_x, int32_t chunk_y
     // Do NOT capture raw neighbor pointers. The worker looks up neighbors by coordinate
     // at build time. If a neighbor was unloaded, the mesh builder sees nullptr (air).
     // Only the center chunk is pinned via pending_mesh_builds.
+    ScopedTimer construct_timer(*perf_timer, TimerID::MeshPopConstruct);
     auto mesh_task = std::make_unique<MeshBuildTask>();
     mesh_task->chunk_map = chunk_map;
     mesh_task->chunk_scheduler = chunk_scheduler;
@@ -285,13 +308,17 @@ void MeshManager::rebuild_rendering_server_mesh(int32_t chunk_x, int32_t chunk_y
 }
 
 void MeshManager::rebuild_chunk_mesh(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, uint64_t epoch) {
+    ScopedTimer pop_timer(*perf_timer, TimerID::MeshPopCallback);
     if (!chunk_map) return;
-    ChunkRenderData* chunk_render_data = chunk_map->get_chunk_render_data(chunk_x, chunk_y, chunk_z);
-    if (!chunk_render_data) return;
-    chunk_render_data->is_mesh_dirty = true;
-
+    ChunkRenderData* chunk_render_data = nullptr;
     ChunkRenderData* neighbors[6] = {};
-    chunk_map->get_neighbors(chunk_x, chunk_y, chunk_z, neighbors);
+    {
+        ScopedTimer lookup_timer(*perf_timer, TimerID::MeshPopLookup);
+        chunk_render_data = chunk_map->get_chunk_render_data(chunk_x, chunk_y, chunk_z);
+        if (!chunk_render_data) return;
+        chunk_map->get_neighbors(chunk_x, chunk_y, chunk_z, neighbors);
+    }
+    chunk_render_data->is_mesh_dirty = true;
 
     rebuild_rendering_server_mesh(chunk_x, chunk_y, chunk_z, epoch, chunk_render_data,
                                   neighbors[0], neighbors[1],

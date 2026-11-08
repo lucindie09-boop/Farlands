@@ -221,6 +221,12 @@ it — are in [lod-modes.md](lod-modes.md).
   ends a frame (gen-cap stops fall 443/449 -> 239/243), which is the intended shape: the cap paces
   to the drain instead of the budget outrunning it. Both runs admit exactly 20,230 chunks
   (`admitted = finished = installed`, `pending = 0`). Kept.
+  **Isolated afterwards, because the arm changed two things at once.** The pressure law at the same
+  90 in flight loads 4.78/4.71 s and walls 7.80/7.76 s, so the CAP carries the wall win (7.7 vs
+  8.3 at 180 in flight) and the rate adds the last ~0.3 s of load; the pressure law's drain is
+  even shorter (15/16 ms against 33/37) because it admits fewer chunks a frame. The rate is kept
+  because both of its runs load faster than both pressure-law runs at the same cap and the wall
+  is identical, which is the one direction the spread does not cover.
 - **The install pass now skips the work that is almost never there.** Each install used to take
   three unconditional mutexes and one 7-shard band per chunk: `pending_block_placements`,,
   `pending_vegetation_placements` and `pending_light_removals_` were locked and hash-probed even
@@ -316,7 +322,35 @@ it — are in [lod-modes.md](lod-modes.md).
   at ~5 s (that is where the 1 s quiet starts), and the rest of the fill is the tail: its
   worker cost is 0.9-1.0 builders, its main cost is the dirty queue (1.15-1.21 s) and uploads
   (0.21-0.23 s), and it is paced by the 8/32 then 64/64 rebuild and upload slots plus 17-20
-  frames over 33 ms (worst 46-57 ms), not by the builders.
+  frames over 33 ms (worst 46-57 ms), not by the builders. The probe now snapshots its phase
+  totals at the load, so the tail is measured on its own: 4,530 chunk-mesh builds at ~7.5 a
+  frame, 62% of the tail's worker time, with the loading budget active but only 1.21 of its
+  2.0 ms spent -- the queue, not the budget, paces it.
+- **Moving the mesh backlog into the load was measured at a middle dose and loses.** A startup
+  tier of 24 rebuilds and 32 uploads under a 1.5 ms queue budget (the 0.35 ms live-play budget
+  only lets ~2 rebuilds through) moved 1,500 builds out of the tail -- 4,530 -> 3,033/3,132, tail
+  3.54 -> 2.77/2.51 s -- but grew the load by more, 4.52 -> 5.53/5.78 s. Wall 8.29/8.29 s against
+  7.72-8.06 for the same build without the tier. The per-rebuild main-thread cost (0.16 ms: 7
+  chunk lookups plus a 64-chunk far walk) is paid on every load frame, and the load's frames are
+  what set the fill's pace, so the tail gains less than the load pays. Reverted; the 8/32 active
+  budget and the post-load latch stand.
+- **The dirty queue's cost was one probe, and none of the four cheaper ideas touched it.**
+  `dirty_mesh_queue` was 1.19 s of the fill (0.77 s of the tail), and a per-pop split put 91% of
+  it in the buried test: for a fully solid chunk it asks `chunk_would_be_solid` up to six times,
+  and a missing neighbour falls through to real worldgen sampling, ~25 us a call on the main
+  thread. The cheaper ideas were measured first and all lost or did nothing. Filtering
+  out-of-range chunks at enqueue rejected 1 entry in 24,700. Stamping each entry with the chunk's
+  `mesh_version` and dropping it at pop when the chunk was clean and already built fired 52
+  times in 24,600 and ran the tail 0.28 s longer (3.83/3.83 against 3.55) - the queue was not
+  holding stale work, every pop carried a real dirty mark. Replacing the center lookup plus
+  `get_neighbors` with one shared 3x3x3 band and `_fast` reads measured 3.82 s against 3.55:
+  `get_neighbors` already took that band, so only one acquisition was removed. What worked is the
+  memo: keyed by chunk coordinate, cleared on world reset and when the predicate is replaced,
+  8,192 entries with drop-everything on overflow, because a re-probe is slower but never wrong.
+  The queue falls to 1.02-1.07 s and its tail to 0.68-0.69 s; the fill's tail stays 3.54 s
+  because `build_mesh` is 2.49 s of it, so the next lever is the builder, not the queue. About
+  four probes in five still miss: the frontier asks mostly new coordinates, so a larger cache
+  would buy memory, not hits.
 - **A merged far-region mesh is published only after its upload finishes.** The build on the
   pool fills a fresh RID; the region keeps drawing its previous mesh and the instance is
   swapped only when the server reports at least one surface on the new RID. Publishing at dispatch is the

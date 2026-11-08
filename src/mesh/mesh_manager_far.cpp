@@ -132,8 +132,21 @@ void MeshManager::sync_far_region_member(FarRegionRenderData& region, uint64_t c
     if (!render_data || !render_data->instance_rid.is_valid()) {
         return;
     }
-    const bool show_chunk = is_chunk_within_render_distance(cx, cy, cz) &&
-                            !(region.active && should_use_far_region_for_chunk(cx, cy, cz));
+    // What the region DRAWS decides, not what the chunk would like to be. A
+    // chunk that has just promoted to full detail is still listed in the
+    // region's active mesh until that mesh is rebuilt and uploaded; asking
+    // should_use_far_region_for_chunk (which is already false for a full-detail
+    // chunk) showed its own instance at the same time and the two water
+    // surfaces overlapped and z-fought. If the region lists the chunk, the
+    // region draws it and the chunk's own instance stays hidden; when a later
+    // region build drops the chunk, the upload reports it through
+    // visibility_extra_keys and this same function is called again with it no
+    // longer a member, so the full-detail instance appears.
+    const bool in_region_mesh =
+        region.active &&
+        std::find(region.active_chunk_keys.begin(), region.active_chunk_keys.end(), chunk_key) !=
+            region.active_chunk_keys.end();
+    const bool show_chunk = is_chunk_within_render_distance(cx, cy, cz) && !in_region_mesh;
     if (show_chunk) {
         show_chunk_instance(render_data, cx, cy, cz);
     } else {

@@ -177,6 +177,15 @@ void MeshManager::rebuild_rendering_server_mesh(int32_t chunk_x, int32_t chunk_y
     uint64_t key = chunk_map->get_chunk_key(chunk_x, chunk_y, chunk_z);
     if (detail >= 1.0f) {
         active_mid_detail_chunks_.erase(key);
+        if (render_data->far_mesh_cache) {
+            // Back at full detail: the far region's merged mesh still contains
+            // this chunk until the region is rebuilt, and its water box draws
+            // over the full-detail surface (the two z-fight). The mark erases
+            // the source from far_sources and, because the chunk is still an
+            // active member that no longer wants a far region, asks for the
+            // rebuild on the next pass instead of waiting out the debounce.
+            mark_far_region_dirty_for_chunk(chunk_x, chunk_y, chunk_z, render_data->far_mesh_cache);
+        }
         if (lod_distance > 0 && last_player_chunk_x != INT32_MIN) {
             int32_t dx = chunk_x - last_player_chunk_x;
             int32_t dy = chunk_y - last_player_chunk_y;
@@ -200,15 +209,14 @@ void MeshManager::rebuild_rendering_server_mesh(int32_t chunk_x, int32_t chunk_y
     } else {
         active_full_detail_chunks_.erase(key);
         active_mid_detail_chunks_.erase(key);
-        if (far_lod_distance > 0 && last_player_chunk_x != INT32_MIN) {
-            int32_t dx = chunk_x - last_player_chunk_x;
-            int32_t dy = chunk_y - last_player_chunk_y;
-            int32_t dz = chunk_z - last_player_chunk_z;
-            int32_t dist = std::max({std::abs(dx), std::abs(dy), std::abs(dz)});
-            if (dist <= far_lod_distance + 2) {
-                active_far_detail_chunks_.insert(key);
-            }
-        }
+        // Every far-detail chunk is tracked, however far away it was built.
+        // The old distance gate left a chunk that was built beyond
+        // far_lod_distance + 2 in NO set, so when the player flew toward it the
+        // active-set sweeps could never see it and the only other path -- the
+        // transition-shell scan -- runs solely on frames where the sweeps
+        // queued nothing, which at speed is never. That is the LOD chunk that
+        // stays at far detail until something unrelated dirties it.
+        active_far_detail_chunks_.insert(key);
     }
     const bool high_priority = mesh_queue.erase_urgent(key);
 

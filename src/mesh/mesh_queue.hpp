@@ -237,15 +237,13 @@ private:
                 entry.urgent = entry.urgent || is_urgent(entry.key);
                 entry.in_frustum = frustum_ ? frustum_->is_chunk_visible(cx, cy, cz) : false;
                 entry.priority_revision = priority_revision_;
-                // Re-insert into the heap this entry came from. push_entry()
-                // routes by the new in_frustum flag, and with that a
-                // reprioritise made the two drains hand entries back and forth:
-                // each heap emptied into the other, both then reported "empty"
-                // with thousands still queued, and a frame built a handful. The
-                // frustum decides the heap when an entry is enqueued; one that
-                // is already in a drain finishes in its own heap, a single pop
-                // later, carrying the new distance.
-                heap.push(entry);
+                // Re-route through push_entry: an entry that was enqueued
+                // off-screen and has since come into view must move to the
+                // visible heap, or a saturated queue never reaches it at the
+                // backlog's reserve rate and the chunk stays at its old LOD
+                // (reported at /fly 10). Staying in the same heap measured
+                // neutral on the fill and caused that, so it is not kept.
+                push_entry(entry);
                 continue;
             }
 

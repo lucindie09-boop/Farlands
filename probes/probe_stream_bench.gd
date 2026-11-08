@@ -31,6 +31,11 @@ const COLD_MAX_FRAMES := 900
 const COLD_RADIUS := 1        # 3x3 columns must have ground
 const FLY_SPEED := 100.0      # blocks/s, the user's `/fly 100`
 const FLY_SECONDS := 40.0
+# The probe's own parameters, so one script covers the cases the resume rule has to
+# survive: RD sets the render distance (a small one makes a one-chunk move a larger
+# share of the disc, where the resume's radius slack is tightest) and DIAGONAL=1
+# moves in x and z at once, so |move| is sqrt(2) rather than 1.
+const DEFAULT_RD := 32
 const STATIC_SECONDS := 10.0  # standing still: the frustum pass should cost ~nothing
 const FLY_RADIUS := 2         # 5x5 columns sampled for holes
 const SAMPLE_EVERY := 10      # frames between hole samples
@@ -68,6 +73,10 @@ func _initialize() -> void:
 func _key(x: int, z: int) -> int:
 	return (x << 16) ^ (z & 0xFFFF)
 
+func _env_int(name: String, fallback: int) -> int:
+	var raw := OS.get_environment(name)
+	return int(raw) if raw.is_valid_int() else fallback
+
 # Topmost solid cell in a column, -1 when the column has no ground at all (which is
 # what an ungenerated chunk looks like through get_block).
 func _find_solid(x: int, z: int) -> int:
@@ -99,13 +108,22 @@ func _column_has_ground(x: int, z: int) -> bool:
 
 # Columns in the square of the given radius around a block position without ground.
 func _holes(bx: float, bz: float, radius: int) -> int:
+	return _missing_columns(bx, bz, radius).size()
+
+# The columns of the sample square that have no ground, as (chunk x, chunk z). The
+# flight needs the identity, not just the count: a column seen empty once and empty
+# again a few samples later is the shape of a stranding, while one that fills is a
+# column that had simply not installed yet.
+func _missing_columns(bx: float, bz: float, radius: int) -> Array:
 	var pcx := int(floor(bx / 32.0))
 	var pcz := int(floor(bz / 32.0))
-	var missing := 0
+	var missing := []
 	for dx in range(-radius, radius + 1):
 		for dz in range(-radius, radius + 1):
-			if not _column_has_ground(pcx * 32 + 16 + dx * 32, pcz * 32 + 16 + dz * 32):
-				missing += 1
+			var cx := pcx + dx
+			var cz := pcz + dz
+			if not _column_has_ground(cx * 32 + 16, cz * 32 + 16):
+				missing.append(Vector2i(cx, cz))
 	return missing
 
 # Keep the player standing on the surface of the column they are in. Without this a
@@ -151,8 +169,11 @@ func _run() -> void:
 		_fail("ChunkManager / Player missing")
 		quit(1)
 		return
-	print("probe: fps=%d cold_starts=%d stride=%.0f fly=%.0f blocks/s for %.0f s" % [
-		TARGET_FPS, COLD_STARTS, COLD_STRIDE, FLY_SPEED, FLY_SECONDS])
+	var rd := _env_int("RD", DEFAULT_RD)
+	cm.set("render_distance", rd)
+	var diagonal := OS.get_environment("DIAGONAL") == "1"
+	print("probe: fps=%d rd=%d diagonal=%s cold_starts=%d stride=%.0f fly=%.0f blocks/s for %.0f s" % [
+		TARGET_FPS, rd, str(diagonal), COLD_STARTS, COLD_STRIDE, FLY_SPEED, FLY_SECONDS])
 
 	# Boot: land, then let the spawn area settle so every run starts from a
 	# comparable state (same save, same frame count).
@@ -167,6 +188,16 @@ func _run() -> void:
 	var home: Vector3 = player.global_position
 	print("probe: boot after %d frames, player=(%.0f,%.0f,%.0f), worst frame %.1f ms" % [
 		waited + 180, home.x, home.y, home.z, worst_frame_ms])
+	# The world's SAVED setting overwrites anything set before it loads, so the
+	# render distance is applied again once the boot is done (the heart probe found
+	# the same and sets it three times). The wait is the unload pass dropping the
+	# disc the boot built at the saved distance, so the measurement below is the
+	# small disc rather than the old one still draining.
+	cm.set("render_distance", rd)
+	for i in range(240):
+		await _frame()
+	print("probe: render distance %d, sweep list %d columns" % [
+		int(cm.get("render_distance")), int(_stats().get("candidate_columns", 0))])
 
 	# --- A. cold start ------------------------------------------------------
 	cm.reset_generation_stats()
@@ -219,21 +250,56 @@ func _run() -> void:
 	var holes_sum := 0
 	var holes_max := 0
 	var holes_nonzero := 0
+	# The gap ledger: every column ever seen empty (gap_seen), the ones still empty
+	# with how many samples they have stayed that way (gap_age), and the verdicts —
+	# filled later (a transient) or dropped after leaving the trustworthy radius
+	# (no verdict, because past the unload radius get_block reads 0 either way).
+	var gap_seen := {}
+	var gap_age := {}
+	var gap_cell := {}
+	var gaps_filled := 0
+	var gaps_unresolved := 0
+	var gaps_max_age := 0
 	var frames := 0
+	var dir := Vector2(1.0, 1.0).normalized() if diagonal else Vector2(1.0, 0.0)
 	while true:
 		var elapsed := float(Time.get_ticks_usec() - fly_start) / 1_000_000.0
 		if elapsed >= FLY_SECONDS:
 			break
-		var x := home.x + FLY_SPEED * elapsed
-		player.teleport_to(Vector3(x, player.global_position.y, home.z))
+		var x := home.x + dir.x * FLY_SPEED * elapsed
+		var z := home.z + dir.y * FLY_SPEED * elapsed
+		player.teleport_to(Vector3(x, player.global_position.y, z))
 		await _frame()
 		frames += 1
 		if frames % SAMPLE_EVERY == 0:
-			var h := _holes(x, home.z, FLY_RADIUS)
+			var pcx_now := int(floor(x / 32.0))
+			var pcz_now := int(floor(z / 32.0))
+			for gk in gap_age.keys():
+				var cell: Vector2i = gap_cell[gk]
+				if absi(cell.x - pcx_now) > FLY_RADIUS + 1 or absi(cell.y - pcz_now) > FLY_RADIUS + 1:
+					gap_age.erase(gk)
+					gap_cell.erase(gk)
+					gaps_unresolved += 1
+					continue
+				if _column_has_ground(cell.x * 32 + 16, cell.y * 32 + 16):
+					gaps_filled += 1
+					gap_age.erase(gk)
+					gap_cell.erase(gk)
+				else:
+					gap_age[gk] = int(gap_age[gk]) + 1
+					gaps_max_age = maxi(gaps_max_age, int(gap_age[gk]))
+			var missing := _missing_columns(x, z, FLY_RADIUS)
+			var h := missing.size()
 			holes_sum += h
 			holes_max = maxi(holes_max, h)
 			if h > 0:
 				holes_nonzero += 1
+			for cell in missing:
+				var ck := _key(cell.x, cell.y)
+				gap_seen[ck] = true
+				if not gap_age.has(ck):
+					gap_age[ck] = 0
+					gap_cell[ck] = cell
 			samples += 1
 	var fly_ms := float(Time.get_ticks_usec() - fly_start) / 1000.0
 	var stats_end: Dictionary = _stats()
@@ -248,6 +314,8 @@ func _run() -> void:
 	print("probe: flight holes: mean %.2f of 25 columns, max %d, %d/%d samples had a gap (%.0f%%)" % [
 		float(holes_sum) / maxf(1.0, float(samples)), holes_max, holes_nonzero, samples,
 		100.0 * float(holes_nonzero) / maxf(1.0, float(samples))])
+	print("probe: flight gap ledger: seen %d, filled later %d, still empty %d, unresolved %d, max age %d samples" % [
+		gap_seen.size(), gaps_filled, gap_age.size(), gaps_unresolved, gaps_max_age])
 
 	# --- C. standing still --------------------------------------------------
 	# The camera feeds the frustum every frame, and the pass used to be re-armed by
@@ -307,6 +375,17 @@ func _run() -> void:
 		int(stats_end["prefetch_outstanding"])])
 	print("probe: SUMMARY columns_built=%d columns_skipped=%d" % [
 		int(stats_end["columns_built"]), int(stats_end["columns_skipped"])])
+	# The walk's own shape: how many times a list was walked to its end (each is a
+	# rebuild's single pass under the no-second-pass rule) and how many times a chunk
+	# crossing restarted it. `passes` staying 0 while `resets` climbs would mean the
+	# walk never finished a list, i.e. the rule was never exercised.
+	print("probe: SUMMARY walk passes=%d resets=%d resumes=%d completions=%d checks=%d loaded=%d" % [
+		int(stats_end["sweep_passes"]) - int(stats_begin["sweep_passes"]),
+		int(stats_end["cursor_resets"]) - int(stats_begin["cursor_resets"]),
+		int(stats_end["cursor_resumes"]) - int(stats_begin["cursor_resumes"]),
+		int(stats_end["sweeps_completed"]) - int(stats_begin["sweeps_completed"]),
+		int(stats_end["checks"]) - int(stats_begin["checks"]),
+		int(stats_end["reject_loaded"]) - int(stats_begin["reject_loaded"])])
 	print("probe: SUMMARY fly_frustum_checks=%d (of %d sweep checks), frustum_refused=%d walk_refused=%d" % [
 		int(stats_end["frustum_checks"]) - int(stats_begin["frustum_checks"]), int(checks),
 		int(stats_end["frustum_refused"]) - int(stats_begin["frustum_refused"]),

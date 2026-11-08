@@ -15,8 +15,7 @@
 namespace VoxelEngine {
 using namespace godot;
 
-int32_t WorldUpdater::drain_chain_queue(uint64_t epoch, int32_t budget, int32_t pcy,
-                                        bool& generated_anything) {
+int32_t WorldUpdater::drain_chain_queue(uint64_t epoch, int32_t budget, int32_t pcy) {
     constexpr int32_t kWorldChunkSlices = WORLD_HEIGHT_Y / CHUNK_HEIGHT;
     int32_t generations = 0;
     while (generations < budget && !chain_queue.empty()) {
@@ -64,12 +63,6 @@ int32_t WorldUpdater::drain_chain_queue(uint64_t epoch, int32_t budget, int32_t 
         if (generate_chunk(cx, cy, cz, epoch)) {
             ++generations;
             ++generation_stats.chain_generations;
-            // Attribution for the vertical arm: does it generate what it offers?
-            // (Seed-time counted the offer; this completes the pair. A vertical
-            // offer is always exactly one ABOVE its seeder, so "the offer's own
-            // slice is above the seeder's" is the same test without carrying the
-            // seeder's y through the queue.)
-            generated_anything = true;
         } else {
             // Not placed: in flight past the lock-free filter's view, or the
             // backlog guard is holding. Re-queueing here would LOOP — the queue
@@ -80,106 +73,10 @@ int32_t WorldUpdater::drain_chain_queue(uint64_t epoch, int32_t budget, int32_t 
             ++generation_stats.chain_refused;
         }
     }
-    return generations;
-}
-
-void WorldUpdater::refresh_prefetch_config() {
-    if (!column_prefetch) return;
-    ColumnPrefetch::Config config;
-    config.terrain    = terrain_params;
-    config.biomes     = biome_config;
-    config.vegetation = vegetation_config;
-    column_prefetch->set_config(config);
-}
-
-bool WorldUpdater::enqueue_column_prefetch(int32_t cx, int32_t cz, uint32_t epoch) {
-    if (!column_prefetch || thread_pool == nullptr) return false;
-    const uint64_t key = ColumnPrefetch::key_of(cx, cz);
-    if (!column_prefetch->request(key, epoch)) return false;
-    // The task holds the prefetch state, not this updater: it can still be queued
-    // or running when the world is torn down, and must not reach back into memory
-    // that has gone.
-    std::shared_ptr<ColumnPrefetch> state = column_prefetch;
-    thread_pool->fire_and_forget([state, key, epoch, cx, cz] {
-        // One generator per thread, configured from the published copy of the
-        // terrain configuration — the same shape the generation workers use, and
-        // for the same reason: never shared, and never the main thread's, whose
-        // setters mutate it while this runs.
-        static thread_local ChunkGenerator generator;
-        static thread_local ColumnPrefetch::Config config;
-        static thread_local uint32_t seen_epoch = 0;
-        bool copied = false;
-        if (!state->worker_config(epoch, seen_epoch, config, copied)) return;
-        if (copied) {
-            generator.set_params(config.terrain);
-            generator.set_biome_config(config.biomes);
-            generator.set_vegetation_config(config.vegetation);
-        }
-        const ChunkGenerator::HeightRange range = generator.get_chunk_height_range(cx, cz);
-        // Same helper the main thread's fallback path uses, so an answer cannot
-        // depend on which thread produced it.
-        const WorldUpdater::ColumnSurfaceBounds b =
-            bounds_of_height_range(range.min_h, range.max_h, range.max_water_h);
-        state->publish(key, epoch, ColumnBounds{b.land_h, b.top_h});
-    });
-    return true;
-}
-
-void WorldUpdater::pump_column_prefetch() {
-    if (!column_prefetch || thread_pool == nullptr) return;
-    if (sweep_columns.empty() || prefetch_idle) return;
-    // Two bounds on what is offered: only a slice of the list is scanned per
-    // frame, and only so many requests may be out at once. The scan is
-    // deliberately independent of the frontier, because the columns the frontier
-    // has no bounds for are not the ones just ahead of it — after a crossing they
-    // are the ring that just entered the disc, which sits at the END of a
-    // nearest-first list, and the frontier would reach them only after re-reading
-    // every column already known (all ~3,200 of them) on the way.
-    constexpr size_t kScanPerFrame = 1024;
-    constexpr size_t kMaxOutstanding = 256;
-    size_t outstanding = column_prefetch->outstanding();
-    if (outstanding >= kMaxOutstanding) return;
-    const uint32_t epoch = column_prefetch->epoch();
-    const size_t list_size = sweep_columns.size();
-    // The first pass over a freshly built list covers ALL of it, rather than a
-    // slice per frame. The frontier starts at position 0 on that same frame and can
-    // reach the far end — where the ring that just entered the disc sits, since the
-    // list is nearest-first — before the next frame, so a request made a slice at a
-    // time arrives after the frontier has already asked for the column and derived
-    // it here. Measured with the benchmark: slicing every pass left 1,910 of 4,848
-    // entered columns derived on this thread (39%), i.e. two fifths of the work this
-    // exists to move was still being paid on the main thread. Later passes only
-    // replace what has been claimed, so they stay on the small budget.
-    const size_t scan_budget = prefetch_pass_fresh ? list_size : kScanPerFrame;
-    size_t scanned = 0;
-    while (scanned < scan_budget) {
-        if (prefetch_scan >= list_size) {
-            // A whole pass over the list is done. One that wanted nothing will
-            // keep wanting nothing until the list is rebuilt, so stop scanning
-            // rather than re-reading the same 3,209 positions every frame.
-            if (prefetch_pass_requests == 0) {
-                prefetch_idle = true;
-                return;
-            }
-            prefetch_pass_requests = 0;
-            prefetch_scan = 0;
-        }
-        const SweepColumn& column = sweep_columns[prefetch_scan++];
-        ++scanned;
-        const int32_t cx = sweep_origin_cx + column.dx;
-        const int32_t cz = sweep_origin_cz + column.dz;
-        const uint64_t key = (static_cast<uint64_t>(static_cast<uint32_t>(cx)) << 32)
-                           |  static_cast<uint64_t>(static_cast<uint32_t>(cz));
-        // Already derived: the crossing that entered this ring re-requests the
-        // whole list, and all but the ~130 columns that just appeared are cached.
-        if (column_height_cache.find(key) != column_height_cache.end()) continue;
-        if (enqueue_column_prefetch(cx, cz, epoch)) {
-            ++prefetch_pass_requests;
-            ++outstanding;
-            if (outstanding >= kMaxOutstanding) break;
-        }
+    if (generations == budget && !chain_queue.empty()) {
+        ++generation_stats.chain_budget_stops;
     }
-    prefetch_pass_fresh = false;
+    return generations;
 }
 
 void WorldUpdater::service_sweep_bands() {
@@ -352,6 +249,28 @@ void WorldUpdater::rebuild_sweep_columns(int32_t horizontal_rd, int32_t pcx, int
     const int32_t old_origin_cz = sweep_origin_cz;
     const int32_t old_rd = current_render_distance;
     const int32_t old_side = 2 * old_rd + 1;
+    // --- Where the previous walk had got to, for the resume below ------------
+    // A rebuilt list is re-sorted around the new origin, so the cursor's INDEX
+    // cannot be carried across; its RADIUS can, because the walk goes outward and
+    // every column closer than the cursor was offered on the way there. A spent
+    // list leaves the cursor at the end, so the radius is the old list's own
+    // outer edge. Without this, every crossing restarted at the near ring and
+    // re-offered a disc that was 98% resident: 2.4 M checks over a 40 s flight,
+    // nearly all of them `reject_loaded`.
+    int32_t walked_r2 = -1;
+    if (!sweep_columns.empty()) {
+        const size_t walked_at = std::min(generation_cursor.column, sweep_columns.size() - 1);
+        const SweepColumn& walked = sweep_columns[walked_at];
+        walked_r2 = static_cast<int32_t>(walked.dx) * walked.dx +
+                    static_cast<int32_t>(walked.dz) * walked.dz;
+    }
+    // Only a genuine crossing may resume. A teleport carries none of the old
+    // bands, so a resumed cursor would sit at a column the frontier has not read
+    // yet; and the radius argument only holds for a move of a couple of chunks.
+    // Anything larger resets, which is the old behaviour.
+    const int32_t move_dx = can_carry ? pcx - old_origin_cx : 0;
+    const int32_t move_dz = can_carry ? pcz - old_origin_cz : 0;
+    const bool small_move = std::max(std::abs(move_dx), std::abs(move_dz)) <= 2;
     if (can_carry) {
         const size_t side = static_cast<size_t>(old_side);
         carry_bands.assign(side * side, sweep::ChunkBand{});
@@ -472,6 +391,36 @@ void WorldUpdater::rebuild_sweep_columns(int32_t horizontal_rd, int32_t pcx, int
         }
     );
 
+    // --- Resume at the rim ----------------------------------------------------
+    // A column at new distance d was at old distance at most d + |move|, so any
+    // column with d < r_walked - |move| lay inside the radius the walk had
+    // already passed: skipping it is exact rather than an approximation, and the
+    // columns between that and r_walked are re-walked (a ring or two). Leaving
+    // the cursor at the end is the "spent" state the walk already understands,
+    // for the case where the new list holds nothing beyond the walked radius.
+    generation_pass_complete = false;
+    generation_cursor = SweepCursor{};
+    if (can_carry && walked_r2 >= 0 && small_move) {
+        const double move_len =
+            std::sqrt(static_cast<double>(move_dx * move_dx + move_dz * move_dz));
+        const double resume_r =
+            std::max(0.0, std::sqrt(static_cast<double>(walked_r2)) - move_len);
+        const double resume_r2 = resume_r * resume_r;
+        size_t resume = sweep_columns.size();
+        for (size_t i = 0; i < sweep_columns.size(); ++i) {
+            const SweepColumn& column = sweep_columns[i];
+            const int32_t r2 = static_cast<int32_t>(column.dx) * column.dx +
+                               static_cast<int32_t>(column.dz) * column.dz;
+            if (static_cast<double>(r2) >= resume_r2) {
+                resume = i;
+                break;
+            }
+        }
+        generation_cursor.column = resume;
+        ++generation_stats.cursor_resumes;
+    } else {
+        ++generation_stats.cursor_resets;
+    }
     generation_stats.candidate_columns = sweep_columns.size();
     const std::chrono::duration<double, std::milli> rebuild_elapsed =
         std::chrono::steady_clock::now() - rebuild_start;

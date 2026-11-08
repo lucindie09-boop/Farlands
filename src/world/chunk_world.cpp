@@ -143,6 +143,15 @@ int32_t ChunkWorld::process_completed_chunks(uint64_t epoch, double budget_ms, i
                     int32_t cz = stage.chunk_z;
                     thread_pool->fire_and_forget([this, cx, cy, cz, epoch, any_emissive, any_sky_shade]() {
                         uint32_t modified = 0;
+                        uint32_t source_count = 0;
+                        uint64_t block_clear_ns = 0, block_collect_ns = 0, block_propagate_ns = 0;
+                        uint64_t block_ns = 0, sky_ns = 0;
+                        const auto elapsed_ns = [](const auto& from, const auto& to) {
+                            return static_cast<uint64_t>(
+                                std::chrono::duration_cast<std::chrono::nanoseconds>(to - from).count());
+                        };
+                        const bool profile = light_profile_.enabled();
+                        const auto t_lock_start = std::chrono::steady_clock::now();
                         {
                             uint64_t keys[27];
                             int idx = 0;
@@ -151,6 +160,8 @@ int32_t ChunkWorld::process_completed_chunks(uint64_t epoch, double budget_ms, i
                                     for (int dx = -1; dx <= 1; dx++)
                                         keys[idx++] = chunk_map.get_chunk_key(cx + dx, cy + dy, cz + dz);
                             auto wlock = chunk_map.lock_keys_exclusive(keys);
+                            const auto t_acquired = std::chrono::steady_clock::now();
+                            const auto t_block_start = std::chrono::steady_clock::now();
                             if (any_emissive) {
                                 ChunkData* region_grid[3][3][3] = {};
                                 for (int dz = -1; dz <= 1; dz++) {
@@ -172,8 +183,16 @@ int32_t ChunkWorld::process_completed_chunks(uint64_t epoch, double budget_ms, i
                                 // clearing a second time inside the propagation costs half
                                 // of the whole pass.
                                 light_region.clear_block_light_affected();
+                                const auto t_cleared = std::chrono::steady_clock::now();
                                 light_region.collect_emissive_sources(sources, /*only_cleared=*/true);
+                                const auto t_collected = std::chrono::steady_clock::now();
                                 light_region.propagate_additive(sources, /*already_cleared=*/true);
+                                const auto t_block_end = std::chrono::steady_clock::now();
+                                block_clear_ns = elapsed_ns(t_block_start, t_cleared);
+                                block_collect_ns = elapsed_ns(t_cleared, t_collected);
+                                block_propagate_ns = elapsed_ns(t_collected, t_block_end);
+                                block_ns = elapsed_ns(t_block_start, t_block_end);
+                                source_count = static_cast<uint32_t>(sources.size());
                                 // What this pass actually CHANGED, for the main thread to
                                 // mark meshes from. Marking the whole 3x3x3 instead — which
                                 // is what it used to do — queued 27 rebuilds per arriving
@@ -182,12 +201,22 @@ int32_t ChunkWorld::process_completed_chunks(uint64_t epoch, double budget_ms, i
                                 // than building it.
                                 modified = light_region.modified_mask();
                             }
+                            const auto t_sky_start = std::chrono::steady_clock::now();
                             if (light_propagator != nullptr && any_sky_shade) {
                                 // Additive only: no wipe, no rebuild. The arriving
                                 // chunk's own scan is the source of truth for its cells
                                 // and only its shade and its border planes can be beaten
                                 // by a neighbour, so an open chunk walks nothing.
                                 modified |= light_propagator->scatter_sky_light_region_locked(cx, cy, cz);
+                            }
+                            const auto t_end = std::chrono::steady_clock::now();
+                            sky_ns = elapsed_ns(t_sky_start, t_end);
+                            if (profile) {
+                                light_profile_.record_pass({
+                                    block_ns, block_clear_ns, block_collect_ns, block_propagate_ns,
+                                    sky_ns, source_count, modified, any_emissive, any_sky_shade});
+                                light_profile_.record_band(elapsed_ns(t_lock_start, t_acquired),
+                                                           elapsed_ns(t_acquired, t_end));
                             }
                         }
                         chunk_scheduler.push_completed_light_propagation({cx, cy, cz, epoch, modified});
@@ -320,6 +349,7 @@ apply_pending_placements(key, completed.chunk_x, completed.chunk_y, completed.ch
 apply_vegetation_placements(key, completed.chunk_x, completed.chunk_y, completed.chunk_z, *render_data);
 
             chunk_map.insert(key, std::move(render_data));
+            generation_path_profile_.installed(completed.path_id);
 
             // The generation chain seeds itself from installs: one listener call
             // per chunk, on this thread, AFTER the chunk is resident (so the

@@ -97,6 +97,12 @@ String VoxelEngineController::get_performance_report() {
         render_stats,
         &chunk_world.get_chunk_map()
     );
+    // The completion drain's downstream queues. The completed-chunk depth above
+    // says how much generation is waiting to install; these say whether the wait
+    // is in the light stages, the worker light results, or the dirty-mark pass.
+    report += "  Light stages:   " + String::num_int64(static_cast<int64_t>(chunk_world.pending_lighting_count())) + "\n";
+    report += "  Light results:  " + String::num_int64(static_cast<int64_t>(chunk_world.get_scheduler().completed_light_count())) + "\n";
+    report += "  Dirty stages:   " + String::num_int64(static_cast<int64_t>(chunk_world.pending_dirty_stage_count())) + "\n";
     chunks_processed_last_interval = chunks_processed_total;
     frame_count = 0;
     frame_time_accumulator = 0.0;
@@ -109,6 +115,14 @@ String VoxelEngineController::get_performance_report() {
     MeshBuilder::reset_vertex_tracking();
     MeshBuilder::reset_greedy_vertical_stats();
     return report;
+}
+
+String VoxelEngineController::get_light_profile_report() {
+    return String(chunk_world.get_light_profile_report().c_str());
+}
+
+String VoxelEngineController::get_generation_path_report() {
+    return String(chunk_world.get_generation_path_report().c_str());
 }
 
 String VoxelEngineController::get_slow_frame_report(int32_t frames, double slow_frame_ms) {

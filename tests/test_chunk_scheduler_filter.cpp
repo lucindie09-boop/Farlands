@@ -56,7 +56,7 @@ uint64_t key_of(int32_t x, int32_t y, int32_t z) {
 
 bool enqueue(ChunkScheduler& scheduler, ThreadPool& pool, uint64_t key, Gate& gate, std::atomic<bool>& loaded) {
     return scheduler.enqueue_generation(
-        &pool, 0, 0, 0, 1, key,
+        &pool, 0, 0, 0, 1, key, 0,
         [](uint64_t) { return false; },              // nothing is loaded yet
         [&gate, &loaded](int32_t, int32_t, int32_t, bool& was_loaded) {
             gate.entered.store(true);

@@ -73,7 +73,7 @@ public:
     // Returns true if the chunk was enqueued for generation, false if already generating or loaded.
     template<typename IsLoaded, typename GenerateFn, typename EpochFn>
     bool enqueue_generation(ThreadPool* pool, int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, uint64_t epoch,
-                            uint64_t chunk_key,
+                            uint64_t chunk_key, uint64_t path_id,
                             IsLoaded&& is_already_loaded,
                             GenerateFn&& generate_fn,
                             EpochFn&& epoch_provider) {
@@ -88,7 +88,7 @@ public:
             filter_set(chunk_key);
         }
 
-        pool->fire_and_forget([this, chunk_x, chunk_y, chunk_z, chunk_key, epoch,
+        pool->fire_and_forget([this, chunk_x, chunk_y, chunk_z, chunk_key, epoch, path_id,
                                generate_fn = std::forward<GenerateFn>(generate_fn),
                                epoch_provider = std::forward<EpochFn>(epoch_provider)]() mutable {
             bool loaded = false;
@@ -99,6 +99,7 @@ public:
             completed.chunk_y = chunk_y;
             completed.chunk_z = chunk_z;
             completed.epoch = epoch;
+            completed.path_id = path_id;
             completed.chunk_data = std::move(chunk_data);
             completed.was_loaded_from_disk = loaded;
 

@@ -140,6 +140,10 @@ public:
     void generate_chunk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z);
 
     godot::String get_performance_report();
+    // Worker-side light-pass profile; "disabled" unless FARLANDS_LIGHT_PROFILE=1.
+    godot::String get_light_profile_report();
+    // Per-chunk generation pipeline latency; "disabled" unless FARLANDS_GEN_PROFILE=1.
+    godot::String get_generation_path_report();
     // The slowest frame in the FPS label's current sample, as a phase dump.
     godot::String get_slow_frame_report(int32_t frames, double slow_frame_ms);
     // Starts a per-frame capture at the beginning of the main-thread callback;

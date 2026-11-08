@@ -90,6 +90,40 @@ Three properties make it affordable, and each one is load-bearing:
 - **Sky light is not saved.** Like block light it is derived: chunks are re-scanned
   when they load, and only block edits are persisted.
 
+## Profiling a pass
+
+A worker light pass holds its 9-shard exclusive band across both the block-light
+rebuild and the sky walk, so "the hold is long" has three possible sources: the
+block pass, the sky pass, or the wait for the band. `FARLANDS_LIGHT_PROFILE=1`
+(debug builds; off by default so a streaming frame pays no clock reads) arms a
+timer around exactly those, and `ChunkManager.get_light_profile_report()` returns
+what it saw: passes taken, how many did block light / sky light / both, the
+band's wait and hold (total and worst), the block pass's own
+clear / collect / propagate split, the sky call's total, the sources collected
+and the cells whose light changed. `probes/probe_start_fill.gd` prints it as
+`PROBE light profile: ...` at the end of a run.
+
+One fill at render distance 32 on the development machine (9.05 s, debug build)
+put 8,857 passes through the band: 1,018 with block work, 8,546 with sky work,
+707 with both. The **holds were short** -- 1.85 s in total, 0.21 ms average,
+7.53 ms worst, of which the sky walk was 1.24 s and the block pass 0.60 s
+(0.45 s of that the propagation walk). The **waits were not**: 8.97 s in total,
+1.01 ms average, 16.6 ms worst, a ratio of 4.9 to 1. Light's own hold occupies
+the band about a fifth of the fill, so most of that wait is queueing behind the
+other holder of the same nine column shards -- a mesh build's shared band, held
+for its whole data read -- not behind another light pass. A control run with the
+variable unset took the same 9.05 s, so the instrument is not the cost.
+
+Batching was tried against that wait and rejected. Holding light until four
+stages were pending (and taking one band for the group) cut acquisitions only
+3.3% -- 8,876 passes / 8,587 bands in one fill -- because the install loop
+alternates one install with one light stage, so the queue rarely holds more than
+one; and the deferral moved the last light off the install path, so the fill went
+from 9.05 s to 9.35-9.47 s in the two runs beside the baseline. The revert then
+measured 8.08-8.29 s, so run-to-run drift is at least as large as that delta:
+what stands is the 3.3% acquisition cut with no evidence of a fill gain, which is
+why it is not in the tree.
+
 ## Tests
 
 `tests/test_sky_light.cpp` pins the shape rather than a number that happens to fall

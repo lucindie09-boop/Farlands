@@ -105,7 +105,7 @@ void WorldUpdater::update(bool is_editor, uint64_t epoch, uint64_t& chunks_proce
         }
     }
 
-    update_generation(is_editor, active_render_distance, epoch, player_chunk_x, player_chunk_y, player_chunk_z, chunk_changed);
+    update_generation(is_editor, active_render_distance, epoch, player_chunk_x, player_chunk_y, player_chunk_z);
     update_unload(active_render_distance, player_chunk_x, player_chunk_y, player_chunk_z, chunk_changed);
     // Fluids tick after generation/unload (so the cells it looks at are the ones
     // that exist now) and before the mesh budgets (so the chunks it dirties can
@@ -373,9 +373,8 @@ void WorldUpdater::clear() {
     unload_queue.clear();
     unload_pending.clear();
     invalidate_height_cache();
-    generation_cursor          = SweepCursor{};
-    generation_pass_complete   = false;
-    generation_sweep_generated = false;
+    generation_cursor        = SweepCursor{};
+    generation_pass_complete = false;
     unload_scan_skip_counter   = 0;
     unload_scan_bucket_cursor  = 0;
 }

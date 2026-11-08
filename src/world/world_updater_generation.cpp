@@ -16,7 +16,7 @@ namespace VoxelEngine {
 using namespace godot;
 
 void WorldUpdater::update_generation(bool is_editor, int32_t active_render_distance, uint64_t epoch,
-                                     int32_t pcx, int32_t pcy, int32_t pcz, bool chunk_changed) {
+                                     int32_t pcx, int32_t pcy, int32_t pcz) {
     ScopedTimer t(*perf_timer, TimerID::ChunkLoadUnload);
     const auto sweep_start = std::chrono::steady_clock::now();
     ++generation_stats.frames;
@@ -78,11 +78,12 @@ void WorldUpdater::update_generation(bool is_editor, int32_t active_render_dista
     const bool backlog_ok = chunk_world->get_scheduler().can_enqueue(budgets.completed_queue_backlog);
     const bool generation_admitted = in_flight_ok && backlog_ok;
 
-    if (chunk_changed) {
-        generation_cursor          = SweepCursor{};
-        generation_pass_complete   = false;
-        generation_sweep_generated = false;
-        ++generation_stats.cursor_resets;
+    // The shared gate in front of both sources. Count it only on a frame that
+    // actually had work to offer, so a closed gate is not confused with an idle
+    // world.
+    if (!generation_admitted &&
+        ((!generation_pass_complete && !sweep_columns.empty()) || !chain_queue.empty())) {
+        ++generation_stats.stop_admission;
     }
 
     // --- Urgent requests, before anything else ------------------------------
@@ -103,6 +104,9 @@ void WorldUpdater::update_generation(bool is_editor, int32_t active_render_dista
             allowance = 0;
         }
         if (allowance > 0) {
+            generation_stats.urgent_pending_max = std::max<uint64_t>(
+                generation_stats.urgent_pending_max,
+                static_cast<uint64_t>(chunk_world->urgent_chunk_count()));
             const std::vector<ChunkPos> urgent =
                 chunk_world->take_urgent_chunk_requests(allowance);
             for (const ChunkPos& pos : urgent) {
@@ -132,16 +136,18 @@ void WorldUpdater::update_generation(bool is_editor, int32_t active_render_dista
     // leaves the walk a quarter rather than starving it. (The frustum pass had
     // 1/2.)
     if (!chain_queue.empty()) {
+        generation_stats.chain_pending_max = std::max<uint64_t>(
+            generation_stats.chain_pending_max, static_cast<uint64_t>(chain_queue.size()));
         if (generation_admitted) {
             constexpr int32_t kChainShare = 4;  // the walk keeps 1/4
             const int32_t chain_budget = std::max(
                 dynamic_max_generations - dynamic_max_generations / kChainShare, 1);
-            const int32_t chained = drain_chain_queue(epoch, chain_budget, pcy, generation_sweep_generated);
+            // The chain's generations do NOT wake the walk (see the end-of-list
+            // case below): its queue is refilled by installs, while a walk that
+            // has reached the end of its list has nothing left to offer.
+            const int32_t chained = drain_chain_queue(epoch, chain_budget, pcy);
             if (chained > 0) {
                 frame_generations += chained;
-                // A chain generation is real progress: retire the "nothing left"
-                // verdict so the walk re-checks the (now cheaper) near rings.
-                generation_pass_complete = false;
             }
         }
     }
@@ -155,7 +161,10 @@ void WorldUpdater::update_generation(bool is_editor, int32_t active_render_dista
         while (checks < max_checks_per_frame &&
                generations_this_frame < dynamic_max_generations &&
                generation_admitted) {
-            if (generation_ms() >= budgets.generation_budget_ms) break;
+            if (generation_ms() >= budgets.generation_budget_ms) {
+                ++generation_stats.stop_budget;
+                break;
+            }
 
             SweepCandidate candidate;
             if (!advance_sweep(generation_cursor, pcy, candidate)) {
@@ -164,19 +173,31 @@ void WorldUpdater::update_generation(bool is_editor, int32_t active_render_dista
                     // has simply reached the frontier. Resetting the cursor here
                     // (as the spent case does) would re-walk the same prefix every
                     // frame and never advance the frontier it is waiting on.
+                    ++generation_stats.stop_band;
                     break;
                 }
-                // The whole list has been offered. If none of it generated
-                // anything there is nothing left to do until something
-                // invalidates the list, so stop walking it every frame.
-                generation_cursor = SweepCursor{};
-                if (!generation_sweep_generated) {
-                    generation_pass_complete = true;
-                    ++generation_stats.sweeps_completed;
-                    break;
-                }
-                generation_sweep_generated = false;
-                continue;
+                // The cursor reached the end, and that is the end of the list's
+                // usefulness: its bands are exact (above/below/oob rejects are 0
+                // on every run) and fixed until the list is rebuilt, so every
+                // in-band chunk of every column was offered exactly once on the
+                // way here. Such an offer can only have generated (in flight
+                // now), found the chunk resident, or been refused (the chain
+                // re-offers a refused neighbour when one installs). A second
+                // pass therefore cannot generate anything, and it used to make
+                // one on every load: `generation_sweep_generated` kept the walk
+                // re-walking all 20,230 candidates once they were resident,
+                // which was 27,133 loaded rejects - two thirds of the walk's
+                // checks - for zero chunks.
+                // Left AT the end rather than reset: a rebuild reads that as the
+                // radius the walk had covered and resumes at the new list's rim,
+                // instead of sending the walk back to the near ring.
+                ++generation_stats.sweep_passes;
+                generation_cursor.column = sweep_columns.size();
+                generation_cursor.slice = 0;
+                generation_pass_complete = true;
+                ++generation_stats.sweeps_completed;
+                ++generation_stats.stop_spent;
+                break;
             }
             const int32_t cx = candidate.x;
             const int32_t cy = candidate.y;
@@ -235,10 +256,17 @@ void WorldUpdater::update_generation(bool is_editor, int32_t active_render_dista
                 ++generations_this_frame;
                 ++generation_stats.generations;
                 ++frame_generations;
-                generation_sweep_generated = true;
             } else {
                 ++generation_stats.generate_refused;
             }
+        }
+        // The loop's own caps are not break statements, so record them after it:
+        // the check cap is tested first in the condition, matching the loop.
+        if (!generation_pass_complete && generation_admitted && checks >= max_checks_per_frame) {
+            ++generation_stats.stop_check_cap;
+        } else if (!generation_pass_complete && generation_admitted &&
+                   generations_this_frame >= dynamic_max_generations) {
+            ++generation_stats.stop_generation_cap;
         }
     }
 

@@ -214,6 +214,8 @@ void ChunkManager::_bind_methods() {
     ClassDB::bind_method(D_METHOD("generate_chunk", "chunk_x", "chunk_y", "chunk_z"), &ChunkManager::generate_chunk);
     ClassDB::bind_method(D_METHOD("unload_chunk", "chunk_x", "chunk_y", "chunk_z"), &ChunkManager::unload_chunk);
     ClassDB::bind_method(D_METHOD("get_performance_report"), &ChunkManager::get_performance_report);
+    ClassDB::bind_method(D_METHOD("get_light_profile_report"), &ChunkManager::get_light_profile_report);
+    ClassDB::bind_method(D_METHOD("get_generation_path_report"), &ChunkManager::get_generation_path_report);
     ClassDB::bind_method(D_METHOD("get_slow_frame_report", "frames", "slow_frame_ms"),
                          &ChunkManager::get_slow_frame_report);
     ClassDB::bind_method(D_METHOD("set_chunk_scenario", "chunk_x", "chunk_y", "chunk_z"), &ChunkManager::set_chunk_scenario);

@@ -56,6 +56,13 @@ struct FrameBudgets {
     int32_t unload_checks_per_frame = 512;
     int32_t unloads_per_frame = 200;
     int32_t max_generation_checks_per_frame = 100000;
+    // 2 per worker is both the pressure controller's scale (30 in flight at 15
+    // workers) and, with the admission cap at 180, what keeps the stream from
+    // bursting. Retested at 3 on top of the 180 cap: pressure stays below 0.75
+    // until ~34 in flight, so the walk's budget stays at 64, the set peaks
+    // 139/155 instead of 112/106, completions arrive 208/251 per drain instead of
+    // 123/126, gate stops return (8/9 -> 74/97) and the load runs 5.60/5.90 s
+    // against 5.04/5.30 s. More work in larger, later arrivals, not more of it.
     int32_t generating_per_worker = 2;
     // Admission control for the in-flight generation set. Pressure above scales
     // the per-frame generation budget DOWN, but nothing stopped the set itself from
@@ -67,7 +74,12 @@ struct FrameBudgets {
     // ~181 us each), and makes the walk burn its check budget on refusals. Capping
     // the set keeps the pipeline full — a worker is 1 ms of work, so a few dozen in
     // flight saturate 15 workers — without letting it grow into a backlog.
-    int32_t max_generating_in_flight_per_worker = 8;
+    // 12 per worker (180 in flight at 15 workers). At 8 the gate closed in ~12% of
+    // an RD 32 load's frames and the load ran 6.41 s; at 12 it closed in ~1% and the
+    // load ran 5.04/5.30 s, load frame 9.76 -> 8.23/7.93 ms, slow frames 80 -> 18/21.
+    // The set still averages ~30 and peaks ~110, so this bounds the tail rather than
+    // pre-loading the pool with thousands of chunks.
+    int32_t max_generating_in_flight_per_worker = 12;
 
     double flush_interval = 5.0;
 };

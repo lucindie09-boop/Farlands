@@ -59,6 +59,15 @@ struct WorldRenderStats {
     int32_t mesh_upload_dedup_skips = 0;
     int32_t mesh_upload_swallowed_water_changes = 0;
 
+    // Where the buried test's six neighbour probes resolve (MeshManager's
+    // solid_probe_cache_): resident is a loaded chunk answering from its cached
+    // flag, hits and misses are the ungenerated-neighbour predicate's memo. The
+    // tail spends 0.8 s in that test, so the split says whether the 25 us worldgen
+    // sample is being reused at all.
+    uint64_t solid_probe_resident = 0;
+    uint64_t solid_probe_hits = 0;
+    uint64_t solid_probe_misses = 0;
+
     // The seed-grid far mode (docs/lod-modes.md), all 0 while the mode is off. Its
     // instances are created straight on the RenderingServer rather than as nodes, so
     // they are not in any of the counts above however much of the frame they are:

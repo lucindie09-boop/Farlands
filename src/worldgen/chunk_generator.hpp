@@ -481,6 +481,13 @@ float max_water_h = -1.0f;
 // as opaque instead of rendering a box wall into the void.
 bool chunk_would_be_fully_solid(const ChunkGenerator& gen, int32_t cx, int32_t cy, int32_t cz);
 
+// The same rule, for a caller that already has the column's lowest possible
+// surface (`HeightRange::min_h`, as WorldUpdater's column cache keeps it). The
+// chunk form above spends a ~25 us lattice sample to find that one float; a probe
+// that asks about several chunks of one column should sample it once.
+bool chunk_would_be_fully_solid_at_column(const ChunkGenerator& gen, int32_t cy,
+                                          float column_min_h);
+
 } // namespace VoxelEngine
 
 #endif // FARLANDS_CHUNK_GENERATOR_HPP

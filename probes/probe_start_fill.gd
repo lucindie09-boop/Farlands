@@ -37,6 +37,9 @@ var phase_count := {}
 # mesh/far done) can be read on its own instead of being diluted by the load.
 var phase_ms_at_load := {}
 var phase_count_at_load := {}
+# The buried test's probe accounting at load settle: the tail's hit/miss ratio
+# only means something next to the load's.
+var probe_line_at_load := ""
 var inflight_sum := 0.0
 var inflight_max := 0
 var completed_sum := 0.0
@@ -156,6 +159,12 @@ func _print_sweep_at_load(g: Dictionary, load_s: float) -> void:
 		int(g.get("reject_below", 0)), int(g.get("reject_oob", 0)),
 		int(g.get("window_checks", 0)), int(g.get("window_generations", 0)),
 		int(g.get("window_frames", 0))])
+	print("PROBE load sweep installs total=%d empty=%d above_top=%d above_top_empty=%d below_land=%d below_land_empty=%d in_range=%d in_range_empty=%d unknown=%d" % [
+		int(g.get("installs_total", 0)), int(g.get("installs_empty", 0)),
+		int(g.get("installs_above_top", 0)), int(g.get("installs_above_top_empty", 0)),
+		int(g.get("installs_below_land", 0)), int(g.get("installs_below_land_empty", 0)),
+		int(g.get("installs_in_range", 0)), int(g.get("installs_in_range_empty", 0)),
+		int(g.get("installs_bounds_unknown", 0))])
 	print("PROBE load sweep time total=%.1fms avg=%.3fms max=%.2fms | load=%.2fs" % [
 		float(g.get("total_ms", 0.0)), float(g.get("avg_ms", 0.0)),
 		float(g.get("max_ms", 0.0)), load_s])
@@ -166,6 +175,8 @@ func _print_fill_phases(wall_s: float, load_s: float, light_report: String) -> v
 			"process_completed_meshes", "dirty_mesh_queue", "mesh_queue_chunks",
 			"mesh_queue_far", "mesh_pop_callback", "mesh_pop_detail", "mesh_pop_far",
 			"mesh_pop_lookup", "mesh_pop_construct", "mesh_pop_early", "mesh_pop_buried",
+			"mesh_pop_buried_probes", "mesh_pop_buried_frees", "mesh_pop_buried_farmark",
+			"mesh_pop_buried_rest",
 			"mesh_pop_requeue",
 			"chunk_load_unload",
 			"far_region_visibility", "mesh_reprioritize", "process_total"]:
@@ -187,6 +198,16 @@ func _print_fill_phases(wall_s: float, load_s: float, light_report: String) -> v
 		var tail_share := 100.0 * tail_total / ((wall_s - load_s) * 1000.0) if wall_s > load_s else 0.0
 		print("PROBE fill tail phase %s total=%.2fs count=%d avg=%.2fms share=%.1f%%" % [
 			label, tail_total / 1000.0, tail_count, tail_each, tail_share])
+		# The load window: the same counters snapshotted when the chunk set
+		# settled, divided by the chunks installed in it. This is the main thread's
+		# per-install cost, which the whole-run total hides behind the tail.
+		var load_total := float(phase_ms_at_load.get(label, 0.0))
+		var load_count := int(phase_count_at_load.get(label, 0))
+		var load_each := load_total / float(load_count) if load_count > 0 else 0.0
+		var load_installs := float(maxi(1, int(sweep_at_load.get("installs_total", 0))))
+		var per_install := load_total / load_installs * 1000.0
+		print("PROBE load phase %s total=%.2fs count=%d avg=%.2fms per_install=%.1fus" % [
+			label, load_total / 1000.0, load_count, load_each, per_install])
 	print("PROBE fill phase light hold=%.2fs wait=%.2fs" % [
 		_light_ms(light_report, "hold total=") / 1000.0,
 		_light_ms(light_report, "wait total=") / 1000.0])
@@ -328,6 +349,7 @@ func _run() -> void:
 			rebuild_budget_at_load = int(cm.call("get_mesh_rebuild_budget"))
 			stops_view_at_load = int(cm.call("get_mesh_queue_stop_counts_view"))
 			stops_backlog_at_load = int(cm.call("get_mesh_queue_stop_counts_backlog"))
+			probe_line_at_load = _report_line(last_report, "Solid probes:")
 			last_loaded = loaded
 
 		if loaded_at >= 0.0 and mesh_at < 0.0:
@@ -361,6 +383,11 @@ func _run() -> void:
 		var line := _report_line(last_report, label)
 		if not line.is_empty():
 			print("PROBE fill final " + line)
+	if not probe_line_at_load.is_empty():
+		print("PROBE fill probes at_load " + probe_line_at_load)
+	var probes_end := _report_line(last_report, "Solid probes:")
+	if not probes_end.is_empty():
+		print("PROBE fill probes at_end " + probes_end)
 	var light_report: String = cm.get_light_profile_report()
 	print("PROBE light profile: %s" % light_report)
 	var gen_path_report: String = cm.get_generation_path_report()

@@ -350,7 +350,16 @@ bool WorldUpdater::chunk_would_be_solid(int32_t cx, int32_t cy, int32_t cz) {
         height_estimator->set_biome_config(biome_config);
         height_estimator->set_vegetation_config(vegetation_config);
     }
-    return chunk_would_be_fully_solid(*height_estimator, cx, cy, cz);
+    // One height sample per COLUMN, not per neighbour. The six around a popped
+    // chunk span five columns (the two vertical neighbours share the chunk's own),
+    // and neighbouring pops share columns too, so the chunk-keyed memo above this
+    // predicate missed 87% of the time - 26,090 misses to 3,757 hits, each miss a
+    // ~25 us lattice sample - because it keyed the sample that is per-column. These
+    // are the same bounds the sweep's band filter derived (or a worker prefetched)
+    // for every column in the band, and `land_h` is exactly HeightRange::min_h, so
+    // the tail's probe is a hash lookup.
+    const float column_min_h = get_column_surface_bounds(cx, cz).land_h;
+    return chunk_would_be_fully_solid_at_column(*height_estimator, cy, column_min_h);
 }
 
 void WorldUpdater::clear() {

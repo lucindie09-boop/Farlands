@@ -213,7 +213,8 @@ bool ChunkGenerator::generate_fast_path(ChunkData& chunk, int32_t chunk_x, int32
     return false;
 }
 
-bool chunk_would_be_fully_solid(const ChunkGenerator& gen, int32_t cx, int32_t cy, int32_t cz) {
+bool chunk_would_be_fully_solid_at_column(const ChunkGenerator& gen, int32_t cy,
+                                          float column_min_h) {
     const int32_t world_y_start = cy * CHUNK_HEIGHT;
     const int32_t world_y_end = world_y_start + CHUNK_HEIGHT;
     // Out-of-world chunks are never treated as opaque so boundary faces at
@@ -228,8 +229,14 @@ bool chunk_would_be_fully_solid(const ChunkGenerator& gen, int32_t cx, int32_t c
     // The chunk is entirely below every column's lowest possible surface
     // (macro height − density margin), so full generation would produce
     // solid blocks throughout (the density band is exactly zero there).
+    return static_cast<float>(world_y_end) < column_min_h;
+}
+
+bool chunk_would_be_fully_solid(const ChunkGenerator& gen, int32_t cx, int32_t cy, int32_t cz) {
+    // The range is the only part that costs a sample; a caller that already holds
+    // it (WorldUpdater's column cache) asks the overload above and pays nothing.
     const ChunkGenerator::HeightRange range = gen.get_chunk_height_range(cx, cz);
-    return static_cast<float>(world_y_end) < range.min_h;
+    return chunk_would_be_fully_solid_at_column(gen, cy, range.min_h);
 }
 
 } // namespace VoxelEngine

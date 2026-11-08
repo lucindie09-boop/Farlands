@@ -109,6 +109,9 @@ public:
     bool is_smooth_lighting_enabled() const { return smooth_lighting_enabled; }
     void mark_all_chunks_dirty();
     [[nodiscard]] bool has_pending_mesh_work() const;
+    [[nodiscard]] uint64_t solid_probe_hits() const { return solid_probe_hits_; }
+    [[nodiscard]] uint64_t solid_probe_misses() const { return solid_probe_misses_; }
+    [[nodiscard]] uint64_t solid_probe_resident() const { return solid_probe_resident_; }
     WorldRenderStats gather_render_stats();
 
     // Optional predicate: "would the chunk at (cx, cy, cz) be entirely solid
@@ -317,8 +320,19 @@ private:
     // Main-thread only: read and written by the queue drain. Reaching the limit
     // drops everything rather than tracking recency, because a re-probe is
     // merely slower, never wrong.
+    //
+    // Measured: 8k -> 64k moved nothing (the tail's buried test stayed 0.78-0.85 s
+    // over 5.5k pops), so the 0.15 ms a pop is not memo misses and the limit stays
+    // where the fill's first profile put it.
     std::unordered_map<uint64_t, uint8_t> solid_probe_cache_;
     static constexpr size_t kSolidProbeCacheLimit = 8192;
+    // Where the six neighbour tests of a buried pop resolve. Main-thread only, like
+    // the memo: the drain writes, the report reads. `resident` is a loaded chunk
+    // answering from its cached flag; hits and misses are the ungenerated-neighbour
+    // predicate, and the split says whether its 25 us sample is being reused at all.
+    uint64_t solid_probe_hits_ = 0;
+    uint64_t solid_probe_misses_ = 0;
+    uint64_t solid_probe_resident_ = 0;
     // The rebuild cap the last process_queue() ran under (8 gameplay, 64 once
     // the load settles). Exposed so the fill probe can tell a tail paced by the
     // cap from one paced by the queue budget.

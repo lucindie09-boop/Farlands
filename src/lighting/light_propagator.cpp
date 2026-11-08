@@ -150,7 +150,9 @@ void LightPropagator::light_propagate_add_locked(int32_t origin_cx, int32_t orig
             ChunkData* dst = chunk_map->get_chunk_data_fast(ncx, ncy, ncz);
             if (!dst) {
                 std::lock_guard<std::mutex> guard(pending_light_removals_mutex_);
-                pending_light_removals_.insert(chunk_map->get_chunk_key(ncx, ncy, ncz));
+                if (pending_light_removals_.insert(chunk_map->get_chunk_key(ncx, ncy, ncz)).second) {
+                    pending_light_removal_count_.fetch_add(1);
+                }
                 continue;
             }
 
@@ -205,7 +207,9 @@ void LightPropagator::light_propagate_remove_locked(int32_t origin_cx, int32_t o
             ChunkData* dst = chunk_map->get_chunk_data_fast(ncx, ncy, ncz);
             if (!dst) {
                 std::lock_guard<std::mutex> guard(pending_light_removals_mutex_);
-                pending_light_removals_.insert(chunk_map->get_chunk_key(ncx, ncy, ncz));
+                if (pending_light_removals_.insert(chunk_map->get_chunk_key(ncx, ncy, ncz)).second) {
+                    pending_light_removal_count_.fetch_add(1);
+                }
                 continue;
             }
 
@@ -268,11 +272,15 @@ void LightPropagator::light_propagate_remove_locked(int32_t origin_cx, int32_t o
 }
 
 void LightPropagator::try_fixup_chunk(uint64_t key, int32_t cx, int32_t cy, int32_t cz) {
+    // The install path calls this once per chunk and the set is almost always
+    // empty there, so the atomic answers it without taking the mutex.
+    if (pending_light_removal_count_.load(std::memory_order_relaxed) == 0) return;
     {
         std::lock_guard<std::mutex> guard(pending_light_removals_mutex_);
         auto it = pending_light_removals_.find(key);
         if (it == pending_light_removals_.end()) return;
         pending_light_removals_.erase(it);
+        pending_light_removal_count_.fetch_sub(1);
     }
     propagate_block_light_region(cx, cy, cz);
     if (mesh_manager) {

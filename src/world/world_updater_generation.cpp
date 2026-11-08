@@ -45,19 +45,21 @@ void WorldUpdater::update_generation(bool is_editor, int32_t active_render_dista
     };
 
     size_t generating_count = chunk_world->get_scheduler().generating_count();
-    size_t worker_queue_size = thread_pool ? thread_pool->get_queue_size() : 0;
     size_t worker_count = thread_pool ? thread_pool->get_worker_count() : 0;
-    const double worker_pressure =
-        budgets.worker_queue_backlog > 0 ? static_cast<double>(worker_queue_size) / static_cast<double>(budgets.worker_queue_backlog) : 0.0;
-    const double generating_pressure =
-        worker_count > 0 ? static_cast<double>(generating_count) / static_cast<double>(worker_count * budgets.generating_per_worker) : 0.0;
-    const double thread_pool_pressure = std::max(worker_pressure, generating_pressure);
 
+    // Feed-forward admission: admit at the rate the pool can finish rather than
+    // scaling a fixed budget by pressure. `workers x frame / work-per-chunk x
+    // 0.9`, with the frame from the last update and the per-chunk cost measured
+    // by the fill profile (2.46 ms). This arm pairs it with a 90-chunk in-flight
+    // cap instead of 180, so the completed queue cannot grow into the deep
+    // backlog that slowed every drain iteration in the last attempt.
     int32_t dynamic_max_generations = budgets.chunk_generations;
-    if (thread_pool_pressure > 0.75) {
-        const double generation_scale = std::clamp(1.5 - thread_pool_pressure, 0.25, 1.0);
-        dynamic_max_generations = std::max(1, static_cast<int32_t>(
-            std::round(static_cast<double>(budgets.chunk_generations) * generation_scale)));
+    {
+        constexpr double kWorkPerChunkMs = 2.46;
+        const double frame_ms = std::clamp(last_frame_ms, 1.0, 50.0);
+        const double rate = static_cast<double>(worker_count) * frame_ms / kWorkPerChunkMs * 0.9;
+        dynamic_max_generations = std::clamp(static_cast<int32_t>(std::lround(rate)), 1,
+                                             budgets.chunk_generations * 2);
     }
 
     // --- Admission control: cap the in-flight generation set -----------------

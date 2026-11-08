@@ -103,6 +103,7 @@ void ChunkWorld::clear() {
     pending_chunk_dirty_mesh.clear();
     light_propagated_chunks.clear();
     pending_block_placements.clear();
+    pending_placement_count.store(0);
     {
         std::lock_guard<std::mutex> lock(urgent_chunk_mutex);
         urgent_chunk_requests.clear();
@@ -110,6 +111,7 @@ void ChunkWorld::clear() {
     }
     unpin_all_chunks();
     pending_vegetation_placements.clear();
+    pending_vegetation_count.store(0);
     chunk_map.clear();
     async_epoch.store(0, std::memory_order_release);
 }
@@ -169,11 +171,14 @@ void ChunkWorld::queue_pending_placement(int32_t world_x, int32_t world_y, int32
     std::lock_guard<std::mutex> lock(pending_placement_mutex);
     uint64_t key = chunk_map.get_chunk_key(chunk_x, chunk_y, chunk_z);
     pending_block_placements[key].push_back({world_x, world_y, world_z, block_id});
+    ++pending_placement_count;
 }
 
 void ChunkWorld::apply_pending_placements(uint64_t key, int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, ChunkRenderData& render_data) {
     // Apply genuine player edits made at the loading frontier (chunk not yet loaded).
     // These ARE persisted to the edit map via add_block_edit.
+    // Nothing waiting is the fill's normal state: skip the mutex and hash lookup.
+    if (pending_placement_count.load(std::memory_order_relaxed) == 0) return;
     std::lock_guard<std::mutex> lock(pending_placement_mutex);
     auto it = pending_block_placements.find(key);
     if (it != pending_block_placements.end()) {
@@ -189,6 +194,7 @@ void ChunkWorld::apply_pending_placements(uint64_t key, int32_t chunk_x, int32_t
                 add_block_edit(chunk_x, chunk_y, chunk_z, lx, ly, lz, static_cast<BlockID>(placement.block_id));
             }
         }
+        pending_placement_count.fetch_sub(it->second.size());
         pending_block_placements.erase(it);
         render_data.data->compute_section_flags();
         render_data.data->compute_fully_solid();
@@ -201,9 +207,13 @@ void ChunkWorld::queue_vegetation_placement(int32_t world_x, int32_t world_y, in
     std::lock_guard<std::mutex> lock(vegetation_placement_mutex);
     uint64_t key = chunk_map.get_chunk_key(chunk_x, chunk_y, chunk_z);
     pending_vegetation_placements[key].push_back({world_x, world_y, world_z, static_cast<int>(block_id)});
+    ++pending_vegetation_count;
 }
 
 void ChunkWorld::apply_vegetation_placements(uint64_t key, int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, ChunkRenderData& render_data) {
+    // The fill's usual state, and the one that matters: workers push these while
+    // generating, so taking the mutex per install contended with all of them.
+    if (pending_vegetation_count.load(std::memory_order_relaxed) == 0) return;
     std::lock_guard<std::mutex> lock(vegetation_placement_mutex);
     auto it = pending_vegetation_placements.find(key);
     if (it != pending_vegetation_placements.end()) {
@@ -218,6 +228,7 @@ void ChunkWorld::apply_vegetation_placements(uint64_t key, int32_t chunk_x, int3
                 // DO NOT persist vegetation overflow - it's regenerated on load
             }
         }
+        pending_vegetation_count.fetch_sub(it->second.size());
         pending_vegetation_placements.erase(it);
         render_data.data->compute_section_flags();
         render_data.data->compute_fully_solid();

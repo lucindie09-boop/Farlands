@@ -88,7 +88,11 @@ public:
     // way propagate_block_light_region does. The `_locked` form is for the install
     // worker, which is already inside one and must not re-acquire it.
     uint32_t scatter_sky_light_region(int32_t cx, int32_t cy, int32_t cz);
-    uint32_t scatter_sky_light_region_locked(int32_t cx, int32_t cy, int32_t cz);
+    // The grid is the CALLER's, never rebuilt here: the install worker locks only
+    // the chunks its gate found resident, and a pass that looked a chunk up again
+    // could write to one it did not lock.
+    uint32_t scatter_sky_light_region_locked(int32_t cx, int32_t cy, int32_t cz,
+                                             ChunkData* const region[3][3][3]);
 
 private:
     // `modified_out`, when given, receives a 27-bit mask of the chunks the pass
@@ -101,6 +105,9 @@ private:
     MeshManager* mesh_manager = nullptr;
     mutable std::mutex pending_light_removals_mutex_;
     std::unordered_set<uint64_t> pending_light_removals_;
+    // Fast-path mirror of the set above; an over-count costs the mutex, never a
+    // missed fixup, so a prune elsewhere may leave it high.
+    std::atomic<size_t> pending_light_removal_count_{0};
 
     // Thread-local buffers for light propagation queues (avoid repeated allocation)
     static thread_local std::vector<LightNode> add_queue_buffer;

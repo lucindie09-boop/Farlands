@@ -6,6 +6,8 @@
 #include "core/inventory.hpp"
 #include "core/edit_map.hpp"
 #include "world/chunk_scheduler.hpp"
+#include "world/light_profile.hpp"
+#include "world/generation_path_profile.hpp"
 #include "core/thread_pool.hpp"
 #include "worldgen/chunk_generator.hpp"
 #include <godot_cpp/classes/node.hpp>
@@ -169,6 +171,21 @@ public:
     int get_block_world(int32_t wx, int32_t wy, int32_t wz) { return chunk_map.get_block_world(wx, wy, wz); }
     uint16_t get_light_world(int32_t wx, int32_t wy, int32_t wz) { return chunk_map.get_light_world(wx, wy, wz); }
 
+    // Main-thread completion-drain depths: what is waiting for its light stage,
+    // what a worker light pass has finished, and what is waiting to be marked
+    // dirty. Read on the main thread only.
+    [[nodiscard]] size_t pending_lighting_count() const { return pending_chunk_lighting.size(); }
+    [[nodiscard]] size_t pending_dirty_stage_count() const { return pending_chunk_dirty_mesh.size(); }
+
+    // Per-chunk generation pipeline: admission (enqueue) -> worker start ->
+    // worker finish -> install. Collected only when FARLANDS_GEN_PROFILE=1;
+    // the startup probe prints this readout.
+    [[nodiscard]] std::string get_generation_path_report() const { return generation_path_profile_.report(); }
+
+    // Worker-side light-pass timing. The counters are collected only when
+    // FARLANDS_LIGHT_PROFILE=1; the startup probe prints this readout.
+    [[nodiscard]] std::string get_light_profile_report() const { return light_profile_.report(); }
+
 private:
     // Writes the edit map file. Caller MUST hold file_access_mutex.
     void write_edit_map_file_locked(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, const EditMap& edit_map);
@@ -229,6 +246,8 @@ private:
     std::vector<ChunkPos> pending_cross_boundary_remesh;
     mutable     std::mutex cross_boundary_mutex;
 
+    LightProfile light_profile_;
+    GenerationPathProfile generation_path_profile_;
     bool vegetation_enabled = true;
 };
 

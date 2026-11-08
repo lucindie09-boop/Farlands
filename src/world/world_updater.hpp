@@ -254,7 +254,7 @@ private:
     void on_chunk_installed(int32_t cx, int32_t cy, int32_t cz, bool has_blocks);
     // Drains up to `budget` candidates from the chain queue through the shared
     // filters. Returns how many generations it enqueued.
-    int32_t drain_chain_queue(uint64_t epoch, int32_t budget, int32_t pcy, bool& generated_anything);
+    int32_t drain_chain_queue(uint64_t epoch, int32_t budget, int32_t pcy);
 
     // One column of the generation sweep: where it sits relative to the player's
     // chunk, and the only slices of it that can pass the band filter.
@@ -355,8 +355,7 @@ private:
     // Resumable generation cursor — amortises the sweep list scan across frames.
     // Reset when player changes chunks; set pass_complete when a full sweep finds nothing.
     SweepCursor generation_cursor;
-    bool    generation_pass_complete   = false;  // true = all chunks loaded, skip scan
-    bool    generation_sweep_generated = false;  // tracks if current sweep generated any chunk
+    bool    generation_pass_complete   = false;  // true = the walk has exhausted its list
 
     // Unload scan throttle — avoids holding shared_lock for 500 iterations every frame.
     // Scan runs when player changes chunks, or every kUnloadScanSkipFrames frames otherwise.
@@ -457,7 +456,7 @@ private:
     // Republishes the terrain configuration the prefetch workers compute with,
     // and drops their answers, because those bounds are derived from it.
     void refresh_prefetch_config();
-    void update_generation(bool is_editor, int32_t active_render_distance, uint64_t epoch, int32_t pcx, int32_t pcy, int32_t pcz, bool chunk_changed);
+    void update_generation(bool is_editor, int32_t active_render_distance, uint64_t epoch, int32_t pcx, int32_t pcy, int32_t pcz);
     void update_unload(int32_t active_render_distance, int32_t pcx, int32_t pcy, int32_t pcz, bool chunk_changed);
     void process_mesh_budgets(bool is_editor, uint64_t epoch, uint64_t& chunks_processed_total, int32_t active_render_distance, double delta);
     void flush_dirty(double delta);

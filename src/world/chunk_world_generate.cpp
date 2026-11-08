@@ -19,10 +19,13 @@ bool ChunkWorld::generate_chunk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_
                                 const VegetationConfig& veg_config) {
     if (!thread_pool) return false;
     uint64_t key = chunk_map.get_chunk_key(chunk_x, chunk_y, chunk_z);
-    return chunk_scheduler.enqueue_generation(
-        thread_pool, chunk_x, chunk_y, chunk_z, epoch, key,
+    const uint64_t path_id = GenerationPathProfile::new_attempt();
+    const uint64_t admit_ns = path_id != 0 ? generation_path_now_ns() : 0;
+    const bool enqueued = chunk_scheduler.enqueue_generation(
+        thread_pool, chunk_x, chunk_y, chunk_z, epoch, key, path_id,
         [this](uint64_t k) { return chunk_map.contains(k); },
-        [this, params = params, biomes = biomes, veg_config = veg_config](int32_t cx, int32_t cy, int32_t cz, bool& loaded) {
+        [this, params = params, biomes = biomes, veg_config = veg_config, key, path_id](int32_t cx, int32_t cy, int32_t cz, bool& loaded) {
+            generation_path_profile_.started(path_id);
             auto chunk_data = std::make_unique<ChunkData>();
             
             // Always generate - edit maps are applied as a diff on top
@@ -37,6 +40,7 @@ bool ChunkWorld::generate_chunk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_
             // skip the lattice/density/material passes below. The member call
             // reuses this configured generator (no per-call construction).
             if (generator.generate_fast_path(*chunk_data, cx, cy, cz)) {
+                generation_path_profile_.finished(path_id);
                 return chunk_data;
             }
 
@@ -62,7 +66,6 @@ bool ChunkWorld::generate_chunk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_
             // Load and apply edit map BEFORE light propagation so that sky/block
             // light is computed on the final terrain (edits remove/add blocks that
             // affect shadow/light columns).
-            uint64_t key = chunk_map.get_chunk_key(cx, cy, cz);
             bool edit_map_known = false;
             {
                 std::lock_guard<std::mutex> lock(edit_maps_mutex);
@@ -92,12 +95,15 @@ bool ChunkWorld::generate_chunk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_
             if (chunk_data->get_emissive_count() > 0) {
                 chunk_data->propagate_light();
             }
-            chunk_data->compute_fully_solid();
-            
+            chunk_data->compute_fully_solid();            generation_path_profile_.finished(path_id);
             return chunk_data;
         },
         [this]() { return async_epoch.load(std::memory_order_acquire); }
     );
+    if (enqueued) {
+        generation_path_profile_.admitted(path_id, admit_ns);
+    }
+    return enqueued;
 }
 
 } // namespace VoxelEngine

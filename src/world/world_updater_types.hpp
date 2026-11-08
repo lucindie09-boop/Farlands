@@ -14,7 +14,8 @@ struct GenerationStats {
     uint64_t frames           = 0;  // update_generation calls
     uint64_t candidate_offsets = 0; // candidate CHUNKS in the built sweep list
     uint64_t candidate_columns = 0; // columns that list covers
-    uint64_t cursor_resets    = 0;  // walks restarted by a chunk crossing
+    uint64_t cursor_resets    = 0;  // walks restarted at the near ring by a rebuild
+    uint64_t cursor_resumes   = 0;  // walks resumed at the rebuilt list's rim
 
     // Phase 2, the distance-ordered sweep. `checks` is the number of
     // candidate offsets it examined; the reject counters sum to
@@ -35,6 +36,30 @@ struct GenerationStats {
     uint64_t reject_below      = 0;  // entirely below the band (band-only columns)
     uint64_t reject_oob        = 0;  // outside [0, kWorldChunkSlices)
     uint64_t sweeps_completed  = 0;  // full walks that found nothing left to do
+    // Times the cursor reached the END of the list and was sent back to the near
+    // ring. Each one re-offers every candidate before it, so this is the count
+    // that says whether the walk's checks are first visits or repeats.
+    uint64_t sweep_passes      = 0;
+
+    // Why a walk ended, one counter per exit. "What caps admission" is this
+    // table plus the per-frame rates: a frame can stop because the walk's
+    // generation or check cap was reached, because update_generation's wall
+    // budget ran out, because the cursor reached a column whose band the
+    // frontier has not read, because the whole list was offered, or because the
+    // shared in-flight/backlog gate was closed before either source ran.
+    uint64_t stop_generation_cap = 0;  // generations_this_frame reached the pressure cap
+    uint64_t stop_check_cap      = 0;  // checks reached max_checks_per_frame
+    uint64_t stop_budget         = 0;  // generation_ms() reached generation_budget_ms
+    uint64_t stop_band           = 0;  // cursor at a column the band frontier has not read
+    uint64_t stop_spent          = 0;  // whole list offered and nothing left to do
+    uint64_t stop_admission      = 0;  // in-flight cap or completed backlog closed the gate
+
+    // Chain-side pressure: frames where the chain had offers left when its 3/4
+    // share ran out, and the deepest the queue was seen. Urgent requests have
+    // their own 8/frame allowance; their queue depth is the other backlog.
+    uint64_t chain_budget_stops = 0;
+    uint64_t chain_pending_max  = 0;
+    uint64_t urgent_pending_max = 0;
 
     // Columns whose whole band was already resident when the band was read,
     // and how many times the walk has since skipped one. `skipped` growing

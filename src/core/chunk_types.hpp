@@ -14,6 +14,9 @@ struct CompletedChunk {
     int32_t chunk_y = 0;
     int32_t chunk_z = 0;
     uint64_t epoch = 0;
+    // Unique per enqueue attempt, for the generation-path profile only; 0 when
+    // the profile is off. Not used by the install itself.
+    uint64_t path_id = 0;
     std::unique_ptr<ChunkData> chunk_data;
     bool was_loaded_from_disk = false;
 };

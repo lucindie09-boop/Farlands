@@ -122,8 +122,10 @@ String PerfReport::build(
     report += "--- per-frame breakdown (avg / max — the max column is what a spike frame paid) ---\n";
     auto phase_line = [&](const char* label, TimerID id) {
         report += String("  ") + label + String::num(perf_timer.get_avg(id), 3) +
-                  "ms max=" + String::num(perf_timer.get_max(id), 3) + "ms\n";
+                  "ms max=" + String::num(perf_timer.get_max(id), 3) +
+                  "ms count=" + String::num_int64(perf_timer.get_count(id)) + "\n";
     };
+    phase_line("process_total: avg=", TimerID::ProcessTotal);
     phase_line("player_pos_update: avg=", TimerID::PlayerPosUpdate);
     phase_line("chunk_load_unload: avg=", TimerID::ChunkLoadUnload);
     phase_line("mesh_reprioritize: avg=", TimerID::MeshReprioritize);

@@ -69,6 +69,10 @@ int32_t ChunkManager::get_squish_span() const { return controller->get_squish_sp
 
 String ChunkManager::get_performance_report() { return controller->get_performance_report(); }
 
+String ChunkManager::get_light_profile_report() { return controller->get_light_profile_report(); }
+
+String ChunkManager::get_generation_path_report() { return controller->get_generation_path_report(); }
+
 String ChunkManager::get_slow_frame_report(int32_t frames, double slow_frame_ms) {
     return controller->get_slow_frame_report(frames, slow_frame_ms);
 }

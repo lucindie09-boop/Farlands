@@ -110,6 +110,7 @@ Dictionary ChunkManager::get_generation_stats() {
     out["candidate_offsets"] = static_cast<int64_t>(stats.candidate_offsets);
     out["candidate_columns"] = static_cast<int64_t>(stats.candidate_columns);
     out["cursor_resets"] = static_cast<int64_t>(stats.cursor_resets);
+    out["cursor_resumes"] = static_cast<int64_t>(stats.cursor_resumes);
 
     out["checks"] = static_cast<int64_t>(stats.checks);
     out["band_pass"] = static_cast<int64_t>(stats.band_pass);
@@ -121,6 +122,16 @@ Dictionary ChunkManager::get_generation_stats() {
     out["reject_below"] = static_cast<int64_t>(stats.reject_below);
     out["reject_oob"] = static_cast<int64_t>(stats.reject_oob);
     out["sweeps_completed"] = static_cast<int64_t>(stats.sweeps_completed);
+    out["sweep_passes"] = static_cast<int64_t>(stats.sweep_passes);
+    out["stop_generation_cap"] = static_cast<int64_t>(stats.stop_generation_cap);
+    out["stop_check_cap"] = static_cast<int64_t>(stats.stop_check_cap);
+    out["stop_budget"] = static_cast<int64_t>(stats.stop_budget);
+    out["stop_band"] = static_cast<int64_t>(stats.stop_band);
+    out["stop_spent"] = static_cast<int64_t>(stats.stop_spent);
+    out["stop_admission"] = static_cast<int64_t>(stats.stop_admission);
+    out["chain_budget_stops"] = static_cast<int64_t>(stats.chain_budget_stops);
+    out["chain_pending_max"] = static_cast<int64_t>(stats.chain_pending_max);
+    out["urgent_pending_max"] = static_cast<int64_t>(stats.urgent_pending_max);
     out["columns_built"] = static_cast<int64_t>(stats.columns_built);
     out["columns_skipped"] = static_cast<int64_t>(stats.columns_skipped);
 

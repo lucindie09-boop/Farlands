@@ -6,6 +6,7 @@
 #include "worldgen/chunk_generator.hpp"
 #include "core/chunk_data.hpp"
 #include "worldgen/vegetation_generator.hpp"
+#include "worldgen/generation_slice_profile.hpp"
 
 #include <vector>
 #include <cmath>
@@ -18,7 +19,7 @@ PerformanceTimer ChunkGenerator::perf_timer;
 
 void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t chunk_y, int32_t chunk_z,
                                     const CrossChunkWriter& cross_writer, bool vegetation_enabled) {
-    ScopedTimer timer(perf_timer, TimerID::GenerateChunk);
+    ScopedTimer timer(perf_timer, TimerID::GenerateChunk); GenSliceTimer columns_timer(GenSlice::Columns);
     chunk.clear();
 
     // Every water fill below tops out at the sea level the terrain was actually
@@ -158,6 +159,7 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
         return;
     }
 
+    columns_timer.stop(); GenSliceTimer density_timer(GenSlice::Density);
     // ---- Geometry pass (2/3): signed density field over the whole chunk ----
     // One extra row of density above the chunk so the top voxel layer can decide
     // air/solid for the voxel above it. Buffers are thread-local so generation
@@ -292,6 +294,7 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
         }
     }
 
+    density_timer.stop(); GenSliceTimer materials_timer(GenSlice::Materials);
     // ---- Material pass: solid geometry first, materials second ----
     // Optimized: Build into a dense buffer first, then use build_from_dense()
     // to avoid palette upgrade thrashing from thousands of set_block() calls.
@@ -460,13 +463,13 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
     }
 
     // Bulk build from dense buffer - avoids palette upgrade thrashing
-    chunk.set_data(dense_buffer.data(), CHUNK_VOLUME);
+    chunk.set_data(dense_buffer.data(), CHUNK_VOLUME); materials_timer.stop();
 
     // Place vegetation. Never in a squished world: the terrain fills its one
     // slice to the brim by design, so every tree would grow into the slice above
     // -- which is exactly the slice the squish never generates.
     if (vegetation_enabled && !params.squish_enabled) {
-        VegetationGenerator veg;
+        VegetationGenerator veg; GenSliceTimer veg_timer(GenSlice::Vegetation);
         veg.generate_vegetation(chunk, columns, chunk_x, chunk_z,
                                 world_y_start, world_y_end,
                                 biome_config, vegetation_config, cross_writer);

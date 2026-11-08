@@ -133,10 +133,11 @@ func _print_sweep_at_load(g: Dictionary, load_s: float) -> void:
 		float(gens) / maxf(1.0, float(frames)),
 		float(chain_gens) / maxf(1.0, float(frames)),
 		float(urgent_gens) / maxf(1.0, float(frames))])
-	print("PROBE load sweep stops admission=%d budget=%d band=%d spent=%d gen_cap=%d check_cap=%d" % [
+	print("PROBE load sweep stops admission=%d budget=%d band=%d spent=%d gen_cap=%d check_cap=%d dynamic_max_last=%d dynamic_max_max=%d" % [
 		int(g.get("stop_admission", 0)), int(g.get("stop_budget", 0)),
 		int(g.get("stop_band", 0)), int(g.get("stop_spent", 0)),
-		int(g.get("stop_generation_cap", 0)), int(g.get("stop_check_cap", 0))])
+		int(g.get("stop_generation_cap", 0)), int(g.get("stop_check_cap", 0)),
+		int(g.get("dynamic_max_generations", 0)), int(g.get("dynamic_max_generations_max", 0))])
 	print("PROBE load sweep chain offered=%d gens=%d skipped=%d refused=%d budget_stops=%d pending_max=%d | urgent requested=%d generated=%d pending_max=%d" % [
 		int(g.get("chain_offered", 0)), int(g.get("chain_generations", 0)),
 		int(g.get("chain_skipped", 0)), int(g.get("chain_refused", 0)),

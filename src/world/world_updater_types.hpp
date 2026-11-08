@@ -53,6 +53,11 @@ struct GenerationStats {
     uint64_t stop_band           = 0;  // cursor at a column the band frontier has not read
     uint64_t stop_spent          = 0;  // whole list offered and nothing left to do
     uint64_t stop_admission      = 0;  // in-flight cap or completed backlog closed the gate
+    // The feed-forward generation cap the last frame ran under, and the deepest
+    // it has been. The stop counters above say which exit ended a walk; these
+    // say what the cap was when `stop_generation_cap` is the answer.
+    uint64_t dynamic_max_last = 0;
+    uint64_t dynamic_max_max  = 0;
 
     // Chain-side pressure: frames where the chain had offers left when its 3/4
     // share ran out, and the deepest the queue was seen. Urgent requests have

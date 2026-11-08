@@ -57,6 +57,17 @@ struct FrameBudgets {
     // The generation ring walk used to run to its full count/check budget; on
     // a crossing that was 3.15 ms in one frame. Enqueueing is main-thread work,
     // so cap it in wall time like the other phases.
+    //
+    // 1.0 and 3.0 were both measured on the RD 32 fill and the walk did not
+    // move: 12.4 checks and 9.1 generations a frame at 1.0 against 12.5 and 8.9
+    // at 3.0, over ~1,300 frames. Wall came out 7.47/7.50 s at 3.0, inside the
+    // 7.7-8.2 s the same probe was already reporting, so the arm is left here:
+    // the walk stops on the sweep's band frontier (and the mesh tail drains
+    // behind it), not on this clock, and a wider ceiling would only be spent on
+    // a crossing frame. A mesh-side arm that held first builds for missing
+    // neighbours was measured on the same probe and lost outright (tail 3.5 ->
+    // 4.0 s, queue pops 24.7k -> 45.3k), so the tail is a consequence of the
+    // fill's pace, not something that can be meshed away first.
     double generation_budget_ms = 1.0;
     // The incremental far-region visibility walk. The full walk cost ~2.4 ms on
     // every crossing frame; a slice this size keeps the same work in the frame

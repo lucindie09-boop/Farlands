@@ -8,6 +8,7 @@
 #include "world/chunk_scheduler.hpp"
 #include "world/light_profile.hpp"
 #include "world/generation_path_profile.hpp"
+#include "worldgen/generation_slice_profile.hpp"
 #include "core/thread_pool.hpp"
 #include "worldgen/chunk_generator.hpp"
 #include <godot_cpp/classes/node.hpp>
@@ -180,7 +181,9 @@ public:
     // Per-chunk generation pipeline: admission (enqueue) -> worker start ->
     // worker finish -> install. Collected only when FARLANDS_GEN_PROFILE=1;
     // the startup probe prints this readout.
-    [[nodiscard]] std::string get_generation_path_report() const { return generation_path_profile_.report(); }
+    [[nodiscard]] std::string get_generation_path_report() const {
+        return generation_path_profile_.report() + " | " + generation_slice_report();
+    }
 
     // Worker-side light-pass timing. The counters are collected only when
     // FARLANDS_LIGHT_PROFILE=1; the startup probe prints this readout.
@@ -189,6 +192,9 @@ public:
 private:
     // Writes the edit map file. Caller MUST hold file_access_mutex.
     void write_edit_map_file_locked(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, const EditMap& edit_map);
+    // One directory scan decides whether ANY chunk in this world has saved edits;
+    // a world with none skips the per-chunk edit load entirely.
+    bool has_edit_files_on_disk();
     // Deep-copies the edit map into the background-save queue. Supersedes any
     // in-flight save of the same chunk via a generation bump.
     void enqueue_edit_map_save(uint64_t key, int32_t cx, int32_t cy, int32_t cz, std::unique_ptr<EditMap> snapshot);
@@ -237,6 +243,9 @@ private:
     // Per-chunk edit maps: sparse block edits that get persisted instead of full chunks
     std::unordered_map<uint64_t, EditMap> chunk_edit_maps;
     mutable std::mutex edit_maps_mutex;
+    // 0 = not scanned, 1 = no saved edit files, 2 = at least one. Written once
+    // under file_access_mutex and read by every generation worker.
+    std::atomic<uint8_t> edit_scan_{0};
 
     // Background chunk saves: key -> save generation. At most one live task per
     // key; a newer snapshot supersedes an older one by bumping the generation.

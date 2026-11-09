@@ -5,7 +5,7 @@ jobs that run on every push.
 
 ## The suite
 
-- **728 test cases / 363,820 assertions**, declared across 103 of the 105 `.cpp` files in `tests/`
+- **731 test cases / 363,845 assertions**, declared across 105 of the 107 `.cpp` files in `tests/`
   (`test_main.cpp` is the doctest entry point, `mesh_manager_stub.cpp` supplies link stubs, and
   both are picked up by the same `Glob("tests/*.cpp")`)
 - **Use `CHECK` / `CHECK_FALSE`, never `REQUIRE` or the `*_MESSAGE` forms**: this build compiles

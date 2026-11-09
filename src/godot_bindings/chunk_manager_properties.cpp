@@ -73,6 +73,8 @@ String ChunkManager::get_light_profile_report() { return controller->get_light_p
 
 String ChunkManager::get_generation_path_report() { return controller->get_generation_path_report(); }
 
+String ChunkManager::get_install_profile_report() { return controller->get_install_profile_report(); }
+
 String ChunkManager::get_slow_frame_report(int32_t frames, double slow_frame_ms) {
     return controller->get_slow_frame_report(frames, slow_frame_ms);
 }

@@ -100,6 +100,10 @@ public:
     void mark_chunks_dirty_for_light(int32_t center_cx, int32_t center_cy, int32_t center_cz);
     // One chunk, for a light pass that reports exactly which chunks it wrote.
     void mark_chunk_dirty_for_light(int32_t cx, int32_t cy, int32_t cz);
+    // A light pass's 27-bit modified mask (BlockLightRegion::slot_bit layout,
+    // relative to the center): only the chunks it wrote, one chunk-map lookup
+    // each instead of the two the per-chunk form spends.
+    void mark_light_modified_chunks(int32_t center_cx, int32_t center_cy, int32_t center_cz, uint32_t mask);
     void process_queue(int32_t max_immediate, int32_t max_rebuilds, double budget_ms);
     void notify_chunk_unloaded(int32_t cx, int32_t cy, int32_t cz, const ChunkRenderData* render_data);
     void clear();
@@ -290,6 +294,9 @@ private:
     void sync_visibility_extra_member(uint64_t chunk_key);
     void ensure_far_region_instance(FarRegionRenderData& region, uint64_t region_key, bool visible);
     void free_far_region_resources(FarRegionRenderData& region);
+
+    // One chunk of a light mark, with the mark's single chunk-map lookup.
+    void queue_light_dirty_chunk(int32_t cx, int32_t cy, int32_t cz);
 
     ChunkMap* chunk_map = nullptr;
     ChunkScheduler* chunk_scheduler = nullptr;

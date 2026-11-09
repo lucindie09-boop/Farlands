@@ -13,6 +13,33 @@ namespace VoxelEngine {
 
 using namespace godot;
 
+namespace {
+
+// Times one stage branch of the completion drain into the install profile.
+// The lap lands on scope exit, so every `continue` in the branch is covered;
+// with the profile off it takes no clock reading at all.
+class ScopedStageLap {
+public:
+    ScopedStageLap(InstallProfile& profile, InstallProfile::Phase phase, const bool& empty)
+        : profile_(profile), phase_(phase), empty_(empty), on_(InstallProfile::enabled()) {
+        if (on_) start_ = std::chrono::steady_clock::now();
+    }
+    ~ScopedStageLap() {
+        if (on_) profile_.lap_elapsed(phase_, empty_, start_);
+    }
+    ScopedStageLap(const ScopedStageLap&) = delete;
+    ScopedStageLap& operator=(const ScopedStageLap&) = delete;
+
+private:
+    InstallProfile& profile_;
+    InstallProfile::Phase phase_;
+    const bool& empty_;
+    bool on_;
+    std::chrono::steady_clock::time_point start_{};
+};
+
+} // namespace
+
 // Main-thread half of ChunkWorld — see chunk_world_generate.cpp for the
 // worker-side generation closure.
 int32_t ChunkWorld::process_completed_chunks(uint64_t epoch, double budget_ms, int32_t max_installs, int32_t max_lighting, int32_t max_dirties, int32_t player_cx, int32_t player_cy, int32_t player_cz, int32_t render_distance) {
@@ -40,27 +67,20 @@ int32_t ChunkWorld::process_completed_chunks(uint64_t epoch, double budget_ms, i
         // Poll completed light propagations (fire-and-forget worker results)
         // Fast-path: skip mutex entirely when queue is empty (atomic counter check)
         if (chunk_scheduler.completed_light_count() != 0) {
+            // A completed pass exists only for a chunk with an emitter or a shade
+            // flag, so the result drain belongs to the real bucket by construction.
+            bool light_results_real = false;
+            ScopedStageLap light_results_lap(install_profile_, InstallProfile::StageResults, light_results_real);
             CompletedLightPropagation completed;
             while (chunk_scheduler.poll_completed_light_propagation(completed)) {
                 if (completed.epoch != epoch) continue;
                 if (mesh_manager) {
                     // Only the chunks the worker's pass actually WROTE (a 27-bit
-                    // 3x3x3, see BlockLightRegion::slot_bit). A pass whose region holds
-                    // no emitters at all clears light that was not there, so it moves
-                    // nothing and queues nothing — which is the common case while
-                    // streaming daylight terrain, and every spurious entry here is a
-                    // chunk mesh rebuilt for light that never changed.
-                    for (int32_t dz = -1; dz <= 1; ++dz) {
-                        for (int32_t dy = -1; dy <= 1; ++dy) {
-                            for (int32_t dx = -1; dx <= 1; ++dx) {
-                                if ((completed.modified_mask & BlockLightRegion::slot_bit(dx, dy, dz)) == 0) {
-                                    continue;
-                                }
-                                mesh_manager->mark_chunk_dirty_for_light(
-                                    completed.chunk_x + dx, completed.chunk_y + dy, completed.chunk_z + dz);
-                            }
-                        }
-                    }
+                    // 3x3x3, see BlockLightRegion::slot_bit). The batched form
+                    // resolves each written chunk's render data once; the per-bit
+                    // form resolved it twice (the version bump, then the queue).
+                    mesh_manager->mark_light_modified_chunks(
+                        completed.chunk_x, completed.chunk_y, completed.chunk_z, completed.modified_mask);
                 }
                 pending_chunk_dirty_mesh.push_back({completed.chunk_x, completed.chunk_y, completed.chunk_z, completed.epoch});
             }
@@ -70,6 +90,8 @@ int32_t ChunkWorld::process_completed_chunks(uint64_t epoch, double budget_ms, i
             PendingChunkStage stage = pending_chunk_lighting.front();
             pending_chunk_lighting.pop_front();
             lights_this_frame++;
+            bool light_stage_empty = true;
+            ScopedStageLap light_stage_lap(install_profile_, InstallProfile::StageLight, light_stage_empty);
 
             if (stage.epoch != epoch) {
                 continue;
@@ -124,6 +146,7 @@ int32_t ChunkWorld::process_completed_chunks(uint64_t epoch, double budget_ms, i
                         for (int dx = -1; dx <= 1; dx++) {
                             ChunkData* n = chunk_map.get_chunk_data_fast(stage.chunk_x + dx, stage.chunk_y + dy, stage.chunk_z + dz);
                             if (n == nullptr) continue;
+                            if (dx == 0 && dy == 0 && dz == 0) light_stage_empty = n->is_all_air();
                             present[present_count++] = chunk_map.get_chunk_key(stage.chunk_x + dx, stage.chunk_y + dy, stage.chunk_z + dz);
                             if (n->get_emissive_count() > 0) any_emissive = true;
                             if (n->has_sky_shade()) any_sky_shade = true;
@@ -249,6 +272,8 @@ int32_t ChunkWorld::process_completed_chunks(uint64_t epoch, double budget_ms, i
             PendingChunkStage stage = pending_chunk_dirty_mesh.front();
             pending_chunk_dirty_mesh.pop_front();
             dirties_this_frame++;
+            bool dirty_stage_empty = true;
+            ScopedStageLap dirty_stage_lap(install_profile_, InstallProfile::StageDirty, dirty_stage_empty);
 
             if (stage.epoch != epoch) {
                 continue;
@@ -273,6 +298,7 @@ int32_t ChunkWorld::process_completed_chunks(uint64_t epoch, double budget_ms, i
 
                 if (mesh_manager) {
                     ChunkData* installed_chunk = chunk_map.get_chunk_data_fast(stage.chunk_x, stage.chunk_y, stage.chunk_z);
+                    if (installed_chunk) dirty_stage_empty = installed_chunk->is_all_air();
                     if (installed_chunk && !installed_chunk->is_all_air()) mesh_manager->queue_dirty_chunk_fast(stage.chunk_x, stage.chunk_y, stage.chunk_z);
                     if (installed_chunk) {
                         ChunkData* neighbor = nullptr;
@@ -313,6 +339,7 @@ int32_t ChunkWorld::process_completed_chunks(uint64_t epoch, double budget_ms, i
         }
 
         if (installs_this_frame < dynamic_max_installs) {
+            install_profile_.begin();
             if (pending_chunk_installs.empty()) {
                 CompletedChunk completed;
                 if (chunk_scheduler.poll_completed_chunk(completed)) {
@@ -332,6 +359,8 @@ int32_t ChunkWorld::process_completed_chunks(uint64_t epoch, double budget_ms, i
             CompletedChunk completed = std::move(pending_chunk_installs.front());
             pending_chunk_installs.pop_front();
             installs_this_frame++;
+            const bool empty_hint = !completed.chunk_data || completed.chunk_data->is_all_air();
+            install_profile_.lap(InstallProfile::Poll, empty_hint);
 
             uint64_t key = chunk_map.get_chunk_key(completed.chunk_x, completed.chunk_y, completed.chunk_z);
 
@@ -346,6 +375,7 @@ int32_t ChunkWorld::process_completed_chunks(uint64_t epoch, double budget_ms, i
             // Read BEFORE the move below hands the data to the chunk: after it,
             // completed.chunk_data is null and this would be a null dereference.
             const bool has_blocks = completed.chunk_data && !completed.chunk_data->is_all_air();
+            install_profile_.lap(InstallProfile::Prepare, !has_blocks);
 
             auto render_data = std::make_unique<ChunkRenderData>();
             render_data->data = std::move(completed.chunk_data);
@@ -353,17 +383,20 @@ int32_t ChunkWorld::process_completed_chunks(uint64_t epoch, double budget_ms, i
             // Moved into the map, not copied: this pointer stays valid, so the
             // neighbour fan-out needs neither the self shard nor a map lookup.
             ChunkData* installed_data = render_data->data.get();
+            install_profile_.lap(InstallProfile::Data, !has_blocks);
             // NOTE: mesh_rid and instance_rid are created lazily in MeshManager
             // when a chunk actually needs a visible mesh. This avoids creating
             // 83,000+ Godot resources for invisible chunks.
 
 apply_pending_placements(key, completed.chunk_x, completed.chunk_y, completed.chunk_z, *render_data);
 apply_vegetation_placements(key, completed.chunk_x, completed.chunk_y, completed.chunk_z, *render_data);
+            install_profile_.lap(InstallProfile::Placements, !has_blocks);
 
             chunk_map.insert(key, std::move(render_data));
             generation_path_profile_.installed(completed.path_id);
             // Resident now: anything may generate it again.
             chunk_scheduler.release_claim(key);
+            install_profile_.lap(InstallProfile::Insert, !has_blocks);
 
             // The generation chain seeds itself from installs: one listener call
             // per chunk, on this thread, AFTER the chunk is resident (so the
@@ -375,6 +408,7 @@ apply_vegetation_placements(key, completed.chunk_x, completed.chunk_y, completed
                 install_listener(completed.chunk_x, completed.chunk_y,
                                  completed.chunk_z, has_blocks);
             }
+            install_profile_.lap(InstallProfile::Listener, !has_blocks);
 
 if (mesh_manager) {
     // Newly loaded chunk may provide boundary data that changes neighbor meshes.
@@ -429,6 +463,7 @@ light_propagator->try_fixup_chunk(key, completed.chunk_x, completed.chunk_y, com
             }
 
             pending_chunk_lighting.push_back({completed.chunk_x, completed.chunk_y, completed.chunk_z, completed.epoch});
+            install_profile_.lap(InstallProfile::Tail, !has_blocks);
 
             installed_count++;
             continue;
@@ -437,62 +472,7 @@ light_propagator->try_fixup_chunk(key, completed.chunk_x, completed.chunk_y, com
         break;
     }
 
-    // Process cross-boundary vegetation modifications (neighbor chunks that need re-mesh).
-    // Vegetation overflow is NOT persisted - it's regenerated on each load.
-    {
-        std::vector<ChunkPos> cross_remeshes;
-        {
-            std::lock_guard<std::mutex> lock(cross_boundary_mutex);
-            cross_remeshes.swap(pending_cross_boundary_remesh);
-        }
-        for (const auto& pos : cross_remeshes) {
-            uint64_t key = chunk_map.get_chunk_key(pos.x, pos.y, pos.z);
-            ChunkRenderData* rd = chunk_map.get_chunk_render_data(pos.x, pos.y, pos.z);
-            if (rd && rd->data) {
-                apply_vegetation_placements(key, pos.x, pos.y, pos.z, *rd);
-            }
-            if (mesh_manager) {
-                mesh_manager->queue_dirty_chunk(pos.x, pos.y, pos.z);
-            }
-        }
-    }
-
-    // Prune pending_block_placements for chunks beyond render distance.
-    // Cross-chunk vegetation writes to never-generated neighbor chunks
-    // would otherwise accumulate forever (but they're not persisted, so
-    // this is purely a memory/queue-size concern, not disk growth).
-    if (player_cx != INT32_MIN && player_cy != INT32_MIN && player_cz != INT32_MIN) {
-        const int32_t hrd_sq = (render_distance + 1) * (render_distance + 1);
-        const int32_t vertical_limit = 128;
-        std::lock_guard<std::mutex> lock(pending_placement_mutex);
-        for (auto it = pending_block_placements.begin(); it != pending_block_placements.end(); ) {
-            int32_t cx = 0, cy = 0, cz = 0;
-            ChunkMap::decode_chunk_key(it->first, cx, cy, cz);
-            const int32_t dx = cx - player_cx;
-            const int32_t dy = cy - player_cy;
-            const int32_t dz = cz - player_cz;
-            if (dx * dx + dz * dz > hrd_sq || std::abs(dy) > vertical_limit) {
-                it = pending_block_placements.erase(it);
-            } else {
-                ++it;
-            }
-        }
-        
-        // Also prune vegetation placements
-        std::lock_guard<std::mutex> vlock(vegetation_placement_mutex);
-        for (auto it = pending_vegetation_placements.begin(); it != pending_vegetation_placements.end(); ) {
-            int32_t cx = 0, cy = 0, cz = 0;
-            ChunkMap::decode_chunk_key(it->first, cx, cy, cz);
-            const int32_t dx = cx - player_cx;
-            const int32_t dy = cy - player_cy;
-            const int32_t dz = cz - player_cz;
-            if (dx * dx + dz * dz > hrd_sq || std::abs(dy) > vertical_limit) {
-                it = pending_vegetation_placements.erase(it);
-            } else {
-                ++it;
-            }
-        }
-    }
+    drain_cross_boundary_and_prune(player_cx, player_cy, player_cz, render_distance);
 
     return installed_count;
 }

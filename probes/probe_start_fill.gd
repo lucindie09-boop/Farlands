@@ -544,6 +544,8 @@ func _run() -> void:
 	print("PROBE light profile: %s" % light_report)
 	var gen_path_report: String = cm.get_generation_path_report()
 	print("PROBE gen path: %s" % gen_path_report)
+	var install_report: String = cm.get_install_profile_report()
+	print("PROBE install profile: %s" % install_report)
 	if not sweep_at_load.is_empty():
 		_print_sweep_at_load(sweep_at_load, maxf(0.0, loaded_at - LOADED_STABLE_SECS))
 	_print_fill_phases(far_at, maxf(0.0, loaded_at - LOADED_STABLE_SECS), light_report)

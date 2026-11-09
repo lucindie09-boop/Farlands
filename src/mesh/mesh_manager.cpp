@@ -272,32 +272,6 @@ void MeshManager::reprioritize(int32_t player_cx, int32_t player_cy, int32_t pla
     request_far_region_visibility_refresh();
 }
 
-// One chunk's light changed and it needs a remesh. Split out of the region form
-// below because a light pass now reports WHICH chunks it wrote (see
-// BlockLightRegion::modified_mask): marking a fixed 3x3x3 queued 27 remeshes for
-// light that had often not moved at all.
-void MeshManager::mark_chunk_dirty_for_light(int32_t cx, int32_t cy, int32_t cz) {
-    if (!chunk_map) return;
-    ChunkRenderData* render_data = chunk_map->get_chunk_render_data(cx, cy, cz);
-    if (render_data && render_data->data && render_data->data->is_all_air()) return;  // a light write cannot make sky draw
-    if (render_data) {
-        render_data->is_mesh_dirty = true;
-        render_data->mesh_version++;
-    }
-    queue_dirty_chunk(cx, cy, cz);
-}
-
-void MeshManager::mark_chunks_dirty_for_light(int32_t center_cx, int32_t center_cy, int32_t center_cz) {
-    if (!chunk_map) return;
-    for (int32_t dy = -1; dy <= 1; dy++) {
-        for (int32_t dz = -1; dz <= 1; dz++) {
-            for (int32_t dx = -1; dx <= 1; dx++) {
-                mark_chunk_dirty_for_light(center_cx + dx, center_cy + dy, center_cz + dz);
-            }
-        }
-    }
-}
-
 void MeshManager::process_queue(int32_t max_immediate, int32_t max_rebuilds, double budget_ms) {
     last_rebuild_budget_ = max_rebuilds;
     if (max_rebuilds <= 0) return;

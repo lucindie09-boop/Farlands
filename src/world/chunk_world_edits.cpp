@@ -105,6 +105,7 @@ void ChunkWorld::clear() {
     pending_chunk_lighting.clear();
     pending_chunk_dirty_mesh.clear();
     light_propagated_chunks.clear();
+    install_profile_.reset();
     pending_block_placements.clear();
     pending_placement_count.store(0);
     {

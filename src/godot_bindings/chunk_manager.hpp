@@ -106,6 +106,7 @@ public:
     godot::String get_performance_report();
     godot::String get_light_profile_report();
     godot::String get_generation_path_report();
+    godot::String get_install_profile_report();
     godot::String get_slow_frame_report(int32_t frames, double slow_frame_ms);
 
     void set_chunk_scenario(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z);

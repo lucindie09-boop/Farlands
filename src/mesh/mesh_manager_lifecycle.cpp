@@ -4,6 +4,8 @@
 #include <cmath>
 #include <unordered_set>
 
+#include "lighting/block_light_region.hpp"
+
 #include <godot_cpp/classes/rendering_server.hpp>
 
 namespace VoxelEngine {
@@ -81,6 +83,47 @@ void MeshManager::mark_all_chunks_dirty() {
         const int32_t dz = cz - last_player_chunk_z;
         mesh_queue.queue_dirty_chunk(key, dx * dx + dy * dy + dz * dz, false);
     });
+}
+
+// One chunk a light pass wrote, with the one chunk-map lookup the mark needs:
+// queue_dirty_chunk() would resolve the same render data a second time, and a
+// single light result marks up to 27 chunks.
+void MeshManager::queue_light_dirty_chunk(int32_t cx, int32_t cy, int32_t cz) {
+    if (!chunk_map) return;
+    ChunkRenderData* render_data = chunk_map->get_chunk_render_data(cx, cy, cz);
+    if (render_data && render_data->data && render_data->data->is_all_air()) return;  // a light write cannot make sky draw
+    if (render_data) {
+        render_data->is_mesh_dirty = true;
+        render_data->mesh_version++;
+        if (render_data->far_mesh_cache) {
+            mark_far_region_dirty_for_chunk(cx, cy, cz, render_data->far_mesh_cache);
+        }
+    }
+    const int32_t dx = cx - last_player_chunk_x;
+    const int32_t dy = cy - last_player_chunk_y;
+    const int32_t dz = cz - last_player_chunk_z;
+    mesh_queue.queue_dirty_chunk(chunk_map->get_chunk_key(cx, cy, cz), dx * dx + dy * dy + dz * dz, false);
+}
+
+void MeshManager::mark_chunk_dirty_for_light(int32_t cx, int32_t cy, int32_t cz) {
+    queue_light_dirty_chunk(cx, cy, cz);
+}
+
+void MeshManager::mark_chunks_dirty_for_light(int32_t center_cx, int32_t center_cy, int32_t center_cz) {
+    mark_light_modified_chunks(center_cx, center_cy, center_cz, 0x7FFFFFFu);
+}
+
+void MeshManager::mark_light_modified_chunks(int32_t center_cx, int32_t center_cy, int32_t center_cz, uint32_t mask) {
+    if (!chunk_map || mask == 0) return;
+    for (int32_t dz = -1; dz <= 1; ++dz) {
+        for (int32_t dy = -1; dy <= 1; ++dy) {
+            for (int32_t dx = -1; dx <= 1; ++dx) {
+                if ((mask & BlockLightRegion::slot_bit(dx, dy, dz)) != 0) {
+                    queue_light_dirty_chunk(center_cx + dx, center_cy + dy, center_cz + dz);
+                }
+            }
+        }
+    }
 }
 
 uint32_t MeshManager::pending_mesh_reasons() const {

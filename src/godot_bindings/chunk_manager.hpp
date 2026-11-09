@@ -266,6 +266,7 @@ public:
     int64_t get_mesh_queue_stop_counts_backlog() const;
     int64_t get_mesh_queue_builds() const;
     int64_t get_mesh_queue_rejects() const;
+    godot::Dictionary get_region_spike_stats() const;
 
     // The seed-grid far mode (docs/lod-modes.md): terrain beyond the loaded
     // world, sampled from the seed rather than generated.

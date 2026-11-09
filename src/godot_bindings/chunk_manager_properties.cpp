@@ -114,6 +114,9 @@ bool ChunkManager::has_pending_mesh_work() const { return controller->has_pendin
 int32_t ChunkManager::get_pending_chunk_mesh_count() const {
     return static_cast<int32_t>(controller->pending_chunk_mesh_count());
 }
+Dictionary ChunkManager::get_region_spike_stats() const {
+    return controller->region_spike_stats();
+}
 int32_t ChunkManager::get_mesh_rebuild_budget() const { return controller->mesh_rebuild_budget(); }
 int32_t ChunkManager::get_pending_mesh_reasons() const {
     return static_cast<int32_t>(controller->pending_mesh_reasons());

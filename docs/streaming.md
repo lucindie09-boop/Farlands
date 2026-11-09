@@ -174,6 +174,16 @@ it — are in [lod-modes.md](lod-modes.md).
   difference, so only the phase is evidence here, not the fill time. The pass's 22.5 us/install
   this run against 26-28 in the previous ones is mostly drift (insert and tail fell by more than
   this change can explain).
+- **The load window is not render-bound: NO_RENDER barely moves it.** Two fills with the render
+  loop off (`NO_RENDER=1`) loaded in **5.19 and 5.51 s** against **5.48-5.57 s** for three fills
+  with it on; their frame counts (668-677 against 677-693), `load_avg` (**7.93/8.32 ms against
+  8.31-8.43**) and the controller's `process_total` (**1.59/1.69 s against 1.60-1.73**) all sit in
+  the same ranges. The best run saves ~0.3 s and the other is inside the normal spread, so the
+  renderer owns at most ~0.5 ms of a load frame: the load is paced by the admission schedule and
+  Godot's non-render main loop, not by drawing. A hidden first fill (a loading screen instead of
+  the live world) would therefore buy ~0.3 s at most, not the ~1.7 s the all-air admissions
+  ceiling holds. The tail's drain frames remain where `NO_RENDER` pays (the entry below:
+  5.75/5.62 -> 1.53/3.89 ms), because their cost is the upload-side RenderingServer work.
 - **The frame's admission is capped by the pressure-scaled generation budget, not the band or
   the chain.** The fill probe snapshots `get_generation_stats()` when the chunk load settles
   and prints it as `PROBE load sweep`, so the mesh/far tail does not dilute the window. Two

@@ -11,6 +11,7 @@
 #include "core/performance_timer.hpp"
 #include "render/world_render_stats.hpp"
 #include <godot_cpp/classes/shader_material.hpp>
+#include <godot_cpp/variant/dictionary.hpp>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -40,6 +41,15 @@ public:
     // The old full walk over every region and every active member cost ~2.4 ms
     // on the crossing frame, twice (set_player_chunk and reprioritize).
     void process_far_region_visibility(double budget_ms);
+
+    // SPIKE (env FARLANDS_REGION_SPIKE=<regions>): the far-region worker
+    // snapshots each member chunk one at a time under its own shard lock and
+    // meshes the snapshot at far detail with a throwaway builder, so the read is
+    // measured under live streaming and the data path is proven before any
+    // region-source rewrite. Never uploads or touches the visible mesh.
+    void region_snapshot_spike(const std::vector<uint64_t>& chunk_keys, float detail_level,
+                               bool smooth_lighting);
+    godot::Dictionary get_region_spike_stats() const;
 
     void set_player_block(int32_t bx, int32_t by, int32_t bz) {
         last_player_block_x = bx;

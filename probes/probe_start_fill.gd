@@ -415,6 +415,15 @@ func _run() -> void:
 		for key in names:
 			parts.append("%s=%d" % [key, int(pop_end.get(key, 0)) - int(pop_at_load.get(key, 0))])
 		print("PROBE fill mesh pops " + " ".join(parts))
+	var spike: Dictionary = cm.call("get_region_spike_stats")
+	if int(spike.get("regions_seen", 0)) > 0:
+		print("PROBE fill region spike seen=%d max_members=%d regions=%d chunks=%d bytes=%d snapshot_ms=%.1f wait_total_ms=%.1f wait_max_ms=%.2f hold_total_ms=%.1f hold_max_ms=%.2f mesh_ms=%.1f mesh_max_ms=%.2f vertices=%d" % [
+			int(spike.get("regions_seen", 0)), int(spike.get("max_members", 0)),
+			int(spike.get("regions", 0)), int(spike.get("chunks", 0)), int(spike.get("bytes", 0)),
+			float(spike.get("snapshot_ms", 0.0)), float(spike.get("wait_total_ms", 0.0)),
+			float(spike.get("wait_max_ms", 0.0)), float(spike.get("hold_total_ms", 0.0)),
+			float(spike.get("hold_max_ms", 0.0)), float(spike.get("mesh_ms", 0.0)),
+			float(spike.get("mesh_max_ms", 0.0)), int(spike.get("vertices", 0))])
 	if not probe_line_at_load.is_empty():
 		print("PROBE fill probes at_load " + probe_line_at_load)
 	var probes_end := _report_line(last_report, "Solid probes:")

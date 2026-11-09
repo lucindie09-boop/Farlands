@@ -473,6 +473,19 @@ it — are in [lod-modes.md](lod-modes.md).
   at the load boundary, so no cut upstream of the mesh drain moves it. Both halves reverted; the
   load-window print stays as the instrument.
 
+- **Building the tail's meshes during the load starves the load's own pipeline.** The loading
+  mesh budgets (64 rebuilds, 2 ms queue) engaged only after the chunk load went quiet, so the
+  streaming window ran on the 8-a-frame gameplay cap (4,306 builds) and the tail then drained
+  the rest. Extending the loading budgets over the whole first fill is the obvious overlap arm,
+  and it lost on every counter: load **10.24 s** against 4.21, checks a frame 22.7 -> 8.8 and
+  generations 17.1 -> 7.7, with each chunk's drain wait (`completed -> installed`) **32 -> 207 ms
+  p50**. The mechanism is the shared mesh clock: `process_queue`'s budget is the far scheduler's
+  too, so 17,466 stream builds during the load (against 4,306) spent the main-thread time the
+  installs needed, and the far path the probe waits on never settled - 5,038 of 17,437 regions
+  cached, `active_uncovered` 63 at the 90 s cap (`PROBE FAIL: active far gaps did not close`).
+  Reverted. The lesson is stronger than "the two budgets trade": the fill's quiet is defined by
+  the far regions, so spending the mesh budget on stream meshes delays the quiet itself.
+
 - **The tail's builds are far-tier region sources, and what paces them is the buried test.** At
   RD 32 the far tier starts at `far_lod_distance + 2`, so most of the 5-6k meshes the tail builds
   are per-chunk sources for the 8x8 region meshes: already merged, with nothing left to merge,
@@ -600,6 +613,27 @@ it — are in [lod-modes.md](lod-modes.md).
   15,176/14,632, air pops **0/0** against 4,964/4,813, built 4,041/4,298 (the work that was
   really there), tail **2.26/2.29 s** against 3.05/3.01 and wall 6.47/6.77 s against 7.04/7.23
   (and against the 2.54/2.79 tail of the pair before that, the same direction). Kept.
+
+- **A far region can read its members' data cheaply, but reading it removes no work.** The
+  spike (`FARLANDS_REGION_SPIKE=<regions>`, `mesh/mesh_manager_region_spike.cpp`) runs inside the
+  far-region worker: for each member it takes that chunk's own shard shared, copies the chunk,
+  releases, and meshes the snapshot at far detail with a throwaway builder - no upload, no change
+  to the visible mesh. Two armed regions of 16 members each measured, over two fills: **856 KB**
+  copied, snapshot **0.5/2.3 ms** a region, shard wait **0.20/1.51 ms max**, hold **0.09/0.01 ms
+  max**, far-detail mesh **0.46/0.48 ms a chunk** (15.4/14.6 ms a region), 30,524 vertices. So the
+  read does not need a region-wide band and does not stall installs: a one-chunk shared hold is
+  tens of microseconds, and the single 1.5 ms wait was one install holding that shard. Full size
+  was measured too: a pair armed at 64 members found the fill produces exactly **one** such
+  region per run (64 reached, of 4,039/4,050 region builds, so `FARLANDS_REGION_SPIKE=2` sampled
+  one), and it read **1.74 MB** in a **0.4/0.5 ms** snapshot with a **0.11/0.09 ms** max hold,
+  then meshed in **17.9/20.7 ms** (0.28-0.32 ms a chunk, 68,680 vertices). That is sub-millisecond
+  reading at full width, and the meshing is the same work the per-chunk path does. But that meshing is the
+  same 64 far-detail builds the per-chunk path already runs, so a direct-data region task trades
+  dispatch for one sequential loop and removes no work. The tail confirms it: 2.80/2.53 s armed
+  against 2.78/2.52 baseline in the same session (wall 7.35/7.29 against 7.60/7.59, inside the
+  drift), with the counters otherwise untouched. Decision: the read path is proven safe, and the
+  full rewrite is NOT justified on fill time, because the tail is not build-bound (see the
+  0.61 ms-task entry above). The spike stays as the instrument; it is inert without the env var.
 
 ## The frustum generation pass was replaced
 

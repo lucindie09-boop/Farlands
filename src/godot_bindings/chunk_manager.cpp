@@ -352,6 +352,7 @@ BIND_PROP(Variant::BOOL, smooth_lighting, "enabled");
     ClassDB::bind_method(D_METHOD("get_mesh_queue_stop_counts_backlog"), &ChunkManager::get_mesh_queue_stop_counts_backlog);
     ClassDB::bind_method(D_METHOD("get_mesh_queue_builds"), &ChunkManager::get_mesh_queue_builds);
     ClassDB::bind_method(D_METHOD("get_mesh_queue_rejects"), &ChunkManager::get_mesh_queue_rejects);
+    ClassDB::bind_method(D_METHOD("get_region_spike_stats"), &ChunkManager::get_region_spike_stats);
     ClassDB::bind_method(D_METHOD("set_lod_distance", "distance"), &ChunkManager::set_lod_distance);
     ClassDB::bind_method(D_METHOD("get_lod_distance"), &ChunkManager::get_lod_distance);
     ADD_PROPERTY(PropertyInfo(Variant::INT, "lod_distance", PROPERTY_HINT_RANGE, "0,64,1"), "set_lod_distance", "get_lod_distance");

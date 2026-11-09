@@ -404,12 +404,17 @@ void MeshManager::process_far_region_queue(int32_t max_rebuilds, double budget_m
         region.pending_builds.fetch_add(1, std::memory_order_relaxed);
 
         const uint64_t build_epoch = async_epoch ? async_epoch->load(std::memory_order_acquire) : 0;
+        const float spike_detail = far_lod_detail_level;
+        const bool spike_smooth = smooth_lighting_enabled;
         thread_pool->fire_and_forget([this, sources = std::move(sources), member_chunk_keys = std::move(member_chunk_keys),
-                                      region_key, revision, build_epoch, region_size = region.region_size_xz]() mutable {
+                                      region_key, revision, build_epoch, region_size = region.region_size_xz,
+                                      spike_detail, spike_smooth]() mutable {
             int32_t rx_local, ry_local, rz_local;
             ChunkMap::decode_chunk_key(region_key, rx_local, ry_local, rz_local);
             const int32_t region_origin_x = rx_local * region_size * CHUNK_WIDTH;
             const int32_t region_origin_z = rz_local * region_size * CHUNK_DEPTH;
+
+            region_snapshot_spike(member_chunk_keys, spike_detail, spike_smooth);
 
             CompletedRegionMesh completed;
             completed.region_key = region_key;

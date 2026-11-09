@@ -89,6 +89,11 @@ public:
     }
     [[nodiscard]] int64_t mesh_queue_builds() const { return mesh_manager.queue_builds(); }
     [[nodiscard]] int64_t mesh_queue_rejects() const { return mesh_manager.queue_rejects(); }
+    // SPIKE counters (env FARLANDS_REGION_SPIKE): see MeshManager's region
+    // snapshot hook. Empty unless the spike ran.
+    [[nodiscard]] godot::Dictionary region_spike_stats() const {
+        return mesh_manager.get_region_spike_stats();
+    }
 
     void set_block_world(int32_t world_x, int32_t world_y, int32_t world_z, int block_id);
     int  get_block_world(int32_t world_x, int32_t world_y, int32_t world_z);

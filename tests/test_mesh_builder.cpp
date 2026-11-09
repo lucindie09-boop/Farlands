@@ -43,6 +43,33 @@ TEST_CASE("build mesh for empty chunk") {
     CHECK(mb.get_index_count() == 0);
 }
 
+// The pop's air branch frees a chunk's RIDs when `!data || data->is_all_air()`
+// (mesh_manager_rebuild.cpp). This standalone build has no RenderingServer, so
+// the free itself cannot run here; what is pinned is the state that opens the
+// branch after the last block of a meshed chunk is removed, and the empty mesh
+// that state must produce. If the chunk stayed non-air, the old RID would stay on
+// screen and the rebuild would emit geometry for a chunk with no blocks.
+TEST_CASE("removing the last block leaves the chunk all-air and its mesh empty") {
+    BlockRegistry::get_instance().initialize_default_blocks();
+    ChunkData chunk;
+    chunk.set_block(5, 5, 5, BlockIDs::STONE);
+    chunk.compute_section_flags();
+
+    MeshBuilder before;
+    before.build_mesh(chunk);
+    CHECK(before.get_vertex_count() > 0);  // there was a mesh to free
+
+    chunk.set_block(5, 5, 5, BlockIDs::AIR);
+    chunk.compute_section_flags();
+    CHECK(chunk.is_all_air());
+    CHECK(chunk.get_block_count() == 0);
+
+    MeshBuilder after;
+    after.build_mesh(chunk);
+    CHECK(after.get_vertex_count() == 0);
+    CHECK(after.get_index_count() == 0);
+}
+
 TEST_CASE("build mesh for fully solid chunk") {
     BlockRegistry::get_instance().initialize_default_blocks();
     ChunkData chunk;

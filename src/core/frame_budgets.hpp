@@ -34,6 +34,13 @@ struct FrameBudgets {
     // 680 of 751 frames and built 3.1 meshes a frame instead of 9.3. The cap
     // bounds callbacks (three of four never reach a build), so spending more of it
     // only pulls no-ops and uploads forward into the slower load frames.
+    //
+    // Retested at 128 after the all-air skip, on the reasoning that the queue was
+    // now mostly real builds: it lost again and for the same reason. Tail
+    // 3.02/3.28 s against 2.26/2.29 and wall 7.81/8.07 against 6.47/6.77, with
+    // only 89/377 builds left in the tail and the heap empty in 581/692 frames -
+    // the bigger cap drains the queue during the load and the tail then waits on
+    // arrivals. The drain is not what paces the tail.
     int32_t mesh_rebuilds_loading = 64;
     int32_t mesh_uploads_idle = 2;
     int32_t mesh_uploads_active = 32;

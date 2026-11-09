@@ -108,7 +108,39 @@ public:
     void set_smooth_lighting(bool enabled) { smooth_lighting_enabled = enabled; }
     bool is_smooth_lighting_enabled() const { return smooth_lighting_enabled; }
     void mark_all_chunks_dirty();
-    [[nodiscard]] bool has_pending_mesh_work() const;
+    // Why the world still counts as unsettled, one bit per reason: 0 is "quiet".
+    // has_pending_mesh_work() is exactly "reasons != 0", so the two cannot
+    // disagree, and a probe can name the reason instead of inferring it from the
+    // chunk heaps - which hold only one of the six.
+    enum PendingMeshReason : uint32_t {
+        kPendingQueue = 1u << 0,           // dirty_mesh_queue + backlog_queue
+        kPendingImmediate = 1u << 1,       // immediate_dirty_mesh_queue (not in size())
+        kPendingFarVisibility = 1u << 2,   // the incremental far-visibility walk
+        kPendingFarRegion = 1u << 3,       // a far region dirty, building or uploading
+        kPendingCompletedMesh = 1u << 4,   // completed chunk meshes awaiting upload
+        kPendingCompletedRegion = 1u << 5, // completed far-region meshes awaiting upload
+    };
+    // Why a queue pop did or did not become a mesh build. The tail's drain is
+    // mostly pops that rebuild_rendering_server_mesh answers without building
+    // (a version already accounted for, a buried chunk, a build already in
+    // flight), so this is the count that says whether skipping them earlier can
+    // buy anything. Main-thread only: every field is written from the queue
+    // callback, never from a worker.
+    struct MeshPopOutcomes {
+        uint64_t callbacks = 0;    // rebuild_chunk_mesh entries (the queue path)
+        uint64_t total = 0;        // rebuild_rendering_server_mesh entries
+        uint64_t missing = 0;      // no render data (chunk no longer resident)
+        uint64_t no_pipeline = 0;  // pool/scheduler/map gone (shutdown)
+        uint64_t distance = 0;     // beyond render distance + 2
+        uint64_t clean = 0;        // own and neighbour versions already built
+        uint64_t air = 0;          // all-air chunk: resources freed, no build
+        uint64_t buried = 0;       // fully solid and enclosed: no build
+        uint64_t in_flight = 0;    // a build is already running for it
+        uint64_t built = 0;        // handed to the thread pool
+    };
+    [[nodiscard]] const MeshPopOutcomes& mesh_pop_outcomes() const { return mesh_pop_outcomes_; }
+    [[nodiscard]] uint32_t pending_mesh_reasons() const;
+    [[nodiscard]] bool has_pending_mesh_work() const { return pending_mesh_reasons() != 0; }
     [[nodiscard]] uint64_t solid_probe_hits() const { return solid_probe_hits_; }
     [[nodiscard]] uint64_t solid_probe_misses() const { return solid_probe_misses_; }
     [[nodiscard]] uint64_t solid_probe_resident() const { return solid_probe_resident_; }
@@ -299,6 +331,7 @@ private:
     // Chunks remeshed because their data held liquid while the GPU held no liquid
     // geometry for them. Main-thread only (upload path).
     int32_t liquid_geometry_repairs = 0;
+    MeshPopOutcomes mesh_pop_outcomes_;
     // Upload bookkeeping, cumulative (upload path, main thread):
     //   uploads   — meshes handed to the RenderingServer
     //   skips     — uploads the content hash judged unchanged

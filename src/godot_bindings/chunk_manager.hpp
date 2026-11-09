@@ -259,6 +259,8 @@ public:
     // for a settled world rather than guessing a number of frames.
     bool has_pending_mesh_work() const;
     int32_t get_pending_chunk_mesh_count() const;
+    int32_t get_pending_mesh_reasons() const;
+    godot::Dictionary get_mesh_pop_outcomes() const;
     int32_t get_mesh_rebuild_budget() const;
     int64_t get_mesh_queue_stop_counts_view() const;
     int64_t get_mesh_queue_stop_counts_backlog() const;

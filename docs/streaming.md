@@ -522,6 +522,85 @@ it — are in [lod-modes.md](lod-modes.md).
   probe-bound the tail is worker-build-bound (`build_mesh` 3.55/3.62 s over a 3.3-3.6 s tail),
   which is where the next arm points.
 
+- **A build is 0.6 ms, 58% of it vertical greedy, and the tail is not build-bound.** The task
+  timer (3x3x3 band, 26 neighbour lookups, build, two vertex packs, content hash) reads 0.61-0.63
+  ms against `build_mesh`'s 0.57-0.58, so only ~8% of a task is outside the mesher. Inside it:
+  `greedy_v` 0.35 ms (58-59%), `solid_cache` 0.11 (19%), `greedy_h` 0.11 (18%). Replacing the
+  vertical pass's per-cell, per-direction registry lookups with a per-pass 256-entry table and
+  `get_block_fast` in the cull cut `greedy_v` to 0.32-0.33 ms and the build to 0.54-0.56, and
+  moved the tail not at all (2.53/2.77 s against 2.55/2.79). The reason is in the same profile:
+  `worker_task` totals 2.7-2.9 s across a 2.5 s tail, so only ~1.1 of eight workers is busy.
+  The frames themselves say the rest: the tail is 518 frames in 2.53 s at 4.9 ms each, and
+  `process_total` in that window is 0.36 s - 0.70 ms a frame, 14.3%. Inside it: completed-mesh
+  uploads 0.26, far-region visibility 0.23, the dirty-queue drain 0.18, everything else 0.03. The
+  other 4.2 ms is outside our C++ callback, in Godot's own frame drawing the RD 32 world. And the
+  drain is a budget-paced backlog walk, not a worker-limited one: its queue averages 5,800
+  entries and it calls back ~26 times a frame, of which only 9.3 become real builds (4,802 over
+  the tail), stopping on its per-frame rebuild allowance in 278 frames and on an empty backlog
+  heap in 232. So neither the builds nor the workers pace the tail - the dispatch allowance and
+  the frame cost do. Both arms reverted; the per-part timers stay.
+
+- **Raising that allowance made the tail longer.** `mesh_rebuilds_loading` 64 -> 128 was exactly
+  the arm the stop counters pointed at, and it lost outright: tail 3.02/3.05 s against 2.53/2.77,
+  wall 7.49/7.84 s against 6.56/6.80, load 4.47/4.79 s against 4.02/4.22. It changed where the
+  work happens, not how much: the queue at settle fell to 5,727/8,877 from 11,066/10,880, the cap
+  stopped binding (53 of 751 tail frames instead of 278 of 518), and the tail then waited on
+  arrivals with an empty backlog heap in 680 of 751 frames while building 3.1 meshes a frame
+  instead of 9.3 (2,328/3,841 tail builds against 4,802/4,514). The cap bounds callbacks, and
+  three of four callbacks never reach a build, so spending more of it pulls no-ops and uploads
+  forward into the load's slower frames and leaves the tail waiting on whatever is still pending
+  with an empty heap. Reverted to 64.
+
+- **What outlives the chunk heaps is the far field.** `has_pending_mesh_work()` now returns the
+  disjunction of six named reasons (the two chunk heaps, the immediate queue, the far-visibility
+  walk, a far region dirty/building/uploading, completed chunk meshes, completed far-region
+  meshes) and the bitmask is bound, so a probe can name the holder instead of inferring it. In a
+  running tail all six are set in most frames (queue 329, far_vis 365, far_region 447,
+  completed_mesh 329, completed_region 312), which is over-determined; restricted to the 364
+  tail frames whose chunk heaps are EMPTY, only the far field remains: far_region 118, far_vis
+  40, completed_region 4, and zero for the queue, the immediate queue and completed chunk
+  meshes. The final tail frame's mask is 0 - it does clear. So the ~680 empty-heap frames of the
+  128-cap arm were waiting on far-region rebuilds (the 250 ms debounce and their uploads) and the
+  incremental far-visibility walk, not on anything the chunk mesher owns.
+
+- **Moving that far work earlier was neutral.** The follow-up arm shortened the fill's far-region
+  debounce (250 -> 60 ms) and thickened the visibility slice (0.1 -> 0.5 ms) while the chunk
+  queue drains, and it did exactly what it was built to do: far-visibility pending frames fell
+  from 320/361 to 265/259, the walk held an empty-heap tail frame 13/51 times against 6/6, and
+  empty-heap tail frames fell from 231/399 to 109/206. The fill did not move: tail 2.52/2.50 s
+  against 2.54/2.79, wall 6.98/6.74 s against 6.78/6.98, load 4.46/4.23 against 4.25/4.19 (same
+  session, arm then baseline). The far-region dirty/build/upload bit still held 59 of the arm's
+  109 and 59 of its 206 empty-heap frames, and the chunk queue itself is pending in 311/315 of
+  the tail's frames - so neither the debounce nor the walk was the tail's length, only the last
+  residue of it, and moving them earlier just trades load for tail. Reverted; the reason
+  instrumentation stays.
+
+- **Two-thirds of the tail's drain pops cannot build.** Counting the outcome of every queue
+  callback over the tail: 15,176/14,632 callbacks, of which 5,152/5,056 built a mesh
+  (34.0/34.6%), 4,964/4,813 were all-air chunks (32.7/32.9%), 2,787/2,742 had every own and
+  neighbour version already built (18.4/18.7%), 2,236/1,987 were fully solid and enclosed
+  (14.7/13.6%) and 37/34 had no render data (0.2%); not one pop was refused for distance, a
+  missing pipeline or an in-flight build. So 66.1/65.4% of pops produce nothing - but they are
+  cheap: the whole pop path is 0.16-0.17 s of callback, 0.07 s of chunk/neighbour lookup,
+  0.05-0.06 s of the buried decision and 0.02 s of task construction, ~0.31 s across a 3.0 s
+  tail, and the drains still stopped on an empty heap in 738/753 frames rather than on the
+  allowance. Skipping them at pop therefore cannot shorten the tail by more than a fraction of
+  that; the one bucket worth moving is the all-air third, whose answer is already known at
+  install time (mark it clean there instead of queueing it), not a fourth early-out in the
+  callback.
+
+- **All-air chunks no longer enter the mesh queue, and the tail lost three quarters of a second.**
+  The outcome counters above showed a third of the fill's pops were all-air chunks, so every
+  enqueue path now skips them: the light stage that queues a freshly installed chunk, the
+  boundary fan-out (the install and light copies both go through `should_dirty_neighbor`, which
+  now asks only "can this neighbour draw at all" - an all-air one never can, whatever arrived
+  beside it, which made the old `has_boundary_blocks_on_face` test dead for every remaining
+  caller), and the light-write dirtying, whose 3x3x3 mask used to queue sky chunks the pass had
+  written even though they can never draw. Measured in the same session: callbacks in the tail 7,977/8,452 against
+  15,176/14,632, air pops **0/0** against 4,964/4,813, built 4,041/4,298 (the work that was
+  really there), tail **2.26/2.29 s** against 3.05/3.01 and wall 6.47/6.77 s against 7.04/7.23
+  (and against the 2.54/2.79 tail of the pair before that, the same direction). Kept.
+
 ## The frustum generation pass was replaced
 
 - **The frustum generation pass was REPLACED by the generation chain — the priority is "spread

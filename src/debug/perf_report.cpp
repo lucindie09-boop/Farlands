@@ -289,17 +289,31 @@ String PerfReport::build(
 
 
     // Mesh building sub-timers
+    // These carry `count=` so the fill probe can accumulate them like the frame
+    // phases; a sub-timer the probe cannot see is one it cannot cost per build.
     double solid_cache_avg = MeshBuilder::get_perf_timer().get_avg(TimerID::SolidCachePopulation);
-    if (MeshBuilder::get_perf_timer().get_count(TimerID::SolidCachePopulation) > 0) {
-        report += "    solid_cache:  avg=" + String::num(solid_cache_avg, 3) + "ms\n";
+    uint64_t solid_cache_count = MeshBuilder::get_perf_timer().get_count(TimerID::SolidCachePopulation);
+    if (solid_cache_count > 0) {
+        report += "    solid_cache:  avg=" + String::num(solid_cache_avg, 3) + "ms count=" +
+                  String::num_int64(solid_cache_count) + "\n";
     }
     double greedy_h_avg = MeshBuilder::get_perf_timer().get_avg(TimerID::GreedyMeshHorizontal);
-    if (MeshBuilder::get_perf_timer().get_count(TimerID::GreedyMeshHorizontal) > 0) {
-        report += "    greedy_h:     avg=" + String::num(greedy_h_avg, 3) + "ms\n";
+    uint64_t greedy_h_count = MeshBuilder::get_perf_timer().get_count(TimerID::GreedyMeshHorizontal);
+    if (greedy_h_count > 0) {
+        report += "    greedy_h:     avg=" + String::num(greedy_h_avg, 3) + "ms count=" +
+                  String::num_int64(greedy_h_count) + "\n";
     }
     double greedy_v_avg = MeshBuilder::get_perf_timer().get_avg(TimerID::GreedyMeshVertical);
-    if (MeshBuilder::get_perf_timer().get_count(TimerID::GreedyMeshVertical) > 0) {
-        report += "    greedy_v:     avg=" + String::num(greedy_v_avg, 3) + "ms\n";
+    uint64_t greedy_v_count = MeshBuilder::get_perf_timer().get_count(TimerID::GreedyMeshVertical);
+    if (greedy_v_count > 0) {
+        report += "    greedy_v:     avg=" + String::num(greedy_v_avg, 3) + "ms count=" +
+                  String::num_int64(greedy_v_count) + "\n";
+    }
+    uint64_t worker_task_count = MeshBuilder::get_perf_timer().get_count(TimerID::MeshWorkerTask);
+    if (worker_task_count > 0) {
+        report += "    worker_task:  avg=" +
+                  String::num(MeshBuilder::get_perf_timer().get_avg(TimerID::MeshWorkerTask), 3) +
+                  "ms count=" + String::num_int64(worker_task_count) + "\n";
     }
     const auto greedy_v_stats = MeshBuilder::get_greedy_vertical_stats();
     if (greedy_v_stats.merge_attempts > 0) {

@@ -83,31 +83,29 @@ void MeshManager::mark_all_chunks_dirty() {
     });
 }
 
-bool MeshManager::has_pending_mesh_work() const {
-    bool far_region_dirty = false;
+uint32_t MeshManager::pending_mesh_reasons() const {
+    uint32_t reasons = 0;
+    if (mesh_queue.size() > 0) reasons |= kPendingQueue;
+    if (mesh_queue.immediate_size() > 0) reasons |= kPendingImmediate;
+    // The incremental far-visibility pass is part of the initial fill too. If it
+    // still has members to walk, the world is not quiet even when the mesh queues
+    // are empty; the startup latch must not switch back to idle budgets yet.
+    if (far_visibility_pending_) reasons |= kPendingFarVisibility;
     for (const auto& entry : far_regions) {
         const FarRegionRenderData& region = entry.second;
         if (region.dirty || region.pending_builds.load(std::memory_order_relaxed) > 0 ||
             region.pending_uploads > 0) {
-            far_region_dirty = true;
+            reasons |= kPendingFarRegion;
             break;
         }
     }
-    // The incremental far-visibility pass is part of the initial fill too. If it
-    // still has members to walk, the world is not quiet even when the mesh queues
-    // are empty; the startup latch must not switch back to idle budgets yet.
-    if (far_visibility_pending_) return true;
-    if (!chunk_scheduler) {
-        return mesh_queue.size() > 0 ||
-               mesh_queue.immediate_size() > 0 ||
-               far_region_dirty ||
-               completed_far_region_mesh_count.load(std::memory_order_relaxed) > 0;
+    if (chunk_scheduler && chunk_scheduler->completed_mesh_count() > 0) {
+        reasons |= kPendingCompletedMesh;
     }
-    return chunk_scheduler->completed_mesh_count() > 0 ||
-           mesh_queue.size() > 0 ||
-           mesh_queue.immediate_size() > 0 ||
-           far_region_dirty ||
-           completed_far_region_mesh_count.load(std::memory_order_relaxed) > 0;
+    if (completed_far_region_mesh_count.load(std::memory_order_relaxed) > 0) {
+        reasons |= kPendingCompletedRegion;
+    }
+    return reasons;
 }
 
 WorldRenderStats MeshManager::gather_render_stats() {

@@ -345,6 +345,8 @@ BIND_PROP(Variant::BOOL, smooth_lighting, "enabled");
                          &ChunkManager::set_world_horizon);
     ClassDB::bind_method(D_METHOD("has_pending_mesh_work"), &ChunkManager::has_pending_mesh_work);
     ClassDB::bind_method(D_METHOD("get_pending_chunk_mesh_count"), &ChunkManager::get_pending_chunk_mesh_count);
+    ClassDB::bind_method(D_METHOD("get_pending_mesh_reasons"), &ChunkManager::get_pending_mesh_reasons);
+    ClassDB::bind_method(D_METHOD("get_mesh_pop_outcomes"), &ChunkManager::get_mesh_pop_outcomes);
     ClassDB::bind_method(D_METHOD("get_mesh_rebuild_budget"), &ChunkManager::get_mesh_rebuild_budget);
     ClassDB::bind_method(D_METHOD("get_mesh_queue_stop_counts_view"), &ChunkManager::get_mesh_queue_stop_counts_view);
     ClassDB::bind_method(D_METHOD("get_mesh_queue_stop_counts_backlog"), &ChunkManager::get_mesh_queue_stop_counts_backlog);

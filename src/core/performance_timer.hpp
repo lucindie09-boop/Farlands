@@ -35,6 +35,7 @@ namespace VoxelEngine {
     X(MeshPopRequeue) \
     X(ProcessCompleted) \
     X(BuildMesh) \
+    X(MeshWorkerTask) \
     X(MeshArrayAlloc) \
     X(MeshDataCopy) \
     X(MeshGpuUpload) \

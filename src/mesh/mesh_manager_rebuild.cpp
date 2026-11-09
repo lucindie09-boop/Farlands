@@ -14,8 +14,19 @@ void MeshManager::rebuild_rendering_server_mesh(int32_t chunk_x, int32_t chunk_y
                                                    ChunkRenderData* d_y_pos,
                                                    ChunkRenderData* d_z_neg,
                                                    ChunkRenderData* d_z_pos) {
-    if (!render_data || !render_data->is_mesh_dirty) return;
-    if (!thread_pool || !chunk_scheduler || !chunk_map) return;
+    ++mesh_pop_outcomes_.total;
+    if (!render_data) {
+        ++mesh_pop_outcomes_.missing;
+        return;
+    }
+    if (!render_data->is_mesh_dirty) {
+        ++mesh_pop_outcomes_.clean;
+        return;
+    }
+    if (!thread_pool || !chunk_scheduler || !chunk_map) {
+        ++mesh_pop_outcomes_.no_pipeline;
+        return;
+    }
 
     // Skip mesh builds for chunks beyond render distance + 2 (allows unload to proceed).
     // Horizontal-only: no vertical render distance, so any chunk within the
@@ -24,6 +35,7 @@ void MeshManager::rebuild_rendering_server_mesh(int32_t chunk_x, int32_t chunk_y
         int32_t dx = chunk_x - last_player_chunk_x;
         int32_t dz = chunk_z - last_player_chunk_z;
         if (dx*dx + dz*dz > (mesh_render_distance + 2) * (mesh_render_distance + 2)) {
+            ++mesh_pop_outcomes_.distance;
             render_data->is_mesh_dirty = false;
             render_data->dirty_subchunks = 0;
             render_data->reset_dirty_bbox();
@@ -53,6 +65,7 @@ void MeshManager::rebuild_rendering_server_mesh(int32_t chunk_x, int32_t chunk_y
     }
 
     if (!needs_enqueue) {
+        ++mesh_pop_outcomes_.clean;
         render_data->is_mesh_dirty = false;
         render_data->dirty_subchunks = 0;
         render_data->reset_dirty_bbox();
@@ -62,6 +75,7 @@ void MeshManager::rebuild_rendering_server_mesh(int32_t chunk_x, int32_t chunk_y
 
     // Occlusion culling: skip mesh generation for completely invisible chunks
     if (!render_data->data || render_data->data->is_all_air()) {
+        ++mesh_pop_outcomes_.air;
         if (render_data->mesh_rid.is_valid()) {
             RenderingServer* rs = RenderingServer::get_singleton();
             RID old_mesh = render_data->mesh_rid;
@@ -136,6 +150,7 @@ void MeshManager::rebuild_rendering_server_mesh(int32_t chunk_x, int32_t chunk_y
                 (neighbor_solid(d_y_neg, chunk_x, chunk_y - 1, chunk_z) || chunk_y == 0);
         }
         if (buried) {
+            ++mesh_pop_outcomes_.buried;
             {
                 ScopedTimer frees_timer(*perf_timer, TimerID::MeshPopBuriedFrees);
                 if (render_data->mesh_rid.is_valid()) {
@@ -182,6 +197,7 @@ void MeshManager::rebuild_rendering_server_mesh(int32_t chunk_x, int32_t chunk_y
     }
 
     if (render_data->pending_mesh_builds.load(std::memory_order_acquire) > 0) {
+        ++mesh_pop_outcomes_.in_flight;
         { ScopedTimer requeue_timer(*perf_timer, TimerID::MeshPopRequeue);
           queue_immediate_dirty_chunk(chunk_x, chunk_y, chunk_z); }
         return;
@@ -334,18 +350,23 @@ void MeshManager::rebuild_rendering_server_mesh(int32_t chunk_x, int32_t chunk_y
     }
     render_data->reset_dirty_bbox();
 
+    ++mesh_pop_outcomes_.built;
     thread_pool->enqueue_task(std::move(mesh_task), high_priority);
 }
 
 void MeshManager::rebuild_chunk_mesh(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, uint64_t epoch) {
     ScopedTimer pop_timer(*perf_timer, TimerID::MeshPopCallback);
+    ++mesh_pop_outcomes_.callbacks;
     if (!chunk_map) return;
     ChunkRenderData* chunk_render_data = nullptr;
     ChunkRenderData* neighbors[6] = {};
     {
         ScopedTimer lookup_timer(*perf_timer, TimerID::MeshPopLookup);
         chunk_render_data = chunk_map->get_chunk_render_data(chunk_x, chunk_y, chunk_z);
-        if (!chunk_render_data) return;
+        if (!chunk_render_data) {
+            ++mesh_pop_outcomes_.missing;
+            return;
+        }
         chunk_map->get_neighbors(chunk_x, chunk_y, chunk_z, neighbors);
     }
     chunk_render_data->is_mesh_dirty = true;

@@ -272,8 +272,8 @@ int32_t ChunkWorld::process_completed_chunks(uint64_t epoch, double budget_ms, i
                 if (!chunk_map.contains_fast(key)) continue;
 
                 if (mesh_manager) {
-                    mesh_manager->queue_dirty_chunk_fast(stage.chunk_x,     stage.chunk_y,     stage.chunk_z);
                     ChunkData* installed_chunk = chunk_map.get_chunk_data_fast(stage.chunk_x, stage.chunk_y, stage.chunk_z);
+                    if (installed_chunk && !installed_chunk->is_all_air()) mesh_manager->queue_dirty_chunk_fast(stage.chunk_x, stage.chunk_y, stage.chunk_z);
                     if (installed_chunk) {
                         ChunkData* neighbor = nullptr;
                         

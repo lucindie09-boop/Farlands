@@ -115,6 +115,24 @@ int32_t ChunkManager::get_pending_chunk_mesh_count() const {
     return static_cast<int32_t>(controller->pending_chunk_mesh_count());
 }
 int32_t ChunkManager::get_mesh_rebuild_budget() const { return controller->mesh_rebuild_budget(); }
+int32_t ChunkManager::get_pending_mesh_reasons() const {
+    return static_cast<int32_t>(controller->pending_mesh_reasons());
+}
+Dictionary ChunkManager::get_mesh_pop_outcomes() const {
+    const MeshManager::MeshPopOutcomes& o = controller->mesh_pop_outcomes();
+    Dictionary d;
+    d["callbacks"] = static_cast<int64_t>(o.callbacks);
+    d["total"] = static_cast<int64_t>(o.total);
+    d["missing"] = static_cast<int64_t>(o.missing);
+    d["no_pipeline"] = static_cast<int64_t>(o.no_pipeline);
+    d["distance"] = static_cast<int64_t>(o.distance);
+    d["clean"] = static_cast<int64_t>(o.clean);
+    d["air"] = static_cast<int64_t>(o.air);
+    d["buried"] = static_cast<int64_t>(o.buried);
+    d["in_flight"] = static_cast<int64_t>(o.in_flight);
+    d["built"] = static_cast<int64_t>(o.built);
+    return d;
+}
 int64_t ChunkManager::get_mesh_queue_stop_counts_view() const { return controller->mesh_queue_stop_counts_view(); }
 int64_t ChunkManager::get_mesh_queue_stop_counts_backlog() const {
     return controller->mesh_queue_stop_counts_backlog();

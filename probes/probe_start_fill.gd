@@ -40,6 +40,7 @@ var phase_count_at_load := {}
 # The buried test's probe accounting at load settle: the tail's hit/miss ratio
 # only means something next to the load's.
 var probe_line_at_load := ""
+var pop_at_load := {}
 var inflight_sum := 0.0
 var inflight_max := 0
 var completed_sum := 0.0
@@ -178,6 +179,7 @@ func _print_fill_phases(wall_s: float, load_s: float, light_report: String) -> v
 			"mesh_pop_buried_probes", "mesh_pop_buried_frees", "mesh_pop_buried_farmark",
 			"mesh_pop_buried_rest",
 			"mesh_pop_requeue",
+			"solid_cache", "greedy_h", "greedy_v", "worker_task",
 			"chunk_load_unload",
 			"far_region_visibility", "mesh_reprioritize", "process_total"]:
 		var total_ms := float(phase_ms.get(label, 0.0))
@@ -271,6 +273,16 @@ func _run() -> void:
 	var mesh_at := -1.0
 	var far_at := -1.0
 	var samples := 0
+	# Per-frame count of which pending reason held the tail open. The chunk heaps
+	# are only one of six; while the tail was 680 frames with an empty backlog, this
+	# is the only way to name what it was waiting for.
+	var tail_reason_frames := [0, 0, 0, 0, 0, 0]
+	# The same, restricted to frames whose chunk heaps (dirty + backlog) are empty:
+	# that is the state the question is about, and in the running tail the queue is
+	# pending too, so the unrestricted counts cannot separate the reasons.
+	var tail_reason_empty_frames := [0, 0, 0, 0, 0, 0]
+	var tail_empty_queue_frames := 0
+	var tail_reason_last := 0
 	var load_frame_sum := 0.0
 	var load_frame_count := 0
 	var load_worst_ms := 0.0
@@ -296,6 +308,17 @@ func _run() -> void:
 				load_worst_ms = maxf(load_worst_ms, frame_ms)
 				if frame_ms > 33.4:
 					load_slow_frames += 1
+		if loaded_at >= 0.0 and mesh_at < 0.0:
+			var reasons := int(cm.call("get_pending_mesh_reasons"))
+			var queue_now := int(cm.call("get_pending_chunk_mesh_count"))
+			tail_reason_last = reasons
+			if queue_now == 0:
+				tail_empty_queue_frames += 1
+			for bit in range(6):
+				if reasons & (1 << bit):
+					tail_reason_frames[bit] += 1
+					if queue_now == 0:
+						tail_reason_empty_frames[bit] += 1
 		var elapsed := float(Time.get_ticks_usec() - start) / 1_000_000.0
 		if elapsed >= TIMEOUT_SECS:
 			break
@@ -350,6 +373,7 @@ func _run() -> void:
 			stops_view_at_load = int(cm.call("get_mesh_queue_stop_counts_view"))
 			stops_backlog_at_load = int(cm.call("get_mesh_queue_stop_counts_backlog"))
 			probe_line_at_load = _report_line(last_report, "Solid probes:")
+			pop_at_load = cm.call("get_mesh_pop_outcomes")
 			last_loaded = loaded
 
 		if loaded_at >= 0.0 and mesh_at < 0.0:
@@ -383,6 +407,14 @@ func _run() -> void:
 		var line := _report_line(last_report, label)
 		if not line.is_empty():
 			print("PROBE fill final " + line)
+	var pop_end: Dictionary = cm.call("get_mesh_pop_outcomes")
+	if not pop_at_load.is_empty():
+		var names := ["callbacks", "total", "missing", "no_pipeline", "distance", "clean",
+			"air", "buried", "in_flight", "built"]
+		var parts: Array[String] = []
+		for key in names:
+			parts.append("%s=%d" % [key, int(pop_end.get(key, 0)) - int(pop_at_load.get(key, 0))])
+		print("PROBE fill mesh pops " + " ".join(parts))
 	if not probe_line_at_load.is_empty():
 		print("PROBE fill probes at_load " + probe_line_at_load)
 	var probes_end := _report_line(last_report, "Solid probes:")
@@ -407,6 +439,13 @@ func _run() -> void:
 	if tail_queue_samples > 0:
 		print("PROBE fill tail queue depth avg=%.1f max=%d at_load=%d samples=%d" % [
 			tail_queue_sum / float(tail_queue_samples), tail_queue_max, queue_at_load, tail_queue_samples])
+	print("PROBE fill tail pending reason frames queue=%d immediate=%d far_vis=%d far_region=%d completed_mesh=%d completed_region=%d" % [
+		tail_reason_frames[0], tail_reason_frames[1], tail_reason_frames[2],
+		tail_reason_frames[3], tail_reason_frames[4], tail_reason_frames[5]])
+	print("PROBE fill tail pending reason empty_queue frames=%d queue=%d immediate=%d far_vis=%d far_region=%d completed_mesh=%d completed_region=%d last_mask=%d" % [
+		tail_empty_queue_frames, tail_reason_empty_frames[0], tail_reason_empty_frames[1],
+		tail_reason_empty_frames[2], tail_reason_empty_frames[3], tail_reason_empty_frames[4],
+		tail_reason_empty_frames[5], tail_reason_last])
 	_stops_line("view", int(cm.call("get_mesh_queue_stop_counts_view")), stops_view_at_load)
 	_stops_line("backlog", int(cm.call("get_mesh_queue_stop_counts_backlog")), stops_backlog_at_load)
 	var builds_end := int(cm.call("get_mesh_queue_builds"))

@@ -107,6 +107,11 @@ void append_packed_mesh_data(PackedBuiltMeshData& dst, const PackedBuiltMeshData
 
 
 void MeshBuildTask::execute() {
+        // The whole task: the 3x3x3 shared band, 26 neighbour lookups, the build,
+        // two vertex packs and the content hash. `build_mesh` is only the middle of
+        // that, and the tail's 0.7 ms a build is measured against this timer to see
+        // how much of the task is the mesher and how much is everything around it.
+        ScopedTimer task_timer(MeshBuilder::get_perf_timer(), TimerID::MeshWorkerTask);
         thread_local MeshBuilder builder;
         builder.set_smooth_lighting(smooth_lighting);
         builder.set_detail_level(detail_level);

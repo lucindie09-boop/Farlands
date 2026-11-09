@@ -279,6 +279,7 @@ void MeshManager::reprioritize(int32_t player_cx, int32_t player_cy, int32_t pla
 void MeshManager::mark_chunk_dirty_for_light(int32_t cx, int32_t cy, int32_t cz) {
     if (!chunk_map) return;
     ChunkRenderData* render_data = chunk_map->get_chunk_render_data(cx, cy, cz);
+    if (render_data && render_data->data && render_data->data->is_all_air()) return;  // a light write cannot make sky draw
     if (render_data) {
         render_data->is_mesh_dirty = true;
         render_data->mesh_version++;

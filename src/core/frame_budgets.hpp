@@ -25,6 +25,15 @@ struct FrameBudgets {
     // were still queued and the ceiling only moved the stop. That re-route is
     // fixed now (each entry finishes in its own heap) and the fill was neutral,
     // so the ceiling is left alone.
+    //
+    // Raised to 128 and measured on the current tail: it lost. Tail 3.02/3.05 s
+    // against 2.53/2.77, wall 7.49/7.84 s against 6.56/6.80, load 4.47/4.79 s
+    // against 4.02/4.22. The stop counters moved as intended - the backlog drain
+    // hit this cap in 53 of 751 tail frames instead of 278 of 518 - and the tail
+    // got longer anyway: it then waited on arrivals with an empty backlog heap in
+    // 680 of 751 frames and built 3.1 meshes a frame instead of 9.3. The cap
+    // bounds callbacks (three of four never reach a build), so spending more of it
+    // only pulls no-ops and uploads forward into the slower load frames.
     int32_t mesh_rebuilds_loading = 64;
     int32_t mesh_uploads_idle = 2;
     int32_t mesh_uploads_active = 32;

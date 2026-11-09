@@ -63,6 +63,11 @@ var rejects_at_load := 0
 var rebuild_budget_at_load := 0
 var stops_view_at_load := 0
 var stops_backlog_at_load := 0
+# The split of the first 256 frames after the load settled (the far drain), taken
+# then because one average over the whole tail hides which half the wall went to.
+var early_tail_report := ""
+# QUIET_MATCH=a,b limits QUIET to scripts whose path contains one of the parts.
+var _quiet_match: PackedStringArray = []
 
 func _initialize() -> void:
 	_run()
@@ -170,8 +175,64 @@ func _print_sweep_at_load(g: Dictionary, load_s: float) -> void:
 		float(g.get("total_ms", 0.0)), float(g.get("avg_ms", 0.0)),
 		float(g.get("max_ms", 0.0)), load_s])
 
+func _measure_script_costs(root_node: Node) -> void:
+	var rows: Array = []
+	_collect_script_costs(root_node, rows)
+	rows.sort_custom(func(a, b): return float(a["us"]) > float(b["us"]))
+	var total := 0.0
+	for row in rows:
+		total += float(row["us"])
+		print("PROBE script cost us=%.2f per_call %s" % [float(row["us"]), str(row["path"])])
+	print("PROBE script cost total_us=%.2f scripts=%d" % [total, rows.size()])
+
+
+func _collect_script_costs(node: Node, rows: Array) -> void:
+	for child in node.get_children():
+		var script := child.get_script() as Script
+		if script != null and child.has_method("_process"):
+			var start := Time.get_ticks_usec()
+			for i in 500:
+				child.call("_process", 0.0)
+			var per := float(Time.get_ticks_usec() - start) / 500.0
+			rows.append({"us": per, "path": str(script.resource_path)})
+		_collect_script_costs(child, rows)
+
+
+func _quiet_matches(path: String) -> bool:
+	if _quiet_match.is_empty():
+		return true
+	for part in _quiet_match:
+		if path.contains(part):
+			return true
+	return false
+
+func _quiet_scene_process(node: Node) -> int:
+	var disabled := 0
+	for child in node.get_children():
+		var script := child.get_script() as Script
+		if script != null and child != player and _quiet_matches(str(script.resource_path)):
+			child.set_process(false)
+			child.set_physics_process(false)
+			print("PROBE fill quiet script " + str(script.resource_path))
+			disabled += 1
+		disabled += _quiet_scene_process(child)
+	return disabled
+
+
 func _print_fill_phases(wall_s: float, load_s: float, light_report: String) -> void:
 	print("PROBE fill phases wall=%.2fs load=%.2fs tail=%.2fs" % [wall_s, load_s, wall_s - load_s])
+	# What the last frames cost besides the updater. The report's window average
+	# splits the frame into our callback, the engine's renderer measure, and the
+	# rest (other nodes' _process, physics, idle); the per-frame renderer measure
+	# is reliable, unlike the rolling TIME_PROCESS.
+	if not early_tail_report.is_empty():
+		for early_line in early_tail_report.split("\n"):
+			if not early_line.is_empty():
+				print("PROBE fill earlytail " + early_line)
+	var tail_report: String = cm.call("get_slow_frame_report", 256, 0.0)
+	for tail_line in tail_report.split("\n"):
+		if not tail_line.is_empty():
+			print("PROBE fill tail " + tail_line)
 	for label in ["generate_chunk", "process_completed_chunks", "build_mesh",
 			"process_completed_meshes", "dirty_mesh_queue", "mesh_queue_chunks",
 			"mesh_queue_far", "mesh_pop_callback", "mesh_pop_detail", "mesh_pop_far",
@@ -260,6 +321,25 @@ func _run() -> void:
 		quit(1)
 		return
 
+	# QUIET=1 silences every scripted node in the world scene except the player
+	# controller (the camera streaming follows): the fill A/B for "is the tail's
+	# outside-updater time the rest of the scene's _process?". Streaming and the
+	# renderer are untouched.
+	_quiet_match = OS.get_environment("QUIET_MATCH").split(",", false)
+	if OS.get_environment("QUIET") == "1":
+		print("PROBE fill quiet scripts=%d" % _quiet_scene_process(main))
+	# SCRIPT_COST=1: time each node's _process body directly. The tail windows
+	# mix drain and idle frames, so a bisection there measures the phase, not the
+	# script; 500 calls of the body is the steady per-frame cost the fill pays.
+	if OS.get_environment("SCRIPT_COST") == "1":
+		_measure_script_costs(main)
+	# NO_RENDER=1 stops the render loop: the world is not drawn, so a tail frame
+	# that still costs what it did is main-loop work, and one that drops is the
+	# renderer's own side (submission, uploads, GPU sync).
+	if OS.get_environment("NO_RENDER") == "1":
+		RenderingServer.render_loop_enabled = false
+		print("PROBE fill no_render=1")
+
 	var rd := _env_int("RD", DEFAULT_RENDER_DISTANCE)
 	cm.set("render_distance", rd)
 	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
@@ -287,18 +367,30 @@ func _run() -> void:
 	var load_frame_count := 0
 	var load_worst_ms := 0.0
 	var load_slow_frames := 0
+	var frame_ms_sum := 0.0
+	var report_usec := 0
+	var report_calls := 0
+	var frames_at_load := 0
+	var tail_all_frame_ms := 0.0
+	var tail_frames := 0
 	print("PROBE fill start rd=%d" % rd)
 
 	while true:
 		var frame_start := Time.get_ticks_usec()
 		await process_frame
 		var frame_ms := float(Time.get_ticks_usec() - frame_start) / 1000.0
+		# Every interval after the load settled, skipped report frames included:
+		# the tail wall minus this sum is time the loop spent outside a frame.
+		if loaded_at >= 0.0:
+			tail_all_frame_ms += frame_ms
+			tail_frames += 1
 		if skip_next_frame:
 			# The report call runs between frames; its cost lands in the next
 			# frame interval, so do not count that interval as engine work.
 			skip_next_frame = false
 		else:
 			sampled_frames += 1
+			frame_ms_sum += frame_ms
 			worst_frame_ms = maxf(worst_frame_ms, frame_ms)
 			if frame_ms > 33.4:
 				slow_frames += 1
@@ -327,7 +419,10 @@ func _run() -> void:
 		last_sample = elapsed
 		samples += 1
 
+		var report_start := Time.get_ticks_usec()
 		last_report = cm.get_performance_report()
+		report_usec += Time.get_ticks_usec() - report_start
+		report_calls += 1
 		_accumulate_phases(last_report)
 		skip_next_frame = true
 		var loaded := _value(last_report, "Loaded chunks:")
@@ -361,6 +456,7 @@ func _run() -> void:
 			stable_since = elapsed
 		if loaded_at < 0.0 and load_quiet and elapsed - stable_since >= LOADED_STABLE_SECS:
 			loaded_at = elapsed
+			frames_at_load = sampled_frames
 			# The counters at settle are the load window; the session totals at
 			# the end also include the mesh/far tail and the idle frames.
 			sweep_at_load = cm.get_generation_stats()
@@ -385,6 +481,12 @@ func _run() -> void:
 		if far_at < 0.0 and loaded_at >= 0.0 and not pending_mesh \
 				and region_empty == 0 and active_uncovered == 0:
 			far_at = elapsed
+		# The first 256 frames after the load settles are the far drain; the capture
+		# keeps their split separately from the idle frames at the end, because one
+		# average over the whole tail hides which half the wall time went to.
+		if loaded_at >= 0.0 and early_tail_report.is_empty() \
+				and sampled_frames - frames_at_load >= 256:
+			early_tail_report = cm.call("get_slow_frame_report", 256, 0.0)
 		if mesh_at >= 0.0 and far_at >= 0.0:
 			break
 
@@ -402,8 +504,17 @@ func _run() -> void:
 		final_elapsed * 1000.0 / float(max(1, sampled_frames)),
 		load_frame_sum / float(max(1, load_frame_count)), load_worst_ms,
 		load_slow_frames, load_frame_count, worst_frame_ms, slow_frames, sampled_frames])
+	# The first number above divides the wall by the counted frames, so the probe's
+	# own report calls (skipped frames, invisible to the mean) inflate it. This is
+	# the mean of the measured intervals, and the report's price on its own.
+	print("PROBE fill frame measured avg=%.2fms report calls=%d total=%.2fs avg=%.1fms" % [
+		frame_ms_sum / float(max(1, sampled_frames)), report_calls,
+		report_usec / 1_000_000.0, report_usec / 1000.0 / float(max(1, report_calls))])
+	var tail_wall_ms := (final_elapsed - loaded_at) * 1000.0 if loaded_at >= 0.0 else 0.0
+	print("PROBE fill tail accounting wall=%.0fms frames=%.0fms gaps=%.0fms frames=%d" % [
+		tail_wall_ms, tail_all_frame_ms, tail_wall_ms - tail_all_frame_ms, tail_frames])
 	for label in ["Loaded chunks:", "Chunk meshes:", "Far cached:",
-			"Region empty:", "Far uncovered:", "Unrendered:"]:
+			"Region empty:", "Region uploads:", "Far uncovered:", "Unrendered:"]:
 		var line := _report_line(last_report, label)
 		if not line.is_empty():
 			print("PROBE fill final " + line)

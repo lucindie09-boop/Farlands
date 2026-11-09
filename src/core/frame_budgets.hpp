@@ -11,6 +11,10 @@ struct FrameBudgets {
     int32_t chunk_completions_initial = 128;
     int32_t chunk_completions_gameplay = 64;
     int32_t mesh_rebuilds_immediate = 4;
+    // Post-load share of the eager queue. The post-load caps were the fill's
+    // limiter: raised with the clocks below, the tail fell 2.57/3.03 -> 1.26/1.51 s
+    // and the wall 7.67/8.32 -> 6.31/6.55 s, load unchanged. See docs/streaming.md.
+    int32_t mesh_rebuilds_immediate_loading = 512;
     int32_t mesh_rebuilds_idle = 4;
     int32_t mesh_rebuilds_active = 8;
     // The tail's cap, paired with mesh_queue_loading_budget_ms below. In the tail
@@ -41,10 +45,17 @@ struct FrameBudgets {
     // only 89/377 builds left in the tail and the heap empty in 581/692 frames -
     // the bigger cap drains the queue during the load and the tail then waits on
     // arrivals. The drain is not what paces the tail.
-    int32_t mesh_rebuilds_loading = 64;
+    //
+    // 512, after the post-load arm: raising this cap alone had lost because the
+    // drain still stopped on the clocks. Raised WITH the loading clocks
+    // (mesh_queue_loading_budget_ms, mesh_completion_budget_loading_ms,
+    // far_region_visibility_loading_budget_ms) and the upload count, the tail fell
+    // 2.57/3.03 -> 1.26/1.51 s and the wall 7.67/8.32 -> 6.31/6.55 s (a shipped
+    // run: 5.82 s), with the load unchanged. Tail frames run 9-10 ms against 7.
+    int32_t mesh_rebuilds_loading = 512;
     int32_t mesh_uploads_idle = 2;
     int32_t mesh_uploads_active = 32;
-    int32_t mesh_uploads_loading = 64;
+    int32_t mesh_uploads_loading = 128;
 
     size_t completed_queue_backlog = 512;
     size_t dirty_mesh_backlog = 512;
@@ -54,6 +65,9 @@ struct FrameBudgets {
 
     double processing_budget_ms = 0.75;
     double mesh_completion_budget_ms = 0.5;
+    // Post-load clock for the same pass: a ceiling, not a target - the tail's
+    // frames averaged 10-12 ms in the arm that shipped this.
+    double mesh_completion_budget_loading_ms = 1000.0;
     // The dirty chunk queue and the far-region scheduler share one wall-clock
     // budget. They used to get 0.75 ms each, so a crossing could spend 1.5 ms in
     // DirtyMeshQueue alone; the immediate queue is inside this budget too.
@@ -69,7 +83,9 @@ struct FrameBudgets {
     // unchanged ones fired 52 times in 24,600 pops, so the cost was not stale
     // work either; 91% of the phase was the buried test's worldgen probes, now
     // memoised.
-    double mesh_queue_loading_budget_ms = 2.0;
+    // 1000 after the post-load arm: with the rebuild and upload counts raised,
+    // this clock was the stop; the tail's frames averaged 10-12 ms in the arm.
+    double mesh_queue_loading_budget_ms = 1000.0;
     // The generation ring walk used to run to its full count/check budget; on
     // a crossing that was 3.15 ms in one frame. Enqueueing is main-thread work,
     // so cap it in wall time like the other phases.
@@ -89,6 +105,9 @@ struct FrameBudgets {
     // every crossing frame; a slice this size keeps the same work in the frame
     // but out of one frame's critical path.
     double far_region_visibility_budget_ms = 0.1;
+    // Post-load clock for the incremental far-region walk: with the mesh caps
+    // raised this was the next stop, so the tail gets an effectively open clock.
+    double far_region_visibility_loading_budget_ms = 1000.0;
     int32_t max_mesh_completions_per_frame = 16;
     int32_t loading_threshold = 500;
 

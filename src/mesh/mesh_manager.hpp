@@ -351,6 +351,12 @@ private:
     int32_t mesh_uploads = 0;
     int32_t mesh_upload_dedup_skips = 0;
     int32_t mesh_upload_swallowed_water_changes = 0;
+    // Far-region upload volume, cumulative (upload path, main thread). Counted
+    // here rather than derived from the live RIDs: a region re-uploads its whole
+    // merged surface on every rebuild, so the number of queued surfaces and
+    // their vertices is the volume a coalescing window has to reduce.
+    uint64_t far_region_uploads_total = 0;
+    uint64_t far_region_upload_vertices_total = 0;
     static constexpr int32_t kFarRegionSizeXZ = 8;
 
     float compute_chunk_detail_level(int32_t cx, int32_t cy, int32_t cz) const;

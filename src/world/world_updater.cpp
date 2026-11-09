@@ -118,7 +118,9 @@ void WorldUpdater::update(bool is_editor, uint64_t epoch, uint64_t& chunks_proce
     process_mesh_budgets(is_editor, epoch, chunks_processed_total, active_render_distance, delta);
     {
         ScopedTimer t(*perf_timer, TimerID::FarRegionVisibility);
-        mesh_manager->process_far_region_visibility(budgets.far_region_visibility_budget_ms);
+        mesh_manager->process_far_region_visibility(
+            initial_loading_ ? budgets.far_region_visibility_loading_budget_ms
+                             : budgets.far_region_visibility_budget_ms);
     }
     {
         ScopedTimer t(*perf_timer, TimerID::FlushDirty);
@@ -278,7 +280,8 @@ void WorldUpdater::process_mesh_budgets(bool is_editor, uint64_t epoch, uint64_t
         ScopedTimer t(*perf_timer, TimerID::ProcessCompletedMeshes);
         mesh_manager->process_completed_meshes(
             epoch,
-            budgets.mesh_completion_budget_ms,
+            is_initial_loading ? budgets.mesh_completion_budget_loading_ms
+                               : budgets.mesh_completion_budget_ms,
             upload_budget,
             material_manager->get_material(),
             material_manager->get_water_material()
@@ -291,7 +294,8 @@ void WorldUpdater::process_mesh_budgets(bool is_editor, uint64_t epoch, uint64_t
             ? budgets.mesh_queue_loading_budget_ms
             : budgets.mesh_queue_budget_ms;
         mesh_manager->process_queue(
-            budgets.mesh_rebuilds_immediate,
+            is_initial_loading ? budgets.mesh_rebuilds_immediate_loading
+                               : budgets.mesh_rebuilds_immediate,
             mesh_rebuild_budget,
             mesh_queue_budget_ms
         );

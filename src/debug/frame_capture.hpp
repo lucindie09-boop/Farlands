@@ -34,6 +34,27 @@ struct FrameEngineStats {
     double navigation_ms = 0.0;
 };
 
+// Averages over a window of captured frames. `outside_updater` is the part of
+// the frame the engine does not spend inside ChunkManager::_process: scene
+// processing (every other node's _process, GDScript included), physics, and the
+// renderer's own submission. render_cpu/gpu come from the viewport's per-frame
+// measurement, not from a rolling monitor, so they are safe to average.
+struct FrameWindowSummary {
+    size_t frames = 0;
+    double delta_avg_ms = 0.0;
+    double delta_max_ms = 0.0;
+    double chunk_manager_avg_ms = 0.0;
+    double process_total_avg_ms = 0.0;
+    double player_avg_ms = 0.0;
+    double outline_avg_ms = 0.0;
+    double render_cpu_avg_ms = 0.0;
+    double render_gpu_avg_ms = 0.0;
+    double setup_cpu_avg_ms = 0.0;
+    double draw_calls_avg = 0.0;
+    double objects_avg = 0.0;
+    double primitives_avg = 0.0;
+};
+
 // A short per-frame history beside PerformanceTimer's interval aggregates. The
 // aggregate answers "what did the last two seconds cost"; this answers "which
 // frame in the 0.25 s FPS sample was slow", which is what a border hitch needs.
@@ -66,6 +87,7 @@ public:
     [[nodiscard]] std::string describe_window(const PerformanceTimer& timer,
                                               int32_t frames,
                                               double slow_frame_ms) const;
+    [[nodiscard]] FrameWindowSummary summarize_window(size_t frames) const;
 
 private:
     [[nodiscard]] const Frame& frame_from_newest(size_t age) const;
@@ -128,6 +150,43 @@ inline const FrameCapture::Frame& FrameCapture::frame_from_newest(size_t age) co
     return history_[(newest + kHistoryFrames - age) % kHistoryFrames];
 }
 
+inline FrameWindowSummary FrameCapture::summarize_window(size_t frames) const {
+    FrameWindowSummary summary;
+    if (count_ == 0 || frames == 0) {
+        return summary;
+    }
+    const size_t window = std::min(frames, count_);
+    summary.frames = window;
+    for (size_t age = 0; age < window; ++age) {
+        const Frame& frame = frame_from_newest(age);
+        summary.delta_avg_ms += frame.delta_ms;
+        summary.delta_max_ms = std::max(summary.delta_max_ms, frame.delta_ms);
+        summary.chunk_manager_avg_ms += frame.phase_ms[static_cast<size_t>(TimerID::ChunkManagerProcess)];
+        summary.process_total_avg_ms += frame.phase_ms[static_cast<size_t>(TimerID::ProcessTotal)];
+        summary.player_avg_ms += frame.phase_ms[static_cast<size_t>(TimerID::PlayerProcess)];
+        summary.outline_avg_ms += frame.phase_ms[static_cast<size_t>(TimerID::BlockOutlineProcess)];
+        summary.render_cpu_avg_ms += frame.render.render_cpu_ms;
+        summary.render_gpu_avg_ms += frame.render.render_gpu_ms;
+        summary.setup_cpu_avg_ms += frame.render.setup_cpu_ms;
+        summary.draw_calls_avg += static_cast<double>(frame.render.draw_calls);
+        summary.objects_avg += static_cast<double>(frame.render.objects);
+        summary.primitives_avg += static_cast<double>(frame.render.primitives);
+    }
+    const double n = static_cast<double>(window);
+    summary.delta_avg_ms /= n;
+    summary.chunk_manager_avg_ms /= n;
+    summary.process_total_avg_ms /= n;
+    summary.player_avg_ms /= n;
+    summary.outline_avg_ms /= n;
+    summary.render_cpu_avg_ms /= n;
+    summary.render_gpu_avg_ms /= n;
+    summary.setup_cpu_avg_ms /= n;
+    summary.draw_calls_avg /= n;
+    summary.objects_avg /= n;
+    summary.primitives_avg /= n;
+    return summary;
+}
+
 inline std::string FrameCapture::describe_window(const PerformanceTimer& timer,
                                                  int32_t frames,
                                                  double slow_frame_ms) const {
@@ -162,6 +221,20 @@ inline std::string FrameCapture::describe_window(const PerformanceTimer& timer,
     out << std::fixed << std::setprecision(3);
     out << "=== Slow-frame dump: last " << window << " frames, " << over_threshold
         << " at or above " << threshold << " ms ===\n";
+    const FrameWindowSummary avg = summarize_window(window);
+    out << "window average (newest " << avg.frames << " frames):"
+        << "  delta=" << avg.delta_avg_ms << " ms (max " << avg.delta_max_ms << ")"
+        << "  chunk_manager=" << avg.chunk_manager_avg_ms
+        << "  process_total=" << avg.process_total_avg_ms
+        << "  player=" << avg.player_avg_ms
+        << "  outline=" << avg.outline_avg_ms << "\n";
+    out << "  outside_updater=" << std::max(0.0, avg.delta_avg_ms - avg.chunk_manager_avg_ms)
+        << " ms  render_cpu=" << avg.render_cpu_avg_ms
+        << " ms  render_gpu=" << avg.render_gpu_avg_ms
+        << " ms  setup_cpu=" << avg.setup_cpu_avg_ms << " ms\n";
+    out << "  draw_calls=" << avg.draw_calls_avg
+        << "  objects=" << avg.objects_avg
+        << "  primitives=" << avg.primitives_avg << "\n";
     out << "slowest 3 (age=0 is the newest frame; ranked by delta or process_total; render_* is the last completed frame):\n";
     const size_t ranked_count = std::min<size_t>(3, ranked.size());
     for (size_t i = 0; i < ranked_count; ++i) {

@@ -131,6 +131,16 @@ it — are in [lod-modes.md](lod-modes.md).
   stage. The fill's absolute is in the session's slow mode (10.9/11.1 s against the fast
   baseline's 8.55 s), but both runs give the same split. The profile is off unless
   `FARLANDS_GEN_PROFILE=1`; the probe prints it as `PROBE gen path: ...`.
+- **Retested under the deep completed queue, the install budget is still not the lever.**
+  The earlier 1.5 ms arm ran with the completed queue 68-77 deep (generation was the shallow
+  side); under the current feed-forward admission it sits at **~175**, so the install pass really
+  is the throttle. `FARLANDS_INSTALL_BUDGET_MS=1.5` (env-gated, default 0) gave **load 4.78 s
+  against 4.56 s**, wall **7.36 against 6.85 s**, slow frames **47 against 20**, installing 32
+  chunks in 628 frames against 28.6 in 706. The extra 0.75 ms per frame lengthened the frames
+  (load frame 8.35 against 7.57 ms) more than it added installs, and the per-install cost rose
+  with contention (28.0 against 27.1 us), so the load stays frame-time x install-throughput. The
+  override is reverted; a sub-5 s load needs cheaper installs or fewer chunks, not a longer
+  budget.
 - **The frame's admission is capped by the pressure-scaled generation budget, not the band or
   the chain.** The fill probe snapshots `get_generation_stats()` when the chunk load settles
   and prints it as `PROBE load sweep`, so the mesh/far tail does not dilute the window. Two
@@ -634,6 +644,75 @@ it — are in [lod-modes.md](lod-modes.md).
   drift), with the counters otherwise untouched. Decision: the read path is proven safe, and the
   full rewrite is NOT justified on fill time, because the tail is not build-bound (see the
   0.61 ms-task entry above). The spike stays as the instrument; it is inert without the env var.
+
+- **The tail is frame-bound, and the frames outside the updater are mostly the scene's own
+  `_process`.** The probe now reconciles the tail's wall against its own frames (`PROBE fill tail
+  accounting`): **2,308 ms wall = 2,236 ms frames + 72 ms gaps** over 664 frames, and **1,518 =
+  1,470 + 48** over 263, so there is no hidden wait - the tail is CPU time per frame. The frame
+  capture's window average over the **first 256** tail frames (the far drain) is **5.75/5.62 ms**,
+  of which `ChunkManagerProcess`/`ProcessTotal` are **1.42/1.37 ms**, the renderer measures **0.55
+  ms CPU / 0.57 ms GPU** at 248 draw calls and 1.36 M primitives, and `PlayerProcess`/`Outline`
+  are 0.01 ms. The **last 256** frames fall to **1.14 ms** once the drain stops. `QUIET=1` (every
+  scripted node of the world scene silenced except the player controller, 20 nodes) first looked
+  like a **1.1-2.6 ms** per-frame win, but that window is phase-sensitive: some runs captured the
+  tail's idle end (`chunk_manager` 0.04 ms) and some the drain, and the same 256-frame average then
+  moves by more than the effect being looked for. Timing the bodies directly (`SCRIPT_COST=1`, 500
+  `_process` calls per node) settles it: **78.6 us** total over 18 nodes - viewmodel **20.5 us**,
+  crafting_table_menu 14.0, inventory 13.8, shader_overlay 9.5, hotbar 5.6, the other thirteen
+  below 3. Single fills agree: shader_overlay off 7.43/7.02 s, viewmodel off 7.08/7.32, all twenty
+  off 6.54/6.78, all on 7.52-8.40 - the one-script runs do not reproduce the all-off wall, so no
+  script is the drain frames' millisecond item. With the render loop off (`NO_RENDER=1`) the same
+  drain frame falls from **5.75/5.62 ms to 1.53/3.89**, and to **1.26/0.85** with the scripts off
+  too, so the rest is the renderer's main-thread side rather than scene processing or physics. The
+  viewport's own measures are only **0.55 ms CPU / 0.57 ms GPU at 248 draw calls**, which rules out
+  drawing time: the cost is the RenderingServer work the *drain* keeps dirty - mesh uploads and
+  instance updates - not the static frame (the idle tail is 1.14 ms with rendering ON, and the
+  updater itself halves with the loop off, 1.42 -> 0.49/1.25 ms, because its upload calls stop
+  paying for the server's processing). The probe's own report costs 3.9-4.6 ms a call and
+  0.12-0.15 s in total, so the instrument is not the wall. Two consequences: the drain's per-frame
+  renderer work (fed by the mesh uploads) is the largest single item in a tail frame, and **no
+  tail-only change reaches 5 s** - the load window alone is 5.0 s, so the lever is the drain's
+  frame COUNT and its upload churn together with the load, not a cheaper updater or quieter
+  scripts. **A per-frame cap on the region uploads was A/B'd and lost** (`FARLANDS_REGION_UPLOAD_CAP=1`
+  against the budget's 8): the per-frame drain fell from **4.27/6.61 ms to 1.02/2.17/2.89** and the
+  updater from 0.90/1.50 to 0.05-0.71, but the wall came out **6.75/6.83/6.83 s against 6.68/6.78**
+  (loads 4.48-4.81 against 4.40-4.48) over more tail frames (451 against 281) - the same renderer
+  work spread thinner is not less work. The cap is reverted. **Cutting the region upload volume
+  does not shorten the fill either** (`FARLANDS_FAR_REGION_DEBOUNCE_MS`, a longer coalescing window
+  with the immediate-rebuild bypass off): it took the volume from **2,164/2,237 surfaces and
+  42.8/43.4 M vertices to 234/4.97 M at 500 ms, 234/4.97 M at 1000 ms and 217/4.70 M at 4000 ms**,
+  and the wall rose with the window - **7.32 s, 8.64 s and 11.57 s** against **6.85/7.09 s** (tails
+  2.81/3.82/6.56 s against 2.28/2.55 s). The window resets on every arrival, so a region whose
+  members keep streaming in never rebuilds until streaming stops: its far chunks stay uncovered by
+  the region for the rest of the drain (drawn individually), and the far condition closes only after
+  the last rebuild. The volume is real - a region re-uploads its whole merged surface per rebuild -
+  but partial rebuilds are what keep the far chunks covered, so the load window is the remaining
+  lever, not the rate or the volume. The window is reverted; the `Region uploads:` counters stay as
+  the volume instrument. **The post-load caps WERE the fill's limiter, and opening them cut 1.3-1.8
+  s.** `FARLANDS_NO_FRAME_LIMITS=1` (every load-path clock and count opened) first took the tail from
+  2.79 s to 1.00 s but the load from 4.80 s to 5.94 s - frames 8.3 -> 29.2 ms and installs 27 ->
+  143 us under contention - so the wall (6.94 against 7.60) sat inside drift. Narrowed to the
+  post-load latch, it reproduced in both orders: **tail 1.26/1.51 s against 2.57/3.03 s, wall
+  6.31/6.55 s against 7.67/8.32 s, load unchanged (4.81/5.29 against 5.10/5.29)**, the tail
+  accounting falling from 1,580-2,032 ms over 323-519 frames to 266-514 ms over 21-43. The loading
+  budgets now ship as the arm's values - **512 rebuilds, 128 uploads** (from 64), the **1000 ms**
+  queue/completion/far-visibility clocks - and a default run measured **5.82 s** (load 4.56, tail
+  1.25). The cost is tail frame time: those frames average 9-12 ms against ~5, and the fill's slow
+  frames are 45-56 over 618-649 frames against 47-51 over 993-1,196 - a slower, shorter tail. The
+  load's own caps stay closed (the 5.94 s arm is why), so the remaining lever for <5 s is still the
+  load window. The numbers come from `probe_start_fill.gd`'s tail windows, `tail accounting`,
+  `QUIET`, `SCRIPT_COST` and `NO_RENDER`.
+- **Fast flight after a fill now starts with the tail already drained - and, while the latch is
+  up, under the loading budgets themselves.** A report from play: flying at a high speed
+  (`/fly 25`) felt roughly ten times faster than before the budget change and no longer slower
+  than the initial radius. Two mechanisms fit that. The mesh/far tail now finishes in 1.2-1.5 s
+  instead of 2.6-3.0 s, so a player who starts moving soon after spawn is no longer competing
+  with a multi-second meshing backlog; and `initial_loading_` keeps the loading budgets in force
+  for up to 30 s (or until 1 s without pending mesh), so the same window that drains the tail
+  also meshes live streaming at 512 rebuilds/128 uploads per frame. After that latch expires the
+  active budgets (8 rebuilds, 32 uploads, 0.35 ms) are what apply, so a sustained flight beyond
+  the window is still the old behavior and is the case to profile if it lags. This is an
+  observation, not a measured flight speed - no probe pins it yet.
 
 ## The frustum generation pass was replaced
 

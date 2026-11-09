@@ -34,6 +34,9 @@ bool MeshManager::queue_far_region_upload(FarRegionRenderData& region, Completed
     if (!upload_mesh_rid.is_valid()) {
         return false;
     }
+    ++far_region_uploads_total;
+    far_region_upload_vertices_total += completed.mesh_data.vertices.size() +
+                                        completed.water_mesh_data.vertices.size();
     rs->mesh_set_custom_aabb(
         upload_mesh_rid,
         AABB(Vector3(0, 0, 0),

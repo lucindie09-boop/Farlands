@@ -59,6 +59,13 @@ struct WorldRenderStats {
     int32_t mesh_upload_dedup_skips = 0;
     int32_t mesh_upload_swallowed_water_changes = 0;
 
+    // Far-region upload volume since the process started: merged region surfaces
+    // queued for the upload channel and the vertices in them. A region rebuild
+    // re-uploads its whole surface, so this is what a coalescing window is meant
+    // to cut (see docs/streaming.md).
+    uint64_t far_region_uploads = 0;
+    uint64_t far_region_upload_vertices = 0;
+
     // Where the buried test's six neighbour probes resolve (MeshManager's
     // solid_probe_cache_): resident is a loaded chunk answering from its cached
     // flag, hits and misses are the ungenerated-neighbour predicate's memo. The

@@ -256,6 +256,8 @@ WorldRenderStats MeshManager::gather_render_stats() {
     stats.mesh_uploads = mesh_uploads;
     stats.mesh_upload_dedup_skips = mesh_upload_dedup_skips;
     stats.mesh_upload_swallowed_water_changes = mesh_upload_swallowed_water_changes;
+    stats.far_region_uploads = far_region_uploads_total;
+    stats.far_region_upload_vertices = far_region_upload_vertices_total;
 
     return stats;
 }

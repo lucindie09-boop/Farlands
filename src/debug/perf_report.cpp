@@ -80,6 +80,8 @@ String PerfReport::build(
               " debounced=" + String::num_int64(render_stats.visible_far_debounced_region) + "\n";
     report += "  Chunk meshes:    " + String::num_int64(render_stats.chunk_mesh_rids) +
               "  Region meshes:    " + String::num_int64(render_stats.far_region_mesh_rids) + "\n";
+    report += "  Region uploads:  " + String::num_int64(static_cast<int64_t>(render_stats.far_region_uploads)) +
+              "  Region upload vertices: " + String::num_int64(static_cast<int64_t>(render_stats.far_region_upload_vertices)) + "\n";
     // The buried test's six neighbour probes, by how they answered: a loaded
     // chunk's flag, the predicate memo, or a fresh 25 us worldgen sample.
     report += "  Solid probes:    " + String::num_int64(static_cast<int64_t>(render_stats.solid_probe_resident)) +

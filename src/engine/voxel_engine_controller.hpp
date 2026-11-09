@@ -165,6 +165,8 @@ public:
     godot::String get_light_profile_report();
     // Per-chunk generation pipeline latency; "disabled" unless FARLANDS_GEN_PROFILE=1.
     godot::String get_generation_path_report();
+    // Main-thread install breakdown; "disabled" unless FARLANDS_INSTALL_PROFILE=1.
+    godot::String get_install_profile_report();
     // The slowest frame in the FPS label's current sample, as a phase dump.
     godot::String get_slow_frame_report(int32_t frames, double slow_frame_ms);
     // Starts a per-frame capture at the beginning of the main-thread callback;

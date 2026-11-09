@@ -7,6 +7,7 @@
 #include "core/edit_map.hpp"
 #include "world/chunk_scheduler.hpp"
 #include "world/light_profile.hpp"
+#include "world/install_profile.hpp"
 #include "world/generation_path_profile.hpp"
 #include "worldgen/generation_slice_profile.hpp"
 #include "core/thread_pool.hpp"
@@ -189,6 +190,9 @@ public:
     // FARLANDS_LIGHT_PROFILE=1; the startup probe prints this readout.
     [[nodiscard]] std::string get_light_profile_report() const { return light_profile_.report(); }
 
+    // Main-thread install breakdown; "disabled" unless FARLANDS_INSTALL_PROFILE=1.
+    [[nodiscard]] std::string get_install_profile_report() const { return install_profile_.report(); }
+
 private:
     // Writes the edit map file. Caller MUST hold file_access_mutex.
     void write_edit_map_file_locked(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, const EditMap& edit_map);
@@ -203,6 +207,9 @@ private:
                                std::unique_ptr<EditMap> snapshot, uint64_t epoch, uint64_t generation);
     bool is_save_in_flight(uint64_t key) const;
     void wait_for_saves(double timeout_sec);
+    // Tail of process_completed_chunks: cross-boundary vegetation remeshes and
+    // the placement-queue prune. Split out so that TU stays under the size cap.
+    void drain_cross_boundary_and_prune(int32_t player_cx, int32_t player_cy, int32_t player_cz, int32_t render_distance);
 
     godot::Node* owner = nullptr;
     MeshManager* mesh_manager = nullptr;
@@ -261,6 +268,7 @@ private:
     mutable     std::mutex cross_boundary_mutex;
 
     LightProfile light_profile_;
+    InstallProfile install_profile_;
     GenerationPathProfile generation_path_profile_;
     bool vegetation_enabled = true;
 };

@@ -141,6 +141,39 @@ it — are in [lod-modes.md](lod-modes.md).
   with contention (28.0 against 27.1 us), so the load stays frame-time x install-throughput. The
   override is reverted; a sub-5 s load needs cheaper installs or fewer chunks, not a longer
   budget.
+- **The 27 us install, by subphase.** `FARLANDS_INSTALL_PROFILE=1` splits
+  `process_completed_chunks` into the install core, the light and dirty stages, the completed-light
+  result drain, and empty/real buckets (the probe prints it as `PROBE install profile`). Over the
+  fill's 20,230 installs the core is **9.61 us for the 7,640 all-air chunks and 16.80 us for the
+  12,590 with blocks** (earlier fills gave 9.36/13.30 and 9.72/16.06 -- insert and tail trade places
+  between runs): insert 4.29/8.63, tail 2.89/4.42, data 1.65/1.82, prepare 0.39/0.63, placements
+  0.11/0.55, listener 0.11/0.56, poll 0.17/0.19. The stage pass is **4.05/4.60 us for the 28-key
+  light scan** and **3.57/2.42 for the dirty queue**, and the completed-light result drain is
+  **0.00/10.62 us** -- a result exists only for a chunk with an emitter or shade, so every drain
+  execution lands in the real bucket, which is **6.61 us per install across all installs**. The
+  profiled total is **17.24/34.42 us, 27.9 us per install**, against the pass's own 28.0 us
+  (`0.57 s` / 20,230): the account closes, and the drain is the largest single stage -- bigger than
+  the 28-key scan -- and its per-result work is the mask walk (up to 27
+  `mark_chunk_dirty_for_light` calls) plus a dirty-stage push, at the top of every loop iteration.
+  So the 28-key
+  scan is not the ~11 us the core profile left behind: it is ~4.4, the dirty stage ~2.9, and the
+  drain ~6.6. The earlier ~3.8 us residual was that drain on a fill whose pass measured 26.0 us;
+  the phase totals across fills vary by a few microseconds (insert and tail especially), so the
+  residual and the measured drain do not line up exactly across runs. Zeroing
+  the core would save 0.28 s, the two stages 0.15 s and the drain 0.13 s, so the install pass is
+  ~0.5 s of a 5.5 s load: the 0.8 s target is not in it alone.
+- **The light-result drain's per-bit mark resolves each chunk once.** The drain used to call
+  `mark_chunk_dirty_for_light` for every set mask bit, and that path made two locking chunk-map
+  lookups per chunk: one for the `mesh_version` bump, one inside `queue_dirty_chunk`. The drain now
+  calls `mark_light_modified_chunks` with the pass's mask; it loops only the set bits and queues
+  each from the `ChunkRenderData*` it already holds (the mark functions moved to
+  `mesh_manager_lifecycle.cpp`, which keeps `mesh_manager.cpp` under the cap at 474 lines).
+  Measured: `stage_results` **10.62 -> 7.17 us per non-air install** (6.61 -> 4.46 across all
+  installs; ~0.13 -> 0.09 s), and the fill ran 5.54 s loaded / 5.81 s end against 5.57/5.83 before.
+  The wall did not move: the drain was ~0.13 s of a 5.8 s fill and the frame budget absorbed the
+  difference, so only the phase is evidence here, not the fill time. The pass's 22.5 us/install
+  this run against 26-28 in the previous ones is mostly drift (insert and tail fell by more than
+  this change can explain).
 - **The frame's admission is capped by the pressure-scaled generation budget, not the band or
   the chain.** The fill probe snapshots `get_generation_stats()` when the chunk load settles
   and prints it as `PROBE load sweep`, so the mesh/far tail does not dilute the window. Two
@@ -713,6 +746,22 @@ it — are in [lod-modes.md](lod-modes.md).
   active budgets (8 rebuilds, 32 uploads, 0.35 ms) are what apply, so a sustained flight beyond
   the window is still the old behavior and is the case to profile if it lags. This is an
   observation, not a measured flight speed - no probe pins it yet.
+- **The rate jump a player sees at 4-5.9 s is the load/tail switch.** The probe's boundary (load
+  4.56 s, tail 1.25 s) is where chunks start popping faster: at `chunk_load_done` the budgets move
+  to the loading 512/128/1000 ms and the backlog the load-phase caps held back - installed but
+  unmeshed chunks and the far regions - drains in the last second (18,060 builds before the
+  boundary, 983 after). This is the latch described in the fill-budget entry, not spare capacity:
+  the arm that applies the loading budgets from the first frame is measured there as worse,
+  because the mesh work competes with install and light on the main thread. The first phase
+  cannot be doubled by moving the tail's burst into it; it can only be shortened by doing less
+  work. **The mild arm was measured and is neutral-to-worse.** 16 rebuilds / 64 uploads with the
+  clocks untouched absorbed the whole tail (512 tail builds -> 0, tail accounting 271 ms -> 6 ms
+  over 0 frames) but delayed the load (5.74 -> 6.03 s) by the same amount, so the wall stayed flat
+  (6.01 vs 6.04 s): the burst is redistributed, not removed. It is reverted. **The all-air
+  dirty-stage fast path is neutral for the same reason**: cutting the drain's dirty stages from
+  45.0 to 13.3 a frame (the band's pad empties were most of them) left the load (5.79 vs 5.78 s)
+  and the wall (6.05 vs 6.06 s) where they were, so the stage is cheap next to the install itself.
+  It is reverted too.
 
 ## The frustum generation pass was replaced
 

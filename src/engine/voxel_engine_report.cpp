@@ -125,6 +125,10 @@ String VoxelEngineController::get_generation_path_report() {
     return String(chunk_world.get_generation_path_report().c_str());
 }
 
+String VoxelEngineController::get_install_profile_report() {
+    return String(chunk_world.get_install_profile_report().c_str());
+}
+
 String VoxelEngineController::get_slow_frame_report(int32_t frames, double slow_frame_ms) {
     const std::string dump =
         frame_capture.describe_window(perf_timer, frames, slow_frame_ms);

@@ -174,16 +174,17 @@ it — are in [lod-modes.md](lod-modes.md).
   difference, so only the phase is evidence here, not the fill time. The pass's 22.5 us/install
   this run against 26-28 in the previous ones is mostly drift (insert and tail fell by more than
   this change can explain).
-- **The load window is not render-bound: NO_RENDER barely moves it.** Two fills with the render
-  loop off (`NO_RENDER=1`) loaded in **5.19 and 5.51 s** against **5.48-5.57 s** for three fills
-  with it on; their frame counts (668-677 against 677-693), `load_avg` (**7.93/8.32 ms against
-  8.31-8.43**) and the controller's `process_total` (**1.59/1.69 s against 1.60-1.73**) all sit in
-  the same ranges. The best run saves ~0.3 s and the other is inside the normal spread, so the
-  renderer owns at most ~0.5 ms of a load frame: the load is paced by the admission schedule and
-  Godot's non-render main loop, not by drawing. A hidden first fill (a loading screen instead of
-  the live world) would therefore buy ~0.3 s at most, not the ~1.7 s the all-air admissions
-  ceiling holds. The tail's drain frames remain where `NO_RENDER` pays (the entry below:
-  5.75/5.62 -> 1.53/3.89 ms), because their cost is the upload-side RenderingServer work.
+- **The load window is not render-bound: a paired NO_RENDER arm is, if anything, slower.**
+  A five-pair AB/BA run of the current build (`probes/start_fill_ab.py`, one discarded warmup,
+  `NO_RENDER=1` against the normal loop) loaded **5.53 s median [5.30-5.64]** with rendering on
+  and **5.60 s [5.21-5.82]** with it off; the paired A-B median is **-0.19 s [-0.52-+0.32]**, with
+  NO_RENDER faster in only 2 of 5 pairs. End times are **5.80 s [5.56-5.90]** against
+  **6.07 s [5.48-6.12]**. The earlier 5.19/5.51 pair was the low side of a wide distribution, not
+  a 0.3 s arm: the renderer owns no measurable part of the load window, so a hidden first fill
+  would buy nothing (not the ~1.7 s the all-air admissions ceiling holds). The 5.82 s default run
+  is an ordinary end time at the top of the normal range, not a separate regime. The tail's drain
+  frames remain where `NO_RENDER` pays (the entry below: 5.75/5.62 -> 1.53/3.89 ms), because
+  their cost is the upload-side RenderingServer work.
 - **The frame's admission is capped by the pressure-scaled generation budget, not the band or
   the chain.** The fill probe snapshots `get_generation_stats()` when the chunk load settles
   and prints it as `PROBE load sweep`, so the mesh/far tail does not dilute the window. Two

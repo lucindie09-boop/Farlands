@@ -1,8 +1,11 @@
 #include "world/chunk_world.hpp"
 
 #include <cstdlib>
+#include <algorithm>
+#include <cctype>
 #include <memory>
 #include <mutex>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -29,12 +32,17 @@ namespace {
 // boundary remeshes; the replay is part of the hit cost.
 bool generation_memo_enabled() {
     // Presence used to be enough, so FARLANDS_GEN_MEMO=0 still turned the memo
-    // on and an "off" control silently measured the hit path. 0/false/no
-    // disable it; any other value enables it.
+    // on and an "off" control silently measured the hit path. The off values
+    // are matched in full ("off" is not an f-prefix guess); any other value
+    // enables it.
     static const bool enabled = [] {
         const char* raw = std::getenv("FARLANDS_GEN_MEMO");
-        if (raw == nullptr || raw[0] == '\0' || raw[0] == '0') return false;
-        return !(raw[0] == 'f' || raw[0] == 'F' || raw[0] == 'n' || raw[0] == 'N');
+        if (raw == nullptr || raw[0] == '\0') return false;
+        std::string value(raw);
+        std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
+            return static_cast<char>(std::tolower(ch));
+        });
+        return value != "0" && value != "false" && value != "no" && value != "off";
     }();
     return enabled;
 }
@@ -125,10 +133,7 @@ bool ChunkWorld::generate_chunk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_
                     queue_vegetation_placement(wx, wy, wz, static_cast<int>(block));
                     int32_t tc_x, tc_y, tc_z, lx, ly, lz;
                     world_to_chunk_local(wx, wy, wz, tc_x, tc_y, tc_z, lx, ly, lz);
-                    {
-                        std::lock_guard<std::mutex> lock(cross_boundary_mutex);
-                        pending_cross_boundary_remesh.push_back({tc_x, tc_y, tc_z});
-                    }
+                    pending_cross_boundary_remesh.push({tc_x, tc_y, tc_z});
                 };
                 if (memo_hit) {
                     for (const auto& write : memo_spill) {

@@ -125,11 +125,8 @@ void ChunkWorld::clear() {
     // This one was missed by the reset: every generation queues a boundary
     // remesh here, and the next world's first install would drain the old
     // world's list and dirty-mesh chunks that no longer exist. The pool is
-    // already joined at this point, but the lock is still the contract.
-    {
-        std::lock_guard<std::mutex> lock(cross_boundary_mutex);
-        pending_cross_boundary_remesh.clear();
-    }
+    // already joined at this point, but the queue still owns its own lock.
+    pending_cross_boundary_remesh.clear();
     chunk_map.clear();
     async_epoch.store(0, std::memory_order_release);
 }

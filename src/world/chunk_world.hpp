@@ -6,6 +6,7 @@
 #include "core/inventory.hpp"
 #include "core/edit_map.hpp"
 #include "world/chunk_scheduler.hpp"
+#include "world/cross_boundary_queue.hpp"
 #include "world/light_profile.hpp"
 #include "world/install_profile.hpp"
 #include "world/generation_path_profile.hpp"
@@ -189,7 +190,6 @@ public:
         return pending_vegetation_count.load(std::memory_order_relaxed);
     }
     [[nodiscard]] size_t pending_cross_remesh_count() {
-        std::lock_guard<std::mutex> lock(cross_boundary_mutex);
         return pending_cross_boundary_remesh.size();
     }
 
@@ -278,8 +278,7 @@ private:
     std::condition_variable saves_cv;
 
     // Cross-boundary vegetation writes: neighbor chunks modified during generation
-    std::vector<ChunkPos> pending_cross_boundary_remesh;
-    mutable     std::mutex cross_boundary_mutex;
+    CrossBoundaryRemeshQueue pending_cross_boundary_remesh;
 
     LightProfile light_profile_;
     InstallProfile install_profile_;

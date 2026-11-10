@@ -2,9 +2,10 @@
 
 **Status:** design note; the codec is not implemented. The decider clears the
 4- and 6-core criteria and the 16-thread warm arm, so phase 1-2 (codec, reader,
-hit/miss parity) is the next work. The pool cost is now split by task class
-(mesh 0.60 ms/chunk, light 0.17, far 0.02), and the reset queues are
-instrumented. The reader design is per-chunk payload reads from the 51 pack
+hit/miss parity) is the next work. The pool cost is now split by task class:
+chunk mesh first build vs remesh, revision-driven region uploads, light, far and
+prefetch (the older combined bucket was mesh 0.60 ms/chunk, light 0.17, far
+0.02), and the reset queues are instrumented. The reader design is per-chunk payload reads from the 51 pack
 indexes held in RAM, not a decoded-pack LRU. The 16-thread result is
 warm-process only until the phase-4 cold arm, which also runs the read on a
 cold spinning disk. The measurement-only decider below (two admission env
@@ -133,25 +134,60 @@ Consequences:
   rewrite. The 2.46 ms value is the admission constant, not the measured pool
   cost: the pool's own counters put the cost at **2.68 ms per chunk**
   (2.955 worker-seconds per second / 1,101 chunks/s). A later 3-worker
-  per-class run measured **2.64 ms/chunk**: generation 1.78, mesh 0.60, light
-  0.17, prefetch 0.06, far 0.02, and no other/save/path tasks. The old 0.91 ms
-  non-generation residual is therefore mesh (0.60, not the 0.54 estimate),
-  light (0.17), prefetch (0.06) and far (0.02), with nothing unexplained. On
-  the memo hit the same counters read generation 0.72, mesh 0.53, light 0.19,
-  prefetch 0.05, far 0.01 (**1.52 ms/chunk**): mesh is the largest remaining
-  worker cost and the next lever after generation.
+  per-class run measured **2.64 ms/chunk** in the old combined buckets:
+  generation 1.78, mesh 0.60, light 0.17, prefetch 0.06, far 0.02, and no
+  other/save/path tasks. The old 0.91 ms non-generation residual is therefore
+  mesh (0.60, not the 0.54 estimate), light (0.17), prefetch (0.06) and far
+  (0.02), with nothing unexplained. On the memo hit the same combined counters
+  read generation 0.72, mesh 0.53, light 0.19, prefetch 0.05, far 0.01
+  (**1.52 ms/chunk**). That mesh number was first builds, remeshes and region
+  uploads together; the split below shows the lever is the remesh, not the
+  region upload.
 - **Reset diagnostic (3-worker, memo off).** Before `clear_editor_chunks()`:
   **1** pending vegetation chunk / **22** placements, **0** cross-remesh
   requests, **0** scheduler claims, and **0** completed chunks/meshes. After:
-  all zero. `ChunkWorld::clear()` was missing the
-  `pending_cross_boundary_remesh` clear; it now clears that under
-  `cross_boundary_mutex`, and clears the block and vegetation placement maps
-  under their own mutexes. The measured second fill is nevertheless slower:
-  **17.87 -> 20.39 s**. The class counters localise the extra time to mesh
-  (**11.86 -> 18.02 s**, 14,821 -> 18,699 tasks) while generation is flat
-  (35.26 -> 35.12 s). The suspected spill/placement leak is not the cause in
-  this arm; the mesh residual is open, and the New World button should not
-  assume the reset is cheap yet.
+  all zero. `ChunkWorld::clear()` was missing the boundary-remesh clear; it now
+  clears the queue and the block and vegetation placement maps under their own
+  locks. The measured second fill is nevertheless slower: **17.87 -> 20.39 s**
+  in the earlier arm (both controls ran with `FARLANDS_GEN_MEMO` unset; the
+  discarded `=0` arm that read 10.08 s was a hit, not a control). The combined
+  mesh bucket rose **11.86 -> 18.02 s**, 14,821 -> 18,699 tasks, while
+  generation was flat (35.26 -> 35.12 s). The suspected spill/placement leak is
+  not the cause. The split below says which mesh task carries the penalty; the
+  New World button should still not assume the reset is cheap.
+- **Mesh split (2026-11-10).** The 3-worker 1.44/192 arms were re-run with
+  `mesh_first`, `mesh_remesh` and `region_upload` counted separately. The
+  machine was faster than the 18.3 s arm (memo-on pass 1 12.22 s, true
+  `FARLANDS_GEN_MEMO=off` pass 1 12.21 s), so only this run's ratios are
+  compared:
+
+  | Arm | First mesh | Remesh | Region upload |
+  |---|---|---|---|
+  | Memo on, pass 1 | 4.90 s / 8,917 | 2.07 s / 4,087 | 0.12 s / 591 |
+  | Memo off, pass 1 | 5.04 s / 8,954 | 2.18 s / 4,132 | 0.11 s / 577 |
+  | Memo off, pass 2 | 5.57 s / 9,428 | 4.65 s / 6,429 | 0.14 s / 752 |
+  | Memo on, hit | 4.87 s / 8,476 | 2.14 s / 3,342 | 0.21 s / 1,666 |
+
+  The memo-off second fill moved 12.21 -> 13.83 s (+13%); its mesh bucket
+  7.33 -> 10.35 s (+41%). Of the 2,946 extra tasks, 2,297 are remeshes, 474
+  first builds and 175 region uploads; remesh time contributes 2.47 of the
+  3.02 s mesh increase, region uploads 0.02 s. The first-build count also rose
+  5%, which a straight refill should not do; the classifier calls a build
+  "first" when the chunk has no GPU mesh, so a reloaded or reinstalled chunk
+  counts again. That is a caveat of the label, not the source of the penalty.
+  Remesh count rose 56% and per-task wall time 0.53 -> 0.72 ms (+37%), so the
+  count and cost effects both appear. These are wall times inside `execute()`,
+  not CPU. With three workers plus the main and driver threads on four cores,
+  preemption can contribute; generation is nearly flat (+2.4%), and the
+  cross-boundary list was empty before the clear. The mechanism is still open.
+  Region
+  uploads are revision-driven and did rise, but they are too small to explain
+  the old combined figure or the penalty.
+
+  On the memo hit the mesh bucket is essentially unchanged (7.10 -> 7.23 s)
+  while generation falls 24.54 -> 9.34 s; the fill itself is 12.22 -> 7.29 s.
+  Region uploads rise 591 -> 1,666 tasks yet add only 0.09 s. The memo removes
+  generation, not mesh.
 - That 2.68 ms is the fill model: 20,230 x 2.68 / 3 = **18.1 s** at 3 workers
   (measured 18.10-18.41 s at 1.44/192; 19.32-19.61 s at the default cap), and
   20,230 x 2.68 / 5 = **10.8 s** (measured 10.03-10.19 s). Removing the 1.05 ms
@@ -166,7 +202,8 @@ Consequences:
   **19.32 s** with no hits; the 2.68 -> 1.6 ms pool-cost model predicts ~10.8 s,
   and the 64-cap's queueing puts the hit at 11.82 s. The cost-aware allowance
   still matters: at 1.44/192 the hit is **10.06 s load / 10.32 s end** against
-  **18.10 s** for no-hit pass 1 (a memo-off pass 2 is 20.63 s). The memo now
+  **18.10 s** for no-hit pass 1 (a memo-off pass 2 is 20.63 s; both controls
+  ran unset, not `=0`). The memo now
   records and replays the cross-chunk spill, so this is the faithful hit, not
   just a terrain copy. The hit must still read/decode in less than the terrain
   it replaces; the memo's hit path is a RAM copy, so the disk codec has the
@@ -188,6 +225,14 @@ about 2.0 s faster than the edited world, so the edited hit's 10.06 s is not all
 cache work. The margin is still comfortable for ~5 KB. If decode costs more than
 that, the end-to-end win shrinks; measure the real codec's per-chunk read/decode
 against this faithful memo copy.
+
+The 1.52 ms hit figure decomposes as generation 0.72 + mesh 0.53 + light 0.19
++ prefetch 0.05 + far 0.01. Generation's 0.72 is the edit map, light and solid
+pass and spill replay, which the cache keeps by design. Adding the full
+0.46 ms decode budget gives 1.98 ms per chunk: 20,230 x 1.98 / 3 = **13.4 s**,
+under the 13.8 s end bar. A real ~5 KB decode with a CRC should land well under
+that budget, so the margin is comfortable and consistent with the pool model;
+this is arithmetic, not a codec measurement.
 
 ### The cheap decider (measured)
 
@@ -528,7 +573,8 @@ frames, cache phase totals and hit rate. The proposed go/no-go criteria:
   so a 25% first-visible target is meaningless.  The matched baseline is 3
   workers on 4 cores, chunk load **18.38 s** and end **19.14 s**, hold off.
   The in-RAM decider clears both: **10.06 s load / 10.32 s end** against a
-  same-session no-hit second pass of **20.63 / 20.64 s** (51%/50%), and against
+  same-session no-hit second pass of **20.63 / 20.64 s** (controls unset;
+  51%/50%), and against
   the matched baseline 45%/46%. The 13.8 s end bar leaves **3.5 s** - about
   **0.46 ms of worker CPU per chunk** (3.5 x 3 x 0.9 / 20,230; the serial-wall
   figure is 0.17 ms) - for the disk read and decode over the memo's own copy.

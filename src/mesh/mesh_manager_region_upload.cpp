@@ -124,7 +124,7 @@ bool MeshManager::queue_far_region_upload(FarRegionRenderData& region, Completed
                 channel->in_flight.fetch_sub(1, std::memory_order_relaxed);
             }
             channel->idle_cv.notify_all();
-        }, PoolTaskClass::Mesh);
+        }, PoolTaskClass::RegionUpload);
 
     return true;
 }

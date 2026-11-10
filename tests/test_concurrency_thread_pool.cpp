@@ -61,7 +61,11 @@ TEST_CASE("thread pool work stealing reclaims tasks from a busy worker") {
 // that ran.
 TEST_CASE("pool class counters separate tagged tasks from plain FnTasks") {
     ThreadPool pool(2);
-    pool.fire_and_forget([]() {}, PoolTaskClass::Save);
+    // Do real work in the tagged task: a no-op can finish inside one QPC tick on
+    // Windows, making busy_ns legitimately 0 and this assertion flaky.
+    pool.fire_and_forget([]() {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }, PoolTaskClass::Save);
     pool.fire_and_forget([]() {});
 
     const auto stats = [&pool]() { return pool.get_stats(); };

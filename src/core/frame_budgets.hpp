@@ -130,17 +130,18 @@ struct FrameBudgets {
     // `FARLANDS_HOLD_MESH_MAX_SEC` overrides the deadline for an A/B arm.
     // The hold is only a win when the pool can drain it: at 5 workers it bought
     // ~0.1 s of end-to-end fill for ~1.6 s of extra blank; at 15 workers it
-    // bought ~0.45 s. The measured 8/10-worker points are why the floor is 10:
-    // at 8 the hold ended 6.67 s against 6.46 s off (+0.21 s, 2/2 pairs), while
-    // at 10 it ended 6.00 s against 6.25 s (-0.25 s, 2/2). Worker count is a
+    // bought ~0.45 s. Five-pair medians at the in-between points are why the
+    // floor is 12: 8 workers 6.46 s hold vs 6.48 s off (A-B -0.07 s, a wash),
+    // 10 workers 6.25 vs 6.28 (A-B -0.02 s, still a wash), and 12 workers 5.51
+    // vs 5.77 (A-B -0.26 s, hold faster in 4/5 pairs). Worker count is a
     // logical-thread proxy, not physical cores: a 4c/8t machine defaults to 7
-    // workers and holds off, a 6c/12t machine to 11 and holds on.
+    // workers and holds off, 6c/12t to 11 and holds off, 8c/16t to 15 and holds on.
     // `FARLANDS_HOLD_MESH_MIN_WORKERS` overrides that floor, and an explicit
     // `FARLANDS_HOLD_MESH_UNTIL_LOADED=1` forces it on for a slow-machine A/B.
     double hold_mesh_max_sec = 2.0;
     bool hold_mesh_until_load_done = true;
     bool hold_mesh_force = false;
-    int32_t hold_mesh_min_workers = 10;
+    int32_t hold_mesh_min_workers = 12;
 
     // Entries the unload scan visits per pass. It walks the whole map, so this is
     // what decides how long a loaded set takes to be re-examined at all: 500 per

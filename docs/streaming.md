@@ -1329,7 +1329,17 @@ it — are in [lod-modes.md](lod-modes.md).
   7.85 s first visible and a 0.69 s end win; it also ran 15 workers on 6 logical processors, so
   its magnitudes were oversubscribed. The **4-core, 3-worker** arm is an end-to-end comparison
   with the corrected `Unrendered` gate: the matched hold-off control reaches chunk
-  load **18.38 s** and end **19.13-19.14 s**. The old 19.84 s/90 s no-end figure was the
+  load **18.38 s** and end **19.13-19.14 s**. A `FILL_TRACE=1 --workers 3` trace with
+  the hold inert (`.freebuff/fill_trace_3w`) says where that wall sits: `generate_chunk`
+  is **19.81 s over 18,832 chunks** (1.05 ms each), but only **1.02 of the 3 workers**
+  are busy on it (`workers_load` 1.08), the completed queue averages **10.2**, and the
+  generating set sits at **52 of its 64-chunk cap** while the in-flight gate closes on
+  **3,174 of 7,505** frames. The 20,230 installs in 18.37 s are **1,101/s**, which is
+  `workers x 0.9 / 2.46 ms` = 1,098/s: the feed-forward admission rate, not the pool
+  (three workers at the measured 1.05 ms could produce ~2,857/s). So at 3 workers the
+  fill is **admission-paced** - neither worker-bound nor install-bound - and a cache
+  that removes generation cannot shorten it until the pacing is fed the measured cost.
+  The old 19.84 s/90 s no-end figure was the
   probe's `active_uncovered` gate: at 300 s it stayed flat at **92** with no pending work,
   while `Unrendered` stayed **0** and 608 instances drew. Those 92 are far chunks whose region
   is active but does not list them as members; their own chunk instances draw them.
@@ -1340,10 +1350,11 @@ it — are in [lod-modes.md](lod-modes.md).
   disarmed at **0.27 s** and at **RD 5** at **0.54 s**, with first visible on the same frame.
   The one-shot/bounded behavior is in `InitialMeshHold`; the 2 s default is env-overridable, and
   the A/B harness exposes `--hold` and `--workers`. Shipping now enables the hold only with **at
-  least 10 workers**. The 8-worker point measured hold 6.67 s against 6.46 s off (+0.21 s, 2/2
-  pairs), the 10-worker point 6.00 s against 6.25 s (-0.25 s, 2/2), and 5 workers bought ~0.1 s
-  while 15 bought ~0.45 s. The default worker count is a logical-thread proxy, not physical
-  cores: a 4c/8t machine uses 7 and holds off, a 6c/12t machine uses 11 and holds on.
+  least 12 workers**. Five-pair medians: 8 workers 6.46 s hold against 6.48 s off (A-B -0.07 s,
+  a wash), 10 workers 6.25 against 6.28 (A-B -0.02 s, still a wash), and 12 workers 5.51 against
+  5.77 (A-B -0.26 s, hold faster in 4/5 pairs). Five workers bought ~0.1 s while 15 bought ~0.45 s.
+  The default worker count is a logical-thread proxy, not physical cores: a 4c/8t machine uses 7
+  and holds off, a 6c/12t machine uses 11 and holds off, an 8c/16t machine uses 15 and holds on.
   `FARLANDS_HOLD_MESH_MIN_WORKERS` overrides the floor, and an explicit
   `FARLANDS_HOLD_MESH_UNTIL_LOADED=1` forces the hold on so slow-machine A/B runs still measure it.
 - **The whole-fill worst frame is the reveal burst on 16 threads and the scheduler on 6.** The

@@ -36,6 +36,7 @@ bool generation_memo_enabled() {
     // are matched in full ("off" is not an f-prefix guess); any other value
     // enables it.
     static const bool enabled = [] {
+        // NOLINTNEXTLINE(concurrency-mt-unsafe) - read once on first use, env is fixed
         const char* raw = std::getenv("FARLANDS_GEN_MEMO");
         if (raw == nullptr || raw[0] == '\0') return false;
         std::string value(raw);
@@ -48,14 +49,8 @@ bool generation_memo_enabled() {
 }
 
 struct GenerationMemoEntry {
-    struct Spill {
-        int32_t x = 0;
-        int32_t y = 0;
-        int32_t z = 0;
-        BlockID block = 0;
-    };
     ChunkData data;
-    std::vector<Spill> spill;
+    std::vector<TerrainCacheSpill> spill;
 };
 
 struct GenerationMemo {
@@ -89,13 +84,13 @@ bool ChunkWorld::generate_chunk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_
     const bool enqueued = chunk_scheduler.enqueue_generation(
         thread_pool, chunk_x, chunk_y, chunk_z, epoch, key, path_id,
         [this](uint64_t k) { return chunk_map.contains(k); },
-        [this, params = params, biomes = biomes, veg_config = veg_config, key, path_id](int32_t cx, int32_t cy, int32_t cz, bool& loaded) {
+        [this, params = params, biomes = biomes, veg_config = veg_config, key, path_id, epoch](int32_t cx, int32_t cy, int32_t cz, bool& loaded) {
             generation_path_profile_.started(path_id);
             gen_slice_count_chunk();
             auto chunk_data = std::make_unique<ChunkData>();
             const bool memo_enabled = generation_memo_enabled();
             bool memo_hit = false;
-            std::vector<GenerationMemoEntry::Spill> memo_spill;
+            std::vector<TerrainCacheSpill> memo_spill;
             bool cache_hit = false;
             std::vector<TerrainCacheSpill> cache_spill;
             if (terrain_cache.is_open()) {
@@ -136,7 +131,7 @@ bool ChunkWorld::generate_chunk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_
                 // during process_completed_chunks. These are NOT persisted.
                 // A memo hit replays the recorded writes through the same closure, so
                 // the second fill queues the same canopies and boundary remeshes.
-                std::vector<GenerationMemoEntry::Spill> spill;
+                std::vector<TerrainCacheSpill> spill;
                 auto cross_writer = [this, &spill, record_spill = !memo_hit && !cache_hit](int32_t wx, int32_t wy, int32_t wz, BlockID block) {
                     if (record_spill) {
                         spill.push_back({wx, wy, wz, block});
@@ -151,13 +146,21 @@ bool ChunkWorld::generate_chunk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_
                         cross_writer(write.x, write.y, write.z, write.block);
                     }
                 } else if (memo_hit) {
-                    for (const auto& write : memo_spill) {
+                    for (const TerrainCacheSpill& write : memo_spill) {
                         cross_writer(write.x, write.y, write.z, write.block);
                     }
                 } else {
                     generator.generate_chunk(*chunk_data, cx, cy, cz,
                                              ChunkGenerator::CrossChunkWriter(cross_writer),
                                              vegetation_enabled);
+                    // Cache capture boundary: the generator's own answer, before
+                    // the edit map, light and solid flags, with the full spill
+                    // list from this same call. An attempt whose epoch was retired
+                    // is not worth a pack, and the memo below takes the spill list
+                    // only after the cache has copied it.
+                    if (async_epoch.load(std::memory_order_acquire) == epoch) {
+                        terrain_cache.stage_chunk(cx, cy, cz, *chunk_data, spill);
+                    }
                     if (memo_enabled) {
                         GenerationMemo& memo = generation_memo();
                         std::lock_guard<std::mutex> lock(memo.mutex);

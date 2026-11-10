@@ -1,20 +1,31 @@
-# Generated-terrain cache: a plan (phase 2 reader implemented)
+# Generated-terrain cache: measured and rejected for default use
 
-**Status:** phases 1 and 2 are implemented. `src/core/terrain_cache_format.*`
+**Status:** phases 1 through 3 are implemented; phase 4 measured the cache and
+rejected it for default use, so phase 5 is not entered. `src/core/terrain_cache_format.*`
 holds the key/section/pack codec; `terrain_cache_manifest.*` and
 `terrain_cache_reader.*` load `cache.meta` and every pack's trailing index into
-RAM, then read a chunk payload by offset. `src/world/terrain_cache.*` supplies
-the key, pack discovery and a per-thread `FileAccess`. `ChunkWorld::generate_chunk`
-uses a hit before generating and falls back on any miss. The switch is
-`FARLANDS_TERRAIN_CACHE=1`, off by default. The writer and the hit/miss parity
-gate are next. The decider clears the
-4- and 6-core criteria and the 16-thread warm arm. The pool cost is now split by task class:
+RAM, then read a chunk payload by offset; `terrain_cache_writer.*` stages encoded
+chunks per 8x8 region and merges each region's existing pack. `src/world/terrain_cache.*`
+supplies the key, pack discovery, a per-thread `FileAccess`, the 512 MiB
+least-recently-used world cap and the pool write. `ChunkWorld::generate_chunk`
+uses a hit before generating and falls back on any miss; a miss stages the
+generator's own answer before the edit map, light and solid flags.
+`ChunkWorld::process_completed_chunks` ticks the writer, and a world reset closes
+both halves. The switch stays `FARLANDS_TERRAIN_CACHE=1`, off by default. The
+phase-4 matrix (5 AB/BA pairs at 4 and 16 threads, 4 complete pairs at 6,
+`--vsync`, cache rebuilt before every pair) is below: **11.4% load / 10.1% end at
+4 cores** (25% bar), **4.6% / 3.7% at 6** (15% bar) and **6.3% / 6.5% at 16**
+(no regression). The read and decode return most of the generation they
+remove, so the cache is not worth its disk, invalidation and parity surface.
+The hit/miss parity gate is still open; it is a correctness gate for the
+feature-flagged path, not a reason to ship it. The pool cost is now split by task class:
 chunk mesh first build vs remesh, revision-driven region uploads, light, far and
 prefetch (the older combined bucket was mesh 0.60 ms/chunk, light 0.17, far
 0.02), and the reset queues are instrumented. The reader design is per-chunk payload reads from the 51 pack
-indexes held in RAM, not a decoded-pack LRU. The 16-thread result is
-warm-process only until the phase-4 cold arm, which also runs the read on a
-cold spinning disk. The measurement-only decider below (two admission env
+indexes held in RAM, not a decoded-pack LRU. The phase-4 16-thread arm is a
+cold-process run, but its reads were warm-OS-cache only; the cold
+spinning-disk read was not available on this machine. The measurement-only
+decider below (two admission env
 switches and an in-RAM memo) is recorded in
 [What paces the 3-worker fill](#what-paces-the-3-worker-fill-measured). If the
 experiment loses, record the result in
@@ -222,8 +233,10 @@ falls **18.10 -> 10.06 s** and the end **18.10 -> 10.32 s** (44%/43%), so the
 serial-wall figure. That budget is CPU only: a blocking read also occupies a
 worker. The 110 MB read is about 1.1 s of worker time at hard-drive speeds, or
 ~0.4 s of wall at 3 workers, so it fits. At 16 threads the cold gain is only
-~0.6 s (4.6 vs 5.2), and a slow disk or slow decode can erase it. Phase 4 must
-run the cold file-cache path on a spinning disk, not a warm OS cache. The memo now replays the cross-chunk spill through the same
+~0.6 s (4.6 vs 5.2), and a slow disk or slow decode can erase it. Phase 4
+needed the cold file-cache path on a spinning disk, not a warm OS cache; that
+read was not available here, so the measured 16-thread gain is an optimistic
+ceiling. The memo now replays the cross-chunk spill through the same
 writer closure, so the hit includes the vegetation install and boundary
 remeshes; this is the codec's honest bound. The benchmark world's 381 edited
 chunks are paid on a hit too: the no-edit arm is **16.04 -> 8.05 / 8.31 s**,
@@ -286,9 +299,9 @@ At 5 workers on 6 cores the hit is **5.84 s load / 6.10 s end** against
 15 workers on 16 threads the **warm** hit is **3.05 s** against **4.69 s** for
 the warm control's second pass (35%). That is not a cold result: the control's
 second pass is 26% faster than its first, which a fresh process will not have.
-Do not quote a 16-thread percentage until the phase-4 cold-process arm; the warm
-hit plus the ~1.6 s warm-state difference is ~4.6 s, about 20-26% below the
-5.75-6.31 s cold first pass.
+The phase-4 cold-process arm measured **5.92 s against 6.32 s** (6.3%), so the
+warm hit plus the ~1.6 s warm-state difference (~4.6 s, about 20-26% below the
+5.75-6.31 s cold first pass) overstated the cold gain.
 
 A no-edit world (empty `APPDATA`, probe prints `user_dir`) is **16.04 s pass 1 /
 8.05 s load / 8.31 s end** at 3 workers; the 381 edited chunks add about 2.0 s
@@ -315,12 +328,13 @@ part of the hit; it is never enabled without the env var.
   tail all remain. On 16 threads the current hold caps the blank at 2 s and the
   end at about 5.2 s; the **warm** memo hit is **3.05 s** against **4.69 s** for
   the warm second pass, so the reveal ceiling is the hold, not the fill. That is
-  not a cold result; phase 4 adds the cold-process arm. At 3 workers the
-  faithful memo hit is **10.06 s load / 10.32 s end** against **18.10 s**
-  without hits; at 5 workers **5.84 / 6.10 s** against **11.12 / 11.13 s**. A
-  no-edit 3-worker world is **8.05 / 8.31 s** against **16.04 s**; the edited
-  world's 381 chunks add about 2.0 s. The full saving still needs the real
-  cache's end-to-end arm.
+  not a cold result; phase 4 ran the cold-process arm: **5.92 s against 6.32 s**
+  (6.3%). At 3 workers the faithful memo hit is **10.06 s load / 10.32 s end**
+  against **18.10 s** without hits; at 5 workers **5.84 / 6.10 s** against
+  **11.12 / 11.13 s**. A no-edit 3-worker world is **8.05 / 8.31 s** against
+  **16.04 s**; the edited world's 381 chunks add about 2.0 s. The real cache's
+  end-to-end arm measured **11.4% / 4.6% / 6.3%** at 4 / 6 / 16 threads, so the
+  read/decode cost, not generation, is why the saving is small.
 - **Edit maps are paid on a hit.** The benchmark world has 381 edited chunks;
   at 10-16 ms each that is ~4.9 s of worker CPU, about 2.0 s of the 3-worker
   hit (edited 10.06 vs no-edit 8.05 s). The reset clears `chunk_edit_maps` and
@@ -352,9 +366,10 @@ part of the hit; it is never enabled without the env var.
   load, and the light-slice result is a reason to expect the opposite.
 - **The 16-core return may be negative in a cold boot.** The warm hit saves
   **1.6 s** against the warm second pass (4.69 -> 3.05 s), but a cold process
-  will not have the 26% warm control gain; the phase-4 cold arm tests whether
-  the saving survives. If the cold hit is not below ~5.2 s, reject at 16
-  threads and keep the cache for the constrained arms.
+  will not have the 26% warm control gain; the phase-4 cold arm measured
+  **5.92 s against 6.32 s (6.3%)**, so the saving survived but is small. The
+  constrained arms are worse (11.4% at 4 cores, 4.6% at 6), so neither case
+  justifies default use.
 
 ## Size and cost estimate
 
@@ -559,11 +574,12 @@ mean today's fill.
 
 ## Instrumentation and experiment
 
-Phase 2 adds cache counters to `get_generation_stats`: hits, misses, corrupt,
-read errors, payload/index/manifest bytes, read/decode time, hit rate, pack count
-and index entries. The writer counters (bytes written and write time) arrive with
-phase 3. The switch is `FARLANDS_TERRAIN_CACHE=1`, default off; `--cache` in
-`probes/start_fill_ab.py` is still phase 4.
+The cache adds counters to `get_generation_stats`: hits, misses, corrupt, read
+errors, payload/index/manifest bytes, read/decode time, hit rate, pack count and
+index entries from the reader, plus staged/written/merged chunks, packs written,
+bytes, encode/write time, failures and the staged backlog from the writer. The
+switch is `FARLANDS_TERRAIN_CACHE=1`, default off; `--cache` in
+`probes/start_fill_ab.py` is the phase-4 arm.
 
 The experiment needs a **prepared** cache. Use one warmup run with an empty
 cache to write it, then discard that run and pair the normal build against the
@@ -577,7 +593,9 @@ fresh user data directory (the memo probe prints `user_dir`) so the 381 edited
 chunks are absent; that arm is 16.04 s miss / 8.05-8.31 s hit today.
 
 Report first upload, first visible, the in-frustum 50/90% times, load, end, slow
-frames, cache phase totals and hit rate. The proposed go/no-go criteria:
+frames, cache phase totals and hit rate. These were the pre-experiment criteria
+and memo predictions; the measured phase-4 rows are above and win where they
+differ. The proposed go/no-go criteria:
 
 - 4 cores: **load and end** improve by at least 25%, with no
   cache-attributable frame over 33 ms. Do not use first visible here: the hold
@@ -606,10 +624,9 @@ frames, cache phase totals and hit rate. The proposed go/no-go criteria:
   no-memo second pass (35%), so no regression against the ~5.2 s hold. The 40%
   figure is retired until a cold-process A/B: the control's own second pass is
   26% faster than its cold first pass, so the warm comparison overstates the
-  cold gain. Phase 4 must restart the engine after preparing the cache and
-  compare the first fill against a cold no-cache boot; the rough cold estimate
-  is ~4.6 s against 5.75-6.31 s, about 20-26%. Hit rate is at least 90% of the
-  fill's installs.
+  cold gain. Phase 4 ran the engines as fresh processes after preparing the
+  cache and measured **5.92 s against 6.32 s** (6.3%), below the earlier warm
+  estimate. Hit rate is at least 90% of the fill's installs.
 - On one worker, a hit's read + decode is cheaper than the generation it
   replaces. If it is not, stop: the cache is moving CPU to disk, not removing
   work.
@@ -621,12 +638,15 @@ spill-list round-trip with zero, one and many writes; CRC corruption, truncated
 pack, wrong key, unknown block IDs, count/offset overflow; and a key change for
 each persisted parameter and config file. The CI digest in
 `tests/test_worldgen_digest.cpp` names `kTerrainCacheDataVersion` in its failure
-message. The rest of the test list is the phase 2/3 gate: a cache hit that
+message. The reader tests cover the manifest, missing/corrupt/stale data, offset
+reads and concurrent workers; the writer tests cover idle/size/limit flush,
+region separation, restaging, merged packs, corrupt/stale fallback and concurrent
+staging. The rest of the integration gate is still open: a cache hit that
 replays a spill into a neighbour and produces the same canopy as a miss; empty
-and edited installed chunks; and a concurrency test for a reader, writer and
-`clear()`. Keep the files under the 500-line cap by splitting the format, the
-I/O and the tests, and keep the cache out of the Godot-free fuzz lists unless a
-harness actually needs it.
+and edited installed chunks; and a reader/writer/`clear()` concurrency test at
+the adapter level. Keep the files under the 500-line cap by splitting the format,
+the I/O and the tests, and keep the cache out of the Godot-free fuzz lists unless
+a harness actually needs it.
 
 Gates: `scons sizecheck`, `scons portability`, `scons docscheck` and the
 clang-tidy job. Update `benchmark_baseline.txt` only if a cache timing becomes
@@ -641,18 +661,45 @@ a benchmark metric; otherwise the probe's cache fields are the evidence.
    decoded-pack cache. Scheduler cache-read closure, counters, the environment
    switch off by default. A prepared cache must install and a miss must be
    indistinguishable from today's fill.
-3. **Writer.** Generator-output capture, spill list, 8x8 pack writes, atomic
-   manifest, cap and LRU, reset. A second boot must be a hit; a crash mid-write
-   must leave a usable partial cache; no edit may be lost or baked into the
-   base, and a hit's spill replay must match a miss's canopy.
-4. **A/B and decision.** The 16/6/4-core matrix, the criteria above, and the
-   decision row. The 16-thread arm is a **cold-process** run: prepare the cache,
-   restart the engine, and compare the first fill against a cold no-cache boot;
-   the memo's warm second pass is not this arm. Also run a no-edit world so the
-   edit-map cost is not folded into the cache result. Run the cold arm's read
-   on a spinning disk with the OS cache cold (or a fresh volume): 110 MB is
-   ~1.1 s of worker time / ~0.4 s wall at 3 workers, and the 16-thread margin
-   is only ~0.6 s. If it loses, stop here.
+3. **Writer (implemented).** `terrain_cache_writer.*` holds the staging and merge
+   core (`tests/test_terrain_cache_writer.cpp`); `src/world/terrain_cache_write.cpp`
+   captures the generator output plus spill list on the worker, flushes a region
+   after 1.5 s idle or 192 staged chunks (4096 chunks overall), merges the
+   region's existing pack, writes `.tmp` → `.ftc` and publishes `cache.meta` last.
+   The adapter caps `user://chunks/cache/` at 512 MiB and evicts the
+   least-recently-used world directories; `ChunkWorld::clear()` stops the writer
+   without waiting for an in-flight pack. A second boot must be a hit; a crash
+   mid-write must leave a usable partial cache. The hit/miss parity gate still has
+   to prove no edit is lost or baked into the base and that a hit's spill replay
+   matches a miss's canopy.
+4. **A/B and decision (measured 2026-11-10).** 5 AB/BA pairs at 4 and 16
+   threads and 4 complete pairs at 6; the fifth cache-off run was cut off by
+   the harness timeout, and its cache-on pair was 10.81 s. Each A run was a
+   fresh engine process with a cache rebuilt in the preceding process, so the
+   arm is cold-process; `--vsync` was on.
+
+   | Cores (workers) | Cache load | No-cache load | Load gain | Cache end | No-cache end | End gain |
+   |---|---|---|---|---|---|---|
+   | 4 (3) | 14.22 s | 16.05 s | 11.4% | 14.71 s | 16.36 s | 10.1% |
+   | 6 (5) | 10.46 s | 10.97 s | 4.6% | 10.66 s | 11.06 s | 3.7% |
+   | 16 (15) | 5.92 s | 6.32 s | 6.3% | 5.92 s | 6.33 s | 6.5% |
+
+   The 4-core bar was 25% and the 6-core bar 15%; both fail. The 16-thread arm
+   does not regress and its hit rate is 1.000 over 20,230 chunks, but 6% does
+   not justify the disk, key and parity surface. First visible was 0.53 / 0.55 s
+   at 4 cores, 0.55 / 0.55 at 6 and 2.13 / 2.14 at 16 (the hold only runs at
+   12+ workers). Slow frames were 148 vs 143 at 4 cores, 145 vs 151 at 6 and
+   66 vs 73 at 16, so no cache-attributable 33 ms frame appears. The reader
+   spent 10.2 s reading and 4.0 s decoding at 3 workers (11.7 / 4.1 s at 5,
+   18.4 / 4.2 s at 15) against 1.05 ms of terrain per chunk removed; the
+   per-chunk read rises from 0.50 ms at 3 workers to 0.91 ms at 15, consistent
+   with the workers contending for the volume. Those reads came from the warm OS cache
+   because the pair's prep had just written the packs; a cold spinning disk can
+   only reduce the gain, so this is the optimistic side. The no-edit-world arm
+   was not run; it would remove the edit-map share from both arms and cannot
+   rescue a 4.6% gain at 6 cores. **Verdict: reject default enablement; leave
+   the code feature-flagged off.** The decision row is in
+   [decisions/README.md](decisions/README.md).
 5. **Only if it wins.** Optional polish: a per-world cap control, a prefetch of
    the next pack, or an optional light cache. Each is its own measured change;
    none is part of the default.

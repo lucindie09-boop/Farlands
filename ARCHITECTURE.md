@@ -802,11 +802,15 @@ The following code remains in the codebase but is disabled or unused:
   section-based accessors (`chunk_data.cpp` compiles three times, so its palette half lives in
   the header the other two consumers include)
 - `src/core/terrain_cache_format.hpp/cpp`, `terrain_cache_key.cpp`,
-  `terrain_cache_manifest.hpp/cpp` and `terrain_cache_reader.hpp/cpp` — generated-terrain cache
-  codec and reader: the Godot-free FNV key, palette-section/chunk payloads with spill lists,
-  8x8 pack headers and indexes with per-chunk/per-index CRCs, the `cache.meta` manifest, and a
-  reader that loads only the indexes and then reads each chunk payload by offset. No Godot
-  types in these files; `src/world/terrain_cache.*` is the adapter.
+  `terrain_cache_manifest.hpp/cpp`, `terrain_cache_reader.hpp/cpp` and
+  `terrain_cache_writer.hpp/cpp` — generated-terrain cache codec, reader and writer: the
+  Godot-free FNV key, palette-section/chunk payloads with spill lists, 8x8 pack headers and
+  indexes with per-chunk/per-index CRCs, the `cache.meta` manifest, a reader that loads only the
+  indexes and then reads each chunk payload by offset, and a writer that stages encoded chunks
+  per region, merges a region's existing pack and bounds staging by idle time and size. No Godot
+  types in these files; `src/world/terrain_cache.{hpp,cpp,write.cpp}` is the adapter. Off by
+  default: the phase-4 A/B measured 11.4%/4.6%/6.3% load gains at 4/6/16 threads and rejected
+  default enablement ([plan](docs/terrain-cache-plan.md)).
 - `src/core/chunk_map.hpp` + `shard_lock.hpp` / `chunk_map_inline.hpp` — Sharded locking,
   `lock_keys_exclusive`, auto-locking methods. `shard_lock.hpp` holds `kShardCount` (with a
   `static_assert` tying it to the lock-order checker's 64-bit bitset) and the RAII guards
@@ -1120,7 +1124,7 @@ Every file, with what it owns: [docs/ui.md](docs/ui.md).
   - `textures/0Archive/` — Archived/deprecated textures (old versions kept for reference)
 
 ### Testing
-- `tests/` — 114 `.cpp` files (764 test cases / 364,163 assertions, declared across 112 of them:
+- `tests/` — 115 `.cpp` files (771 test cases / 374,249 assertions, declared across 113 of them:
   `test_main.cpp` is the doctest entry point and `mesh_manager_stub.cpp` supplies link stubs),
   auto-discovered via `Glob("tests/*.cpp")`. A split test file keeps the original name for its
   main subject and takes `_<topic>` files beside it, with the fixtures they share in a
@@ -1166,7 +1170,7 @@ Every file, with what it owns: [docs/ui.md](docs/ui.md).
   region, and on a standard attribute placed after a decl-specifier. Both compile on MSVC and
   are fatal on GCC/clang, which is exactly why the tree is compiled by something other than MSVC
   before it is accepted
-- **clang-tidy** — the static-analysis job's gate, over `find src -name '*.cpp'` (132 files)
+- **clang-tidy** — the static-analysis job's gate, over `find src -name '*.cpp'` (134 files)
   with `bugprone-*`, `concurrency-*` and `performance-*` minus the four documented exceptions
   (`.github/workflows/build.yml`: `bugprone-easily-swappable-parameters`,
   `bugprone-narrowing-conversions`, `clang-analyzer-optin.core.EnumCastOutOfRange`,

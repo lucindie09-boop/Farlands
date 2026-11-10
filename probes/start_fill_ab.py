@@ -56,6 +56,13 @@ FIRST_RE = re.compile(
     r"PROBE fill first chunk_load=(-?[0-9.]+)s upload=(-?[0-9.]+)s "
     r"visible=(-?[0-9.]+)s visible50=(-?[0-9.]+)s visible90=(-?[0-9.]+)s target=(\d+)"
 )
+CACHE_RE = re.compile(
+    r"PROBE fill cache open=(\d) hits=(\d+) misses=(\d+) hit_rate=([0-9.]+) "
+    r"packs=(\d+) entries=(\d+) read_ms=([0-9.]+) decode_ms=([0-9.]+) "
+    r"staged=(\d+) written=(\d+) packs_written=(\d+) merged=(\d+) "
+    r"write_mb=([0-9.]+) encode_ms=([0-9.]+) write_ms=([0-9.]+) "
+    r"encode_failures=(\d+) write_failures=(\d+)"
+)
 # The probe prints this header when the flight starts and again, with frames=,
 # when it ends; requiring frames= keeps the header out of the match.
 LATCH_RE = re.compile(
@@ -85,6 +92,11 @@ FIELDS = [
     "far_solid", "far_enclosed", "far_hidden", "far_drawn_chunk",
     "far_drawn_region", "far_hole_total", "far_hole_visible", "far_hole_occluded",
     "far_screen_visible", "far_screen_pixels", "far_screen_coverage",
+    "cache_open", "cache_hits", "cache_misses", "cache_hit_rate", "cache_packs",
+    "cache_entries", "cache_staged", "cache_written", "cache_packs_written",
+    "cache_merged", "cache_write_mb", "cache_read_ms", "cache_decode_ms",
+    "cache_encode_ms", "cache_write_ms", "cache_encode_failures",
+    "cache_write_failures",
 ]
 
 # Probe switches that would make one run incomparable with another. The two arms
@@ -98,6 +110,7 @@ CLEAR_ENV = (
     "FARLANDS_LOADING_TAIL_BUDGET_MS", "FARLANDS_HOLD_MESH_UNTIL_LOADED",
     "FARLANDS_HOLD_MESH_MAX_SEC", "FARLANDS_MESH_UPLOADS_LOADING",
     "FARLANDS_WORKER_COUNT", "FILL_TRACE", "LATCH_FLIGHT", "PROBE_TIMEOUT_SECS", "VSYNC_ON",
+    "FARLANDS_TERRAIN_CACHE",
 )
 
 
@@ -226,6 +239,11 @@ def parse_output(text: str, latch: bool = False) -> dict | None:
         "visible_50_s": -1.0,
         "visible_90_s": -1.0,
         "visible_target": 0,
+        "cache_open": 0, "cache_hits": 0, "cache_misses": 0, "cache_hit_rate": 0.0,
+        "cache_packs": 0, "cache_entries": 0, "cache_staged": 0, "cache_written": 0,
+        "cache_packs_written": 0, "cache_merged": 0, "cache_write_mb": 0.0,
+        "cache_read_ms": 0.0, "cache_decode_ms": 0.0, "cache_encode_ms": 0.0,
+        "cache_write_ms": 0.0, "cache_encode_failures": 0, "cache_write_failures": 0,
     }
     first = FIRST_RE.search(text)
     if first is not None:
@@ -237,6 +255,27 @@ def parse_output(text: str, latch: bool = False) -> dict | None:
             "visible_90_s": float(first.group(5)),
             "visible_target": int(first.group(6)),
         })
+    cache = CACHE_RE.search(text)
+    if cache is not None:
+        row.update({
+            "cache_open": int(cache.group(1)),
+            "cache_hits": int(cache.group(2)),
+            "cache_misses": int(cache.group(3)),
+            "cache_hit_rate": float(cache.group(4)),
+            "cache_packs": int(cache.group(5)),
+            "cache_entries": int(cache.group(6)),
+            "cache_read_ms": float(cache.group(7)),
+            "cache_decode_ms": float(cache.group(8)),
+            "cache_staged": int(cache.group(9)),
+            "cache_written": int(cache.group(10)),
+            "cache_packs_written": int(cache.group(11)),
+            "cache_merged": int(cache.group(12)),
+            "cache_write_mb": float(cache.group(13)),
+            "cache_encode_ms": float(cache.group(14)),
+            "cache_write_ms": float(cache.group(15)),
+            "cache_encode_failures": int(cache.group(16)),
+            "cache_write_failures": int(cache.group(17)),
+        })
     return row
 
 
@@ -245,6 +284,7 @@ def run_one(label: str, arm: str, out_dir: Path, timeout_s: int, base_env: dict,
             tail_budget_ms: int | None = None,
             workers: int | None = None,
             hold: bool = False,
+            cache: bool = False,
             rd: int = 32,
             extra_env: dict | None = None) -> dict | None:
     env = dict(base_env)
@@ -268,6 +308,12 @@ def run_one(label: str, arm: str, out_dir: Path, timeout_s: int, base_env: dict,
     elif hold:
         env["FARLANDS_HOLD_MESH_UNTIL_LOADED"] = "1" if arm == "A" else "0"
         description = "initial mesh hold" if arm == "A" else "overlap, no hold"
+    elif cache:
+        if arm == "A":
+            env["FARLANDS_TERRAIN_CACHE"] = "1"
+            description = "cache on (prepared)"
+        else:
+            description = "cache off"
     else:
         if arm == "B":
             env["NO_RENDER"] = "1"
@@ -330,6 +376,16 @@ def median_range(values: list[float]) -> tuple[float, float, float]:
     return statistics.median(ordered), ordered[0], ordered[-1]
 
 
+def cache_directory() -> Path:
+    """Godot's `user://` for this project on this machine."""
+    return (Path(os.environ.get("APPDATA", "")) / "Godot" / "app_userdata" /
+            "Farlands" / "chunks" / "cache")
+
+
+def wipe_cache() -> None:
+    shutil.rmtree(cache_directory(), ignore_errors=True)
+
+
 def metric_block(lines: list[str], label: str, unit: str, digits: int,
                  a_rows: list[dict], b_rows: list[dict], key: str) -> None:
     a_med, a_lo, a_hi = median_range([float(row[key]) for row in a_rows])
@@ -366,15 +422,18 @@ def build_summary(args: argparse.Namespace, out_dir: Path, commit: str,
         f"tracked dirty: {dirty or 'clean'}",
         ("A: latch 30 s cap, 1 s quiet" if args.latch
          else "A: initial mesh hold" if args.hold
+         else "A: cache on, prepared" if args.cache
          else "A: normal render loop"),
         ("B: latch 1 s quiet, no cap" if args.latch
          else "B: overlap, no hold" if args.hold
+         else "B: cache off" if args.cache
          else "B: NO_RENDER=1"),
         f"pairs: {args.pairs}, arm order alternates per pair (AB, BA, AB, ...)",
         *( [f"flight: {args.flight}s"] if args.latch else [] ),
         f"timeout: {args.timeout}s per run",
         f"cores: {args.cores or 'all'}",
         f"vsync: {'on' if args.vsync else 'off'}",
+        f"cache: {'A on, B off, rebuilt each pair' if args.cache else 'off'}",
         (f"tail budget: {args.tail_budget_ms} ms" if args.tail_budget_ms is not None
          else "tail budget: build default"),
         f"output: {out_dir}",
@@ -451,6 +510,11 @@ def build_summary(args: argparse.Namespace, out_dir: Path, commit: str,
         metric_block(lines, "process_total", "s", 2, a_rows, b_rows, "process_total_s")
         metric_block(lines, "worst frame", "ms", 2, a_rows, b_rows, "worst_ms")
         metric_block(lines, "slow frames", "", 0, a_rows, b_rows, "slow")
+        if args.cache:
+            metric_block(lines, "cache hit rate", "", 3, a_rows, b_rows, "cache_hit_rate")
+            metric_block(lines, "cache entries", "", 0, a_rows, b_rows, "cache_entries")
+            metric_block(lines, "cache read", "ms", 1, a_rows, b_rows, "cache_read_ms")
+            metric_block(lines, "cache decode", "ms", 1, a_rows, b_rows, "cache_decode_ms")
 
     if args.latch:
         lines += ["", "Paired differences (A-B):"]
@@ -496,6 +560,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="A/B the initial-loading latch: 30 s cap vs 1 s quiet with no cap")
     parser.add_argument("--hold", action="store_true",
                         help="A/B the initial mesh hold: on vs off (both render normally)")
+    parser.add_argument("--cache", action="store_true",
+                        help="A/B the generated-terrain cache: A reads a prepared cache, B generates (both render)")
     parser.add_argument("--flight", type=int, default=36,
                         help="latch mode: seconds of 100 block/s flight (default 36)")
     parser.add_argument("--cores", type=int, default=0,
@@ -515,6 +581,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--pairs must be at least 1")
     if args.latch and args.hold:
         parser.error("--latch and --hold cannot be combined")
+    if args.cache and (args.latch or args.hold):
+        parser.error("--cache cannot be combined with --latch or --hold")
     if args.flight <= 6:
         parser.error("--flight must be greater than the 6 s late window")
     if args.cores < 0:
@@ -545,9 +613,11 @@ def main(argv: list[str] | None = None) -> int:
         f"tracked dirty: {dirty or 'clean'}",
         ("A: latch 30 s cap, 1 s quiet" if args.latch
          else "A: initial mesh hold" if args.hold
+         else "A: cache on, prepared" if args.cache
          else "A: normal render loop"),
         ("B: latch 1 s quiet, no cap" if args.latch
          else "B: overlap, no hold" if args.hold
+         else "B: cache off" if args.cache
          else "B: NO_RENDER=1"),
         f"pairs: {args.pairs}",
         *( [f"flight: {args.flight}s"] if args.latch else [] ),
@@ -558,6 +628,7 @@ def main(argv: list[str] | None = None) -> int:
         f"workers: {workers if workers is not None else 'build default'}",
         f"fill trace: {'on' if args.fill_trace else 'off'}",
         f"vsync: {'on' if args.vsync else 'off'}",
+        f"cache: {'A on, B off, rebuilt each pair' if args.cache else 'off'}",
         (f"tail budget: {args.tail_budget_ms} ms" if args.tail_budget_ms is not None
          else "tail budget: build default"),
         f"bash: {BASH}",
@@ -572,11 +643,14 @@ def main(argv: list[str] | None = None) -> int:
     warmup: dict | None = None
     pairs: list[tuple[int, dict, dict]] = []
 
+    if args.cache:
+        wipe_cache()
+
     if not args.no_warmup:
         warmup = run_one("warmup", "A", out_dir, args.timeout, base_env,
                          latch=args.latch, flight=args.flight, vsync=args.vsync,
                          tail_budget_ms=args.tail_budget_ms, workers=workers,
-                         hold=args.hold, rd=args.rd,
+                         hold=args.hold, cache=args.cache, rd=args.rd,
                          extra_env={"FILL_TRACE": "1"} if args.fill_trace else None)
         if warmup is None:
             summary = build_summary(args, out_dir, commit, dirty, None, [])
@@ -589,13 +663,29 @@ def main(argv: list[str] | None = None) -> int:
     for number in range(1, args.pairs + 1):
         order = ("A", "B") if number % 2 == 1 else ("B", "A")
         print(f"\nPair {number}/{args.pairs} order {''.join(order)}")
+        if args.cache and (number > 1 or args.no_warmup):
+            wipe_cache()
+            prepared = run_one(f"prep{number}", "A", out_dir, args.timeout, base_env,
+                               vsync=args.vsync, tail_budget_ms=args.tail_budget_ms,
+                               workers=workers, rd=args.rd, cache=True,
+                               extra_env={"FILL_TRACE": "1"} if args.fill_trace else None)
+            if prepared is None:
+                print(f"\nPair {number} preparation failed; completed pairs are in the summary.")
+                summary = build_summary(args, out_dir, commit, dirty, warmup, pairs)
+                (out_dir / "summary.txt").write_text(summary + "\n", encoding="utf-8")
+                print("\n" + summary)
+                return 1
+            prepared.update(pair=0, order="prepare", arm="A", label=f"prep{number}")
+            append_row(csv_path, prepared)
+            print(f"prepared cache: {prepared['loaded_s']:.2f}s load / "
+                  f"{prepared['end_s']:.2f}s end")
         pair_rows: dict[str, dict] = {}
         for arm in order:
             label = f"{arm.lower()}{number}"
             row = run_one(label, arm, out_dir, args.timeout, base_env,
                           latch=args.latch, flight=args.flight, vsync=args.vsync,
                           tail_budget_ms=args.tail_budget_ms, workers=workers,
-                          hold=args.hold, rd=args.rd,
+                          hold=args.hold, cache=args.cache, rd=args.rd,
                           extra_env={"FILL_TRACE": "1"} if args.fill_trace else None)
             if row is None:
                 print(f"\nPair {number} aborted; completed pairs are in the summary.")

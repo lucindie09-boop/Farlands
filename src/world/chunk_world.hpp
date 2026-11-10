@@ -162,6 +162,9 @@ public:
     [[nodiscard]] TerrainCacheReaderStats get_terrain_cache_stats() const {
         return terrain_cache.stats();
     }
+    [[nodiscard]] TerrainCacheWriterStats get_terrain_cache_writer_stats() const {
+        return terrain_cache.writer_stats();
+    }
     void reset_terrain_cache_stats() { terrain_cache.reset_stats(); }
     [[nodiscard]] bool is_terrain_cache_open() const { return terrain_cache.is_open(); }
 

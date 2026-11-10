@@ -251,6 +251,20 @@ Dictionary ChunkManager::get_generation_stats() {
     out["cache_open_failures"] = static_cast<int64_t>(cache.open_failures);
     out["cache_read_ms"] = static_cast<double>(cache.read_us) / 1000.0;
     out["cache_decode_ms"] = static_cast<double>(cache.decode_us) / 1000.0;
+
+    const VoxelEngine::TerrainCacheWriterStats cache_writer =
+        controller->get_chunk_world().get_terrain_cache_writer_stats();
+    out["cache_chunks_staged"] = static_cast<int64_t>(cache_writer.chunks_staged);
+    out["cache_chunks_written"] = static_cast<int64_t>(cache_writer.chunks_written);
+    out["cache_chunks_merged"] = static_cast<int64_t>(cache_writer.chunks_merged);
+    out["cache_packs_written"] = static_cast<int64_t>(cache_writer.packs_written);
+    out["cache_write_bytes"] = static_cast<int64_t>(cache_writer.bytes_written);
+    out["cache_encode_failures"] = static_cast<int64_t>(cache_writer.encode_failures);
+    out["cache_write_failures"] = static_cast<int64_t>(cache_writer.write_failures);
+    out["cache_staged_chunks"] = static_cast<int64_t>(cache_writer.staged_chunks);
+    out["cache_staged_regions"] = static_cast<int64_t>(cache_writer.staged_regions);
+    out["cache_encode_ms"] = static_cast<double>(cache_writer.encode_us) / 1000.0;
+    out["cache_write_ms"] = static_cast<double>(cache_writer.write_us) / 1000.0;
     return out;
 }
 

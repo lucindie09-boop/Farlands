@@ -97,7 +97,7 @@ CLEAR_ENV = (
     "FARLANDS_LOADING_LATCH_MAX_SEC", "FARLANDS_LOADING_LATCH_QUIET_SEC",
     "FARLANDS_LOADING_TAIL_BUDGET_MS", "FARLANDS_HOLD_MESH_UNTIL_LOADED",
     "FARLANDS_HOLD_MESH_MAX_SEC", "FARLANDS_MESH_UPLOADS_LOADING",
-    "FARLANDS_WORKER_COUNT", "LATCH_FLIGHT", "PROBE_TIMEOUT_SECS", "VSYNC_ON",
+    "FARLANDS_WORKER_COUNT", "FILL_TRACE", "LATCH_FLIGHT", "PROBE_TIMEOUT_SECS", "VSYNC_ON",
 )
 
 
@@ -245,11 +245,12 @@ def run_one(label: str, arm: str, out_dir: Path, timeout_s: int, base_env: dict,
             tail_budget_ms: int | None = None,
             workers: int | None = None,
             hold: bool = False,
+            rd: int = 32,
             extra_env: dict | None = None) -> dict | None:
     env = dict(base_env)
     for key in CLEAR_ENV:
         env.pop(key, None)
-    env["RD"] = "32"
+    env["RD"] = str(rd)
     env["PROBE_TIMEOUT_SECS"] = str(timeout_s)
     if tail_budget_ms is not None:
         env["FARLANDS_LOADING_TAIL_BUDGET_MS"] = str(tail_budget_ms)
@@ -501,6 +502,10 @@ def main(argv: list[str] | None = None) -> int:
                         help="pin the harness and its Godot runs to the first N logical processors (Windows; 0 = all)")
     parser.add_argument("--workers", type=int, default=None,
                         help="override the worker pool size (default: N-1 when --cores is set; else the build's hardware_concurrency()-1)")
+    parser.add_argument("--rd", type=int, default=32,
+                        help="render distance for each run (default 32)")
+    parser.add_argument("--fill-trace", action="store_true",
+                        help="print loaded/generating/completed/pending/budget and fill-settled once a second")
     parser.add_argument("--vsync", action="store_true",
                         help="enable display vsync for every run (the constrained-hardware arm)")
     parser.add_argument("--tail-budget-ms", type=int, default=None,
@@ -514,6 +519,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--flight must be greater than the 6 s late window")
     if args.cores < 0:
         parser.error("--cores cannot be negative")
+    if args.rd < 1:
+        parser.error("--rd must be at least 1")
     workers = args.workers
     if workers is None and args.cores > 0:
         workers = max(1, args.cores - 1)
@@ -546,8 +553,10 @@ def main(argv: list[str] | None = None) -> int:
         *( [f"flight: {args.flight}s"] if args.latch else [] ),
         f"warmup: {'no' if args.no_warmup else 'yes'}",
         f"timeout: {args.timeout}s",
+        f"rd: {args.rd}",
         f"cores: {args.cores or 'all'}" + (f" (mask 0x{mask:x})" if mask else ""),
         f"workers: {workers if workers is not None else 'build default'}",
+        f"fill trace: {'on' if args.fill_trace else 'off'}",
         f"vsync: {'on' if args.vsync else 'off'}",
         (f"tail budget: {args.tail_budget_ms} ms" if args.tail_budget_ms is not None
          else "tail budget: build default"),
@@ -567,7 +576,8 @@ def main(argv: list[str] | None = None) -> int:
         warmup = run_one("warmup", "A", out_dir, args.timeout, base_env,
                          latch=args.latch, flight=args.flight, vsync=args.vsync,
                          tail_budget_ms=args.tail_budget_ms, workers=workers,
-                         hold=args.hold)
+                         hold=args.hold, rd=args.rd,
+                         extra_env={"FILL_TRACE": "1"} if args.fill_trace else None)
         if warmup is None:
             summary = build_summary(args, out_dir, commit, dirty, None, [])
             (out_dir / "summary.txt").write_text(summary + "\n", encoding="utf-8")
@@ -585,7 +595,8 @@ def main(argv: list[str] | None = None) -> int:
             row = run_one(label, arm, out_dir, args.timeout, base_env,
                           latch=args.latch, flight=args.flight, vsync=args.vsync,
                           tail_budget_ms=args.tail_budget_ms, workers=workers,
-                          hold=args.hold)
+                          hold=args.hold, rd=args.rd,
+                          extra_env={"FILL_TRACE": "1"} if args.fill_trace else None)
             if row is None:
                 print(f"\nPair {number} aborted; completed pairs are in the summary.")
                 summary = build_summary(args, out_dir, commit, dirty, warmup, pairs)

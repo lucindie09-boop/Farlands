@@ -410,6 +410,9 @@ func _run() -> void:
 	var frames_at_load := 0
 	var tail_all_frame_ms := 0.0
 	var tail_frames := 0
+	var fill_trace := OS.get_environment("FILL_TRACE") == "1"
+	var next_fill_trace := 0.0
+	var fill_settled_at := -1.0
 	print("PROBE fill start rd=%d workers=%d" % [rd, cm.get_worker_count()])
 
 	while true:
@@ -528,6 +531,18 @@ func _run() -> void:
 		var visible_pending := int(cm.call("get_visible_pending_chunk_mesh_count"))
 		var visible_drawn := _detail_total(last_report)
 		var visible_total_now := visible_drawn + visible_pending
+		if fill_trace and elapsed >= next_fill_trace:
+			next_fill_trace = elapsed + 1.0
+			var settled_now := bool(cm.call("is_fill_settled"))
+			if settled_now and fill_settled_at < 0.0:
+				fill_settled_at = elapsed
+				print("PROBE fill settle t=%.2fs" % elapsed)
+			var far_geometry: Dictionary = cm.call("get_pending_far_geometry")
+			print("PROBE fill trace t=%.2fs loaded=%d generating=%d completed=%d pending=%d budget=%d settled=%d region_empty=%d uncovered=%d far_total=%d far_no_chunk=%d far_empty=%d" % [
+				elapsed, loaded, generating, completed, queue_depth,
+				int(cm.call("get_mesh_rebuild_budget")), int(settled_now), region_empty,
+				active_uncovered, int(far_geometry.get("total", 0)),
+				int(far_geometry.get("no_chunk", 0)), int(far_geometry.get("empty", 0))])
 		if first_upload_at < 0.0 and _value(last_report, "Mesh uploads:") > 0:
 			first_upload_at = elapsed
 		if first_visible_at < 0.0 and (_value(last_report, "Visible instances:") > 0 or visible_drawn > 0):

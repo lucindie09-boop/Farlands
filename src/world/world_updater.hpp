@@ -172,6 +172,7 @@ public:
     using GenerationStats = ::VoxelEngine::GenerationStats;
 
     [[nodiscard]] const GenerationStats& get_generation_stats() const { return generation_stats; }
+    [[nodiscard]] bool is_fill_settled() const { return fill_settled_; }
     [[nodiscard]] ColumnPrefetch::Stats get_prefetch_stats() const {
         return column_prefetch ? column_prefetch->stats() : ColumnPrefetch::Stats{};
     }
@@ -371,6 +372,7 @@ private:
     // Reset when player changes chunks; set pass_complete when a full sweep finds nothing.
     SweepCursor generation_cursor;
     bool    generation_pass_complete   = false;  // true = the walk has exhausted its list
+    bool    fill_settled_              = false;  // this frame's exact fill predicate
 
     // Unload scan throttle — avoids holding shared_lock for 500 iterations every frame.
     // Scan runs when player changes chunks, or every kUnloadScanSkipFrames frames otherwise.

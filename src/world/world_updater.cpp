@@ -50,6 +50,7 @@ WorldUpdater::WorldUpdater()
     if (hold_mesh_env != nullptr) {
         if (hold_mesh_env[0] == '1' && hold_mesh_env[1] == '\0') {
             budgets.hold_mesh_until_load_done = true;
+            budgets.hold_mesh_force = true;
         } else if (hold_mesh_env[0] == '0' && hold_mesh_env[1] == '\0') {
             budgets.hold_mesh_until_load_done = false;
         }
@@ -60,6 +61,8 @@ WorldUpdater::WorldUpdater()
     const double hold_max_sec = latch_seconds_from_env("FARLANDS_HOLD_MESH_MAX_SEC", 2.0);
     budgets.hold_mesh_max_sec = hold_max_sec;
     initial_mesh_hold_.set_max_sec(hold_max_sec);
+    budgets.hold_mesh_min_workers = static_cast<int32_t>(
+        latch_seconds_from_env("FARLANDS_HOLD_MESH_MIN_WORKERS", 8.0));
     // The held drain uploads at most this many completed meshes per frame while
     // the initial-loading latch is up. 512 finishes the held queue inside its
     // quiet window; `FARLANDS_MESH_UPLOADS_LOADING=N` overrides it for an A/B.
@@ -273,17 +276,22 @@ void WorldUpdater::process_mesh_budgets(bool is_editor, uint64_t epoch, uint64_t
     // the old `loaded >= loading_threshold` gate: at RD 4 the whole disc is
     // below 500 chunks, so that gate never fired and the hold never released.
     const bool queues_idle = generating_count == 0 && completed_count == 0;
-    const bool fill_settled = loaded_count_post > 0 && queues_idle &&
-                              generation_pass_complete &&
-                              sweep_band_frontier >= sweep_columns.size();
+    fill_settled_ = loaded_count_post > 0 && queues_idle &&
+                    generation_pass_complete &&
+                    sweep_band_frontier >= sweep_columns.size();
+    const bool fill_settled = fill_settled_;
     // The latch's transitions live in LoadingLatch (tested without a world);
     // this pass supplies the frame's inputs and reads the budget it selects.
     const bool is_initial_loading =
         initial_loading_latch_.tick(delta, fill_settled, pending_mesh);
     const bool pipelines_busy = generating_count > 0 || completed_count > 0 || pending_mesh;
 
+    const size_t worker_count = thread_pool ? thread_pool->get_worker_count() : 0;
+    const bool hold_allowed = budgets.hold_mesh_force ||
+        worker_count >= static_cast<size_t>(budgets.hold_mesh_min_workers);
     const bool hold_mesh =
-        initial_mesh_hold_.tick(delta, budgets.hold_mesh_until_load_done, fill_settled);
+        initial_mesh_hold_.tick(delta, budgets.hold_mesh_until_load_done && hold_allowed,
+                                fill_settled);
     int32_t mesh_rebuild_budget = 0;
     int32_t upload_budget = 0;
     if (is_initial_loading) {
@@ -442,6 +450,7 @@ void WorldUpdater::clear() {
     invalidate_height_cache();
     generation_cursor        = SweepCursor{};
     generation_pass_complete = false;
+    fill_settled_            = false;
     unload_scan_skip_counter   = 0;
     unload_scan_bucket_cursor  = 0;
 }

@@ -13,8 +13,13 @@ invalidation cost.
 
 **Short answer:** it is a warm-start cache, not a save. It can remove
 generation from the fill; it cannot remove mesh build/upload, install/admission
-or the initial mesh hold's release. It is most defensible on 4- and 6-core
-machines, where generation is the larger share of the blank window.
+or the initial mesh hold's release. The hold now caps the blank at 2 s, so the
+cache's only defensible value is **full-fill time on constrained machines**. On
+16 threads the current hold reaches first visible at 1.85 s and ends at about
+5.2 s; on 6 cores it ends at about 11.1 s. At RD 32 with 3 workers the chunk
+load reached 19.84 s, but the far-gap tail had not closed at 90 s, so there is
+no valid 4-core full-fill number yet. The cache cannot be justified on top of
+that unresolved tail.
 
 ## What the hold is not
 
@@ -45,12 +50,16 @@ exactly the generated base.
 
 ## Win
 
-- **It removes the generator from the fill.** On the measured constrained runs
-  the blank is about 11.9 s on 4 cores and 7.9 s on 6 cores; the fill's
-  generation is about 20.5 s of worker time, or roughly 6.8 s of wall at 3
-  workers and 4.1 s at 5. That is the largest single block the cache can take
-  out. On 16 threads generation is about 1.4 s of the ~3.9 s blank, so the
-  return there is small and may not cover the read.
+- **It removes the generator from the fill, not the blank window.** The old
+  11.9 s and 7.9 s blank figures are stale: the bounded hold makes the
+  16-thread blank 1.85 s (first visible) and the 6-core blank 2.11 s, while the
+  old ~3.9 s 16-thread figure is now ~1.85 s. Generation is still about 20.5 s
+  of worker time, but the measured 3-worker RD32 chunk load was **19.84 s**, not
+  the ~6.8 s the worker arithmetic predicted; admission, install, mesh/upload
+  and the far tail dominate that fill. On 16 threads generation is about 1.4 s
+  of a ~5.2 s end-to-end fill, so the return is small and may not cover the
+  read. **Do not use the 6.8/4.1 s generation-wall arithmetic as a cache
+  estimate until the 3-worker far tail is understood.**
 - **It keeps the existing pipeline.** A cache hit still occupies a scheduler
   claim and a completed-chunk slot. Install, light fix-ups, dirty-mesh fan-out,
   edit maps and the hold all run exactly as they do for a generated chunk.
@@ -70,10 +79,12 @@ exactly the generated base.
 - **First run pays and gets nothing.** The cache is written after the first
   fill; the benefit starts on the second boot. A first-run write of ~180 MB
   must not block play or the quit path.
-- **It is not instant.** The mesh build is another ~7.0-7.3 s of worker time
-  (about 0.5 s of wall at 15 workers, but ~2.4 s at 3), and the upload burst and
-  install remain. On 16 threads the current hold ends at ~4.8 s; the cache can
-  plausibly save ~1 s there, not seconds.
+- **It is not instant.** The mesh build, upload burst, install and far-region
+  tail all remain. On 16 threads the current hold already caps the blank at 2 s
+  and ends at about 5.2 s; the cache can plausibly shorten the load on
+  constrained machines, not the 2 s reveal ceiling, and should not be expected
+  to save seconds on 16 threads. At 3 workers the tail is not even closed, so
+  its full-fill saving is unmeasured.
 - **New format, key and invalidation.** A corrupt, stale or partial cache must
   fall back to generation. It must never load wrong blocks, never crash and
   never be treated as save data.
@@ -240,8 +251,8 @@ frames, cache phase totals and hit rate. The proposed go/no-go criteria:
 - 4 cores: first visible and end improve by at least 25%, with no
   cache-attributable frame over 33 ms.
 - 6 cores: load improves by at least 15%.
-- 16 threads: end is no worse than the current hold (~4.79 s) and first visible
-  is no worse; hit rate is at least 90% of the fill's installs.
+- 16 threads: end is no worse than the current hold (~5.2 s on this machine)
+  and first visible is no worse; hit rate is at least 90% of the fill's installs.
 - On one worker, a hit's read + decode is cheaper than the generation it
   replaces. If it is not, stop: the cache is moving CPU to disk, not removing
   work.

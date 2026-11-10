@@ -123,11 +123,19 @@ struct FrameBudgets {
     // `FARLANDS_HOLD_MESH_UNTIL_LOADED=0` for an A/B arm. The price is measured:
     // first terrain at the 2 s deadline is 1.9 s on the 16-thread machine and
     // 2.1 s on 6 cores (against 0.3-0.6 s for overlap), while the end moves
-    // ~0.5 s sooner on 16 and ~0.1 s sooner on 6. The matched 4-core arm is
-    // worker-bound; its numbers are in docs/streaming.md.
+    // ~0.5 s sooner on 16 and ~0.1 s sooner on 6. The matched 4-core arm reached
+    // chunk load + mesh at 19.84 s, but its far tail did not close in 90 s; see
+    // docs/streaming.md. It is not an end-to-end hold result.
     // `FARLANDS_HOLD_MESH_MAX_SEC` overrides the deadline for an A/B arm.
+    // The hold is only a win when the pool can drain it: at 5 workers it bought
+    // ~0.1 s of end-to-end fill for ~1.6 s of extra blank, while at 15 workers
+    // it bought ~0.45 s. Shipping therefore requires at least 8 workers;
+    // `FARLANDS_HOLD_MESH_MIN_WORKERS` overrides that floor, and an explicit
+    // `FARLANDS_HOLD_MESH_UNTIL_LOADED=1` forces it on for a slow-machine A/B.
     double hold_mesh_max_sec = 2.0;
     bool hold_mesh_until_load_done = true;
+    bool hold_mesh_force = false;
+    int32_t hold_mesh_min_workers = 8;
 
     // Entries the unload scan visits per pass. It walks the whole map, so this is
     // what decides how long a loaded set takes to be re-examined at all: 500 per

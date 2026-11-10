@@ -103,6 +103,14 @@ String VoxelEngineController::get_performance_report() {
     report += "  Light stages:   " + String::num_int64(static_cast<int64_t>(chunk_world.pending_lighting_count())) + "\n";
     report += "  Light results:  " + String::num_int64(static_cast<int64_t>(chunk_world.get_scheduler().completed_light_count())) + "\n";
     report += "  Dirty stages:   " + String::num_int64(static_cast<int64_t>(chunk_world.pending_dirty_stage_count())) + "\n";
+    // Reset diagnostics. These are the queues a world clear has to empty; the
+    // cross-boundary list in particular used to survive it and make the second
+    // fill dirty-mesh the first fill's rim.
+    report += "  Pending vegetation: " + String::num_int64(static_cast<int64_t>(chunk_world.pending_vegetation_chunk_count())) + " chunks\n";
+    report += "  Vegetation placements: " + String::num_int64(static_cast<int64_t>(chunk_world.pending_vegetation_placement_count())) + "\n";
+    report += "  Cross remesh: " + String::num_int64(static_cast<int64_t>(chunk_world.pending_cross_remesh_count())) + " requests\n";
+    report += "  Scheduler claimed: " + String::num_int64(static_cast<int64_t>(chunk_world.get_scheduler().claimed_count())) + "\n";
+    report += "  Completed meshes: " + String::num_int64(static_cast<int64_t>(chunk_world.get_scheduler().completed_mesh_count())) + "\n";
     chunks_processed_last_interval = chunks_processed_total;
     frame_count = 0;
     frame_time_accumulator = 0.0;

@@ -444,7 +444,7 @@ void MeshManager::process_far_region_queue(int32_t max_rebuilds, double budget_m
             }
             (void)region_origin_x;
             (void)region_origin_z;
-        });
+        }, PoolTaskClass::Far);
         ++scheduled;
     }
 

@@ -2,9 +2,13 @@
 
 **Status:** design note; the codec is not implemented. The decider clears the
 4- and 6-core criteria and the 16-thread warm arm, so phase 1-2 (codec, reader,
-hit/miss parity) is the next work. The 16-thread result is warm-process only
-until the phase-4 cold arm. The measurement-only decider below (two admission
-env switches and an in-RAM memo) is recorded in
+hit/miss parity) is the next work. The pool cost is now split by task class
+(mesh 0.60 ms/chunk, light 0.17, far 0.02), and the reset queues are
+instrumented. The reader design is per-chunk payload reads from the 51 pack
+indexes held in RAM, not a decoded-pack LRU. The 16-thread result is
+warm-process only until the phase-4 cold arm, which also runs the read on a
+cold spinning disk. The measurement-only decider below (two admission env
+switches and an in-RAM memo) is recorded in
 [What paces the 3-worker fill](#what-paces-the-3-worker-fill-measured). If the
 experiment loses, record the result in
 [decisions/README.md](decisions/README.md) rather than growing this file.
@@ -128,7 +132,26 @@ Consequences:
   worst frames showed is scarce; the evidence no longer justifies an admission
   rewrite. The 2.46 ms value is the admission constant, not the measured pool
   cost: the pool's own counters put the cost at **2.68 ms per chunk**
-  (2.955 worker-seconds per second / 1,101 chunks/s).
+  (2.955 worker-seconds per second / 1,101 chunks/s). A later 3-worker
+  per-class run measured **2.64 ms/chunk**: generation 1.78, mesh 0.60, light
+  0.17, prefetch 0.06, far 0.02, and no other/save/path tasks. The old 0.91 ms
+  non-generation residual is therefore mesh (0.60, not the 0.54 estimate),
+  light (0.17), prefetch (0.06) and far (0.02), with nothing unexplained. On
+  the memo hit the same counters read generation 0.72, mesh 0.53, light 0.19,
+  prefetch 0.05, far 0.01 (**1.52 ms/chunk**): mesh is the largest remaining
+  worker cost and the next lever after generation.
+- **Reset diagnostic (3-worker, memo off).** Before `clear_editor_chunks()`:
+  **1** pending vegetation chunk / **22** placements, **0** cross-remesh
+  requests, **0** scheduler claims, and **0** completed chunks/meshes. After:
+  all zero. `ChunkWorld::clear()` was missing the
+  `pending_cross_boundary_remesh` clear; it now clears that under
+  `cross_boundary_mutex`, and clears the block and vegetation placement maps
+  under their own mutexes. The measured second fill is nevertheless slower:
+  **17.87 -> 20.39 s**. The class counters localise the extra time to mesh
+  (**11.86 -> 18.02 s**, 14,821 -> 18,699 tasks) while generation is flat
+  (35.26 -> 35.12 s). The suspected spill/placement leak is not the cause in
+  this arm; the mesh residual is open, and the New World button should not
+  assume the reset is cheap yet.
 - That 2.68 ms is the fill model: 20,230 x 2.68 / 3 = **18.1 s** at 3 workers
   (measured 18.10-18.41 s at 1.44/192; 19.32-19.61 s at the default cap), and
   20,230 x 2.68 / 5 = **10.8 s** (measured 10.03-10.19 s). Removing the 1.05 ms
@@ -153,7 +176,11 @@ Consequences:
 falls **18.10 -> 10.06 s** and the end **18.10 -> 10.32 s** (44%/43%), so the
 13.8 s end bar leaves **3.5 s** for reading and decoding the cache - about
 **0.46 ms of worker CPU per chunk** (3.5 x 3 x 0.9 / 20,230), not the 0.17 ms
-serial-wall figure. The memo now replays the cross-chunk spill through the same
+serial-wall figure. That budget is CPU only: a blocking read also occupies a
+worker. The 110 MB read is about 1.1 s of worker time at hard-drive speeds, or
+~0.4 s of wall at 3 workers, so it fits. At 16 threads the cold gain is only
+~0.6 s (4.6 vs 5.2), and a slow disk or slow decode can erase it. Phase 4 must
+run the cold file-cache path on a spinning disk, not a warm OS cache. The memo now replays the cross-chunk spill through the same
 writer closure, so the hit includes the vegetation install and boundary
 remeshes; this is the codec's honest bound. The benchmark world's 381 edited
 chunks are paid on a hit too: the no-edit arm is **16.04 -> 8.05 / 8.31 s**,
@@ -366,8 +393,10 @@ manifest. `cache.meta` is updated last, so a pack is used only after it is
 complete.
 
 The 8x8 grouping matches the far-region grid: 3,209 columns / 64 is about 51
-packs, each small enough to read as a unit, evict on its own and decode on a
-worker. Per-chunk files would be ~20,000 seeks and an unpleasant directory.
+packs. The pack is the writer's unit and the index's integrity unit, not the
+reader's: the reader loads the 51 indexes into RAM once and then reads and
+decodes per chunk by offset, so a hit touches only its own payload. Per-chunk
+files would be ~20,000 seeks and an unpleasant directory.
 
 ## Integration
 
@@ -376,8 +405,12 @@ worker. Per-chunk files would be ~20,000 seeks and an unpleasant directory.
 - `src/core/terrain_cache_format.*` is the pure codec and key: header/index
   encode/decode, section codec, CRC and bounds checks, no Godot types. The
   round-trip and corruption tests live beside the other core tests.
-- `src/world/terrain_cache.*` owns the manifest, the immutable key and a small
-  LRU of decoded region packs. It is the only code that opens cache files.
+- `src/world/terrain_cache.*` owns the manifest and the immutable key. It
+  loads the 51 pack indexes into RAM once at open and keeps **no decoded-pack
+  cache**. The fill is a nearest-first spiral that touches nearly every pack
+  early, so an LRU smaller than the working set thrashes, and decoding a whole
+  pack on first touch makes the other workers wait on it. The pack remains the
+  write and integrity unit; the read unit is the chunk.
 - `ChunkWorld::generate_chunk` checks the cache before enqueueing generation.
   A hit enqueues a cache-read closure through the **same** scheduler claim,
   completed-chunk and install path. The closure reads and decodes the block
@@ -396,8 +429,11 @@ worker. Per-chunk files would be ~20,000 seeks and an unpleasant directory.
 - `CompletedChunk::was_loaded_from_disk` is set by the scheduler but never read
   today; do not build the design on it. Add a small source enum or cache
   counters if the probe needs to distinguish a hit from a generation.
-- Read on workers. The main thread only decides hit or miss and enqueues; the
-  pack read/decode must not take `file_access_mutex` per chunk, for the same
+- Read on workers. The main thread only decides hit or miss and enqueues. A
+  hit reads its chunk's payload by offset from its own `FileAccess` handle
+  (Godot handles are not shareable across threads), decodes that chunk and
+  returns it; no decoded pack is shared, so no reader lock serialises the
+  workers. The read must not take `file_access_mutex` per chunk, for the same
   reason the edit-map load stopped doing it.
 - The cache hit's light pass uses the same neighbour lookup as generation; the
   install light fix-ups still run. The cache never stores a light result that
@@ -405,9 +441,17 @@ worker. Per-chunk files would be ~20,000 seeks and an unpleasant directory.
 
 ### Hit/miss parity test (phase 2 gate)
 
+Use the in-RAM memo as the oracle. Pass 1 with `FARLANDS_GEN_MEMO=1` captures
+the generator's `ChunkData` and its spill vector at the exact boundary the
+writer captures. Feed the same chunk through the codec (encode at that
+boundary, decode, replay) and compare the installed result against the memo
+capture. Do this for one all-air, one fully-solid and one mixed chunk, so the
+comparison starts from one generator answer rather than two separate runs that
+can drift.
+
 Before the cache is allowed on by default, compare the complete installed
-`ChunkData` for an all-air, a fully-solid and a mixed chunk. Run the miss path
-(generator output, current edit map, sky/block light, `compute_fully_solid`,
+`ChunkData` for those three chunks. Run the miss path (generator output,
+current edit map, sky/block light, `compute_fully_solid`,
 `compute_section_flags`, install) and the hit path (decode base, replay the full
 spill closure, then the same post-generation helper and install). Compare every
 cell's `get_block`, every cell's `get_light_word` (or `append_light_state`),
@@ -533,9 +577,11 @@ a benchmark metric; otherwise the probe's cache fields are the evidence.
 
 1. **Key and format.** Pure codec, pack/index encode/decode, section codec,
    key hashing, round-trip and corruption tests. No I/O, no integration.
-2. **Reader.** Manifest/pack I/O, the scheduler cache-read closure, counters,
-   the environment switch off by default. A prepared cache must install and a
-   miss must be indistinguishable from today's fill.
+2. **Reader.** Manifest and the 51 in-RAM pack indexes; per-chunk payload
+   reads by offset from one file handle per worker; per-chunk decode, with no
+   decoded-pack cache. Scheduler cache-read closure, counters, the environment
+   switch off by default. A prepared cache must install and a miss must be
+   indistinguishable from today's fill.
 3. **Writer.** Generator-output capture, spill list, 8x8 pack writes, atomic
    manifest, cap and LRU, reset. A second boot must be a hit; a crash mid-write
    must leave a usable partial cache; no edit may be lost or baked into the
@@ -544,7 +590,10 @@ a benchmark metric; otherwise the probe's cache fields are the evidence.
    decision row. The 16-thread arm is a **cold-process** run: prepare the cache,
    restart the engine, and compare the first fill against a cold no-cache boot;
    the memo's warm second pass is not this arm. Also run a no-edit world so the
-   edit-map cost is not folded into the cache result. If it loses, stop here.
+   edit-map cost is not folded into the cache result. Run the cold arm's read
+   on a spinning disk with the OS cache cold (or a fresh volume): 110 MB is
+   ~1.1 s of worker time / ~0.4 s wall at 3 workers, and the 16-thread margin
+   is only ~0.6 s. If it loses, stop here.
 5. **Only if it wins.** Optional polish: a per-world cap control, a prefetch of
    the next pack, or an optional light cache. Each is its own measured change;
    none is part of the default.

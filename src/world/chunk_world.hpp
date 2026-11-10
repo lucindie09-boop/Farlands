@@ -179,6 +179,20 @@ public:
     [[nodiscard]] size_t pending_lighting_count() const { return pending_chunk_lighting.size(); }
     [[nodiscard]] size_t pending_dirty_stage_count() const { return pending_chunk_dirty_mesh.size(); }
 
+    // Reset diagnostics: these are the queues that can survive a world clear by
+    // accident. They are read only by the report/probe, on the main thread.
+    [[nodiscard]] size_t pending_vegetation_chunk_count() {
+        std::lock_guard<std::mutex> lock(vegetation_placement_mutex);
+        return pending_vegetation_placements.size();
+    }
+    [[nodiscard]] size_t pending_vegetation_placement_count() const {
+        return pending_vegetation_count.load(std::memory_order_relaxed);
+    }
+    [[nodiscard]] size_t pending_cross_remesh_count() {
+        std::lock_guard<std::mutex> lock(cross_boundary_mutex);
+        return pending_cross_boundary_remesh.size();
+    }
+
     // Per-chunk generation pipeline: admission (enqueue) -> worker start ->
     // worker finish -> install. Collected only when FARLANDS_GEN_PROFILE=1;
     // the startup probe prints this readout.

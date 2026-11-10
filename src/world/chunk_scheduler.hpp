@@ -130,7 +130,7 @@ public:
                 completed_chunks.push(std::move(completed));
                 chunk_count_a.fetch_add(1, std::memory_order_relaxed);
             }
-        });
+        }, PoolTaskClass::Generation);
         return true;
     }
 
@@ -232,6 +232,14 @@ public:
     [[nodiscard]] size_t generating_count() const {
         std::lock_guard<std::mutex> lock(generating_mutex);
         return generating_chunks.size();
+    }
+
+    // Claims outlive the worker that generated the chunk: they are released on
+    // install (or a stale result), not on completion. A reset that leaves them
+    // behind would refuse to regenerate those chunks in the next world.
+    [[nodiscard]] size_t claimed_count() const {
+        std::lock_guard<std::mutex> lock(generating_mutex);
+        return claimed_chunks.size();
     }
 
     // Drops the claim taken by enqueue_generation. The main thread calls this once

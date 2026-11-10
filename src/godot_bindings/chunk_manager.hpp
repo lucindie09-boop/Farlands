@@ -259,6 +259,7 @@ public:
     // Whether chunks are still being generated or meshed, so a caller can wait
     // for a settled world rather than guessing a number of frames.
     bool has_pending_mesh_work() const;
+    bool is_fill_settled() const;
     int32_t get_pending_chunk_mesh_count() const;
     int32_t get_visible_pending_chunk_mesh_count() const;
     godot::Dictionary get_visible_pending_lod_split() const;

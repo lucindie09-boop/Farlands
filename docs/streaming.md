@@ -1326,14 +1326,20 @@ it — are in [lod-modes.md](lod-modes.md).
   [-0.23-+0.03]**, A faster in 4/5): the old 7.85 s blank world is gone, but the end win is
   only ~0.1 s (`.freebuff/hold_ab_6c_bounded_20261110`). The old unbounded 6-core arm measured
   7.85 s first visible and a 0.69 s end win; it also ran 15 workers on 6 logical processors, so
-  its magnitudes were oversubscribed. The **4-core, 3-worker** arm is not comparable: the
-  hold arm did not finish inside a 300 s probe budget (the 90 s run had already hit the far-gap
-  deadline), while the old 15-worker arm finished in 14.33 s. The matched fill is worker-bound,
-  so the old 4-core "wash" cannot be carried forward; the worker-count print now exposes how
-  the old arm was run. On the small discs the old gate could never release: at **RD 4** the hold
+  its magnitudes were oversubscribed. The **4-core, 3-worker** arm is not an end-to-end
+  comparison: the matched hold-off control reached chunk load + mesh at **19.84 s**, but the
+  probe's far-gap gate still saw **97 uncovered visible chunks** at **90 s** with
+  `region_empty=0` and `far_total=0` (`PROBE FAIL: active far gaps did not close`); the 300 s
+  arm never reached its end either. That is the far-region coverage tail, not a
+  generation stall; the old 15-worker arm finished in 14.33 s. No matched 4-core end-to-end
+  number is claimed, and the old 4-core "wash" cannot be carried forward. On the small discs
+  the old gate could never release: at **RD 4** the hold
   disarmed at **0.27 s** and at **RD 5** at **0.54 s**, with first visible on the same frame.
   The one-shot/bounded behavior is in `InitialMeshHold`; the 2 s default is env-overridable, and
-  the A/B harness exposes `--hold` and `--workers`.
+  the A/B harness exposes `--hold` and `--workers`. Shipping now enables the hold only with **at
+  least 8 workers**, because 5 workers bought ~0.1 s of end for ~1.6 s of blank while 15 workers
+  bought ~0.45 s. `FARLANDS_HOLD_MESH_MIN_WORKERS` overrides the floor, and an explicit
+  `FARLANDS_HOLD_MESH_UNTIL_LOADED=1` forces the hold on so slow-machine A/B runs still measure it.
 - **The whole-fill worst frame is the reveal burst on 16 threads and the scheduler on 6; the
   matched 4-core arm never finished.** The probe keeps the 24 worst frames (by cost, not
   arrival) and prints a phase dump each plus a before/after-settle count. On the 16-thread
@@ -1345,7 +1351,9 @@ it — are in [lod-modes.md](lod-modes.md).
   phase: `ChunkLoadUnload` up to **29-41 ms** and `BlockOutlineProcess` up to **12 ms**, in the
   first second. On 6 cores the bounded worst is **285.8 [279.2-291.5] ms**, `process_total`
   **2.6 ms**, `ChunkLoadUnload` 2.2 ms, `outside_process` **114-129 ms**, 57 draw calls /
-  1,667 objects, and the engine's own delta matches the stall. The old 4-core medians **334 vs
+  1,667 objects, and the engine's own delta matches the stall. The event is at **t=0.28 s**,
+  before the chunk load, with Godot's `TIME_PROCESS=80 ms` and `TIME_PHYSICS_PROCESS=47 ms` in
+  the same dump: it is startup engine work, not the hold or the updater. The old 4-core medians **334 vs
   318 ms** and the **1,603 ms** outlier came from the 15-worker arm; the matched 3-worker arm
   did not complete inside 300 s, so there is no matched 4-core worst-frame number. The
   60-76 ms class is the 512-upload reveal, count-bounded rather than clock-bounded (which is

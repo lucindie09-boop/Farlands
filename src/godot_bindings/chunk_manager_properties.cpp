@@ -114,6 +114,9 @@ void ChunkManager::set_world_horizon(bool enabled, double radius) {
 }
 
 bool ChunkManager::has_pending_mesh_work() const { return controller->has_pending_mesh_work(); }
+bool ChunkManager::is_fill_settled() const {
+    return controller->get_world_updater().is_fill_settled();
+}
 int32_t ChunkManager::get_pending_chunk_mesh_count() const {
     return static_cast<int32_t>(controller->pending_chunk_mesh_count());
 }

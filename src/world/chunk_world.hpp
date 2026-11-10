@@ -10,6 +10,7 @@
 #include "world/light_profile.hpp"
 #include "world/install_profile.hpp"
 #include "world/generation_path_profile.hpp"
+#include "world/terrain_cache.hpp"
 #include "worldgen/generation_slice_profile.hpp"
 #include "core/thread_pool.hpp"
 #include "worldgen/chunk_generator.hpp"
@@ -158,6 +159,11 @@ public:
     ChunkMap& get_chunk_map() { return chunk_map; }
     ChunkMap* get_chunk_map_ptr() { return &chunk_map; }
     ChunkScheduler& get_scheduler() { return chunk_scheduler; }
+    [[nodiscard]] TerrainCacheReaderStats get_terrain_cache_stats() const {
+        return terrain_cache.stats();
+    }
+    void reset_terrain_cache_stats() { terrain_cache.reset_stats(); }
+    [[nodiscard]] bool is_terrain_cache_open() const { return terrain_cache.is_open(); }
 
     uint64_t get_epoch() const { return async_epoch.load(std::memory_order_acquire); }
     std::atomic<uint64_t>* get_epoch_ptr() { return &async_epoch; }
@@ -231,6 +237,7 @@ private:
     ThreadPool* thread_pool = nullptr;
     ChunkMap chunk_map;
     ChunkScheduler chunk_scheduler;
+    TerrainCache terrain_cache;
     std::deque<CompletedChunk> pending_chunk_installs;
     std::deque<PendingChunkStage> pending_chunk_lighting;
     std::deque<PendingChunkStage> pending_chunk_dirty_mesh;

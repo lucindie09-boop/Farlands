@@ -801,6 +801,12 @@ The following code remains in the codebase but is disabled or unused:
 - `src/core/chunk_data.hpp/cpp` + `palette_storage.hpp` — `PaletteStorage`, `PalSection`,
   section-based accessors (`chunk_data.cpp` compiles three times, so its palette half lives in
   the header the other two consumers include)
+- `src/core/terrain_cache_format.hpp/cpp`, `terrain_cache_key.cpp`,
+  `terrain_cache_manifest.hpp/cpp` and `terrain_cache_reader.hpp/cpp` — generated-terrain cache
+  codec and reader: the Godot-free FNV key, palette-section/chunk payloads with spill lists,
+  8x8 pack headers and indexes with per-chunk/per-index CRCs, the `cache.meta` manifest, and a
+  reader that loads only the indexes and then reads each chunk payload by offset. No Godot
+  types in these files; `src/world/terrain_cache.*` is the adapter.
 - `src/core/chunk_map.hpp` + `shard_lock.hpp` / `chunk_map_inline.hpp` — Sharded locking,
   `lock_keys_exclusive`, auto-locking methods. `shard_lock.hpp` holds `kShardCount` (with a
   `static_assert` tying it to the lock-order checker's 64-bit bitset) and the RAII guards
@@ -1114,7 +1120,7 @@ Every file, with what it owns: [docs/ui.md](docs/ui.md).
   - `textures/0Archive/` — Archived/deprecated textures (old versions kept for reference)
 
 ### Testing
-- `tests/` — 111 `.cpp` files (750 test cases / 363,948 assertions, declared across 109 of them:
+- `tests/` — 114 `.cpp` files (764 test cases / 364,163 assertions, declared across 112 of them:
   `test_main.cpp` is the doctest entry point and `mesh_manager_stub.cpp` supplies link stubs),
   auto-discovered via `Glob("tests/*.cpp")`. A split test file keeps the original name for its
   main subject and takes `_<topic>` files beside it, with the fixtures they share in a
@@ -1160,7 +1166,7 @@ Every file, with what it owns: [docs/ui.md](docs/ui.md).
   region, and on a standard attribute placed after a decl-specifier. Both compile on MSVC and
   are fatal on GCC/clang, which is exactly why the tree is compiled by something other than MSVC
   before it is accepted
-- **clang-tidy** — the static-analysis job's gate, over `find src -name '*.cpp'` (127 files)
+- **clang-tidy** — the static-analysis job's gate, over `find src -name '*.cpp'` (132 files)
   with `bugprone-*`, `concurrency-*` and `performance-*` minus the four documented exceptions
   (`.github/workflows/build.yml`: `bugprone-easily-swappable-parameters`,
   `bugprone-narrowing-conversions`, `clang-analyzer-optin.core.EnumCastOutOfRange`,

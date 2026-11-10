@@ -98,6 +98,19 @@ public:
         return total;
     }
 
+    // The terrain cache stores the block sections exactly as the generator
+    // built them: palette, index width and packed indices. Exposing the
+    // sections keeps the codec from rebuilding a 32^3 dense array per chunk.
+    static constexpr int NUM_BLOCK_SECTIONS = PaletteStorage::NUM_SECTIONS;
+    [[nodiscard]] const PalSection& block_section(int index) const noexcept {
+        return storage->block_secs[index];
+    }
+
+    // Replaces all eight block sections and recomputes the metadata derived
+    // from them. Light is cleared because the caller is installing a new base
+    // and must run its own light pass afterwards.
+    void set_block_sections(const PalSection* sections);
+
     [[nodiscard]] int32_t uniform_block_sections() const noexcept {
         if (!storage) return 0;
         int32_t count = 0;

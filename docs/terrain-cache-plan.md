@@ -1,8 +1,14 @@
-# Generated-terrain cache: a plan (not implemented)
+# Generated-terrain cache: a plan (phase 2 reader implemented)
 
-**Status:** design note; the codec is not implemented. The decider clears the
-4- and 6-core criteria and the 16-thread warm arm, so phase 1-2 (codec, reader,
-hit/miss parity) is the next work. The pool cost is now split by task class:
+**Status:** phases 1 and 2 are implemented. `src/core/terrain_cache_format.*`
+holds the key/section/pack codec; `terrain_cache_manifest.*` and
+`terrain_cache_reader.*` load `cache.meta` and every pack's trailing index into
+RAM, then read a chunk payload by offset. `src/world/terrain_cache.*` supplies
+the key, pack discovery and a per-thread `FileAccess`. `ChunkWorld::generate_chunk`
+uses a hit before generating and falls back on any miss. The switch is
+`FARLANDS_TERRAIN_CACHE=1`, off by default. The writer and the hit/miss parity
+gate are next. The decider clears the
+4- and 6-core criteria and the 16-thread warm arm. The pool cost is now split by task class:
 chunk mesh first build vs remesh, revision-driven region uploads, light, far and
 prefetch (the older combined bucket was mesh 0.60 ms/chunk, light 0.17, far
 0.02), and the reset queues are instrumented. The reader design is per-chunk payload reads from the 51 pack
@@ -448,24 +454,29 @@ files would be ~20,000 seeks and an unpleasant directory.
 ### Read path
 
 - `src/core/terrain_cache_format.*` is the pure codec and key: header/index
-  encode/decode, section codec, CRC and bounds checks, no Godot types. The
-  round-trip and corruption tests live beside the other core tests.
-- `src/world/terrain_cache.*` owns the manifest and the immutable key. It
-  loads the 51 pack indexes into RAM once at open and keeps **no decoded-pack
-  cache**. The fill is a nearest-first spiral that touches nearly every pack
-  early, so an LRU smaller than the working set thrashes, and decoding a whole
-  pack on first touch makes the other workers wait on it. The pack remains the
-  write and integrity unit; the read unit is the chunk.
-- `ChunkWorld::generate_chunk` checks the cache before enqueueing generation.
-  A hit enqueues a cache-read closure through the **same** scheduler claim,
+  encode/decode, section codec, CRC and bounds checks, no Godot types. Phase 1
+  implements this layer; `tests/test_terrain_cache_format.cpp` holds the
+  round-trip, spill, corruption, bounds and key-sensitivity tests.
+- `src/core/terrain_cache_manifest.*` writes and validates `cache.meta`, and
+  `src/core/terrain_cache_reader.*` loads the manifest and every pack's trailing
+  index into RAM once, keyed by chunk coordinate. It keeps **no decoded-pack
+  cache**: `read_chunk` seeks and reads that chunk's payload, checks its CRC and
+  decodes it. `tests/test_terrain_cache_manifest.cpp` and
+  `tests/test_terrain_cache_reader.cpp` cover the manifest, missing/corrupt/stale
+  data, offset reads and concurrent workers.
+- `src/world/terrain_cache.*` owns the key, cache root and pack discovery, and
+  supplies one `FileAccess` per worker thread. The fill is a nearest-first
+  spiral that touches nearly every pack early, so an LRU smaller than the
+  working set thrashes, and decoding a whole pack on first touch makes the other
+  workers wait on it. The pack remains the write and integrity unit; the read
+  unit is the chunk.
+- `ChunkWorld::generate_chunk` calls `ensure_open` on the main thread and then
+  checks the reader **inside the same generation closure** it would otherwise
+  use for terrain. A hit goes through the **same** scheduler claim,
   completed-chunk and install path. The closure reads and decodes the block
   data, replays the stored spill list through the **same full `cross_writer`
   closure** a miss uses, applies the current edit map, runs the same sky/block
-  light calls and `compute_fully_solid`, then returns the chunk. The closure is
-  not just `queue_vegetation_placement`: it also pushes
-  `pending_cross_boundary_remesh` under `cross_boundary_mutex`. Extract that
-  body into a helper and call it from both generation and replay; replaying
-  only the vegetation queue leaves the neighbour's mesh stale. Install does not
+  light calls and `compute_fully_solid`, then returns the chunk. Install does not
   need a branch. Replay is idempotent with respect to a neighbour that is also a
   hit: it queues the write whether or not the neighbour later generates, exactly
   like a normal generation.
@@ -474,12 +485,12 @@ files would be ~20,000 seeks and an unpleasant directory.
 - `CompletedChunk::was_loaded_from_disk` is set by the scheduler but never read
   today; do not build the design on it. Add a small source enum or cache
   counters if the probe needs to distinguish a hit from a generation.
-- Read on workers. The main thread only decides hit or miss and enqueues. A
-  hit reads its chunk's payload by offset from its own `FileAccess` handle
-  (Godot handles are not shareable across threads), decodes that chunk and
-  returns it; no decoded pack is shared, so no reader lock serialises the
-  workers. The read must not take `file_access_mutex` per chunk, for the same
-  reason the edit-map load stopped doing it.
+- Read on workers. The main thread opens the cache and loads the indexes; the
+  worker decides hit or miss. A hit reads its chunk's payload by offset from its
+  own `FileAccess` handle (Godot handles are not shareable across threads),
+  decodes that chunk and returns it; no decoded pack is shared, so no reader
+  lock serialises the workers. The read must not take `file_access_mutex` per
+  chunk, for the same reason the edit-map load stopped doing it.
 - The cache hit's light pass uses the same neighbour lookup as generation; the
   install light fix-ups still run. The cache never stores a light result that
   the current key did not produce.
@@ -548,10 +559,11 @@ mean today's fill.
 
 ## Instrumentation and experiment
 
-Add cache counters to the fill probe and `GenerationStats`: hits, misses, bytes
-read, bytes written, read/decode/write time, hit rate and pack count. Add a
-`TERRAIN_CACHE=0/1` environment switch, default off, and a `--cache` arm to
-`probes/start_fill_ab.py`.
+Phase 2 adds cache counters to `get_generation_stats`: hits, misses, corrupt,
+read errors, payload/index/manifest bytes, read/decode time, hit rate, pack count
+and index entries. The writer counters (bytes written and write time) arrive with
+phase 3. The switch is `FARLANDS_TERRAIN_CACHE=1`, default off; `--cache` in
+`probes/start_fill_ab.py` is still phase 4.
 
 The experiment needs a **prepared** cache. Use one warmup run with an empty
 cache to write it, then discard that run and pair the normal build against the
@@ -604,16 +616,17 @@ frames, cache phase totals and hit rate. The proposed go/no-go criteria:
 - If 16 threads regress or the 4-core gain is under 10%, reject the cache and
   record the measured row.
 
-Tests: round-trip all-uniform, all-air and mixed sections; spill-list
-round-trip with zero, one and many writes; a cache hit that replays a spill into
-a neighbour and produces the same canopy as a miss; CRC corruption, truncated
-pack, wrong key, unknown block IDs, count/offset overflow, empty and edited
-chunks; key changes for each config input; a concurrency test for a reader,
-writer and `clear()`. Add the CI digest test described in the key section over a
-few regenerated chunks, and keep the failure message naming
-`kTerrainCacheDataVersion`. Keep the files under the 500-line cap by splitting
-the format, the I/O and the tests, and keep the cache out of the Godot-free fuzz
-lists unless a harness actually needs it.
+Phase 1 tests (implemented) cover all-uniform, all-air and mixed sections;
+spill-list round-trip with zero, one and many writes; CRC corruption, truncated
+pack, wrong key, unknown block IDs, count/offset overflow; and a key change for
+each persisted parameter and config file. The CI digest in
+`tests/test_worldgen_digest.cpp` names `kTerrainCacheDataVersion` in its failure
+message. The rest of the test list is the phase 2/3 gate: a cache hit that
+replays a spill into a neighbour and produces the same canopy as a miss; empty
+and edited installed chunks; and a concurrency test for a reader, writer and
+`clear()`. Keep the files under the 500-line cap by splitting the format, the
+I/O and the tests, and keep the cache out of the Godot-free fuzz lists unless a
+harness actually needs it.
 
 Gates: `scons sizecheck`, `scons portability`, `scons docscheck` and the
 clang-tidy job. Update `benchmark_baseline.txt` only if a cache timing becomes

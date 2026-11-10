@@ -184,6 +184,20 @@ struct FrameBudgets {
     // pre-loading the pool with thousands of chunks.
     int32_t max_generating_in_flight_per_worker = 6;
 
+    // The feed-forward admission controller's cost model, in milliseconds per
+    // generation. 2.46 was measured at 15 workers, where contention makes a
+    // chunk dearer; at 3 the full task (terrain + light + edit) plus the
+    // amortized mesh share is about 2.31. `FARLANDS_GEN_WORK_PER_CHUNK_MS`
+    // overrides it for measurement only: it is the switch that separates "the
+    // controller's rate is the wall" from "the pool is".
+    double generation_work_per_chunk_ms = 2.46;
+    // The in-flight cap normally follows the worker count (max(64, workers x
+    // per-worker)). At 3 workers the 64 floor binds, so a lower cost model
+    // cannot turn into a higher rate until the cap moves too. An override here
+    // is what lets an arm raise both together and measure the admission
+    // ceiling instead of the cap.
+    int32_t generation_max_in_flight = 0;
+
     double flush_interval = 5.0;
 };
 

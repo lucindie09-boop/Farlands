@@ -1,6 +1,9 @@
 #include "world/chunk_world.hpp"
 
+#include <cstdlib>
 #include <memory>
+#include <mutex>
+#include <unordered_map>
 
 #include "worldgen/chunk_generator.hpp"
 #include "worldgen/generation_slice_profile.hpp"
@@ -9,6 +12,36 @@
 namespace VoxelEngine {
 
 using namespace godot;
+
+namespace {
+
+// Measurement-only in-RAM memo at the generation boundary. `FARLANDS_GEN_MEMO=1`
+// stores each chunk's generated terrain (before the edit map, light and solid
+// pass) so a second fill of the same world can skip the expensive generator.
+// The read path still applies the edit map, light and the solid pass, so it is
+// the cache hit path a codec would have, not a replay of the whole task.
+//
+// It is keyed by chunk key and never evicted: the loaded set is ~20k chunks and
+// this holds one copy of it, which is the price of the decider. Cross-chunk
+// vegetation writes are NOT replayed on a hit (the first pass already made
+// them; replaying would duplicate them), so a second pass after a reset lacks
+// those canopies. That does not move the cost being measured.
+bool generation_memo_enabled() {
+    static const bool enabled = std::getenv("FARLANDS_GEN_MEMO") != nullptr;
+    return enabled;
+}
+
+struct GenerationMemo {
+    std::mutex mutex;
+    std::unordered_map<uint64_t, ChunkData> chunks;
+};
+
+GenerationMemo& generation_memo() {
+    static GenerationMemo memo;  // no godot types, built on first use
+    return memo;
+}
+
+} // namespace
 
 // Worker-side half of ChunkWorld: the generation closure that runs on the
 // thread pool (terrain, deferred cross-chunk vegetation, the chunk's own edit
@@ -29,6 +62,17 @@ bool ChunkWorld::generate_chunk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_
             generation_path_profile_.started(path_id);
             gen_slice_count_chunk();
             auto chunk_data = std::make_unique<ChunkData>();
+            const bool memo_enabled = generation_memo_enabled();
+            bool memo_hit = false;
+            if (memo_enabled) {
+                GenerationMemo& memo = generation_memo();
+                std::lock_guard<std::mutex> lock(memo.mutex);
+                const auto it = memo.chunks.find(key);
+                if (it != memo.chunks.end()) {
+                    *chunk_data = it->second;
+                    memo_hit = true;
+                }
+            }
             
             // Always generate - edit maps are applied as a diff on top
             thread_local ChunkGenerator generator;
@@ -50,18 +94,25 @@ bool ChunkWorld::generate_chunk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_
                 // Cross-chunk vegetation writes are deferred: the worker only pushes to
                 // vegetation queues (no shard locking). The main thread applies them
                 // during process_completed_chunks. These are NOT persisted.
-                auto cross_writer = [this](int32_t wx, int32_t wy, int32_t wz, BlockID block) {
-                    queue_vegetation_placement(wx, wy, wz, static_cast<int>(block));
-                    int32_t tc_x, tc_y, tc_z, lx, ly, lz;
-                    world_to_chunk_local(wx, wy, wz, tc_x, tc_y, tc_z, lx, ly, lz);
-                    {
-                        std::lock_guard<std::mutex> lock(cross_boundary_mutex);
-                        pending_cross_boundary_remesh.push_back({tc_x, tc_y, tc_z});
+                if (!memo_hit) {
+                    auto cross_writer = [this](int32_t wx, int32_t wy, int32_t wz, BlockID block) {
+                        queue_vegetation_placement(wx, wy, wz, static_cast<int>(block));
+                        int32_t tc_x, tc_y, tc_z, lx, ly, lz;
+                        world_to_chunk_local(wx, wy, wz, tc_x, tc_y, tc_z, lx, ly, lz);
+                        {
+                            std::lock_guard<std::mutex> lock(cross_boundary_mutex);
+                            pending_cross_boundary_remesh.push_back({tc_x, tc_y, tc_z});
+                        }
+                    };
+                    generator.generate_chunk(*chunk_data, cx, cy, cz,
+                                             ChunkGenerator::CrossChunkWriter(std::move(cross_writer)),
+                                             vegetation_enabled);
+                    if (memo_enabled) {
+                        GenerationMemo& memo = generation_memo();
+                        std::lock_guard<std::mutex> lock(memo.mutex);
+                        memo.chunks.emplace(key, *chunk_data);
                     }
-                };
-                generator.generate_chunk(*chunk_data, cx, cy, cz,
-                                         ChunkGenerator::CrossChunkWriter(std::move(cross_writer)),
-                                         vegetation_enabled);
+                }
             }
             
             // Load and apply edit map BEFORE light propagation so that sky/block

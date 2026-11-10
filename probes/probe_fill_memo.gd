@@ -2,9 +2,14 @@ extends SceneTree
 ## Two-pass start fill for the in-RAM generation memo.
 ##
 ## Pass 1 runs with FARLANDS_GEN_MEMO=1 and fills the process-wide memo at the
-## generate_chunk boundary; pass 2 re-generates the same world after
-## clear_editor_chunks() and every resident chunk is a memo hit. The difference
-## is what a cache would buy the fill, before any codec exists.
+## generate_chunk boundary, including the chunk's cross-chunk spill list; pass 2
+## re-generates the same world after clear_editor_chunks(), every resident chunk
+## is a memo hit, and the spill is replayed through the same writer closure. The
+## difference is what a cache would buy the fill, before any codec exists.
+##
+## Set APPDATA to an empty directory for a no-edit world; the probe prints the
+## resolved user:// path so the arm can be checked. The benchmark world's paste
+## otherwise pays the edit-map read on both passes.
 ##
 ##   FARLANDS_GEN_MEMO=1 FARLANDS_GEN_WORK_PER_CHUNK_MS=1.44 \
 ##   FARLANDS_GEN_MAX_INFLIGHT=192 FARLANDS_WORKER_COUNT=3 \
@@ -119,6 +124,7 @@ func _run() -> void:
 		quit(1)
 		return
 
+	print("PROBE memo user_dir=%s" % ProjectSettings.globalize_path("user://"))
 	cm.set("render_distance", _env_int("RD", DEFAULT_RD))
 	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 	Engine.max_fps = 0

@@ -4,6 +4,7 @@
 #include <memory>
 #include <mutex>
 #include <unordered_map>
+#include <vector>
 
 #include "worldgen/chunk_generator.hpp"
 #include "worldgen/generation_slice_profile.hpp"
@@ -22,18 +23,29 @@ namespace {
 // the cache hit path a codec would have, not a replay of the whole task.
 //
 // It is keyed by chunk key and never evicted: the loaded set is ~20k chunks and
-// this holds one copy of it, which is the price of the decider. Cross-chunk
-// vegetation writes are NOT replayed on a hit (the first pass already made
-// them; replaying would duplicate them), so a second pass after a reset lacks
-// those canopies. That does not move the cost being measured.
+// this holds one copy of it plus the chunk's cross-chunk spill list, which is
+// the price of the decider. A hit replays the spill through the same writer
+// closure a miss uses, so a second fill after a reset has the same canopies and
+// boundary remeshes; the replay is part of the hit cost.
 bool generation_memo_enabled() {
     static const bool enabled = std::getenv("FARLANDS_GEN_MEMO") != nullptr;
     return enabled;
 }
 
+struct GenerationMemoEntry {
+    struct Spill {
+        int32_t x = 0;
+        int32_t y = 0;
+        int32_t z = 0;
+        BlockID block = 0;
+    };
+    ChunkData data;
+    std::vector<Spill> spill;
+};
+
 struct GenerationMemo {
     std::mutex mutex;
-    std::unordered_map<uint64_t, ChunkData> chunks;
+    std::unordered_map<uint64_t, GenerationMemoEntry> chunks;
 };
 
 GenerationMemo& generation_memo() {
@@ -64,17 +76,19 @@ bool ChunkWorld::generate_chunk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_
             auto chunk_data = std::make_unique<ChunkData>();
             const bool memo_enabled = generation_memo_enabled();
             bool memo_hit = false;
+            std::vector<GenerationMemoEntry::Spill> memo_spill;
             if (memo_enabled) {
                 GenerationMemo& memo = generation_memo();
                 std::lock_guard<std::mutex> lock(memo.mutex);
                 const auto it = memo.chunks.find(key);
                 if (it != memo.chunks.end()) {
-                    *chunk_data = it->second;
+                    *chunk_data = it->second.data;
+                    memo_spill = it->second.spill;
                     memo_hit = true;
                 }
             }
             
-            // Always generate - edit maps are applied as a diff on top
+            // Generate on a miss; edit maps are applied as a diff on top of either path.
             thread_local ChunkGenerator generator;
             generator.set_params(params);
             generator.set_biome_config(biomes);
@@ -94,23 +108,33 @@ bool ChunkWorld::generate_chunk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_
                 // Cross-chunk vegetation writes are deferred: the worker only pushes to
                 // vegetation queues (no shard locking). The main thread applies them
                 // during process_completed_chunks. These are NOT persisted.
-                if (!memo_hit) {
-                    auto cross_writer = [this](int32_t wx, int32_t wy, int32_t wz, BlockID block) {
-                        queue_vegetation_placement(wx, wy, wz, static_cast<int>(block));
-                        int32_t tc_x, tc_y, tc_z, lx, ly, lz;
-                        world_to_chunk_local(wx, wy, wz, tc_x, tc_y, tc_z, lx, ly, lz);
-                        {
-                            std::lock_guard<std::mutex> lock(cross_boundary_mutex);
-                            pending_cross_boundary_remesh.push_back({tc_x, tc_y, tc_z});
-                        }
-                    };
+                // A memo hit replays the recorded writes through the same closure, so
+                // the second fill queues the same canopies and boundary remeshes.
+                std::vector<GenerationMemoEntry::Spill> spill;
+                auto cross_writer = [this, &spill, record_spill = !memo_hit](int32_t wx, int32_t wy, int32_t wz, BlockID block) {
+                    if (record_spill) {
+                        spill.push_back({wx, wy, wz, block});
+                    }
+                    queue_vegetation_placement(wx, wy, wz, static_cast<int>(block));
+                    int32_t tc_x, tc_y, tc_z, lx, ly, lz;
+                    world_to_chunk_local(wx, wy, wz, tc_x, tc_y, tc_z, lx, ly, lz);
+                    {
+                        std::lock_guard<std::mutex> lock(cross_boundary_mutex);
+                        pending_cross_boundary_remesh.push_back({tc_x, tc_y, tc_z});
+                    }
+                };
+                if (memo_hit) {
+                    for (const auto& write : memo_spill) {
+                        cross_writer(write.x, write.y, write.z, write.block);
+                    }
+                } else {
                     generator.generate_chunk(*chunk_data, cx, cy, cz,
-                                             ChunkGenerator::CrossChunkWriter(std::move(cross_writer)),
+                                             ChunkGenerator::CrossChunkWriter(cross_writer),
                                              vegetation_enabled);
                     if (memo_enabled) {
                         GenerationMemo& memo = generation_memo();
                         std::lock_guard<std::mutex> lock(memo.mutex);
-                        memo.chunks.emplace(key, *chunk_data);
+                        memo.chunks.emplace(key, GenerationMemoEntry{*chunk_data, std::move(spill)});
                     }
                 }
             }

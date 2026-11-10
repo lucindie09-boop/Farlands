@@ -55,7 +55,11 @@ struct FrameBudgets {
     int32_t mesh_rebuilds_loading = 512;
     int32_t mesh_uploads_idle = 2;
     int32_t mesh_uploads_active = 32;
-    int32_t mesh_uploads_loading = 128;
+    // The held drain uploads completed meshes at most this many per frame while
+    // the initial-loading latch is up. 128 left the last batch in the tail; 512
+    // finishes it inside the one-second window. `FARLANDS_MESH_UPLOADS_LOADING=N`
+    // overrides it for an A/B arm.
+    int32_t mesh_uploads_loading = 512;
 
     size_t completed_queue_backlog = 512;
     size_t dirty_mesh_backlog = 512;
@@ -110,6 +114,10 @@ struct FrameBudgets {
     double far_region_visibility_loading_budget_ms = 1000.0;
     int32_t max_mesh_completions_per_frame = 16;
     int32_t loading_threshold = 500;
+    // The shipping initial-fill path holds mesh completion and upload until the
+    // chunk map settles, then drains the held work at 512/512. The old overlap
+    // path is available with `FARLANDS_HOLD_MESH_UNTIL_LOADED=0` for an A/B arm.
+    bool hold_mesh_until_load_done = true;
 
     // Entries the unload scan visits per pass. It walks the whole map, so this is
     // what decides how long a loaded set takes to be re-examined at all: 500 per

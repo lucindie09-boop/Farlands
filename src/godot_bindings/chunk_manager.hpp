@@ -260,6 +260,13 @@ public:
     // for a settled world rather than guessing a number of frames.
     bool has_pending_mesh_work() const;
     int32_t get_pending_chunk_mesh_count() const;
+    int32_t get_visible_pending_chunk_mesh_count() const;
+    godot::Dictionary get_visible_pending_lod_split() const;
+    godot::Dictionary get_pending_far_geometry() const;
+    godot::Dictionary get_visible_far_holes(const godot::Vector3& eye) const;
+    godot::Dictionary get_visible_far_holes_screen(const godot::Transform3D& camera,
+                                                   const godot::Projection& projection,
+                                                   const godot::Vector2& viewport) const;
     int32_t get_pending_mesh_reasons() const;
     godot::Dictionary get_mesh_pop_outcomes() const;
     int32_t get_mesh_rebuild_budget() const;

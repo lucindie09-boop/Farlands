@@ -9,6 +9,7 @@
 #include "engine/voxel_engine_controller.hpp"
 
 #include <godot_cpp/classes/engine.hpp>
+#include <godot_cpp/variant/array.hpp>
 #include <godot_cpp/variant/string.hpp>
 
 using namespace godot;
@@ -115,6 +116,60 @@ void ChunkManager::set_world_horizon(bool enabled, double radius) {
 bool ChunkManager::has_pending_mesh_work() const { return controller->has_pending_mesh_work(); }
 int32_t ChunkManager::get_pending_chunk_mesh_count() const {
     return static_cast<int32_t>(controller->pending_chunk_mesh_count());
+}
+int32_t ChunkManager::get_visible_pending_chunk_mesh_count() const {
+    return static_cast<int32_t>(controller->visible_pending_chunk_mesh_count());
+}
+godot::Dictionary ChunkManager::get_visible_pending_lod_split() const {
+    const PendingLodSplit split = controller->visible_pending_lod_split();
+    godot::Dictionary out;
+    out["full"] = static_cast<int32_t>(split.full);
+    out["mid"] = static_cast<int32_t>(split.mid);
+    out["far"] = static_cast<int32_t>(split.far);
+    godot::Array bands;
+    bands.resize(6);
+    for (int32_t i = 0; i < 6; ++i) {
+        bands[i] = static_cast<int32_t>(split.bands[static_cast<size_t>(i)]);
+    }
+    out["bands"] = bands;
+    return out;
+}
+godot::Dictionary ChunkManager::get_pending_far_geometry() const {
+    const PendingFarGeometry geometry = controller->pending_far_geometry();
+    godot::Dictionary out;
+    out["total"] = static_cast<int32_t>(geometry.total);
+    out["no_chunk"] = static_cast<int32_t>(geometry.no_chunk);
+    out["empty"] = static_cast<int32_t>(geometry.empty);
+    out["no_geometry"] = static_cast<int32_t>(geometry.no_geometry);
+    out["solid"] = static_cast<int32_t>(geometry.solid);
+    out["enclosed"] = static_cast<int32_t>(geometry.enclosed);
+    out["hidden"] = static_cast<int32_t>(geometry.hidden);
+    out["drawn_chunk"] = static_cast<int32_t>(geometry.drawn_chunk);
+    out["drawn_region"] = static_cast<int32_t>(geometry.drawn_region);
+    return out;
+}
+godot::Dictionary ChunkManager::get_visible_far_holes(const godot::Vector3& eye) const {
+    const VisibleFarHoles holes = controller->visible_far_holes(eye);
+    godot::Dictionary out;
+    out["total"] = static_cast<int32_t>(holes.total);
+    out["visible"] = static_cast<int32_t>(holes.visible);
+    out["occluded"] = static_cast<int32_t>(holes.occluded);
+    return out;
+}
+godot::Dictionary ChunkManager::get_visible_far_holes_screen(
+    const godot::Transform3D& camera, const godot::Projection& projection,
+    const godot::Vector2& viewport) const {
+    const VisibleFarHoles holes = controller->visible_far_holes_screen(
+        camera, projection, viewport);
+    godot::Dictionary out;
+    out["total"] = static_cast<int32_t>(holes.total);
+    out["visible"] = static_cast<int32_t>(holes.visible);
+    out["occluded"] = static_cast<int32_t>(holes.occluded);
+    out["screen_visible"] = static_cast<int32_t>(holes.screen_visible);
+    out["screen_pixels"] = holes.screen_pixels;
+    const double viewport_area = static_cast<double>(viewport.x) * viewport.y;
+    out["screen_coverage"] = viewport_area > 0.0 ? holes.screen_pixels / viewport_area : 0.0;
+    return out;
 }
 Dictionary ChunkManager::get_region_spike_stats() const {
     return controller->region_spike_stats();

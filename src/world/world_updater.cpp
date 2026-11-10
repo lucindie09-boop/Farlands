@@ -6,15 +6,64 @@
 #include "core/performance_timer.hpp"
 #include "render/material_manager.hpp"
 #include <algorithm>
+#include <cstdlib>
 
 namespace VoxelEngine {
 using namespace godot;
 
-WorldUpdater::WorldUpdater() : column_prefetch(std::make_shared<ColumnPrefetch>()) {
+namespace {
+// Measurement-only overrides for the initial-loading latch and the post-load
+// clock ceiling. The defaults are the shipping 30 s cap, 1 s quiet exit and an
+// effectively open 1000 ms mesh/far clock; an arm sets the cap, the quiet exit
+// or the three clocks without a second build. Invalid values fall back rather
+// than disabling the setting.
+double latch_seconds_from_env(const char* name, double fallback) {
+    const char* raw = std::getenv(name);
+    if (raw == nullptr || *raw == '\0') return fallback;
+    char* end = nullptr;
+    const double value = std::strtod(raw, &end);
+    return (end != raw && value > 0.0) ? value : fallback;
+}
+} // namespace
+
+WorldUpdater::WorldUpdater()
+    : initial_loading_latch_(
+          latch_seconds_from_env("FARLANDS_LOADING_LATCH_MAX_SEC", 30.0),
+          latch_seconds_from_env("FARLANDS_LOADING_LATCH_QUIET_SEC", 1.0)),
+      column_prefetch(std::make_shared<ColumnPrefetch>()) {
     // The workers' first act is to copy the published configuration, so it has to
     // be published from the start: a worker computing with a default config would
     // hand the sweep bands from terrain that is not the terrain it is rendering.
     refresh_prefetch_config();
+
+    // Measurement-only: one ceiling for the three post-load clocks. The shipping
+    // value is 1000 ms (effectively open); the tail-clock arm sets 8/12/16.
+    const double loading_tail_budget_ms =
+        latch_seconds_from_env("FARLANDS_LOADING_TAIL_BUDGET_MS", 1000.0);
+    budgets.mesh_queue_loading_budget_ms = loading_tail_budget_ms;
+    budgets.mesh_completion_budget_loading_ms = loading_tail_budget_ms;
+    budgets.far_region_visibility_loading_budget_ms = loading_tail_budget_ms;
+    // The shipping path leaves meshing to the post-load latch, so the fill's
+    // first half is chunk admission and its second is the held mesh drain.
+    // `FARLANDS_HOLD_MESH_UNTIL_LOADED=0` restores the overlap arm for an A/B.
+    const char* hold_mesh_env = std::getenv("FARLANDS_HOLD_MESH_UNTIL_LOADED");
+    if (hold_mesh_env != nullptr) {
+        if (hold_mesh_env[0] == '1' && hold_mesh_env[1] == '\0') {
+            budgets.hold_mesh_until_load_done = true;
+        } else if (hold_mesh_env[0] == '0' && hold_mesh_env[1] == '\0') {
+            budgets.hold_mesh_until_load_done = false;
+        }
+    }
+    // The held drain uploads at most this many completed meshes per frame while
+    // the initial-loading latch is up. 512 finishes the held queue inside its
+    // quiet window; `FARLANDS_MESH_UPLOADS_LOADING=N` overrides it for an A/B.
+    const char* uploads_env = std::getenv("FARLANDS_MESH_UPLOADS_LOADING");
+    if (uploads_env != nullptr) {
+        const int32_t requested = std::atoi(uploads_env);
+        if (requested > 0) {
+            budgets.mesh_uploads_loading = requested;
+        }
+    }
 }
 WorldUpdater::~WorldUpdater() = default;
 
@@ -119,8 +168,8 @@ void WorldUpdater::update(bool is_editor, uint64_t epoch, uint64_t& chunks_proce
     {
         ScopedTimer t(*perf_timer, TimerID::FarRegionVisibility);
         mesh_manager->process_far_region_visibility(
-            initial_loading_ ? budgets.far_region_visibility_loading_budget_ms
-                             : budgets.far_region_visibility_budget_ms);
+            initial_loading_latch_.active() ? budgets.far_region_visibility_loading_budget_ms
+                                            : budgets.far_region_visibility_budget_ms);
     }
     {
         ScopedTimer t(*perf_timer, TimerID::FlushDirty);
@@ -217,21 +266,13 @@ void WorldUpdater::process_mesh_budgets(bool is_editor, uint64_t epoch, uint64_t
         loaded_count_post >= budgets.loading_threshold &&
         generating_count == 0 &&
         completed_count == 0;
-    if (!initial_loading_ && chunk_load_done && pending_mesh) {
-        initial_loading_ = true;
-        initial_loading_elapsed_ = 0.0;
-        initial_loading_quiet_sec_ = 0.0;
-    }
-    if (initial_loading_) {
-        initial_loading_elapsed_ += delta;
-        initial_loading_quiet_sec_ = pending_mesh ? 0.0 : initial_loading_quiet_sec_ + delta;
-        if (initial_loading_quiet_sec_ >= 1.0 || initial_loading_elapsed_ >= 30.0) {
-            initial_loading_ = false;
-        }
-    }
-    const bool is_initial_loading = initial_loading_;
+    // The latch's transitions live in LoadingLatch (tested without a world);
+    // this pass supplies the frame's inputs and reads the budget it selects.
+    const bool is_initial_loading =
+        initial_loading_latch_.tick(delta, chunk_load_done, pending_mesh);
     const bool pipelines_busy = generating_count > 0 || completed_count > 0 || pending_mesh;
 
+    const bool hold_mesh = budgets.hold_mesh_until_load_done && !chunk_load_done;
     int32_t mesh_rebuild_budget = 0;
     int32_t upload_budget = 0;
     if (is_initial_loading) {
@@ -276,29 +317,31 @@ void WorldUpdater::process_mesh_budgets(bool is_editor, uint64_t epoch, uint64_t
         );
         chunks_processed_total += installed;
     }
-    {
-        ScopedTimer t(*perf_timer, TimerID::ProcessCompletedMeshes);
-        mesh_manager->process_completed_meshes(
-            epoch,
-            is_initial_loading ? budgets.mesh_completion_budget_loading_ms
-                               : budgets.mesh_completion_budget_ms,
-            upload_budget,
-            material_manager->get_material(),
-            material_manager->get_water_material()
-        );
-    }
+    if (!hold_mesh) {
+        {
+            ScopedTimer t(*perf_timer, TimerID::ProcessCompletedMeshes);
+            mesh_manager->process_completed_meshes(
+                epoch,
+                is_initial_loading ? budgets.mesh_completion_budget_loading_ms
+                                   : budgets.mesh_completion_budget_ms,
+                upload_budget,
+                material_manager->get_material(),
+                material_manager->get_water_material()
+            );
+        }
 
-    {
-        ScopedTimer t(*perf_timer, TimerID::DirtyMeshQueue);
-        const double mesh_queue_budget_ms = is_initial_loading
-            ? budgets.mesh_queue_loading_budget_ms
-            : budgets.mesh_queue_budget_ms;
-        mesh_manager->process_queue(
-            is_initial_loading ? budgets.mesh_rebuilds_immediate_loading
-                               : budgets.mesh_rebuilds_immediate,
-            mesh_rebuild_budget,
-            mesh_queue_budget_ms
-        );
+        {
+            ScopedTimer t(*perf_timer, TimerID::DirtyMeshQueue);
+            const double mesh_queue_budget_ms = is_initial_loading
+                ? budgets.mesh_queue_loading_budget_ms
+                : budgets.mesh_queue_budget_ms;
+            mesh_manager->process_queue(
+                is_initial_loading ? budgets.mesh_rebuilds_immediate_loading
+                                   : budgets.mesh_rebuilds_immediate,
+                mesh_rebuild_budget,
+                mesh_queue_budget_ms
+            );
+        }
     }
 }
 
@@ -371,9 +414,7 @@ void WorldUpdater::clear() {
     // record of a flood (they are in the edit maps), so the schedule is derived
     // again when those chunks load.
     fluid_sim.clear();
-    initial_loading_ = false;
-    initial_loading_elapsed_ = 0.0;
-    initial_loading_quiet_sec_ = 0.0;
+    initial_loading_latch_.reset();
     sweep_columns.clear();
     carry_bands.clear();
     carry_ready.clear();

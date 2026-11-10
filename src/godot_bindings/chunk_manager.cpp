@@ -346,6 +346,12 @@ BIND_PROP(Variant::BOOL, smooth_lighting, "enabled");
                          &ChunkManager::set_world_horizon);
     ClassDB::bind_method(D_METHOD("has_pending_mesh_work"), &ChunkManager::has_pending_mesh_work);
     ClassDB::bind_method(D_METHOD("get_pending_chunk_mesh_count"), &ChunkManager::get_pending_chunk_mesh_count);
+    ClassDB::bind_method(D_METHOD("get_visible_pending_chunk_mesh_count"), &ChunkManager::get_visible_pending_chunk_mesh_count);
+    ClassDB::bind_method(D_METHOD("get_visible_pending_lod_split"), &ChunkManager::get_visible_pending_lod_split);
+    ClassDB::bind_method(D_METHOD("get_pending_far_geometry"), &ChunkManager::get_pending_far_geometry);
+    ClassDB::bind_method(D_METHOD("get_visible_far_holes", "eye"), &ChunkManager::get_visible_far_holes);
+    ClassDB::bind_method(D_METHOD("get_visible_far_holes_screen", "camera", "projection", "viewport"),
+                         &ChunkManager::get_visible_far_holes_screen);
     ClassDB::bind_method(D_METHOD("get_pending_mesh_reasons"), &ChunkManager::get_pending_mesh_reasons);
     ClassDB::bind_method(D_METHOD("get_mesh_pop_outcomes"), &ChunkManager::get_mesh_pop_outcomes);
     ClassDB::bind_method(D_METHOD("get_mesh_rebuild_budget"), &ChunkManager::get_mesh_rebuild_budget);

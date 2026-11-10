@@ -341,8 +341,16 @@ func _run() -> void:
 		print("PROBE fill no_render=1")
 
 	var rd := _env_int("RD", DEFAULT_RENDER_DISTANCE)
+	var latch_flight_secs := _env_int("LATCH_FLIGHT", 0)
 	cm.set("render_distance", rd)
-	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
+	# The constrained-hardware arm keeps the display's vsync; every other probe
+	# disables it so a frame measures the engine, not the refresh rate. The
+	# project setting is off, so this is the switch that turns it on.
+	if OS.get_environment("VSYNC_ON") == "1":
+		DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_ENABLED)
+	else:
+		DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
+	print("PROBE fill vsync=%d" % DisplayServer.window_get_vsync_mode())
 	Engine.max_fps = 0
 
 	var start := Time.get_ticks_usec()
@@ -412,6 +420,14 @@ func _run() -> void:
 					if queue_now == 0:
 						tail_reason_empty_frames[bit] += 1
 		var elapsed := float(Time.get_ticks_usec() - start) / 1_000_000.0
+		# Latch validation: the loading budgets are live only between the chunk load
+		# settling and the 1 s-quiet/30 s-cap exit. Start moving the moment the
+		# budget jumps to the loading value, so the flight keeps mesh work pending
+		# through the cap instead of measuring a world that already went quiet.
+		if latch_flight_secs > 0 and int(cm.call("get_mesh_rebuild_budget")) >= 100:
+			await _latch_flight(float(latch_flight_secs), elapsed)
+			quit(0 if ok else 1)
+			return
 		if elapsed >= TIMEOUT_SECS:
 			break
 		if elapsed - last_sample < SAMPLE_SECS:
@@ -604,3 +620,104 @@ func _run() -> void:
 		int(g.get("chain_generations", 0))])
 	print("PROBE fill %s" % ["OK" if ok else "FAILED"])
 	quit(0 if ok else 1)
+
+func _p99(values: Array) -> float:
+	if values.is_empty():
+		return 0.0
+	var sorted := values.duplicate()
+	sorted.sort()
+	return float(sorted[int(floor(float(sorted.size() - 1) * 0.99))])
+
+# One fast flight while the initial-loading latch is up. The frame-time split is
+# the point: the last six seconds are after the 30 s cap in the A arm and still
+# inside the quiet-only latch in the B arm. The budget transitions name which
+# latch actually ended the mode, rather than inferring it from a timestamp.
+func _latch_flight(seconds: float, started_at: float) -> void:
+	var start_pos: Vector3 = player.global_position
+	var start_us := Time.get_ticks_usec()
+	var frame_times: Array = []
+	var late_times: Array = []
+	var slow := 0
+	var late_slow := 0
+	var worst := 0.0
+	var late_worst := 0.0
+	var budget_start := int(cm.call("get_mesh_rebuild_budget"))
+	var budget_end := budget_start
+	var latch_live := budget_start >= 100
+	var on_s := 0.0
+	var end_s := -1.0
+	var gen_start: Dictionary = cm.get_generation_stats()
+	print("PROBE latch start=%.2fs flight=%.1fs rd=%d max_sec=%s quiet_sec=%s" % [
+		started_at, seconds, int(cm.get("render_distance")),
+		OS.get_environment("FARLANDS_LOADING_LATCH_MAX_SEC"),
+		OS.get_environment("FARLANDS_LOADING_LATCH_QUIET_SEC")])
+	while true:
+		var t := float(Time.get_ticks_usec() - start_us) / 1_000_000.0
+		if t >= seconds:
+			break
+		# A straight 100-block/s line. The y is held at the spawn height; this is a
+		# streaming and frame-time load, not a terrain-following test.
+		player.teleport_to(Vector3(start_pos.x + 100.0 * t, start_pos.y, start_pos.z))
+		var frame_start := Time.get_ticks_usec()
+		await process_frame
+		var ms := float(Time.get_ticks_usec() - frame_start) / 1000.0
+		var now := float(Time.get_ticks_usec() - start_us) / 1_000_000.0
+		frame_times.append(ms)
+		if now >= seconds - 6.0:
+			late_times.append(ms)
+			if ms > 33.4:
+				late_slow += 1
+			late_worst = maxf(late_worst, ms)
+		if ms > 33.4:
+			slow += 1
+		worst = maxf(worst, ms)
+		var budget := int(cm.call("get_mesh_rebuild_budget"))
+		budget_end = budget
+		if budget >= 100:
+			if latch_live:
+				on_s = now
+		elif latch_live:
+			latch_live = false
+			end_s = now
+			on_s = now
+	if latch_live and end_s < 0.0:
+		on_s = seconds
+	# What the flight left behind: the dirty/backlog queue is the work still
+	# waiting for a rebuild, and the reason mask says which of the six pending
+	# kinds are still open (the queue is only one of them).
+	var backlog_end := int(cm.call("get_pending_chunk_mesh_count"))
+	var reasons_end := int(cm.call("get_pending_mesh_reasons"))
+	var visible_end := int(cm.call("get_visible_pending_chunk_mesh_count"))
+	var split: Dictionary = cm.call("get_visible_pending_lod_split")
+	var tiers: Array = [int(split.get("full", 0)), int(split.get("mid", 0)), int(split.get("far", 0))]
+	var bands: Array = split.get("bands", [0, 0, 0, 0, 0, 0])
+	var geometry: Dictionary = cm.call("get_pending_far_geometry")
+	var view_camera: Camera3D = root.get_camera_3d()
+	var holes: Dictionary = {}
+	if view_camera != null:
+		holes = cm.call("get_visible_far_holes_screen", view_camera.global_transform,
+			view_camera.get_camera_projection(), root.get_visible_rect().size)
+	var mean := 0.0
+	for value in frame_times:
+		mean += float(value)
+	mean /= float(max(1, frame_times.size()))
+	var late_mean := 0.0
+	for value in late_times:
+		late_mean += float(value)
+	late_mean /= float(max(1, late_times.size()))
+	var gen_end: Dictionary = cm.get_generation_stats()
+	var gens := int(gen_end.get("generations", 0)) - int(gen_start.get("generations", 0))
+	print("PROBE latch start=%.2fs flight=%.2fs frames=%d mean=%.2fms p99=%.2fms worst=%.2fms slow=%d on=%.2fs end=%.2fs gens=%d late_frames=%d late_mean=%.2fms late_p99=%.2fms late_worst=%.2fms late_slow=%d budget=%d->%d backlog=%d reasons=%d visible=%d visible_tiers=%d/%d/%d visible_bands=%d/%d/%d/%d/%d/%d far_geometry=%d/%d/%d/%d/%d/%d/%d/%d/%d far_visible=%d/%d/%d far_screen=%d/%d/%.4f" % [
+		started_at, seconds, frame_times.size(), mean, _p99(frame_times), worst, slow,
+		on_s, end_s, gens, late_times.size(), late_mean, _p99(late_times),
+		late_worst, late_slow, budget_start, budget_end, backlog_end, reasons_end, visible_end,
+		tiers[0], tiers[1], tiers[2], bands[0], bands[1], bands[2], bands[3], bands[4], bands[5],
+		int(geometry.get("total", 0)), int(geometry.get("no_chunk", 0)),
+		int(geometry.get("empty", 0)), int(geometry.get("no_geometry", 0)),
+		int(geometry.get("solid", 0)), int(geometry.get("enclosed", 0)),
+		int(geometry.get("hidden", 0)), int(geometry.get("drawn_chunk", 0)),
+		int(geometry.get("drawn_region", 0)), int(holes.get("total", 0)),
+		int(holes.get("visible", 0)), int(holes.get("occluded", 0)),
+		int(holes.get("screen_visible", 0)), int(holes.get("screen_pixels", 0)),
+		float(holes.get("screen_coverage", 0.0))])
+	print("PROBE %s" % ["OK" if ok else "FAILED"])

@@ -132,6 +132,7 @@ bool read_pack_bytes(const std::string& path, uint64_t offset, size_t size,
     }
 
     const std::lock_guard<std::mutex> lock(pack->mutex);
+    if (!pack->file.is_valid()) return false;
     pack->file->seek(offset);
     out.resize(size);
     if (size == 0) return true;
@@ -208,6 +209,41 @@ void enforce_cache_cap(const std::string& current_root, uint64_t current_bytes) 
 }
 
 } // namespace
+
+bool terrain_cache_replace_pack_file(const std::string& path,
+                                     const std::function<bool()>& replace) {
+    if (!replace) return false;
+
+#ifdef _WIN32
+    PackFiles& state = pack_files();
+    const std::lock_guard<std::mutex> files_lock(state.mutex);
+    const auto found = state.files.find(path);
+    if (found == state.files.end()) return replace();
+
+    PackFile& pack = *found->second;
+    const std::lock_guard<std::mutex> pack_lock(pack.mutex);
+    if (pack.file.is_valid()) {
+        pack.file->close();
+        // Drop the Ref too: close() leaves it valid, and read_pack_bytes uses
+        // is_valid() to decide whether this pack is still readable.
+        pack.file = godot::Ref<godot::FileAccess>();
+    }
+    const bool replaced = replace();
+    if (!replaced) {
+        // The old pack is still the one the reader's offsets describe.
+        pack.file = godot::FileAccess::open(godot::String(path.c_str()),
+                                            godot::FileAccess::READ);
+    }
+    // On success the pack stays closed: the reader's in-RAM index still holds
+    // the old payload offsets, so reopening could serve the wrong chunk. The
+    // next launch reloads the new index.
+    return replaced;
+#else
+    // POSIX keeps the old inode alive through the open descriptor, so a reader
+    // still sees the pack its offsets came from; no close is needed.
+    return replace();
+#endif
+}
 
 bool TerrainCache::ensure_open(const TerrainParams& params) {
     const uint64_t params_key = terrain_cache_key(params, {}, {}, {}, {});

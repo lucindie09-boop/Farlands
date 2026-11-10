@@ -6,6 +6,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -44,6 +45,15 @@ void terrain_cache_publish_manifest(const std::shared_ptr<TerrainCacheWriterStat
 // file atomically, then publishes the manifest.
 void terrain_cache_write_region(const std::shared_ptr<TerrainCacheWriterState>& state,
                                 const TerrainCacheWriter::ReadyRegion& region);
+
+// Replaces a pack, working around Windows file sharing. FileAccess reads do not
+// share delete access, so a rename over an open pack fails there; this closes the
+// shared handle first and leaves it closed after a successful replace because the
+// reader's in-RAM offsets still describe the old pack. The next launch reloads
+// the new index. A failed replace reopens the old pack; POSIX needs no close
+// because the open descriptor keeps the old inode alive.
+bool terrain_cache_replace_pack_file(const std::string& path,
+                                     const std::function<bool()>& replace);
 
 } // namespace VoxelEngine
 

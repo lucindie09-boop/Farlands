@@ -129,22 +129,26 @@ Consequences:
   light path becomes the next wall.
 - A block cache removes the 1.05 ms terrain from a 1.9 ms generation task but
   still runs light and the edit map, so it cuts generation work by roughly
-  55-60%. A cache alone does NOT pay under the current allowance: the rate stays
-  ~1,100/s whatever a task costs, so the fill would stay near 18 s with the pool
-  half idle. The combined case does: with the in-RAM memo hit path and the cost
-  model at 1.44 with a 192 cap, the second fill is **10.35 s** against
-  **18.87 s** without hits - the 10-11 s estimate, bounded above the ~7.9 s
-  install wall. The hit must still read/decode in less than the terrain it
-  replaces; the memo's hit path is a RAM copy, so the disk codec has the
-  3.4 s / 0.17 ms-per-chunk margin below.
+  55-60%. The earlier claim that a cache alone does not pay under the default
+  allowance was wrong: the memo hit at the default 2.46/64 is **11.84 s** against
+  **19.84 s** with no hits, because the cheaper task drains the in-flight set and
+  the controller's frame-time feedback admits more than the nominal ~1,100/s.
+  The cost-aware allowance still matters: at 1.44/192 the hit is **9.84 s load /
+  10.35 s end** against **18.40 s** for no-hit pass 1 (a memo-off pass 2 is
+  20.63 s). The hit must still read/decode in less than the terrain it replaces;
+  the memo's hit path is a RAM copy, so the disk codec has the 3.4 s end margin
+  below (about 0.45 ms of worker CPU per chunk).
 
 **Consequence:** the 4-core 25% target is met by the in-RAM hit path: the load
-falls **18.87 -> 10.35 s** (45%), so the 13.8 s bar leaves **3.4 s** of margin
-for reading and decoding the cache - about **0.17 ms per chunk** over the memo's
-own copy. The cache removes about 55-60% of a generation task (terrain 1.05 ms
-of 1.9 ms; light and the edit map remain), minus the read/decode. If decode
-costs more than that margin, the end-to-end win shrinks; measure the real
-codec's per-chunk read/decode against the memo copy.
+falls **18.40 -> 9.84 s** and the end **18.40 -> 10.35 s** (46%/44%), so the
+13.8 s end bar leaves **3.4 s** for reading and decoding the cache - about
+**0.45 ms of worker CPU per chunk** (3.4 x 3 x 0.9 / 20,230), not the 0.17 ms
+serial-wall figure. A memo hit skips spill replay (the first pass already made
+the cross-chunk canopies), so a real hit must add that vegetation install and
+the boundary remeshes on the main thread; the margin is therefore not all
+spendable, but it is still comfortable for decoding about 5 KB. If decode costs
+more than that, the end-to-end win shrinks; measure the real codec's per-chunk
+read/decode against the memo copy.
 
 ### The cheap decider (measured)
 
@@ -160,19 +164,41 @@ each on the 4-core / 3-worker / RD 32 arm, A (render loop) chunk load:
 | 1.44 / 192 | 18.67 s | -8.3% |
 
 With the cap fixed at 64 the same three work values are 20.32/19.98/20.05 s:
-lowering the cost model alone is refused by the cap. So the admission-only
-ceiling is **6-8%**, not the ~1.7x the rate formula suggests: at 3 workers the
-default controller already sits on the pool's throughput.
+lowering the cost model alone is refused by the cap. The same-session memo-off
+controls now span 18.41-19.61 s, and a no-hit second pass is **slower** than
+the first (19.61 -> 23.40 s at 2.46/64; 18.41 -> 20.63 s at 1.44/192), so the
+admission-only 6-8% is directional and sits inside the run-to-run spread; it is
+not a precision measurement.
 
-The combined case uses `FARLANDS_GEN_MEMO=1`, which stores each chunk's generated
-base (before the edit map, light and solid pass) in a process-wide map, and
-`probes/probe_fill_memo.gd`, which fills once to warm it, calls
-`clear_editor_chunks()`, and fills the same world again. At 1.44/192 with 3
-workers the warm pass (no hits) is **18.87 s** and the hit pass is **10.35 s**
-(-45%). The hit path is still a RAM copy of `ChunkData`, not a disk read/decode,
-so this is the optimistic side of the cache's range; it is enough to justify
-the codec only if the codec stays inside the 0.17 ms/chunk margin above. The
-memo does not replay cross-chunk vegetation writes on a hit (the first pass
+The memo 2x2 (memo on, the same two-pass probe, load / end):
+
+| Work / cap | Pass 1 load | Hit load | Hit end |
+|---|---|---|---|
+| 2.46 / 64 | 19.84 s | **11.84 s** | 11.84 s |
+| 2.46 / 192 | 18.48 s | 11.32 s | 11.33 s |
+| 1.44 / 64 | 19.88 s | 10.84 s | 11.10 s |
+| 1.44 / 192 | 18.40 s | **9.84 s** | 10.35 s |
+
+The default 2.46/64 hit is 40% below its own no-hit pass, so the cache alone is
+not capped at ~18 s: the cheaper task drains the in-flight set and the
+frame-time feedback admits more than the nominal rate. Moving the cost model
+2.46 -> 1.44 at a fixed cap buys 8-13%, and moving the cap 64 -> 192 at a fixed
+cost buys 4-9%. A shipped cache should still carry the cost-aware allowance
+(1.44/192) in the same change, but the cache is useful without it. The memo's
+capture cost is **0-2%** of pass 1 (19.84 vs 19.61 s at 2.46/64; 18.40 vs
+18.41 s at 1.44/192; 10.39 vs 10.19 s at 5 workers).
+
+At 5 workers on 6 cores the hit is **6.06 s load / 6.32 s end** against
+**11.12 / 11.13 s** for the no-memo second pass (45%/43%), past the 15% bar. At
+15 workers on 16 threads it is **2.79 s** against **4.69 s** for the control's
+second pass (40%), so it does not regress at the install-bound end; that
+control's second pass is 26% faster than its first, which is why the hit is
+compared with the second pass there.
+
+The hit path is still a RAM copy of `ChunkData`, not a disk read/decode, so this
+is the optimistic side of the cache's range. It is enough to justify the codec
+only if the codec stays inside the 3.4 s / 0.45 ms-of-worker-CPU margin above.
+The memo does not replay cross-chunk vegetation writes on a hit (the first pass
 already made them), and it is never enabled without the env var.
 
 ## Drawback
@@ -186,12 +212,12 @@ already made them), and it is never enabled without the env var.
   fill; the benefit starts on the second boot. A first-run write of up to
   110.6 MB must not block play or the quit path.
 - **It is not instant.** The mesh build, upload burst, install and far-region
-  tail all remain. On 16 threads the current hold already caps the blank at 2 s
-  and ends at about 5.2 s; the cache can plausibly shorten the load on
-  constrained machines, not the 2 s reveal ceiling, and should not be expected
-  to save seconds on 16 threads. At 3 workers the memo hit path puts the load at
-  **10.35 s** (18.87 s without hits); the end/far tail beyond that was not
-  captured, so the full-fill saving still needs the real cache's end-to-end arm.
+  tail all remain. On 16 threads the current hold caps the blank at 2 s and the
+  end at about 5.2 s; the memo still takes that end from **4.69 s** to
+  **2.79 s** (40%), so the reveal ceiling is the hold, not the fill. At 3
+  workers the memo hit path is **9.84 s load / 10.35 s end** against **18.40 s**
+  without hits; at 5 workers **6.06 / 6.32 s** against **11.12 / 11.13 s**. The
+  full saving still needs the real cache's end-to-end arm.
 - **New format, key and invalidation.** A corrupt, stale or partial cache must
   fall back to generation. It must never load wrong blocks, never crash and
   never be treated as save data.
@@ -228,7 +254,7 @@ already made them), and it is never enabled without the env var.
 | Chunk payload | ~5.5 KB average block storage (loose) | 110.6 MB / 20,230 |
 | Full spawn cache | **110.6 MB loose ceiling** | palette storage, not light |
 | Region packs | ~2 MB each, ~51 packs | 8x8 columns, partially filled at the rim |
-| Removed work | terrain slices and spill replay | edit probe, light, install remain |
+| Removed work | terrain slices; spill replay still applies on a hit | edit probe, light, install remain |
 | First-run write | one-time, seconds, background | encoded pack bytes, budgeted |
 
 The measured class split is why the 9 KB mixed-chunk multiplication was wrong:
@@ -418,18 +444,26 @@ frames, cache phase totals and hit rate. The proposed go/no-go criteria:
 - 4 cores: **load and end** improve by at least 25%, with no
   cache-attributable frame over 33 ms. Do not use first visible here: the hold
   is off below 12 workers and the 3-worker run already reaches it around 0.30 s,
-  so a 25% first-visible target is meaningless. The matched baseline exists: 3
+  so a 25% first-visible target is meaningless.  The matched baseline is 3
   workers on 4 cores, chunk load **18.38 s** and end **19.14 s**, hold off.
-  The in-RAM decider already clears the load half: **10.35 s** against
-  **18.87 s** (45%), so the 13.8 s bar leaves **3.4 s** - about **0.17 ms per
-  chunk** - for the disk read and decode over the memo's own copy. Require the
-  cache arm to improve both load and end by at least 25%, and require the hit
-  path (read + decode + light + edit) to stay inside that margin; if it does
-  not, stop. Report the 8-worker arm too, where the install path is the next
-  wall.
-- 6 cores: load improves by at least 15%.
-- 16 threads: end is no worse than the current hold (~5.2 s on this machine)
-  and first visible is no worse; hit rate is at least 90% of the fill's installs.
+  The in-RAM decider clears both: **9.84 s load / 10.35 s end** against a
+  same-session no-hit second pass of **20.63 / 20.64 s** (52%/50%), and against
+  the matched baseline 46%/46%. The 13.8 s end bar leaves **3.4 s** - about
+  **0.45 ms of worker CPU per chunk** (3.4 x 3 x 0.9 / 20,230; the serial-wall
+  figure is 0.17 ms) - for the disk read and decode over the memo's own copy.
+  A hit must also replay the spill vegetation and boundary remeshes the memo
+  skips, so the margin is not all spendable, but it is comfortable for ~5 KB.
+  Require the cache arm to improve both load and end by at least 25%, and
+  require the hit path (read + decode + light + edit) to stay inside that
+  margin; if it does not, stop. Report the 8-worker arm too, where the install
+  path is the next wall.
+- 6 cores: **6.06 s load / 6.32 s end** against a no-memo second pass of
+  **11.12 / 11.13 s** (45%/43%), well past the 15% bar; the historical
+  5-worker baseline is 10.9 s.
+- 16 threads: **2.79 s end** against **4.69 s** for the no-memo second pass
+  (40%), so no regression against the ~5.2 s hold and first visible should not
+  regress; hit rate is at least 90% of the fill's installs. Compare with the
+  second pass: the control's own second pass is 26% faster than its first.
 - On one worker, a hit's read + decode is cheaper than the generation it
   replaces. If it is not, stop: the cache is moving CPU to disk, not removing
   work.

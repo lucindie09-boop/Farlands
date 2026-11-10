@@ -11,7 +11,9 @@ extends SceneTree
 ##   probes/run_probe_shot.sh probes/probe_fill_memo.gd 120
 ##
 ## The settle rule is the start-fill probe's: at least MIN_LOADED chunks, no
-## generation and nothing in the completed queue, stable for a full second.
+## generation and nothing in the completed queue, stable for a full second;
+## the end gate then waits for the pending mesh queue to empty, Unrendered to
+## reach 0 and no region to report empty, as probe_start_fill.gd does.
 
 const SAMPLE_SECS := 0.25
 const LOADED_STABLE_SECS := 1.0
@@ -61,6 +63,33 @@ func _wait_fill(start_us: int, timeout_s: float) -> float:
 			return elapsed
 	return -1.0
 
+## Wait for the tail after the load settles: mesh uploads must drain, and the
+## far regions must leave no unrendered chunk and no empty region. Mirrors the
+## start-fill probe's end gate; returns [mesh_at, end_at] or [-1, -1] on timeout.
+func _wait_end(start_us: int, timeout_s: float) -> Array:
+	var last_sample := -SAMPLE_SECS
+	var mesh_at := -1.0
+	var far_at := -1.0
+	while true:
+		await process_frame
+		var elapsed := float(Time.get_ticks_usec() - start_us) / 1_000_000.0
+		if elapsed >= timeout_s:
+			return [mesh_at, -1.0]
+		if elapsed - last_sample < SAMPLE_SECS:
+			continue
+		last_sample = elapsed
+		var report: String = cm.get_performance_report()
+		var unrendered := _value(report, "Unrendered:")
+		var region_empty := _value(report, "Region empty:")
+		var pending_mesh := bool(cm.call("has_pending_mesh_work"))
+		if mesh_at < 0.0 and not pending_mesh:
+			mesh_at = elapsed
+		if far_at < 0.0 and not pending_mesh and region_empty == 0 and unrendered == 0:
+			far_at = elapsed
+		if mesh_at >= 0.0 and far_at >= 0.0:
+			return [mesh_at, far_at]
+	return [mesh_at, far_at]
+
 func _run() -> void:
 	var scene: PackedScene = load("res://main.tscn")
 	if scene == null:
@@ -97,11 +126,16 @@ func _run() -> void:
 
 	var pass1_start := Time.get_ticks_usec()
 	var pass1 := await _wait_fill(pass1_start, timeout_s)
-	print("PROBE memo pass1=%.2fs" % pass1)
 	if pass1 < 0.0:
 		_fail("pass 1 did not settle")
 		quit(1)
 		return
+	var pass1_tail := await _wait_end(pass1_start, timeout_s)
+	if pass1_tail[1] < 0.0:
+		_fail("pass 1 mesh/far tail did not close")
+		quit(1)
+		return
+	print("PROBE memo pass1=%.2fs pass1_load=%.2fs pass1_mesh=%.2fs pass1_end=%.2fs" % [pass1, pass1, pass1_tail[0], pass1_tail[1]])
 	print("PROBE memo pass1 gen=%s" % cm.get_generation_stats())
 
 	# The process-wide memo survives this reset on purpose: the next fill is the
@@ -117,12 +151,19 @@ func _run() -> void:
 			break
 	var pass2_start := Time.get_ticks_usec()
 	var pass2 := await _wait_fill(pass2_start, timeout_s)
-	print("PROBE memo pass2=%.2fs" % pass2)
 	if pass2 < 0.0:
 		_fail("pass 2 did not settle")
 		quit(1)
 		return
+	var pass2_tail := await _wait_end(pass2_start, timeout_s)
+	if pass2_tail[1] < 0.0:
+		_fail("pass 2 mesh/far tail did not close")
+		quit(1)
+		return
+	print("PROBE memo pass2=%.2fs pass2_load=%.2fs pass2_mesh=%.2fs pass2_end=%.2fs" % [pass2, pass2, pass2_tail[0], pass2_tail[1]])
 	print("PROBE memo pass2 gen=%s" % cm.get_generation_stats())
-	print("PROBE memo ratio=%.3f saved=%.2fs" % [pass2 / pass1, pass1 - pass2])
+	print("PROBE memo ratio=%.3f ratio_end=%.3f saved=%.2fs saved_end=%.2fs" % [
+		pass2 / pass1, pass2_tail[1] / pass1_tail[1], pass1 - pass2,
+		pass1_tail[1] - pass2_tail[1]])
 	print("PROBE memo %s" % ["OK" if ok else "FAILED"])
 	quit(0 if ok else 1)

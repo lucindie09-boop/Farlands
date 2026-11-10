@@ -455,10 +455,16 @@ total bytes and creation time, written atomically. Each pack has:
   the game reports.
 
 Writes go to `<name>.tmp` and are renamed into place; `.bak` is unnecessary
-because the cache is disposable. A crashed write leaves an orphan `.tmp` that
-is removed on the next start, and an interrupted pack is simply absent from the
-manifest. `cache.meta` is updated last, so a pack is used only after it is
-complete.
+because the cache is disposable. On Windows, a `FileAccess` read handle does not
+share delete access, so the writer closes that pack's shared reader handle under
+its lock and renames the temporary file. It leaves the handle closed for the
+session: the reader's in-RAM index still holds the old pack's payload offsets,
+so reopening the merged pack could decode the wrong chunk. The next launch loads
+the new index. Without this close, a partial cache could never merge into an
+existing pack. A crashed write leaves an orphan
+`.tmp` that is removed on the next start, and an interrupted pack is simply
+absent from the manifest. `cache.meta` is updated last, so a pack is used only
+after it is complete.
 
 The 8x8 grouping matches the far-region grid: 3,209 columns / 64 is about 51
 packs. The pack is the writer's unit and the index's integrity unit, not the
@@ -484,7 +490,10 @@ files would be ~20,000 seeks and an unpleasant directory.
 - `src/world/terrain_cache.*` owns the key, cache root and pack discovery, and
   supplies one shared `FileAccess` per pack, guarded by that pack's mutex. The
   62 handles stay under the engine CRT's 512-file limit even at 15 workers, and
-  a worker does not pay a reopen per pack crossing. The fill is a nearest-first
+  a worker does not pay a reopen per pack crossing. On Windows the writer
+  closes the affected handle around its rename and leaves it closed for the
+  session, because reads do not share delete access and the in-RAM index still
+  describes the old pack. The fill is a nearest-first
   spiral that touches nearly every pack early, so an LRU smaller than the
   working set thrashes, and decoding a whole pack on first touch makes the other
   workers wait on it. The pack remains the write and integrity unit; the read

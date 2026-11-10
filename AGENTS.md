@@ -270,7 +270,10 @@ Full notes: [docs/gui-notes.md](docs/gui-notes.md).
   handles, under the engine CRT's 512-file limit); a miss captures the
   generator's own blocks plus its spill list before edits/light/solid, and the
   writer flushes idle or full 8x8 regions to one pack behind an atomic
-  `cache.meta`. `src/world/terrain_cache.*` owns the key, discovery, eviction
+  `cache.meta`; on Windows the writer closes that pack's reader handle around
+  the rename and leaves it closed for the session, because reads do not share
+  delete access and the in-RAM index still describes the old pack. `src/world/terrain_cache.*`
+  owns the key, discovery, eviction
   (512 MiB, least-recently-used worlds) and the shared handles. It is off by
   default (`FARLANDS_TERRAIN_CACHE=1`), and the phase-4 A/B rejected default
   enablement: 23.4% load gain at 4 cores against a 25% bar, 13.7% at 6 against

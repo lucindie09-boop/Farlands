@@ -16,8 +16,11 @@ struct TerrainCacheWriterState;
 // Godot-facing adapter for the pure cache reader and writer: it owns the key and
 // the cache root, discovers the region packs, shares one FileAccess handle per
 // pack across workers under a per-pack mutex, and stages encoded generator
-// output for the writer. `ensure_open`, `tick` and `close` are main-thread;
-// `read_chunk` and `stage_chunk` may run on any generation worker once open.
+// output for the writer. On Windows the writer closes a pack's shared handle
+// around replacing it and leaves it closed for the session, because reads do
+// not share delete access and the in-RAM index still describes the old pack.
+// `ensure_open`, `tick` and `close` are main-thread; `read_chunk` and
+// `stage_chunk` may run on any generation worker once open.
 class TerrainCache {
 public:
     TerrainCache() = default;

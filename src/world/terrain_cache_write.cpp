@@ -204,7 +204,10 @@ void terrain_cache_write_region(const std::shared_ptr<TerrainCacheWriterState>& 
     const std::string temp_path = final_path + ".tmp";
     const auto write_start = std::chrono::steady_clock::now();
     bool written = write_whole_file(temp_path, pack);
-    if (written) written = rename_in_root(root, temp_path, final_path);
+    if (written) {
+        written = terrain_cache_replace_pack_file(
+            final_path, [&]() { return rename_in_root(root, temp_path, final_path); });
+    }
     const uint64_t write_us = elapsed_us(write_start);
 
     {

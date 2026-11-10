@@ -1334,13 +1334,22 @@ it — are in [lod-modes.md](lod-modes.md).
   worker start) p50 **50.4 ms**, work (start -> finish) p50 **1.9 ms**, drain (finish ->
   install) p50 **1.5 ms**, total p50 **60.3 ms**. The wait is queue residence, not a wake
   bug: Little's law on the **52**-deep in-flight set at 1,101/s predicts ~47 ms. Work is
-  1.9 ms (1.77 mean) because the worker body also runs the light pass (0.51 ms), the edit
-  map (0.19) and `compute_fully_solid`, so generation occupies **~1.95 of the 3 workers**
-  - the 1.02 figure counted only `generate_chunk` - and mesh builds add ~0.6: the pool is
-  **~85% busy**. That 85% is the feed-forward controller's own 90% target minus the gaps
-  a frame boundary adds: the allowance is a rate (`workers x frame / 2.46 ms x 0.9`) and
-  does not follow a task's real cost, so task-busy time alone is not proof that the pool
-  is saturated. The cheap decider separates the two readings. With the 64-chunk cap fixed,
+  1.9 ms (1.77 mean) because the worker body also runs the light pass (0.53 ms), the edit
+  map (0.18 ms when edited) and `compute_fully_solid`, so generation occupies **~1.95 of the
+  3 workers** - the 1.02 figure counted only `generate_chunk` - and mesh builds add ~0.6.
+  The 0.19 ms edit slice is not the shared lock: a split on the same arm puts **0.00 ms in
+  the lock and 0.00 ms in the pure apply**, and all of it in the disk load - 381 chunks
+  have edit maps, each takes ~10-16 ms to read and decode, and that is 0.18-0.31 ms spread
+  over the 20,230. A world with no edit files skips the branch after the one-time scan.
+  The disk work is content, not per-chunk overhead; a cost-aware allowance cannot remove
+  it, only keeping the decoded maps resident or reading them faster can.
+  The **85% was a model figure, not measured idleness**: the feed-forward controller's 90%
+  target applied to a 2.46 ms allowance. The pool's own counters over the same 18.3 s load
+  put the workers at **98.5% busy** - 0.7% idle with work queued (361.8 ms in 58,152
+  episodes, ~6 us each, 58 steals) and 0.9% idle while empty (475.8 ms in 15 episodes).
+  The 52-deep in-flight set is a buffer the workers drain into the next admission, not a
+  backlog they cannot reach: there is no per-worker imbalance or steal latency to chase,
+  and the pool is the wall. The decider confirms that reading. With the 64-chunk cap fixed,
   lowering the cost model alone changes nothing (2.46/1.8/1.44 ms: **20.32/19.98/20.05 s**)
   because the cap refuses the extra allowance; moving the cap with it buys **8.3%**
   (2.46/64 **20.36 s**, 1.8/128 **19.18 s**, 1.44/192 **18.67 s**, one pair each in the

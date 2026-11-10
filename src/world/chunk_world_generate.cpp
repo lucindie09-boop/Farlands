@@ -124,7 +124,7 @@ bool ChunkWorld::generate_chunk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_
                 edit_map_known = chunk_edit_maps.find(key) != chunk_edit_maps.end();
             }
             if (!edit_map_known && has_edit_files_on_disk()) {
-                GenSliceTimer t(GenSlice::EditMap);
+                GenSliceTimer t(GenSlice::EditDisk);
                 // Read and PARSE outside the map's mutex. This is a file read plus a
                 // deserialize, and holding `edit_maps_mutex` across it put one disk
                 // access in the way of every other chunk's generation: generation

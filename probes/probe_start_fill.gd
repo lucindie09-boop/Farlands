@@ -52,6 +52,7 @@ var dirty_stage_sum := 0.0
 var dirty_stage_max := 0
 var inflight_samples := 0
 var sweep_at_load := {}
+var pool_at_load := {}
 # Dirty chunk-queue depth during the mesh tail, and at the moment the chunk
 # load settled: decides whether the tail drains a backlog or waits for arrivals.
 var tail_queue_sum := 0.0
@@ -386,6 +387,7 @@ func _run() -> void:
 	Engine.max_fps = 0
 
 	var start := Time.get_ticks_usec()
+	var pool_at_start: Dictionary = cm.call("get_pool_stats")
 	var last_sample := -SAMPLE_SECS
 	var last_loaded := -1
 	var stable_since := 0.0
@@ -567,6 +569,7 @@ func _run() -> void:
 			# The counters at settle are the load window; the session totals at
 			# the end also include the mesh/far tail and the idle frames.
 			sweep_at_load = cm.get_generation_stats()
+			pool_at_load = cm.call("get_pool_stats")
 			phase_ms_at_load = phase_ms.duplicate(true)
 			phase_count_at_load = phase_count.duplicate(true)
 			queue_at_load = queue_depth
@@ -690,6 +693,28 @@ func _run() -> void:
 	print("PROBE light profile: %s" % light_report)
 	var gen_path_report: String = cm.get_generation_path_report()
 	print("PROBE gen path: %s" % gen_path_report)
+	var pool_end: Dictionary = cm.call("get_pool_stats")
+	var pool_workers: int = int(cm.get_worker_count())
+	var load_window_ms: float = maxf(1.0, (loaded_at - LOADED_STABLE_SECS) * 1000.0)
+	if not pool_at_load.is_empty():
+		var load_idle_work: float = float(pool_at_load.get("idle_ms_with_work", 0.0)) - float(pool_at_start.get("idle_ms_with_work", 0.0))
+		var load_idle_empty: float = float(pool_at_load.get("idle_ms_no_work", 0.0)) - float(pool_at_start.get("idle_ms_no_work", 0.0))
+		print("PROBE fill pool load workers=%d wall_ms=%.0f steals=%d idle_work_ms=%.1f (%.1f%%) episodes=%d idle_empty_ms=%.1f (%.1f%%) episodes=%d" % [
+			pool_workers, load_window_ms,
+			int(pool_at_load.get("steals", 0)) - int(pool_at_start.get("steals", 0)),
+			load_idle_work, 100.0 * load_idle_work / (float(pool_workers) * load_window_ms),
+			int(pool_at_load.get("idle_episodes_with_work", 0)) - int(pool_at_start.get("idle_episodes_with_work", 0)),
+			load_idle_empty, 100.0 * load_idle_empty / (float(pool_workers) * load_window_ms),
+			int(pool_at_load.get("idle_episodes_no_work", 0)) - int(pool_at_start.get("idle_episodes_no_work", 0))])
+	var end_idle_work: float = float(pool_end.get("idle_ms_with_work", 0.0)) - float(pool_at_start.get("idle_ms_with_work", 0.0))
+	var end_idle_empty: float = float(pool_end.get("idle_ms_no_work", 0.0)) - float(pool_at_start.get("idle_ms_no_work", 0.0))
+	var end_window_ms: float = maxf(1.0, final_elapsed * 1000.0)
+	print("PROBE fill pool end workers=%d wall_ms=%.0f steals=%d idle_work_ms=%.1f (%.1f%%) idle_empty_ms=%.1f (%.1f%%) queue=%d" % [
+		pool_workers, end_window_ms,
+		int(pool_end.get("steals", 0)) - int(pool_at_start.get("steals", 0)),
+		end_idle_work, 100.0 * end_idle_work / (float(pool_workers) * end_window_ms),
+		end_idle_empty, 100.0 * end_idle_empty / (float(pool_workers) * end_window_ms),
+		int(pool_end.get("queue_size", 0))])
 	var install_report: String = cm.get_install_profile_report()
 	print("PROBE install profile: %s" % install_report)
 	if not sweep_at_load.is_empty():

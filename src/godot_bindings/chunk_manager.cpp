@@ -214,6 +214,21 @@ int32_t ChunkManager::get_worker_count() const {
     return pool ? static_cast<int32_t>(pool->get_worker_count()) : 0;
 }
 
+Dictionary ChunkManager::get_pool_stats() const {
+    Dictionary out;
+    if (!controller) return out;
+    const ThreadPool* pool = controller->get_thread_pool();
+    if (!pool) return out;
+    const ThreadPool::Stats stats = pool->get_stats();
+    out["steals"] = static_cast<int64_t>(stats.steals);
+    out["idle_ms_with_work"] = static_cast<double>(stats.idle_ns_with_work) / 1.0e6;
+    out["idle_episodes_with_work"] = static_cast<int64_t>(stats.idle_episodes_with_work);
+    out["idle_ms_no_work"] = static_cast<double>(stats.idle_ns_no_work) / 1.0e6;
+    out["idle_episodes_no_work"] = static_cast<int64_t>(stats.idle_episodes_no_work);
+    out["queue_size"] = static_cast<int64_t>(pool->get_queue_size());
+    return out;
+}
+
 void ChunkManager::_bind_methods() {
     // Non-property API (manual — each has unique signatures)
     ClassDB::bind_method(D_METHOD("engine_build_stamp"), &ChunkManager::engine_build_stamp);
@@ -223,6 +238,7 @@ void ChunkManager::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_performance_report"), &ChunkManager::get_performance_report);
     ClassDB::bind_method(D_METHOD("get_chunk_storage_histogram"), &ChunkManager::get_chunk_storage_histogram);
     ClassDB::bind_method(D_METHOD("get_worker_count"), &ChunkManager::get_worker_count);
+    ClassDB::bind_method(D_METHOD("get_pool_stats"), &ChunkManager::get_pool_stats);
     ClassDB::bind_method(D_METHOD("get_light_profile_report"), &ChunkManager::get_light_profile_report);
     ClassDB::bind_method(D_METHOD("get_generation_path_report"), &ChunkManager::get_generation_path_report);
     ClassDB::bind_method(D_METHOD("get_install_profile_report"), &ChunkManager::get_install_profile_report);

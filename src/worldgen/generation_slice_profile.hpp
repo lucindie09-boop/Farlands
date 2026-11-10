@@ -24,6 +24,9 @@ enum class GenSlice : int {
     Materials,
     Vegetation,
     EditMap,
+    EditLock,
+    EditApply,
+    EditDisk,
     Light,
     Solid,
     Count
@@ -36,6 +39,14 @@ inline std::atomic<uint64_t>& gen_slice_ns(GenSlice slice) {
 
 // One per generated chunk, so every slice reads as milliseconds per chunk.
 inline std::atomic<uint64_t>& gen_slice_chunks() {
+    static std::atomic<uint64_t> chunks{0};
+    return chunks;
+}
+
+// Chunks that actually had an edit map to apply. `edit` is the whole apply
+// call; `lock`, `apply` and `disk` split it (the split deliberately overlaps
+// the total, so the three sum to roughly `edit`, not to the chunk's work).
+inline std::atomic<uint64_t>& gen_edit_map_chunks() {
     static std::atomic<uint64_t> chunks{0};
     return chunks;
 }
@@ -77,21 +88,26 @@ private:
 [[nodiscard]] inline std::string generation_slice_report() {
     if (!GenerationPathProfile::enabled()) return "slices disabled";
     const uint64_t chunks = gen_slice_chunks().load(std::memory_order_relaxed);
+    const uint64_t edited = gen_edit_map_chunks().load(std::memory_order_relaxed);
     const auto per_chunk_ms = [chunks](GenSlice slice) {
         if (chunks == 0) return 0.0;
         return static_cast<double>(gen_slice_ns(slice).load(std::memory_order_relaxed)) /
                static_cast<double>(chunks) / 1.0e6;
     };
-    char buf[512];
+    char buf[768];
     std::snprintf(
         buf, sizeof(buf),
         "slices/chunk columns=%.2f density=%.2f materials=%.2f veget=%.2f "
-        "edit=%.2f light=%.2f solid=%.2f chunks=%llu",
+        "edit=%.2f lock=%.2f apply=%.2f disk=%.2f light=%.2f solid=%.2f "
+        "chunks=%llu edited=%llu",
         per_chunk_ms(GenSlice::Columns),
         per_chunk_ms(GenSlice::Density), per_chunk_ms(GenSlice::Materials),
         per_chunk_ms(GenSlice::Vegetation), per_chunk_ms(GenSlice::EditMap),
+        per_chunk_ms(GenSlice::EditLock), per_chunk_ms(GenSlice::EditApply),
+        per_chunk_ms(GenSlice::EditDisk),
         per_chunk_ms(GenSlice::Light), per_chunk_ms(GenSlice::Solid),
-        static_cast<unsigned long long>(chunks));
+        static_cast<unsigned long long>(chunks),
+        static_cast<unsigned long long>(edited));
     return std::string(buf);
 }
 

@@ -296,9 +296,13 @@ void ChunkWorld::apply_edit_map_to_chunk(uint64_t key, int32_t chunk_x, int32_t 
     // packed three to an int so this stays allocation-light on a hot path.
     std::vector<int32_t> fluid_cells;
     {
+        GenSliceTimer lock_timer(GenSlice::EditLock);
         std::lock_guard<std::mutex> lock(edit_maps_mutex);
+        lock_timer.stop();
+        GenSliceTimer apply_timer(GenSlice::EditApply);
         auto it = chunk_edit_maps.find(key);
         if (it != chunk_edit_maps.end()) {
+            gen_edit_map_chunks().fetch_add(1, std::memory_order_relaxed);
             // Pure shared apply logic (see core/edit_map.*) — also exercised by tests.
             VoxelEngine::apply_edit_map_to_chunk(it->second, chunk_data);
 

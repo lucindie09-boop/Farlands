@@ -143,10 +143,26 @@ func _run() -> void:
 		return
 	print("PROBE memo pass1=%.2fs pass1_load=%.2fs pass1_mesh=%.2fs pass1_end=%.2fs" % [pass1, pass1, pass1_tail[0], pass1_tail[1]])
 	print("PROBE memo pass1 gen=%s" % cm.get_generation_stats())
+	print("PROBE memo pass1 pool=%s" % cm.get_pool_stats())
+
+	# These queues have to be empty after the reset. The cross-boundary list used
+	# to survive it, and the next fill then meshed the previous fill's rim.
+	var diag_before: String = cm.get_performance_report()
+	print("PROBE memo diag_before veg_chunks=%d veg_placements=%d cross=%d gen=%d completed=%d claimed=%d meshes=%d" % [
+		_value(diag_before, "Pending vegetation:"), _value(diag_before, "Vegetation placements:"),
+		_value(diag_before, "Cross remesh:"), _value(diag_before, "Generating:"),
+		_value(diag_before, "Completed queue:"), _value(diag_before, "Scheduler claimed:"),
+		_value(diag_before, "Completed meshes:")])
 
 	# The process-wide memo survives this reset on purpose: the next fill is the
 	# cache-hit arm, not a different world.
 	cm.call("clear_editor_chunks")
+	var diag_after: String = cm.get_performance_report()
+	print("PROBE memo diag_after veg_chunks=%d veg_placements=%d cross=%d gen=%d completed=%d claimed=%d meshes=%d" % [
+		_value(diag_after, "Pending vegetation:"), _value(diag_after, "Vegetation placements:"),
+		_value(diag_after, "Cross remesh:"), _value(diag_after, "Generating:"),
+		_value(diag_after, "Completed queue:"), _value(diag_after, "Scheduler claimed:"),
+		_value(diag_after, "Completed meshes:")])
 	await process_frame
 	await process_frame
 	# Wait for the reset to empty the map before starting the clock, so the new
@@ -168,6 +184,7 @@ func _run() -> void:
 		return
 	print("PROBE memo pass2=%.2fs pass2_load=%.2fs pass2_mesh=%.2fs pass2_end=%.2fs" % [pass2, pass2, pass2_tail[0], pass2_tail[1]])
 	print("PROBE memo pass2 gen=%s" % cm.get_generation_stats())
+	print("PROBE memo pass2 pool=%s" % cm.get_pool_stats())
 	print("PROBE memo ratio=%.3f ratio_end=%.3f saved=%.2fs saved_end=%.2fs" % [
 		pass2 / pass1, pass2_tail[1] / pass1_tail[1], pass1 - pass2,
 		pass1_tail[1] - pass2_tail[1]])

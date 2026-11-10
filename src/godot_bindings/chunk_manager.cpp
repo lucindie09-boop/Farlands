@@ -226,6 +226,16 @@ Dictionary ChunkManager::get_pool_stats() const {
     out["idle_ms_no_work"] = static_cast<double>(stats.idle_ns_no_work) / 1.0e6;
     out["idle_episodes_no_work"] = static_cast<int64_t>(stats.idle_episodes_no_work);
     out["queue_size"] = static_cast<int64_t>(pool->get_queue_size());
+    // Per-class worker occupancy. The fill's total pool cost is one number;
+    // these split it so the non-generation residual is attributable instead of
+    // inferred from a stale mesh estimate.
+    for (size_t i = 0; i < kPoolTaskClassCount; ++i) {
+        const PoolTaskClass cls = static_cast<PoolTaskClass>(i);
+        const ThreadPool::ClassStats& cls_stats = stats.classes[i];
+        const String name = pool_task_class_name(cls);
+        out[name + String("_ms")] = static_cast<double>(cls_stats.busy_ns) / 1.0e6;
+        out[name + String("_tasks")] = static_cast<int64_t>(cls_stats.tasks);
+    }
     return out;
 }
 

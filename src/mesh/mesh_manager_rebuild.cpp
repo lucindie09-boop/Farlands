@@ -299,6 +299,7 @@ void MeshManager::rebuild_rendering_server_mesh(int32_t chunk_x, int32_t chunk_y
     // Only the center chunk is pinned via pending_mesh_builds.
     ScopedTimer construct_timer(*perf_timer, TimerID::MeshPopConstruct);
     auto mesh_task = std::make_unique<MeshBuildTask>();
+    mesh_task->task_class = PoolTaskClass::Mesh;
     mesh_task->chunk_map = chunk_map;
     mesh_task->chunk_scheduler = chunk_scheduler;
     mesh_task->async_epoch = async_epoch;

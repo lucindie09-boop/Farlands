@@ -1,5 +1,6 @@
 #ifndef FARLANDS_VOXEL_ENGINE_THREAD_POOL_HPP
 #define FARLANDS_VOXEL_ENGINE_THREAD_POOL_HPP
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -16,14 +17,51 @@
 
 namespace VoxelEngine {
 
+// Task classes are reported separately by the pool: the fill's total worker
+// cost used to be one number, so the non-generation share (mesh, light region,
+// far build, saves) could not be attributed. Count is final; the names are the
+// keys ChunkManager.get_pool_stats() exposes.
+enum class PoolTaskClass : uint8_t {
+    Other = 0,
+    Generation,
+    Mesh,
+    Light,
+    Far,
+    Save,
+    Path,
+    Prefetch,
+    Count,
+};
+
+inline constexpr size_t kPoolTaskClassCount = static_cast<size_t>(PoolTaskClass::Count);
+
+inline const char* pool_task_class_name(PoolTaskClass cls) noexcept {
+    switch (cls) {
+        case PoolTaskClass::Generation: return "generation";
+        case PoolTaskClass::Mesh: return "mesh";
+        case PoolTaskClass::Light: return "light";
+        case PoolTaskClass::Far: return "far";
+        case PoolTaskClass::Save: return "save";
+        case PoolTaskClass::Path: return "path";
+        case PoolTaskClass::Prefetch: return "prefetch";
+        case PoolTaskClass::Other:
+        case PoolTaskClass::Count:
+            break;
+    }
+    return "other";
+}
+
 struct Task {
     virtual ~Task() = default;
     virtual void execute() = 0;
+    PoolTaskClass task_class = PoolTaskClass::Other;
 };
 
 template<typename F>
 struct FnTask : Task {
-    explicit FnTask(F f) : fn_(std::move(f)) {}
+    explicit FnTask(F f, PoolTaskClass cls = PoolTaskClass::Other) : fn_(std::move(f)) {
+        task_class = cls;
+    }
     F fn_;
     void execute() override { fn_(); }
 };
@@ -58,8 +96,8 @@ public:
     ThreadPool& operator=(ThreadPool&&) = delete;
 
     template<typename F>
-    void fire_and_forget(F&& f) {
-        enqueue_task(std::make_unique<FnTask<std::decay_t<F>>>(std::forward<F>(f)));
+    void fire_and_forget(F&& f, PoolTaskClass cls = PoolTaskClass::Other) {
+        enqueue_task(std::make_unique<FnTask<std::decay_t<F>>>(std::forward<F>(f), cls));
     }
 
     void enqueue_task(std::unique_ptr<Task> task, bool high_priority = false) {
@@ -101,12 +139,18 @@ public:
     // controller had nothing to give it. The window runs from the end of the
     // previous task (or thread start) to the next task the worker takes, so it
     // includes the own-queue wait as well as the failed-steal path.
+    struct ClassStats {
+        uint64_t busy_ns = 0;
+        uint64_t tasks = 0;
+    };
+
     struct Stats {
         uint64_t idle_ns_with_work = 0;
         uint64_t idle_episodes_with_work = 0;
         uint64_t idle_ns_no_work = 0;
         uint64_t idle_episodes_no_work = 0;
         uint64_t steals = 0;
+        std::array<ClassStats, kPoolTaskClassCount> classes{};
     };
 
     [[nodiscard]] Stats get_stats() const noexcept {
@@ -116,6 +160,10 @@ public:
         s.idle_ns_no_work = idle_ns_no_work_.load(std::memory_order_relaxed);
         s.idle_episodes_no_work = idle_episodes_no_work_.load(std::memory_order_relaxed);
         s.steals = steal_count_.load(std::memory_order_relaxed);
+        for (size_t i = 0; i < kPoolTaskClassCount; ++i) {
+            s.classes[i].busy_ns = class_counters_[i].busy_ns.load(std::memory_order_relaxed);
+            s.classes[i].tasks = class_counters_[i].tasks.load(std::memory_order_relaxed);
+        }
         return s;
     }
 
@@ -223,7 +271,16 @@ private:
                 idle_ns_no_work_.fetch_add(idle_ns, std::memory_order_relaxed);
                 idle_episodes_no_work_.fetch_add(1, std::memory_order_relaxed);
             }
+            const auto task_start = std::chrono::steady_clock::now();
+            const size_t task_class = static_cast<size_t>(task->task_class);
             task->execute();
+            if (task_class < kPoolTaskClassCount) {
+                const uint64_t task_ns = static_cast<uint64_t>(
+                    std::chrono::duration_cast<std::chrono::nanoseconds>(
+                        std::chrono::steady_clock::now() - task_start).count());
+                class_counters_[task_class].busy_ns.fetch_add(task_ns, std::memory_order_relaxed);
+                class_counters_[task_class].tasks.fetch_add(1, std::memory_order_relaxed);
+            }
             idle_start = std::chrono::steady_clock::now();
             idle_queue = total_queue_size_.load(std::memory_order_relaxed);
         }
@@ -256,6 +313,12 @@ private:
     std::atomic<uint64_t> idle_episodes_with_work_{0};
     std::atomic<uint64_t> idle_ns_no_work_{0};
     std::atomic<uint64_t> idle_episodes_no_work_{0};
+
+    struct ClassCounter {
+        std::atomic<uint64_t> busy_ns{0};
+        std::atomic<uint64_t> tasks{0};
+    };
+    std::array<ClassCounter, kPoolTaskClassCount> class_counters_{};
 };
 
 } // namespace VoxelEngine

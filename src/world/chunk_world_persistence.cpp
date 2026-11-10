@@ -85,7 +85,7 @@ void ChunkWorld::enqueue_edit_map_save(uint64_t key, int32_t cx, int32_t cy, int
     thread_pool->fire_and_forget([this, key, cx, cy, cz,
                                   snapshot = std::move(snapshot), epoch, generation]() mutable {
         save_edit_map_snapshot(key, cx, cy, cz, std::move(snapshot), epoch, generation);
-    });
+    }, PoolTaskClass::Save);
 }
 
 void ChunkWorld::save_edit_map_snapshot(uint64_t key, int32_t cx, int32_t cy, int32_t cz,

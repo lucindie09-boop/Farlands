@@ -247,7 +247,7 @@ int32_t ChunkWorld::process_completed_chunks(uint64_t epoch, double budget_ms, i
                             }
                         }
                         chunk_scheduler.push_completed_light_propagation({cx, cy, cz, epoch, modified});
-                    });
+                    }, PoolTaskClass::Light);
                 } else {
                     pending_chunk_dirty_mesh.push_back({stage.chunk_x, stage.chunk_y, stage.chunk_z, stage.epoch});
                 }

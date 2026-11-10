@@ -28,7 +28,14 @@ namespace {
 // closure a miss uses, so a second fill after a reset has the same canopies and
 // boundary remeshes; the replay is part of the hit cost.
 bool generation_memo_enabled() {
-    static const bool enabled = std::getenv("FARLANDS_GEN_MEMO") != nullptr;
+    // Presence used to be enough, so FARLANDS_GEN_MEMO=0 still turned the memo
+    // on and an "off" control silently measured the hit path. 0/false/no
+    // disable it; any other value enables it.
+    static const bool enabled = [] {
+        const char* raw = std::getenv("FARLANDS_GEN_MEMO");
+        if (raw == nullptr || raw[0] == '\0' || raw[0] == '0') return false;
+        return !(raw[0] == 'f' || raw[0] == 'F' || raw[0] == 'n' || raw[0] == 'N');
+    }();
     return enabled;
 }
 

@@ -53,7 +53,7 @@ bool WorldUpdater::enqueue_column_prefetch(int32_t cx, int32_t cz, uint32_t epoc
         const WorldUpdater::ColumnSurfaceBounds b =
             bounds_of_height_range(range.min_h, range.max_h, range.max_water_h);
         state->publish(key, epoch, ColumnBounds{b.land_h, b.top_h});
-    });
+    }, PoolTaskClass::Prefetch);
     return true;
 }
 

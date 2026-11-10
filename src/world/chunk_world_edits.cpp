@@ -106,16 +106,30 @@ void ChunkWorld::clear() {
     pending_chunk_dirty_mesh.clear();
     light_propagated_chunks.clear();
     install_profile_.reset();
-    pending_block_placements.clear();
-    pending_placement_count.store(0);
+    {
+        std::lock_guard<std::mutex> lock(pending_placement_mutex);
+        pending_block_placements.clear();
+        pending_placement_count.store(0);
+    }
     {
         std::lock_guard<std::mutex> lock(urgent_chunk_mutex);
         urgent_chunk_requests.clear();
         urgent_chunk_set.clear();
     }
     unpin_all_chunks();
-    pending_vegetation_placements.clear();
-    pending_vegetation_count.store(0);
+    {
+        std::lock_guard<std::mutex> lock(vegetation_placement_mutex);
+        pending_vegetation_placements.clear();
+        pending_vegetation_count.store(0);
+    }
+    // This one was missed by the reset: every generation queues a boundary
+    // remesh here, and the next world's first install would drain the old
+    // world's list and dirty-mesh chunks that no longer exist. The pool is
+    // already joined at this point, but the lock is still the contract.
+    {
+        std::lock_guard<std::mutex> lock(cross_boundary_mutex);
+        pending_cross_boundary_remesh.clear();
+    }
     chunk_map.clear();
     async_epoch.store(0, std::memory_order_release);
 }

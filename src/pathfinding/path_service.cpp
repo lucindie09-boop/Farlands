@@ -55,7 +55,7 @@ uint64_t PathService::submit(ThreadPool& pool, const NavNode& from, const NavNod
     state->pending.fetch_add(1, std::memory_order_relaxed);
     pool.fire_and_forget([state, id, source, query]() {
         run(state, id, source, query);
-    });
+    }, PoolTaskClass::Path);
     return id;
 }
 

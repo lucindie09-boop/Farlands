@@ -373,7 +373,7 @@ void LodGrid::schedule_builds(double /*delta*/) {
         tile.request = result->request;
         --budget;
         auto* grid = this;
-        thread_pool->fire_and_forget([grid, result]() { grid->build_tile(result); });
+        thread_pool->fire_and_forget([grid, result]() { grid->build_tile(result); }, PoolTaskClass::Far);
     }
 }
 

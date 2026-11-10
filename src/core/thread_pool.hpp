@@ -2,6 +2,7 @@
 #define FARLANDS_VOXEL_ENGINE_THREAD_POOL_HPP
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <condition_variable>
 #include <cstddef>
 #include <cstdlib>
@@ -93,6 +94,31 @@ public:
         return steal_count_.load(std::memory_order_relaxed);
     }
 
+    // Idle time split by whether the pool had queued work when the worker
+    // finished its previous task. "Idle while work is queued" is the
+    // interesting one: it means the worker had nothing in its own queue and
+    // either waited out the poll or failed to steal, not that the admission
+    // controller had nothing to give it. The window runs from the end of the
+    // previous task (or thread start) to the next task the worker takes, so it
+    // includes the own-queue wait as well as the failed-steal path.
+    struct Stats {
+        uint64_t idle_ns_with_work = 0;
+        uint64_t idle_episodes_with_work = 0;
+        uint64_t idle_ns_no_work = 0;
+        uint64_t idle_episodes_no_work = 0;
+        uint64_t steals = 0;
+    };
+
+    [[nodiscard]] Stats get_stats() const noexcept {
+        Stats s;
+        s.idle_ns_with_work = idle_ns_with_work_.load(std::memory_order_relaxed);
+        s.idle_episodes_with_work = idle_episodes_with_work_.load(std::memory_order_relaxed);
+        s.idle_ns_no_work = idle_ns_no_work_.load(std::memory_order_relaxed);
+        s.idle_episodes_no_work = idle_episodes_no_work_.load(std::memory_order_relaxed);
+        s.steals = steal_count_.load(std::memory_order_relaxed);
+        return s;
+    }
+
     [[nodiscard]] std::size_t get_worker_count() const noexcept {
         return workers_.size();
     }
@@ -160,6 +186,8 @@ private:
 
     void worker_loop(std::size_t idx) {
         auto& my = queues_[idx];
+        std::chrono::steady_clock::time_point idle_start = std::chrono::steady_clock::now();
+        uint64_t idle_queue = total_queue_size_.load(std::memory_order_relaxed);
         while (true) {
             std::unique_ptr<Task> task;
             {
@@ -185,7 +213,19 @@ private:
                 task = steal_task(idx);
                 if (!task) continue;
             }
+            const uint64_t idle_ns = static_cast<uint64_t>(
+                std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    std::chrono::steady_clock::now() - idle_start).count());
+            if (idle_queue > 0) {
+                idle_ns_with_work_.fetch_add(idle_ns, std::memory_order_relaxed);
+                idle_episodes_with_work_.fetch_add(1, std::memory_order_relaxed);
+            } else {
+                idle_ns_no_work_.fetch_add(idle_ns, std::memory_order_relaxed);
+                idle_episodes_no_work_.fetch_add(1, std::memory_order_relaxed);
+            }
             task->execute();
+            idle_start = std::chrono::steady_clock::now();
+            idle_queue = total_queue_size_.load(std::memory_order_relaxed);
         }
     }
 
@@ -212,6 +252,10 @@ private:
     std::atomic<std::size_t> total_queue_size_{0};
     std::atomic<std::size_t> high_priority_queue_size_{0};
     std::atomic<std::size_t> steal_count_{0};
+    std::atomic<uint64_t> idle_ns_with_work_{0};
+    std::atomic<uint64_t> idle_episodes_with_work_{0};
+    std::atomic<uint64_t> idle_ns_no_work_{0};
+    std::atomic<uint64_t> idle_episodes_no_work_{0};
 };
 
 } // namespace VoxelEngine

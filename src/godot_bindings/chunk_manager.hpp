@@ -415,6 +415,7 @@ void toggle_day_night_cycle();
     // The worker pool size the current run actually created, for probes and
     // reports; 0 before initialize() or after shutdown().
     int32_t get_worker_count() const;
+    godot::Dictionary get_pool_stats() const;
 
     VoxelEngineController* get_controller() { return controller.get(); }
     const VoxelEngineController* get_controller() const { return controller.get(); }

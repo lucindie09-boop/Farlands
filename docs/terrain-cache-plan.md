@@ -65,8 +65,11 @@ loses the canopy this chunk would have written into it.
   below says why: the default controller's 0.9 utilization target lands on the
   3-worker pool's own throughput, and opening it 70% buys only 8%. That fill is
   **pool-throughput-bound in its default configuration**, not install- or
-  admission-paced, and its 85% task-busy figure is the controller's target, not
-  a saturation measurement.
+  admission-paced. The earlier 85% task-busy figure was a model figure (the
+  controller's 90% target on a 2.46 ms allowance), not a measurement; the
+  pool's own counters over the same load put the workers at **98.5% busy**
+  (0.7% idle with work queued, 0.9% idle while empty, 58 steals), so the pool
+  is saturated and the queue is a buffer, not a backlog.
   The old 19.84 s/90 s figure was the false `active_uncovered` gate. On 16
   threads generation is about 1.4 s of a ~5.2 s end-to-end fill, so the return is
   small and may not cover the read. **Do not use the 6.8/4.1 s generation-wall
@@ -91,19 +94,21 @@ loses the canopy this chunk would have written into it.
 | Segment | p50 | Meaning |
 |---|---|---|
 | wait (admit -> start) | **50.4 ms** | queue residence behind the 64-chunk in-flight cap |
-| work (start -> finish) | **1.9 ms** | terrain 1.05 + light 0.51 + edit 0.19 + solid |
+| work (start -> finish) | **1.9 ms** | terrain 1.05 + light 0.53 + edit 0.18 (disk, 381 edited chunks) + solid |
 | drain (finish -> install) | **1.5 ms** | completed queue + install |
 | total | **60.3 ms** | = 52 in flight / 1,101 per s by Little's law |
 
 The 50 ms is not dispatch latency and not install: it is the cap holding ~52
 tasks the pool drains at ~1,100/s. `generate_chunk` alone is 1.05 ms and looks
 like 1.02 of 3 workers; the full worker body averages 1.77 ms (p50 1.9), so
-generation occupies **~1.95 of the 3 workers** and mesh builds add ~0.6: the
-pool is **~85% busy**. That 85% is the feed-forward controller's own 90% target
-minus frame-boundary gaps - the allowance is a rate (`workers x frame / 2.46 ms
-x 0.9`) that ignores a task's real cost - so it is not proof of saturation. The
-in-flight cap is a buffer, not a lever; the decider below shows the rate is not
-one either.
+generation occupies **~1.95 of the 3 workers** and mesh builds add ~0.6. The
+earlier **~85% busy** was the feed-forward controller's 90% target applied to a
+2.46 ms allowance, not a measurement. The pool's counters over the same 18.3 s
+load put the workers at **98.5% busy**: 0.7% idle with work queued (361.8 ms in
+58,152 episodes, ~6 us each, 58 steals) and 0.9% idle while empty (475.8 ms in
+15 episodes). The in-flight cap is a buffer, not a lever; the queue is deep
+because the cap holds it there, not because the workers cannot reach it. The
+decider below shows the rate is not the lever either.
 
 Consequences:
 

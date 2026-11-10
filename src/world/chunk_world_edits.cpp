@@ -85,6 +85,9 @@ bool ChunkWorld::try_unload_chunk(uint64_t key, MeshManager* mesh_mgr) {
 }
 
 void ChunkWorld::clear() {
+    // The pool is joined before a world reset, so no worker can still be reading
+    // these indexes. A later world opens its own key directory on first use.
+    terrain_cache.close();
     {
         std::lock_guard<std::mutex> lock(dirty_chunks_mutex);
         dirty_chunks.clear();

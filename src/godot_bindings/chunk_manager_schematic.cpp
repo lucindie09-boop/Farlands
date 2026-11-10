@@ -234,9 +234,27 @@ Dictionary ChunkManager::get_generation_stats() {
 
     const int32_t render_distance = get_render_distance();
     out["render_distance"] = render_distance;
+
+    const VoxelEngine::TerrainCacheReaderStats cache =
+        controller->get_chunk_world().get_terrain_cache_stats();
+    out["cache_open"] = controller->get_chunk_world().is_terrain_cache_open();
+    out["cache_hits"] = static_cast<int64_t>(cache.hits);
+    out["cache_misses"] = static_cast<int64_t>(cache.misses);
+    out["cache_corrupt"] = static_cast<int64_t>(cache.corrupt);
+    out["cache_read_errors"] = static_cast<int64_t>(cache.read_errors);
+    out["cache_hit_rate"] = cache.hit_rate();
+    out["cache_packs"] = static_cast<int64_t>(cache.pack_count);
+    out["cache_entries"] = static_cast<int64_t>(cache.index_entries);
+    out["cache_index_bytes"] = static_cast<int64_t>(cache.index_bytes);
+    out["cache_payload_bytes"] = static_cast<int64_t>(cache.payload_bytes);
+    out["cache_manifest_bytes"] = static_cast<int64_t>(cache.manifest_bytes);
+    out["cache_open_failures"] = static_cast<int64_t>(cache.open_failures);
+    out["cache_read_ms"] = static_cast<double>(cache.read_us) / 1000.0;
+    out["cache_decode_ms"] = static_cast<double>(cache.decode_us) / 1000.0;
     return out;
 }
 
 void ChunkManager::reset_generation_stats() {
     controller->get_world_updater().reset_generation_stats();
+    controller->get_chunk_world().reset_terrain_cache_stats();
 }

@@ -79,6 +79,10 @@ bool ChunkWorld::generate_chunk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_
                                 const TerrainParams& params, const BiomeConfig& biomes,
                                 const VegetationConfig& veg_config) {
     if (!thread_pool) return false;
+    // Main-thread setup: the manifest and the pack indexes are loaded once per
+    // key. With the switch off this is one cached boolean; with a missing or
+    // malformed cache it leaves the reader closed and generation proceeds.
+    terrain_cache.ensure_open(params);
     uint64_t key = chunk_map.get_chunk_key(chunk_x, chunk_y, chunk_z);
     const uint64_t path_id = GenerationPathProfile::new_attempt();
     const uint64_t admit_ns = path_id != 0 ? generation_path_now_ns() : 0;
@@ -92,7 +96,14 @@ bool ChunkWorld::generate_chunk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_
             const bool memo_enabled = generation_memo_enabled();
             bool memo_hit = false;
             std::vector<GenerationMemoEntry::Spill> memo_spill;
-            if (memo_enabled) {
+            bool cache_hit = false;
+            std::vector<TerrainCacheSpill> cache_spill;
+            if (terrain_cache.is_open()) {
+                cache_hit = terrain_cache.read_chunk(cx, cy, cz,
+                                                     BlockRegistry::get_instance(),
+                                                     *chunk_data, cache_spill);
+            }
+            if (!cache_hit && memo_enabled) {
                 GenerationMemo& memo = generation_memo();
                 std::lock_guard<std::mutex> lock(memo.mutex);
                 const auto it = memo.chunks.find(key);
@@ -126,7 +137,7 @@ bool ChunkWorld::generate_chunk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_
                 // A memo hit replays the recorded writes through the same closure, so
                 // the second fill queues the same canopies and boundary remeshes.
                 std::vector<GenerationMemoEntry::Spill> spill;
-                auto cross_writer = [this, &spill, record_spill = !memo_hit](int32_t wx, int32_t wy, int32_t wz, BlockID block) {
+                auto cross_writer = [this, &spill, record_spill = !memo_hit && !cache_hit](int32_t wx, int32_t wy, int32_t wz, BlockID block) {
                     if (record_spill) {
                         spill.push_back({wx, wy, wz, block});
                     }
@@ -135,7 +146,11 @@ bool ChunkWorld::generate_chunk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_
                     world_to_chunk_local(wx, wy, wz, tc_x, tc_y, tc_z, lx, ly, lz);
                     pending_cross_boundary_remesh.push({tc_x, tc_y, tc_z});
                 };
-                if (memo_hit) {
+                if (cache_hit) {
+                    for (const TerrainCacheSpill& write : cache_spill) {
+                        cross_writer(write.x, write.y, write.z, write.block);
+                    }
+                } else if (memo_hit) {
                     for (const auto& write : memo_spill) {
                         cross_writer(write.x, write.y, write.z, write.block);
                     }

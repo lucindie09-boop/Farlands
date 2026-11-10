@@ -17,6 +17,7 @@
 
 #include "core/block_types.hpp"
 #include "core/chunk_data.hpp"
+#include "core/terrain_cache_format.hpp"
 #include "worldgen/chunk_generator.hpp"
 
 #include <array>
@@ -145,7 +146,8 @@ TEST_CASE("worldgen digest: regenerated chunks match the cache version guard") {
     INFO("worldgen digest = " << hash << ", spill records = " << total_spill
          << ", bedrock cells = " << land_counts[BlockIDs::BEDROCK]
          << ", water cells = " << ocean_counts[BlockIDs::SURFACE_WATER]
-         << " (bump the terrain-cache data version if this changed deliberately)");
+         << " (terrain-cache data version " << kTerrainCacheDataVersion
+         << "; bump it and update this digest if the change was deliberate)");
     CHECK(total_spill > 0);
     CHECK(land_counts[BlockIDs::BEDROCK] > 0);
     CHECK(ocean_counts[BlockIDs::SURFACE_WATER] > 0);

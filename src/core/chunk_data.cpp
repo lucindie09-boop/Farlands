@@ -264,6 +264,35 @@ void ChunkData::set_data(const BlockID* data, uint32_t /*count*/) {
     compute_fully_solid();
 }
 
+void ChunkData::set_block_sections(const PalSection* sections) {
+    for (int i = 0; i < PaletteStorage::NUM_SECTIONS; ++i) {
+        storage->block_secs[i] = sections[i];
+    }
+
+    block_count = 0;
+    emissive_count = 0;
+    liquid_cells = 0;
+    std::memset(section_block_count, 0, sizeof(section_block_count));
+
+    for (int si = 0; si < PaletteStorage::NUM_SECTIONS; ++si) {
+        const PalSection& section = storage->block_secs[si];
+        const int sy = (si / PaletteStorage::SECS_PER_DIM) % PaletteStorage::SECS_PER_DIM;
+        for (int local = 0; local < PaletteStorage::SEC_VOLUME; ++local) {
+            const BlockID id = static_cast<BlockID>(PaletteStorage::section_get(section, local));
+            if (id == BlockIDs::AIR) continue;
+            ++block_count;
+            ++section_block_count[sy];
+            if (is_emissive_block(id)) ++emissive_count;
+            if (is_liquid_surface_block(id)) ++liquid_cells;
+        }
+    }
+
+    is_empty = (block_count == 0);
+    storage->fill_light_uniform(0);
+    has_sky_shade_ = false;
+    compute_fully_solid();
+}
+
 void ChunkData::compute_fully_solid() {
     if (is_empty) { is_fully_solid = false; return; }
     is_fully_solid = storage->check_fully_solid();

@@ -536,9 +536,10 @@ it — are in [lod-modes.md](lod-modes.md).
   generations 17.1 -> 7.7, with each chunk's drain wait (`completed -> installed`) **32 -> 207 ms
   p50**. The mechanism is the shared mesh clock: `process_queue`'s budget is the far scheduler's
   too, so 17,466 stream builds during the load (against 4,306) spent the main-thread time the
-  installs needed, and the far path the probe waits on never settled - 5,038 of 17,437 regions
-  cached, `active_uncovered` 63 at the 90 s cap (`PROBE FAIL: active far gaps did not close`).
-  Reverted. The lesson is stronger than "the two budgets trade": the fill's quiet is defined by
+  installs needed, and 5,038 of 17,437 regions were cached; the old probe gate
+  reported `active_uncovered` 63 at the 90 s cap, but that counter is not a hole count (see the
+  300 s note below), so it does not prove the far path failed. Reverted. The lesson is stronger
+  than "the two budgets trade": the fill's quiet is defined by
   the far regions, so spending the mesh budget on stream meshes delays the quiet itself.
 
 - **The tail's builds are far-tier region sources, and what paces them is the buried test.** At
@@ -1326,25 +1327,30 @@ it — are in [lod-modes.md](lod-modes.md).
   [-0.23-+0.03]**, A faster in 4/5): the old 7.85 s blank world is gone, but the end win is
   only ~0.1 s (`.freebuff/hold_ab_6c_bounded_20261110`). The old unbounded 6-core arm measured
   7.85 s first visible and a 0.69 s end win; it also ran 15 workers on 6 logical processors, so
-  its magnitudes were oversubscribed. The **4-core, 3-worker** arm is not an end-to-end
-  comparison: the matched hold-off control reached chunk load + mesh at **19.84 s**, but the
-  probe's far-gap gate still saw **97 uncovered visible chunks** at **90 s** with
-  `region_empty=0` and `far_total=0` (`PROBE FAIL: active far gaps did not close`); the 300 s
-  arm never reached its end either. That is the far-region coverage tail, not a
-  generation stall; the old 15-worker arm finished in 14.33 s. No matched 4-core end-to-end
-  number is claimed, and the old 4-core "wash" cannot be carried forward. On the small discs
+  its magnitudes were oversubscribed. The **4-core, 3-worker** arm is an end-to-end comparison
+  with the corrected `Unrendered` gate: the matched hold-off control reaches chunk
+  load **18.38 s** and end **19.13-19.14 s**. The old 19.84 s/90 s no-end figure was the
+  probe's `active_uncovered` gate: at 300 s it stayed flat at **92** with no pending work,
+  while `Unrendered` stayed **0** and 608 instances drew. Those 92 are far chunks whose region
+  is active but does not list them as members; their own chunk instances draw them.
+  `active_uncovered` is not a hole count, and the old `PROBE FAIL` named the wrong metric. The
+  probe now gates on `Unrendered` (geometry present, no instance drawing it). The old 15-worker
+  arm finished in 14.33 s. On the small discs
   the old gate could never release: at **RD 4** the hold
   disarmed at **0.27 s** and at **RD 5** at **0.54 s**, with first visible on the same frame.
   The one-shot/bounded behavior is in `InitialMeshHold`; the 2 s default is env-overridable, and
   the A/B harness exposes `--hold` and `--workers`. Shipping now enables the hold only with **at
-  least 8 workers**, because 5 workers bought ~0.1 s of end for ~1.6 s of blank while 15 workers
-  bought ~0.45 s. `FARLANDS_HOLD_MESH_MIN_WORKERS` overrides the floor, and an explicit
+  least 10 workers**. The 8-worker point measured hold 6.67 s against 6.46 s off (+0.21 s, 2/2
+  pairs), the 10-worker point 6.00 s against 6.25 s (-0.25 s, 2/2), and 5 workers bought ~0.1 s
+  while 15 bought ~0.45 s. The default worker count is a logical-thread proxy, not physical
+  cores: a 4c/8t machine uses 7 and holds off, a 6c/12t machine uses 11 and holds on.
+  `FARLANDS_HOLD_MESH_MIN_WORKERS` overrides the floor, and an explicit
   `FARLANDS_HOLD_MESH_UNTIL_LOADED=1` forces the hold on so slow-machine A/B runs still measure it.
-- **The whole-fill worst frame is the reveal burst on 16 threads and the scheduler on 6; the
-  matched 4-core arm never finished.** The probe keeps the 24 worst frames (by cost, not
-  arrival) and prints a phase dump each plus a before/after-settle count. On the 16-thread
-  bounded hold the worst is **58.1 [53.2-58.8] ms**, in the same reveal burst the unbounded
-  arm measured at **62.9 ms at 4.37 s**: a **22.0 ms** `process_total` with
+- **The whole-fill worst frame is the reveal burst on 16 threads and the scheduler on 6.** The
+  probe keeps the 24 worst frames (by cost, not arrival) and prints a phase dump each plus a
+  before/after-settle count. On the 16-thread bounded hold the worst is **58.1 [53.2-58.8] ms**,
+  in the same reveal burst the unbounded arm measured at **62.9 ms at 4.37 s**: a **22.0 ms**
+  `process_total` with
   `ProcessCompletedMeshes` **17.6 ms** (`MeshUploadGpu` **10.9 ms**), `FarRegionVisibility`
   3.2 ms and `DirtyMeshQueue` 1.3 ms; the rest of the wall interval is outside the updater.
   The frame drew 248 calls and 1.21M primitives. The pre-settle slow frames are a different

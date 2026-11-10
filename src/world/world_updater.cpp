@@ -63,6 +63,14 @@ WorldUpdater::WorldUpdater()
     initial_mesh_hold_.set_max_sec(hold_max_sec);
     budgets.hold_mesh_min_workers = static_cast<int32_t>(
         latch_seconds_from_env("FARLANDS_HOLD_MESH_MIN_WORKERS", 8.0));
+    // Measurement-only: the admission controller's per-chunk cost model and
+    // its in-flight cap. Lower the cost and raise the cap together to ask what
+    // the feed-forward rate is worth before changing the rule.
+    budgets.generation_work_per_chunk_ms =
+        latch_seconds_from_env("FARLANDS_GEN_WORK_PER_CHUNK_MS", 2.46);
+    const int32_t inflight_override = static_cast<int32_t>(
+        latch_seconds_from_env("FARLANDS_GEN_MAX_INFLIGHT", 0.0));
+    budgets.generation_max_in_flight = inflight_override > 0 ? inflight_override : 0;
     // The held drain uploads at most this many completed meshes per frame while
     // the initial-loading latch is up. 512 finishes the held queue inside its
     // quiet window; `FARLANDS_MESH_UPLOADS_LOADING=N` overrides it for an A/B.

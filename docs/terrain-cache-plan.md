@@ -1,7 +1,8 @@
 # Generated-terrain cache: a plan (not implemented)
 
-**Status:** design note, not approved, no code. This records the win and the
-drawback, and the experiment I would run before writing an implementation. If
+**Status:** design note, not approved; the cache codec is not implemented. The
+measurement-only decider below (two admission env switches and an in-RAM memo)
+has run and is recorded in [What paces the 3-worker fill](#what-paces-the-3-worker-fill-measured). If
 the experiment loses, record the result in
 [decisions/README.md](decisions/README.md) rather than growing this file.
 
@@ -61,8 +62,11 @@ loses the canopy this chunk would have written into it.
   old ~3.9 s 16-thread figure is now ~1.85 s. Generation is still about 20.5 s
   of worker time, but the measured 3-worker RD32 chunk load was **18.38 s** and
   end **19.14 s**, not the ~6.8 s the worker arithmetic predicted. The profile
-  below says why: that fill is **pool-capacity-bound**, not install- or
-  admission-paced.
+  below says why: the default controller's 0.9 utilization target lands on the
+  3-worker pool's own throughput, and opening it 70% buys only 8%. That fill is
+  **pool-throughput-bound in its default configuration**, not install- or
+  admission-paced, and its 85% task-busy figure is the controller's target, not
+  a saturation measurement.
   The old 19.84 s/90 s figure was the false `active_uncovered` gate. On 16
   threads generation is about 1.4 s of a ~5.2 s end-to-end fill, so the return is
   small and may not cover the read. **Do not use the 6.8/4.1 s generation-wall
@@ -95,33 +99,76 @@ The 50 ms is not dispatch latency and not install: it is the cap holding ~52
 tasks the pool drains at ~1,100/s. `generate_chunk` alone is 1.05 ms and looks
 like 1.02 of 3 workers; the full worker body averages 1.77 ms (p50 1.9), so
 generation occupies **~1.95 of the 3 workers** and mesh builds add ~0.6: the
-pool is **~85% busy**. The fill is **pool-capacity-bound**, and the in-flight cap
-is a buffer, not a lever.
+pool is **~85% busy**. That 85% is the feed-forward controller's own 90% target
+minus frame-boundary gaps - the allowance is a rate (`workers x frame / 2.46 ms
+x 0.9`) that ignores a task's real cost - so it is not proof of saturation. The
+in-flight cap is a buffer, not a lever; the decider below shows the rate is not
+one either.
 
 Consequences:
 
-- Raising the allowance alone would mostly deepen the same queue (the gate
-  already refuses 42% of frames); the ~15% pool headroom bounds the gain. The cap
-  has to move with the measured drain, not with a constant.
+- Raising the allowance alone does nothing: at 3 workers the cap is 64 and the
+  gate already refuses 42% of frames (2.46 -> 1.8 -> 1.44 ms, cap fixed:
+  **20.32/19.98/20.05 s**). Moving the cap with it buys only **6-8%**
+  (2.46/64 20.36 s, 1.8/128 19.18 s, 1.44/192 18.67 s), so the constant is
+  nearly right here (2.31 ms measured against 2.46) and an admission rewrite is
+  not the big win. That 6-8% is also the headroom a closed-loop rule could
+  chase, at the cost of the main thread's spare time.
 - A feedback rule - admit while the pool is draining and the completed queue is
-  short - is sturdier than a third constant. The 2.46 ms figure was measured at
-  15 workers, where contention makes a chunk dearer.
+  short - would chase at most those 6-8% and needs the main-thread headroom the
+  worst frames showed is scarce; the evidence no longer justifies an admission
+  rewrite. The 2.46 ms figure was measured at 15 workers, where contention makes
+  a chunk dearer (2.31 ms at 3 workers).
 - The formula holds at 5 workers (predicted 11.06 s, measured load 10.91 s) and
   over-predicts at 8 (6.91 s against 7.86 s), where the main thread's install/
   light path becomes the next wall.
 - A block cache removes the 1.05 ms terrain from a 1.9 ms generation task but
   still runs light and the edit map, so it cuts generation work by roughly
-  55-60%. At 3 workers, where the pool is the wall, that is the first measured
-  reason the cache can pay; the hit must still read/decode in less than the
-  terrain it replaces, and the 8-worker result says the install side caps the
-  return.
+  55-60%. A cache alone does NOT pay under the current allowance: the rate stays
+  ~1,100/s whatever a task costs, so the fill would stay near 18 s with the pool
+  half idle. The combined case does: with the in-RAM memo hit path and the cost
+  model at 1.44 with a 192 cap, the second fill is **10.35 s** against
+  **18.87 s** without hits - the 10-11 s estimate, bounded above the ~7.9 s
+  install wall. The hit must still read/decode in less than the terrain it
+  replaces; the memo's hit path is a RAM copy, so the disk codec has the
+  3.4 s / 0.17 ms-per-chunk margin below.
 
-**Consequence:** the 4-core 25% target is plausible but tight. The cache removes
-about 55-60% of a generation task at the pool-bound arm (terrain 1.05 ms of
-1.9 ms; light and the edit map remain), minus the read/decode. If the hit path
-lands near the terrain it replaces, the pool work falls by the cache's share and
-the fill should follow; if decode costs more, it will not. Measure both arms and
-report the hit path's per-chunk cost with the total.
+**Consequence:** the 4-core 25% target is met by the in-RAM hit path: the load
+falls **18.87 -> 10.35 s** (45%), so the 13.8 s bar leaves **3.4 s** of margin
+for reading and decoding the cache - about **0.17 ms per chunk** over the memo's
+own copy. The cache removes about 55-60% of a generation task (terrain 1.05 ms
+of 1.9 ms; light and the edit map remain), minus the read/decode. If decode
+costs more than that margin, the end-to-end win shrinks; measure the real
+codec's per-chunk read/decode against the memo copy.
+
+### The cheap decider (measured)
+
+The two admission knobs are measurement-only environment overrides:
+`FARLANDS_GEN_WORK_PER_CHUNK_MS` (cost model, default 2.46) and
+`FARLANDS_GEN_MAX_INFLIGHT` (cap, default `max(64, workers x 6)`). One pair
+each on the 4-core / 3-worker / RD 32 arm, A (render loop) chunk load:
+
+| Work / cap | Chunk load | Against control |
+|---|---|---|
+| 2.46 / 64 (default) | 20.36 s | - |
+| 1.80 / 128 | 19.18 s | -5.8% |
+| 1.44 / 192 | 18.67 s | -8.3% |
+
+With the cap fixed at 64 the same three work values are 20.32/19.98/20.05 s:
+lowering the cost model alone is refused by the cap. So the admission-only
+ceiling is **6-8%**, not the ~1.7x the rate formula suggests: at 3 workers the
+default controller already sits on the pool's throughput.
+
+The combined case uses `FARLANDS_GEN_MEMO=1`, which stores each chunk's generated
+base (before the edit map, light and solid pass) in a process-wide map, and
+`probes/probe_fill_memo.gd`, which fills once to warm it, calls
+`clear_editor_chunks()`, and fills the same world again. At 1.44/192 with 3
+workers the warm pass (no hits) is **18.87 s** and the hit pass is **10.35 s**
+(-45%). The hit path is still a RAM copy of `ChunkData`, not a disk read/decode,
+so this is the optimistic side of the cache's range; it is enough to justify
+the codec only if the codec stays inside the 0.17 ms/chunk margin above. The
+memo does not replay cross-chunk vegetation writes on a hit (the first pass
+already made them), and it is never enabled without the env var.
 
 ## Drawback
 
@@ -137,8 +184,9 @@ report the hit path's per-chunk cost with the total.
   tail all remain. On 16 threads the current hold already caps the blank at 2 s
   and ends at about 5.2 s; the cache can plausibly shorten the load on
   constrained machines, not the 2 s reveal ceiling, and should not be expected
-  to save seconds on 16 threads. At 3 workers the end is **19.14 s** and the
-  far/mesh tail still dominates it, so the cache's full-fill saving is unmeasured.
+  to save seconds on 16 threads. At 3 workers the memo hit path puts the load at
+  **10.35 s** (18.87 s without hits); the end/far tail beyond that was not
+  captured, so the full-fill saving still needs the real cache's end-to-end arm.
 - **New format, key and invalidation.** A corrupt, stale or partial cache must
   fall back to generation. It must never load wrong blocks, never crash and
   never be treated as save data.
@@ -367,12 +415,13 @@ frames, cache phase totals and hit rate. The proposed go/no-go criteria:
   is off below 12 workers and the 3-worker run already reaches it around 0.30 s,
   so a 25% first-visible target is meaningless. The matched baseline exists: 3
   workers on 4 cores, chunk load **18.38 s** and end **19.14 s**, hold off.
-  Require the cache arm to improve both load and end by at least 25%. That
-  target is conditional on the profile above: the 3-worker fill is pool-bound
-  and a hit removes 1.05 ms of a 1.9 ms generation task. Require the hit path
-  (read + decode + light + edit) to cost less than the terrain it replaces; if
-  it does not, stop. Report the 8-worker arm too, where the install path is the
-  next wall.
+  The in-RAM decider already clears the load half: **10.35 s** against
+  **18.87 s** (45%), so the 13.8 s bar leaves **3.4 s** - about **0.17 ms per
+  chunk** - for the disk read and decode over the memo's own copy. Require the
+  cache arm to improve both load and end by at least 25%, and require the hit
+  path (read + decode + light + edit) to stay inside that margin; if it does
+  not, stop. Report the 8-worker arm too, where the install path is the next
+  wall.
 - 6 cores: load improves by at least 15%.
 - 16 threads: end is no worse than the current hold (~5.2 s on this machine)
   and first visible is no worse; hit rate is at least 90% of the fill's installs.

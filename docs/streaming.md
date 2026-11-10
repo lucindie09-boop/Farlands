@@ -1337,12 +1337,21 @@ it — are in [lod-modes.md](lod-modes.md).
   1.9 ms (1.77 mean) because the worker body also runs the light pass (0.51 ms), the edit
   map (0.19) and `compute_fully_solid`, so generation occupies **~1.95 of the 3 workers**
   - the 1.02 figure counted only `generate_chunk` - and mesh builds add ~0.6: the pool is
-  **~85% busy**. The fill is **pool-capacity-bound**, and the 64-chunk in-flight cap is a
-  buffer, not a lever: raising the allowance alone would mostly deepen the same 50 ms
-  wait, and the ~15% pool headroom bounds what any pacing change can recover. The formula
-  holds at 5 workers (predicted 11.06 s, measured load **10.91 s**) and over-predicts at
-  8 (6.91 s against **7.86 s**), where the main thread's install path becomes the next
-  wall.
+  **~85% busy**. That 85% is the feed-forward controller's own 90% target minus the gaps
+  a frame boundary adds: the allowance is a rate (`workers x frame / 2.46 ms x 0.9`) and
+  does not follow a task's real cost, so task-busy time alone is not proof that the pool
+  is saturated. The cheap decider separates the two readings. With the 64-chunk cap fixed,
+  lowering the cost model alone changes nothing (2.46/1.8/1.44 ms: **20.32/19.98/20.05 s**)
+  because the cap refuses the extra allowance; moving the cap with it buys **8.3%**
+  (2.46/64 **20.36 s**, 1.8/128 **19.18 s**, 1.44/192 **18.67 s**, one pair each in the
+  same session), so the 0.9 target already sits on the 3-worker pool's throughput. The
+  constant is nearly right at this worker count (1.77 ms generation + 0.54 ms mesh
+  amortized = 2.31 against 2.46), and a closed-loop rule chasing 100% would spend
+  main-thread headroom for that 6-8%. The formula holds at 5 workers (predicted 11.06 s,
+  measured load **10.91 s**) and over-predicts at 8 (6.91 s against **7.86 s**), where the
+  main thread's install path becomes the next wall. The case where the rate stops being
+  the question is the cache: with the in-RAM memo hit path at the same 1.44/192 setting
+  the second fill is **10.35 s** against **18.87 s** without hits.
   The old 19.84 s/90 s no-end figure was the
   probe's `active_uncovered` gate: at 300 s it stayed flat at **92** with no pending work,
   while `Unrendered` stayed **0** and 608 instances drew. Those 92 are far chunks whose region

@@ -1,6 +1,6 @@
 # Probes: proving claims a unit test cannot make
 
-Most of this engine is testable headlessly — 771 doctest cases cover the mesher,
+Most of this engine is testable headlessly — 778 doctest cases cover the mesher,
 the resolver, the fluid rules, the planner and the save formats. A probe is for
 what is left: the real loaded registry, the real texture array, the real world,
 and what actually reaches the screen.

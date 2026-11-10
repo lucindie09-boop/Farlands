@@ -1,4 +1,5 @@
 ﻿#include "mesh/mesh_manager_internal.hpp"
+#include "mesh/mesh_resource_release.hpp"
 
 #include <algorithm>
 
@@ -115,14 +116,8 @@ void MeshManager::process_completed_meshes(uint64_t epoch, double budget_ms, int
         render_data->dirty_subchunks &= ~completed.dirty_subchunks;
 
         if (completed.mesh_data.empty && completed.water_mesh_data.empty) {
-            if (render_data->mesh_rid.is_valid()) {
-                rs->free_rid(render_data->mesh_rid);
-                render_data->mesh_rid = RID();
-            }
-            if (render_data->instance_rid.is_valid()) {
-                rs->free_rid(render_data->instance_rid);
-                render_data->instance_rid = RID();
-            }
+            release_mesh_resources(render_data->mesh_rid, render_data->instance_rid,
+                                   [rs](RID rid) { rs->free_rid(rid); });
             const bool had_far_cache = static_cast<bool>(render_data->far_mesh_cache);
             render_data->far_mesh_cache.reset();
             if (had_far_cache) {

@@ -20,6 +20,25 @@ namespace VoxelEngine {
 //
 // The caller owns the two windows: they are env-overridable for measurement,
 // and the shipping defaults are a 30 s cap and a 1 s quiet exit.
+// The hold is not a mode: it exists only until the FIRST chunk-load settle.
+// `chunk_load_done` is recomputed every frame, so keying the hold directly to it
+// would re-arm during a later flight and pause edits/light remeshes with the
+// chunk load. This keeps the one-shot decision testable on its own.
+class InitialMeshHold {
+public:
+    // `enabled` is the configured switch; call once per frame before the mesh
+    // stages. The first settle disarms the hold for the rest of this world.
+    [[nodiscard]] bool active(bool enabled, bool chunk_load_done) {
+        if (chunk_load_done) armed_ = false;
+        return enabled && armed_ && !chunk_load_done;
+    }
+
+    void reset() { armed_ = true; }
+
+private:
+    bool armed_ = true;
+};
+
 class LoadingLatch {
 public:
     LoadingLatch(double cap_sec = 30.0, double quiet_sec = 1.0)

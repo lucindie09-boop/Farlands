@@ -240,6 +240,10 @@ private:
     // measurement (FARLANDS_LOADING_LATCH_MAX_SEC / _QUIET_SEC), parsed in the
     // constructor with the shipping 30 s / 1 s defaults.
     LoadingLatch initial_loading_latch_;
+    // The hold is one-shot: it ends at the first chunk-load settle, not every
+    // time a later flight leaves and re-enters that state. Pinned by
+    // tests/test_loading_latch.cpp.
+    InitialMeshHold initial_mesh_hold_;
 
     GenerationStats generation_stats;
 

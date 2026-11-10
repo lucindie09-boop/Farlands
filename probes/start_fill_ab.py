@@ -49,6 +49,10 @@ LOADED_RE = re.compile(
 )
 FRAME_RE = re.compile(r"PROBE fill frame avg=[0-9.]+ms load_avg=([0-9.]+)ms")
 PROCESS_RE = re.compile(r"PROBE fill phase process_total total=([0-9.]+)s")
+FIRST_RE = re.compile(
+    r"PROBE fill first chunk_load=(-?[0-9.]+)s upload=(-?[0-9.]+)s "
+    r"visible=(-?[0-9.]+)s visible50=(-?[0-9.]+)s visible90=(-?[0-9.]+)s target=(\d+)"
+)
 # The probe prints this header when the flight starts and again, with frames=,
 # when it ends; requiring frames= keeps the header out of the match.
 LATCH_RE = re.compile(
@@ -65,7 +69,8 @@ LATCH_RE = re.compile(
 FIELDS = [
     "pair", "order", "arm", "label", "loaded_s", "mesh_s", "far_s", "end_s",
     "tail_s", "samples", "frames", "load_avg_ms", "process_total_s", "worst_ms",
-    "slow", "run_s", "log",
+    "slow", "chunk_load_s", "first_upload_s", "first_visible_s", "visible_50_s",
+    "visible_90_s", "visible_target", "run_s", "log",
     "latch_on_s", "latch_end_s", "latch_frames", "latch_mean_ms", "latch_p99_ms",
     "latch_worst_ms", "latch_slow", "late_frames", "late_mean_ms", "late_p99_ms",
     "late_worst_ms", "late_slow", "gens", "budget_start", "budget_end",
@@ -199,7 +204,7 @@ def parse_output(text: str, latch: bool = False) -> dict | None:
     match = matches[-1]
     loaded = float(match[0])
     end = float(match[3])
-    return {
+    row = {
         "loaded_s": loaded,
         "mesh_s": float(match[1]),
         "far_s": float(match[2]),
@@ -211,7 +216,24 @@ def parse_output(text: str, latch: bool = False) -> dict | None:
         "slow": int(match[7]),
         "load_avg_ms": float(frame.group(1)),
         "process_total_s": float(process.group(1)),
+        "chunk_load_s": -1.0,
+        "first_upload_s": -1.0,
+        "first_visible_s": -1.0,
+        "visible_50_s": -1.0,
+        "visible_90_s": -1.0,
+        "visible_target": 0,
     }
+    first = FIRST_RE.search(text)
+    if first is not None:
+        row.update({
+            "chunk_load_s": float(first.group(1)),
+            "first_upload_s": float(first.group(2)),
+            "first_visible_s": float(first.group(3)),
+            "visible_50_s": float(first.group(4)),
+            "visible_90_s": float(first.group(5)),
+            "visible_target": int(first.group(6)),
+        })
+    return row
 
 
 def run_one(label: str, arm: str, out_dir: Path, timeout_s: int, base_env: dict,
@@ -402,6 +424,11 @@ def build_summary(args: argparse.Namespace, out_dir: Path, commit: str,
         metric_block(lines, "loaded", "s", 2, a_rows, b_rows, "loaded_s")
         metric_block(lines, "end", "s", 2, a_rows, b_rows, "end_s")
         metric_block(lines, "tail", "s", 2, a_rows, b_rows, "tail_s")
+        metric_block(lines, "chunk load", "s", 2, a_rows, b_rows, "chunk_load_s")
+        metric_block(lines, "first upload", "s", 2, a_rows, b_rows, "first_upload_s")
+        metric_block(lines, "first visible", "s", 2, a_rows, b_rows, "first_visible_s")
+        metric_block(lines, "visible 50%", "s", 2, a_rows, b_rows, "visible_50_s")
+        metric_block(lines, "visible 90%", "s", 2, a_rows, b_rows, "visible_90_s")
         metric_block(lines, "frames", "", 0, a_rows, b_rows, "frames")
         metric_block(lines, "load_avg", "ms", 2, a_rows, b_rows, "load_avg_ms")
         metric_block(lines, "process_total", "s", 2, a_rows, b_rows, "process_total_s")

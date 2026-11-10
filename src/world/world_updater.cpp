@@ -272,7 +272,8 @@ void WorldUpdater::process_mesh_budgets(bool is_editor, uint64_t epoch, uint64_t
         initial_loading_latch_.tick(delta, chunk_load_done, pending_mesh);
     const bool pipelines_busy = generating_count > 0 || completed_count > 0 || pending_mesh;
 
-    const bool hold_mesh = budgets.hold_mesh_until_load_done && !chunk_load_done;
+    const bool hold_mesh =
+        initial_mesh_hold_.active(budgets.hold_mesh_until_load_done, chunk_load_done);
     int32_t mesh_rebuild_budget = 0;
     int32_t upload_budget = 0;
     if (is_initial_loading) {
@@ -415,6 +416,7 @@ void WorldUpdater::clear() {
     // again when those chunks load.
     fluid_sim.clear();
     initial_loading_latch_.reset();
+    initial_mesh_hold_.reset();
     sweep_columns.clear();
     carry_bands.clear();
     carry_ready.clear();

@@ -115,8 +115,14 @@ struct FrameBudgets {
     int32_t max_mesh_completions_per_frame = 16;
     int32_t loading_threshold = 500;
     // The shipping initial-fill path holds mesh completion and upload until the
-    // chunk map settles, then drains the held work at 512/512. The old overlap
-    // path is available with `FARLANDS_HOLD_MESH_UNTIL_LOADED=0` for an A/B arm.
+    // chunk map settles, then drains the held work at 512/512. It is one-shot:
+    // later chunk-load busy periods must not re-arm it and pause edits/light
+    // remeshes. The old overlap path is available with
+    // `FARLANDS_HOLD_MESH_UNTIL_LOADED=0` for an A/B arm. The price is measured:
+    // first terrain at the settle (3.95 s on the 16-thread machine, 7.9 s on 6
+    // cores and 11.9 s on 4, against 0.3-0.6 s for the overlap path), while the
+    // end moves ~0.7 s sooner on 16/6 cores and is a wash on 4. The policy
+    // choice is separate from the one-shot fix (docs/streaming.md).
     bool hold_mesh_until_load_done = true;
 
     // Entries the unload scan visits per pass. It walks the whole map, so this is

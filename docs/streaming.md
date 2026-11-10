@@ -1329,16 +1329,19 @@ it — are in [lod-modes.md](lod-modes.md).
   7.85 s first visible and a 0.69 s end win; it also ran 15 workers on 6 logical processors, so
   its magnitudes were oversubscribed. The **4-core, 3-worker** arm is an end-to-end comparison
   with the corrected `Unrendered` gate: the matched hold-off control reaches chunk
-  load **18.38 s** and end **19.13-19.14 s**. A `FILL_TRACE=1 --workers 3` trace with
-  the hold inert (`.freebuff/fill_trace_3w`) says where that wall sits: `generate_chunk`
-  is **19.81 s over 18,832 chunks** (1.05 ms each), but only **1.02 of the 3 workers**
-  are busy on it (`workers_load` 1.08), the completed queue averages **10.2**, and the
-  generating set sits at **52 of its 64-chunk cap** while the in-flight gate closes on
-  **3,174 of 7,505** frames. The 20,230 installs in 18.37 s are **1,101/s**, which is
-  `workers x 0.9 / 2.46 ms` = 1,098/s: the feed-forward admission rate, not the pool
-  (three workers at the measured 1.05 ms could produce ~2,857/s). So at 3 workers the
-  fill is **admission-paced** - neither worker-bound nor install-bound - and a cache
-  that removes generation cannot shorten it until the pacing is fed the measured cost.
+  load **18.38 s** and end **19.13-19.14 s**. A `FARLANDS_GEN_PROFILE=1` run on the same
+  4-core/3-worker arm (`.freebuff/fill_path_3w`) splits a chunk's trip: wait (admit ->
+  worker start) p50 **50.4 ms**, work (start -> finish) p50 **1.9 ms**, drain (finish ->
+  install) p50 **1.5 ms**, total p50 **60.3 ms**. The wait is queue residence, not a wake
+  bug: Little's law on the **52**-deep in-flight set at 1,101/s predicts ~47 ms. Work is
+  1.9 ms because the worker body also runs the light pass (0.51 ms), the edit map (0.19)
+  and `compute_fully_solid`, so generation occupies **2.1 of the 3 workers** - the
+  1.02 figure counted only `generate_chunk` - and mesh builds add ~0.6. The pool is ~90%
+  busy, the fill is **pool-capacity-bound**, and the 64-chunk in-flight cap is a buffer,
+  not a lever: raising the allowance alone would deepen the same 50 ms wait. The formula
+  holds at 5 workers (predicted 11.06 s, measured load **10.91 s**) and over-predicts at
+  8 (6.91 s against **7.86 s**), where the main thread's install path becomes the next
+  wall.
   The old 19.84 s/90 s no-end figure was the
   probe's `active_uncovered` gate: at 300 s it stayed flat at **92** with no pending work,
   while `Unrendered` stayed **0** and 608 instances drew. Those 92 are far chunks whose region

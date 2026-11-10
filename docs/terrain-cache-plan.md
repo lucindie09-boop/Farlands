@@ -60,13 +60,14 @@ loses the canopy this chunk would have written into it.
   16-thread blank 1.85 s (first visible) and the 6-core blank 2.11 s, while the
   old ~3.9 s 16-thread figure is now ~1.85 s. Generation is still about 20.5 s
   of worker time, but the measured 3-worker RD32 chunk load was **18.38 s** and
-  end **19.14 s**, not the ~6.8 s the worker arithmetic predicted. The trace
-  below says why: that fill is **admission-paced**, not worker- or install-bound.
+  end **19.14 s**, not the ~6.8 s the worker arithmetic predicted. The profile
+  below says why: that fill is **pool-capacity-bound**, not install- or
+  admission-paced.
   The old 19.84 s/90 s figure was the false `active_uncovered` gate. On 16
   threads generation is about 1.4 s of a ~5.2 s end-to-end fill, so the return is
   small and may not cover the read. **Do not use the 6.8/4.1 s generation-wall
-  arithmetic as a cache estimate; at 3 workers the admission rate sets the
-  floor, and at 16 the install path does.**
+  arithmetic as a cache estimate; at 3 workers the shared pool sets the floor,
+  and at 16 the install path does.**
 - **It keeps the existing pipeline.** A cache hit still occupies a scheduler
   claim and a completed-chunk slot. Install, light fix-ups, dirty-mesh fan-out,
   edit maps and the hold all run exactly as they do for a generated chunk.
@@ -80,35 +81,46 @@ loses the canopy this chunk would have written into it.
 
 ### What paces the 3-worker fill (measured)
 
-A single `FILL_TRACE=1 --workers 3` run on 4 cores with the hold inert
-(`.freebuff/fill_trace_3w`; chunk load **18.37 s**, end **19.37 s**, inside the
-18.38/19.14 baseline's session drift) settles what a cache would remove. The
-margins below are far outside run-to-run drift:
+`FARLANDS_GEN_PROFILE=1` on the same 4-core/3-worker arm (20,230 chunks,
+`.freebuff/fill_path_3w`) splits a chunk's trip through the pipeline:
 
-| Counter | Value | Reading |
+| Segment | p50 | Meaning |
 |---|---|---|
-| `generate_chunk` | 19.81 s / 18,832 calls, 1.05 ms each | 19.8 s of work in an 18.4 s window |
-| worker concurrency | **1.02 of 3** (`workers_load` 1.08) | two-thirds of the pool idle |
-| generating set | avg **52**, max 79, cap **64** (`max(64, 3 x 6)`) | the set waits at its cap |
-| completed queue | avg **10.2** | install keeps up |
-| admission gate closed | **3,174 of 7,505** frames | the cap, not the pool, refuses work |
-| installs | 20,230 / 18.37 s = **1,101/s** | = `3 x 0.9 / 2.46 ms` = 1,098/s |
+| wait (admit -> start) | **50.4 ms** | queue residence behind the 64-chunk in-flight cap |
+| work (start -> finish) | **1.9 ms** | terrain 1.05 + light 0.51 + edit 0.19 + solid |
+| drain (finish -> install) | **1.5 ms** | completed queue + install |
+| total | **60.3 ms** | = 52 in flight / 1,101 per s by Little's law |
 
-The per-frame allowance is `workers x frame / 2.46 ms x 0.9`, so the rate is
-`workers x 0.9 / 2.46 ms` at any frame rate. At the measured 1.05 ms a chunk,
-three workers could produce ~2,857/s; the fill gets 1,101/s. The constant was
-measured at 15 workers, where contention is real, and under-admits by about
-2.3x at three. The completed queue staying near-empty says this is not the
-16-thread install-bound shape either.
+The 50 ms is not dispatch latency and not install: it is the cap holding ~52
+tasks the pool drains at ~1,100/s. `generate_chunk` alone is 1.05 ms and looks
+like 1.02 of 3 workers; the full worker body is 1.9 ms, so generation occupies
+**2.1 of the 3 workers** and mesh builds add ~0.6. The pool is ~90% busy: the
+fill is **pool-capacity-bound**, and the in-flight cap is a buffer, not a lever.
 
-**Consequence:** a block cache cannot reach the 4-core 25% target on its own. It
-removes worker work the fill is not waiting for, and a hit still takes an
-admission slot, so the wall stays at ~1,100 installs/s. Either the pacing is
-fixed first - derive the per-chunk cost from the active worker count, or admit
-from the measured completion rate - and the 4-core baseline is re-measured, or
-the 4-core criterion is unmeasurable in the cache's favour. Correcting the
-admission is a standalone, cache-free experiment, and at 3 workers it is worth
-more than anything the cache can return.
+Consequences:
+
+- Raising the allowance alone would deepen the same queue (the gate already
+  refuses 42% of frames). The cap has to move with the measured drain, not with
+  a constant.
+- A feedback rule - admit while the pool is draining and the completed queue is
+  short - is sturdier than a third constant. The 2.46 ms figure was measured at
+  15 workers, where contention makes a chunk dearer.
+- The formula holds at 5 workers (predicted 11.06 s, measured load 10.91 s) and
+  over-predicts at 8 (6.91 s against 7.86 s), where the main thread's install/
+  light path becomes the next wall.
+- A block cache removes the 1.05 ms terrain from a 1.9 ms generation task but
+  still runs light and the edit map, so it cuts generation work by roughly
+  55-60%. At 3 workers, where the pool is the wall, that is the first measured
+  reason the cache can pay; the hit must still read/decode in less than the
+  terrain it replaces, and the 8-worker result says the install side caps the
+  return.
+
+**Consequence:** the 4-core 25% target is plausible but tight. The cache removes
+about 55-60% of a generation task at the pool-bound arm (terrain 1.05 ms of
+1.9 ms; light and the edit map remain), minus the read/decode. If the hit path
+lands near the terrain it replaces, the pool work falls by the cache's share and
+the fill should follow; if decode costs more, it will not. Measure both arms and
+report the hit path's per-chunk cost with the total.
 
 ## Drawback
 
@@ -142,8 +154,9 @@ more than anything the cache can return.
   Cutting the worker's light slice by 13% made the fill 0.7 s **slower**, because
   the workers finished ahead of the install budget and the completion queue grew
   (`drain` 52 -> 81-105 ms); at 16 threads the load is install-bound, not
-  generation-bound. At 3 workers the trace above puts the wall on admission
-  instead, and the cache removes work the fill is not waiting for at all.
+  generation-bound. At 3 workers the profile above puts the wall on the shared
+  pool (generation 2.1 workers + mesh 0.6), so the cache removes terrain from a
+  task that is still 1.9 ms long.
   A cache is the same event on a larger scale: it removes generator work and
   hands the main thread the same installs sooner. The old "~1 s saving at 16
   threads" is therefore not a forecast; the cache has to shorten the end-to-end
@@ -180,8 +193,13 @@ can still go lower. Measure the actual encoded pack bytes before choosing the ca
   the light rules or a block property that changes the base. A manual bump can
   be forgotten, so it is not the guard:  `tests/test_worldgen_digest.cpp`
   regenerates fixed chunks and hashes coarse per-block-ID counts plus the
-  cross-chunk spill counts against a checked-in value. A red digest is the
-  instruction to bump the constant. Keep the version as one named constant shared by the test and the
+  cross-chunk spill counts against a checked-in value. Three rows are hashed
+  (a hills surface, the floor and an ocean column), so bedrock and the
+  below-sea path are covered too. A red digest is the instruction to bump the
+  constant. Coarse counts are not immune to a one-cell shift - a moved surface
+  cell changes two counts by +/-1 - so the digest runs in the Linux, Windows and
+  macOS jobs; if one platform goes red without a generator change, quantize
+  (count >> 6) before mixing rather than encoding a platform. Keep the version as one named constant shared by the test and the
   cache key, not a literal repeated in two places;
 - the seed and the `TerrainParams` fields `world.meta` persists (sea level,
   bedrock, caves, subsurface cover, climate scales, biome size);
@@ -349,10 +367,11 @@ frames, cache phase totals and hit rate. The proposed go/no-go criteria:
   so a 25% first-visible target is meaningless. The matched baseline exists: 3
   workers on 4 cores, chunk load **18.38 s** and end **19.14 s**, hold off.
   Require the cache arm to improve both load and end by at least 25%. That
-  target is conditional on the trace above: the 3-worker fill is paced by
-  admission, not generation, so a cache alone cannot reach it. Fix the pacing
-  first and re-baseline, or state this criterion as cache **plus** admission
-  and report both arms.
+  target is conditional on the profile above: the 3-worker fill is pool-bound
+  and a hit removes 1.05 ms of a 1.9 ms generation task. Require the hit path
+  (read + decode + light + edit) to cost less than the terrain it replaces; if
+  it does not, stop. Report the 8-worker arm too, where the install path is the
+  next wall.
 - 6 cores: load improves by at least 15%.
 - 16 threads: end is no worse than the current hold (~5.2 s on this machine)
   and first visible is no worse; hit rate is at least 90% of the fill's installs.

@@ -16,6 +16,7 @@
 #include <cstdlib>
 #include <ctime>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -64,32 +65,77 @@ std::string key_directory(uint64_t key) {
     return text;
 }
 
-// One FileAccess handle per thread. Godot's FileAccess is an instance with its
-// own seek position, so sharing one across workers would interleave seeks. The
-// function-local thread_local keeps the godot-cpp Ref out of namespace scope,
-// where constructing it before gdextension_init would crash the DLL load.
-struct ThreadFile {
-    std::string path;
+// One FileAccess handle per pack, shared by every worker and guarded by that
+// pack's mutex. Godot's FileAccess seek position is per instance, so the lock
+// makes a shared handle safe; it also keeps the engine's CRT at 62 open files
+// instead of 15 workers x 51 packs. The fill walks ~51 packs in a nearest-first
+// spiral, so a per-thread handle cache reopened most reads and paid a handle
+// allocation and cold seek each time. The function-local static keeps the
+// godot-cpp Refs out of namespace scope, where constructing them before
+// gdextension_init would crash the DLL load.
+struct PackFile {
     godot::Ref<FileAccess> file;
+    std::mutex mutex;
 };
 
-ThreadFile& thread_file() {
-    thread_local ThreadFile state;
+struct PackFiles {
+    std::mutex mutex;
+    std::unordered_map<std::string, std::unique_ptr<PackFile>> files;
+};
+
+PackFiles& pack_files() {
+    static PackFiles state;
     return state;
+}
+
+void clear_pack_files() {
+    PackFiles& state = pack_files();
+    const std::lock_guard<std::mutex> lock(state.mutex);
+    state.files.clear();
+}
+
+bool open_pack_files(const std::vector<std::string>& paths) {
+    PackFiles& state = pack_files();
+    const std::lock_guard<std::mutex> lock(state.mutex);
+    state.files.clear();
+    for (const std::string& path : paths) {
+        auto pack = std::make_unique<PackFile>();
+        pack->file = FileAccess::open(String(path.c_str()), FileAccess::READ);
+        if (!pack->file.is_valid()) {
+            state.files.clear();
+            return false;
+        }
+        state.files.emplace(path, std::move(pack));
+    }
+    return true;
 }
 
 bool read_pack_bytes(const std::string& path, uint64_t offset, size_t size,
                      std::vector<uint8_t>& out) {
-    ThreadFile& state = thread_file();
-    if (state.path != path || !state.file.is_valid()) {
-        state.path = path;
-        state.file = FileAccess::open(String(path.c_str()), FileAccess::READ);
+    PackFile* pack = nullptr;
+    {
+        PackFiles& state = pack_files();
+        const std::lock_guard<std::mutex> lock(state.mutex);
+        const auto found = state.files.find(path);
+        if (found != state.files.end()) pack = found->second.get();
     }
-    if (!state.file.is_valid()) return false;
-    state.file->seek(offset);
+
+    if (pack == nullptr) {
+        // `cache.meta` is read before the pack indexes; it is not a pack, so
+        // serve that one file with a temporary handle.
+        const godot::Ref<FileAccess> file = FileAccess::open(String(path.c_str()), FileAccess::READ);
+        if (!file.is_valid()) return false;
+        file->seek(offset);
+        out.resize(size);
+        if (size == 0) return true;
+        return file->get_buffer(out.data(), static_cast<uint64_t>(size)) == size;
+    }
+
+    const std::lock_guard<std::mutex> lock(pack->mutex);
+    pack->file->seek(offset);
     out.resize(size);
     if (size == 0) return true;
-    return state.file->get_buffer(out.data(), static_cast<uint64_t>(size)) == size;
+    return pack->file->get_buffer(out.data(), static_cast<uint64_t>(size)) == size;
 }
 
 uint64_t file_size_bytes(const std::string& path) {
@@ -224,6 +270,11 @@ bool TerrainCache::ensure_open(const TerrainParams& params) {
         total_bytes += bytes;
     }
     std::sort(pack_paths.begin(), pack_paths.end());
+    if (!open_pack_files(pack_paths)) {
+        key_ = 0;
+        root_.clear();
+        return false;
+    }
 
     bool manifest_ok = false;
     uint64_t created_unix = static_cast<uint64_t>(std::time(nullptr));
@@ -260,7 +311,9 @@ bool TerrainCache::ensure_open(const TerrainParams& params) {
 
     enforce_cache_cap(root_, total_bytes);
 
-    return reader_.open(root_, key_, pack_paths, read_pack_bytes);
+    const bool opened = reader_.open(root_, key_, pack_paths, read_pack_bytes);
+    if (!opened) clear_pack_files();
+    return opened;
 }
 
 void TerrainCache::close() {
@@ -270,6 +323,7 @@ void TerrainCache::close() {
     }
     reader_.close();
     reader_.reset_stats();
+    clear_pack_files();
     key_ = 0;
     root_.clear();
     attempted_ = false;

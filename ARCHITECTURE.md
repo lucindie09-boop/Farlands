@@ -806,11 +806,11 @@ The following code remains in the codebase but is disabled or unused:
   `terrain_cache_writer.hpp/cpp` — generated-terrain cache codec, reader and writer: the
   Godot-free FNV key, palette-section/chunk payloads with spill lists, 8x8 pack headers and
   indexes with per-chunk/per-index CRCs, the `cache.meta` manifest, a reader that loads only the
-  indexes and then reads each chunk payload by offset, and a writer that stages encoded chunks
-  per region, merges a region's existing pack and bounds staging by idle time and size. No Godot
-  types in these files; `src/world/terrain_cache.{hpp,cpp,write.cpp}` is the adapter. Off by
-  default: the phase-4 A/B measured 11.4%/4.6%/6.3% load gains at 4/6/16 threads and rejected
-  default enablement ([plan](docs/terrain-cache-plan.md)).
+  indexes and then reads each chunk payload by offset from one shared per-pack handle, and a
+  writer that stages encoded chunks per region, merges a region's existing pack and bounds
+  staging by idle time and size. No Godot types in these files; `src/world/terrain_cache.{hpp,cpp,write.cpp}`
+  is the adapter. Off by default: the phase-4 A/B measured 23.4%/13.7%/5.2% load gains at
+  4/6/16 threads and rejected default enablement ([plan](docs/terrain-cache-plan.md)).
 - `src/core/chunk_map.hpp` + `shard_lock.hpp` / `chunk_map_inline.hpp` — Sharded locking,
   `lock_keys_exclusive`, auto-locking methods. `shard_lock.hpp` holds `kShardCount` (with a
   `static_assert` tying it to the lock-order checker's 64-bit bitset) and the RAII guards

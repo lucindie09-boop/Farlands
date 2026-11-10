@@ -6,17 +6,18 @@ holds the key/section/pack codec; `terrain_cache_manifest.*` and
 `terrain_cache_reader.*` load `cache.meta` and every pack's trailing index into
 RAM, then read a chunk payload by offset; `terrain_cache_writer.*` stages encoded
 chunks per 8x8 region and merges each region's existing pack. `src/world/terrain_cache.*`
-supplies the key, pack discovery, a per-thread `FileAccess`, the 512 MiB
-least-recently-used world cap and the pool write. `ChunkWorld::generate_chunk`
-uses a hit before generating and falls back on any miss; a miss stages the
-generator's own answer before the edit map, light and solid flags.
-`ChunkWorld::process_completed_chunks` ticks the writer, and a world reset closes
-both halves. The switch stays `FARLANDS_TERRAIN_CACHE=1`, off by default. The
-phase-4 matrix (5 AB/BA pairs at 4 and 16 threads, 4 complete pairs at 6,
-`--vsync`, cache rebuilt before every pair) is below: **11.4% load / 10.1% end at
-4 cores** (25% bar), **4.6% / 3.7% at 6** (15% bar) and **6.3% / 6.5% at 16**
-(no regression). The read and decode return most of the generation they
-remove, so the cache is not worth its disk, invalidation and parity surface.
+supplies the key, pack discovery, one shared `FileAccess` per pack guarded by a
+per-pack mutex (62 handles, not one per worker), the 512 MiB least-recently-used
+world cap and the pool write. `ChunkWorld::generate_chunk` uses a hit before
+generating and falls back on any miss; a miss stages the generator's own answer
+before the edit map, light and solid flags. `ChunkWorld::process_completed_chunks`
+ticks the writer, and a world reset closes both halves. The switch stays
+`FARLANDS_TERRAIN_CACHE=1`, off by default. The phase-4 matrix (5 AB/BA pairs at
+4, 6 and 16 threads, `--vsync`, cache rebuilt before every pair) is below:
+**23.4% load / 21.5% end at 4 cores** (25% bar), **13.7% / 13.2% at 6** (15% bar)
+and **5.2% / 5.3% at 16** (no regression). The read path is no longer the limit
+(0.33 s at 3 workers, 0.46 s at 15); decode (~4.3-4.5 s) plus the install/tail is
+why the cache is not worth its disk, invalidation and parity surface.
 The hit/miss parity gate is still open; it is a correctness gate for the
 feature-flagged path, not a reason to ship it. The pool cost is now split by task class:
 chunk mesh first build vs remesh, revision-driven region uploads, light, far and
@@ -299,7 +300,7 @@ At 5 workers on 6 cores the hit is **5.84 s load / 6.10 s end** against
 15 workers on 16 threads the **warm** hit is **3.05 s** against **4.69 s** for
 the warm control's second pass (35%). That is not a cold result: the control's
 second pass is 26% faster than its first, which a fresh process will not have.
-The phase-4 cold-process arm measured **5.92 s against 6.32 s** (6.3%), so the
+The phase-4 cold-process arm measured **6.25 s against 6.59 s** (5.2%), so the
 warm hit plus the ~1.6 s warm-state difference (~4.6 s, about 20-26% below the
 5.75-6.31 s cold first pass) overstated the cold gain.
 
@@ -328,13 +329,14 @@ part of the hit; it is never enabled without the env var.
   tail all remain. On 16 threads the current hold caps the blank at 2 s and the
   end at about 5.2 s; the **warm** memo hit is **3.05 s** against **4.69 s** for
   the warm second pass, so the reveal ceiling is the hold, not the fill. That is
-  not a cold result; phase 4 ran the cold-process arm: **5.92 s against 6.32 s**
-  (6.3%). At 3 workers the faithful memo hit is **10.06 s load / 10.32 s end**
+  not a cold result; phase 4 ran the cold-process arm: **6.25 s against 6.59 s**
+  (5.2%). At 3 workers the faithful memo hit is **10.06 s load / 10.32 s end**
   against **18.10 s** without hits; at 5 workers **5.84 / 6.10 s** against
   **11.12 / 11.13 s**. A no-edit 3-worker world is **8.05 / 8.31 s** against
   **16.04 s**; the edited world's 381 chunks add about 2.0 s. The real cache's
-  end-to-end arm measured **11.4% / 4.6% / 6.3%** at 4 / 6 / 16 threads, so the
-  read/decode cost, not generation, is why the saving is small.
+  end-to-end arm measured **23.4% / 13.7% / 5.2%** at 4 / 6 / 16 threads. The
+  read is only 0.33-0.46 s; decode plus the install/tail is why the saving is
+  small.
 - **Edit maps are paid on a hit.** The benchmark world has 381 edited chunks;
   at 10-16 ms each that is ~4.9 s of worker CPU, about 2.0 s of the 3-worker
   hit (edited 10.06 vs no-edit 8.05 s). The reset clears `chunk_edit_maps` and
@@ -367,8 +369,8 @@ part of the hit; it is never enabled without the env var.
 - **The 16-core return may be negative in a cold boot.** The warm hit saves
   **1.6 s** against the warm second pass (4.69 -> 3.05 s), but a cold process
   will not have the 26% warm control gain; the phase-4 cold arm measured
-  **5.92 s against 6.32 s (6.3%)**, so the saving survived but is small. The
-  constrained arms are worse (11.4% at 4 cores, 4.6% at 6), so neither case
+  **6.25 s against 6.59 s (5.2%)**, so the saving survived but is small. The
+  constrained arms are worse (23.4% at 4 cores, 13.7% at 6), so neither case
   justifies default use.
 
 ## Size and cost estimate
@@ -480,7 +482,9 @@ files would be ~20,000 seeks and an unpleasant directory.
   `tests/test_terrain_cache_reader.cpp` cover the manifest, missing/corrupt/stale
   data, offset reads and concurrent workers.
 - `src/world/terrain_cache.*` owns the key, cache root and pack discovery, and
-  supplies one `FileAccess` per worker thread. The fill is a nearest-first
+  supplies one shared `FileAccess` per pack, guarded by that pack's mutex. The
+  62 handles stay under the engine CRT's 512-file limit even at 15 workers, and
+  a worker does not pay a reopen per pack crossing. The fill is a nearest-first
   spiral that touches nearly every pack early, so an LRU smaller than the
   working set thrashes, and decoding a whole pack on first touch makes the other
   workers wait on it. The pack remains the write and integrity unit; the read
@@ -501,11 +505,11 @@ files would be ~20,000 seeks and an unpleasant directory.
   today; do not build the design on it. Add a small source enum or cache
   counters if the probe needs to distinguish a hit from a generation.
 - Read on workers. The main thread opens the cache and loads the indexes; the
-  worker decides hit or miss. A hit reads its chunk's payload by offset from its
-  own `FileAccess` handle (Godot handles are not shareable across threads),
-  decodes that chunk and returns it; no decoded pack is shared, so no reader
-  lock serialises the workers. The read must not take `file_access_mutex` per
-  chunk, for the same reason the edit-map load stopped doing it.
+  worker decides hit or miss. A hit reads its chunk's payload by offset from the
+  pack's shared `FileAccess` handle under that pack's mutex; workers on
+  different packs do not serialise, and no decoded pack is shared. The read must
+  not take `file_access_mutex` per chunk, for the same reason the edit-map load
+  stopped doing it.
 - The cache hit's light pass uses the same neighbour lookup as generation; the
   install light fix-ups still run. The cache never stores a light result that
   the current key did not produce.
@@ -625,8 +629,8 @@ differ. The proposed go/no-go criteria:
   figure is retired until a cold-process A/B: the control's own second pass is
   26% faster than its cold first pass, so the warm comparison overstates the
   cold gain. Phase 4 ran the engines as fresh processes after preparing the
-  cache and measured **5.92 s against 6.32 s** (6.3%), below the earlier warm
-  estimate. Hit rate is at least 90% of the fill's installs.
+  cache and measured **6.25 s against 6.59 s** (5.2%), below the earlier warm
+  estimate. Hit rate is 1.000 over 20,230 chunks in every cached arm.
 - On one worker, a hit's read + decode is cheaper than the generation it
   replaces. If it is not, stop: the cache is moving CPU to disk, not removing
   work.
@@ -657,7 +661,7 @@ a benchmark metric; otherwise the probe's cache fields are the evidence.
 1. **Key and format.** Pure codec, pack/index encode/decode, section codec,
    key hashing, round-trip and corruption tests. No I/O, no integration.
 2. **Reader.** Manifest and the 51 in-RAM pack indexes; per-chunk payload
-   reads by offset from one file handle per worker; per-chunk decode, with no
+   reads by offset from one shared per-pack handle under its mutex; per-chunk decode, with no
    decoded-pack cache. Scheduler cache-read closure, counters, the environment
    switch off by default. A prepared cache must install and a miss must be
    indistinguishable from today's fill.
@@ -672,34 +676,31 @@ a benchmark metric; otherwise the probe's cache fields are the evidence.
    mid-write must leave a usable partial cache. The hit/miss parity gate still has
    to prove no edit is lost or baked into the base and that a hit's spill replay
    matches a miss's canopy.
-4. **A/B and decision (measured 2026-11-10).** 5 AB/BA pairs at 4 and 16
-   threads and 4 complete pairs at 6; the fifth cache-off run was cut off by
-   the harness timeout, and its cache-on pair was 10.81 s. Each A run was a
-   fresh engine process with a cache rebuilt in the preceding process, so the
-   arm is cold-process; `--vsync` was on.
+4. **A/B and decision (measured 2026-11-10).** 5 AB/BA pairs at 4, 6 and 16
+   threads. Each A run was a fresh engine process with a cache rebuilt in the
+   preceding process, so the arm is cold-process; `--vsync` was on.
 
    | Cores (workers) | Cache load | No-cache load | Load gain | Cache end | No-cache end | End gain |
    |---|---|---|---|---|---|---|
-   | 4 (3) | 14.22 s | 16.05 s | 11.4% | 14.71 s | 16.36 s | 10.1% |
-   | 6 (5) | 10.46 s | 10.97 s | 4.6% | 10.66 s | 11.06 s | 3.7% |
-   | 16 (15) | 5.92 s | 6.32 s | 6.3% | 5.92 s | 6.33 s | 6.5% |
+   | 4 (3) | 12.60 s | 16.44 s | 23.4% | 13.11 s | 16.70 s | 21.5% |
+   | 6 (5) | 9.68 s | 11.22 s | 13.7% | 9.77 s | 11.26 s | 13.2% |
+   | 16 (15) | 6.25 s | 6.59 s | 5.2% | 6.26 s | 6.61 s | 5.3% |
 
    The 4-core bar was 25% and the 6-core bar 15%; both fail. The 16-thread arm
-   does not regress and its hit rate is 1.000 over 20,230 chunks, but 6% does
-   not justify the disk, key and parity surface. First visible was 0.53 / 0.55 s
-   at 4 cores, 0.55 / 0.55 at 6 and 2.13 / 2.14 at 16 (the hold only runs at
-   12+ workers). Slow frames were 148 vs 143 at 4 cores, 145 vs 151 at 6 and
-   66 vs 73 at 16, so no cache-attributable 33 ms frame appears. The reader
-   spent 10.2 s reading and 4.0 s decoding at 3 workers (11.7 / 4.1 s at 5,
-   18.4 / 4.2 s at 15) against 1.05 ms of terrain per chunk removed; the
-   per-chunk read rises from 0.50 ms at 3 workers to 0.91 ms at 15, consistent
-   with the workers contending for the volume. Those reads came from the warm OS cache
-   because the pair's prep had just written the packs; a cold spinning disk can
-   only reduce the gain, so this is the optimistic side. The no-edit-world arm
-   was not run; it would remove the edit-map share from both arms and cannot
-   rescue a 4.6% gain at 6 cores. **Verdict: reject default enablement; leave
-   the code feature-flagged off.** The decision row is in
-   [decisions/README.md](decisions/README.md).
+   does not regress and its hit rate is 1.000 over 20,230 chunks, but 5% does
+   not justify the disk, key and parity surface. The reader now opens one
+   handle per pack and serves reads under a per-pack mutex: 0.33 s at 3 workers
+   (0.016 ms/chunk), 0.36 s at 5 and 0.46 s at 15, against 10.2 s before the
+   handle fix. The earlier 16-thread arm's 0.633 hit rate was 15 workers x 62
+   pack handles over the engine CRT's 512-file limit; the shared per-pack map
+   keeps 62 handles and restores hit 1.000. Decode is 4.27-4.53 s, and the fill
+   is install/tail-bound, so the cache stops at 23.4% / 13.7%. Those reads came
+   from the warm OS cache because the pair's prep had just written the packs; a
+   cold spinning disk can only reduce the gain, so this is the optimistic side.
+   The no-edit-world arm was not run; it would remove the edit-map share from
+   both arms and cannot rescue a 13.7% gain at 6 cores. **Verdict: reject
+   default enablement; leave the code feature-flagged off.** The decision row is
+   in [decisions/README.md](decisions/README.md).
 5. **Only if it wins.** Optional polish: a per-world cap control, a prefetch of
    the next pack, or an optional light cache. Each is its own measured change;
    none is part of the default.

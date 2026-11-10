@@ -93,15 +93,16 @@ loses the canopy this chunk would have written into it.
 
 The 50 ms is not dispatch latency and not install: it is the cap holding ~52
 tasks the pool drains at ~1,100/s. `generate_chunk` alone is 1.05 ms and looks
-like 1.02 of 3 workers; the full worker body is 1.9 ms, so generation occupies
-**2.1 of the 3 workers** and mesh builds add ~0.6. The pool is ~90% busy: the
-fill is **pool-capacity-bound**, and the in-flight cap is a buffer, not a lever.
+like 1.02 of 3 workers; the full worker body averages 1.77 ms (p50 1.9), so
+generation occupies **~1.95 of the 3 workers** and mesh builds add ~0.6: the
+pool is **~85% busy**. The fill is **pool-capacity-bound**, and the in-flight cap
+is a buffer, not a lever.
 
 Consequences:
 
-- Raising the allowance alone would deepen the same queue (the gate already
-  refuses 42% of frames). The cap has to move with the measured drain, not with
-  a constant.
+- Raising the allowance alone would mostly deepen the same queue (the gate
+  already refuses 42% of frames); the ~15% pool headroom bounds the gain. The cap
+  has to move with the measured drain, not with a constant.
 - A feedback rule - admit while the pool is draining and the completed queue is
   short - is sturdier than a third constant. The 2.46 ms figure was measured at
   15 workers, where contention makes a chunk dearer.

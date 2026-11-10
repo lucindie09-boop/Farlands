@@ -1334,11 +1334,12 @@ it — are in [lod-modes.md](lod-modes.md).
   worker start) p50 **50.4 ms**, work (start -> finish) p50 **1.9 ms**, drain (finish ->
   install) p50 **1.5 ms**, total p50 **60.3 ms**. The wait is queue residence, not a wake
   bug: Little's law on the **52**-deep in-flight set at 1,101/s predicts ~47 ms. Work is
-  1.9 ms because the worker body also runs the light pass (0.51 ms), the edit map (0.19)
-  and `compute_fully_solid`, so generation occupies **2.1 of the 3 workers** - the
-  1.02 figure counted only `generate_chunk` - and mesh builds add ~0.6. The pool is ~90%
-  busy, the fill is **pool-capacity-bound**, and the 64-chunk in-flight cap is a buffer,
-  not a lever: raising the allowance alone would deepen the same 50 ms wait. The formula
+  1.9 ms (1.77 mean) because the worker body also runs the light pass (0.51 ms), the edit
+  map (0.19) and `compute_fully_solid`, so generation occupies **~1.95 of the 3 workers**
+  - the 1.02 figure counted only `generate_chunk` - and mesh builds add ~0.6: the pool is
+  **~85% busy**. The fill is **pool-capacity-bound**, and the 64-chunk in-flight cap is a
+  buffer, not a lever: raising the allowance alone would mostly deepen the same 50 ms
+  wait, and the ~15% pool headroom bounds what any pacing change can recover. The formula
   holds at 5 workers (predicted 11.06 s, measured load **10.91 s**) and over-predicts at
   8 (6.91 s against **7.86 s**), where the main thread's install path becomes the next
   wall.

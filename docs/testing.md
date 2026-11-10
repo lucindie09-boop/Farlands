@@ -5,9 +5,13 @@ jobs that run on every push.
 
 ## The suite
 
-- **741 test cases / 363,911 assertions**, declared across 106 of the 108 `.cpp` files in `tests/`
+- **745 test cases / 363,928 assertions**, declared across 107 of the 109 `.cpp` files in `tests/`
   (`test_main.cpp` is the doctest entry point, `mesh_manager_stub.cpp` supplies link stubs, and
   both are picked up by the same `Glob("tests/*.cpp")`)
+- **`test_mesh_resource_release.cpp` pins the free itself**: the three branches that drop a
+  chunk's geometry take an injected callback, so the test asserts both handles are freed and
+  cleared without a RenderingServer. `test_mesh_builder.cpp` still pins the all-air state that
+  opens the branch.
 - **Use `CHECK` / `CHECK_FALSE`, never `REQUIRE` or the `*_MESSAGE` forms**: this build compiles
   doctest with exceptions off, so `REQUIRE`/`REQUIRE_FALSE` expand to a
   `static_assert(false, "Exceptions are disabled!")` — a compile error whose text names the
@@ -112,7 +116,9 @@ jobs that run on every push.
   cross-chunk writers, and thread-pool work stealing
 - **Integration soak tests**: Concurrent pipeline simulation with Phase 4 unload to exercise
   unload vs active work races
-- **Benchmark tool**: 5 hot paths with `--check` regression detection mode
+- **Benchmark tool**: 5 hot paths with `--check` regression detection mode. The generation
+  ceiling is **0.46 ms** (2x the 0.22-0.235 ms measured on 2026-11-10), so the gain that left
+  the old 1.4 ms ceiling behind cannot silently come back; the other five metrics are unchanged
 - **Fuzzing**: 5 libFuzzer harnesses for palette, chunk load, chunk recovery, light propagation,
   and mesh builder
 - **Code coverage**: lcov coverage with integration tests and memory benchmark

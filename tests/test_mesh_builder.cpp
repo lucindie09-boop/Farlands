@@ -44,11 +44,12 @@ TEST_CASE("build mesh for empty chunk") {
 }
 
 // The pop's air branch frees a chunk's RIDs when `!data || data->is_all_air()`
-// (mesh_manager_rebuild.cpp). This standalone build has no RenderingServer, so
-// the free itself cannot run here; what is pinned is the state that opens the
-// branch after the last block of a meshed chunk is removed, and the empty mesh
-// that state must produce. If the chunk stayed non-air, the old RID would stay on
-// screen and the rebuild would emit geometry for a chunk with no blocks.
+// (mesh_manager_rebuild.cpp). The free itself is pinned in
+// test_mesh_resource_release.cpp, which injects the callback; this case pins the
+// state that opens the branch after the last block of a meshed chunk is removed,
+// and the empty mesh that state must produce. If the chunk stayed non-air, the
+// old RID would stay on screen and the rebuild would emit geometry for a chunk
+// with no blocks.
 TEST_CASE("removing the last block leaves the chunk all-air and its mesh empty") {
     BlockRegistry::get_instance().initialize_default_blocks();
     ChunkData chunk;

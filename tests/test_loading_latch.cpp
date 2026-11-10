@@ -6,7 +6,20 @@
 #include "doctest.h"
 #include "world/loading_latch.hpp"
 
+using VoxelEngine::InitialMeshHold;
 using VoxelEngine::LoadingLatch;
+
+TEST_CASE("the initial mesh hold ends at the first settle and never re-arms") {
+    InitialMeshHold hold;
+    CHECK(hold.active(true, false));   // the initial fill holds
+    CHECK_FALSE(hold.active(true, true));  // first chunk-load settle releases it
+    CHECK_FALSE(hold.active(true, false)); // a later flight must not pause meshes again
+    CHECK_FALSE(hold.active(true, false));
+
+    hold.reset();
+    CHECK(hold.active(true, false));   // a new world gets its own one-shot hold
+    CHECK_FALSE(hold.active(false, false));  // the configured switch still wins
+}
 
 TEST_CASE("the latch starts only on a quiet chunk load with mesh pending") {
     LoadingLatch latch;

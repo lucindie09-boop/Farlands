@@ -66,6 +66,25 @@ var stops_backlog_at_load := 0
 # The split of the first 256 frames after the load settled (the far drain), taken
 # then because one average over the whole tail hides which half the wall went to.
 var early_tail_report := ""
+# First visible geometry, the chunk-load settle (before the probe's 1 s stable
+# window), and the in-frustum mesh progress at that settle. Those are the hold's
+# price; `loaded_at` alone cannot show it.
+var chunk_load_at := -1.0
+var first_upload_at := -1.0
+var first_visible_at := -1.0
+var visible_target := 0
+var visible_50_at := -1.0
+var visible_90_at := -1.0
+# In-frustum queue depth per report sample. The 50/90 thresholds are read from
+# this series at the end against its own peak: the per-instance detail counters
+# exclude chunks drawn through a far region, so they cannot answer how much of
+# the view has meshes.
+var visible_series: Array[Dictionary] = []
+var slow_events: Array[Dictionary] = []
+var slow_before_chunk_load := 0
+var slow_after_chunk_load := 0
+var slow_worst_ms := 0.0
+var slow_worst_at := -1.0
 # QUIET_MATCH=a,b limits QUIET to scripts whose path contains one of the parts.
 var _quiet_match: PackedStringArray = []
 
@@ -86,6 +105,15 @@ func _value(report: String, label: String) -> int:
 		if line.contains(label):
 			return int(line.get_slice(":", 1).strip_edges().split(" ")[0])
 	return -1
+
+func _detail_total(report: String) -> int:
+	var line := _report_line(report, "Visible chunk detail:")
+	var total := 0
+	for key in ["full=", "mid=", "far=", "unknown="]:
+		var at := line.find(key)
+		if at >= 0:
+			total += int(line.substr(at + key.length()).get_slice(" ", 0))
+	return total
 
 # "Far uncovered: regions=20 ... active_uncovered=0 ..."
 func _far_uncovered(report: String) -> int:
@@ -402,6 +430,39 @@ func _run() -> void:
 			worst_frame_ms = maxf(worst_frame_ms, frame_ms)
 			if frame_ms > 33.4:
 				slow_frames += 1
+			if frame_ms >= 30.0:
+				var slow_at := float(Time.get_ticks_usec() - start) / 1_000_000.0
+				if slow_at > slow_worst_at:
+					slow_worst_at = slow_at
+					slow_worst_ms = frame_ms
+				if chunk_load_at < 0.0:
+					slow_before_chunk_load += 1
+				else:
+					slow_after_chunk_load += 1
+				# Keep the WORST frames, not the first ones: startup frames are
+				# often slow too, so a first-24 buffer fills before the release
+				# burst and never records the fill's worst frame.
+				var slot := -1
+				if slow_events.size() < 24:
+					slot = slow_events.size()
+				else:
+					var lightest := 0
+					for i in range(1, slow_events.size()):
+						if float(slow_events[i]["ms"]) < float(slow_events[lightest]["ms"]):
+							lightest = i
+					if frame_ms > float(slow_events[lightest]["ms"]):
+						slot = lightest
+				if slot >= 0:
+					var event := {"at": slow_at, "ms": frame_ms,
+						"report": cm.get_slow_frame_report(1, 30.0)}
+					if slot < slow_events.size():
+						slow_events[slot] = event
+					else:
+						slow_events.append(event)
+					# The capture runs between frames, so its cost lands in the NEXT
+					# interval. Without this the report can make an ordinary frame
+					# look slow, and that fake event then captures another report.
+					skip_next_frame = true
 			if loaded_at < 0.0:
 				load_frame_sum += frame_ms
 				load_frame_count += 1
@@ -463,6 +524,13 @@ func _run() -> void:
 		var queue_depth := int(cm.call("get_pending_chunk_mesh_count"))
 		var queue_builds := int(cm.call("get_mesh_queue_builds"))
 		var queue_rejects := int(cm.call("get_mesh_queue_rejects"))
+		var visible_pending := int(cm.call("get_visible_pending_chunk_mesh_count"))
+		var visible_drawn := _detail_total(last_report)
+		var visible_total_now := visible_drawn + visible_pending
+		if first_upload_at < 0.0 and _value(last_report, "Mesh uploads:") > 0:
+			first_upload_at = elapsed
+		if first_visible_at < 0.0 and (_value(last_report, "Visible instances:") > 0 or visible_drawn > 0):
+			first_visible_at = elapsed
 
 		# Settle on the counts alone: a fast idle frame rate (this probe can run at
 		# 1,000 fps headless) makes the old "loaded changed" reset fire every
@@ -470,6 +538,9 @@ func _run() -> void:
 		var load_quiet := loaded >= 500 and generating == 0 and completed == 0
 		if not load_quiet:
 			stable_since = elapsed
+		if chunk_load_at < 0.0 and load_quiet:
+			chunk_load_at = elapsed
+			visible_target = maxi(visible_total_now, visible_drawn)
 		if loaded_at < 0.0 and load_quiet and elapsed - stable_since >= LOADED_STABLE_SECS:
 			loaded_at = elapsed
 			frames_at_load = sampled_frames
@@ -492,6 +563,8 @@ func _run() -> void:
 			tail_queue_sum += float(queue_depth)
 			tail_queue_max = maxi(tail_queue_max, queue_depth)
 			tail_queue_samples += 1
+		if chunk_load_at >= 0.0:
+			visible_series.append({"at": elapsed, "pending": visible_pending})
 		if mesh_at < 0.0 and loaded_at >= 0.0 and not pending_mesh:
 			mesh_at = elapsed
 		if far_at < 0.0 and loaded_at >= 0.0 and not pending_mesh \
@@ -516,6 +589,34 @@ func _run() -> void:
 
 	print("PROBE fill loaded=%.2fs mesh=%.2fs far=%.2fs end=%.2fs samples=%d frames=%d worst=%.2fms slow=%d" % [
 		loaded_at, mesh_at, far_at, final_elapsed, samples, sampled_frames, worst_frame_ms, slow_frames])
+	# Read the in-frustum drain against its own peak: the held arm starts with the
+	# whole visible set queued, the overlap arm peaks somewhere inside the load.
+	if not visible_series.is_empty():
+		var peak := 0
+		var peak_at := 0.0
+		for sample in visible_series:
+			if int(sample["pending"]) > peak:
+				peak = int(sample["pending"])
+				peak_at = float(sample["at"])
+		if peak > 0:
+			visible_target = peak
+			for sample in visible_series:
+				if float(sample["at"]) < peak_at:
+					continue
+				var pending := int(sample["pending"])
+				if visible_50_at < 0.0 and pending * 2 <= peak:
+					visible_50_at = float(sample["at"])
+				if visible_90_at < 0.0 and pending * 10 <= peak:
+					visible_90_at = float(sample["at"])
+	print("PROBE fill first chunk_load=%.3fs upload=%.3fs visible=%.3fs visible50=%.3fs visible90=%.3fs target=%d" % [
+		chunk_load_at, first_upload_at, first_visible_at, visible_50_at, visible_90_at, visible_target])
+	print("PROBE fill slowcount before_chunk_load=%d after_chunk_load=%d slow_worst_at=%.3fs slow_worst_ms=%.2f" % [
+		slow_before_chunk_load, slow_after_chunk_load, slow_worst_at, slow_worst_ms])
+	slow_events.sort_custom(func(a, b): return float(a["at"]) < float(b["at"]))
+	for event in slow_events:
+		print("PROBE fill slow at=%.3fs frame=%.2fms chunk_load=%.3fs loaded=%.3fs report=%s" % [
+			float(event["at"]), float(event["ms"]), chunk_load_at, loaded_at,
+			String(event["report"]).replace("\n", " | ")])
 	print("PROBE fill frame avg=%.2fms load_avg=%.2fms load_max=%.2fms load_slow=%d/%d worst=%.2fms slow=%d/%d" % [
 		final_elapsed * 1000.0 / float(max(1, sampled_frames)),
 		load_frame_sum / float(max(1, load_frame_count)), load_worst_ms,
@@ -529,7 +630,7 @@ func _run() -> void:
 	var tail_wall_ms := (final_elapsed - loaded_at) * 1000.0 if loaded_at >= 0.0 else 0.0
 	print("PROBE fill tail accounting wall=%.0fms frames=%.0fms gaps=%.0fms frames=%d" % [
 		tail_wall_ms, tail_all_frame_ms, tail_wall_ms - tail_all_frame_ms, tail_frames])
-	for label in ["Loaded chunks:", "Chunk meshes:", "Far cached:",
+	for label in ["Loaded chunks:", "Chunk meshes:", "Visible chunk detail:", "Far cached:",
 			"Region empty:", "Region uploads:", "Far uncovered:", "Unrendered:"]:
 		var line := _report_line(last_report, label)
 		if not line.is_empty():

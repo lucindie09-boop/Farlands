@@ -1,4 +1,5 @@
 ﻿#include "mesh/mesh_manager_internal.hpp"
+#include "mesh/mesh_resource_release.hpp"
 #include "core/performance_timer.hpp"
 
 #include <godot_cpp/classes/rendering_server.hpp>
@@ -76,16 +77,10 @@ void MeshManager::rebuild_rendering_server_mesh(int32_t chunk_x, int32_t chunk_y
     // Occlusion culling: skip mesh generation for completely invisible chunks
     if (!render_data->data || render_data->data->is_all_air()) {
         ++mesh_pop_outcomes_.air;
-        if (render_data->mesh_rid.is_valid()) {
+        if (render_data->mesh_rid.is_valid() || render_data->instance_rid.is_valid()) {
             RenderingServer* rs = RenderingServer::get_singleton();
-            RID old_mesh = render_data->mesh_rid;
-            rs->free_rid(old_mesh);
-            render_data->mesh_rid = RID();
-        }
-        if (render_data->instance_rid.is_valid()) {
-            RenderingServer* rs = RenderingServer::get_singleton();
-            rs->free_rid(render_data->instance_rid);
-            render_data->instance_rid = RID();
+            release_mesh_resources(render_data->mesh_rid, render_data->instance_rid,
+                                   [rs](RID rid) { rs->free_rid(rid); });
         }
         render_data->is_mesh_dirty = false;
         render_data->dirty_subchunks = 0;
@@ -153,15 +148,10 @@ void MeshManager::rebuild_rendering_server_mesh(int32_t chunk_x, int32_t chunk_y
             ++mesh_pop_outcomes_.buried;
             {
                 ScopedTimer frees_timer(*perf_timer, TimerID::MeshPopBuriedFrees);
-                if (render_data->mesh_rid.is_valid()) {
+                if (render_data->mesh_rid.is_valid() || render_data->instance_rid.is_valid()) {
                     RenderingServer* rs = RenderingServer::get_singleton();
-                    rs->free_rid(render_data->mesh_rid);
-                    render_data->mesh_rid = RID();
-                }
-                if (render_data->instance_rid.is_valid()) {
-                    RenderingServer* rs = RenderingServer::get_singleton();
-                    rs->free_rid(render_data->instance_rid);
-                    render_data->instance_rid = RID();
+                    release_mesh_resources(render_data->mesh_rid, render_data->instance_rid,
+                                           [rs](RID rid) { rs->free_rid(rid); });
                 }
             }
             // Drop stale LOD/far caches referencing this chunk so the detail

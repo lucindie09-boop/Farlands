@@ -864,6 +864,15 @@ it — are in [lod-modes.md](lod-modes.md).
   read that as the cap doing better on fewer cores: A also counted **22,672 [22,029-22,986]**
   generations against the six-core run's 36,118, so it had less mesh work to leave behind.
   The cap's timing and budget transition are the same; only the workload and frame cost move.
+- **The 30 s cap is still two-state; a middle budget is an untested idea, not a shipped one.**
+  The cap selects the loading 512/128/1000 ms budgets, then the gameplay 8/32/0.35 ms budgets.
+  The six- and four-core latch runs above price that trade: late p99 **26 vs 48 ms** at 6 cores
+  and **45 vs 59 ms** at 4 cores, against **14.3k / 10.3k** chunks left queued and **2.8k /
+  1.8k** of them in view. A middle or millisecond-based budget would need its own 36 s-flight
+  A/B; the backlog-proportional count was tried and reverted (its note is above), and the cap
+  windows are already env-overridable (`FARLANDS_LOADING_LATCH_MAX_SEC`,
+  `..._QUIET_SEC`) for an arm. No arm has been run, so the two-state cap stands; a user-facing
+  settings entry would be a separate change.
 - **A 27-ray occlusion pass finds about 88% of the potential far holes in sight.** Output
   `.freebuff/start_fill_ab_20261109_105458`, the same five pairs. The pass samples a 3x3x3
   lattice in each potential chunk's AABB, walks the drawn full opaque blocks along the
@@ -1293,7 +1302,45 @@ it — are in [lod-modes.md](lod-modes.md).
   previous 128 arm's end was 5.48 [5.30-5.51] s. Shipping is now
   `hold_mesh_until_load_done = true` with `mesh_uploads_loading = 512`;
   `FARLANDS_HOLD_MESH_UNTIL_LOADED=0` restores the overlap path, and
-  `FARLANDS_MESH_UPLOADS_LOADING=N` overrides the cap for an arm. This changes the initial
-  fill's order: the chunk map settles first, then the held completions upload at 512/frame.
-  A shipped-default check with no environment overrides measured **4.98 s** end to end, inside
-  the 512 arm's range.
+  `FARLANDS_MESH_UPLOADS_LOADING=N` overrides the cap for an arm. The hold is one-shot: it is
+  disarmed by the first chunk-load settle and is not re-armed by a later flight, so edits and
+  light remeshes do not pause again when the world briefly leaves the quiet-load state. This
+  changes the initial fill's order: the chunk map settles first, then the held completions
+  upload at 512/frame. A shipped-default check with no environment overrides measured
+  **4.98 s** end to end, inside the 512 arm's range. The first-visible measurement below is
+  the other half of that trade.
+- **Measured, the hold's price is the blank world, and on constrained hardware it outgrows
+  the fill win.** The fill probe now reports first upload, first visible, and the in-frustum
+  queue's 50/90% drain (`PROBE fill first ...`). Five paired hold1/hold0 fills at RD 32, one
+  discarded warmup, A = `FARLANDS_HOLD_MESH_UNTIL_LOADED=1`, B = `0` (outputs
+  `.freebuff/hold_ab_6c_20261110` and `.freebuff/hold_ab_4c_20261110`, `--vsync` on both):
+  at **6 cores** first visible is **7.85 [7.74-8.15] s against 0.58 [0.54-0.60] s** (paired
+  **+7.27 [+7.14-+7.55]** in 5/5), 50/90% **8.05 against 9.40 s**, chunk load **7.80 against
+  9.13 s**, end **9.61 against 10.20 s** (paired **-0.69 [-1.07-+0.14]**). At **4 cores**
+  first visible is **11.88 [11.72-11.92] s against 0.58 [0.57-0.63] s** (paired **+11.31
+  [+11.14-+11.35]**), while the end is **14.33 against 14.13 s** (paired **+0.20
+  [-0.76-+0.28]**) - the hold no longer buys fill time at all. Three complete 16-thread pairs
+  (the runner restarted mid-run) show the same shape at the other end: first visible **3.96
+  [3.95-3.97] s against 0.29 [0.27-0.30] s**, end **4.79 [4.76-5.01] against 5.61
+  [5.46-5.61] s**. The hold does what its A/B said - it removes ~0.7 s of end-to-end fill on
+  machines that can drain the held set - but nothing is on screen until the settle, and on 6/4
+  cores that is 7.9-11.9 s of blank world. The default is unchanged here: the one-shot fix is
+  independent of the policy, and a bounded hold (release after N ms, or let the nearest K
+  meshes through) is the next arm, with the same probe and the same paired design.
+- **The whole-fill worst frame is the reveal burst on 16 threads and something outside the
+  updater on 6/4.** The probe keeps the 24 worst frames (by cost, not arrival) and prints a
+  phase dump each plus a before/after-settle count. On the 16-thread default the worst is
+  **62.9 ms at 4.37 s** - 0.42 s after the 3.95 s settle - in a **22.0 ms**
+  `process_total`: `ProcessCompletedMeshes` **17.6 ms** (`MeshUploadGpu` **10.9 ms**),
+  `FarRegionVisibility` 3.2 ms and `DirtyMeshQueue` 1.3 ms; the rest of the wall interval is
+  outside the updater. The frame drew 248 calls and 1.21M primitives; the three hold A runs
+  put their worst at **58-78 ms**, in the same place. The pre-settle slow frames are a
+  different phase: `ChunkLoadUnload` up to **29-41 ms** and `BlockOutlineProcess` up to
+  **12 ms**, in the first second. On 6 cores the worst is **281.7 [274.5-288.8] ms** (hold)
+  against **289.4 [283.6-344.4] ms** (overlap); the dump is `process_total` **2.6 ms**,
+  `ChunkLoadUnload` 2.2 ms, `outside_process` **114-129 ms**, 57 draw calls / 1,667 objects,
+  and the engine's own delta matches the stall. On 4 cores the medians are **334 vs 318 ms**,
+  plus one **1,603 ms** outlier whose engine delta was 4.2 ms - a scheduler stall, not a
+  frame's work. So the 60-76 ms class is the 512-upload reveal, count-bounded rather than
+  clock-bounded (which is why no clock moved it), while the constrained worst frames are
+  outside `process_total`; the load-to-tail switch itself is 2.2 ms.

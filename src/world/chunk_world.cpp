@@ -107,9 +107,26 @@ int32_t ChunkWorld::process_completed_chunks(uint64_t epoch, double budget_ms, i
             }
 
             uint64_t key = chunk_map.get_chunk_key(stage.chunk_x, stage.chunk_y, stage.chunk_z);
-            bool any_emissive_in_region = false;
-            bool any_sky_shade_in_region = false;
+            if (light_propagated_chunks.find(key) != light_propagated_chunks.end()) {
+                continue;
+            }
+
+            const LightBandIndex::Flags light_band =
+                light_band_index.query(stage.chunk_x, stage.chunk_y, stage.chunk_z);
             bool took_fire_and_forget = false;
+            if (!light_band.any()) {
+                // Nothing in the 3x3x3 can contribute light. The old gate paid
+                // a 27-chunk walk for this answer; the event index answers it in
+                // nine column lookups, and this path never takes the 28-key lock.
+                auto lock = chunk_map.lock_chunk(stage.chunk_x, stage.chunk_y, stage.chunk_z);
+                ChunkData* center = chunk_map.get_chunk_data_fast(stage.chunk_x, stage.chunk_y, stage.chunk_z);
+                if (center == nullptr) continue;
+                light_stage_empty = center->is_all_air();
+                light_propagated_chunks.insert(key);
+                pending_chunk_dirty_mesh.push_back({stage.chunk_x, stage.chunk_y, stage.chunk_z, stage.epoch});
+                continue;
+            }
+
             {
                 uint64_t keys[28];
                 keys[0] = key;
@@ -134,22 +151,11 @@ int32_t ChunkWorld::process_completed_chunks(uint64_t epoch, double budget_ms, i
                 int present_count = 0;
                 present[present_count++] = key;
 
-                if (light_propagated_chunks.find(key) != light_propagated_chunks.end()) {
-                    continue;
-                }
                 light_propagated_chunks.insert(key);
 
-                // One trip over the band for both questions the worker gate needs,
-                // so the gate itself costs no extra chunk lookups. The shade flag is
-                // part of the question because the sky pass is not a no-op for an
-                // open chunk: its own 15s are a legitimate source for a NEIGHBOUR's
-                // dim border cells, so a band whose only shade is next door still
-                // has work. A fully open band is the one case where skipping is
-                // provably safe -- with no shade anywhere, every cell is either 15
-                // (nothing to raise it) or an opaque or liquid cell the pass will not
-                // target.
-                bool any_emissive = false;
-                bool any_sky_shade = false;
+                // The event index already says which channels are present; this
+                // walk only collects the resident keys the worker will lock and
+                // the profile's empty hint.
                 for (int dz = -1; dz <= 1; dz++) {
                     for (int dy = -1; dy <= 1; dy++) {
                         for (int dx = -1; dx <= 1; dx++) {
@@ -157,13 +163,9 @@ int32_t ChunkWorld::process_completed_chunks(uint64_t epoch, double budget_ms, i
                             if (n == nullptr) continue;
                             if (dx == 0 && dy == 0 && dz == 0) light_stage_empty = n->is_all_air();
                             present[present_count++] = chunk_map.get_chunk_key(stage.chunk_x + dx, stage.chunk_y + dy, stage.chunk_z + dz);
-                            if (n->get_emissive_count() > 0) any_emissive = true;
-                            if (n->has_sky_shade()) any_sky_shade = true;
                         }
                     }
                 }
-                any_emissive_in_region = any_emissive;
-                any_sky_shade_in_region = any_sky_shade;
 
                 // Both passes need the same exclusive band, so they share one -- but
                 // only when there is something for one of them to do. Taking a
@@ -172,11 +174,13 @@ int32_t ChunkWorld::process_completed_chunks(uint64_t epoch, double budget_ms, i
                 // plain chunk is the common case while streaming: with no emitter
                 // and no shade in the band the chunk falls through to the dirty-mesh
                 // queue below and takes no band at all.
-                if ((any_emissive || any_sky_shade) && thread_pool) {
+                if (thread_pool) {
                     took_fire_and_forget = true;
                     int32_t cx = stage.chunk_x;
                     int32_t cy = stage.chunk_y;
                     int32_t cz = stage.chunk_z;
+                    const bool any_emissive = light_band.emissive;
+                    const bool any_sky_shade = light_band.shade;
                     thread_pool->fire_and_forget([this, cx, cy, cz, epoch, any_emissive, any_sky_shade, present, present_count]() {
                         uint32_t modified = 0;
                         uint32_t source_count = 0;
@@ -262,12 +266,11 @@ int32_t ChunkWorld::process_completed_chunks(uint64_t epoch, double budget_ms, i
                 }
             }
 
-            if (!took_fire_and_forget && light_propagator &&
-                (any_emissive_in_region || any_sky_shade_in_region)) {
-                if (any_emissive_in_region) {
+            if (!took_fire_and_forget && light_propagator && light_band.any()) {
+                if (light_band.emissive) {
                     light_propagator->propagate_block_light_region(stage.chunk_x, stage.chunk_y, stage.chunk_z);
                 }
-                if (any_sky_shade_in_region) {
+                if (light_band.shade) {
                     // No worker pool (tests, standalone tools): the same additive pass,
                     // taking its own band and marking the meshes it changed.
                     light_propagator->scatter_sky_light_region(stage.chunk_x, stage.chunk_y, stage.chunk_z);
@@ -403,6 +406,11 @@ apply_vegetation_placements(key, completed.chunk_x, completed.chunk_y, completed
 
             chunk_map.insert(key, std::move(render_data));
             generation_path_profile_.installed(completed.path_id);
+            if (installed_data != nullptr) {
+                light_band_index.set_chunk(completed.chunk_x, completed.chunk_y, completed.chunk_z,
+                                           installed_data->get_emissive_count() > 0,
+                                           installed_data->has_sky_shade());
+            }
             // Resident now: anything may generate it again.
             chunk_scheduler.release_claim(key);
             install_profile_.lap(InstallProfile::Insert, !has_blocks);

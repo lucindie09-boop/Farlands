@@ -67,6 +67,17 @@ Three properties make it affordable, and each one is load-bearing:
   with no shade anywhere every cell is either 15, an opaque one the walk cannot
   enter, or a liquid one it does not target, which is what makes skipping it
   lossless rather than merely cheap.
+- **The gate is event-maintained, not a 27-chunk scan.** `LightBandIndex`
+  (`src/world/light_band_index.hpp`) keeps one pair of 32-bit masks per column, one
+  bit per chunk level and one mask per channel, and updates it at install, unload
+  and every edit. A 3x3x3 band is nine column lookups rather than 27 `ChunkData`
+  probes; a set bit still hands the worker the full resident 27-key list, so the
+  pass's own reach is unchanged. Two RD32 15-worker runs measured the install
+  stage at **4.63/4.64 us** against **6.27/5.50 us** for the scan, while fill
+  settle was **4.330/4.433 s** against **4.353/4.855 s** -- the stage cost moved,
+  the fill did not separate from run noise. `tests/test_light_band_index.cpp` pins
+  the mask arithmetic, the channel split, column isolation, the world-edge bands
+  and the conservative out-of-range answer.
 - **A pass cannot leave its band.** A chain from a seed cannot travel more than 15
   cells and a chunk is 32 wide, so the 3x3x3 exclusive band its caller holds is
   always enough -- and a step toward anything outside it is refused rather than

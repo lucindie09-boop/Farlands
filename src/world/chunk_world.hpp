@@ -7,6 +7,7 @@
 #include "core/edit_map.hpp"
 #include "world/chunk_scheduler.hpp"
 #include "world/cross_boundary_queue.hpp"
+#include "world/light_band_index.hpp"
 #include "world/light_profile.hpp"
 #include "world/install_profile.hpp"
 #include "world/generation_path_profile.hpp"
@@ -246,6 +247,8 @@ private:
     std::deque<PendingChunkStage> pending_chunk_lighting;
     std::deque<PendingChunkStage> pending_chunk_dirty_mesh;
     std::unordered_set<uint64_t> light_propagated_chunks;
+    // Event-maintained 3x3x3 light-relevance summary; see light_band_index.hpp.
+    LightBandIndex light_band_index;
     std::unordered_map<uint64_t, std::vector<PendingBlockPlacement>> pending_block_placements;
     std::mutex pending_placement_mutex;
     std::unordered_map<uint64_t, std::vector<PendingBlockPlacement>> pending_vegetation_placements;

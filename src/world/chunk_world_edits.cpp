@@ -23,6 +23,7 @@ void ChunkWorld::free_loaded_chunks() {
         }
     });
     chunk_map.clear();
+    light_band_index.clear();
 }
 
 bool ChunkWorld::try_unload_chunk(uint64_t key, MeshManager* mesh_mgr) {
@@ -47,6 +48,8 @@ bool ChunkWorld::try_unload_chunk(uint64_t key, MeshManager* mesh_mgr) {
     if (!render_data) {
         return !chunk_map.contains(key);
     }
+
+    light_band_index.erase_chunk(cx, cy, cz);
 
     if (needs_save) {
         // Hand the edit map to the background saver. If a save for this chunk
@@ -108,6 +111,7 @@ void ChunkWorld::clear() {
     pending_chunk_lighting.clear();
     pending_chunk_dirty_mesh.clear();
     light_propagated_chunks.clear();
+    light_band_index.clear();
     install_profile_.reset();
     {
         std::lock_guard<std::mutex> lock(pending_placement_mutex);
@@ -264,6 +268,12 @@ void ChunkWorld::add_block_edit(int32_t chunk_x, int32_t chunk_y, int32_t chunk_
     edit_scan_.store(2, std::memory_order_release);
     mark_chunk_dirty(chunk_x, chunk_y, chunk_z);
 
+    if (ChunkData* chunk = chunk_map.get_chunk_data(chunk_x, chunk_y, chunk_z)) {
+        light_band_index.set_chunk(chunk_x, chunk_y, chunk_z,
+                                   chunk->get_emissive_count() > 0,
+                                   chunk->has_sky_shade());
+    }
+
     // Outside the edit-map lock on purpose: the listener reads the chunk map,
     // and taking a chunk lock while holding the edit-map lock is exactly the
     // lock order that deadlocks against a caller that does the reverse.
@@ -298,6 +308,11 @@ void ChunkWorld::add_block_edits(int32_t chunk_x, int32_t chunk_y, int32_t chunk
     // bulk writer marks the chunks it touches dirty itself anyway.
     edit_scan_.store(2, std::memory_order_release);
     mark_chunk_dirty(chunk_x, chunk_y, chunk_z);
+    if (ChunkData* chunk = chunk_map.get_chunk_data(chunk_x, chunk_y, chunk_z)) {
+        light_band_index.set_chunk(chunk_x, chunk_y, chunk_z,
+                                   chunk->get_emissive_count() > 0,
+                                   chunk->has_sky_shade());
+    }
 }
 
 void ChunkWorld::notify_block_change(int32_t world_x, int32_t world_y, int32_t world_z) {

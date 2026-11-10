@@ -116,6 +116,9 @@ func _detail_total(report: String) -> int:
 	return total
 
 # "Far uncovered: regions=20 ... active_uncovered=0 ..."
+# This is informational, not a hole count: a far chunk whose region is active
+# but does not list it among its members can still be drawn by its own chunk
+# instance. The missing-draw counter is the report's "Unrendered" line.
 func _far_uncovered(report: String) -> int:
 	for line in report.split("\n"):
 		if line.contains("Far uncovered:"):
@@ -524,6 +527,7 @@ func _run() -> void:
 		inflight_samples += 1
 		var region_empty := _value(last_report, "Region empty:")
 		var active_uncovered := _far_uncovered(last_report)
+		var unrendered := _value(last_report, "Unrendered:")
 		var pending_mesh := bool(cm.call("has_pending_mesh_work"))
 		var queue_depth := int(cm.call("get_pending_chunk_mesh_count"))
 		var queue_builds := int(cm.call("get_mesh_queue_builds"))
@@ -538,10 +542,10 @@ func _run() -> void:
 				fill_settled_at = elapsed
 				print("PROBE fill settle t=%.2fs" % elapsed)
 			var far_geometry: Dictionary = cm.call("get_pending_far_geometry")
-			print("PROBE fill trace t=%.2fs loaded=%d generating=%d completed=%d pending=%d budget=%d settled=%d region_empty=%d uncovered=%d far_total=%d far_no_chunk=%d far_empty=%d" % [
+			print("PROBE fill trace t=%.2fs loaded=%d generating=%d completed=%d pending=%d budget=%d settled=%d region_empty=%d unrendered=%d uncovered=%d far_total=%d far_no_chunk=%d far_empty=%d" % [
 				elapsed, loaded, generating, completed, queue_depth,
 				int(cm.call("get_mesh_rebuild_budget")), int(settled_now), region_empty,
-				active_uncovered, int(far_geometry.get("total", 0)),
+				unrendered, active_uncovered, int(far_geometry.get("total", 0)),
 				int(far_geometry.get("no_chunk", 0)), int(far_geometry.get("empty", 0))])
 		if first_upload_at < 0.0 and _value(last_report, "Mesh uploads:") > 0:
 			first_upload_at = elapsed
@@ -583,8 +587,12 @@ func _run() -> void:
 			visible_series.append({"at": elapsed, "pending": visible_pending})
 		if mesh_at < 0.0 and loaded_at >= 0.0 and not pending_mesh:
 			mesh_at = elapsed
+		# The gate is missing geometry, not region membership. `active_uncovered`
+		# counts visible far chunks the active region does not list; if their own
+		# chunk instance is visible, they are drawn and there is no hole. The 3-worker
+		# RD32 run sat at 92 uncovered for 300 s with Unrendered=0 and no pending work.
 		if far_at < 0.0 and loaded_at >= 0.0 and not pending_mesh \
-				and region_empty == 0 and active_uncovered == 0:
+				and region_empty == 0 and unrendered == 0:
 			far_at = elapsed
 		# The first 256 frames after the load settles are the far drain; the capture
 		# keeps their split separately from the idle frames at the end, because one
@@ -601,7 +609,7 @@ func _run() -> void:
 	if mesh_at < 0.0:
 		_fail("pending mesh work did not drain (loaded at %.2f s)" % loaded_at)
 	if far_at < 0.0:
-		_fail("active far gaps did not close (loaded at %.2f s, mesh at %.2f s)" % [loaded_at, mesh_at])
+		_fail("unrendered far chunks did not close (loaded at %.2f s, mesh at %.2f s)" % [loaded_at, mesh_at])
 
 	print("PROBE fill loaded=%.2fs mesh=%.2fs far=%.2fs end=%.2fs samples=%d frames=%d worst=%.2fms slow=%d" % [
 		loaded_at, mesh_at, far_at, final_elapsed, samples, sampled_frames, worst_frame_ms, slow_frames])
@@ -651,6 +659,11 @@ func _run() -> void:
 		var line := _report_line(last_report, label)
 		if not line.is_empty():
 			print("PROBE fill final " + line)
+	var storage: Dictionary = cm.call("get_chunk_storage_histogram")
+	print("PROBE fill storage all_air=%d fully_solid=%d mixed=%d uniform_sections=%d block_bytes=%d total_bytes=%d" % [
+		int(storage.get("all_air", 0)), int(storage.get("fully_solid", 0)),
+		int(storage.get("mixed", 0)), int(storage.get("uniform_sections", 0)),
+		int(storage.get("block_bytes", 0)), int(storage.get("total_bytes", 0))])
 	var pop_end: Dictionary = cm.call("get_mesh_pop_outcomes")
 	if not pop_at_load.is_empty():
 		var names := ["callbacks", "total", "missing", "no_pipeline", "distance", "clean",

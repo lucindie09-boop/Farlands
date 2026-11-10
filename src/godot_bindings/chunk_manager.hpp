@@ -104,6 +104,7 @@ public:
     int32_t get_squish_span() const;
 
     godot::String get_performance_report();
+    godot::Dictionary get_chunk_storage_histogram() const;
     godot::String get_light_profile_report();
     godot::String get_generation_path_report();
     godot::String get_install_profile_report();

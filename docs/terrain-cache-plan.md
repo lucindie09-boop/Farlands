@@ -17,9 +17,9 @@ or the initial mesh hold's release. The hold now caps the blank at 2 s, so the
 cache's only defensible value is **full-fill time on constrained machines**. On
 16 threads the current hold reaches first visible at 1.85 s and ends at about
 5.2 s; on 6 cores it ends at about 11.1 s. At RD 32 with 3 workers the chunk
-load reached 19.84 s, but the far-gap tail had not closed at 90 s, so there is
-no valid 4-core full-fill number yet. The cache cannot be justified on top of
-that unresolved tail.
+load reached 19.84 s, but the far-gap gate was the probe's `active_uncovered`
+count. The corrected `Unrendered` gate gives **18.38 s load / 19.14 s end** at 3
+workers on 4 cores. That is the number the cache has to beat.
 
 ## What the hold is not
 
@@ -33,20 +33,25 @@ trade.
 
 ## What would be cached
 
-- The generated **block base** only. No light, no meshes, no render data, no
-  entity or fluid schedules.
+- The generated **block base and its cross-chunk spill list**. No light, no
+  meshes, no render data, no entity or fluid schedules. The spill list is the
+  set of world positions and block IDs that this chunk's own generation wrote
+  into its neighbours through `ChunkGenerator::CrossChunkWriter`.
 - The initial fill's spawn region only (the RD 32 disc around spawn), not every
   chunk the player explores. Later streaming is already hidden by movement; the
   spawn fill is the one large, predictable load.
-- Only chunks with **no edit map** at snapshot time. Edited chunks regenerate.
-  The edit maps remain the sole delta and are applied on top of a cache hit.
+- Every chunk in that region, edited or not. The cache stores the generator's
+  own answer; the current edit map is applied as a delta on a hit, so an edit
+  added or removed later still starts from the same generated base. The edit
+  maps remain the sole delta and are never baked into the cache.
 - A disposable artifact. Deleting it costs one regeneration, never world data.
 
-The no-edit rule is deliberate. `EditMap::remove_block` exists, so a snapshot
-taken after an edit cannot be trusted as the base if that edit is later removed.
-A chunk that had no edit when it was copied is safe: an edit added afterwards is
-applied on the next load, and if it is removed again the cached copy is still
-exactly the generated base.
+The boundary is `generate_chunk`'s generator output, not the installed chunk.
+That is before the edit map, light and `compute_fully_solid`, and it is why the
+no-edit rule and a post-settle snapshot are no longer needed. A cache hit must
+replay the stored spill list into the same pending-vegetation queue a normal
+generation would have pushed to; otherwise a neighbour that still generates
+loses the canopy this chunk would have written into it.
 
 ## Win
 
@@ -54,18 +59,19 @@ exactly the generated base.
   11.9 s and 7.9 s blank figures are stale: the bounded hold makes the
   16-thread blank 1.85 s (first visible) and the 6-core blank 2.11 s, while the
   old ~3.9 s 16-thread figure is now ~1.85 s. Generation is still about 20.5 s
-  of worker time, but the measured 3-worker RD32 chunk load was **19.84 s**, not
-  the ~6.8 s the worker arithmetic predicted; admission, install, mesh/upload
-  and the far tail dominate that fill. On 16 threads generation is about 1.4 s
-  of a ~5.2 s end-to-end fill, so the return is small and may not cover the
-  read. **Do not use the 6.8/4.1 s generation-wall arithmetic as a cache
-  estimate until the 3-worker far tail is understood.**
+  of worker time, but the measured 3-worker RD32 chunk load was **18.38 s** and
+  end **19.14 s**, not the ~6.8 s the worker arithmetic predicted; admission,
+  install and mesh/upload dominate that fill. The old 19.84 s/90 s figure was
+  the false `active_uncovered` gate. On 16 threads generation is about 1.4 s of
+  a ~5.2 s end-to-end fill, so the return is small and may not cover the read.
+  **Do not use the 6.8/4.1 s generation-wall arithmetic as a cache estimate;
+  the install path still sets the floor.**
 - **It keeps the existing pipeline.** A cache hit still occupies a scheduler
   claim and a completed-chunk slot. Install, light fix-ups, dirty-mesh fan-out,
   edit maps and the hold all run exactly as they do for a generated chunk.
-- **The scope is bounded.** Spawn-only and no-edit-only keep the disk and the
-  invalidation surface small. The cached base is immutable for a cache key;
-  only the edit maps change.
+- **The scope is bounded.** Spawn-only keeps the disk and the invalidation
+  surface small. The cached base is immutable for a cache key; only the edit
+  maps change, and they are applied after the read.
 - **Reads parallelise.** 8x8 column packs are independent; a partial cache is a
   partial hit, and a missing or corrupt pack is simply a generation miss.
 - **No streaming-path change.** A chunk outside the cached region misses and
@@ -73,18 +79,21 @@ exactly the generated base.
 
 ## Drawback
 
-- **Disk.** At RD 32 the fill installs about 20,230 chunks at 1-20 KB each:
-  roughly 20-400 MB, about 180 MB at the 9 KB benchmark chunk. That is per
-  world and needs a cap and eviction.
+- **Disk.** At RD 32 the fill installs 20,230 chunks: 7,620 all-air, 7,660
+  fully-solid and 4,950 mixed. Of 161,840 block sections, 137,773 (85%) are
+  uniform. The block sections occupy **110.6 MB** of storage (302 MB including
+  light), so 110.6 MB is the cache payload's measured upper bound; the old
+  180 MB figure was the 9 KB mixed-chunk ceiling. That is per world and needs a
+  cap and eviction.
 - **First run pays and gets nothing.** The cache is written after the first
-  fill; the benefit starts on the second boot. A first-run write of ~180 MB
-  must not block play or the quit path.
+  fill; the benefit starts on the second boot. A first-run write of up to
+  110.6 MB must not block play or the quit path.
 - **It is not instant.** The mesh build, upload burst, install and far-region
   tail all remain. On 16 threads the current hold already caps the blank at 2 s
   and ends at about 5.2 s; the cache can plausibly shorten the load on
   constrained machines, not the 2 s reveal ceiling, and should not be expected
-  to save seconds on 16 threads. At 3 workers the tail is not even closed, so
-  its full-fill saving is unmeasured.
+  to save seconds on 16 threads. At 3 workers the end is **19.14 s** and the
+  far/mesh tail still dominates it, so the cache's full-fill saving is unmeasured.
 - **New format, key and invalidation.** A corrupt, stale or partial cache must
   fall back to generation. It must never load wrong blocks, never crash and
   never be treated as save data.
@@ -97,6 +106,14 @@ exactly the generated base.
 - **The queue can deepen.** A fast cache reader can hand the install pass more
   chunks than it drains. Keep the scheduler's in-flight and admission gates;
   never bypass them for a hit.
+- **The light-slice precedent says freed worker time may not shorten the fill.**
+  Cutting the worker's light slice by 13% made the fill 0.7 s **slower**, because
+  the workers finished ahead of the install budget and the completion queue grew
+  (`drain` 52 -> 81-105 ms); the load is install-bound, not generation-bound.
+  A cache is the same event on a larger scale: it removes generator work and
+  hands the main thread the same installs sooner. The old "~1 s saving at 16
+  threads" is therefore not a forecast; the cache has to shorten the end-to-end
+  load, and the light-slice result is a reason to expect the opposite.
 - **The 16-core return may be negative.** The read, decode and install can cost
   more than the ~1.4 s of generation they replace. This is the main reason to
   run the experiment before writing the implementation.
@@ -105,19 +122,32 @@ exactly the generated base.
 
 | Item | Estimate | Basis |
 |---|---|---|
-| Chunks in the spawn fill | ~20,230 | RD 32 fill |
-| Chunk payload | 1-20 KB, ~9 KB measured | palette-compressed chunk |
-| Full spawn cache | ~20-400 MB, ~180 MB typical | payload x chunks |
-| Region packs | ~4 MB each, ~51 packs | 8x8 columns, partially filled at the rim |
-| Removed work | terrain slices only | edit probe, light, install remain |
-| First-run write | one-time, seconds, background | ~180 MB, budgeted |
+| Chunks in the spawn fill | 20,230 | 16-thread RD 32 fill |
+| Chunk classes | 7,620 air / 7,660 solid / 4,950 mixed | same fill |
+| Chunk payload | ~5.5 KB average block storage | 110.6 MB / 20,230 |
+| Full spawn cache | **110.6 MB measured** block storage | palette storage, not light |
+| Region packs | ~2 MB each, ~51 packs | 8x8 columns, partially filled at the rim |
+| Removed work | terrain slices and spill replay | edit probe, light, install remain |
+| First-run write | one-time, seconds, background | measured pack bytes, budgeted |
+
+The measured class split is why the 9 KB mixed-chunk multiplication was wrong:
+62% of the fill is all-air or fully-solid, and 85% of block sections are
+uniform. Block-section storage is 110.6 MB; the 302 MB total includes light,
+which this cache does not store. Treat 110.6 MB as the payload upper bound until
+the actual encoded pack bytes are measured; a pack codec cannot beat the section
+storage it encodes without dropping something.
 
 ## Cache key and invalidation
 
 `cache.meta` stores a 64-bit key and the cache format version. The key covers:
 
 - a `kTerrainCacheDataVersion` constant, bumped on any change to the generator,
-  the light rules or a block property that changes the base;
+  the light rules or a block property that changes the base. A manual bump can
+  be forgotten, so it is not the guard: `tests/test_worldgen_digest.cpp`
+  regenerates fixed chunks and hashes their blocks and cross-chunk spill records
+  against a checked-in value. A red digest is the instruction to bump the
+  constant. Keep the version as one named constant shared by the test and the
+  cache key, not a literal repeated in two places;
 - the seed and the `TerrainParams` fields `world.meta` persists (sea level,
   bedrock, caves, subsurface cover, climate scales, biome size);
 - the raw bytes of `data/terrain_config.json`, `data/biomes.json` and
@@ -151,11 +181,13 @@ total bytes and creation time, written atomically. Each pack has:
   offset, index size and index CRC;
 - an index of `cx, cy, cz, payload offset, payload size, payload CRC` per
   chunk;
-- payloads of the eight 16-cubed sections. A section is either uniform
-  (`kind=0`, one `u16` block) or paletted (`kind=1`, palette count, bits per
-  index, `u16` palette entries and packed indices). This is the in-memory
-  palette form, not RLE; it is exact and compact on both uniform and mixed
-  terrain.
+- payloads of the eight 16-cubed sections, followed by the chunk's spill list:
+  a count and `(world x, world y, world z, block id)` records. A section is
+  either uniform (`kind=0`, one `u16` block) or paletted (`kind=1`, palette
+  count, bits per index, `u16` palette entries and packed indices). This is the
+  in-memory palette form, not RLE; it is exact and compact on both uniform and
+  mixed terrain. The spill list is part of the chunk record and counts against
+  the 1 MiB cap; a corrupt or oversized list is a miss.
 - a per-chunk CRC and a per-pack index CRC. All integers are little-endian.
   Counts, offsets and sizes are bounds-checked; a chunk record is capped at
   1 MiB and a pack at a fixed maximum. A bad record is a miss, not an error
@@ -183,9 +215,12 @@ worker. Per-chunk files would be ~20,000 seeks and an unpleasant directory.
 - `ChunkWorld::generate_chunk` checks the cache before enqueueing generation.
   A hit enqueues a cache-read closure through the **same** scheduler claim,
   completed-chunk and install path. The closure reads and decodes the block
-  data, applies the current edit map, runs the same sky/block light calls and
-  `compute_fully_solid`, then returns the chunk. Install does not need a
-  branch.
+  data, replays the stored spill list through the same pending-vegetation queue
+  that the generator's `CrossChunkWriter` would have used, applies the current
+  edit map, runs the same sky/block light calls and `compute_fully_solid`, then
+  returns the chunk. Install does not need a branch. Replay is idempotent with
+  respect to a neighbour that is also a hit: it queues the write whether or not
+  the neighbour later generates, exactly like a normal generation.
 - A cache hit still counts as in-flight and still takes an admission slot, so
   the fill's existing pacing and the hold's settle test see the same shape.
 - `CompletedChunk::was_loaded_from_disk` is set by the scheduler but never read
@@ -200,26 +235,28 @@ worker. Per-chunk files would be ~20,000 seeks and an unpleasant directory.
 
 ### Write path
 
-- Start after the initial fill's mesh/far tail has drained (the probe's `end`),
-  or on a genuinely idle window. Do not write during the chunk load or while
-  the initial hold is still withholding meshes.
-- Snapshot only chunks in the spawn region with no edit map. Take the block
-  copy under the chunk's shared shard lock, with the edit-map check and the
-  copy ordered so an edit cannot enter between them; if that is awkward, copy
-  and re-check, and pin the choice with a concurrency test. Do not hold
-  `edit_maps_mutex` across file I/O, and do not take an exclusive lock for a
-  whole pack.
-- The snapshot is taken after cross-chunk vegetation and placements have
-  settled, so the cached base includes the trees and boundary writes the first
-  fill installed. Writing earlier would cache a chunk before its neighbour's
-  canopy and produce a base that differs from the generator's final answer.
+- Capture at the **generator output**, inside the worker's generation closure,
+  immediately after `generator.generate_chunk` returns and before the edit map,
+  light and solid flags. The base is then exactly the generator's answer and
+  the spill list is the `CrossChunkWriter` records from that same call, not a
+  later reconstruction. This is the boundary that removes the no-edit rule and
+  the post-settle snapshot.
+- Store the section payload plus the spill list; do not store installed
+  neighbour writes. Applying a neighbour's spill is the install path's job, and
+  baking it in would make a cache hit depend on which neighbours happened to be
+  generated first.
 - Write one region pack at a time on a low-priority worker, then update
   `cache.meta`. A partial cache is valid. Never block `_exit_tree` on the
   writer; the next boot can use the complete packs and generate the rest.
-- Cap the cache at 512 MiB by default (one spawn cache is ~180 MB; two worlds
-  fit with room), evict the least-recently-used world cache directory at start
-  or when over the cap, and touch only `user://chunks/cache/`. The `.edit`
-  files, `world.meta`, inventory and screenshots are never eviction candidates.
+- Do not write a chunk whose generator aborted or whose epoch was retired; the
+  attempt id already gates the completion, so use that same gate for the cache
+  record. Do not hold `edit_maps_mutex` across file I/O, and do not take an
+  exclusive shard lock for a whole pack.
+- Cap the cache at 512 MiB by default (the measured block storage is 110.6 MB;
+  leave room for a second world), evict the least-recently-used world
+  cache directory at start or when over the cap, and touch only
+  `user://chunks/cache/`. The `.edit` files, `world.meta`, inventory and
+  screenshots are never eviction candidates.
 - `ChunkWorld::clear()` and any world reset close the cache reader/writer and
   drop in-memory packs. A seed, terrain-params or config change changes the
   key; the old directory is ignored, then evicted by the cap.
@@ -248,8 +285,12 @@ previous run. Measure the first-run write path separately, with an empty cache.
 Report first upload, first visible, the in-frustum 50/90% times, load, end, slow
 frames, cache phase totals and hit rate. The proposed go/no-go criteria:
 
-- 4 cores: first visible and end improve by at least 25%, with no
-  cache-attributable frame over 33 ms.
+- 4 cores: **load and end** improve by at least 25%, with no
+  cache-attributable frame over 33 ms. Do not use first visible here: the hold
+  is off below 10 workers and the 3-worker run already reaches it around 0.55 s,
+  so a 25% first-visible target is meaningless. The matched baseline exists: 3
+  workers on 4 cores, chunk load **18.38 s** and end **19.14 s**, hold off.
+  Require the cache arm to improve both load and end by at least 25%.
 - 6 cores: load improves by at least 15%.
 - 16 threads: end is no worse than the current hold (~5.2 s on this machine)
   and first visible is no worse; hit rate is at least 90% of the fill's installs.
@@ -259,10 +300,14 @@ frames, cache phase totals and hit rate. The proposed go/no-go criteria:
 - If 16 threads regress or the 4-core gain is under 10%, reject the cache and
   record the measured row.
 
-Tests: round-trip all-uniform, all-air and mixed sections; CRC corruption,
-truncated pack, wrong key, unknown block IDs, count/offset overflow, empty and
-edited chunks; key changes for each config input; a concurrency test for a
-reader, writer and `clear()`. Keep the files under the 500-line cap by splitting
+Tests: round-trip all-uniform, all-air and mixed sections; spill-list
+round-trip with zero, one and many writes; a cache hit that replays a spill into
+a neighbour and produces the same canopy as a miss; CRC corruption, truncated
+pack, wrong key, unknown block IDs, count/offset overflow, empty and edited
+chunks; key changes for each config input; a concurrency test for a reader,
+writer and `clear()`. Add the CI digest test described in the key section over a
+few regenerated chunks, and keep the failure message naming
+`kTerrainCacheDataVersion`. Keep the files under the 500-line cap by splitting
 the format, the I/O and the tests, and keep the cache out of the Godot-free fuzz
 lists unless a harness actually needs it.
 
@@ -277,9 +322,10 @@ a benchmark metric; otherwise the probe's cache fields are the evidence.
 2. **Reader.** Manifest/pack I/O, the scheduler cache-read closure, counters,
    the environment switch off by default. A prepared cache must install and a
    miss must be indistinguishable from today's fill.
-3. **Writer.** Post-fill snapshot, 8x8 pack writes, atomic manifest, cap and
-   LRU, reset. A second boot must be a hit; a crash mid-write must leave a
-   usable partial cache; no edit may be lost or baked into the base.
+3. **Writer.** Generator-output capture, spill list, 8x8 pack writes, atomic
+   manifest, cap and LRU, reset. A second boot must be a hit; a crash mid-write
+   must leave a usable partial cache; no edit may be lost or baked into the
+   base, and a hit's spill replay must match a miss's canopy.
 4. **A/B and decision.** The 16/6/4-core matrix, the criteria above, and the
    decision row. If it loses, stop here.
 5. **Only if it wins.** Optional polish: a per-world cap control, a prefetch of
@@ -290,8 +336,8 @@ a benchmark metric; otherwise the probe's cache fields are the evidence.
 
 - Is 4-core or Steam Deck-class hardware a target? That is the case where the
   cache pays; on a 16-thread desktop it may not.
-- Is ~180 MB per world acceptable? A smaller spawn radius or a stronger pack
-  codec changes the answer.
+- Is the measured 110.6 MB block payload acceptable? A smaller spawn radius or
+  a stronger pack codec changes the answer.
 - Should the first-run write happen during play, on a menu, or only on quit?
   Quit-only means many players never get a cache; during play needs a budget.
 - Per world or shared by cache key? Per world is simpler; sharing a seed could

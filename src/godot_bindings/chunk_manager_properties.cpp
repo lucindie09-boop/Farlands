@@ -70,6 +70,33 @@ int32_t ChunkManager::get_squish_span() const { return controller->get_squish_sp
 
 String ChunkManager::get_performance_report() { return controller->get_performance_report(); }
 
+Dictionary ChunkManager::get_chunk_storage_histogram() const {
+    int64_t all_air = 0;
+    int64_t fully_solid = 0;
+    int64_t mixed = 0;
+    int64_t uniform_sections = 0;
+    int64_t block_bytes = 0;
+    int64_t total_bytes = 0;
+    controller->get_chunk_world().get_chunk_map().for_each(
+        [&](uint64_t, const std::unique_ptr<ChunkRenderData>& render_data) {
+            if (!render_data || !render_data->data) return;
+            if (render_data->data->is_all_air()) ++all_air;
+            else if (render_data->data->fully_solid()) ++fully_solid;
+            else ++mixed;
+            uniform_sections += render_data->data->uniform_block_sections();
+            block_bytes += static_cast<int64_t>(render_data->data->block_storage_bytes());
+            total_bytes += static_cast<int64_t>(render_data->data->memory_usage());
+        });
+    Dictionary out;
+    out["all_air"] = all_air;
+    out["fully_solid"] = fully_solid;
+    out["mixed"] = mixed;
+    out["uniform_sections"] = uniform_sections;
+    out["block_bytes"] = block_bytes;
+    out["total_bytes"] = total_bytes;
+    return out;
+}
+
 String ChunkManager::get_light_profile_report() { return controller->get_light_profile_report(); }
 
 String ChunkManager::get_generation_path_report() { return controller->get_generation_path_report(); }

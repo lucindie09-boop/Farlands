@@ -89,6 +89,24 @@ public:
         return sizeof(ChunkData) + sizeof(PaletteStorage) + storage->memory_usage();
     }
 
+    // Block-section bytes only, for the terrain-cache disk estimate. Light is
+    // deliberately excluded: the plan caches blocks, not light.
+    [[nodiscard]] size_t block_storage_bytes() const noexcept {
+        if (!storage) return 0;
+        size_t total = 0;
+        for (const PalSection& section : storage->block_secs) total += section.memory_usage();
+        return total;
+    }
+
+    [[nodiscard]] int32_t uniform_block_sections() const noexcept {
+        if (!storage) return 0;
+        int32_t count = 0;
+        for (const PalSection& section : storage->block_secs) {
+            if (section.is_uniform()) ++count;
+        }
+        return count;
+    }
+
     // Block Access
     [[nodiscard]] BlockID get_block(int32_t x, int32_t y, int32_t z) const noexcept {
         if (x < 0 || x >= CHUNK_WIDTH || y < 0 || y >= CHUNK_HEIGHT || z < 0 || z >= CHUNK_DEPTH)

@@ -100,6 +100,10 @@ func _env_int(name: String, fallback: int) -> int:
 	var raw := OS.get_environment(name)
 	return fallback if raw.is_empty() else int(raw)
 
+func _env_float(name: String, fallback: float) -> float:
+	var raw := OS.get_environment(name)
+	return fallback if raw.is_empty() else float(raw)
+
 # "Loaded chunks: 20236" / "Generating: 0 chunks"
 func _value(report: String, label: String) -> int:
 	for line in report.split("\n"):
@@ -416,8 +420,12 @@ func _run() -> void:
 	var tail_all_frame_ms := 0.0
 	var tail_frames := 0
 	var fill_trace := OS.get_environment("FILL_TRACE") == "1"
+	# 0.1 gives the last-second breakdown without changing the engine's budgets.
+	var fill_trace_secs := maxf(0.05, _env_float("FILL_TRACE_SECS", 1.0))
 	var next_fill_trace := 0.0
 	var fill_settled_at := -1.0
+	var fill_tail_trace := OS.get_environment("FILL_TAIL_TRACE") == "1"
+	var tail_trace_frames: Array[Dictionary] = []
 	print("PROBE fill start rd=%d workers=%d" % [rd, cm.get_worker_count()])
 
 	while true:
@@ -490,6 +498,33 @@ func _run() -> void:
 					if queue_now == 0:
 						tail_reason_empty_frames[bit] += 1
 		var elapsed := float(Time.get_ticks_usec() - start) / 1_000_000.0
+		# A per-frame snapshot of the queues that can hold the final installs.
+		# The 0.25 s report sample cannot resolve the last second; this can.
+		if fill_tail_trace:
+			var stream: Dictionary = cm.call("get_stream_snapshot")
+			var stream_loaded := int(stream.get("loaded", 0))
+			if stream_loaded >= 19800 or int(stream.get("completed", 0)) > 0:
+				tail_trace_frames.append({
+					"t": elapsed,
+					"loaded": stream_loaded,
+					"generating": int(stream.get("generating", 0)),
+					"completed": int(stream.get("completed", 0)),
+					"lighting": int(stream.get("lighting", 0)),
+					"dirty": int(stream.get("dirty_stage", 0)),
+					"settled": int(stream.get("settled", false)),
+				})
+				if tail_trace_frames.size() > 600:
+					tail_trace_frames.pop_front()
+		# The fill predicate is cheap and this is the only exact settle time; the
+		# old check lived inside the 0.25 s report gate and rounded the answer.
+		if fill_settled_at < 0.0 and bool(cm.call("is_fill_settled")):
+			fill_settled_at = elapsed
+			print("PROBE fill settle t=%.3fs" % elapsed)
+			for entry in tail_trace_frames:
+				print("PROBE fill tail t=%.3fs loaded=%d gen=%d completed=%d light=%d dirty=%d settled=%d" % [
+					float(entry["t"]), int(entry["loaded"]), int(entry["generating"]),
+					int(entry["completed"]), int(entry["lighting"]), int(entry["dirty"]),
+					int(entry["settled"])])
 		# Latch validation: the loading budgets are live only between the chunk load
 		# settling and the 1 s-quiet/30 s-cap exit. Start moving the moment the
 		# budget jumps to the loading value, so the flight keeps mesh work pending
@@ -538,11 +573,8 @@ func _run() -> void:
 		var visible_drawn := _detail_total(last_report)
 		var visible_total_now := visible_drawn + visible_pending
 		if fill_trace and elapsed >= next_fill_trace:
-			next_fill_trace = elapsed + 1.0
+			next_fill_trace = elapsed + fill_trace_secs
 			var settled_now := bool(cm.call("is_fill_settled"))
-			if settled_now and fill_settled_at < 0.0:
-				fill_settled_at = elapsed
-				print("PROBE fill settle t=%.2fs" % elapsed)
 			var far_geometry: Dictionary = cm.call("get_pending_far_geometry")
 			print("PROBE fill trace t=%.2fs loaded=%d generating=%d completed=%d pending=%d budget=%d settled=%d region_empty=%d unrendered=%d uncovered=%d far_total=%d far_no_chunk=%d far_empty=%d" % [
 				elapsed, loaded, generating, completed, queue_depth,

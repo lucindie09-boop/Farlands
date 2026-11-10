@@ -144,6 +144,17 @@ bool ChunkManager::has_pending_mesh_work() const { return controller->has_pendin
 bool ChunkManager::is_fill_settled() const {
     return controller->get_world_updater().is_fill_settled();
 }
+Dictionary ChunkManager::get_stream_snapshot() const {
+    ChunkWorld& world = controller->get_chunk_world();
+    Dictionary out;
+    out["loaded"] = static_cast<int64_t>(world.get_chunk_map().size());
+    out["generating"] = static_cast<int64_t>(world.get_scheduler().generating_count());
+    out["completed"] = static_cast<int64_t>(world.get_scheduler().completed_chunk_count());
+    out["lighting"] = static_cast<int64_t>(world.pending_lighting_count());
+    out["dirty_stage"] = static_cast<int64_t>(world.pending_dirty_stage_count());
+    out["settled"] = controller->get_world_updater().is_fill_settled();
+    return out;
+}
 int32_t ChunkManager::get_pending_chunk_mesh_count() const {
     return static_cast<int32_t>(controller->pending_chunk_mesh_count());
 }

@@ -261,6 +261,10 @@ public:
     // for a settled world rather than guessing a number of frames.
     bool has_pending_mesh_work() const;
     bool is_fill_settled() const;
+    // Cheap per-frame view of the generation/install tail: loaded chunks, the
+    // worker and completed queues, and the two main-thread stage queues. Used by
+    // the fill probe to see which queue is holding the last installs.
+    godot::Dictionary get_stream_snapshot() const;
     int32_t get_pending_chunk_mesh_count() const;
     int32_t get_visible_pending_chunk_mesh_count() const;
     godot::Dictionary get_visible_pending_lod_split() const;

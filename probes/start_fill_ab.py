@@ -28,6 +28,14 @@ run is reported but never counted.
 
 With --hold the arms are the initial mesh hold itself: A is the shipping hold,
 B is `FARLANDS_HOLD_MESH_UNTIL_LOADED=0`; both render normally.
+
+With --hold-partial N both arms keep the hold; A is the all-or-nothing hold and
+B allows N nearest chunk rebuilds/uploads per frame through it
+(`FARLANDS_HOLD_MESH_PARTIAL=N`). It measures first-visible against end time.
+
+With --final-install-ms N both arms keep the same build; A restores the 0.75 ms
+completion budget and B allows N ms once only the last <=192 installs remain
+(`FARLANDS_FINAL_INSTALL_BUDGET_MS`). It measures the final-wave settle.
 """
 from __future__ import annotations
 
@@ -78,7 +86,7 @@ LATCH_RE = re.compile(
 
 FIELDS = [
     "pair", "order", "arm", "label", "loaded_s", "mesh_s", "far_s", "end_s",
-    "tail_s", "samples", "frames", "load_avg_ms", "process_total_s", "worst_ms",
+    "settle_s", "tail_s", "samples", "frames", "load_avg_ms", "process_total_s", "worst_ms",
     "slow", "chunk_load_s", "first_upload_s", "first_visible_s", "visible_50_s",
     "visible_90_s", "visible_target", "run_s", "log",
     "latch_on_s", "latch_end_s", "latch_frames", "latch_mean_ms", "latch_p99_ms",
@@ -108,7 +116,9 @@ CLEAR_ENV = (
     "FARLANDS_FAR_REGION_DEBOUNCE_MS", "FARLANDS_REGION_SPIKE",
     "FARLANDS_LOADING_LATCH_MAX_SEC", "FARLANDS_LOADING_LATCH_QUIET_SEC",
     "FARLANDS_LOADING_TAIL_BUDGET_MS", "FARLANDS_HOLD_MESH_UNTIL_LOADED",
-    "FARLANDS_HOLD_MESH_MAX_SEC", "FARLANDS_MESH_UPLOADS_LOADING",
+    "FARLANDS_HOLD_MESH_MAX_SEC", "FARLANDS_HOLD_MESH_PARTIAL",
+    "FARLANDS_MESH_UPLOADS_LOADING",
+    "FARLANDS_FINAL_INSTALL_BUDGET_MS",
     "FARLANDS_WORKER_COUNT", "FILL_TRACE", "LATCH_FLIGHT", "PROBE_TIMEOUT_SECS", "VSYNC_ON",
     "FARLANDS_TERRAIN_CACHE",
 )
@@ -221,11 +231,13 @@ def parse_output(text: str, latch: bool = False) -> dict | None:
     match = matches[-1]
     loaded = float(match[0])
     end = float(match[3])
+    settle_match = re.search(r"PROBE fill settle t=([0-9.]+)s", text)
     row = {
         "loaded_s": loaded,
         "mesh_s": float(match[1]),
         "far_s": float(match[2]),
         "end_s": end,
+        "settle_s": float(settle_match.group(1)) if settle_match else -1.0,
         "tail_s": max(0.0, end - loaded),
         "samples": int(match[4]),
         "frames": int(match[5]),
@@ -282,8 +294,10 @@ def parse_output(text: str, latch: bool = False) -> dict | None:
 def run_one(label: str, arm: str, out_dir: Path, timeout_s: int, base_env: dict,
             latch: bool = False, flight: int = 36, vsync: bool = False,
             tail_budget_ms: int | None = None,
+            final_install_ms: int | None = None,
             workers: int | None = None,
             hold: bool = False,
+            hold_partial: int | None = None,
             cache: bool = False,
             rd: int = 32,
             extra_env: dict | None = None) -> dict | None:
@@ -305,6 +319,11 @@ def run_one(label: str, arm: str, out_dir: Path, timeout_s: int, base_env: dict,
         env["FARLANDS_LOADING_LATCH_MAX_SEC"] = "30" if arm == "A" else "1000000000"
         env["LATCH_FLIGHT"] = str(flight)
         description = "latch 30 s cap" if arm == "A" else "latch 1 s quiet, no cap"
+    elif hold_partial is not None:
+        # Both arms keep the hold; only the tiny nearest-only budget differs.
+        env["FARLANDS_HOLD_MESH_UNTIL_LOADED"] = "1"
+        env["FARLANDS_HOLD_MESH_PARTIAL"] = "0" if arm == "A" else str(hold_partial)
+        description = "hold, partial 0" if arm == "A" else f"hold, partial {hold_partial}"
     elif hold:
         env["FARLANDS_HOLD_MESH_UNTIL_LOADED"] = "1" if arm == "A" else "0"
         description = "initial mesh hold" if arm == "A" else "overlap, no hold"
@@ -318,6 +337,13 @@ def run_one(label: str, arm: str, out_dir: Path, timeout_s: int, base_env: dict,
         if arm == "B":
             env["NO_RENDER"] = "1"
         description = "NO_RENDER=1" if arm == "B" else "render loop on"
+    if final_install_ms is not None:
+        # This is an engine-budget A/B, not the render/no-render pair: both arms
+        # must render or the settle difference is mostly the renderer.
+        env.pop("NO_RENDER", None)
+        env["FARLANDS_FINAL_INSTALL_BUDGET_MS"] = "0.75" if arm == "A" else str(final_install_ms)
+        description = ("render, final install 0.75 ms" if arm == "A"
+                       else f"render, final install {final_install_ms} ms")
 
     log_path = out_dir / f"{label}.log"
     print(f"[{label}] {description} ... ", end="", flush=True)
@@ -358,7 +384,7 @@ def run_one(label: str, arm: str, out_dir: Path, timeout_s: int, base_env: dict,
         print(f"on={row['latch_on_s']:.2f}s end={row['latch_end_s']:.2f}s "
               f"mean={row['latch_mean_ms']:.2f}ms ({elapsed:.0f}s)")
     else:
-        print(f"loaded={row['loaded_s']:.2f}s end={row['end_s']:.2f}s ({elapsed:.0f}s)")
+        print(f"settle={row['settle_s']:.3f}s end={row['end_s']:.2f}s ({elapsed:.0f}s)")
     return row
 
 
@@ -420,11 +446,15 @@ def build_summary(args: argparse.Namespace, out_dir: Path, commit: str,
         "Start-fill AB/BA harness",
         f"commit: {commit or 'unknown'}",
         f"tracked dirty: {dirty or 'clean'}",
-        ("A: latch 30 s cap, 1 s quiet" if args.latch
+        ("A: render, final install 0.75 ms" if args.final_install_ms is not None
+         else "A: latch 30 s cap, 1 s quiet" if args.latch
+         else "A: hold, partial 0" if args.hold_partial is not None
          else "A: initial mesh hold" if args.hold
          else "A: cache on, prepared" if args.cache
          else "A: normal render loop"),
-        ("B: latch 1 s quiet, no cap" if args.latch
+        (f"B: render, final install {args.final_install_ms} ms" if args.final_install_ms is not None
+         else "B: latch 1 s quiet, no cap" if args.latch
+         else f"B: hold, partial {args.hold_partial}" if args.hold_partial is not None
          else "B: overlap, no hold" if args.hold
          else "B: cache off" if args.cache
          else "B: NO_RENDER=1"),
@@ -434,8 +464,10 @@ def build_summary(args: argparse.Namespace, out_dir: Path, commit: str,
         f"cores: {args.cores or 'all'}",
         f"vsync: {'on' if args.vsync else 'off'}",
         f"cache: {'A on, B off, rebuilt each pair' if args.cache else 'off'}",
-        (f"tail budget: {args.tail_budget_ms} ms" if args.tail_budget_ms is not None
+        (        f"tail budget: {args.tail_budget_ms} ms" if args.tail_budget_ms is not None
          else "tail budget: build default"),
+        (f"final install: A 0.75 ms, B {args.final_install_ms} ms"
+         if args.final_install_ms is not None else "final install: build default"),
         f"output: {out_dir}",
         "",
     ]
@@ -497,6 +529,7 @@ def build_summary(args: argparse.Namespace, out_dir: Path, commit: str,
             f"B {b_screen[0]:.0f}/{b_screen[1]:.0f}/{b_screen[2]:.4f}"
         )
     else:
+        metric_block(lines, "settle", "s", 3, a_rows, b_rows, "settle_s")
         metric_block(lines, "loaded", "s", 2, a_rows, b_rows, "loaded_s")
         metric_block(lines, "end", "s", 2, a_rows, b_rows, "end_s")
         metric_block(lines, "tail", "s", 2, a_rows, b_rows, "tail_s")
@@ -528,6 +561,7 @@ def build_summary(args: argparse.Namespace, out_dir: Path, commit: str,
         diff_block(lines, "visible end", "", 0, pairs, "visible_backlog_end", better_label=None)
     else:
         lines += ["", "Paired differences (positive = B loaded/finished sooner):"]
+        diff_block(lines, "settle", "s", 3, pairs, "settle_s")
         diff_block(lines, "loaded", "s", 2, pairs, "loaded_s")
         diff_block(lines, "end", "s", 2, pairs, "end_s")
         diff_block(lines, "tail", "s", 2, pairs, "tail_s")
@@ -560,6 +594,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="A/B the initial-loading latch: 30 s cap vs 1 s quiet with no cap")
     parser.add_argument("--hold", action="store_true",
                         help="A/B the initial mesh hold: on vs off (both render normally)")
+    parser.add_argument("--hold-partial", type=int, default=None, metavar="N",
+                        help="A/B the hold's nearest-only budget: A=0, B=N rebuilds/uploads per frame")
     parser.add_argument("--cache", action="store_true",
                         help="A/B the generated-terrain cache: A reads a prepared cache, B generates (both render)")
     parser.add_argument("--flight", type=int, default=36,
@@ -576,13 +612,20 @@ def main(argv: list[str] | None = None) -> int:
                         help="enable display vsync for every run (the constrained-hardware arm)")
     parser.add_argument("--tail-budget-ms", type=int, default=None,
                         help="cap the three post-load clocks at N ms in every run (default: build value)")
+    parser.add_argument("--final-install-ms", type=int, default=None, metavar="N",
+                        help="A/B the final-wave completion budget: A=0.75, B=N ms")
     args = parser.parse_args(argv)
     if args.pairs < 1:
         parser.error("--pairs must be at least 1")
     if args.latch and args.hold:
         parser.error("--latch and --hold cannot be combined")
-    if args.cache and (args.latch or args.hold):
-        parser.error("--cache cannot be combined with --latch or --hold")
+    if args.hold_partial is not None:
+        if args.latch or args.hold:
+            parser.error("--hold-partial cannot be combined with --latch or --hold")
+        if args.hold_partial < 1:
+            parser.error("--hold-partial must be at least 1")
+    if args.cache and (args.latch or args.hold or args.hold_partial is not None):
+        parser.error("--cache cannot be combined with --latch, --hold or --hold-partial")
     if args.flight <= 6:
         parser.error("--flight must be greater than the 6 s late window")
     if args.cores < 0:
@@ -596,6 +639,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--workers must be at least 1")
     if args.tail_budget_ms is not None and args.tail_budget_ms <= 0:
         parser.error("--tail-budget-ms must be positive")
+    if args.final_install_ms is not None and args.final_install_ms <= 0:
+        parser.error("--final-install-ms must be positive")
     mask = pin_to_cores(args.cores)
 
     stamp = time.strftime("%Y%m%d_%H%M%S")
@@ -611,11 +656,15 @@ def main(argv: list[str] | None = None) -> int:
         f"started: {started}",
         f"commit: {commit or 'unknown'}",
         f"tracked dirty: {dirty or 'clean'}",
-        ("A: latch 30 s cap, 1 s quiet" if args.latch
+        ("A: render, final install 0.75 ms" if args.final_install_ms is not None
+         else "A: latch 30 s cap, 1 s quiet" if args.latch
+         else "A: hold, partial 0" if args.hold_partial is not None
          else "A: initial mesh hold" if args.hold
          else "A: cache on, prepared" if args.cache
          else "A: normal render loop"),
-        ("B: latch 1 s quiet, no cap" if args.latch
+        (f"B: render, final install {args.final_install_ms} ms" if args.final_install_ms is not None
+         else "B: latch 1 s quiet, no cap" if args.latch
+         else f"B: hold, partial {args.hold_partial}" if args.hold_partial is not None
          else "B: overlap, no hold" if args.hold
          else "B: cache off" if args.cache
          else "B: NO_RENDER=1"),
@@ -631,6 +680,8 @@ def main(argv: list[str] | None = None) -> int:
         f"cache: {'A on, B off, rebuilt each pair' if args.cache else 'off'}",
         (f"tail budget: {args.tail_budget_ms} ms" if args.tail_budget_ms is not None
          else "tail budget: build default"),
+        (f"final install: A 0.75 ms, B {args.final_install_ms} ms"
+         if args.final_install_ms is not None else "final install: build default"),
         f"bash: {BASH}",
     ]
     (out_dir / "meta.txt").write_text("\n".join(meta) + "\n", encoding="utf-8")
@@ -649,8 +700,10 @@ def main(argv: list[str] | None = None) -> int:
     if not args.no_warmup:
         warmup = run_one("warmup", "A", out_dir, args.timeout, base_env,
                          latch=args.latch, flight=args.flight, vsync=args.vsync,
-                         tail_budget_ms=args.tail_budget_ms, workers=workers,
-                         hold=args.hold, cache=args.cache, rd=args.rd,
+                         tail_budget_ms=args.tail_budget_ms,
+                         final_install_ms=args.final_install_ms, workers=workers,
+                         hold=args.hold, hold_partial=args.hold_partial,
+                         cache=args.cache, rd=args.rd,
                          extra_env={"FILL_TRACE": "1"} if args.fill_trace else None)
         if warmup is None:
             summary = build_summary(args, out_dir, commit, dirty, None, [])
@@ -667,6 +720,7 @@ def main(argv: list[str] | None = None) -> int:
             wipe_cache()
             prepared = run_one(f"prep{number}", "A", out_dir, args.timeout, base_env,
                                vsync=args.vsync, tail_budget_ms=args.tail_budget_ms,
+                               final_install_ms=args.final_install_ms,
                                workers=workers, rd=args.rd, cache=True,
                                extra_env={"FILL_TRACE": "1"} if args.fill_trace else None)
             if prepared is None:
@@ -684,8 +738,10 @@ def main(argv: list[str] | None = None) -> int:
             label = f"{arm.lower()}{number}"
             row = run_one(label, arm, out_dir, args.timeout, base_env,
                           latch=args.latch, flight=args.flight, vsync=args.vsync,
-                          tail_budget_ms=args.tail_budget_ms, workers=workers,
-                          hold=args.hold, cache=args.cache, rd=args.rd,
+                          tail_budget_ms=args.tail_budget_ms,
+                          final_install_ms=args.final_install_ms, workers=workers,
+                          hold=args.hold, hold_partial=args.hold_partial,
+                          cache=args.cache, rd=args.rd,
                           extra_env={"FILL_TRACE": "1"} if args.fill_trace else None)
             if row is None:
                 print(f"\nPair {number} aborted; completed pairs are in the summary.")

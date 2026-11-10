@@ -142,6 +142,16 @@ struct FrameBudgets {
     bool hold_mesh_until_load_done = true;
     bool hold_mesh_force = false;
     int32_t hold_mesh_min_workers = 12;
+    // While the one-shot initial mesh hold is armed, allow this many nearest
+    // chunk rebuilds and uploads through per frame. Zero restores the old
+    // all-or-nothing hold (nothing meshes until the fill settles). Two is the
+    // shipping partial hold: five AB/BA pairs at 15 workers moved first visible
+    // 1.83 [1.81-1.88] -> 0.29 [0.27-0.31] s while loaded/end stayed 4.99/4.99
+    // against 4.99/5.00 s (paired end -0.02 s, B faster 2/5; load frame 7.66 vs
+    // 7.92 ms, process 1.29 vs 1.36 s). The full overlap cost 0.69 s of end;
+    // this spends a few builds a frame on the nearest chunks and none of it on
+    // the far scheduler. `FARLANDS_HOLD_MESH_PARTIAL=N` overrides it for an A/B.
+    int32_t hold_mesh_partial = 2;
 
     // Entries the unload scan visits per pass. It walks the whole map, so this is
     // what decides how long a loaded set takes to be re-examined at all: 500 per

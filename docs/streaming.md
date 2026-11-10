@@ -115,6 +115,32 @@ it — are in [lod-modes.md](lod-modes.md).
   not drain the queue. So neither generation admission nor the drain is the wall; the
   remaining suspect is the generation supply's own useful-chunk rate (the band walk and
   chain), not the downstream stages. Baseline restored (64/2, 0.75 ms).
+- **The last ~150 installs get a 2 ms drain budget once nothing else is left.** The 0.75 ms
+  cap above is right while generation is still arriving, but it is also the final wave's
+  clock: at RD32 the tail trace showed 127 completions at 4.433 s and the settled flag at
+  4.521 s, about 25 installs a frame. `effective_completion_budget_ms`
+  (`chunk_world_install_budget.hpp`) raises the completion budget to 2 ms only when
+  `generating_count()==0`, the completed queue is at most 192, and the light/dirty stage
+  queues are at most 1. Five AB/BA pairs with both arms rendering
+  (`FARLANDS_FINAL_INSTALL_BUDGET_MS` 0.75 vs 2, 15 workers) put exact fill settle at
+  **4.154 [3.999-4.762] s** vs **4.051 [3.912-4.101] s**, paired **+0.165 s
+  [-0.102-+0.704], B faster 4/5**; loaded/end moved **+0.06 s** in the same 4/5 pairs (A's
+  4.762 s run is the outlier). A tail trace at 2 ms drained its last 144 completions in
+  37 ms (4.049 -> 4.086) against the baseline's 127 in 85 ms (4.433 -> 4.518); load frames
+  were 7.74 vs 7.77 ms and the worst sampled frame 54.58 vs 55.12 ms, so the extra
+  main-thread work did not raise the frame cost. This cuts the fill settle by ~0.1 s, not
+  the ~4 s load. On the constrained 6-core/5-worker arm the same five-pair A/B is a wash:
+  settle **9.685 [9.622-9.740] s vs 9.599 [9.546-9.784] s**, paired **+0.035 s
+  [-0.099-+0.144], B faster 3/5**, load frame **4.54 vs 4.59 ms**, 21 slow frames in both.
+  The boost helps only where the completion queue is the last work, not where the load
+  itself is the wall.
+- **The gap between fill settle and `end` is the probe's confirmation window, not a
+  mesh/far tail.** A 15-worker trace had fill settle at 3.912 s, the first quiet chunk-load
+  sample at 3.951 s, and `loaded`/`mesh`/`far` all at 4.71 s, while every tail-phase counter
+  (`process_completed_meshes`, `dirty_mesh_queue`, `far_region_visibility`) stayed at zero.
+  The ~0.8 s is the tail of the probe's 1 s `LOADED_STABLE_SECS` window; the engine's fill
+  work is already done at settle. Shortening that window would only make the number smaller,
+  not the fill shorter.
 - **The per-chunk path is ~49 ms, and the load is the admission rate, not any one stage.**
   `FARLANDS_GEN_PROFILE=1` timestamps admission (just before the enqueue), worker
   start/finish and install, keyed by a unique attempt id (a chunk can be regenerated after
@@ -1302,7 +1328,8 @@ it — are in [lod-modes.md](lod-modes.md).
   cap256/cap512 runs then gave cap512 **4.79 [4.65-4.98] s** end, **0.00 [0.00-0.01] s** tail,
   all five under 5, and cap512 beat cap256 in **5/5** by **-0.20 s [-0.58 to -0.04]**. The
   previous 128 arm's end was 5.48 [5.30-5.51] s. Shipping is now
-  `hold_mesh_until_load_done = true` with `mesh_uploads_loading = 512`;
+  `hold_mesh_until_load_done = true` with `mesh_uploads_loading = 512` and the
+  partial-hold trickle described in the next bullet;
   `FARLANDS_HOLD_MESH_UNTIL_LOADED=0` restores the overlap path, and
   `FARLANDS_MESH_UPLOADS_LOADING=N` overrides the cap for an arm. The hold is one-shot and
   bounded: it is disarmed by the first fill settle (the sweep list spent and
@@ -1313,6 +1340,22 @@ it — are in [lod-modes.md](lod-modes.md).
   upload at 512/frame. A shipped-default check with no environment overrides measured
   **4.98 s** end to end, inside the 512 arm's range. The first-visible measurement below is
   the other half of that trade.
+- **The partial hold removes most of the blank world without paying for it in end time.**
+  Five AB/BA pairs at RD 32 on the 15-worker machine, both arms keeping the hold and the
+  only difference `FARLANDS_HOLD_MESH_PARTIAL` 0 vs 2 (A = all-or-nothing, B = at most two
+  nearest rebuilds/uploads a frame; `probes/start_fill_ab.py --hold-partial 2`, no warmup,
+  `.freebuff/hold_partial_2_ab`): first upload and first visible **1.83 [1.81-1.88] s ->
+  0.29 [0.27-0.31] s**, loaded **4.99 [4.94-5.27] -> 4.99 [4.96-5.04] s**, end **4.99
+  [4.95-5.27] -> 5.00 [4.96-5.04] s**. The paired end difference is **-0.02 s [-0.04 to
+  +0.28], B faster in 2/5 and slower by 0.02-0.04 s in 3/5**; the +0.28 is one 5.27 s A
+  outlier. Load frame **7.66 -> 7.92 ms**, process total **1.29 -> 1.36 s**, worst frame
+  **57.4 -> 54.9 ms**, slow frames **17 -> 19**. The hold still batches the bulk of the mesh
+  work; the two-a-frame trickle is enough to put the nearest terrain on screen almost
+  immediately, without the full overlap's 0.69 s end cost. This is a perceived-fill win, not
+  an end-to-end speedup: the chunk map still settles on the same schedule. Shipping is now
+  `hold_mesh_partial = 2`; zero restores the all-or-nothing hold, and
+  `FARLANDS_HOLD_MESH_PARTIAL=N` overrides it for an arm. The first-visible measurement below
+  is the all-or-nothing arm this replaces.
 - **The hold is now bounded, and the blank world it buys is bounded with it.** The fill probe
   reports first upload, first visible and the in-frustum drain (`PROBE fill first ...`). The
   shipping hold releases at the first fill settle, or at `FARLANDS_HOLD_MESH_MAX_SEC` (2 s),

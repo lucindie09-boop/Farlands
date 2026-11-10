@@ -16,6 +16,11 @@ namespace VoxelEngine {
 //
 // A handle must default-construct invalid and expose `is_valid()`; godot::RID
 // satisfies both. Returns how many handles were freed.
+//
+// The order is mesh then instance, matching the branches this replaced. Godot
+// may make instance-first cheaper, since the mesh would then have no dependents
+// to notify, but that is unmeasured; do not change the order without an arm of
+// the release measurement, and do not let a unit test pin it as an optimum.
 template <typename Handle, typename FreeFn>
 inline int release_mesh_resources(Handle& mesh, Handle& instance, FreeFn&& free_one) {
     int freed = 0;

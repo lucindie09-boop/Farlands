@@ -11,14 +11,26 @@ using VoxelEngine::LoadingLatch;
 
 TEST_CASE("the initial mesh hold ends at the first settle and never re-arms") {
     InitialMeshHold hold;
-    CHECK(hold.active(true, false));   // the initial fill holds
-    CHECK_FALSE(hold.active(true, true));  // first chunk-load settle releases it
-    CHECK_FALSE(hold.active(true, false)); // a later flight must not pause meshes again
-    CHECK_FALSE(hold.active(true, false));
+    CHECK(hold.tick(0.1, true, false));   // the initial fill holds
+    CHECK_FALSE(hold.tick(0.1, true, true));  // first fill settle releases it
+    CHECK_FALSE(hold.tick(0.1, true, false)); // a later flight must not pause meshes again
+    CHECK_FALSE(hold.tick(0.1, true, false));
 
     hold.reset();
-    CHECK(hold.active(true, false));   // a new world gets its own one-shot hold
-    CHECK_FALSE(hold.active(false, false));  // the configured switch still wins
+    CHECK(hold.tick(0.1, true, false));   // a new world gets its own one-shot hold
+    CHECK_FALSE(hold.tick(0.1, false, false));  // the configured switch still wins
+}
+
+TEST_CASE("the initial mesh hold releases at its deadline and stays disarmed") {
+    InitialMeshHold hold(2.0);
+    CHECK(hold.tick(0.5, true, false));
+    CHECK(hold.tick(1.4, true, false));        // 1.9 s, still held
+    CHECK_FALSE(hold.tick(0.2, true, false));  // 2.1 s -> deadline
+    CHECK_FALSE(hold.tick(1.0, true, false));  // the deadline is one-shot
+
+    hold.reset();
+    CHECK(hold.tick(0.1, true, false));        // a new world gets a fresh deadline
+    CHECK_FALSE(hold.tick(0.1, true, true));   // settle still wins
 }
 
 TEST_CASE("the latch starts only on a quiet chunk load with mesh pending") {

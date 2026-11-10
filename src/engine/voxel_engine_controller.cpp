@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <cstdlib>
 
 namespace VoxelEngine {
 using namespace godot;
@@ -124,6 +125,17 @@ void VoxelEngineController::set_owner(godot::Node* node) {
 void VoxelEngineController::create_thread_pool() {
     unsigned int hw_threads = std::thread::hardware_concurrency();
     size_t num_threads = hw_threads > 1 ? static_cast<size_t>(hw_threads - 1) : 1;
+    // A constrained arm pins the process to N logical processors, but
+    // hardware_concurrency() reports the machine, not the process mask, so the
+    // pool would still be sized for the full machine. The override is what makes
+    // a 4- or 6-core arm represent that hardware rather than oversubscribe it.
+    if (const char* raw = std::getenv("FARLANDS_WORKER_COUNT")) {
+        char* end = nullptr;
+        const long requested = std::strtol(raw, &end, 10);
+        if (end != raw && *end == '\0' && requested > 0) {
+            num_threads = static_cast<size_t>(requested);
+        }
+    }
     thread_pool = std::make_unique<ThreadPool>(num_threads);
     chunk_world.set_thread_pool(thread_pool.get());
     mesh_manager.set_thread_pool(thread_pool.get());

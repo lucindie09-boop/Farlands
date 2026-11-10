@@ -25,6 +25,9 @@ Each run is probes/probe_start_fill.gd at RD 32 through probes/run_probe_shot.sh
 the script keeps every log, writes results.csv as it goes, and reports a median
 and a min-max range per arm plus the paired A-B differences. The optional warmup
 run is reported but never counted.
+
+With --hold the arms are the initial mesh hold itself: A is the shipping hold,
+B is `FARLANDS_HOLD_MESH_UNTIL_LOADED=0`; both render normally.
 """
 from __future__ import annotations
 
@@ -93,7 +96,8 @@ CLEAR_ENV = (
     "FARLANDS_FAR_REGION_DEBOUNCE_MS", "FARLANDS_REGION_SPIKE",
     "FARLANDS_LOADING_LATCH_MAX_SEC", "FARLANDS_LOADING_LATCH_QUIET_SEC",
     "FARLANDS_LOADING_TAIL_BUDGET_MS", "FARLANDS_HOLD_MESH_UNTIL_LOADED",
-    "FARLANDS_MESH_UPLOADS_LOADING", "LATCH_FLIGHT", "VSYNC_ON",
+    "FARLANDS_HOLD_MESH_MAX_SEC", "FARLANDS_MESH_UPLOADS_LOADING",
+    "FARLANDS_WORKER_COUNT", "LATCH_FLIGHT", "PROBE_TIMEOUT_SECS", "VSYNC_ON",
 )
 
 
@@ -239,13 +243,18 @@ def parse_output(text: str, latch: bool = False) -> dict | None:
 def run_one(label: str, arm: str, out_dir: Path, timeout_s: int, base_env: dict,
             latch: bool = False, flight: int = 36, vsync: bool = False,
             tail_budget_ms: int | None = None,
+            workers: int | None = None,
+            hold: bool = False,
             extra_env: dict | None = None) -> dict | None:
     env = dict(base_env)
     for key in CLEAR_ENV:
         env.pop(key, None)
     env["RD"] = "32"
+    env["PROBE_TIMEOUT_SECS"] = str(timeout_s)
     if tail_budget_ms is not None:
         env["FARLANDS_LOADING_TAIL_BUDGET_MS"] = str(tail_budget_ms)
+    if workers is not None:
+        env["FARLANDS_WORKER_COUNT"] = str(workers)
     if vsync:
         env["VSYNC_ON"] = "1"
     if extra_env:
@@ -255,6 +264,9 @@ def run_one(label: str, arm: str, out_dir: Path, timeout_s: int, base_env: dict,
         env["FARLANDS_LOADING_LATCH_MAX_SEC"] = "30" if arm == "A" else "1000000000"
         env["LATCH_FLIGHT"] = str(flight)
         description = "latch 30 s cap" if arm == "A" else "latch 1 s quiet, no cap"
+    elif hold:
+        env["FARLANDS_HOLD_MESH_UNTIL_LOADED"] = "1" if arm == "A" else "0"
+        description = "initial mesh hold" if arm == "A" else "overlap, no hold"
     else:
         if arm == "B":
             env["NO_RENDER"] = "1"
@@ -351,8 +363,12 @@ def build_summary(args: argparse.Namespace, out_dir: Path, commit: str,
         "Start-fill AB/BA harness",
         f"commit: {commit or 'unknown'}",
         f"tracked dirty: {dirty or 'clean'}",
-        "A: latch 30 s cap, 1 s quiet" if args.latch else "A: normal render loop",
-        "B: latch 1 s quiet, no cap" if args.latch else "B: NO_RENDER=1",
+        ("A: latch 30 s cap, 1 s quiet" if args.latch
+         else "A: initial mesh hold" if args.hold
+         else "A: normal render loop"),
+        ("B: latch 1 s quiet, no cap" if args.latch
+         else "B: overlap, no hold" if args.hold
+         else "B: NO_RENDER=1"),
         f"pairs: {args.pairs}, arm order alternates per pair (AB, BA, AB, ...)",
         *( [f"flight: {args.flight}s"] if args.latch else [] ),
         f"timeout: {args.timeout}s per run",
@@ -477,10 +493,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-warmup", action="store_true", help="skip the discarded warmup run")
     parser.add_argument("--latch", action="store_true",
                         help="A/B the initial-loading latch: 30 s cap vs 1 s quiet with no cap")
+    parser.add_argument("--hold", action="store_true",
+                        help="A/B the initial mesh hold: on vs off (both render normally)")
     parser.add_argument("--flight", type=int, default=36,
                         help="latch mode: seconds of 100 block/s flight (default 36)")
     parser.add_argument("--cores", type=int, default=0,
                         help="pin the harness and its Godot runs to the first N logical processors (Windows; 0 = all)")
+    parser.add_argument("--workers", type=int, default=None,
+                        help="override the worker pool size (default: N-1 when --cores is set; else the build's hardware_concurrency()-1)")
     parser.add_argument("--vsync", action="store_true",
                         help="enable display vsync for every run (the constrained-hardware arm)")
     parser.add_argument("--tail-budget-ms", type=int, default=None,
@@ -488,10 +508,17 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.pairs < 1:
         parser.error("--pairs must be at least 1")
+    if args.latch and args.hold:
+        parser.error("--latch and --hold cannot be combined")
     if args.flight <= 6:
         parser.error("--flight must be greater than the 6 s late window")
     if args.cores < 0:
         parser.error("--cores cannot be negative")
+    workers = args.workers
+    if workers is None and args.cores > 0:
+        workers = max(1, args.cores - 1)
+    if workers is not None and workers < 1:
+        parser.error("--workers must be at least 1")
     if args.tail_budget_ms is not None and args.tail_budget_ms <= 0:
         parser.error("--tail-budget-ms must be positive")
     mask = pin_to_cores(args.cores)
@@ -509,13 +536,18 @@ def main(argv: list[str] | None = None) -> int:
         f"started: {started}",
         f"commit: {commit or 'unknown'}",
         f"tracked dirty: {dirty or 'clean'}",
-        "A: latch 30 s cap, 1 s quiet" if args.latch else "A: normal render loop",
-        "B: latch 1 s quiet, no cap" if args.latch else "B: NO_RENDER=1",
+        ("A: latch 30 s cap, 1 s quiet" if args.latch
+         else "A: initial mesh hold" if args.hold
+         else "A: normal render loop"),
+        ("B: latch 1 s quiet, no cap" if args.latch
+         else "B: overlap, no hold" if args.hold
+         else "B: NO_RENDER=1"),
         f"pairs: {args.pairs}",
         *( [f"flight: {args.flight}s"] if args.latch else [] ),
         f"warmup: {'no' if args.no_warmup else 'yes'}",
         f"timeout: {args.timeout}s",
         f"cores: {args.cores or 'all'}" + (f" (mask 0x{mask:x})" if mask else ""),
+        f"workers: {workers if workers is not None else 'build default'}",
         f"vsync: {'on' if args.vsync else 'off'}",
         (f"tail budget: {args.tail_budget_ms} ms" if args.tail_budget_ms is not None
          else "tail budget: build default"),
@@ -534,7 +566,8 @@ def main(argv: list[str] | None = None) -> int:
     if not args.no_warmup:
         warmup = run_one("warmup", "A", out_dir, args.timeout, base_env,
                          latch=args.latch, flight=args.flight, vsync=args.vsync,
-                         tail_budget_ms=args.tail_budget_ms)
+                         tail_budget_ms=args.tail_budget_ms, workers=workers,
+                         hold=args.hold)
         if warmup is None:
             summary = build_summary(args, out_dir, commit, dirty, None, [])
             (out_dir / "summary.txt").write_text(summary + "\n", encoding="utf-8")
@@ -551,7 +584,8 @@ def main(argv: list[str] | None = None) -> int:
             label = f"{arm.lower()}{number}"
             row = run_one(label, arm, out_dir, args.timeout, base_env,
                           latch=args.latch, flight=args.flight, vsync=args.vsync,
-                          tail_budget_ms=args.tail_budget_ms)
+                          tail_budget_ms=args.tail_budget_ms, workers=workers,
+                          hold=args.hold)
             if row is None:
                 print(f"\nPair {number} aborted; completed pairs are in the summary.")
                 summary = build_summary(args, out_dir, commit, dirty, warmup, pairs)

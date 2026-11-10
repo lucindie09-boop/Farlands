@@ -8,6 +8,7 @@
 #include "worldgen/chunk_generator.hpp"
 #include "mesh/chunk_boundary_dirty.hpp"
 #include "core/crc32.hpp"
+#include "world/chunk_world_install_budget.hpp"
 
 namespace VoxelEngine {
 
@@ -57,6 +58,10 @@ int32_t ChunkWorld::process_completed_chunks(uint64_t epoch, double budget_ms, i
     int32_t dynamic_max_lighting = max_lighting;
     int32_t dynamic_max_dirty = max_dirties;
 
+    const double effective_budget_ms = effective_completion_budget_ms(
+        chunk_scheduler.generating_count(), chunk_scheduler.completed_chunk_count(),
+        pending_chunk_lighting.size(), pending_chunk_dirty_mesh.size(), budget_ms);
+
     auto start_time = std::chrono::high_resolution_clock::now();
     int32_t installs_this_frame = 0;
     int32_t lights_this_frame = 0;
@@ -66,7 +71,7 @@ int32_t ChunkWorld::process_completed_chunks(uint64_t epoch, double budget_ms, i
     while (true) {
         auto current_time = std::chrono::high_resolution_clock::now();
         double elapsed_ms = std::chrono::duration<double, std::milli>(current_time - start_time).count();
-        if (elapsed_ms >= budget_ms) break;
+        if (elapsed_ms >= effective_budget_ms) break;
 
         // Poll completed light propagations (fire-and-forget worker results)
         // Fast-path: skip mutex entirely when queue is empty (atomic counter check)

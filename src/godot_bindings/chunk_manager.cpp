@@ -381,6 +381,7 @@ BIND_PROP(Variant::BOOL, smooth_lighting, "enabled");
                          &ChunkManager::set_world_horizon);
     ClassDB::bind_method(D_METHOD("has_pending_mesh_work"), &ChunkManager::has_pending_mesh_work);
     ClassDB::bind_method(D_METHOD("is_fill_settled"), &ChunkManager::is_fill_settled);
+    ClassDB::bind_method(D_METHOD("get_stream_snapshot"), &ChunkManager::get_stream_snapshot);
     ClassDB::bind_method(D_METHOD("get_pending_chunk_mesh_count"), &ChunkManager::get_pending_chunk_mesh_count);
     ClassDB::bind_method(D_METHOD("get_visible_pending_chunk_mesh_count"), &ChunkManager::get_visible_pending_chunk_mesh_count);
     ClassDB::bind_method(D_METHOD("get_visible_pending_lod_split"), &ChunkManager::get_visible_pending_lod_split);

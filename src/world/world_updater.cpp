@@ -17,12 +17,12 @@ namespace {
 // effectively open 1000 ms mesh/far clock; an arm sets the cap, the quiet exit
 // or the three clocks without a second build. Invalid values fall back rather
 // than disabling the setting.
-double latch_seconds_from_env(const char* name, double fallback) {
+double latch_seconds_from_env(const char* name, double fallback, bool allow_zero = false) {
     const char* raw = std::getenv(name);
     if (raw == nullptr || *raw == '\0') return fallback;
     char* end = nullptr;
     const double value = std::strtod(raw, &end);
-    return (end != raw && value > 0.0) ? value : fallback;
+    return (end != raw && (value > 0.0 || (allow_zero && value == 0.0))) ? value : fallback;
 }
 } // namespace
 
@@ -63,6 +63,11 @@ WorldUpdater::WorldUpdater()
     initial_mesh_hold_.set_max_sec(hold_max_sec);
     budgets.hold_mesh_min_workers = static_cast<int32_t>(
         latch_seconds_from_env("FARLANDS_HOLD_MESH_MIN_WORKERS", 8.0));
+    // The partial-hold arm: a small nearest-only mesh budget that runs while the
+    // hold is still up. The A/B's first-visible result is in FrameBudgets; the
+    // shipping default is two, and zero restores the all-or-nothing hold.
+    budgets.hold_mesh_partial = static_cast<int32_t>(
+        latch_seconds_from_env("FARLANDS_HOLD_MESH_PARTIAL", 2.0, true));
     // Measurement-only: the admission controller's per-chunk cost model and
     // its in-flight cap. Lower the cost and raise the cap together to ask what
     // the feed-forward rate is worth before changing the rule.
@@ -368,6 +373,27 @@ void WorldUpdater::process_mesh_budgets(bool is_editor, uint64_t epoch, uint64_t
                 mesh_rebuild_budget,
                 mesh_queue_budget_ms
             );
+        }
+    } else if (budgets.hold_mesh_partial > 0) {
+        // The hold's one-shot batch makes the first terrain wait for the whole
+        // chunk set. This arm lets the nearest chunks through under a tiny
+        // budget; the queue is already visibility/distance ordered, so N spends
+        // the frame on what the player sees first. It is deliberately much
+        // smaller than the post-load 512 (the full overlap was slower).
+        const int32_t partial = budgets.hold_mesh_partial;
+        {
+            ScopedTimer t(*perf_timer, TimerID::ProcessCompletedMeshes);
+            mesh_manager->process_completed_meshes(
+                epoch,
+                budgets.mesh_completion_budget_ms,
+                partial,
+                material_manager->get_material(),
+                material_manager->get_water_material()
+            );
+        }
+        {
+            ScopedTimer t(*perf_timer, TimerID::DirtyMeshQueue);
+            mesh_manager->process_queue(0, partial, budgets.mesh_queue_budget_ms);
         }
     }
 }

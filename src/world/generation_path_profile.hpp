@@ -170,6 +170,49 @@ public:
         return std::string(buf);
     }
 
+    // The last `count` installs, in install order. The full report's averages
+    // are dominated by the fill's middle; this is the only view of the tail that
+    // actually settles the map.
+    [[nodiscard]] std::string report_tail(size_t count) const {
+        if (!enabled()) return "disabled";
+        std::vector<Sample> samples;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            const size_t first = samples_.size() > count ? samples_.size() - count : 0;
+            samples.assign(samples_.begin() + static_cast<std::ptrdiff_t>(first), samples_.end());
+        }
+        if (samples.empty()) return "tail samples=0";
+        std::vector<uint64_t> wait;
+        std::vector<uint64_t> work;
+        std::vector<uint64_t> drain;
+        std::vector<uint64_t> total;
+        wait.reserve(samples.size());
+        work.reserve(samples.size());
+        drain.reserve(samples.size());
+        total.reserve(samples.size());
+        for (const Sample& s : samples) {
+            wait.push_back(s.start_ns - s.admit_ns);
+            work.push_back(s.end_ns - s.start_ns);
+            drain.push_back(s.install_ns - s.end_ns);
+            total.push_back(s.install_ns - s.admit_ns);
+        }
+        const Stats w = summarize(std::move(wait));
+        const Stats k = summarize(std::move(work));
+        const Stats d = summarize(std::move(drain));
+        const Stats t = summarize(std::move(total));
+        char buf[640];
+        std::snprintf(
+            buf, sizeof(buf),
+            "tail n=%llu wait p50=%.3f p90=%.3f max=%.3f | work p50=%.3f p90=%.3f max=%.3f | "
+            "drain p50=%.3f p90=%.3f max=%.3f | total p50=%.3f p90=%.3f max=%.3f",
+            static_cast<unsigned long long>(samples.size()),
+            w.p50_ms, w.p90_ms, w.max_ms,
+            k.p50_ms, k.p90_ms, k.max_ms,
+            d.p50_ms, d.p90_ms, d.max_ms,
+            t.p50_ms, t.p90_ms, t.max_ms);
+        return std::string(buf);
+    }
+
 private:
     static Stats summarize(std::vector<uint64_t> values_ns) {
         Stats stats;

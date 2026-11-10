@@ -206,7 +206,8 @@ public:
     // worker finish -> install. Collected only when FARLANDS_GEN_PROFILE=1;
     // the startup probe prints this readout.
     [[nodiscard]] std::string get_generation_path_report() const {
-        return generation_path_profile_.report() + " | " + generation_slice_report();
+        return generation_path_profile_.report() + " | tail: " +
+               generation_path_profile_.report_tail(150) + " | " + generation_slice_report();
     }
 
     // Worker-side light-pass timing. The counters are collected only when

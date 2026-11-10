@@ -43,6 +43,10 @@ private:
 // Main-thread half of ChunkWorld — see chunk_world_generate.cpp for the
 // worker-side generation closure.
 int32_t ChunkWorld::process_completed_chunks(uint64_t epoch, double budget_ms, int32_t max_installs, int32_t max_lighting, int32_t max_dirties, int32_t player_cx, int32_t player_cy, int32_t player_cz, int32_t render_distance) {
+    // Hand finished cache regions to the pool before the empty fast path: a
+    // fill's last region would otherwise sit in RAM until the next install.
+    terrain_cache.tick(thread_pool);
+
     // Fast path: skip the loop entirely if nothing is pending and the scheduler is empty.
     if (pending_chunk_lighting.empty() && pending_chunk_dirty_mesh.empty() && pending_chunk_installs.empty() &&
         chunk_scheduler.completed_chunk_count() == 0) {

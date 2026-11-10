@@ -292,6 +292,8 @@ test_terrain_cache_manifest_object = test_env.Object(
     "src/core/terrain_cache_manifest_test", source="src/core/terrain_cache_manifest.cpp")
 test_terrain_cache_reader_object = test_env.Object(
     "src/core/terrain_cache_reader_test", source="src/core/terrain_cache_reader.cpp")
+test_terrain_cache_writer_object = test_env.Object(
+    "src/core/terrain_cache_writer_test", source="src/core/terrain_cache_writer.cpp")
 # Add light_propagator for light removal tests (not in shared_sources because it requires MeshManager)
 # Compile separately with the DOCTEST_NO_MULTITHREADED flag
 test_light_propagator_object = test_env.Object("src/lighting/light_propagator_test", source="src/lighting/light_propagator.cpp")
@@ -303,6 +305,7 @@ test_prog = test_env.Program("bin/run_tests", Glob("tests/*.cpp") + shared_objec
                              [test_chunk_data_object, test_terrain_cache_object,
                               test_terrain_cache_key_object, test_terrain_cache_manifest_object,
                               test_terrain_cache_reader_object,
+                              test_terrain_cache_writer_object,
                               test_light_propagator_object, test_light_propagator_sky_object])
 Alias("test", test_prog)
 

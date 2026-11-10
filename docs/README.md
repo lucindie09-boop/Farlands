@@ -15,7 +15,7 @@ files at the repository root are the map; the substance of a system is here.
 | Something is wrong in game — where do I look? | [debugging.md](debugging.md) |
 | How is a feature proved to work? | [probes.md](probes.md) |
 | What has already been tried and rejected? | [decisions/](decisions/README.md) |
-| What would a saved terrain cache buy, and how would it be built? | [terrain-cache-plan.md](terrain-cache-plan.md) |
+| What did the saved terrain cache buy, and why is it off? | [terrain-cache-plan.md](terrain-cache-plan.md) |
 | How do I contribute without breaking the gates? | [CONTRIBUTING.md](../CONTRIBUTING.md) |
 | Why is the tree split the way it is? | [file_size_plan.md](file_size_plan.md) |
 | How should the main menu look, and what is the evidence for it? | [main-menu.md](main-menu.md) |

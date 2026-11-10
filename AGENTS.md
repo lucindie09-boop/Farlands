@@ -86,7 +86,7 @@ The four gates this file's constraints describe are `scons sizecheck`, `scons po
   anonymous namespace (or `static`), or its external linkage can collide with the same name in a
   sibling file at link time
 - **The static-analysis job is the third structural gate, and the only one that reads C++
-  semantics rather than shapes.** clang-tidy runs over `find src -name '*.cpp'` (132 files) with
+  semantics rather than shapes.** clang-tidy runs over `find src -name '*.cpp'` (134 files) with
   `bugprone-*`, `concurrency-*` and `performance-*` on `ubuntu-latest`, and any finding in
   project sources fails the job, so a split that smuggles in a new shape surfaces here one
   finding at a time. Two shapes are worth knowing before writing the next helper, and both are
@@ -262,12 +262,19 @@ Full notes: [docs/gui-notes.md](docs/gui-notes.md).
   gated by strength ("weirdness") zones, with shoreline handling near water.
 - Data-driven: `data/biomes.json`, `data/vegetation.json` and
   `data/terrain_config.json` are what worldgen reads.
-- Phase 2 of the generated-terrain cache is in place: the pure manifest/index
-  reader (`src/core/terrain_cache_manifest.*`, `src/core/terrain_cache_reader.*`)
-  loads every pack index once, workers read a chunk payload by offset through a
-  per-thread `FileAccess`, and `ChunkWorld::generate_chunk` falls through to the
-  generator on any miss. It is off by default (`FARLANDS_TERRAIN_CACHE=1`); the
-  writer and hit/miss parity gate remain in [the cache plan](docs/terrain-cache-plan.md).
+- The generated-terrain cache is implemented through phase 3: the pure codec
+  (`src/core/terrain_cache_format.*`), the manifest/index reader
+  (`terrain_cache_manifest.*`, `terrain_cache_reader.*`) and the staging/merge
+  writer (`terrain_cache_writer.*`). Workers read a chunk payload by offset
+  through a per-thread `FileAccess`; a miss captures the generator's own blocks
+  plus its spill list before edits/light/solid, and the writer flushes idle or
+  full 8x8 regions to one pack behind an atomic `cache.meta`. `src/world/terrain_cache.*`
+  owns the key, discovery, eviction (512 MiB, least-recently-used worlds) and the
+  per-thread handles. It is off by default (`FARLANDS_TERRAIN_CACHE=1`), and the
+  phase-4 A/B rejected default enablement: 11.4% load gain at 4 cores against a
+  25% bar, 4.6% at 6 against 15%, and 6.3% at 16 with no regression, because the
+  read/decode returns most of the generation it removes. The hit/miss parity
+  gate remains open in [the cache plan](docs/terrain-cache-plan.md).
 
 Full notes: [docs/terrain-notes.md](docs/terrain-notes.md). The fields of each file:
 [docs/data-schemas.md](docs/data-schemas.md).
@@ -310,7 +317,7 @@ Full notes: [docs/schematic-notes.md](docs/schematic-notes.md).
 Full notes: [docs/fluids.md](docs/fluids.md).
 
 ### Testing & CI
-- 764 test cases / 364,163 assertions, written with `CHECK`/`CHECK_FALSE` only: this
+- 771 test cases / 374,249 assertions, written with `CHECK`/`CHECK_FALSE` only: this
   build disables exceptions, so `REQUIRE` is a compile error.
 - Move work off the frame before making it cheaper, and prove the move with a total:
   the phases must add up to the frame.

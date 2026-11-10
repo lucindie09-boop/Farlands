@@ -1368,8 +1368,8 @@ it — are in [lod-modes.md](lod-modes.md).
   so this is the faithful hit. A memo-off second pass is slower at 3 and 5 workers
   (20.63 s against 18.41 s; 11.12 against 10.19 s), so the gain is the memo, not warm
   state. At 15 workers the warm hit is **3.05 s** against the warm second pass's **4.69 s**;
-  that is not a cold result, so do not quote a 16-thread percentage before the phase-4
-  cold-process arm (rough cold estimate ~4.6 s against 5.75-6.31 s, about 20-26%). Five
+  that is not a cold result; the phase-4 cold-process arm measured **5.92 s against
+  6.32 s** at 16 threads (6.3%), and 11.4% / 4.6% at 4 / 6 cores in the plan. Five
   workers: 11.12 -> 5.84 s. A no-edit 3-worker world is 16.04 -> 8.05/8.31 s; the 381
   edited chunks add about 2.0 s.
   The old 19.84 s/90 s no-end figure was the

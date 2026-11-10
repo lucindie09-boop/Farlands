@@ -5,7 +5,7 @@ jobs that run on every push.
 
 ## The suite
 
-- **764 test cases / 364,163 assertions**, declared across 112 of the 114 `.cpp` files in `tests/`
+- **771 test cases / 374,249 assertions**, declared across 113 of the 115 `.cpp` files in `tests/`
   (`test_main.cpp` is the doctest entry point, `mesh_manager_stub.cpp` supplies link stubs, and
   both are picked up by the same `Glob("tests/*.cpp")`)
 - **`test_mesh_resource_release.cpp` pins the free itself**: the three branches that drop a

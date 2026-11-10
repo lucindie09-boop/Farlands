@@ -773,8 +773,43 @@ func _run() -> void:
 		int(g.get("rebuilds", 0)), float(g.get("total_rebuild_ms", 0.0)),
 		int(g.get("columns_built", 0)), int(g.get("columns_skipped", 0)),
 		int(g.get("chain_generations", 0))])
+	# A cache-on run's writer is not drained by _exit_tree by design, so a run
+	# that prepares a cache waits here for the packs; the fill's timestamps are
+	# already taken and do not move.
+	await _drain_cache()
+	g = cm.get_generation_stats()
+	print("PROBE fill cache open=%d hits=%d misses=%d hit_rate=%.3f packs=%d entries=%d read_ms=%.1f decode_ms=%.1f staged=%d written=%d packs_written=%d merged=%d write_mb=%.2f encode_ms=%.1f write_ms=%.1f encode_failures=%d write_failures=%d" % [
+		1 if bool(g.get("cache_open", false)) else 0,
+		int(g.get("cache_hits", 0)), int(g.get("cache_misses", 0)),
+		float(g.get("cache_hit_rate", 0.0)), int(g.get("cache_packs", 0)),
+		int(g.get("cache_entries", 0)), float(g.get("cache_read_ms", 0.0)),
+		float(g.get("cache_decode_ms", 0.0)), int(g.get("cache_staged_chunks", 0)),
+		int(g.get("cache_chunks_written", 0)), int(g.get("cache_packs_written", 0)),
+		int(g.get("cache_chunks_merged", 0)),
+		float(g.get("cache_write_bytes", 0)) / 1048576.0,
+		float(g.get("cache_encode_ms", 0.0)), float(g.get("cache_write_ms", 0.0)),
+		int(g.get("cache_encode_failures", 0)), int(g.get("cache_write_failures", 0))])
 	print("PROBE fill %s" % ["OK" if ok else "FAILED"])
 	quit(0 if ok else 1)
+
+## Waits for staged regions and in-flight packs to finish before quitting a run
+## that is preparing a cache. No-op when the switch is off.
+func _drain_cache() -> void:
+	if OS.get_environment("FARLANDS_TERRAIN_CACHE") != "1":
+		return
+	var last_packs := -1
+	var quiet := 0
+	for _i in 900:
+		var g: Dictionary = cm.get_generation_stats()
+		var packs := int(g.get("cache_packs_written", 0))
+		if int(g.get("cache_staged_chunks", 0)) == 0 and packs == last_packs:
+			quiet += 1
+		else:
+			quiet = 0
+			last_packs = packs
+		if quiet >= 30:
+			return
+		await process_frame
 
 func _p99(values: Array) -> float:
 	if values.is_empty():

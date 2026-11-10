@@ -266,15 +266,17 @@ Full notes: [docs/gui-notes.md](docs/gui-notes.md).
   (`src/core/terrain_cache_format.*`), the manifest/index reader
   (`terrain_cache_manifest.*`, `terrain_cache_reader.*`) and the staging/merge
   writer (`terrain_cache_writer.*`). Workers read a chunk payload by offset
-  through a per-thread `FileAccess`; a miss captures the generator's own blocks
-  plus its spill list before edits/light/solid, and the writer flushes idle or
-  full 8x8 regions to one pack behind an atomic `cache.meta`. `src/world/terrain_cache.*`
-  owns the key, discovery, eviction (512 MiB, least-recently-used worlds) and the
-  per-thread handles. It is off by default (`FARLANDS_TERRAIN_CACHE=1`), and the
-  phase-4 A/B rejected default enablement: 11.4% load gain at 4 cores against a
-  25% bar, 4.6% at 6 against 15%, and 6.3% at 16 with no regression, because the
-  read/decode returns most of the generation it removes. The hit/miss parity
-  gate remains open in [the cache plan](docs/terrain-cache-plan.md).
+  through one shared `FileAccess` per pack, guarded by that pack's mutex (62
+  handles, under the engine CRT's 512-file limit); a miss captures the
+  generator's own blocks plus its spill list before edits/light/solid, and the
+  writer flushes idle or full 8x8 regions to one pack behind an atomic
+  `cache.meta`. `src/world/terrain_cache.*` owns the key, discovery, eviction
+  (512 MiB, least-recently-used worlds) and the shared handles. It is off by
+  default (`FARLANDS_TERRAIN_CACHE=1`), and the phase-4 A/B rejected default
+  enablement: 23.4% load gain at 4 cores against a 25% bar, 13.7% at 6 against
+  15%, and 5.2% at 16 with no regression. The read fix (10.2 s -> 0.33 s at 3
+  workers) is real, but decode (~4.3 s) and the install/tail are now the wall.
+  The hit/miss parity gate remains open in [the cache plan](docs/terrain-cache-plan.md).
 
 Full notes: [docs/terrain-notes.md](docs/terrain-notes.md). The fields of each file:
 [docs/data-schemas.md](docs/data-schemas.md).

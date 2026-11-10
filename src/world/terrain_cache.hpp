@@ -14,10 +14,10 @@ class ThreadPool;
 struct TerrainCacheWriterState;
 
 // Godot-facing adapter for the pure cache reader and writer: it owns the key and
-// the cache root, discovers the region packs, gives each worker thread its own
-// FileAccess handle for reads, and stages encoded generator output for the
-// writer. `ensure_open`, `tick` and `close` are main-thread; `read_chunk` and
-// `stage_chunk` may run on any generation worker once the cache is open.
+// the cache root, discovers the region packs, shares one FileAccess handle per
+// pack across workers under a per-pack mutex, and stages encoded generator
+// output for the writer. `ensure_open`, `tick` and `close` are main-thread;
+// `read_chunk` and `stage_chunk` may run on any generation worker once open.
 class TerrainCache {
 public:
     TerrainCache() = default;

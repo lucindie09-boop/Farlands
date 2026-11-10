@@ -40,7 +40,7 @@ do not belong here.
 | Separate generation and mesh thread pools | Reverted | Starved generation throughput ~7× |
 | `queue_dirty_chunk()` inside a lock scope | Replaced by `queue_dirty_chunk_fast()` | Re-acquiring a shard already held shared hard-deadlocks on Windows SRW locks |
 | Eleven biomes, then Tundra/Taiga/Savanna/StonePlateau | Replaced | The JSON set (plains/hills/ocean) plus blending gave more variety per line of tuning code. Erosion-driven mountains were removed with them |
-| Generated-terrain cache for the spawn fill (phases 1-3) | Rejected; kept off behind `FARLANDS_TERRAIN_CACHE=1` | Read+decode returns most of the generation it removes: 11.4% / 4.6% / 6.3% load gain at 4 / 6 / 16 threads against 25% / 15% / no-regression bars. [Matrix](../terrain-cache-plan.md) |
+| Generated-terrain cache for the spawn fill (phases 1-3) | Rejected; kept off behind `FARLANDS_TERRAIN_CACHE=1` | The per-read reopen was real: shared per-pack handles cut read time from 10.2 s to 0.33 s at 3 workers, but 23.4% / 13.7% load gains at 4 / 6 still miss the 25% / 15% bars; 16 gains 5.2% with no regression and hit 1.000. Decode and install/tail now dominate. [Matrix](../terrain-cache-plan.md) |
 
 ## Collision, physics and shapes
 

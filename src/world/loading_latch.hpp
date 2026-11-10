@@ -6,8 +6,8 @@ namespace VoxelEngine {
 // The initial-loading mesh-budget latch, lifted out of WorldUpdater so every
 // transition can be pinned without a chunk map, a mesh manager or a frame.
 //
-// The mode starts only when the chunk load is quiet (the caller's
-// `chunk_load_done`) and mesh work is outstanding. It ends on the first of:
+// The mode starts only when the fill is settled (the caller's `fill_settled`)
+// and mesh work is outstanding. It ends on the first of:
 //
 //   * one quiet window without pending mesh -- the backlog drained; or
 //   * the cap, which then LATCHES. The entry test cannot restart it while the
@@ -20,23 +20,45 @@ namespace VoxelEngine {
 //
 // The caller owns the two windows: they are env-overridable for measurement,
 // and the shipping defaults are a 30 s cap and a 1 s quiet exit.
-// The hold is not a mode: it exists only until the FIRST chunk-load settle.
-// `chunk_load_done` is recomputed every frame, so keying the hold directly to it
-// would re-arm during a later flight and pause edits/light remeshes with the
-// chunk load. This keeps the one-shot decision testable on its own.
+// The hold is not a mode: it exists only until the FIRST chunk-load settle, or
+// until its deadline, whichever comes first. `settled` is recomputed every
+// frame, so keying the hold directly to it would re-arm during a later flight
+// and pause edits/light remeshes with the chunk load. The deadline matters on
+// small render distances: a chunk-count gate can never be met by a disc smaller
+// than the gate, and without a deadline that world would never mesh. It also
+// bounds the blank world on constrained hardware, at the price of the hold's
+// end-to-end batching. This keeps the one-shot decision testable on its own.
 class InitialMeshHold {
 public:
-    // `enabled` is the configured switch; call once per frame before the mesh
-    // stages. The first settle disarms the hold for the rest of this world.
-    [[nodiscard]] bool active(bool enabled, bool chunk_load_done) {
-        if (chunk_load_done) armed_ = false;
-        return enabled && armed_ && !chunk_load_done;
+    explicit InitialMeshHold(double max_sec = 2.0) : max_sec_(max_sec) {}
+
+    // Call once per frame before the mesh stages. The first settle disarms the
+    // hold for the rest of this world; so does the deadline. Returns the state
+    // AFTER the transition, so the frame that releases the hold reports false
+    // and its mesh work runs that frame.
+    [[nodiscard]] bool tick(double delta, bool enabled, bool settled) {
+        if (settled) {
+            armed_ = false;
+            elapsed_ = 0.0;
+            return false;
+        }
+        if (!enabled || !armed_) return false;
+        elapsed_ += delta > 0.0 ? delta : 0.0;
+        if (elapsed_ >= max_sec_) {
+            armed_ = false;
+            elapsed_ = 0.0;
+            return false;
+        }
+        return true;
     }
 
-    void reset() { armed_ = true; }
+    void set_max_sec(double max_sec) { max_sec_ = max_sec; }
+    void reset() { armed_ = true; elapsed_ = 0.0; }
 
 private:
+    double max_sec_ = 2.0;
     bool armed_ = true;
+    double elapsed_ = 0.0;
 };
 
 class LoadingLatch {
@@ -47,12 +69,12 @@ public:
     // One update, in the order WorldUpdater::process_mesh_budgets runs it.
     // Returns the state AFTER the transition, so the frame that ends an episode
     // (quiet exit or cap) reports false.
-    [[nodiscard]] bool tick(double delta, bool chunk_load_done, bool pending_mesh) {
+    [[nodiscard]] bool tick(double delta, bool fill_settled, bool pending_mesh) {
         // Only a tick that STARTED capped may accumulate the release window:
         // the frame the cap fires has already added this delta to `quiet_` in
         // the active block, and adding it twice would shorten the drain window.
         const bool was_capped = capped_;
-        if (!active_ && !capped_ && chunk_load_done && pending_mesh) {
+        if (!active_ && !capped_ && fill_settled && pending_mesh) {
             active_ = true;
             elapsed_ = 0.0;
             quiet_ = 0.0;

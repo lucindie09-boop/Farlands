@@ -227,10 +227,11 @@ private:
 
     FrameBudgets budgets;
 
-    // The initial stream is a MODE, not the first 500 loaded chunks. The old
-    // loaded-count test switched RD32 back to the 8-rebuild/32-upload gameplay
+    // The initial stream is a MODE, not a loaded-count threshold. The old
+    // 500-chunk count test switched RD32 back to the 8-rebuild/32-upload gameplay
     // budgets while ~19,700 chunks and all of the far-region tail were still
-    // arriving. This latch starts only after the CHUNK load is quiet, so the
+    // arriving. This latch starts only after the fill settles (the sweep list
+    // is spent and generation/completion are empty), so the
     // larger loading budgets do not compete with the install/light work that is
     // still filling the chunk map; then it keeps them until the mesh/far tail
     // has been quiet for a second. The cap is for a world that cannot settle.
@@ -240,7 +241,8 @@ private:
     // measurement (FARLANDS_LOADING_LATCH_MAX_SEC / _QUIET_SEC), parsed in the
     // constructor with the shipping 30 s / 1 s defaults.
     LoadingLatch initial_loading_latch_;
-    // The hold is one-shot: it ends at the first chunk-load settle, not every
+    // The hold is one-shot and bounded: it ends at the first fill settle or
+    // `FARLANDS_HOLD_MESH_MAX_SEC` (2 s), whichever comes first, and not every
     // time a later flight leaves and re-enters that state. Pinned by
     // tests/test_loading_latch.cpp.
     InitialMeshHold initial_mesh_hold_;

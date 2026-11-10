@@ -113,16 +113,20 @@ struct FrameBudgets {
     // raised this was the next stop, so the tail gets an effectively open clock.
     double far_region_visibility_loading_budget_ms = 1000.0;
     int32_t max_mesh_completions_per_frame = 16;
-    int32_t loading_threshold = 500;
     // The shipping initial-fill path holds mesh completion and upload until the
-    // chunk map settles, then drains the held work at 512/512. It is one-shot:
-    // later chunk-load busy periods must not re-arm it and pause edits/light
-    // remeshes. The old overlap path is available with
+    // fill settles (the sweep list is spent and generation/completion are
+    // empty), then drains the held work at 512/512. It is one-shot and bounded:
+    // later chunk-load busy periods must not re-arm it, and a world that cannot
+    // settle releases at this deadline instead of never meshing (which is what
+    // a small render distance did under the old 500-chunk gate). The old overlap
+    // path is available with
     // `FARLANDS_HOLD_MESH_UNTIL_LOADED=0` for an A/B arm. The price is measured:
-    // first terrain at the settle (3.95 s on the 16-thread machine, 7.9 s on 6
-    // cores and 11.9 s on 4, against 0.3-0.6 s for the overlap path), while the
-    // end moves ~0.7 s sooner on 16/6 cores and is a wash on 4. The policy
-    // choice is separate from the one-shot fix (docs/streaming.md).
+    // first terrain at the 2 s deadline is 1.9 s on the 16-thread machine and
+    // 2.1 s on 6 cores (against 0.3-0.6 s for overlap), while the end moves
+    // ~0.5 s sooner on 16 and ~0.1 s sooner on 6. The matched 4-core arm is
+    // worker-bound; its numbers are in docs/streaming.md.
+    // `FARLANDS_HOLD_MESH_MAX_SEC` overrides the deadline for an A/B arm.
+    double hold_mesh_max_sec = 2.0;
     bool hold_mesh_until_load_done = true;
 
     // Entries the unload scan visits per pass. It walks the whole map, so this is

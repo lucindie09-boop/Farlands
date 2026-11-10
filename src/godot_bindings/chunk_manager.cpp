@@ -1,5 +1,6 @@
 #include "godot_bindings/chunk_manager.hpp"
 
+#include "core/thread_pool.hpp"
 #include "godot_bindings/cached_node.hpp"
 #include "engine/item_body_solver.hpp"
 #include "engine/item_pair_solver.hpp"
@@ -207,6 +208,12 @@ void ChunkManager::_exit_tree() {
 // -------------------------------------------------------------------------
 // _bind_methods
 // -------------------------------------------------------------------------
+int32_t ChunkManager::get_worker_count() const {
+    if (!controller) return 0;
+    const ThreadPool* pool = controller->get_thread_pool();
+    return pool ? static_cast<int32_t>(pool->get_worker_count()) : 0;
+}
+
 void ChunkManager::_bind_methods() {
     // Non-property API (manual — each has unique signatures)
     ClassDB::bind_method(D_METHOD("engine_build_stamp"), &ChunkManager::engine_build_stamp);
@@ -214,6 +221,7 @@ void ChunkManager::_bind_methods() {
     ClassDB::bind_method(D_METHOD("generate_chunk", "chunk_x", "chunk_y", "chunk_z"), &ChunkManager::generate_chunk);
     ClassDB::bind_method(D_METHOD("unload_chunk", "chunk_x", "chunk_y", "chunk_z"), &ChunkManager::unload_chunk);
     ClassDB::bind_method(D_METHOD("get_performance_report"), &ChunkManager::get_performance_report);
+    ClassDB::bind_method(D_METHOD("get_worker_count"), &ChunkManager::get_worker_count);
     ClassDB::bind_method(D_METHOD("get_light_profile_report"), &ChunkManager::get_light_profile_report);
     ClassDB::bind_method(D_METHOD("get_generation_path_report"), &ChunkManager::get_generation_path_report);
     ClassDB::bind_method(D_METHOD("get_install_profile_report"), &ChunkManager::get_install_profile_report);

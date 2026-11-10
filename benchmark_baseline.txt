@@ -5,6 +5,6 @@
 generate_chunk_avg_ms 0.46
 build_mesh_avg_ms 3.8
 incremental_mesh_avg_ms 0.25
-palette_write_avg_ms 0.45
+palette_write_avg_ms 0.23
 light_propagation_avg_ms 1.0
-chunk_memory_bytes 35000
+chunk_memory_bytes 18400

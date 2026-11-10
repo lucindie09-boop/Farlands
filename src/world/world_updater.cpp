@@ -54,6 +54,12 @@ WorldUpdater::WorldUpdater()
             budgets.hold_mesh_until_load_done = false;
         }
     }
+    // The hold is one-shot but not unbounded: `FARLANDS_HOLD_MESH_MAX_SEC` is
+    // the blank-world ceiling. It also covers a disc whose fill settles below
+    // the old 500-chunk gate, which would otherwise never release the hold.
+    const double hold_max_sec = latch_seconds_from_env("FARLANDS_HOLD_MESH_MAX_SEC", 2.0);
+    budgets.hold_mesh_max_sec = hold_max_sec;
+    initial_mesh_hold_.set_max_sec(hold_max_sec);
     // The held drain uploads at most this many completed meshes per frame while
     // the initial-loading latch is up. 512 finishes the held queue inside its
     // quiet window; `FARLANDS_MESH_UPLOADS_LOADING=N` overrides it for an A/B.
@@ -262,18 +268,22 @@ void WorldUpdater::process_mesh_budgets(bool is_editor, uint64_t epoch, uint64_t
     // thread and made the chunk count settle later (9.86 s vs 6.01 s measured).
     // Phase two is the mesh/far tail, after generation has gone quiet; that is
     // where the larger budgets are useful and cannot delay the chunk map.
-    const bool chunk_load_done =
-        loaded_count_post >= budgets.loading_threshold &&
-        generating_count == 0 &&
-        completed_count == 0;
+    // The fill is settled when the walk has spent its list and nothing is left
+    // in generation or completion. This is exact at any render distance, unlike
+    // the old `loaded >= loading_threshold` gate: at RD 4 the whole disc is
+    // below 500 chunks, so that gate never fired and the hold never released.
+    const bool queues_idle = generating_count == 0 && completed_count == 0;
+    const bool fill_settled = loaded_count_post > 0 && queues_idle &&
+                              generation_pass_complete &&
+                              sweep_band_frontier >= sweep_columns.size();
     // The latch's transitions live in LoadingLatch (tested without a world);
     // this pass supplies the frame's inputs and reads the budget it selects.
     const bool is_initial_loading =
-        initial_loading_latch_.tick(delta, chunk_load_done, pending_mesh);
+        initial_loading_latch_.tick(delta, fill_settled, pending_mesh);
     const bool pipelines_busy = generating_count > 0 || completed_count > 0 || pending_mesh;
 
     const bool hold_mesh =
-        initial_mesh_hold_.active(budgets.hold_mesh_until_load_done, chunk_load_done);
+        initial_mesh_hold_.tick(delta, budgets.hold_mesh_until_load_done, fill_settled);
     int32_t mesh_rebuild_budget = 0;
     int32_t upload_budget = 0;
     if (is_initial_loading) {

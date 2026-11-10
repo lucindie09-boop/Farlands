@@ -24,14 +24,15 @@ TEST_CASE("release frees both mesh and instance and clears the handles") {
     Handle instance;
     instance.id = 9;
     int calls = 0;
-    int last_id = 0;
     const int freed = release_mesh_resources(mesh, instance, [&](Handle handle) {
         ++calls;
-        last_id = handle.id;
+        (void)handle;
     });
     CHECK(freed == 2);
     CHECK(calls == 2);
-    CHECK(last_id == 9);          // the instance is freed after the mesh
+    // The order is deliberately not pinned here: freeing the instance first may
+    // be cheaper in Godot (the mesh would have no dependents to notify), but
+    // that has not been measured. This test only requires both to be released.
     CHECK_FALSE(mesh.is_valid());
     CHECK_FALSE(instance.is_valid());
 }

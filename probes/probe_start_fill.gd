@@ -369,6 +369,7 @@ func _run() -> void:
 		print("PROBE fill no_render=1")
 
 	var rd := _env_int("RD", DEFAULT_RENDER_DISTANCE)
+	var probe_timeout_secs := float(_env_int("PROBE_TIMEOUT_SECS", int(TIMEOUT_SECS)))
 	var latch_flight_secs := _env_int("LATCH_FLIGHT", 0)
 	cm.set("render_distance", rd)
 	# The constrained-hardware arm keeps the display's vsync; every other probe
@@ -409,7 +410,7 @@ func _run() -> void:
 	var frames_at_load := 0
 	var tail_all_frame_ms := 0.0
 	var tail_frames := 0
-	print("PROBE fill start rd=%d" % rd)
+	print("PROBE fill start rd=%d workers=%d" % [rd, cm.get_worker_count()])
 
 	while true:
 		var frame_start := Time.get_ticks_usec()
@@ -489,7 +490,7 @@ func _run() -> void:
 			await _latch_flight(float(latch_flight_secs), elapsed)
 			quit(0 if ok else 1)
 			return
-		if elapsed >= TIMEOUT_SECS:
+		if elapsed >= probe_timeout_secs:
 			break
 		if elapsed - last_sample < SAMPLE_SECS:
 			continue
@@ -581,7 +582,7 @@ func _run() -> void:
 
 	var final_elapsed := float(Time.get_ticks_usec() - start) / 1_000_000.0
 	if loaded_at < 0.0:
-		_fail("loaded chunks did not settle within %.0f s" % TIMEOUT_SECS)
+		_fail("loaded chunks did not settle within %.0f s" % probe_timeout_secs)
 	if mesh_at < 0.0:
 		_fail("pending mesh work did not drain (loaded at %.2f s)" % loaded_at)
 	if far_at < 0.0:

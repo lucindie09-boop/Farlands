@@ -1354,17 +1354,24 @@ it — are in [lod-modes.md](lod-modes.md).
   because the cap refuses the extra allowance; moving the cap with it buys **8.3%**
   (2.46/64 **20.36 s**, 1.8/128 **19.18 s**, 1.44/192 **18.67 s**, one pair each in the
   same session), so the 0.9 target already sits on the 3-worker pool's throughput. The
-  constant is nearly right at this worker count (1.77 ms generation + 0.54 ms mesh
-  amortized = 2.31 against 2.46), and a closed-loop rule chasing 100% would spend
-  main-thread headroom for that 6-8%. The formula holds at 5 workers (predicted 11.06 s,
-  measured load **10.91 s**) and over-predicts at 8 (6.91 s against **7.86 s**), where the
-  main thread's install path becomes the next wall. The case where the rate stops being
-  the question is the cache: at the default 2.46/64 the in-RAM memo's second fill is
-  already **11.84 s** against **19.84 s** with no hits, and at 1.44/192 it is **9.84 s
-  load / 10.35 s end** against **18.40 s**; the 2x2 is in `docs/terrain-cache-plan.md`.
-  A memo-off second pass is slower at 3 and 5 workers (20.63 s against 18.41 s;
-  11.12 against 10.19 s), so the gain is the memo, not warm state; at 15 workers the
-  no-hit second pass is 4.69 s and the memo is 2.79 s. Five workers: 11.12 -> 6.06 s.
+  constant is the admission input, not the measured cost: the pool's own counters give
+  **2.68 ms per chunk** (2.955 worker-seconds per second / 1,101 chunks/s), which predicts
+  **18.1 s** at 3 workers with no memo (measured 18.10-18.41 s at 1.44/192) and **10.8 s**
+  at 5 (measured 10.03-10.19 s). Removing the 1.05 ms terrain leaves ~1.6 ms, or **10.8 s**
+  at 3 (measured 10.06-11.82 s) and **6.5 s** at 5 (measured 5.84-6.06 s). The earlier
+  1,101-vs-1,098 agreement was pool saturation, not the allowance being the limit, and a
+  closed-loop rule chasing 100% would spend main-thread headroom for that 6-8%.
+  The case where the rate stops being the question is the cache: at the default 2.46/64
+  the faithful memo's second fill is **11.82 s** against **19.32 s** with no hits, and at
+  1.44/192 it is **10.06 s load / 10.32 s end** against **18.10 s**; the 2x2 is in
+  `docs/terrain-cache-plan.md`. The memo now records and replays the cross-chunk spill,
+  so this is the faithful hit. A memo-off second pass is slower at 3 and 5 workers
+  (20.63 s against 18.41 s; 11.12 against 10.19 s), so the gain is the memo, not warm
+  state. At 15 workers the warm hit is **3.05 s** against the warm second pass's **4.69 s**;
+  that is not a cold result, so do not quote a 16-thread percentage before the phase-4
+  cold-process arm (rough cold estimate ~4.6 s against 5.75-6.31 s, about 20-26%). Five
+  workers: 11.12 -> 5.84 s. A no-edit 3-worker world is 16.04 -> 8.05/8.31 s; the 381
+  edited chunks add about 2.0 s.
   The old 19.84 s/90 s no-end figure was the
   probe's `active_uncovered` gate: at 300 s it stayed flat at **92** with no pending work,
   while `Unrendered` stayed **0** and 608 instances drew. Those 92 are far chunks whose region

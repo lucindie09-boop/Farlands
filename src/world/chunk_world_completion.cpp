@@ -13,21 +13,14 @@ namespace VoxelEngine {
 void ChunkWorld::drain_cross_boundary_and_prune(int32_t player_cx, int32_t player_cy, int32_t player_cz, int32_t render_distance) {
     // Process cross-boundary vegetation modifications (neighbor chunks that need re-mesh).
     // Vegetation overflow is NOT persisted - it's regenerated on each load.
-    {
-        std::vector<ChunkPos> cross_remeshes;
-        {
-            std::lock_guard<std::mutex> lock(cross_boundary_mutex);
-            cross_remeshes.swap(pending_cross_boundary_remesh);
+    for (const auto& pos : pending_cross_boundary_remesh.take_all()) {
+        uint64_t key = chunk_map.get_chunk_key(pos.x, pos.y, pos.z);
+        ChunkRenderData* rd = chunk_map.get_chunk_render_data(pos.x, pos.y, pos.z);
+        if (rd && rd->data) {
+            apply_vegetation_placements(key, pos.x, pos.y, pos.z, *rd);
         }
-        for (const auto& pos : cross_remeshes) {
-            uint64_t key = chunk_map.get_chunk_key(pos.x, pos.y, pos.z);
-            ChunkRenderData* rd = chunk_map.get_chunk_render_data(pos.x, pos.y, pos.z);
-            if (rd && rd->data) {
-                apply_vegetation_placements(key, pos.x, pos.y, pos.z, *rd);
-            }
-            if (mesh_manager) {
-                mesh_manager->queue_dirty_chunk(pos.x, pos.y, pos.z);
-            }
+        if (mesh_manager) {
+            mesh_manager->queue_dirty_chunk(pos.x, pos.y, pos.z);
         }
     }
 

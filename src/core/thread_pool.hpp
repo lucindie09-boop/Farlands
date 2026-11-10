@@ -19,12 +19,16 @@ namespace VoxelEngine {
 
 // Task classes are reported separately by the pool: the fill's total worker
 // cost used to be one number, so the non-generation share (mesh, light region,
-// far build, saves) could not be attributed. Count is final; the names are the
-// keys ChunkManager.get_pool_stats() exposes.
+// far build, saves) could not be attributed. Chunk meshes are split into the
+// first build and every later remesh, and region uploads are their own class:
+// a fill can dirty many regions without building another chunk mesh. Count is
+// final; the names are the keys ChunkManager.get_pool_stats() exposes.
 enum class PoolTaskClass : uint8_t {
     Other = 0,
     Generation,
-    Mesh,
+    MeshFirst,
+    MeshRemesh,
+    RegionUpload,
     Light,
     Far,
     Save,
@@ -38,7 +42,9 @@ inline constexpr size_t kPoolTaskClassCount = static_cast<size_t>(PoolTaskClass:
 inline const char* pool_task_class_name(PoolTaskClass cls) noexcept {
     switch (cls) {
         case PoolTaskClass::Generation: return "generation";
-        case PoolTaskClass::Mesh: return "mesh";
+        case PoolTaskClass::MeshFirst: return "mesh_first";
+        case PoolTaskClass::MeshRemesh: return "mesh_remesh";
+        case PoolTaskClass::RegionUpload: return "region_upload";
         case PoolTaskClass::Light: return "light";
         case PoolTaskClass::Far: return "far";
         case PoolTaskClass::Save: return "save";

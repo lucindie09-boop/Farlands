@@ -1359,8 +1359,12 @@ it — are in [lod-modes.md](lod-modes.md).
   main-thread headroom for that 6-8%. The formula holds at 5 workers (predicted 11.06 s,
   measured load **10.91 s**) and over-predicts at 8 (6.91 s against **7.86 s**), where the
   main thread's install path becomes the next wall. The case where the rate stops being
-  the question is the cache: with the in-RAM memo hit path at the same 1.44/192 setting
-  the second fill is **10.35 s** against **18.87 s** without hits.
+  the question is the cache: at the default 2.46/64 the in-RAM memo's second fill is
+  already **11.84 s** against **19.84 s** with no hits, and at 1.44/192 it is **9.84 s
+  load / 10.35 s end** against **18.40 s**; the 2x2 is in `docs/terrain-cache-plan.md`.
+  A memo-off second pass is slower at 3 and 5 workers (20.63 s against 18.41 s;
+  11.12 against 10.19 s), so the gain is the memo, not warm state; at 15 workers the
+  no-hit second pass is 4.69 s and the memo is 2.79 s. Five workers: 11.12 -> 6.06 s.
   The old 19.84 s/90 s no-end figure was the
   probe's `active_uncovered` gate: at 300 s it stayed flat at **92** with no pending work,
   while `Unrendered` stayed **0** and 608 instances drew. Those 92 are far chunks whose region

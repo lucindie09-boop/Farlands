@@ -1,19 +1,20 @@
 // The terrain-cache version guard. The cache key has a manual data-version
 // constant, and a forgotten bump would let a stale base load as if it were
-// current. This digest covers a few fixed chunks' generated blocks AND the
-// cross-chunk spill writes their generation emits; a change to either is a
-// deliberate change to the cached base, so it must also bump the cache's
-// terrain-data version.
+// current. This digest is deliberately COARSE: it hashes per-block-ID counts
+// and spill counts, not individual cells. Terrain noise can differ by a cell
+// across MSVC/GCC/clang through FMA contraction or libm, which would make a
+// cell-by-cell digest red on a platform without any generator change. Counts
+// still move when the generator, materials, vegetation or spill rules change.
 //
-// Keep this test small and deterministic. The expected value is checked in, not
-// derived from the current generator, or it would pass through every change.
+// The expected value is checked in, not derived from the current generator, or
+// it would pass through every change.
 #include "doctest.h"
 
 #include "core/block_types.hpp"
 #include "core/chunk_data.hpp"
 #include "worldgen/chunk_generator.hpp"
 
-#include <algorithm>
+#include <array>
 #include <cstdint>
 #include <vector>
 
@@ -24,7 +25,7 @@ namespace {
 // Set from the first deliberate run; see the failure message. Do not regenerate
 // this value to make a red test green without deciding whether the cache key's
 // terrain-data version must change.
-constexpr uint64_t kExpectedWorldgenDigest = 5205118212672258947ULL;
+constexpr uint64_t kExpectedWorldgenDigest = 1792418739268092774ULL;
 
 struct SpillRecord {
     int32_t x = 0;
@@ -38,8 +39,8 @@ void mix(uint64_t& hash, uint64_t value) {
     hash *= 1099511628211ULL;
 }
 
-uint64_t hash_chunk(ChunkGenerator& gen, int32_t cx, int32_t cy, int32_t cz,
-                    uint64_t& hash) {
+void hash_chunk(ChunkGenerator& gen, int32_t cx, int32_t cy, int32_t cz,
+                uint64_t& hash, int64_t& total_spill) {
     ChunkData chunk;
     std::vector<SpillRecord> spill;
     ChunkGenerator::CrossChunkWriter writer =
@@ -48,29 +49,29 @@ uint64_t hash_chunk(ChunkGenerator& gen, int32_t cx, int32_t cy, int32_t cz,
         };
     gen.generate_chunk(chunk, cx, cy, cz, writer, true);
 
+    std::array<uint32_t, BlockRegistry::MAX_BLOCK_TYPES> counts{};
     for (int32_t y = 0; y < CHUNK_HEIGHT; ++y) {
         for (int32_t z = 0; z < CHUNK_DEPTH; ++z) {
             for (int32_t x = 0; x < CHUNK_WIDTH; ++x) {
-                mix(hash, static_cast<uint64_t>(chunk.get_block(x, y, z)));
+                const size_t id = static_cast<size_t>(chunk.get_block(x, y, z));
+                if (id < counts.size()) ++counts[id];
             }
         }
     }
+    for (uint32_t count : counts) mix(hash, count);
+    mix(hash, static_cast<uint64_t>(spill.size()));
+    total_spill += static_cast<int64_t>(spill.size());
 
-    // The generator's emission order is not part of the cached meaning; sort so
-    // a change that only reorders equivalent writes does not fail the guard.
-    std::sort(spill.begin(), spill.end(), [](const SpillRecord& a, const SpillRecord& b) {
-        if (a.x != b.x) return a.x < b.x;
-        if (a.y != b.y) return a.y < b.y;
-        if (a.z != b.z) return a.z < b.z;
-        return a.block < b.block;
-    });
+    // The generator's emission order is not part of the cached meaning, and a
+    // position shift is the part most exposed to floating-point differences.
+    // Hash the spill's block-ID counts; the hit/miss parity test owns positions.
+    std::array<uint32_t, BlockRegistry::MAX_BLOCK_TYPES> spill_counts{};
     for (const SpillRecord& record : spill) {
-        mix(hash, static_cast<uint64_t>(record.x));
-        mix(hash, static_cast<uint64_t>(record.y));
-        mix(hash, static_cast<uint64_t>(record.z));
-        mix(hash, static_cast<uint64_t>(record.block));
+        const size_t id = static_cast<size_t>(record.block);
+        if (id < spill_counts.size()) ++spill_counts[id];
     }
-    return hash;
+    for (uint32_t count : spill_counts) mix(hash, count);
+    mix(hash, 0x9E3779B97F4A7C15ULL);  // boundary between chunks
 }
 
 }  // namespace
@@ -82,12 +83,32 @@ TEST_CASE("worldgen digest: regenerated chunks match the cache version guard") {
     params.seed = 0x5EED1234u;
     ChunkGenerator gen(params);
 
-    uint64_t hash = 1469598103934665603ULL;
-    hash_chunk(gen, 0, 2, 0, hash);
-    hash_chunk(gen, 3, 2, -2, hash);
-    hash_chunk(gen, -2, 0, 4, hash);
+    // Guarantee hills and a tree in every hills chunk so the spill assertion is
+    // not vacuous. These are generator inputs, not the shipped defaults: the
+    // cache key covers the raw biome/vegetation JSON separately, and this test
+    // is guarding the generator code's output shape.
+    BiomeConfig biome_config;
+    biome_config.temp_cold_max = 1.0f;
+    biome_config.temp_hot_min = 1.0f;
+    gen.set_biome_config(biome_config);
+    VegetationConfig vegetation_config;
+    vegetation_config.hills.chunk_chance_pct = 100;
+    gen.set_vegetation_config(vegetation_config);
 
-    INFO("worldgen digest = " << hash
+    uint64_t hash = 1469598103934665603ULL;
+    int64_t total_spill = 0;
+    // A 5x5 surface grid makes the spill assertion meaningful: a single chunk
+    // can be a plain with no canopy, which would make the guard vacuous.
+    for (int32_t cz = -2; cz <= 2; ++cz) {
+        for (int32_t cx = -2; cx <= 2; ++cx) {
+            // The macro surface base is y=512, so cy 16 is the first chunk
+            // around the surface; lower chunks are solid and have no vegetation.
+            hash_chunk(gen, cx, 16, cz, hash, total_spill);
+        }
+    }
+
+    INFO("worldgen digest = " << hash << ", spill records = " << total_spill
          << " (bump the terrain-cache data version if this changed deliberately)");
+    CHECK(total_spill > 0);
     CHECK(hash == kExpectedWorldgenDigest);
 }

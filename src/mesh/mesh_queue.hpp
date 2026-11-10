@@ -4,6 +4,8 @@
 #include "core/frustum.hpp"
 #include <cstdint>
 #include <algorithm>
+#include <array>
+#include <cstdlib>
 #include <queue>
 #include <deque>
 #include <unordered_set>
@@ -34,6 +36,18 @@ struct DirtyChunkEntry {
         if (in_frustum != other.in_frustum) return !in_frustum && other.in_frustum;
         return dist_sq > other.dist_sq;
     }
+};
+
+// The in-frustum pending set, split the way the mesh pass will use it: by the
+// LOD tier the chunk's distance puts it in (the caller's own thresholds) and by
+// Chebyshev distance bands in chunks. Every counted entry is in exactly one tier
+// and one band.
+struct PendingLodSplit {
+    size_t full = 0;   // dist <= lod_distance + 1 (all chunks when LOD is off)
+    size_t mid = 0;    // ... <= far_lod_distance + 1
+    size_t far = 0;    // beyond that
+    // Bands: 0-1, 2-3, 4-7, 8-15, 16-31, 32+ chunks (one chunk = 32 blocks).
+    std::array<size_t, 6> bands{};
 };
 
 // -------------------------------------------------------------------------
@@ -187,6 +201,67 @@ template<typename RebuildCallback>
     }
 
     [[nodiscard]] size_t size() const { return dirty_mesh_queue.size() + backlog_queue.size(); }
+    // Queued chunks that pass the CURRENT frustum. It iterates the pending set
+    // rather than reading a heap size: an entry's heap is the routing decision it
+    // was enqueued with, and a reprioritize only updates the frustum, not the
+    // heaps, so a chunk that has since left the view must not count.
+    [[nodiscard]] size_t visible_pending_count() const {
+        if (!frustum_) return dirty_mesh_pending.size();
+        size_t count = 0;
+        for (uint64_t key : dirty_mesh_pending) {
+            int32_t cx, cy, cz;
+            ChunkMap::decode_chunk_key(key, cx, cy, cz);
+            if (frustum_->is_chunk_visible(cx, cy, cz)) ++count;
+        }
+        return count;
+    }
+    // The same set split by tier and distance band; empty when no frustum or
+    // player chunk has been set, because a split without a viewpoint is not one.
+    [[nodiscard]] PendingLodSplit visible_pending_split(int32_t lod_distance,
+                                                        int32_t far_lod_distance) const {
+        PendingLodSplit split;
+        if (!frustum_ || player_chunk_x_ == INT32_MIN) return split;
+        const bool lod_enabled = lod_distance > 0;
+        for (uint64_t key : dirty_mesh_pending) {
+            int32_t cx, cy, cz;
+            ChunkMap::decode_chunk_key(key, cx, cy, cz);
+            if (!frustum_->is_chunk_visible(cx, cy, cz)) continue;
+            const int32_t dx = cx - player_chunk_x_;
+            const int32_t dy = cy - player_chunk_y_;
+            const int32_t dz = cz - player_chunk_z_;
+            const int32_t dist = std::max({std::abs(dx), std::abs(dy), std::abs(dz)});
+            if (!lod_enabled || dist <= lod_distance + 1) ++split.full;
+            else if (dist <= far_lod_distance + 1) ++split.mid;
+            else ++split.far;
+            if (dist <= 1) ++split.bands[0];
+            else if (dist <= 3) ++split.bands[1];
+            else if (dist <= 7) ++split.bands[2];
+            else if (dist <= 15) ++split.bands[3];
+            else if (dist <= 31) ++split.bands[4];
+            else ++split.bands[5];
+        }
+        return split;
+    }
+    // Keys of the pending chunks that pass the current frustum and sit in the
+    // far tier. Same tier boundary as compute_chunk_detail_level: full starts at
+    // lod_distance + 2, mid at far_lod_distance + 2, so far is the larger + 2.
+    [[nodiscard]] std::vector<uint64_t> visible_pending_far_keys(int32_t lod_distance,
+                                                                 int32_t far_lod_distance) const {
+        std::vector<uint64_t> keys;
+        if (!frustum_ || player_chunk_x_ == INT32_MIN || lod_distance <= 0) return keys;
+        const int32_t far_start = std::max(lod_distance, far_lod_distance) + 2;
+        for (uint64_t key : dirty_mesh_pending) {
+            int32_t cx, cy, cz;
+            ChunkMap::decode_chunk_key(key, cx, cy, cz);
+            if (!frustum_->is_chunk_visible(cx, cy, cz)) continue;
+            const int32_t dx = cx - player_chunk_x_;
+            const int32_t dy = cy - player_chunk_y_;
+            const int32_t dz = cz - player_chunk_z_;
+            const int32_t dist = std::max({std::abs(dx), std::abs(dy), std::abs(dz)});
+            if (dist >= far_start) keys.push_back(key);
+        }
+        return keys;
+    }
     // Stop reasons of each drain, five 12-bit counts packed as
     // budget << 48 | done << 36 | pop cap << 24 | heap empty << 12 | zero budget.
     [[nodiscard]] int64_t stop_counts_view() const { return pack_stops(stops_view_); }

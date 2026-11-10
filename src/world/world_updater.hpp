@@ -16,6 +16,7 @@ namespace VoxelEngine { class ChunkGenerator; }
 #include "world/chunk_world.hpp"
 #include "world/sweep_band.hpp"
 #include "world/column_prefetch.hpp"
+#include "world/loading_latch.hpp"
 #include "world/world_updater_types.hpp"
 #include <array>
 #include <deque>
@@ -233,9 +234,12 @@ private:
     // larger loading budgets do not compete with the install/light work that is
     // still filling the chunk map; then it keeps them until the mesh/far tail
     // has been quiet for a second. The cap is for a world that cannot settle.
-    bool initial_loading_ = false;
-    double initial_loading_elapsed_ = 0.0;
-    double initial_loading_quiet_sec_ = 0.0;
+    // The transitions themselves (start, quiet exit, cap, release and re-arm)
+    // are the pure LoadingLatch in world/loading_latch.hpp, pinned by
+    // tests/test_loading_latch.cpp; the two windows are env-overridable for
+    // measurement (FARLANDS_LOADING_LATCH_MAX_SEC / _QUIET_SEC), parsed in the
+    // constructor with the shipping 30 s / 1 s defaults.
+    LoadingLatch initial_loading_latch_;
 
     GenerationStats generation_stats;
 

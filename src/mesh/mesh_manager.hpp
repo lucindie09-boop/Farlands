@@ -12,6 +12,8 @@
 #include "render/world_render_stats.hpp"
 #include <godot_cpp/classes/shader_material.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
+#include <godot_cpp/variant/projection.hpp>
+#include <godot_cpp/variant/transform3d.hpp>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -25,6 +27,36 @@
 #include <vector>
 
 namespace VoxelEngine {
+
+// What the frame currently draws for the in-frustum far-tier pending set. The
+// categories partition the set: total = no_chunk + empty + no_geometry +
+// hidden + drawn_chunk + drawn_region. `solid` and `enclosed` refine
+// no_geometry; they are not additional categories.
+struct PendingFarGeometry {
+    size_t total = 0;
+    size_t no_chunk = 0;      // the queue entry has no resident chunk
+    size_t empty = 0;         // resident and all air: there is nothing to draw
+    size_t no_geometry = 0;   // resident and non-empty, but no instance and no region
+    size_t solid = 0;         // of no_geometry: the chunk data is fully solid
+    size_t enclosed = 0;      // of solid: the buried test would build no faces
+    size_t hidden = 0;        // geometry exists, but nothing currently draws it
+    size_t drawn_chunk = 0;   // the chunk's own instance is visible
+    size_t drawn_region = 0;  // an active far region lists the chunk
+};
+
+// The potential far-tier holes (not drawn, and not a chunk the mesher would
+// skip as empty) that a camera-ray pass finds visible through the blocks the
+// frame is actually drawing. visible + occluded == total.
+struct VisibleFarHoles {
+    size_t total = 0;
+    size_t visible = 0;
+    size_t occluded = 0;
+    // Of the visible holes, those whose projected AABB contains at least one
+    // unoccluded screen sample. `screen_pixels` is the union of the sample cells
+    // they cover (4x4 blocks), so overlapping holes merge instead of adding up.
+    size_t screen_visible = 0;
+    double screen_pixels = 0.0;
+};
 
 class MeshManager {
 public:
@@ -112,6 +144,15 @@ public:
     // still alive, so a worker can never wake up against a dead singleton.
     void shutdown_region_uploads();
     size_t size() const { return mesh_queue.size(); }
+    size_t visible_pending_chunk_mesh_count() const { return mesh_queue.visible_pending_count(); }
+    PendingLodSplit visible_pending_lod_split() const {
+        return mesh_queue.visible_pending_split(lod_distance, far_lod_distance);
+    }
+    PendingFarGeometry pending_far_geometry() const;
+    VisibleFarHoles visible_far_holes(const godot::Vector3& eye) const;
+    VisibleFarHoles visible_far_holes(const godot::Transform3D& camera,
+                                      const godot::Projection& projection,
+                                      const godot::Vector2& viewport) const;
     int32_t last_rebuild_budget() const { return last_rebuild_budget_; }
     int64_t queue_stop_counts_view() const { return mesh_queue.stop_counts_view(); }
     int64_t queue_stop_counts_backlog() const { return mesh_queue.stop_counts_backlog(); }

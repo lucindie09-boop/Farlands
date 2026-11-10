@@ -82,6 +82,24 @@ public:
     }
     // Entries waiting in the dirty chunk queue (not far regions, not uploads).
     [[nodiscard]] size_t pending_chunk_mesh_count() const { return mesh_manager.size(); }
+    // The subset of that queue that passes the frustum as it is at the call.
+    [[nodiscard]] size_t visible_pending_chunk_mesh_count() const {
+        return mesh_manager.visible_pending_chunk_mesh_count();
+    }
+    [[nodiscard]] PendingLodSplit visible_pending_lod_split() const {
+        return mesh_manager.visible_pending_lod_split();
+    }
+    [[nodiscard]] PendingFarGeometry pending_far_geometry() const {
+        return mesh_manager.pending_far_geometry();
+    }
+    [[nodiscard]] VisibleFarHoles visible_far_holes(const godot::Vector3& eye) const {
+        return mesh_manager.visible_far_holes(eye);
+    }
+    [[nodiscard]] VisibleFarHoles visible_far_holes_screen(
+        const godot::Transform3D& camera, const godot::Projection& projection,
+        const godot::Vector2& viewport) const {
+        return mesh_manager.visible_far_holes(camera, projection, viewport);
+    }
     [[nodiscard]] int32_t mesh_rebuild_budget() const { return mesh_manager.last_rebuild_budget(); }
     [[nodiscard]] int64_t mesh_queue_stop_counts_view() const { return mesh_manager.queue_stop_counts_view(); }
     [[nodiscard]] int64_t mesh_queue_stop_counts_backlog() const {

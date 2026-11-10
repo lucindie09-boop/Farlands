@@ -740,23 +740,169 @@ it — are in [lod-modes.md](lod-modes.md).
   6.31/6.55 s against 7.67/8.32 s, load unchanged (4.81/5.29 against 5.10/5.29)**, the tail
   accounting falling from 1,580-2,032 ms over 323-519 frames to 266-514 ms over 21-43. The loading
   budgets now ship as the arm's values - **512 rebuilds, 128 uploads** (from 64), the **1000 ms**
-  queue/completion/far-visibility clocks - and a default run measured **5.82 s** (load 4.56, tail
-  1.25). The cost is tail frame time: those frames average 9-12 ms against ~5, and the fill's slow
+  queue/completion/far-visibility clocks - and the five-pair end time was **5.80 s
+  [5.56-5.90]**; the earlier 5.82 s single run (load 4.56, tail 1.25) is inside that range
+  rather than a separate regime. The cost is tail frame time: those frames average 9-12 ms against ~5, and the fill's slow
   frames are 45-56 over 618-649 frames against 47-51 over 993-1,196 - a slower, shorter tail. The
   load's own caps stay closed (the 5.94 s arm is why), so the remaining lever for <5 s is still the
   load window. The numbers come from `probe_start_fill.gd`'s tail windows, `tail accounting`,
   `QUIET`, `SCRIPT_COST` and `NO_RENDER`.
+- **A tail-clock ceiling does not reproduce the 1.3 s tail; this session's control is already
+  0.52 s.** Four five-pair blocks (`probes/start_fill_ab.py --tail-budget-ms N`, normal render,
+  default cores, vsync off; outputs `.freebuff/tail_clock_{1000,8,12,16}_20261109_122733`)
+  measured, for
+  1000 / 8 / 12 / 16 ms, tail **0.52 [0.26-0.54] / 0.27 [0.25-0.52] / 0.26 [0.25-0.28] /
+  0.52 [0.26-0.53] s**, load **5.77 [5.52-5.83] / 5.78 [5.51-5.80] / 6.02 [5.53-6.33] /
+  5.87 [5.55-6.07] s**, and end **6.09 [6.02-6.34] / 6.07 [5.76-6.29] / 6.27 [5.81-6.59] /
+  6.14 [6.07-6.59] s**. Whole-fill worst frames were **64.26 / 63.10 / 61.54 / 67.33 ms**
+  and slow frames **34 / 33 / 39 / 50**. The 1.3 s reference is the 5.82 s run (load 4.56,
+  tail 1.25), not this session's control; the capped tails do not trend with the cap (8 and 12
+  are shorter, 16 equals the control), and the sequential blocks' load medians differ by 0.25 s,
+  so this is a direction check, not a causal 0.2 s. The override sets all three clocks - queue,
+  completion and far visibility; the probe has no tail-only p99, so the whole-fill worst/slow
+  figures are the frame evidence.
+- **Interleaving removes the apparent clock effect: the tail is ~0.53 s at every value.**
+  Five rotated rounds with one normal-render run per clock per round
+  (`FARLANDS_LOADING_TAIL_BUDGET_MS`; output
+  `.freebuff/tail_clock_interleaved_20261109_124531`) give tail medians **0.53
+  [0.51-0.83] / 0.53 [0.51-0.78] / 0.55 [0.51-0.80] / 0.54 [0.52-0.77] s** for
+  1000 / 8 / 12 / 16 ms. Within-round differences from the 1000 ms control are **-0.01
+  [-0.05-+0.04] / +0.00 [-0.04-+0.29] / +0.01 [-0.27-+0.23] s**, lower in 3/5, 2/5 and 2/5.
+  The block run's 8/12 advantage was session drift; this arm has no measurable clock effect.
+  The 1.3 s reference is still the different 5.82 s run; this control is 0.53 s. Whole-fill
+  worst/slow medians were **76.34/104, 72.93/98, 75.92/100 and 73.67/100**; the probe has no
+  tail-only p99.
 - **Fast flight after a fill now starts with the tail already drained - and, while the latch is
   up, under the loading budgets themselves.** A report from play: flying at a high speed
   (`/fly 25`) felt roughly ten times faster than before the budget change and no longer slower
   than the initial radius. Two mechanisms fit that. The mesh/far tail now finishes in 1.2-1.5 s
   instead of 2.6-3.0 s, so a player who starts moving soon after spawn is no longer competing
   with a multi-second meshing backlog; and `initial_loading_` keeps the loading budgets in force
-  for up to 30 s (or until 1 s without pending mesh), so the same window that drains the tail
-  also meshes live streaming at 512 rebuilds/128 uploads per frame. After that latch expires the
-  active budgets (8 rebuilds, 32 uploads, 0.35 ms) are what apply, so a sustained flight beyond
-  the window is still the old behavior and is the case to profile if it lags. This is an
-  observation, not a measured flight speed - no probe pins it yet.
+  until 1 s without pending mesh, so the same window that drains the tail also meshes live
+  streaming at 512 rebuilds/128 uploads per frame. The 30 s cap ends that boost for good: it
+  stays latched off until the mesh backlog it was covering has drained, so a sustained flight
+  past 30 s drops to the active 8 rebuilds / 32 uploads / 0.35 ms. The A/B below measures the
+  trade.
+- **The 30 s cap binds once it latches; what it buys is frame time, paid for with mesh work.**
+  Five AB/BA pairs of `probes/start_fill_ab.py --latch` (RD 32, one discarded warmup, a 36 s
+  flight at 100 blocks/s started when the latch raised the mesh budget; A = the shipping 30 s
+  cap, B = `FARLANDS_LOADING_LATCH_MAX_SEC=1000000000`, both with the 1 s quiet exit) show the
+  cap firing in every A run at **29.99 s [29.98-30.00]** and never in B, and **A finished the
+  flight at budget 8 where B was still at 512**. The release condition had to be measured:
+  clearing the latch when the chunk load leaves its quiet state was built first, and a flight
+  this fast leaves that state every few frames, so the next quiet frame restarted the window
+  and A still ended at 512. It now stays capped until mesh work has been quiet for the usual
+  second - the backlog has drained - which is what makes it a ceiling. The last six seconds
+  separate cleanly: mean **2.23 ms [2.09-2.29] against 8.68 [7.01-9.15]**, p99 **9.16
+  [8.56-9.53] against 22.80 [18.24-30.81]**, slow frames **0 [0-0] against 1 [0-6]**, with A
+  lower in all five pairs (late mean -6.45 ms [-6.92 to -4.92], late p99 -14.03 [-21.65 to
+  -9.68]). Over the whole flight the means are **3.01 [2.89-3.23] against 3.75 [3.23-4.07]
+  ms** and the p99s **17.05 [16.55-18.11] against 21.01 [18.06-22.41]**. That cheaper frame is
+  work not done: for the last six seconds A ran 8 rebuilds/32 uploads where B ran 512/128.  That run did not count the backlog left at the end (the probe gained the counter for the
+  constrained rerun below), so what the lower budget left unmeshed there is inferred from the
+  budget rather than counted; the single worst frame also does not follow the distribution (A
+  **62.85 ms [56.46-87.33]** against B **55.54 [54.07-60.98]**, one frame each). A also counted
+  **40,731 [40,649-40,856]** generations against B's **42,716
+  [42,053-42,980]**; the cap does not touch generation, so this is reported and not attributed.
+  The transitions are the pure `LoadingLatch` (`src/world/loading_latch.hpp`), pinned by
+  `tests/test_loading_latch.cpp`.
+- **On six cores with vsync the cap's cheaper frames leave 14.3k chunks queued, and of the
+  2.8k in view only 61 would mesh empty: the rest is missing geometry.** The same five AB/BA
+  pairs (`--cores 6 --vsync`, mask 0x3f inherited by every Godot run, `PROBE fill vsync=1`
+  in both arms; output `.freebuff/start_fill_ab_20261109_102253`) put the latch under the
+  constrained case, with the end-of-flight queue split by the current frustum, LOD tier,
+  distance band and what the frame draws for the far tier, then each no-geometry far chunk
+  put through the mesher's own buried test. A again ended at budget **8** against B's
+  **512**, and the last six seconds are again apart: mean **8.03 ms [7.78-8.48] against
+  14.79 [13.77-16.33]**, p99 **26.08 [24.95-30.71] against 48.06 [42.99-60.76]**, slow
+  frames **2 [1-5] against 21 [9-23]**, with A lower in all five pairs (late mean -6.76 ms
+  [-8.24 to -5.97], late p99 -21.98 [-33.78 to -12.28]). Over the whole flight the means
+  are **12.06 [11.19-12.32] against 13.81 [12.41-14.84] ms**, p99 **50.71 [48.32-51.49]
+  against 51.58 [47.33-55.88]**, and A rendered 2,983 frames to B's 2,604.
+  At the end of the 36 s flight A had **14,305 [13,850-14,673]** chunks waiting in the
+  dirty/backlog queue, of which **2,806 [2,513-3,163]** (20%) passed the current frustum; B
+  had **0 [0-0]** in both. The visible set is still mostly far: medians **177 full, 814 mid,
+  1,822 far** (6% / 29% / 65%), with bands **3 / 26 / 148 / 685 / 1,799 / 137** for 0-1 /
+  2-3 / 4-7 / 8-15 / 16-31 / 32+ chunks.
+  The far-geometry count answers what those 1,822 far-tier entries are. **1,676 have no
+  geometry at all, 51 have no resident chunk, 53 have hidden geometry, and 15 are still
+  drawing an older mesh; none is all-air.** The buried-test refinement then asks whether the
+  1,676 are real: **206 are fully solid, and 61 pass the mesher's buried test** (fully solid
+  and every face neighbour solid, or predicted solid when ungenerated; the bottom edge counts
+  as solid), so **1,610 [1,347-1,926] would produce faces**. Of the whole 1,822-entry far set,
+  **1,740 [1,451-2,018] are neither drawn nor would-be-empty** - the potential holes - while
+  15 still draw an older mesh, 51 have no resident chunk, 53 have hidden geometry and 0 are
+  all-air. The queue is not holding old far LOD in place; only 0.8% is stale geometry. It is
+  leaving unbuilt terrain: 96% of the no-geometry set would emit geometry, and only 3.6%
+  would be skipped as empty. The 206 fully solid chunks that are not enclosed still emit
+  boundary faces, so the empty count is 61, not 206. `empty = 0` rules out sky chunks. B's
+  512 rebuilds drain the queue and end at zero. B pays 21 late slow frames against A's 2 and
+  ends with an empty queue, while A keeps the frame cheap and ends with 14.3k chunks of mesh
+  work still waiting, about 2.8k of them in front of the player and ~1.7k of those far-tier
+  chunks with no mesh. The `reasons_end` mask in `results.csv` names the other pending kinds
+  (B's is 26-58 despite its empty queue). A also counted 36,118 generations against B's
+  32,341, the same reversal of the 16-core run, so the backlog is not a lack of new chunks -
+  it is mesh work the cap deliberately did not do. The medians of the categories need not
+  add up to the median total, because each field is a median of its own; every run's
+  categories sum to its own far total, `solid` and `enclosed` are subsets of `no_geometry`,
+  and its tiers and bands sum to its own visible count. That count is a frustum-only,
+  chunk-level set: the 1,740 are potential holes, not a screen-area measurement, and the 61
+  are exact to the engine's skip rule; a fully solid chunk that fails enclosure builds only
+  its exposed boundary, and a non-solid one may be mostly underground. The absolute frame
+  times belong to the display's refresh and to the session; the comparison is the two arms
+  inside it. This is the constrained case the review asked for; the four-core run below is
+  the smaller-CPU check.
+- **On four cores with vsync the cap still fires at 30 s; the smaller end queue is a smaller
+  workload, not a weaker cap.** A second five-pair run (`--latch --cores 4 --vsync`, mask 0xf;
+  output `.freebuff/start_fill_ab_4core_20261109_120817`) fired the cap in all five A runs at
+  **29.97 s [29.94-30.00]** against B's full **36.00 s**, and ended A at **8/32** against B's
+  **512/128**. The last six seconds: mean **8.43 [8.00-9.14] against 14.68 [10.71-14.91]
+  ms**, p99 **45.00 [42.01-51.45] against 58.81 [41.97-64.94]**, slow **14 [13-24] against
+  32 [19-35]**; over the whole flight, mean **12.57 [12.35-12.71] against 14.02
+  [11.89-14.08] ms** and p99 **51.56 [49.15-54.25] against 58.81 [45.99-61.05]**. The end
+  queue is **10,328 [10,314-10,652]** against 0, with **1,821 [1,793-2,117]** in view. Do not
+  read that as the cap doing better on fewer cores: A also counted **22,672 [22,029-22,986]**
+  generations against the six-core run's 36,118, so it had less mesh work to leave behind.
+  The cap's timing and budget transition are the same; only the workload and frame cost move.
+- **A 27-ray occlusion pass finds about 88% of the potential far holes in sight.** Output
+  `.freebuff/start_fill_ab_20261109_105458`, the same five pairs. The pass samples a 3x3x3
+  lattice in each potential chunk's AABB, walks the drawn full opaque blocks along the
+  eye-to-sample ray and stops at the chunk entry, so a chunk is visible if any sample has an
+  unoccluded sightline. The potential set is the far-tier in-frustum entries that are neither
+  drawn nor skipped as empty; medians **1,844 [1,673-2,080]**, of which **1,594
+  [1,489-1,869] are visible** and **229 [184-354] occluded**. The medians do not add (1,594
+  + 229 = 1,823 against 1,844); the per-run visible share is **87.6% [81.6-89.9%]**. The A
+  arm's frame and backlog numbers are the same shape as the preceding run: late mean **8.64
+  [8.03-9.08] against 14.72 [13.88-16.14] ms**, late p99 **28.41 [26.56-34.12] against
+  47.49 [41.29-55.18]**, late slow **3 [1-8] against 16 [15-18]**, end backlog **14,404
+  [14,307-14,624] against 0**, and the whole-flight mean **12.35 [12.26-12.76] against 13.82
+  [12.87-14.46] ms**. The roughly 12% that are occluded are the part of the backlog a closer
+  drawn hill already covers; the other 88% have at least one unoccluded corner. This is a
+  chunk-level sightline estimate, not a depth buffer or a pixel count: one clear corner
+  marks a whole chunk visible, a surface between the 27 samples can be missed, transparent
+  and non-full blocks do not occlude, and no-chunk and hidden entries are included. Its
+  total is larger than the 1,740 from the preceding run because it is a different session
+  and because it also drops buried entries among the hidden set, not just among
+  no-geometry. The screen-area pass below adds the pixel estimate.
+- **The screen-area pass says almost every one of those holes is on screen, but their union
+  has a median of 7.3% of the viewport.** Output `.freebuff/start_fill_ab_20261109_114513`, the same five pairs. The
+  pass projects each 27-ray-visible hole's AABB, samples an 8x8 grid over its clipped screen
+  rectangle, unprojects each sample, and tests the ray against the drawn full opaque blocks.
+  A hit fills the 4x4-pixel screen cells under its sample cell, and the cells are unioned, so
+  overlapping holes cannot add up. **481 [450-981] holes were visible to the 27-ray pass; 481
+  [450-980] of them hit at least one screen cell** - 0 to 2 holes lost per run, **99.6-100%**
+  of the visible set. The union covers **54,720 [52,992-86,288] pixels**, **7.33%
+  [7.10-11.56%]** of the viewport. The count is the answer to "how many cover pixels": the
+  screen test is not where the holes disappear. The area is the useful new measure: the far
+  holes that do project are a small, scattered part of the frame. This is a 4x4-cell estimate;
+  a cell counts only if its centre ray reaches the AABB before a drawn opaque block, the AABB
+  is the potential volume rather than the built surface, and no-chunk and hidden entries are
+  included. It is not a depth buffer or a per-pixel count. The 481 visible set is this
+  session's, not the 1,594 from the preceding run (a different spawn); the screen test's 0-2
+  loss says that, applied at the same rate, about 99.6% of the 1,594 would cover pixels.
+  The A arm still costs less than B: late mean **7.29 [7.19-7.56] against 12.69
+  [11.74-14.04] ms**, late p99 **23.08 [20.73-24.38] against 44.90 [39.52-56.07]**, late slow
+  **1 [0-2] against 17 [10-19]**, end backlog **13,224 [12,968-13,600] against 0**.
 - **The rate jump a player sees at 4-5.9 s is the load/tail switch.** The probe's boundary (load
   4.56 s, tail 1.25 s) is where chunks start popping faster: at `chunk_load_done` the budgets move
   to the loading 512/128/1000 ms and the backlog the load-phase caps held back - installed but
@@ -1113,3 +1259,41 @@ it — are in [lod-modes.md](lod-modes.md).
   (`generation_sweep_generated` is also SHARED between the two passes, so a frustum-pass
   generation mid-walk discards phase 2's "this walk found nothing" conclusion as well — a
   second, smaller contributor that only appeared once the frustum pass started working at all)
+
+## The initial fill's remaining gap
+
+- **QUIET scripts are not the load's missing half-second.** Five AB/BA pairs of the RD 32 fill
+  (normal against `QUIET=1`, one discarded warmup) gave load **6.13 [5.28-6.65] s** normally
+  and **5.47 [5.27-6.40] s** with every world-scene script except the player controller
+  silenced. The paired load difference is **-0.18 s [-0.66 to +0.04]**, quiet faster in only
+  **4/5** pairs, while the load frame does move **-0.48 ms [-2.63 to -0.16] in 5/5** and
+  `process_total` is unchanged (**+0.11 s** median, quiet faster in 1/5). The later pairs were
+  already in the 5.3-5.5 s band, and the one quiet-lost pair (5.32 against 5.28) shows the
+  effect is not a reliable half-second. Player physics measures **0.015 ms**, and the title
+  curtain is idle in the probe's release path, so neither explains the outside-updater frame.
+  A loading-time script pause is not the lever for whole-fill time.
+- **Holding mesh until the chunk map settles cuts the load but not the fill.** Five AB/BA pairs
+  with `FARLANDS_HOLD_MESH_UNTIL_LOADED=1` skip the mesh completion and dirty-mesh stages
+  while `process_mesh_budgets` sees the chunk load busy. Normal load **5.22 [5.20-5.57] s**,
+  end **5.48 [5.46-5.84] s**, load frame **8.19 [8.01-8.54] ms**, process **1.65 s**; held load
+  **4.72 [4.67-4.93] s**, end **5.47 [5.24-5.71] s**, load frame **7.56 [7.26-8.07] ms**,
+  process **1.32 s**. Paired load **-0.55 s [-0.87 to -0.29] in 5/5**, frame **-0.47 ms
+  [-1.17 to -0.12] in 5/5**, process **-0.28 s**, but end only **-0.22 s [-0.48 to +0.23] in
+  4/5** and the tail grows **0.26 -> 0.78 s**. The load side is now under 5 s, but the whole
+  fill is not: the 0.55 s was moved into the mesh tail, not removed, and the median end is
+  still 5.47 s. That arm alone only moved time; the held tail was the next lever, not chunk
+  admission.
+- **The held tail was the loading upload cap; 512 finishes it.** The held cap128 tail is 91
+  frames and 0.78 s: `process_completed_meshes` 0.18 s, `far_region_visibility` 0.05 s,
+  `process_total` 0.26 s, with the remaining ~0.52 s outside the updater in the renderer. The
+  held tail popped 2,620 queue entries, and the 128 uploads/frame drain left the last batch in
+  the tail. A 256 cap cut the tail to 0.26 s and the end to **5.02 [4.97-5.23] s**; five paired
+  cap256/cap512 runs then gave cap512 **4.79 [4.65-4.98] s** end, **0.00 [0.00-0.01] s** tail,
+  all five under 5, and cap512 beat cap256 in **5/5** by **-0.20 s [-0.58 to -0.04]**. The
+  previous 128 arm's end was 5.48 [5.30-5.51] s. Shipping is now
+  `hold_mesh_until_load_done = true` with `mesh_uploads_loading = 512`;
+  `FARLANDS_HOLD_MESH_UNTIL_LOADED=0` restores the overlap path, and
+  `FARLANDS_MESH_UPLOADS_LOADING=N` overrides the cap for an arm. This changes the initial
+  fill's order: the chunk map settles first, then the held completions upload at 512/frame.
+  A shipped-default check with no environment overrides measured **4.98 s** end to end, inside
+  the 512 arm's range.

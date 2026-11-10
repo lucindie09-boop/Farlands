@@ -17,6 +17,7 @@
 using VoxelEngine::ChunkMap;
 using VoxelEngine::Frustum;
 using VoxelEngine::MeshQueue;
+using VoxelEngine::PendingLodSplit;
 
 namespace {
 
@@ -143,6 +144,59 @@ TEST_CASE("a saturated view-first queue still meshes off-screen chunks every fra
     const FrameCounts more = run_frames(queue, 5, 16);
     CHECK(more.behind == 20);
     CHECK(more.front == 60);
+}
+
+TEST_CASE("the visible pending count follows the current frustum, not the heap routing") {
+    MeshQueue queue;
+    const Frustum forward = frustum_looking_negative_z();
+    queue.reprioritize(kPlayerCx, kPlayerCy, kPlayerCz, &forward);
+    for (int32_t i = 0; i < 40; ++i) {
+        queue.queue_dirty_chunk(cluster_key(i, kPlayerCz - 2), 1, false);
+    }
+    for (int32_t i = 0; i < 60; ++i) {
+        queue.queue_dirty_chunk(cluster_key(i, kPlayerCz + 1), 100000, false);
+    }
+    CHECK(queue.size() == 100);
+    CHECK(queue.visible_pending_count() == 40);
+
+    // A turn leaves the heap entries where they were routed; the count is taken
+    // against the frustum as it is now, so the other cluster becomes visible.
+    const Frustum backward = frustum_looking_positive_z();
+    queue.reprioritize(kPlayerCx, kPlayerCy, kPlayerCz, &backward);
+    CHECK(queue.size() == 100);
+    CHECK(queue.visible_pending_count() == 60);
+}
+
+TEST_CASE("the visible split counts LOD tiers and distance bands") {
+    MeshQueue queue;
+    Frustum all;
+    std::array<godot::Plane, 6> planes{
+        godot::Plane(godot::Vector3(0.0f, 0.0f, 0.0f), 0.0f),
+        godot::Plane(godot::Vector3(0.0f, 0.0f, 0.0f), 0.0f),
+        godot::Plane(godot::Vector3(0.0f, 0.0f, 0.0f), 0.0f),
+        godot::Plane(godot::Vector3(0.0f, 0.0f, 0.0f), 0.0f),
+        godot::Plane(godot::Vector3(0.0f, 0.0f, 0.0f), 0.0f),
+        godot::Plane(godot::Vector3(0.0f, 0.0f, 0.0f), 0.0f),
+    };
+    all.update(planes);
+    queue.reprioritize(kPlayerCx, kPlayerCy, kPlayerCz, &all);
+    // One chunk on each band's own radius, all on the player's y: the distance
+    // is then exactly the z offset, with no x/y term to dominate it.
+    const int32_t dzs[5] = {1, 3, 8, 20, 40};
+    for (int32_t dz : dzs) {
+        queue.queue_dirty_chunk(key_of(0, kPlayerCy, kPlayerCz + dz), dz * dz, false);
+    }
+    // lod_distance 6 / far_lod_distance 16: full <= 7, mid <= 17, far beyond.
+    const PendingLodSplit split = queue.visible_pending_split(6, 16);
+    CHECK(split.full == 2);   // distances 1 and 3
+    CHECK(split.mid == 1);    // distance 8
+    CHECK(split.far == 2);    // distances 20 and 40
+    CHECK(split.bands[0] == 1);  // 0-1
+    CHECK(split.bands[1] == 1);  // 2-3
+    CHECK(split.bands[2] == 0);  // 4-7
+    CHECK(split.bands[3] == 1);  // 8-15
+    CHECK(split.bands[4] == 1);  // 16-31
+    CHECK(split.bands[5] == 1);  // 32+
 }
 
 TEST_CASE("a queue with nothing visible to build spends its whole budget") {

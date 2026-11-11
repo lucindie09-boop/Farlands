@@ -318,6 +318,16 @@ void ChunkData::propagate_sky_light(const ChunkData* chunk_above) {
         storage->fill_light_uniform(pack_light(15, 0, 0, 0));
         return;
     }
+    // A chunk of nothing but opaque blocks is 0 in every cell for the same
+    // reason a fully solid column is: the top block already stops the sky and 0
+    // never recovers. `is_fully_solid` is the cheap prefilter, so a mixed chunk
+    // pays nothing for this; `check_fully_solid` is the authority because an
+    // edit can leave the flag stale, and on uniform sections it is eight
+    // palette lookups rather than a decode of 32,768 cells.
+    if (chunk_above == nullptr && !is_empty && is_fully_solid && storage->check_fully_solid()) {
+        storage->fill_light_uniform(0);
+        return;
+    }
     for (int32_t x = 0; x < CHUNK_WIDTH; ++x) {
         for (int32_t z = 0; z < CHUNK_DEPTH; ++z) {
             uint8_t current_sky_light = chunk_above ? chunk_above->get_sky_light(x, 0, z) : 15;

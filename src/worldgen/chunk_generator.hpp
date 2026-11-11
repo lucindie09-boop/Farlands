@@ -8,6 +8,8 @@
 #include "core/performance_timer.hpp"
 #include "worldgen/biome_config.hpp"
 #include "worldgen/chunk_generator_lattice.hpp"
+#include "worldgen/density_math.hpp"
+#include "worldgen/chunk_solidity.hpp"
 #include "worldgen/terrain_squish.hpp"
 #include "worldgen/vegetation_config.hpp"
 #include <utility>
@@ -62,25 +64,43 @@ public:
 private:
     // -------------------------------------------------------------------------
     // Math helpers
+    //
+    // The bodies live in density_math.hpp so this header keeps its headroom;
+    // these forward to them so the member bodies below and the lattice TU's
+    // explicit `ChunkGenerator::lerp` keep their spelling (a class-scope using
+    // declaration for these is not portable: an overload declared later in the
+    // class hides the whole set under MSVC).
     // -------------------------------------------------------------------------
-    static float clamp01(float v) {
-        return std::max(0.0f, std::min(1.0f, v));
-    }
-
+    static float clamp01(float v) { return density_math::clamp01(v); }
     static float smoothstep(float edge0, float edge1, float x) {
-        float t = clamp01((x - edge0) / (edge1 - edge0));
-        return t * t * (3.0f - 2.0f * t);
+        return density_math::smoothstep(edge0, edge1, x);
     }
-
-    static float lerp(float a, float b, float t) {
-        return a + (b - a) * t;
-    }
+    static float lerp(float a, float b, float t) { return density_math::lerp(a, b, t); }
 
     // Largest lattice node coordinate <= v (floor division, negative-safe).
     static constexpr int32_t lattice_base(int32_t v, int32_t spacing) {
-        const int32_t q = v / spacing;
-        const int32_t r = v % spacing;
-        return (r < 0 ? q - 1 : q) * spacing;
+        return density_math::lattice_base(v, spacing);
+    }
+
+    // Trilinear interpolation over the 8 corners of a lattice cell. Corner
+    // order and lerp order are fixed so every consumer (chunk lattice, single
+    // point queries) computes bit-identical values.
+    static float trilinear_interp(
+        float v000, float v100, float v010, float v110,
+        float v001, float v101, float v011, float v111,
+        float fx, float fy, float fz) {
+        return density_math::trilinear_interp(
+            v000, v100, v010, v110, v001, v101, v011, v111, fx, fy, fz);
+    }
+
+    // Density from its components (macro delta + 3D shape displacement).
+    // band_inner/band_outer are the caller's per-column envelope (see
+    // shape_envelope): the displacement fades to zero by band_outer, so the
+    // surface can never leave that band no matter how large the strength is.
+    static float density_from_shape(float delta, float shape_strength, float shape,
+                                    float band_inner, float band_outer) {
+        return density_math::density_from_shape(
+            delta, shape_strength, shape, band_inner, band_outer);
     }
 
     // -------------------------------------------------------------------------
@@ -130,40 +150,6 @@ private:
         return lattice_base(v, SHAPE_LATTICE_SPACING);
     }
 
-    // Trilinear interpolation over the 8 corners of a lattice cell. Corner
-    // order and lerp order are fixed so every consumer (chunk lattice, single
-    // point queries) computes bit-identical values.
-    static float trilinear_interp(
-        float v000, float v100, float v010, float v110,
-        float v001, float v101, float v011, float v111,
-        float fx, float fy, float fz) {
-        const float x00 = lerp(v000, v100, fx);
-        const float x01 = lerp(v010, v110, fx);
-        const float x10 = lerp(v001, v101, fx);
-        const float x11 = lerp(v011, v111, fx);
-        const float y0 = lerp(x00, x01, fy);
-        const float y1 = lerp(x10, x11, fy);
-        return lerp(y0, y1, fz);
-    }
-
-    // Density from its components (macro delta + 3D shape displacement).
-    // band_inner/band_outer are the caller's per-column envelope (see
-    // shape_envelope): the displacement fades to zero by band_outer, so the
-    // surface can never leave that band no matter how large the strength is.
-    static float density_from_shape(float delta, float shape_strength, float shape,
-                                   float band_inner, float band_outer) {
-        const float surface_distance = std::abs(delta);
-        float surface_band;
-        if (band_outer <= band_inner) {
-            // Degenerate envelope (weirdness_size 0): a hard cutoff at
-            // band_outer, since smoothstep would divide by zero here.
-            surface_band = (surface_distance < band_outer) ? 1.0f : 0.0f;
-        } else {
-            surface_band = 1.0f - smoothstep(band_inner, band_outer, surface_distance);
-        }
-        return delta + shape * shape_strength * surface_band;
-    }
-
     // Per-column 3D-shaping envelope. weirdness_size scales BOTH halves of
     // the shape: how far terrain is displaced (strength) and how many blocks
     // around the macro surface may be altered (the inner/outer band). 1.0 is
@@ -179,6 +165,11 @@ private:
     [[nodiscard]] ShapeEnvelope shape_envelope(float weirdness,
                                               float weirdness_size) const;
     float sample_continentalness(float x, float z) const;
+    // Temperature and humidity share one climate domain warp. The lattice reads
+    // both at every node, and calling the two samplers separately warped the
+    // same point twice - four redundant noise reads a node.
+    void sample_climate_raw(float x, float z, float& out_temperature,
+                            float& out_humidity) const;
     void warp_climate_point(float x, float z, float& out_x, float& out_z) const;
     float sample_temperature_raw(float x, float z) const;
     float sample_humidity_raw(float x, float z) const;
@@ -473,22 +464,6 @@ float max_water_h = -1.0f;
         return perf_timer;
     }
 };
-
-// True when the chunk at (cx, cy, cz) would be entirely solid if it were
-// generated: the whole chunk sits below every column's lowest possible
-// surface (macro height − density margin), so the density field has no air
-// inside it — and chunks below the bedrock layer are bedrock, also solid.
-// Out-of-world chunks return false so boundary faces at the world edges still
-// render. Used by mesh culling to treat an ungenerated underground neighbor
-// as opaque instead of rendering a box wall into the void.
-bool chunk_would_be_fully_solid(const ChunkGenerator& gen, int32_t cx, int32_t cy, int32_t cz);
-
-// The same rule, for a caller that already has the column's lowest possible
-// surface (`HeightRange::min_h`, as WorldUpdater's column cache keeps it). The
-// chunk form above spends a ~25 us lattice sample to find that one float; a probe
-// that asks about several chunks of one column should sample it once.
-bool chunk_would_be_fully_solid_at_column(const ChunkGenerator& gen, int32_t cy,
-                                          float column_min_h);
 
 } // namespace VoxelEngine
 

@@ -90,6 +90,19 @@ float ChunkGenerator::sample_humidity(float x, float z) const {
     return lerp(lerp(v00, v10, fx), lerp(v01, v11, fx), fz);
 }
 
+void ChunkGenerator::sample_climate_raw(float x, float z, float& out_temperature,
+                                        float& out_humidity) const {
+    // One warp for both fields: the two per-field samplers below warp the same
+    // point with the same amplitudes, so sharing it halves the warp's noise
+    // reads wherever both are needed (the climate lattice does so at every node).
+    float wx = 0.0f, wz = 0.0f;
+    warp_climate_point(x, z, wx, wz);
+    out_temperature = clamp01((temp_noise.noise_2d(wx * params.climate_temp_scale,
+                                                   wz * params.climate_temp_scale) + 1.0f) * 0.5f);
+    out_humidity = clamp01((humidity_noise.noise_2d(wx * params.climate_humidity_scale,
+                                                    wz * params.climate_humidity_scale) + 1.0f) * 0.5f);
+}
+
 BiomeType ChunkGenerator::land_biome_from_grid(float temperature, float humidity) const {
     const int ti = temperature <= biome_config.temp_cold_max ? 0
                  : temperature >= biome_config.temp_hot_min ? 2 : 1;
@@ -208,10 +221,10 @@ float ChunkGenerator::sample_weirdness(float x, float z) const {
 // ChunkGeneratorLattice::SPACING), evaluated from the raw samplers. This is the
 // node value the chunk path caches, so both paths agree bit-for-bit.
 BiomeType ChunkGenerator::biome_at_node_raw(int32_t nx, int32_t nz) const {
-    return biome_from_climate(
-        sample_temperature_raw(static_cast<float>(nx), static_cast<float>(nz)),
-        sample_humidity_raw(static_cast<float>(nx), static_cast<float>(nz)),
-        sample_continentalness(static_cast<float>(nx), static_cast<float>(nz)));
+    float temperature = 0.0f, humidity = 0.0f;
+    sample_climate_raw(static_cast<float>(nx), static_cast<float>(nz), temperature, humidity);
+    // The grid ignores continentalness, so it is no longer sampled here.
+    return biome_from_climate(temperature, humidity, 0.0f);
 }
 
 // Blended knobs at a single lattice node (single-point path).

@@ -26,7 +26,10 @@ namespace VoxelEngine {
 // gave 3.735/3.738 s, 1.5 gave 4.124/3.951 and 1.3 gave 4.278/4.512, so a lower
 // price still over-admits and the interpolation stands. The price is not a
 // free parameter to lower when chunks get cheaper - the contention it buys is
-// dearer than the work it hides.
+// dearer than the work it hides. A six-shot-per-arm sweep after the column cut
+// (a chunk now 0.94 ms) put 1.92 at 3.672 s mean / 3.660 median, 1.7 at
+// 3.696 / 3.630 and 2.2 at 3.813 / 3.821: the first two are tied inside noise
+// and the dearer one loses, so the interpolation stands.
 [[nodiscard]] inline constexpr double generation_work_per_chunk_ms_for(std::size_t workers) noexcept {
     constexpr double kLowWorkers = 5.0;
     constexpr double kHighWorkers = 15.0;

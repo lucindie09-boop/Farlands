@@ -87,8 +87,7 @@ void ChunkGeneratorLattice::build_climate(const ChunkGenerator& gen, int32_t chu
         for (int32_t j = 0; j < NODES; ++j) {
             const float x = static_cast<float>(origin_x_ + i * SPACING);
             const float z = static_cast<float>(origin_z_ + j * SPACING);
-            temp_[i][j] = gen.sample_temperature_raw(x, z);
-            hum_[i][j] = gen.sample_humidity_raw(x, z);
+            gen.sample_climate_raw(x, z, temp_[i][j], hum_[i][j]);
         }
     }
 }
@@ -127,14 +126,13 @@ void ChunkGeneratorLattice::build_amplification(const ChunkGenerator& gen, int32
             const int32_t wz = origin_z_ + nzj * SPACING;
             if (nxi >= 0 && nxi < NODES &&
                 nzj >= 0 && nzj < NODES) {
-                bio_grid[i][j] = gen.biome_from_climate(
-                    temp_[nxi][nzj], hum_[nxi][nzj],
-                    gen.sample_continentalness(static_cast<float>(wx), static_cast<float>(wz)));
+                // The grid ignores continentalness, so neither branch samples it.
+                bio_grid[i][j] = gen.biome_from_climate(temp_[nxi][nzj], hum_[nxi][nzj], 0.0f);
             } else {
-                bio_grid[i][j] = gen.biome_from_climate(
-                    gen.sample_temperature_raw(static_cast<float>(wx), static_cast<float>(wz)),
-                    gen.sample_humidity_raw(static_cast<float>(wx), static_cast<float>(wz)),
-                    gen.sample_continentalness(static_cast<float>(wx), static_cast<float>(wz)));
+                float temperature = 0.0f, humidity = 0.0f;
+                gen.sample_climate_raw(static_cast<float>(wx), static_cast<float>(wz),
+                                       temperature, humidity);
+                bio_grid[i][j] = gen.biome_from_climate(temperature, humidity, 0.0f);
             }
         }
     }

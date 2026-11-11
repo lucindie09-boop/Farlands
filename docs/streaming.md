@@ -1116,6 +1116,84 @@ it — are in [lod-modes.md](lod-modes.md).
   1.92 gave 3.735/3.738 s, 1.5 gave 4.124/3.951 and 1.3 gave 4.278/4.512, so the
   interpolation stands - a lower price still over-admits, and the contention it buys is
   dearer than the work it hides.
+- **A chunk of nothing but opaque blocks is 0 in every cell, so its scan is one fill.**
+  7,660 of the fill's 20,230 chunks are all Solid+Opaque: the top block stops the sky and 0
+  never recovers. `propagate_sky_light` now takes that case with `fill_light_uniform(0)`,
+  behind `is_fully_solid` as a prefilter (a mixed chunk pays nothing) and
+  `check_fully_solid()` as the authority, because an edit can leave the flag stale - on
+  uniform sections that check is eight palette lookups, not a decode of 32,768 cells. The
+  light slice falls 0.28 -> 0.17 ms and worker work 1.192 -> 1.096 ms. Four probe pairs:
+  4.175/3.924/4.019/4.121 s before against 4.106/3.971/4.071/3.817 s after - 0.069 s mean,
+  faster in 3/4, inside this host's noise, so the wall claim is "not slower"; the worker
+  saving is the measured part. An earlier two-pair attempt at a noisier moment read the
+  opposite way (3.734/4.420 against 5.081/4.556), which is why the four-pair run is the
+  record.
+- **The climate lattice warped every node twice, and sampled a value nobody reads.**
+  `build_climate` called `sample_temperature_raw` and `sample_humidity_raw`, which each warp
+  the same point with the same amplitudes - four noise reads apiece - and
+  `build_amplification` still passed `sample_continentalness` into `biome_from_climate` for
+  every interior and ring node, where the grid ignores it. `sample_climate_raw` now warps once
+  and evaluates both fields from that point, and the continentalness reads are gone. The
+  values are bit-identical by construction (same noise calls, same inputs) and the tests agree.
+  Column slice 0.45 -> 0.31 ms and worker work 1.096 -> 0.942 ms. Wall, four pairs:
+  3.571/3.458/3.802/3.629 s before against 3.658/3.681/3.800/3.613 s after - +0.07 s mean,
+  1/4, inside the host's noise, so this one is recorded as a worker saving, not a fill win.
+  Re-priced at 1.7 ms it is worse (3.707/3.745 s against the 3.688 s mean at 1.92), so the
+  price stays where it is.
+- **The admission price is flat between 1.7 and 1.92 at the cheaper chunk, and 2.2 is worse.**
+  Six shots an arm at 11 workers after the column cut (0.94 ms a chunk): 1.92 gave 3.672 s
+  mean / 3.660 median, 1.7 gave 3.696 / 3.630, and 2.2 gave 3.813 / 3.821. The first two are
+  tied inside the host's noise - 1.7's mean is dragged by a single 4.005 s outlier - and the
+  dearer arm loses on both statistics, so neither direction is a lever: contention is not
+  relieved by admitting less any more than it is by admitting more. The interpolation stays
+  at 1.92.
+- **The material pass and the artifact scan stop above the density margin.** No cell can be
+  solid above `max_height + shape_margin` (outside the band the density is just `delta`, and
+  the margin bounds the band), and no cell can be water above the column's `water_top`, so
+  both the 32-row material loop and the 27,000-cell isolated-voxel scan can break there --
+  the dense buffer is already air. Worker work 0.942 -> 0.920 ms an chunk (density 0.21 ->
+  0.20, materials 0.20), wall 3.648 s old against 3.626 s new over two pairs: a worker saving
+  like the column cut, not a visible one, because the fill is admission-bound. The first form
+  stored a per-column band array (same semantics, 0.907 ms) and pushed
+  `src/worldgen/chunk_generator.cpp` to 513 lines; the shipped form recomputes the bound once
+  from the chunk-wide `max_height + shape_margin` and landed the file at 499 lines -- one under
+  the cap.
+- **The cheaper chunk pays off at low worker counts, where there is less contention to hide
+  it.** The same A/B (the 0.84 ms pre-cut build against the 0.92 ms current one) run at **six
+  workers**: 4.163/4.148/4.071 s against 3.983/3.923/3.854 s, a mean of 4.127 against 3.920 --
+  **207 ms, three pairs of three**, where the same change at eleven workers was a 22 ms tie.
+  Per-chunk work also reads lower at six (0.84 -> 0.73) because fewer workers contend for the
+  same caches, so the slice cuts show through instead of being spread over a saturated pool.
+  The fill is still admission-bound, but the admission rate scales with worker count, which is
+  why the worker saving converts to wall clock only when workers are scarce.
+- **`chunk_generator.cpp` was split after the bound work, at 499 lines.** The three
+  post-density repairs -- the isolated-voxel scan, the thin-solid-sheet repair and the water
+  gap flood fill -- moved verbatim into `chunk_generator_cleanup.cpp` behind one call, taking
+  the entry file to 429 lines and leaving the new TU at 105. They read only the density
+  buffer, the dense buffer and the columns, so the split needed no context struct or lambda
+  surgery; `cleanup_generated_columns()` takes the buffers, the world-Y origin, the solid
+  ceiling and the public `ChunkGenerator::ChunkColumn` array. `scons docscheck` caught the new
+  file the only way it can -- the file counts in `AGENTS.md` and `ARCHITECTURE.md` now read
+  135.
+- **`chunk_generator.hpp` was at the cap too, and a class-scope `using` is not a safe way out.**
+  It went from 500 to 470 lines: `density_math.hpp` now holds `clamp01`, `smoothstep`, `lerp`,
+  `lattice_base`, `trilinear_interp` and `density_from_shape` as inline free functions, and
+  `chunk_solidity.hpp` holds the two free `chunk_would_be_fully_solid*` predicates (it only
+  forward-declares the generator, so the include is not circular). The class keeps thin inline
+  forwarders instead of `using density_math::...`: the first attempt used using-declarations and
+  MSVC failed the build with, in order, `C3615 constexpr function 'lattice_base' cannot result
+  in a constant expression` and `C3861 'trilinear_interp': identifier not found` -- a later
+  same-named member declaration hides the WHOLE using-declared overload set, and once that
+  happens the names are gone for every member body that follows. The forwarders cost nothing
+  (all inline) and are what the lattice TU's explicit `ChunkGenerator::lerp` still calls. The
+  .cpp count is unchanged at 135; sizecheck now reports 436 C++ files.
+- **The per-column band was re-tried once the file had headroom, and lost to noise.** Keeping
+  `band_outer` per column (4 KB of stack, ~14 lines) lets each column stop at its own surface
+  instead of the chunk's tallest one, and a single profile shot suggested 0.907 ms against
+  0.920. Three interleaved pairs say otherwise: work 0.915 ms against 0.924 and settle 3.693 s
+  against 3.709 s, with two of the three pairs favouring the chunk-wide form and the per-column
+  mean carried by one 3.525 s outlier. A 1% work difference is inside this host's noise, so the
+  array and its bookkeeping were reverted; the chunk-wide `max_height + shape_margin` stands.
 - **The fill's extra milliseconds a frame are not the renderer's or the scripts' either.** With the
   generator's rate pinned (previous note), the remaining ~4.5 ms of a 6.7 ms load frame had to be
   attributed. Disabling the render loop (`NO_RENDER=1`) made the fill SLOWER - settle 5.65 s and a

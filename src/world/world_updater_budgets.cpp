@@ -68,6 +68,11 @@ double apply_measurement_overrides(FrameBudgets& budgets) {
     // the fill can have it without spending gameplay frames.
     budgets.processing_budget_loading_ms = latch_seconds_from_env(
         "FARLANDS_PROCESSING_BUDGET_LOADING_MS", budgets.processing_budget_loading_ms);
+    // The fill's install cap, which the clock arm left as the next stop. 0 keeps
+    // the derived min(active_max + 16, render_distance + 16).
+    const int32_t install_cap = static_cast<int32_t>(
+        latch_seconds_from_env("FARLANDS_INSTALL_CAP_LOADING", 0.0, true));
+    budgets.chunk_completions_loading = install_cap > 0 ? install_cap : 0;
     return hold_max_sec;
 }
 

@@ -68,6 +68,15 @@ struct FrameBudgets {
     int32_t chunk_generations = 64;
     int32_t chunk_completions_initial = 128;
     int32_t chunk_completions_gameplay = 64;
+    // The install cap while the fill is running. 0 keeps the derived
+    // `min(active_max + 16, render_distance + 16)`, which is 48 at RD 32 and is
+    // what the install-clock arm left as the next stop; a positive value
+    // replaces the whole clamp for the fill only (gameplay keeps its own cap).
+    // `FARLANDS_INSTALL_CAP_LOADING` is the measurement arm. Measured at six
+    // workers with the loading clock at 3.0: 96 ran 3.702/3.688/3.793 s against
+    // 3.724/3.637/3.843 (2/3, mean -0.007 s) -- a tie. The cap is not the
+    // binding stop once the clock has room, so it stays 0 (derived).
+    int32_t chunk_completions_loading = 0;
     int32_t mesh_rebuilds_immediate = 4;
     // Post-load share of the eager queue. The post-load caps were the fill's
     // limiter: raised with the clocks below, the tail fell 2.57/3.03 -> 1.26/1.51 s
@@ -143,9 +152,19 @@ struct FrameBudgets {
     // frame, so the finished-to-installed queue and the frame count both fall.
     // Measured at six workers as the loading value: 3.722/3.794/3.912 s against
     // 4.127/3.815/4.119 (3/3, mean -0.21 s), installs a frame 28 -> 32, the
-    // phase still ~1 ms. Gameplay keeps the 0.75 above.
+    // phase still ~1 ms. The fifteen-worker check is larger, not neutral:
+    // 3.474/3.388/3.441 s against 3.915/3.784/3.809 (3/3, mean 3.434 against
+    // 3.836), frames 550/595/565 against 645/655/643. The gain grows with the
+    // pool rather than peaking: 8 workers 3.244 against 3.462 (-0.22), 11
+    // workers 3.224 against 3.734 (-0.51), every pair at every count for 3.0.
+    // A value sweep at 11 workers then moved the knee: 1.5 gave 3.443/3.302 s,
+    // 3.0 3.234/3.301 and 6.0 3.145/3.138, both 6.0 blocks fastest. The
+    // cross-check ran before the default moved: at six workers 6.0 ran
+    // 3.710/3.659 against 3.706/3.725 (1/2, a tie) and at fifteen 3.441/3.338
+    // against 3.480/3.390 (2/2, -0.05 s), so 6.0 was faster in five of the six
+    // pairs and never slower, and the default is 6.0. Gameplay keeps 0.75.
     // `FARLANDS_PROCESSING_BUDGET_LOADING_MS` overrides it for an A/B.
-    double processing_budget_loading_ms = 3.0;
+    double processing_budget_loading_ms = 6.0;
     double mesh_completion_budget_ms = 0.5;
     // Post-load clock for the same pass: a ceiling, not a target - the tail's
     // frames averaged 10-12 ms in the arm that shipped this.

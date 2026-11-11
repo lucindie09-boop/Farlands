@@ -1089,6 +1089,33 @@ it — are in [lod-modes.md](lod-modes.md).
   lever is the frame (off-frame install) or the chunk's own work (a worldgen-data change),
   not another admission or pool constant. The 16-thread shipping default is already 15, so
   this is not a switch to flip - the probe forces 11 to keep arms comparable.
+- **The fill time is the admission model's own arithmetic, and that is why frame-side
+  work never moved it.** The controller admits `workers x last_frame_ms / price x 0.9` a
+  frame, which is frame-proportional, so the rate in chunks a SECOND is `0.9 x workers /
+  price` and the fill is `20,230 x price / (0.9 x workers)` - 3.92 s at 11 workers and
+  3.69 s at 15 with the model's own 1.92/2.46 ms, against 4.03-4.44 s and 3.93-3.99 s
+  measured. A shorter frame admits proportionally fewer chunks, so it cannot shorten the
+  fill: `NO_RENDER` frames measured 5.5-6.1 ms against 8.2-8.6 ms and the fill was SLOWER
+  (5.65 s), and `--disable-render-loop` at 7.53 ms frames settled in 3.77 s, inside the
+  noise of the 4.0 s baseline. The leftover ~6 ms of an 8.2 ms frame is real - render_cpu
+  is 0.26 ms and process_total 2.1-2.4 ms - but it is compensated for, not paid. It is not
+  presentation either: the panel reports 165 Hz (6.06 ms), vsync-on measured 10.7 ms a
+  frame and vsync-off 8.2, and headless (no swapchain at all) was the slowest arm at 8.1 s
+  with the pool 69% idle. Only the worker's own 1.46 ms a chunk moves the wall, which is
+  why every frame-side arm this session failed and why the price must be re-measured
+  whenever a chunk gets cheaper.
+- **An all-air chunk was paying 32,768 block decodes and 32,768 light writes for a value
+  that is uniform by construction.** 7,620 of the fill's 20,230 chunks are empty, and their
+  sky light is 15 in every cell. `propagate_sky_light` now takes that case in one
+  `fill_light_uniform`, keeping the `chunk_above == nullptr` guard because a neighbour above
+  can shade the top layer. Worker work 1.461 -> 1.192 ms a chunk, the light slice 0.50 ->
+  0.28 ms, and two ABBA pairs at the default price 4.157/4.267 -> 3.980/3.739 s: -0.35 s of
+  fill, the first wall movement this session. The first A/B lost 0.7 s because the fill used
+  `pack_light(15,15,15,15)` and saturated the coloured channels as well, so every empty chunk
+  glowed; `pack_light(15,0,0,0)` is the uniform. Re-priced afterwards at the cheaper chunk:
+  1.92 gave 3.735/3.738 s, 1.5 gave 4.124/3.951 and 1.3 gave 4.278/4.512, so the
+  interpolation stands - a lower price still over-admits, and the contention it buys is
+  dearer than the work it hides.
 - **The fill's extra milliseconds a frame are not the renderer's or the scripts' either.** With the
   generator's rate pinned (previous note), the remaining ~4.5 ms of a 6.7 ms load frame had to be
   attributed. Disabling the render loop (`NO_RENDER=1`) made the fill SLOWER - settle 5.65 s and a

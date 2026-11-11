@@ -21,7 +21,12 @@ namespace VoxelEngine {
 // 1.92, 2/2, with 1.4 at 3.83/3.81 and 1.1 at 4.09/4.10), but five binary pairs
 // came out 2/5 - mean 3.745 s against 3.713 s, a wash - so the line is left
 // where it is. A pool of 15 or more keeps the measured 2.46: re-pricing that
-// end at 1.8 was a wash (settle A-B -0.015 s, faster 2/5).
+// end at 1.8 was a wash (settle A-B -0.015 s, faster 2/5). Re-swept after the
+// all-air sky fast path took a chunk from 1.46 to 1.19 ms of worker work: 1.92
+// gave 3.735/3.738 s, 1.5 gave 4.124/3.951 and 1.3 gave 4.278/4.512, so a lower
+// price still over-admits and the interpolation stands. The price is not a
+// free parameter to lower when chunks get cheaper - the contention it buys is
+// dearer than the work it hides.
 [[nodiscard]] inline constexpr double generation_work_per_chunk_ms_for(std::size_t workers) noexcept {
     constexpr double kLowWorkers = 5.0;
     constexpr double kHighWorkers = 15.0;

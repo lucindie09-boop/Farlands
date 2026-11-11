@@ -307,6 +307,17 @@ void ChunkData::propagate_sky_light(const ChunkData* chunk_above) {
     // This scan is the authority on every cell of this chunk, so the shade flag it
     // feeds is recomputed rather than accumulated.
     has_sky_shade_ = false;
+    // An all-air chunk under open sky is 15 in every cell, and the scan below
+    // would decode 32,768 blocks to learn they are air and write 15 to 32,768
+    // cells. 7,620 of the fill's 20,230 chunks are exactly this case. A chunk
+    // with a neighbour above keeps the scan: that neighbour's bottom light can
+    // shade this one's top layer, so 15 is not known to be right there.
+    if (is_empty && chunk_above == nullptr) {
+        // Sky 15, block light 0: pack_light(15, 15, 15, 15) would saturate the
+        // coloured channels too and light the whole chunk as if it were emitting.
+        storage->fill_light_uniform(pack_light(15, 0, 0, 0));
+        return;
+    }
     for (int32_t x = 0; x < CHUNK_WIDTH; ++x) {
         for (int32_t z = 0; z < CHUNK_DEPTH; ++z) {
             uint8_t current_sky_light = chunk_above ? chunk_above->get_sky_light(x, 0, z) : 15;

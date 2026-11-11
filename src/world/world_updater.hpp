@@ -265,7 +265,7 @@ private:
     void on_chunk_installed(int32_t cx, int32_t cy, int32_t cz, bool has_blocks);
     // Drains up to `budget` candidates from the chain queue through the shared
     // filters. Returns how many generations it enqueued.
-    int32_t drain_chain_queue(uint64_t epoch, int32_t budget, int32_t pcy);
+    int32_t drain_chain_queue(uint64_t epoch, int32_t budget, int32_t pcy, double budget_ms);
 
     // One column of the generation sweep: where it sits relative to the player's
     // chunk, and the only slices of it that can pass the band filter.

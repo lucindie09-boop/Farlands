@@ -57,7 +57,10 @@ void WorldUpdater::update_generation(bool is_editor, int32_t active_render_dista
     {
         // The controller's cost model, not this frame's measurement. The env
         // override is a measurement switch (see FrameBudgets).
-        const double work_per_chunk_ms = std::max(0.01, budgets.generation_work_per_chunk_ms);
+        const double work_per_chunk_ms = std::max(0.01,
+            budgets.generation_work_per_chunk_ms > 0.0
+                ? budgets.generation_work_per_chunk_ms
+                : generation_work_per_chunk_ms_for(worker_count));
         const double frame_ms = std::clamp(last_frame_ms, 1.0, 50.0);
         const double rate = static_cast<double>(worker_count) * frame_ms / work_per_chunk_ms * 0.9;
         dynamic_max_generations = std::clamp(static_cast<int32_t>(std::lround(rate)), 1,
@@ -81,9 +84,7 @@ void WorldUpdater::update_generation(bool is_editor, int32_t active_render_dista
     // are deliberately NOT gated on this cap — a caller is blocked on those.
     const size_t max_in_flight = budgets.generation_max_in_flight > 0
         ? static_cast<size_t>(budgets.generation_max_in_flight)
-        : std::max<size_t>(
-              64, worker_count * static_cast<size_t>(
-                      std::max(1, budgets.max_generating_in_flight_per_worker)));
+        : generation_in_flight_cap(worker_count, budgets.max_generating_in_flight_per_worker);
     const bool in_flight_ok = generating_count < max_in_flight;
     const bool backlog_ok = chunk_world->get_scheduler().can_enqueue(budgets.completed_queue_backlog);
     const bool generation_admitted = in_flight_ok && backlog_ok;
@@ -155,7 +156,8 @@ void WorldUpdater::update_generation(bool is_editor, int32_t active_render_dista
             // The chain's generations do NOT wake the walk (see the end-of-list
             // case below): its queue is refilled by installs, while a walk that
             // has reached the end of its list has nothing left to offer.
-            const int32_t chained = drain_chain_queue(epoch, chain_budget, pcy);
+            const int32_t chained = drain_chain_queue(epoch, chain_budget, pcy,
+                                                      budgets.generation_chain_budget_ms);
             if (chained > 0) {
                 frame_generations += chained;
             }

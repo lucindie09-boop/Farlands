@@ -295,29 +295,37 @@ bool ChunkWorld::world_metadata_exists() const {
 //
 // `.edit.bak` counts as a hit: a crash between the atomic renames leaves the
 // backup as the only copy of the edits, and skipping the load would lose it.
-bool ChunkWorld::has_edit_files_on_disk() {
-    const uint8_t known = edit_scan_.load(std::memory_order_acquire);
-    if (known != 0) return known == 2;
-    std::lock_guard<std::mutex> lock(file_access_mutex);
-    const uint8_t again = edit_scan_.load(std::memory_order_relaxed);
-    if (again != 0) return again == 2;
-    bool found = false;
-    Ref<DirAccess> dir = DirAccess::open("user://chunks/");
-    if (dir.is_valid() && dir->list_dir_begin() == OK) {
-        for (String name = dir->get_next(); !name.is_empty(); name = dir->get_next()) {
-            if (dir->current_is_dir()) continue;
-            if (name.contains(".edit")) {
-                found = true;
-                break;
+bool ChunkWorld::edit_file_exists_on_disk(uint64_t key) {
+    if (edit_scan_.load(std::memory_order_acquire) == 0) {
+        std::lock_guard<std::mutex> lock(file_access_mutex);
+        if (edit_scan_.load(std::memory_order_relaxed) == 0) {
+            std::lock_guard<std::mutex> keys_lock(edit_keys_mutex);
+            Ref<DirAccess> dir = DirAccess::open("user://chunks/");
+            if (dir.is_valid() && dir->list_dir_begin() == OK) {
+                for (String name = dir->get_next(); !name.is_empty(); name = dir->get_next()) {
+                    if (dir->current_is_dir()) continue;
+                    if (!name.contains(".edit") || !name.begins_with("chunk_")) continue;
+                    // chunk_<x>_<y>_<z>.edit[.bak]: the tail after the last
+                    // underscore still carries the extensions.
+                    const String base = name.substr(6);
+                    const String sx = base.get_slice("_", 0);
+                    const String sy = base.get_slice("_", 1);
+                    const String sz = base.get_slice("_", 2).get_slice(".", 0);
+                    if (sz.is_empty()) continue;
+                    edit_file_keys.insert(chunk_map.get_chunk_key(sx.to_int(), sy.to_int(), sz.to_int()));
+                }
+                dir->list_dir_end();
+            }
+            edit_scan_.store(edit_file_keys.empty() ? 1 : 2, std::memory_order_release);
+            if (GenerationPathProfile::enabled()) {
+                print_line(vformat("gen edit scan: saved edit chunks %d",
+                                   static_cast<int64_t>(edit_file_keys.size())));
             }
         }
-        dir->list_dir_end();
     }
-    edit_scan_.store(found ? 2 : 1, std::memory_order_release);
-    if (GenerationPathProfile::enabled()) {
-        print_line(vformat("gen edit scan: saved edit files %s", found ? "found" : "none"));
-    }
-    return found;
+    if (edit_scan_.load(std::memory_order_acquire) == 0) return false;
+    std::lock_guard<std::mutex> keys_lock(edit_keys_mutex);
+    return edit_file_keys.count(key) != 0;
 }
 
 bool ChunkWorld::load_edit_map_from_disk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, EditMap& out_edit_map, const BlockRegistry& registry) {

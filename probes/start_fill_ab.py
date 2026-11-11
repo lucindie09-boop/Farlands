@@ -53,6 +53,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 RUNNER = ROOT / "probes" / "run_probe_shot.sh"
 PROBE = "probes/probe_start_fill.gd"
+DLL_NAME = "libgdextension.windows.template_debug.x86_64.dll"
+DLL_DIR = ROOT / "bin"
 
 LOADED_RE = re.compile(
     r"PROBE fill loaded=([0-9.]+)s mesh=([0-9.]+)s far=([0-9.]+)s "
@@ -300,7 +302,8 @@ def run_one(label: str, arm: str, out_dir: Path, timeout_s: int, base_env: dict,
             hold_partial: int | None = None,
             cache: bool = False,
             rd: int = 32,
-            extra_env: dict | None = None) -> dict | None:
+            extra_env: dict | None = None,
+            dll: Path | None = None) -> dict | None:
     env = dict(base_env)
     for key in CLEAR_ENV:
         env.pop(key, None)
@@ -333,6 +336,8 @@ def run_one(label: str, arm: str, out_dir: Path, timeout_s: int, base_env: dict,
             description = "cache on (prepared)"
         else:
             description = "cache off"
+    elif dll is not None:
+        description = "render, baseline DLL" if arm == "A" else "render, candidate DLL"
     else:
         if arm == "B":
             env["NO_RENDER"] = "1"
@@ -344,6 +349,9 @@ def run_one(label: str, arm: str, out_dir: Path, timeout_s: int, base_env: dict,
         env["FARLANDS_FINAL_INSTALL_BUDGET_MS"] = "0.75" if arm == "A" else str(final_install_ms)
         description = ("render, final install 0.75 ms" if arm == "A"
                        else f"render, final install {final_install_ms} ms")
+
+    if dll is not None:
+        shutil.copy2(dll, DLL_DIR / DLL_NAME)
 
     log_path = out_dir / f"{label}.log"
     print(f"[{label}] {description} ... ", end="", flush=True)
@@ -446,13 +454,15 @@ def build_summary(args: argparse.Namespace, out_dir: Path, commit: str,
         "Start-fill AB/BA harness",
         f"commit: {commit or 'unknown'}",
         f"tracked dirty: {dirty or 'clean'}",
-        ("A: render, final install 0.75 ms" if args.final_install_ms is not None
+        ("A: baseline DLL" if args.a_dll is not None
+         else "A: render, final install 0.75 ms" if args.final_install_ms is not None
          else "A: latch 30 s cap, 1 s quiet" if args.latch
          else "A: hold, partial 0" if args.hold_partial is not None
          else "A: initial mesh hold" if args.hold
          else "A: cache on, prepared" if args.cache
          else "A: normal render loop"),
-        (f"B: render, final install {args.final_install_ms} ms" if args.final_install_ms is not None
+        ("B: candidate DLL" if args.b_dll is not None
+         else f"B: render, final install {args.final_install_ms} ms" if args.final_install_ms is not None
          else "B: latch 1 s quiet, no cap" if args.latch
          else f"B: hold, partial {args.hold_partial}" if args.hold_partial is not None
          else "B: overlap, no hold" if args.hold
@@ -614,6 +624,10 @@ def main(argv: list[str] | None = None) -> int:
                         help="cap the three post-load clocks at N ms in every run (default: build value)")
     parser.add_argument("--final-install-ms", type=int, default=None, metavar="N",
                         help="A/B the final-wave completion budget: A=0.75, B=N ms")
+    parser.add_argument("--a-dll", type=Path, default=None,
+                        help="DLL for arm A (with --b-dll; swapped before each run)")
+    parser.add_argument("--b-dll", type=Path, default=None,
+                        help="DLL for arm B (with --a-dll; swapped before each run)")
     args = parser.parse_args(argv)
     if args.pairs < 1:
         parser.error("--pairs must be at least 1")
@@ -626,6 +640,8 @@ def main(argv: list[str] | None = None) -> int:
             parser.error("--hold-partial must be at least 1")
     if args.cache and (args.latch or args.hold or args.hold_partial is not None):
         parser.error("--cache cannot be combined with --latch, --hold or --hold-partial")
+    if (args.a_dll is None) != (args.b_dll is None):
+        parser.error("--a-dll and --b-dll go together")
     if args.flight <= 6:
         parser.error("--flight must be greater than the 6 s late window")
     if args.cores < 0:
@@ -656,13 +672,15 @@ def main(argv: list[str] | None = None) -> int:
         f"started: {started}",
         f"commit: {commit or 'unknown'}",
         f"tracked dirty: {dirty or 'clean'}",
-        ("A: render, final install 0.75 ms" if args.final_install_ms is not None
+        ("A: baseline DLL" if args.a_dll is not None
+         else "A: render, final install 0.75 ms" if args.final_install_ms is not None
          else "A: latch 30 s cap, 1 s quiet" if args.latch
          else "A: hold, partial 0" if args.hold_partial is not None
          else "A: initial mesh hold" if args.hold
          else "A: cache on, prepared" if args.cache
          else "A: normal render loop"),
-        (f"B: render, final install {args.final_install_ms} ms" if args.final_install_ms is not None
+        ("B: candidate DLL" if args.b_dll is not None
+         else f"B: render, final install {args.final_install_ms} ms" if args.final_install_ms is not None
          else "B: latch 1 s quiet, no cap" if args.latch
          else f"B: hold, partial {args.hold_partial}" if args.hold_partial is not None
          else "B: overlap, no hold" if args.hold
@@ -682,6 +700,8 @@ def main(argv: list[str] | None = None) -> int:
          else "tail budget: build default"),
         (f"final install: A 0.75 ms, B {args.final_install_ms} ms"
          if args.final_install_ms is not None else "final install: build default"),
+        f"A dll: {args.a_dll or 'current build'}",
+        f"B dll: {args.b_dll or 'current build'}",
         f"bash: {BASH}",
     ]
     (out_dir / "meta.txt").write_text("\n".join(meta) + "\n", encoding="utf-8")
@@ -704,7 +724,8 @@ def main(argv: list[str] | None = None) -> int:
                          final_install_ms=args.final_install_ms, workers=workers,
                          hold=args.hold, hold_partial=args.hold_partial,
                          cache=args.cache, rd=args.rd,
-                         extra_env={"FILL_TRACE": "1"} if args.fill_trace else None)
+                         extra_env={"FILL_TRACE": "1"} if args.fill_trace else None,
+                         dll=args.a_dll)
         if warmup is None:
             summary = build_summary(args, out_dir, commit, dirty, None, [])
             (out_dir / "summary.txt").write_text(summary + "\n", encoding="utf-8")
@@ -742,7 +763,8 @@ def main(argv: list[str] | None = None) -> int:
                           final_install_ms=args.final_install_ms, workers=workers,
                           hold=args.hold, hold_partial=args.hold_partial,
                           cache=args.cache, rd=args.rd,
-                          extra_env={"FILL_TRACE": "1"} if args.fill_trace else None)
+                          extra_env={"FILL_TRACE": "1"} if args.fill_trace else None,
+                          dll=args.a_dll if arm == "A" else args.b_dll)
             if row is None:
                 print(f"\nPair {number} aborted; completed pairs are in the summary.")
                 summary = build_summary(args, out_dir, commit, dirty, warmup, pairs)
@@ -757,6 +779,8 @@ def main(argv: list[str] | None = None) -> int:
     summary = build_summary(args, out_dir, commit, dirty, warmup, pairs)
     (out_dir / "summary.txt").write_text(summary + "\n", encoding="utf-8")
     print("\n" + summary)
+    if args.b_dll is not None:
+        shutil.copy2(args.b_dll, DLL_DIR / DLL_NAME)
     return 0
 
 

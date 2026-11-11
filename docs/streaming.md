@@ -956,6 +956,269 @@ it — are in [lod-modes.md](lod-modes.md).
   45.0 to 13.3 a frame (the band's pad empties were most of them) left the load (5.79 vs 5.78 s)
   and the wall (6.05 vs 6.06 s) where they were, so the stage is cheap next to the install itself.
   It is reverted too.
+- **The per-face sky gate is a fill win on constrained hardware.** The sky install
+  pass used to walk all six 32x32 border planes of every arriving chunk. A face
+  whose neighbour has no sky shade cannot be improved -- no shade means every
+  non-opaque, non-liquid cell is already 15, and the walk only raises -- so the
+  face is now skipped before its plane is walked. On 6 logical cores / 5 workers,
+  three paired RD32 fills went end **10.63 [10.62-10.66] -> 10.38 [10.34-10.42] s**
+  (B faster 3/3), tail **0.25 -> 0.00 s**, settle **9.60 -> 9.44 s**, process total
+  **2.71 -> 2.64 s**, and load frame **4.50 -> 4.13 ms**. On 16 threads the eight
+  paired fills moved the median end **5.02 -> 4.98 s** and settle **4.09 -> 3.97 s**
+  (settle faster 8/8, end 6/8), with process total **1.37 -> 1.25 s** in the first
+  three pairs and **1.39 -> 1.30 s** in the next five; two candidate runs were
+  0.03-0.04 s slower, so this is a small unconstrained gain and a clear
+  constrained one. The light profile confirms the mechanism: sky pass **1.07 ->
+  0.605 s**, pass hold **1.59 -> 1.14 s**. Binary A/B
+  (`probes/start_fill_ab.py --a-dll/--b-dll`) kept the baseline DLL from HEAD and
+  the candidate DLL from the gate; the comparisons are in
+  `.freebuff/sky_gate_ab_1`, `_2` and `_6c`, with the profiles in
+  `.freebuff/fill_profile_now.log` and `.freebuff/sky_gate_profile_candidate.log`.
+
+- **The admission controller was over-pricing a chunk on small pools, and the ramp pays.**
+  The controller's per-frame generation allowance is `workers x frame / cost`, with the cost
+  model a flat 2.46 ms measured at 15 workers, "where contention makes a chunk dearer" - its
+  own comment recorded ~2.31 ms at 3. A five-worker fill asked the question directly, three
+  alternating pairs through `FARLANDS_GEN_WORK_PER_CHUNK_MS`: at 1.8 ms the settle fell
+  **6.695 -> 6.299 s**, loaded **7.48 -> 7.19 s**, arrivals rose **4.3 -> 4.9 a frame**, and
+  the win repeated 3/3. `generation_work_per_chunk_ms_for()` now ramps the price from 1.8 ms
+  at 5 workers to 2.46 ms at 15, so a large pool keeps the measured constant exactly and only
+  small pools are re-priced. Binary A/B against the shipped sky-gate DLL, five pairs at 6
+  logical cores / 5 workers: settle **9.391 -> 9.284 s** (faster 5/5), loaded **10.26 ->
+  10.12 s** (4/5), chunk load **9.51 -> 9.37 s**, end **10.36 -> 10.18 s** (3/5, one pair
+  0.12 s the other way). This is what the two install-side trims below were looking for: the
+  fill is admission-bound, but by the controller's price rather than by the drain. Outputs:
+  `.freebuff/cm_a*`/`cm_b*`, `.freebuff/gen_cost_ramp_ab_6c`, candidate DLL
+  `.freebuff/gen_cost_ramp.dll`.
+
+- **The in-flight generation cap's floor was too shallow for a small pool.** The general rule
+  is 6 per worker, but the 64 floor is what a 5-worker pool actually gets, and it was starving
+  the queue: sweeping `FARLANDS_GEN_MAX_INFLIGHT` there, 30 in flight (6 per worker) ran settle
+  6.47/6.38 s against 5.56/5.53 at 64, 90 ran 5.24/5.19, and 128 ran 5.14/5.17 with loaded
+  5.97/5.99 against 6.46/6.40 - 2/2 faster at every step. The same sweep at 11 workers, where
+  the per-worker term gives 66, ran 128 at 3.74/3.58 s against 4.68/4.07 (loaded 4.69/4.45
+  against 5.74/4.92, 2/2). At 15 workers, where 6 per worker already gives 90, 128 was a wash
+  (settle 3.63/3.84 against 3.71/3.72, loaded 0.02-0.23 s worse), so the floor is 128 for
+  pools of 12 or fewer and the per-worker rule decides above that. A small pool admits fewer chunks a frame and needs the deeper queue to keep its
+  workers fed. Deeper than 128 at such a pool is unmeasured.
+- **The in-flight cap's knee at 11 workers is 128.** 192 was tested there on top of the 128
+  floor: settle 3.83/3.89 s against 3.72/3.68 and loaded 4.69/4.71 against 4.70/4.66, worse in
+  2/2, so more depth only lengthens the completed queue. Left at 128.
+- **The mesh hold at 11 workers is a wash.** The floor is 12 because 8 and 10 were washes and 12
+  won; 11 is the stock 6c/12t default, so it was asked directly. Forcing the hold (partial 2)
+  gave settle 3.72/3.65/3.76 s against 3.87/3.70/3.66 - faster 2/3, mean 3.710 against 3.744, a
+  wash - so the floor stays 12 and the default machine keeps meshing during the fill.
+- **The completion clock over the fill does not move it either.** The arithmetic looked like a
+  pacer: 20,230 installs at ~22 us inside a 0.75 ms a frame clock is ~590 frames, and the fill
+  runs ~590 frames. A loading-only clock (`FARLANDS_COMPLETION_BUDGET_LOADING_MS`, since deleted),
+  swept at 2.0 and 3.0 ms with the mesh hold already off, was flat in alternating runs: 4.47/4.53 s
+  and 4.67/4.40 s against 4.53/4.45 s at 0.75. The install count cap is min(active_max+16,
+  RD+16) = 48 at RD 32, and the light and dirty stages share the same clock, so widening it only
+  moves the same fan-out into the same frames. Reverted; the clock stays at its gameplay value.
+- **The initial fill's equilibrium, as measured.** On the 16-thread machine at 11 workers and RD
+  32, 20,230 chunks settle in 4.3-4.5 s: ~580-660 frames at ~35 chunks a frame (the ring walk
+  ~19, the chain ~14), on a 6.7-8.3 ms frame of which the whole updater is ~2.2 ms, with the
+  pool ~4 of 11 workers busy and the main thread ~27%. The drain is 0.51 s of that (12%):
+  `process_completed_chunks` runs 0.87 ms against its 0.75 ms clock at 25 us an install, and the
+  install split is insert 5.3 us, listener 0.6, prepare 1.0, data 1.6, placements 0.6, with
+  stage_results 7.3, stage_dirty 5.1 and stage_light 4.7 us of interleaved fan-out. Every knob
+  on that loop has been measured and none moves the wall: the admission price (1.1 and 0.8 made
+  it worse), the in-flight cap (192 and 256 worse), the install clock during loading (1.5/3.0 ms
+  no gain, and the queue absorbs it), a cheaper light slice (-62% slice, +0.7 s fill), the
+  shared macro-column cache (no hit rate, then a serialisation loss), and the band frontier
+  (3,209 reads cost 67 ms total, so its 2 ms budget is never spent). The fill is a feedback
+  equilibrium, not a hot spot; breaking it needs the install/mesh work moved off the frame
+  cadence, not another constant.
+- **The admission rate is at its knee in both directions.** The one knob the earlier arms
+  never moved at 11 workers was the cost model itself, since it is interpolated rather than
+  measured there. `FARLANDS_GEN_WORK_PER_CHUNK_MS=1.3` (a rate of ~57 a frame against the
+  interpolated 1.92's ~39) on an ABBA alternation ran settle 4.780/5.099 s against
+  4.518/4.415 s and loaded 5.56/6.05 s against 5.52/5.40 s: both pairs worse, with admission
+  stops up (331/371 against 203/240), the generation-cap stops down (200/205 against
+  254/256) and the frame count unmoved at 590-653. So the extra chunks were admitted and did
+  not become a shorter fill - the pool is ~4 of 11 busy and the set merely waits longer. With
+  the 192/256 caps and the 1.1/0.8 prices already measured worse, the controller sits on its
+  knee and admission is not the fill's wall.
+- **The chain drain had no clock, and that was the fill's 24 ms frame.** The generation
+  phase's own timer read 0.64 ms average and 24-30 ms maximum, all of it in
+  `drain_chain_queue`, whose budget counts *generations*: `offered=31,750 gens=8,480
+  skipped=23,090 refused=180` on a 4.1 s load. Since a skip costs the same offer machinery
+  (a band lookup, a resident `contains`, a scheduler probe) and never advances the count,
+  a stale queue drained unbounded inside one frame. It now stops on a 1.5 ms wall clock
+  (`generation_chain_budget_ms`), always making the first offer like the band service, and
+  the queue is refilled by installs so a cut-off offer returns. Four alternating pairs at 11
+  workers: generation total 421.5/471.3/432.9/422.1 ms off against 307.0/275.8/296.8/306.2 ms
+  on (mean -32%, ranges do not overlap), worst generation frame 29.65/21.77/21.67/25.87 ms
+  against 15.16/7.24/10.35/12.59 ms, and settle 4.079/4.133/4.557/4.012 s against
+  4.040/3.966/4.020/4.130 s - paired -0.156 s on average, the clock faster in 3/4, which is
+  smaller than this host's noise. The CPU and the spike are proven; the wall time moves at
+  the  edge of what one session can resolve. `FARLANDS_CHAIN_BUDGET_MS=0` restores the
+  unbounded arm.
+- **The chunk drain's clock is not the fill's pacer either.** Its per-frame average sits on
+  the 0.75 ms clock (0.76 ms over 638 frames) with a completed queue ~290 deep behind it,
+  which reads as a clock-bound loop. Doubling the clock to 2.0 ms in a three-pair DLL A/B
+  changed nothing: chunk load 8.36 [8.35-8.43] s against 8.39 [8.35-8.42] s, settle paired
+  +0.030 s (B faster 3/3, at the noise floor), `process_total` 2.35 -> 2.40 s and the load
+  frame 5.85 -> 5.45 ms. The loop empties what the workers have finished in a frame; the
+  average landing on the clock is a coincidence of an arrival-limited loop. The absolute
+  times in that arm are the six-core A/B machine's, not the 16-thread probe's. Pairing it
+  with the cheap-price arm does not rescue the price either: at 1.3 ms, drain 2.0 gave
+  settle 4.252/4.029 s against 4.240/4.678 s for the 0.75 ms clock (1/2 pairs), and both
+  sit worse than the 1.92 ms price's 4.0-4.1 s. The two halves were each measured alone and
+  are worse together, so the drain really is arrival-limited and the price really is at its
+  knee.
+- **The fill is worker-CPU-bound, and what a chunk's 1.46 ms is made of.** With the path
+  profile armed (`FARLANDS_GEN_PROFILE=1`) the fill reports 20,230 chunks at work p50
+  1.239 ms / avg 1.461 ms, against a drain wait of 68 ms in the completed queue - so the
+  workers, not the drain, are the wall: 20,230 x 1.46 ms is 29.5 s of worker CPU, and the
+  pool's 69% busy (15.6% idle-with-work + 15.0% idle-empty) is ~6.7 workers, which is the
+  4.4 s. Per chunk the slices are light 0.50 ms, column pass 0.48, density 0.22, materials
+  0.22, disk 0.03. The one piece of that which was provably free to remove is the
+  continentalness read in the column pass: `biome_from_climate` ignores its `cont`
+  argument and nothing read `ColumnSample::cont`, so it was a 12,000-block noise read per
+  column, 1,024 a chunk, and the field is now gone. Two A/B pairs: settle +0.010 s median,
+  loaded and end -0.03 s - neutral, as one noise read a column should be. No speedup is
+  claimed for it; the remaining slices all change generated terrain if touched, which is a
+  data decision rather than an optimisation.
+- **More workers buy about 5%, which is the last word on where the pacer sits.** 11 against
+  15 workers at RD 32 on the 16-thread machine, two shots each: settle 4.027/4.349 s against
+  3.986/3.925 s. The extra four workers shorten the fill by ~0.23 s while making every frame
+  *longer* (8.15/8.58 -> 9.05/9.15 ms) and every chunk dearer on the workers (0.86-0.90 ->
+  1.00-1.01 ms), i.e. more concurrency against more contention, nearly cancelling. That is
+  what a main-thread-paced fill looks like from the pool's side, and it is why the remaining
+  lever is the frame (off-frame install) or the chunk's own work (a worldgen-data change),
+  not another admission or pool constant. The 16-thread shipping default is already 15, so
+  this is not a switch to flip - the probe forces 11 to keep arms comparable.
+- **The fill's extra milliseconds a frame are not the renderer's or the scripts' either.** With the
+  generator's rate pinned (previous note), the remaining ~4.5 ms of a 6.7 ms load frame had to be
+  attributed. Disabling the render loop (`NO_RENDER=1`) made the fill SLOWER - settle 5.65 s and a
+  10.47 ms load frame against 4.2-4.5 s and 7.9 ms - and silencing all 20 scripted world nodes
+  (`QUIET=1`) also slowed it to 6.08 s / 10.29 ms, with the per-script cost itself negligible
+  (viewmodel 29 us, inventory 17.6 us, crafting menu 17.4 us, shader overlay 10.9 us; the whole
+  list is ~100 us a frame). So the frame is not paying for chunk-instance submission or GDScript:
+  it is paying for the streaming work itself plus the engine's own loop, and removing a consumer
+  only lets the time-based budgets stretch the frame further. Throughput sits at ~4,800 chunks/s
+  (20,230 in ~4.2 s), which is the admission controller's own rate at the 1.92 ms price, and every
+  attempt to raise it is absorbed by the in-flight cap closing the gate. No change shipped from
+  this arm; the switches are env-only.
+- **Feeding the generator harder does not shorten the fill: the walk's generations a frame are
+  pinned at ~19-20 whatever the admission knobs say.** At 11 workers the sweep stops on its own
+  per-frame generation cap (~40% of frames) or on admission (~35%) far more than on the 1.0 ms
+  clock (~9%), which reads like the controller is the wall. It is not. Lowering the price from
+  the interpolated 1.92 ms to 1.1 and 0.8 raised settle (alternating runs: 1.92 -> 4.52/4.47 s,
+  1.1 -> 4.91/4.53 s, 0.8 -> 5.89/5.00 s) while the walk's generations a frame moved only
+  17.9 -> 18.9 -> 20.1 and admission stops rose 222 -> 388/340 -> 481/446 as the in-flight set
+  filled. Pairing the low price with a 256 in-flight cap (the two had only ever been tested
+  apart) was worse still - 5.05/6.19 s and 5.59/5.88 s against a 4.25/5.03 s baseline, in-flight
+  peaking 269-315 with generations a frame pinned at 19-20 again. The pool is ~4 of 11 workers
+  busy in generation, the main thread ~27%, and a frame is 6.7-8.3 ms of which ~2.2 ms is the
+  updater, so the hand-off rate is not what the fill waits on. Both arms reverted; env-only, so
+  no source changed.
+- **Sharing the macro-column pass between a column's slices does not pay, and the reason is
+  the fill's shape, not the cache.** The macro pass (0.45 ms a chunk, the largest slice) is a
+  function of (chunk_x, chunk_z) only, and a world column is ~6 vertical chunks, so the fill
+  computes it six times - roughly 7 s of pool CPU. A one-entry per-worker cache changed nothing
+  (0.45-0.47 ms, settle 3.73/3.93 s against the 3.70-3.79 baseline): the sweep hands a column's
+  slices to different workers, so every worker sees a different column. A shared 16-shard cache
+  - first arrival computes and publishes, the others wait on a condition variable and copy the
+  72 KB result - measured 4.28/4.49 s with `columns` at 0.48-0.50 ms, but that window is not a
+  comparison: the unchanged tree measured 4.24, 4.54 and 5.02 s minutes later, so the arm sits
+  inside the same host noise and is UNPROVEN rather than rejected. It was reverted unshipped
+  (the tree only carries what a pairing credits), and re-testing needs a quiet host. The reason
+  to doubt it even then is the fill's shape: 26.9 s of pool work over a 3.7 s wall is 7.3 of 11
+  workers busy, so the fill is not worker-CPU-bound, and turning six parallel computations into
+  one plus five waits adds a dependency between chunks that used to generate independently.
+- **Raising the install pass's clock during the fill does not shorten it.** The pass is paced
+  by its 0.75 ms clock in steady state - about 33-35 installs a frame at 20-22 us each - while
+  the pool could offer ~50, so a loading-only clock (`FARLANDS_PROCESSING_BUDGET_LOADING_MS`)
+  looked like the ceiling. Swept at 11 workers, two pairs per point: 0.75 ms gave settle
+  3.69/3.79 s, 1.5 gave 3.71/3.80, and 3.0 gave 3.93/3.71 - no gain, because the frames stretch
+  to absorb the extra install time and the installs-per-frame barely move. Reverted.
+- **The admission price's low end was re-priced after the chunk got cheaper.** The 1.8 ms
+  five-worker price dates from a ~2.3 ms chunk; the density-band skip and the edit-key scan
+  took ~0.26 ms off the worker body, so the controller was admitting at the old rate. Swept
+  with `FARLANDS_GEN_WORK_PER_CHUNK_MS` on the 5-worker arm, three alternating pairs per point:
+  1.5 ms gave 3/3 faster settle (-0.05..-0.10 s), 1.3 3/3 (-0.06..-0.23 s), **1.1 3/3
+  (-0.13..-0.29 s, loaded -0.22 s)**, and 0.9 stopped paying (-0.27, +0.04, -0.41 s - 2/3
+  with a regression). The ramp's low anchor is now **1.1 ms**; the 15-worker end stays at the
+  measured 2.46. The straight line between them was then tested at 11 workers, where it
+  interpolates 1.92 ms: two env pairs liked the 2.46 ceiling (settle 3.70/3.66 s against
+  3.79/3.75, with 1.4 at 3.83/3.81 and 1.1 at 4.09/4.10), but five binary pairs came out
+  **2/5** (mean 3.745 s against 3.713 s), so moving the knee to 11 was a wash and the line
+  stays where it is.
+- **A whole-chunk "nothing is shaped here" skip does not pay for its test.** With the weirdness
+  mask zero across a chunk, density is exactly the macro delta at every cell, so the 729-sample
+  3D shape lattice and every per-cell interpolation of it are pure reproduction. Testing the
+  1,024 columns for that up front cost more than it saved: four pairs on the 6-core arm were
+  slower on settle in **4/4** (8.33 -> 8.40 s, [-0.05, -0.01]) and on loaded in 4/4 (9.13 ->
+  9.34 s), chunk load 8.37 -> 8.58 s. So a wholly unshaped 32x32 chunk is rare enough that the
+  test is not repaid, while the per-cell band test below it is decided per cell and does fire.
+  Reverted.
+- **The edit scan kept the answer but threw the keys away.** As soon as a save holds any
+  `.edit` file, every chunk without a resident edit map paid `FileAccess::file_exists` twice
+  (the file and its `.bak`) to be told its own is missing: `GenSlice::EditDisk` was **0.13 ms**
+  on 19,848 of 20,230 chunks in a fill, against 382 chunks that actually had edits. The
+  directory scan already reads every name, so it now parses `chunk_<x>_<y>_<z>.edit[.bak]`
+  into a key set once and the per-chunk question is a set lookup. An edit made before the
+  first scan inserts its key and leaves the scan pending, so the later scan MERGES rather than
+  pretending to have run; a world reset clears the set with the scan state. Four pairs on the
+  6-core arm: settle **9.09 -> 8.35 s (4/4)**, loaded **9.88 -> 9.24 s (4/4)**, end **10.01 ->
+  9.50 s (4/4)**, and process CPU over the fill 2.63 -> 2.42 s - the work is gone, not moved.
+- **The density field's shape band is a skip, not a cost.** `density_from_shape` fades the 3D
+  displacement to zero by the column's `band_outer`, so for every cell further than that from
+  the macro surface the result is exactly `delta + shape * strength * 0` = the macro delta: the
+  8-tap trilinear lattice read cannot change the value. The chunk loop paid for it anyway, and
+  a chunk whose surface sits elsewhere in its column is nearly all such cells. Testing
+  `|delta| >= band_outer` before the interpolation is bit-identical and skips it: four pairs on
+  the 6-core arm gave settle **9.28 -> 9.07 s (4/4)**, loaded **10.07 -> 9.86 s (4/4)**, chunk
+  load 9.32 -> 9.10 s, and whole-session end 10.08 -> 9.98 s (2/4, a wash inside its own
+  spread). The slice it removes was 0.28 ms of a 2.3 ms per-chunk worker body at 5 workers.
+- **Capping concurrent light passes buys fill time and loses the session.** Each pass takes an
+  exclusive band of up to 27 shards and the light profile prices the wait at ~0.77 ms a pass
+  (7.9 s of worker time over a fill), so the convoy looked like the lever: gating posts on a
+  posts-minus-drained counter moved the 6-core arm **5/5 faster at a cap of 2** - settle
+  9.25 -> 8.97 s, chunk load 9.36 -> 9.01 s, loaded 10.11 -> 9.76 s - and ended the session
+  **5.3 s later** (10.13 -> 15.07 s, 2,352 -> 3,965 frames). At 2 in flight a 0.12 ms pass that
+  waits 0.77 ms for its band tops out near 1,100 passes/s, under what the light queue needs, so
+  the fill finished before its light did and the tail paid for it. A looser cap does not rescue
+  it: at 6 the fill was slower than baseline (10.07 -> 10.36, 11.26, 10.24 s) with a 2.7-3.3 s
+  tail, and at 8 the tail was still 2.8 s. Reverted - and the counter's failure mode (one leaked
+  post stalls all lighting) is not worth a scheduling win even when there is one.
+- **The 15-worker end of that price is a wash, so it stays at 2.46.** The same switch on the
+  default pool looked like a win in two unpaired alternating passes (2.46 / 1.8 / 1.4: settle
+  **4.005, 3.902 / 3.834, 3.767 / 4.022, 3.937 s**, loaded 4.98, 4.96 / 4.70, 4.74 / 4.97,
+  4.77 s), but the paired binary A/B of flat 1.8 against the ramp over five pairs says the
+  difference is drift: settle A-B median **-0.015 s [-0.086-+0.082]**, candidate faster 2/5,
+  loaded -0.03 s, end -0.02 s. At 15 workers the fill's frames are mostly the engine's own
+  drawing, so the controller has little room to move it. The ramp therefore re-prices only
+  the small pools, where the paired result is 5/5, and 1.4 was not pursued past the unpaired
+  look (4.022/3.937 s settle, no better than 2.46). Outputs: `.freebuff/pw_*` and
+  `.freebuff/gen_cost_18_ab`.
+
+- **The install path's per-chunk work is not the fill's pace: two trims of it lost.** A
+  fresh install profile of the shipping build priced an install at **28.2 us for a chunk
+  with blocks / 15.1 us for an all-air one** (real bucket: stage_results 7.2, insert 5.5,
+  stage_dirty 4.9, tail 3.7, stage_light 3.5, data 1.6), and `process_completed_chunks`
+  sits at **0.71 ms of its 0.75 ms clock** over 643 frames for exactly 20,230 installs, so
+  making those microseconds cheaper looks like the fill's next lever. Two were measured as
+  binary A/Bs against the shipped sky-gate DLL, five pairs at 6 logical cores / 5 workers:
+  1. **Drop the install-time neighbour fan-out** (the dirty stage fans the same six faces
+     out again once the arriving chunk's light is final, so the copy looked duplicate):
+     chunk load **9.39 -> 9.61 s**, end 10.40 -> 10.58 s, candidate slower 5/5; on 16
+     threads chunk load 3.98 -> 3.94 s but end 4.76 -> 4.93 s, a wash. The first copy is
+     what retires a neighbour's boundary holes a light-pass round trip earlier, so it
+     stays.
+  2. **Batch the completed light-result drain** (one lock and one swap per batch instead of
+     a mutex and a deque node per result) with the fan-out restored: chunk load
+     **9.35 -> 9.61 s**, end 10.11 -> 10.36 s, candidate slower 5/5, with the same process
+     total (2.61/2.63 s) over **2,296 -> 2,424 frames**. Reverted.
+  Both arms have the same shape - a cheaper drain frame buys *more frames* for the same
+  work - which is the self-balancing admission controller doing its job: at 5 workers the
+  fill's 8.3 installs a frame already match 5 workers x 2.75 ms of work per chunk, so
+  arrivals, not the drain, are the ceiling. That closes the install side with numbers
+  rather than by argument. The profile that started it is
+  `.freebuff/install_profile_now.log`; the A/Bs are `.freebuff/install_trim_ab_1`,
+  `.freebuff/install_trim_ab_6c` and `.freebuff/light_batch_ab_6c`.
 
 ## The frustum generation pass was replaced
 

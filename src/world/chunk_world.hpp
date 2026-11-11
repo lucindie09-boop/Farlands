@@ -223,7 +223,7 @@ private:
     void write_edit_map_file_locked(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, const EditMap& edit_map);
     // One directory scan decides whether ANY chunk in this world has saved edits;
     // a world with none skips the per-chunk edit load entirely.
-    bool has_edit_files_on_disk();
+    bool edit_file_exists_on_disk(uint64_t key);
     // Deep-copies the edit map into the background-save queue. Supersedes any
     // in-flight save of the same chunk via a generation bump.
     void enqueue_edit_map_save(uint64_t key, int32_t cx, int32_t cy, int32_t cz, std::unique_ptr<EditMap> snapshot);
@@ -278,9 +278,17 @@ private:
     // Per-chunk edit maps: sparse block edits that get persisted instead of full chunks
     std::unordered_map<uint64_t, EditMap> chunk_edit_maps;
     mutable std::mutex edit_maps_mutex;
-    // 0 = not scanned, 1 = no saved edit files, 2 = at least one. Written once
-    // under file_access_mutex and read by every generation worker.
+    // 0 = not scanned, 1 = scanned and nothing found, 2 = scanned and the set
+    // below is not empty. Published once under file_access_mutex; every
+    // generation worker reads it and then the set.
     std::atomic<uint8_t> edit_scan_{0};
+    // The chunk keys the scan found. Remembering only "this world has some
+    // edits" made every other chunk probe the filesystem twice to learn its own
+    // file is missing - `GenSlice::EditDisk` 0.13 ms across 19,848 of 20,230
+    // chunks in a fill. Merged (never cleared) by the scan so an edit made
+    // before the first scan survives it, and reset with the world.
+    mutable std::mutex edit_keys_mutex;
+    std::unordered_set<uint64_t> edit_file_keys;
 
     // Background chunk saves: key -> save generation. At most one live task per
     // key; a newer snapshot supersedes an older one by bumping the generation.

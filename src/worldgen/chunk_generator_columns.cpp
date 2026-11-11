@@ -79,7 +79,7 @@ ChunkGenerator::ColumnSample ChunkGenerator::sample_column(int32_t world_x, int3
     const float z = static_cast<float>(world_z);
     const float t = sample_temperature(x, z);
     const float h = sample_humidity(x, z);
-    return sample_column_with_climate(world_x, world_z, t, h,
+    return sample_column_with_climate(t, h,
                                       sample_land_shape(x, z, t, h),
                                       params.climate_blend_radius_nodes > 0
                                           ? blend_amplification_at(world_x, world_z)
@@ -87,12 +87,14 @@ ChunkGenerator::ColumnSample ChunkGenerator::sample_column(int32_t world_x, int3
 }
 
 ChunkGenerator::ColumnSample ChunkGenerator::sample_column_with_climate(
-        int32_t world_x, int32_t world_z, float temperature, float humidity,
-        float land_height, const BiomeAmplification& blended) const {
-    float x = static_cast<float>(world_x);
-    float z = static_cast<float>(world_z);
-
-    const float cont = sample_continentalness(x, z);
+        float temperature, float humidity, float land_height,
+        const BiomeAmplification& blended) const {
+    // The continentalness sample that used to sit here was dead work:
+    // biome_from_climate ignores its `cont` argument and nothing read
+    // ColumnSample::cont, so it cost a 12,000-block noise read per column (1,024
+    // a chunk) for a value with no consumer - and the field is gone with it.
+    // sample_continentalness stays for the debug accessor and
+    // quick_height_estimate, which still ask for the real value.
     const float saved_land_height = land_height;
 
     // Biomes are selected and shape the terrain FIRST: the climate grid picks
@@ -100,7 +102,7 @@ ChunkGenerator::ColumnSample ChunkGenerator::sample_column_with_climate(
     // height is that biome's amplification of the macro surface around sea
     // level (1.0 = neutral; the blended field ramps across borders when
     // blending is enabled). Oceans are the LAST stage below.
-    const BiomeType land_biome = biome_from_climate(temperature, humidity, cont);
+    const BiomeType land_biome = biome_from_climate(temperature, humidity, 0.0f);
     const BiomeAmplification amp = amplification_for(land_biome, blended);
     // Amplify in RAW space first: the ocean decision below compares against the
     // configured sea level there, and the squish map is monotone about exactly
@@ -129,7 +131,8 @@ ChunkGenerator::ColumnSample ChunkGenerator::sample_column_with_climate(
     // identity when the toggle is off.
     height = squish::height(params, height);
 
-    return ColumnSample{biome, height, water_level, false, saved_land_height, cont, temperature, humidity};
+    return ColumnSample{biome, height, water_level, false, saved_land_height,
+                        temperature, humidity};
 }
 
 

@@ -1,4 +1,5 @@
 #include "world/world_updater.hpp"
+#include "world/world_updater_internal.hpp"
 
 #include "worldgen/chunk_generator.hpp"
 #include "world/chunk_world.hpp"
@@ -11,21 +12,6 @@
 namespace VoxelEngine {
 using namespace godot;
 
-namespace {
-// Measurement-only overrides for the initial-loading latch and the post-load
-// clock ceiling. The defaults are the shipping 30 s cap, 1 s quiet exit and an
-// effectively open 1000 ms mesh/far clock; an arm sets the cap, the quiet exit
-// or the three clocks without a second build. Invalid values fall back rather
-// than disabling the setting.
-double latch_seconds_from_env(const char* name, double fallback, bool allow_zero = false) {
-    const char* raw = std::getenv(name);
-    if (raw == nullptr || *raw == '\0') return fallback;
-    char* end = nullptr;
-    const double value = std::strtod(raw, &end);
-    return (end != raw && (value > 0.0 || (allow_zero && value == 0.0))) ? value : fallback;
-}
-} // namespace
-
 WorldUpdater::WorldUpdater()
     : initial_loading_latch_(
           latch_seconds_from_env("FARLANDS_LOADING_LATCH_MAX_SEC", 30.0),
@@ -36,56 +22,11 @@ WorldUpdater::WorldUpdater()
     // hand the sweep bands from terrain that is not the terrain it is rendering.
     refresh_prefetch_config();
 
-    // Measurement-only: one ceiling for the three post-load clocks. The shipping
-    // value is 1000 ms (effectively open); the tail-clock arm sets 8/12/16.
-    const double loading_tail_budget_ms =
-        latch_seconds_from_env("FARLANDS_LOADING_TAIL_BUDGET_MS", 1000.0);
-    budgets.mesh_queue_loading_budget_ms = loading_tail_budget_ms;
-    budgets.mesh_completion_budget_loading_ms = loading_tail_budget_ms;
-    budgets.far_region_visibility_loading_budget_ms = loading_tail_budget_ms;
-    // The shipping path leaves meshing to the post-load latch, so the fill's
-    // first half is chunk admission and its second is the held mesh drain.
-    // `FARLANDS_HOLD_MESH_UNTIL_LOADED=0` restores the overlap arm for an A/B.
-    const char* hold_mesh_env = std::getenv("FARLANDS_HOLD_MESH_UNTIL_LOADED");
-    if (hold_mesh_env != nullptr) {
-        if (hold_mesh_env[0] == '1' && hold_mesh_env[1] == '\0') {
-            budgets.hold_mesh_until_load_done = true;
-            budgets.hold_mesh_force = true;
-        } else if (hold_mesh_env[0] == '0' && hold_mesh_env[1] == '\0') {
-            budgets.hold_mesh_until_load_done = false;
-        }
-    }
-    // The hold is one-shot but not unbounded: `FARLANDS_HOLD_MESH_MAX_SEC` is
-    // the blank-world ceiling. It also covers a disc whose fill settles below
-    // the old 500-chunk gate, which would otherwise never release the hold.
-    const double hold_max_sec = latch_seconds_from_env("FARLANDS_HOLD_MESH_MAX_SEC", 2.0);
-    budgets.hold_mesh_max_sec = hold_max_sec;
-    initial_mesh_hold_.set_max_sec(hold_max_sec);
-    budgets.hold_mesh_min_workers = static_cast<int32_t>(
-        latch_seconds_from_env("FARLANDS_HOLD_MESH_MIN_WORKERS", 8.0));
-    // The partial-hold arm: a small nearest-only mesh budget that runs while the
-    // hold is still up. The A/B's first-visible result is in FrameBudgets; the
-    // shipping default is two, and zero restores the all-or-nothing hold.
-    budgets.hold_mesh_partial = static_cast<int32_t>(
-        latch_seconds_from_env("FARLANDS_HOLD_MESH_PARTIAL", 2.0, true));
-    // Measurement-only: the admission controller's per-chunk cost model and
-    // its in-flight cap. Lower the cost and raise the cap together to ask what
-    // the feed-forward rate is worth before changing the rule.
-    budgets.generation_work_per_chunk_ms = latch_seconds_from_env("FARLANDS_GEN_WORK_PER_CHUNK_MS", 0.0);
-    budgets.generation_chain_budget_ms = latch_seconds_from_env("FARLANDS_CHAIN_BUDGET_MS", 1.5, true);
-    const int32_t inflight_override = static_cast<int32_t>(
-        latch_seconds_from_env("FARLANDS_GEN_MAX_INFLIGHT", 0.0));
-    budgets.generation_max_in_flight = inflight_override > 0 ? inflight_override : 0;
-    // The held drain uploads at most this many completed meshes per frame while
-    // the initial-loading latch is up. 512 finishes the held queue inside its
-    // quiet window; `FARLANDS_MESH_UPLOADS_LOADING=N` overrides it for an A/B.
-    const char* uploads_env = std::getenv("FARLANDS_MESH_UPLOADS_LOADING");
-    if (uploads_env != nullptr) {
-        const int32_t requested = std::atoi(uploads_env);
-        if (requested > 0) {
-            budgets.mesh_uploads_loading = requested;
-        }
-    }
+    // Measurement-only overrides for the post-load clocks, the mesh hold, the
+    // admission controller, the held drain and the install clock. They live in
+    // world_updater_budgets.cpp to keep this file under the line cap; the call
+    // returns the hold's ceiling for the latch this constructor owns.
+    initial_mesh_hold_.set_max_sec(apply_measurement_overrides(budgets));
 }
 WorldUpdater::~WorldUpdater() = default;
 
@@ -338,7 +279,8 @@ void WorldUpdater::process_mesh_budgets(bool is_editor, uint64_t epoch, uint64_t
         int32_t scaled_completion_budget = std::min(active_max + 16, active_render_distance + 16);
         int32_t installed = chunk_world->process_completed_chunks(
             epoch,
-            budgets.processing_budget_ms,
+            (!fill_settled || is_initial_loading) ? budgets.processing_budget_loading_ms
+                                                  : budgets.processing_budget_ms,
             scaled_completion_budget,
             scaled_completion_budget,
             scaled_completion_budget,

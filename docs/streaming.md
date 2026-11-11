@@ -1157,6 +1157,46 @@ it — are in [lod-modes.md](lod-modes.md).
   floor as the thing to move if that idle is to be spent. This block also ran a baseline of
   5.7-6.1 s for a build that measured 3.98-4.31 s earlier the same day, so only the pairing is
   meaningful; the 0.9 arm is rejected.
+- **The in-flight floor does not spend that idle either, and its failure names what does.**
+  At six workers the 128-chunk floor was tested against 192, on the price test's own reading that
+  the floor binds first: 192 ran settle 6.912/6.824/5.709 s against 5.885/6.085/5.357 (3/3 for
+  the floor, mean 6.482 against 5.776). The counters repeat the price arm's shape -- idle-empty
+  rose to 16-22% from 9-15% and the drain to 127-160 ms from 105-133 -- but the deeper queue did
+  reach further: in-flight maxima went 147/146/118 to 217/185/144. So the idle at six workers is
+  neither price-limited nor depth-limited; a deeper queue hands the drain more per frame, the
+  drain is the long per-chunk term (wait 11.6 + work 0.75 + drain 61.3 ms), and the extra
+  arrivals sit behind it. Whatever spending that 16.6% requires, it is a change to the drain or
+  the frame budget that walks it, not to admission.
+- **The drain is latency, not work: 36 us an install against 61 ms of queueing.** With
+  `FARLANDS_INSTALL_PROFILE=1` at six workers a real install costs poll 0.21 + prepare 1.04 +
+  data 1.85 + placements 0.52 + insert 10.45 + listener 0.57 + tail 5.51 + stage_light 3.86 +
+  stage_dirty 5.77 + stage_results 6.51 = **36.3 us** (an empty chunk 25.3), so all 20,230
+  installs are **0.65 s** of main-thread time across the whole fill (the phase total says 0.64 s
+  over 672 frames). Against that, the finished-to-installed latency averages 61 ms: **99.9% of
+  it is waiting for its turn**, 28 installs a frame through a 0.75 ms processing budget that
+  stopped 57 frames and a 128-install dynamic cap that stopped 186. The per-install split has
+  no single hog -- `chunk_map.insert` plus the light-band index is the largest at 10.5 us,
+  light results 6.5, neighbour dirtiness 5.8, the 6-shard neighbour fan-out 5.5, light 3.9 --
+  so cutting the drain means cutting the queueing (a larger install budget or cap while the
+  pool has idle capacity), not any one stage. Note the existing comment on
+  `processing_budget_ms`: doubling it was neutral at 15 workers, and it has never been tried at
+  six, where the queue latency is now the measured long pole.
+- **The install clock is the lever that profile predicted, and it pays at six workers.**
+  With a `FARLANDS_PROCESSING_BUDGET_MS` arm (added with the override block's move to
+  `world_updater_budgets.cpp`, because `world_updater.cpp` was at the 500-line cap), three
+  interleaved pairs at 3.0 ms gave settle 3.722/3.794/3.912 s against 4.127/3.815/4.119 at the
+  shipping 0.75 (3/3, mean 3.809 against 4.020). Installs a frame rose 28 -> 32 and the phase
+  itself stayed ~1 ms, which is the point: the queue shortens, the work does not; budget stops
+  were unchanged (52-70) because the per-frame install cap then binds. The clock is shared with
+  gameplay, where a 4x budget would cost frame time for no load, so the win ships as a
+  **loading-only field** (`processing_budget_loading_ms`, 3.0) that the drain selects while
+  `!fill_settled || is_initial_loading`; gameplay keeps 0.75. `FARLANDS_PROCESSING_BUDGET_LOADING_MS`
+  overrides the loading value and `FARLANDS_PROCESSING_BUDGET_MS` the gameplay one, so the two
+  arms stay independent. The first wiring selected on `is_initial_loading` alone and changed
+  nothing -- a 0.75 arm ran 3.898/3.842 s against 4.046/3.957 -- because `LoadingLatch` arms
+  only on `fill_settled && pending_mesh`: it is the post-fill mesh latch, so the fill itself ran
+  at the gameplay clock. The arm's earlier 3/3 result came from the global env, which applied
+  during the fill as well; `!fill_settled` is the state that reproduces it.
 - **The material pass and the artifact scan stop above the density margin.** No cell can be
   solid above `max_height + shape_margin` (outside the band the density is just `delta`, and
   the margin bounds the band), and no cell can be water above the column's `water_top`, so

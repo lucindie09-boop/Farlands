@@ -51,7 +51,11 @@ namespace VoxelEngine {
 // 15 workers, where the term already gives 90, 128 was a wash - settle 3.63/3.84
 // against 3.71/3.72, loaded 0.02-0.23 s worse - so the per-worker rule decides
 // there. A small pool admits fewer chunks a frame, so it needs the deeper queue
-// to keep its workers fed; deeper than 128 at such a pool is unmeasured.
+// to keep its workers fed. Deeper than 128 at such a pool has now been measured:
+// at six workers 192 ran 6.912/6.824/5.709 s against 5.885/6.085/5.357 (3/3 for
+// the floor, mean 6.482 against 5.776), with idle-empty rising to 16-22% from
+// 9-15% and drain to 127-160 ms from 105-133. A deeper queue does not feed the
+// pool, it lengthens the drain that already paces it, so the floor stays 128.
 [[nodiscard]] inline constexpr std::size_t generation_in_flight_cap(std::size_t workers,
                                                                    int32_t per_worker) noexcept {
     const std::size_t floor = workers <= 12 ? 128 : 64;
@@ -126,8 +130,22 @@ struct FrameBudgets {
     // admission price, settle 4.252/4.029 s against 4.240/4.678 s at the same
     // price (1/2 pairs, and both arms worse than the 1.92 ms price's 4.0-4.1 s).
     // The loop empties what the workers finished each frame - raising the drain
-    // cannot install what admission did not enqueue.
+    // cannot install what admission did not enqueue. Re-measured at six workers
+    // with the install stage profile (an install is 36 us, the fill's
+    // finished-to-installed latency 61 ms, so this clock is the stop):
+    // `FARLANDS_PROCESSING_BUDGET_MS` at 3.0 ran settle 3.722/3.794/3.912 s
+    // against 4.127/3.815/4.119 (3/3, mean -0.21 s), with installs a frame 28 ->
+    // 32 and the phase still ~1 ms. It stays 0.75 because this clock is also the
+    // gameplay drain, where the fill's trade does not apply; the arm is the env.
     double processing_budget_ms = 0.75;
+    // The same clock while the fill has not settled (and through the post-settle
+    // latch), which is the only place the fill's trade applies: a bigger clock admits more installs per
+    // frame, so the finished-to-installed queue and the frame count both fall.
+    // Measured at six workers as the loading value: 3.722/3.794/3.912 s against
+    // 4.127/3.815/4.119 (3/3, mean -0.21 s), installs a frame 28 -> 32, the
+    // phase still ~1 ms. Gameplay keeps the 0.75 above.
+    // `FARLANDS_PROCESSING_BUDGET_LOADING_MS` overrides it for an A/B.
+    double processing_budget_loading_ms = 3.0;
     double mesh_completion_budget_ms = 0.5;
     // Post-load clock for the same pass: a ceiling, not a target - the tail's
     // frames averaged 10-12 ms in the arm that shipped this.

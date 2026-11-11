@@ -1143,10 +1143,20 @@ it — are in [lod-modes.md](lod-modes.md).
 - **The admission price is flat between 1.7 and 1.92 at the cheaper chunk, and 2.2 is worse.**
   Six shots an arm at 11 workers after the column cut (0.94 ms a chunk): 1.92 gave 3.672 s
   mean / 3.660 median, 1.7 gave 3.696 / 3.630, and 2.2 gave 3.813 / 3.821. The first two are
-  tied inside the host's noise - 1.7's mean is dragged by a single 4.005 s outlier - and the
-  dearer arm loses on both statistics, so neither direction is a lever: contention is not
+  tied inside the host's noise - 1.7's mean is dragged by a single 4.005 s outlier -  and the dearer arm loses on both statistics, so neither direction is a lever: contention is not
   relieved by admitting less any more than it is by admitting more. The interpolation stays
   at 1.92.
+- **A cheaper chunk at six workers does not buy admission, it fills the in-flight cap sooner.**
+  The derived price there is 1.236 ms; three interleaved pairs against 0.9 gave settle
+  5.675/6.062/5.853 s against 7.581/6.006/5.920 (mean 5.863 against 6.502, the default faster
+  in 2 of 3), and the counters say why: the lower price raised the pool's idle-empty share
+  (12.3/14.0/13.1% against 29.8/19.2/16.7%) and *lowered* generations a frame (19.2/18.8/18.7
+  against 17.7/17.6/17.2). Admitting more chunks per frame does not reach the idle pool: the
+  128-chunk in-flight floor binds first, and a frame that admits past it only lengthens itself.
+  So the 16.6% idle at six workers is not price-limited capacity, which leaves the in-flight
+  floor as the thing to move if that idle is to be spent. This block also ran a baseline of
+  5.7-6.1 s for a build that measured 3.98-4.31 s earlier the same day, so only the pairing is
+  meaningful; the 0.9 arm is rejected.
 - **The material pass and the artifact scan stop above the density margin.** No cell can be
   solid above `max_height + shape_margin` (outside the band the density is just `delta`, and
   the margin bounds the band), and no cell can be water above the column's `water_top`, so
@@ -1194,6 +1204,27 @@ it — are in [lod-modes.md](lod-modes.md).
   against 3.709 s, with two of the three pairs favouring the chunk-wide form and the per-column
   mean carried by one 3.525 s outlier. A 1% work difference is inside this host's noise, so the
   array and its bookkeeping were reverted; the chunk-wide `max_height + shape_margin` stands.
+- **At six workers the fill stops being CPU-paced, and the profile says so in three numbers.**
+  One run: generation window 3,961 ms, pool capacity 23,766 ms (six workers), worker CPU
+  20,230 x 0.747 = 15,112 ms -- **63.6% of the wall and 76.3% of busy** -- with 3,948 ms idle
+  (**16.6%**: 9.5% idle-with-work and 7.1% idle-empty) and 4,706 ms of other busy time. The
+  per-chunk lifecycle is wait 11.6 + work 0.75 + drain 61.3 ms: drain is the long pole, but it
+  is main-thread and budgeted, so it overlaps the pool rather than blocking it. A perfectly
+  packed pool would therefore take 2.52 s, and the missing 1.4 s is admission pacing (739
+  frames x 27.4 admitted chunks, chain 10.4 a frame of 17 generated).
+- **There is no one-second mesh tail after that settle; the probe's own window made one.**
+  `settle t=3.98 s` is generation; `loaded=4.96 s` looked like a 1 s meshing stage, but
+  `loaded_at` is set only after the load has been quiet for `LOADED_STABLE_SECS` (1 s), and
+  `mesh_at`/`far_at` are polled only once `loaded_at` is set -- so both metrics trail the real
+  end by construction and cannot precede it. The tail window after `loaded` records zero
+  builds, zero completions and 5 ms of wall, which is what "nothing left to do" looks like;
+  the real post-generation work is the 0.22 s between `settle` and `first chunk_load` (3.98 ->
+  4.20 s, install plus mesh uploads), and the mesh count at the end is the fill's total, not a
+  tail's. Use `first chunk_load` when the end of the load matters. The same committed build
+  measured settle 4.31 s in the next run, so the host's +-0.3 s swing is wider than any
+  single-digit lever left on this axis; the one lever still open at low worker counts is the
+  chunks admitted per frame (a lower admission price while the pool has idle capacity --
+  untested at six, and the opposite of what eleven wanted).
 - **The fill's extra milliseconds a frame are not the renderer's or the scripts' either.** With the
   generator's rate pinned (previous note), the remaining ~4.5 ms of a 6.7 ms load frame had to be
   attributed. Disabling the render loop (`NO_RENDER=1`) made the fill SLOWER - settle 5.65 s and a

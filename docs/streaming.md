@@ -1197,6 +1197,34 @@ it — are in [lod-modes.md](lod-modes.md).
   only on `fill_settled && pending_mesh`: it is the post-fill mesh latch, so the fill itself ran
   at the gameplay clock. The arm's earlier 3/3 result came from the global env, which applied
   during the fill as well; `!fill_settled` is the state that reproduces it.
+- **The loading clock's gain grows with the pool instead of peaking at six.** Three interleaved
+  pairs at each count against the 0.75 gameplay value: 8 workers 3.244 s against 3.462
+  (-0.22), 11 workers 3.224 against 3.734 (-0.51), 15 workers 3.434 against 3.836 (-0.40);
+  six was -0.21 in the wiring check and -0.21 in its own three-pair arm. Every pair at every
+  count went to 3.0 -- all 11 pairs across the four counts -- with the same signature each time: a dearer phase
+  (0.93-1.16 ms against 0.63-0.87) over fewer load frames (560-620 against 620-690). Absolute
+  levels are not comparable across those blocks, because the host drifted by up to 0.4 s
+  between them, but the pairing is, and it says the clock is worth most where the most workers
+  wait on the drain. The old "doubling the clock was neutral at 15" note was about the global
+  2.0 arm, not this field, so the field's default stands.
+- **The loading clock's knee is 6.0, and it is now the default.** A value sweep at 11 workers
+  (two shots an arm) gave 1.5 -> 3.443/3.302 s, 3.0 -> 3.234/3.301 and 6.0 -> **3.145/3.138**,
+  with 6.0 fastest in both blocks and fewer load frames (520/565 against 565/580). The ordering
+  is monotone, and it is the opposite of the old "raise the clock and nothing moves" reading:
+  with the install keyed on the fill, more clock keeps paying. The cross-check ran before the
+  default moved: at six workers 6.0 ran 3.710/3.659 s against 3.706/3.725 (a tie, 1/2) and at
+  fifteen 3.441/3.338 against 3.480/3.390 (2/2, -0.05 s), so 6.0 was faster in five of the six
+  pairs across the three counts and never slower. That is the bar 3.0 itself was promoted on,
+  so the default follows the pairing rather than the one-count sweep. Gameplay keeps 0.75.
+- **The install cap is not the next stop; the clock was enough.** The same keying bug held the
+  fill's install count: `chunk_completions_initial` was selected on `is_initial_loading`, so the
+  fill ran on the gameplay count, and at RD 32 the `render_distance + 16` clamp (48) dominated
+  either way. A fill-scoped override (`FARLANDS_INSTALL_CAP_LOADING`, keyed on
+  `!fill_settled || is_initial_loading`) tested 96 against the derived 48 at six workers with
+  the loading clock at 3.0: **3.702/3.688/3.793 s against 3.724/3.637/3.843** (2/3, mean 3.728
+  against 3.735), frame counts and phase averages equal. A tie, so the cap stays derived --
+  once the clock has room the drain is not cap-bound, and what remains is the admission pacing
+  measured earlier.
 - **The material pass and the artifact scan stop above the density margin.** No cell can be
   solid above `max_height + shape_margin` (outside the band the density is just `delta`, and
   the margin bounds the band), and no cell can be water above the column's `water_top`, so

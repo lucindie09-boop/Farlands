@@ -275,8 +275,16 @@ void WorldUpdater::process_mesh_budgets(bool is_editor, uint64_t epoch, uint64_t
 
     {
         ScopedTimer t(*perf_timer, TimerID::ProcessCompletedChunks);
-        int32_t active_max = is_initial_loading ? budgets.chunk_completions_initial : budgets.chunk_completions_gameplay;
+        // The fill is `!fill_settled`, not the latch: LoadingLatch is the
+        // post-fill mesh drain, so keying the loading counts on it left the fill
+        // running on the gameplay cap (the same trap the install clock hit).
+        const bool loading_drain = !fill_settled || is_initial_loading;
+        int32_t active_max = loading_drain ? budgets.chunk_completions_initial
+                                           : budgets.chunk_completions_gameplay;
         int32_t scaled_completion_budget = std::min(active_max + 16, active_render_distance + 16);
+        if (loading_drain && budgets.chunk_completions_loading > 0) {
+            scaled_completion_budget = budgets.chunk_completions_loading;
+        }
         int32_t installed = chunk_world->process_completed_chunks(
             epoch,
             (!fill_settled || is_initial_loading) ? budgets.processing_budget_loading_ms

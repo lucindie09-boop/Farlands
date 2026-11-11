@@ -429,6 +429,16 @@ uint32_t LightPropagator::scatter_sky_light_region_locked(int32_t cx, int32_t cy
     // chunk lighting a neighbour's shade is a source nothing else would push, and
     // it is what a cliff face or a wall standing on a chunk line needs.
     for (int dir = 0; dir < 6; ++dir) {
+        // A neighbour with no shade of its own has no non-opaque, non-liquid
+        // cell below full sky, so no cell on this face can be improved by the
+        // arriving chunk. Skipping the face avoids walking its 32x32 plane for
+        // nothing; on a plain or an ocean that is every face.
+        const int32_t ndx = kDiamondOffsets[dir][0];
+        const int32_t ndy = kDiamondOffsets[dir][1];
+        const int32_t ndz = kDiamondOffsets[dir][2];
+        const ChunkData* target_chunk = region[1 + ndx][1 + ndy][1 + ndz];
+        if (target_chunk == nullptr || !target_chunk->has_sky_shade()) continue;
+
         const int32_t axis = kDiamondOffsets[dir][0] != 0 ? 0 : (kDiamondOffsets[dir][1] != 0 ? 1 : 2);
         const int32_t step = kDiamondOffsets[dir][axis];  // +1 or -1
         const int32_t extent = axis == 0 ? CHUNK_WIDTH : (axis == 1 ? CHUNK_HEIGHT : CHUNK_DEPTH);

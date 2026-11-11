@@ -71,8 +71,8 @@ WorldUpdater::WorldUpdater()
     // Measurement-only: the admission controller's per-chunk cost model and
     // its in-flight cap. Lower the cost and raise the cap together to ask what
     // the feed-forward rate is worth before changing the rule.
-    budgets.generation_work_per_chunk_ms =
-        latch_seconds_from_env("FARLANDS_GEN_WORK_PER_CHUNK_MS", 2.46);
+    budgets.generation_work_per_chunk_ms = latch_seconds_from_env("FARLANDS_GEN_WORK_PER_CHUNK_MS", 0.0);
+    budgets.generation_chain_budget_ms = latch_seconds_from_env("FARLANDS_CHAIN_BUDGET_MS", 1.5, true);
     const int32_t inflight_override = static_cast<int32_t>(
         latch_seconds_from_env("FARLANDS_GEN_MAX_INFLIGHT", 0.0));
     budgets.generation_max_in_flight = inflight_override > 0 ? inflight_override : 0;

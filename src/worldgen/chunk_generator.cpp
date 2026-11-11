@@ -37,6 +37,9 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
     // Single struct-of-arrays for all per-column data (replaces 7 separate stack arrays).
     ChunkColumn columns[CHUNK_WIDTH][CHUNK_DEPTH];
 
+    float min_height = 1e9f;
+    float max_height = -1e9f;
+
     // ---- Geometry pass (1/3): macro columns + cached weirdness mask ----
     // The climate fields are evaluated once on the chunk's 4-block lattice
     // (~160 raw evaluations) and every column interpolates from it instead of
@@ -60,8 +63,6 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
     // climate lattice. Bit-identical to the per-call sampler.
     lattice.build_land_shape(*this, chunk_x, chunk_z);
 
-    float min_height = 1e9f;
-    float max_height = -1e9f;
     for (int32_t x = 0; x < CHUNK_WIDTH; x++) {
         for (int32_t z = 0; z < CHUNK_DEPTH; z++) {
             int32_t wx = world_x_start + x;
@@ -70,7 +71,6 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
                 ? lattice.amplification(wx, wz)
                 : BiomeAmplification{};
             ColumnSample col = sample_column_with_climate(
-                wx, wz,
                 lattice.temperature(wx, wz),
                 lattice.humidity(wx, wz),
                 lattice.land_shape(wx, wz),
@@ -92,6 +92,7 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
             max_height = std::max(max_height, col.height);
         }
     }
+
 
     // ---- Chunk-level fast path ----
     // The 3D density surface can only exist within density_margin() of the
@@ -217,6 +218,18 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
             const float fz = static_cast<float>(z - iz * SPACING) / static_cast<float>(SPACING);
 
             for (int32_t ly = 0; ly < DENSITY_STRIDE_Y; ly++) {
+                const float delta = col.sample.height - static_cast<float>(world_y_start + ly);
+                // Outside the column's shape band the envelope is exactly zero
+                // and density_from_shape returns `delta + shape * strength * 0`
+                // = delta, so the 8-tap lattice interpolation cannot change the
+                // value: skip it. A chunk whose surface sits elsewhere in the
+                // column is nearly all such cells, and the lattice reads are the
+                // only cost the band clamp still paid for them.
+                if (std::abs(delta) >= shape_env.band_outer) {
+                    dens(x, ly, z) = delta;
+                    continue;
+                }
+
                 // Clamp the top cell so the extra density row (ly == CHUNK_HEIGHT)
                 // interpolates exactly onto the top lattice node (fy == 1.0).
                 const int32_t iy = std::min(ly / SPACING, LATTICE_Y - 2);
@@ -230,8 +243,7 @@ void ChunkGenerator::generate_chunk(ChunkData& chunk, int32_t chunk_x, int32_t c
                     fx, fy, fz);
 
                 dens(x, ly, z) = density_from_shape(
-                    col.sample.height - static_cast<float>(world_y_start + ly),
-                    shape_env.strength, shape, shape_env.band_inner, shape_env.band_outer);
+                    delta, shape_env.strength, shape, shape_env.band_inner, shape_env.band_outer);
             }
         }
     }

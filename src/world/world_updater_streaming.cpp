@@ -15,10 +15,24 @@
 namespace VoxelEngine {
 using namespace godot;
 
-int32_t WorldUpdater::drain_chain_queue(uint64_t epoch, int32_t budget, int32_t pcy) {
+int32_t WorldUpdater::drain_chain_queue(uint64_t epoch, int32_t budget, int32_t pcy,
+                                        double budget_ms) {
     constexpr int32_t kWorldChunkSlices = WORLD_HEIGHT_Y / CHUNK_HEIGHT;
     int32_t generations = 0;
+    // Bounds OFFERS, not successes: the count budget below only advances on a
+    // generation, so a queue whose entries all skip or refuse ran to the end of
+    // the queue in one frame - the fill profile's 24 ms generation frames
+    // against a 0.64 ms average. One offer is always made, like the band
+    // service, so a dear first entry cannot stall the chain.
+    const auto drain_start = std::chrono::steady_clock::now();
+    int32_t offers = 0;
     while (generations < budget && !chain_queue.empty()) {
+        if (offers > 0 && budget_ms > 0.0 &&
+            std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - drain_start).count() >= budget_ms) {
+            break;
+        }
+        ++offers;
         const uint64_t key = chain_queue.front();
         chain_queue.pop_front();
         chain_queued.erase(key);

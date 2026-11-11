@@ -6,6 +6,52 @@
 
 namespace VoxelEngine {
 
+// The admission controller's per-chunk price as a function of the pool's size.
+// Contention is what makes a chunk dear, so the price falls with the pool: the
+// 15-worker figure (2.46 ms) is the measured ceiling and the five-worker price
+// is 1.1 ms, re-measured after the chunk itself got cheaper this session (the
+// density-band skip and the edit-key scan). Swept with the env switch on the
+// 5-worker arm, 3 alternating pairs each: 1.5 gave -0.05..-0.10 s of settle 3/3,
+// 1.3 -0.06..-0.23 3/3, 1.1 -0.13..-0.29 3/3, and 0.9 stopped paying (-0.27,
+// +0.04, -0.41 - 2/3 with a regression), so 1.1 is the knee. The old 1.8 was
+// measured when a chunk was dearer (settle 6.695 -> 6.299 s, loaded 7.48 ->
+// 7.19 s, 3/3 pairs). The 11-worker point is a straight-line interpolation
+// (1.92 ms) and the obvious guess that it should sit at the 2.46 ceiling was
+// tested: env probes liked 2.46 there (settle 3.70/3.66 s against 3.79/3.75 at
+// 1.92, 2/2, with 1.4 at 3.83/3.81 and 1.1 at 4.09/4.10), but five binary pairs
+// came out 2/5 - mean 3.745 s against 3.713 s, a wash - so the line is left
+// where it is. A pool of 15 or more keeps the measured 2.46: re-pricing that
+// end at 1.8 was a wash (settle A-B -0.015 s, faster 2/5).
+[[nodiscard]] inline constexpr double generation_work_per_chunk_ms_for(std::size_t workers) noexcept {
+    constexpr double kLowWorkers = 5.0;
+    constexpr double kHighWorkers = 15.0;
+    constexpr double kLowMs = 1.1;
+    constexpr double kHighMs = 2.46;
+    const double w = static_cast<double>(workers);
+    if (w <= kLowWorkers) return kLowMs;
+    if (w >= kHighWorkers) return kHighMs;
+    return kLowMs + (kHighMs - kLowMs) * (w - kLowWorkers) / (kHighWorkers - kLowWorkers);
+}
+
+// The cap on the in-flight generation set. `workers x per_worker` is the general
+// rule and the floor only binds where the pool is small enough for it to - which
+// is where it was measured, by sweeping `FARLANDS_GEN_MAX_INFLIGHT`: at 5 workers
+// (old floor 64) 30 in flight ran settle 6.47/6.38 s against 5.56/5.53 at 64, 90
+// ran 5.24/5.19 and 128 ran 5.14/5.17 with loaded 5.97/5.99 against 6.46/6.40;
+// at 11 workers (per-worker term 66) 128 ran 3.74/3.58 against 4.68/4.07, loaded
+// 4.69/4.45 against 5.74/4.92. Both 2/2, so the floor is 128 up to 12 workers. At
+// 15 workers, where the term already gives 90, 128 was a wash - settle 3.63/3.84
+// against 3.71/3.72, loaded 0.02-0.23 s worse - so the per-worker rule decides
+// there. A small pool admits fewer chunks a frame, so it needs the deeper queue
+// to keep its workers fed; deeper than 128 at such a pool is unmeasured.
+[[nodiscard]] inline constexpr std::size_t generation_in_flight_cap(std::size_t workers,
+                                                                   int32_t per_worker) noexcept {
+    const std::size_t floor = workers <= 12 ? 128 : 64;
+    const std::size_t scaled =
+        workers * static_cast<std::size_t>(per_worker > 0 ? per_worker : 1);
+    return scaled > floor ? scaled : floor;
+}
+
 struct FrameBudgets {
     int32_t chunk_generations = 64;
     int32_t chunk_completions_initial = 128;
@@ -67,6 +113,12 @@ struct FrameBudgets {
 
     int32_t max_loaded_chunks = 50000;
 
+    // The chunk drain's clock. Doubling it to 2.0 was measured twice and changed
+    // nothing: alone, chunk load 8.39 s against 8.36 s; paired with the 1.3 ms
+    // admission price, settle 4.252/4.029 s against 4.240/4.678 s at the same
+    // price (1/2 pairs, and both arms worse than the 1.92 ms price's 4.0-4.1 s).
+    // The loop empties what the workers finished each frame - raising the drain
+    // cannot install what admission did not enqueue.
     double processing_budget_ms = 0.75;
     double mesh_completion_budget_ms = 0.5;
     // Post-load clock for the same pass: a ceiling, not a target - the tail's
@@ -105,6 +157,16 @@ struct FrameBudgets {
     // 4.0 s, queue pops 24.7k -> 45.3k), so the tail is a consequence of the
     // fill's pace, not something that can be meshed away first.
     double generation_budget_ms = 1.0;
+    // The generation chain's wall clock. Its count budget advances only on a
+    // real generation, so a queue full of skips - the walk refuses a candidate
+    // the chain wants, or the chain re-offers a neighbour that is already built
+    // - drains unbounded within a frame. The fill profile showed the shape: the
+    // worst generation frame ran 24 ms against a 0.64 ms average, all of it in
+    // the chain, while the band service and the walk both already stop on a
+    // clock. The queue is refilled by installs, so an offer cut off here is
+    // re-offered rather than lost. Zero disables the bound for an A/B arm;
+    // `FARLANDS_CHAIN_BUDGET_MS` overrides it.
+    double generation_chain_budget_ms = 1.5;
     // The incremental far-region visibility walk. The full walk cost ~2.4 ms on
     // every crossing frame; a slice this size keeps the same work in the frame
     // but out of one frame's critical path.
@@ -195,12 +257,13 @@ struct FrameBudgets {
     int32_t max_generating_in_flight_per_worker = 6;
 
     // The feed-forward admission controller's cost model, in milliseconds per
-    // generation. 2.46 was measured at 15 workers, where contention makes a
-    // chunk dearer; at 3 the full task (terrain + light + edit) plus the
-    // amortized mesh share is about 2.31. `FARLANDS_GEN_WORK_PER_CHUNK_MS`
-    // overrides it for measurement only: it is the switch that separates "the
-    // controller's rate is the wall" from "the pool is".
-    double generation_work_per_chunk_ms = 2.46;
+    // generation. Zero means "derive it from the pool size" through
+    // generation_work_per_chunk_ms_for(): at 15 workers the old 2.46 still
+    // holds, and below it the price ramps down to the measured five-worker
+    // 1.8. `FARLANDS_GEN_WORK_PER_CHUNK_MS` overrides it for measurement: it is
+    // the switch that separates "the controller's rate is the wall" from "the
+    // pool is".
+    double generation_work_per_chunk_ms = 0.0;
     // The in-flight cap normally follows the worker count (max(64, workers x
     // per-worker)). At 3 workers the 64 floor binds, so a lower cost model
     // cannot turn into a higher rate until the cap moves too. An override here

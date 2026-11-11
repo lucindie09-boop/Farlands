@@ -51,7 +51,10 @@ public:
         float water_level;
         bool near_water;
         float land_height;
-        float cont;              // continentalness value (0-1)
+        // No continentalness field: it was sampled per column on the chunk path
+        // and never read (biome_from_climate ignores it too), so it is gone
+        // rather than carried as a placeholder. sample_continentalness remains
+        // for the debug accessor and quick_height_estimate.
         float temperature;
         float humidity;
     };
@@ -334,8 +337,7 @@ private:
     // Column evaluation with pre-supplied climate values, macro land height
     // and blended amplification knobs (all lattice-interpolated by the
     // caller, e.g. generate_chunk's chunk-cached lattices).
-    ColumnSample sample_column_with_climate(int32_t world_x, int32_t world_z,
-                                            float temperature, float humidity,
+    ColumnSample sample_column_with_climate(float temperature, float humidity,
                                             float land_height,
                                             const BiomeAmplification& blended) const;
 

@@ -139,7 +139,8 @@ public:
     [[nodiscard]] const fluids::FluidSim& get_fluid_sim() const { return fluid_sim; }
 
     void update(bool is_editor, uint64_t epoch, uint64_t& chunks_processed_total, double delta);
-    bool generate_chunk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, uint64_t epoch);
+    bool generate_chunk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, uint64_t epoch,
+                        int32_t band_lo = 0, int32_t band_hi = -1);
     void try_unload(uint64_t key);
     void queue_unload(uint64_t key);
 
@@ -301,6 +302,10 @@ private:
         int32_t y = 0;
         int32_t z = 0;
         bool fill_column = false;
+        // The column's accepted slice range, so a generation task can build the
+        // whole column in one piece and share its column pass (FARLANDS_GEN_BAND).
+        int32_t band_lo = 0;
+        int32_t band_hi = -1;
     };
 
     std::vector<SweepColumn> sweep_columns;
@@ -406,8 +411,8 @@ private:
     // test (and with the kept region low, that is most of the world).
     [[nodiscard]] bool column_fill_enabled(int32_t dx, int32_t dz) const {
         return !terrain_params.squish_enabled &&
-               std::abs(dx) <= kUndergroundFillRadius &&
-               std::abs(dz) <= kUndergroundFillRadius;
+               std::abs(dx) <= budgets.underground_fill_radius &&
+               std::abs(dz) <= budgets.underground_fill_radius;
     }
 
     // Off-thread producer of the per-column content bounds the band frontier

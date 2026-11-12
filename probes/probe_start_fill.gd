@@ -389,6 +389,12 @@ func _run() -> void:
 		DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 	print("PROBE fill vsync=%d" % DisplayServer.window_get_vsync_mode())
 	Engine.max_fps = 0
+	# PHYSICS_TPS=N sets the physics rate for the arm that asks whether the frames'
+	# outside-updater cost is the physics step. 0 leaves the project setting alone.
+	var physics_tps := _env_int("PHYSICS_TPS", 0)
+	if physics_tps > 0:
+		Engine.physics_ticks_per_second = physics_tps
+		print("PROBE fill physics_tps=%d" % physics_tps)
 
 	var start := Time.get_ticks_usec()
 	var pool_at_start: Dictionary = cm.call("get_pool_stats")
@@ -420,6 +426,12 @@ func _run() -> void:
 	var tail_all_frame_ms := 0.0
 	var tail_frames := 0
 	var fill_trace := OS.get_environment("FILL_TRACE") == "1"
+	# One window taken WHILE the fill runs: the tail dump is post-settle and the
+	# trace's per-interval report costs more than it measures.
+	var mid_load_dump_done := false
+	# When that window closes, from the fill's start. 0.9 s catches the startup
+	# burst; a later value reports the steady fill without it.
+	var mid_load_at := _env_float("MIDLOAD_SECS", 0.9)
 	# 0.1 gives the last-second breakdown without changing the engine's budgets.
 	var fill_trace_secs := maxf(0.05, _env_float("FILL_TRACE_SECS", 1.0))
 	var next_fill_trace := 0.0
@@ -581,6 +593,12 @@ func _run() -> void:
 				int(cm.call("get_mesh_rebuild_budget")), int(settled_now), region_empty,
 				unrendered, active_uncovered, int(far_geometry.get("total", 0)),
 				int(far_geometry.get("no_chunk", 0)), int(far_geometry.get("empty", 0))])
+		if not mid_load_dump_done and elapsed >= mid_load_at and loaded < 20000:
+			mid_load_dump_done = true
+			var mid_report: String = cm.call("get_slow_frame_report", 120, 0.0)
+			for mid_line in mid_report.split("\n"):
+				if not mid_line.is_empty():
+					print("PROBE fill midload " + mid_line)
 		if first_upload_at < 0.0 and _value(last_report, "Mesh uploads:") > 0:
 			first_upload_at = elapsed
 		if first_visible_at < 0.0 and (_value(last_report, "Visible instances:") > 0 or visible_drawn > 0):

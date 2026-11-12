@@ -234,6 +234,8 @@ bool WorldUpdater::advance_sweep(SweepCursor& cursor, int32_t pcy, SweepCandidat
             out.y = cy;
             out.z = sweep_origin_cz + column.dz;
             out.fill_column = column_fill_enabled(column.dx, column.dz);
+            out.band_lo = column.band.lo;
+            out.band_hi = column.band.hi;
             return true;
         }
         ++cursor.column;

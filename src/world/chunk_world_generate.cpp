@@ -48,6 +48,35 @@ bool generation_memo_enabled() {
     return enabled;
 }
 
+// Batch a column's band into one generation task. Every vertical slice of a
+// column runs the identical macro column pass (1,024 sample_column_with_climate
+// calls plus their weirdness masks), and the scheduler has no worker affinity, so
+// a cache cannot share it: the slices are dequeued by different workers at the
+// same instant and all miss. Generating the band in one task shares the pass for
+// real -- one pass for 2-6 slices instead of one each -- at the cost of a coarser
+// unit of work. On by default, because the paired arm at 15 workers said so 3/3
+// (settle 1.858/1.918/1.932 s against 2.114/2.140/2.127 with it off, installs
+// identical at 20,230); `FARLANDS_GEN_BAND=0` is the arm that turns it off.
+// How many slices of a column one band task may take. 0 is the whole accepted
+// band (the shipped default). A smaller span trades part of the shared column
+// pass for a finer unit of work: the six-slice task is coarser than the per-chunk
+// tasks it replaced, and the tail of the fill is only as fine as the last task.
+int32_t band_span() {
+    static const int32_t span = [] {
+        const char* raw = std::getenv("FARLANDS_GEN_BAND_SPAN");
+        return raw != nullptr ? std::atoi(raw) : 0;
+    }();
+    return span;
+}
+
+bool band_generation_enabled() {
+    static const bool enabled = [] {
+        const char* raw = std::getenv("FARLANDS_GEN_BAND");
+        return !(raw != nullptr && raw[0] == '0');
+    }();
+    return enabled;
+}
+
 struct GenerationMemoEntry {
     ChunkData data;
     std::vector<TerrainCacheSpill> spill;
@@ -72,13 +101,30 @@ GenerationMemo& generation_memo() {
 // chunk_world.cpp.
 bool ChunkWorld::generate_chunk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, uint64_t epoch,
                                 const TerrainParams& params, const BiomeConfig& biomes,
-                                const VegetationConfig& veg_config) {
+                                const VegetationConfig& veg_config,
+                                int32_t band_lo, int32_t band_hi) {
     if (!thread_pool) return false;
     // Main-thread setup: the manifest and the pack indexes are loaded once per
     // key. With the switch off this is one cached boolean; with a missing or
     // malformed cache it leaves the reader closed and generation proceeds.
     terrain_cache.ensure_open(params);
     uint64_t key = chunk_map.get_chunk_key(chunk_x, chunk_y, chunk_z);
+    // The keys are computed HERE, on the main thread: the scheduler claims every
+    // one of them before the task starts, and it has no chunk map to build them.
+    std::vector<int32_t> band_ys;
+    std::vector<uint64_t> band_keys;
+    if (band_hi >= band_lo && band_generation_enabled()) {
+        // The task starts at the requested slice and takes at most `span` of them
+        // (0 = the rest of the band).
+        const int32_t span = band_span();
+        const int32_t last = span > 0 ? std::min(band_hi, chunk_y + span - 1) : band_hi;
+        band_ys.reserve(static_cast<size_t>(last - chunk_y + 1));
+        band_keys.reserve(band_ys.capacity());
+        for (int32_t cy = chunk_y; cy <= last; ++cy) {
+            band_ys.push_back(cy);
+            band_keys.push_back(chunk_map.get_chunk_key(chunk_x, cy, chunk_z));
+        }
+    }
     const uint64_t path_id = GenerationPathProfile::new_attempt();
     const uint64_t admit_ns = path_id != 0 ? generation_path_now_ns() : 0;
     const bool enqueued = chunk_scheduler.enqueue_generation(
@@ -215,7 +261,8 @@ bool ChunkWorld::generate_chunk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_
             generation_path_profile_.finished(path_id);
             return chunk_data;
         },
-        [this]() { return async_epoch.load(std::memory_order_acquire); }
+        [this]() { return async_epoch.load(std::memory_order_acquire); },
+        std::move(band_ys), std::move(band_keys)
     );
     if (enqueued) {
         generation_path_profile_.admitted(path_id, admit_ns);

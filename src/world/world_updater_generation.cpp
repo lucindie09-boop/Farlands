@@ -57,10 +57,16 @@ void WorldUpdater::update_generation(bool is_editor, int32_t active_render_dista
     {
         // The controller's cost model, not this frame's measurement. The env
         // override is a measurement switch (see FrameBudgets).
+        // A cheaper chunk during the fill: the line is the gameplay model, and
+        // its sweeps ran with the loading caps closed, where a lower price only
+        // bought refused offers. See the field for the open-cap pairs.
+        const double derived_work_per_chunk_ms = fill_settled_
+            ? generation_work_per_chunk_ms_for(worker_count)
+            : budgets.generation_work_per_chunk_ms_loading;
         const double work_per_chunk_ms = std::max(0.01,
             budgets.generation_work_per_chunk_ms > 0.0
                 ? budgets.generation_work_per_chunk_ms
-                : generation_work_per_chunk_ms_for(worker_count));
+                : derived_work_per_chunk_ms);
         const double frame_ms = std::clamp(last_frame_ms, 1.0, 50.0);
         const double rate = static_cast<double>(worker_count) * frame_ms / work_per_chunk_ms * 0.9;
         dynamic_max_generations = std::clamp(static_cast<int32_t>(std::lround(rate)), 1,
@@ -82,9 +88,16 @@ void WorldUpdater::update_generation(bool is_editor, int32_t active_render_dista
     // of `workers * per_worker`, so the set is topped up many times over between
     // completions. Urgent (paste) requests keep their own separate allowance and
     // are deliberately NOT gated on this cap — a caller is blocked on those.
+    // The set is sized differently for the fill: the gameplay term keeps the
+    // completed queue short for a 0.75 ms drain, while the loading term feeds a
+    // pool whose drain has a 6 ms clock and a 128-install cap. See
+    // FrameBudgets::max_generating_in_flight_loading_per_worker for the arms.
+    const int32_t in_flight_per_worker = fill_settled_
+        ? budgets.max_generating_in_flight_per_worker
+        : budgets.max_generating_in_flight_loading_per_worker;
     const size_t max_in_flight = budgets.generation_max_in_flight > 0
         ? static_cast<size_t>(budgets.generation_max_in_flight)
-        : generation_in_flight_cap(worker_count, budgets.max_generating_in_flight_per_worker);
+        : generation_in_flight_cap(worker_count, in_flight_per_worker);
     const bool in_flight_ok = generating_count < max_in_flight;
     const bool backlog_ok = chunk_world->get_scheduler().can_enqueue(budgets.completed_queue_backlog);
     const bool generation_admitted = in_flight_ok && backlog_ok;
@@ -264,7 +277,7 @@ void WorldUpdater::update_generation(bool is_editor, int32_t active_render_dista
             }
 
             ++generation_stats.band_pass;
-            if (generate_chunk(cx, cy, cz, epoch)) {
+            if (generate_chunk(cx, cy, cz, epoch, candidate.band_lo, candidate.band_hi)) {
                 ++generations_this_frame;
                 ++generation_stats.generations;
                 ++frame_generations;

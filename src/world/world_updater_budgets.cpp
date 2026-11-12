@@ -73,6 +73,11 @@ double apply_measurement_overrides(FrameBudgets& budgets) {
     const int32_t install_cap = static_cast<int32_t>(
         latch_seconds_from_env("FARLANDS_INSTALL_CAP_LOADING", 0.0, true));
     budgets.chunk_completions_loading = install_cap > 0 ? install_cap : 0;
+    // The underground fill's radius. 0 is a valid arm (no underground fill at
+    // all) and is what measures the block's cost, so zero is allowed here.
+    budgets.underground_fill_radius = static_cast<int32_t>(
+        latch_seconds_from_env("FARLANDS_UNDERGROUND_FILL_RADIUS",
+                               static_cast<double>(budgets.underground_fill_radius), true));
     return hold_max_sec;
 }
 

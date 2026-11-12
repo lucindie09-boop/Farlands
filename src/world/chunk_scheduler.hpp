@@ -9,6 +9,7 @@
 #include <mutex>
 #include <queue>
 #include <unordered_set>
+#include <vector>
 
 namespace VoxelEngine {
 
@@ -78,57 +79,80 @@ public:
                             uint64_t chunk_key, uint64_t path_id,
                             IsLoaded&& is_already_loaded,
                             GenerateFn&& generate_fn,
-                            EpochFn&& epoch_provider) {
+                            EpochFn&& epoch_provider,
+                            std::vector<int32_t> band_ys = {},
+                            std::vector<uint64_t> band_keys = {}) {
         if (!pool) return false;
 
+        // A band task generates several slices of one column in a single worker, so
+        // the column pass they share is computed once (see chunk_scheduler.hpp's
+        // band note and docs/streaming.md). Every key is claimed here, before the
+        // task starts, or the walk would race the task and generate the other
+        // slices a second time; the walk's own offers for those keys are then
+        // refused by the claim, which is the intended answer.
+        std::vector<int32_t> ys;
+        std::vector<uint64_t> keys;
         {
             std::lock_guard<std::mutex> lock(generating_mutex);
-            if (is_already_loaded(chunk_key) || claimed_chunks.find(chunk_key) != claimed_chunks.end()) {
-                return false;
+            const auto claimable = [&](uint64_t key) {
+                return !is_already_loaded(key) && claimed_chunks.find(key) == claimed_chunks.end();
+            };
+            if (band_ys.empty()) {
+                if (!claimable(chunk_key)) return false;
+                ys.push_back(chunk_y);
+                keys.push_back(chunk_key);
+            } else {
+                for (size_t i = 0; i < band_ys.size(); ++i) {
+                    if (!claimable(band_keys[i])) continue;
+                    ys.push_back(band_ys[i]);
+                    keys.push_back(band_keys[i]);
+                }
+                if (ys.empty()) return false;
             }
-            generating_chunks.insert(chunk_key);
-            claimed_chunks.insert(chunk_key);
-            filter_set(chunk_key);
+            for (uint64_t key : keys) {
+                generating_chunks.insert(key);
+                claimed_chunks.insert(key);
+                filter_set(key);
+            }
         }
 
-        pool->fire_and_forget([this, chunk_x, chunk_y, chunk_z, chunk_key, epoch, path_id,
+        pool->fire_and_forget([this, chunk_x, chunk_z, epoch, path_id,
+                               ys = std::move(ys), keys = std::move(keys),
                                generate_fn = std::forward<GenerateFn>(generate_fn),
                                epoch_provider = std::forward<EpochFn>(epoch_provider)]() mutable {
-            bool loaded = false;
-            auto chunk_data = generate_fn(chunk_x, chunk_y, chunk_z, loaded);
-
-            CompletedChunk completed;
-            completed.chunk_x = chunk_x;
-            completed.chunk_y = chunk_y;
-            completed.chunk_z = chunk_z;
-            completed.epoch = epoch;
-            completed.path_id = path_id;
-            completed.chunk_data = std::move(chunk_data);
-            completed.was_loaded_from_disk = loaded;
-
             const bool epoch_ok = epoch == epoch_provider();
-            {
-                std::lock_guard<std::mutex> lock(generating_mutex);
-                generating_chunks.erase(chunk_key);
+            for (size_t i = 0; i < ys.size(); ++i) {
+                bool loaded = false;
+                auto chunk_data = generate_fn(chunk_x, ys[i], chunk_z, loaded);
+
+                CompletedChunk completed;
+                completed.chunk_x = chunk_x;
+                completed.chunk_y = ys[i];
+                completed.chunk_z = chunk_z;
+                completed.epoch = epoch;
+                completed.path_id = path_id;
+                completed.chunk_data = std::move(chunk_data);
+                completed.was_loaded_from_disk = loaded;
+
+                if (!epoch_ok) continue;
+
+                std::lock_guard<std::mutex> lock(completed_mutex);
+                completed_chunks.push(std::move(completed));
+                chunk_count_a.fetch_add(1, std::memory_order_relaxed);
+            }
+
+            std::lock_guard<std::mutex> lock(generating_mutex);
+            for (size_t i = 0; i < keys.size(); ++i) {
+                generating_chunks.erase(keys[i]);
                 // The claim and its filter bits deliberately outlive the worker: the
                 // chunk is not resident until the main thread installs it, and a
                 // generation admitted in that window only produces a result the
                 // install discards. A stale epoch has no install coming, so it has
                 // to release here or the filter would defer that key forever.
                 if (!epoch_ok) {
-                    claimed_chunks.erase(chunk_key);
-                    filter_clear(chunk_key);
+                    claimed_chunks.erase(keys[i]);
+                    filter_clear(keys[i]);
                 }
-            }
-
-            if (!epoch_ok) {
-                return;
-            }
-
-            {
-                std::lock_guard<std::mutex> lock(completed_mutex);
-                completed_chunks.push(std::move(completed));
-                chunk_count_a.fetch_add(1, std::memory_order_relaxed);
             }
         }, PoolTaskClass::Generation);
         return true;

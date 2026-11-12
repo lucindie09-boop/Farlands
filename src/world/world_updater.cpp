@@ -281,7 +281,18 @@ void WorldUpdater::process_mesh_budgets(bool is_editor, uint64_t epoch, uint64_t
         const bool loading_drain = !fill_settled || is_initial_loading;
         int32_t active_max = loading_drain ? budgets.chunk_completions_initial
                                            : budgets.chunk_completions_gameplay;
-        int32_t scaled_completion_budget = std::min(active_max + 16, active_render_distance + 16);
+        // The render-distance clamp is a gameplay rule: a frame should not install
+        // more chunks than the disc it is about to draw. While the fill runs there
+        // is no disc to protect -- the fill is installing that disc -- and at RD 32
+        // the clamp held installs to 48 a frame while the pool was finishing 80 and
+        // the drain had 6 ms of clock to spend. 48 -> 128 with the in-flight set
+        // opened measured load 2.72 s against 2.89-2.93 (11 workers), and 2.13 s at
+        // 15 workers once all three gates were open. Shipped together with the
+        // loading in-flight term: three pairs put load 2.66/2.61/2.68 s against
+        // 3.18/3.15/3.13 and settle 2.84/2.81/2.72 against 3.22/3.17/3.09.
+        int32_t scaled_completion_budget = loading_drain
+            ? active_max
+            : std::min(active_max + 16, active_render_distance + 16);
         if (loading_drain && budgets.chunk_completions_loading > 0) {
             scaled_completion_budget = budgets.chunk_completions_loading;
         }
@@ -356,9 +367,10 @@ void WorldUpdater::flush_dirty(double delta) {
     }
 }
 
-bool WorldUpdater::generate_chunk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, uint64_t epoch) {
+bool WorldUpdater::generate_chunk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, uint64_t epoch,
+                                  int32_t band_lo, int32_t band_hi) {
     return chunk_world->generate_chunk(chunk_x, chunk_y, chunk_z, epoch, terrain_params,
-                                       biome_config, vegetation_config);
+                                       biome_config, vegetation_config, band_lo, band_hi);
 }
 
 void WorldUpdater::try_unload(uint64_t key) {

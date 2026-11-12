@@ -1225,6 +1225,208 @@ it — are in [lod-modes.md](lod-modes.md).
   against 3.735), frame counts and phase averages equal. A tie, so the cap stays derived --
   once the clock has room the drain is not cap-bound, and what remains is the admission pacing
   measured earlier.
+- **With the clock at 6.0 the fill is priced, not installed or generated.** Two 11-worker
+  profile shots (settle 3.090 s, wall 3.93 s, load 2.93 s, tail 1.00 s) put every other stage
+  well clear of its ceiling: installs are 12,590 real at 31.5 us plus 7,640 empty at 25.3 us,
+  i.e. 0.59 s of main thread over the whole load, 1.08 ms a frame on `process_completed_chunks`
+  against the 6 ms clock; the pool is ~63% busy (25-26% idle while work was queued, 9-11%
+  idle-empty) with 13.00 s of generation over 18,914 chunks and 5.95 s of meshing over 8,148
+  against 32.2 worker-seconds; and the walk stops on its generation cap in 337 of 545 frames
+  (admission 73, budget 58, band 0), with `dynamic_max_last` as low as 8. The cap that stops it
+  is the feed-forward rate `workers x frame / price x 0.9`. Testing that directly did not hold
+  up: at 11 workers price 1.2 opened 2/2 (2.833/3.085 s against 3.081/3.304), but its third and
+  fourth shots ran 3.175 and 4.016, so the arm's mean 3.277 sits inside the default's 3.193 --
+  drift, not a knee. Four shots an arm at 13 (the line's 2.188) tie: 1.7 at
+  4.036/4.015/4.084/3.275 and 1.3 at 3.721/4.223/3.960/3.224 against 4.314/4.087/3.536/3.362,
+  means 3.852/3.782/3.825. At 15 (the line's 2.46) lowering loses: 1.5 at 3.859/3.993 and 1.0 at
+  4.289/3.906 against 3.652/4.179/3.419, with one 1.0 shot above every baseline shot. Spreads
+  inside an arm reach 0.8-1.0 s, wider than any difference, and the 13-worker block's last three
+  shots (3.224, 3.275, 3.362, one per arm) are all fast, so the ordering follows when a shot ran
+  rather than what it ran. The price is therefore binding without being worth anything to lower:
+  an extra admission a frame does not shorten the fill even with a third of the pool idle, which
+  puts the main thread's per-frame work -- the walk, the chain and the installs -- where a
+  shorter fill would have to buy. The line through 1.1 and 2.46 is unchanged.
+- **The fill's throttle is three gates in series, and it only moves when they open together.**
+  The single-knob arms are washes against 2.89-2.93 s of load: the price at 1.2 (2.89-2.91), an
+  in-flight cap of 264 on top of it (2.89), and the chain budget at 3.0/5.0 ms (2.93, with its
+  stops unmoved at 319-352 against 337 -- it stops because the work is gone). Neither is the frame: `NO_RENDER=1` reproduces the drawn run exactly (2.92 s
+  over 550 frames at 7.13 ms a frame), `--headless` saves ~0.5 s, and `QUIET=1`, which silences
+  20 scene scripts, takes a frame from 7.10 to 6.79 ms for no change in the fill. Open the three
+  together and it moves: price 0.9, in-flight 264 and install cap 128 ran load 2.43/2.36 s and
+  settle 2.46/2.42 over 400-410 frames, against 520-555 frames at 2.89-2.93 s. The counters show
+  why: 28.9 generations a frame against 21-22, and the stop table leaving `gen_cap` (329 -> 138)
+  once the in-flight cap stops refusing the walk and the install cap stops holding the
+  completions. Any two of the three give about two thirds of it (2.72 for price+install-cap,
+  2.66 for in-flight+install-cap), so no single constant is the answer: the price sets the rate,
+  the in-flight cap bounds the set that rate fills, and the install cap -- derived as
+  min(initial+16, RD+16), i.e. 48 at RD 32 -- bounds how fast the completions leave it. A change
+  that ships has to move the two caps for the loading window and leave the price alone, because
+  the price is a function of pool size and was measured wrong at 15 workers. Pushing the same
+  three further does not pay: price 0.6 with in-flight 512 and install cap 256 ran 2.42/2.42 s of
+  load, and price 0.7 with 384/192 ran 2.44/2.38, both flat against 0.9/264/128's 2.43/2.36 even
+  though generations a frame rose to 30-31. Past ~50 admissions a frame the fill buys frame time
+  instead of frames -- 50 installs are 1.6 ms of main thread on their own -- so ~2.4 s is the
+  knee with every gate open at 11 workers, ~17% off the 2.89-2.93 s baseline. The gate chain also
+  changes the pool-size answer, which is the more useful half: the same arm at 15 workers ran
+  load 2.13/2.13 s and settle 2.23/2.23 over 335 frames, against 3.17 s of load for the 15-worker
+  baseline and 2.30-4.18 s across its earlier shots, with idle-while-queued down from 33.6% to
+  19.5-22.1% and 36.1 generations a frame against 20.6. The caps had been holding the larger pool
+  back, so 15 workers with the gates open is the fastest fill measured: 2.13 s against 2.43/2.36
+  at 11 with the same gates and 2.89-2.93 for the 11-worker baseline. Widening the same three at
+  15 moves it again but noisily: price 0.6 with in-flight 512 and install cap 256 ran 2.11/2.18 s
+  of load, and price 0.9 with the same caps 2.20/1.89, i.e. 270-325 frames at 37-45 generations a
+  frame against 335 at 36, with the pool's idle-queued share down to 16-18%. The direction is
+  consistent -- fewer frames, more work a frame -- but the 2.20-against-1.89 spread inside an arm
+  is wider than the gain over 2.13, so the size of it needs more pairs before it is a number.
+  The phase table at that arm names what is left: per frame the install drain is 2.81 ms of the
+  5.42 ms `process_total` (251 frames at 80 installs each), the walk 0.88 ms
+  (`chunk_load_unload`), mesh upload 0.91 and the dirty queue 0.49; worker work is 14.42 s of
+  generation plus 6.57 s of meshing, 21.0 s against 28.35 worker-seconds, so the pool is busy
+  ~74% and no longer the story. The install itself is: 0.71 s of the 1.89 s, and 7,640 of those
+  installs are all-air chunks paying 25.3 us each, of which 3.2 us go to the light stage and 6.0
+  to the dirty stage. Only the first of those is waste: 7,640 x 3.2 us is ~0.025 s, not the 0.1 s
+  a first reading of the two stages suggested. The dirty stage's 6.0 us is a 7-key lock and six
+  neighbour probes, and a neighbour with blocks DOES have faces to expose once an empty chunk is
+  resident beside it, so that half is work. With the install total at 0.71 s against a 6 ms clock
+  (2.81 ms a frame, so the clock is not yet the limit), the larger targets are the 12,590 real
+  installs at 31.5 us and the ~2.4 ms a frame the updater does not account for at all. The mesh
+  hold is right to stay at 2 rebuilds a frame while the fill runs: the dirty queue reaches
+  5,000-7,000 there (read for its depth only -- the traced runs report 11-13 ms frames because the
+  trace itself is expensive), and opening the hold is worse in every direction.
+  `FARLANDS_HOLD_MESH_PARTIAL` at 16 gave settle 2.63 s and visible-90 2.89 s, at 64 gave 3.23 s
+  and never reached visible-90, against 2.32/2.63 at the shipped 2. The fill and the visible
+  world are decoupled on purpose, and the 1.00 s tail in every phase line is the probe's own
+  one-second stability window rather than work. The two caps are now shipped: the render-distance
+  clamp is skipped while the fill runs (`loading_drain`), so the install budget is
+  `chunk_completions_initial` (128) rather than `min(active+16, RD+16)` = 48 at RD 32, and the
+  in-flight set uses `max_generating_in_flight_loading_per_worker` (24) instead of the gameplay 6
+  for as long as the fill has not settled -- 264 at 11 workers and 360 at 15. Three pairs at 11
+  workers came out 3/3: settle 2.84/2.81/2.72 s against 3.22/3.17/3.09, load 2.66/2.61/2.68
+  against 3.18/3.15/3.13, mean -0.37 s of settle and -0.50 s of load, with idle-while-queued down
+  from 24-26% to 19-21%. The price is untouched, and it is now the next gate: at 15 workers the
+  shipped line price (2.46) ran settle 2.577/2.563/2.567 s and load 2.46/2.45/2.62, while
+  `FARLANDS_GEN_WORK_PER_CHUNK_MS=0.9` ran 2.220/2.116/2.151 and 2.14/1.93/2.18 -- 3/3 for the
+  lower price, mean -0.41 s of settle and -0.43 s of load, with idle-while-queued 27.3/27.7/23.6%
+  against 19.3/18.3/17.9%. That is the opposite of the closed-gate sweep at the same count, where
+  a lower price lost: the caps were refusing what the price asked for, so the rate was never
+  exercised. Under the shipped caps it is right at 11 too: three pairs gave settle
+  2.550/2.538/2.610 s against 2.875/2.739/2.811 and load 2.37/2.42/2.38 against 2.88/2.71/2.73,
+  3/3. The loading window now has its own price -- `generation_work_per_chunk_ms_loading = 0.9`,
+  used until the fill settles while the gameplay line and the env override are untouched. Checked
+  at the small pool the old sweep warned about: 5 workers ran 4.021/4.068 s against 4.054/4.053 at
+  the line's 1.1, a tie, so the value costs nothing there. With it wired in, the defaults run
+  settle 2.414/2.470 s at 11 workers and 2.117/2.176 at 15 (load 2.43/2.47 and 1.92/2.09), against
+  the 3.16/3.15 s settle and 3.18/3.15 s load the same binary's old caps gave.
+  A mid-load window dump (one `get_slow_frame_report` taken while the fill runs, added to the
+  probe because the per-0.1 s trace costs more than it measures) answers where the rest goes: the
+  frames there average 12.3/11.7 ms, the updater 5.29/4.92 ms and 7.05/6.76 ms outside it, of which
+  only 1.0-1.1 ms is `render_cpu` and 1.6-2.3 ms `render_gpu`. The window's worst frames are
+  142/150 ms with `outside_process` 136/144 ms and no render cost at all, so what is left is
+  engine-side work and stalls -- not the chunk pipeline, the renderer or the scene scripts. The
+  fill runs at ~80 fps while it loads because of it, and that is the next thing to chase. The
+  renderer is not it: `NO_RENDER=1` leaves the window unchanged (outside_updater 6.65/6.81 ms
+  against 6.84, `render_cpu` 0.56-0.65 against 0.84) and the fill time identical (2.17/2.14 s
+  against 2.16). With the updater, the renderer, the GPU and the scene's scripts (QUIET was a wash)
+  all excluded, what remains is engine-side work with 140-150 ms stalls that carry no render cost --
+  physics and allocation churn from the installs are the two candidates left, and the next probe
+  is a changed physics rate rather than another budget. Physics is not it either: the probe gained
+  a `PHYSICS_TPS` switch, and 10 and 240 ticks a second left the window's outside cost at
+  6.50/6.21 ms against 6.63 and the fill at 2.08/2.15 s against 2.19. With the updater, the
+  renderer, the GPU, the scene's scripts and the physics step all excluded, the remaining ~6.5 ms
+  a frame plus the 140-150 ms stalls is engine main-loop and allocator behaviour, which is a job
+  for a profiler rather than another engine switch. That window was the startup one, though: taken
+  later (`MIDLOAD_SECS=1.6`) the fill's frames are 8.13/8.40 ms with a 39.6/21.0 ms max,
+  outside_updater 5.26/5.20 ms and render 0.24/0.34 ms, so the 140-150 ms stalls belong to the
+  first frames rather than to the steady fill. Physics re-tested there -- 4.89 ms at 10 ticks a
+  second, 5.44 at 240, 5.26/5.20 at the default, fill 2.09/2.18 against 2.14/2.16 -- stays
+  excluded. The steady fill runs at ~120 fps with ~5.2 ms a frame outside the updater and under
+  0.6 ms of it renderer, so engine main-loop work is still the remainder, and it is what a profiler
+  should be pointed at. The pool size is at its knee too: with the shipped defaults, 15 workers
+  ran settle 2.196 s and load 2.11, 19 ran 2.095/1.94 and 23 ran 2.163/2.08, with idle-while-queued
+  rising 20.8 -> 25.1 -> 29.1% as the pool grows. The default pool is
+  `hardware_concurrency - 1`, so a 16-core machine already runs the 15 this arm measures; 19 buys
+  ~0.1 s inside single-shot noise and 23 buys nothing. Time-to-visible is the player-facing number
+  and it trails the chunk load by ~0.4 s: at 15 workers the shipped hold (partial 2) reaches
+  visible-90 at 2.666 s against settle 2.269 and load 2.18; partial 4 reaches 2.621 and partial 8
+  2.599, both inside noise, and the full-overlap arm (`HOLD_MESH_UNTIL_LOADED=0`) never reaches
+  visible-90 at all. So the visible fill is the released hold's mesh drain -- settle plus ~0.4 s --
+  and the partial budget is at its knee: 16 and 64 were worse, 4 and 8 change nothing. Cutting the
+  0.4 s further means releasing the hold on the near field finishing rather than on the whole chunk
+  set, which is a policy change and not a budget. That policy is not worth writing, though: a proxy
+  for it already exists in `HOLD_MESH_MAX_SEC`, which frees the drain by wall clock, and 1.0 and 0.5 s
+  gave visible-90 2.583/2.634 and 2.615 s against 2.644 at the shipped 2.0 -- all inside 0.06 s,
+  with settle unchanged within noise and load 2.09-2.14 against 2.16. The visible fill is bounded by
+  the drain's own throughput after release, not by when the release happens, so an earlier release
+  would buy nothing; the next lever on it is the upload/rebuild budget in the post-settle window,
+  not the hold's trigger. Ordering is already the one this analysis would ask for:
+  `sweep::slice_cy` offers a column's band from the player's own slice outward, alternating below
+  and above, so the surface beside the player generates before the rock under it -- the
+  near-player full-column bands reach the world floor, and plain ascending order would have spent
+  them on hundreds of blocks of stone first. There is no surface-first reordering left to try.
+  The underground full-column fill is not a lever either, and it is much smaller than its share of
+  the install counters suggests: `FARLANDS_UNDERGROUND_FILL_RADIUS` at 4 and 0 (the field is
+  `FrameBudgets::underground_fill_radius`, default 8) cuts installs only 20,230 -> 19,046 ->
+  18,638, because 3,214 of the below-land installs belong to columns outside the fill radius --
+  the walk's own band reaches them. Settle moved 2.237 -> 2.178/2.172/2.107 s and load 2.09 ->
+  2.15/2.15/1.92, inside noise for a change that would open void under the player, so the radius
+  stays 8. The generation path profile (`FARLANDS_GEN_PROFILE=1`) puts what is left in one place:
+  20,230 chunks at a mean 1.09 ms of work each (p50 0.772, p90 2.177, p99 4.94) is ~22 s of worker
+  time, a 1.5 s floor at 15 workers, and the fill runs 2.1-2.2 s -- about 0.6 s of scheduling above
+  that floor, which no budget owns any more. The distribution is the interesting half: the mean is
+  1.09 ms while the median is 0.77, so the slow 1% (200 chunks at ~5 ms) carries roughly 0.8 s of
+  the pool's work, and the admission wait (avg 21 ms, p90 42) is the queue's normal depth at 360 in
+  flight. The next fill gain, if any, is in the tail of a chunk's own generation -- vegetation and
+  the denser columns -- not in admission or the drain. The column pass looks like the next block
+  to remove -- `columns` is 0.30 ms of a 1.09 ms body and is a function of (chunk_x, chunk_z)
+  alone, so every vertical slice of a column recomputes it -- but a shared two-entry cache of it
+  (keyed on the column, invalidated by every config setter, `FARLANDS_COLUMN_CACHE=0` to disable)
+  measured as a wash: 2.111/2.194/2.207 s with it against 2.117/2.146/2.182 without, no pair
+  separating. The dispatch is why: the sweep queues a column's six slices together and the
+  scheduler hands them to six different workers at once, so they all miss before any of them has
+  stored an answer. Reusing the pass needs those slices generated as one task -- a scheduler
+  change, not a cache in front of the generator -- and that is what shipped: the sweep hands its
+  accepted slice range to `ChunkWorld::generate_chunk`, the scheduler claims every key in the band
+  before the task starts (so the walk's later offers for those slices are refused rather than
+  duplicated) and one worker builds them in order. Paired at 15 workers, settle 1.858/1.918/1.932 s
+  with the band against 2.114/2.140/2.127 without, 3/3 with every pair separating, installs
+  identical at 20,230; at 11 workers 2.084 against 2.424. It is on by default
+  (`FARLANDS_GEN_BAND=0` is the opt-out) and it is the first change since the loading caps to put
+  settle under two seconds: the column pass is paid once per column instead of once per slice, which
+  is 5 of every 6 passes on a band that spans six slices.
+
+  Batching made the worker work ~5 s lighter and its unit of work coarser, so the two knobs tuned
+  against the old balance were re-swept the same day. Neither moved: 19 workers settled 1.919 s
+  against 1.881 at 15 (the pool knee is a property of the machine, not of the work's granularity),
+  and the install cap's 192 arm gave 1.830/1.835/1.914/1.784 against 1.881/1.937/1.821 at 128 -- a
+  0.046 s mean difference with the pairs split 1-1, which is noise, so 128 stays. What the re-sweep
+  does establish is that the fill is scheduling-flat: with the column pass shared, ~1.9 s at 15
+  workers is within a seventh of the 1.5 s worker floor the generation profile measures, and the
+  remaining gap is not admission (cap), not pool size, and not the drain.
+
+  The mesher's one clean cut was measured and dropped. In a fully solid chunk every interior column has
+  four solid side neighbours at every y, so the vertical greedy pass can never emit a face there -- only
+  the perimeter (124 of 1,024 columns) faces outward -- and the underground fill is 1,592 such chunks.
+  Skipping those columns (`FARLANDS_MESH_SOLID_SKIP=0` as the arm) gave settle 1.851/1.914/1.797 s against
+  1.866/1.827/1.949, means 1.854 against 1.881 with the pairs split 2-1: inside noise, exactly as its
+  ~0.4 s of pool time (under 0.05 s of fill) predicted. A change inside the hottest mesher path is not
+  worth a result that cannot be told from the machine, so it was reverted rather than kept on faith.
+
+  The band's own span was swept the same way, and it confirms the mechanism rather than finding an
+  optimum: `FARLANDS_GEN_BAND_SPAN=2` -- two slices per task, so three passes per six-slice band --
+  settled 2.126/2.153 s against 1.880 for the whole band, while span 3 and 4 gave 1.938 and 1.882.
+  The gain tracks how many column passes are shared, not how the work is scheduled, and most bands
+  are four slices or fewer, which is why span 4 is indistinguishable from the whole band. The whole
+  band stays the default; the switch stays as the arm that shows the pass, not the task size, is
+  what moved.
+
+  Deferring the far half of the meshing was the last candidate with a large number behind it --
+  6.6 s of pool time, most of it for chunks behind the camera -- and it measured as a null too.
+  With a mesh request beyond N chunks held back (dirty flag kept, the whole deferred set flushed in
+  one pass at the settle edge, so nothing is left unqueued for a later turn) settle was
+  2.078/1.930 s at N=16 and 2.024/1.921 at N=24 against 2.023 off, with visible-90 marginally
+  better (2.345-2.398 against 2.462) and equally inside noise. The pool was already absorbing the
+  mesh work in its idle time, which is the useful finding: **the fill is limited by generation and
+  install, not by what else the workers were doing**, so no amount of moved-off work shortens it.
 - **The material pass and the artifact scan stop above the density margin.** No cell can be
   solid above `max_height + shape_margin` (outside the band the density is just `delta`, and
   the margin bounds the band), and no cell can be water above the column's `water_top`, so

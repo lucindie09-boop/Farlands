@@ -29,7 +29,20 @@ namespace VoxelEngine {
 // dearer than the work it hides. A six-shot-per-arm sweep after the column cut
 // (a chunk now 0.94 ms) put 1.92 at 3.672 s mean / 3.660 median, 1.7 at
 // 3.696 / 3.630 and 2.2 at 3.813 / 3.821: the first two are tied inside noise
-// and the dearer one loses, so the interpolation stands.
+// and the dearer one loses, so the interpolation stands. Re-swept across the
+// whole range after the loading clock went to 6.0 and the install path stopped
+// being the wall, because an 11-worker profile made the price look like the new
+// stop (install 1.08 ms against a 6 ms clock, the pool ~37% idle, the walk
+// capped in 337 of 545 frames). Four shots an arm: 15 gave 1.5 at 3.859/3.993 s
+// and 1.0 at 4.289/3.906 against 3.652/4.179/3.419 at the line's 2.46, and 13
+// gave 1.7 at 4.036/4.015/4.084/3.275 and 1.3 at 3.721/4.223/3.960/3.224 against
+// 4.314/4.087/3.536/3.362 at 2.188 -- a tie at 13, no win at 15, and spreads of
+// 0.8-1.0 s inside every arm. At 11 the arm opened 2/2 for 1.2 (2.833/3.085
+// against 3.081/3.304) but reached 2.833/3.085/3.175/4.016, mean 3.277 against
+// the default's 3.193, so that was host drift. The line stands, and the finding
+// is that the price is no longer a lever at this clock: admitting more a frame
+// does not shorten the fill with a third of the pool idle, so a shorter fill has
+// to come from the main thread's per-frame work.
 [[nodiscard]] inline constexpr double generation_work_per_chunk_ms_for(std::size_t workers) noexcept {
     constexpr double kLowWorkers = 5.0;
     constexpr double kHighWorkers = 15.0;
@@ -67,6 +80,14 @@ namespace VoxelEngine {
 struct FrameBudgets {
     int32_t chunk_generations = 64;
     int32_t chunk_completions_initial = 128;
+    // The radius, in chunks, of the full-column underground fill: columns this
+    // close to the player generate from their band down to the world floor, so
+    // the ground under the player is solid rock rather than void when they dig.
+    // It is 24% of an RD 32 fill's installs (4,806 of 20,230 in the profile) and
+    // every one of them is non-empty, which makes it the largest block of fill
+    // work that cannot be seen before digging. `FARLANDS_UNDERGROUND_FILL_RADIUS`
+    // sets it for the arm that measures what the block costs.
+    int32_t underground_fill_radius = 8;
     int32_t chunk_completions_gameplay = 64;
     // The install cap while the fill is running. 0 keeps the derived
     // `min(active_max + 16, render_distance + 16)`, which is 48 at RD 32 and is
@@ -300,6 +321,30 @@ struct FrameBudgets {
     // The set still averages ~30 and peaks ~110, so this bounds the tail rather than
     // pre-loading the pool with thousands of chunks.
     int32_t max_generating_in_flight_per_worker = 6;
+    // The same set while the fill has not settled. The gameplay term is sized to
+    // keep the completed queue short so every drain iteration stays cheap; during
+    // the fill the drain has a 6 ms clock and a 128-install cap instead, so the
+    // set is what keeps the pool fed rather than what slows the drain. Measured
+    // at 11 workers with the install cap open: 264 in flight ran load 2.66 s
+    // against 2.89-2.93; at 15 workers the same shape ran 2.13 s. 24 per worker
+    // gives 264 at 11 and 360 at 15, which is where both arms were measured.
+    // Shipped as a pair with the loading install cap (the render-distance clamp
+    // is skipped while the fill runs): three pairs at 11 workers put settle
+    // 2.84/2.81/2.72 s against 3.22/3.17/3.09 and load 2.66/2.61/2.68 against
+    // 3.18/3.15/3.13, 3/3, with idle-while-queued down from 24-26% to 19-21%.
+    int32_t max_generating_in_flight_loading_per_worker = 24;
+    // The admission price while the fill has not settled. The line above is the
+    // gameplay cost model, sized from sweeps in which the caps were closed and
+    // the walk's extra offers were refused before they could be exercised; with
+    // the loading caps open the rate matters again, and a cheaper chunk is right
+    // for exactly as long as the fill runs. Measured under the shipped caps, 3/3
+    // pairs at each count: 11 workers settle 2.550/2.538/2.610 s against
+    // 2.875/2.739/2.811 and load 2.37/2.42/2.38 against 2.88/2.71/2.73; 15
+    // workers settle 2.220/2.116/2.151 against 2.577/2.563/2.567 and load
+    // 2.14/1.93/2.18 against 2.46/2.45/2.62. The five-worker knee (1.1) was
+    // measured on the old, capped path, so the small-pool arm is checked against
+    // this value rather than assumed.
+    double generation_work_per_chunk_ms_loading = 0.9;
 
     // The feed-forward admission controller's cost model, in milliseconds per
     // generation. Zero means "derive it from the pool size" through

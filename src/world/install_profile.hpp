@@ -13,7 +13,7 @@ namespace VoxelEngine {
 // the phases must be taken in order around one install.
 class InstallProfile {
 public:
-    enum Phase : int { Poll, Prepare, Data, Placements, Insert, Listener, Tail, StageLight, StageDirty, StageResults, PhaseCount };
+    enum Phase : std::uint8_t { Poll, Prepare, Data, Placements, Insert, Listener, Tail, StageLight, StageDirty, StageResults, PhaseCount };
 
     static bool enabled();
     void reset();

@@ -121,6 +121,7 @@ int32_t ChunkWorld::process_completed_chunks(uint64_t epoch, double budget_ms, i
                 auto lock = chunk_map.lock_chunk(stage.chunk_x, stage.chunk_y, stage.chunk_z);
                 ChunkData* center = chunk_map.get_chunk_data_fast(stage.chunk_x, stage.chunk_y, stage.chunk_z);
                 if (center == nullptr) continue;
+                // NOLINTNEXTLINE(clang-analyzer-deadcode.DeadStores) - the lap reads it in its destructor
                 light_stage_empty = center->is_all_air();
                 light_propagated_chunks.insert(key);
                 pending_chunk_dirty_mesh.push_back({stage.chunk_x, stage.chunk_y, stage.chunk_z, stage.epoch});
@@ -161,6 +162,7 @@ int32_t ChunkWorld::process_completed_chunks(uint64_t epoch, double budget_ms, i
                         for (int dx = -1; dx <= 1; dx++) {
                             ChunkData* n = chunk_map.get_chunk_data_fast(stage.chunk_x + dx, stage.chunk_y + dy, stage.chunk_z + dz);
                             if (n == nullptr) continue;
+                            // NOLINTNEXTLINE(clang-analyzer-deadcode.DeadStores) - read by the lap's destructor
                             if (dx == 0 && dy == 0 && dz == 0) light_stage_empty = n->is_all_air();
                             present[present_count++] = chunk_map.get_chunk_key(stage.chunk_x + dx, stage.chunk_y + dy, stage.chunk_z + dz);
                         }
@@ -310,6 +312,7 @@ int32_t ChunkWorld::process_completed_chunks(uint64_t epoch, double budget_ms, i
 
                 if (mesh_manager) {
                     ChunkData* installed_chunk = chunk_map.get_chunk_data_fast(stage.chunk_x, stage.chunk_y, stage.chunk_z);
+                    // NOLINTNEXTLINE(clang-analyzer-deadcode.DeadStores) - read by the lap's destructor
                     if (installed_chunk) dirty_stage_empty = installed_chunk->is_all_air();
                     if (installed_chunk && !installed_chunk->is_all_air()) mesh_manager->queue_dirty_chunk_fast(stage.chunk_x, stage.chunk_y, stage.chunk_z);
                     if (installed_chunk) {

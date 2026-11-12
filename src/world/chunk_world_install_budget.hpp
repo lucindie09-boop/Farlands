@@ -18,6 +18,7 @@ namespace VoxelEngine {
 // switch; unset is the shipping 2 ms, and 0.75 restores the old arm.
 inline double final_install_budget_ms() {
     static const double value = [] {
+        // NOLINTNEXTLINE(concurrency-mt-unsafe) - read once on first use, env is fixed
         const char* raw = std::getenv("FARLANDS_FINAL_INSTALL_BUDGET_MS");
         if (raw == nullptr || *raw == '\0') return 2.0;
         char* end = nullptr;

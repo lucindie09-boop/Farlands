@@ -35,6 +35,7 @@ public:
 
     [[nodiscard]] static bool enabled() {
 #ifdef DEBUG_ENABLED
+        // NOLINTNEXTLINE(concurrency-mt-unsafe) - read once on first use, env is fixed
         static const bool on = std::getenv("FARLANDS_LIGHT_PROFILE") != nullptr;
         return on;
 #else

@@ -80,7 +80,7 @@ void MeshManager::rebuild_rendering_server_mesh(int32_t chunk_x, int32_t chunk_y
         if (render_data->mesh_rid.is_valid() || render_data->instance_rid.is_valid()) {
             RenderingServer* rs = RenderingServer::get_singleton();
             release_mesh_resources(render_data->mesh_rid, render_data->instance_rid,
-                                   [rs](RID rid) { rs->free_rid(rid); });
+                                   [rs](const RID& rid) { rs->free_rid(rid); });
         }
         render_data->is_mesh_dirty = false;
         render_data->dirty_subchunks = 0;
@@ -151,7 +151,7 @@ void MeshManager::rebuild_rendering_server_mesh(int32_t chunk_x, int32_t chunk_y
                 if (render_data->mesh_rid.is_valid() || render_data->instance_rid.is_valid()) {
                     RenderingServer* rs = RenderingServer::get_singleton();
                     release_mesh_resources(render_data->mesh_rid, render_data->instance_rid,
-                                           [rs](RID rid) { rs->free_rid(rid); });
+                                           [rs](const RID& rid) { rs->free_rid(rid); });
                 }
             }
             // Drop stale LOD/far caches referencing this chunk so the detail

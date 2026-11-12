@@ -63,14 +63,19 @@ bool generation_memo_enabled() {
 // tasks it replaced, and the tail of the fill is only as fine as the last task.
 int32_t band_span() {
     static const int32_t span = [] {
+        // NOLINTNEXTLINE(concurrency-mt-unsafe) - read once on first use, env is fixed
         const char* raw = std::getenv("FARLANDS_GEN_BAND_SPAN");
-        return raw != nullptr ? std::atoi(raw) : 0;
+        if (raw == nullptr || *raw == '\0') return 0;
+        char* end = nullptr;
+        const long parsed = std::strtol(raw, &end, 10);
+        return end != raw && *end == '\0' ? static_cast<int32_t>(parsed) : 0;
     }();
     return span;
 }
 
 bool band_generation_enabled() {
     static const bool enabled = [] {
+        // NOLINTNEXTLINE(concurrency-mt-unsafe) - read once on first use, env is fixed
         const char* raw = std::getenv("FARLANDS_GEN_BAND");
         return !(raw != nullptr && raw[0] == '0');
     }();
@@ -118,7 +123,8 @@ bool ChunkWorld::generate_chunk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_
         // (0 = the rest of the band).
         const int32_t span = band_span();
         const int32_t last = span > 0 ? std::min(band_hi, chunk_y + span - 1) : band_hi;
-        band_ys.reserve(static_cast<size_t>(last - chunk_y + 1));
+        const int32_t slices = last - chunk_y + 1;
+        band_ys.reserve(static_cast<size_t>(slices));
         band_keys.reserve(band_ys.capacity());
         for (int32_t cy = chunk_y; cy <= last; ++cy) {
             band_ys.push_back(cy);
@@ -130,9 +136,15 @@ bool ChunkWorld::generate_chunk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_
     const bool enqueued = chunk_scheduler.enqueue_generation(
         thread_pool, chunk_x, chunk_y, chunk_z, epoch, key, path_id,
         [this](uint64_t k) { return chunk_map.contains(k); },
-        [this, params = params, biomes = biomes, veg_config = veg_config, key, path_id, epoch](int32_t cx, int32_t cy, int32_t cz, bool& loaded) {
+        [this, params = params, biomes = biomes, veg_config = veg_config, path_id, epoch](int32_t cx, int32_t cy, int32_t cz, bool& loaded) {
             generation_path_profile_.started(path_id);
             gen_slice_count_chunk();
+            // The key of THIS slice, not the band's first one: the task walks a
+            // whole column, and the edit map, its disk probe and the memo are all
+            // keyed per chunk. Using the captured key put the first slice's edits
+            // into every slice of the band, so a torch placed in one chunk
+            // reappeared at the same local height in the rest of the column.
+            const uint64_t key = chunk_map.get_chunk_key(cx, cy, cz);
             auto chunk_data = std::make_unique<ChunkData>();
             const bool memo_enabled = generation_memo_enabled();
             bool memo_hit = false;

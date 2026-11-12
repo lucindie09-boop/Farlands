@@ -266,7 +266,11 @@ TEST_CASE("climate grid: sample_column routes through the grid and Plains/Hills 
                 continue;
             }
             CHECK(col.height >= params.sea_level);
-            CHECK(col.biome == gen.biome_from_climate_debug(col.temperature, col.humidity, col.cont));
+            // ColumnSample no longer carries continentalness (nothing read it),
+            // so the debug column query asks the sampler for it.
+            const float cont = gen.sample_continentalness_debug(static_cast<float>(x),
+                                                                static_cast<float>(z));
+            CHECK(col.biome == gen.biome_from_climate_debug(col.temperature, col.humidity, cont));
         }
     }
 
@@ -326,7 +330,8 @@ TEST_CASE("continentalness: bounded, non-flat, smooth, deterministic") {
     float lo = 1e9f, hi = -1e9f;
     for (int32_t z = -24000; z <= 24000; z += 2000) {
         for (int32_t x = -24000; x <= 24000; x += 2000) {
-            const float c = gen.sample_column_debug(x, z).cont;
+            const float c = gen.sample_continentalness_debug(static_cast<float>(x),
+                                                             static_cast<float>(z));
             CHECK(c >= 0.0f);
             CHECK(c <= 1.0f);
             lo = std::min(lo, c);
@@ -339,19 +344,21 @@ TEST_CASE("continentalness: bounded, non-flat, smooth, deterministic") {
     // 12000-block feature scale: a 64-block step barely moves the value.
     for (int32_t z = -8000; z <= 8000; z += 4000) {
         for (int32_t x = -8000; x <= 8000; x += 4000) {
-            const float c = gen.sample_column_debug(x, z).cont;
-            const float c2 = gen.sample_column_debug(x + 64, z + 64).cont;
+            const float c = gen.sample_continentalness_debug(static_cast<float>(x),
+                                                             static_cast<float>(z));
+            const float c2 = gen.sample_continentalness_debug(static_cast<float>(x + 64),
+                                                              static_cast<float>(z + 64));
             CHECK(std::abs(c - c2) < 0.1f);
         }
     }
 
     // Deterministic per seed; differs across seeds.
     ChunkGenerator gen2(params);
-    CHECK(gen2.sample_column_debug(1234, -5678).cont ==
-          gen.sample_column_debug(1234, -5678).cont);
+    CHECK(gen2.sample_continentalness_debug(1234.0f, -5678.0f) ==
+          gen.sample_continentalness_debug(1234.0f, -5678.0f));
     TerrainParams other = params;
     other.seed = params.seed + 1;
     ChunkGenerator gen3(other);
-    CHECK(gen3.sample_column_debug(1234, -5678).cont !=
-          gen.sample_column_debug(1234, -5678).cont);
+    CHECK(gen3.sample_continentalness_debug(1234.0f, -5678.0f) !=
+          gen.sample_continentalness_debug(1234.0f, -5678.0f));
 }

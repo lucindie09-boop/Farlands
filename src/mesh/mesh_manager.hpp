@@ -167,7 +167,7 @@ public:
     // has_pending_mesh_work() is exactly "reasons != 0", so the two cannot
     // disagree, and a probe can name the reason instead of inferring it from the
     // chunk heaps - which hold only one of the six.
-    enum PendingMeshReason : uint32_t {
+    enum PendingMeshReason : std::uint8_t {
         kPendingQueue = 1u << 0,           // dirty_mesh_queue + backlog_queue
         kPendingImmediate = 1u << 1,       // immediate_dirty_mesh_queue (not in size())
         kPendingFarVisibility = 1u << 2,   // the incremental far-visibility walk

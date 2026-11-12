@@ -117,7 +117,7 @@ void MeshManager::process_completed_meshes(uint64_t epoch, double budget_ms, int
 
         if (completed.mesh_data.empty && completed.water_mesh_data.empty) {
             release_mesh_resources(render_data->mesh_rid, render_data->instance_rid,
-                                   [rs](RID rid) { rs->free_rid(rid); });
+                                   [rs](const RID& rid) { rs->free_rid(rid); });
             const bool had_far_cache = static_cast<bool>(render_data->far_mesh_cache);
             render_data->far_mesh_cache.reset();
             if (had_far_cache) {
@@ -309,7 +309,6 @@ void MeshManager::process_completed_region_meshes(uint64_t epoch, int32_t max_up
         return;
     }
 
-    RenderingServer* rs = RenderingServer::get_singleton();
     int32_t uploads = 0;
     const auto start_time = std::chrono::high_resolution_clock::now();
 

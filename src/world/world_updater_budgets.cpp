@@ -20,6 +20,7 @@ double apply_measurement_overrides(FrameBudgets& budgets) {
     // The shipping path leaves meshing to the post-load latch, so the fill's
     // first half is chunk admission and its second is the held mesh drain.
     // `FARLANDS_HOLD_MESH_UNTIL_LOADED=0` restores the overlap arm for an A/B.
+    // NOLINTNEXTLINE(concurrency-mt-unsafe) - constructor only, before the pool starts
     const char* hold_mesh_env = std::getenv("FARLANDS_HOLD_MESH_UNTIL_LOADED");
     if (hold_mesh_env != nullptr) {
         if (hold_mesh_env[0] == '1' && hold_mesh_env[1] == '\0') {
@@ -52,11 +53,13 @@ double apply_measurement_overrides(FrameBudgets& budgets) {
     // The held drain uploads at most this many completed meshes per frame while
     // the initial-loading latch is up. 512 finishes the held queue inside its
     // quiet window; `FARLANDS_MESH_UPLOADS_LOADING=N` overrides it for an A/B.
+    // NOLINTNEXTLINE(concurrency-mt-unsafe) - constructor only, before the pool starts
     const char* uploads_env = std::getenv("FARLANDS_MESH_UPLOADS_LOADING");
     if (uploads_env != nullptr) {
-        const int32_t requested = std::atoi(uploads_env);
-        if (requested > 0) {
-            budgets.mesh_uploads_loading = requested;
+        char* end = nullptr;
+        const long requested = std::strtol(uploads_env, &end, 10);
+        if (end != uploads_env && *end == '\0' && requested > 0) {
+            budgets.mesh_uploads_loading = static_cast<int32_t>(requested);
         }
     }
     // The main-thread install clock. The drain's stage profile puts a real

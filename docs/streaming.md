@@ -1392,7 +1392,12 @@ it — are in [lod-modes.md](lod-modes.md).
   identical at 20,230; at 11 workers 2.084 against 2.424. It is on by default
   (`FARLANDS_GEN_BAND=0` is the opt-out) and it is the first change since the loading caps to put
   settle under two seconds: the column pass is paid once per column instead of once per slice, which
-  is 5 of every 6 passes on a band that spans six slices.
+  is 5 of every 6 passes on a band that spans six slices. The band task's one trap is that the chunk
+  key is no longer one value: the edit map, its disk probe and the generation memo are all keyed per
+  chunk, so a task that carries the band's first key into the loop applies that slice's edits to
+  every slice -- a torch placed in one chunk came back at the same local height all the way up the
+  column on reload. The key is rebuilt from `(cx, cy, cz)` inside the task, and any new per-chunk
+  lookup in that closure has to do the same.
 
   Batching made the worker work ~5 s lighter and its unit of work coarser, so the two knobs tuned
   against the old balance were re-swept the same day. Neither moved: 19 workers settled 1.919 s

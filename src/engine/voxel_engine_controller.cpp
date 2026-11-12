@@ -129,6 +129,7 @@ void VoxelEngineController::create_thread_pool() {
     // hardware_concurrency() reports the machine, not the process mask, so the
     // pool would still be sized for the full machine. The override is what makes
     // a 4- or 6-core arm represent that hardware rather than oversubscribe it.
+    // NOLINTNEXTLINE(concurrency-mt-unsafe) - startup only, before the pool exists
     if (const char* raw = std::getenv("FARLANDS_WORKER_COUNT")) {
         char* end = nullptr;
         const long requested = std::strtol(raw, &end, 10);

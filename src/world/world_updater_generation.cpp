@@ -53,7 +53,9 @@ void WorldUpdater::update_generation(bool is_editor, int32_t active_render_dista
     // by the fill profile (2.46 ms). This arm pairs it with a 90-chunk in-flight
     // cap instead of 180, so the completed queue cannot grow into the deep
     // backlog that slowed every drain iteration in the last attempt.
-    int32_t dynamic_max_generations = budgets.chunk_generations;
+    // Assigned below in every path; the initializer that used to sit here was a
+    // value the next block always overwrote.
+    int32_t dynamic_max_generations;
     {
         // The controller's cost model, not this frame's measurement. The env
         // override is a measurement switch (see FrameBudgets).

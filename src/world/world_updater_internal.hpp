@@ -11,6 +11,7 @@ namespace VoxelEngine {
 // setting. Shared by WorldUpdater's constructor and the budget overrides it
 // applies, so the parsing rule lives in one place.
 inline double latch_seconds_from_env(const char* name, double fallback, bool allow_zero = false) {
+    // NOLINTNEXTLINE(concurrency-mt-unsafe) - startup only, before the pool starts
     const char* raw = std::getenv(name);
     if (raw == nullptr || *raw == '\0') return fallback;
     char* end = nullptr;

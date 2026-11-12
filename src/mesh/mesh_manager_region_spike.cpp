@@ -41,8 +41,12 @@ RegionSpikeTotals& spike_totals() {
 // unset) is the shipping behaviour - the hook returns before touching anything.
 int32_t spike_budget() {
     static const int32_t budget = [] {
+        // NOLINTNEXTLINE(concurrency-mt-unsafe) - read once on first use, env is fixed
         const char* value = std::getenv("FARLANDS_REGION_SPIKE");
-        return value ? std::atoi(value) : 0;
+        if (value == nullptr || *value == '\0') return 0;
+        char* end = nullptr;
+        const long parsed = std::strtol(value, &end, 10);
+        return end != value && *end == '\0' ? static_cast<int32_t>(parsed) : 0;
     }();
     return budget;
 }
@@ -57,8 +61,14 @@ std::atomic<int32_t>& spike_remaining(int32_t budget) {
 // populated region, which is what the lock measurement needs.
 int32_t spike_min_members() {
     static const int32_t minimum = [] {
+        // NOLINTNEXTLINE(concurrency-mt-unsafe) - read once on first use, env is fixed
         const char* value = std::getenv("FARLANDS_REGION_SPIKE_MIN");
-        const int32_t parsed = value ? std::atoi(value) : 16;
+        int32_t parsed = 16;
+        if (value != nullptr) {
+            char* end = nullptr;
+            const long requested = std::strtol(value, &end, 10);
+            if (end != value && *end == '\0') parsed = static_cast<int32_t>(requested);
+        }
         return parsed > 0 ? parsed : 1;
     }();
     return minimum;

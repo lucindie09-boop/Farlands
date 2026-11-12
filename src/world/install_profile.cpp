@@ -14,6 +14,7 @@ constexpr const char* kPhaseNames[InstallProfile::PhaseCount] = {
 
 bool InstallProfile::enabled() {
 #ifdef DEBUG_ENABLED
+    // NOLINTNEXTLINE(concurrency-mt-unsafe) - read once on first use, env is fixed
     static const bool on = std::getenv("FARLANDS_INSTALL_PROFILE") != nullptr;
     return on;
 #else

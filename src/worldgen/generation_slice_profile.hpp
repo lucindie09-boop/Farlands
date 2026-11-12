@@ -18,7 +18,7 @@ namespace VoxelEngine {
 // Off unless FARLANDS_GEN_PROFILE=1 (the same flag as the path profile). Each
 // slice is one relaxed atomic add per chunk and one clock read: eight reads
 // against a 3 ms body is noise, and a mutex here would be the profile's own cost.
-enum class GenSlice : int {
+enum class GenSlice : std::uint8_t {
     Columns = 0,
     Density,
     Materials,

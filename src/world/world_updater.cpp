@@ -233,6 +233,10 @@ void WorldUpdater::process_mesh_budgets(bool is_editor, uint64_t epoch, uint64_t
     fill_settled_ = loaded_count_post > 0 && queues_idle &&
                     generation_pass_complete &&
                     sweep_band_frontier >= sweep_columns.size();
+    // The band is armed for exactly one fill: the first settle disarms it for the
+    // rest of the session (see the field). Walking at 25 blocks/s keeps
+    // fill_settled_ false on and off, so this cannot be "the fill is running".
+    if (fill_settled_) initial_fill_band_ = false;
     const bool fill_settled = fill_settled_;
     // The latch's transitions live in LoadingLatch (tested without a world);
     // this pass supplies the frame's inputs and reads the budget it selects.
@@ -447,6 +451,7 @@ void WorldUpdater::clear() {
     generation_cursor        = SweepCursor{};
     generation_pass_complete = false;
     fill_settled_            = false;
+    initial_fill_band_       = true;
     unload_scan_skip_counter   = 0;
     unload_scan_bucket_cursor  = 0;
 }

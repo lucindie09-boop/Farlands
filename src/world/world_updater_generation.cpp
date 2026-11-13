@@ -279,7 +279,11 @@ void WorldUpdater::update_generation(bool is_editor, int32_t active_render_dista
             }
 
             ++generation_stats.band_pass;
-            if (generate_chunk(cx, cy, cz, epoch, candidate.band_lo, candidate.band_hi)) {
+            // One band task per column only while the initial fill is generating;
+            // afterwards the walk takes one slice at a time (see the field).
+            const int32_t band_lo = initial_fill_band_ ? candidate.band_lo : 0;
+            const int32_t band_hi = initial_fill_band_ ? candidate.band_hi : -1;
+            if (generate_chunk(cx, cy, cz, epoch, band_lo, band_hi)) {
                 ++generations_this_frame;
                 ++generation_stats.generations;
                 ++frame_generations;

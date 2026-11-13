@@ -47,10 +47,10 @@ func _run() -> void:
 		_fail("action '%s' is bound to '%s', expected B" % [TOGGLE_ACTION, key])
 	else:
 		_ok("action '%s' is bound to B" % TOGGLE_ACTION)
-	if not ProjectSettings.has_setting("autoload/ChunkBorders"):
-		_fail("chunk_borders.gd is not registered as an autoload")
+	if not ProjectSettings.has_setting("autoload/ToolLoader"):
+		_fail("tool_loader.gd is not registered as an autoload")
 	else:
-		_ok("chunk_borders.gd is an autoload")
+		_ok("chunk_borders.gd is created by ToolLoader on '%s'" % TOGGLE_ACTION)
 
 	# 2. The scene, so the overlay has a current_scene to attach to.
 	var scene: PackedScene = load("res://main.tscn")

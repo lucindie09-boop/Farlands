@@ -345,10 +345,17 @@ func _check_animator() -> bool:
 # the animator is what reads that name. This drives the real button on the real
 # panel, so the handoff is tested where it is wired rather than re-implemented.
 func _check_bind() -> bool:
+	# The lab is created on its own key now (ToolLoader), so a probe that needs it
+	# makes one.
 	var lab := root.get_node_or_null("LiquidTextureLab")
 	if lab == null:
-		_fail("the LiquidTextureLab autoload is missing")
-		return false
+		var lab_script: GDScript = load("res://scripts/liquid_texture_lab.gd")
+		if lab_script == null:
+			_fail("liquid_texture_lab.gd did not load")
+			return false
+		lab = lab_script.new()
+		lab.name = "LiquidTextureLab"
+		root.add_child(lab)
 	if not lab.has_method("_bind_to_world"):
 		_fail("the lab has no _bind_to_world — a tuned strip cannot reach the world")
 		return false

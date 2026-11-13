@@ -4,6 +4,7 @@ extends SceneTree
 ## project's files. Run with --path probes/empty_project --script res://warm.gd
 
 func _initialize() -> void:
+	print("PROBE warm engine_ms=%d" % Time.get_ticks_msec())
 	_run()
 
 func _run() -> void:

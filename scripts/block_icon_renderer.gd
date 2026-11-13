@@ -22,11 +22,36 @@ func _ready() -> void:
 	_load_block_definitions()
 	_load_block_shapes()
 	_setup_viewport()
-	call_deferred("_pre_render_all_icons_batched")
+	call_deferred("_start_after_world")
 
 # One viewport render and one readback for every icon, instead of a render and
 # a readback per block with five awaited frames each: the per-icon loop held the
 # whole game at ~220 fps for the first four seconds after boot.
+## The icons are the first 3D render a launch would otherwise do, and as the
+## process's first draw the batch pays ~450 ms of pipeline creation (against
+## ~50 ms once the world has drawn once). In the running game `MenuLayer` starts
+## them the frame the world binds, which is after its first frame; a probe with
+## no world scene gets them from the fallback.
+const WORLD_WAIT_SECONDS := 3.0
+
+var _started := false
+
+
+func _start_after_world() -> void:
+	var menu := get_node_or_null("/root/MenuLayer")
+	if menu != null and menu.has_signal("world_bound"):
+		menu.connect("world_bound", start_pre_render, CONNECT_ONE_SHOT)
+	await get_tree().create_timer(WORLD_WAIT_SECONDS).timeout
+	start_pre_render()
+
+
+func start_pre_render() -> void:
+	if _started:
+		return
+	_started = true
+	_pre_render_all_icons_batched()
+
+
 func _pre_render_all_icons_batched() -> void:
 	await get_tree().process_frame
 	var ids: Array[int] = []

@@ -331,6 +331,12 @@ docscheck = env.Command("bin/.docscheck_stamp", [], '"{}" tools/check_docs.py'.f
 AlwaysBuild(docscheck)
 Alias("docscheck", docscheck)
 
+# Wall-clock gate for the player-facing timings (boot, fill, fps settle). It is
+# local-only by design: it needs a window and a GPU, which CI runners have not.
+timings = env.Command("bin/.timings_stamp", [], '"{}" tools/check_timings.py'.format(sys.executable))
+AlwaysBuild(timings)
+Alias("timings", timings)
+
 # Rewrap the docs to the width the guard wants (whitespace only, verified).
 reflow = env.Command("bin/.reflow_stamp", [], '"{}" tools/reflow_docs.py'.format(sys.executable))
 AlwaysBuild(reflow)

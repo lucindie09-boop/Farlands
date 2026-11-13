@@ -122,3 +122,30 @@ jobs that run on every push.
 - **Fuzzing**: 5 libFuzzer harnesses for palette, chunk load, chunk recovery, light propagation,
   and mesh builder
 - **Code coverage**: lcov coverage with integration tests and memory benchmark
+
+## The local timing gate
+
+- **`scons timings`** (`tools/check_timings.py`) reruns the three measurements a
+  player feels and compares them with `timings_baseline.txt`, the benchmark's own
+  `metric max_value` format: the engine/title/world marks from `probe_launch`, the
+  fill settle from `probe_start_fill` and `settle_1s` from `probe_fps_settle`,
+  both at a pinned render distance (`--rd`, 32 by default) so the two runs
+  measure the same amount of streaming; the probes echo the `rd=` they used and
+  the gate fails if it is not the one asked for. It
+  runs every probe in an isolated `APPDATA`, so it never reads or writes the
+  player's save and each run starts from the same fresh world. That also makes
+  the boot numbers FIRST-run numbers: Godot keeps the shader and pipeline caches
+  under `user://`, so an isolated launch pays the cold cache.
+- **The gate is local, its comparison is not**: running it needs a window and a
+  GPU, and the number is the machine's own, so CI runs only `--selftest` (in the
+  `timing-gate` job: no Godot binary, no launch) while a person runs
+  `scons timings`. Ceilings are 1.5x the 2026-11-13 desktop run (boot
+  1032/1200/2174 ms, fill 2.15 s, settle 5.0 s), because two consecutive launches
+  here already differ by tens of milliseconds; the C++ benchmark can afford 4x
+  because its metrics are CPU arithmetic on hosted runners. What this catches is
+  a regression the size of the cloud-layer stall (4.2 s of first frame in a 1 s
+  boot) or a fill that tripled. What it cannot catch is 20 ms: use the probes and
+  the numbers in `docs/streaming.md` for that.
+- **`--write`** prints the ceilings a run on your machine would produce and
+  **`--selftest`** proves the comparison fires (pass, fail and missing-entry
+  paths) without launching a game.

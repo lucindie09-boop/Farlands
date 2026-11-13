@@ -2271,9 +2271,10 @@ scene was added), world at **1888-2017 ms**, cloud layers attached by ~2 s. From
 2.15-2.17 s before the rewrites, and 6.2 s before the cloud fix.
 
 What is left is the engine's own boot. `--verbose` with a line timestamp puts
-**~350 ms in Vulkan device creation, ~350 ms in the built-in shader/PSO caches
-and WASAPI** (~35 ms of it audio) and **~125 ms in the four remaining autoload
-scripts** (menu and title assets ~70 ms of it). An empty project with no autoloads
+**~360 ms in Vulkan init** (215 ms of instance and device probe, then device
+creation), **~245 ms in the built-in shader caches and ~50 ms in WASAPI**, and
+**~125 ms in the autoloads' `_ready` work** (menu and title assets ~70 ms of it; the scripts themselves
+parse in a few ms each). An empty project with no autoloads
 boots in 783-831 ms, so the game's own share of a launch is now ~150 ms: the boot
 scene, the title's construction and the autoloads it cannot do without.
 
@@ -2291,3 +2292,55 @@ reachable after a key press:
 - `menu_layer.gd` loads the 983-line block curtain on the first transition
   instead of at boot. The start press that needs it is covered by the curtain
   anyway, so its ~20 ms of parse lands where nothing can see it.
+
+### The engine's second is not a project setting
+
+A timestamped `--verbose` boot splits the remaining 900-930 ms:
+
+- **0-363 ms**: the Vulkan instance and physical-device probe (0-215 ms), then
+  device creation, which prints `Using Device #0` at 363 ms;
+- **363-436 ms**: SDL window and driver init, then **436-467 ms** the winink pen
+  tablet driver;
+- **467-712 ms**: the built-in shader caches, one `Loading cache for shader X`
+  per engine shader -- **~245 ms**, the largest single block;
+- **712-762 ms**: WASAPI, **762-791 ms** TextServer, **791-873 ms** the crash
+  handler and the GDExtension's API hashes;
+- **873-1000 ms**: the five autoloads' `_ready` work -- their scripts parse in a
+  few ms each, so this is the title's resource loads, not compilation.
+
+`--headless` boots in **248 ms**, so ~680 ms of a launch is display and GPU init.
+Project settings were probed against that, each a temporary `project.godot` edit
+reverted afterwards (two GUI boots unless noted):
+
+- `rendering/rendering_device/pipeline_cache/enable=false`: 956/977 ms against
+  929/942 base, no gain. The PSO cache is not the 245 ms block.
+- `rendering/shader_compiler/shader_cache/enabled=false`: the boot did not finish
+  in five minutes; without the cache every built-in shader is recompiled, so the
+  cache load is already the fast path.
+- `--rendering-driver d3d12`: 1290 ms cold and 893 warm, with the world's first
+  frame 651 ms against ~290. Not a trim.
+- `--rendering-method gl_compatibility --rendering-driver opengl3`: 807 ms, only
+  ~120 ms under Vulkan, and without the effects the world uses.
+- `--audio-driver Dummy`: 950/1038 ms, no gain.
+- `input_devices/pen_tablet/driver.windows="dummy"`: the setting is registered as
+  a Windows platform override -- the plain key is ignored and the verbose log
+  still says `Using "winink" pen tablet driver`. With the real key the driver
+  switches, but four alternating pairs gave deltas of +13, +51, -29 and -2 ms
+  (median **+5.5**): the 31 ms the driver shows in the timeline does not reach
+  the total, because the rest of the init overlaps it.
+
+So the engine's second stays. The Vulkan device creation and the built-in shader
+cache load are engine-internal, and the two settings that could have skipped them
+either change nothing (PSO cache) or make the boot minutes long (shader cache).
+
+- `SkinManager` and `BlockManager` are no longer autoloads either. Nothing before
+  the world reads them (every call site looks them up by path), so `BootScene`
+  creates them two frames after the title is on screen, and again before it
+  instantiates the world in case the load beat the warm-up. One process per
+  script puts their parse at **5.6 and 6.9 ms**, plus their `_ready` reads
+  `user://current_skin.png` / `current_block.png` and builds a noise map. Four
+  alternating pairs put engine init at a median of **916 -> 901 ms** and the
+  title at **976 -> 966.5 ms** (median deltas -6 and -1.5 ms): real work, but
+  inside the run-to-run spread. What is left of the ~125 ms autoload stage is
+  the title's own resource loads, and those cannot move -- the title is the
+  thing being drawn.

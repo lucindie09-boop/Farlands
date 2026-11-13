@@ -12,11 +12,25 @@ extends Node
 ## one instantiates its script directly (`probes/probe_lava_acid.gd` does that for
 ## the lab), which is why removing them from `project.godot` needs no call sites
 ## changed.
+##
+## `SkinManager` and `BlockManager` are deferred by time instead of by input. They
+## own the player skin and the block-maker texture, and the title reads neither,
+## so `BootScene` asks for them two frames after the title is on screen (and once
+## more before it instantiates the world, in case the load beat the warm-up).
+## Both are only ever read by path (`/root/SkinManager`, `/root/BlockManager`),
+## so a node created later is found by every existing call site.
 
 const TOOLS := {
 	"liquid_lab_toggle": "res://scripts/liquid_texture_lab.gd",
 	"toggle_chunk_borders": "res://scripts/chunk_borders.gd",
 	"pose_clone_toggle": "res://scripts/pose_clone_debug.gd",
+}
+
+## Autoloads the title does not need, created by `ensure_autoload()` before the
+## world that reads them exists.
+const LAZY_AUTOLOADS := {
+	"SkinManager": "res://scripts/skin_manager.gd",
+	"BlockManager": "res://scripts/block_manager.gd",
 }
 
 var _created: Dictionary = {}
@@ -49,3 +63,31 @@ func _spawn(action: String, event: InputEvent) -> void:
 	if tool.has_method("_unhandled_input"):
 		tool.call("_unhandled_input", event)
 	tool.set_process_unhandled_input.call_deferred(true)
+
+
+## Creates a deferred autoload under `/root` if it is not there yet, and answers
+## the node either way. Called from `BootScene`; a second call is a lookup.
+func ensure_autoload(autoload_name: String) -> Node:
+	var root := get_tree().root
+	var existing := root.get_node_or_null(NodePath(autoload_name))
+	if existing != null:
+		return existing
+	if not LAZY_AUTOLOADS.has(autoload_name):
+		push_error("ToolLoader: %s is not a deferred autoload" % autoload_name)
+		return null
+	var script := load(LAZY_AUTOLOADS[autoload_name]) as Script
+	if script == null:
+		push_error("ToolLoader: %s did not load" % LAZY_AUTOLOADS[autoload_name])
+		return null
+	var node := script.new() as Node
+	if node == null:
+		push_error("ToolLoader: %s is not a Node" % LAZY_AUTOLOADS[autoload_name])
+		return null
+	node.name = autoload_name
+	root.add_child(node)
+	return node
+
+
+func ensure_lazy_autoloads() -> void:
+	for autoload_name in LAZY_AUTOLOADS:
+		ensure_autoload(autoload_name)

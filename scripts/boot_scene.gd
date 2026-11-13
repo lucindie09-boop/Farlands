@@ -25,6 +25,21 @@ func _ready() -> void:
 		push_error("BootScene: could not start loading %s (error %d)" % [WORLD_SCENE, error])
 		return
 	_loading = true
+	_warm_deferred_autoloads()
+
+
+## `SkinManager` and `BlockManager` are no longer autoloads (their script parse
+## and their PNG reads sat in the engine's boot for two nodes the title never
+## reads). Wait out the title's own frame first, so the cost lands behind it, and
+## stay behind it: the world is still a second away.
+func _warm_deferred_autoloads() -> void:
+	await get_tree().process_frame
+	await get_tree().process_frame
+	if not is_inside_tree():
+		return
+	var loader := get_node_or_null(^"/root/ToolLoader")
+	if loader != null:
+		loader.call("ensure_lazy_autoloads")
 
 
 func _process(_delta: float) -> void:
@@ -41,6 +56,11 @@ func _process(_delta: float) -> void:
 	if packed == null:
 		push_error("BootScene: %s did not load a PackedScene" % WORLD_SCENE)
 		return
+	# The world's own scripts look these up in `_ready`; make them now if the
+	# load somehow beat the deferred warm-up.
+	var loader := get_node_or_null(^"/root/ToolLoader")
+	if loader != null:
+		loader.call("ensure_lazy_autoloads")
 	var world := packed.instantiate()
 	get_tree().root.add_child(world)
 	get_tree().current_scene = world

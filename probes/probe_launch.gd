@@ -26,6 +26,16 @@ func _initialize() -> void:
 			print("PROBE launch freed " + autoload_name)
 	_run()
 
+## How many of the two deferred autoloads exist right now: 0 at the title (they
+## are created two frames later, behind it) and 2 by the time the world is in.
+func _manager_count() -> int:
+	var count := 0
+	for manager_name in ["SkinManager", "BlockManager"]:
+		if root.get_node_or_null(manager_name) != null:
+			count += 1
+	return count
+
+
 func _env_float(name: String, fallback: float) -> float:
 	var raw := OS.get_environment(name)
 	return float(raw) if raw.is_valid_float() else fallback
@@ -74,12 +84,12 @@ func _run() -> void:
 			var title := menu.get("_title") as CanvasItem
 			if title != null and title.visible:
 				title_ms = t
-				print("PROBE launch title_ms=%.1f uptime_ms=%d frames=%d" % [
-					t, Time.get_ticks_msec(), frames])
+				print("PROBE launch title_ms=%.1f uptime_ms=%d frames=%d managers=%d" % [
+					t, Time.get_ticks_msec(), frames, _manager_count()])
 		if world_ms < 0.0 and current_scene != null and current_scene != boot:
 			world_ms = t
-			print("PROBE launch world_ms=%.1f uptime_ms=%d scene=%s" % [
-				t, Time.get_ticks_msec(), current_scene.name])
+			print("PROBE launch world_ms=%.1f uptime_ms=%d scene=%s managers=%d" % [
+				t, Time.get_ticks_msec(), current_scene.name, _manager_count()])
 		if t >= float(next_second) * 1000.0:
 			var total := 0.0
 			var worst := 0.0

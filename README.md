@@ -287,6 +287,7 @@ scons test     # builds the doctest suite (see tests/)
 scons sizecheck   # fails if any .cpp/.hpp passes 500 lines (also a CI step)
 scons portability # fails on a Windows-only shape outside #ifdef _WIN32 (also a CI step)
 scons docscheck   # fails if the markdown cites a path that does not exist (also a CI step)
+scons timings     # wall-clock gate: boot, fill and fps settle vs timings_baseline.txt (local only)
 scons path_cost # planner cost over real terrain (bin/path_cost [seed] [max_distance])
 scons schematic_report # decode a build file (bin/schematic_report <file> [--top N | --all] [--table PATH] [--plan] [--repeat N])
 # in game: K spawns the punchable dummy, P plans a route from it to the player

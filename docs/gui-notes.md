@@ -421,12 +421,13 @@ first-person viewmodel - what each one owns and the decisions behind it.
 
 ## Block Maker
 
-- **Block Maker**: Settings → Block Maker page — `block_manager.gd` autoload +
+- **Block Maker**: Settings → Block Maker page — `block_manager.gd` (created behind the
+  title, not an autoload) +
   `block_preview.gd`, mirrors the Skin Maker for one 16×16 cube texture. BlockManager owns a
   single persistent `ImageTexture` shared by every cube face (all 6 faces use the one 16×16
   atlas), debounced saves to `user://current_block.png` plus a restart-recovery snapshot
   `user://block_noise_base.png`, and a reversible grayscale-noise slider whose value/base
-  survive page rebuilds because they live on the autoload. Noise/sidecars persist per block as
+  survive page rebuilds because they live on the singleton. Noise/sidecars persist per block as
   `user://blocks/<name>.png` + `<name>.json`
 - **Block Maker noise, world-wide**: the makers' sliders stay per-texture and repaint on the
   CPU; the Shaders page's **Noisy Blocks** is the same grain over every block at once (0..100,

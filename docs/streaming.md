@@ -2338,7 +2338,7 @@ either change nothing (PSO cache) or make the boot minutes long (shader cache).
   creates them two frames after the title is on screen, and again before it
   instantiates the world in case the load beat the warm-up. One process per
   script puts their parse at **5.6 and 6.9 ms**, plus their `_ready` reads
-  `user://current_skin.png` / `current_block.png` and builds a noise map. Four
+  the last skin and block textures from `user://` and builds a noise map. Four
   alternating pairs put engine init at a median of **916 -> 901 ms** and the
   title at **976 -> 966.5 ms** (median deltas -6 and -1.5 ms): real work, but
   inside the run-to-run spread. What is left of the ~125 ms autoload stage is

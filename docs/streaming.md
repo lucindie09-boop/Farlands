@@ -2138,3 +2138,67 @@ it — are in [lod-modes.md](lod-modes.md).
   60-76 ms class is the 512-upload reveal, count-bounded rather than clock-bounded (which is
   why no clock moved it), while the constrained worst frames are outside `process_total`; the
   load-to-tail switch itself is 2.2 ms.
+
+## Where the frames go after the fill
+
+- **The frame-rate settle splits into the fill, the latch's mesh drain, and the block-icon
+  autoload.** `probes/probe_fps_settle.gd` boots `Main.tscn` like the fill probe, then samples
+  every frame for `SECS` and prints one line a second: that second's frame mean/worst,
+  `Engine.max_fps`, the resource/node/memory counters, `get_mesh_rebuild_budget()`,
+  `get_pending_mesh_reasons()` and the generation/completion counts. Three 15-worker RD 32 shots
+  (`FARLANDS_WORKER_COUNT=15 RD=32 SECS=20`) all met its settle rule at **7.00 s**; the split:
+  - **0 -> 1.68 s: the fill.** `settled=1` on the first sample after it.
+  - **1.68 -> 3.42 s: the loading latch.** `budget` is 512 for exactly that window
+    (`PROBE fps summary budget=1.72s->3.47s`, `1.66->3.41`, `1.68->3.43`). Pending-mesh reason
+    frames over the whole run: queue **262-266**, mesh **118-130**, far_region **46-47**, region
+    **31-37**, far_vis **0**, immediate **0**. What that burst produced is in the report at t=4:
+    **5,143 chunk meshes, 248 region meshes, 4.78 M region vertices**. The queue and the reason
+    mask are clear by ~3.0 s; the latch then holds its 512 budget through its ~0.4 s quiet window.
+    This is the only part of the tail the streaming code owns.
+  - **3.42 -> ~5-6 s: `BlockIconRenderer`, not streaming.** The block continues at 4.5 ms/frame
+    with budget **4**, reasons **0**, `Generating 0`, `Completed 0` and
+    `has_pending_mesh_work()=false`. `scripts/block_icon_renderer.gd` pre-renders every block icon
+    at startup (`_pre_render_all_icons_async`, 174 non-air blocks); each icon is one `SubViewport`
+    render plus a `get_image()` readback that holds **5 awaited frames** (`_render_block_icon`),
+    so ~870 frames carry a ~20 ms icon every fifth one -- a ~4 ms average at ~220 fps, which is
+    the plateau's shape. The arms that pin it: in `probes/probe_engine_warmup.gd` (camera, light,
+    64 boxes, no `Main.tscn`) keeping only that autoload leaves **4.1-4.2 ms**, while keeping any
+    one of the other six leaves **0.37-0.45 ms**; an **empty project** (`probes/empty_project`, no
+    assets, no autoloads, the project's own `[rendering]` settings) runs **0.36-0.52 ms** from its
+    first second. Resources (`OBJECT_RESOURCE_COUNT` **43**), nodes (**111**) and static memory
+    (**67 MB**) are flat across the plateau, so it is icon *generation*, not files being loaded.
+    Freeing that autoload in `probe_fps_settle.gd` (`KILL_AUTOLOAD=BlockIconRenderer`, two shots)
+    removes the plateau: t=4 is already **1.06-1.09 ms**, and the fill frames at t=1 drop from
+    7.3-9.2 ms to 3.2-4.0 ms. The latch itself does not move (`1.81->3.62`, `1.82->3.36` s).
+    The probe's `settle_1s` stays 5.00-7.00 s in that arm because its own once-a-second
+    `get_performance_report()` costs ~7 ms and trips the worst-frame rule; the per-second means
+    are the measurement, not that field. Freeing a live autoload leaves a coroutine error
+    (`Resumed function '_render_block_icon()' after await`) and two leaked RIDs at exit.
+- **The icon pre-render is one batched pass now, not 174 renders.** `_pre_render_all_icons_batched`
+  builds every icon's mesh, lays the icons out in the camera's own screen plane (a 14x13 grid at
+  the icon's own world extent) and renders them in a single `SubViewport` pass, then slices the
+  2688x2496 readback into the per-block textures. The per-icon `_render_block_icon` (a render, a
+  `get_image()` readback and five awaited frames per block) is gone. Two 15-worker RD 32 shots of
+  `probe_fps_settle.gd` after the change: the first second drops from 7.3-9.2 ms to **3.9 ms**
+  (253-259 frames), t=3 from 6.6-6.8 ms to **1.4-1.6 ms**, and t=4 is **0.97-0.98 ms**, so the
+  4.5 ms block is gone and its `settle_1s` moves from 7.00 s to **5.00 s** (still padded by its
+  own once-a-second report call, which costs ~7 ms). The batch is one **45-59 ms** frame in the
+  first second, the 29 MB readback: that is now the whole cost, against ~3.7 s at ~220 fps before.
+- **A batched icon grid needs a far camera, or the grid washes the icons out.** The first batched
+  build looked whiter than the icons it replaced, and the cause is the view vector: an
+  orthographic camera does not change scale with distance, but Godot still takes the per-fragment
+  view from the camera's position, so a camera 3 units away gives every grid cell a different
+  view and sweeps the specular lobe across the grid. A 5x5 grid of 24 identical stone cubes
+  measured **105-129** mean brightness by cell in the first build (the bottom-right cells ~25
+  levels brighter); the same grid with the camera **300** units out measures **101.2-101.4** for
+  every cell. `_setup_viewport` now puts the icon camera there and sets `far` from the distance
+  (an orthographic projection is scale-invariant, so nothing else moves). The centred icon is a
+  few levels darker than the old near-camera one -- a parallel view instead of one that fans out
+  across the cube -- and the shipped icons are that. `probes/probe_icons.gd` fingerprints the
+  cache: **174** icons, every one 192x192, with the same alpha coverage as before for stone
+  (20,982 px), water (19,188) and mud (20,046).
+
+  - **Steady state** is **0.9-1.0 ms/frame (about 1,000-1,100 fps)**: with scene scripts silenced
+    the floor is **0.67-0.73 ms**, with the render loop off **0.23-0.35 ms**, so the 20 world
+    scripts cost ~0.25 ms and the renderer ~0.6 ms of it; `BlockIconRenderer` keeps its cached
+    icon set, so this is the post-icon floor either way.

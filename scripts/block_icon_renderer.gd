@@ -22,21 +22,73 @@ func _ready() -> void:
 	_load_block_definitions()
 	_load_block_shapes()
 	_setup_viewport()
-	# Start pre-rendering in background after a brief delay
-	call_deferred("_pre_render_all_icons_async")
+	call_deferred("_pre_render_all_icons_batched")
 
-func _pre_render_all_icons_async() -> void:
-	# Pre-render all block icons in the background
+# One viewport render and one readback for every icon, instead of a render and
+# a readback per block with five awaited frames each: the per-icon loop held the
+# whole game at ~220 fps for the first four seconds after boot.
+func _pre_render_all_icons_batched() -> void:
+	await get_tree().process_frame
+	var ids: Array[int] = []
+	var meshes: Array[ArrayMesh] = []
 	for block_id in range(_block_defs.size()):
-		var block_def = _block_defs[block_id]
+		var block_def: Dictionary = _block_defs[block_id]
 		# Skip air blocks (but render transparent blocks like leaves)
-		if block_def.get("name", "") == "air":
+		if block_def.get("name", "") == "air" or _icon_cache.has(block_id):
 			continue
-		# Render and cache
-		if not _icon_cache.has(block_id):
-			var icon := await _render_block_icon(block_id)
-			if icon != null:
-				_icon_cache[block_id] = icon
+		var mesh := _build_block_mesh(block_def)
+		if mesh == null:
+			continue
+		ids.append(block_id)
+		meshes.append(mesh)
+	if ids.is_empty():
+		return
+
+	# Lay the icons out in the camera's own screen plane: every cell is then at
+	# the single icon's distance, so only the viewport's extent changes.
+	var count := ids.size()
+	var cols := int(ceil(sqrt(float(count))))
+	var rows := int(ceil(float(count) / float(cols)))
+	var cell := _camera.size
+	var right := _camera.global_transform.basis.x.normalized()
+	var up := _camera.global_transform.basis.y.normalized()
+	var instances: Array[MeshInstance3D] = []
+	for index in range(count):
+		var mesh := meshes[index]
+		var instance := MeshInstance3D.new()
+		instance.mesh = mesh
+		# Same centring as the single-icon path, then offset to this cell.
+		var center_offset := mesh.get_aabb().get_center() - Vector3(0.5, 0.5, 0.5)
+		var col := index % cols
+		var row := int(float(index) / float(cols))
+		instance.position = right * ((float(col) + 0.5 - float(cols) * 0.5) * cell) \
+				+ up * ((float(rows) * 0.5 - float(row) - 0.5) * cell) - center_offset
+		_apply_block_textures(_block_defs[ids[index]], instance)
+		_viewport.add_child(instance)
+		instances.append(instance)
+
+	var previous_size := _viewport.size
+	_viewport.size = Vector2i(cols * ICON_SIZE, rows * ICON_SIZE)
+	_camera.size = cell * float(rows)
+	_viewport.render_target_update_mode = SubViewport.UPDATE_ONCE
+	await RenderingServer.frame_post_draw
+	await RenderingServer.frame_post_draw
+	var atlas: Image = _viewport.get_texture().get_image()
+	_viewport.size = previous_size
+	_camera.size = cell
+	_viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
+	for instance in instances:
+		instance.queue_free()
+	if atlas == null:
+		push_error("BlockIconRenderer: batched icon render produced no image")
+		return
+	# The readback is already in screen order, so cell (row, col) is the same
+	# rectangle in the atlas as it was on screen.
+	for index in range(count):
+		var col := index % cols
+		var row := int(float(index) / float(cols))
+		var slice := atlas.get_region(Rect2i(col * ICON_SIZE, row * ICON_SIZE, ICON_SIZE, ICON_SIZE))
+		_icon_cache[ids[index]] = ImageTexture.create_from_image(slice)
 
 func _load_block_definitions() -> void:
 	var file := FileAccess.open("res://data/block_definitions.json", FileAccess.READ)
@@ -114,10 +166,14 @@ func _setup_viewport() -> void:
 	_camera.projection = Camera3D.PROJECTION_ORTHOGONAL
 	_camera.size = 1.75
 	_camera.near = 0.1
-	_camera.far = 100.0
-	
-	# Position camera for dimetric isometric view (45° yaw, ~30° pitch)
-	var distance = 3.0
+	# Position camera for dimetric isometric view (45° yaw, ~30° pitch). The
+	# distance is large on purpose: an orthographic camera ignores it for scale,
+	# and Godot still takes the per-fragment view vector from the camera's
+	# position, so a near camera gives each cell of a batched icon grid a
+	# different view (and therefore a different specular lobe). Far away, every
+	# cell sees the same direction, which is the look the single-icon path had.
+	var distance = 300.0
+	_camera.far = distance + 100.0
 	var yaw = deg_to_rad(45)
 	var pitch = deg_to_rad(30)
 	_camera.position = Vector3(
@@ -184,73 +240,6 @@ func _render_block_icon_sync(block_id: int) -> ImageTexture:
 	# Reset to disabled to save performance
 	_viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
 	
-	return ImageTexture.create_from_image(img)
-
-# Render a single block icon (async, for test function)
-func _render_block_icon(block_id: int) -> ImageTexture:
-	if block_id < 0 or block_id >= _block_defs.size():
-		return null
-	
-	var block_def = _block_defs[block_id]
-	
-	# Skip air blocks (but render transparent blocks like leaves for icons)
-	if block_def.get("name", "") == "air":
-		return null
-	
-	# print("Rendering block " + str(block_id) + ": " + block_def.get("name", "unknown"))
-	
-	# Build block mesh
-	var mesh := _build_block_mesh(block_def)
-	if mesh == null:
-		print("Failed to build mesh for block " + str(block_id))
-		return null
-	
-	# print("Mesh has " + str(mesh.get_surface_count()) + " surfaces")
-	
-	_block_mesh.mesh = mesh
-	_block_mesh.material_override = null  # Clear any previous material override
-	
-	# Center the mesh based on its AABB so all blocks appear at the same distance
-	var aabb = mesh.get_aabb()
-	var center_offset = aabb.get_center() - Vector3(0.5, 0.5, 0.5)
-	_block_mesh.position = -center_offset
-	
-	# Apply textures
-	_apply_block_textures(block_def)
-	
-	# Force viewport render once
-	_viewport.render_target_update_mode = SubViewport.UPDATE_ONCE
-	
-	# Wait for multiple frames to ensure render completes
-	for i in range(5):
-		await get_tree().process_frame
-	
-	# Capture viewport to texture
-	var tex := _viewport.get_texture()
-	if tex == null:
-		print("Failed to get viewport texture for block " + str(block_id))
-		return null
-	
-	var img := tex.get_image()
-	if img == null:
-		print("Failed to get image from texture for block " + str(block_id))
-		return null
-	
-	# Check if image is blank
-	var is_blank := true
-	for y in range(img.get_height()):
-		for x in range(img.get_width()):
-			var pixel = img.get_pixel(x, y)
-			if pixel.a > 0.01:
-				is_blank = false
-				break
-		if not is_blank:
-			break
-	
-	if is_blank:
-		print("Warning: Rendered image appears blank for block " + str(block_id))
-	
-	# print("Successfully rendered icon for block " + str(block_id) + ", size: " + str(img.get_width()) + "x" + str(img.get_height()))
 	return ImageTexture.create_from_image(img)
 
 # Build a block mesh from block definition
@@ -434,7 +423,9 @@ func _build_shaped_mesh(shape: String, _block_def: Dictionary) -> ArrayMesh:
 	return mesh
 
 # Apply textures to the block mesh
-func _apply_block_textures(block_def: Dictionary) -> void:
+func _apply_block_textures(block_def: Dictionary, target: MeshInstance3D = null) -> void:
+	if target == null:
+		target = _block_mesh
 	var textures = block_def.get("textures", ["", "", "", "", "", ""])
 	var visible_faces = block_def.get("visible_faces", [true, true, true, true, true, true])
 	var shape = block_def.get("shape", "")
@@ -452,7 +443,7 @@ func _apply_block_textures(block_def: Dictionary) -> void:
 	
 	# For shaped blocks, use the same texture for all faces
 	# For full blocks, use per-face textures
-	var surface_count = _block_mesh.mesh.get_surface_count()
+	var surface_count = target.mesh.get_surface_count()
 	
 	for surface_index in range(surface_count):
 		var face_tex: Texture2D = fallback_tex
@@ -478,7 +469,7 @@ func _apply_block_textures(block_def: Dictionary) -> void:
 		mat.roughness = 1.0
 		mat.metallic = 0.0
 		
-		_block_mesh.set_surface_override_material(surface_index, mat)
+		target.set_surface_override_material(surface_index, mat)
 
 # Clear the icon cache (call this if textures change)
 func clear_cache() -> void:

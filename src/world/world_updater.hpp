@@ -378,6 +378,13 @@ private:
     SweepCursor generation_cursor;
     bool    generation_pass_complete   = false;  // true = the walk has exhausted its list
     bool    fill_settled_              = false;  // this frame's exact fill predicate
+    // Whether the sweep may generate a column's whole band in one task. A
+    // one-shot: armed at world load, disarmed by the fill's first settle, because
+    // fill_settled_ flickers false again the moment the player moves. Banding is
+    // a fill trade (1.86-1.93 s against 2.11-2.14, 3/3) that costs 26% of the
+    // streaming rate in flight (851/858 chunks/s against 1,147/1,150 with
+    // FARLANDS_GEN_BAND=0 on probe_stream_bench, 15 workers, RD 32).
+    bool    initial_fill_band_         = true;
 
     // Unload scan throttle — avoids holding shared_lock for 500 iterations every frame.
     // Scan runs when player changes chunks, or every kUnloadScanSkipFrames frames otherwise.

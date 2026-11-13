@@ -1389,10 +1389,22 @@ it — are in [lod-modes.md](lod-modes.md).
   before the task starts (so the walk's later offers for those slices are refused rather than
   duplicated) and one worker builds them in order. Paired at 15 workers, settle 1.858/1.918/1.932 s
   with the band against 2.114/2.140/2.127 without, 3/3 with every pair separating, installs
-  identical at 20,230; at 11 workers 2.084 against 2.424. It is on by default
-  (`FARLANDS_GEN_BAND=0` is the opt-out) and it is the first change since the loading caps to put
-  settle under two seconds: the column pass is paid once per column instead of once per slice, which
-  is 5 of every 6 passes on a band that spans six slices. The band task's one trap is that the chunk
+  identical at 20,230; at 11 workers 2.084 against 2.424. It is the first change since the loading
+  caps to put settle under two seconds: the column pass is paid once per column instead of once per
+  slice, which is 5 of every 6 passes on a band that spans six slices.
+
+  It is armed only while the initial fill is generating, not for all streaming: the walk hands a
+  candidate its band until the fill first settles and one slice at a time afterwards
+  (`WorldUpdater::initial_fill_band_`; `FARLANDS_GEN_BAND=0` remains the opt-out for an arm). The
+  reason is that the trade reverses in flight. `probes/probe_stream_bench.gd` at 15 workers and
+  RD 32, flying 100 blocks/s for 40 s, generated 851/858 chunks/s with the band armed and
+  1,147/1,150 with it disarmed -- 26% slower, with the flight's frame rate down from ~476 to ~388
+  fps -- and the loss is task granularity rather than the in-flight cap: a 4,000-key ceiling moved
+  it to 860 and a 90-key ceiling to 833, while `FARLANDS_GEN_BAND_SPAN=2` recovered to 952. A band
+  task holds a worker for several slices and commits the whole column behind one dequeue, which a
+  static fill wants (every slice is needed) and a moving frontier does not (it wants the next
+  column's near slice now). With the one-shot gate the fill stays at 1.689/1.728/1.895 s against
+  2.053/1.922 forced off, and the flight returns to 1,149/1,153 chunks/s. The band task's one trap is that the chunk
   key is no longer one value: the edit map, its disk probe and the generation memo are all keyed per
   chunk, so a task that carries the band's first key into the loop applies that slice's edits to
   every slice -- a torch placed in one chunk came back at the same local height all the way up the

@@ -1,0 +1,24 @@
+# Farlands wall-clock baseline — update after intentional changes, like
+# benchmark_baseline.txt.
+# Format: metric_name max_value
+# If a timing exceeds max_value, `scons timings` fails.
+#
+# Ceilings are 1.5x the 2026-11-13 run on the RTX 5060 Ti desktop, measured with
+# an isolated APPDATA: boot engine 1032 ms, title 1200 ms, world 2174 ms, fill
+# 2.15 s, fps settle 5.0 s. The isolation is deliberate — the gate must not read
+# or write the player's save, and every run must start from the same fresh
+# world. It also means these are FIRST-run numbers: Godot keeps the shader and
+# pipeline caches under user://, so an isolated run pays the cold cache. The fill
+# and settle probes run at a pinned RD=32 (tools/check_timings.py --rd).
+#
+# Wall-clock is machine-specific and noisy (two consecutive launches on this
+# desktop differ by tens of ms, and a fresh world can be an ocean or a
+# mountain), which is why the ceilings are 1.5x rather than the C++ benchmark's
+# 4x: this is a local gate for regressions the size of the cloud-layer stall,
+# not a benchmark. Re-run `python tools/check_timings.py --write` on another
+# machine and replace the numbers there.
+boot_engine_ms 1550
+boot_title_ms 1800
+boot_world_ms 3300
+fill_settle_s 3.3
+fps_settle_s 7.5

@@ -62,6 +62,14 @@ The first three run in CI directly; the fourth is the static-analysis job. The
 common thread is that all four are Linux-only in CI, so each one also exists as a
 local command that reproduces it.
 
+A fifth alias is local-only: `scons timings`
+([tools/check_timings.py](../tools/check_timings.py)) reruns the boot, world-fill
+and fps-settle probes and compares them with `timings_baseline.txt`. The gate itself
+needs a window and a GPU, so it cannot run in CI -- but a `timing-gate` job runs
+its `--selftest`, which exercises the comparison's pass, regression and
+missing-entry paths without a Godot binary. What its ceilings mean and what it
+can and cannot catch are in [testing.md](testing.md).
+
 `docscheck` is the only one that reads outside the tree: once `bin/run_tests`
 exists it runs it (once, cached) so that an assertion count in prose is compared
 against the real number rather than only noted as unverified. `scons test` first

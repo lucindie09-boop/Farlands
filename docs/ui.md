@@ -363,7 +363,7 @@ being resampled by a different fraction at each scale.
 - `block_manager.gd` — Autoload holding the single persistent 16×16 block texture (one
   `ImageTexture` shared by every cube face), with debounced saves to `user://current_block.png`,
   a restart-recovery noise base (`user://block_noise_base.png`), and a reversible
-  grayscale-noise slider living on the autoload so it survives page rebuilds
+  grayscale-noise slider living on the singleton so it survives page rebuilds
 - `block_preview.gd` — Transparent-background sub-viewport behind the block maker that
   drag-orbits a cube; DRAW/FILL/BOX painting over primitive triangle raycasts, undo (Ctrl+Z),
   noise slider integration, and clamped zoom

@@ -23,8 +23,6 @@ config/icon="res://icon.svg"
 [autoload]
 
 UIScale="*res://scripts/ui_scale.gd"
-SkinManager="*res://scripts/skin_manager.gd"
-BlockManager="*res://scripts/block_manager.gd"
 BlockIconRenderer="*res://scripts/block_icon_renderer.gd"
 LiquidAnimator="*res://scripts/liquid_animator.gd"
 ToolLoader="*res://scripts/tool_loader.gd"

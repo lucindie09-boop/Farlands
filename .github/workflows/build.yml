@@ -178,6 +178,22 @@ jobs:
         timeout-minutes: 2
         run: timeout 60s ./bin/fuzz_mesh_builder -seed=12345 || [ $? -eq 124 ]
 
+  timing-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Check the timing gate's comparison
+        # The gate itself runs `probe_launch`, `probe_start_fill` and
+        # `probe_fps_settle`, which need a window and a GPU -- so CI runs the
+        # self-test instead: the pass, regression and missing-entry paths of the
+        # comparison, with no Godot binary and no game launch.
+        run: python tools/check_timings.py --selftest
+
   static-analysis:
     runs-on: ubuntu-latest
     steps:

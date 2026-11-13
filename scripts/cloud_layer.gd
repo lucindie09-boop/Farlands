@@ -50,34 +50,25 @@ var _chunk_manager: Node
 var _layer_nodes: Array[MeshInstance3D] = []
 var _layer_materials: Array[ShaderMaterial] = []
 var _wind_offset := 0.0
+var _generate_thread: Thread = null
 
 
 func _ready() -> void:
 	_player = get_node_or_null("../Player") as Node3D
 	_chunk_manager = get_node_or_null("../ChunkManager")
 
-	var layer_values: Array[PackedFloat32Array] = []
-	var thresholds: Array[float] = []
-	layer_values.append(_cloud_values(NOISE_SEED))
-	thresholds.append(CLOUD_THRESHOLD)
-	var base_count := _count_above(layer_values[0], CLOUD_THRESHOLD)
-	for index in range(1, CLOUD_LAYER_OPACITY_SCALE.size()):
-		var values := _cloud_values(NOISE_SEED + CLOUD_LAYER_SEED_STEP * index)
-		layer_values.append(values)
-		var target_count := int(round(float(base_count) * CLOUD_LAYER_COVERAGE_SCALE[index]))
-		thresholds.append(_threshold_for_count(values, target_count))
+	# The layers are created empty and filled in when `_generate_layers` returns:
+	# building them here cost ~4 s of the first frame (noise, sort, greedy mesh,
+	# three times), which was the whole boot delay.
 	for index in CLOUD_LAYER_OPACITY_SCALE.size():
-		var mask := _generate_cloud_mask(layer_values[index], thresholds[index])
 		var layer: MeshInstance3D = self if index == 0 else MeshInstance3D.new()
 		if index > 0:
 			layer.name = "CloudLayerUpper%d" % index
 			add_child(layer)
-		layer.mesh = _build_cloud_mesh(mask)
 		layer.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
 		var cloud_material := ShaderMaterial.new()
 		cloud_material.shader = CLOUD_SHADER
-		cloud_material.set_shader_parameter("cloud_texture", _mask_to_texture(mask))
 		cloud_material.set_shader_parameter("cloud_span", CLOUD_SPAN)
 		cloud_material.set_shader_parameter("opacity", CLOUD_OPACITY * CLOUD_LAYER_OPACITY_SCALE[index])
 		# The water material is priority 1 and writes depth. Every cloud layer is
@@ -92,6 +83,46 @@ func _ready() -> void:
 	_apply_layer_positions()
 	global_position = Vector3(0.0, CLOUD_HEIGHT, 0.0)
 	_place_cloud_tile()
+	# Low priority: the first chunk fill owns the workers, and the sky can appear
+	# a second into the launch without anything in front of it noticing.
+	_generate_thread = Thread.new()
+	_generate_thread.start(_generate_layers, Thread.PRIORITY_LOW)
+
+
+func _exit_tree() -> void:
+	if _generate_thread != null:
+		_generate_thread.wait_to_finish()
+		_generate_thread = null
+
+
+# Thread body: pure data, no tree and no RenderingServer. The masks and mesh
+# arrays are built here and only turned into ImageTexture/ArrayMesh on the main
+# thread in `_attach_generated`.
+func _generate_layers() -> Array:
+	var layer_values: Array[PackedFloat32Array] = []
+	var thresholds: Array[float] = []
+	layer_values.append(_cloud_values(NOISE_SEED))
+	thresholds.append(CLOUD_THRESHOLD)
+	var base_count := _count_above(layer_values[0], CLOUD_THRESHOLD)
+	for index in range(1, CLOUD_LAYER_OPACITY_SCALE.size()):
+		var values := _cloud_values(NOISE_SEED + CLOUD_LAYER_SEED_STEP * index)
+		layer_values.append(values)
+		var target_count := int(round(float(base_count) * CLOUD_LAYER_COVERAGE_SCALE[index]))
+		thresholds.append(_threshold_for_count(values, target_count))
+	var generated: Array = []
+	for index in CLOUD_LAYER_OPACITY_SCALE.size():
+		var mask := _generate_cloud_mask(layer_values[index], thresholds[index])
+		generated.append({"mask": mask, "arrays": _build_cloud_arrays(mask)})
+	return generated
+
+
+func _attach_generated(generated: Array) -> void:
+	for index in mini(generated.size(), _layer_nodes.size()):
+		var data: Dictionary = generated[index]
+		_layer_nodes[index].mesh = _arrays_to_mesh(data["arrays"])
+		_layer_materials[index].set_shader_parameter(
+			"cloud_texture", _mask_to_texture(data["mask"]))
+	_apply_layer_count()
 
 
 func set_cloud_layers(value: int) -> void:
@@ -116,6 +147,10 @@ func _apply_layer_positions() -> void:
 
 
 func _process(delta: float) -> void:
+	if _generate_thread != null and not _generate_thread.is_alive():
+		var generated: Array = _generate_thread.wait_to_finish()
+		_generate_thread = null
+		_attach_generated(generated)
 	_wind_offset = fmod(_wind_offset + WIND_SPEED * delta, CLOUD_TILE)
 	_place_cloud_tile()
 	_update_cloud_color()
@@ -158,11 +193,21 @@ func _update_cloud_color() -> void:
 
 
 func _cloud_values(seed_value: int) -> PackedFloat32Array:
+	# The mask tiles 2x2, so only TEXTURE_SIZE x TEXTURE_SIZE texels are unique;
+	# sampling the full MASK_SIZE area was four times the noise work per layer.
+	# The expanded array is byte-identical to the old direct sampling.
+	var tile := PackedFloat32Array()
+	tile.resize(TEXTURE_SIZE * TEXTURE_SIZE)
+	for y in TEXTURE_SIZE:
+		for x in TEXTURE_SIZE:
+			tile[y * TEXTURE_SIZE + x] = _cloud_value(x, y, seed_value)
 	var values := PackedFloat32Array()
 	values.resize(MASK_SIZE * MASK_SIZE)
 	for y in MASK_SIZE:
+		var src_row := (y % TEXTURE_SIZE) * TEXTURE_SIZE
+		var dst_row := y * MASK_SIZE
 		for x in MASK_SIZE:
-			values[y * MASK_SIZE + x] = _cloud_value(x % TEXTURE_SIZE, y % TEXTURE_SIZE, seed_value)
+			values[dst_row + x] = tile[src_row + (x % TEXTURE_SIZE)]
 	return values
 
 
@@ -201,7 +246,7 @@ func _mask_to_texture(mask: PackedByteArray) -> ImageTexture:
 	return ImageTexture.create_from_image(image)
 
 
-func _build_cloud_mesh(mask: PackedByteArray) -> ArrayMesh:
+func _build_cloud_arrays(mask: PackedByteArray) -> Array:
 	var vertices := PackedVector3Array()
 	var colors := PackedColorArray()
 	var normals := PackedVector3Array()
@@ -302,6 +347,10 @@ func _build_cloud_mesh(mask: PackedByteArray) -> ArrayMesh:
 	arrays[Mesh.ARRAY_COLOR] = colors
 	arrays[Mesh.ARRAY_NORMAL] = normals
 	arrays[Mesh.ARRAY_INDEX] = indices
+	return arrays
+
+
+func _arrays_to_mesh(arrays: Array) -> ArrayMesh:
 	var cloud_mesh := ArrayMesh.new()
 	cloud_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 	return cloud_mesh

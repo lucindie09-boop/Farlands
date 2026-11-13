@@ -2202,3 +2202,92 @@ it — are in [lod-modes.md](lod-modes.md).
     the floor is **0.67-0.73 ms**, with the render loop off **0.23-0.35 ms**, so the 20 world
     scripts cost ~0.25 ms and the renderer ~0.6 ms of it; `BlockIconRenderer` keeps its cached
     icon set, so this is the post-icon floor either way.
+
+## Where the boot goes
+
+`probes/probe_launch.gd` marks engine uptime at each stage of a real boot, so
+these numbers are wall clock from the double-click, not from the first frame. A
+GUI run before the cloud fix:
+
+- engine init, project load and the autoload scripts: **1.03-1.05 s** (an empty
+  project with no autoloads runs 0.78-0.83 s, so that floor is Godot's own boot);
+- `Main.tscn` load **611-638 ms**, instantiate **120-134 ms**;
+- then **one 4.20-4.30 s frame**: the title appeared 4.4 s after the scene was
+  added, at 6.2 s of uptime.
+
+That frame was `CloudLayer._ready`. Per layer: a 512x512 noise mask (262,144
+texels, 3 octaves, 4 lattice hashes each, in GDScript -- **1.19 s**), a sort for
+the coverage threshold (18 ms), the mask (6 ms), a 256x256 texture (5 ms) and a
+greedy-rectangle extrusion of 228,768 vertices (**127 ms**): **1.39 s per layer,
+4.2 s for the three**, all before the first frame could be drawn. The arms that
+pin it: dropping `CloudLayer` alone takes the first frame from 3.97 s to
+**96 ms**, dropping every child of `Main.tscn` leaves 75 ms and an empty node
+79 ms, while dropping `ChunkManager`, `Player` or `HUD` alone changes nothing
+(3.95-4.00 s).
+
+Two changes in `scripts/cloud_layer.gd`:
+
+- The mask tiles 2x2, and `_cloud_values` was sampling the same 256x256 tile
+  four times over. It now computes the tile once and expands it, which is
+  byte-identical and takes `_cloud_values` from **1201 ms to 301 ms**.
+- The layers are generated on a low-priority `Thread` and attached in `_process`
+  when it finishes: the layer nodes exist from the first frame but carry no mesh
+  until then. `_build_cloud_arrays` is the pure half; the `ImageTexture` and
+  `ArrayMesh` are still made on the main thread, so the clouds are the same
+  bytes -- `probes/probe_cloud_boot.gd` hashes every stage before and after:
+  values `2413463503`, mask `1239665756`, vertices `3025404319`, colours
+  `2720201534`, normals `2927097694`, indices `175101349` both ways.
+
+After it, two GUI boots: engine 1.02-1.04 s, load 606-622 ms, instantiate
+120-123 ms, **first frame 193-207 ms**, the title on screen at **2.15-2.17 s** of
+uptime (387-409 ms after the scene was added), all three cloud layers attached
+by 2.2 s (`attached=3 of=3`). Headless is 1.15 s to the title (engine 308 ms,
+first frame 96 ms). What is left is engine init ~1.0 s (0.83 s of it is Godot
+with an empty project), the scene load ~0.6 s and the first frames ~0.4 s; the
+~1.5 s of cloud generation still happens, behind the title instead of in front
+of it.
+
+### The title boots before the world
+
+The remaining wait was ordering, not work: `Main.tscn` (611-638 ms to load, 120-134
+ms to instantiate, then its own first frames) was the engine's main scene, so the
+title could not appear until all of it was in. The main scene is now `Boot.tscn`
+-- one node with `scripts/boot_scene.gd` -- which starts the world with
+`load_threaded_request(..., use_sub_threads = true)`, and `MenuLayer` opens the
+title the first frame it sees that scene (`boot_scene` group). Everything the
+title shows (the save, the seed, the update log) comes from files, so it needs no
+world; the sky-warmth accent falls back to the menu's own. A press before the
+world exists is held (`_start_pending`) and its transition runs the frame the
+world binds. When the world lands it is added and made the current scene, and
+`Boot.tscn` binds `MenuLayer` in that same frame, so the HUD is hidden and the
+mouse gate is up before anything is drawn. `BlockIconRenderer` now waits for
+`MenuLayer.world_bound` too: as the process's first 3D render the icon batch cost
+~450 ms of pipeline creation, against ~140 ms once the world has drawn once
+(probes with no world scene get the icons from a 3 s fallback).
+
+Five GUI boots after the tool and curtain deferral: engine **900-933 ms**, boot
+scene **3-4 ms**, title on screen at **958-991 ms** of uptime (51-54 ms after the
+scene was added), world at **1888-2017 ms**, cloud layers attached by ~2 s. From
+2.15-2.17 s before the rewrites, and 6.2 s before the cloud fix.
+
+What is left is the engine's own boot. `--verbose` with a line timestamp puts
+**~350 ms in Vulkan device creation, ~350 ms in the built-in shader/PSO caches
+and WASAPI** (~35 ms of it audio) and **~125 ms in the four remaining autoload
+scripts** (menu and title assets ~70 ms of it). An empty project with no autoloads
+boots in 783-831 ms, so the game's own share of a launch is now ~150 ms: the boot
+scene, the title's construction and the autoloads it cannot do without.
+
+Two more things moved off the boot path to get there, both because they are only
+reachable after a key press:
+
+- The three creator/debug tools (`liquid_texture_lab.gd`, `chunk_borders.gd`,
+  `pose_clone_debug.gd`) are no longer autoloads. `scripts/tool_loader.gd`
+  creates each on the first press of its key and hands it that same press (with
+  input briefly switched off so one event cannot toggle it twice); the lab's 29
+  ms and the others' parse time leave the launch. `probes/probe_tool_loader.gd`
+  presses all three and checks one node each, the right script, and no double
+  spawn; `probes/probe_lava_acid.gd` instantiates the lab itself where it needs
+  it.
+- `menu_layer.gd` loads the 983-line block curtain on the first transition
+  instead of at boot. The start press that needs it is covered by the curtain
+  anyway, so its ~20 ms of parse lands where nothing can see it.

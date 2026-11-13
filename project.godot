@@ -16,7 +16,7 @@ compatibility/default_parent_skeleton_in_mesh_instance_3d=true
 
 config/name="Farlands"
 config/version="0.1"
-run/main_scene="uid://d0f2kff4camjn"
+run/main_scene="res://Boot.tscn"
 config/features=PackedStringArray("4.7", "Forward Plus")
 config/icon="res://icon.svg"
 
@@ -26,10 +26,8 @@ UIScale="*res://scripts/ui_scale.gd"
 SkinManager="*res://scripts/skin_manager.gd"
 BlockManager="*res://scripts/block_manager.gd"
 BlockIconRenderer="*res://scripts/block_icon_renderer.gd"
-PoseCloneDebug="*res://scripts/pose_clone_debug.gd"
 LiquidAnimator="*res://scripts/liquid_animator.gd"
-LiquidTextureLab="*res://scripts/liquid_texture_lab.gd"
-ChunkBorders="*res://scripts/chunk_borders.gd"
+ToolLoader="*res://scripts/tool_loader.gd"
 MenuLayer="*res://scripts/menu_layer.gd"
 
 [display]

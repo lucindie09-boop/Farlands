@@ -16,10 +16,20 @@ extends CanvasLayer
 ##
 ## The world is live behind the menu — it streams while the title is up and the
 ## player is standing in it — so CONTINUE really does mean "you are already
-## there", and the cover only has to hide a mouse-mode change, not a load.
+## there", and the cover only has to hide a mouse-mode change, not a load. The
+## first launch still gets the title up before the world exists: `Boot.tscn` is
+## the running scene for the ~1 s the title needs, and the world is loaded on a
+## thread behind it (`scripts/boot_scene.gd`), which is also the frame that binds
+## this layer — so the title is simply already there when the world arrives.
+
+## The world became the running scene and the gate is in place. `BlockIconRenderer`
+## waits for it: the icon pass belongs after the world's first draw, not before it.
+signal world_bound
 
 const TitleScreen := preload("res://scripts/title_screen.gd")
-const BlockCurtain := preload("res://scripts/ui_block_curtain.gd")
+# Parsed on the first transition, not at boot: 983 lines in front of the title
+# for a screen that cannot appear before a press.
+const BLOCK_CURTAIN_SCRIPT := "res://scripts/ui_block_curtain.gd"
 
 const SETTINGS_PATH := "user://settings.cfg"
 const META_PATH := "user://chunks/world.meta"
@@ -41,6 +51,8 @@ var _hud: Node
 var _hidden: Dictionary = {}
 var _open := false
 var _booted := false
+var _title_up := false
+var _start_pending := false
 var _busy := false
 # Whether a world existed BEFORE this launch. The world behind the title is
 # already running, so by the time the title is up `world.meta` always exists —
@@ -64,16 +76,14 @@ func _ready() -> void:
 	_title.world_chosen.connect(_on_start)
 	_title.settings_pressed.connect(_on_settings)
 	_title.quit_pressed.connect(_on_quit)
-	_curtain = BlockCurtain.new()
-	add_child(_curtain)
-	_curtain.hide()
+
 
 
 func _process(delta: float) -> void:
 	if not _booted:
 		_try_boot()
 		return
-	if not _open or _busy:
+	if _player == null or not _open or _busy:
 		return
 	# The settings menu owns the flag while it is up; it clears it on close, and
 	# this is what puts it back without a frame of captured mouse between them.
@@ -101,9 +111,16 @@ func _try_boot() -> void:
 	var chunks := scene.get_node_or_null("ChunkManager")
 	var hud := scene.get_node_or_null("HUD")
 	if player == null or chunks == null or hud == null:
-		# A scene of ours, but not the world. Nothing to show a title over.
-		_booted = true
-		set_process(false)
+		if not scene.is_in_group(&"boot_scene"):
+			# A scene of ours, but not the world. Nothing to show a title over.
+			_booted = true
+			set_process(false)
+			return
+		# The boot scene: the title goes up now, on that empty stage, and the
+		# world is swapped in behind the menu when it finishes loading. This
+		# keeps being called until it does.
+		if not _title_up:
+			_open_title()
 		return
 	_player = player
 	_chunk_manager = chunks
@@ -111,16 +128,39 @@ func _try_boot() -> void:
 	_settings_menu = hud.get_node_or_null("SettingsMenu")
 	_booted = true
 	_open = true
+	_bind_world()
+	if not _title_up:
+		_open_title()
+	# A press that came while the world was still loading runs its transition
+	# now, in the frame the world became bindable.
+	if _start_pending:
+		_start_pending = false
+		_on_start.call_deferred()
 
+
+## The gate and the HUD: what the title needs changed in the live scene, whether
+## the title was opened over the boot scene a moment ago or is opened right here.
+func _bind_world() -> void:
 	_hide_hud()
+	world_bound.emit()
 	# The title screen has no Escape of its own: with this off, Escape on the
 	# title does nothing rather than opening settings behind a screen that is
 	# about to be hidden.
 	if _settings_menu != null:
 		_settings_menu.set_process_input(false)
-	_player.set_settings_open(true)
-	var warmth: Color = _chunk_manager.get_body_sky_warmth() \
-		if _chunk_manager.has_method("get_body_sky_warmth") else Color(1.0, 0.76, 0.42)
+	if _player != null:
+		_player.set_settings_open(true)
+
+
+## Put the title on screen. Everything it shows is read from files, so it does
+## not need the world: the seed, the save and the update log all exist already,
+## and the sky warmth falls back to the menu's own when there is no chunk manager
+## to ask (the world is still loading).
+func _open_title() -> void:
+	_title_up = true
+	var warmth := Color(1.0, 0.76, 0.42)
+	if _chunk_manager != null and _chunk_manager.has_method("get_body_sky_warmth"):
+		warmth = _chunk_manager.get_body_sky_warmth()
 	_title.open(_had_world, _current_seed(),
 		String(ProjectSettings.get_setting("application/config/version", "dev")), warmth,
 		not _reduce_motion(), _worlds())
@@ -129,8 +169,14 @@ func _try_boot() -> void:
 func _on_start() -> void:
 	if _busy:
 		return
+	if _player == null:
+		# Pressed while the world was still loading behind the title: hold the
+		# press and run the transition the frame the world can be handed over.
+		_start_pending = true
+		return
 	_busy = true
 	_title.hide()
+	_ensure_curtain()
 	# The blocks start over the world, not over the title: hide first, then cover.
 	_curtain.play_cover(_reduce_motion())
 	await _curtain.covered
@@ -140,7 +186,17 @@ func _on_start() -> void:
 	_busy = false
 
 
+func _ensure_curtain() -> void:
+	if _curtain != null:
+		return
+	_curtain = (load(BLOCK_CURTAIN_SCRIPT) as GDScript).new()
+	add_child(_curtain)
+	_curtain.hide()
+
+
 func _on_settings() -> void:
+	if _player == null:
+		return
 	_title.hide()
 	if _settings_menu == null:
 		_show_title()
@@ -168,11 +224,7 @@ func _show_title() -> void:
 	_hide_hud()
 	if _settings_menu != null:
 		_settings_menu.set_process_input(false)
-	_title.open(_had_world, _current_seed(),
-		String(ProjectSettings.get_setting("application/config/version", "dev")),
-		_chunk_manager.get_body_sky_warmth() \
-			if _chunk_manager.has_method("get_body_sky_warmth") else Color(1.0, 0.76, 0.42),
-		not _reduce_motion(), _worlds())
+	_open_title()
 	_title.refocus()
 
 

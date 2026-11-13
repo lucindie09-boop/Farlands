@@ -19,11 +19,23 @@ extends Node
 ## pivots (arm/arm2 tops at y=24, leg/leg2 tops at y=12, torso y=18, head at
 ## the neck y=24 in glb units).
 
-const PLAYER_SCENE: PackedScene = preload("res://models/player.glb")
-const PLAYER_MODEL_SCRIPT: Script = preload("res://scripts/player_model.gd")
-const PIVOT_SHADER: Shader = preload("res://shaders/pose_pivot_marker.gdshader")
+# Loaded on first use, not at boot: `player.glb` and the skin/texture set behind
+# `player_model.gd` are ~40-50 ms of the launch, and this is a debug tool reached
+# with K. Nothing here is touched until a clone is built.
+var _player_scene: PackedScene = null
+var _player_model_script: Script = null
+var _pivot_shader: Shader = null
 # Vanilla-accurate physics (gravity/drag/knockback) â€” see dummy.gd.
-const DUMMY_SCRIPT: Script = preload("res://scripts/dummy.gd")
+var _dummy_script: Script = null
+
+
+func _load_clone_assets() -> void:
+	if _player_scene != null:
+		return
+	_player_scene = load("res://models/player.glb")
+	_player_model_script = load("res://scripts/player_model.gd")
+	_pivot_shader = load("res://shaders/pose_pivot_marker.gdshader")
+	_dummy_script = load("res://scripts/dummy.gd")
 
 # --- path debug -------------------------------------------------------------
 # P asks the engine's planner (worker thread) for a ground route from the clone
@@ -227,12 +239,13 @@ func _spawn() -> void:
 	while feet_y < 1024 and chunk_manager.get_block(bx, feet_y, bz) != 0:
 		feet_y += 1
 
+	_load_clone_assets()
 	var host := Node3D.new()
 	host.name = "PoseClone"
 	# The dummy is a physics body (dummy.gd: vanilla gravity/drag + knockback), so
 	# left-clicking it in game punches it instead of mining the block behind.
 	# PlayerController finds it through the pose_clone group.
-	host.set_script(DUMMY_SCRIPT)
+	host.set_script(_dummy_script)
 	host.add_to_group("pose_clone")
 	# Position BEFORE add_child: dummy.gd's _ready snapshots this as its tick
 	# position, and the interpolation then renders around it every frame.
@@ -240,8 +253,8 @@ func _spawn() -> void:
 	scene_root.add_child(host)
 	_clone = host
 
-	var model := PLAYER_SCENE.instantiate()
-	model.set_script(PLAYER_MODEL_SCRIPT)
+	var model := _player_scene.instantiate()
+	model.set_script(_player_model_script)
 	model.transform = _clone_model_transform()
 	# No AnimationPlayer child on purpose: player_model.gd only loads and plays
 	# its clips when an AnimationPlayer exists, so the clone stays frozen.
@@ -298,7 +311,7 @@ func _add_pivot_markers(model: Node3D) -> void:
 	var marker_mesh := BoxMesh.new()
 	marker_mesh.size = Vector3.ONE * PIVOT_MARKER_GLB
 	var marker_material := ShaderMaterial.new()
-	marker_material.shader = PIVOT_SHADER
+	marker_material.shader = _pivot_shader
 	marker_material.set_shader_parameter("marker_color", Color(1.0, 0.15, 0.15))
 	for mesh_instance in model.find_children("", "MeshInstance3D", true, false):
 		var mi := mesh_instance as MeshInstance3D

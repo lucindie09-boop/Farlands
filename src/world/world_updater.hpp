@@ -128,9 +128,7 @@ public:
     // registry) before the first update; a world with no fluid states leaves the
     // simulation disabled and every entry point a no-op.
     void set_fluid_state_table(fluids::FluidStateTable* table);
-    void notify_block_edit(int32_t x, int32_t y, int32_t z) {
-        fluid_sim.notify_block_changed(x, y, z);
-    }
+    void notify_block_edit(int32_t x, int32_t y, int32_t z);
     // The worker-thread form (see ChunkWorld::set_worker_edit_listener): queues the
     // wake for the next fluid tick instead of applying it here.
     void post_block_edit(int32_t x, int32_t y, int32_t z) {

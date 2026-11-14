@@ -37,6 +37,16 @@ void WorldUpdater::set_fluid_state_table(fluids::FluidStateTable* table) {
     fluid_sim.set_context(chunk_world->get_chunk_map(), BlockRegistry::get_instance(), *table, &fluid_sink);
 }
 
+void WorldUpdater::notify_block_edit(int32_t x, int32_t y, int32_t z) {
+    // Generated water next to an edit becomes live water, whatever made the edit: a
+    // player's block, a paste cell that touched it, or vegetation. The fluid wake
+    // follows, so the converted patch flows on its next tick.
+    if (chunk_world != nullptr) {
+        chunk_world->wake_generated_water(x, y, z);
+    }
+    fluid_sim.notify_block_changed(x, y, z);
+}
+
 void WorldUpdater::FluidSink::on_chunk_updated(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z,
                                                const std::vector<fluids::FluidWriteRecord>& writes) {
     // One batched write per chunk per tick, rather than a lock, a chunk lookup and a

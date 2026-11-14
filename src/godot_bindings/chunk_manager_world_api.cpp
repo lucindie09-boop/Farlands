@@ -5,6 +5,7 @@
 // file to read.
 
 #include "godot_bindings/chunk_manager.hpp"
+#include "fluids/generated_water_wake.hpp"
 
 #include "godot_bindings/cached_node.hpp"
 #include "core/light_packing.hpp"
@@ -116,6 +117,10 @@ Dictionary ChunkManager::raycast_from_camera(double max_distance) {
 
 void ChunkManager::set_block(int32_t world_x, int32_t world_y, int32_t world_z, int block_id) {
     controller->set_block_world(world_x, world_y, world_z, block_id);
+}
+
+void ChunkManager::set_water_wake_radius(int radius) {
+    VoxelEngine::fluids::set_water_wake_radius_override(radius < 0 ? 0 : radius);
 }
 
 int ChunkManager::get_block(int32_t world_x, int32_t world_y, int32_t world_z) {

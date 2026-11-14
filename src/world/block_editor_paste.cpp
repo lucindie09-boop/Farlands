@@ -40,6 +40,16 @@ bool cell_in_chunk(int32_t lx, int32_t ly, int32_t lz) {
 // as before — so nothing that mattered can be missed: a fluid cell is always woken
 // by its own write, and the simulation's scan of that cell covers every neighbour it
 // could affect.
+// The static water worldgen emits. Cached because this runs per paste cell and a
+// name lookup is a walk of the registry; an empty answer is retried next call.
+BlockID generated_water_id() {
+    static BlockID id = BlockIDs::AIR;
+    if (id == BlockIDs::AIR) {
+        id = BlockRegistry::get_instance().get_block_id_by_name("surface_water");
+    }
+    return id;
+}
+
 bool paste_cell_needs_fluid_wake(const BlockRegistry& registry, const ChunkData& chunk,
                                  const ChunkMap& cm, BlockID old_block, BlockID new_block,
                                  int32_t world_x, int32_t world_y, int32_t world_z, int32_t lx,
@@ -69,6 +79,10 @@ bool paste_cell_needs_fluid_wake(const BlockRegistry& registry, const ChunkData&
                                                            world_y + offset[1],
                                                            world_z + offset[2]));
         if (registry.get_block_fast(neighbor).is_fluid_state()) return true;
+        // Generated water is not a fluid state, but an edit against it wakes the
+        // patch through ChunkWorld::wake_generated_water, so a paste that touches
+        // a sea or a lake is a cell the simulation must hear about too.
+        if (neighbor == generated_water_id()) return true;
     }
     return false;
 }

@@ -142,6 +142,13 @@ public:
     // installed. Separate from persisting so a bulk writer can write in batches and
     // wake only the cells that can change a fluid's answer.
     void notify_block_change(int32_t world_x, int32_t world_y, int32_t world_z);
+
+    // Turns generated water (`surface_water`) within the wake radius into the live
+    // `water` source and wakes it. Called by the edit listener for every edit, so a
+    // player's block, a paste and a vegetation placement all reach it; the guard
+    // stops the conversions' own notifications from recursing. Returns how many
+    // cells became live.
+    int wake_generated_water(int32_t world_x, int32_t world_y, int32_t world_z);
     void apply_edit_map_to_chunk(uint64_t key, int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, ChunkData& chunk_data);
     bool load_edit_map_from_disk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, EditMap& out_edit_map, const BlockRegistry& registry);
     void save_edit_map_to_disk(int32_t chunk_x, int32_t chunk_y, int32_t chunk_z, const EditMap& edit_map);
@@ -268,6 +275,7 @@ private:
     std::unordered_set<uint64_t> pinned_chunks;
     mutable std::mutex pinned_chunk_mutex;
     std::function<void(int32_t, int32_t, int32_t)> edit_listener;
+    bool waking_generated_water_ = false;
     std::function<void(int32_t, int32_t, int32_t)> worker_edit_listener;
     std::function<void(int32_t, int32_t, int32_t, bool)> install_listener;
     std::mutex file_access_mutex;

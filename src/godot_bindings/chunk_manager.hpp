@@ -123,6 +123,9 @@ public:
     godot::Dictionary raycast_from_camera(double max_distance);
 
     void set_block(int32_t world_x, int32_t world_y, int32_t world_z, int block_id);
+    // Bounded generated-water wake radius: 0 disables the prototype, 2 is the
+    // shipping default. Only probes call it.
+    void set_water_wake_radius(int radius);
     int get_block(int32_t world_x, int32_t world_y, int32_t world_z);
     godot::String get_block_name(int block_id);
     godot::Array get_selection_boxes(int block_id);

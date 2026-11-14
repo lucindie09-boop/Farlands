@@ -178,3 +178,34 @@ implementations the tests hold to each other.
   that comparison fail. Fluid created on top of fluid is the case that needs them: the cell
   BELOW has to notice what is above it (it becomes falling) and the cell ABOVE has to notice its
   exit is occupied (it fans out instead of pouring)
+
+## Generated water wakes locally
+
+- **The sea is static until an edit touches it, and then only a patch is live.** Any edit the world
+  reports — a player's block, and a paste cell the extended
+  `paste_cell_needs_fluid_wake` flags because one of its six neighbours is generated water —
+  reaches `ChunkWorld::wake_generated_water` through the edit listener.
+  That converts the generated `surface_water` cells within `FARLANDS_WATER_WAKE_RADIUS` (2 by
+  default, 0 disables) into the live `water` source and wakes them; the rest of the ocean stays the
+  block it was generated as. The conversion happens inside the 3x3x3 band the write paths already
+  hold, persists each cell through the edit map, and wakes the simulation after the lock is
+  released, so the patch flows like poured water on the next tick. The scan is
+  `fluids/generated_water_wake.hpp`: a seven-cell pre-check first, because most edits have no
+  generated water within one block, then the cube.
+  `tests/test_water_wake.cpp` pins the radius, the pre-check and the fact that a different block is
+  not water. A recursion guard makes the conversions' own notifications no-ops for the wake (they
+  still wake the fluid).
+- **What it costs, measured (`probes/probe_water_wake.gd`).** The pre-check adds **7.2 us** to an
+  ordinary edit (23.0 -> 30.2 us per placed block over 100 edits); the two registry name lookups
+  are cached, because asking for them per edit measured another ~100 us. At a synthetic shoreline
+  (a 49-cell pond of generated water, one stone placed against its edge at radius 2): **10 cells
+  converted**, 18 live water cells afterwards, settled in **1.2 s**, mean frame 3.7 ms and the
+  worst **19.0 ms**, with 68 cells still queued when the probe's quiet rule declared it settled.
+  The trigger edit itself took 0.07 ms.
+- **What it does not cover.** Vegetation placements write their blocks through
+  `apply_vegetation_placements` without notifying the edit listener, so a canopy landing beside a
+  lake does not wake it; a generated water body placed as part of a paste stays static until
+  something is edited against it; and worldgen itself never wakes (it does not go through the
+  listener). The wake is local to where a player changes the world. The probe's knob is
+  `ChunkManager.set_water_wake_radius()`; the game reads the environment variable and otherwise
+  uses 2.

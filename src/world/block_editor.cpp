@@ -4,6 +4,8 @@
 #include "lighting/light_propagator.hpp"
 #include "core/block_types.hpp"
 
+#include <vector>
+
 namespace VoxelEngine {
 using namespace godot;
 

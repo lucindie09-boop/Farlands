@@ -53,7 +53,7 @@ float luminance(vec3 c) {
     return dot(c, vec3(0.299, 0.587, 0.114));
 }
 
-vec3 accumulate_rays(vec2 screen_uv, vec2 light_uv, float light_visibility, vec3 light_color, vec2 aspect) {
+vec3 accumulate_rays(vec2 screen_uv, vec2 light_uv, float light_visibility, vec3 light_color, vec2 aspect, float jitter) {
     vec2 to_light = light_uv - screen_uv;
     float light_dist = length(to_light);
     if (light_dist < 0.0001) {
@@ -64,10 +64,15 @@ vec3 accumulate_rays(vec2 screen_uv, vec2 light_uv, float light_visibility, vec3
     float march_length = min(light_dist * density, max_ray_length);
     float step_length = march_length / float(num_samples);
 
+    // Each pixel starts its taps at a different fraction of a step. The march
+    // is a Riemann sum of a smooth function, so where the spacing between taps
+    // is wide enough to read as bands, a per-pixel offset turns the banding
+    // into fine noise the eye integrates away. This is what buys the lower
+    // sample count: the same covered path, fewer fetches, no visible steps.
     vec3 accum = vec3(0.0);
     float illumination_decay = 1.0;
     for (int i = 0; i < num_samples; i++) {
-        vec2 sample_uv = screen_uv + direction * (step_length * float(i + 1));
+        vec2 sample_uv = screen_uv + direction * (step_length * (float(i) + jitter));
 
         // Reject off-frame taps. The screen texture is repeat_disable, so an
         // off-frame tap would otherwise return the border texel -- a bright
@@ -102,15 +107,21 @@ void fragment() {
     // passed down (the same reason anime.gdshader is handed frame_size).
     vec2 aspect = vec2(SCREEN_PIXEL_SIZE.y / SCREEN_PIXEL_SIZE.x, 1.0);
 
+    // The per-pixel tap offset for the march. Computed here because SCREEN_UV
+    // and SCREEN_PIXEL_SIZE are fragment builtins, and passed down to the
+    // helper the same way `aspect` is.
+    vec2 pixel = SCREEN_UV / SCREEN_PIXEL_SIZE;
+    float jitter = fract(sin(dot(pixel, vec2(12.9898, 78.233))) * 43758.5453);
+
     // Only run a pass when the light actually contributes: below ~0.02 the
     // accumulated ray contribution over num_samples is far below visible
     // brightness, so skipping it avoids a full ray march for a faded source
     // (notably the far side of the sky during twilight).
     if (sun_visibility > 0.02) {
-        accum += accumulate_rays(SCREEN_UV, sun_screen_uv, sun_visibility, sun_ray_color, aspect);
+        accum += accumulate_rays(SCREEN_UV, sun_screen_uv, sun_visibility, sun_ray_color, aspect, jitter);
     }
     if (moon_visibility > 0.02) {
-        accum += accumulate_rays(SCREEN_UV, moon_screen_uv, moon_visibility, moon_ray_color, aspect);
+        accum += accumulate_rays(SCREEN_UV, moon_screen_uv, moon_visibility, moon_ray_color, aspect, jitter);
     }
 
     COLOR = vec4(base_color + accum, 1.0);

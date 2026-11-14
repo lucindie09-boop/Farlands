@@ -140,6 +140,7 @@ var _default_darkness_color: Color = Color(0, 0, 0, 1)
 var _default_smooth_lighting: bool = false
 var _default_fog_mode: int = 3  # 0=disabled, 1=edge, 2=linear, 3=exponential
 var _default_godrays: bool = true
+var _default_godrays_quality: int = 100   # percent of the resolution-derived taps
 var _default_mipmaps_enabled: bool = true
 var _default_mipmap_bias: float = 0.1
 var _default_textures_enabled: bool = true
@@ -360,6 +361,7 @@ func _save_settings():
 	cfg.set_value("render", "lod_grid_outer_rings", chunk_manager.get_lod_grid_outer_rings())
 	cfg.set_value("render", "fog_mode", chunk_manager.get_fog_mode())
 	cfg.set_value("render", "godrays", godrays_node.visible if godrays_node else _default_godrays)
+	cfg.set_value("render", "godrays_quality", godrays_node.quality if godrays_node else _default_godrays_quality)
 	cfg.set_value("render", "mipmaps_enabled", chunk_manager.get_mipmaps_enabled())
 	cfg.set_value("render", "mipmap_bias", chunk_manager.get_mipmap_bias())
 	cfg.set_value("render", "textures_enabled", chunk_manager.get_textures_enabled())
@@ -427,6 +429,7 @@ func _load_settings():
 	chunk_manager.set_fog_mode(int(cfg.get_value("render", "fog_mode", chunk_manager.get_fog_mode())))
 	if godrays_node:
 		godrays_node.visible = cfg.get_value("render", "godrays", _default_godrays)
+		godrays_node.quality = clampi(int(cfg.get_value("render", "godrays_quality", _default_godrays_quality)), 25, 200)
 	chunk_manager.set_mipmaps_enabled(cfg.get_value("render", "mipmaps_enabled", chunk_manager.get_mipmaps_enabled()))
 	chunk_manager.set_mipmap_bias(cfg.get_value("render", "mipmap_bias", chunk_manager.get_mipmap_bias()))
 	chunk_manager.set_textures_enabled(cfg.get_value("render", "textures_enabled", chunk_manager.get_textures_enabled()))
@@ -1447,6 +1450,19 @@ func _build_sky_sections() -> Array:
 		_row_value(godrays_btn, "On" if _default_godrays else "Off")
 		_schedule_save()
 
+	var godrays_quality_slider := _make_slider(
+		float(godrays_node.quality if godrays_node else _default_godrays_quality),
+		25.0, 200.0, 25.0,
+		func(v: float):
+			if godrays_node:
+				godrays_node.quality = int(v)
+			_schedule_save(), "%")
+	var godrays_quality_reset := func():
+		godrays_quality_slider.get_meta("slider").value = _default_godrays_quality
+		if godrays_node:
+			godrays_node.quality = _default_godrays_quality
+		_schedule_save()
+
 
 	_sky_visual_syncs.append(func(): dur.get_meta("slider").value = chunk_manager.get_day_duration())
 	_sky_visual_syncs.append(func(): day_color.color = chunk_manager.get_day_zenith_color())
@@ -1458,10 +1474,12 @@ func _build_sky_sections() -> Array:
 	_sky_visual_syncs.append(func(): cloud_layers_slider.get_meta("slider").value = float(_cloud_layers_value()))
 	_sky_visual_syncs.append(func(): cloud_spacing_slider.get_meta("slider").value = _cloud_spacing_value())
 	_sky_visual_syncs.append(func(): _row_value(godrays_btn, "On" if (godrays_node.visible if godrays_node else _default_godrays) else "Off"))
+	_sky_visual_syncs.append(func(): godrays_quality_slider.get_meta("slider").value = float(godrays_node.quality if godrays_node else _default_godrays_quality))
 
 	return [
 		["", [
 			["God Rays", godrays_btn, godrays_reset],
+			["God Ray Quality", godrays_quality_slider, godrays_quality_reset],
 			["Day Duration", dur, dur_reset],
 			["Day Sky Color", day_color, day_reset],
 			["Day Horizon", day_horizon, day_horizon_reset],
@@ -4142,6 +4160,10 @@ func _export_render_code() -> String:
 	flags |= (1 if chunk_manager.get_mipmaps_enabled() else 0) << 1
 	flags |= (1 if chunk_manager.get_textures_enabled() else 0) << 2
 	flags |= (1 if chunk_manager.get_compression_enabled() else 0) << 3
+	# Bits 4-7: God Ray Quality as 25% steps, stored as index+1 so zero (an old
+	# code, or 100%'s absence) means the default.
+	var quality: int = godrays_node.quality if godrays_node else _default_godrays_quality
+	flags |= ((clampi(int(round(float(quality) / 25.0)) - 1, 0, 7) + 1) << 4)
 	data.append(flags)
 	data.append(clampi(chunk_manager.get_fog_mode(), 0, 3))
 	data.append(clampi(int(get_viewport().msaa_3d), 0, 3))
@@ -4166,6 +4188,8 @@ func _import_render_code(code: String) -> bool:
 	chunk_manager.set_fog_mode(clampi(data[2], 0, 3))
 	if godrays_node:
 		godrays_node.visible = (flags & (1 << 0)) != 0
+		var quality_bits := (flags >> 4) & 0x0F
+		godrays_node.quality = _default_godrays_quality if quality_bits == 0 else quality_bits * 25
 	chunk_manager.set_mipmaps_enabled((flags & (1 << 1)) != 0)
 	chunk_manager.set_textures_enabled((flags & (1 << 2)) != 0)
 	chunk_manager.set_compression_enabled((flags & (1 << 3)) != 0)

@@ -16,6 +16,13 @@ const LOW_SUN_FADE_FLOOR := 0.0  # no god rays at the horizon itself
 
 var camera: Camera3D
 var chunk_manager: Node
+# Settings -> Sky -> God Ray Quality: the tap count is scaled by this percent.
+# 100 is the resolution-derived default (16 taps at 1080p); 200 doubles it, 25
+# quarters it. The march self-normalizes, so the slider trades smoothness for
+# frame time and nothing else.
+var quality := 100
+# Probes own the tap count through this; -1 uses `quality`.
+var samples_override := -1
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -45,12 +52,16 @@ func _process(_delta: float) -> void:
 		return
 
 	# Dynamically reduce sample count at higher resolutions.
-	# 32 samples at 1080p, scaling down for larger viewports. The ray march
-	# self-normalizes (step and exposure scale by num_samples), so cutting the
-	# count is visually free and directly halves the worst-case cost when sun
-	# and moon both run a pass during twilight (up to 64 dependent samples/px).
+	# 16 samples at 1080p, never below 16. The march self-normalizes (step and
+	# exposure scale by num_samples), so the count buys smoothness, not
+	# brightness -- and the shader jitters each pixel's tap positions, which
+	# spends that smoothness on fine noise instead of bands. Halving the count
+	# is what makes looking at the sun affordable; see docs/rendering-notes.md.
 	var shader_material := material as ShaderMaterial
-	var samples := maxi(16, int(32.0 * 1080.0 / max(viewport_size.y, 1.0)))
+	var base := maxi(16, int(16.0 * 1080.0 / max(viewport_size.y, 1.0)))
+	var samples := maxi(4, int(round(float(base) * float(quality) / 100.0)))
+	if samples_override > 0:
+		samples = samples_override
 	shader_material.set_shader_parameter("num_samples", samples)
 
 	# --- Sun ---

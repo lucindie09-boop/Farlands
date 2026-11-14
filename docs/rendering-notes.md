@@ -264,6 +264,21 @@ twice, and the coast is where the samples' own crossing is. The whole sequence, 
   sunset sky is itself above the ray threshold and the whole frame was being fed back through the
   pass. The ramp is long on purpose: a short one finished its steepest rise around 15 degrees and
   read as the rays switching on there rather than as the sky brightening
+  The march jitters each pixel's tap positions by a fraction of a step (`SCREEN_UV` hashed, computed
+  in `fragment()` and passed to the march — `FRAGCOORD` is a spatial builtin and `SCREEN_UV` is not
+  visible inside the helper). The offsets turn what a coarse march would show as bands into fine
+  noise the eye integrates, which is what makes **16 taps at 1080p** (was 32) keep the same shape:
+  at 1920x1061 the pass measured **0.28 ms/frame at 32 taps and 0.13 ms at 16**, against 0.78 ms
+  with the overlay hidden, and the 16-tap pass still adds 0.053 mean frame luminance (0.13 in the
+  box around the sun) — `probes/probe_godrays.gd` prints both and fails if the rays add nothing.
+  Two cheaper shapes were tried and reverted. A half-resolution `SubViewport` pass had to sample
+  the root viewport's texture (a SubViewport's `hint_screen_texture` is its own empty backbuffer),
+  and that texture already contains the previous frame's rays, so the effect fed back into itself
+  and bloomed. A 3D compositor effect (RD compute, march at half resolution into its own texture,
+  add into the scene colour before the HUD) was built and removed too: attaching a `Compositor` to
+  `WorldEnvironment` changed the whole frame by 0.18 mean luminance on this build even with the
+  effect's exposure at zero, so its cost could not be measured and its look could not be trusted
+  as a drop-in. Full resolution with jittered taps is the version that holds up.
 - **Low-sun extinction**: the sky shader scales the sun's disc and glow through the band just
   above the horizon (0.35 at the horizon, full by 0.85 in `sun_elevation`), because it otherwise
   kept its full noon brightness while the warm horizon built up behind it. The ramp is deliberately

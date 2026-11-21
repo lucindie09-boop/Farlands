@@ -2,11 +2,11 @@
 
 **Old terrain**
 
-![Farlands gameplay — old terrain](screenshots/gameplay.png)
+![Farlands gameplay — old terrain](docs/gameplay.png)
 
 **New terrain**
 
-![Farlands gameplay — new terrain](screenshots/gameplay_new.png)
+![Farlands gameplay — new terrain](docs/gameplay_new.png)
 
 A Minecraft-style voxel engine built in Godot 4 with a custom C++ GDExtension. Procedural
 terrain generation (a stacked-noise macro surface with domain warp and ~500/150-block relief
@@ -87,11 +87,11 @@ and a wildcard like `src/mesh/mesh_manager*.cpp` means the family a split produc
 ## Rendering Notes
 
 - Opaque and water are separate mesh surfaces; water uses its own shader
-  (`shaders/voxel_shader_water.gdshader`) with edge fade, tint, shimmer, sun glint, flowing
+  (`Assets/shaders/voxel_shader_water.gdshader`) with edge fade, tint, shimmer, sun glint, flowing
   texture animation, and separate blend-mix surface for translucency.
 - Blocks can carry an emissive texture (second `Texture2DArray`) for glow, driven by
   `data/block_definitions.json`.
-- The terrain shader (`shaders/voxel_shader.gdshader`) applies a non-linear AO power curve
+- The terrain shader (`Assets/shaders/voxel_shader.gdshader`) applies a non-linear AO power curve
   (`pow(raw_ao, 1.35)`) that hides diagonal triangulation seams (soft curved AO). The procedural
   sky shader (`src/render/sky_controller.hpp`) provides a procedurally twinkling night starfield
   with a fixed north star, and sky turbidity provides Rayleigh/Mie haze effects.
@@ -207,19 +207,19 @@ threaded to generation workers. Missing files or keys fall back to built-in defa
 
 ## Assets
 
-Textures are organized in the `textures/` directory:
-- `textures/blocks/` — Block textures (bedrock, dirt, grass, stone, sand, water, etc.).
+Textures are organized in the `Assets/textures/` directory:
+- `Assets/textures/blocks/` — Block textures (bedrock, dirt, grass, stone, sand, water, etc.).
   `water.png` is hand-authored; `lava.png` and `acid.png` are baked from their generator presets
   by `tools/bake_liquid_textures.gd` so the array has a layer to build and the animator has one
   to write into
-- `textures/items/` — Item and tool sprites, resolved from the bare name `data/items.json` gives
+- `Assets/textures/items/` — Item and tool sprites, resolved from the bare name `data/items.json` gives
   each one
-- `textures/animated/` — The ten cracked-block overlay frames the break animation steps through
-- `textures/gui/` — UI textures (hotbar, inventory background, effects, settings/tool icons)
-- `textures/sprites/` — Sprite textures (hearts, etc.)
-- `textures/atmosphere/` — Atmospheric textures (sun, north star)
-- `textures/mobs/` — Mob skins
-- `textures/0Archive/` — Archived/deprecated textures (old versions kept for reference)
+- `Assets/textures/animated/` — The ten cracked-block overlay frames the break animation steps through
+- `Assets/textures/gui/` — UI textures (hotbar, inventory background, effects, settings/tool icons)
+- `Assets/textures/sprites/` — Sprite textures (hearts, etc.)
+- `Assets/textures/atmosphere/` — Atmospheric textures (sun, north star)
+- `Assets/textures/mobs/` — Mob skins
+- `Assets/textures/0Archive/` — Archived/deprecated textures (old versions kept for reference)
 
 The player model lives in `player.glb` (voxel-style, slim 3-px arms with a tightly-packed 64×64
 skin-texture atlas). `player_model.gd` applies a skin texture to the model with nearest
@@ -242,8 +242,8 @@ Texture packs are directories under `user://packs/` (on Windows:
     "author": "optional author"
   }
   ```
-- `textures/<name>.png` — PNG overrides for individual blocks; names must match
-  the built-in files in `textures/blocks/` (e.g. `grass_top.png`). Missing
+- `Assets/textures/<name>.png` — PNG overrides for individual blocks; names must match
+  the built-in files in `Assets/textures/blocks/` (e.g. `grass_top.png`). Missing
   textures fall back to the built-ins. Corrupt/truncated PNGs degrade to the
   built-in texture for that name rather than dropping the array layer.
 

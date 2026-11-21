@@ -29,6 +29,10 @@ build/
 
 # Godot import metadata (regenerated on project open)
 *.import
+# Resource UIDs Godot writes beside every script and resource (4.4+). They are
+# regenerated when the project is opened, so a clone does not need them; the few
+# already in the tree stay tracked, as icon.svg.import does under the rule above.
+*.uid
 
 # Stray files
 /s

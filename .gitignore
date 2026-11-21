@@ -50,6 +50,13 @@ compile_commands.json
 # Minecraft reference files (local only)
 MCPipeline/
 
+# Local scratch art: the archived originals ("old <name>", Piskel exports, numbered
+# screenshots) and the two trial images the settings rows were tried with. They are
+# working material, not shipped content, so they stay on disk without being cloned.
+Assets/textures/0Archive/
+Assets/textures/gui/buttontest.png
+Assets/textures/gui/slider_buttontest.png
+
 # .freebuff/ is the LOCAL probe playground: scratch scripts a session writes and
 # throws away, plus screenshots, crash reports, generated sheets and Godot
 # caches. None of it belongs in a clone.

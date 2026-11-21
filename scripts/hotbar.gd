@@ -9,7 +9,7 @@ var _highlight_texture: Texture2D = null  # pre-built recolored selected slot
 
 const SLOT_SIZE = 48
 const HOTBAR_SIZE = 9
-const MUNRO_FONT: Font = preload("res://fonts/munro.ttf")
+const MUNRO_FONT: Font = preload("res://Assets/fonts/munro.ttf")
 const UIShatter := preload("res://scripts/ui_shatter.gd")
 const UIIconThrow := preload("res://scripts/ui_icon_throw.gd")
 const BlockIconArt := preload("res://scripts/block_icon_art.gd")
@@ -41,7 +41,7 @@ const POP_GROW = 0.22
 
 func _ready():
 	# Load the hotbar texture directly
-	hotbar_texture = load("res://textures/gui/hotbar.png")
+	hotbar_texture = load("res://Assets/textures/gui/hotbar.png")
 	_slot_pop.resize(HOTBAR_SIZE)
 	# Set nearest-neighbor filtering on this Control to keep hard edges when scaling
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST

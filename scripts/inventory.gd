@@ -7,7 +7,7 @@ const SLOT_SIZE = 48
 const HOTBAR_SIZE = 9
 const INVENTORY_SIZE = 27
 const TOTAL_SLOTS = HOTBAR_SIZE + INVENTORY_SIZE
-const MUNRO_FONT: Font = preload("res://fonts/munro.ttf")
+const MUNRO_FONT: Font = preload("res://Assets/fonts/munro.ttf")
 const UIShatter := preload("res://scripts/ui_shatter.gd")
 const BlockIconArt := preload("res://scripts/block_icon_art.gd")
 
@@ -70,7 +70,7 @@ var _drag_last_craft = -1  # last crafting cell a drag-action fired for
 
 func _ready():
 	# Load the inventory texture
-	inventory_texture = load("res://textures/gui/inventory.png")
+	inventory_texture = load("res://Assets/textures/gui/inventory.png")
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	_hover_texture = _build_hover_texture(GRID_LEFT, MAIN_GRID_TOP, SLOT_SIZE_PX, SLOT_SIZE_PX, FILL_BASE)
 	_craft_hover_texture = _build_hover_texture(

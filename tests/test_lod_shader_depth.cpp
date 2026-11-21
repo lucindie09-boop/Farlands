@@ -47,7 +47,7 @@ bool read_text(const std::string& path, std::string& out) {
 
 // The far mode's shader, wherever the suite's working directory puts it.
 bool load_lod_shader(std::string& out) {
-    return read_text("shaders/lod_grid.gdshader", out) ||
+    return read_text("Assets/shaders/lod_grid.gdshader", out) ||
            read_text("../shaders/lod_grid.gdshader", out);
 }
 
@@ -128,7 +128,7 @@ bool render_mode_has(const std::string& shader, const std::string& mode) {
 TEST_CASE("lod shader: the far mode's material writes depth") {
     std::string shader;
     if (!load_lod_shader(shader)) {
-        MESSAGE("shaders/lod_grid.gdshader not found; the far mode's material was not checked");
+        MESSAGE("Assets/shaders/lod_grid.gdshader not found; the far mode's material was not checked");
         return;
     }
     // The unconditional depth write. `depth_draw_opaque` is the default and reads
@@ -163,7 +163,7 @@ TEST_CASE("lod shader: the detail term cannot move the average colour") {
     //      past the band where the term is drawn. The fade is its own case below.)
     std::string shader;
     if (!load_lod_shader(shader)) {
-        MESSAGE("shaders/lod_grid.gdshader not found; the far mode's material was not checked");
+        MESSAGE("Assets/shaders/lod_grid.gdshader not found; the far mode's material was not checked");
         return;
     }
     CHECK(shader.find("DETAIL_AVERAGE_MIP") != std::string::npos);
@@ -212,7 +212,7 @@ TEST_CASE("lod shader: a biome boundary is a blend, and both halves agree on the
     //     integer, which is what lets the whole thing cost no new vertex attribute.
     std::string shader;
     if (!load_lod_shader(shader)) {
-        MESSAGE("shaders/lod_grid.gdshader not found; the far mode's material was not checked");
+        MESSAGE("Assets/shaders/lod_grid.gdshader not found; the far mode's material was not checked");
         return;
     }
     CHECK(shader.find("mix(albedo, far_albedo(layer2, UV, detail_uv), blend)") != std::string::npos);
@@ -264,12 +264,12 @@ TEST_CASE("lod shader: the detail term is faded out where a repeat is too narrow
     // back from the field as "z fighting on every single face".
     //
     // The answer is the world's own answer to the same problem, in the same units: the
-    // grain in shaders/block_noise.gdshaderinc is faded by its footprint so a distant
+    // grain in Assets/shaders/block_noise.gdshaderinc is faded by its footprint so a distant
     // hillside does not boil. A repeat of this term is a face's 16 texels, so the two
     // rules differ only in which of those they count.
     std::string shader;
     if (!load_lod_shader(shader)) {
-        MESSAGE("shaders/lod_grid.gdshader not found; the far mode's material was not checked");
+        MESSAGE("Assets/shaders/lod_grid.gdshader not found; the far mode's material was not checked");
         return;
     }
     // The footprint is the world-coordinate UV's own derivative: UV is in BLOCKS, so

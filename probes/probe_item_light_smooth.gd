@@ -3,7 +3,7 @@ extends SceneTree
 ##
 ## A dropped block -- of any shape -- a dropped sprite, the held item and arm, and
 ## the player's own body are lit by the light of the CELL they are in
-## (ChunkManager.get_light_at, through shaders/item_lighting.gdshaderinc). That value is a step function of position:
+## (ChunkManager.get_light_at, through Assets/shaders/item_lighting.gdshaderinc). That value is a step function of position:
 ## crossing one block boundary is a whole cell's worth of light, and read raw it is
 ## applied by the next frame, so every step of a walk is a visible pop. This probe
 ## boots Main.tscn and holds all three consumers to the rule that the value they

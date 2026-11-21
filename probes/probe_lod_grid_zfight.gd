@@ -13,7 +13,7 @@ extends SceneTree
 ##   fade      the term with its footprint fade as it ships, whose window is four
 ##             times too wide for the rule it claims to copy
 ##   rule      the same fade moved onto the world's own window
-##             (shaders/block_noise.gdshaderinc)
+##             (Assets/shaders/block_noise.gdshaderinc)
 ##   adapt     no fade at all: the repeat grows with the distance, so the sampler is
 ##             never asked for a texel smaller than a pixel
 ##   flat      no detail term at all (detail_strength 0)
@@ -87,7 +87,7 @@ const PLAIN_NOISE_MAX := 0.004
 ## may relight the field, and a state that did would be measuring that instead.
 const MEAN_TOL := 0.02
 ## The first of the two fixes, and the reason the shipped fade underdelivers: the
-## world's own grain (shaders/block_noise.gdshaderinc) fades to nothing by TWO texels
+## world's own grain (Assets/shaders/block_noise.gdshaderinc) fades to nothing by TWO texels
 ## per pixel and is drawn as authored at one, while the shipped window here is written
 ## in repeats per pixel and reaches full strength at two texels per pixel -- which is
 ## where the world's rule has already reached zero. A repeat of this term is the same
@@ -305,7 +305,7 @@ func _differs(f: Dictionary, a: String, b: String) -> bool:
 func _patch(name: String, pairs: Array) -> Shader:
 	if _patched.has(name):
 		return _patched[name]
-	var src := FileAccess.get_file_as_string("res://shaders/lod_grid.gdshader")
+	var src := FileAccess.get_file_as_string("res://Assets/shaders/lod_grid.gdshader")
 	if src.is_empty():
 		return null
 	var body := src
@@ -517,7 +517,7 @@ func _run() -> void:
 		return
 	var idx := _indices(size.x, size.y)
 
-	_material = load("res://materials/lod_grid_material.tres")
+	_material = load("res://Assets/materials/lod_grid_material.tres")
 	_ok("the far mode's material loads", _material != null)
 	if _material == null:
 		_finish()

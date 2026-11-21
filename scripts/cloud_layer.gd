@@ -7,7 +7,7 @@ extends MeshInstance3D
 ## and carries the wind offset, so the whole volume drifts together instead of
 ## the walls sliding with the player.
 
-const CLOUD_SHADER: Shader = preload("res://shaders/clouds.gdshader")
+const CLOUD_SHADER: Shader = preload("res://Assets/shaders/clouds.gdshader")
 const CLOUD_HEIGHT := 408.0
 const CLOUD_SIZE := 6144.0
 const CLOUD_SPAN := 3072.0  # one mask tile: 256 texels x 12 blocks

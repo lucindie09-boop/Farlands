@@ -377,7 +377,7 @@ func _check_update_log() -> void:
 	# The profile card: the artwork at one art pixel per unit, with the four things it cannot
 	# know drawn into its own boxes - the face in the HEAD box, the name and state at the guide's
 	# marks, and three real Buttons whose labels sit on the art's icon bands. The numbers come
-	# from `textures/gui/PlayerCardGuide.png`; this checks the drawing against them.
+	# from `Assets/textures/gui/PlayerCardGuide.png`; this checks the drawing against them.
 	_check(title._profile_rows.size() == Title.PROFILE_ROWS.size(),
 		"the profile card has %d rows" % title._profile_rows.size())
 	var head_box := Rect2(profile.position + Title.PROFILE_HEAD.position * s,

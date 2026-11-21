@@ -21,7 +21,7 @@ extends Node
 ##             exactly, so a texture can be reproduced and re-tuned later.
 ##   Live      pushes the current frame into the world's texture array layer for
 ##             the chosen liquid (all three exist: water, lava and acid are real
-##             blocks using textures/<liquid>.png). That is
+##             blocks using Assets/textures/<liquid>.png). That is
 ##             ChunkManager.push_texture_frame -> Texture2DArray.update_layer, so
 ##             the world animates without rebuilding the array; the layer is
 ##             restored from disk when Live is switched off. While Live owns a
@@ -41,7 +41,7 @@ extends Node
 
 const ACTION := "liquid_lab_toggle"
 const SAVE_DIR := "user://liquids"
-const MUNRO_FONT: Font = preload("res://fonts/munro.ttf")
+const MUNRO_FONT: Font = preload("res://Assets/fonts/munro.ttf")
 const TICK_RATE := 20.0  # frames are held for `frame_time` game ticks
 
 # Setting rows: [key, label, min, max, step]. Ints are whole numbers.
@@ -925,7 +925,7 @@ func _report_live_target() -> void:
 	var target := _live_target()
 	var info: Dictionary = manager.get_texture_layer_info(target)
 	if not bool(info.get("found", false)):
-		_live_label.text = "live: no layer named \"%s\" (no block uses textures/%s.png)" % [target, target]
+		_live_label.text = "live: no layer named \"%s\" (no block uses Assets/textures/%s.png)" % [target, target]
 		return
 	_live_label.text = "live: %s -> layer %d of %d (%dx%d%s) frame %d/%d%s" % [
 		target, int(info.get("index", -1)), int(info.get("layers", 0)),

@@ -16,8 +16,8 @@ extends SceneTree
 ## them too, and that every param of both registry entries lands on a uniform of
 ## one of the two world materials.
 
-const TERRAIN := "res://shaders/voxel_shader.gdshader"
-const WATER := "res://shaders/voxel_shader_water.gdshader"
+const TERRAIN := "res://Assets/shaders/voxel_shader.gdshader"
+const WATER := "res://Assets/shaders/voxel_shader_water.gdshader"
 const MARKER := "res://probes/bend_marker.gdshader"
 const HORIZON_MARKER := "res://probes/horizon_marker.gdshader"
 const REGISTRY := "res://data/shaders.json"
@@ -29,8 +29,8 @@ const REGISTRY := "res://data/shaders.json"
 # is still exercised on its own and with no sibling compiled beside it, and the
 # horizon's wires both exactly as the world does.
 const SHADERS := [
-	["res://shaders/voxel_shader.gdshader", ["bend", "horizon"]],
-	["res://shaders/voxel_shader_water.gdshader", ["bend", "horizon"]],
+	["res://Assets/shaders/voxel_shader.gdshader", ["bend", "horizon"]],
+	["res://Assets/shaders/voxel_shader_water.gdshader", ["bend", "horizon"]],
 	["res://probes/bend_marker.gdshader", ["bend"]],
 	["res://probes/horizon_marker.gdshader", ["bend", "horizon"]],
 ]

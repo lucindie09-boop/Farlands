@@ -156,7 +156,7 @@ func _report(label: String) -> void:
 			_fail("%s: card '%s' has no texture background" % [label, (control as Button).text])
 			continue
 		var art := box as StyleBoxTexture
-		if art.texture == null or art.texture.resource_path != "res://textures/gui/button_square_large.png":
+		if art.texture == null or art.texture.resource_path != "res://Assets/textures/gui/button_square_large.png":
 			_fail("%s: card '%s' uses %s, not button_square_large.png"
 				% [label, (control as Button).text, art.texture.resource_path if art.texture else "<null>"])
 		if art.texture_margin_left > 0.0 or art.texture_margin_right > 0.0 \

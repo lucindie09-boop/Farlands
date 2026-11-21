@@ -243,7 +243,7 @@ the one place the alpha blend is required rather than decorative.
 The inner boundary itself is the part that is easy to get wrong, and it is worth
 stating as a rule: **the world's coverage is a DISC and the tiles are a SQUARE
 lattice, and the boundary between them is the disc.** It is enforced in the
-fragment stage (`shaders/lod_grid.gdshader`) against the radius the world streams
+fragment stage (`Assets/shaders/lod_grid.gdshader`) against the radius the world streams
 with, not by leaving a hole in the tile set. Two consequences, and both were bugs
 first:
 
@@ -325,7 +325,7 @@ The mode is `src/lod/lod_grid.cpp` (tiles, budget, scheduling), `lod_grid_upload
 (the per-level merge and the one instance each level gets), `lod_grid_build.cpp`
 (the worker's sampler), `lod_grid_camera.cpp` (the scenario and the far plane that has
 to reach the horizon) and the pure geometry in `lod_surface.cpp` / `lod_march.hpp`,
-with `shaders/lod_grid.gdshader` and `materials/lod_grid_material.tres` to draw it.
+with `Assets/shaders/lod_grid.gdshader` and `Assets/materials/lod_grid_material.tres` to draw it.
 A tile is 256 blocks a side and is sampled at 32, 64, 128 or 256 blocks by distance
 level, two tile rings per level, four levels — so a tile is 64, 16, 4 or 1 quad
 across and the geometry per tile falls as fast as the tile count rises. The surface
@@ -516,7 +516,7 @@ in a frame:
   light, and at 256 blocks a cell that is a patchwork across a whole horizon rather
   than a slope. The shade now comes from the cell's own normal (`face_shade`, the mean
   of its two diagonals) with the same squared-component weights
-  `shaders/item_lighting.gdshaderinc` uses for a turning body, which reaches the three
+  `Assets/shaders/item_lighting.gdshaderinc` uses for a turning body, which reaches the three
   constants exactly on the axes and slides between them. `tests/test_lod_surface.cpp`
   pins both halves: across the old threshold two neighbouring cells differ by under
   0.02, and cell by cell along a ramp no pair of neighbours steps.
@@ -586,7 +586,7 @@ in a frame:
   anisotropic and trilinear sampling both make the spike rate **worse** (0.0114 against 0.0058),
   so the filter was not the lever either. The fix is the world's own: fade the term by its
   footprint (`fwidth` of the world-coordinate UV, in repeats rather than texels — the same rule
-  and the same reason as `shaders/block_noise.gdshaderinc`), which leaves the term exactly as
+  and the same reason as `Assets/shaders/block_noise.gdshaderinc`), which leaves the term exactly as
   authored out to ~1.8 km and takes it away where the screen was doing the drawing. Both
   `tests/test_lod_shader_depth.cpp` and the shader's own comment carry the corrected claim.
 - **A biome boundary is a ramp across a cell, not a line along its edge.** Worldgen

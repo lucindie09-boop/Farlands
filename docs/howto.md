@@ -13,7 +13,7 @@ in [data-schemas.md](data-schemas.md); the "why" is in
    around 175 of `MAX_BLOCK_TYPES` = 256.
 2. Give it `properties`, `visible_faces`, `textures`, `emissive_textures` (see
    the schema page). The minimal working entry is `name` plus those.
-3. Put the texture in `textures/blocks/<name>.png` (16×16). **A new PNG needs
+3. Put the texture in `Assets/textures/blocks/<name>.png` (16×16). **A new PNG needs
    Godot to import it** before the game can load it: `godot --headless --path .
    --import`. An open editor makes that pass fail on the extension copy while
    still writing the `.import` files.
@@ -50,7 +50,7 @@ is not free: `python tools/make_block_textures.py`.
 ## Add an item
 
 1. Append to `data/items.json`. Entry order is the item id.
-2. `texture` is a bare name resolved under `textures/items/` (items are not part
+2. `texture` is a bare name resolved under `Assets/textures/items/` (items are not part
    of the block texture array).
 3. Optional behaviour, all declarative: `tool` (`class`/`tier`/`speed`), `light`
    (`level` + `color`), `use` (`kind: pour` writes `block` where you are aiming;
@@ -130,7 +130,7 @@ the main subject and add `_<topic>` peers, with shared fixtures in
 
 ## Add a shader effect
 
-1. Write `shaders/<name>.gdshader`.
+1. Write `Assets/shaders/<name>.gdshader`.
 2. Add an entry to `data/shaders.json` with `id`, `name`, `kind`, `shader` and
    `params`. The menu builds its page from the registry, so no menu code changes.
 3. If the effect needs the previous frame, declare a `previous_frame` uniform —

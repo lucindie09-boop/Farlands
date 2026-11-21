@@ -86,7 +86,7 @@ inline int32_t lod_spacing_for_level(int32_t base_blocks, int32_t level) {
 // world covers a disc and the tiles are a square lattice, so the tiles straddling
 // the disc's edge are the ones that fill the corners the disc cannot reach. What
 // removes the part of them the world already draws is the clip in
-// shaders/lod_grid.gdshader -- a clip rather than a hole, because a tile that
+// Assets/shaders/lod_grid.gdshader -- a clip rather than a hole, because a tile that
 // straddles the edge has to be built once and stay valid while the player moves
 // across it.
 //

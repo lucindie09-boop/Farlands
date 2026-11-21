@@ -1,0 +1,417 @@
+shader_type spatial;
+render_mode blend_mix, unshaded, cull_back, depth_draw_always;
+
+// The Shaders menu's two geometry effects: World Bend moves the world's own
+// vertices, and the Horizon Curve sinks the far field the way a sphere's own
+// surface falls away. Both are shared with the terrain material so ground and
+// water do the same thing to the same vertices, which is what keeps a shoreline
+// welded to the shore it is set into. See the two includes.
+#include "res://Assets/shaders/world_bend.gdshaderinc"
+#include "res://Assets/shaders/world_horizon.gdshaderinc"
+
+// The Shaders menu's texture effect: the block makers' own grain, added to the
+// texel this fragment sampled. Shared with the terrain material, so one slider
+// grains the whole world with one field. See the include.
+#include "res://Assets/shaders/block_noise.gdshaderinc"
+
+vec3 aces_tonemap(vec3 x) {
+    float a = 2.51;
+    float b = 0.03;
+    float c = 2.43;
+    float d = 0.59;
+    float e = 0.14;
+    return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+}
+
+// The water's own part of it: the ripple the surface carries. The terrain does
+// not declare this and does not want it.
+uniform float world_bend_sway = 0.0;
+// depth_draw_always: liquid geometry writes depth even in the transparent
+// pass. Without it the default (opaque-only depth) leaves water with NO depth
+// in the z-buffer, so a side face behind a top face draws anyway — lava/acid
+// sides were visible through their own surface at certain angles.
+
+// The block atlas as COLOR: `source_color` decodes sRGB to linear (see the
+// terrain shader), so the light is a fraction OF THE TEXEL instead of a
+// multiplier the output encode then outruns.
+uniform sampler2DArray texture_array : source_color, filter_nearest_mipmap;
+
+uniform float mipmap_bias = 0.1;
+
+// Lighting
+uniform float sky_light_intensity : hint_range(0.0,1.0)=1.0;
+uniform vec3 sky_light_color=vec3(1.0);
+uniform vec3 sun_direction=vec3(0.0,1.0,0.0);
+
+// Player light
+uniform vec3 player_light_position=vec3(0.0);
+uniform float player_light_radius=8.0;
+uniform float player_light_intensity=1.0;
+uniform vec3 player_light_color=vec3(1.0,1.0,1.0);
+
+// Fog
+uniform float fog_begin=64.0;
+uniform float fog_end=896.0;
+uniform float fog_density=0.6;
+uniform float height_fog_density=0.012;
+uniform float sea_level=64.0;
+uniform int fog_mode=1; // 0=disabled, 1=edge, 2=linear, 3=exponential
+
+// Color grading
+uniform float saturation=1.0;
+uniform float contrast=1.0;
+
+// AO tint & darkness floor
+uniform vec3 ao_color=vec3(0.0);
+uniform float ao_strength=1.0;
+uniform vec3 darkness_color=vec3(0.0);
+
+// Atmosphere
+uniform float fog_scatter=0.0;
+uniform vec3 fog_scatter_color=vec3(1.0,1.0,1.0);
+
+uniform vec3 aerial_color=vec3(1.0,1.0,1.0);
+uniform float aerial_strength=0.35;
+
+uniform vec3 fog_color=vec3(1.0,1.0,1.0);
+
+uniform vec3 sky_light_warmth=vec3(1.0,1.0,1.0);
+
+uniform vec3 horizon_color=vec3(1.0,1.0,1.0);
+uniform vec3 zenith_color=vec3(1.0,1.0,1.0);
+uniform float sky_turbidity=0.35;
+
+// Water appearance
+uniform vec4 water_color=vec4(1.0,1.0,1.0,0.85);
+uniform float water_edge_fade=0.3;
+// Per-substance alpha: vertex custom1.a carries the fluid kind
+// (1=water, 2=lava, 3=acid). Lava is opaque; water and acid share
+// water_color.a (the 0.85 = 30% transparent base).
+uniform float lava_alpha=1.0;
+
+varying vec3 world_position;
+varying vec3 world_normal;
+varying vec3 view_direction;
+varying float fog_distance;
+varying vec4 custom0_attr;
+varying vec4 custom1_attr;
+varying vec4 custom2_attr;
+
+vec3 decode_normal(float encoded) {
+    int dir = int(encoded * 255.0 + 0.5);
+    vec3 normals[6] = vec3[](
+        vec3(0, 1, 0),
+        vec3(0, -1, 0),
+        vec3(1, 0, 0),
+        vec3(-1, 0, 0),
+        vec3(0, 0, 1),
+        vec3(0, 0, -1)
+    );
+    return normals[dir];
+}
+
+void vertex(){
+    vec3 camera_position=INV_VIEW_MATRIX[3].xyz;
+
+    // As on the terrain, and by the same functions at the same place, so a
+    // shoreline cannot open up as the world moves: the two materials share the
+    // vertices along it, and a move that is a function of world position moves
+    // shared vertices the same way whichever material is drawing them. The one
+    // difference is `world_bend_sway`, which is the ripple the water surface
+    // carries and the ground does not.
+    vec3 unbent=(MODEL_MATRIX*vec4(VERTEX,1.0)).xyz;
+
+    // As on the terrain, and for the same reason: with both effects off the
+    // vertex is left where the mesh put it and the mesh's matrix is never
+    // inverted.
+    vec3 world=unbent;
+    if (world_bend_active() || world_horizon_active()) {
+        if (world_bend_active()) {
+            world=world_bend_position(unbent, camera_position, world_bend_sway);
+        }
+        if (world_horizon_active()) {
+            world.y-=world_horizon_drop(unbent, camera_position);
+        }
+        VERTEX=(inverse(MODEL_MATRIX)*vec4(world,1.0)).xyz;
+    }
+
+    world_position=world;
+    world_normal=normalize((MODEL_MATRIX*vec4(decode_normal(CUSTOM1.b),0.0)).xyz);
+
+    view_direction=normalize(world_position-camera_position);
+
+    fog_distance=distance(unbent,camera_position);
+    custom0_attr = CUSTOM0;
+    custom1_attr = CUSTOM1;
+    custom2_attr = CUSTOM2;
+}
+
+void fragment(){
+    float layer=custom1_attr.r * 255.0;
+    // Texture flow: the AO byte on liquid vertices carries a packed flow
+    // direction instead of occlusion (liquids are never occluded). High nibble
+    // = direction, low nibble = strength. 1..8 = compass across the top face
+    // (1 = north/-Z, clockwise), 9 = straight down a side face, 0 = still
+    // water (a level surface — a source or a pool's interior) does not move.
+    float flow_packed = floor(custom1_attr.g * 255.0 + 0.5);
+    float flow_dir = floor(flow_packed / 16.0);
+    float flow_strength = fract(flow_packed / 16.0) * 16.0 / 15.0;
+    vec2 flow_vec = vec2(0.0);
+    if (flow_dir > 0.5 && flow_dir < 8.5) {
+        // Compass bucket to unit vector: bucket 1 = north = (0,-1) in offset
+        // space. The offset shifts the SAMPLING point, so the visible texture
+        // drifts opposite to it — top-face UVs run u = +X and v = -Z, so an
+        // eastward drift needs offset u negative while a northward drift
+        // needs offset v negative; hence the asymmetric signs.
+        float a = (flow_dir - 1.0) * 1.5707963 / 2.0;
+        flow_vec = vec2(-sin(a), -cos(a));
+    } else if (flow_dir > 8.5) {
+        flow_vec = vec2(0.0, -1.0);  // down a side face (UV v runs down the wall)
+    }
+    vec2 water_uv = custom2_attr.xy + flow_vec * TIME * 0.12 * flow_strength;
+    vec3 tex_coord = vec3(water_uv, layer);
+    vec4 color = texture(texture_array, tex_coord, mipmap_bias);
+
+    // Noisy Blocks, added here because this is the texel the atlas handed over:
+    // before any light touches it, so the grain is lit with the liquid rather
+    // than glowing over it. It travels with the flow above - the grain is part
+    // of the texture, so a flowing surface carries its own grain along.
+    color.rgb += block_noise_delta(water_uv, layer) * block_noise_on;
+
+    // Liquid vertices carry their texture-flow direction in the AO byte (see
+    // above), not occlusion — a sloped surface cannot carry corner AO anyway,
+    // so liquids are always drawn unoccluded.
+    float ao_amount = 0.0;
+    vec3 ao_tint = mix(ao_color, vec3(1.0), 1.0 - ao_amount);
+
+    vec3 block_light=custom0_attr.rgb;
+
+    vec3 sun_dir_norm = normalize(sun_direction);
+
+    float skyBrightness=
+        custom0_attr.a*
+        sky_light_intensity;
+
+    vec3 skyTemp=
+        mix(vec3(1.0,1.0,1.0),
+            sky_light_warmth,
+            sky_light_intensity);
+
+    vec3 skyContribution=
+        skyTemp*
+        skyBrightness*
+        sky_light_color;
+
+    vec3 combinedLight=max(block_light,skyContribution);
+
+    float playerDist=
+        distance(world_position,player_light_position);
+
+    float playerLight=
+        1.0-clamp(playerDist/player_light_radius,0.0,1.0);
+
+    playerLight*=playerLight;
+
+    combinedLight=max(
+        combinedLight,
+        player_light_color*
+        playerLight*
+        player_light_intensity
+    );
+
+    vec3 lit_color=color.rgb*combinedLight*ao_tint;
+
+    // The fluid kind this fragment belongs to (see the alpha section below):
+    // 1 = water, 2 = lava, 3 = acid. Water is the only shiny liquid — lava
+    // and acid are matte, so shimmer and sun glint skip them entirely.
+    float fluid_kind = floor(custom1_attr.a * 255.0 + 0.5);
+    float is_water_kind = step(0.5, fluid_kind) * step(fluid_kind, 1.5);
+
+    // Water shimmer (water only)
+    float shimmer=
+        sin(world_position.x*12.0+
+        world_position.z*8.0)*0.5+0.5;
+
+    shimmer*=
+        sin(world_position.x*7.0-
+        world_position.z*11.0+
+        1.5)*0.5+0.5;
+
+    lit_color*=1.0+shimmer*0.10*is_water_kind;
+
+    // Ambient sky add, gated by THIS surface's sky light: previously it was a
+    // flat constant that lifted even pitch-dark water in a cave toward white.
+    // skyBrightness already folds in time-of-day (sky_light_intensity).
+    lit_color+=
+        sky_light_color*
+        skyBrightness*
+        0.06;
+
+    // Sun glint (water only)
+    vec3 incident=normalize(view_direction);
+    vec3 reflect_dir=reflect(incident,world_normal);
+    float specAngle=max(dot(reflect_dir,sun_dir_norm),0.0);
+    // The broad secondary lobe was quarter-strength white over almost every
+    // angle — the main source of the milky sheen. Kept: the tight mirror
+    // hotspot (real sun reflection) at reduced gain. Both are gated by the
+    // surface's own sky light, so buried water cannot glint.
+    float glint=
+        pow(specAngle,90.0)*0.9+
+        pow(specAngle,20.0)*0.08;
+    glint*=max(skyBrightness,0.05)*is_water_kind;
+
+    lit_color+=vec3(1.0,1.0,1.0)*glint;
+
+    // Bounce lighting
+    // (No sky "bounce" here any more -- see the terrain shader. It keyed off the
+    // time of day rather than the vertex's own sky light and stacked on the sky
+    // term; with the light reaching 1.0 there is nothing for it to fill.)
+
+    // Darkness colour: tinted minimum light where light cannot reach
+    float light_amount = clamp(max(max(combinedLight.r, combinedLight.g), combinedLight.b), 0.0, 1.0);
+    lit_color += color.rgb * darkness_color * (1.0 - light_amount);
+
+    // No tint: every liquid's colour comes from its own texture layer as
+    // authored. (The old path multiplied water_color.rgb — a blue wash — into
+    // all liquid geometry, flattening lava and acid and recolouring water.)
+
+    // ========= FOG =========
+	float fog_amount = 0.0;
+	float dist_factor = 0.0;
+vec3 finalFogColor = aces_tonemap(fog_color);
+	vec3 scatter = vec3(0.0);
+
+	if (fog_mode > 0 && fog_density > 0.001) {
+    	float dist = max(fog_distance - fog_begin, 0.0);
+    	float fog_range = max(fog_end - fog_begin, 1.0);
+    	
+    	if (fog_mode == 1) {
+    		// Edge fog - linear starting at 75% of render distance
+    		float edge_start = fog_end * 0.75;
+    		float edge_range = max(fog_end - edge_start, 1.0);
+    		float edge_dist = max(fog_distance - edge_start, 0.0);
+    		float x = clamp(edge_dist / edge_range, 0.0, 1.0);
+    		fog_amount = x;
+    		dist_factor = smoothstep(edge_start, fog_end, fog_distance);
+    	} else if (fog_mode == 2) {
+    		// Linear fog - Minecraft-style, only applies near the end
+    		float x = clamp(dist / fog_range, 0.0, 1.0);
+    		fog_amount = x;
+    		dist_factor = smoothstep(fog_begin, fog_end, fog_distance);
+    	} else if (fog_mode == 3) {
+    		// Exponential fog - current setup
+    		float x = clamp(dist / fog_range, 0.0, 1.0);
+    		fog_amount = x * sqrt(x);
+    		fog_amount *= fog_density * 1.5;
+    		dist_factor = smoothstep(fog_begin, fog_end, fog_distance);
+    	} else {
+    		// Unknown mode - fail safe
+    		fog_amount = 0.0;
+    		dist_factor = 0.0;
+    	}
+    	
+    	fog_amount = clamp(fog_amount, 0.0, 1.0);
+    	
+    	// Apply height fog and horizon fog only when fog is enabled
+    	float belowSea = max(sea_level - world_position.y, 0.0);
+    	float hf = belowSea * height_fog_density;
+    	float heightFog = hf / (1.0 + hf);
+    	heightFog *= dist_factor;
+    	fog_amount += heightFog * 0.5;
+
+    	float horizon = abs(view_direction.y);
+    	float h3 = (1.0 - horizon);
+    	h3 = h3 * h3 * h3;
+    	fog_amount += h3 * 0.18 * dist_factor;
+    	fog_amount = clamp(fog_amount, 0.0, 1.0);
+
+    	// ========= TURBIDITY (Rayleigh/Mie haze) =========
+    	float haze = clamp(sky_turbidity * 1.4 - 0.2, 0.0, 1.0);
+    	haze *= smoothstep(0.0, 0.35, sky_light_intensity);
+
+    	// ========= SUN SCATTERING =========
+    	vec3 view_norm = normalize(view_direction);
+    	float sunDot = max(dot(view_norm, sun_dir_norm), 0.0);
+    	float sd2 = sunDot * sunDot;
+    	float sd4 = sd2 * sd2;
+    	float sd8 = sd4 * sd4;
+    	float sd16 = sd8 * sd8;
+    	float sd64 = sd16 * sd16;
+    	sd64 = sd64 * sd64;
+    	float sunGlow = sd4 * 0.25 + sd16 + sd64 * 0.4;
+
+    	scatter = fog_scatter_color * sunGlow * fog_scatter * sky_light_intensity;
+    	scatter *= dist_factor * (1.0 + haze * 0.4);
+
+    	// Horizon + zenith haze modulation
+    	vec3 haze_color = mix(vec3(1.0, 1.0, 1.0), fog_scatter_color, 0.3);
+    	vec3 turb_horizon = mix(fog_color, haze_color, haze * 0.55);
+
+    	// Zenith desaturation: aerosols overwhelm Rayleigh, sky pales overhead
+    	float z_luma = dot(zenith_color, vec3(0.299, 0.587, 0.114));
+    	vec3 pale_zenith = mix(zenith_color, vec3(z_luma) * vec3(1.0, 1.0, 1.0), haze * 0.60);
+
+    	// ========= SKY GRADIENT =========
+    	float up2 = max(view_direction.y, 0.0);
+    	float skyBlend = 1.0 - (1.0 - up2) * sqrt(1.0 - up2);
+
+    	float sun_elevation = sun_dir_norm.y;
+    	float sun_vis = smoothstep(-0.08, 0.08, sun_elevation);
+
+    	// Sun glow widens with turbidity (wider Mie forward lobe)
+    	float sun_glow_width = mix(1.0, 2.2, haze);
+    	float sd2w = sd2;
+    	float sd4w = sd4;
+    	for (int i = 0; i < 2; i++) { sd2w = sd2w * sd2; sd4w = sd4w * sd4; }
+    	float sun_glow_turb = sd4 * 0.25 + sd2w * 0.15 + sd4w * 0.08;
+
+    	vec3 warmFog = mix(fog_color, fog_scatter_color, 0.05);
+    // Full fog is the sky colour; sun scatter only feathers the transition.
+    	finalFogColor += scatter * (1.0 - fog_amount) * 0.3;
+	}
+
+    // ========= AERIAL PERSPECTIVE =========
+    float aerial = fog_amount * fog_amount * aerial_strength;
+    float luma = dot(lit_color, vec3(0.299, 0.587, 0.114));
+    float tintStrength = aerial * (1.0 - luma * 0.6);
+    float facingSky = clamp(world_normal.y * 0.5 + 0.5, 0.0, 1.0);
+    tintStrength *= mix(1.2, 0.8, facingSky);
+    vec3 sceneColor = mix(lit_color, finalFogColor, tintStrength);
+    sceneColor += vec3(0.0, 0.0, 0.0) * fog_amount * (1.0 - sky_light_intensity);
+
+    // ========= FINAL BLEND =========
+    vec3 final_color = mix(sceneColor, finalFogColor, fog_amount);
+    final_color += scatter * (1.0 - fog_amount) * 0.20;
+
+    float desat = smoothstep(0.0, 1.0, fog_amount) * (1.0 - fog_amount) * 0.12;
+    float lum = dot(final_color, vec3(0.299, 0.587, 0.114));
+    final_color = mix(final_color, vec3(lum), desat);
+
+    // (No filmic curve here any more -- see the terrain shader.)
+    final_color = clamp(final_color, 0.0, 1.0);
+
+    // Saturation
+    float l = dot(final_color, vec3(0.299, 0.587, 0.114));
+    final_color = mix(vec3(l), final_color, saturation);
+
+    // Contrast
+    final_color = (final_color - 0.5) * contrast + 0.5;
+    final_color = clamp(final_color, 0.0, 1.0);
+
+    // ========= WATER ALPHA =========
+    // The view-angle fade softens the hard seam where water meets terrain
+    // right at the shoreline. Applying it globally also hits far water viewed
+    // at the same grazing angle: looking across open water to the horizon gives
+    // abs(dot(view, normal)) -> 0, so distance makes water fade to fully
+    // transparent. Confine the fade to the immediate seam zone (a few blocks)
+    // and give everything beyond full opacity.
+    float view_angle = abs(dot(normalize(view_direction), world_normal));
+    float near_edge_fade = smoothstep(0.0, water_edge_fade, view_angle);
+    float distance_restore = smoothstep(1.0, 6.0, fog_distance);
+    float edge_fade = mix(near_edge_fade, 1.0, distance_restore);
+
+    float base_alpha = water_color.a * edge_fade;
+    base_alpha = mix(base_alpha, lava_alpha, step(1.5, fluid_kind) * step(fluid_kind, 2.5));
+    ALBEDO = final_color;
+    ALPHA = mix(base_alpha, 1.0, fog_amount);
+}

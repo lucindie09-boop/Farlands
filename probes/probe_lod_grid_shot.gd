@@ -216,7 +216,7 @@ func _row(before: PackedByteArray, after: PackedByteArray, size: Vector2i, radiu
 ## so a silent revert cannot be mistaken for a hole. What this measures is geometry,
 ## which is the thing under test; the fog's own tuning is not.
 func _neutralise_fog() -> String:
-	var material = load("res://materials/lod_grid_material.tres")
+	var material = load("res://Assets/materials/lod_grid_material.tres")
 	if material == null or not (material is ShaderMaterial):
 		return "no material"
 	material.set_shader_parameter("fog_begin", 0.0)
@@ -327,8 +327,8 @@ func _run() -> void:
 
 	# The fog readback is taken after the capture, so a revert mid-frame shows up.
 	_ok("measurement: the fog did not come back during the capture",
-		float(load("res://materials/lod_grid_material.tres").get_shader_parameter("fog_end")) > 1000.0,
-		str(load("res://materials/lod_grid_material.tres").get_shader_parameter("fog_end")))
+		float(load("res://Assets/materials/lod_grid_material.tres").get_shader_parameter("fog_end")) > 1000.0,
+		str(load("res://Assets/materials/lod_grid_material.tres").get_shader_parameter("fog_end")))
 
 	var profile := []
 	var inner_worst := 1.0

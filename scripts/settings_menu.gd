@@ -1,14 +1,14 @@
 extends Control
 
-const MUNRO_FONT: Font = preload("res://fonts/munro.ttf")
-const BUTTON_TEX: Texture2D = preload("res://textures/gui/button.png")
-const BUTTON_SQUARE_TEX: Texture2D = preload("res://textures/gui/button_square.png")
-const UNDO_TEX: Texture2D = preload("res://textures/gui/undo_button.png")
-const EXPORT_TEX: Texture2D = preload("res://textures/gui/export_button.png")
-const IMPORT_TEX: Texture2D = preload("res://textures/gui/import_button.png")
-const SETTINGS_TEX: Texture2D = preload("res://textures/gui/settings_button.png")
-const SLIDER_TRACK_TEX: Texture2D = preload("res://textures/gui/slider_button.png")
-const SLIDER_THUMB_TEX: Texture2D = preload("res://textures/gui/slider.png")
+const MUNRO_FONT: Font = preload("res://Assets/fonts/munro.ttf")
+const BUTTON_TEX: Texture2D = preload("res://Assets/textures/gui/button.png")
+const BUTTON_SQUARE_TEX: Texture2D = preload("res://Assets/textures/gui/button_square.png")
+const UNDO_TEX: Texture2D = preload("res://Assets/textures/gui/undo_button.png")
+const EXPORT_TEX: Texture2D = preload("res://Assets/textures/gui/export_button.png")
+const IMPORT_TEX: Texture2D = preload("res://Assets/textures/gui/import_button.png")
+const SETTINGS_TEX: Texture2D = preload("res://Assets/textures/gui/settings_button.png")
+const SLIDER_TRACK_TEX: Texture2D = preload("res://Assets/textures/gui/slider_button.png")
+const SLIDER_THUMB_TEX: Texture2D = preload("res://Assets/textures/gui/slider.png")
 const SETTINGS_PATH := "user://settings.cfg"
 # The day-horizon variants saved for later; the default is #2652a6. The tooltip
 # on the Day Horizon picker lists the variants, so the hex
@@ -2792,7 +2792,7 @@ func _make_gallery_model_view(s: float, skin_name: String) -> SubViewportContain
 	var holder := Node3D.new()
 	holder.name = "SpinPivot"
 	vp.add_child(holder)
-	var model: Node3D = load("res://models/player.glb").instantiate()
+	var model: Node3D = load("res://Assets/models/player.glb").instantiate()
 	model.scale = Vector3(0.9, 0.9, 0.9)
 	holder.add_child(model)
 	_apply_skin_textures(model, "user://skins/" + skin_name + ".png")

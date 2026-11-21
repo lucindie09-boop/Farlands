@@ -109,7 +109,7 @@ screen (the shader-effect stack, the animated-liquid tools, the model previews).
   bands from `#a6adb4` down to `#2b2f35` (the buttons' near-neutral grey, not a blue of its own), a
   1-unit black rim and a point 8 units in at each end —
   and one wide diagonal of violet light travelling
-  along the three cards' bevels (`shaders/ui_sheen.gdshader`, additive and faint, ring-only; off
+  along the three cards' bevels (`Assets/shaders/ui_sheen.gdshader`, additive and faint, ring-only; off
   under Reduce Motion). It crossed the rows and the wordmark in earlier builds and both were
   removed - the rows because a band over a 40-unit face reads as a texture against the row's own
   colour signal, the title because a word being travelled through is motion in the middle of the
@@ -250,10 +250,10 @@ being resampled by a different fraction at each scale.
   *sample* — so the block textures themselves are changed for every block at once, live, while
   the geometry stays exactly where the mesh put it. Moving no vertex, it has nothing to hand
   the culling code the vertex kind talks to, and that is the whole of the difference between
-  the two kinds on this side. `shaders/block_noise.gdshaderinc` is the kind's first member,
+  the two kinds on this side. `Assets/shaders/block_noise.gdshaderinc` is the kind's first member,
   **Noisy Blocks**: the makers' own 0..100 grain, the same ceiling (`MAX_GRAIN`), added to the
   texel each fragment of both world materials reads, monochromatic and faded out where a texel
-  shrinks below a screen pixel. `shaders/grain.gdshader` is **Film Grain**, a screen pass with
+  shrinks below a screen pixel. `Assets/shaders/grain.gdshader` is **Film Grain**, a screen pass with
   no history and nothing measured: a hash of each `grain_size`-pixel cell of the frame, nailed
   to the screen by default and re-rolled 24 times a second with **Animated** on. Neither
   reaches the held item's mesh or the inventory's block icons, which read a block's texture
@@ -266,7 +266,7 @@ being resampled by a different fraction at each scale.
   the `frame_size` the passes count their patterns in, re-pushed on `size_changed`;
   `settings_menu.gd` is the one that persists it. Sits in the HUD *below* `SettingsMenu` so the
   world and gameplay HUD wear the effect while the menus over them stay readable.
-  `shaders/crt.gdshader` is the registry's fourth entry and one of its two *screen* passes: a
+  `Assets/shaders/crt.gdshader` is the registry's fourth entry and one of its two *screen* passes: a
   corner-filleted tube bend with a feathered black case, and the picture built the way a tube
   builds one — the frame averaged down onto a coarse raster of `picture_scale`-screen-pixel dots
   (`picture_scale` is a magnification rather than a line count, so a dot is always a whole
@@ -276,7 +276,7 @@ being resampled by a different fraction at each scale.
   a halo gathered out of the picture's own cells, then vignette, tone and mains hum. Its
   defaults are chosen by looking, not by arithmetic, over a frozen game frame
   (`probes/probe_crt_look.gd`); `data/shaders.json` is the registry that names each effect,
-  its `params` and the uniform each param drives. `shaders/phosphor.gdshader` is the registry's
+  its `params` and the uniform each param drives. `Assets/shaders/phosphor.gdshader` is the registry's
   fifth entry and the other *screen* pass, and the first effect to need the frame before the one
   it draws into — which no shader can get for itself, since the engine's screen copy is of the
   frame *being drawn*. `shader_overlay.gd` keeps a viewport whose whole content is the main
@@ -292,7 +292,7 @@ being resampled by a different fraction at each scale.
   square-root-of-retention behaviour of a real tube), and gated by `phosphor_floor` so a pixel
   too dark to have lit the phosphor keeps nothing and a night does not smear into fog. A pass
   with a history is handed a blank for its first frame, so its trail starts from the frame it
-  was switched on in. `shaders/invert.gdshader` and `shaders/sepia.gdshader` are the registry's
+  was switched on in. `Assets/shaders/invert.gdshader` and `Assets/shaders/sepia.gdshader` are the registry's
   sixth and seventh entries and the `filter` kind's first two members — a screen pass under
   another heading, and a pair deliberately as plain as a pass can be: one read of the frame, one
   write, no history, no offsets and nothing measured in pixels, so neither declares
@@ -317,7 +317,7 @@ being resampled by a different fraction at each scale.
   (`_camera_restore`), so mouse look, head-bob and the frustum are untouched and a switched-off
   — or zero-strength — effect leaves the camera exactly as it found it. The driver is built for
   more camera effects than the one it has: the next one is a motion function and a registry
-  entry. `shaders/anime.gdshader` is that registry's one *world* effect so far — the Shaders
+  entry. `Assets/shaders/anime.gdshader` is that registry's one *world* effect so far — the Shaders
   page's third category — and it draws at the world's own depth: its colours are flattened by
   taking the average of the flattest of four quadrant windows around each pixel (Kuwahara, 1976,
   so texture inside a surface is averaged away while the edge *between* two surfaces comes out
@@ -327,12 +327,12 @@ being resampled by a different fraction at each scale.
   way) for the reason the pass shipped its first version wrong: an unbounded one divides by a
   flat that can be zero, which crushed every shadow in the frame to a blotch. The line is the
   picture's own edges rather than the world's geometry, since a canvas pass has no depth buffer
-  to compare — Godot's canvas built-ins expose none. `shaders/world_bend.gdshaderinc` is the
-  registry's second entry and `shaders/world_horizon.gdshaderinc` is its third, and both are
+  to compare — Godot's canvas built-ins expose none. `Assets/shaders/world_bend.gdshaderinc` is the
+  registry's second entry and `Assets/shaders/world_horizon.gdshaderinc` is its third, and both are
   *vertex* effects — the Shaders page's second category — the ground moving because the world's
   own *vertices* move rather than because anything was drawn over them. World Bend's ground
-  curves up and away from the camera. `shaders/voxel_shader.gdshader` and
-  `shaders/voxel_shader_water.gdshader` both `#include` it and call it from `vertex()` with
+  curves up and away from the camera. `Assets/shaders/voxel_shader.gdshader` and
+  `Assets/shaders/voxel_shader_water.gdshader` both `#include` it and call it from `vertex()` with
   their vertex's world position and the camera's, then put the result back into the mesh's own
   space for the engine to project — so the terrain and the liquids bend by one shared, pure
   function of world position, which is what keeps a shoreline welded. The horizontal distance
@@ -347,7 +347,7 @@ being resampled by a different fraction at each scale.
   and looking keep working on a world whose vertices have moved) nor collision (reach and the
   block you are mining do not move; past a few dozen blocks the ground is drawn somewhere other
   than where it is, which is under a block at the distances a player builds at).
-  `shaders/world_horizon.gdshaderinc` is the other and the opposite: a sphere of
+  `Assets/shaders/world_horizon.gdshaderinc` is the other and the opposite: a sphere of
   `world_horizon_radius` touches the ground at the player's feet, the flat world is its tangent
   plane, and a point a horizontal distance d out is drawn
   `radius * (1 - 1/sqrt(1 + (d/radius)²))` below it — the same expression as the bend's lift
@@ -454,34 +454,34 @@ being resampled by a different fraction at each scale.
 - `pose_clone_debug.gd` — Debug tool (K key): spawns a rigid, punchable physics dummy — a frozen
   copy of the player model (no Idle animation, no head tracking) running `dummy.gd`'s vanilla
   1.8.8 gravity/drag/knockback at 20 tps — standing on the aimed block, with a bright
-  depth-test-off cube at every mesh's origin (see `shaders/pose_pivot_marker.gdshader`); prints
+  depth-test-off cube at every mesh's origin (see `Assets/shaders/pose_pivot_marker.gdshader`); prints
   each part's pivot for marker-vs-transform verification
 - `dummy.gd` — Combat physics for the K-key pose clone: 20 tps vanilla 1.8.8 gravity/drag,
   knockback (`apply_knockback`: base 0.4 + sprint bonus, 10-tick hurt-resistance gate),
   interpolated rendering between ticks
 - `tools/bake_liquid_textures.gd` — Headless baker for a liquid's still block texture: runs the
   generator's own preset for `lava`/`acid` (or any style named on the command line) and writes
-  frame 1/4 of the strip to `textures/blocks/<style>.png`, the PNG the texture array builds its
+  frame 1/4 of the strip to `Assets/textures/blocks/<style>.png`, the PNG the texture array builds its
   layer from. `godot --headless --path . --script res://tools/bake_liquid_textures.gd`, then
   `--import`
 - `tools/rebake_player_pivots.py` — Idempotent re-baker for `player.glb`: moves each node origin
   onto its pivot while shifting that mesh's vertices by the delta so world placement is
   byte-identical (glTF has no pivot field — a node's origin is its rotation anchor)
 - `tools/extract_model_animations.gd` — Lifts a model file's own glTF clips out into standalone
-  `Animation` resources under `Animations/` (`Idle_new.anim` from `model.gltf`'s `still_test`,
+  `Animation` resources under `Assets/Animations/` (`Idle_new.anim` from `model.gltf`'s `still_test`,
   `Walk.anim` from its `walking_test`), because the body loads its clips from a path rather than
   from the imported scene. `godot --headless --path . --script res://tools/extract_model_animations.gd`;
   it reads each saved clip back and resolves every track path against the rig it came from, so a
   renamed limb fails there instead of playing as no motion. Nothing on the player's body loads
-  the two clips (or `Animations/Idle.anim`) at the moment — the pose is code — so this and its
+  the two clips (or `Assets/Animations/Idle.anim`) at the moment — the pose is code — so this and its
   output are kept for the parked pair
 - `viewmodel.gd` — Thin first-person hand + held item/block glue (child of `Camera3D`): node
   tree, `_input`, F12 HUD, and peak-pose constants. Per-frame animation math lives in
   `ViewmodelPose` and held-mesh geometry in `ViewmodelMeshes` (both native C++)
 - `block_break_overlay.gd` — Draws the 10-stage crack overlay
-  (`textures/animated/l0_sprite_01..10.png`) on the mined block, one cube per selection box
+  (`Assets/textures/animated/l0_sprite_01..10.png`) on the mined block, one cube per selection box
   of its resolved shape, driven by `get_break_state()`, with the boxes re-resolved when the
   block or its neighbour-dependent box set changes
-- `block_textures.gd` — ~~Block texture atlas generation from `textures/blocks/`~~ ported to the
+- `block_textures.gd` — ~~Block texture atlas generation from `Assets/textures/blocks/`~~ ported to the
   native `BlockTextures` GDExtension binding (registered in
   `src/godot_bindings/register_types.cpp`); the GDScript file has been deleted

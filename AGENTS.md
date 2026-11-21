@@ -209,7 +209,7 @@ Full notes: [docs/light.md](docs/light.md).
 - The player's own body is posed by code, not clips: `scripts/body_animator.gd` ports
   FA+Player's moves (idle, walk, sprint, jump/fall, sneak, swim) from the sim's own state
   (`get_velocity`, `is_on_floor`, `is_in_water`, `is_sneaking`, `is_sprinting`) onto the rig's
-  rest rotations. `Animations/Idle.anim` and the parked `Idle_new`/`Walk` pair are on disk but
+  rest rotations. `Assets/Animations/Idle.anim` and the parked `Idle_new`/`Walk` pair are on disk but
   not loaded, the head's rotation stays the code's, and the pack's files are not vendored
   (its terms) — the credit is in docs/gui-notes.md.
 - The title screen (`scripts/menu_layer.gd` over the live world, `title_screen.gd` drawing it)
@@ -225,7 +225,7 @@ Full notes: [docs/light.md](docs/light.md).
   right-hand panels vary per square and never move), read
   from `data/changelog.json`, whose `version` a probe holds against the build's. A travelling sheen
   runs along the three cards' bevels and nowhere else: one broad warped violet band (240 units
-  apart, 28% of each period lit, mottled insides) from `shaders/ui_sheen.gdshader`, at low strength
+  apart, 28% of each period lit, mottled insides) from `Assets/shaders/ui_sheen.gdshader`, at low strength
   and off under Reduce Motion. It crossed the rows and then the wordmark and both were removed - a
   sheet of violet over a 40-unit row fought the row's own colour signal, and a band moving through
   the title's letters is motion in the middle of the thing being read. Entering the

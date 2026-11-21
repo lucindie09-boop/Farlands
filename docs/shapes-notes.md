@@ -92,7 +92,7 @@ were paid for once already. The shapes themselves are in
 - **The art for those shapes is generated, not hand-drawn, because the layout is not free**: a
   box samples its own texture region, so the torch stick must sit in x 7..9 / y 6..16 and the
   chain's links in x 7..9 of their textures. The torch BLOCK texture is the exception: it is a
-  verbatim copy of `textures/items/torch.png`, because the torch you hold and the torch you
+  verbatim copy of `Assets/textures/items/torch.png`, because the torch you hold and the torch you
   place must be one drawing and the item art is what the player sees in hand.
   `python tools/make_block_textures.py` copies that file and generates `torch_emit.png` (aligned
   to the item art's two flame rows) plus glass, ladder, chain and carpet, idempotently; new PNGs

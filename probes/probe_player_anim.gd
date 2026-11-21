@@ -178,7 +178,7 @@ func _run() -> void:
 
 	# The K-key pose clone is frozen on purpose: skip_head_look must gate the pose
 	# too, or the "dummy" breathes at the player while it is being punched.
-	var glb: PackedScene = load("res://models/player.glb")
+	var glb: PackedScene = load("res://Assets/models/player.glb")
 	var clone: Node3D = glb.instantiate()
 	var clone_rest: Quaternion = (clone.get_node("arm") as Node3D).quaternion
 	clone.set_script(load("res://scripts/player_model.gd"))

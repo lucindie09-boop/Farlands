@@ -138,7 +138,7 @@ twice, and the coast is where the samples' own crossing is. The whole sequence, 
   `DETAIL_REPEAT_MIN_PX` (2); the WIDER of the two axes is read, the same axis the
   sampler's own mip choice is made on, so ground seen edge-on fades with everything
   else the screen cannot carry rather than going on texturing the axis that survives.
-  It is the rule and the reason `shaders/block_noise.gdshaderinc` already uses for the
+  It is the rule and the reason `Assets/shaders/block_noise.gdshaderinc` already uses for the
   world's grain ("the grain is faded out over that footprint, which keeps a distant
   hillside from boiling"); the two differ only in which unit they count. Nothing the
   eye can read a texture on changes: the term still carries the field out to the
@@ -316,7 +316,7 @@ twice, and the coast is where the samples' own crossing is. The whole sequence, 
   owns a liquid's layer the animator is paused for that liquid (`pause`/`resume`) — one layer,
   one writer, or the two blink against each other. And a missing layer means no animation plus a
   note saying so, which is exactly what lava and acid used to report: the array is built from
-  `res://textures/blocks/<name>.png`, so a liquid with no PNG has no layer to write even though
+  `res://Assets/textures/blocks/<name>.png`, so a liquid with no PNG has no layer to write even though
   its blocks exist
 - **A liquid's still texture is baked from its own preset** (`tools/bake_liquid_textures.gd`:
   `godot --headless --path . --script res://tools/bake_liquid_textures.gd`, then `--import` to
@@ -324,7 +324,7 @@ twice, and the coast is where the samples' own crossing is. The whole sequence, 
   first pushed frame, and what `restore_texture_layer` puts back when animation stops, so it has
   to look like the liquid it belongs to: the tool takes frame 1/4 of the preset's own strip —
   past the warm-up, before the loop's arriving tail — and writes it to
-  `textures/blocks/<style>.png`. Default targets are lava and acid; the hand-authored
+  `Assets/textures/blocks/<style>.png`. Default targets are lava and acid; the hand-authored
   `water.png` is only touched if it is named on the command line
 - **Two traps this tool sits on.** (1) `TextureArrayGenerator::find_texture_layer()` is the
   *writer's* lookup and answers -1 for "no such layer"; `get_texture_index()` answers 0, which
@@ -449,7 +449,7 @@ twice, and the coast is where the samples' own crossing is. The whole sequence, 
 
 ### Hand Drawn
 
-- **Hand Drawn** (`shaders/anime.gdshader`) is
+- **Hand Drawn** (`Assets/shaders/anime.gdshader`) is
   the registry's first entry and the `world` kind's first member, and it stylises the world's
   own picture in three steps. The colours are *flattened*, not blurred: every pixel takes the
   average colour of whichever of four quadrant windows around it is flattest (Kuwahara, 1976),
@@ -476,7 +476,7 @@ twice, and the coast is where the samples' own crossing is. The whole sequence, 
 
 ### CRT Screen
 
-- **CRT Screen** is the registry's fourth entry (`shaders/crt.gdshader`), and one of the
+- **CRT Screen** is the registry's fourth entry (`Assets/shaders/crt.gdshader`), and one of the
   registry's two *screen* effects — the three before it are Hand Drawn, World Bend and the
   Horizon Curve, below, of which only the first draws anything at all, and it draws under the
   HUD rather than over the screenful — and it draws the picture on a tube rather than laying a
@@ -534,7 +534,7 @@ twice, and the coast is where the samples' own crossing is. The whole sequence, 
 
 ### Phosphor Trail
 
-- **Phosphor Trail** (`shaders/phosphor.gdshader`)
+- **Phosphor Trail** (`Assets/shaders/phosphor.gdshader`)
   is the registry's fifth entry and, with the two colour filters below, one of the *screen-ish*
   passes drawn over the screenful and it is the first effect to need something the engine does
   not hand a shader at all: the frame before the one it draws into. A reading pass is given a
@@ -573,8 +573,8 @@ twice, and the coast is where the samples' own crossing is. The whole sequence, 
   an after-image that is off is a hidden rect and nothing else. A pass is a full-rect child of
   this node, so the node's own rect is set from the viewport rather than left to its anchors — a
   zero-sized overlay is a whole stack of zero-sized passes, drawing nothing, with no error to
-  say so. **Invert Colours** (`shaders/invert.gdshader`) and **Sepia**
-  (`shaders/sepia.gdshader`) are the registry's sixth and seventh entries and the first two of
+  say so. **Invert Colours** (`Assets/shaders/invert.gdshader`) and **Sepia**
+  (`Assets/shaders/sepia.gdshader`) are the registry's sixth and seventh entries and the first two of
   the `filter` kind, a heading of their own. A filter is a screen pass under
   another name — the overlay builds it exactly as it builds a screen effect, so it stacks like
   any other pass — and the kind exists only because of where a player goes looking: a pass whose
@@ -607,12 +607,12 @@ twice, and the coast is where the samples' own crossing is. The whole sequence, 
 
 ### World Bend
 
-- **World Bend** (`shaders/world_bend.gdshaderinc`) is the registry's second
+- **World Bend** (`Assets/shaders/world_bend.gdshaderinc`) is the registry's second
   entry and one of its two vertex effects, and it does not draw anything: it moves the vertices
   the world is made of, so the ground curves up and away from the player and the whole far field
   closes into a disc around them. The include is shared by the two materials the world is made
-  of — `shaders/voxel_shader.gdshader` for all chunk terrain and
-  `shaders/voxel_shader_water.gdshader` for water, lava and acid — and it is a *pure function of
+  of — `Assets/shaders/voxel_shader.gdshader` for all chunk terrain and
+  `Assets/shaders/voxel_shader_water.gdshader` for water, lava and acid — and it is a *pure function of
   a vertex's world position*, which is the whole reason the two can be bent at all: the vertices
   a mesh edge shares with its neighbour's edge are moved by the same function to the same place,
   so bent ground and bent water still meet and a shoreline cannot open up. The bend is measured
@@ -701,8 +701,8 @@ twice, and the coast is where the samples' own crossing is. The whole sequence, 
   the measured centroid of the pixels it covers against the include's own arithmetic re-run in
   GDScript. With the bend off the marker lands within 0.54 px of the camera's own unprojection,
   which is the reading being sound before anything is claimed; with it on, within 0.90 px of the
-  prediction at every distance; and `materials/voxel_material.tres` and
-  `materials/voxel_material_water.tres` both land on the marker's own pixels to 0.00 px, with
+  prediction at every distance; and `Assets/materials/voxel_material.tres` and
+  `Assets/materials/voxel_material_water.tres` both land on the marker's own pixels to 0.00 px, with
   identical pixel counts — the terrain and the water bend by the same amount at the same place,
   which is what a welded shoreline is. It also measures the switch (0.00 px back), the amount
   (nothing at 0, 128 px of move at 1), the radius (91 px at 128 against 51 at 512) and the
@@ -715,7 +715,7 @@ twice, and the coast is where the samples' own crossing is. The whole sequence, 
 ### Horizon Curve
 
 - **Horizon Curve**
-  (`shaders/world_horizon.gdshaderinc`) is the registry's third entry and the other vertex
+  (`Assets/shaders/world_horizon.gdshaderinc`) is the registry's third entry and the other vertex
   effect, and it is the opposite idea to the bend: nothing closes in and nothing climbs, and the
   ground a long way off is drawn a long way *down*, so a plain curves away from the player
   instead of running flat to the edge of the loaded world and the horizon becomes the place
@@ -773,7 +773,7 @@ twice, and the coast is where the samples' own crossing is. The whole sequence, 
 
 ### Film Grain
 
-- **Film Grain** (`shaders/grain.gdshader`) is the registry's tenth entry, its third *screen*
+- **Film Grain** (`Assets/shaders/grain.gdshader`) is the registry's tenth entry, its third *screen*
   pass, and the last thing put on the picture: the tube, the trail and the two colour filters
   are all under it, so what it grains is the picture as the rest of the stack left it. It is
   deliberately the plainest pass in the file — one read of the frame and one write, with no
@@ -797,7 +797,7 @@ twice, and the coast is where the samples' own crossing is. The whole sequence, 
 
 ### Noisy Blocks
 
-- **Noisy Blocks** (`shaders/block_noise.gdshaderinc`) is the registry's ninth entry and the
+- **Noisy Blocks** (`Assets/shaders/block_noise.gdshaderinc`) is the registry's ninth entry and the
   `texture` kind's first member, and its subject is neither the frame nor a vertex but the
   *atlas*: the makers' own grain, 0 to 100, over every block in the world at once and live as
   the slider is dragged. Nothing is repainted to do it. The makers' sliders are a CPU repaint of

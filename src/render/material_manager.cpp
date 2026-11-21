@@ -208,7 +208,7 @@ void MaterialManager::reload_textures() {
 Ref<ShaderMaterial> MaterialManager::get_material() {
     if (!cached_material.is_valid()) {
         ResourceLoader* loader = ResourceLoader::get_singleton();
-        cached_material = loader->load("res://materials/voxel_material.tres");
+        cached_material = loader->load("res://Assets/materials/voxel_material.tres");
         if (!cached_material.is_valid()) {
             ERR_PRINT("Failed to load voxel_material.tres");
             return cached_material;
@@ -228,7 +228,7 @@ Ref<ShaderMaterial> MaterialManager::get_material() {
 Ref<ShaderMaterial> MaterialManager::get_lod_grid_material() {
     if (!cached_lod_grid_material.is_valid()) {
         ResourceLoader* loader = ResourceLoader::get_singleton();
-        cached_lod_grid_material = loader->load("res://materials/lod_grid_material.tres");
+        cached_lod_grid_material = loader->load("res://Assets/materials/lod_grid_material.tres");
         if (!cached_lod_grid_material.is_valid()) {
             ERR_PRINT("Failed to load lod_grid_material.tres");
             return cached_lod_grid_material;
@@ -246,7 +246,7 @@ Ref<ShaderMaterial> MaterialManager::get_lod_grid_material() {
 Ref<ShaderMaterial> MaterialManager::get_water_material() {
     if (!cached_water_material.is_valid()) {
         ResourceLoader* loader = ResourceLoader::get_singleton();
-        cached_water_material = loader->load("res://materials/voxel_material_water.tres");
+        cached_water_material = loader->load("res://Assets/materials/voxel_material_water.tres");
         if (!cached_water_material.is_valid()) {
             ERR_PRINT("Failed to load voxel_material_water.tres");
             return cached_water_material;

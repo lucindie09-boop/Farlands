@@ -183,7 +183,7 @@ func _reset(state: Dictionary) -> void:
 	state["note"] = "not prepared yet"
 
 # Everything that can stop a liquid animating, checked once per attempt rather
-# than per frame: the layer has to exist (a block has to use textures/<name>.png)
+# than per frame: the layer has to exist (a block has to use Assets/textures/<name>.png)
 # and it has to be writable (an uncompressed array).
 func _prepare(liquid: String, state: Dictionary) -> bool:
 	var manager := _chunk_manager()

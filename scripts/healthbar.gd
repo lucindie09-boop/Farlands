@@ -41,10 +41,10 @@ const UIShatter := preload("res://scripts/ui_shatter.gd")
 
 @onready var player_controller = get_node("/root/Main/Player")
 
-var _heart_full: Texture2D = preload("res://textures/gui/heart_full.png")
-var _heart_half: Texture2D = preload("res://textures/gui/heart_half.png")
-var _heart_empty: Texture2D = preload("res://textures/gui/heart_empty.png")
-var _hotbar_texture: Texture2D = preload("res://textures/gui/hotbar.png")
+var _heart_full: Texture2D = preload("res://Assets/textures/gui/heart_full.png")
+var _heart_half: Texture2D = preload("res://Assets/textures/gui/heart_half.png")
+var _heart_empty: Texture2D = preload("res://Assets/textures/gui/heart_empty.png")
+var _hotbar_texture: Texture2D = preload("res://Assets/textures/gui/hotbar.png")
 # The hotbar's top edge, read off its art. See _hotbar_floor().
 var _floor: UIShatter.Surface = null
 var _floor_scale := 0.0

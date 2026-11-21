@@ -25,16 +25,16 @@ extends Node
 ## paste are the same Dictionary, built in one place (`_options`), because a
 ## preview that does not match what the click does is worse than no preview.
 
-const FONT: Font = preload("res://fonts/munro.ttf")
-const BUTTON_TEX: Texture2D = preload("res://textures/gui/button.png")
-const CLOSE_TEX: Texture2D = preload("res://textures/gui/close_button.png")
+const FONT: Font = preload("res://Assets/fonts/munro.ttf")
+const BUTTON_TEX: Texture2D = preload("res://Assets/textures/gui/button.png")
+const CLOSE_TEX: Texture2D = preload("res://Assets/textures/gui/close_button.png")
 # The square button art for the cards: the 50x50 version, not the 20x20 one the
 # close button uses. A card is 192 px across, so the larger source is stretched
 # less - the bevel is drawn in roughly 4 px blocks instead of 10 - which is the
 # finer of the two and the reason it was picked. A card wears this as its
 # background rather than a flat stylebox, so the grid reads as the same
 # interface as every other button in the game.
-const CARD_TEX: Texture2D = preload("res://textures/gui/button_square_large.png")
+const CARD_TEX: Texture2D = preload("res://Assets/textures/gui/button_square_large.png")
 # The two states of any button that wears a texture: the art brightened under the
 # pointer, darkened while held. Multiplied into the texture, so one image covers
 # all three states.

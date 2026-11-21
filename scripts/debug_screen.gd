@@ -75,7 +75,7 @@ const ROW_COLOR := Color(1, 1, 1, 1)
 const HEADING_COLOR := Color(0.70, 0.74, 0.80, 1)
 const OUTLINE_COLOR := Color(0, 0, 0, 0.85)
 
-const FONT: Font = preload("res://fonts/munro.ttf")
+const FONT: Font = preload("res://Assets/fonts/munro.ttf")
 
 var _left_column: VBoxContainer
 var _right_column: VBoxContainer

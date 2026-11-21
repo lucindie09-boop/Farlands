@@ -3,7 +3,7 @@
 // vertex.
 //
 // Nothing here decides anything. The authorities are
-// shaders/world_bend.gdshaderinc and shaders/world_horizon.gdshaderinc, and these
+// Assets/shaders/world_bend.gdshaderinc and Assets/shaders/world_horizon.gdshaderinc, and these
 // functions are those files copied line by line - the same relative vectors, the
 // same guards, the same expressions - so that a change to either include has
 // exactly one other place to be made. Both of the tests in this directory include
@@ -28,7 +28,7 @@ namespace warptest {
 using godot::AABB;
 using godot::Vector3;
 
-// shaders/world_bend.gdshaderinc's `world_bend_position`, point for point: the
+// Assets/shaders/world_bend.gdshaderinc's `world_bend_position`, point for point: the
 // same relative vector, the same arctan wrap, the same convex mix, the same
 // levelled-off lift, and the same two guards.
 inline Vector3 bend_warp(const Vector3& world, const Vector3& camera,
@@ -48,7 +48,7 @@ inline Vector3 bend_warp(const Vector3& world, const Vector3& camera,
                    camera.z + relative.z * scale);
 }
 
-// shaders/world_horizon.gdshaderinc's `world_horizon_drop`, point for point: the
+// Assets/shaders/world_horizon.gdshaderinc's `world_horizon_drop`, point for point: the
 // distance from the camera's vertical axis, the ratio, and the sphere's own
 // sagitta. A float and not a position, because the include's own is a float and
 // the consumer subtracts it from y.

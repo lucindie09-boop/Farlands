@@ -10,15 +10,15 @@ extends Node3D
 #
 # Everything worth tuning is an export so positions can be nudged in-game/editor.
 
-const PLAYER_MODEL: PackedScene = preload("res://models/player.glb")
+const PLAYER_MODEL: PackedScene = preload("res://Assets/models/player.glb")
 const MODEL_SCALE := 0.05625 # player.glb px -> meters (0.9 / 16)
 
 # The item shaders. Both run the world's own light model
-# (shaders/item_lighting.gdshaderinc) instead of the engine's lighting. The held
+# (Assets/shaders/item_lighting.gdshaderinc) instead of the engine's lighting. The held
 # item/block sit in the world and keep depth testing (item_shader); the arm is
 # drawn over it like the rest of the first-person furniture (viewmodel_shader).
-const ITEM_SHADER: Shader = preload("res://shaders/item_shader.gdshader")
-const ARM_SHADER: Shader = preload("res://shaders/viewmodel_shader.gdshader")
+const ITEM_SHADER: Shader = preload("res://Assets/shaders/item_shader.gdshader")
+const ARM_SHADER: Shader = preload("res://Assets/shaders/viewmodel_shader.gdshader")
 
 ## How long the light of the eye's cell takes to play out, in seconds (the time
 ## constant of the ease): the cell light is a STEP function of position -- one

@@ -2,7 +2,7 @@ extends Control
 
 @onready var player_controller = get_node("/root/Main/Player")
 
-const MUNRO_FONT: Font = preload("res://fonts/munro.ttf")
+const MUNRO_FONT: Font = preload("res://Assets/fonts/munro.ttf")
 
 const MAX_MESSAGES = 100
 const LOG_FONT_SIZE = 20

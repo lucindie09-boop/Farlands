@@ -24,17 +24,17 @@ const LAYER := 200
 const CANDIDATES := [
 	{
 		"name": "b_base",
-		"shader": "res://shaders/crt.gdshader",
+		"shader": "res://Assets/shaders/crt.gdshader",
 		"params": {},
 	},
 	{
 		"name": "c_new",
-		"shader": "res://shaders/crt.gdshader",
+		"shader": "res://Assets/shaders/crt.gdshader",
 		"params": {},
 	},
 	{
 		"name": "d_more",
-		"shader": "res://shaders/crt.gdshader",
+		"shader": "res://Assets/shaders/crt.gdshader",
 		"params": {
 			"scanline_depth": 0.7, "curvature": 0.3, "glow": 1.0,
 			"vignette": 0.4, "mask_strength": 0.25, "saturation": 1.2,

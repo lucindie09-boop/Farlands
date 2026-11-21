@@ -1,18 +1,18 @@
 extends Node3D
 
-@export var skin_texture: Texture2D = preload("res://textures/skin.png")
+@export var skin_texture: Texture2D = preload("res://Assets/textures/skin.png")
 
 signal texel_painted(px: int, py: int, old_color: Color, new_color: Color)
 
-const UV_OVERLAY_SHADER: Shader = preload("res://shaders/skin_uv_overlay.gdshader")
+const UV_OVERLAY_SHADER: Shader = preload("res://Assets/shaders/skin_uv_overlay.gdshader")
 const ATLAS_DIM := 64
 
 # The world's own light model, the one the terrain, the dropped items and the
-# first-person arm already run (shaders/item_lighting.gdshaderinc): the light of
+# first-person arm already run (Assets/shaders/item_lighting.gdshaderinc): the light of
 # the CELL this body is in, rather than the engine's sky and ambient, which know
 # nothing about caves, torches or the hour. Only for a body standing in the world
 # -- see _init_world_lighting for why a preview does not get it.
-const ITEM_SHADER: Shader = preload("res://shaders/item_shader.gdshader")
+const ITEM_SHADER: Shader = preload("res://Assets/shaders/item_shader.gdshader")
 # The cell light is one value per block, so a body crossing a boundary -- or a
 # cell being relit under it -- steps a whole cell's worth on a single frame. This
 # is the time constant of the fade that turns that step into a move. The same
@@ -404,7 +404,7 @@ func _ensure_paint_texture() -> void:
 		return
 	var img := skin_texture.get_image()
 	if img == null:
-		img = Image.load_from_file("res://textures/skin.png")
+		img = Image.load_from_file("res://Assets/textures/skin.png")
 	if img == null:
 		return
 	_paint_image = img.duplicate()

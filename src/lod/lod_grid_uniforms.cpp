@@ -21,7 +21,7 @@ using namespace godot;
 void LodGrid::push_clip_uniforms() {
     if (material.is_null()) return;
     // The liquid quad's texture-array layer, which the shader uses as its water flag
-    // (see shaders/lod_grid.gdshader). It cannot be a constant in the shader: the layer
+    // (see Assets/shaders/lod_grid.gdshader). It cannot be a constant in the shader: the layer
     // is an index into an array built from the loaded TEXTURE PACK, so the same block
     // gets a different index under a different pack and a number in the shader is right
     // for one pack and wrong for the next. Pushed before the clip's early return, so a

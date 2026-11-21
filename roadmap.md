@@ -11,7 +11,7 @@ since that changes the break-block code path~~
 
 ~~Player model animations - the body is posed per frame from sim state
 (`scripts/body_animator.gd`, a hand-port of FA+Player's moves: idle, walk, sprint, jump/fall,
-sneak, swim). No clips are loaded; `Animations/Idle.anim` and the parked `Idle_new`/`Walk` pair
+sneak, swim). No clips are loaded; `Assets/Animations/Idle.anim` and the parked `Idle_new`/`Walk` pair
 stay on disk unused~~
 
 ~~First-person viewmodel + items/blocks in hand~~

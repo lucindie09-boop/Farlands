@@ -730,7 +730,7 @@ Two layers mirroring the ChunkManager/VoxelEngineController pattern:
   tool; it is separate from `crush_result` (a crush wins) and both resolve in the same
   post-pass. Stone → cobblestone, so stone blocks themselves are no longer obtainable by mining.
 - **Hurt overlay** — `scripts/hurt_overlay.gd` (`HUD/HurtOverlay`, a full-rect `ColorRect`
-  with `shaders/hurt_vignette.gdshader`) is the screen's half of taking damage: the `damaged`
+  with `Assets/shaders/hurt_vignette.gdshader`) is the screen's half of taking damage: the `damaged`
   signal flashes a red edge that fades over `FLASH_SECONDS`, and health at or below
   `LOW_HEALTH` (two hearts) runs a two-thump heartbeat that beats harder the closer to zero.
   It reads the same health the bar does, draws under the death screen, takes no input, and is
@@ -738,7 +738,7 @@ Two layers mirroring the ChunkManager/VoxelEngineController pattern:
 - **Break debris** — `break_block()` emits `block_broken(block_id, position)` after the edit,
   where `block_id` is the block that was there rather than the drop it yielded. The scene's
   `scripts/block_break_particles.gd` answers it with one one-shot `CPUParticles3D` burst of 16
-  chips at the cell, drawn with the item shader (`shaders/item_shader.gdshader`) and the cell's
+  chips at the cell, drawn with the item shader (`Assets/shaders/item_shader.gdshader`) and the cell's
   own light as the burst's `item_light` instance uniform, so debris in a dark cave is dark. A
   burst frees itself on `finished`; at most 16 are alive and the oldest is dropped past that.
 
@@ -923,8 +923,8 @@ The following code remains in the codebase but is disabled or unused:
   and the Horizon Curve)
 - `src/core/world_cull.hpp` — The vertex effects' culling maths: how far each of them can move a
   point of a box, so the engine's own culling can be given a box that still contains it, and the
-  pair of them applied to one box. Mirrors `shaders/world_bend.gdshaderinc` and
-  `shaders/world_horizon.gdshaderinc`, which are the authorities on the effects themselves
+  pair of them applied to one box. Mirrors `Assets/shaders/world_bend.gdshaderinc` and
+  `Assets/shaders/world_horizon.gdshaderinc`, which are the authorities on the effects themselves
 - `src/mesh/mesh_builder.cpp` / `mesh_builder_solid.cpp` / `mesh_builder_greedy.cpp` /
   `mesh_builder_faces.cpp` / `mesh_builder_fluid.cpp` + `mesh_builder.hpp`'s types in
   `mesh_builder_types.hpp`, the AABB-face half of `mesh_builder_faces.cpp` in
@@ -1130,19 +1130,19 @@ Every file, with what it owns: [docs/ui.md](docs/ui.md).
 - `data/vegetation.json` — Vegetation parameters for the hills biome
 - `data/terrain_config.json` — Macro-surface tuning: `height_base_y`, domain-warp amplitudes,
   mid/small relief fields, shape-strength range, weirdness thresholds
-- `textures/` — Asset organization (see `textures/README.md`):
-  - `textures/blocks/` — Block textures (bedrock, dirt, grass, stone, sand, water, etc.) — the
+- `Assets/textures/` — Asset organization (see `Assets/textures/README.md`):
+  - `Assets/textures/blocks/` — Block textures (bedrock, dirt, grass, stone, sand, water, etc.) — the
     only directory the texture arrays build from, a liquid's baked still frame included
-  - `textures/items/` — Item and tool sprites, named by `data/items.json` and resolved by
+  - `Assets/textures/items/` — Item and tool sprites, named by `data/items.json` and resolved by
     `BlockTextures`
-  - `textures/animated/` — The ten cracked-block overlay frames the break animation steps
+  - `Assets/textures/animated/` — The ten cracked-block overlay frames the break animation steps
     through
-  - `textures/gui/` — UI textures (hotbar, inventory background, effects, settings and tool
+  - `Assets/textures/gui/` — UI textures (hotbar, inventory background, effects, settings and tool
     icons)
-  - `textures/sprites/` — Sprite textures (hearts, etc.)
-  - `textures/atmosphere/` — Atmospheric textures (sun, north star)
-  - `textures/mobs/` — Mob skins
-  - `textures/0Archive/` — Archived/deprecated textures (old versions kept for reference)
+  - `Assets/textures/sprites/` — Sprite textures (hearts, etc.)
+  - `Assets/textures/atmosphere/` — Atmospheric textures (sun, north star)
+  - `Assets/textures/mobs/` — Mob skins
+  - `Assets/textures/0Archive/` — Archived/deprecated textures (old versions kept for reference)
 
 ### Testing
 - `tests/` — 118 `.cpp` files (789 test cases / 374,361 assertions, declared across 116 of them:

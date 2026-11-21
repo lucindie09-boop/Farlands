@@ -155,9 +155,9 @@ func _mesh(quads: Array) -> ArrayMesh:
 ## a full white sky, no fog, no clip, no water mix, no grading. The layers came from
 ## the probe, so a red pixel is the near quad and a blue one the far quad.
 func _material(arr: Texture2DArray) -> ShaderMaterial:
-	var shader: Shader = load("res://shaders/lod_grid.gdshader")
+	var shader: Shader = load("res://Assets/shaders/lod_grid.gdshader")
 	if shader == null:
-		print("PROBE FAIL: shaders/lod_grid.gdshader did not load")
+		print("PROBE FAIL: Assets/shaders/lod_grid.gdshader did not load")
 		return null
 	var mat := ShaderMaterial.new()
 	mat.shader = shader

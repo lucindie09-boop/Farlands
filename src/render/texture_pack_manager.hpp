@@ -9,7 +9,7 @@
 
 namespace VoxelEngine {
 
-// One loaded texture pack: a folder with pack.json + textures/ keyed by
+// One loaded texture pack: a folder with pack.json + Assets/textures/ keyed by
 // engine texture names (see data/block_definitions.json). Pure data (no Godot
 // types) so the resolution core is unit-testable in the standalone binary.
 struct TexturePack {
@@ -30,8 +30,8 @@ inline bool schema_supported(const TexturePack& pack) {
 }
 
 // Resolution stack (highest-priority active pack first):
-//   user://packs/<p>/textures/<name>.png  ->  res://textures/blocks/<name>.png
-//   -> res://textures/blocks/stone.png
+//   user://packs/<p>/textures/<name>.png  ->  res://Assets/textures/blocks/<name>.png
+//   -> res://Assets/textures/blocks/stone.png
 // One path per name: two packs both overriding "stone" collapse to the first
 // active pack that provides it, so the texture array can never gain duplicate
 // layers for the same name.
@@ -41,12 +41,12 @@ inline std::string resolve_texture(const std::vector<TexturePack>& packs,
                                    const PackPathExistsFn& exists) {
     for (size_t idx : active) {
         if (idx >= packs.size()) continue;
-        std::string pack_path = packs[idx].root_dir + "textures/" + texture_name + ".png";
+        std::string pack_path = packs[idx].root_dir + "Assets/textures/" + texture_name + ".png";
         if (exists(pack_path)) return pack_path;
     }
-    std::string builtin = "res://textures/blocks/" + texture_name + ".png";
+    std::string builtin = "res://Assets/textures/blocks/" + texture_name + ".png";
     if (exists(builtin)) return builtin;
-    return "res://textures/blocks/stone.png";
+    return "res://Assets/textures/blocks/stone.png";
 }
 
 // Strict resolution for emissive textures: returns std::nullopt when the name
@@ -58,10 +58,10 @@ inline std::optional<std::string> resolve_texture_optional(
     const PackPathExistsFn& exists) {
     for (size_t idx : active) {
         if (idx >= packs.size()) continue;
-        std::string pack_path = packs[idx].root_dir + "textures/" + texture_name + ".png";
+        std::string pack_path = packs[idx].root_dir + "Assets/textures/" + texture_name + ".png";
         if (exists(pack_path)) return pack_path;
     }
-    std::string builtin = "res://textures/blocks/" + texture_name + ".png";
+    std::string builtin = "res://Assets/textures/blocks/" + texture_name + ".png";
     if (exists(builtin)) return builtin;
     return std::nullopt;
 }

@@ -122,11 +122,11 @@ godot::String TextureArrayGenerator::get_safe_texture_path(const godot::String& 
     }
 
     // Resolution stack (see TexturePackManager): active pack textures override
-    // the built-in res://textures/blocks set, which itself falls back to
+    // the built-in res://Assets/textures/blocks set, which itself falls back to
     // stone.png. The manager owns the path decision; the array build below is
     // unchanged.
     godot::String result = TexturePackManager::get_instance().resolve(texture_name);
-    if (texture_name != "stone" && result == "res://textures/blocks/stone.png") {
+    if (texture_name != "stone" && result == "res://Assets/textures/blocks/stone.png") {
         WARN_PRINT("Texture not found: " + texture_name + ", falling back to stone.png");
     }
     texture_path_cache.emplace(texture_name, result);
@@ -191,7 +191,7 @@ godot::Ref<godot::Texture2DArray> TextureArrayGenerator::generate_texture_array(
                 // Corrupt/truncated pack PNG: degrade to the built-in texture
                 // instead of dropping the layer (which would map the name to
                 // layer 0/stone and look wrong).
-                const godot::String builtin = "res://textures/blocks/" + texture_paths[i].get_file().get_basename() + ".png";
+                const godot::String builtin = "res://Assets/textures/blocks/" + texture_paths[i].get_file().get_basename() + ".png";
                 godot::Ref<godot::Texture2D> fallback = loader->load(builtin);
                 if (fallback.is_valid()) {
                     image = fallback->get_image();

@@ -43,7 +43,7 @@ struct FaceData {
 //
 // That normalisation is a contract the shaders rely on: light is a fraction OF THE
 // TEXEL, so a fully lit surface renders at the colour it was authored with and
-// nothing brighter (see shaders/item_lighting.gdshaderinc and voxel_shader). The
+// nothing brighter (see Assets/shaders/item_lighting.gdshaderinc and voxel_shader). The
 // un-normalised curve topped out at 0.415, which is why every full-sun surface
 // used to need the shaders' flat +0.15 "bounce" to look lit at all -- and why that
 // bounce could push a texel past its own colour wherever the cell was already

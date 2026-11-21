@@ -123,7 +123,7 @@ extremely difficult to reproduce.
 and emissive maps. Do not hardcode block properties in C++. To add a block:
 
 1. Add entry to `data/block_definitions.json`
-2. Add texture file to `textures/blocks/` (16×16 PNG)
+2. Add texture file to `Assets/textures/blocks/` (16×16 PNG)
 3. The block ID is assigned automatically by `BlockRegistry::load_from_json()`
 
 ### Palette Storage

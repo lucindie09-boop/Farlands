@@ -32,7 +32,7 @@ extends SceneTree
 ##
 ## It also writes .freebuff/shots/shader_shots/flat_*.png of each state.
 
-const SHADER_PATH := "res://shaders/crt.gdshader"
+const SHADER_PATH := "res://Assets/shaders/crt.gdshader"
 const SHOT_DIR := "user://shader_shots"
 const FIELD := 0.5        # the flat frame the tube is given
 const INSIDE := 0.02      # above this, a pixel is picture rather than bezel

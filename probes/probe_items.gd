@@ -5,7 +5,7 @@ extends SceneTree
 ## constructor (not by ResourceLoader), then asks BlockTextures for each item by
 ## name. That is the whole contract for adding an item: an entry in
 ## data/items.json, resolvable by name, reported as an item (never as a block),
-## resolving to a texture under textures/items/. water_bucket is checked first
+## resolving to a texture under Assets/textures/items/. water_bucket is checked first
 ## because it is the newest entry — but the other two are checked too, so a
 ## regression in the registry itself cannot hide behind a passing new entry.
 ##
@@ -55,7 +55,7 @@ func _run() -> void:
 			continue
 		var tex: Texture2D = BlockTextures.get_texture(id)
 		if tex == null:
-			_fail("%s resolved but no texture loaded (textures/items/%s.png)" % [name, name])
+			_fail("%s resolved but no texture loaded (Assets/textures/items/%s.png)" % [name, name])
 			continue
 		print("probe: %-15s id=%-5d item=%s texture=%dx%d"
 			% [name, id, BlockTextures.is_item(id), tex.get_width(), tex.get_height()])

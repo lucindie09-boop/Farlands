@@ -30,7 +30,7 @@ with the cross-block references resolved in `src/core/block_types_families.cpp`.
 | `name` | string | The block's name, and the id every other file uses to refer to it |
 | `properties` | list of strings | Capability flags: `Solid`, `Transparent`, `Opaque`, `Liquid`, `RenderAllFaces`, `NoOcclusion`, `Emissive` (`src/core/block_properties.hpp`). `Liquid` is what makes `stops_bodies()` false, i.e. a body walks through it |
 | `visible_faces` | 6 booleans | Per face, whether it is drawn. Face order is the mesh's own (`+x, -x, +y, -y, +z, -z`) |
-| `textures` | 6 strings | Per face, a bare texture name resolved to `res://textures/blocks/<name>.png`. Empty means that face draws nothing |
+| `textures` | 6 strings | Per face, a bare texture name resolved to `res://Assets/textures/blocks/<name>.png`. Empty means that face draws nothing |
 | `emissive_textures` | 6 strings | Per face, the glow map, same resolution |
 | `light` | 3 numbers | The colour this block emits. All zero means it emits nothing |
 | `light_opacity` | number | How much light the block swallows as light passes through it |
@@ -77,13 +77,13 @@ boxes is overruled and warned about at load.
 ## data/items.json
 
 `{"items": [...]}`, 25 entries. Read by `src/core/item_registry.cpp`; the
-`texture` name resolves under `res://textures/items/`, because an item is not
+`texture` name resolves under `res://Assets/textures/items/`, because an item is not
 part of the block texture array.
 
 | Key | Type | Meaning |
 |---|---|---|
 | `name` | string | The item's name. Entry order is the item id, so append |
-| `texture` | string | Bare name under `textures/items/` |
+| `texture` | string | Bare name under `Assets/textures/items/` |
 | `tool` | object | `class`, `tier`, `speed` — what the item is as a tool |
 | `pose` | string | A resting pose id the viewmodel knows (`item1`, `item2`, ...). Read by `viewmodel.gd`, not the registry |
 | `light` | object | `level` and `color` ([r,g,b]). While the item is selected it *owns* the player's dynamic light |

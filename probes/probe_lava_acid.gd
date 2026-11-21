@@ -250,7 +250,7 @@ func _check_layers() -> bool:
 	for name in names:
 		var info: Dictionary = cm.get_texture_layer_info(name)
 		if not bool(info.get("found", false)):
-			_fail("the texture array has no layer named \"%s\" — textures/blocks/%s.png is missing" % [name, name])
+			_fail("the texture array has no layer named \"%s\" — Assets/textures/blocks/%s.png is missing" % [name, name])
 			return false
 		indices[name] = int(info.get("index", -1))
 		print("probe: layer %s -> %d of %d (%dx%d, %s)"

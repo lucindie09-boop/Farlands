@@ -6,7 +6,7 @@ extends SceneTree
 ## Godot's glTF importer keeps a file's clips inside the imported scene, on that
 ## scene's own AnimationPlayer, where they can only ever animate that scene. The
 ## player's body does not use the imported scene: it loads its clips from
-## res://Animations/*.anim (scripts/player_model.gd), so a clip has to exist as a
+## res://Assets/Animations/*.anim (scripts/player_model.gd), so a clip has to exist as a
 ## resource of its own before anything can play it.
 ##
 ## The mapping is by the clip's name in the source file. A name the file does not
@@ -25,13 +25,13 @@ extends SceneTree
 ## is how a clip finds the limb it turns, and a clip whose paths name nothing
 ## plays as no motion at all, silently.
 
-const SOURCE_SCENE := "res://models/minecraft-idle-and-walking-animation/source/model.gltf"
+const SOURCE_SCENE := "res://Assets/models/minecraft-idle-and-walking-animation/source/model.gltf"
 const OUTPUT_DIR := "res://Animations"
 
 # clip name in the glTF file -> [output path, resource name]
 const CLIPS := {
-	"still_test": ["res://Animations/Idle_new.anim", "Idle"],
-	"walking_test": ["res://Animations/Walk.anim", "Walk"],
+	"still_test": ["res://Assets/Animations/Idle_new.anim", "Idle"],
+	"walking_test": ["res://Assets/Animations/Walk.anim", "Walk"],
 }
 
 func _init() -> void:

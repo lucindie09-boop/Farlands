@@ -45,15 +45,15 @@ extends SceneTree
 ##   - the two effects together, which is what makes them independent: with World
 ##     Bend on as well the marker lands where the two includes applied in order
 ##     put it
-##   - the real materials: a quad drawn with materials/voxel_material.tres and a
-##     quad drawn with materials/voxel_material_water.tres land on the same pixels
+##   - the real materials: a quad drawn with Assets/materials/voxel_material.tres and a
+##     quad drawn with Assets/materials/voxel_material_water.tres land on the same pixels
 ##     as the marker does, which is what keeps a shoreline welded under the curve
 ##
 ## It writes user://shader_shots/curve_*.png of every state it measures.
 
 const MARKER := "res://probes/horizon_marker.gdshader"
-const TERRAIN := "res://materials/voxel_material.tres"
-const WATER := "res://materials/voxel_material_water.tres"
+const TERRAIN := "res://Assets/materials/voxel_material.tres"
+const WATER := "res://Assets/materials/voxel_material_water.tres"
 const SHOT_DIR := "user://shader_shots"
 
 const VIEWPORT := Vector2i(960, 540)
@@ -311,8 +311,8 @@ func check_compose() -> void:
 # --- The materials the world is actually drawn with -----------------------------
 
 ## The marker is a stand-in. What has to sink is the terrain and the water, and
-## they are moved by their own two shaders - the ones materials/voxel_material.tres
-## and materials/voxel_material_water.tres carry. So both real materials are put on
+## they are moved by their own two shaders - the ones Assets/materials/voxel_material.tres
+## and Assets/materials/voxel_material_water.tres carry. So both real materials are put on
 ## the same quad, and their pixels have to land where the marker's do: the same
 ## prediction, the same place, both of them. That is also the check that the
 ## terrain and the water sink by the same amount at the same place, which is what

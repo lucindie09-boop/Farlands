@@ -1,6 +1,6 @@
 // Probe-only: the water material's own call site, mirrored.
 //
-// shaders/voxel_shader_water.gdshader is the only one of the world's two
+// Assets/shaders/voxel_shader_water.gdshader is the only one of the world's two
 // materials that declares `world_bend_sway` and passes it to the include, so it
 // is the only one whose geometry moves with time. A marker that hard-codes 0
 // there cannot measure that, and a marker invented for the purpose should not
@@ -9,7 +9,7 @@
 shader_type spatial;
 render_mode unshaded, cull_disabled;
 
-#include "res://shaders/world_bend.gdshaderinc"
+#include "res://Assets/shaders/world_bend.gdshaderinc"
 
 // Declared here exactly as the water material declares it: the include takes the
 // ripple as an argument rather than reading a uniform, so each consumer decides

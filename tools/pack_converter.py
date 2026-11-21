@@ -16,13 +16,13 @@ Examples:
 
 Output layout (written into <out>/<name>/):
   pack.json                # name, schema, author, base_resolution
-  textures/<engine_name>.png
+  Assets/textures/<engine_name>.png
   icon.png                 # copied from the source pack.png when present
 
 Behaviour:
   * Only the engine's texture names (translation table below) are converted.
   * A name the pack does not provide is skipped with a note - the engine
-    falls back to its built-in res://textures/blocks/<name>.png automatically.
+    falls back to its built-in res://Assets/textures/blocks/<name>.png automatically.
   * base_resolution is detected from the converted PNGs (most common size,
     default 16). The engine resizes every layer to it with nearest-neighbour.
 """

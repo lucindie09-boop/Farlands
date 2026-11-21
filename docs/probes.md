@@ -5,7 +5,7 @@ the resolver, the fluid rules, the planner and the save formats. A probe is for
 what is left: the real loaded registry, the real texture array, the real world,
 and what actually reaches the screen.
 
-They live in `probes/` (76 `.gd` scripts). **The scripts are repository
+They live in `probes/` (77 `.gd` scripts). **The scripts are repository
 content; what they produce is not.** `.gitignore` ignores `probes/*` except
 `*.gd`, `*.sh`, `*.tscn` and `*.gdshader*`, so screenshots, crash reports and
 generated sheets (hundreds of megabytes) stay scratch while the probes
@@ -131,6 +131,7 @@ comment, with the claim each one backs:
 | `probe_mm_layout.gd` | What the engine really expects in `MultiMesh.buffer`, learned from the engine (must run windowed) |
 | `probe_crash_dump.gd` | The crash handler is live in this build and a real fault writes a report |
 | `probe_boot.gd` | The world boots at all — the first thing to run after a change to registration |
+| `probe_player_model.gd` | That `Main.tscn`'s third-person body is present and comes up: the `PlayerModel` node, the `player.glb` instance behind it, `player_model.gd`, six parts with meshes and materials at body size, the skin, and third person revealing it. The controller only warns when the node is missing, and the uid-referenced instance was silently dropped by an editor save once the `Assets/` move left the uid cache stale, so this exits non-zero instead |
 | `probe_bindings.gd` | The GDExtension binding surface GDScript sees |
 | `probe_menu.gd` | The title screen and the block curtain: real bodies that settle, a wall closed scanline by scanline, the fuses, the skip blast, Reduce Motion, and the live scene's freeze and hand-back (see below) |
 | `probe_bucket.gd` | Bucket fill and pour through the real use path |

@@ -37,7 +37,10 @@ screen (the shader-effect stack, the animated-liquid tools, the model previews).
   modulate
 - `debug_screen.gd` — The F3 debug screen, in three sections. **GENERAL**: FPS (frames counted
   over a whole second, not `Performance.TIME_FPS`), XYZ to three decimals, speed in blocks per
-  second (the sim's per-tick velocity times its 20 Hz step), the biome under the body and the
+  second (measured from how far the body moved between two readings over the wall clock between
+  them, at the 20 Hz readout rate; the sim's velocity cannot answer it, because flying moves the
+  node straight to its new position and hands the sim a reset, so `get_velocity` reads 0 for the
+  whole flight), the biome under the body and the
   render distance in both the chunks it is set in (`ChunkManager.render_distance`, read live
   because the settings menu can change it) and the blocks it streams. The biome comes from
   `ChunkManager.get_biome_at`, which asks the same height-estimator generator generation uses, and
@@ -45,8 +48,9 @@ screen (the shader-effect stack, the animated-liquid tools, the model previews).
   climate and lattice work, not something to repeat at 20 Hz. **PERFORMANCE**: frame time, the
   CPU cost of that frame and the rest of it, this process's own CPU and GPU utilization (its
   share of the machine, so another application cannot move the rows), the
-  engine's VRAM in use against the card's total (`512 / 8192 MB`, or   the used figure alone when
-  the capacity is unknown), and the engine's static memory against the machine's RAM. `CPU time`
+  engine's VRAM in use against the card's total and as a share of it (`512 / 8192 MB (6%)`; the
+  used figure alone when the capacity is unknown), and the engine's static memory against the
+  machine's RAM. `CPU time`
   is the controller's own per-frame C++ work — the perf report's `process_total`, read from its
   process clock (`ChunkManager.get_process_clock`, an exact cumulative count the screen diffs).
   `GPU time` prefers the engine's measured render time for the window viewport
@@ -60,7 +64,7 @@ screen (the shader-effect stack, the animated-liquid tools, the model previews).
   generation, rated speed and module sizes come from the firmware's own Memory Device records
   (SMBIOS type 17, `src/debug/smbios_memory.hpp`) — unreadable on Linux without root, where the
   row is the capacity alone. **SPECS**: CPU name + core count, GPU vendor +
-  adapter, RAM as capacity plus the modules' own specification (`32 GB DDR4-3200 (2x 16 GB)`,
+  adapter, RAM as capacity plus the modules' own specification (`32 GB DDR4-3200 (2x16 GB)`,
   from the firmware's SMBIOS table), and the build's version (which is where the version lives
   now, not a header).
   GENERAL and PERFORMANCE stack on the left under their own headings; SPECS hangs on the right

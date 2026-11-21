@@ -57,8 +57,8 @@ const SECTION_GAP_UNITS := 5.0
 
 const FPS_WINDOW := 1.0
 
-# PlayerSim steps at a fixed 20 ticks per second (AGENTS.md, Player physics) and
-# its velocity is per tick, so blocks per second is the magnitude times this.
+# PlayerSim steps at a fixed 20 ticks per second (AGENTS.md, Player physics), so
+# the rows the body feeds are sampled at that rate.
 const TICKS_PER_SECOND := 20.0
 
 # Chunk width in blocks (AGENTS.md: chunk size is 32x32x32), so the render
@@ -119,6 +119,13 @@ var _cpu_samples := 0
 var _viewport_rid := RID()
 var _gpu_measured_ms_total := 0.0
 var _gpu_measured_samples := 0
+# The body's speed, measured from its own motion rather than taken from the
+# sim's velocity: flying moves the node straight to its new position and hands
+# the sim a reset, so `get_velocity` reads 0 for the whole flight. Position over
+# the wall clock between two readings covers flying, walking, a push, a respawn.
+var _speed_from := Vector3.ZERO
+var _speed_from_usec := 0
+var _speed_measured := false
 # The biome row, resampled only when the body crosses into another column.
 var _biome_line := "Biome: -"
 var _biome_x := 2147483647
@@ -224,6 +231,9 @@ func set_open(on: bool) -> void:
 	# The CPU clock's baseline belongs to the screen: opening it again must not
 	# count the hidden frames' work.
 	_cpu_clock_seeded = false
+	# And the speed's: a baseline from before the screen closed would average the
+	# time it was down into the next reading.
+	_speed_measured = false
 	_cpu_ms_total = 0.0
 	_cpu_samples = 0
 	_gpu_measured_ms_total = 0.0
@@ -393,14 +403,10 @@ func _refresh() -> void:
 		return
 	var xyz := "XYZ: -"
 	var speed := "Speed: -"
-	if _player != null and _player.has_method("get_velocity"):
+	if _player != null:
 		var at := _player.global_position
-		# call(), because the method is the C++ binding's and not on Node3D: a
-		# statically typed call is a parse error, and this is the one place the
-		# screen reaches into the controller.
-		var velocity: Vector3 = _player.call("get_velocity")
 		xyz = "XYZ: %.3f / %.3f / %.3f" % [at.x, at.y, at.z]
-		speed = "Speed: %.2f blocks/s" % (velocity.length() * TICKS_PER_SECOND)
+		speed = _speed_line_for(at)
 		_update_biome(at)
 	_general_body.text = "\n".join(
 		PackedStringArray([_fps_line, xyz, speed, _biome_line, _render_line()]))
@@ -415,6 +421,21 @@ func _refresh() -> void:
 		_vram_line,
 		_memory_line,
 	]))
+
+## The body's speed in blocks per second, from how far it moved since the previous
+## reading over the wall clock between the two. Two samples make a reading, so the
+## tick the screen opens on has nothing to divide and says so.
+func _speed_line_for(at: Vector3) -> String:
+	var now_usec := Time.get_ticks_usec()
+	var elapsed := float(now_usec - _speed_from_usec) / 1000000.0
+	var from := _speed_from
+	var had_sample := _speed_measured
+	_speed_from = at
+	_speed_from_usec = now_usec
+	_speed_measured = true
+	if not had_sample or elapsed <= 0.0:
+		return "Speed: -"
+	return "Speed: %.2f blocks/s" % ((at - from).length() / elapsed)
 
 ## A native percentage, or "-" when the platform has no counter or the binding is
 ## not in the loaded DLL: an unknown reading must not look like an idle machine.
@@ -523,18 +544,31 @@ func _render_line() -> String:
 		return "RD: -"
 	return "RD: %d chunks (%d blocks)" % [chunks, chunks * CHUNK_WIDTH]
 
-## What the engine has on the card against what the card has, in MB. The total
-## comes from the native sampler because Godot has no capacity monitor; a build
-## without it (or a platform that cannot say) shows the used figure alone.
+## What the engine has on the card against what the card has, in MB and as its
+## share of the card (the MEASURED allocation rather than a limit, so it can pass
+## 100% when Godot spills into shared memory). The total comes from the native
+## sampler because Godot has no capacity monitor; a build without it (or a
+## platform that cannot say) shows the used figure alone, with no percentage to
+## give it a scale against.
 func _format_vram() -> String:
 	var used_mb := Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED) / (1024.0 * 1024.0)
-	if used_mb <= 0.0:
-		# The headless renderer keeps no video memory at all; that is nothing to
-		# measure rather than a card with nothing on it.
-		return "VRAM: -"
 	var total_mb := -1.0
 	if _stats != null:
 		total_mb = float(_stats.call("get_vram_total"))
+	return _vram_reading(used_mb, total_mb)
+
+## The row from the two figures alone, so a probe can pin the format: `-` when
+## nothing is allocated (the headless renderer keeps no video memory, which is
+## nothing to measure rather than a card with nothing on it), the used figure
+## alone when there is no capacity to compare it against, and otherwise the use as
+## a share of the card beside it.
+func _vram_reading(used_mb: float, total_mb: float) -> String:
+	if used_mb <= 0.0:
+		return "VRAM: -"
 	if total_mb <= 0.0:
 		return "VRAM: %d MB" % int(round(used_mb))
-	return "VRAM: %d / %d MB" % [int(round(used_mb)), int(round(total_mb))]
+	return "VRAM: %d / %d MB (%d%%)" % [
+		int(round(used_mb)),
+		int(round(total_mb)),
+		int(round(100.0 * used_mb / total_mb)),
+	]

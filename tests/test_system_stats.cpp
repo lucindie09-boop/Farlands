@@ -91,7 +91,7 @@ TEST_CASE("the ram spec names the generation, the speed and equal modules") {
     modules.modules = 2;
     modules.module_mb = 16384;
     modules.total_mb = 32768;
-    CHECK(format_memory_spec(modules) == "DDR4-3200 (2x 16 GB)");
+    CHECK(format_memory_spec(modules) == "DDR4-3200 (2x16 GB)");
 
     // One module: the row's own capacity already says its size.
     RamSummary single;
@@ -153,7 +153,7 @@ TEST_CASE("the smbios parser reads the memory devices the firmware describes") {
     CHECK(ram.speed_mts == 3200);
     CHECK(ram.type == "DDR4");
     CHECK(ram.total_mb == 32768);
-    CHECK(format_memory_spec(ram) == "DDR4-3200 (2x 16 GB)");
+    CHECK(format_memory_spec(ram) == "DDR4-3200 (2x16 GB)");
 
     // A table whose only device is an empty slot is no reading at all.
     RamSummary unread;

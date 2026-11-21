@@ -80,7 +80,7 @@ struct RamSummary {
     int total_mb = 0;   // the modules' sum
 };
 
-// "DDR4-3200 (2x 16 GB)", or as much of it as is known: the generation and the
+// "DDR4-3200 (2x16 GB)", or as much of it as is known: the generation and the
 // speed join with a dash, the module count is added only when the modules are
 // identical and there is more than one (the total already says the size of a
 // single module), and an empty string means nothing was readable.
@@ -100,7 +100,7 @@ struct RamSummary {
         if (!text.empty()) {
             text += ' ';
         }
-        text += "(" + std::to_string(ram.modules) + "x " +
+        text += "(" + std::to_string(ram.modules) + "x" +
                 std::to_string(ram.module_mb / 1024) + " GB)";
     }
     return text;

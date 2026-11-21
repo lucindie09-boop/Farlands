@@ -187,7 +187,10 @@ public:
     [[nodiscard]] godot::Color get_night_horizon_color() const { return night_horizon_color; }
 
 private:
-    double time = 0.0;
+    // A world opens in the morning, not at midnight: 0 is midnight, 0.25 sunrise,
+    // so 0.35 starts the day with the sun already up (and the sky's blend at full
+    // day) instead of a first frame of night sky.
+    double time = 0.35;
     double duration = 10.0;
     double moon_time = 0.0;
     bool enabled = true;

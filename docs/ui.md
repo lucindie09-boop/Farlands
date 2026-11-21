@@ -36,11 +36,33 @@ screen (the shader-effect stack, the animated-liquid tools, the model previews).
   polled from `PlayerController.get_air()`; a depleted slot is the same `bubble.png` under a dark
   modulate
 - `debug_screen.gd` — The F3 debug screen, in three sections. **GENERAL**: FPS (frames counted
-  over a whole second, not `Performance.TIME_FPS`), XYZ to three decimals and speed in blocks per
-  second (the sim's per-tick velocity times its 20 Hz step). **PERFORMANCE**: frame time, machine
-  CPU and GPU utilization, this process's VRAM against its own session peak, and the engine's
-  static memory against the machine's RAM. **SPECS**: CPU name + core count, GPU vendor +
-  adapter, RAM, and the build's version (which is where the version lives now, not a header).
+  over a whole second, not `Performance.TIME_FPS`), XYZ to three decimals, speed in blocks per
+  second (the sim's per-tick velocity times its 20 Hz step), the biome under the body and the
+  render distance in both the chunks it is set in (`ChunkManager.render_distance`, read live
+  because the settings menu can change it) and the blocks it streams. The biome comes from
+  `ChunkManager.get_biome_at`, which asks the same height-estimator generator generation uses, and
+  is resampled only when the body crosses into another column — one sample is a whole column's
+  climate and lattice work, not something to repeat at 20 Hz. **PERFORMANCE**: frame time, the
+  CPU cost of that frame and the rest of it, this process's own CPU and GPU utilization (its
+  share of the machine, so another application cannot move the rows), the
+  engine's VRAM in use against the card's total (`512 / 8192 MB`, or   the used figure alone when
+  the capacity is unknown), and the engine's static memory against the machine's RAM. `CPU time`
+  is the controller's own per-frame C++ work — the perf report's `process_total`, read from its
+  process clock (`ChunkManager.get_process_clock`, an exact cumulative count the screen diffs).
+  `GPU time` prefers the engine's measured render time for the window viewport
+  (`viewport_get_measured_render_time_gpu`, with the measurement switched on in `_ready`), because
+  that is the card's own work and does not include v-sync's idle wait. When it reads 0 — a
+  headless dummy driver, or a driver that reports no timestamps — the row falls back to the frame
+  time less `CPU time` and says `(est)`, since that remainder also carries the script layer and
+  any waiting. Both are averaged over the same one-second window as the rate and the frame time,
+  because a rate from one second beside a cost from the last 50 ms is two pictures of one frame. SPECS's
+  RAM row follows the same rule: the total from `OS.get_memory_info()` is the capacity, and the
+  generation, rated speed and module sizes come from the firmware's own Memory Device records
+  (SMBIOS type 17, `src/debug/smbios_memory.hpp`) — unreadable on Linux without root, where the
+  row is the capacity alone. **SPECS**: CPU name + core count, GPU vendor +
+  adapter, RAM as capacity plus the modules' own specification (`32 GB DDR4-3200 (2x 16 GB)`,
+  from the firmware's SMBIOS table), and the build's version (which is where the version lives
+  now, not a header).
   GENERAL and PERFORMANCE stack on the left under their own headings; SPECS hangs on the right
   edge with right-aligned rows. Each section is its own container, so the gap between sections
   is the column's separation and a heading cannot drift away from its body. Cadence is
@@ -48,9 +70,18 @@ screen (the shader-effect stack, the animated-liquid tools, the model previews).
   as often as any of those values can change, driven by a `delta` accumulator of `1/20` s
   (no tick counter is exposed) that subtracts rather than resets so it keeps the tick rate's
   phase — while FPS and frame time are published once per whole-second window, and SPECS is read
-  once. CPU and GPU utilization are the numbers Godot does not have: they come from the native
-  `SystemStats` object (`src/debug/system_stats_*` — `GetSystemTimes` and the PDH "GPU Engine"
-  counters on Windows, `/proc/stat` and the DRM busy file on Linux), instantiated through
+  once. CPU and GPU utilization are the numbers Godot does not have, and both are this process's
+  own share rather than the machine's: the native `SystemStats` object
+  (`src/debug/system_stats_*`) puts `GetProcessTimes` against the performance counter on Windows
+  and `/proc/self/stat` against the monotonic clock on Linux, normalising by the core count so the
+  row is a share of the whole machine (four busy threads on eight cores reads 50%, eight reads
+  100%), and sums only the PDH "GPU Engine" instances whose names carry this process's pid. The
+  Linux GPU row reads `-` instead: its DRM busy file is the whole card's, and other applications
+  would move it. The VRAM total is the other number Godot has no monitor for — `RENDER_VIDEO_MEM_USED`
+  is what the engine allocated and there is nothing to read it against — so the same object asks
+  DXGI for the adapter's dedicated memory on Windows (the largest non-software adapter, which is
+  the card a game runs on when a laptop has two) and reads the DRM `mem_info_vram_total` file on
+  Linux (amdgpu/radeon only), once per session. The object is instantiated through
   `ClassDB` so an older DLL leaves both rows at `-` instead of failing. VRAM also reads `-`
   where the renderer reports no video memory (headless). Session state only, gameplay only (the
   mouse must be captured, like the other debug keys), and it hides `FPSCounter` while it is up

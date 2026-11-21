@@ -53,7 +53,9 @@ lib_sources = [s for s in lib_sources if os.path.exists(str(s))]
 if sys.platform == "win32":
     # dbghelp: crash reports (see debug/crash_dump.hpp). pdh: the GPU Engine
     # performance counters the F3 screen's GPU row reads (debug/system_stats_*).
-    env.Append(LIBS=["dbghelp", "pdh"])
+    # dbghelp: minidump symbolisation (debug/crash_dump*); pdh: the GPU Engine
+    # counters (debug/system_stats_windows.cpp); dxgi: the adapter's VRAM total.
+    env.Append(LIBS=["dbghelp", "pdh", "dxgi"])
     env.Append(LINKFLAGS=["/DEBUG:FULL"])
 
 library = env.SharedLibrary("bin/libgdextension{}{}".format(env["suffix"], env["SHLIBSUFFIX"]), source=lib_sources)

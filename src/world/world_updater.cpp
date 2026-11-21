@@ -408,24 +408,29 @@ void WorldUpdater::queue_unload(uint64_t key) {
     }
 }
 
+ChunkGenerator& WorldUpdater::ensure_height_estimator() {
+    if (!height_estimator) {
+        height_estimator = std::make_unique<ChunkGenerator>(terrain_params);
+        height_estimator->set_biome_config(biome_config);
+        height_estimator->set_vegetation_config(vegetation_config);
+    }
+    return *height_estimator;
+}
+
 bool WorldUpdater::find_nearest_biome(BiomeType target, int32_t center_x, int32_t center_z,
                                       int32_t max_radius_blocks, int32_t& out_x, int32_t& out_z,
                                       float& out_height) {
-    if (!height_estimator) {
-        height_estimator = std::make_unique<ChunkGenerator>(terrain_params);
-        height_estimator->set_biome_config(biome_config);
-        height_estimator->set_vegetation_config(vegetation_config);
-    }
-    return height_estimator->find_nearest_biome(target, center_x, center_z,
-                                                max_radius_blocks, out_x, out_z, out_height);
+    return ensure_height_estimator().find_nearest_biome(target, center_x, center_z,
+                                                        max_radius_blocks, out_x, out_z,
+                                                        out_height);
+}
+
+BiomeType WorldUpdater::biome_at(int32_t world_x, int32_t world_z) {
+    return ensure_height_estimator().get_biome(world_x, world_z);
 }
 
 bool WorldUpdater::chunk_would_be_solid(int32_t cx, int32_t cy, int32_t cz) {
-    if (!height_estimator) {
-        height_estimator = std::make_unique<ChunkGenerator>(terrain_params);
-        height_estimator->set_biome_config(biome_config);
-        height_estimator->set_vegetation_config(vegetation_config);
-    }
+    ChunkGenerator& estimator = ensure_height_estimator();
     // One height sample per COLUMN, not per neighbour. The six around a popped
     // chunk span five columns (the two vertical neighbours share the chunk's own),
     // and neighbouring pops share columns too, so the chunk-keyed memo above this
@@ -435,7 +440,7 @@ bool WorldUpdater::chunk_would_be_solid(int32_t cx, int32_t cy, int32_t cz) {
     // for every column in the band, and `land_h` is exactly HeightRange::min_h, so
     // the tail's probe is a hash lookup.
     const float column_min_h = get_column_surface_bounds(cx, cz).land_h;
-    return chunk_would_be_fully_solid_at_column(*height_estimator, cy, column_min_h);
+    return chunk_would_be_fully_solid_at_column(estimator, cy, column_min_h);
 }
 
 void WorldUpdater::clear() {

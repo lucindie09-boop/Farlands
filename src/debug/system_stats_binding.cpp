@@ -21,6 +21,8 @@ std::uint64_t now_usec() {
 void SystemStats::_bind_methods() {
     godot::ClassDB::bind_method(godot::D_METHOD("get_cpu_usage"), &SystemStats::get_cpu_usage);
     godot::ClassDB::bind_method(godot::D_METHOD("get_gpu_usage"), &SystemStats::get_gpu_usage);
+    godot::ClassDB::bind_method(godot::D_METHOD("get_vram_total"), &SystemStats::get_vram_total);
+    godot::ClassDB::bind_method(godot::D_METHOD("get_memory_spec"), &SystemStats::get_memory_spec);
 }
 
 void SystemStats::sample_if_stale() {
@@ -55,4 +57,29 @@ double SystemStats::get_cpu_usage() {
 double SystemStats::get_gpu_usage() {
     sample_if_stale();
     return gpu_percent_;
+}
+
+double SystemStats::get_vram_total() {
+    // Once, including a failure: the capacity is a property of the card, and a
+    // machine without a way to read it does not grow one during a session.
+    if (!vram_sampled_) {
+        vram_sampled_ = true;
+        std::uint64_t bytes = 0;
+        if (farlands::platform_vram_total_bytes(bytes)) {
+            vram_total_mb_ = static_cast<double>(bytes) / (1024.0 * 1024.0);
+        }
+    }
+    return vram_total_mb_ > 0.0 ? vram_total_mb_ : -1.0;
+}
+
+godot::String SystemStats::get_memory_spec() {
+    // Once, including a failure: fitted modules do not change during a session.
+    if (!memory_sampled_) {
+        memory_sampled_ = true;
+        farlands::RamSummary ram;
+        if (farlands::platform_memory_spec(ram)) {
+            memory_spec_ = farlands::format_memory_spec(ram);
+        }
+    }
+    return godot::String(memory_spec_.c_str());
 }

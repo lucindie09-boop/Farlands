@@ -272,6 +272,8 @@ void ChunkManager::_bind_methods() {
     ClassDB::bind_method(D_METHOD("debug_multimesh_layout_ok"), &ChunkManager::debug_multimesh_layout_ok);
 #endif
     ClassDB::bind_method(D_METHOD("find_biome", "biome_name", "center_x", "center_z", "max_radius"), &ChunkManager::find_biome);
+    ClassDB::bind_method(D_METHOD("get_biome_at", "world_x", "world_z"), &ChunkManager::get_biome_at);
+    ClassDB::bind_method(D_METHOD("get_process_clock"), &ChunkManager::get_process_clock);
     ClassDB::bind_method(D_METHOD("inspect_schematic", "bytes", "options"),
                          &ChunkManager::inspect_schematic, DEFVAL(Dictionary()));
     ClassDB::bind_method(D_METHOD("preview_schematic", "bytes", "origin_x", "origin_y", "origin_z",

@@ -832,11 +832,21 @@ The following code remains in the codebase but is disabled or unused:
   handler's hook lifecycle against the report it writes; the state resolved at install time is
   shared through the internal header
 - `src/debug/system_stats.hpp` + `system_stats_binding.hpp/cpp` + `system_stats_windows.cpp` /
-  `system_stats_posix.cpp` — The two machine numbers Godot does not expose, for the F3 screen's
-  PERFORMANCE section: CPU utilization from the OS tick counters (`GetSystemTimes` on Windows,
-  the first line of `/proc/stat` on Linux) and GPU utilization from the PDH "GPU Engine"
-  counters on Windows (summed across engines and processes, capped at 100 — what Task Manager
-  reads) or the DRM `gpu_busy_percent` file on Linux. `CpuSample::percent_since` is the whole
+  `system_stats_posix.cpp` + `smbios_memory.hpp` — The two per-process numbers Godot does not expose, for the F3
+  screen's PERFORMANCE section, and deliberately this process's own share rather than the
+  machine's: CPU is `GetProcessTimes` (Windows) or `/proc/self/stat` (Linux) against the wall
+  clock, normalised by the core count so the row reads as a share of the whole machine, and GPU
+  is the PDH "GPU Engine" counters on Windows summed over the instances whose names carry this
+  process's pid (Task Manager's per-app column), capped at 100 because engines overlap. Linux
+  answers the GPU row as unknown, since its DRM `gpu_busy_percent` file is card-wide — a number
+  other applications could move is worse than a `-`. The card's total video memory is there too,
+  because Godot's monitor reports allocations and never capacity: the largest non-software
+  adapter's `DedicatedVideoMemory` from DXGI on Windows, the DRM `mem_info_vram_total` file on
+  Linux, asked once per session. The RAM's own description (generation, rated speed, module
+  sizes) comes from the firmware's SMBIOS Memory Device records — `GetSystemFirmwareTable('RSMB')`
+  on Windows, `/sys/firmware/dmi/tables/DMI` on Linux, which is root-only — through the
+  godot-free parser in `smbios_memory.hpp`, so the offsets are pinned by a synthetic table in
+  the tests rather than only by the machine it was written on. `CpuSample::percent_since` is the whole
   arithmetic and stays header-only so `tests/test_system_stats.cpp` links it without the
   library; the Godot half (`SystemStats`, a `RefCounted`) samples at most every 500 ms, because
   the OS answers a percentage over the interval between two reads, and reports -1 rather than 0
@@ -1135,7 +1145,7 @@ Every file, with what it owns: [docs/ui.md](docs/ui.md).
   - `textures/0Archive/` — Archived/deprecated textures (old versions kept for reference)
 
 ### Testing
-- `tests/` — 118 `.cpp` files (786 test cases / 374,345 assertions, declared across 116 of them:
+- `tests/` — 118 `.cpp` files (789 test cases / 374,361 assertions, declared across 116 of them:
   `test_main.cpp` is the doctest entry point and `mesh_manager_stub.cpp` supplies link stubs),
   auto-discovered via `Glob("tests/*.cpp")`. A split test file keeps the original name for its
   main subject and takes `_<topic>` files beside it, with the fixtures they share in a

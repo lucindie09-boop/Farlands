@@ -7,6 +7,10 @@
 
 #include "engine/voxel_engine_controller.hpp"
 
+#include "worldgen/biome_config.hpp" // BiomeType, biome_name
+
+#include <cmath>
+
 #include <godot_cpp/variant/packed_byte_array.hpp>
 #include <godot_cpp/variant/packed_int32_array.hpp>
 #include <godot_cpp/variant/string.hpp>
@@ -17,6 +21,28 @@ using namespace VoxelEngine;
 Dictionary ChunkManager::find_biome(const String& biome_name, int32_t center_x,
                                     int32_t center_z, int32_t max_radius) {
     return controller->find_biome(biome_name, center_x, center_z, max_radius);
+}
+
+String ChunkManager::get_biome_at(int32_t world_x, int32_t world_z) {
+    if (!controller) {
+        return String();
+    }
+    // The updater's own estimator, so this is what generation would put there
+    // rather than the biome of whichever chunk happens to be loaded.
+    return String(biome_name(controller->get_world_updater().biome_at(world_x, world_z)));
+}
+
+Dictionary ChunkManager::get_process_clock() {
+    // The controller's own per-frame timer, the one its report prints as
+    // "process_total (our C++ per frame)". Cumulative and reset only when the
+    // report runs, so the reader diffs two reads (and treats a drop as a fresh
+    // baseline) rather than averaging averages.
+    const PerformanceTimer& timer = VoxelEngineController::get_perf_timer();
+    Dictionary out;
+    out["total_us"] =
+        static_cast<int64_t>(std::llround(timer.get_total_ms(TimerID::ProcessTotal) * 1000.0));
+    out["count"] = static_cast<int64_t>(timer.get_count(TimerID::ProcessTotal));
+    return out;
 }
 
 Dictionary ChunkManager::inspect_schematic(const PackedByteArray& bytes, const Dictionary& options) {

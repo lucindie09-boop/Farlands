@@ -189,6 +189,12 @@ public:
 
     godot::Dictionary find_biome(const godot::String& biome_name, int32_t center_x,
                                  int32_t center_z, int32_t max_radius);
+    // The biome at a column ("plains"), for the F3 debug screen.
+    godot::String get_biome_at(int32_t world_x, int32_t world_z);
+    // {total_us, count}: the controller's cumulative process_total and its sample
+    // count -- the "our C++ per frame" line of the perf report. The F3 screen diffs
+    // two reads, so the per-frame cost stays exact at any session length.
+    godot::Dictionary get_process_clock();
 
     godot::Dictionary resolve_voxel_collision(const godot::Vector3& position, const godot::Vector3& motion, const godot::Vector3& size);
     // Every point of `points` inside solid geometry: the point, the face normal

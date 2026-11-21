@@ -152,6 +152,8 @@ public:
     bool find_nearest_biome(BiomeType target, int32_t center_x, int32_t center_z,
                             int32_t max_radius_blocks, int32_t& out_x, int32_t& out_z,
                             float& out_height);
+    // The biome of one column, from the estimator the search uses (F3's biome row).
+    BiomeType biome_at(int32_t world_x, int32_t world_z);
 
     // True when the chunk at (cx, cy, cz) would be entirely solid if it were
     // generated — every column's surface sits above the chunk's top, so the
@@ -361,6 +363,10 @@ private:
         float land_h = 0.0f;
         float top_h  = 0.0f;
     };
+    // The lazily built generator behind every "what is the terrain like here"
+    // question (nearest biome, the solidity guess, the biome row), so the callers
+    // cannot drift into three differently configured copies.
+    ChunkGenerator& ensure_height_estimator();
     std::unique_ptr<ChunkGenerator> height_estimator;
     std::unordered_map<uint64_t, ColumnSurfaceBounds> column_height_cache;
     std::deque<uint64_t> column_height_fifo;

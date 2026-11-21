@@ -3,9 +3,12 @@ extends Control
 # F3 debug screen, in three sections -- Minecraft's own screen, split by what the
 # numbers are about:
 #
-#   GENERAL      how the game is running: frame rate, body position, speed.
-#   PERFORMANCE  what this machine is spending on that frame: frame time, CPU and
-#                GPU utilization, VRAM in use, and the engine's share of memory.
+#   GENERAL      how the game is running: frame rate, body position, speed, the
+#                biome under it and the render distance it is streaming.
+#   PERFORMANCE  what this process is spending on that frame: frame time, the
+#                engine's own CPU cost of it and the rest of the frame, CPU and
+#                GPU utilization, VRAM in use against the card's total, and the
+#                engine's share of memory.
 #   SPECS        what the machine is: CPU, GPU, RAM and the build's version.
 #
 # F3 shows it, F3 again hides it, and a launch starts with it hidden. Session
@@ -32,8 +35,10 @@ extends Control
 # than a busy share. They come from the native SystemStats object this extension
 # registers (src/debug/system_stats_*): GetSystemTimes and the PDH "GPU Engine"
 # counters on Windows -- the counters Task Manager reads -- and /proc/stat plus
-# the DRM busy file on Linux. An older DLL without the binding leaves both rows
-# at "-" rather than breaking the screen.
+# the DRM busy file on Linux. The card's total video memory comes from the same
+# object for the same reason: Godot reports what the engine has ALLOCATED, never
+# the capacity to read it against. An older DLL without the binding leaves those
+# rows at "-" rather than breaking the screen.
 #
 # The separate FPS counter is hidden while this is up: it sits in the same corner
 # and this screen already reports the frame rate.
@@ -55,6 +60,10 @@ const FPS_WINDOW := 1.0
 # PlayerSim steps at a fixed 20 ticks per second (AGENTS.md, Player physics) and
 # its velocity is per tick, so blocks per second is the magnitude times this.
 const TICKS_PER_SECOND := 20.0
+
+# Chunk width in blocks (AGENTS.md: chunk size is 32x32x32), so the render
+# distance can also be read as the span of world it streams.
+const CHUNK_WIDTH := 32
 
 # The readouts the simulation feeds are sampled at its own rate, one refresh per
 # tick. Every one of them is constant between two ticks.
@@ -94,9 +103,31 @@ var _fps_line := ""
 var _frame_line := ""
 var _memory_line := "Mem: -"
 var _vram_line := "VRAM: -"
-var _vram_peak_mb := 0.0
+# Published with the frame rate, over the same window (see _close_window).
+var _cpu_time_line := "CPU time: -"
+var _gpu_time_line := "GPU time: -"
+# The CPU half accumulates inside the window: the controller's process clock is
+# read every frame and diffed, so the cost is of the frames that actually ran.
+var _cpu_total_us := 0
+var _cpu_count := 0
+var _cpu_clock_seeded := false
+var _cpu_ms_total := 0.0
+var _cpu_samples := 0
+# The GPU half: the engine's measured render time when the renderer reports one,
+# accumulated over the same window. Zero reads mean no measurement (headless, or a
+# driver without timestamps) and the row falls back to the frame remainder.
+var _viewport_rid := RID()
+var _gpu_measured_ms_total := 0.0
+var _gpu_measured_samples := 0
+# The biome row, resampled only when the body crosses into another column.
+var _biome_line := "Biome: -"
+var _biome_x := 2147483647
+var _biome_z := 2147483647
 
 var _player: Node3D = null
+# The world's streaming radius, read from the node rather than a copy of it: the
+# settings menu can change it mid-session.
+var _chunk_manager: Node = null
 var _fps_counter: CanvasItem = null
 # Whether the FPS counter was visible when this screen was opened, so closing it
 # restores what was there rather than assuming it should show.
@@ -119,9 +150,18 @@ func _ready() -> void:
 	var main := get_parent().get_parent()
 	if main != null:
 		_player = main.get_node_or_null("Player") as Node3D
+		_chunk_manager = main.get_node_or_null("ChunkManager")
+	# The GPU row's measurement has to be switched on for this viewport; the engine
+	# answers 0 for a viewport nobody asked to measure, which is most of why it read
+	# 0 here for so long (the other reason was --headless: a dummy driver has no GPU
+	# timestamps to read).
+	_viewport_rid = get_viewport().get_viewport_rid()
+	RenderingServer.viewport_set_measure_render_time(_viewport_rid, true)
 	_build_sections()
-	_build_specs_lines()
+	# Before the SPECS lines: the RAM row carries the modules' own description,
+	# which only the native object can read.
 	_stats = _create_stats()
+	_build_specs_lines()
 	_apply_scale()
 	visible = false
 	set_process(false)
@@ -141,13 +181,9 @@ func _process(delta: float) -> void:
 	_frames += 1
 	_window += delta
 	_frame_ms_total += delta * 1000.0
+	_sample_frame_costs()
 	if _window >= FPS_WINDOW:
-		_fps = int(round(float(_frames) / _window))
-		_fps_line = "FPS: %d" % _fps
-		_frame_line = "Frame: %.2f ms" % (_frame_ms_total / float(maxi(_frames, 1)))
-		_frames = 0
-		_window = 0.0
-		_frame_ms_total = 0.0
+		_close_window()
 	_readout_timer += delta
 	if _readout_timer >= READOUT_INTERVAL:
 		# Subtract rather than zero, so the refresh keeps the tick rate's phase on
@@ -185,6 +221,13 @@ func set_open(on: bool) -> void:
 	_window = 0.0
 	_frame_ms_total = 0.0
 	_readout_timer = 0.0
+	# The CPU clock's baseline belongs to the screen: opening it again must not
+	# count the hidden frames' work.
+	_cpu_clock_seeded = false
+	_cpu_ms_total = 0.0
+	_cpu_samples = 0
+	_gpu_measured_ms_total = 0.0
+	_gpu_measured_samples = 0
 	_refresh()
 
 func is_open() -> bool:
@@ -326,8 +369,17 @@ func _build_specs_lines() -> void:
 	else:
 		_gpu_line = "GPU: %s (%s)" % [gpu_name, gpu_vendor]
 
+	# Capacity in GB (the OS reports bytes, and "32 GB" is how RAM is sold), then
+	# the modules' own description -- "DDR4-3200 (2x 16 GB)" -- from the firmware.
 	var total_mb := float(OS.get_memory_info().get("physical", 0)) / (1024.0 * 1024.0)
-	_ram_line = "RAM: %d MB" % int(round(total_mb)) if total_mb > 0.0 else "RAM: -"
+	if total_mb <= 0.0:
+		_ram_line = "RAM: -"
+	else:
+		_ram_line = "RAM: %d GB" % int(round(total_mb / 1024.0))
+		if _stats != null:
+			var spec := str(_stats.call("get_memory_spec"))
+			if not spec.is_empty():
+				_ram_line = "%s %s" % [_ram_line, spec]
 
 	if _specs_body != null:
 		_specs_body.text = "\n".join(
@@ -349,12 +401,15 @@ func _refresh() -> void:
 		var velocity: Vector3 = _player.call("get_velocity")
 		xyz = "XYZ: %.3f / %.3f / %.3f" % [at.x, at.y, at.z]
 		speed = "Speed: %.2f blocks/s" % (velocity.length() * TICKS_PER_SECOND)
-	_general_body.text = "\n".join(PackedStringArray([_fps_line, xyz, speed]))
-
+		_update_biome(at)
+	_general_body.text = "\n".join(
+		PackedStringArray([_fps_line, xyz, speed, _biome_line, _render_line()]))
 	_memory_line = _format_memory()
 	_vram_line = _format_vram()
 	_performance_body.text = "\n".join(PackedStringArray([
 		_frame_line,
+		_cpu_time_line,
+		_gpu_time_line,
 		_usage_line("CPU", "get_cpu_usage"),
 		_usage_line("GPU", "get_gpu_usage"),
 		_vram_line,
@@ -371,6 +426,81 @@ func _usage_line(prefix: String, method: String) -> String:
 		return "%s: -" % prefix
 	return "%s: %d%%" % [prefix, int(round(percent))]
 
+## One frame's CPU cost, for the one-second window: the controller's process
+## clock is cumulative, so the frames since the last read are the difference over
+## the frames that ran. A clock that went backwards has been reset (the perf
+## report does that), and that read only seeds the new baseline.
+func _sample_frame_costs() -> void:
+	# GPU first: the measured value is the last completed frame's, and a renderer
+	# without timestamp queries answers 0, which is not a frame that cost nothing.
+	if _viewport_rid.is_valid():
+		var gpu_ms := RenderingServer.viewport_get_measured_render_time_gpu(_viewport_rid)
+		if gpu_ms > 0.0:
+			_gpu_measured_ms_total += gpu_ms
+			_gpu_measured_samples += 1
+	if _chunk_manager == null or not _chunk_manager.has_method("get_process_clock"):
+		return
+	var clock: Dictionary = _chunk_manager.call("get_process_clock")
+	var total_us := int(clock.get("total_us", 0))
+	var count := int(clock.get("count", 0))
+	var frames := count - _cpu_count
+	var elapsed_us := total_us - _cpu_total_us
+	_cpu_total_us = total_us
+	_cpu_count = count
+	var seeded := _cpu_clock_seeded
+	_cpu_clock_seeded = true
+	if not seeded or frames <= 0 or elapsed_us < 0:
+		return
+	_cpu_ms_total += (float(elapsed_us) / 1000.0) / float(frames)
+	_cpu_samples += 1
+
+## Frame rate, frame time, CPU time and the rest of the frame are one picture and
+## are published together: a rate averaged over a second beside a cost from the
+## last 50 ms would disagree with itself. The CPU side is the engine's own measured
+## C++ work for the frame (the perf report's "process_total"); everything else in
+## the frame is what the GPU and the script layer took, which is the row beside it.
+func _close_window() -> void:
+	var frames := maxi(_frames, 1)
+	var frame_ms := _frame_ms_total / float(frames)
+	_fps = int(round(float(_frames) / maxf(_window, 0.0001)))
+	_fps_line = "FPS: %d" % _fps
+	_frame_line = "Frame: %.2f ms" % frame_ms
+	if _cpu_samples > 0:
+		var cpu_ms := _cpu_ms_total / float(_cpu_samples)
+		_cpu_time_line = "CPU time: %.3f ms" % cpu_ms
+		if _gpu_measured_samples > 0:
+			# The engine timed the GPU. Preferred: it is the card's own work, so a
+			# vsynced frame does not report its idle as GPU time.
+			_gpu_time_line = "GPU time: %.3f ms" % (
+				_gpu_measured_ms_total / float(_gpu_measured_samples))
+		else:
+			# Nothing measured it, so the row is the frame less our C++ work -- the
+			# GPU plus the script layer, and v-sync's idle wait along with them. The
+			# suffix says so rather than letting the two look alike.
+			_gpu_time_line = "GPU time: %.3f ms (est)" % maxf(frame_ms - cpu_ms, 0.0)
+	_frames = 0
+	_window = 0.0
+	_frame_ms_total = 0.0
+	_cpu_ms_total = 0.0
+	_cpu_samples = 0
+	_gpu_measured_ms_total = 0.0
+	_gpu_measured_samples = 0
+
+## The biome under the body, from the same estimator generation uses. Resampled
+## only when the position crosses into another column: one sample is a whole
+## column's climate and lattice work, far too heavy for a 20 Hz refresh.
+func _update_biome(at: Vector3) -> void:
+	if _chunk_manager == null or not _chunk_manager.has_method("get_biome_at"):
+		_biome_line = "Biome: -"
+		return
+	var x := int(floor(at.x))
+	var z := int(floor(at.z))
+	if x == _biome_x and z == _biome_z:
+		return
+	_biome_x = x
+	_biome_z = z
+	_biome_line = "Biome: %s" % str(_chunk_manager.call("get_biome_at", x, z))
+
 func _format_memory() -> String:
 	var used_mb := Performance.get_monitor(Performance.MEMORY_STATIC) / (1024.0 * 1024.0)
 	var total_mb := float(OS.get_memory_info().get("physical", 0)) / (1024.0 * 1024.0)
@@ -382,14 +512,29 @@ func _format_memory() -> String:
 		int(round(100.0 * used_mb / total_mb)),
 	]
 
+## The streaming radius in the units it is set in (`ChunkManager.render_distance`,
+## chunks) and in the blocks it covers, which is the scale the coordinates beside
+## it are in.
+func _render_line() -> String:
+	if _chunk_manager == null:
+		return "RD: -"
+	var chunks := int(_chunk_manager.get("render_distance"))
+	if chunks <= 0:
+		return "RD: -"
+	return "RD: %d chunks (%d blocks)" % [chunks, chunks * CHUNK_WIDTH]
+
+## What the engine has on the card against what the card has, in MB. The total
+## comes from the native sampler because Godot has no capacity monitor; a build
+## without it (or a platform that cannot say) shows the used figure alone.
 func _format_vram() -> String:
 	var used_mb := Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED) / (1024.0 * 1024.0)
 	if used_mb <= 0.0:
 		# The headless renderer keeps no video memory at all; that is nothing to
 		# measure rather than a card with nothing on it.
 		return "VRAM: -"
-	_vram_peak_mb = maxf(_vram_peak_mb, used_mb)
-	return "VRAM: %d MB (peak %d MB)" % [
-		int(round(used_mb)),
-		int(round(_vram_peak_mb)),
-	]
+	var total_mb := -1.0
+	if _stats != null:
+		total_mb = float(_stats.call("get_vram_total"))
+	if total_mb <= 0.0:
+		return "VRAM: %d MB" % int(round(used_mb))
+	return "VRAM: %d / %d MB" % [int(round(used_mb)), int(round(total_mb))]

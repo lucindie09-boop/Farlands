@@ -831,6 +831,17 @@ The following code remains in the codebase but is disabled or unused:
 - `src/debug/crash_dump.cpp` + `crash_dump_report.cpp` / `crash_dump_internal.hpp` — The crash
   handler's hook lifecycle against the report it writes; the state resolved at install time is
   shared through the internal header
+- `src/debug/system_stats.hpp` + `system_stats_binding.hpp/cpp` + `system_stats_windows.cpp` /
+  `system_stats_posix.cpp` — The two machine numbers Godot does not expose, for the F3 screen's
+  PERFORMANCE section: CPU utilization from the OS tick counters (`GetSystemTimes` on Windows,
+  the first line of `/proc/stat` on Linux) and GPU utilization from the PDH "GPU Engine"
+  counters on Windows (summed across engines and processes, capped at 100 — what Task Manager
+  reads) or the DRM `gpu_busy_percent` file on Linux. `CpuSample::percent_since` is the whole
+  arithmetic and stays header-only so `tests/test_system_stats.cpp` links it without the
+  library; the Godot half (`SystemStats`, a `RefCounted`) samples at most every 500 ms, because
+  the OS answers a percentage over the interval between two reads, and reports -1 rather than 0
+  where a platform has no counter — the HUD draws that as `-`, so an unknown reading never looks
+  like an idle machine
 - `src/core/inventory.hpp/cpp` — `Inventory`, `InventorySlot`: hotbar/main storage,
   add/consume/can_add, 64 stack limit
 - `src/core/crafting.hpp/cpp` — `RecipeBook`, `CraftingRecipe`, `craft_item`: shapeless
@@ -961,9 +972,9 @@ The following code remains in the codebase but is disabled or unused:
 - `src/core/terrain_params.cpp` — Terrain parameters loaded from `data/terrain_config.json`
 
 ### UI (GDScript)
-- HUD: chat, hotbar, healthbar, airbar, death screen, inventory, crafting and the settings
-  menu - one file per screen, with the settings layout driven by a size table rather
-  than raw pixels.
+- HUD: chat, hotbar, healthbar, airbar, death screen, inventory, crafting, the F3 debug
+  screen and the settings menu - one file per screen, with the settings layout driven by
+  a size table rather than raw pixels.
 - `shader_overlay.gd` is the effect stack: kinds, parameters and ordering all come
   from `data/shaders.json`, so a new effect is an entry rather than menu code.
 - The model and preview scripts (Skin Maker, Block Maker, `player.glb`, the viewmodel)
@@ -1124,7 +1135,7 @@ Every file, with what it owns: [docs/ui.md](docs/ui.md).
   - `textures/0Archive/` — Archived/deprecated textures (old versions kept for reference)
 
 ### Testing
-- `tests/` — 116 `.cpp` files (782 test cases / 374,333 assertions, declared across 114 of them:
+- `tests/` — 118 `.cpp` files (786 test cases / 374,345 assertions, declared across 116 of them:
   `test_main.cpp` is the doctest entry point and `mesh_manager_stub.cpp` supplies link stubs),
   auto-discovered via `Glob("tests/*.cpp")`. A split test file keeps the original name for its
   main subject and takes `_<topic>` files beside it, with the fixtures they share in a
@@ -1170,7 +1181,7 @@ Every file, with what it owns: [docs/ui.md](docs/ui.md).
   region, and on a standard attribute placed after a decl-specifier. Both compile on MSVC and
   are fatal on GCC/clang, which is exactly why the tree is compiled by something other than MSVC
   before it is accepted
-- **clang-tidy** — the static-analysis job's gate, over `find src -name '*.cpp'` (138 files)
+- **clang-tidy** — the static-analysis job's gate, over `find src -name '*.cpp'` (141 files)
   with `bugprone-*`, `concurrency-*` and `performance-*` minus the four documented exceptions
   (`.github/workflows/build.yml`: `bugprone-easily-swappable-parameters`,
   `bugprone-narrowing-conversions`, `clang-analyzer-optin.core.EnumCastOutOfRange`,

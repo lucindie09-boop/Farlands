@@ -4,6 +4,7 @@
 #include "godot_bindings/block_textures.hpp"
 #include "godot_bindings/chunk_manager.hpp"
 #include "debug/crash_dump.hpp"
+#include "debug/system_stats_binding.hpp"
 #include "godot_bindings/liquid_texture_gen.hpp"
 #include "godot_bindings/player_controller.hpp"
 #include "godot_bindings/skin_pixels.hpp"
@@ -47,6 +48,7 @@ void initialize_chunk_module(ModuleInitializationLevel p_level) {
     ClassDB::register_class<::ViewmodelMeshes>();
     ClassDB::register_class<::ViewmodelPose>();
     ClassDB::register_class<::LiquidTextureGen>();
+    ClassDB::register_class<::SystemStats>();
 }
 
 void terminate_chunk_module(ModuleInitializationLevel p_level) {

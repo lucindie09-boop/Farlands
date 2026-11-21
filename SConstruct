@@ -51,7 +51,9 @@ lib_sources = [s for s in lib_sources if os.path.exists(str(s))]
 # DLL that makes our own frames readable — a minidump of an optimized DLL with no
 # symbols is just a column of numbers.
 if sys.platform == "win32":
-    env.Append(LIBS=["dbghelp"])
+    # dbghelp: crash reports (see debug/crash_dump.hpp). pdh: the GPU Engine
+    # performance counters the F3 screen's GPU row reads (debug/system_stats_*).
+    env.Append(LIBS=["dbghelp", "pdh"])
     env.Append(LINKFLAGS=["/DEBUG:FULL"])
 
 library = env.SharedLibrary("bin/libgdextension{}{}".format(env["suffix"], env["SHLIBSUFFIX"]), source=lib_sources)

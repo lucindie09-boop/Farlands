@@ -35,6 +35,27 @@ screen (the shader-effect stack, the animated-liquid tools, the model previews).
   hearts, right-aligned in the hotbar's 81-unit row. Each bubble is one tenth of `get_max_air()`,
   polled from `PlayerController.get_air()`; a depleted slot is the same `bubble.png` under a dark
   modulate
+- `debug_screen.gd` — The F3 debug screen, in three sections. **GENERAL**: FPS (frames counted
+  over a whole second, not `Performance.TIME_FPS`), XYZ to three decimals and speed in blocks per
+  second (the sim's per-tick velocity times its 20 Hz step). **PERFORMANCE**: frame time, machine
+  CPU and GPU utilization, this process's VRAM against its own session peak, and the engine's
+  static memory against the machine's RAM. **SPECS**: CPU name + core count, GPU vendor +
+  adapter, RAM, and the build's version (which is where the version lives now, not a header).
+  GENERAL and PERFORMANCE stack on the left under their own headings; SPECS hangs on the right
+  edge with right-aligned rows. Each section is its own container, so the gap between sections
+  is the column's separation and a heading cannot drift away from its body. Cadence is
+  deliberate: GENERAL and PERFORMANCE are recomposed once per simulation tick — 20×/s, which is
+  as often as any of those values can change, driven by a `delta` accumulator of `1/20` s
+  (no tick counter is exposed) that subtracts rather than resets so it keeps the tick rate's
+  phase — while FPS and frame time are published once per whole-second window, and SPECS is read
+  once. CPU and GPU utilization are the numbers Godot does not have: they come from the native
+  `SystemStats` object (`src/debug/system_stats_*` — `GetSystemTimes` and the PDH "GPU Engine"
+  counters on Windows, `/proc/stat` and the DRM busy file on Linux), instantiated through
+  `ClassDB` so an older DLL leaves both rows at `-` instead of failing. VRAM also reads `-`
+  where the renderer reports no video memory (headless). Session state only, gameplay only (the
+  mouse must be captured, like the other debug keys), and it hides `FPSCounter` while it is up
+  because the counter sits in the same corner; the node is hidden at the title with the rest of
+  the HUD
 - `death_screen.gd` — Death overlay: "You died!" + Respawn button, shown on the
   `PlayerController.died` signal and hidden on `respawned`
 - `menu_layer.gd` — The title screen and the transition, as one autoload `CanvasLayer` above
@@ -150,7 +171,7 @@ autoload) owns the scale and the two origin helpers.
 |---|---|
 | Hotbar, inventory, crafting table | the slot art itself (`SLOT_PITCH`, `SLOT_FILL_SIZE`, `SLOT_SIZE_PX`) |
 | Health bar | the heart art (`HEART_TEXELS`, `HEART_PITCH_TEXELS`) — a heart is its own 9 units, never a fraction of the bar |
-| Crosshair, compass, FPS counter | `FONT_UNITS` / `OUTLINE_UNITS` / `TOP_UNITS` in each script |
+| Crosshair, compass, FPS counter, F3 debug screen | `FONT_UNITS` / `OUTLINE_UNITS` / `TOP_UNITS` / `SECTION_GAP_UNITS` in each script |
 | Settings menu, the maker pages, the death screen | the `UNIT_*` table (a 24-unit title and an 8-unit button on the death screen) |
 | Chat | **opted out** — a log read while playing, deliberately 1:1 at every scale |
 

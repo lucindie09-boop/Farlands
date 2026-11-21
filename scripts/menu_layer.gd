@@ -38,8 +38,9 @@ const DRIFT_RAD_PER_SEC := 0.035
 # the title is up and restored to whatever it was before, one by one, so a node
 # that was already hidden stays hidden.
 const HIDE_AT_TITLE := [
-	"FPSCounter", "Hotbar", "Healthbar", "Airbar", "Inventory", "CraftingTableMenu",
-	"Chat", "Wand", "Crosshair", "Compass", "HurtOverlay", "DeathScreen",
+	"FPSCounter", "DebugScreen", "Hotbar", "Healthbar", "Airbar", "Inventory",
+	"CraftingTableMenu", "Chat", "Wand", "Crosshair", "Compass", "HurtOverlay",
+	"DeathScreen",
 ]
 
 var _title: Control

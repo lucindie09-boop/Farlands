@@ -34,7 +34,12 @@ if asan == "1" and sys.platform != "win32":
 # Optional coverage support (Linux/GCC/Clang only)
 coverage = ARGUMENTS.get("COVERAGE", "0")
 if coverage == "1" and sys.platform != "win32":
-    env.Append(CCFLAGS=["--coverage"])
+    # Atomic profile counters: meshing and chunk work run on worker threads, and
+    # the default single-word counter updates race there. gcov then reads torn
+    # counts and reports them as negative hit counts (gcc bug 68080), which lcov
+    # 2.x refuses. Only the counters are atomic; nothing else about the build
+    # changes, and coverage runs are not performance runs.
+    env.Append(CCFLAGS=["--coverage", "-fprofile-update=atomic"])
     env.Append(LINKFLAGS=["--coverage"])
 
 # Collect all .cpp files in src/ and subdirectories

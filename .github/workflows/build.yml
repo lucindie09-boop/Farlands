@@ -318,8 +318,18 @@ jobs:
           # lack matching .gcno files (the coverage cache only glues our gcno in
           # place), and lcov 2.x hard-errors on that mismatch. godot-cpp data is
           # dropped from the report anyway.
-          lcov --capture --directory src --directory tests --output-file coverage.info --ignore-errors negative
-          lcov --remove coverage.info '/usr/*' 'godot-cpp/*' --output-file coverage.info
+          #
+          # Each ignored type is named twice because capture runs in two phases.
+          #   negative     - the worker threads' counters (the coverage build now
+          #                  uses -fprofile-update=atomic, so this is a guard).
+          #   inconsistent - GCC 15 records the inlined std::pair<const string,
+          #                  BlockShape> constructor from <tuple> as not hit while
+          #                  its line is, and lcov 2.x turns that into a fatal
+          #                  error. The record is in /usr and stripped below, so
+          #                  there is nothing here we could act on.
+          IGNORE='--ignore-errors negative,negative,inconsistent,inconsistent'
+          lcov --capture --directory src --directory tests --output-file coverage.info $IGNORE
+          lcov --remove coverage.info '/usr/*' 'godot-cpp/*' --output-file coverage.info $IGNORE
           lcov --list coverage.info
 
       - name: Upload coverage to Codecov

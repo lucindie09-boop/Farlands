@@ -13,6 +13,21 @@ namespace {
 // a game never sets it.
 std::atomic<int> g_radius_override{ -1 };
 
+// Latched on first use rather than read per wake: wakes are emitted from mesh
+// workers, and the environment cannot change under a running process anyway.
+int radius_from_environment() {
+    static const int radius = [] {
+        // NOLINTNEXTLINE(concurrency-mt-unsafe) - latched once, env is fixed at startup
+        const char* raw = std::getenv("FARLANDS_WATER_WAKE_RADIUS");
+        if (raw == nullptr) {
+            return 2;
+        }
+        const int value = std::atoi(raw);
+        return value < 0 ? 0 : value;
+    }();
+    return radius;
+}
+
 } // namespace
 
 void set_water_wake_radius_override(int radius) {
@@ -24,12 +39,7 @@ int water_wake_radius() {
     if (override_value >= 0) {
         return override_value;
     }
-    const char* raw = std::getenv("FARLANDS_WATER_WAKE_RADIUS");
-    if (raw == nullptr) {
-        return 2;
-    }
-    const int value = std::atoi(raw);
-    return value < 0 ? 0 : value;
+    return radius_from_environment();
 }
 
 } // namespace fluids

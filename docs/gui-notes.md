@@ -300,9 +300,9 @@ first-person viewmodel - what each one owns and the decisions behind it.
 - **Chat system**: `chat.gd` with advanced autocomplete — ghost text suggestions with pulsing
   effect (0.25-0.4 alpha), tab cycling through completions, up/down arrow navigation,
   hold-to-cycle (0.1875s intervals), parameter hints for commands (`/give <block> [count]`,
-  `/tp <x> <y> <z>`, `/time set <dawn|day|noon|dusk|night|midnight>`,
+  `/tp <x> <y> <z>`, `/time set <dawn|day|noon|dusk|night|midnight|HH:MM>`,
   `/time speed [multiplier]`), commands: `/help`, `/give` (unlimited count), `/tp`, `/fly`,
-  `/time set <dawn|day|noon|dusk|night|midnight>` (jump to a time of day — `day_time` 0 is
+  `/time set <dawn|day|noon|dusk|night|midnight|HH:MM>` (jump to a time of day — a named part, or a clock time like `07:30`, which is the HH:MM the F3 clock then shows; `day_time` 0 is
   midnight, 0.25 sunrise, 0.5 noon, 0.75 sunset, and `day`/`night` are the morning a world
   opens on and its mirror) and `/time speed [multiplier]` (a multiplier on the 1,200 s default
   day — twenty minutes — so 2 is a ten minute day; the F3 screen's clock shows the hour), `/clearchat`,

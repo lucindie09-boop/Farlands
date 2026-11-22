@@ -80,6 +80,24 @@ func _pct(part: int, whole: int) -> String:
 func _fmt_speed(v: float) -> String:
 	return String.num(v, 3).trim_suffix(".0")
 
+# The minutes into a day for a clock time -- the same HH:MM the F3 screen prints -- or -1
+# when the text is not one. 1,440 to a day because a day is 24 hours however long it takes,
+# which is what makes the two agree.
+func _clock_minutes(text: String) -> int:
+	var bits := text.split(":")
+	if bits.size() != 2 or not bits[0].is_valid_int() or not bits[1].is_valid_int():
+		return -1
+	var hours := bits[0].to_int()
+	var minutes := bits[1].to_int()
+	if hours < 0 or hours > 23 or minutes < 0 or minutes > 59:
+		return -1
+	return hours * 60 + minutes
+
+# What /time set accepts, in the form the hints and usage lines show it. The six names
+# come from the map above, so a seventh needs to be added in one place.
+func _time_forms() -> String:
+	return "<%s|HH:MM>" % "|".join(TIME_OF_DAY.keys())
+
 func _chat_scale() -> float:
 	return 1.0  # Chat is not affected by the global GUI scale
 
@@ -411,7 +429,7 @@ func _get_command_param_hint(cmd: String, parts: Array) -> String:
 				return "set <when> | speed [multiplier]"
 			var verb := str(parts[1]).to_lower()
 			if arg_count == 2 and verb == "set":
-				return "<dawn|day|noon|dusk|night|midnight>"
+				return _time_forms()
 			if arg_count == 2 and verb == "speed":
 				return "[multiplier]"
 			return ""
@@ -605,7 +623,7 @@ func _run_command(raw: String):
 			_add_message("/give <block> [count] - add blocks to your inventory", COLOR_SYSTEM)
 			_add_message("/tp <x> <y> <z> - teleport to a position", COLOR_SYSTEM)
 			_add_message("/fly [speed] - toggle flying (optional speed multiplier)", COLOR_SYSTEM)
-			_add_message("/time set <dawn|day|noon|dusk|night|midnight> - jump to a time of day", COLOR_SYSTEM)
+			_add_message("/time set %s - jump to a time of day" % _time_forms(), COLOR_SYSTEM)
 			_add_message("/time speed [multiplier] - read or set how fast the day passes (1 = a 20 min day)", COLOR_SYSTEM)
 			_add_message("/locatebiome <biome> - find the nearest biome (ocean/hills/plains)", COLOR_SYSTEM)
 			_add_message("/paste <file> [fluids] [gaps] [air] [strict] - place a build file", COLOR_SYSTEM)
@@ -674,14 +692,19 @@ func _run_command(raw: String):
 			var verb := parts[1].to_lower() if parts.size() >= 2 else ""
 			if verb == "set":
 				if parts.size() < 3:
-					_add_message("Usage: /time set <dawn|day|noon|dusk|night|midnight>", COLOR_ERROR)
+					_add_message("Usage: /time set %s" % _time_forms(), COLOR_ERROR)
 					return
 				var when := parts[2].to_lower()
-				if not TIME_OF_DAY.has(when):
-					_add_message("Unknown time: %s (dawn, day, noon, dusk, night, midnight)" % parts[2], COLOR_ERROR)
+				if TIME_OF_DAY.has(when):
+					chunk_manager.set("day_time", TIME_OF_DAY[when])
+					_add_message("Time set to %s (day_time %.2f)" % [when, float(TIME_OF_DAY[when])], COLOR_SUCCESS)
 					return
-				chunk_manager.set("day_time", TIME_OF_DAY[when])
-				_add_message("Time set to %s (day_time %.2f)" % [when, float(TIME_OF_DAY[when])], COLOR_SUCCESS)
+				var minutes := _clock_minutes(when)
+				if minutes < 0:
+					_add_message("Unknown time: %s (%s, or a clock time like 07:30)" % [parts[2], ", ".join(TIME_OF_DAY.keys())], COLOR_ERROR)
+					return
+				chunk_manager.set("day_time", float(minutes) / 1440.0)
+				_add_message("Time set to %02d:%02d" % [int(floor(minutes / 60.0)), minutes % 60], COLOR_SUCCESS)
 				return
 			if verb == "speed":
 				# Both ends of the range come from the engine (the cycle's own constant and
@@ -705,7 +728,7 @@ func _run_command(raw: String):
 				chunk_manager.set("day_duration", base / multiplier)
 				_add_message("Day speed %sx: a full day takes %.1fs (was %.1fs)." % [_fmt_speed(multiplier), base / multiplier, duration], COLOR_SUCCESS)
 				return
-			_add_message("Usage: /time set <dawn|day|noon|dusk|night|midnight> | /time speed [multiplier]", COLOR_ERROR)
+			_add_message("Usage: /time set %s | /time speed [multiplier]" % _time_forms(), COLOR_ERROR)
 		"/locatebiome":
 			if parts.size() < 2:
 				_add_message("Usage: /locatebiome <biome>", COLOR_ERROR)

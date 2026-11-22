@@ -27,6 +27,7 @@ BlockIconRenderer="*res://scripts/block_icon_renderer.gd"
 LiquidAnimator="*res://scripts/liquid_animator.gd"
 ToolLoader="*res://scripts/tool_loader.gd"
 MenuLayer="*res://scripts/menu_layer.gd"
+Tooltips="*res://scripts/tooltips.gd"
 
 [display]
 

@@ -17,6 +17,8 @@ extends RefCounted
 ## and there is no stretch to slice.
 
 const BUTTON_TEX: Texture2D = preload("res://Assets/textures/gui/button.png")
+## The tooltip's box: a gold line outside a darker one around a dark fill.
+const TOOLTIP_TEX: Texture2D = preload("res://Assets/textures/gui/tooltip.png")
 ## The dark framed box: the tool screens' panel, so the Skin Maker, the Block
 ## Maker and the Liquid Texture Lab sit on the same surface as the menus.
 const PANEL_TEX: Texture2D = preload("res://Assets/textures/gui/effect_background.png")
@@ -38,6 +40,21 @@ const PANEL_CAP := 4
 ## identical). The track is what a text field wears, so a name reads as a groove
 ## in the row rather than as a button that happens to hold text.
 const SLIDER_CAP := 4
+
+## `tooltip.png` is 100 x 100 with a two-texel frame (the gold line and the
+## darker one inside it) around a flat fill, so two texels each side are the
+## caps: the frame keeps its thickness and only the middle stretches.
+const TOOLTIP_CAP := 2
+## The box is the text plus the padding, with nothing fixed: every name gets the
+## box its own letters need, so the tooltip changes size from one slot to the
+## next. What is held across names is the PADDING, taken from the reference pair
+## (a 66 x 16 text in an 82 x 32 box) - 8 px a side at scale 2, which is the
+## 4 units below. "Gravel" is 37 px of Munro at the size below, so its box is
+## 53 x 32; a longer name is wider still.
+const TOOLTIP_PAD := 4.0
+## The tooltip's text, in units: 7 art texels of Munro is 14 px at scale 2, whose
+## line is 16 px - the height above - so a one-line box is 32 px tall.
+const TOOLTIP_FONT_UNITS := 7.0
 
 # One texture per (art, scale). Settings pages build dozens of buttons each, and
 # a 200 x 20 image resized to scale 4 is not free; the art never changes, only
@@ -173,6 +190,14 @@ static func style_button(btn: Button, ui_scale: float,
 	for state in ["font_color", "font_hover_color", "font_pressed_color",
 			"font_focus_color"]:
 		btn.add_theme_color_override(state, font_color)
+
+## The tooltip box, sliced: the gold frame keeps its two texels and the label
+## gets `TOOLTIP_PAD * scale` of padding inside it.
+static func tooltip_panel(ui_scale: float) -> StyleBoxTexture:
+	var s := maxf(1.0, roundf(ui_scale))
+	var box := nine_slice(TOOLTIP_TEX, TOOLTIP_CAP, s)
+	box.set_content_margin_all(TOOLTIP_PAD * s)
+	return box
 
 ## A text field that reads as a row: the house art behind it, with the padding a
 ## typed name needs. `track` puts the slider's track behind it instead of the

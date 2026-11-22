@@ -127,6 +127,7 @@ func _toggle_inventory():
 
 func _close_inventory():
 	is_open = false
+	tooltip_text = ""
 	# Clear drag state to prevent stuck drags surviving close/reopen
 	_drag_button = -1
 	_drag_shift = false
@@ -441,6 +442,52 @@ func _get_block_color(block_id: int) -> Color:
 		8: return Color(0.4, 0.4, 0.4)  # Gravel
 		_: return Color(0.5, 0.5, 0.5)  # Default gray
 
+## The item under the pointer, as the vanilla tooltip: its name.
+##
+## The whole inventory is ONE control, so the hovered slot's name is that
+## control's own `tooltip_text` rather than one control per slot; the `Tooltips`
+## layer reads it and draws the box beside the pointer.
+func _update_tooltip(slot: int, cslot: int) -> void:
+	# Nothing is under the pointer while a stack rides the cursor or a drag is
+	# running: that is the stack in hand, not the slot's own item.
+	if (held_block_id > 0 and held_count > 0) or _drag_button >= 0:
+		tooltip_text = ""
+		return
+	if cslot >= 0:
+		var is_output := cslot == 4
+		var craft_id: int = craft_result_id if is_output else int(craft_ids[cslot])
+		var craft_count: int = craft_result_count if is_output else int(craft_counts[cslot])
+		tooltip_text = _tooltip_for(craft_id, craft_count)
+		return
+	if slot < 0:
+		tooltip_text = ""
+		return
+	var is_hotbar := slot < HOTBAR_SIZE
+	var index := slot if is_hotbar else slot - HOTBAR_SIZE
+	var block_id: int = player_controller.get_hotbar_slot_block_id(index) if is_hotbar \
+			else player_controller.get_inventory_slot_block_id(index)
+	var count: int = player_controller.get_hotbar_slot_count(index) if is_hotbar \
+			else player_controller.get_inventory_slot_count(index)
+	tooltip_text = _tooltip_for(block_id, count)
+
+func _tooltip_for(block_id: int, count: int) -> String:
+	if block_id <= 0 or count <= 0:
+		return ""
+	var manager := get_node_or_null("/root/Main/ChunkManager")
+	var raw := ""
+	if manager != null and manager.has_method("get_block_name"):
+		raw = String(manager.call("get_block_name", block_id))
+	if raw == "":
+		raw = "block %d" % block_id
+	return _title_case(raw.replace("_", " "))
+
+## `oak planks` -> `Oak Planks`, the way an item name reads.
+func _title_case(text: String) -> String:
+	var out := PackedStringArray()
+	for word in text.split(" ", false):
+		out.append(word.substr(0, 1).to_upper() + word.substr(1))
+	return " ".join(out)
+
 func _gui_input(event):
 	if not is_open:
 		return
@@ -454,6 +501,7 @@ func _gui_input(event):
 		if slot != hovered_slot:
 			hovered_slot = slot
 			queue_redraw()
+		_update_tooltip(slot, cslot)
 		
 		# Check for drag action: armed button and slot changed since last action
 		if _drag_button >= 0 and slot != _drag_last_slot:

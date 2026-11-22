@@ -152,7 +152,12 @@ screen (the shader-effect stack, the animated-liquid tools, the model previews).
   gather; live 2×2 crafting grid + output preview (click/drag/shift/scroll interactions mirrored
   on the crafting cells; shift-click output crafts as many as possible). Icons are tracked per
   slot, and one that is spent -- a stack emptied, a cell drained by a craft, a preview the
-  ingredients no longer support -- comes apart through `ui_shatter.gd` (see [gui-notes.md](gui-notes.md))
+  ingredients no longer support -- comes apart through `ui_shatter.gd` (see [gui-notes.md](gui-notes.md)).
+  The whole grid is one control, so the hovered slot's **tooltip** is that control's own
+  `tooltip_text` (`_update_tooltip`): the item's name, title-cased, and nothing while a stack
+  rides the cursor. The box itself is drawn by the `Tooltips` autoload (`tooltips.gd`), which
+  sits above every canvas layer - an engine tooltip is a popup and lands under the HUD's layer,
+  see [gui-notes.md](gui-notes.md)
 - `data/recipes.json` — Crafting recipes (shaped/shapeless), resolved by block name; loaded into
   `RecipeBook` at startup. A shaped `key` entry may list several acceptable ingredients,
   expanded at load into one concrete recipe per combination (per symbol, so all cells of a

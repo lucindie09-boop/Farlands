@@ -498,6 +498,37 @@ first-person viewmodel - what each one owns and the decisions behind it.
   its texture's own size, so the sheet preview (16x512) asked for 512 px of height and
   pushed the footer off the bottom of the window - the previews set
   `expand_mode = EXPAND_IGNORE_SIZE` and take their size from the layout instead.
+- **Tooltips are the interface's own box, drawn by the game, because the engine's cannot be
+  seen here.** A tooltip is a popup window, the whole HUD is a `CanvasLayer`, and an embedded
+  popup is drawn UNDER the layer - a button inside one whose `tooltip_text` is set shows
+  nothing at all, and the same button shows its tooltip once it is not inside a layer. So the
+  engine's tooltip is not used anywhere; `scripts/tooltips.gd` is the
+  `Tooltips` autoload, which owns a `CanvasLayer` at 200 - above every other, the Liquid
+  Texture Lab is 100 - and draws the box itself. It reads the hovered control's own
+  `tooltip_text` (walking up the parents if the control under the pointer has none), so every
+  `tooltip_text` already in the project - the menu buttons, the makers, the lab, the inventory's
+  per-slot names - works through it without knowing it exists. It runs `PROCESS_MODE_ALWAYS`
+  because the pause menu and the inventory stop the tree, which is where tooltips are used, and
+  it stays off while the mouse is captured. There is no delay: the box is on screen the frame
+  the hovered name changes - hovering a slot with the pointer already still shows it at once,
+  which is why it does not use the engine's `_wait`-style timer. Its offset from the pointer is
+  `(14, 0)`: 14 px right, and the `0` is the gap under the box, so its BOTTOM edge sits on the
+  pointer's line and the box itself rises above it, over the item it names. It is pulled back
+  inside the window at its edges. The box is **90% solid** - 10% transparent - via `modulate.a`
+  0.9 on the panel, text included, so the item and the row behind it still read faintly through
+  it.
+- **The tooltip's size comes from its own text.** `Assets/textures/gui/tooltip.png` is a
+  100 x 100 frame - a gold line outside a darker one - so its caps are **2 texels** and only the
+  fill stretches (`UIArt.tooltip_panel`, sliced at the GUI scale like the buttons). The box is
+  the text plus `UIArt.TOOLTIP_PAD` (4 units = 8 px a side at the default scale of 2) and there
+  is no minimum on either axis, so the box changes from one slot to the next: a short name is
+  small, a long one is wide. **What is held across names is the padding**, taken from the
+  reference pair - a 66 x 16 text in an 82 x 32 box. The text is Munro at
+  `UIArt.TOOLTIP_FONT_UNITS` = 7 units = 14 px, whose line is 16 px, so a one-line box is 32 px
+  tall; "Gravel" is 37 px wide in that font, which is why its box is **53 x 32** and not 82 - a
+  box of 82 would need a font whose six letters are 66 px wide, and Munro's are 37 at a height
+  that fits 32. Measured, not guessed (`font.get_string_size` at every candidate size);
+  everything scales from the unit with the rest of the HUD.
 - **Skin dark-mode toggle**: Top-right "DARK MODE"/"LIGHT MODE" toggle (`_skin_dark_mode`,
   persisted in `settings.cfg` under `gui/skin_dark_mode`); `_apply_skin_palette()` flips page
   bg, fg/borders, hex/hint colors, swatch tiles, and rebuilds the picker theme; the toggle's

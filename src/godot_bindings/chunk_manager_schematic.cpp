@@ -6,8 +6,10 @@
 #include "godot_bindings/chunk_manager.hpp"
 
 #include "engine/voxel_engine_controller.hpp"
+#include "godot_bindings/biome_search.hpp"
 
 #include "worldgen/biome_config.hpp" // BiomeType, biome_name
+#include "worldgen/biome_search_config.hpp" // kRadiusBlocks
 
 #include <cmath>
 
@@ -21,6 +23,23 @@ using namespace VoxelEngine;
 Dictionary ChunkManager::find_biome(const String& biome_name, int32_t center_x,
                                     int32_t center_z, int32_t max_radius) {
     return controller->find_biome(biome_name, center_x, center_z, max_radius);
+}
+
+int32_t ChunkManager::get_biome_search_radius() const {
+    return biome_search::kRadiusBlocks;
+}
+
+Ref<BiomeSearch> ChunkManager::make_biome_search() {
+    if (!controller) {
+        return Ref<BiomeSearch>();
+    }
+    Ref<BiomeSearch> search;
+    search.instantiate();
+    // Its own generator from the world's own numbers: the walk runs on another
+    // thread, and the generator behind the main thread's reads is not one to
+    // share with it.
+    search->set_generator(controller->make_search_generator());
+    return search;
 }
 
 String ChunkManager::get_biome_at(int32_t world_x, int32_t world_z) {

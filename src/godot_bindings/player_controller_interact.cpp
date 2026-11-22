@@ -208,6 +208,12 @@ void PlayerController::use_item() {
             emit_signal("wand_use");
             return;
         }
+        // A spawn egg is a signal too: the thing it makes is an entity built in
+        // GDScript (pose_clone_debug.gd, which owns the model and the physics).
+        if (use->is_dummy()) {
+            emit_signal("dummy_spawn");
+            return;
+        }
         if (use->is_pour()) {
             pour_fluid_at_aim(use->block);
         } else if (use->is_fill()) {

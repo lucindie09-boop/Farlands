@@ -313,7 +313,31 @@ first-person viewmodel - what each one owns and the decisions behind it.
   a kept region of chunk slices — one by default, `span` slices otherwise — and regenerates, for
   measuring generation without the vertical axis — see [terrain-notes.md](terrain-notes.md)),
   mouse wheel scrolling for chat history, caret blink, wrapped messages with proper
-  input box anchoring
+  input box anchoring, and `/locatebiome <biome>` answering with a line that is itself the
+  link — clicked with the chat open, it teleports to that spot and closes the chat (the click
+  target is the wrapped block the line was drawn in, so a message that wraps is still one link).
+  The search runs on a thread with a generator of its own (`BiomeSearch`, made by
+  `ChunkManager.make_biome_search()`): a probe is a whole column's climate and surface and a
+  far answer is thousands of them — 0.05 s for plains from the spawn, 1.3 s for an ocean — so
+  the command answers `Looking for the nearest …` at once, that line becomes the answer
+  ("… is at (x, y, z). Click to teleport.") when the walk finishes, and the frame times do
+  not move while it runs. Asking for the biome you are standing in answers another one: the
+  search floods the patch underfoot (eight-ways, at its own 16-block step, bounded to 512
+  columns) and skips it, so an ocean from the middle of the ocean is the next water rather
+  than the water you are in. A biome that is not there is the expensive case — proving no
+  plains inside 3,000 blocks would be 140,000 probes — so the walk stops at a budget (12,000
+  probes or 4 s). The chat asks for `ChunkManager.get_biome_search_radius()` (864 blocks,
+  ring 54: 11,881 of the 12,000 probes), the radius both budgets cover in full, rather than
+  a horizon the walk would give up short of. A full-radius miss normally reaches the 4 s
+  clock before the probe cap, so it reports `gave_up` with
+  `Could not find <biome> nearby - the search gave up after <n> blocks` (in a measured miss
+  from (-512, 0), after 864 blocks, 4.012 s command-to-answer, frame mean/p99 0.907/1.439
+  ms before and 0.950/1.664 ms during, with 5.844/5.840 ms worst frames on both sides of
+  the search — the spikes this machine shows without one); the plain `Could not find <biome>
+  within 864 blocks` is the form when the walk finishes its radius without exhausting either
+  budget, as with a smaller radius from a tool or a test. `cancel()` is polled
+  once per probe, and the chat calls it before joining the thread, so quitting or changing
+  worlds waits a fraction of a probe rather than the rest of the search
 - **Sky section**: Settings → Sky holds Day Sky Color, Night Sky Color, Day
   Horizon, Night Horizon, Day Cloud Colour, Night Cloud Colour, Cloud Layers, Cloud Layer
   Spacing and God Rays. The two sky colours are the real zenith: the sky shader blends them with
@@ -662,7 +686,7 @@ first-person viewmodel - what each one owns and the decisions behind it.
   same block and the outline sits under the crosshair. `Main.tscn` centers the PlayerModel
   (+0.0844 z origin; pose clone mirrors it) so the head's rotation axis lands on the player's
   x/z and the eye lies on the head axis like `vanilla model`
-- **Punchable combat dummy (K)**: `pose_clone_debug.gd` spawns a **rigid** copy of the player
+- **Punchable combat dummy (dummy egg)**: `pose_clone_debug.gd` spawns a **rigid** copy of the player
   model (no Idle animation, no head tracking) as a physics body standing on the aimed block,
   with a bright depth-test-off cube at every mesh's origin (`pose_pivot_marker.gdshader`);
   because the glb pivots are baked, those origins are the real joints. `dummy.gd` runs vanilla
@@ -674,9 +698,11 @@ first-person viewmodel - what each one owns and the decisions behind it.
   10-tick hurt-resistance window so spam can't stack, held-LMB re-attacks every 0.5 s, and
   mining is suppressed while the dummy is under the crosshair closer than the aimed block.
   Console prints (`print_pivots`) list each part's origin for verifying the markers against the
-  transform hierarchy
-- **Chunk border overlay (B)**: `chunk_borders.gd` (autoload, `toggle_chunk_borders`) draws the
-  world's chunk grid around the player as unshaded, depth-test-OFF (X-ray) lines: verticals at
+  transform hierarchy. The `dummy_egg` item (use kind `dummy` in `data/items.json`) spawns the
+  same dummy from the hotbar where the crosshair is aimed, through `spawn()` and ToolLoader
+- **Chunk border overlay (F3+B)**: `chunk_borders.gd` (deferred tool, `toggle_chunk_borders`
+  on B with F3 held, so a stray B does nothing) draws the world's chunk grid around the player
+  as unshaded, depth-test-OFF (X-ray) lines: verticals at
   every chunk corner spanning the player's slice ± 64 blocks, and the floor and ceiling planes
   of that slice as one square per chunk, the player's own chunk in a brighter colour. It is the
   tool for boundary bugs — a seam, a stale vertex or a face culled on the far side is a question

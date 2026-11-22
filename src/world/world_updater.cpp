@@ -408,11 +408,16 @@ void WorldUpdater::queue_unload(uint64_t key) {
     }
 }
 
+std::unique_ptr<ChunkGenerator> WorldUpdater::make_search_generator() const {
+    auto generator = std::make_unique<ChunkGenerator>(terrain_params);
+    generator->set_biome_config(biome_config);
+    generator->set_vegetation_config(vegetation_config);
+    return generator;
+}
+
 ChunkGenerator& WorldUpdater::ensure_height_estimator() {
     if (!height_estimator) {
-        height_estimator = std::make_unique<ChunkGenerator>(terrain_params);
-        height_estimator->set_biome_config(biome_config);
-        height_estimator->set_vegetation_config(vegetation_config);
+        height_estimator = make_search_generator();
     }
     return *height_estimator;
 }

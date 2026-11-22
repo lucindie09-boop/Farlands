@@ -128,6 +128,13 @@
 		{
 			"name": "iron_sword",
 			"texture": "iron_sword"
+		},
+		{
+			"name": "dummy_egg",
+			"texture": "dummy_egg",
+			"use": {
+				"kind": "dummy"
+			}
 		}
 	]
 }

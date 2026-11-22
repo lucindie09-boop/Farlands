@@ -376,7 +376,9 @@ ChunkGenerator::ChunkGenerator(const TerrainParams& p)
 }
 
 BiomeType ChunkGenerator::get_biome(int32_t world_x, int32_t world_z) const {
-    return sample_column(world_x, world_z).biome;
+    // The biome is the column's first decision and only needs its climate and
+    // macro surface: the density, lake and material work under it has no say.
+    return classify_biome(world_x, world_z);
 }
 
 float ChunkGenerator::get_terrain_height(int32_t world_x, int32_t world_z) const {

@@ -169,6 +169,7 @@ func _ready() -> void:
 	# Before the SPECS lines: the RAM row carries the modules' own description,
 	# which only the native object can read.
 	_stats = _create_stats()
+	_warm_stats()
 	_build_specs_lines()
 	_apply_scale()
 	visible = false
@@ -342,6 +343,17 @@ func _apply_scale() -> void:
 # ---------------------------------------------------------------------------
 # Text
 # ---------------------------------------------------------------------------
+
+## The counters' first sample is the expensive one: it is where the OS builds
+## their instance lists (375 ms measured on Windows, where the GPU engine counter
+## has an instance per engine of every process). Paying it here, behind the
+## loading screen, is the difference between F3 costing a frame and costing a
+## third of a second; every later sample reuses what this built.
+func _warm_stats() -> void:
+	if _stats == null:
+		return
+	_stats.call("get_cpu_usage")
+	_stats.call("get_vram_total")
 
 func _create_stats() -> RefCounted:
 	# ClassDB rather than a typed reference: the rows degrade to "-" when the

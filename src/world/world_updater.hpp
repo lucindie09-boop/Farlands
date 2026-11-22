@@ -145,10 +145,13 @@ public:
     void clear();
     void reset();
 
+    // A generator of its own from the same parameters and configs, for a search
+    // off the main thread: sharing the estimator's state would race it.
+    std::unique_ptr<ChunkGenerator> make_search_generator() const;
     // Nearest column of the given biome within max_radius_blocks of
-    // (center_x, center_z), using the internal height-estimator generator so
-    // the search agrees with chunk generation. Returns true and fills
-    // out_x / out_z / out_height (macro surface height at the hit).
+    // (center_x, center_z), using the height-estimator generator so the search
+    // agrees with chunk generation. Returns true and fills out_x / out_z /
+    // out_height (macro surface height at the hit).
     bool find_nearest_biome(BiomeType target, int32_t center_x, int32_t center_z,
                             int32_t max_radius_blocks, int32_t& out_x, int32_t& out_z,
                             float& out_height);
@@ -352,13 +355,10 @@ private:
 
     double dirty_flush_accumulator = 0.0;
 
-    // Surface-aware generation: cached per-column content bounds, derived from
-    // the generator's rigorous chunk height range (all lattice nodes over the
-    // 16x16 chunk area, padded by the density margin). land_h is the lowest
-    // column surface in the chunk — everything below it is solid rock, so the
-    // scheduler can skip chunks entirely below it. top_h is the highest
-    // content the chunk can reach — macro surface or water level for ocean
-    // chunks — so chunks entirely above it are air and can be skipped.
+    // Cached per-column content bounds, from the generator's rigorous chunk
+    // height range: land_h is the lowest column surface (everything below it is
+    // solid rock) and top_h the highest content the chunk can reach, so chunks
+    // entirely above it are air. Either end lets the scheduler skip a chunk.
     struct ColumnSurfaceBounds {
         float land_h = 0.0f;
         float top_h  = 0.0f;

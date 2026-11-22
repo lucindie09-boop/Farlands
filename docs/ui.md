@@ -394,7 +394,8 @@ being resampled by a different fraction at each scale.
 
 ## Liquid texture tools
 
-- `liquid_texture_lab.gd` — Liquid Texture Lab (O key, autoload): procedural animated-texture
+- `liquid_texture_lab.gd` — Liquid Texture Lab (the pause menu's Tools → Liquid Texture Lab; Escape
+  closes it): procedural animated-texture
   authoring for water/lava/acid — style presets, every automaton and ramp knob as a slider, live
   animated preview plus a 3×3 tiled seam check and frame thumbnails, save/load as a vertical
   strip PNG + settings JSON in `user://liquids/`, a **Live** mode that pushes frames into the
@@ -453,12 +454,12 @@ being resampled by a different fraction at each scale.
 - `player.glb` — Voxel-style player model with a tightly-packed 64×64 skin-texture atlas; node
   pivots re-baked onto the true Blockbench joints (limb tops, head neck) by
   `tools/rebake_player_pivots.py` because Blockbench's glTF export flattens cube-pivot metadata
-- `pose_clone_debug.gd` — Debug tool (K key): spawns a rigid, punchable physics dummy — a frozen
+- `pose_clone_debug.gd` — Debug tool (the `dummy_egg` item): spawns a rigid, punchable physics dummy — a frozen
   copy of the player model (no Idle animation, no head tracking) running `dummy.gd`'s vanilla
   1.8.8 gravity/drag/knockback at 20 tps — standing on the aimed block, with a bright
   depth-test-off cube at every mesh's origin (see `Assets/shaders/pose_pivot_marker.gdshader`); prints
   each part's pivot for marker-vs-transform verification
-- `dummy.gd` — Combat physics for the K-key pose clone: 20 tps vanilla 1.8.8 gravity/drag,
+- `dummy.gd` — Combat physics for the pose clone: 20 tps vanilla 1.8.8 gravity/drag,
   knockback (`apply_knockback`: base 0.4 + sprint bonus, 10-tick hurt-resistance gate),
   interpolated rendering between ticks
 - `tools/bake_liquid_textures.gd` — Headless baker for a liquid's still block texture: runs the

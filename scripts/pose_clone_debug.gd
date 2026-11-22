@@ -1,10 +1,11 @@
 extends Node
-## Debug helper: press the bound action (pose_clone_toggle, default K) while
+## Debug helper: use the `dummy_egg` item (items.json use kind "dummy") while
 ## aiming at a block to spawn a standing clone of the player model on top of
 ## that block with NO animation (no AnimationPlayer child, so player_model.gd
 ## never loads or plays its clips â€” a frozen dummy), plus a small bright cube
-## at the pivot point of each of the model's meshes. Press again to remove the
-## clone.
+## at the pivot point of each of the model's meshes. Another egg replaces the
+## dummy standing rather than leaving two (see `spawn()`); ToolLoader makes this
+## tool on the first egg, not at boot.
 ##
 ## The clone is a physics dummy (dummy.gd): it falls with vanilla gravity/drag
 ## and gets knocked back with the vanilla combat knockback when you left-click
@@ -80,16 +81,6 @@ var _path_truncated := false
 var _show_waypoints := false
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed("pose_clone_toggle") and not event.is_echo():
-		# Gameplay only: releasing the mouse (chat/inventory/menu open, dead)
-		# also disables the toggle so typing doesn't spawn clones.
-		if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
-			return
-		if _clone != null:
-			_despawn()
-		else:
-			_spawn()
-		return
 	if event.is_action_pressed(PATH_ACTION) and not event.is_echo():
 		if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
 			return
@@ -147,7 +138,7 @@ func _plan_path() -> void:
 		_clear_path()
 		return
 	if _clone == null:
-		print("Path: spawn the dummy first (K)")
+		print("Path: use a dummy spawn egg first")
 		return
 	if not chunk_manager.has_method("request_path"):
 		print("Path: planner binding not available")
@@ -265,6 +256,14 @@ func _spawn() -> void:
 	_add_pivot_markers(model)
 	print("Pose clone spawned at %s (top of block %d,%d,%d)" % [host.global_position, bx, by, bz])
 	print_pivots(model)
+
+## One dummy at the aimed block, for a caller with no key press of its own (the
+## dummy spawn egg): a dummy already standing is replaced rather than orphaned,
+## since `_clone` is what the K toggle and the path debug refer to.
+func spawn() -> void:
+	if _clone != null:
+		_despawn()
+	_spawn()
 
 func _despawn() -> void:
 	if _clone == null:

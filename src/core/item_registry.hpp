@@ -45,6 +45,9 @@ struct ItemLight {
 //   "pour" — write the fluid source named by `block` into the cell the crosshair
 //            is against.
 //   "fill" — pick up the fluid SOURCE the crosshair is on, emptying the cell.
+//   "dummy" — put a combat dummy on the block the crosshair is looking at (the
+//            pose-clone tool in GDScript builds it; see player_controller.cpp's
+//            `dummy_spawn` signal).
 // `block` is what a pour writes, resolved from `block_name` at load time; a fill
 // has no block and leaves it AIR.
 //
@@ -64,6 +67,9 @@ struct ItemUseAction {
     // answered by the game's own layer (see PlayerController's wand signals),
     // because what it does is choose a thing and then place it where you look.
     [[nodiscard]] bool is_wand() const noexcept { return kind == "wand"; }
+    // A spawn egg puts no voxel in the world: it asks the layer that owns the
+    // entity to make one.
+    [[nodiscard]] bool is_dummy() const noexcept { return kind == "dummy"; }
 };
 
 // Optional "place" on an item (items.json "place" object): the block it puts in

@@ -335,11 +335,10 @@ public:
     EnvironmentController& get_environment_controller() { return environment_controller; }
     CollisionResolver& get_collision_resolver() { return collision_resolver; }
     BlockEditor& get_block_editor() { return block_editor; }
-
-    // Locates the nearest column of the named biome (case-insensitive:
-    // ocean/hills) within max_radius_blocks of (center_x, center_z).
-    // Returns {found: bool, x, y, z} where y is the macro surface height at
-    // the hit (the sea bed for ocean columns).
+    // A generator from the live world's own numbers, for a search on another thread.
+    std::unique_ptr<ChunkGenerator> make_search_generator();
+    // The nearest column of the named biome (ocean/hills) within max_radius_blocks
+    // of (center_x, center_z) as {found, x, y, z}, y its macro surface height.
     godot::Dictionary find_biome(const godot::String& biome_name, int32_t center_x,
                                  int32_t center_z, int32_t max_radius_blocks);
 

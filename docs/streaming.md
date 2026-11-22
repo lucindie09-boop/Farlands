@@ -2283,10 +2283,13 @@ reachable after a key press:
 
 - The three creator/debug tools (`liquid_texture_lab.gd`, `chunk_borders.gd`,
   `pose_clone_debug.gd`) are no longer autoloads. `scripts/tool_loader.gd`
-  creates each on the first press of its key and hands it that same press (with
-  input briefly switched off so one event cannot toggle it twice); the lab's 29
+  creates each on first use: the border overlay has the only key left
+  (`toggle_chunk_borders`, F3+B) and is handed that same press (with input
+  briefly switched off so one event cannot toggle it twice), while the lab and
+  the dummy -- opened from the pause menu's Tools page and by the dummy's spawn
+  egg -- are made by `open_tool()` with no press to hand over; the lab's 29
   ms and the others' parse time leave the launch. `probes/probe_tool_loader.gd`
-  presses all three and checks one node each, the right script, and no double
+  opens all three and checks one node each, the right script, and no double
   spawn; `probes/probe_lava_acid.gd` instantiates the lab itself where it needs
   it.
 - `menu_layer.gd` loads the 983-line block curtain on the first transition

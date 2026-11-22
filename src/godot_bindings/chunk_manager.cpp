@@ -1,6 +1,7 @@
 #include "godot_bindings/chunk_manager.hpp"
 
 #include "core/thread_pool.hpp"
+#include "godot_bindings/biome_search.hpp"
 #include "godot_bindings/cached_node.hpp"
 #include "engine/item_body_solver.hpp"
 #include "engine/item_pair_solver.hpp"
@@ -272,6 +273,8 @@ void ChunkManager::_bind_methods() {
     ClassDB::bind_method(D_METHOD("debug_multimesh_layout_ok"), &ChunkManager::debug_multimesh_layout_ok);
 #endif
     ClassDB::bind_method(D_METHOD("find_biome", "biome_name", "center_x", "center_z", "max_radius"), &ChunkManager::find_biome);
+    ClassDB::bind_method(D_METHOD("get_biome_search_radius"), &ChunkManager::get_biome_search_radius);
+    ClassDB::bind_method(D_METHOD("make_biome_search"), &ChunkManager::make_biome_search);
     ClassDB::bind_method(D_METHOD("get_biome_at", "world_x", "world_z"), &ChunkManager::get_biome_at);
     ClassDB::bind_method(D_METHOD("get_process_clock"), &ChunkManager::get_process_clock);
     ClassDB::bind_method(D_METHOD("inspect_schematic", "bytes", "options"),

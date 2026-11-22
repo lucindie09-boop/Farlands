@@ -7,11 +7,13 @@
 #include "core/chunk_data.hpp"
 #include "core/performance_timer.hpp"
 #include "worldgen/biome_config.hpp"
+#include "worldgen/biome_search_config.hpp"
 #include "worldgen/chunk_generator_lattice.hpp"
 #include "worldgen/density_math.hpp"
 #include "worldgen/chunk_solidity.hpp"
 #include "worldgen/terrain_squish.hpp"
 #include "worldgen/vegetation_config.hpp"
+#include <atomic>
 #include <utility>
 #include <cstdio>
 #include <algorithm>
@@ -331,6 +333,16 @@ private:
     ColumnSample sample_column_with_climate(float temperature, float humidity,
                                             float land_height,
                                             const BiomeAmplification& blended) const;
+    // The biome a column belongs to, and the amplified macro height that decides
+    // it. One rule, read by the generator's own column sample and by the
+    // locator's cheap probe, so a search cannot disagree with the terrain it
+    // points at.
+    struct ColumnBiome {
+        BiomeType biome;
+        float height;
+    };
+    ColumnBiome column_biome(float temperature, float humidity, float land_height,
+                             const BiomeAmplification& blended) const;
 
     // -------------------------------------------------------------------------
     // Block selection helpers
@@ -393,18 +405,33 @@ float max_water_h = -1.0f;
     BiomeType biome_from_climate_debug(float temperature, float humidity, float cont) const;
     ChunkGenerator(const TerrainParams& p = TerrainParams());
     BiomeType get_biome(int32_t world_x, int32_t world_z) const;
+    // The biome rule alone, without the rest of the column: no density, lake or
+    // material work. This is the biome search's unit of work, and not much cheaper
+    // than sample_column - the climate and macro surface are nearly all of a
+    // column's cost - but it is the right unit, because nothing below it can
+    // change the answer.
+    BiomeType classify_biome(int32_t world_x, int32_t world_z) const;
     float get_terrain_height(int32_t world_x, int32_t world_z) const;
 
+    // What a search cost and how it ended: gave_up means its budget (or a cancel)
+    // stopped it before the radius was covered.
+    struct BiomeSearchReport {
+        int32_t probes = 0;
+        int32_t reached_blocks = 0;  // Chebyshev distance actually covered
+        bool gave_up = false;
+    };
     // Searches outward from (center_x, center_z) for the nearest column whose
-    // biome is `target`, within max_radius_blocks. Phase 1 walks concentric
-    // 16-block rings outward (early exit on the first hit); phase 2 refines
-    // the hit with a fine 4-block scan of the surrounding area and keeps the
-    // closest matching column to the requested center. Returns true and fills
-    // out_x / out_z (the found column) and out_height (its macro surface
-    // height — sea bed for ocean columns).
+    // biome is `target`, within max_radius_blocks: 16-block rings walked outward
+    // with an early exit, then a fine 4-block scan of the hit's neighbourhood. A
+    // center that already is the target is the patch underfoot, not an answer, so
+    // the search floods it (bounded) and skips it. A miss is the expensive case,
+    // so the walk stops at a probe/time budget and reports gave_up rather than
+    // running on; `cancel` (polled per probe) ends it sooner. Fills out_x / out_z
+    // and out_height (the column's macro surface height, the sea bed for ocean).
     bool find_nearest_biome(BiomeType target, int32_t center_x, int32_t center_z,
                             int32_t max_radius_blocks, int32_t& out_x, int32_t& out_z,
-                            float& out_height) const;
+                            float& out_height, BiomeSearchReport* report = nullptr,
+                            const std::atomic<bool>* cancel = nullptr) const;
 
     // Signed density at a world point (macro surface + 3D deformation).
     // >0 solid, <=0 air. Unlike the cached-weirdness overload used by the

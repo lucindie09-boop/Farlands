@@ -1,17 +1,18 @@
 extends Node
-## The creator/debug tools, created on the first press of their own key.
+## The creator/debug tools, created on first use rather than at boot.
 ##
 ## They used to be autoloads so their keys worked from anywhere, but compiling
 ## their scripts at boot put ~40 ms in front of the title screen for three tools
-## that cannot be reached before a key is pressed (`liquid_texture_lab.gd` alone
-## is 29 ms of the launch). Each is instantiated here on its first press and
-## handed the same event, so the press that creates one also opens it; from then
-## on the node is in the tree and reads its own input like any other autoload.
+## (`liquid_texture_lab.gd` alone is 29 ms of the launch). Each is instantiated
+## here on first use: the one with a key is handed the same press, so the press
+## that creates it also opens it, and the lab and the dummy are asked for by name
+## from the Tools page and the dummy's spawn egg.
 ##
 ## Nothing outside this file names these three as autoloads: a probe that needs
 ## one instantiates its script directly (`probes/probe_lava_acid.gd` does that for
 ## the lab), which is why removing them from `project.godot` needs no call sites
-## changed.
+## changed. `open_tool()` is the same creation without a key press behind it, for
+## callers that have none: the Tools page's buttons and the dummy's spawn egg.
 ##
 ## `SkinManager` and `BlockManager` are deferred by time instead of by input. They
 ## own the player skin and the block-maker texture, and the title reads neither,
@@ -20,11 +21,17 @@ extends Node
 ## Both are only ever read by path (`/root/SkinManager`, `/root/BlockManager`),
 ## so a node created later is found by every existing call site.
 
+## Tool name -> script. Two are asked for by name with no key of their own (the
+## Tools page's button and the dummy's spawn egg); the third is reached by a key.
 const TOOLS := {
-	"liquid_lab_toggle": "res://scripts/liquid_texture_lab.gd",
-	"toggle_chunk_borders": "res://scripts/chunk_borders.gd",
-	"pose_clone_toggle": "res://scripts/pose_clone_debug.gd",
+	"liquid_lab": "res://scripts/liquid_texture_lab.gd",
+	"pose_clone": "res://scripts/pose_clone_debug.gd",
+	"chunk_borders": "res://scripts/chunk_borders.gd",
 }
+
+## The one tool with a key left (F3+B).
+const KEY_TOOL := "chunk_borders"
+const KEY_ACTION := "toggle_chunk_borders"
 
 ## Autoloads the title does not need, created by `ensure_autoload()` before the
 ## world that reads them exists.
@@ -36,33 +43,61 @@ const LAZY_AUTOLOADS := {
 var _created: Dictionary = {}
 
 
+func _ready() -> void:
+	# A held dummy egg right-clicks through PlayerController's `dummy_spawn`, and
+	# the player arrives with the world: after this in the game, already there in a
+	# probe, so both the tree and what is added to it are hooked.
+	get_tree().node_added.connect(_hook_player)
+	_hook_player(get_tree().root.find_child("Player", true, false))
+
+func _hook_player(node: Node) -> void:
+	if node == null or node.name != "Player" or not node.has_signal("dummy_spawn"):
+		return
+	if not node.is_connected("dummy_spawn", _spawn_dummy):
+		node.connect("dummy_spawn", _spawn_dummy)
+
+func _spawn_dummy() -> void:
+	var tool := open_tool("pose_clone")
+	if tool != null:
+		tool.call("spawn")
+
+
 func _unhandled_input(event: InputEvent) -> void:
-	if event.is_echo():
-		return
-	for action in TOOLS:
-		if _created.has(action) or not event.is_action_pressed(action):
-			continue
-		_spawn(action, event)
-		return
+	if not event.is_echo() and not _created.has(KEY_TOOL) \
+			and event.is_action_pressed(KEY_ACTION):
+		open_tool(KEY_TOOL, event)
 
 
-func _spawn(action: String, event: InputEvent) -> void:
-	var script := load(TOOLS[action]) as Script
-	if script == null:
-		push_error("ToolLoader: %s did not load" % TOOLS[action])
-		return
-	var tool := script.new() as Node
-	if tool == null:
-		push_error("ToolLoader: %s is not a Node" % TOOLS[action])
-		return
-	# Its input is off until this event has been handed over by hand, so the
-	# same press cannot be delivered to it twice and toggle it back shut.
-	tool.set_process_unhandled_input(false)
-	add_child(tool)
-	_created[action] = tool
-	if tool.has_method("_unhandled_input"):
+## Makes `tool_name` if it is not there yet and answers it; null if that name is not
+## a tool. A keyed tool's press is handed over by hand, with the tool's input off
+## until then, so one event cannot reach it twice and toggle it back shut; a tool
+## with no key is asked for its `open()` (or nothing, if it has none). Both read
+## their own input from the frame after this returns.
+func open_tool(tool_name: String, event: InputEvent = null) -> Node:
+	var tool: Node = _created.get(tool_name, null)
+	var made := tool == null
+	if made:
+		if not TOOLS.has(tool_name):
+			push_error("ToolLoader: %s is not a tool" % tool_name)
+			return null
+		var script := load(TOOLS[tool_name]) as Script
+		if script == null:
+			push_error("ToolLoader: %s did not load" % TOOLS[tool_name])
+			return null
+		tool = script.new() as Node
+		if tool == null:
+			push_error("ToolLoader: %s is not a Node" % TOOLS[tool_name])
+			return null
+		tool.set_process_unhandled_input(false)
+		add_child(tool)
+		_created[tool_name] = tool
+		tool.set_process_unhandled_input.call_deferred(true)
+	if event == null:
+		if tool.has_method("open"):
+			tool.call("open")
+	elif made and tool.has_method("_unhandled_input"):
 		tool.call("_unhandled_input", event)
-	tool.set_process_unhandled_input.call_deferred(true)
+	return tool
 
 
 ## Creates a deferred autoload under `/root` if it is not there yet, and answers

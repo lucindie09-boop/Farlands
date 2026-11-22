@@ -26,6 +26,10 @@ class Image;
 class ShaderMaterial;
 }
 
+// The off-frame biome search (godot_bindings/biome_search.hpp): one of the HUD's
+// own classes, not an engine one.
+class BiomeSearch;
+
 namespace VoxelEngine {
 class VoxelEngineController;
 class CollisionResolver;
@@ -189,6 +193,12 @@ public:
 
     godot::Dictionary find_biome(const godot::String& biome_name, int32_t center_x,
                                  int32_t center_z, int32_t max_radius);
+    // The radius the search can actually cover inside its probe budget. The chat
+    // asks for this instead of a number the walk would give up short of.
+    int32_t get_biome_search_radius() const;
+    // A search with a generator of its own, which may be run on a thread: the
+    // chat uses it so /locatebiome never stalls the frame it was typed on.
+    godot::Ref<BiomeSearch> make_biome_search();
     // The biome at a column ("plains"), for the F3 debug screen.
     godot::String get_biome_at(int32_t world_x, int32_t world_z);
     // {total_us, count}: the controller's cumulative process_total and its sample

@@ -137,7 +137,7 @@ func _run() -> void:
 		if (node as Label).text.contains("LIQUID TEXTURE LAB"):
 			title_text = (node as Label).text
 	_check(title_text.contains("LIQUID TEXTURE LAB"), "title rendered: %s" % title_text)
-	_check(title_text.contains("O"), "the title names the key that closes it: %s" % title_text)
+	_check(title_text.contains("ESC"), "the title names the key that closes it: %s" % title_text)
 
 	# Change a setting the way a slider does, and check the strip follows.
 	print("PROBE step: before regenerate")
@@ -296,31 +296,18 @@ func _run() -> void:
 	await process_frame
 	_check(not lab.get("_layer").visible, "lab panel hidden again")
 
-	# --- the key binding ----------------------------------------------------
-	_check(InputMap.has_action("liquid_lab_toggle"), "the action exists")
-	var key_events := InputMap.action_get_events("liquid_lab_toggle")
-	_check(key_events.size() > 0 and key_events[0] is InputEventKey and key_events[0].keycode == KEY_O,
-		"the action is bound to O")
-	# The handler is gameplay-gated (mouse captured), like the other debug keys,
-	# and a headless process cannot enter that state â€” DisplayServer is a dummy,
-	# so Input.mouse_mode stays VISIBLE however it is set. What can be pinned
-	# here is the gate itself: the key must do nothing while the mouse is free
-	# (chat, inventory, a menu), which is the failure that would let the panel
-	# appear mid-chat and swallow the panel's own keyboard.
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-	print("PROBE mouse mode (headless): " + str(Input.mouse_mode))
-	var press := InputEventAction.new()
-	press.action = "liquid_lab_toggle"
-	press.pressed = true
-	lab.call("_unhandled_input", press)
-	await process_frame
-	_check(not lab.get("_open"), "the key does nothing while the mouse is free")
+	# --- Escape closes it ---------------------------------------------------
+	# The lab has no key of its own any more (the Tools page opens it), so the one
+	# key it reads is Escape, the same back-out every other overlay answers.
 	lab.call("_show_lab")
 	await process_frame
 	_check(lab.get("_open") and lab.get("_layer").visible, "the panel opens")
-	lab.call("_unhandled_input", press)
+	var esc := InputEventAction.new()
+	esc.action = "ui_cancel"
+	esc.pressed = true
+	lab.call("_input", esc)
 	await process_frame
-	_check(not lab.get("_open"), "and the same key closes it again (no mouse gate while open)")
+	_check(not lab.get("_open") and not lab.get("_layer").visible, "Escape closes the panel")
 
 	# Put the user's compression setting back before the settings menu saves the
 	# runtime value on exit.

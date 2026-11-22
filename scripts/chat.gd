@@ -14,9 +14,17 @@ const COLOR_SYSTEM = Color(1.0, 0.85, 0.4)
 const COLOR_PLAYER = Color.WHITE
 const COLOR_ERROR = Color(1.0, 0.45, 0.45)
 const COLOR_SUCCESS = Color(0.6, 0.95, 0.6)
+# Only for a DLL without get_biome_search_radius: ring 54 of a 16-block walk is
+# 864 blocks, the last ring the search's 12,000-probe budget covers in full.
+const BIOME_SEARCH_RADIUS_FALLBACK := 864
 
 var is_open = false
-var messages: Array = []  # Array of {text: String, color: Color}
+var messages: Array = []  # Array of {text: String, color: Color, spot: Vector3}
+# Where each clickable line was drawn last, in this Control's coordinates, with the
+# place it sends you: Array of {rect: Rect2, spot: Vector3}. Filled by _draw, the
+# only place that knows the wrap; a click reads both from the same entry, so a line
+# added or scrolled since the last draw cannot be confused with another.
+var _click_spots: Array = []
 var _scroll_offset: float = 0.0  # Pixels scrolled back into chat history (0 = newest)
 var _history: Array[String] = []
 var _history_index = -1
@@ -173,6 +181,7 @@ func _ready():
 
 func _process(delta):
 	_poll_pending_paste()
+	_poll_biome_search()
 	if is_open and not _ghost_text.is_empty():
 		_pulse_time += delta
 		var pulse_alpha = 0.25 + 0.15 * sin(_pulse_time * 3.0)
@@ -191,6 +200,94 @@ func _process(delta):
 		if _up_hold_time >= _tab_cycle_delay:
 			_perform_tab_cycle(true)  # Forward cycle
 			_up_hold_time = 0.0
+
+# /locatebiome's walk, off the frame. A probe is a whole column's climate and
+# surface (~0.3 ms) and a far answer is thousands of them, so the search gets a
+# generator of its own (ChunkManager.make_biome_search) and a thread, and answers
+# into the chat when it lands instead of freezing the frame it was typed on. One
+# at a time, so two answers cannot arrive out of order.
+var _search_thread: Thread = null
+var _search: RefCounted = null
+var _search_name := ""
+var _search_radius := 0
+var _search_started_usec := 0
+# The line the search announced itself with, which its answer replaces: one
+# command is one line of chat, not a "looking" line left above the result.
+var _search_line := ""
+
+func _start_biome_search(chunk_manager: Node, biome_name: String, cx: int, cz: int,
+		radius: int) -> void:
+	if _search_thread != null:
+		_add_message("Still looking for %s - one at a time." % _search_name, COLOR_ERROR)
+		return
+	var search: RefCounted = chunk_manager.call("make_biome_search")
+	if search == null:
+		# A DLL without the search object: the same answer, asked for on the frame.
+		_report_biome_search(chunk_manager.find_biome(biome_name, cx, cz, radius), biome_name, radius)
+		return
+	_search_name = biome_name
+	_search_radius = radius
+	_search = search
+	_search_started_usec = Time.get_ticks_usec()
+	_search_thread = Thread.new()
+	# The search only reads its own generator: no scene tree, no world state.
+	_search_thread.start(func(): return search.call("find", biome_name, cx, cz, radius))
+	_search_line = "Looking for the nearest %s..." % biome_name
+	_add_message(_search_line, COLOR_SYSTEM)
+
+func _poll_biome_search() -> void:
+	if _search_thread == null or _search_thread.is_alive():
+		return
+	var result: Dictionary = _search_thread.wait_to_finish()
+	_search_thread = null
+	_search = null
+	_report_biome_search(result, _search_name, _search_radius)
+
+func _report_biome_search(result: Dictionary, biome_name: String, radius: int) -> void:
+	var text := ""
+	var color := COLOR_SUCCESS
+	var spot := Vector3.INF
+	if bool(result.get("found", false)):
+		spot = Vector3(float(result["x"]), float(result["y"]), float(result["z"]))
+		text = "The nearest %s is at (%d, %d, %d). Click to teleport." % [
+			biome_name, int(spot.x), int(spot.y), int(spot.z)]
+	else:
+		if bool(result.get("gave_up", false)):
+			# The walk stopped at its probe budget rather than the radius: there may
+			# be one further out, so the answer says how far it looked.
+			text = "Could not find %s nearby - the search gave up after %d blocks." % [
+				biome_name, int(result.get("searched", 0))]
+		else:
+			text = "Could not find %s within %d blocks." % [biome_name, radius]
+		color = COLOR_ERROR
+	_replace_announcement(text, color, spot)
+
+## The announcement line becomes the answer. A line that /clearchat or the history
+## cap took away while the search ran cannot be brought back, and the answer is
+## posted instead.
+func _replace_announcement(text: String, color: Color, spot: Vector3) -> void:
+	var announcement := _search_line
+	_search_line = ""
+	if not announcement.is_empty():
+		for i in range(messages.size() - 1, -1, -1):
+			if messages[i].text == announcement:
+				messages[i] = {"text": text, "color": color, "spot": spot}
+				_scroll_offset = 0.0
+				queue_redraw()
+				return
+	_add_message(text, color, spot)
+
+func _exit_tree() -> void:
+	# A search still running is told to stop before it is joined: every probe checks
+	# the flag, so quitting or changing worlds waits a fraction of one probe rather
+	# than the rest of the walk. The search owns its generator, so abandoning it is
+	# free.
+	if _search_thread != null:
+		if _search != null:
+			_search.call("cancel")
+		_search_thread.wait_to_finish()
+		_search_thread = null
+		_search = null
 
 # A paste that had to wait for chunks reports when it is done. The report is
 # consumed by whoever asks for it, so this announces each finished paste once
@@ -625,7 +722,7 @@ func _run_command(raw: String):
 			_add_message("/fly [speed] - toggle flying (optional speed multiplier)", COLOR_SYSTEM)
 			_add_message("/time set %s - jump to a time of day" % _time_forms(), COLOR_SYSTEM)
 			_add_message("/time speed [multiplier] - read or set how fast the day passes (1 = a 20 min day)", COLOR_SYSTEM)
-			_add_message("/locatebiome <biome> - find the nearest biome (ocean/hills/plains)", COLOR_SYSTEM)
+			_add_message("/locatebiome <biome> - find the nearest biome (ocean/hills/plains); click the answer to teleport there", COLOR_SYSTEM)
 			_add_message("/paste <file> [fluids] [gaps] [air] [strict] - place a build file", COLOR_SYSTEM)
 			_add_message("/paste undo - put the last paste back, /paste list - show the build files", COLOR_SYSTEM)
 			_add_message("/clearchat - clear the chat", COLOR_SYSTEM)
@@ -742,11 +839,12 @@ func _run_command(raw: String):
 				_add_message("World not available.", COLOR_ERROR)
 				return
 			var pos: Vector3 = player_controller.global_position
-			var result: Dictionary = chunk_manager.find_biome(biome_name, int(pos.x), int(pos.z), 3000)
-			if result.get("found", false):
-				_add_message("The nearest %s is at (%d, %d, %d)" % [biome_name, int(result["x"]), int(result["y"]), int(result["z"])], COLOR_SUCCESS)
-			else:
-				_add_message("Could not find %s within 3000 blocks." % biome_name, COLOR_ERROR)
+			# Ask for what the search can actually walk: a larger radius only
+			# makes its give-up message disagree with the number it searched.
+			var radius := BIOME_SEARCH_RADIUS_FALLBACK
+			if chunk_manager.has_method("get_biome_search_radius"):
+				radius = int(chunk_manager.call("get_biome_search_radius"))
+			_start_biome_search(chunk_manager, biome_name, int(pos.x), int(pos.z), radius)
 		"/paste":
 			if parts.size() < 2:
 				_add_message("Usage: /paste <file> [fluids] [gaps] [air] [strict]", COLOR_ERROR)
@@ -1038,12 +1136,30 @@ func _refresh_icon_ui():
 		if node and node is Control:
 			node.queue_redraw()
 
-func _add_message(text: String, color: Color):
-	messages.append({"text": text, "color": color})
+# `spot` is where a click on the line sends the player; Vector3.INF (the default)
+# means the line is just text. A message with one says so in its own words.
+func _add_message(text: String, color: Color, spot := Vector3.INF):
+	messages.append({"text": text, "color": color, "spot": spot})
 	if messages.size() > MAX_MESSAGES:
 		messages.remove_at(0)
 	_scroll_offset = 0.0
 	queue_redraw()
+
+## A line with a place in it is a link: clicking it teleports there and closes the
+## chat, so the click ends in gameplay rather than in the text box. Only the open
+## chat takes the mouse, which is also the only time a line can be aimed at.
+func _gui_input(event: InputEvent) -> void:
+	if not is_open or not (event is InputEventMouseButton):
+		return
+	var click := event as InputEventMouseButton
+	if not click.pressed or click.button_index != MOUSE_BUTTON_LEFT:
+		return
+	for spot in _click_spots:
+		if (spot.rect as Rect2).has_point(click.position):
+			accept_event()
+			player_controller.teleport_to(spot.spot)
+			_close_chat()
+			return
 
 func _chat_total_height() -> float:
 	var wrap_width := maxf(size.x - (H_MARGIN * _chat_scale()) * 2.0, 1.0)
@@ -1066,6 +1182,7 @@ func _scroll_chat(direction: int):
 func _draw():
 	if messages.is_empty():
 		return
+	_click_spots.clear()
 	var wrap_width := maxf(size.x - (H_MARGIN * _chat_scale()) * 2.0, 1.0)
 	var shadow := Color(0.09, 0.09, 0.09)
 	# Newest message at the bottom (closest to the input box), older ones
@@ -1098,4 +1215,9 @@ func _draw():
 					HORIZONTAL_ALIGNMENT_LEFT, wrap_width, int(LOG_FONT_SIZE * _chat_scale()), -1, shadow)
 			draw_multiline_string(MUNRO_FONT, Vector2((H_MARGIN * _chat_scale()), first_baseline), m.text,
 					HORIZONTAL_ALIGNMENT_LEFT, wrap_width, int(LOG_FONT_SIZE * _chat_scale()), -1, m.color)
+			if m.spot != Vector3.INF:
+				_click_spots.append({
+					"rect": Rect2(H_MARGIN * _chat_scale(), block_top, wrap_width, block_bottom - block_top),
+					"spot": m.spot,
+				})
 		cursor -= h

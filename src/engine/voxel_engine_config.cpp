@@ -90,6 +90,10 @@ void VoxelEngineController::flush_dirty_chunks(bool wait_for_completion, double 
     chunk_world.flush_dirty_chunks(wait_for_completion, timeout_sec);
 }
 
+std::unique_ptr<ChunkGenerator> VoxelEngineController::make_search_generator() {
+    return world_updater.make_search_generator();
+}
+
 Dictionary VoxelEngineController::find_biome(const String& biome_name, int32_t center_x,
                                             int32_t center_z, int32_t max_radius_blocks) {
     Dictionary result;

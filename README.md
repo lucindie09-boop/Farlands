@@ -17,7 +17,7 @@ lighting, day/night cycle, three-tier distance-based mesh LOD with LOD-reduced c
 into regions to cap draw calls, frustum-prioritized chunk loading, async background chunk
 saving, and a C++ inventory system (hotbar + 27-slot storage) wired into block break/place with
 a GDScript GUI, plus data-driven 2×2 crafting (`data/recipes.json`). Ships with a C++ player
-controller with Minecraft-accurate fixed-timestep physics and a punchable combat dummy (K key)
+controller with Minecraft-accurate fixed-timestep physics and a punchable combat dummy (dummy spawn egg)
 with vanilla 1.8.8 knockback.
 
 ## Architecture
@@ -67,7 +67,7 @@ and a wildcard like `src/mesh/mesh_manager*.cpp` means the family a split produc
 | Fluid flow | `src/fluids/` | Poured water flows and generated water does not; lava and acid are the same rules with their own numbers - [notes](docs/fluids.md) |
 | Day/night | `src/world/day_night_cycle.hpp` | Shader-driven sky-light intensity and colour blending |
 | Player physics | `src/engine/player_controller.hpp/cpp` | Fixed 20-tick/s vanilla ordering (jump/sprint/sneak), accumulator, fall distance and landing damage |
-| Player camera & body | `player_controller.cpp`, `player_model.gd`, `pose_clone_debug.gd` | F5 cycles first person / behind / in front; aiming always casts from the eye; vanilla body-yaw lag; K spawns the dummy |
+| Player camera & body | `player_controller.cpp`, `player_model.gd`, `pose_clone_debug.gd` | F5 cycles first person / behind / in front; aiming always casts from the eye; vanilla body-yaw lag; the dummy egg spawns the dummy |
 | LOD | `mesh_manager.cpp` (`lod_*`, `far_lod_*`) | Three tiers by distance; reduced chunks merged into regions; capped remesh per frame |
 | Frame budgets & timers | `src/core/frame_budgets.hpp`, `performance_timer.hpp` | Tiered idle/active/loading budgets; scoped frame-by-frame profiling |
 | Inventory | `src/core/inventory.hpp/cpp` | 9-slot hotbar + 27-slot storage, 64 per stack, persisted to `user://chunks/inventory.bin` |
@@ -76,10 +76,10 @@ and a wildcard like `src/mesh/mesh_manager*.cpp` means the family a split produc
 | Inventory UI | `inventory.gd`, `hotbar.gd`, `crafting_table_menu.gd` | E toggles the full screen, drag/drop and shift-click transfer, 3x3 table from `crafting_table_used`, live 2x2 grid |
 | Block icons | `block_icon_renderer.gd` | Isometric 300x300 icons built from each shape's selection boxes, pre-rendered and cached; `/testicons` |
 | Health, death, chat | `healthbar.gd`, `airbar.gd`, `death_screen.gd`, `chat.gd` | 10 hearts, the breath bubbles, the respawn overlay, autocomplete and the command set |
-| Settings, Skin Maker, Block Maker | `settings_menu.gd` | Render/lighting/crosshair/controls pages, both in-game editors, one share code per category - [notes](docs/gui-notes.md) |
-| Testing & CI | `tests/`, `tools/`, `.github/workflows/build.yml` | 789 cases / 374,361 assertions, four static gates, the soak and fuzz jobs - [notes](docs/testing.md), [contributing](CONTRIBUTING.md) |
+| Settings, Skin Maker, Block Maker | `settings_menu.gd` | Render/lighting/crosshair/controls pages, the two in-game editors and the liquid lab on the Tools page, one share code per category - [notes](docs/gui-notes.md) |
+| Testing & CI | `tests/`, `tools/`, `.github/workflows/build.yml` | 790 cases / 374,367 assertions, four static gates, the soak and fuzz jobs - [notes](docs/testing.md), [contributing](CONTRIBUTING.md) |
 | Shader effects | `shader_overlay.gd` + `data/shaders.json` | The effect stack (Hand Drawn, CRT Screen, Phosphor Trail, filters, camera and vertex effects), built from the registry - [rendering](docs/rendering-notes.md) |
-| Liquid texture lab | `liquid_texture_lab.gd`, `liquid_animator.gd` | Generates and animates the water/lava/acid sprites instead of shipping them (O opens the lab) - [rendering](docs/rendering-notes.md) |
+| Liquid texture lab | `liquid_texture_lab.gd`, `liquid_animator.gd` | Generates and animates the water/lava/acid sprites instead of shipping them (Tools → Liquid Texture Lab on the pause menu opens the lab) - [rendering](docs/rendering-notes.md) |
 | Texture packs | `src/render/texture_pack_manager.hpp`, `tools/pack_converter.py` | Per-block texture overrides loaded from `user://packs/` |
 | Block outline & crosshair | in `settings_menu.gd` | Pulse/thickness/fill outline, rotatable crosshair, CS-style base32 share codes |
 | Chunk persistence | `src/world/chunk_world*.cpp` | Dirty chunks snapshotted under their shard lock, RLE + atomic write on the pool, generation-gated, blocking flush on quit |
@@ -290,9 +290,9 @@ scons docscheck   # fails if the markdown cites a path that does not exist (also
 scons timings     # wall-clock gate: boot, fill and fps settle vs timings_baseline.txt (local only)
 scons path_cost # planner cost over real terrain (bin/path_cost [seed] [max_distance])
 scons schematic_report # decode a build file (bin/schematic_report <file> [--top N | --all] [--table PATH] [--plan] [--repeat N])
-# in game: K spawns the punchable dummy, P plans a route from it to the player
+# in game: /give dummy_egg, then right-click to spawn the punchable dummy; P plans a route from it
 # (red cubes on the blocks the route walks on), L toggles grid/waypoints
-# in game: O opens the Liquid Texture Lab (animated water/lava/acid authoring)
+# in game: pause menu -> Tools -> Liquid Texture Lab (animated water/lava/acid authoring)
 #   Live previews a strip in the world; "Bind to world" makes it the strip the
 #   running game animates that liquid with (LiquidAnimator, on by default)
 # bake a still block texture for a liquid from its preset:
@@ -340,7 +340,7 @@ vocabulary, [docs/debugging.md](docs/debugging.md) for the instruments,
 rejected. [AGENTS.md](AGENTS.md) is the engineering record: the constraints and the notes that
 cut across systems.
 
-The project has **789 test cases / 374,361 assertions** across the 118 `.cpp` files in `tests/`
+The project has **790 test cases / 374,367 assertions** across the 118 `.cpp` files in `tests/`
 (114 declaring cases, plus the doctest entry point and a stub TU), including 27 tests in
 `test_concurrency.cpp` (shard locking, deadlock prevention, PaletteStorage, cross-chunk writers,
 thread-pool work stealing).
@@ -378,9 +378,9 @@ Windows).
 
 Input bindings live in `project.godot` (`move_forward`, `move_back`, `move_left`, `move_right`,
 `jump`, `sprint`, `sneak`, `fly_toggle`, `toggle_inventory`, `drop_item`, `toggle_chat`,
-`toggle_third_person`, `mouse_click_left`, `mouse_click_right`, `pose_clone_toggle`,
-`toggle_chunk_borders` — the last one shows the 32-block chunk grid around the player as X-ray
-lines, `chunk_borders.gd`, off by default). The C++ `PlayerController` node owns all movement,
+`toggle_third_person`, `mouse_click_left`, `mouse_click_right`,
+`toggle_chunk_borders` — the last one, pressed with F3 held, shows the 32-block chunk grid
+around the player as X-ray lines, `chunk_borders.gd`, off by default). The C++ `PlayerController` node owns all movement,
 look, block interaction, and inventory state — there is no player GDScript. The hotbar/inventory
 screens are GDScript `Control` overlays that read/write that state.
 
@@ -398,7 +398,7 @@ further, and it does **not** pool — a splash spends itself and drains). All th
 when their source is removed. Generated water is deliberately inert: the ocean worldgen fills
 declares no fluid state, so it never ticks or spills, and a poured bucket pools against it.
 Their textures animate as you play — the stripes you see on water, lava and acid are generated
-by the same automaton the Liquid Texture Lab (O) authors, played into the texture array by an
+by the same automaton the Liquid Texture Lab authors, played into the texture array by an
 autoload animator; press O and hit "Bind to world" to make one of your own tuned strips the one
 the game plays. Right-clicking a source with the empty `bucket` takes it: the cell empties (the
 fluid around it settles back in) and the bucket becomes that fluid's own bucket, so a spill can

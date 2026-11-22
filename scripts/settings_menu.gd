@@ -96,6 +96,9 @@ var _current_page: String = "pause"
 
 var _bg: ColorRect
 var _pages: Dictionary = {}
+# The rows of every shader page and of the list they hang off, written to together:
+# one stack, so an imported code pulls all of it back in step.
+var _shader_syncs: Array = []
 # Each shader page's title label, by page name, so the pulse below can reach it.
 var _shader_page_titles: Dictionary = {}
 # The Sky category's rows, re-read after an imported FAR code changes the sky
@@ -475,36 +478,61 @@ func _load_settings():
 func _ui_scale() -> float:
 	return UIScale.value
 
-func _rebuild_pages():
+# Every open drops the pages and each one is built when it is first shown. The
+# rows read the world and the managers live, so a page kept across opens is a page
+# showing the values from before; but building all of them at once was 858
+# controls and ~90 ms on the key that opened the menu, for the two pages the
+# player was about to look at. Escape now builds its own page and nothing else.
+func _invalidate_pages():
 	for p in _pages.values():
 		if is_instance_valid(p):
 			p.queue_free()
 	_pages.clear()
 	_sky_visual_syncs.clear()
-	_pages["pause"] = _build_pause_page()
-	# One settings page for the general categories; controls is its own page.
-	_pages["settings"] = _build_settings_page()
-	_pages["controls"] = _build_controls_page()
-	# The Shaders page is a list of shaders; each of them gets a page of its own
-	# for its uniforms, so one shader with a dozen knobs cannot bury the next one.
-	# They share one `syncs` list with the list page because the codec on that
-	# page's heading covers the whole stack: importing a code has to pull every
-	# row on every one of them back in step, not only the rows on the page the
-	# code was pasted into.
 	_shader_page_titles.clear()
-	var shader_syncs: Array = []
-	_pages["shaders"] = _build_shaders_page(shader_syncs)
+	_shader_syncs = []
+
+## Builds the page `page_name` names unless it is already there. An unknown name
+## builds nothing: `_show_page` then has no page to show, which is how a dead row
+## shows up rather than a missing one.
+func _build_page(page_name: String) -> void:
+	if _pages.has(page_name):
+		return
+	if page_name.begins_with("shader_"):
+		_build_shader_pages()
+		return
+	match page_name:
+		"pause": _add_page("pause", _build_pause_page())
+		# One settings page for the general categories; controls is its own page.
+		"settings": _add_page("settings", _build_settings_page())
+		"controls": _add_page("controls", _build_controls_page())
+		"shaders": _build_shader_pages()
+		"tools": _add_page("tools", _build_tools_page())
+		"skin_maker": _add_page("skin_maker", _build_skin_maker_page())
+		"block_maker": _add_page("block_maker", _build_block_maker_page())
+
+# The Shaders page is a list of shaders; each of them gets a page of its own for
+# its uniforms, so one shader with a dozen knobs cannot bury the next one. They
+# are built together and share one `syncs` list with the list page because the
+# codec on that page's heading covers the whole stack: importing a code has to
+# pull every row on every one of them back in step, not only the rows on the page
+# the code was pasted into. So a shader page is never built without the rest.
+func _build_shader_pages() -> void:
+	if _pages.has("shaders"):
+		return
+	_add_page("shaders", _build_shaders_page(_shader_syncs))
 	for definition in _shader_definitions():
-		_pages["shader_" + String(definition.get("id", ""))] = _build_shader_page(
-			definition, shader_syncs)
-	_pages["tools"] = _build_tools_page()
-	_pages["skin_maker"] = _build_skin_maker_page()
-	_pages["block_maker"] = _build_block_maker_page()
-	for p in _pages.values():
-		p.hide()
-		add_child(p)
+		_add_page("shader_" + String(definition.get("id", "")),
+			_build_shader_page(definition, _shader_syncs))
+
+## A page enters the menu hidden: `_show_page` is what shows one.
+func _add_page(page_name: String, page: Control) -> void:
+	_pages[page_name] = page
+	page.hide()
+	add_child(page)
 
 func _show_page(page_name: String):
+	_build_page(page_name)
 	_current_page = page_name
 	for k in _pages:
 		_pages[k].visible = (k == page_name)
@@ -581,17 +609,29 @@ func _build_settings_page() -> Control:
 		[["Back", func(): _show_page("pause")], ["Done", _close]], UNIT_OPTION_W,
 		2, Color(0, 0, 0, 0))
 
-# Tools is its own page on the pause menu: the two editors are not settings,
-# so they are not on the settings list.
+# Tools is its own page on the pause menu: the two editors and the texture lab are
+# not settings, so they are not on the settings list.
 func _build_tools_page() -> Control:
 	var skin_btn := _make_widget_button("Skin Maker")
 	skin_btn.pressed.connect(func(): _show_page("skin_maker"))
 	var block_btn := _make_widget_button("Block Maker")
 	block_btn.pressed.connect(func(): _show_page("block_maker"))
+	var lab_btn := _make_widget_button("Liquid Texture Lab")
+	lab_btn.pressed.connect(_open_liquid_lab)
 	return _build_scrolling_page("Tools",
-		[["", [["", skin_btn, null], ["", block_btn, null]]]],
+		[["", [["", skin_btn, null], ["", block_btn, null], ["", lab_btn, null]]]],
 		[["Back", func(): _show_page("pause")], ["Done", _close]], UNIT_BUTTON_W, 1,
 		Color(0, 0, 0, 0))
+
+# The lab is not a page of this menu: it is its own overlay, which ToolLoader makes
+# on first use. So the menu closes first (the lab takes the mouse for its panel when
+# it opens) and the loader is asked for it by name.
+func _open_liquid_lab() -> void:
+	var loader := get_node_or_null("/root/ToolLoader")
+	if loader == null:
+		return
+	_close()
+	loader.open_tool("liquid_lab")
 
 # Shaders is its own page, entered from the pause menu: a screen shader is not a
 # property of the world. Its rows come from data/shaders.json, so a new shader is
@@ -4367,15 +4407,18 @@ func _input(event):
 				# Settings, Controls and the editors all step back to the menu.
 				_show_page("pause")
 		get_viewport().set_input_as_handled()
+	# `settings_open` is the flag every overlay that takes the mouse sets, so it is
+	# how the pause menu knows another one (the lab, the title's panels) owns Escape.
 	elif not player_controller.is_chat_open() and not player_controller.is_inventory_open() \
-			and not player_controller.is_table_menu_open():
+			and not player_controller.is_table_menu_open() \
+			and not player_controller.is_settings_open():
 		_open()
 		get_viewport().set_input_as_handled()
 
 func _open():
 	is_open = true
 	mouse_filter = Control.MOUSE_FILTER_STOP
-	_rebuild_pages()
+	_invalidate_pages()
 	_show_page("pause")
 	show()
 	# The pages were just rebuilt, so their titles start white: put the pulse's

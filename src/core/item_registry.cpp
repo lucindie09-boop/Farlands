@@ -165,6 +165,14 @@ bool ItemRegistry::load_from_json(const godot::String& json_path) noexcept {
                     WARN_PRINT("items.json entry " + name
                                + ": a wand's target is chosen in game, so its \"block\" is unused");
                 }
+            } else if (kind == "dummy") {
+                // A spawn egg names no block: what it puts in the world is an
+                // entity, not a voxel.
+                def.use.kind = "dummy";
+                if (use.has("block")) {
+                    WARN_PRINT("items.json entry " + name
+                               + ": a dummy egg spawns an entity, so its \"block\" is unused");
+                }
             } else {
                 ERR_PRINT("items.json entry " + name + ": unknown use kind \"" + kind
                           + "\", ignored");

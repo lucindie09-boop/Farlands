@@ -141,14 +141,13 @@ void PlayerController::add_signals() {
     // listener uses this for anything else (a hurt sound, a red flash, a damage
     // number). Emitted on the same frame the health is applied.
     ADD_SIGNAL(MethodInfo("damaged", PropertyInfo(Variant::INT, "amount")));
-    // A held wand's clicks: middle opens its menu, right works the tool in the
-    // world, left commits what the tool is showing. The wand never reaches the
-    // placement path (its item id is above the block registry, so it could not
-    // place a block anyway), and these are emitted instead of breaking or
-    // placing so exactly one thing answers a click while it is held.
+    // A held wand's clicks: middle opens its menu, right works the tool, left
+    // commits what it shows -- no placing or breaking, so one thing answers a
+    // click while it is held. A held dummy egg's right click is the fourth signal.
     ADD_SIGNAL(MethodInfo("wand_menu"));
     ADD_SIGNAL(MethodInfo("wand_use"));
     ADD_SIGNAL(MethodInfo("wand_confirm"));
+    ADD_SIGNAL(MethodInfo("dummy_spawn"));
 }
 
 void PlayerController::add_properties() {

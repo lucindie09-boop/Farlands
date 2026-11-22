@@ -288,7 +288,7 @@ twice, and the coast is where the samples' own crossing is. The whole sequence, 
 
 ## Procedurally animated liquid textures
 
-- **Procedural animated liquid textures + the Liquid Texture Lab (O key)**: animated
+- **Procedural animated liquid textures + the Liquid Texture Lab (pause menu → Tools)**: animated
   water/lava/acid sprites are *generated*, not drawn — a three-field cellular automaton over an
   N×N grid of floats (`surface` = the visible height that becomes the pixel colour, `flow` =
   momentum it pushes into, `surge` = a decaying energy source re-ignited by a per-cell dice
@@ -296,7 +296,7 @@ twice, and the coast is where the samples' own crossing is. The whole sequence, 
   produced its still-water and still-lava sprites before textures were image files; the field
   names, kernels, presets and colours here are ours. `src/render/liquid_texture.hpp` is pure (no
   Godot types) so the lab, the animator and the tests run identical code; `LiquidTextureGen` is
-  the GDScript face and `liquid_texture_lab.gd` (autoload, O) is the tool: style presets, every
+  the GDScript face and `liquid_texture_lab.gd` (the pause menu's Tools page) is the tool: style presets, every
   automaton/ramp knob as a slider, live animated preview + a 3×3 tiled seam check + frame
   thumbnails, save/load as a vertical strip PNG plus a settings JSON in `user://liquids/`, a
   **Live** mode that pushes frames straight into the running world's texture-array layer

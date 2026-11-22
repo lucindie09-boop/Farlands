@@ -1,5 +1,6 @@
 extends Node
-## Liquid Texture Lab — press the bound action (liquid_lab_toggle, default O).
+## Liquid Texture Lab — opened from the pause menu's Tools page (settings_menu.gd),
+## and closed with Escape or its Close button.
 ##
 ## An authoring tool for procedural animated liquid textures. It generates a
 ## frame strip in C++ (render/liquid_texture.hpp, exposed as LiquidTextureGen)
@@ -39,7 +40,6 @@ extends Node
 ## borrowed from how the classic block game generated these sprites; the field
 ## names, defaults, kernels and colours in this project are our own.
 
-const ACTION := "liquid_lab_toggle"
 const SAVE_DIR := "user://liquids"
 const MUNRO_FONT: Font = preload("res://Assets/fonts/munro.ttf")
 const TICK_RATE := 20.0  # frames are held for `frame_time` game ticks
@@ -144,17 +144,14 @@ func _ensure_settings() -> void:
 		return
 	settings = LiquidTextureGen.default_settings("water", 16)
 
-func _unhandled_input(event: InputEvent) -> void:
-	if not event.is_action_pressed(ACTION) or event.is_echo():
+## Escape closes the panel, the key that backs out of every other overlay, and the
+## only key the lab reads (the Tools page opens it, not a key). Read in `_input`
+## like the chat's: the panel's name field can hold the keyboard focus, and a
+## focused field would take the key before `_unhandled_input` saw it.
+func _input(event: InputEvent) -> void:
+	if not _open or not event.is_action_pressed("ui_cancel") or event.is_echo():
 		return
-	if not _open:
-		# Gameplay only, like the other debug keys: not while chat or a menu has
-		# the keyboard.
-		if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
-			return
-		_show_lab()
-	else:
-		_hide_lab()
+	_hide_lab()
 	get_viewport().set_input_as_handled()
 
 func _process(delta: float) -> void:
@@ -199,6 +196,12 @@ func _advance() -> void:
 # ---------------------------------------------------------------------------
 # Panel
 # ---------------------------------------------------------------------------
+
+## The Tools page's button has no key press to hand over, so it asks for the panel
+## itself. `open()` is the one name ToolLoader knows for that.
+func open() -> void:
+	if not _open:
+		_show_lab()
 
 func _show_lab() -> void:
 	_ensure_settings()
@@ -264,7 +267,7 @@ func _build_ui() -> void:
 	margin.add_child(column)
 
 	var title := Label.new()
-	title.text = "LIQUID TEXTURE LAB   —   %s to close" % _action_key_label()
+	title.text = "LIQUID TEXTURE LAB   —   ESC to close"
 	title.add_theme_font_override("font", MUNRO_FONT)
 	title.add_theme_font_size_override("font_size", 18)
 	title.add_theme_color_override("font_color", Color(0.75, 0.95, 1.0))
@@ -282,13 +285,6 @@ func _build_ui() -> void:
 	footer.add_theme_constant_override("separation", 6)
 	column.add_child(footer)
 	_build_footer(footer)
-
-func _action_key_label() -> String:
-	if InputMap.has_action(ACTION):
-		for event in InputMap.action_get_events(ACTION):
-			if event is InputEventKey:
-				return OS.get_keycode_string(event.keycode)
-	return "?"
 
 func _make_panel(color: Color) -> PanelContainer:
 	var panel := PanelContainer.new()

@@ -1,6 +1,6 @@
 extends Node
-## Debug helper: press the bound action (toggle_chunk_borders, default B) to
-## show the chunk grid around the player as world-space lines — the 32-block
+## Debug helper: press F3+B (toggle_chunk_borders, bound to B, with the debug key
+## held) to show the chunk grid around the player as world-space lines — the 32-block
 ## column boundaries as verticals, plus the floor and ceiling of the chunk slice
 ## the player is standing in as a grid. Press again to hide.
 ##
@@ -53,6 +53,11 @@ func _ready() -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if not event.is_action_pressed(TOGGLE_ACTION) or event.is_echo():
+		return
+	# The combo is F3+B: the action stays bound to B alone because the InputMap
+	# cannot hold a modifier key (only shift/ctrl/alt/meta) in an event, so the
+	# debug key has to be held for B on its own to do nothing.
+	if not Input.is_key_pressed(KEY_F3):
 		return
 	# Gameplay only, like the other debug keys: with the mouse released (chat,
 	# inventory, a menu) the key belongs to whatever is open.

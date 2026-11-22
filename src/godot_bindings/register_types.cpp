@@ -1,6 +1,7 @@
 #include "godot_bindings/register_types.hpp"
 #include "godot_bindings/block_outline.hpp"
 #include "godot_bindings/block_outline_builder.hpp"
+#include "godot_bindings/biome_search.hpp"
 #include "godot_bindings/block_textures.hpp"
 #include "godot_bindings/chunk_manager.hpp"
 #include "debug/crash_dump.hpp"
@@ -49,6 +50,7 @@ void initialize_chunk_module(ModuleInitializationLevel p_level) {
     ClassDB::register_class<::ViewmodelPose>();
     ClassDB::register_class<::LiquidTextureGen>();
     ClassDB::register_class<::SystemStats>();
+    ClassDB::register_class<::BiomeSearch>();
 }
 
 void terminate_chunk_module(ModuleInitializationLevel p_level) {

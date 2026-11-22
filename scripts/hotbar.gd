@@ -10,6 +10,7 @@ var _highlight_texture: Texture2D = null  # pre-built recolored selected slot
 const SLOT_SIZE = 48
 const HOTBAR_SIZE = 9
 const MUNRO_FONT: Font = preload("res://Assets/fonts/munro.ttf")
+const ItemNames := preload("res://scripts/item_names.gd")
 const UIShatter := preload("res://scripts/ui_shatter.gd")
 const UIIconThrow := preload("res://scripts/ui_icon_throw.gd")
 const BlockIconArt := preload("res://scripts/block_icon_art.gd")
@@ -38,6 +39,23 @@ const FILL_TOLERANCE = 0.012  # per channel, in 0..1 color space (~3/255)
 # ends in the bar instead of a count silently ticking up beside it.
 const POP_TIME = 0.18
 const POP_GROW = 0.22
+
+# The name of what you just took hold of, above the bar: vanilla says it, then
+# takes it away.
+#
+# The size is 14 px of INK, which is not the same as a 14 px font: Munro's line
+# box is taller than its letters. Measured by rasterising "Iron Sword" at each
+# size - 14 px of font gives letters 10 px tall, 20 px gives 14 - so the font is
+# 10 units, i.e. 20 px at the default scale of 2. Uniform, no stretch: the width
+# is whatever the font draws the name at.
+const NAME_FONT_UNITS = 10.0
+const NAME_HOLD = 2.5
+## The last half second of NAME_HOLD is the fade: solid until then, gone at the
+## end.
+const NAME_FADE = 0.5
+## The text's TOP edge, in units above the bar's own top edge: 30 units is the
+## 60 px above the bar asked for at the default scale of 2.
+const NAME_ABOVE_UNITS = 30.0
 
 func _ready():
 	# Load the hotbar texture directly
@@ -90,8 +108,17 @@ var _thrown_out := {}
 # place the HUD already sees every slot change.
 var _slot_pop := PackedFloat32Array()
 
+# The held item's name and how much of NAME_HOLD it has left.
+var _name_text := ""
+var _name_time := 0.0
+
 func _process(delta):
 	if _needs_redraw():
+		queue_redraw()
+	# The name is a clock of its own: it keeps the redraw gate open until it is
+	# gone, or the bar would freeze with the last name still on it.
+	if _name_time > 0.0:
+		_name_time = maxf(0.0, _name_time - delta)
 		queue_redraw()
 	# The pixels and the thrown icons are moving for as long as they exist, so
 	# their fall alone keeps the redraw gate open. Both advance every frame -- no
@@ -120,6 +147,10 @@ func _needs_redraw() -> bool:
 		return true
 	var sel: int = player_controller.get_selected_hotbar_slot()
 	if sel != _last_selected:
+		# The first look at the bar is not a selection - it is the bar being
+		# found - so the slot the game starts on does not introduce itself.
+		if _last_selected >= 0:
+			_announce_selection(sel)
 		_last_selected = sel
 		return true
 	for i in range(HOTBAR_SIZE):
@@ -145,6 +176,18 @@ func _needs_redraw() -> bool:
 					_thrown_out.erase(i)
 				else:
 					_spend_icon(i, _last_ids[i])
+			# The selected stack leaving - dropped, or spent to nothing - takes the
+			# name with it: a label that outlives its item is describing an empty slot.
+			if cnt == 0 and i == sel:
+				_name_text = ""
+				_name_time = 0.0
+			# ...and the other way round: something ARRIVING in the selected slot
+			# (a pickup, a craft, or a different stack swapped in) says its name,
+			# which is the case a selection change never sees. `_last_counts` >= 0
+			# keeps the first look at a loaded inventory from introducing itself.
+			if i == sel and _last_counts[i] >= 0 and cnt > 0 and (id != _last_ids[i]
+					or _last_counts[i] <= 0):
+				_announce_selection(sel)
 			_last_ids[i] = id
 			_last_counts[i] = cnt
 			return true
@@ -293,6 +336,45 @@ func _draw():
 	# way out of it after them -- drawn last so a throw is never hidden by debris.
 	_shards.draw(self)
 	_thrown.draw(self)
+	# What the selection just became, over the bar: drawn last because it is about
+	# the selection rather than part of the bar.
+	_draw_held_name(ui_scale)
+
+## Say what the newly selected slot holds. An empty slot says nothing, the way
+## vanilla's own label does.
+func _announce_selection(slot: int) -> void:
+	var count: int = player_controller.get_hotbar_slot_count(slot)
+	_name_text = "" if count <= 0 else ItemNames.display_name(
+			self, player_controller.get_hotbar_slot_block_id(slot))
+	_name_time = NAME_HOLD if _name_text != "" else 0.0
+
+## What the label's alpha is right now: solid until the fade starts, then down to
+## nothing over NAME_FADE.
+func _name_alpha() -> float:
+	return clampf(_name_time / NAME_FADE, 0.0, 1.0)
+
+## The held item's name, centred on the bar, its top edge NAME_ABOVE_UNITS above
+## the bar's own - the vanilla label over the hotbar.
+func _draw_held_name(ui_scale: float) -> void:
+	if _name_text == "" or not hotbar_texture:
+		return
+	var alpha := _name_alpha()
+	if alpha <= 0.0:
+		return
+	var font_size := int(roundf(NAME_FONT_UNITS * ui_scale))
+	var text_width := MUNRO_FONT.get_string_size(_name_text, HORIZONTAL_ALIGNMENT_LEFT, -1,
+			font_size).x
+	var panel := _panel_rect(ui_scale)
+	# draw_string takes the BASELINE, not the box's corner, so the ascent is what
+	# pins the glyph tops on the line the label starts at.
+	var pos := Vector2(floorf(panel.position.x + (panel.size.x - text_width) * 0.5),
+			floorf(panel.position.y - NAME_ABOVE_UNITS * ui_scale
+					+ MUNRO_FONT.get_ascent(font_size)))
+	var shadow := Vector2(maxf(1.0, ui_scale), maxf(1.0, ui_scale))
+	draw_string(MUNRO_FONT, pos + shadow, _name_text, HORIZONTAL_ALIGNMENT_LEFT, -1,
+			font_size, Color(0.09, 0.09, 0.09, alpha))
+	draw_string(MUNRO_FONT, pos, _name_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size,
+			Color(1.0, 1.0, 1.0, alpha))
 
 ## Where slot `i`'s icon sits, in units: the one layout the icons and their
 ## shattering pixels both go through, so a spent stack can only ever come apart

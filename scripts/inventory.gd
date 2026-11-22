@@ -8,6 +8,7 @@ const HOTBAR_SIZE = 9
 const INVENTORY_SIZE = 27
 const TOTAL_SLOTS = HOTBAR_SIZE + INVENTORY_SIZE
 const MUNRO_FONT: Font = preload("res://Assets/fonts/munro.ttf")
+const ItemNames := preload("res://scripts/item_names.gd")
 const UIShatter := preload("res://scripts/ui_shatter.gd")
 const BlockIconArt := preload("res://scripts/block_icon_art.gd")
 
@@ -471,22 +472,9 @@ func _update_tooltip(slot: int, cslot: int) -> void:
 	tooltip_text = _tooltip_for(block_id, count)
 
 func _tooltip_for(block_id: int, count: int) -> String:
-	if block_id <= 0 or count <= 0:
+	if count <= 0:
 		return ""
-	var manager := get_node_or_null("/root/Main/ChunkManager")
-	var raw := ""
-	if manager != null and manager.has_method("get_block_name"):
-		raw = String(manager.call("get_block_name", block_id))
-	if raw == "":
-		raw = "block %d" % block_id
-	return _title_case(raw.replace("_", " "))
-
-## `oak planks` -> `Oak Planks`, the way an item name reads.
-func _title_case(text: String) -> String:
-	var out := PackedStringArray()
-	for word in text.split(" ", false):
-		out.append(word.substr(0, 1).to_upper() + word.substr(1))
-	return " ".join(out)
+	return ItemNames.display_name(self, block_id)
 
 func _gui_input(event):
 	if not is_open:

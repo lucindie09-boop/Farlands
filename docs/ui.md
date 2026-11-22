@@ -16,7 +16,14 @@ screen (the shader-effect stack, the animated-liquid tools, the model previews).
   `ui_shatter.gd` (sampled down to the 16 units it is drawn at, so a shard is the same block a
   heart breaks into); a slot whose count goes UP plays the arrival pop instead (a 22% swell of
   its icon about its centre, settling over 0.18 s), which is the receiving half of
-  `ui_icon_throw.gd` and lands a pickup in the bar
+  `ui_icon_throw.gd` and lands a pickup in the bar. Changing the selection says what you took
+  hold of: the item's name (`item_names.gd`) centred over the bar in 10-unit text - 20 px at the
+  default scale of 2, where Munro's letters rasterise **14 px tall** (the size is chosen by the
+  ink, not the font's line box: 14 px of font is 10 px of ink); drawn uniformly, never stretched
+  - its top 30 units (60 px at that scale) above the bar's own top edge, held for 3 s and fading
+  out over its last half second. The slot the game starts on says nothing, but both a selection
+  change and something ARRIVING in the slot already selected (a pickup, a craft) raise the name,
+  and the stack leaving that slot - dropped or spent - clears it in the same frame
 - `ui_shatter.gd` — The shatter's motion, shared: a caller hands over a piece of art's texel mask
   (built by `mask_from_texture`, or a `freed` difference of two masks for what one hit took
   away), where the art is drawn and in what colour, and the helper throws one shard per texel up

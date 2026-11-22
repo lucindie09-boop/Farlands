@@ -498,6 +498,17 @@ first-person viewmodel - what each one owns and the decisions behind it.
   its texture's own size, so the sheet preview (16x512) asked for 512 px of height and
   pushed the footer off the bottom of the window - the previews set
   `expand_mode = EXPAND_IGNORE_SIZE` and take their size from the layout instead.
+- **An item's name is one string, from one place.** `scripts/item_names.gd` turns a block id
+  into what a player reads - the registry's `oak_planks` title-cased to "Oak Planks", or
+  "block 42" for an id the registry does not know - and the inventory's tooltip and the hotbar's
+  held-item label both call it, so the two can never disagree about a word. The lookup is a node
+  path (`/root/Main/ChunkManager`), which is why the helper takes a **Node** rather than the
+  SceneTree: a SceneTree has no `get_node_or_null`, and passing one silently named every item ""
+  (a script error in the log, an empty tooltip on screen). Items are a registry of their own
+  above the block ids, and `ChunkManager.get_block_name` only knows blocks: it answers "air" for
+  a torch or a sword, which is what those used to be labelled. `BlockTextures` knows both but
+  only *lists* names (`get_block_names`, blocks then items in id order), so the id -> name table
+  is built once by asking each listed name for its own id; an "air" answer is no name at all.
 - **Tooltips are the interface's own box, drawn by the game, because the engine's cannot be
   seen here.** A tooltip is a popup window, the whole HUD is a `CanvasLayer`, and an embedded
   popup is drawn UNDER the layer - a button inside one whose `tooltip_text` is set shows

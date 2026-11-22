@@ -311,6 +311,8 @@ void ChunkManager::_bind_methods() {
 ClassDB::bind_method(D_METHOD("set_time", "time"), &ChunkManager::set_time);
 ClassDB::bind_method(D_METHOD("get_time"), &ChunkManager::get_time);
 ClassDB::bind_method(D_METHOD("toggle_day_night_cycle"), &ChunkManager::toggle_day_night_cycle);
+ClassDB::bind_method(D_METHOD("get_default_day_duration"), &ChunkManager::get_default_day_duration);
+ClassDB::bind_method(D_METHOD("get_min_day_duration"), &ChunkManager::get_min_day_duration);
 ClassDB::bind_method(D_METHOD("get_sun_direction"), &ChunkManager::get_sun_direction);
 
     // Block ID constants (exposed to GDScript so block types can be referenced without hardcoding)

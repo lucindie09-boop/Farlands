@@ -35,7 +35,7 @@ var _tab_cycle_delay: float = 0.1875
 var _up_held: bool = false
 var _up_hold_time: float = 0.0
 
-const COMMANDS := ["/help", "/give", "/tp", "/fly", "/locatebiome", "/paste", "/clearchat", "/clearinv", "/version", "/genstats", "/squish", "/texturepack", "/testicons"]
+const COMMANDS := ["/help", "/give", "/tp", "/fly", "/time", "/locatebiome", "/paste", "/clearchat", "/clearinv", "/version", "/genstats", "/squish", "/texturepack", "/testicons"]
 const BIOME_NAMES := ["ocean", "hills", "plains"]
 # A build bigger than this is refused rather than written. This is a guard
 # against a file that is not a building at all (a corrupted size field turns into
@@ -45,6 +45,12 @@ const BIOME_NAMES := ["ocean", "hills", "plains"]
 # those chunks generate, which is what keeps the hitch from also being a hole.
 const PASTE_MAX_CELLS := 2000000
 const PASTE_KEYWORDS := ["undo", "fluids", "gaps", "air", "strict"]
+# The times /time set accepts, in the order a day reaches them. day_time 0 is midnight
+# and 0.5 noon (DayNightCycle: the sun's elevation is sin((time - 0.25) * 2*PI), so it
+# stands on the horizon at 0.25 and 0.75). day and night are one step past those two
+# horizons, which is why day is the 0.35 a world opens on and night is its mirror.
+const TIME_OF_DAY := {"dawn": 0.25, "day": 0.35, "noon": 0.5, "dusk": 0.75, "night": 0.85, "midnight": 0.0}
+const TIME_VERBS := ["set", "speed"]
 
 # Thousands separators. The generation counts run to seven and eight digits, and
 # an unformatted run of digits is how a wrong one goes unnoticed.
@@ -68,6 +74,11 @@ func _pct(part: int, whole: int) -> String:
 	if ratio >= 1.0:
 		return "%.1f%%" % ratio
 	return "%.2f%%" % ratio
+
+# A speed multiplier: 2x, 0.5x, 12000x. String.num drops the decimals that are not
+# there; only the ".0" of a whole number is left to drop here.
+func _fmt_speed(v: float) -> String:
+	return String.num(v, 3).trim_suffix(".0")
 
 func _chat_scale() -> float:
 	return 1.0  # Chat is not affected by the global GUI scale
@@ -328,7 +339,7 @@ func _update_ghost_text():
 		var parts := prefix.split(" ", false)
 		if parts.size() > 0:
 			var cmd := parts[0].to_lower()
-			var param_hint := _get_command_param_hint(cmd, parts.size())
+			var param_hint := _get_command_param_hint(cmd, parts)
 			if not param_hint.is_empty():
 				_ghost_text = param_hint
 				_ghost_label.text = _ghost_text
@@ -377,7 +388,8 @@ func _update_ghost_text():
 			_ghost_label.visible = false
 			return
 
-func _get_command_param_hint(cmd: String, arg_count: int) -> String:
+func _get_command_param_hint(cmd: String, parts: Array) -> String:
+	var arg_count := parts.size()
 	match cmd:
 		"/give":
 			if arg_count == 1:
@@ -394,6 +406,15 @@ func _get_command_param_hint(cmd: String, arg_count: int) -> String:
 		"/fly":
 			if arg_count == 1:
 				return "[speed]"
+		"/time":
+			if arg_count == 1:
+				return "set <when> | speed [multiplier]"
+			var verb := str(parts[1]).to_lower()
+			if arg_count == 2 and verb == "set":
+				return "<dawn|day|noon|dusk|night|midnight>"
+			if arg_count == 2 and verb == "speed":
+				return "[multiplier]"
+			return ""
 		"/locatebiome":
 			if arg_count == 1:
 				return "<biome>"
@@ -515,6 +536,14 @@ func _tab_candidates(prefix: String, word: String) -> Array[String]:
 			for b in BIOME_NAMES:
 				if b.begins_with(word):
 					out.append(b)
+		elif parts.size() == 1 and parts[0].to_lower() == "/time":
+			for v in TIME_VERBS:
+				if v.begins_with(word):
+					out.append(v)
+		elif parts.size() == 2 and parts[0].to_lower() == "/time" and parts[1].to_lower() == "set":
+			for t in TIME_OF_DAY.keys():
+				if t.begins_with(word):
+					out.append(t)
 		elif parts.size() >= 1 and parts[0].to_lower() == "/paste" and parts.size() > 1:
 			for keyword in PASTE_KEYWORDS:
 				if keyword.begins_with(word):
@@ -576,6 +605,8 @@ func _run_command(raw: String):
 			_add_message("/give <block> [count] - add blocks to your inventory", COLOR_SYSTEM)
 			_add_message("/tp <x> <y> <z> - teleport to a position", COLOR_SYSTEM)
 			_add_message("/fly [speed] - toggle flying (optional speed multiplier)", COLOR_SYSTEM)
+			_add_message("/time set <dawn|day|noon|dusk|night|midnight> - jump to a time of day", COLOR_SYSTEM)
+			_add_message("/time speed [multiplier] - read or set how fast the day passes (1 = a 20 min day)", COLOR_SYSTEM)
 			_add_message("/locatebiome <biome> - find the nearest biome (ocean/hills/plains)", COLOR_SYSTEM)
 			_add_message("/paste <file> [fluids] [gaps] [air] [strict] - place a build file", COLOR_SYSTEM)
 			_add_message("/paste undo - put the last paste back, /paste list - show the build files", COLOR_SYSTEM)
@@ -635,6 +666,46 @@ func _run_command(raw: String):
 			else:
 				player_controller.set_fly_mode(not player_controller.get_fly_mode())
 				_add_message("Flight %s" % ("enabled" if player_controller.get_fly_mode() else "disabled"), COLOR_SUCCESS)
+		"/time":
+			var chunk_manager := get_node_or_null("/root/Main/ChunkManager")
+			if chunk_manager == null:
+				_add_message("World not available.", COLOR_ERROR)
+				return
+			var verb := parts[1].to_lower() if parts.size() >= 2 else ""
+			if verb == "set":
+				if parts.size() < 3:
+					_add_message("Usage: /time set <dawn|day|noon|dusk|night|midnight>", COLOR_ERROR)
+					return
+				var when := parts[2].to_lower()
+				if not TIME_OF_DAY.has(when):
+					_add_message("Unknown time: %s (dawn, day, noon, dusk, night, midnight)" % parts[2], COLOR_ERROR)
+					return
+				chunk_manager.set("day_time", TIME_OF_DAY[when])
+				_add_message("Time set to %s (day_time %.2f)" % [when, float(TIME_OF_DAY[when])], COLOR_SUCCESS)
+				return
+			if verb == "speed":
+				# Both ends of the range come from the engine (the cycle's own constant and
+				# set_duration's floor), so neither is restated here.
+				var base := float(chunk_manager.get_default_day_duration())
+				var duration := float(chunk_manager.get("day_duration"))
+				if parts.size() < 3:
+					_add_message("Day speed %sx: a full day takes %.1fs. /time speed <multiplier> to change it." % [_fmt_speed(base / duration), duration], COLOR_SYSTEM)
+					return
+				var multiplier := parts[2].to_float()
+				if not is_finite(multiplier) or multiplier <= 0.0:
+					_add_message("Speed must be a positive number.", COLOR_ERROR)
+					return
+				# Refused rather than left to set_duration's clamp: the message would then
+				# name a day the request did not ask for.
+				var shortest := float(chunk_manager.get_min_day_duration())
+				var fastest := base / shortest
+				if multiplier > fastest:
+					_add_message("The fastest day is %sx: the engine's shortest day is %.2fs." % [_fmt_speed(fastest), shortest], COLOR_ERROR)
+					return
+				chunk_manager.set("day_duration", base / multiplier)
+				_add_message("Day speed %sx: a full day takes %.1fs (was %.1fs)." % [_fmt_speed(multiplier), base / multiplier, duration], COLOR_SUCCESS)
+				return
+			_add_message("Usage: /time set <dawn|day|noon|dusk|night|midnight> | /time speed [multiplier]", COLOR_ERROR)
 		"/locatebiome":
 			if parts.size() < 2:
 				_add_message("Usage: /locatebiome <biome>", COLOR_ERROR)

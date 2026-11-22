@@ -159,8 +159,15 @@ public:
     void set_time(double t) { time = t; }
     [[nodiscard]] double get_time() const { return time; }
 
-    void set_duration(double d) { duration = std::max(d, 0.1); }
+    void set_duration(double d) { duration = std::max(d, MIN_DURATION); }
     [[nodiscard]] double get_duration() const { return duration; }
+
+    // A day's length (twenty minutes, 00:00 to 24:00) and the shortest day set_duration
+    // accepts. Both are read back through ChunkManager's get_default_day_duration() and
+    // get_min_day_duration() rather than restated, so the GDScript that speaks in day
+    // speeds cannot drift from them.
+    static constexpr double DEFAULT_DURATION = 1200.0;
+    static constexpr double MIN_DURATION = 0.1;
 
     void set_day_intensity(float v) { day_intensity = std::clamp(v, 0.0f, 1.0f); }
     [[nodiscard]] float get_day_intensity() const { return day_intensity; }
@@ -191,7 +198,7 @@ private:
     // so 0.35 starts the day with the sun already up (and the sky's blend at full
     // day) instead of a first frame of night sky.
     double time = 0.35;
-    double duration = 10.0;
+    double duration = DEFAULT_DURATION;
     double moon_time = 0.0;
     bool enabled = true;
     float day_intensity = 1.0f;

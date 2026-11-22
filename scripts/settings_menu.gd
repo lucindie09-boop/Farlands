@@ -104,7 +104,6 @@ var _sky_visual_syncs: Array = []
 var _title_pulse := 0.0
 
 var _default_gui_scale: float = 2.0
-var _default_day_duration: float = 10.0
 # The ground's sky-light colours, not the sky overhead. The latter are the
 # _default_*_zenith values below.
 var _default_day_sky: Color = Color(1, 1, 1, 1)
@@ -255,7 +254,6 @@ func _ready():
 	_bg.mouse_filter = Control.MOUSE_FILTER_STOP
 	add_child(_bg)
 	_default_gui_scale = UIScale.value
-	_default_day_duration = chunk_manager.get_day_duration()
 	_default_day_sky = chunk_manager.get_day_sky_color()
 	_default_night_sky = chunk_manager.get_night_sky_color()
 	_default_day_zenith = chunk_manager.get_day_zenith_color()
@@ -334,7 +332,6 @@ func _save_settings():
 		cfg.set_value("gui", k, crosshair_node.get(k) if crosshair_node else _crosshair_defaults[k])
 	for k in _block_outline_defaults:
 		cfg.set_value("gui", k, block_outline_node.get(k) if block_outline_node else _block_outline_defaults[k])
-	cfg.set_value("lighting", "day_duration", chunk_manager.get_day_duration())
 	cfg.set_value("lighting", "day_sky_color", chunk_manager.get_day_sky_color())
 	cfg.set_value("lighting", "night_sky_color", chunk_manager.get_night_sky_color())
 	cfg.set_value("lighting", "day_zenith_color", chunk_manager.get_day_zenith_color())
@@ -392,6 +389,12 @@ func _load_settings():
 	var cfg := ConfigFile.new()
 	if cfg.load(SETTINGS_PATH) != OK:
 		return
+	# The day's length used to be a setting here and nothing reads it now. _save_settings
+	# would drop the leftover whenever it next ran; this drops it at the next launch
+	# instead, saving the loaded file minus that one key.
+	if cfg.has_section_key("lighting", "day_duration"):
+		cfg.erase_section_key("lighting", "day_duration")
+		cfg.save(SETTINGS_PATH)
 	UIScale.set_scale(clampf(cfg.get_value("gui", "scale", UIScale.value), 1.0, 4.0))
 	for k in _crosshair_defaults:
 		if crosshair_node:
@@ -399,7 +402,6 @@ func _load_settings():
 	for k in _block_outline_defaults:
 		if block_outline_node:
 			block_outline_node.set(k, cfg.get_value("gui", k, _block_outline_defaults[k]))
-	chunk_manager.set_day_duration(cfg.get_value("lighting", "day_duration", chunk_manager.get_day_duration()))
 	chunk_manager.set_day_sky_color(cfg.get_value("lighting", "day_sky_color", chunk_manager.get_day_sky_color()))
 	chunk_manager.set_night_sky_color(cfg.get_value("lighting", "night_sky_color", chunk_manager.get_night_sky_color()))
 	chunk_manager.set_day_zenith_color(cfg.get_value("lighting", "day_zenith_color", chunk_manager.get_day_zenith_color()))
@@ -1331,15 +1333,6 @@ func _sync_sky_visuals() -> void:
 		sync.call()
 
 func _build_sky_sections() -> Array:
-	var dur := _make_slider(chunk_manager.get_day_duration(), 10.0, 600.0, 10.0,
-		func(v: float):
-			chunk_manager.set_day_duration(v)
-			_schedule_save(), " s")
-	var dur_reset := func():
-		dur.get_meta("slider").value = _default_day_duration
-		chunk_manager.set_day_duration(_default_day_duration)
-		_schedule_save()
-
 	var day_color := ColorPickerButton.new()
 	day_color.color = chunk_manager.get_day_zenith_color()
 	_style_button(day_color, UNIT_OPTION_W)
@@ -1464,7 +1457,6 @@ func _build_sky_sections() -> Array:
 		_schedule_save()
 
 
-	_sky_visual_syncs.append(func(): dur.get_meta("slider").value = chunk_manager.get_day_duration())
 	_sky_visual_syncs.append(func(): day_color.color = chunk_manager.get_day_zenith_color())
 	_sky_visual_syncs.append(func(): night_color.color = chunk_manager.get_night_zenith_color())
 	_sky_visual_syncs.append(func(): day_horizon.color = chunk_manager.get_day_horizon_color())
@@ -1480,7 +1472,6 @@ func _build_sky_sections() -> Array:
 		["", [
 			["God Rays", godrays_btn, godrays_reset],
 			["God Ray Quality", godrays_quality_slider, godrays_quality_reset],
-			["Day Duration", dur, dur_reset],
 			["Day Sky Color", day_color, day_reset],
 			["Day Horizon", day_horizon, day_horizon_reset],
 			["Night Sky Color", night_color, night_reset],
@@ -4095,7 +4086,11 @@ func _export_lighting_code() -> String:
 	# Bit 1 is unused: it was the retired sky tint. The byte stays a byte wide so
 	# old codes with that bit set or clear still import unchanged.
 	data.append(flags)
-	data.append_array(_pack_float16(chunk_manager.get_day_duration(), 10.0, 600.0, 10.0))
+	# Two bytes where the day's length used to be: written and read for nothing now, but
+	# kept in the payload so a code written before the change still lines up -- the same
+	# reason the flags byte keeps its retired bit.
+	data.append(0)
+	data.append(0)
 	data.append_array(_pack_color32(chunk_manager.get_day_sky_color()))
 	data.append_array(_pack_color32(chunk_manager.get_night_sky_color()))
 	data.append_array(_pack_color32(chunk_manager.get_ao_color()))
@@ -4123,7 +4118,8 @@ func _import_lighting_code(code: String) -> bool:
 		return false
 	var flags := data[1]
 	var idx := 2
-	chunk_manager.set_day_duration(_unpack_float16(data, idx, 10.0, 600.0, 10.0)); idx += 2
+	# The day-length bytes: stepped over, never applied (see _export_lighting_code).
+	idx += 2
 	chunk_manager.set_day_sky_color(_unpack_color32(data, idx)); idx += 4
 	chunk_manager.set_night_sky_color(_unpack_color32(data, idx)); idx += 4
 	chunk_manager.set_ao_color(_unpack_color32(data, idx)); idx += 4

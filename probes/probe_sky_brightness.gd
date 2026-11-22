@@ -50,7 +50,6 @@ const STRIDE := 4              # sample every Nth pixel; the means do not need a
 const BODY_DELTA := 0.12       # a sampled pixel is the body above this much change
 const MIN_BODY_SHARE := 0.01   # ...and the body has to be a real part of the frame
 const NOON := 0.5              # day_time: the sun highest (get_sun_elevation == 1)
-const SLOW_DAY := 600.0        # the settings slider's own maximum, see _run
 ## The albedos put under the light. 1.0 is a white texel: the top of what any
 ## texture can ask for, and the clearest place to see an over-bright pipeline.
 const ALBEDOS := [0.25, 0.5, 0.75, 1.0]
@@ -212,13 +211,14 @@ func _run() -> void:
 
 	# The sun at the top of the day, where a sky-lit surface is lit the most. The
 	# cycle has to be ON (while it is off every value here is its own day constant)
-	# and SLOWED (a full day is ten seconds by default, and this takes longer), and
-	# both go back at the end of the run.
+	# and SLOWED to the engine's own default day, read from it rather than restated
+	# (a day is twenty minutes, and the sun has to hold still for this); both go back at
+	# the end of the run.
 	var was_enabled: bool = cm.get("day_night_cycle_enabled")
 	var was_time: float = cm.get("day_time")
 	var was_duration: float = cm.get("day_duration")
 	cm.set("day_night_cycle_enabled", true)
-	cm.set("day_duration", SLOW_DAY)
+	cm.set("day_duration", cm.get_default_day_duration())
 	cm.set("day_time", NOON)
 	await _seconds(0.4)
 

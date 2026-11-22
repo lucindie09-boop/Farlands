@@ -8,7 +8,8 @@ screen (the shader-effect stack, the animated-liquid tools, the model previews).
 - `chat.gd` — Chat system with autocomplete: ghost text suggestions with pulsing effect, tab
   cycling through completions, up/down arrow navigation, hold-to-cycle, parameter hints for
   commands, command execution (`/help`, `/give` with unlimited count, `/tp`, `/fly`,
-  `/clearchat`, `/clearinv`, `/version`), mouse wheel scrolling for chat history, caret blink,
+  `/time set` and `/time speed`, `/clearchat`, `/clearinv`, `/version`), mouse wheel scrolling
+  for chat history, caret blink,
   wrapped messages with proper input box anchoring
 - `hotbar.gd` — Hotbar UI with mouse wheel cycling, click-to-hold block selection; when the
   last of a stack is spent, the icon it was drawn as comes apart into its own pixels through
@@ -40,7 +41,8 @@ screen (the shader-effect stack, the animated-liquid tools, the model previews).
   second (measured from how far the body moved between two readings over the wall clock between
   them, at the 20 Hz readout rate; the sim's velocity cannot answer it, because flying moves the
   node straight to its new position and hands the sim a reset, so `get_velocity` reads 0 for the
-  whole flight), the biome under the body and the
+  whole flight), the world's clock as `HH:MM` (from `day_time`, where 0 is midnight and 0.25
+  is 06:00), the biome under the body and the
   render distance in both the chunks it is set in (`ChunkManager.render_distance`, read live
   because the settings menu can change it) and the blocks it streams. The biome comes from
   `ChunkManager.get_biome_at`, which asks the same height-estimator generator generation uses, and

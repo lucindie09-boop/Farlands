@@ -7,6 +7,7 @@
 #include "godot_bindings/chunk_manager.hpp"
 
 #include "engine/voxel_engine_controller.hpp"
+#include "world/day_night_cycle.hpp"
 
 #include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/variant/array.hpp>
@@ -271,6 +272,10 @@ void ChunkManager::toggle_day_night_cycle() {controller->toggle_day_night_cycle(
 
 void ChunkManager::set_day_duration(double duration) { controller->set_day_duration(duration); }
 double ChunkManager::get_day_duration() const { return controller->get_day_duration(); }
+// Not delegations: the cycle's own constants, so there is one number to change rather
+// than a copy here to keep in step.
+double ChunkManager::get_default_day_duration() const { return DayNightCycle::DEFAULT_DURATION; }
+double ChunkManager::get_min_day_duration() const { return DayNightCycle::MIN_DURATION; }
 
 void ChunkManager::set_day_sky_intensity(double intensity) { controller->set_day_sky_intensity(intensity); }
 double ChunkManager::get_day_sky_intensity() const { return controller->get_day_sky_intensity(); }

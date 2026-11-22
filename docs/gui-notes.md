@@ -300,7 +300,12 @@ first-person viewmodel - what each one owns and the decisions behind it.
 - **Chat system**: `chat.gd` with advanced autocomplete — ghost text suggestions with pulsing
   effect (0.25-0.4 alpha), tab cycling through completions, up/down arrow navigation,
   hold-to-cycle (0.1875s intervals), parameter hints for commands (`/give <block> [count]`,
-  `/tp <x> <y> <z>`), commands: `/help`, `/give` (unlimited count), `/tp`, `/fly`, `/clearchat`,
+  `/tp <x> <y> <z>`, `/time set <dawn|day|noon|dusk|night|midnight>`,
+  `/time speed [multiplier]`), commands: `/help`, `/give` (unlimited count), `/tp`, `/fly`,
+  `/time set <dawn|day|noon|dusk|night|midnight>` (jump to a time of day — `day_time` 0 is
+  midnight, 0.25 sunrise, 0.5 noon, 0.75 sunset, and `day`/`night` are the morning a world
+  opens on and its mirror) and `/time speed [multiplier]` (a multiplier on the 1,200 s default
+  day — twenty minutes — so 2 is a ten minute day; the F3 screen's clock shows the hour), `/clearchat`,
   `/clearinv`, `/version`, `/genstats` (what the generation sweep's per-frame check budget is
   spent on — including how many columns were found already built and how many the walk skipped —
   see ARCHITECTURE.md's frustum-loading section for the measured split, and `/genstats reset` to
@@ -309,7 +314,7 @@ first-person viewmodel - what each one owns and the decisions behind it.
   measuring generation without the vertical axis — see [terrain-notes.md](terrain-notes.md)),
   mouse wheel scrolling for chat history, caret blink, wrapped messages with proper
   input box anchoring
-- **Sky section**: Settings → Sky holds Day Duration, Day Sky Color, Night Sky Color, Day
+- **Sky section**: Settings → Sky holds Day Sky Color, Night Sky Color, Day
   Horizon, Night Horizon, Day Cloud Colour, Night Cloud Colour, Cloud Layers, Cloud Layer
   Spacing and God Rays. The two sky colours are the real zenith: the sky shader blends them with
   the day/night cycle, while the horizon pickers change the sky gradient and the engine fog

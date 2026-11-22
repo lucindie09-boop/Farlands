@@ -337,6 +337,8 @@ void toggle_day_night_cycle();
 
     void set_day_duration(double duration);
     double get_day_duration() const;
+    double get_default_day_duration() const;
+    double get_min_day_duration() const;
 
     void set_day_sky_intensity(double intensity);
     double get_day_sky_intensity() const;

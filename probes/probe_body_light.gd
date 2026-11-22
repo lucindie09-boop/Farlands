@@ -44,7 +44,6 @@ const NIGHT_BLEND := 0.5       # the body must be down to this share of noon, at
 const NOON := 0.5              # day_time: the sun highest (get_sun_elevation == 1)
 const HORIZON_TIME := 0.25     # day_time: the sun ON the horizon (elevation == 0)
 const MIDNIGHT := 0.0          # day_time: the sun lowest (elevation == -1)
-const SLOW_DAY := 600.0        # the settings slider's own maximum, see _run
 const WHITE_TOL := 0.02        # "white overhead" -- all three channels this close
 
 var _failures := 0
@@ -186,15 +185,15 @@ func _run() -> void:
 	# off every one of these answers is its own day constant (white, full
 	# strength), which is the one state in which the sun has no colour to get
 	# wrong -- so a probe that turned it off would be measuring the fix it is here
-	# to hold. And it has to be SLOWED: a full day is ten seconds by default, and
-	# the measurements below take a couple of seconds, so the sun would set
-	# underneath them. 600 is the settings slider's own maximum, not an invented
-	# number. All three go back at the end of the run.
+	# to hold. And it has to be SLOW: a day is twenty minutes by default, which is long
+	# enough for the measurements below, but nothing guarantees it stays that way, so
+	# the length is pinned to the engine's own default (read from it, not restated).
+	# All three go back at the end of the run.
 	var was_enabled: bool = cm.get("day_night_cycle_enabled")
 	var was_time: float = cm.get("day_time")
 	var was_duration: float = cm.get("day_duration")
 	cm.set("day_night_cycle_enabled", true)
-	cm.set("day_duration", SLOW_DAY)
+	cm.set("day_duration", cm.get_default_day_duration())
 	cm.set("day_time", NOON)
 	await _seconds(0.4)
 

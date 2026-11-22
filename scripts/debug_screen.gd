@@ -4,7 +4,8 @@ extends Control
 # numbers are about:
 #
 #   GENERAL      how the game is running: frame rate, body position, speed, the
-#                biome under it and the render distance it is streaming.
+#                world's clock, the biome under it and the render distance it is
+#                streaming.
 #   PERFORMANCE  what this process is spending on that frame: frame time, the
 #                engine's own CPU cost of it and the rest of the frame, CPU and
 #                GPU utilization, VRAM in use against the card's total, and the
@@ -409,7 +410,7 @@ func _refresh() -> void:
 		speed = _speed_line_for(at)
 		_update_biome(at)
 	_general_body.text = "\n".join(
-		PackedStringArray([_fps_line, xyz, speed, _biome_line, _render_line()]))
+		PackedStringArray([_fps_line, xyz, speed, _clock_line(), _biome_line, _render_line()]))
 	_memory_line = _format_memory()
 	_vram_line = _format_vram()
 	_performance_body.text = "\n".join(PackedStringArray([
@@ -421,6 +422,20 @@ func _refresh() -> void:
 		_vram_line,
 		_memory_line,
 	]))
+
+## The world's clock as HH:MM, straight from `day_time`: 0 is midnight and 0.5 noon, so
+## the fraction is the day's position round 24 h. The day's length decides only how
+## fast the hands move.
+func _clock_line() -> String:
+	if _chunk_manager == null:
+		return "Time: -"
+	var t := float(_chunk_manager.get("day_time"))
+	if not is_finite(t):
+		return "Time: -"
+	# The nearest minute, wrapped: 0.35 is 504 minutes of a day but 503.99999 in
+	# binary, and a day's last second rounds to midnight rather than to 24:00.
+	var minutes := int(round(fposmod(t, 1.0) * 1440.0)) % 1440
+	return "Time: %02d:%02d" % [int(floor(minutes / 60.0)), minutes % 60]
 
 ## The body's speed in blocks per second, from how far it moved since the previous
 ## reading over the wall clock between the two. Two samples make a reading, so the

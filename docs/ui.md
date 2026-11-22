@@ -402,7 +402,20 @@ being resampled by a different fraction at each scale.
   running world's texture-array layer for the chosen liquid (turning texture compression off for
   the duration, since a compressed layer cannot take an RGBA frame), and **Bind to world**,
   which saves the current strip as `<liquid>.json`/`.png` — the file the animator below loads
-  for that liquid — and a **World anim** switch onto that animator
+  for that liquid — and a **World anim** switch onto that animator. The panel wears the
+  interface's own art: `effect_background.png` behind every box (`UIArt.panel`), and the house
+  button, slider track and text-field styleboxes on every control, applied in one tree walk
+  (`_style_house_controls`) after the panel is built, so a control added later is dressed too
+  (the name field takes the track variant, `UIArt.style_line_edit(..., track = true)`). The
+  layout is **two columns of compact rows on the lab's own 1:1 grid** (`_s = 1.0` in
+  `_build_ui`): at the makers' GUI scale its thirty settings need more height than the window
+  has and the list has to be scrolled, and a single column at 1:1 is a strip of hairlines.
+  Left column STYLE/SHAPE/LOOP, right AUTOMATON/RAMP. A row is a fixed 140-px label, flush
+  left and in line with the section headers, then a slider whose value is drawn **on the
+  track** (`_slider_stack`) - no value column, no 530-px bar. The three presets are one button
+  that cycles, and the previews take the wider share of the panel and fill it in both
+  directions (their boxes share the row, not just the row's minimum). The whole thing sits in
+  the same framed box the menus use.
 - `liquid_animator.gd` — LiquidAnimator (autoload, always on): animates water, lava and acid in
   the running world with no panel open. Per liquid it takes `user://liquids/<liquid>.json` if
   the Lab bound one and the built-in preset otherwise, regenerates the strip in C++

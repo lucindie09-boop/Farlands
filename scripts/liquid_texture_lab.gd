@@ -42,6 +42,7 @@ extends Node
 
 const SAVE_DIR := "user://liquids"
 const MUNRO_FONT: Font = preload("res://Assets/fonts/munro.ttf")
+const UIArt := preload("res://scripts/ui_art.gd")
 const TICK_RATE := 20.0  # frames are held for `frame_time` game ticks
 
 # Setting rows: [key, label, min, max, step]. Ints are whole numbers.
@@ -77,6 +78,10 @@ const LOOP_CHECKS := [
 	["loop", "Loop (last frame repeats the first)"],
 ]
 const KERNELS := ["row", "box", "warp", "plus"]
+const STYLES := ["water", "lava", "acid"]
+# The row label's column: wide enough for `Scroll every N frames` at 13 px, so
+# every slider starts at the same x and the labels sit flush with the sections.
+const ROW_LABEL_W := 140.0
 const TARGETS := ["water", "lava", "acid"]
 const THUMBNAILS := 8
 
@@ -84,14 +89,17 @@ var settings: Dictionary = {}
 
 var _open := false
 var _layer: CanvasLayer = null
+# The GUI scale the panel was built at (UIScale.value, rounded): every size in
+# the layout is in units times this, the same grid the makers use.
+var _s := 1.0
 var _status: Label = null
 var _name_edit: LineEdit = null
 var _load_pick: OptionButton = null
-var _live_toggle: CheckButton = null
+var _live_toggle: Button = null
 var _play_button: Button = null
 var _target_pick: OptionButton = null
 var _live_label: Label = null
-var _world_toggle: CheckButton = null
+var _world_toggle: Button = null
 var _world_label: Label = null
 # The liquid Live has taken the layer of, so the animator can be handed it back
 # when Live moves to another liquid or stops.
@@ -105,7 +113,8 @@ var _thumbs: Array[TextureRect] = []
 var _ramp_buttons: Array[ColorPickerButton] = []
 var _sliders: Dictionary = {}     # key -> HSlider
 var _value_labels: Dictionary = {}  # key -> Label
-var _checks: Dictionary = {}      # key -> CheckButton
+var _checks: Dictionary = {}      # key -> toggle Button
+var _preset_button: Button = null
 var _kernel_pick: OptionButton = null
 var _seed_edit: LineEdit = null
 
@@ -232,6 +241,14 @@ func _hide_lab() -> void:
 	var player := _player()
 	if player:
 		player.set_settings_open(false)
+	# Back to where it was opened from: the Tools page closed this menu to hand
+	# the screen over (settings_menu._open_liquid_lab), so leaving the lab puts
+	# the menu back on the tools list instead of dropping the player into the
+	# game still paused.
+	if is_inside_tree():
+		var menu := get_node_or_null("/root/Main/HUD/SettingsMenu")
+		if menu != null and menu.has_method("open_tools_page"):
+			menu.call("open_tools_page")
 
 func _player() -> Node:
 	return get_node_or_null("/root/Main/Player")
@@ -240,6 +257,10 @@ func _chunk_manager() -> Node:
 	return get_node_or_null("/root/Main/ChunkManager")
 
 func _build_ui() -> void:
+	# The lab is a dense tool, so it keeps its own 1:1 unit grid rather than the
+	# makers' GUI scale: at the makers' 40-px rows its thirty settings did not fit
+	# on the screen at any window size and the list had to be scrolled.
+	_s = 1.0
 	_layer = CanvasLayer.new()
 	_layer.layer = 100  # above the HUD
 	_layer.visible = false
@@ -262,9 +283,16 @@ func _build_ui() -> void:
 		margin.add_theme_constant_override("margin_" + side, 16)
 	root.add_child(margin)
 
+	# The lab is a panel of the interface, not a sheet of controls laid on the
+	# world: the same framed box the menus use, filling the window, so the rows
+	# and the previews have the room they were being squeezed out of.
+	var shell := PanelContainer.new()
+	shell.add_theme_stylebox_override("panel", UIArt.panel(1.0, Color.WHITE, 10.0))
+	margin.add_child(shell)
+
 	var column := VBoxContainer.new()
 	column.add_theme_constant_override("separation", 8)
-	margin.add_child(column)
+	shell.add_child(column)
 
 	var title := Label.new()
 	title.text = "LIQUID TEXTURE LAB   —   ESC to close"
@@ -281,63 +309,104 @@ func _build_ui() -> void:
 	body.add_child(_build_settings_column())
 	body.add_child(_build_preview_column())
 
-	var footer := HBoxContainer.new()
-	footer.add_theme_constant_override("separation", 6)
-	column.add_child(footer)
-	_build_footer(footer)
+	var footers := VBoxContainer.new()
+	footers.add_theme_constant_override("separation", 3)
+	column.add_child(footers)
+	_build_footer(footers)
 
-func _make_panel(color: Color) -> PanelContainer:
+	_style_house_controls(root)
+
+## The lab is a tool of the same interface as the menus, so its controls wear the
+## same art: the button bevel, the slider track and thumb, the framed panel. They
+## are found by walking the tree once after it is built rather than at each of the
+## two dozen places a control is made, so a control added later is styled too.
+## The lab's layout is in units at the GUI scale (`_s`), the same grid the
+## makers use, so its art is drawn at that scale too.
+func _style_house_controls(node: Node) -> void:
+	for child in node.get_children():
+		if child is HSlider:
+			UIArt.style_slider(child, 1.0)
+		elif child is LineEdit:
+			UIArt.style_line_edit(child, 1.0, Color.WHITE, true)
+		elif child is Button:
+			var button := child as Button
+			UIArt.style_button(button, 1.0, Color.WHITE, 3.0)
+			# The bevel art carries no content margin, so a button sized by its
+			# label alone sat 28 px tall beside a 40-px slider. Every control in a
+			# row is one row tall.
+			button.custom_minimum_size.y = maxf(button.custom_minimum_size.y, 22.0)
+		_style_house_controls(child)
+
+func _make_panel(_color: Color = Color.WHITE) -> PanelContainer:
+	# The framed box the menus and the maker screens use, not a flat colour.
 	var panel := PanelContainer.new()
-	var style := StyleBoxFlat.new()
-	style.bg_color = color
-	style.set_corner_radius_all(4)
-	style.set_content_margin_all(8)
-	panel.add_theme_stylebox_override("panel", style)
+	panel.add_theme_stylebox_override("panel", UIArt.panel(1.0, Color.WHITE, 8.0))
 	return panel
 
-func _label(text: String, size: int = 13, color: Color = Color(0.85, 0.87, 0.9)) -> Label:
+func _label(text: String, size: int = 12, color: Color = Color(0.85, 0.87, 0.9)) -> Label:
 	var label := Label.new()
 	label.text = text
 	label.add_theme_font_override("font", MUNRO_FONT)
-	label.add_theme_font_size_override("font_size", size)
+	label.add_theme_font_size_override("font_size", int(roundf(size * _s)))
 	label.add_theme_color_override("font_color", color)
 	return label
 
 func _section(parent: Node, text: String) -> void:
-	var head := _label(text, 14, Color(0.6, 0.85, 1.0))
+	var head := _label(text, 13, Color(0.6, 0.85, 1.0))
 	parent.add_child(head)
+
+## The three presets are one button: a click steps through them.
+func _cycle_style() -> void:
+	var current := String(settings.get("style", "water"))
+	_apply_style(STYLES[(STYLES.find(current) + 1) % STYLES.size()])
 
 func _build_settings_column() -> Control:
 	var scroll := ScrollContainer.new()
-	scroll.custom_minimum_size = Vector2(392, 0)
+	# Two columns of compact rows. One column at the house scale was taller than
+	# the window and had to be scrolled; one column at this scale was a strip of
+	# hairlines 530 px long. Two columns hold all thirty settings on one screen
+	# beside the previews, with each row 140 units of label and the rest slider.
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.size_flags_stretch_ratio = 1.0
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 
-	var page := VBoxContainer.new()
-	page.add_theme_constant_override("separation", 4)
-	page.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	scroll.add_child(page)
+	var columns := HBoxContainer.new()
+	columns.add_theme_constant_override("separation", 14)
+	columns.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(columns)
+	var left := VBoxContainer.new()
+	var right := VBoxContainer.new()
+	for column in [left, right]:
+		column.add_theme_constant_override("separation", 4)
+		column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		columns.add_child(column)
 
-	# Preset + target -------------------------------------------------------
-	_section(page, "STYLE")
-	var preset_row := HBoxContainer.new()
-	preset_row.add_theme_constant_override("separation", 6)
-	page.add_child(preset_row)
-	for style_name in ["water", "lava", "acid"]:
-		var button := Button.new()
-		button.text = style_name.capitalize()
-		button.add_theme_font_override("font", MUNRO_FONT)
-		button.add_theme_font_size_override("font_size", 13)
-		button.pressed.connect(func(): _apply_style(style_name))
-		preset_row.add_child(button)
+	# Style + seed + shape + loop -------------------------------------------
+	_section(left, "STYLE")
+	# One button that cycles, not three: Water/Lava/Acid as separate buttons were
+	# three chips the width of a word, and it is one choice either way.
+	_preset_button = Button.new()
+	_preset_button.text = String(settings.get("style", "water")).capitalize()
+	_preset_button.tooltip_text = "Click to change style: water, lava, acid"
+	_preset_button.add_theme_font_override("font", MUNRO_FONT)
+	_preset_button.add_theme_font_size_override("font_size", 13)
+	# As wide as the word: a button stretched across the column reads as a bar.
+	_preset_button.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	_preset_button.custom_minimum_size = Vector2(90, 0)
+	_preset_button.pressed.connect(_cycle_style)
+	left.add_child(_preset_button)
 
 	var seed_row := HBoxContainer.new()
 	seed_row.add_theme_constant_override("separation", 6)
-	page.add_child(seed_row)
-	seed_row.add_child(_label("Seed"))
+	left.add_child(seed_row)
+	var seed_label := _label("Seed")
+	seed_label.custom_minimum_size = Vector2(ROW_LABEL_W, 0)
+	seed_row.add_child(seed_label)
 	_seed_edit = LineEdit.new()
 	_seed_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_seed_edit.add_theme_font_override("font", MUNRO_FONT)
+	_seed_edit.add_theme_font_size_override("font_size", 13)
 	_seed_edit.text_submitted.connect(func(_t): _commit_seed())
 	_seed_edit.focus_exited.connect(_commit_seed)
 	seed_row.add_child(_seed_edit)
@@ -345,26 +414,36 @@ func _build_settings_column() -> Control:
 	roll.text = "Roll"
 	roll.add_theme_font_override("font", MUNRO_FONT)
 	roll.add_theme_font_size_override("font_size", 13)
+	# A Roll button the width of the word next to a field that filled the column
+	# was the wrong way round: both are one row of this panel's controls.
+	roll.custom_minimum_size = Vector2(52, 0)
 	roll.pressed.connect(func():
 		settings["seed"] = randi() & 0x7fffffff
 		_refresh_widgets()
 		_mark_dirty())
 	seed_row.add_child(roll)
 
-	# Shape -----------------------------------------------------------------
-	_section(page, "SHAPE")
+	_section(left, "SHAPE")
 	for row in INT_ROWS:
-		_add_int_row(page, row[0], row[1], row[2], row[3], row[4])
+		_add_int_row(left, row[0], row[1], row[2], row[3], row[4])
 
-	# Physics ---------------------------------------------------------------
-	_section(page, "AUTOMATON")
+	_section(left, "LOOP")
+	for row in LOOP_CHECKS:
+		_add_check_row(left, row[0], row[1])
+	_add_int_row(left, "loop_window", "Blend window (frames)", 1, 32, 1)
+
+	# Automaton + ramp -------------------------------------------------------
+	_section(right, "AUTOMATON")
 	var kernel_row := HBoxContainer.new()
 	kernel_row.add_theme_constant_override("separation", 6)
-	page.add_child(kernel_row)
-	kernel_row.add_child(_label("Kernel"))
+	right.add_child(kernel_row)
+	var kernel_label_ctl := _label("Kernel")
+	kernel_label_ctl.custom_minimum_size = Vector2(ROW_LABEL_W, 0)
+	kernel_row.add_child(kernel_label_ctl)
 	_kernel_pick = OptionButton.new()
 	_kernel_pick.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_kernel_pick.add_theme_font_override("font", MUNRO_FONT)
+	_kernel_pick.add_theme_font_size_override("font_size", 13)
 	for kernel_label in KERNELS:
 		_kernel_pick.add_item(kernel_label)
 	_kernel_pick.item_selected.connect(func(index: int):
@@ -372,97 +451,127 @@ func _build_settings_column() -> Control:
 		_mark_dirty())
 	kernel_row.add_child(_kernel_pick)
 	for row in FLOAT_ROWS:
-		_add_float_row(page, row[0], row[1], row[2], row[3], row[4])
+		_add_float_row(right, row[0], row[1], row[2], row[3], row[4])
 	for row in CHECK_ROWS:
-		_add_check_row(page, row[0], row[1])
+		_add_check_row(right, row[0], row[1])
 
-	_section(page, "LOOP")
-	for row in LOOP_CHECKS:
-		_add_check_row(page, row[0], row[1])
-	_add_int_row(page, "loop_window", "Blend window (frames)", 1, 32, 1)
-
-	# Ramp ------------------------------------------------------------------
-	_section(page, "RAMP")
+	_section(right, "RAMP")
 	var stops_row := HBoxContainer.new()
 	stops_row.add_theme_constant_override("separation", 6)
-	page.add_child(stops_row)
-	stops_row.add_child(_label("Stops"))
+	right.add_child(stops_row)
+	var stops_label := _label("Stops")
+	stops_label.custom_minimum_size = Vector2(ROW_LABEL_W, 0)
+	stops_row.add_child(stops_label)
 	for index in 4:
 		var picker := ColorPickerButton.new()
-		picker.custom_minimum_size = Vector2(34, 24)
+		picker.custom_minimum_size = Vector2(34, 22)
 		picker.edit_alpha = true
 		picker.color_changed.connect(func(color: Color): _set_ramp_stop(index, color))
 		_ramp_buttons.append(picker)
 		stops_row.add_child(picker)
-	_add_int_row(page, "ramp_stops", "Used stops", 2, 4, 1)
-	_add_int_row(page, "posterize", "Posterize (0 = off)", 0, 16, 1)
+	_add_int_row(right, "ramp_stops", "Used stops", 2, 4, 1)
+	_add_int_row(right, "posterize", "Posterize (0 = off)", 0, 16, 1)
 
 	return scroll
 
 func _build_preview_column() -> Control:
 	var column := VBoxContainer.new()
-	column.add_theme_constant_override("separation", 8)
+	column.add_theme_constant_override("separation", 9)
 	column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	column.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	# The previews take the wider share of the panel: the settings are two compact
+	# columns and the textures are what the tool is being used to look at.
+	column.size_flags_stretch_ratio = 1.5
 
+	# The two preview rows share whatever height the panel has left, so the
+	# previews grow with the window instead of sitting in a corner of it.
 	var live_panel := _make_panel(Color(0.05, 0.06, 0.08, 0.9))
+	live_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	var live_box := VBoxContainer.new()
 	live_panel.add_child(live_box)
 	var live_row := HBoxContainer.new()
-	live_row.add_theme_constant_override("separation", 8)
+	live_row.add_theme_constant_override("separation", int(5 * _s))
+	live_row.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	# The live pair is what the tool is looked at through; the sheet below it is
+	# a reference. Sharing the height evenly left both of them small squares in
+	# a wide panel.
+	live_row.size_flags_stretch_ratio = 1.7
 	live_box.add_child(live_row)
 
-	_live_preview = _preview_rect(224)
+	# The previews take the width they are given: at a fixed 224 px they were
+	# two small squares in the corner of a mostly empty panel.
+	_live_preview = _preview_rect(200)
 	live_row.add_child(_preview_box("LIVE", _live_preview))
-	_tiled_preview = _preview_rect(224)
+	_tiled_preview = _preview_rect(200)
 	live_row.add_child(_preview_box("TILED 3x3 (seam check)", _tiled_preview))
 
 	var sheet_row := HBoxContainer.new()
-	sheet_row.add_theme_constant_override("separation", 8)
+	sheet_row.add_theme_constant_override("separation", int(5 * _s))
+	sheet_row.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	live_box.add_child(sheet_row)
-	_sheet_preview = _preview_rect(224)
+	_sheet_preview = _preview_rect(200)
 	sheet_row.add_child(_preview_box("SHEET (what gets saved)", _sheet_preview))
 	var thumbs_box := VBoxContainer.new()
-	thumbs_box.add_theme_constant_override("separation", 4)
+	thumbs_box.add_theme_constant_override("separation", int(2 * _s))
+	thumbs_box.alignment = BoxContainer.ALIGNMENT_CENTER
 	sheet_row.add_child(thumbs_box)
 	thumbs_box.add_child(_label("FRAMES 0-7"))
 	var grid := GridContainer.new()
 	grid.columns = 4
-	grid.add_theme_constant_override("h_separation", 4)
-	grid.add_theme_constant_override("v_separation", 4)
+	grid.add_theme_constant_override("h_separation", int(2 * _s))
+	grid.add_theme_constant_override("v_separation", int(2 * _s))
 	thumbs_box.add_child(grid)
 	for index in THUMBNAILS:
 		var thumb := TextureRect.new()
-		thumb.custom_minimum_size = Vector2(48, 48)
+		thumb.custom_minimum_size = Vector2(32 * _s, 32 * _s)
+		thumb.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		thumb.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 		thumb.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 		grid.add_child(thumb)
 		_thumbs.append(thumb)
 	column.add_child(live_panel)
 
-	_status = _label("", 13, Color(0.8, 0.9, 0.8))
+	_status = _label("", 12, Color(0.8, 0.9, 0.8))
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	column.add_child(_status)
-	_live_label = _label("", 13, Color(0.95, 0.85, 0.6))
+	_live_label = _label("", 12, Color(0.95, 0.85, 0.6))
 	column.add_child(_live_label)
-	_world_label = _label("", 13, Color(0.6, 0.9, 0.7))
+	_world_label = _label("", 12, Color(0.6, 0.9, 0.7))
 	column.add_child(_world_label)
 	return column
 
-func _preview_rect(size: int) -> TextureRect:
+func _preview_rect(_size: int) -> TextureRect:
 	var rect := TextureRect.new()
-	rect.custom_minimum_size = Vector2(size, size)
+	# The minimum is only what the box needs to stay usable: both directions
+	# expand, so the previews fill the column from there. A square minimum as
+	# tall as it is wide made the two preview rows 860 px tall between them,
+	# which pushed the footer clean out of the panel.
+	rect.custom_minimum_size = Vector2(140 * _s, 110 * _s)
+	rect.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	rect.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	# Without this the box's MINIMUM is the texture's own size: a 16x512 sheet
+	# asked for 512 px of height, which made the panel taller than the window
+	# and pushed the footer off the bottom of it.
+	rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	rect.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	return rect
 
 func _preview_box(caption: String, rect: TextureRect) -> Control:
 	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 2)
-	box.add_child(_label(caption, 12, Color(0.6, 0.75, 0.9)))
+	box.add_theme_constant_override("separation", int(1 * _s))
+	# Both preview boxes share the row, not just the row's minimum: without this
+	# they stayed 400 px wide and the rest of the panel was a strip of nothing.
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	box.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	box.add_child(_label(caption, 11, Color(0.6, 0.75, 0.9)))
 	box.add_child(rect)
 	return box
 
-func _build_footer(footer: HBoxContainer) -> void:
+func _build_footer(parent: VBoxContainer) -> void:
+	var footer := HBoxContainer.new()
+	footer.add_theme_constant_override("separation", 6)
+	parent.add_child(footer)
 	_play_button = _footer_button(footer, "Pause", func(): _toggle_play())
 	_footer_button(footer, "Step", func():
 		if _frames.is_empty():
@@ -477,10 +586,11 @@ func _build_footer(footer: HBoxContainer) -> void:
 	_footer_button(footer, "Reset style", func():
 		_apply_style(String(settings.get("style", "water"))))
 
-	footer.add_child(_label("  Name"))
+	footer.add_child(_label("Name", 11))
 	_name_edit = LineEdit.new()
-	_name_edit.custom_minimum_size = Vector2(140, 0)
+	_name_edit.custom_minimum_size = Vector2(110, 0)
 	_name_edit.add_theme_font_override("font", MUNRO_FONT)
+	_name_edit.add_theme_font_size_override("font_size", 13)
 	_name_edit.text = "water_anim"
 	footer.add_child(_name_edit)
 	_footer_button(footer, "Save", func(): _save())
@@ -488,28 +598,34 @@ func _build_footer(footer: HBoxContainer) -> void:
 
 	_load_pick = OptionButton.new()
 	_load_pick.add_theme_font_override("font", MUNRO_FONT)
-	_load_pick.custom_minimum_size = Vector2(150, 0)
+	_load_pick.add_theme_font_size_override("font_size", 13)
+	_load_pick.custom_minimum_size = Vector2(130, 0)
 	footer.add_child(_load_pick)
 	_footer_button(footer, "Load", func(): _load_selected())
 
-	footer.add_child(_label("  Live onto"))
+	footer.add_child(_label("Live onto", 11))
 	_target_pick = OptionButton.new()
 	_target_pick.add_theme_font_override("font", MUNRO_FONT)
+	_target_pick.add_theme_font_size_override("font_size", 13)
 	for target in TARGETS:
 		_target_pick.add_item(target)
 	_target_pick.item_selected.connect(func(_index: int):
 		_set_live_owner(_live_target() if _live else "")
 		_report_live_target())
 	footer.add_child(_target_pick)
-	_live_toggle = CheckButton.new()
+	# Toggles rather than CheckButtons: a 16-px tick is a speck beside the house
+	# scale's text, and the bevel's dimmed state is the interface's own way of
+	# showing a switch that is on.
+	_live_toggle = Button.new()
+	_live_toggle.toggle_mode = true
 	_live_toggle.text = "Live"
 	_live_toggle.add_theme_font_override("font", MUNRO_FONT)
 	_live_toggle.toggled.connect(_set_live)
 	footer.add_child(_live_toggle)
 	_footer_button(footer, "Bind to world", func(): _bind_to_world())
 
-	footer.add_child(_label("  "))
-	_world_toggle = CheckButton.new()
+	_world_toggle = Button.new()
+	_world_toggle.toggle_mode = true
 	_world_toggle.text = "World anim"
 	_world_toggle.add_theme_font_override("font", MUNRO_FONT)
 	_world_toggle.toggled.connect(_set_world_animation)
@@ -535,13 +651,11 @@ func _add_int_row(parent: Node, key: String, label: String, low: int, high: int,
 	slider.min_value = low
 	slider.max_value = high
 	slider.step = step
-	slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	slider.custom_minimum_size = Vector2(150, 0)
 	slider.value_changed.connect(func(value: float):
 		settings[key] = int(roundf(value))
 		_show_value(key, "%d" % int(roundf(value)))
 		_mark_dirty())
-	row.add_child(slider)
+	row.add_child(_slider_stack(slider, key))
 	_sliders[key] = slider
 
 func _add_float_row(parent: Node, key: String, label: String, low: float, high: float, step: float) -> void:
@@ -550,18 +664,24 @@ func _add_float_row(parent: Node, key: String, label: String, low: float, high: 
 	slider.min_value = low
 	slider.max_value = high
 	slider.step = step
-	slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	slider.custom_minimum_size = Vector2(150, 0)
 	slider.value_changed.connect(func(value: float):
 		settings[key] = value
 		_show_value(key, "%.3f" % value)
 		_mark_dirty())
-	row.add_child(slider)
+	row.add_child(_slider_stack(slider, key))
 	_sliders[key] = slider
 
 func _add_check_row(parent: Node, key: String, label: String) -> void:
-	var box := CheckButton.new()
+	# A toggle button, not a CheckButton: the house art gives it the same 40-px
+	# row as every other setting, and a switch reads as ON when its bevel is
+	# held down.
+	var box := Button.new()
 	box.text = label
+	box.toggle_mode = true
+	box.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	# As wide as its own name: a switch stretched to the column's width reads as
+	# a bar, not as something to press.
+	box.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	box.add_theme_font_override("font", MUNRO_FONT)
 	box.add_theme_font_size_override("font_size", 13)
 	box.toggled.connect(func(pressed: bool):
@@ -570,19 +690,35 @@ func _add_check_row(parent: Node, key: String, label: String) -> void:
 	parent.add_child(box)
 	_checks[key] = box
 
-func _row_shell(parent: Node, key: String, label: String) -> HBoxContainer:
+func _row_shell(parent: Node, _key: String, label: String) -> HBoxContainer:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 6)
 	parent.add_child(row)
-	var name_label := _label(label)
-	name_label.custom_minimum_size = Vector2(150, 0)
+	var name_label := _label(label, 13)
+	# Flush left, in line with the section headers above it, and one fixed width
+	# so every slider starts at the same x. The number is not a column of its
+	# own any more: it is drawn on the track (see _slider_stack).
+	name_label.custom_minimum_size = Vector2(ROW_LABEL_W, 0)
+	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	row.add_child(name_label)
-	var value_label := _label("", 12, Color(0.95, 0.95, 0.7))
-	value_label.custom_minimum_size = Vector2(56, 0)
-	value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	_value_labels[key] = value_label
-	row.add_child(value_label)
 	return row
+
+## The slider with its value drawn on the track, the way the makers' NOISE row
+## does it: a number in a column of its own was most of the gap a row carried.
+func _slider_stack(slider: HSlider, key: String) -> Control:
+	var box := Control.new()
+	box.custom_minimum_size = Vector2(0, 20)
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	slider.set_anchors_preset(Control.PRESET_FULL_RECT)
+	box.add_child(slider)
+	var value_label := _label("", 12, Color(0.98, 0.98, 0.8))
+	value_label.set_anchors_preset(Control.PRESET_FULL_RECT)
+	value_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	value_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	box.add_child(value_label)
+	_value_labels[key] = value_label
+	return box
 
 func _show_value(key: String, text: String) -> void:
 	if _value_labels.has(key):
@@ -1021,6 +1157,8 @@ func _refresh_widgets() -> void:
 		_kernel_pick.selected = maxi(0, KERNELS.find(kernel))
 	if _seed_edit:
 		_seed_edit.text = str(int(settings.get("seed", 0)))
+	if _preset_button:
+		_preset_button.text = String(settings.get("style", "water")).capitalize()
 	var ramp: PackedFloat32Array = settings.get("ramp", PackedFloat32Array())
 	var stops := int(settings.get("ramp_stops", 2))
 	for index in _ramp_buttons.size():

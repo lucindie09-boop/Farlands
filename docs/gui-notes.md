@@ -410,6 +410,21 @@ first-person viewmodel - what each one owns and the decisions behind it.
   handle states in the rendered frame. A colour row's swatch is painted over the button's own
   text, so its caption is an outlined child Label (`_add_color_caption`) — a bare
   `ColorPickerButton` row shows a colour with no name at all
+- **The button art is 9-sliced, so a narrow row keeps its bevel.** `button.png` is 200 x 20 and
+  its centre 192 columns are identical, which is what makes its rounded cap 4 texels: a widget
+  whose width is not the art's 200 units used to squeeze the whole frame with it, so the 60- and
+  180-unit widgets, `UNIT_OPTION_W + 20` and the wand's 130-unit tabs drew a 1.2-texel bevel
+  beside a 20-unit edge that had kept its own. `scripts/ui_art.gd` (`UIArt`) slices the art the
+  way `_slider_track_style` already did for the slider: resampled to the GUI scale with NEAREST
+  (one texel one unit, so the pixel art keeps its hard edges), the four margins are the cap -
+  Godot draws a `StyleBoxTexture` corner at the margin's own SCREEN size, not scale-multiplied,
+  which is why the art has to be pre-scaled rather than the margins widened - and the content
+  margins are 0, so the label keeps the whole box. At the art's own size the sliced draw is
+  pixel-identical to the plain one; on a 60-unit row at scale 2 the caps are 8 px each instead of
+  2.4 and the flat middle takes the rest. The square cards (the wand's tiles, the icon buttons)
+  stay unsliced on purpose: square art on a square box has no stretch to slice. The `get_image()`
+  copy in `scaled()` is load-bearing - the texture hands back the same `Image` on every call, so
+  resizing it in place turned a scale-4 ask made after a scale-2 one into 8x.
 - **Settings menu rows carry their own label**: a row widget's text is "Label: value", kept in
   `row_label`/`row_value` metadata by `_row_label`/`_row_value`, and a slider's value lives in a
   Label drawn over its track (`value_label`). Handlers must therefore call
@@ -442,6 +457,47 @@ first-person viewmodel - what each one owns and the decisions behind it.
   stale ImageTexture swaps so every model always renders the live skin.
 - **Skin gallery**: 3D spinning previews with load and delete functionality. Fixed stale
   ImageTexture swaps so every model always renders the live skin.
+- **The makers wear the interface's own furniture.** Their buttons are `button.png`
+  (9-sliced through `UIArt.style_button`) and their name fields are the slider's **track**
+  (`UIArt.style_line_edit(..., track = true)`, the same `slider_button.png` as
+  `UIArt.slider_track`): a name is a value you fill in, not a thing you press, and the button
+  bevel around a text cursor read as a button that happened to hold text. A **toggle** (the
+  `DARK MODE` / `LIGHT MODE` button) also keeps the plain button art in its `pressed`
+  state - it is on or off, not held down, and the dimmed pressed box made it a different
+  colour from the buttons beside it; the button's own name says which mode it is. Their
+  galleries are the `effect_background.png` panel (`UIArt.panel`), so the tools read as the
+  same interface as the menus rather than Godot's default grey theme. The label keeps the
+  page's own light/dark ink, because the art is a neutral grey that the text has to carry the
+  contrast on. **NOISE is one row like any other now**: the word at its own width, then the
+  house slider (`_make_slider`) with the value drawn ON the track. It used to be three boxes in
+  a fixed 220-unit HBox - a 50-unit label, so the word floated a third of a row away from a
+  track only 100 units wide, and the number in a label past the end - so the wider row and the
+  on-track number fix both complaints at once. The value label is deliberately not tinted with
+  the page: it sits on the track, which is the house grey in either mode, so it stays white.
+- **The skin preview is a still.** `skin_preview.gd` sets `skip_head_look` on its model, which
+  (see `player_model.gd`) stops both the idle sway and the head tracking in one flag: the window
+  exists to show a texture, so the body stands exactly as it was authored. Escape out of a page
+  follows `_back_page_for`: the Skin and Block Makers return to **Tools** (they are opened from
+  there, and it cost two presses to leave), every other page returns to the pause menu, and the
+  pause menu itself closes. The Liquid Texture Lab closes the menu when it opens, so `_hide_lab`
+  asks it for `open_tools_page` and the player lands back on Tools rather than in the world
+  still paused.
+- **The lab is a dense panel, not a maker screen.** It has thirty settings, and the makers'
+  GUI scale cannot hold them: at 40-px rows the list is taller than the window at any size
+  and has to be scrolled, which is where it went first. So its layout keeps its own **1:1
+  grid** (`_s = 1.0` in `_build_ui`) but is split into **two columns** - STYLE/SHAPE/LOOP
+  left, AUTOMATON/RAMP right - which puts all thirty rows on one screen beside the previews.
+  Each row is a fixed 140-px label (flush left, in line with the section headers, so every
+  slider starts at the same x) and then a slider; a 530-px slider in one wide column was a
+  hairline strip, and a value in a column of its own was the gap between the two.
+  The number is drawn **on the track** (`_slider_stack`, the makers' NOISE pattern), which is
+  what removed that column. The three style presets are one button that cycles
+  (`_cycle_style`) rather than three word-wide chips, and the ON/OFF settings are toggle
+  `Button`s, not `CheckButton`s: a 16-px tick is a speck beside 13-px text. One trap,
+  because it is invisible until the panel is 500 px too tall: a `TextureRect`'s MINIMUM is
+  its texture's own size, so the sheet preview (16x512) asked for 512 px of height and
+  pushed the footer off the bottom of the window - the previews set
+  `expand_mode = EXPAND_IGNORE_SIZE` and take their size from the layout instead.
 - **Skin dark-mode toggle**: Top-right "DARK MODE"/"LIGHT MODE" toggle (`_skin_dark_mode`,
   persisted in `settings.cfg` under `gui/skin_dark_mode`); `_apply_skin_palette()` flips page
   bg, fg/borders, hex/hint colors, swatch tiles, and rebuilds the picker theme; the toggle's

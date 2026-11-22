@@ -27,6 +27,7 @@ extends Node
 
 const FONT: Font = preload("res://Assets/fonts/munro.ttf")
 const BUTTON_TEX: Texture2D = preload("res://Assets/textures/gui/button.png")
+const UIArt := preload("res://scripts/ui_art.gd")
 const CLOSE_TEX: Texture2D = preload("res://Assets/textures/gui/close_button.png")
 # The square button art for the cards: the 50x50 version, not the 20x20 one the
 # close button uses. A card is 192 px across, so the larger source is stretched
@@ -612,14 +613,12 @@ func _make_button_px(text: String, size_px: Vector2) -> Button:
 	btn.add_theme_color_override("font_color", Color.WHITE)
 	btn.add_theme_color_override("font_hover_color", Color.WHITE)
 	btn.add_theme_color_override("font_pressed_color", Color.WHITE)
-	var normal := StyleBoxTexture.new()
-	normal.texture = BUTTON_TEX
-	var hover := StyleBoxTexture.new()
-	hover.texture = BUTTON_TEX
-	hover.modulate_color = Color(1.2, 1.2, 1.2)
-	var pressed := StyleBoxTexture.new()
-	pressed.texture = BUTTON_TEX
-	pressed.modulate_color = Color(0.75, 0.75, 0.75)
+	# The tabs are narrower than the art's own 200 units (MENU_TAB_W is 130), so
+	# the box is 9-sliced: the bevel keeps its 4 units and the flat middle takes
+	# the loss, instead of the whole frame squeezing to two thirds of its size.
+	var normal := UIArt.nine_slice(BUTTON_TEX, UIArt.BUTTON_CAP, _menu_m)
+	var hover := UIArt.nine_slice(BUTTON_TEX, UIArt.BUTTON_CAP, _menu_m, Color(1.2, 1.2, 1.2))
+	var pressed := UIArt.nine_slice(BUTTON_TEX, UIArt.BUTTON_CAP, _menu_m, Color(0.75, 0.75, 0.75))
 	btn.add_theme_stylebox_override("normal", normal)
 	btn.add_theme_stylebox_override("hover", hover)
 	btn.add_theme_stylebox_override("pressed", pressed)

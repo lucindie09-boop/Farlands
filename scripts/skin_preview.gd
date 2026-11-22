@@ -89,6 +89,11 @@ func _ready():
 	model.set_script(SKIN_SCRIPT)
 	vp.add_child(model)
 	_model = model
+	# A preview is a still: player_model.gd's pose driver sways an idle body and
+	# the head tracks the aim, and both are motion in a window whose whole job is
+	# showing a texture. skip_head_look also stops the body pose (one flag, see
+	# its _process), so the model stands exactly as it was authored.
+	_model.set("skip_head_look", true)
 	_model.set_paint_color(_paint_color)
 	_model.texel_painted.connect(_record_stroke_texel)
 

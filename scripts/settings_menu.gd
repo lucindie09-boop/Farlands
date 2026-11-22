@@ -8,6 +8,7 @@ const EXPORT_TEX: Texture2D = preload("res://Assets/textures/gui/export_button.p
 const IMPORT_TEX: Texture2D = preload("res://Assets/textures/gui/import_button.png")
 const SETTINGS_TEX: Texture2D = preload("res://Assets/textures/gui/settings_button.png")
 const SLIDER_TRACK_TEX: Texture2D = preload("res://Assets/textures/gui/slider_button.png")
+const UIArt := preload("res://scripts/ui_art.gd")
 const SLIDER_THUMB_TEX: Texture2D = preload("res://Assets/textures/gui/slider.png")
 const SETTINGS_PATH := "user://settings.cfg"
 # The day-horizon variants saved for later; the default is #2652a6. The tooltip
@@ -1187,15 +1188,6 @@ func _make_slider(value: float, min_value: float, max_value: float, step: float,
 		setter.call(v))
 	return box
 
-# The interface's own slider look: the reference's track texture with its square
-# thumb, for sliders that are not built by _make_slider (the maker pages' noise
-# control, which lives in a plain HBox with a label either side).
-func _style_slider_control(slider: HSlider) -> void:
-	slider.add_theme_stylebox_override("slider", _slider_track_style())
-	slider.add_theme_stylebox_override("grabber_area", StyleBoxEmpty.new())
-	slider.add_theme_stylebox_override("grabber_area_highlight", StyleBoxEmpty.new())
-	_style_slider_thumb(slider)
-
 # The thumb, and the two states the engine swaps it for: hovering (or focusing)
 # the slider brightens the HANDLE, and an uneditable slider (mipmap bias with
 # mipmaps off) draws its handle from the disabled icon â€” the track underneath is
@@ -1211,42 +1203,14 @@ func _style_slider_thumb(slider: HSlider) -> void:
 	# value instead (center_grabber) hangs half of it off each end of the track.
 	slider.add_theme_constant_override("center_grabber", 0)
 
+# The slider's track and thumb are the interface's own art; UIArt owns the
+# pre-scaling and the margins (see the note there about the 20 px source and the
+# black seam a raw margin draws).
 func _slider_track_style() -> StyleBoxTexture:
-	# The slider draws its track at the stylebox's minimum size height (the
-	# sum of the texture margins), so we pre-scale the texture up to ui_scale
-	# and use half the scaled height as each margin. The track ends up exactly
-	# 20 * ui_scale tall (matching the buttons) and the top/bottom borders tile
-	# the texture with no overlap. Using raw margins larger than the 20 px
-	# source texture (UI scales 3-4) makes the nine-patch sample out of bounds
-	# and draw a black seam in the middle of the track.
-	var s := _ui_scale()
-	var img := SLIDER_TRACK_TEX.get_image()
-	img.resize(maxi(1, roundi(SLIDER_TRACK_TEX.get_width() * s)), maxi(1, roundi(SLIDER_TRACK_TEX.get_height() * s)), Image.INTERPOLATE_NEAREST)
-	var style := StyleBoxTexture.new()
-	style.texture = ImageTexture.create_from_image(img)
-	style.texture_margin_left = 1.0
-	style.texture_margin_right = 1.0
-	var half := img.get_height() / 2.0
-	style.texture_margin_top = half
-	style.texture_margin_bottom = half
-	return style
+	return UIArt.slider_track(_ui_scale())
 
 func _scaled_thumb_tex(tint := 1.0) -> Texture2D:
-	# The grabber icon is drawn at native size, so scale it up to match the
-	# stretched track/button height (20 * ui_scale), like everything else.
-	var s := _ui_scale()
-	var img := SLIDER_THUMB_TEX.get_image()
-	img.resize(maxi(1, roundi(SLIDER_THUMB_TEX.get_width() * s)), maxi(1, roundi(SLIDER_THUMB_TEX.get_height() * s)), Image.INTERPOLATE_NEAREST)
-	# A themed ICON cannot be modulated the way a button's stylebox can, so the
-	# highlight and disabled handles are the same pixels multiplied up or down.
-	if not is_equal_approx(tint, 1.0):
-		img.convert(Image.FORMAT_RGBA8)
-		for y in range(img.get_height()):
-			for x in range(img.get_width()):
-				var c := img.get_pixel(x, y)
-				img.set_pixel(x, y, Color(minf(c.r * tint, 1.0), minf(c.g * tint, 1.0),
-					minf(c.b * tint, 1.0), c.a))
-	return ImageTexture.create_from_image(img)
+	return UIArt.slider_thumb(_ui_scale(), tint)
 
 func _format_slider_value(v: float, step: float) -> String:
 	var decimals := 0
@@ -2255,13 +2219,19 @@ func _build_skin_maker_page() -> Control:
 	page.add_child(load_btn)
 	_skin_load_btn = load_btn
 
+	# NOISE is one row of the interface like every other: the word, then the house
+	# slider with its value ON the track. It used to be three boxes in a fixed
+	# 220-unit HBox - a 50-unit label (so the word floated a third of a row away
+	# from the slider), a 100-unit track and the number in a label of its own past
+	# the end. The label is the word's own width now, the track takes the rest,
+	# and _make_slider is what draws the number over it.
 	var noise_row := HBoxContainer.new()
 	noise_row.name = "NoiseRow"
 	noise_row.alignment = BoxContainer.ALIGNMENT_CENTER
-	noise_row.add_theme_constant_override("separation", int(10 * s))
+	noise_row.add_theme_constant_override("separation", int(UNIT_GAP * s))
 	noise_row.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-	noise_row.offset_left = -110.0 * s
-	noise_row.offset_right = 110.0 * s
+	noise_row.offset_left = -130.0 * s
+	noise_row.offset_right = 130.0 * s
 	noise_row.offset_top = -(UNIT_MARGIN + UNIT_BUTTON_H) * s
 	noise_row.offset_bottom = -UNIT_MARGIN * s
 
@@ -2270,38 +2240,20 @@ func _build_skin_maker_page() -> Control:
 	noise_label.add_theme_font_override("font", MUNRO_FONT)
 	noise_label.add_theme_font_size_override("font_size", int(UNIT_FONT * s))
 	noise_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	noise_label.custom_minimum_size = Vector2(UNIT_BUTTON_W / 4.0 * s, 0.0)
 
-	var noise_slider := HSlider.new()
-	noise_slider.min_value = 0.0
-	noise_slider.max_value = 100.0
-	noise_slider.step = 1.0
-	noise_slider.value = _skin_noise
-	noise_slider.custom_minimum_size = Vector2(UNIT_BUTTON_W / 2.0 * s, UNIT_BUTTON_H * s)
-	noise_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	noise_slider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	_style_slider_control(noise_slider)
-
-	var noise_value := Label.new()
-	noise_value.text = str(int(_skin_noise))
-	noise_value.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	noise_value.add_theme_font_override("font", MUNRO_FONT)
-	noise_value.add_theme_font_size_override("font_size", int(UNIT_FONT * s))
-	noise_value.custom_minimum_size = Vector2(UNIT_BUTTON_W / 6.0 * s, 0.0)
-
-	noise_slider.value_changed.connect(func(v: float):
-		noise_value.text = str(int(v))
+	var noise_control := _make_slider(_skin_noise, 0.0, 100.0, 1.0, func(v: float):
 		_skin_noise = v
 		_skin_preview.set_noise(v)
 		_schedule_save())
+	noise_control.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	noise_control.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 
 	noise_row.add_child(noise_label)
-	noise_row.add_child(noise_slider)
-	noise_row.add_child(noise_value)
+	noise_row.add_child(noise_control)
 	page.add_child(noise_row)
 	_skin_noise_label = noise_label
-	_skin_noise_slider = noise_slider
-	_skin_noise_value = noise_value
+	_skin_noise_slider = noise_control.get_meta("slider")
+	_skin_noise_value = noise_control.get_meta("value_label")
 
 	page.add_child(_build_skin_gallery(s))
 
@@ -2504,13 +2456,15 @@ func _build_block_maker_page() -> Control:
 	page.add_child(save_btn)
 	_block_save_btn = save_btn
 
+	# The same row as the Skin Maker's: the word, then the house slider with the
+	# value on its track (see the note there).
 	var noise_row := HBoxContainer.new()
 	noise_row.name = "NoiseRow"
 	noise_row.alignment = BoxContainer.ALIGNMENT_CENTER
-	noise_row.add_theme_constant_override("separation", int(10 * s))
+	noise_row.add_theme_constant_override("separation", int(UNIT_GAP * s))
 	noise_row.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-	noise_row.offset_left = -110.0 * s
-	noise_row.offset_right = 110.0 * s
+	noise_row.offset_left = -130.0 * s
+	noise_row.offset_right = 130.0 * s
 	noise_row.offset_top = -(UNIT_MARGIN + UNIT_BUTTON_H) * s
 	noise_row.offset_bottom = -UNIT_MARGIN * s
 
@@ -2519,39 +2473,21 @@ func _build_block_maker_page() -> Control:
 	noise_label.add_theme_font_override("font", MUNRO_FONT)
 	noise_label.add_theme_font_size_override("font_size", int(UNIT_FONT * s))
 	noise_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	noise_label.custom_minimum_size = Vector2(UNIT_BUTTON_W / 4.0 * s, 0.0)
 
-	var noise_slider := HSlider.new()
-	noise_slider.min_value = 0.0
-	noise_slider.max_value = 100.0
-	noise_slider.step = 1.0
-	noise_slider.value = _block_noise
-	noise_slider.custom_minimum_size = Vector2(UNIT_BUTTON_W / 2.0 * s, UNIT_BUTTON_H * s)
-	noise_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	noise_slider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	_style_slider_control(noise_slider)
-
-	var noise_value := Label.new()
-	noise_value.text = str(int(_block_noise))
-	noise_value.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	noise_value.add_theme_font_override("font", MUNRO_FONT)
-	noise_value.add_theme_font_size_override("font_size", int(UNIT_FONT * s))
-	noise_value.custom_minimum_size = Vector2(UNIT_BUTTON_W / 6.0 * s, 0.0)
-
-	noise_slider.value_changed.connect(func(v: float):
-		noise_value.text = str(int(v))
+	var noise_control := _make_slider(_block_noise, 0.0, 100.0, 1.0, func(v: float):
 		_block_noise = v
 		if _block_preview != null and _block_preview.has_method("set_noise"):
 			_block_preview.set_noise(v)
 		_schedule_save())
+	noise_control.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	noise_control.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 
 	noise_row.add_child(noise_label)
-	noise_row.add_child(noise_slider)
-	noise_row.add_child(noise_value)
+	noise_row.add_child(noise_control)
 	page.add_child(noise_row)
 	_block_noise_label = noise_label
-	_block_noise_slider = noise_slider
-	_block_noise_value = noise_value
+	_block_noise_slider = noise_control.get_meta("slider")
+	_block_noise_value = noise_control.get_meta("value_label")
 
 	page.add_child(_build_block_gallery(s))
 
@@ -2622,8 +2558,9 @@ func _apply_block_palette() -> void:
 		_style_skin_button(_block_uv_toggle, fg_col, dark)
 	if _block_noise_label:
 		_block_noise_label.add_theme_color_override("font_color", hint_col)
-	if _block_noise_value:
-		_block_noise_value.add_theme_color_override("font_color", hint_col)
+	if _block_name_edit:
+		UIArt.style_line_edit(_block_name_edit, s, fg_col, true)
+		_block_name_edit.add_theme_color_override("placeholder_font_color", hint_col)
 	
 	# Update button colors
 	for btn in [_block_undo_btn, _block_tool_btn, _block_save_btn, _block_load_btn]:
@@ -2916,17 +2853,10 @@ func _build_skin_gallery(s: float) -> Control:
 	dim.mouse_filter = Control.MOUSE_FILTER_STOP
 	overlay.add_child(dim)
 
+	# The gallery is a dialog of the interface, not of the page: the house panel
+	# art, the same one the tool screens and the lab sit on.
 	var panel := PanelContainer.new()
-	var psb := StyleBoxFlat.new()
-	psb.bg_color = Color(0.1, 0.1, 0.12) if dark else Color(0.94, 0.94, 0.93)
-	psb.set_border_width_all(int(2 * s))
-	psb.border_color = Color(0.28, 0.28, 0.3) if dark else Color(0.55, 0.55, 0.55)
-	psb.set_corner_radius_all(int(6 * s))
-	psb.content_margin_left = int(14 * s)
-	psb.content_margin_right = int(14 * s)
-	psb.content_margin_top = int(10 * s)
-	psb.content_margin_bottom = int(14 * s)
-	panel.add_theme_stylebox_override("panel", psb)
+	panel.add_theme_stylebox_override("panel", UIArt.panel(s, Color.WHITE, 12.0))
 	panel.set_anchors_preset(Control.PRESET_CENTER)
 	panel.offset_left = -330.0 * s
 	panel.offset_right = 330.0 * s
@@ -3236,17 +3166,10 @@ func _build_block_gallery(s: float) -> Control:
 	dim.mouse_filter = Control.MOUSE_FILTER_STOP
 	overlay.add_child(dim)
 
+	# The gallery is a dialog of the interface, not of the page: the house panel
+	# art, the same one the tool screens and the lab sit on.
 	var panel := PanelContainer.new()
-	var psb := StyleBoxFlat.new()
-	psb.bg_color = Color(0.1, 0.1, 0.12) if dark else Color(0.94, 0.94, 0.93)
-	psb.set_border_width_all(int(2 * s))
-	psb.border_color = Color(0.28, 0.28, 0.3) if dark else Color(0.55, 0.55, 0.55)
-	psb.set_corner_radius_all(int(6 * s))
-	psb.content_margin_left = int(14 * s)
-	psb.content_margin_right = int(14 * s)
-	psb.content_margin_top = int(10 * s)
-	psb.content_margin_bottom = int(14 * s)
-	panel.add_theme_stylebox_override("panel", psb)
+	panel.add_theme_stylebox_override("panel", UIArt.panel(s, Color.WHITE, 12.0))
 	panel.set_anchors_preset(Control.PRESET_CENTER)
 	panel.offset_left = -330.0 * s
 	panel.offset_right = 330.0 * s
@@ -3323,8 +3246,8 @@ func _apply_skin_palette() -> void:
 		_skin_hint.add_theme_color_override("font_color", hint_col)
 	if _skin_noise_label:
 		_skin_noise_label.add_theme_color_override("font_color", hint_col)
-	if _skin_noise_value:
-		_skin_noise_value.add_theme_color_override("font_color", hint_col)
+	# The value label is not tinted with the page: it sits on the slider's track,
+	# which is the house grey in both modes, so it stays white.
 	if _skin_picker:
 		_skin_picker.theme = _make_picker_theme(s, dark)
 		_tint_picker_internals(_skin_picker, fg_col, hover_col)
@@ -3345,33 +3268,21 @@ func _apply_skin_palette() -> void:
 		_skin_name_edit.add_theme_color_override("font_color", fg_col)
 		_skin_name_edit.add_theme_color_override("caret_color", fg_col)
 		_skin_name_edit.add_theme_color_override("placeholder_font_color", hint_col)
-		var le_bg := StyleBoxFlat.new()
-		le_bg.bg_color = Color(0.12, 0.12, 0.16, 1) if dark else Color(0.92, 0.92, 0.92, 1)
-		le_bg.border_color = fg_col
-		le_bg.set_border_width_all(1)
-		le_bg.set_corner_radius_all(2)
-		_skin_name_edit.add_theme_stylebox_override("normal", le_bg)
-		_skin_name_edit.add_theme_stylebox_override("focus", le_bg.duplicate())
+		UIArt.style_line_edit(_skin_name_edit, s, fg_col, true)
+		_skin_name_edit.add_theme_color_override("placeholder_font_color", hint_col)
 
-func _style_skin_button(btn: Button, fg_col: Color, dark: bool) -> void:
-	btn.add_theme_color_override("font_color", fg_col)
-	var disabled_fg := fg_col.lerp(Color(0.5, 0.5, 0.5), 0.6)
-	btn.add_theme_color_override("font_disabled_color", disabled_fg)
-	var sw_bg := Color(0.15, 0.15, 0.18) if dark else Color(1, 1, 1, 1)
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = sw_bg
-	sb.border_color = fg_col
-	sb.set_border_width_all(1)
-	sb.set_corner_radius_all(2)
-	var sb_hover := sb.duplicate() as StyleBoxFlat
-	sb_hover.bg_color = fg_col.lerp(sw_bg, 0.5)
-	var sb_disabled := sb.duplicate() as StyleBoxFlat
-	sb_disabled.bg_color = fg_col.lerp(sw_bg, 0.9)
-	btn.add_theme_stylebox_override("normal", sb)
-	btn.add_theme_stylebox_override("hover", sb_hover)
-	btn.add_theme_stylebox_override("pressed", sb_hover)
-	btn.add_theme_stylebox_override("disabled", sb_disabled)
-	btn.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+# The maker pages' buttons wear the same art as every other screen's - the
+# button.png bevel, 9-sliced - while their LABEL keeps the page's own light/dark
+# ink, because the art is a neutral grey the text has to carry the contrast on.
+func _style_skin_button(btn: Button, fg_col: Color, _dark: bool) -> void:
+	UIArt.style_button(btn, _ui_scale(), fg_col)
+	btn.add_theme_color_override("font_disabled_color",
+			fg_col.lerp(Color(0.5, 0.5, 0.5), 0.6))
+	# A toggle is ON or OFF, not held down: a switch that wears the pressed dim
+	# just because it is on reads as a different colour from the buttons beside
+	# it. The mode's own name (DARK MODE / LIGHT MODE) is what says which it is.
+	if btn.toggle_mode:
+		btn.add_theme_stylebox_override("pressed", UIArt.button(_ui_scale()))
 
 func _make_picker_theme(s: float, dark: bool) -> Theme:
 	var th := Theme.new()
@@ -3788,14 +3699,12 @@ func _style_button(btn: Button, width: float):
 	btn.add_theme_color_override("font_color", Color.WHITE)
 	btn.add_theme_color_override("font_hover_color", Color.WHITE)
 	btn.add_theme_color_override("font_pressed_color", Color.WHITE)
-	var normal := StyleBoxTexture.new()
-	normal.texture = BUTTON_TEX
-	var hover := StyleBoxTexture.new()
-	hover.texture = BUTTON_TEX
-	hover.modulate_color = Color(1.2, 1.2, 1.2)
-	var pressed := StyleBoxTexture.new()
-	pressed.texture = BUTTON_TEX
-	pressed.modulate_color = Color(0.75, 0.75, 0.75)
+	# 9-sliced, because a row is not always the art's own 200 units wide: the
+	# 60- and 180-unit widgets and UNIT_OPTION_W + 20 would otherwise squeeze the
+	# bevel to a fraction of its size while the row stays 20 units tall.
+	var normal := UIArt.nine_slice(BUTTON_TEX, UIArt.BUTTON_CAP, s)
+	var hover := UIArt.nine_slice(BUTTON_TEX, UIArt.BUTTON_CAP, s, Color(1.2, 1.2, 1.2))
+	var pressed := UIArt.nine_slice(BUTTON_TEX, UIArt.BUTTON_CAP, s, Color(0.75, 0.75, 0.75))
 	btn.add_theme_stylebox_override("normal", normal)
 	btn.add_theme_stylebox_override("hover", hover)
 	btn.add_theme_stylebox_override("pressed", pressed)
@@ -4400,12 +4309,11 @@ func _input(event):
 	if get_viewport().is_input_handled():
 		return
 	if is_open:
-		match _current_page:
-			"pause":
-				_close()
-			_:
-				# Settings, Controls and the editors all step back to the menu.
-				_show_page("pause")
+		var back := _back_page_for(_current_page)
+		if back == "":
+			_close()
+		else:
+			_show_page(back)
 		get_viewport().set_input_as_handled()
 	# `settings_open` is the flag every overlay that takes the mouse sets, so it is
 	# how the pause menu knows another one (the lab, the title's panels) owns Escape.
@@ -4414,6 +4322,26 @@ func _input(event):
 			and not player_controller.is_settings_open():
 		_open()
 		get_viewport().set_input_as_handled()
+
+## Escape's page map: the page that steps back to, or "" to close the menu.
+## The editors are opened FROM Tools, so that is where they return - Escape out
+## of a tool lands on the list of tools, not on the pause menu it took two
+## presses to leave.
+func _back_page_for(page: String) -> String:
+	match page:
+		"pause":
+			return ""
+		"skin_maker", "block_maker":
+			return "tools"
+		_:
+			return "pause"
+
+## Opened from outside the menu: a tool that took the screen over (the Liquid
+## Texture Lab) closes this menu to open, so Escape out of it comes back here, to
+## the Tools page it was launched from.
+func open_tools_page() -> void:
+	_open()
+	_show_page("tools")
 
 func _open():
 	is_open = true

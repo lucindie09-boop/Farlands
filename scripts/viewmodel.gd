@@ -82,6 +82,11 @@ var _mouse_delta: Vector2 = Vector2.ZERO
 # When true, pins every viewmodel animation (sway, bob, swing, equip) to its
 # rest value so the F12 HUD shows the exact tuned pose — handy while re-tuning.
 var _freeze_animations := false
+# Set by `item_swapped` for ONE refresh, as a SLOT: that slot's id changed
+# without the hand changing what it holds (a rod's cast/retract), so the new mesh
+# replaces the old at once instead of being drawn in by the equip animation. -1
+# for none; a refresh of any other slot must not take it.
+var _instant_swap_slot := -1
 var _block_shapes: Dictionary = {}  # shape_name -> shape data
 
 # Walk bobbing (vanilla walk-bob): _walk_dist accumulates distance walked,
@@ -226,6 +231,11 @@ func _ready() -> void:
 	# hand like a place — same weaker 75% endpoint stroke.
 	if _player != null and _player.has_signal("crafting_table_used"):
 		_player.crafting_table_used.connect(place)
+	# ...but a handed ITEM that swaps itself (a rod cast/retract, items.json
+	# "use" kind "swap") plays the FULL punch: a throw is the same motion as a
+	# hit, so it gets punch()'s endpoint rather than the placement's weaker one.
+	if _player != null and _player.has_signal("item_swapped"):
+		_player.item_swapped.connect(_on_item_swapped)
 	
 	# ITEM2 and ITEM3 are ITEM with only their Z term lowered: one definition, so
 	# re-tuning ITEM (or its peak) can never leave either stale. Built before
@@ -440,6 +450,15 @@ func _process(delta: float) -> void:
 	_update_swing_hooks()
 	_refresh_held_item()
 
+# A handed item swapped itself in its slot (a rod's cast/retract, items.json
+# "use" kind "swap"). It plays the FULL punch -- a throw is the same motion as a
+# hit -- and it is the same item in its other state, so the mesh is replaced at
+# once: an equip would read as putting one rod away and drawing another, and it
+# would also hold the punch back behind two frames of the outgoing sprite.
+func _on_item_swapped(slot: int) -> void:
+	_instant_swap_slot = slot
+	punch()
+
 # Kick a punch/swing (roadmap: punch animation). Progress 1..0 over 0.25s.
 func punch() -> void:
 	_swing = 1.0
@@ -555,13 +574,22 @@ func _refresh_held_item() -> void:
 		return
 	var slot := int(_player.get_selected_hotbar_slot())
 	var id := int(_player.get_hotbar_slot_block_id(slot))
+	# Consumed here, whatever happens below, and only for the slot it names: a swap
+	# raised while the hand was hidden must not land on an unrelated change later.
+	var instant := _instant_swap_slot == slot
+	_instant_swap_slot = -1
 	
 	# Detect item change
 	if id != _block_id:
 		_prev_block_id = _block_id
 		_block_id = id
-		_equip = 0.0 # start equip animation
-		_is_swapping = (_prev_block_id != -2) # only swap if we had a previous item
+		if instant:
+			# Same item, other state: no equip, and nothing drawn from the old id.
+			_equip = 1.0
+			_is_swapping = false
+		else:
+			_equip = 0.0 # start equip animation
+			_is_swapping = (_prev_block_id != -2) # only swap if we had a previous item
 	
 	# Reset swap flag when animation completes
 	if _equip >= 1.0:

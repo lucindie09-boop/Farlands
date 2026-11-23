@@ -1,8 +1,9 @@
 // The node itself: construction, the GDScript bindings, the health/death state,
 // the cached sibling nodes, the mode toggles (fly, third person, view), and what the
 // player is looking at (the aim ray, the dummy punch, the third-person camera and the
-// walk animation). The per-frame loop lives in player_controller_input.cpp, and the
-// edits it makes in _interact/_place/_inventory.
+// walk animation). The per-frame loop lives in player_controller_input.cpp, the
+// edits it makes in _interact/_place/_inventory, and its signals in
+// player_controller_signals.cpp.
 
 #include "godot_bindings/player_controller.hpp"
 
@@ -124,30 +125,6 @@ void PlayerController::bind_state_and_view() {
     ClassDB::bind_method(D_METHOD("get_velocity"), &PlayerController::get_velocity);
     ClassDB::bind_method(D_METHOD("get_aim_origin"), &PlayerController::get_aim_origin);
     ClassDB::bind_method(D_METHOD("get_aim_direction"), &PlayerController::get_aim_direction);
-}
-
-void PlayerController::add_signals() {
-    ADD_SIGNAL(MethodInfo("crafting_table_used"));
-    ADD_SIGNAL(MethodInfo("block_placed"));
-    // A hold-to-break break: the id before the drop rule (so debris wears the
-    // block's own texture) and the cell it left, after the edit.
-    ADD_SIGNAL(MethodInfo("block_broken", PropertyInfo(Variant::INT, "block_id"),
-                          PropertyInfo(Variant::VECTOR3I, "position")));
-    ADD_SIGNAL(MethodInfo("died"));
-    ADD_SIGNAL(MethodInfo("respawned"));
-    // A registered hit landed. `amount` is the size of the hit in half-hearts
-    // after the reduction chain and before absorption, so it reports a hit the
-    // yellow buffer fully soaked too. The visual tilt is applied in-engine; a
-    // listener uses this for anything else (a hurt sound, a red flash, a damage
-    // number). Emitted on the same frame the health is applied.
-    ADD_SIGNAL(MethodInfo("damaged", PropertyInfo(Variant::INT, "amount")));
-    // A held wand's clicks: middle opens its menu, right works the tool, left
-    // commits what it shows -- no placing or breaking, so one thing answers a
-    // click while it is held. A held dummy egg's right click is the fourth signal.
-    ADD_SIGNAL(MethodInfo("wand_menu"));
-    ADD_SIGNAL(MethodInfo("wand_use"));
-    ADD_SIGNAL(MethodInfo("wand_confirm"));
-    ADD_SIGNAL(MethodInfo("dummy_spawn"));
 }
 
 void PlayerController::add_properties() {

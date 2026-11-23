@@ -173,6 +173,23 @@ bool ItemRegistry::load_from_json(const godot::String& json_path) noexcept {
                     WARN_PRINT("items.json entry " + name
                                + ": a dummy egg spawns an entity, so its \"block\" is unused");
                 }
+            } else if (kind == "swap") {
+                // A swap names another ITEM, not a block, and resolves after the
+                // whole list is read (below): the partner may be an entry further
+                // down the file than this one.
+                def.use.kind = "swap";
+                const godot::String partner = use.get("item", godot::String());
+                if (partner.is_empty()) {
+                    ERR_PRINT("items.json entry " + name
+                              + ": \"use\" kind swap needs an \"item\" naming the partner, ignored");
+                    def.use = ItemUseAction{};
+                } else {
+                    def.use.item_name = partner.utf8().get_data();
+                }
+                if (use.has("block")) {
+                    WARN_PRINT("items.json entry " + name
+                               + ": a swap names an item, so its \"block\" is unused");
+                }
             } else {
                 ERR_PRINT("items.json entry " + name + ": unknown use kind \"" + kind
                           + "\", ignored");
@@ -248,6 +265,21 @@ bool ItemRegistry::load_from_json(const godot::String& json_path) noexcept {
             }
         }
         items_.push_back(std::move(def));
+    }
+
+    // Swap partners resolve last, once every entry exists: items name each other,
+    // so the partner an early entry asks for may be the last one in the file.
+    for (ItemDef& def : items_) {
+        if (!def.use.is_swap()) continue;
+        const BlockID partner = get_item_id_by_name(def.use.item_name.c_str());
+        if (partner == BlockIDs::AIR) {
+            report_unresolved_name("items.json entry " + godot::String(def.name.c_str())
+                                   + ": use.item \"" + godot::String(def.use.item_name.c_str())
+                                   + "\" is not a known item, so right-clicking it does nothing");
+            def.use = ItemUseAction{};
+            continue;
+        }
+        def.use.item = partner;
     }
     return true;
 }

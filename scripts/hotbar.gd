@@ -61,6 +61,11 @@ func _ready():
 	# Load the hotbar texture directly
 	hotbar_texture = load("res://Assets/textures/gui/hotbar.png")
 	_slot_pop.resize(HOTBAR_SIZE)
+	# A held item that changes STATE without the slot gaining or losing anything
+	# (a rod's cast/retract) is the same thing in the hand, so the id change it
+	# causes answers with neither the arrival pop nor the name.
+	if player_controller != null and player_controller.has_signal("item_swapped"):
+		player_controller.item_swapped.connect(_on_item_swapped)
 	# Set nearest-neighbor filtering on this Control to keep hard edges when scaling
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	_highlight_texture = _build_fill_highlight_texture()
@@ -87,6 +92,11 @@ func _is_fill_pixel(px: Color, base: Color, tolerance: float) -> bool:
 
 var _last_ids: Array[int] = [-1, -1, -1, -1, -1, -1, -1, -1, -1]
 var _last_counts: Array[int] = [-1, -1, -1, -1, -1, -1, -1, -1, -1]
+# The slot whose next id change is the held item's own state changing
+# (`item_swapped`), not something arriving in or leaving it; -1 for none. A SLOT
+# rather than a flag: two slots changing in one frame would otherwise let the
+# other one take the quiet path. See `_on_item_swapped`.
+var _state_swap_slot := -1
 var _last_selected := -1
 var _last_ui_scale := -1.0
 var _last_size := Vector2.ZERO
@@ -141,6 +151,11 @@ func _process(delta):
 func _needs_redraw() -> bool:
 	if not player_controller:
 		return false
+	# One check's worth of state change: the id is already written when the signal
+	# fires, so the next check is the one that sees it. Read once and cleared, so a
+	# swap that somehow changes nothing cannot silence a later, unrelated change.
+	var swap_slot := _state_swap_slot
+	_state_swap_slot = -1
 	if size != _last_size or not is_equal_approx(UIScale.value, _last_ui_scale):
 		_last_size = size
 		_last_ui_scale = UIScale.value
@@ -161,6 +176,12 @@ func _needs_redraw() -> bool:
 		if cnt > 0:
 			_thrown_out.erase(i)
 		if id != _last_ids[i] or cnt != _last_counts[i]:
+			if i == swap_slot:
+				# The same item in its other state: nothing arrived, nothing was
+				# spent, so no pop and no name -- just take the new id quietly.
+				_last_ids[i] = id
+				_last_counts[i] = cnt
+				return true
 			# More of it than there was: something ARRIVED in this slot, so its
 			# icon plays the arrival pop. `_last_counts` starts at -1, which is
 			# what makes the first look at a slot (a loaded inventory) not one.
@@ -339,6 +360,12 @@ func _draw():
 	# What the selection just became, over the bar: drawn last because it is about
 	# the selection rather than part of the bar.
 	_draw_held_name(ui_scale)
+
+## A swap of the held item's own state, announced by the C++ inventory with the
+## slot it changed: THAT slot's next id change is the state change, not a gain or
+## a spend. Any other slot keeps its ordinary arrival/spend handling.
+func _on_item_swapped(slot: int) -> void:
+	_state_swap_slot = slot
 
 ## Say what the newly selected slot holds. An empty slot says nothing, the way
 ## vanilla's own label does.

@@ -140,12 +140,28 @@
 		{
 			"name": "fishing_rod",
 			"texture": "fishing_rod",
-			"pose": "item3"
+			"pose": "item3",
+			"use": { "kind": "swap", "item": "fishing_rod_thrown" }
 		},
 		{
 			"name": "wooden_rod",
 			"texture": "wooden_rod",
-			"pose": "item3"
+			"pose": "item3",
+			"use": { "kind": "swap", "item": "wooden_rod_thrown" }
+		},
+		{
+			"name": "fishing_rod_thrown",
+			"texture": "fishing_rod_thrown",
+			"display": "Fishing Rod",
+			"pose": "item3",
+			"use": { "kind": "swap", "item": "fishing_rod" }
+		},
+		{
+			"name": "wooden_rod_thrown",
+			"texture": "wooden_rod_thrown",
+			"display": "Wooden Rod",
+			"pose": "item3",
+			"use": { "kind": "swap", "item": "wooden_rod" }
 		}
 	]
 }

@@ -48,17 +48,24 @@ struct ItemLight {
 //   "dummy" — put a combat dummy on the block the crosshair is looking at (the
 //            pose-clone tool in GDScript builds it; see player_controller.cpp's
 //            `dummy_spawn` signal).
+//   "swap" — replace the held item with `item`, keeping the stack's count: what a
+//            cast/retract pair needs (a rod and its thrown version are two items,
+//            so the cast is a swap rather than a state flag on one).
 // `block` is what a pour writes, resolved from `block_name` at load time; a fill
-// has no block and leaves it AIR.
+// has no block and leaves it AIR. `item` is a swap's partner, resolved from
+// `item_name` after the whole file is read — items reference each other, so the
+// partner may be an entry further down than the one naming it.
 //
 // Resolution happens here rather than at use because blocks are loaded before
 // items (VoxelEngineController), and it is deliberately NOT resolved lazily: a
 // name that does not resolve is a data mistake and has to be visible at startup
 // rather than silently doing nothing the first time someone right-clicks.
 struct ItemUseAction {
-    std::string kind;        // "pour"/"fill"/"wand", or empty for an item with no in-world use
+    std::string kind;        // "pour"/"fill"/"wand"/"dummy"/"swap", or empty for no in-world use
     std::string block_name;  // the target as written in items.json
     BlockID block = 0;       // resolved block id; AIR = the name did not resolve
+    std::string item_name;   // a swap's partner as written in items.json
+    BlockID item = 0;        // resolved partner item id; AIR = the name did not resolve
 
     [[nodiscard]] bool has_use() const noexcept { return !kind.empty(); }
     [[nodiscard]] bool is_pour() const noexcept { return kind == "pour"; }
@@ -70,6 +77,8 @@ struct ItemUseAction {
     // A spawn egg puts no voxel in the world: it asks the layer that owns the
     // entity to make one.
     [[nodiscard]] bool is_dummy() const noexcept { return kind == "dummy"; }
+    // A swap touches neither the world nor an entity: it changes what is held.
+    [[nodiscard]] bool is_swap() const noexcept { return kind == "swap"; }
 };
 
 // Optional "place" on an item (items.json "place" object): the block it puts in

@@ -21,6 +21,13 @@ const CHUNK_MANAGER_PATH := "/root/Main/ChunkManager"
 ## any of this is asked for anything, so the table cannot go stale in a session.
 static var _names: Dictionary = {}
 
+## Registry name -> what to CALL it, from items.json's optional "display" field,
+## built once with the table above. An item whose state is a second id (the rods'
+## thrown version) is one thing to a player, so it may name the title both states
+## read; without it a name is its own display name. Keyed by name because ids are
+## positional.
+static var _display: Dictionary = {}
+
 ## The display name of `block_id`, or "" when there is no item there. An id no
 ## registry knows still gets a name, so a new block shows as "block 42" rather
 ## than as nothing.
@@ -40,7 +47,7 @@ static func display_name(from: Node, block_id: int) -> String:
 			raw = String(manager.call("get_block_name", block_id))
 	if raw == "" or raw.to_lower() == "air":
 		raw = "block %d" % block_id
-	return title_case(raw.replace("_", " "))
+	return title_case(String(_display.get(raw, raw)).replace("_", " "))
 
 ## Every listed name's own id, so items (above the block ids) are named too. An
 ## empty registry means no world is up yet - the table stays empty and the next
@@ -51,6 +58,23 @@ static func _build_names() -> void:
 		var id := int(BlockTextures.get_block_id_by_name(name_text))
 		if id > 0:
 			_names[id] = name_text
+	_build_display_names()
+
+## The items.json half of the table: only the entries that name a "display" of
+## their own. Read here rather than through the registry because it is a naming
+## concern, and the registry is C++ that has no opinion about what a player reads.
+static func _build_display_names() -> void:
+	var file := FileAccess.open("res://data/items.json", FileAccess.READ)
+	if file == null:
+		return
+	var json := JSON.new()
+	var ok := json.parse(file.get_as_text()) == OK
+	file.close()
+	if not ok or not (json.data is Dictionary):
+		return
+	for entry in json.data.get("items", []):
+		if entry is Dictionary and entry.has("display"):
+			_display[String(entry.get("name", ""))] = String(entry["display"])
 
 ## `oak planks` -> `Oak Planks`, the way an item name reads.
 static func title_case(text: String) -> String:

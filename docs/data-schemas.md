@@ -76,7 +76,7 @@ boxes is overruled and warned about at load.
 
 ## data/items.json
 
-`{"items": [...]}`, 28 entries. Read by `src/core/item_registry.cpp`; the
+`{"items": [...]}`, 30 entries. Read by `src/core/item_registry.cpp`; the
 `texture` name resolves under `res://Assets/textures/items/`, because an item is not
 part of the block texture array.
 
@@ -84,10 +84,11 @@ part of the block texture array.
 |---|---|---|
 | `name` | string | The item's name. Entry order is the item id, so append |
 | `texture` | string | Bare name under `Assets/textures/items/` |
+| `display` | string | What a player reads instead of the entry's `name` — for an item whose STATE is a second id (the rods' thrown version), so both states read as one item. Read by `item_names.gd`, not the registry |
 | `tool` | object | `class`, `tier`, `speed` — what the item is as a tool |
 | `pose` | string | A resting pose id the viewmodel knows (`item1`, `item2`, ...). Read by `viewmodel.gd`, not the registry |
 | `light` | object | `level` and `color` ([r,g,b]). While the item is selected it *owns* the player's dynamic light |
-| `use` | object | `kind` plus its argument: `pour` writes `block` into the aimed cell, `fill` empties the fluid source aimed at and swaps the item for that fluid's bucket, `dummy` puts a combat dummy on the aimed block (`dummy_egg`) |
+| `use` | object | `kind` plus its argument: `pour` writes `block` into the aimed cell, `fill` empties the fluid source aimed at and swaps the item for that fluid's bucket, `dummy` puts a combat dummy on the aimed block (`dummy_egg`), `swap` replaces the held item with `item` keeping the count (the rods' cast/retract pair) |
 | `place` | object | The one bridge from item space into block space: `block`, plus `wall` → `{n, s, e, w}` for the states that hug a face. Without it an item is never placeable |
 
 ## data/biomes.json

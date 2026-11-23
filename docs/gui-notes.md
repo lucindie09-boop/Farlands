@@ -657,6 +657,13 @@ first-person viewmodel - what each one owns and the decisions behind it.
   the wand, like the stick and the hammers, is a held tool drawn on the sprite plane and keeps
   the default ITEM pose (`probes/probe_items.gd` asserts each of those six names resolves to
   ITEM2 and both rods to ITEM3, so one added without its pose cannot ship silently out of line).
+  A right-click that only swaps what is HELD — a rod's cast/retract, `items.json` `use` kind
+  `swap` — is announced by its own `item_swapped` signal, WITH the slot it changed, and plays
+  the FULL punch, unlike a
+  placement or the bucket fill that borrows it, which play the weaker place stroke. The swap is
+  the same item in its other STATE, so it is deliberately not drawn as a change of hands: the
+  viewmodel replaces the mesh on the same frame (no equip), the hotbar neither pops the icon nor
+  repeats the name, and both ids read one title through `items.json`'s `display` field.
 - **Shared viewmodel/cube mesh builders**: `ViewmodelMeshes` (static binding over
   `src/core/viewmodel_meshes.*`) carries the geometry for the held-block cube, shaped-block
   (slab/stair/wall/pole selection boxes), and extruded-sprite item meshes that `viewmodel.gd`

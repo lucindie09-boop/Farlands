@@ -186,6 +186,12 @@ private:
     // Empties the fluid SOURCE the crosshair is on into the held container,
     // swapping it for that fluid's filled bucket. Returns true when it landed.
     bool fill_bucket_at_aim();
+    // Puts `partner` in the selected hotbar slot, keeping the stack's count: the
+    // rod's cast/retract toggle (items.json "use" kind "swap"). Nothing in the
+    // world is consulted — a swap has no target — and the change is announced with
+    // `item_swapped` so the viewmodel can play the full punch. Returns true when
+    // the slot actually changed.
+    bool swap_held_item(VoxelEngine::BlockID partner);
     // The selected slot's item owns the player's dynamic light while it lights
     // one (items.json "light"); otherwise the light goes back to whatever the
     // scene's own toggle said before the item took it over.

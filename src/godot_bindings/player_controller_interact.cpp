@@ -218,10 +218,32 @@ void PlayerController::use_item() {
             pour_fluid_at_aim(use->block);
         } else if (use->is_fill()) {
             fill_bucket_at_aim();
+        } else if (use->is_swap()) {
+            swap_held_item(use->item);
         }
         return;
     }
     place_block();
+}
+
+bool PlayerController::swap_held_item(BlockID partner) {
+    // A rod and its thrown version are two items, so a cast is a swap of what is
+    // held rather than a state flag on one item. Nothing in the world is
+    // consulted: a swap has no target, so this works aiming at the sky.
+    const ItemRegistry& items = ItemRegistry::get_instance();
+    if (!items.is_item(partner)) return false;
+    const BlockID held = inventory_.get_selected_block();
+    const int count = inventory_.get_selected_count();
+    if (held == partner || !items.is_item(held)) return false;
+    const int slot = inventory_.get_selected_slot();
+    inventory_.set_hotbar_slot(slot, partner, count > 0 ? count : 1);
+    // Its own signal, not `block_placed`: a throw is the FULL punch, while a
+    // placement (and the bucket fill that borrows it) plays the weaker stroke.
+    // The SLOT travels with it: a listener that answers the id change has to know
+    // which slot it is answering, or a second slot changing in the same frame
+    // takes the answer instead (the HUD's own arrival pop and name).
+    emit_signal("item_swapped", slot);
+    return true;
 }
 
 void PlayerController::update_held_light() {

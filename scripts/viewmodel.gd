@@ -97,7 +97,7 @@ var _bob_rotation := Vector3.ZERO
 # Real-time adjustment HUD
 var _hud_panel: Control
 var _hud_visible := false
-var _adjustment_mode := "ARM" # "ARM", "BLOCK", "ITEM", or "ITEM2"
+var _adjustment_mode := "ARM" # "ARM", "BLOCK", "ITEM", "ITEM2" or "ITEM3"
 var _rotation_x: float = 10.0
 var _rotation_y: float = -16.0
 var _rotation_z: float = 0.0
@@ -123,15 +123,20 @@ var _block_position_z: float = 0.23
 # uses comes from the optional "pose" field in data/items.json ("item2");
 # anything without one is ITEM.
 #
-# ITEM2 is BUILT FROM ITEM in _ready(), with its Z term lowered by
-# ITEM2_Z_DELTA — derived rather than copied, so re-tuning ITEM carries to
-# ITEM2 and the two types can never drift apart. Re-tune either with the F12 HUD
-# (B cycles through the modes) and paste the printed values back here.
+# ITEM2 and ITEM3 are BUILT FROM ITEM in _ready(), each with only its Z term
+# lowered by its own delta — derived rather than copied, so re-tuning ITEM
+# carries to the others and the types can never drift apart. Re-tune any of them
+# with the F12 HUD (B cycles through the modes) and paste the printed values
+# back here. The Z delta is applied to the peak pose as well as the rest pose,
+# or the swing would end at a different orientation than it started.
 #
 # The ITEM values are the raw F12 HUD readouts, deliberately not normalized:
 # the peak is close to the rest rotations, so interpolating between the two
 # gives a small, natural swing.
 const ITEM2_Z_DELTA := -90.0
+# The rods' pose: the same held position, turned a further 40 degrees round the
+# sprite plane (ITEM's 422 -> 382), which is what lines their artwork up.
+const ITEM3_Z_DELTA := -40.0
 
 var _item_poses := {
 	"ITEM": {
@@ -222,17 +227,19 @@ func _ready() -> void:
 	if _player != null and _player.has_signal("crafting_table_used"):
 		_player.crafting_table_used.connect(place)
 	
-	# ITEM2 is ITEM with its Z term lowered: one definition, so re-tuning ITEM (or
-	# its peak) can never leave ITEM2 stale. Built before _create_hud(), which
-	# reads the table for its initial labels.
+	# ITEM2 and ITEM3 are ITEM with only their Z term lowered: one definition, so
+	# re-tuning ITEM (or its peak) can never leave either stale. Built before
+	# _create_hud(), which reads the table for its initial labels.
 	var item_pose: Dictionary = _item_poses["ITEM"]
-	_item_poses["ITEM2"] = {
-		"rot": item_pose["rot"] + Vector3(0.0, 0.0, ITEM2_Z_DELTA),
-		"pos": item_pose["pos"],
-		"scale": item_pose["scale"],
-		"peak_rot": item_pose["peak_rot"] + Vector3(0.0, 0.0, ITEM2_Z_DELTA),
-		"peak_pos": item_pose["peak_pos"],
-	}
+	for variant in [["ITEM2", ITEM2_Z_DELTA], ["ITEM3", ITEM3_Z_DELTA]]:
+		var z_delta: float = variant[1]
+		_item_poses[variant[0]] = {
+			"rot": item_pose["rot"] + Vector3(0.0, 0.0, z_delta),
+			"pos": item_pose["pos"],
+			"scale": item_pose["scale"],
+			"peak_rot": item_pose["peak_rot"] + Vector3(0.0, 0.0, z_delta),
+			"peak_pos": item_pose["peak_pos"],
+		}
 
 	_load_block_definitions()
 	_load_block_shapes()
@@ -735,7 +742,7 @@ func _create_hud() -> void:
 	_hud_panel.add_child(label)
 	
 	var instructions := Label.new()
-	instructions.text = "R/F: X rot | A/D: Y rot | W/S: Z rot | T/G: Scale | I/K/J/L/U/O: Position | B: Cycle Arm/Block/Item/Item2"
+	instructions.text = "R/F: X rot | A/D: Y rot | W/S: Z rot | T/G: Scale | I/K/J/L/U/O: Position | B: Cycle Arm/Block/Item/Item2/Item3"
 	instructions.position = Vector2(10, 30)
 	instructions.add_theme_font_size_override("font_size", 12)
 	_hud_panel.add_child(instructions)
@@ -765,13 +772,15 @@ func _input(event: InputEvent) -> void:
 			_hud_visible = !_hud_visible
 			_hud_panel.visible = _hud_visible
 		elif event.keycode == KEY_B and event.pressed and _hud_visible:
-			# Cycle through ARM -> BLOCK -> ITEM -> ITEM2 -> ARM
+			# Cycle through ARM -> BLOCK -> ITEM -> ITEM2 -> ITEM3 -> ARM
 			if _adjustment_mode == "ARM":
 				_adjustment_mode = "BLOCK"
 			elif _adjustment_mode == "BLOCK":
 				_adjustment_mode = "ITEM"
 			elif _adjustment_mode == "ITEM":
 				_adjustment_mode = "ITEM2"
+			elif _adjustment_mode == "ITEM2":
+				_adjustment_mode = "ITEM3"
 			else:
 				_adjustment_mode = "ARM"
 			_update_hud_labels()
@@ -864,7 +873,8 @@ func _input(event: InputEvent) -> void:
 				elif event.keycode == KEY_O and event.pressed:
 					_block_position_z += 0.01
 					changed = true
-			elif _adjustment_mode == "ITEM" or _adjustment_mode == "ITEM2":
+			elif _adjustment_mode == "ITEM" or _adjustment_mode == "ITEM2" \
+					or _adjustment_mode == "ITEM3":
 				if event.pressed:
 					changed = _edit_item_pose(event.keycode)
 			
@@ -931,7 +941,7 @@ func _update_hud_labels() -> void:
 			labels[5].text = "Pos X : " + str(_block_position_x)
 			labels[6].text = "Pos Y : " + str(_block_position_y)
 			labels[7].text = "Pos Z : " + str(_block_position_z)
-		else: # ITEM or ITEM2
+		else: # ITEM, ITEM2 or ITEM3
 			var pose: Dictionary = _item_poses[_adjustment_mode]
 			var rot: Vector3 = pose["rot"]
 			var pos: Vector3 = pose["pos"]

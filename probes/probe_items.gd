@@ -42,7 +42,8 @@ func _run() -> void:
 	for name in ["water_bucket", "acid_bucket", "lava_bucket", "stick", "cactus_pickaxe",
 			"wooden_hammer", "stone_hammer", "copper_hammer", "iron_hammer",
 			"wooden_pickaxe", "stone_pickaxe", "copper_pickaxe", "iron_pickaxe",
-			"torch", "bucket", "iron_ingot", "wand"]:
+			"torch", "bucket", "iron_ingot", "wand", "dummy_egg", "fishing_rod",
+			"wooden_rod"]:
 		var id := BlockTextures.get_block_id_by_name(name)
 		if id <= 0:
 			_fail("%s did not resolve by name" % name)
@@ -67,31 +68,47 @@ func _run() -> void:
 	else:
 		var poses: Dictionary = viewmodel.get("_item_poses")
 		var by_id: Dictionary = viewmodel.get("_item_pose_by_id")
-		if not poses.has("ITEM") or not poses.has("ITEM2"):
-			_fail("expected an ITEM and an ITEM2 resting position, got %s" % str(poses.keys()))
+		if not poses.has("ITEM"):
+			_fail("expected an ITEM resting position, got %s" % str(poses.keys()))
 		else:
 			var item: Dictionary = poses["ITEM"]
-			var item2: Dictionary = poses["ITEM2"]
 			var rot: Vector3 = item["rot"]
 			var peak: Vector3 = item["peak_rot"]
-			var rot2: Vector3 = item2["rot"]
-			var peak2: Vector3 = item2["peak_rot"]
-			if rot2.z != rot.z - 90.0 or rot2.x != rot.x or rot2.y != rot.y:
-				_fail("ITEM2 rest must be ITEM rotated -90 on Z: %s vs %s" % [rot2, rot])
-			if peak2.z != peak.z - 90.0 or peak2.x != peak.x or peak2.y != peak.y:
-				_fail("ITEM2 peak must be ITEM's peak rotated -90 on Z: %s vs %s" % [peak2, peak])
-			if item2["pos"] != item["pos"] or item2["peak_pos"] != item["peak_pos"]:
-				_fail("ITEM2 must keep ITEM's positions")
-			if item2["scale"] != item["scale"]:
-				_fail("ITEM2 must keep ITEM's scale")
-			print("probe: ITEM2 rest %s (ITEM %s), peak %s (ITEM peak %s)" % [rot2, rot, peak2, peak])
+			# Every derived position is ITEM with ONLY its Z term lowered by its own
+			# delta -- on the rest pose and on the punch's peak alike. The peak is
+			# what the swing interpolates toward, so a variant that moved the rest
+			# pose alone would finish its punch a delta out from where it started.
+			for variant in [["ITEM2", -90.0], ["ITEM3", -40.0]]:
+				if not poses.has(variant[0]):
+					_fail("expected an %s resting position, got %s" % [variant[0], str(poses.keys())])
+					continue
+				var variant_pose: Dictionary = poses[variant[0]]
+				var delta: float = variant[1]
+				var variant_rot: Vector3 = variant_pose["rot"]
+				var variant_peak: Vector3 = variant_pose["peak_rot"]
+				if variant_rot.z != rot.z + delta or variant_rot.x != rot.x or variant_rot.y != rot.y:
+					_fail("%s rest must be ITEM rotated %s on Z: %s vs %s"
+						% [variant[0], delta, variant_rot, rot])
+				if variant_peak.z != peak.z + delta or variant_peak.x != peak.x or variant_peak.y != peak.y:
+					_fail("%s peak must be ITEM's peak rotated %s on Z: %s vs %s"
+						% [variant[0], delta, variant_peak, peak])
+				if variant_pose["pos"] != item["pos"] or variant_pose["peak_pos"] != item["peak_pos"]:
+					_fail("%s must keep ITEM's positions" % variant[0])
+				if variant_pose["scale"] != item["scale"]:
+					_fail("%s must keep ITEM's scale" % variant[0])
+				print("probe: %s rest %s (ITEM %s), peak %s (ITEM peak %s)"
+					% [variant[0], variant_rot, rot, variant_peak, peak])
 
 		# Sprites whose artwork sits a quarter turn round on the sprite plane all
-		# name ITEM2. The three buckets are one artwork recoloured, and the torch
-		# and the ingot are drawn the same way; any of them added without a pose
-		# would silently render a quarter turn out of line with its siblings.
+		# name ITEM2. The three buckets are one artwork recoloured, and the torch,
+		# the ingot and the spawn egg are drawn the same way; any of them added
+		# without a pose would silently render a quarter turn out of line with its
+		# siblings. The two rods sit 40 degrees round from the tools instead of a
+		# quarter turn, so they have their own position (ITEM3) rather than sharing
+		# ITEM with the stick -- checked after this loop.
 		var bucket_id := BlockTextures.get_block_id_by_name("water_bucket")
-		for quarter_turn in ["water_bucket", "acid_bucket", "lava_bucket", "torch", "iron_ingot"]:
+		for quarter_turn in ["water_bucket", "acid_bucket", "lava_bucket", "torch",
+				"iron_ingot", "dummy_egg"]:
 			var id := BlockTextures.get_block_id_by_name(quarter_turn)
 			if not by_id.has(id):
 				_fail("%s (id %d) names no resting position" % [quarter_turn, id])
@@ -99,6 +116,14 @@ func _run() -> void:
 				_fail("%s resolves to resting position '%s', expected ITEM2" % [quarter_turn, by_id[id]])
 			else:
 				print("probe: %-13s -> resting position %s" % [quarter_turn, by_id[id]])
+
+		# The two rods: their own position, not the tools' ITEM and not ITEM2.
+		for rod in ["fishing_rod", "wooden_rod"]:
+			var rod_id := BlockTextures.get_block_id_by_name(rod)
+			if by_id.get(rod_id, "ITEM") != "ITEM3":
+				_fail("%s names resting position '%s', expected ITEM3" % [rod, by_id.get(rod_id, "ITEM")])
+			else:
+				print("probe: %-13s -> resting position ITEM3" % rod)
 
 		# --- item swap -------------------------------------------------------
 		# For the first half of a swap the OUTGOING item is still the one drawn, so

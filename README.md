@@ -365,6 +365,7 @@ Windows).
 | Ctrl | Sneak / descend in flight |
 | F | Toggle fly mode |
 | F5 | Cycle camera view: first person → behind the player → in front of the player (looking at your face) |
+| F12 | Open the held-pose adjuster (the panel prints its own keys): B cycles ARM → BLOCK → ITEM → ITEM2 → ITEM3, and R/F, A/D, W/S, T/G, I/K/J/L/U/O nudge the rotation, scale and position it shows. The numbers are what `_item_poses` in `scripts/viewmodel.gd` holds |
 | K | Spawn/remove a rigid physics dummy of the player on the aimed block — no animations, falls with vanilla gravity/drag, punchable with left click (debug: shows a cube at each mesh pivot) |
 | 1–9 | Select hotbar slot |
 | Q | Drop one item from the selected hotbar slot into the world (Ctrl+Q drops the whole stack) |

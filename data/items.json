@@ -132,9 +132,20 @@
 		{
 			"name": "dummy_egg",
 			"texture": "dummy_egg",
+			"pose": "item2",
 			"use": {
 				"kind": "dummy"
 			}
+		},
+		{
+			"name": "fishing_rod",
+			"texture": "fishing_rod",
+			"pose": "item3"
+		},
+		{
+			"name": "wooden_rod",
+			"texture": "wooden_rod",
+			"pose": "item3"
 		}
 	]
 }

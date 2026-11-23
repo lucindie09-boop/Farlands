@@ -645,14 +645,18 @@ first-person viewmodel - what each one owns and the decisions behind it.
   eye space +X right/+Y up/−Z forward) builds the hand + held item/block each frame. The arm is
   an explicit shoulder→grip limb aligned to `MC_ARM_BASIS`; the held item (F12 ITEM mode) and
   held block (F12 BLOCK mode) render on `_item_scale_node` with a per-mode rest pose. Held items
-  render with a RESTING POSITION from `_item_poses` (F12 modes ITEM and ITEM2), selected per
-  item by the optional `"pose"` field in `data/items.json`; ITEM2 is built from ITEM in
-  `_ready()` with its Z term lowered by `ITEM2_Z_DELTA`, never hand-copied, so re-tuning ITEM
-  cannot leave ITEM2 stale. The buckets, the torch and the iron ingot use ITEM2 because their
-  artwork sits a quarter turn round on the sprite plane; the wand, like the stick and the
-  hammers, is a held tool drawn on the sprite plane and keeps the default ITEM pose
-  (`probes/probe_items.gd` asserts each of those five names resolves to ITEM2, so one added
-  without the pose cannot ship silently out of line).
+  render with a RESTING POSITION from `_item_poses` (F12 modes ITEM, ITEM2 and ITEM3), selected
+  per item by the optional `"pose"` field in `data/items.json`; ITEM2 and ITEM3 are built from
+  ITEM in `_ready()` with only their Z term lowered, by `ITEM2_Z_DELTA` (-90) and
+  `ITEM3_Z_DELTA` (-40), never hand-copied, so re-tuning ITEM cannot leave either stale. The
+  delta goes on the PEAK as well as the rest pose, because the peak is what the punch
+  interpolates toward: a variant that shifted only the rest pose would finish its swing a delta
+  out from where it began. The buckets, the torch, the iron ingot and the dummy egg use ITEM2
+  because their artwork sits a quarter turn round on the sprite plane; the two rods sit 40
+  degrees round instead and name ITEM3, which is the position the F12 HUD's B key now cycles to;
+  the wand, like the stick and the hammers, is a held tool drawn on the sprite plane and keeps
+  the default ITEM pose (`probes/probe_items.gd` asserts each of those six names resolves to
+  ITEM2 and both rods to ITEM3, so one added without its pose cannot ship silently out of line).
 - **Shared viewmodel/cube mesh builders**: `ViewmodelMeshes` (static binding over
   `src/core/viewmodel_meshes.*`) carries the geometry for the held-block cube, shaped-block
   (slab/stair/wall/pole selection boxes), and extruded-sprite item meshes that `viewmodel.gd`

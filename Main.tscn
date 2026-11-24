@@ -23,14 +23,15 @@
 [ext_resource type="Script" uid="uid://s02lq0mwsy4m" path="res://scripts/block_break_particles.gd" id="23_breakchips"]
 [ext_resource type="Script" uid="uid://bkh0fnhk5jxms" path="res://scripts/hurt_overlay.gd" id="24_hurtoverlay"]
 [ext_resource type="Script" uid="uid://1uoi2qsnal7a" path="res://scripts/cloud_layer.gd" id="25_clouds"]
-[ext_resource type="Script" path="res://scripts/debug_screen.gd" id="26_debugscreen"]
+[ext_resource type="Script" uid="uid://bfal6306sghuy" path="res://scripts/debug_screen.gd" id="26_debugscreen"]
 
 [sub_resource type="Environment" id="Environment_uu6xs"]
 background_mode = 2
 background_color = Color(0.67800003, 0.60800004, 0.56949997, 1)
 sky = ExtResource("3_sky")
 ambient_light_source = 3
-ambient_light_energy = 0.027000003
+ambient_light_color = Color(1, 1, 1, 1)
+ambient_light_energy = 0.42
 reflected_light_source = 1
 glow_levels/2 = 1.0
 glow_levels/3 = 1.0
@@ -74,7 +75,7 @@ mouse_filter = 2
 color = Color(0, 0, 0, 0)
 script = ExtResource("4_godrays")
 
-[node name="DebugScreen" type="Control" parent="HUD"]
+[node name="DebugScreen" type="Control" parent="HUD" unique_id=1927509288]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
@@ -227,7 +228,7 @@ grow_vertical = 2
 [node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=1600923077]
 environment = SubResource("Environment_uu6xs")
 
-[node name="CloudLayer" type="MeshInstance3D" parent="."]
+[node name="CloudLayer" type="MeshInstance3D" parent="." unique_id=830341904]
 script = ExtResource("25_clouds")
 
 [node name="DroppedItems" type="Node3D" parent="." unique_id=318602555]

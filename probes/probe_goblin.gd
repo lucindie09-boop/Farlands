@@ -224,6 +224,9 @@ func _run() -> void:
 	body.call("apply_knockback", Vector3.ZERO)
 	if not is_equal_approx(float(body.call("get_health")), 11.0):
 		_fail("a resisted hit still took damage (health %.1f)" % float(body.call("get_health")))
+	# Off the fight again: that punch made the player its enemy, and a chase owns the head
+	# and the pace, which the checks below are not about.
+	body.call("_give_up")
 
 	# --- movement speed: a spider's 0.30, and the states over it ----------------
 	# The value is a per-tick acceleration, so a mob's blocks a second is value * 9.52:
@@ -272,6 +275,41 @@ func _run() -> void:
 		_fail("a look behind did not turn the body round (target %.3f)" % float(body.get("_yaw_target")))
 	body.set("_yaw_target", 0.0)
 	body.set("_look_ticks", 0)
+
+	# A fight. The punch puts the player in front of it as its revenge target (the punch path
+	# itself is covered above); these are the rules it then runs on -- chase at the chasing
+	# pace, swing in reach once a second, run when badly hurt, let go once far enough.
+	body.set("_health", 12.0)
+	body.set("_gazing", false)
+	body.set("_look_ticks", 0)
+	player.position = body.global_position + Vector3(6.0, 0.0, 0.0)
+	body.set("_enemy", player)
+	body.set("_fleeing", false)
+	body.set("_attack_ticks", 0)
+	body.call("_update_enemy", 1)
+	if String(body.get("speed_state")) != "chasing":
+		_fail("a goblin with a player to fight is on '%s', not chasing" % body.get("speed_state"))
+	player.position = body.global_position + Vector3(1.0, 0.0, 0.0)
+	body.call("_update_enemy", 1)
+	if int(body.get("_attack_ticks")) != 20:
+		_fail("it did not swing at a player in reach (cooldown %d)" % int(body.get("_attack_ticks")))
+	body.call("_update_enemy", 1)
+	if int(body.get("_attack_ticks")) != 19:
+		_fail("the swing's cooldown is not on ticks (%d after one)" % int(body.get("_attack_ticks")))
+	body.set("_health", 2.0)
+	player.position = body.global_position + Vector3(4.0, 0.0, 0.0)
+	body.call("_update_enemy", 1)
+	if not bool(body.get("_fleeing")) or String(body.get("speed_state")) != "fleeing":
+		_fail("a goblin on 2 of 12 half-hearts is on '%s', not fleeing" % body.get("speed_state"))
+	player.position = body.global_position + Vector3(20.0, 0.0, 0.0)
+	body.call("_update_enemy", 1)
+	if bool(body.get("_fleeing")) or body.get("_enemy") != null:
+		_fail("it kept running with the player 20 blocks off")
+	if String(body.get("speed_state")) != "idle":
+		_fail("it let go of the fight but stayed on '%s'" % body.get("speed_state"))
+	# Back to the state the checks above left it in: one landed punch, 11 of 12.
+	body.set("_health", 11.0)
+	player.position = PLAYER_AT
 
 	# Walking, the aim drifts side to side on top of the downward tilt, so the head never holds
 	# one exact line for the whole of a walk. The swing is the whole aim, so the tilt stays.

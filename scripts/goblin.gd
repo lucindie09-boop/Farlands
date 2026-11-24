@@ -94,6 +94,27 @@ const SPEED_STATES := {
 	"fleeing": 1.3,   # panicked sprint
 	"sneaking": 0.7,  # creeping closer
 }
+## A hit is a reason to fight back. A mob keeps whoever hurt it as a revenge target and walks
+## at them, and the chase is the same plan-walking this body already does, at a faster state
+## and aimed at a person rather than at a roll's column. Reach is the two bodies' own widths
+## plus a hand, which is where the attack goal's test lands -- about 1.4 blocks between
+## centres -- and the blow lands once a second for a heart.
+const CHASE_REACH := 1.45
+const ATTACK_TICKS := 20
+const MOB_ATTACK_DAMAGE := 2.0
+## The chase re-plans on that goal's own interval, 4 to 10 ticks, and never waits on a plan
+## already in flight (`walk_to` answers 0 for one).
+const CHASE_REPATH_MIN := 4
+const CHASE_REPATH_MAX := 11
+## Badly hurt, it stops fighting and runs: this many half-hearts or fewer of its twelve.
+const FLEE_HEALTH := 2.0
+## It runs until the player is this many blocks off, then lets go and goes back to wandering.
+const FLEE_DISTANCE := 16.0
+## Each sprint of that run is this far, picked away from the player with a little scatter.
+const FLEE_RADIUS := 8.0
+## A punch is only taken personally from this far: from further off, the goblin has no one to
+## find and goes back to what it was doing.
+const AGGRO_RANGE := 16.0
 ## Half a pace ahead, at feet height: where a step it has to climb shows up before the
 ## body reaches it. The sim steps up 0.6 by itself, so this only fires on a full block.
 const STEP_PROBE := 0.45
@@ -230,6 +251,13 @@ var _gazing := false
 var _gaze_ticks := 0
 ## Where the walk's slow side-to-side drift is in its swing (radians, one turn per cycle).
 var _sway := 0.0
+## Who it is fighting or running from (`null` is the ordinary wandering goblin), which of the
+## two it is doing, and the two clocks a fight runs on: the blow's cooldown and the next
+## re-plan.
+var _enemy: Node3D = null
+var _fleeing := false
+var _attack_ticks := 0
+var _repath_ticks := 0
 
 
 func _ready() -> void:
@@ -295,6 +323,7 @@ func _advance_ticks(ticks: int) -> void:
 	# is left of it is what decides whether the watch may take the head.
 	_look_ticks = maxi(_look_ticks - ticks, 0)
 	_update_gaze(ticks)
+	_update_enemy(ticks)
 	if _route.is_empty():
 		if _idle_ticks > 0:
 			_idle_ticks = maxi(_idle_ticks - ticks, 0)
@@ -310,14 +339,16 @@ func _advance_ticks(ticks: int) -> void:
 		# The glance and the watch take turns at the head rather than one outranking the other:
 		# while it is watching a player no glance starts, and while a glance is held no watch
 		# starts (see `_update_gaze`).
-		if _look_ticks == 0 and not _gazing:
+		# A fight owns the head and the plans, so the glancing and the wandering below are
+		# the standing goblin's business only.
+		if _enemy == null and _look_ticks == 0 and not _gazing:
 			# A glance is a glance: its hold running out is the head going back to straight
 			# ahead, and only then does the roll get another chance at one.
 			_clear_look()
 			if randf() < LOOK_CHANCE * ticks:
 				_look_ticks = randi_range(LOOK_HOLD_MIN, LOOK_HOLD_MAX)
 				_pick_look()
-		if _idle_ticks == 0 and _job == 0 \
+		if _enemy == null and _idle_ticks == 0 and _job == 0 \
 				and bool(_sim.is_on_ground()) and randf() < STROLL_CHANCE * ticks:
 			_stroll()
 	else:
@@ -415,6 +446,82 @@ func _player() -> Node3D:
 	return scene.get_node_or_null("Player") as Node3D
 
 
+## The fight, when there is one: chase and swing, or run once it is badly hurt. Everything
+## else about it is the machinery this body already has -- the planner walks the chase, the
+## look drags the body round, and the pace is the speed table.
+func _update_enemy(ticks: int) -> void:
+	if _enemy == null:
+		return
+	var feet: Vector3 = _sim.get_tick_position()
+	if not is_instance_valid(_enemy) \
+			or (_enemy.has_method("is_dead") and bool(_enemy.call("is_dead"))):
+		_give_up()
+		return
+	var enemy_at := _enemy.global_position
+	var gap := Vector2(feet.x - enemy_at.x, feet.z - enemy_at.z).length()
+	if _health <= FLEE_HEALTH and not _fleeing:
+		_fleeing = true
+		_repath_ticks = 0
+		_abandon_route()
+	if _fleeing:
+		speed_state = "fleeing"
+		if gap >= FLEE_DISTANCE:
+			_give_up()
+			return
+		_run_away(feet, enemy_at, ticks)
+		return
+	speed_state = "chasing"
+	# It watches what it is fighting: the head on the player's eyes, and the body dragged
+	# round after it by the same rule every other look uses.
+	_set_look(enemy_at + Vector3(0.0, PLAYER_EYE_HEIGHT, 0.0))
+	_attack_ticks = maxi(_attack_ticks - ticks, 0)
+	if gap <= CHASE_REACH:
+		# In reach it stands its ground rather than walking through the player: a plan still
+		# in flight would have it steering past.
+		_abandon_route()
+		if _attack_ticks == 0:
+			_attack_ticks = ATTACK_TICKS
+			_swing(feet)
+		return
+	_repath_ticks -= ticks
+	if _repath_ticks <= 0:
+		_repath_ticks = randi_range(CHASE_REPATH_MIN, CHASE_REPATH_MAX)
+		walk_to(enemy_at)
+
+
+## One blow. The damage goes through the player's own receiving chain, which is what makes
+## the hurt window, the lean and the push away from the goblin happen on their side.
+func _swing(feet: Vector3) -> void:
+	if _enemy != null and _enemy.has_method("take_mob_hit"):
+		_enemy.call("take_mob_hit", MOB_ATTACK_DAMAGE, feet)
+
+
+## A sprint of the run-away: away from the player, with a little scatter, a few blocks at a
+## time. Re-planned on the same interval as the chase, so a player following it is answered
+## rather than run from in one stale direction.
+func _run_away(feet: Vector3, enemy_at: Vector3, ticks: int) -> void:
+	_repath_ticks -= ticks
+	if _repath_ticks > 0:
+		return
+	_repath_ticks = randi_range(CHASE_REPATH_MIN, CHASE_REPATH_MAX)
+	var away := feet - enemy_at
+	away.y = 0.0
+	if away.length_squared() < 0.01:
+		away = Vector3(randf_range(-1.0, 1.0), 0.0, randf_range(-1.0, 1.0))
+	away = away.normalized().rotated(Vector3.UP, randf_range(-0.45, 0.45))
+	walk_to(feet + away * FLEE_RADIUS)
+
+
+## Off the fight: back to wandering, at the wandering pace.
+func _give_up() -> void:
+	_enemy = null
+	_fleeing = false
+	_attack_ticks = 0
+	_repath_ticks = 0
+	speed_state = "idle"
+	_abandon_route()
+
+
 ## The yaw of the point it is looking at, which is the direction its head wants to face.
 func _look_yaw() -> float:
 	var to: Vector3 = _look_point - _sim.get_tick_position()
@@ -498,8 +605,8 @@ func _walk() -> void:
 	_yaw_target = atan2(-dir.x, -dir.z)
 	# Walking, it looks where it is going: the look-around is for standing, and a head
 	# still turned at whatever it was looking at half a minute ago reads as broken. A
-	# player it is already watching keeps the head, though.
-	if not _gazing:
+	# player it is already watching keeps the head, and one it is fighting has it outright.
+	if not _gazing and _enemy == null:
 		_pick_walk_look(dir)
 	# The sim climbs a step of up to 0.6 by itself; a full block it does not, so the step
 	# is seen half a pace ahead and the jump control is pressed for this frame. The answer
@@ -601,6 +708,16 @@ func apply_knockback(attacker_position: Vector3, extra_velocity := Vector3.ZERO)
 	if not bool(_sim.shove(attacker_position, extra_velocity)):
 		return
 	take_damage(PUNCH_DAMAGE)
+	# And it takes it personally, the way a mob keeps a revenge target: the puncher becomes
+	# the one to walk at -- or, under FLEE_HEALTH, the one to run from.
+	var player := _player()
+	if player != null \
+			and player.global_position.distance_to(_sim.get_tick_position()) <= AGGRO_RANGE:
+		_enemy = player
+		_fleeing = _health <= FLEE_HEALTH
+		_attack_ticks = 0
+		_repath_ticks = 0
+		_abandon_route()
 
 
 func take_damage(amount: float) -> void:
@@ -616,6 +733,7 @@ func take_damage(amount: float) -> void:
 ## (it drops the dead body's light entry with it).
 func die() -> void:
 	print("Goblin dies")
+	_give_up()
 	queue_free()
 
 

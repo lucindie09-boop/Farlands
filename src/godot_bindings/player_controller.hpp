@@ -115,6 +115,13 @@ public:
     int get_difficulty() const;
     void set_difficulty(int value);
 
+    // A blow from something in the world -- a mob's attack -- through the same
+    // receiving chain a fall or a drown goes through. It is queued as an
+    // attacker-caused source, so the hurt window paces repeats, the lean and the
+    // `damaged` signal fire, and the push goes away from `attacker_position`.
+    // `half_hearts` is what the attacker deals, before armor: the chain reduces it.
+    void take_mob_hit(float half_hearts, const godot::Vector3& attacker_position);
+
     // Ground state (true while on the floor) — used to pause walk bobbing midair.
     bool is_on_floor() const;
     bool is_in_water() const;

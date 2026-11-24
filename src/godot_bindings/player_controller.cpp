@@ -110,6 +110,8 @@ void PlayerController::bind_state_and_view() {
     ClassDB::bind_method(D_METHOD("respawn"), &PlayerController::respawn);
     ClassDB::bind_method(D_METHOD("get_difficulty"), &PlayerController::get_difficulty);
     ClassDB::bind_method(D_METHOD("set_difficulty", "value"), &PlayerController::set_difficulty);
+    ClassDB::bind_method(D_METHOD("take_mob_hit", "half_hearts", "attacker_position"),
+                         &PlayerController::take_mob_hit);
     ClassDB::bind_method(D_METHOD("is_on_floor"), &PlayerController::is_on_floor);
     ClassDB::bind_method(D_METHOD("is_in_water"), &PlayerController::is_in_water);
     ClassDB::bind_method(D_METHOD("get_air"), &PlayerController::get_air);
@@ -170,6 +172,18 @@ void PlayerController::set_difficulty(int value) {
     DamageInputs inputs = sim_.get_damage_inputs();
     inputs.difficulty = difficulty_;
     sim_.set_damage_inputs(inputs);
+}
+
+void PlayerController::take_mob_hit(float half_hearts, const godot::Vector3& attacker_position) {
+    // Queued, never applied here: the sim resolves it against the hurt window on
+    // its own tick, which is what makes a repeat inside the window cost nothing
+    // and what gives the amount the same armor/difficulty stages a fall gets.
+    DamageSource source;
+    source.kind = DamageKind::Generic;
+    source.amount = half_hearts;
+    source.by_attacker = true;
+    source.attacker_position = attacker_position;
+    sim_.queue_damage(source);
 }
 
 void PlayerController::die() {

@@ -136,8 +136,13 @@ const LOOK_RANGE := 6.0
 const BODY_MAX_YAW := 0.6109
 const LOOK_DOWN_LO := -1.4
 const LOOK_UP_HI := 0.6
-const LOOK_HOLD_MIN := 100
-const LOOK_HOLD_MAX := 120
+## How long a glance is held: 20 to 40 ticks, 1 to 2 s, which is the idle look goal's own
+## hold in the game. The length of this is the difference between a mob whose head is doing
+## something most of the time and one wearing a pose -- and since a held glance is also time
+## the player-watch cannot have the head, short glances are what keep it from staring
+## without changing any of the watch's own numbers.
+const LOOK_HOLD_MIN := 20
+const LOOK_HOLD_MAX := 40
 ## A player in reach is worth looking at, and that is its own thing rather than a kind of
 ## glance: the head follows their eyes for a moment and then lets go. It beats the walk's own
 ## forward look -- watching the player go past is the whole point of it -- and it goes through
@@ -162,12 +167,13 @@ const PLAYER_EYE_HEIGHT := 1.62
 ## angle and turned into a point (WALK_LOOK_DISTANCE blocks ahead, that far below the
 ## horizontal), so the tilt is what is being set and the distance cannot change it.
 const WALK_LOOK_PITCH := 0.3927
-## A walking head drifts slowly side to side on top of that tilt -- a few degrees either
-## way over WALK_SWAY_TICKS, so about one slow swing every three and a half seconds. A head
-## that holds one line dead still for the whole of a walk reads as a camera on rails; this
-## is the whole aim drifting, not a nod, so the downward look stays put.
-const WALK_SWAY_YAW := 0.0698
-const WALK_SWAY_TICKS := 70.0
+## A walking head drifts side to side on top of that tilt -- 8 degrees either way over
+## WALK_SWAY_TICKS, so one swing every 2.2 s. A head that holds one line dead still for the
+## whole of a walk reads as a camera on rails; this is the whole aim drifting, not a nod, so
+## the downward look stays put. The size is what makes it visible: at 2 blocks ahead 8 degrees
+## is about 28 cm of aim, where 4 degrees over a longer swing was a head that never moved.
+const WALK_SWAY_YAW := 0.14
+const WALK_SWAY_TICKS := 44.0
 const WALK_LOOK_DISTANCE := 2.0
 ## How high above its feet the point it looks FROM sits, in blocks: the neck.
 const WALK_LOOK_HEIGHT := 1.0

@@ -541,10 +541,11 @@ being resampled by a different fraction at each scale.
   yaw its body wants is dragged round to keep the look inside **35°** of it (`kBodyMaxYaw`, the same
   limit the player's body yaw uses) and the ordinary facing ease turns it there, so an idle goblin
   turns right round rather than pinning its neck at the 75° limit and staring through its own arm. The glance is held
-  5–6 s and then the head eases back to **straight ahead**, which is the pose it mostly wears;
+  **20–40 ticks, 1–2 s** — the idle look goal's own hold — and then the head eases back to
+  **straight ahead**, which is the pose it mostly wears;
   **walking**, it looks **22.5° down** — two blocks ahead and that far below the horizontal — which
-  is the tilt its walk was tuned to, and the aim **drifts slowly side to side** by up to 4° over a
-  3.5 s swing, because a head holding one line dead still for a whole walk reads as a camera on
+  is the tilt its walk was tuned to, and the aim **drifts side to side** by up to 8° over a
+  2.2 s swing, because a head holding one line dead still for a whole walk reads as a camera on
   rails. **A player in reach is looked at**, as its own goal rather than
   as a kind of glance: a **½% chance a tick** to start, with the player
   within **4 blocks**, then the head follows **their eyes** for **20–40 ticks** (1–2 s) and they are

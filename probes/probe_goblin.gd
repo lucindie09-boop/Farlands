@@ -285,8 +285,8 @@ func _run() -> void:
 	var drift := rad_to_deg(
 		Vector2(ahead.x - neck.x, ahead.z - neck.z).angle_to(
 			Vector2(swung.x - neck.x, swung.z - neck.z)))
-	if absf(drift) < 2.0 or absf(drift) > 6.0:
-		_fail("the walk's head drifted %.1f degrees, expected about 4" % drift)
+	if absf(drift) < 6.0 or absf(drift) > 10.0:
+		_fail("the walk's head drifted %.1f degrees, expected about 8" % drift)
 	var neck_y: float = body.global_position.y + 1.0
 	if ahead.y > neck_y - 0.5 or swung.y > neck_y - 0.5:
 		_fail("the walk's look left its downward tilt (%.2f, %.2f against a neck at %.2f)"

@@ -176,16 +176,12 @@ const ITEM_POSE_KEYS := {
 var _swing_s: float = 0.0
 var _swing_angle: float = 0.0
 
-# Vanilla 1.8.8 empty-hand arm pose (the first-person item rendering's arm
-# rotation chain, GL post-multiply / vertex-first):
-#       rotate(45, Y)  ->  RotY45
-#       rotate(120, Z) ->  RotZ120
-#       rotate(200, X) ->  RotX200
-#       rotate(-135, Y)->  RotY-135
-#   -> R = RotY45 * RotZ120 * RotX200 * RotY-135
-#   renderRightArm() renders the right arm with
-#   setRotationAngles all-zero -> the arm hangs straight down (rotation ~0).
-# So the whole pose is R. On a down-hanging right arm R sends the axis to
+# Vanilla 1.8.8 empty-hand arm pose. The first-person arm carries its own rotation
+# chain, applied vertex-first (GL post-multiply), of four turns in this order:
+#       +45 about Y  ->  +120 about Z  ->  +200 about X  ->  -135 about Y
+#   -> R = Y+45 * Z+120 * X+200 * Y-135
+#   The arm hangs straight down before any of it (its walk angle is zero), so the
+#   whole pose is R. On a down-hanging right arm R sends the axis to
 # (-0.334,-0.470,+0.817) = down / left / strongly TOWARD THE VIEWER - the
 # foreshortened, angled Minecraft held-arm (NOT straight down; earlier attempts
 # only applied a 45-yaw, which kept it hanging straight down - the bug).

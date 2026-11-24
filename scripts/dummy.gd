@@ -9,9 +9,9 @@ extends Node3D
 ##     0.546 (standard block slipperiness 0.6 x 0.91) when grounded, 0.91 in
 ##     air. Vanilla reads it before moving, so the first tick of a knockback
 ##     keeps ground friction instead of instantly switching to air drag.
-##   - moveEntity(motion) -> ChunkManager.resolve_voxel_collision. Collided
-##     axes have their velocity zeroed (horizontal axes on wall hits, the
-##     vertical axis on landing/ceiling hits).
+##   - Moving is `ChunkManager.resolve_voxel_collision`, the same resolver the
+##     player uses. Collided axes have their velocity zeroed (horizontal axes on
+##     wall hits, the vertical axis on landing/ceiling hits).
 ##   - gravity: motion.y -= 0.08
 ##   - vertical drag: motion.y *= 0.98
 ##   - horizontal drag: motion.x/z *= the pre-move factor above

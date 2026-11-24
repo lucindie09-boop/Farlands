@@ -41,14 +41,55 @@ const CLIP_PATH_MAP := {"arm": "arm", "arm_001": "arm2", "leg": "leg", "leg_001"
 # (see _add_rest_tracks). The head is not here: _track_head_look owns it.
 # Horizontal speed, blocks/s, under which the body counts as standing.
 const STAND_SPEED := 0.15
-# Seconds a clip takes to cross into the other, so a stop is a settle rather than
-# a cut to a different pose.
-const CLIP_FADE := 0.15
-# Blocks/s the run cycle was authored at: the clip is played at this pace at that
-# speed and proportionally faster or slower with the body. The sim's velocity is
-# blocks per TICK, hence TICK_RATE.
-const RUN_REF_SPEED := 4.317
+# How far the walk amount closes on its target in one tick: 40% of the gap. The walk
+# fades in and out over about 0.2 s as its amplitude, so there is no crossfade to look
+# wrong -- and the legs land on rest because the amount reaches 0, not because a
+# different pose took over.
+const SWING_EASE := 0.4
 const TICK_RATE := 20.0
+# Minecraft derives a whole walk from ONE number: the horizontal distance the body
+# covered in a tick, times 4, capped at 1, eased 40% a tick toward the target (SWING_EASE
+# is that 40%). Its phase then advances by the same number every tick, and the walk angles
+# are that phase's cosine twice over -- a leg swings 1.4 rad and an arm 1.0 rad, both
+# multiplied by the number. Three figures fall out of that, and they are what this body's
+# clip is measured against: the swing is FULL at a quarter of a block per tick (5 blocks/s),
+# a cycle takes 2pi / (0.6662 * 20) s at a full swing (the cosine turns 0.6662 rad per unit
+# of phase), and a full swing is 80 degrees of leg against 57 of arm.
+#
+# The run clip's OWN base is not those numbers (it was authored at a small
+# amplitude, 16.8 degrees, and one cycle a second), which is the whole difference
+# between it and vanilla: _prepare_run_clip scales each part so the clip's peak IS
+# vanilla's, and the pace below is then vanilla's cadence.
+const MC_FULL_SWING_SPEED := 5.0    # blocks/s where the walk amount reaches 1
+const MC_CYCLE_SECONDS := 0.4716    # one cycle at a full swing
+const MC_LEG_SWING := 1.4           # rad, a leg at a full swing
+const MC_ARM_SWING := 1.0           # rad, an arm at a full swing
+# The parts the walk drives, and how far each may swing. Any other part of the
+# clip (its torso rest key) keeps its own angles.
+const MC_PART_SWING := {"leg": MC_LEG_SWING, "leg2": MC_LEG_SWING,
+	"arm": MC_ARM_SWING, "arm2": MC_ARM_SWING}
+
+# The body is not one clip at a time. It is a BLEND TREE, and that is Minecraft's own
+# structure: its walk pose is the swing, PLUS two arm motions that have nothing to do
+# with walking -- a roll that never leaves the body's side (0 to 0.1 rad out and back over
+# a 3.5 s cycle, so it sits 0.05 rad out on average) and a 0.05 rad nod over 4.7 s.
+# `Idle.anim` already carries both of those for the arms, so the walk gets them by having
+# the idle ADDED OVER it:
+#
+#   blend (idle <-> run)  -->  add (idle on top)  -->  output
+#
+# The idle layer is ALWAYS on (its amount is 1 and never changes), so its playhead runs
+# from the moment the body exists and is never re-entered: a body that stops keeps
+# breathing exactly where it was. What changes is the walk: `blend` crossfades the REST
+# pose into the run, and its weight is the walk amount -- so the fade is the walk's own
+# amplitude shrinking, not a timed morph between two poses, which is why
+# nothing snaps when the body stops. `timescale` is that same amount again, because the
+# phase advances by it in vanilla too.
+#
+# The tree itself is built by _build_tree.
+const TREE_BLEND := "parameters/blend/blend_amount"
+const TREE_ADD := "parameters/add/add_amount"
+const TREE_RUN_SCALE := "parameters/timescale/scale"
 
 var uv_overlay_enabled := false
 var paint_color := Color.WHITE
@@ -63,11 +104,29 @@ var _head: Node3D = null
 # The parts a clip may turn, in this body's own names (see _add_rest_tracks).
 const RIG_PARTS := ["arm", "arm2", "leg", "leg2", "torso"]
 
-# The player that turns the parts (built here rather than in the scene, so a body
-# used in a preview has one too).
+# The clips' HOST (built here rather than in the scene, so a body used in a preview
+# has one too). It is never played: the tree turns the parts, and two writers would
+# fight over the same quaternions. It exists so the tree can find the animations by
+# name.
 var _clip_player: AnimationPlayer = null
-# The clip it is playing now ("idle"/"run"), so a state change is one play() call.
+# The tree that actually turns the parts (see TREE_BLEND).
+var _tree: AnimationTree = null
+# Which state the body is in ("idle"/"run", "" when frozen), so a change is one step.
 var _clip := ""
+# The walk amount: its amplitude and its cadence in one number, eased 40% a tick toward
+# the distance the body is covering -- so it fades in and out in about 0.2 s and the legs
+# SHRINK to rest instead of morphing from one pose into another.
+var _swing := 0.0
+# The run clip this body owns (the retargeted copy, not the preloaded file). Its keys
+# are vanilla's FULL swing, always: how far the body is actually swinging is the tree's
+# blend weight, not the clip's angles (see _animate_body).
+var _run_clip: Animation = null
+# The pose every clip is played ON TOP OF, per part: the model's own rest rotation
+# (_capture_clip_base). A clip's key is `base * turn`, so this is the pose its angles
+# are measured from and scaled about. It is deliberately NOT where the arms hang:
+# that is the idle's, added over the walk while it plays, so there is no constant
+# here for a clip to copy.
+var _clip_rest := {}
 
 # The world light model, when this body is in the world: one material for every
 # surface (the whole model is one skin), the cell's light eased between frames.
@@ -96,13 +155,82 @@ func _ready():
 ## player's and a preview's -- never share a resource whose paths were rewritten
 ## for the other's rig.
 func _init_body_animation() -> void:
+	_capture_clip_base()
 	var library := AnimationLibrary.new()
 	library.add_animation("idle", _clip_for_rig(CLIP_IDLE, "Idle"))
-	library.add_animation("run", _clip_for_rig(CLIP_RUN, "Run"))
+	_run_clip = _clip_for_rig(CLIP_RUN, "Run")
+	library.add_animation("run", _run_clip)
+	library.add_animation("rest", _rest_clip())
+	_prepare_run_clip()
 	_clip_player = AnimationPlayer.new()
 	_clip_player.name = "Clips"
 	_clip_player.add_animation_library("", library)
 	add_child(_clip_player)
+	_tree = AnimationTree.new()
+	_tree.name = "ClipsTree"
+	_tree.tree_root = _build_tree()
+	add_child(_tree)
+	# Both nodes are in the tree before this: the path is between them, and the tree
+	# finds the animations by name through it.
+	_tree.anim_player = _tree.get_path_to(_clip_player)
+	# The idle layer is added at full, always (see TREE_BLEND): it is a pose the walk
+	# wears, not a state the body switches into.
+	_tree.set(TREE_ADD, 1.0)
+
+
+## The body's blend tree (see TREE_BLEND for what it is for).
+##
+## Two nodes rather than one because they are two different operations, and that is what
+## makes the stop clean: `blend` fades the walk in and out of the REST pose (its weight is
+## the amplitude), and `add` lays the idle's hang and breathing over the result at a
+## constant amount. The idle therefore has exactly one node, always playing -- nothing
+## re-enters it, so there is no phase to reset.
+func _build_tree() -> AnimationNodeBlendTree:
+	var root := AnimationNodeBlendTree.new()
+	root.add_node("rest", _anim_node("rest"), Vector2(0, 0))
+	root.add_node("run", _anim_node("run"), Vector2(0, 1))
+	root.add_node("timescale", AnimationNodeTimeScale.new(), Vector2(1, 1))
+	root.add_node("blend", AnimationNodeBlend2.new(), Vector2(2, 1))
+	root.add_node("idle", _anim_node("idle"), Vector2(2, 2))
+	root.add_node("add", AnimationNodeAdd2.new(), Vector2(3, 1))
+	root.connect_node("timescale", 0, "run")
+	root.connect_node("blend", 0, "rest")
+	root.connect_node("blend", 1, "timescale")
+	root.connect_node("add", 0, "blend")
+	root.connect_node("add", 1, "idle")
+	root.connect_node("output", 0, "add")
+	return root
+
+
+## Every part a clip may turn, held at its own rest rotation, and nothing else.
+##
+## This is the far side of the walk's blend, and it is why the weight of that blend IS
+## the walk amount: at 0 the legs are held still, at 1 they are the whole
+## walk, and half way they swing half as far. It exists as a clip rather than as "leave
+## the legs alone" because a blend holds nothing for a part neither side names, so the
+## body would keep the last stride pose instead of settling out of it.
+func _rest_clip() -> Animation:
+	var clip := Animation.new()
+	clip.resource_name = "rest"
+	clip.length = 1.0
+	clip.loop_mode = Animation.LOOP_LINEAR
+	for part in RIG_PARTS:
+		var node := find_child(part, true, false) as Node3D
+		if node == null:
+			continue
+		var t := clip.add_track(Animation.TYPE_ROTATION_3D)
+		clip.track_set_path(t, NodePath(String(get_path_to(node))))
+		clip.track_insert_key(t, 0.0, _clip_rest.get(part, node.quaternion))
+	return clip
+
+
+## One clip of the body's library as a node of the tree. The run goes through a
+## TimeScale (TREE_RUN_SCALE): the tree has no speed_scale of its own, and the walk's
+## cadence is that same amount.
+func _anim_node(animation: StringName) -> AnimationNodeAnimation:
+	var node := AnimationNodeAnimation.new()
+	node.animation = animation
+	return node
 
 
 ## One clip, re-homed onto this body's own limb names.
@@ -122,6 +250,62 @@ func _clip_for_rig(source: Animation, clip_name: String) -> Animation:
 	clip.loop_mode = Animation.LOOP_LINEAR
 	_add_rest_tracks(clip)
 	return clip
+
+
+## The pose the clips are played on top of.
+##
+## Read off the model before any clip has played, so it is the model's own rest: a key
+## is `base * turn`, which is what lets a clip's angles be measured and scaled about
+## the part they turn. Nothing is added here -- the arms' hang is the idle's, layered
+## over the walk as it plays (see _build_tree).
+func _capture_clip_base() -> void:
+	_clip_rest.clear()
+	for part in RIG_PARTS + ["head"]:
+		var node := find_child(part, true, false) as Node3D
+		if node == null:
+			continue
+		_clip_rest[part] = node.quaternion
+
+
+## Put the run clip on Minecraft's own scale.
+##
+## Two things about it are not vanilla's, and both are fixed here once, at load:
+## its limbs swing 16.8 degrees where Minecraft swings a leg 1.4 rad (80) and an arm
+## 1.0 rad (57), and the clip's own cycle is 1 s where a
+## full swing's is 0.4716 s (the pace is applied when it plays). Each part's peak
+## is measured off its own keys and scaled to the vanilla angle for it, so the
+## clip's SHAPE is kept and only its base is replaced -- a body whose model or
+## clip changes does not need this file edited.
+##
+## The pose every key is measured from is _clip_rest, captured before any clip
+## played (a key is `base * axis-turn(angle)`), so the fit and the gains see the same
+## base the clip will play on.
+func _prepare_run_clip() -> void:
+	if _run_clip == null:
+		return
+	# 1. the base every key is measured from is already captured (_capture_clip_base).
+	# 2. close the cycle (clip_retarget.gd::smooth_cycle): the authored easing makes
+	# the legs crawl through the loop point, which at vanilla amplitude is a hitch at
+	# every wrap.
+	ClipRetarget.smooth_cycle(_run_clip, _clip_rest)
+	# 3. vanilla's amplitudes, measured off the SMOOTHED curve, so the peaks are the ones
+	# that will actually play.
+	var gains := {}
+	for t in _run_clip.get_track_count():
+		if _run_clip.track_get_type(t) != Animation.TYPE_ROTATION_3D:
+			continue
+		var path := str(_run_clip.track_get_path(t))
+		if not MC_PART_SWING.has(path) or not _clip_rest.has(path):
+			continue
+		var rest: Quaternion = _clip_rest[path]
+		var peak := 0.0
+		for k in range(_run_clip.track_get_key_count(t)):
+			var key: Quaternion = _run_clip.track_get_key_value(t, k)
+			peak = maxf(peak, (rest.inverse() * key).get_angle())
+		if peak > 0.001:
+			gains[path] = float(MC_PART_SWING[path]) / peak
+	if not gains.is_empty():
+		ClipRetarget.scale_stride(_run_clip, _clip_rest, 1.0, gains)
 
 
 ## Every part this clip does not move, held at its rest rotation.
@@ -145,7 +329,10 @@ func _add_rest_tracks(clip: Animation) -> void:
 			continue
 		var t := clip.add_track(Animation.TYPE_ROTATION_3D)
 		clip.track_set_path(t, NodePath(String(get_path_to(node))))
-		clip.track_insert_key(t, 0.0, node.quaternion)
+		# The base, not the node's pose: a part this clip does not move still has to be
+		# held where every clip holds it, or the blend would carry it over from the
+		# other side of the blend instead of resting.
+		clip.track_insert_key(t, 0.0, _clip_rest.get(part, node.quaternion))
 
 
 func _process(delta: float) -> void:
@@ -153,41 +340,60 @@ func _process(delta: float) -> void:
 	# standing in the world like any other body, so it is lit like one.
 	_push_world_lighting(delta)
 	if skip_head_look:
-		# ...and a pose clone is frozen: no head look AND no body clip. The clip
-		# player is stopped rather than merely skipped, or a body frozen after it
-		# had been walking would keep walking.
-		if _clip_player != null and _clip_player.is_playing():
-			_clip_player.stop()
+		# ...and a pose clone is frozen: no head look AND no body clip. The tree is
+		# stopped rather than merely skipped, or a body frozen after it had been
+		# walking would keep walking (and one frozen while standing would keep
+		# breathing).
+		if _tree != null and _tree.active:
+			_tree.active = false
 		_clip = ""
 		return
 	_animate_body(delta)
 	_track_head_look()
 
 
-## Which clip is playing: `run` while the body is moving, `idle` while it stands.
+## The body's one number: the walk amount, from the speed it is moving at.
 ##
 ## A body with no controller in its ancestry (the skin maker and settings gallery
 ## previews put one in a SubViewport of their own) has no speed to read, so it stands
 ## at 0 -- and those previews are frozen anyway (skip_head_look), so they play nothing
-## at all. A preview is a still; the clip is for a body in the world.
+## at all. A preview is a still; the walk is for a body in the world.
 ##
-## The run cycle is one length, so it is played at the pace the body is actually
-## moving at; a body creeping along at a sneak's pace steps slowly through the same
-## clip instead of running on the spot.
-func _animate_body(_delta: float) -> void:
-	if _clip_player == null:
+## That number IS the walk: it is the blend's weight, so a slower body takes a SMALLER
+## step (the swing shrinks toward the rest pose) at a slower cadence (it is the time
+## scale too), which is the difference between a walk and a shuffle -- and the same pair
+## Minecraft gets from its one number. A sprinting body reaches the full 80 degrees of
+## leg at 0.4716 s a cycle.
+func _animate_body(delta: float) -> void:
+	if _tree == null:
 		return
+	if not _tree.active:
+		# A body that was frozen and is not any more plays again, from wherever its clips
+	# had got to -- nothing is rewound.
+		_tree.active = true
 	var speed := 0.0
 	var ctrl := _look_controller()
 	if ctrl != null and ctrl.has_method("get_velocity"):
 		# The sim's velocity is blocks per TICK; the clips are timed in seconds.
 		var v: Vector3 = ctrl.get_velocity() * TICK_RATE
 		speed = Vector2(v.x, v.z).length()
-	var want := "run" if speed > STAND_SPEED else "idle"
-	if want != _clip:
-		_clip = want
-		_clip_player.play(want, CLIP_FADE)
-	_clip_player.speed_scale = clampf(speed / RUN_REF_SPEED, 0.2, 3.0) if want == "run" else 1.0
+	# The walk amount: the tick's distance times 4, capped at 1, eased 40% a tick. It is
+	# the walk's amplitude AND its cadence, so a stop is the swing shrinking to nothing
+	# rather than one pose being replaced by another.
+	var target := clampf(speed / MC_FULL_SWING_SPEED, 0.0, 1.0)
+	_swing += (target - _swing) * (1.0 - pow(1.0 - SWING_EASE, delta * TICK_RATE))
+	if _swing < 0.002:
+		_swing = 0.0
+	_clip = "run" if _swing > 0.0 else "idle"
+	_tree.set(TREE_BLEND, _swing)
+	_tree.set(TREE_RUN_SCALE, _swing * _full_swing_rate())
+
+
+## Clip lengths per second the run has to play at for its phase to advance the way
+## vanilla's does: one cycle every MC_CYCLE_SECONDS at a full swing (the clip is its
+## own length, so a longer clip would play proportionally slower).
+func _full_swing_rate() -> float:
+	return (_run_clip.length if _run_clip != null else MC_CYCLE_SECONDS) / MC_CYCLE_SECONDS
 
 
 ## Give the body the world's own light model, when it is standing IN the world.

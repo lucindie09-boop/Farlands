@@ -206,10 +206,30 @@ Full notes: [docs/light.md](docs/light.md).
   guards, block break animation and hardness, hammer crushing, and block `drops`.
 - The first-person viewmodel (held item/block, swing, bob, head look, F5 camera cycle,
   eye-ray targeting) and the overlay tools around it.
-- The player's own body plays **two clips and no others**: `Assets/Animations/Idle.anim` standing
-  and `Assets/Animations/Run.anim` walking (`player_model.gd` builds its own `AnimationPlayer`,
-  picks between them from the sim's horizontal speed, fades in 0.15 s and scales the run's playback
-  with the speed the body is actually moving at). Both are re-homed onto the rig's part names at
+- The player's own body plays **two poses and a rest**: `Assets/Animations/Idle.anim` standing and
+  `Assets/Animations/Run.anim` walking, both blended onto a still `rest` clip with the idle added
+  over the result. `player_model.gd` builds its own `AnimationPlayer` (`Clips`, the animations'
+  host, never played) and an `AnimationTree` (`ClipsTree`) that turns the parts. **One number is
+  the walk**, the one number Minecraft derives it from (the distance covered in a tick × 4,
+  capped at 1 and eased 40% a tick):
+  it is the `Blend2(rest, run)` weight (so half of it swings the legs half as far -- 40.1 against
+  80.2 degrees, measured), it is the run's `AnimationNodeTimeScale`, and its easing is the fade
+  (about 0.4 s to rest; the leg is under 2 degrees 360 ms after a stop, and the arms' roll's
+  biggest frame-to-frame change through it is 0.02 degrees). The clip's keys are therefore always
+  at vanilla's FULL swing and nothing rewrites them -- two amplitude writers would multiply. The
+  clip's
+  own base is none of vanilla's -- 16.8 degrees at one cycle a second -- so it is measured at load
+  and rescaled to vanilla's 80 degrees of leg, 57 of arm and 0.4716 s cycle, which is what makes it
+  read as the same walk. Each track is fitted to one cosine before that (`clip_retarget.gd::
+  smooth_cycle`), because a hand-authored clip eases into and out of its own loop point and that
+  crawl at every wrap is visible once the swing is 80 degrees. The arms' hang and breathing are
+  **layered, not copied**: `AnimationNodeAdd2` adds the idle over the blend at a fixed amount of 1,
+  so the walk wears the idle's own 0-3.4 degree hang and its 4.2 s drift. One node, never
+  re-entered -- which is why a stop keeps the idle's phase instead of rewinding it -- and standing
+  the walk's weight is 0, so the hang is never applied twice. A node has one quaternion, so
+  layering is the only way two clips can share a limb; a track cannot, and a blend tree output
+  feeds exactly one input, which is why the rest pose is a clip of its own rather than an absence
+  (a blend holds nothing for a part neither side names). `skip_head_look` deactivates the tree. Both are re-homed onto the rig's part names at
   load by `scripts/clip_retarget.gd` and forced to loop. `Run.anim` is a run cycle separated out of
   `Assets/models/animwiorun.glb` (six per-part actions merged into one 1 s loop). The head's
   rotation stays the code's. Parked and unloaded: the `Idle_new`/`Walk` pair, and the hand-port of

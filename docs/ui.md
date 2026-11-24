@@ -452,10 +452,22 @@ being resampled by a different fraction at each scale.
   drag-orbits a cube; DRAW/FILL/BOX painting over primitive triangle raycasts, undo (Ctrl+Z),
   noise slider integration, and clamped zoom
 - `player_model.gd` — Applies the skin texture to `player.glb`'s `StandardMaterial3D` surfaces
-  with nearest filtering (no mipmaps, avoiding smeared UV islands), plays the body's **two
-  clips**: `Assets/Animations/Idle.anim` standing and `Assets/Animations/Run.anim` walking, picked
-  from the sim's horizontal speed and faded across in 0.15 s, with the run's playback following
-  the speed the body is actually moving at. Both are re-homed onto this rig's part names at load
+  with nearest filtering (no mipmaps, avoiding smeared UV islands), plays the body's **two poses
+  and a rest**: `Assets/Animations/Idle.anim` standing and `Assets/Animations/Run.anim` walking,
+  blended onto a still `rest` clip with the idle added over the result, all of it driven by one
+  number taken from the sim's horizontal speed -- Minecraft's walk amount, which is the
+  blend's weight (so a slow body takes shorter steps), the run's time scale (so its cadence
+  follows too) and the fade (eased 0.4 a tick, so a stop is the swing shrinking rather than a
+  crossfade). The clip's keys stay at vanilla's full swing, so nothing scales them twice. The
+  clip's own 16.8-degree base is measured at load and re-scaled
+  to vanilla's 80 degrees of leg and 57 of arm, and its pace to vanilla's 0.4716 s cycle, so the
+  motion is the clip's shape on Minecraft's numbers. The loop is closed with a one-cosine fit
+  (`clip_retarget.gd::smooth_cycle`), so the swing crosses the seam at the speed it crosses the
+  middle of the cycle instead of easing its own ends. The clips play through an `AnimationTree`
+  (`Blend2(rest, run)` as the base with `AnimationNodeAdd2` adding the idle over it at a fixed
+  amount), so the walk inherits the idle's outward arm hang and its slow drift at the idle's own
+  4.2 s pace instead of a copied constant, and the idle has one node that is never re-entered, so
+  stopping never rewinds it. Standing the walk's weight is 0, so the hang is never applied twice. Both are re-homed onto this rig's part names at load
   by `clip_retarget.gd` and forced to loop. Each clip is also given a **rest key for every part it
   does not move** (`_add_rest_tracks`): a clip animates only the limbs it names and the
   `AnimationPlayer` leaves every other property where the previous clip left it, so `Idle.anim`

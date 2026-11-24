@@ -307,8 +307,23 @@ A few of those rows keep their detail here, because a table cell that long is an
 - `probe_player_anim.gd` — the body is measured, and then the parked port it no longer uses. The
   body: exactly two clips, `idle` and `run`, and every track of both resolves on this rig (a track
   that names no limb plays as no motion at all, silently); standing on the floor it is playing the
-  idle and its arms are swaying; and the K-key pose clone stays frozen — `skip_head_look` stops the
-  clip player as well as the head, or the dummy would breathe while it is being punched.
+  idle and its arms are swaying; the run clip comes out on Minecraft's own base (a peak of 1.4 rad
+  of leg against 1.0 of arm, one cycle every 0.4716 s -- the clip's own 16.8 degrees and 1 s are
+  re-derived at load, not trusted) and its keys are left at that full swing whatever the body is
+  doing (ONE amplitude writer: the tree's blend weight, which is measured next); the loop closes on its own value and crosses it
+  at the same speed it crosses the middle of the cycle (a hand-authored clip eases its own ends:
+  `Run.anim` crossed zero at 31 deg/s at its wrap against 103 half a cycle later, and at vanilla's
+  80 degrees that crawl is a visible pause -- 503 against 503 after the one-cosine fit); the walk's
+  tree has the walk's blend onto a rest pose and the idle layer wired over it (rest, run,
+  timescale, blend, idle, add, with the `AnimationPlayer` as its host) while no clip carries a
+  copied arm hang -- both rest on the model's own pose and the idle's own track turns 0 to 3.4
+  degrees. Run at a walk's amounts, the arms' roll spans 3.44 degrees while the leg is at its full
+  80: it DRIFTS, which a copied constant could not; the blend weight IS the swing (half of it
+  gives 40.1 degrees of leg against 80.2); and stopping through the production path settles the
+  legs onto rest while the arms' roll carries straight through -- biggest frame-to-frame step
+  0.02 degrees, so the idle was never rewound. The K-key pose clone stays frozen: `skip_head_look`
+  deactivates the TREE as well as the head, or the dummy would keep breathing while it is being
+  punched.
   `scripts/body_animator.gd`, the hand-port the clips replaced, is a pure function of its inputs,
   so it is still measured state by state: idle, walk (60° of opposed stride, each arm against its
   own leg), sprint, jump and fall, sneak, swim, and a stop that decays over its own frames rather

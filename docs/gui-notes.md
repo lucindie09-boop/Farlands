@@ -740,12 +740,70 @@ first-person viewmodel - what each one owns and the decisions behind it.
   person with no body. It was restored from the committed blocks; the scene's own empty
   `AnimationPlayer` node was not carried back, because `player_model.gd` now builds the player it
   plays its clips on (`Clips`), so a scene node would be a second, unused one
-- **The body plays two clips and no others: `Idle.anim` standing, `Run.anim` walking.**
-  `player_model.gd` builds its own `AnimationPlayer` (named `Clips`) carrying exactly those two,
-  picks between them from the sim's horizontal speed (`get_velocity()` scaled by the 20 Hz tick
-  rate) and fades across in 0.15 s, and scales the run's playback with the speed the body is
-  actually moving at -- a body creeping at a sneak's pace walks the same 1 s cycle slowly instead
-  of running on the spot. Both are re-homed onto this rig's part names at load by
+- **The body plays two poses and a rest: `Idle.anim` standing, `Run.anim` walking, blended onto a
+  still pose with the idle added over the result.** `player_model.gd` builds its own
+  `AnimationPlayer` (named `Clips`, the animations' host, never played) and an `AnimationTree`
+  (named `ClipsTree`) that actually turns the parts. **...and one number is the whole walk**, which is vanilla's rule
+  and the reason its slow walk is a walk rather than a shuffle: it measures the horizontal
+  distance the body covered in a tick, eases it 40% of the way toward that figure each tick, and
+  that ONE number is then both the phase's advance (one cycle per 0.6662 × 20 radians of it) and
+  the multiplier on the swing (1.4 rad of leg, 1.0 rad of arm). One number, so cadence and step
+  length can never disagree. That cap is a quarter block per tick, so a full swing is 5
+  blocks/s, 80 degrees of leg against 57 of arm, one cycle every 2π / (0.6662 × 20) = 0.4716 s.
+  **The clip's own base is none of those numbers, and that was the whole visible difference from
+  vanilla**: `Run.anim` swings 16.8 degrees at one cycle a second, on exactly vanilla's phase
+  structure (the legs opposed by a half turn, each arm against its own leg) but at a fifth of its
+  amplitude and half its cadence. So `_prepare_run_clip` measures each part's peak off its own
+  keys at load and scales it to the vanilla angle for that part (`clip_retarget.gd::scale_stride`
+  with the per-part `gains`), keeping the clip's SHAPE and replacing only its base; a model or
+  clip that changes does not need this file edited, because the base is measured rather than
+  assumed.   **That number is the tree's blend weight**, `Blend2(rest, run)`: at 0 the legs are held
+  on the rest pose, at 1 they are the whole walk, and at 0.5 they swing half as far (measured:
+  40.1 degrees against 80.2). It is also the `AnimationNodeTimeScale` the run plays through
+  (the walk amount × clip length / 0.4716), because the phase advances by the amount too.
+  So there is ONE amplitude writer: the clip's keys stay at vanilla's full swing whatever the body
+  is doing (1.400 rad of leg, 29 keys, measured), and nothing scales them twice.
+  **The fade is that number moving** -- `amount += (target - amount) * 0.4` a tick (`SWING_EASE`),
+  about 0.4 s to rest -- so a stop is the swing SHRINKING to nothing rather than a timed crossfade
+  between two poses, which is why nothing snaps. Measured: the leg is under 2 degrees 360 ms after
+  the body stops, and the largest frame-to-frame change in the arms' roll across the whole stop is
+  0.02 degrees.   **The loop point is closed, not merely matched.** A hand-authored clip eases into
+  and out of its own first and last keys (Blockbench bakes bezier easing into every
+  key, and the ends have no neighbour to average against), so `Run.anim` crossed zero
+  at 31 deg/s at its wrap and 103 half a cycle later -- at 17 degrees that was
+  invisible, at vanilla's 80 it is a crawl at every end/start. `clip_retarget.gd::
+  smooth_cycle` fits each limb track to ONE harmonic of its own motion and evaluates
+  that at the clip's own key times: one cosine is exactly what
+  a walk is, so both crossings then happen at the same
+  maximum slope (503 deg/s each, measured) and t=0 and t=length are the same point of
+  a periodic function. Amplitude and phase still come from the clip, and the fit runs
+  BEFORE the vanilla re-scaling, so the peaks measured afterwards are the peaks that
+  play. More harmonics keep more of the source's skew -- and the skew IS the easing:
+  a 3-harmonic fit reproduced it so well that the seam stayed 4.6x slower than the
+  middle, which is why one harmonic is the default rather than a limitation.
+  **The body is a blend tree, and the arms' hang is layered rather than copied.**
+  Minecraft's walk pose is the swing and then ADDS what has nothing to do with walking: on
+  each arm a roll that never leaves the body's side (0 to 0.1 rad out and back over a 3.5 s
+  cycle, so it hangs 0.05 rad out on average, mirrored between the two arms) and a 0.05 rad
+  nod over 4.7 s. `Idle.anim` already carries
+  both for the arms -- its two tracks are a roll about that axis, **0 to 3.4 degrees
+  outward** (measured) -- so the walk gets them by having the idle **added over** it.
+  It is added by `AnimationNodeAdd2` at a FIXED amount of 1, so the idle has exactly one node
+  that plays from the moment the body exists and is never re-entered: a stop leaves its phase
+  where it was (measured: across a stop its roll runs -2.93 to -0.06 degrees with a biggest step
+  of 0.02, so it keeps breathing instead of restarting). The state is the other node -- the
+  walk's weight in the blend -- so standing is weight 0 and the pose is the rest blend plus that
+  roll: the hang is never applied twice. Walking, the arms' roll sweeps the idle's own 0 to 3.44
+  degrees and DRIFTS at its own 4.2 s pace (measured: 3.44 degrees of span at a walk's amounts
+  while the leg reaches 80, where a copied constant would read a flat line). Nothing is baked
+  into either clip: both are played on the model's own rest pose. Two things follow from the tree
+  that a track could not do -- the rest pose is a CLIP of its own rather than an absence (a blend
+  holds nothing for a part neither side names, so the legs would keep their last stride pose
+  instead of settling out of it), and the run's cadence is an `AnimationNodeTimeScale`, since an
+  `AnimationTree` has no `speed_scale`. `skip_head_look` deactivates the tree, so a frozen clone
+  neither walks nor breathes. Every figure above is Minecraft 1.8's own, restated as behaviour
+  and measured against this body's clips; nothing here was taken from its code.
+  Both are re-homed onto this rig's part names at load by
   `scripts/clip_retarget.gd` (the clip files call the second arm and leg `arm_001`/`leg_001`; this
   body calls them `arm2`/`leg2`) and both are forced to loop, because `Idle.anim` was saved
   without one -- nothing had played it yet. Each clip is then given a **rest key for every part it
@@ -755,7 +813,13 @@ first-person viewmodel - what each one owns and the decisions behind it.
   rest rotation makes each clip the whole pose, and a leg crossing from the run into the idle eases
   back over the blend instead of snapping there. The head is not a channel of either clip:
   `_track_head_look` owns its quaternion, which is why `clip_retarget` is told the code drives it.
-  The parked `Idle_new`/`Walk` pair stays on disk, unloaded.
+  The parked `Idle_new`/`Walk` pair stays on disk, unloaded. Measured by
+  `probes/probe_player_anim.gd`: the clip's base is vanilla's 80/57 degrees, a full swing plays a
+  cycle every 0.47 s, half the pace is half the swing over the same keys, the full swing comes
+  back exactly, a stopped body is held just short of still, the loop closes on its own value and
+  crosses it at the speed it crosses the middle of the cycle, the tree has both states and the idle
+  layer wired with no clip carrying a copied arm hang, and standing adds nothing while walking adds
+  the idle (legs untouched either way, and the idle's own track turning 0 to 3.4 degrees).
 - **The hand-port that replaced the clips is parked, not deleted.** `scripts/body_animator.gd`
   computes a pose per frame from what the sim is doing -- horizontal speed and vertical velocity
   (`get_velocity()`), `is_on_floor`, `is_in_water`, `is_sneaking`, `is_sprinting` -- as plain

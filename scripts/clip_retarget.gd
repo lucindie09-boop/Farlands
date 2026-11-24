@@ -115,6 +115,127 @@ static func _copy_track(source: Animation, t: int, out: Animation, to: NodePath,
 		out.track_insert_key(index, source.track_get_key_time(t, k), value)
 
 
+## Play a clip's motion SMALLER OR LARGER without touching a single key time: every
+## rotation key's angle away from its part's rest rotation is multiplied by
+## `factor`, about the same axis.
+##
+## A key is `rest * axis-turn(angle)`, so scaling is the turn measured from rest,
+## shortened, and put back: `rest * IDENTITY.slerp(rest.inverse() * key, factor)`.
+## The times stay where they were, so a scaled clip is the same cycle at the same
+## phase taking a shorter (or longer) step -- which is what lets one walk cycle
+## serve a shuffle and a sprint. `rest` maps a track's path (as a String) to that
+## part's rest quaternion; a track with no entry is left alone, so a clip's own
+## one-key rest tracks are not touched.
+##
+## `gains` scales parts DIFFERENTLY: one multiplier per track path, on top of
+## `factor`, for a clip whose limbs are not on the amplitude the caller wants
+## (vanilla swings a leg 1.4 rad and an arm 1.0, so a clip authored at one
+## amplitude for both needs 4.8x here and 3.4x there). A path with no entry keeps
+## `factor` alone.
+##
+## Applied IN PLACE and MULTIPLICATIVELY, so a caller that eases its factor calls
+## this with `new / old` rather than re-deriving every key from the clip file.
+## The mixer caches what it read out of an Animation, so a caller that is already
+## playing this clip has to clear those caches afterwards.
+static func scale_stride(clip: Animation, rest: Dictionary, factor: float,
+		gains: Dictionary = {}) -> void:
+	if is_equal_approx(factor, 1.0) and gains.is_empty():
+		return
+	for t in range(clip.get_track_count()):
+		if clip.track_get_type(t) != Animation.TYPE_ROTATION_3D:
+			continue
+		var path := str(clip.track_get_path(t))
+		if not rest.has(path):
+			continue
+		var part_scale: float = factor * float(gains.get(path, 1.0))
+		if is_equal_approx(part_scale, 1.0):
+			continue
+		var base: Quaternion = rest[path]
+		var inverse := base.inverse()
+		for k in range(clip.track_get_key_count(t)):
+			var key: Quaternion = clip.track_get_key_value(t, k)
+			clip.track_set_key_value(t, k, base * Quaternion.IDENTITY.slerp(inverse * key, part_scale))
+
+
+## Close a cycle: rebuild every rotation track from a few harmonics of the motion
+## it already has, so the curve is periodic in VALUE and in SLOPE.
+##
+## A hand-authored clip is not, in general, a closed curve. Every key carries the
+## easing it was authored with (Blockbench bakes bezier easing into each one), and
+## the easing on the FIRST and LAST keys has no neighbour to average against, so a
+## cycle can pass through one value slowly at its seam and the same value quickly in
+## the middle -- `Run.anim` crosses zero at 31 deg/s at the loop point and at 103
+## deg/s half a cycle later. A body that slows to a crawl for a tenth of a second
+## every wrap is a hitch you can see, and amplitude makes it worse: at 17 degrees it
+## vanished, at vanilla's 80 it is a stutter.
+##
+## Keeping harmonics 1..`harmonics` of the cycle and evaluating that series at the
+## clip's OWN key times gives a curve with no seam at all -- t=0 and t=length are the
+## same point of a periodic function -- while the peaks, phases and opposition of the
+## source stay where they were. The keys, their times and the clip's length do not
+## move; only their values do. `rest` maps a track's path to its part's rest
+## quaternion, and a track with no entry, or with fewer than four keys, is left alone.
+##
+## **One harmonic is the default, and it is the point**: one cosine is exactly what
+## the motion should be -- a walk is the phase's own cosine scaled by the amount, so it
+## IS a fundamental, and its two crossings are both at the maximum slope. More harmonics keep more of the source's own skew, and the skew is
+## the easing: a 3-harmonic fit of `Run.anim` reproduced its easing so faithfully that
+## the seam stayed 4.6x slower than the crossing half a cycle later, which is the
+## hitch this exists to remove. Amplitude and phase still come from the source, and
+## the amplitude is renormalised afterwards (player_model.gd::_prepare_run_clip).
+static func smooth_cycle(clip: Animation, rest: Dictionary, harmonics: int = 1) -> void:
+	if clip.length <= 0.0:
+		return
+	for t in range(clip.get_track_count()):
+		if clip.track_get_type(t) != Animation.TYPE_ROTATION_3D:
+			continue
+		var path := str(clip.track_get_path(t))
+		if not rest.has(path):
+			continue
+		var count := clip.track_get_key_count(t)
+		if count < 4:
+			continue
+		var base: Quaternion = rest[path]
+		# The one axis every key of this track turns about, taken from its biggest
+		# turn: a walk cycle is a single hinge, and the fit needs to be a scalar one.
+		var axis := Vector3.ZERO
+		var biggest := 0.0
+		for k in range(count):
+			var rel: Quaternion = base.inverse() * (clip.track_get_key_value(t, k) as Quaternion)
+			if rel.get_angle() > biggest:
+				biggest = rel.get_angle()
+				axis = rel.get_axis()
+		if biggest <= 0.0001 or axis.length_squared() <= 0.0:
+			continue
+		var times := PackedFloat32Array()
+		var angles := PackedFloat32Array()
+		var mean := 0.0
+		for k in range(count):
+			times.append(clip.track_get_key_time(t, k))
+			var rel: Quaternion = base.inverse() * (clip.track_get_key_value(t, k) as Quaternion)
+			var angle := rel.get_angle()
+			angles.append(angle if rel.get_axis().dot(axis) >= 0.0 else -angle)
+			mean += angles[k]
+		mean /= float(count)
+		var cosines := PackedFloat32Array()
+		var sines := PackedFloat32Array()
+		for h in range(1, harmonics + 1):
+			var c := 0.0
+			var s := 0.0
+			for k in range(count):
+				var phase := TAU * float(h) * times[k] / clip.length
+				c += (angles[k] - mean) * cos(phase)
+				s += (angles[k] - mean) * sin(phase)
+			cosines.append(2.0 * c / float(count))
+			sines.append(2.0 * s / float(count))
+		for k in range(count):
+			var value := mean
+			for h in range(1, harmonics + 1):
+				var phase := TAU * float(h) * times[k] / clip.length
+				value += cosines[h - 1] * cos(phase) + sines[h - 1] * sin(phase)
+			clip.track_set_key_value(t, k, base * Quaternion(axis, value))
+
+
 ## The destination paths a clip would have to name to be playable on `body`:
 ## every track of `clip` whose path resolves under `body`. Returns the paths that
 ## do NOT -- the list a caller should see as empty before it plays anything.

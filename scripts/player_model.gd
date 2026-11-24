@@ -371,12 +371,7 @@ func _animate_body(delta: float) -> void:
 		# A body that was frozen and is not any more plays again, from wherever its clips
 	# had got to -- nothing is rewound.
 		_tree.active = true
-	var speed := 0.0
-	var ctrl := _look_controller()
-	if ctrl != null and ctrl.has_method("get_velocity"):
-		# The sim's velocity is blocks per TICK; the clips are timed in seconds.
-		var v: Vector3 = ctrl.get_velocity() * TICK_RATE
-		speed = Vector2(v.x, v.z).length()
+	var speed := _walk_speed()
 	# The walk amount: the tick's distance times 4, capped at 1, eased 40% a tick. It is
 	# the walk's amplitude AND its cadence, so a stop is the swing shrinking to nothing
 	# rather than one pose being replaced by another.
@@ -387,6 +382,21 @@ func _animate_body(delta: float) -> void:
 	_clip = "run" if _swing > 0.0 else "idle"
 	_tree.set(TREE_BLEND, _swing)
 	_tree.set(TREE_RUN_SCALE, _swing * _full_swing_rate())
+
+
+## The body's horizontal speed in blocks/s, read from whatever moves it: the
+## controller for the player's body, the movement sim for a mob's (scripts/goblin.gd
+## answers `get_velocity` too). The nearest ancestor that answers owns the body, so a
+## body with nothing moving it stands at 0 instead of borrowing the player's speed.
+func _walk_speed() -> float:
+	var n: Node = self
+	while n != null:
+		if n.has_method("get_velocity"):
+			# The sim's velocity is blocks per TICK; the clips are timed in seconds.
+			var v: Vector3 = n.get_velocity() * TICK_RATE
+			return Vector2(v.x, v.z).length()
+		n = n.get_parent()
+	return 0.0
 
 
 ## Clip lengths per second the run has to play at for its phase to advance the way

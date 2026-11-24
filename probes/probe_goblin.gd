@@ -106,7 +106,7 @@ func _run() -> void:
 	if not body.global_position.is_equal_approx(want_body):
 		_fail("goblin body at %s, expected %s" % [body.global_position, want_body])
 
-	var model := body.get_node_or_null(NodePath("Model")) as MeshInstance3D
+	var model := body.get_node_or_null(NodePath("Model")) as Node3D
 	if model == null:
 		_fail("no Model child under the goblin body")
 		quit(1)
@@ -114,44 +114,69 @@ func _run() -> void:
 	if not model.position.is_equal_approx(BODY_OFFSET):
 		_fail("model offset %s, expected %s" % [model.position, BODY_OFFSET])
 
-	# The obj's own mesh, and its feet on the model's origin (aabb.y == 0), so the
-	# body position above really is where it stands.
-	if model.mesh == null:
-		_fail("goblin has no mesh")
-	else:
-		var aabb: AABB = model.mesh.get_aabb()
-		if absf(aabb.position.y) > 0.01:
-			_fail("mesh feet are at y=%.3f, not 0 (the goblin would float or sink)" % aabb.position.y)
-		if absf(aabb.size.y - 1.44) > 0.02:
-			_fail("mesh is %.3f tall, expected ~1.44 blocks" % aabb.size.y)
+	# The obj's eleven surfaces split into the six parts it was authored as, each hung
+	# from its own joint -- the rig the player's own clips turn (goblin_model.gd).
+	var parts := {}
+	for part in ["arm", "arm2", "leg", "leg2", "torso", "head"]:
+		var mi := model.get_node_or_null(NodePath(part)) as MeshInstance3D
+		if mi == null or mi.mesh == null:
+			_fail("the goblin's rig has no `%s` part" % part)
+			continue
+		parts[part] = mi
+	if parts.size() != 6:
+		_fail("the rig has %d of 6 parts" % parts.size())
 
-	# The world's own light model, exactly as the player's body is drawn: the item
-	# shader over item_lighting.gdshaderinc, not an engine-lit StandardMaterial3D.
-	var mat := model.material_override as ShaderMaterial
-	if mat == null:
-		_fail("model has no ShaderMaterial override (the obj's .mtl is not in the tree)")
+	# Its feet on the model's origin (y == 0) and 1.44 tall, so the body position above
+	# really is where it stands -- measured over the parts, the only geometry there is.
+	var union := AABB()
+	var any := false
+	for part in parts:
+		var mi: MeshInstance3D = parts[part]
+		var box: AABB = (mi.transform * (mi.mesh as Mesh).get_aabb())
+		union = box if not any else union.merge(box)
+		any = true
+	if not any:
+		_fail("the rig has no geometry at all")
 	else:
-		if mat.shader == null or not String(mat.shader.resource_path).ends_with("item_shader.gdshader"):
-			_fail("material shader is not item_shader.gdshader (the world's light model)")
-		var albedo = mat.get_shader_parameter("albedo_texture")
-		if albedo == null:
-			_fail("material has no albedo texture")
-		elif not String((albedo as Texture2D).resource_path).ends_with("Goblin2.png"):
-			_fail("material texture is %s, not Goblin2.png" % (albedo as Texture2D).resource_path)
-		if not is_zero_approx(float(mat.get_shader_parameter("alpha_scissor"))):
-			_fail("alpha_scissor is not 0 (the model is opaque boxes, not a sprite)")
+		if absf(union.position.y) > 0.01:
+			_fail("rig feet are at y=%.3f, not 0 (the goblin would float or sink)" % union.position.y)
+		if absf(union.size.y - 1.44) > 0.02:
+			_fail("the rig is %.3f tall, expected ~1.44 blocks" % union.size.y)
 
-	# The cell it stands in, pushed onto its instance the way the body does it, and
-	# the world's own light uniforms pushed onto the material every frame.
-	var light_var = model.get_instance_shader_parameter("item_light")
-	if typeof(light_var) != TYPE_VECTOR4:
-		_fail("item_light was never set on the model (got %s)" % str(light_var))
-	else:
-		var light: Vector4 = light_var
-		if not light.is_equal_approx(FAKE_MANAGER.CELL_LIGHT):
-			_fail("item_light is %s, not the cell's %s" % [light, FAKE_MANAGER.CELL_LIGHT])
+	# The world's own light model on every part, exactly as the player's body is drawn:
+	# the item shader over item_lighting.gdshaderinc, not an engine-lit
+	# StandardMaterial3D, and the goblin's own picture rather than the skin.
+	var lit := 0
+	for part in parts:
+		var mi: MeshInstance3D = parts[part]
+		for surface in range((mi.mesh as Mesh).get_surface_count()):
+			var mat := mi.get_surface_override_material(surface) as ShaderMaterial
+			if mat == null:
+				continue
+			lit += 1
+			if mat.shader == null or not String(mat.shader.resource_path).ends_with("item_shader.gdshader"):
+				_fail("`%s`'s shader is not item_shader.gdshader (the world's light model)" % part)
+			var albedo = mat.get_shader_parameter("albedo_texture")
+			if albedo == null:
+				_fail("`%s` has no albedo texture" % part)
+			elif not String((albedo as Texture2D).resource_path).ends_with("Goblin2.png"):
+				_fail("`%s`'s texture is %s, not Goblin2.png" % [part, (albedo as Texture2D).resource_path])
+			if not is_zero_approx(float(mat.get_shader_parameter("alpha_scissor"))):
+				_fail("`%s`'s alpha_scissor is not 0 (the model is opaque boxes, not a sprite)" % part)
+	if lit == 0:
+		_fail("no part of the rig wears the world's light material")
+
+	# The world's own light uniforms pushed onto that material every frame, and the cell
+	# the goblin stands in pushed onto each part's instance the way the body does it.
 	for i in 2:
 		await process_frame
+	for part in parts:
+		var mi: MeshInstance3D = parts[part]
+		var light_var = mi.get_instance_shader_parameter("item_light")
+		if typeof(light_var) != TYPE_VECTOR4:
+			_fail("`%s` never got item_light (got %s)" % [part, str(light_var)])
+		elif not (light_var as Vector4).is_equal_approx(FAKE_MANAGER.CELL_LIGHT):
+			_fail("`%s`'s item_light is %s, not the cell's %s" % [part, light_var, FAKE_MANAGER.CELL_LIGHT])
 	if int(chunk_manager.lighting_pushes) < 1:
 		_fail("apply_item_lighting was never pushed onto the goblin's material")
 	if int(chunk_manager.light_calls) < 1:

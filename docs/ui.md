@@ -532,13 +532,18 @@ being resampled by a different fraction at each scale.
   physics frames as well as between sim ticks (`Engine.get_physics_interpolation_fraction()`), so
   it moves at the frame rate instead of holding still for the frames a physics tick does not
   reach. `PlayerController::nearest_punch_target` takes the nearest body along the aim ray,
-  so several can share the group and the one under the crosshair is the one hit. It is lit by the WORLD, like
-  the player's body and the dropped items: `item_shader.gdshader` over `item_lighting.gdshaderinc`, with
-  `ChunkManager.apply_item_lighting` pushed onto its material every frame and the light of the cell its
-  middle is in on the per-instance `item_light`, eased over the same `LIGHT_EASE_TIME`. So it is dark in a
-  cave and warm beside a torch, and it can never disagree with the ground it stands on. It carries its own
-  texture (`Goblin2.png`) because the `.mtl` named by the obj is not in the tree, and the shader samples it
-  `filter_nearest`
+  so several can share the group and the one under the crosshair is the one hit. It is lit by the WORLD, and it moves like the player's body, because it IS
+  the player's body: `scripts/goblin_model.gd` extends `player_model.gd`, so a goblin wears the same
+  animation — the walk blended out of a rest pose by the walk amount, the idle added over it, the walk
+  amount read from the goblin's own `get_velocity` — and the same lit per-cell material, at its own
+  speed rather than the player's. What the goblin brings is its picture and its rig: the obj is ONE
+  mesh of eleven surfaces (Blockbench's own boxes), so the body splits them back into the six parts
+  they were authored as (`leg`, `leg2`, `torso`, `arm`, `arm2`, `head` — the ears, chin and nose ride
+  the head) and hangs each from its own joint: a leg at the top of its box (the hip), an arm at the
+  top on the torso's side (the shoulder), the torso and head at their own bottom centre. The parts are
+  named what the player's clips expect, so the goblin walks on those clips with no remap. It carries
+  its own texture (`Goblin2.png`) because the `.mtl` named by the obj is not in the tree, and the
+  shader samples it `filter_nearest`
 - `nav_routes.gd` — One drain of the planner's finished routes, shared by everything that asks for
   one: `ChunkManager.poll_paths()` empties its queue as it hands results back, so two pollers in
   one frame would take each other's routes. The table is keyed by job id, filled once per physics

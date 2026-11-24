@@ -407,7 +407,7 @@ and the water shader's, word for word, so the number describes all three. The gr
 body is printed but not asserted on, having no known albedo of its own: its luma went from 0.43 to
 0.31 across this change, which is the same overshoot coming off the terrain.
 
-The three goblin probes cover one entity, and each answers a different question.
+The four goblin probes cover one entity, and each answers a different question.
 `probe_goblin.gd` is headless and asks what the Spawn Goblin tool MAKES: an entity, not
 scenery — the body carries `scripts/goblin.gd` (the player's own movement sim plus the hearts) and
 stands in `pose_clone`, the group `PlayerController` punches; it is centred in the aimed cell
@@ -420,6 +420,18 @@ hearts are its own health and nothing is drawn over its head -- no `HealthBar` n
 window, and gone with the body at zero. It needs no world and no display:
 `probes/goblin_probe_world.gd` is one aim ray, the two light calls and a body with no world to move
 through, which is the whole `ChunkManager` surface the tool touches.
+
+`probe_goblin_anim.gd` is the body itself, and the only goblin probe that needs no world at all:
+the model is stood up under a stub host, so what it measures is the rig the spawn tool never touches
+— the obj's eleven surfaces split back into six hung parts, the feet on the floor with the model
+1.44 blocks tall, the hips at the tops of the leg boxes and the shoulders at 1.0 — and then the
+player's own clips turning it. Standing, the legs are still and the arms' roll moves; a quarter
+block a tick (5 blocks/s, the speed a full swing wants) strides 80.2 degrees of leg with the two
+legs opposed and the idle's roll still riding the arms; losing that speed settles the legs onto
+rest while the roll carries straight through, so a stop is the amplitude shrinking and never the
+idle being re-entered. It also pins that the speed comes from the GOBLIN: `_walk_speed` reads the
+nearest ancestor that answers `get_velocity`, so a goblin walks its own pace with the player
+standing still beside it.
 
 `probe_goblin_punch.gd` is the windowed one, because a punch is a mouse press: LMB →
 `try_punch_dummy` → the nearest body along the eye ray among ALL of `pose_clone` →

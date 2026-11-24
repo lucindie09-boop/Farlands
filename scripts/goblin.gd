@@ -117,16 +117,19 @@ const HIT_PAUSE_TICKS := 40
 ## behaviour moves on -- and spreading one over a frame means scaling by this.
 const TICK_RATE := 20.0
 ## Facing eases this much per tick toward the yaw it wants (a quarter turn in about
-## half a second). Only walking sets that yaw: an idle goblin turns its HEAD, not its
-## body (see LOOK_CHANCE).
+## half a second). Walking sets that yaw to the travel direction, and a look the neck
+## cannot reach drags it round too (BODY_MAX_YAW); nothing else turns the body.
 const TURN_EASE := 0.18
-## What a standing goblin looks at, and how often: another roll, 1 in 40 a tick, which is
-## a glance about every 2 s, to a point within LOOK_RANGE of it and mostly BELOW its eyes
+## What a standing goblin looks at, and how often: a roll, 1 in 120 a tick, which is a
+## glance about every 6 s, to a point within LOOK_RANGE of it and mostly BELOW its eyes
 ## (LOOK_DOWN_LO..LOOK_UP_HI), which is the tilt that reads as an animal scanning the
 ## floor. It is a GLANCE: held for LOOK_HOLD ticks and then the head eases back to
 ## straight ahead, and the roll starts over -- so the head's resting pose, by far most of
-## the time, is looking where the goblin is going.
-const LOOK_CHANCE := 1.0 / 40.0
+## the time, is looking where the goblin is going. The roll is what sets how busy it looks,
+## and 1 in 40 (a glance every 2 s, with a 1-2 s hold) is a head that is never still: a
+## glance every 6 s against that hold leaves it resting most of the time and moving now and
+## then, which is the difference between watching a mob think and watching it twitch.
+const LOOK_CHANCE := 1.0 / 120.0
 const LOOK_RANGE := 6.0
 ## How far the head may sit off the body before the BODY is dragged along: 35 degrees, the
 ## player's own limit for its body yaw (kBodyMaxYaw in player_controller_internal.hpp), so a

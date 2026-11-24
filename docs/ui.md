@@ -531,7 +531,7 @@ being resampled by a different fraction at each scale.
   0.7× sneaking up; only the wander is used today, the rest are one assignment away): the sim steps up 0.6 by
   itself, so a full block is a jump it presses when the collision half a pace ahead says so; it stops
   and stands again on arrival or when the route is dropped for being stuck, and a punch drops the
-  route outright and pauses the wander. **Standing, it looks about**: a 1-in-40-a-tick roll picks a
+  route outright and pauses the wander. **Standing, it looks about**: a 1-in-120-a-tick roll (a glance every 6 s) picks a
   point within 6 blocks of it, mostly **below** its eyes (a near, low point is the 20-odd-degree
   downward glance), and **the head turns to it** — yaw then pitch about the model's own axes,
   clamped to 75° either side of the body and 40° up or down, and **turned at 10° a tick** — a

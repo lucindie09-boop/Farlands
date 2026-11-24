@@ -521,16 +521,21 @@ being resampled by a different fraction at each scale.
   state and **not drawn**: nothing floats over its head, so a goblin behind a hill is a goblin behind
   a hill rather than red dots over the terrain. Damage and knockback share one gate: a hit the hurt
   window resists takes nothing. At zero health the body is freed. 
-  It also **wanders** when it has nothing to do: after a few seconds of standing it picks a random
-  column a few blocks away and walks there along a route from the engine's ground planner (on a
-  worker thread), wishing along it at its own speed: **Minecraft's 0.30, a spider's** — the value is
+  It also **wanders** when it has nothing to do, and the way the game's own mobs do it: it stands
+  still most of the time, with a stroll on a **1-in-120-a-tick roll** rather than a timer — about
+  every 6 s on average, but geometric, so half the waits are over 4 s and a fifth over 12. It then
+  picks a random column a few blocks away and walks there along a route from the engine's ground
+  planner (on a worker thread), wishing along it at its own speed: **Minecraft's 0.30, a spider's** — the value is
   per-tick acceleration, so it is 2.86 blocks/s (0.66 of the player's 4.317-block walk) — scaled by
   what it is doing (`speed_state`: 0.6× wandering, 1.0× chasing, 1.1× heading for loot, 1.3× fleeing,
   0.7× sneaking up; only the wander is used today, the rest are one assignment away): the sim steps up 0.6 by
   itself, so a full block is a jump it presses when the collision half a pace ahead says so; it stops
   and stands again on arrival or when the route is dropped for being stuck, and a punch drops the
-  route outright and pauses the wander. Its facing is the model's own yaw eased toward the way it is
-  walking -- eased once per FRAME, not once per tick, so a small object does not turn in 20 Hz
+  route outright and pauses the wander. **Standing, it looks about**: a 1-in-40-a-tick roll picks a
+  point within 6 blocks of it and **the head turns to it** — clamped to 75° either side of the body
+  and 40° up or down, and eased over about 0.12 s — while the body stays exactly where it is, which
+  is the difference between a mob looking at something and a mob spinning on the spot. Its facing
+  when it DOES walk is the model's own yaw eased toward the way it is walking -- eased once per FRAME, not once per tick, so a small object does not turn in 20 Hz
   steps -- never the body's, whose box is what the punch is tested against. It is drawn between
   physics frames as well as between sim ticks (`Engine.get_physics_interpolation_fraction()`), so
   it moves at the frame rate instead of holding still for the frames a physics tick does not

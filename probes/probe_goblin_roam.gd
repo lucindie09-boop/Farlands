@@ -162,15 +162,28 @@ func _run() -> void:
 		_fail("it stood on nothing for %d frames" % unsupported)
 	if absf(motion.x) > 0.01 or absf(motion.z) > 0.01:
 		_fail("it kept walking after the route ended (motion %s)" % motion)
-	if int(body.get("_idle_ticks")) <= 0:
-		_fail("it did not settle into an idle wait (idle %d)" % int(body.get("_idle_ticks")))
+	# ...and then it stands there. The next stroll is a 1-in-120-a-tick roll, not a wait,
+	# so the wander is silenced before this is measured -- otherwise the check would be a
+	# coin toss on the roll landing inside the window it watches.
+	body.set("_idle_ticks", SILENCED_IDLE)
+	var held := body.global_position
+	for i in 120:
+		await process_frame
+	var drifted := Vector2(body.global_position.x - held.x, body.global_position.z - held.z).length()
+	if drifted > 0.05:
+		_fail("a silenced goblin wandered anyway (%.2f blocks)" % drifted)
 
 	# The wander's own start, which is the half the game actually runs and the half a
-	# probe that drives `walk_to` by hand never reaches: the idle timer running out has
-	# to become a stroll, and the stroll has to be somewhere it can stand. A target
-	# aimed at its own feet resolved to the inside of the hill and left it standing.
+	# probe that drives `walk_to` by hand never reaches: the goblin's own pick has to
+	# become a stroll, and the stroll has to be somewhere it can stand. A target aimed at
+	# its own feet resolved to the inside of the hill and left it standing. Driven by
+	# `stroll_now` rather than by waiting on the roll, because the roll is a chance and a
+	# probe may not hang its verdict on one.
 	var spot := body.global_position
 	body.set("_idle_ticks", 0)
+	if int(body.call("stroll_now")) == 0:
+		_fail("stroll_now asked the planner for nothing")
+	body.set("_idle_ticks", SILENCED_IDLE)
 	var moved := 0.0
 	begin = Engine.get_physics_frames()
 	while Engine.get_physics_frames() - begin < 900:

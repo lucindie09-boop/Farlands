@@ -43,9 +43,17 @@ const MAX_HEALTH := 12.0
 ## Vanilla's empty fist: one half-heart per hit.
 const PUNCH_DAMAGE := 1.0
 
-## Standing still between strolls, in ticks (3 to 7 seconds).
-const IDLE_MIN_TICKS := 60
-const IDLE_MAX_TICKS := 140
+## An idle goblin stands still most of the time, and it is not on a timer: a stroll is a
+## CHANCE, 1 in 120 a tick, which is how the game's own mobs wander. That is a stroll
+## every 6 s on average, but the waits are geometric, not fixed -- half of them are over
+## 4 s and a fifth over 12 -- so what it reads as is an animal standing about and
+## occasionally going somewhere, rather than one pacing on a beat.
+const STROLL_CHANCE := 1.0 / 120.0
+## A hold, in ticks, that is NOT the game's own: it keeps a goblin that has just failed to
+## find a route from rolling again on the very next tick. It expires into the chance
+## above, so a hold of 0 simply means "may roll at once".
+const IDLE_HOLD_MIN := 20
+const IDLE_HOLD_MAX := 100
 ## How far away the place it picks may be, in blocks. The near bound keeps it from
 ## choosing the cell it is already standing on every time.
 const STROLL_MIN_RADIUS := 3.0
@@ -106,10 +114,17 @@ const HIT_PAUSE_TICKS := 40
 ## behaviour moves on -- and spreading one over a frame means scaling by this.
 const TICK_RATE := 20.0
 ## Facing eases this much per tick toward the yaw it wants (a quarter turn in about
-## half a second), and an idle goblin picks a new thing to look at every so often.
+## half a second). Only walking sets that yaw: an idle goblin turns its HEAD, not its
+## body (see LOOK_CHANCE).
 const TURN_EASE := 0.18
-const LOOK_MIN_TICKS := 40
-const LOOK_MAX_TICKS := 120
+## What a standing goblin looks at, and how often: another roll, 1 in 40 a tick, which is
+## a look about every 2 s, to a point within LOOK_RANGE of it and around its own height.
+## The point is held for LOOK_HOLD ticks, so the head settles on it instead of chasing a
+## new one every time the roll lands.
+const LOOK_CHANCE := 1.0 / 40.0
+const LOOK_RANGE := 6.0
+const LOOK_HOLD_MIN := 100
+const LOOK_HOLD_MAX := 120
 
 ## Which SPEED_STATES entry is in force. A chase, a loot run, a flee or a sneak
 ## approach sets this and nothing else: the pace, the stride and the animation all
@@ -133,7 +148,8 @@ var _wish := Vector3.ZERO
 var _jump := false
 
 # Wander state. `_job` is the plan in flight (0 when none), `_route` the support
-# cells it came back with, `_next` the one being walked toward.
+# cells it came back with, `_next` the one being walked toward. `_idle_ticks` is the
+# hold described at IDLE_HOLD_MIN; a probe can pin it high to keep the goblin standing.
 var _idle_ticks := 0
 var _job := 0
 var _route: Array[Vector3] = []
@@ -148,7 +164,10 @@ var _model: Node3D = null
 var _yaw := 0.0
 var _yaw_target := 0.0
 var _yaw_ready := false
+## Ticks left holding the point it is looking at, and the point itself (world space, for
+## the head to turn to -- the model's own `look_at_point`).
 var _look_ticks := 0
+var _look_point := Vector3.ZERO
 
 
 func _ready() -> void:
@@ -161,7 +180,7 @@ func _ready() -> void:
 		_last_ticks = int(_sim.get_tick_count())
 		_drawn_prev = global_position
 		_drawn_cur = global_position
-	_idle_ticks = randi_range(IDLE_MIN_TICKS, IDLE_MAX_TICKS)
+	_idle_ticks = randi_range(IDLE_HOLD_MIN, IDLE_HOLD_MAX)
 
 
 func _physics_process(delta: float) -> void:
@@ -210,10 +229,15 @@ func _advance_ticks(ticks: int) -> void:
 	if _route.is_empty():
 		if _idle_ticks > 0:
 			_idle_ticks = maxi(_idle_ticks - ticks, 0)
-		_look_ticks -= ticks
-		if _look_ticks <= 0:
-			_look_ticks = randi_range(LOOK_MIN_TICKS, LOOK_MAX_TICKS)
-			_yaw_target += randf_range(-1.7, 1.7)
+		# Both rolls are per TICK, so they are stated per tick and scaled by the ticks this
+		# call covers -- a frame rate can never make a goblin wander more.
+		_look_ticks = maxi(_look_ticks - ticks, 0)
+		if _look_ticks == 0 and randf() < LOOK_CHANCE * ticks:
+			_look_ticks = randi_range(LOOK_HOLD_MIN, LOOK_HOLD_MAX)
+			_pick_look()
+		if _idle_ticks == 0 and _job == 0 and _hit_pause == 0 \
+				and bool(_sim.is_on_ground()) and randf() < STROLL_CHANCE * ticks:
+			_stroll()
 	else:
 		var gap := _flat(_route[_next], _sim.get_tick_position()).length()
 		if gap < _closest - 0.02:
@@ -237,20 +261,42 @@ func _steer() -> void:
 	if not _route.is_empty():
 		_walk()
 		return
-	# Nothing to do: ask for somewhere, but only from standing on the ground. A body
-	# in the air is falling, not looking for a stroll.
-	if _job != 0 or _hit_pause > 0 or _idle_ticks > 0 or not bool(_sim.is_on_ground()):
-		return
-	_stroll()
+	# Nothing to do. Whether it WANTS somewhere to be is the roll in `_advance_ticks`'
+	# business, on the tick clock and as a chance -- standing here is the answer most
+	# frames, which is most of what an idle mob does.
 
 
 ## Somewhere to be: a random column a few blocks off, handed to the planner as a point
 ## rather than as a direction, because the planner is what knows where the ground is.
 ## The target is aimed STROLL_UP above the goblin, not at its feet -- see that constant.
-func _stroll() -> void:
+func _stroll() -> int:
 	var angle := randf() * TAU
 	var distance := randf_range(STROLL_MIN_RADIUS, STROLL_RADIUS)
-	walk_to(_sim.get_tick_position() + Vector3(cos(angle) * distance, STROLL_UP, sin(angle) * distance))
+	return walk_to(_sim.get_tick_position()
+		+ Vector3(cos(angle) * distance, STROLL_UP, sin(angle) * distance))
+
+
+## Set off on a stroll now, without waiting for the roll: a probe drives the same walk
+## this way, and a later "go there" has one entry point rather than two.
+## Returns the plan's job id, or 0 when nothing was asked.
+func stroll_now() -> int:
+	if _job != 0 or _sim == null or not bool(_sim.is_on_ground()) or _hit_pause > 0:
+		return 0
+	return _stroll()
+
+
+## A point to look at, within LOOK_RANGE of its own feet and around its own height. The
+## game picks a random spot around a standing mob the same way, and it is the HEAD that
+## turns to it: the body never turns on the spot, it only faces where it walks.
+func _pick_look() -> void:
+	var angle := randf() * TAU
+	var distance := randf_range(1.0, LOOK_RANGE)
+	_look_point = _sim.get_tick_position() + Vector3(cos(angle) * distance,
+		randf_range(-1.0, 1.0), sin(angle) * distance)
+	if _model == null:
+		_model = get_node_or_null(NodePath("Model")) as Node3D
+	if _model != null and _model.has_method("look_at_point"):
+		_model.call("look_at_point", _look_point)
 
 
 ## Ask the planner for a route to `target` and walk it when it arrives. Public so a
@@ -266,7 +312,9 @@ func walk_to(target: Vector3) -> int:
 	_job = int(_chunk_manager.request_path(_sim.get_tick_position(), target,
 		STROLL_EXPANSIONS, STROLL_MAX_MS))
 	if _job == 0:
-		_idle_ticks = randi_range(IDLE_MIN_TICKS, IDLE_MAX_TICKS)
+		# Nothing was asked (the planner is busy or refused): hold off a moment rather than
+		# rolling again on the next tick.
+		_idle_ticks = FAILED_RETRY_TICKS
 	return _job
 
 
@@ -307,6 +355,9 @@ func _walk() -> void:
 	var dir := to.normalized()
 	_wish = dir
 	_yaw_target = atan2(-dir.x, -dir.z)
+	# Walking, it looks where it is going: the look-around is for standing, and a head
+	# still turned at whatever it was looking at half a minute ago reads as broken.
+	_pick_walk_look(dir)
 	# The sim climbs a step of up to 0.6 by itself; a full block it does not, so the step
 	# is seen half a pace ahead and the jump control is pressed for this frame. The answer
 	# is the world's own collision, not a guess at block ids, so a slab and a stair count
@@ -315,11 +366,20 @@ func _walk() -> void:
 		_jump = true
 
 
+## The head follows the walk: a point a couple of blocks along the direction of travel,
+## so the body's own turn and the head's agree while it is going somewhere.
+func _pick_walk_look(dir: Vector3) -> void:
+	_look_point = _sim.get_tick_position() + Vector3(dir.x * 2.0, 0.0, dir.z * 2.0)
+	if _model != null and _model.has_method("look_at_point"):
+		_model.call("look_at_point", _look_point)
+
+
 func _stop_walking() -> void:
 	_abandon_route()
 	# The stroll ends by asking for no further step; the sim's own friction walks the
-	# body to a stop from there.
-	_idle_ticks = randi_range(IDLE_MIN_TICKS, IDLE_MAX_TICKS)
+	# body to a stop from there. No hold follows it -- the next stroll is the roll's
+	# business, which is what makes the standing spells geometric rather than paced.
+	_idle_ticks = 0
 
 
 ## Drop the route and any plan in flight, and touch nothing else: this is also what a

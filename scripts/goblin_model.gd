@@ -42,6 +42,36 @@ const PART_SURFACES := {
 ## added to the tree (the rig is built from it at `_ready`).
 var source_mesh: Mesh = null
 
+## How far a neck turns: 75 degrees either side of where the body faces, and 40 up or
+## down. Past that the goblin would be looking out of the back of its head, and the game
+## clamps a mob's look the same way rather than letting a goal spin a head round.
+const HEAD_YAW_LIMIT := 1.309
+const HEAD_PITCH_LIMIT := 0.698
+## Seconds for the head to close on a new point, about 10 degrees a tick -- a look that
+## snaps is a teleport, one that crawls reads as a machine scanning.
+const HEAD_EASE := 0.12
+
+## Where the head is looking (a world point), and this frame's length, kept here so the
+## parent's `_process(delta)` can drive an ease that is stated in seconds.
+var _look_point := Vector3.ZERO
+var _head_delta := 1.0 / 60.0
+## Until the goblin picks something to look at, the head keeps the rig's own rest pose:
+## the point starts at the origin, and a head that turned toward THAT would be facing a
+## spot in the world it has no business knowing about.
+var _has_look := false
+
+
+## A world point the head should look at (a random point around the goblin while it
+## stands, the way it is walking while it walks). `goblin.gd` is the only caller.
+func look_at_point(point: Vector3) -> void:
+	_look_point = point
+	_has_look = true
+
+
+func _process(delta: float) -> void:
+	_head_delta = delta
+	super._process(delta)
+
 
 func _ready() -> void:
 	# The parts have to exist before the parent does anything: it captures their rest
@@ -59,11 +89,27 @@ func _skin_albedo() -> Texture2D:
 ##
 ## The parent's head look is the PLAYER's: with no controller in the ancestor chain it
 ## falls back to the scene's Player node, which would turn every goblin's face toward
-## wherever the player is looking. A goblin looks with its model's yaw (`goblin.gd`'s
-## look-around, which turns the whole body every few seconds), so the head keeps the
-## model's own rest rotation and the walk's two layers are the only things that move it.
+## wherever the player is looking. A goblin's head instead turns to the point its own
+## look-around picked (`goblin.gd`'s LOOK_CHANCE, and the way it is walking when it is),
+## while its body only ever faces where it walks -- which is the difference between a mob
+## looking at something and a mob spinning on the spot.
 func _track_head_look() -> void:
-	pass
+	if _head == null or not _has_look:
+		return
+	var to := _look_point - _head.global_position
+	if to.length_squared() < 0.01:
+		return
+	# In the head's parent's frame, so the model's yaw and the body's stillness are both
+	# already accounted for: this quaternion is the head's own turn relative to the rig.
+	var parent := _head.get_parent() as Node3D
+	if parent == null:
+		return
+	var local: Vector3 = parent.global_transform.basis.inverse() * to
+	var yaw := clampf(atan2(-local.x, -local.z), -HEAD_YAW_LIMIT, HEAD_YAW_LIMIT)
+	var pitch := clampf(atan2(local.y, Vector2(local.x, local.z).length()),
+		-HEAD_PITCH_LIMIT, HEAD_PITCH_LIMIT)
+	var want := Quaternion(Vector3.UP, yaw) * Quaternion(Vector3.RIGHT, pitch)
+	_head.quaternion = _head.quaternion.slerp(want, 1.0 - exp(-_head_delta / HEAD_EASE))
 
 
 ## Eleven surfaces -> six hung parts, each its own joint.

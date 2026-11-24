@@ -182,6 +182,35 @@ func _run() -> void:
 	_ok("stop: the idle is not rewound -- it breathes straight through",
 		stop_hi - stop_lo > 0.05, "roll %.2f to %.2f deg" % [stop_lo, stop_hi])
 
+	# --- the idle look: the head turns, the body does not ----------------------
+	# A standing mob looks at things: the point is near it, the head turns to it inside
+	# what a neck allows, and the body -- which only faces where it walks -- does not move.
+	var head := parts["head"] as Node3D
+	var model_yaw := model.rotation.y
+	var eye := model.global_position + Vector3(0.0, 1.0, 0.0)
+	model.call("look_at_point", eye + Vector3(2.0, 0.0, -2.0))
+	for i in 90:
+		await process_frame
+	var turned := rad_to_deg(head.quaternion.get_euler().y)
+	_ok("look: the head turns to the point it was given",
+		absf(turned) > 30.0 and absf(turned) < 60.0, "%.1f deg off the rig's rest" % turned)
+	_ok("look: the body does not turn with it", is_equal_approx(model.rotation.y, model_yaw),
+		"model yaw %.3f" % model.rotation.y)
+	# Behind it, a neck clamps rather than following the point round.
+	model.call("look_at_point", eye + Vector3(0.0, 0.0, 3.0))
+	for i in 90:
+		await process_frame
+	turned = rad_to_deg(head.quaternion.get_euler().y)
+	_ok("look: a point behind it is clamped to what a neck does",
+		absf(turned) > 60.0 and absf(turned) < 76.0, "%.1f deg" % turned)
+	# Straight ahead again: it settles back onto the rig's own rest.
+	model.call("look_at_point", eye + Vector3(0.0, 0.0, -3.0))
+	for i in 120:
+		await process_frame
+	turned = rad_to_deg(head.quaternion.get_euler().y)
+	_ok("look: and it comes back to rest when the look comes back ahead",
+		absf(turned) < 5.0, "%.1f deg" % turned)
+
 	host.queue_free()
 	print("PROBE goblin animation: %d failure(s)" % _failures)
 	quit(1 if _failures > 0 else 0)

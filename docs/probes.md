@@ -117,7 +117,7 @@ comment, with the claim each one backs:
 | `probe_item_face_shade.gd` | An item's face shade does not snap while the body turns: the include's arithmetic stays within 1% over a 0.25-degree sweep of the normal, and a block turned in front of a still camera barely moves the frame (see below) |
 | `probe_item_light_smooth.gd` | The item light model's step: a staged one-frame relight of the held item's/arm's cell, of a dropped item's cell and of the player's own body's cell moves the `item_light` the mesh is handed over ~0.35 s instead of one frame |
 | `probe_body_light.gd` | The player's own body is lit by the world's light, not the engine's: its rendered luma equals the luma of the pixels it is drawn over, it follows the sun down to midnight, and the body and world share the same neutral white-overhead, warm-at-the-horizon sky light |
-| `probe_player_anim.gd` | The body's ported pose — idle, walk, sprint, jump/fall, sneak, swim — and the live body it is applied to (see below) |
+| `probe_player_anim.gd` | The live body plays its two clips (idle standing with the arms swaying, run walking) and every track of both lands on a limb; the parked pose port is still measured state by state (see below) |
 | `probe_sky_brightness.gd` | What a fully sky-lit surface renders AT, against its own albedo: the body is handed a flat known grey (1x1, no atlas to guess from), the frame is read back per albedo, and each one is held to the model's own claim — never above its own texel, and not far below it |
 | `probe_item_size.gd` | A dropped item is not cell-sized: a cube's body and drawn mesh are both half a block, a slab and a stair keep their own shape at that scale, a sprite keeps its silhouette, and a stack of more than one is both drawn and solved bigger by the capped log2 curve (1.25x at 2 through 2x from sixteen), mesh and body one box at every count |
 | `probe_item_merge.gd` | Two drops of one kind next to each other become one pile: the counts add up to the 64 cap, the fuller keeps its place, body and mesh take the count's own size, motions combine only when both move, and the drawn size pops past the new one and settles back (at half strength once the pile is already at its largest) |
@@ -304,14 +304,15 @@ A few of those rows keep their detail here, because a table cell that long is an
   few percent.
 - `probe_item_light_smooth.gd` — the eased `item_light` is read back OFF THE INSTANCE the
   shader sees, so the number measured is the one being drawn rather than the one assigned.
-- `probe_player_anim.gd` — the body's pose is measured twice. The maths, state by state: idle
-  (the old clip's 3.4° of arm sway, still legs), walk (60° of opposed stride, each arm against its
-  own leg), sprint (a longer stride and the lean into it), jump and fall (a different shape each,
-  the legs split and the arms up), sneak (chest forward, stride all but gone), swim (the paddle),
-  and a stop that decays over its own frames rather than cutting. The body: the live arms sway
-  while it stands on the floor, a pose handed to it is applied in degrees about the rig's own
-  axis, and the K-key pose clone stays frozen — `skip_head_look` gates the body pose as well as
-  the head, or the dummy would breathe while it is being punched.
+- `probe_player_anim.gd` — the body is measured, and then the parked port it no longer uses. The
+  body: exactly two clips, `idle` and `run`, and every track of both resolves on this rig (a track
+  that names no limb plays as no motion at all, silently); standing on the floor it is playing the
+  idle and its arms are swaying; and the K-key pose clone stays frozen — `skip_head_look` stops the
+  clip player as well as the head, or the dummy would breathe while it is being punched.
+  `scripts/body_animator.gd`, the hand-port the clips replaced, is a pure function of its inputs,
+  so it is still measured state by state: idle, walk (60° of opposed stride, each arm against its
+  own leg), sprint, jump and fall, sneak, swim, and a stop that decays over its own frames rather
+  than cutting. Nothing in the game calls it.
 - `probe_menu.gd` — the curtain is asked what its bodies did, rather than watched, because the
   claim is physical: 96 of them are `RigidBody2D`, they are tumbling ten physics frames in, and
   by the frame the curtain reports `covered` every one of them has landed. The pile is measured,

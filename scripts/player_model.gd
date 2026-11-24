@@ -20,16 +20,35 @@ const ITEM_SHADER: Shader = preload("res://Assets/shaders/item_shader.gdshader")
 # probes/probe_item_light_smooth.gd holds all of them to it.
 const LIGHT_EASE_TIME := 0.15
 
-# The body's pose, per frame: a hand-port of FA+Player's signature moves
-# (scripts/body_animator.gd). It is code rather than an Animation clip because the
-# pack it is ported from is code too -- its CEM files recompute every limb from
-# live state each frame -- and because a walk has to follow the speed the body is
-# actually moving at, which a clip of one length cannot. The credit and the
-# reasoning are in docs/gui-notes.md.
-const BodyAnimator := preload("res://scripts/body_animator.gd")
-# The rig parts the animator drives, in its own channel names. The head is not
-# among them: _track_head_look owns it.
-const RIG_PARTS := ["arm", "arm2", "leg", "leg2", "torso"]
+# The body's two clips, and the only two it plays: `Idle.anim` while it stands and
+# `Run.anim` while it walks. They are resources of their own (Assets/Animations)
+# rather than the model's imported clips, because a glb's clips only ever animate
+# the glb's own scene -- and `Run.anim` was authored on a differently named rig,
+# which is what CLIP_PATH_REMAP is for. The code pose this replaced
+# (scripts/body_animator.gd, a hand-port of FA+Player's moves) is parked with its
+# probe and its credit in docs/gui-notes.md.
+const CLIP_IDLE: Animation = preload("res://Assets/Animations/Idle.anim")
+const CLIP_RUN: Animation = preload("res://Assets/Animations/Run.anim")
+const ClipRetarget := preload("res://scripts/clip_retarget.gd")
+# Source track path -> this body's node for it. The clips name their second arm and
+# leg `arm.001`/`leg.001` (which the import turns into `arm_001`/`leg_001`), and this
+# body calls them `arm2`/`leg2`. The keys are the clip's own; only the path a track
+# finds its limb by is rewritten. The head is here so a clip that ever names it is
+# re-homed rather than dropped -- its rotation is the code's (see _clip_for_rig).
+const CLIP_PATH_MAP := {"arm": "arm", "arm_001": "arm2", "leg": "leg", "leg_001": "leg2",
+	"torso": "torso", "head": "head"}
+# Every part a clip may turn, and therefore every part a clip has to ACCOUNT for
+# (see _add_rest_tracks). The head is not here: _track_head_look owns it.
+# Horizontal speed, blocks/s, under which the body counts as standing.
+const STAND_SPEED := 0.15
+# Seconds a clip takes to cross into the other, so a stop is a settle rather than
+# a cut to a different pose.
+const CLIP_FADE := 0.15
+# Blocks/s the run cycle was authored at: the clip is played at this pace at that
+# speed and proportionally faster or slower with the body. The sim's velocity is
+# blocks per TICK, hence TICK_RATE.
+const RUN_REF_SPEED := 4.317
+const TICK_RATE := 20.0
 
 var uv_overlay_enabled := false
 var paint_color := Color.WHITE
@@ -41,11 +60,14 @@ var _uv_overlay_mat: ShaderMaterial
 var _paint_image: Image
 var _paint_texture: ImageTexture
 var _head: Node3D = null
-# The pose driver, the parts it moves, and their rest rotations -- composed onto
-# the rest pose every frame rather than accumulated, so no pose can drift.
-var _animator: BodyAnimator = null
-var _rig: Dictionary = {}
-var _rest_q: Dictionary = {}
+# The parts a clip may turn, in this body's own names (see _add_rest_tracks).
+const RIG_PARTS := ["arm", "arm2", "leg", "leg2", "torso"]
+
+# The player that turns the parts (built here rather than in the scene, so a body
+# used in a preview has one too).
+var _clip_player: AnimationPlayer = null
+# The clip it is playing now ("idle"/"run"), so a state change is one play() call.
+var _clip := ""
 
 # The world light model, when this body is in the world: one material for every
 # surface (the whole model is one skin), the cell's light eased between frames.
@@ -68,19 +90,62 @@ func _ready():
 	_head = find_child("head", true, false)
 
 
-## The parts this body animates, and the rotation each one rests at. The rest
-## quaternions are what every pose is composed onto: the animator hands out an
-## angle per channel and _apply_pose multiplies it onto the rest, so a frame that
-## writes nothing leaves the body exactly as the model was shipped.
+## The two clips that turn this body's parts.
+##
+## Each is re-homed onto THIS body (see _clip_for_rig), so two bodies -- the
+## player's and a preview's -- never share a resource whose paths were rewritten
+## for the other's rig.
 func _init_body_animation() -> void:
+	var library := AnimationLibrary.new()
+	library.add_animation("idle", _clip_for_rig(CLIP_IDLE, "Idle"))
+	library.add_animation("run", _clip_for_rig(CLIP_RUN, "Run"))
+	_clip_player = AnimationPlayer.new()
+	_clip_player.name = "Clips"
+	_clip_player.add_animation_library("", library)
+	add_child(_clip_player)
+
+
+## One clip, re-homed onto this body's own limb names.
+##
+## A clip is not portable as it stands: its tracks name NODES, and the rigs these two
+## came from call the second arm and leg `arm_001`/`leg_001` where this body has
+## `arm2`/`leg2`. `clip_retarget.gd` is the house answer, and it is what says out loud
+## when a track names a limb this body does not have -- a track left pointing at
+## nothing plays as no motion at all, silently. The head is named as the code's own,
+## because _track_head_look writes its quaternion every frame.
+func _clip_for_rig(source: Animation, clip_name: String) -> Animation:
+	var clip := ClipRetarget.retarget(source, CLIP_PATH_MAP, self, 1.0, Quaternion.IDENTITY,
+		PackedStringArray(["head"]))
+	clip.resource_name = clip_name
+	# Both clips are cycles: one that ends is a body frozen mid-stride, and `Idle.anim`
+	# was saved without a loop because nothing had played it yet.
+	clip.loop_mode = Animation.LOOP_LINEAR
+	_add_rest_tracks(clip)
+	return clip
+
+
+## Every part this clip does not move, held at its rest rotation.
+##
+## A clip animates only the limbs it has tracks for, and an `AnimationPlayer` leaves
+## every other property exactly as the previous clip left it -- so stopping a walk
+## under `Idle.anim`, which names nothing but the two arms, froze the legs at their
+## last stride pose and left the body standing mid-step. One key at the rest rotation
+## makes each clip the WHOLE pose: a switch between them cannot inherit a limb from
+## the other, and a leg crossing from the run to the idle eases back to rest over the
+## blend instead of snapping there.
+func _add_rest_tracks(clip: Animation) -> void:
+	var named := {}
+	for i in clip.get_track_count():
+		named[str(clip.track_get_path(i))] = true
 	for part in RIG_PARTS:
+		if named.has(part):
+			continue
 		var node := find_child(part, true, false) as Node3D
 		if node == null:
-			print("player_model: no '%s' on this body -- it will not be posed" % part)
 			continue
-		_rig[part] = node
-		_rest_q[part] = node.quaternion
-	_animator = BodyAnimator.new()
+		var t := clip.add_track(Animation.TYPE_ROTATION_3D)
+		clip.track_set_path(t, NodePath(String(get_path_to(node))))
+		clip.track_insert_key(t, 0.0, node.quaternion)
 
 
 func _process(delta: float) -> void:
@@ -88,51 +153,41 @@ func _process(delta: float) -> void:
 	# standing in the world like any other body, so it is lit like one.
 	_push_world_lighting(delta)
 	if skip_head_look:
-		# ...and a pose clone is frozen: no head look AND no body pose.
+		# ...and a pose clone is frozen: no head look AND no body clip. The clip
+		# player is stopped rather than merely skipped, or a body frozen after it
+		# had been walking would keep walking.
+		if _clip_player != null and _clip_player.is_playing():
+			_clip_player.stop()
+		_clip = ""
 		return
 	_animate_body(delta)
 	_track_head_look()
 
 
-## One frame of pose from what the sim is doing.
+## Which clip is playing: `run` while the body is moving, `idle` while it stands.
 ##
-## A body in a preview has no controller in its ancestry (skin maker, settings
-## gallery), so it gets the idle's sway and nothing else -- which is right: there
-## is no movement there to animate.
-func _animate_body(delta: float) -> void:
-	if _animator == null:
+## A body with no controller in its ancestry (the skin maker and settings gallery
+## previews put one in a SubViewport of their own) has no speed to read, so it stands
+## at 0 -- and those previews are frozen anyway (skip_head_look), so they play nothing
+## at all. A preview is a still; the clip is for a body in the world.
+##
+## The run cycle is one length, so it is played at the pace the body is actually
+## moving at; a body creeping along at a sneak's pace steps slowly through the same
+## clip instead of running on the spot.
+func _animate_body(_delta: float) -> void:
+	if _clip_player == null:
 		return
 	var speed := 0.0
-	var vertical := 0.0
-	var on_floor := true
-	var in_water := false
-	var sneaking := false
-	var sprinting := false
 	var ctrl := _look_controller()
 	if ctrl != null and ctrl.has_method("get_velocity"):
-		# The sim's velocity is blocks per TICK; the animator works in blocks per
-		# second, so one walk cycle is one speed everywhere.
-		var v: Vector3 = ctrl.get_velocity() * BodyAnimator.TICK_RATE
+		# The sim's velocity is blocks per TICK; the clips are timed in seconds.
+		var v: Vector3 = ctrl.get_velocity() * TICK_RATE
 		speed = Vector2(v.x, v.z).length()
-		vertical = v.y
-		on_floor = ctrl.is_on_floor() if ctrl.has_method("is_on_floor") else true
-		in_water = ctrl.is_in_water() if ctrl.has_method("is_in_water") else false
-		sneaking = ctrl.is_sneaking() if ctrl.has_method("is_sneaking") else false
-		sprinting = ctrl.is_sprinting() if ctrl.has_method("is_sprinting") else false
-	_apply_pose(_animator.step(delta, speed, vertical, on_floor, in_water, sneaking,
-		sprinting))
-
-
-## Write one pose onto the rig: rest rotation * X (the swing) * Z (the roll).
-func _apply_pose(pose: Dictionary) -> void:
-	for part in _rig:
-		var node: Node3D = _rig[part]
-		var swing := deg_to_rad(float(pose.get(part, 0.0)))
-		var roll := deg_to_rad(float(pose.get(part + "_roll", 0.0)))
-		var q: Quaternion = _rest_q[part] * Quaternion(Vector3.RIGHT, swing)
-		if roll != 0.0:
-			q = q * Quaternion(Vector3.BACK, roll)
-		node.quaternion = q
+	var want := "run" if speed > STAND_SPEED else "idle"
+	if want != _clip:
+		_clip = want
+		_clip_player.play(want, CLIP_FADE)
+	_clip_player.speed_scale = clampf(speed / RUN_REF_SPEED, 0.2, 3.0) if want == "run" else 1.0
 
 
 ## Give the body the world's own light model, when it is standing IN the world.

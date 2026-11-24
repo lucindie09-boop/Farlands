@@ -452,14 +452,22 @@ being resampled by a different fraction at each scale.
   drag-orbits a cube; DRAW/FILL/BOX painting over primitive triangle raycasts, undo (Ctrl+Z),
   noise slider integration, and clamped zoom
 - `player_model.gd` — Applies the skin texture to `player.glb`'s `StandardMaterial3D` surfaces
-  with nearest filtering (no mipmaps, avoiding smeared UV islands), poses the body once a frame
-  from `body_animator.gd` (each part's rest rotation times the pose's own angle, so a part a pose
-  does not name is left alone; a preview with no controller gets the idle's sway), and drives the
+  with nearest filtering (no mipmaps, avoiding smeared UV islands), plays the body's **two
+  clips**: `Assets/Animations/Idle.anim` standing and `Assets/Animations/Run.anim` walking, picked
+  from the sim's horizontal speed and faded across in 0.15 s, with the run's playback following
+  the speed the body is actually moving at. Both are re-homed onto this rig's part names at load
+  by `clip_retarget.gd` and forced to loop. Each clip is also given a **rest key for every part it
+  does not move** (`_add_rest_tracks`): a clip animates only the limbs it names and the
+  `AnimationPlayer` leaves every other property where the previous clip left it, so `Idle.anim`
+  (two arm tracks and nothing else) would otherwise freeze the legs at their last stride pose when a
+  walk stopped. And it drives the
   Minecraft-style head look (`_track_head_look`): it rebuilds the aim basis from the
   controller's world yaw + pitch (`get_aim_direction()`) so the `head` mesh follows the player's
   look in every view, with a camera-follow fallback for scenes without a `PlayerController`
   (skin preview). The head is not a pose channel — its quaternion is the code's alone
-- `body_animator.gd` — The body's pose, per frame: a hand-port of FA+Player's signature moves
+- `body_animator.gd` — **Parked**: nothing in the game calls it, and the body plays clips instead
+  (`player_model.gd`); `probes/probe_player_anim.gd` still measures it. The body's pose, per frame:
+  a hand-port of FA+Player's signature moves
   (Fresh Animations, FreshLX) for idle, walk, sprint, jump/fall, sneak and swim, weighted by what
   the sim is doing (`get_velocity`, `is_on_floor`, `is_in_water`, `is_sneaking`,
   `is_sprinting`) and returned as plain angles, so it is measured without a world. It is code
@@ -473,9 +481,9 @@ being resampled by a different fraction at each scale.
   model looking down -Z and this body looks down +Z, so each rotation is conjugated and each bob
   rotated by that half turn, or the body walks backwards (see [gui-notes.md](gui-notes.md)). A
   track whose limb this body has no node for is dropped and reported, and a limb the body's own
-  code drives every frame (the head) keeps its position track and loses its rotation one. **Parked:
-  nothing on the player's body loads the clips this re-homes** — the body plays no clip at all
-  (`body_animator.gd` poses it; [gui-notes.md](gui-notes.md))
+  code drives every frame (the head) keeps its position track and loses its rotation one. **It is
+  what the player's body uses**: `player_model.gd` re-homes `Idle.anim` and `Run.anim` through it
+  on the way in ([gui-notes.md](gui-notes.md))
 - `player.glb` — Voxel-style player model with a tightly-packed 64×64 skin-texture atlas; node
   pivots re-baked onto the true Blockbench joints (limb tops, head neck) by
   `tools/rebake_player_pivots.py` because Blockbench's glTF export flattens cube-pivot metadata

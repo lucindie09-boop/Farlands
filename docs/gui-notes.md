@@ -734,16 +734,41 @@ first-person viewmodel - what each one owns and the decisions behind it.
   saved scene, while the dummy-spawn button kept working, because that preloads the model by
   *path* and never touches `Main.tscn`. A `Main.tscn` reference to this model must therefore
   carry `Assets/models/player.glb`'s current uid (and its path), and no `.import` for a source that does
-  not exist belongs at the repository root
-- **The body's animation is a hand-port of FA+Player, and it is code rather than clips.**
-  `scripts/body_animator.gd` computes a pose per frame from what the sim is doing -- horizontal
-  speed and vertical velocity (`get_velocity()`), `is_on_floor`, `is_in_water`, `is_sneaking`,
-  `is_sprinting` -- and `player_model.gd` composes it onto each part's rest rotation
-  (`rest * X * Z`, degrees per channel), so no pose can drift and a part the pose does not name
-  stays exactly as the model shipped. It replaces the clip loader entirely: the body plays no
-  `.anim` any more. `Assets/Animations/Idle.anim` and the parked `Idle_new`/`Walk` pair stay on disk and
-  none of them is loaded; the `AnimationPlayer` node in `Main.tscn` is now unused.
-  **What was ported, and from where**: the signature moves of Fresh Animations' player add-on
+  not exist belongs at the repository root.
+- **The body plays two clips and no others: `Idle.anim` standing, `Run.anim` walking.**
+  `player_model.gd` builds its own `AnimationPlayer` (named `Clips`) carrying exactly those two,
+  picks between them from the sim's horizontal speed (`get_velocity()` scaled by the 20 Hz tick
+  rate) and fades across in 0.15 s, and scales the run's playback with the speed the body is
+  actually moving at -- a body creeping at a sneak's pace walks the same 1 s cycle slowly instead
+  of running on the spot. Both are re-homed onto this rig's part names at load by
+  `scripts/clip_retarget.gd` (the clip files call the second arm and leg `arm_001`/`leg_001`; this
+  body calls them `arm2`/`leg2`) and both are forced to loop, because `Idle.anim` was saved
+  without one -- nothing had played it yet. Each clip is then given a **rest key for every part it
+  does not move** (`_add_rest_tracks`): a clip animates only the limbs it has tracks for and the
+  `AnimationPlayer` leaves everything else exactly where the previous clip left it, so stopping a
+  walk froze the legs mid-stride -- `Idle.anim` names the two arms and nothing else. One key at the
+  rest rotation makes each clip the whole pose, and a leg crossing from the run into the idle eases
+  back over the blend instead of snapping there. The head is not a channel of either clip:
+  `_track_head_look` owns its quaternion, which is why `clip_retarget` is told the code drives it.
+  The parked `Idle_new`/`Walk` pair stays on disk, unloaded.
+- **The hand-port that replaced the clips is parked, not deleted.** `scripts/body_animator.gd`
+  computes a pose per frame from what the sim is doing -- horizontal speed and vertical velocity
+  (`get_velocity()`), `is_on_floor`, `is_in_water`, `is_sneaking`, `is_sprinting` -- as plain
+  angles a body composes onto each part's rest rotation (`rest * X * Z`, degrees per channel).
+  Nothing in the game calls it; `probes/probe_player_anim.gd` still measures it.
+- **A run cycle was separated out of `Assets/models/animwiorun.glb`** into
+  `Assets/Animations/Run.anim`: 1 s, looping, the four limbs' `rotation_3d` tracks (29 keys each, on
+  the glb's own part names — `arm`, `arm_001`, `leg`, `leg_001`, the import remapping `arm.001` to
+  `arm_001`). The glb is a Blender glTF export that split one cycle into one action per body part,
+  so it carries six animations and no skin, and the head and torso slices hold a single key because
+  neither part moves. Two things about that import make the obvious merge wrong, and both are worth
+  knowing before the next one: every slice carries a track for EVERY limb, three of them one-key
+  stubs, so concatenating the six leaves four tracks per path and the stub that comes last wins —
+  the cycle imports flat; and `translation`/`scale` are constant on every channel, so the importer
+  keeps no position or scale tracks at all (the glb's own accessors: `rotation` spread 0.30 on each
+  limb, `translation`/`scale` spread 0.0). The merge keeps, per `(path, track type)`, the track with
+  the most keys. `player_model.gd` plays it while the body walks, with `Idle.anim` standing.
+  **What the parked port carries, and from where**: the signature moves of Fresh Animations' player add-on
   (FA+Player v1.1, CEM animations by FreshLX) -- the idle's arm sway, the opposed leg/arm stride,
   a sprint's lean, the split legs and raised arms of a jump and a fall, a sneak's crouch and a
   swim's paddle. The pack is not a set of clips either: its `.jem`/`.jpm` files (677 expressions

@@ -206,12 +206,15 @@ Full notes: [docs/light.md](docs/light.md).
   guards, block break animation and hardness, hammer crushing, and block `drops`.
 - The first-person viewmodel (held item/block, swing, bob, head look, F5 camera cycle,
   eye-ray targeting) and the overlay tools around it.
-- The player's own body is posed by code, not clips: `scripts/body_animator.gd` ports
-  FA+Player's moves (idle, walk, sprint, jump/fall, sneak, swim) from the sim's own state
-  (`get_velocity`, `is_on_floor`, `is_in_water`, `is_sneaking`, `is_sprinting`) onto the rig's
-  rest rotations. `Assets/Animations/Idle.anim` and the parked `Idle_new`/`Walk` pair are on disk but
-  not loaded, the head's rotation stays the code's, and the pack's files are not vendored
-  (its terms) — the credit is in docs/gui-notes.md.
+- The player's own body plays **two clips and no others**: `Assets/Animations/Idle.anim` standing
+  and `Assets/Animations/Run.anim` walking (`player_model.gd` builds its own `AnimationPlayer`,
+  picks between them from the sim's horizontal speed, fades in 0.15 s and scales the run's playback
+  with the speed the body is actually moving at). Both are re-homed onto the rig's part names at
+  load by `scripts/clip_retarget.gd` and forced to loop. `Run.anim` is a run cycle separated out of
+  `Assets/models/animwiorun.glb` (six per-part actions merged into one 1 s loop). The head's
+  rotation stays the code's. Parked and unloaded: the `Idle_new`/`Walk` pair, and the hand-port of
+  FA+Player's moves (`scripts/body_animator.gd`, on disk with its probe, called by nothing). The
+  pack's files are not vendored (its terms) — the credit is in docs/gui-notes.md.
 - The title screen (`scripts/menu_layer.gd` over the live world, `title_screen.gd` drawing it)
   offers five rows, starting 22 units under the wordmark's rule — a steel beam 14 units under the
   word's own baseline, the column's full width, tapering to a point at both ends: CONTINUE (PLAY when no

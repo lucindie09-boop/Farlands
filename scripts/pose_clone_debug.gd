@@ -1,8 +1,8 @@
 extends Node
 ## Debug helper: use the `dummy_egg` item (items.json use kind "dummy") while
 ## aiming at a block to spawn a standing clone of the player model on top of
-## that block with NO animation (no AnimationPlayer child, so player_model.gd
-## never loads or plays its clips â€” a frozen dummy), plus a small bright cube
+## that block with NO animation (`skip_head_look` stops the body's clip player —
+## a frozen dummy), plus a small bright cube
 ## at the pivot point of each of the model's meshes. Another egg replaces the
 ## dummy standing rather than leaving two (see `spawn()`); ToolLoader makes this
 ## tool on the first egg, not at boot.
@@ -12,8 +12,8 @@ extends Node
 ## it within punch reach (see PlayerController::try_punch_dummy).
 ##
 ## The clone is built like Main.tscn builds Player/PlayerModel â€” a fresh
-## player.glb instance carrying player_model.gd â€” but without the
-## AnimationPlayer, so its clips never load and play. Pivot markers
+## player.glb instance carrying player_model.gd — but with `skip_head_look` set, so
+## neither its idle nor its run ever plays. Pivot markers
 ## are parented to each MeshInstance3D, so they sit at the node origin and
 ## follow the animation if a part moves. The glb was re-baked by
 ## tools/rebake_player_pivots.py so those origins sit on the true Blockbench
@@ -250,9 +250,8 @@ func _spawn() -> void:
 	var model := _player_scene.instantiate()
 	model.set_script(_player_model_script)
 	model.transform = _clone_model_transform()
-	# No AnimationPlayer child on purpose: player_model.gd only loads and plays
-	# its clips when an AnimationPlayer exists, so the clone stays frozen.
-	# Skip head tracking too so the dummy is completely rigid.
+	# Frozen on purpose: skip_head_look stops the body's clip player, so the clone
+	# plays neither the idle nor the run, and its head never tracks either.
 	model.skip_head_look = true
 	host.add_child(model)
 

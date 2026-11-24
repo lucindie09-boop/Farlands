@@ -9,10 +9,10 @@ not tasks; move one in here when it gets picked up.
 ~~Block break animation + hardness values - careful: decide now if hardness gates break time,
 since that changes the break-block code path~~
 
-~~Player model animations - the body is posed per frame from sim state
-(`scripts/body_animator.gd`, a hand-port of FA+Player's moves: idle, walk, sprint, jump/fall,
-sneak, swim). No clips are loaded; `Assets/Animations/Idle.anim` and the parked `Idle_new`/`Walk` pair
-stay on disk unused~~
+~~Player model animations - the body plays clips: `Assets/Animations/Idle.anim` standing and
+`Run.anim` walking (re-homed by `scripts/clip_retarget.gd`). The frame-by-frame pose it replaced
+(`scripts/body_animator.gd`, a hand-port of FA+Player's moves) is parked, as is the `Idle_new`/`Walk`
+pair~~
 
 ~~First-person viewmodel + items/blocks in hand~~
 

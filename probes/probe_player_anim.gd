@@ -1,22 +1,23 @@
 extends SceneTree
-## Does the player's body move the way the hand-port says it does?
+## Does the player's body move the way its clips say it does?
 ##
-## The port is scripts/body_animator.gd: a pose per state, weighted by what the
-## sim is doing, composed onto the rig's rest rotation. It is a pure function of
-## its inputs, so most of this measures it directly -- idle, walk, sprint, jump,
-## fall, sneak, swim -- and then two checks measure the BODY, because a correct
-## pose that is never applied is still a body standing still:
+## The body plays two clips and no others: `Idle.anim` standing, `Run.anim` walking
+## (scripts/player_model.gd). A clip is only motion if its tracks name limbs this
+## rig actually has, so what is measured here is that the two clips exist, that
+## every one of their tracks resolves, that a standing body is playing the idle and
+## that its arms are moving, and that a pose clone plays nothing at all.
 ##
-##   * the live body has the animator and all five parts, its arms sway on their
-##     own while it stands there, and the pose path really writes the rig;
-##   * a pose clone (skip_head_look) stays frozen, which is what makes it a dummy;
-##   * the controller exposes the state the animator reads.
+## The park is still measured too: scripts/body_animator.gd -- the hand-port of
+## FA+Player's moves the clips replaced -- is a pure function of its inputs, so the
+## checks below drive it directly (idle, walk, sprint, jump, fall, sneak, swim). It
+## is on disk, it is documented, and nothing in the game calls it.
 ##
 ## Nothing here writes to the world and no shot is read, so it runs headless:
 ##
 ##   probes/run_probe.sh probes/probe_player_anim.gd
 
 const BodyAnimator := preload("res://scripts/body_animator.gd")
+const ClipRetarget := preload("res://scripts/clip_retarget.gd")
 const DT := 1.0 / 60.0
 const WALK := 4.317     # vanilla walking speed, blocks/s
 const SPRINT := 5.6
@@ -126,31 +127,32 @@ func _run() -> void:
 		print("PROBE FAIL: no Player/PlayerModel in Main.tscn")
 		quit(1)
 		return
-	var rig: Dictionary = model.get("_rig")
-	_ok("body: the animator has the five parts it drives",
-		model.get("_animator") != null and rig.size() == 5, "parts %s" % str(rig.keys()))
-	_ok("body: the controller exposes the state it reads",
-		player.has_method("get_velocity") and player.has_method("is_sneaking")
-			and player.has_method("is_sprinting") and player.has_method("is_on_floor")
-			and player.has_method("is_in_water"),
-		"get_velocity %s, is_sneaking %s, is_sprinting %s" % [player.has_method("get_velocity"),
-			player.has_method("is_sneaking"), player.has_method("is_sprinting")])
+	_ok("body: the controller exposes the state the clips are chosen by",
+		player.has_method("get_velocity") and player.has_method("is_on_floor"),
+		"get_velocity %s" % player.has_method("get_velocity"))
 
-	# The live arms sway on their own: the whole _process -> animator -> rig path.
-	# The body is let down first: while it is still falling it wears the jump pose,
-	# and that is not the idle this is about.
-	var arm: Node3D = rig.get("arm")
-	var rest: Quaternion = model.get("_rest_q")["arm"]
+	# Two clips and no others, and every track of both lands on a limb this body has:
+	# a track that names nothing plays as no motion at all, silently.
+	var clips := model.find_child("Clips", false, false) as AnimationPlayer
+	var names := clips.get_animation_list() if clips != null else PackedStringArray()
+	_ok("body: the body has its two clips, idle and run",
+		clips != null and names == PackedStringArray(["idle", "run"]), "clips %s" % str(names))
+	var unresolved := PackedStringArray()
+	if clips != null:
+		for clip_name in names:
+			unresolved.append_array(ClipRetarget.unresolved(clips.get_animation(clip_name), model))
+	_ok("body: every track of both clips names a limb this body has",
+		clips != null and unresolved.is_empty(), "missing %s" % str(unresolved))
+
+	# The live arms sway on their own: the whole _process -> clip -> rig path, and the
+	# clip it picked is the idle. The body is let down first, because a body in the air
+	# is not standing and the idle is what this is about.
+	var arm: Node3D = model.find_child("arm", true, false) as Node3D
 	# The clock here is real time, not frames: headless frames are far shorter than
 	# a rendered one, so a frame count is not a duration and would measure a
 	# fraction of the sway.
 	var started := Time.get_ticks_msec()
 	while Time.get_ticks_msec() - started < 4000 and not player.is_on_floor():
-		await process_frame
-	# ...and a second for the landing's pose to ease out: the jump pose is still on
-	# the arms after the feet are down, and that is not the idle.
-	started = Time.get_ticks_msec()
-	while Time.get_ticks_msec() - started < 1000:
 		await process_frame
 	var off_rest := []
 	var grounded := 0
@@ -161,20 +163,12 @@ func _run() -> void:
 		frames += 1
 		if player.is_on_floor():
 			grounded += 1
-		off_rest.append(rad_to_deg(arm.quaternion.angle_to(rest)))
+		off_rest.append(rad_to_deg(arm.quaternion.angle_to(Quaternion.IDENTITY)))
 	var sway := _span(off_rest)
-	_ok("body: standing still, the arms keep the idle's sway",
-		sway > 0.8 and sway < 4.0 and grounded == frames,
-		"%.2f deg of sway over 2.5 s, %d/%d frames on the floor" % [sway, grounded, frames])
-
-	# ...and a pose handed to the body really writes the rig, in degrees.
-	model.call("_apply_pose", {"arm": 30.0, "leg": -12.0})
-	_ok("body: a pose is applied in degrees about the rig's own axis",
-		is_equal_approx(rad_to_deg(rig["arm"].quaternion.angle_to(rest)), 30.0)
-			and is_equal_approx(rad_to_deg(rig["leg"].quaternion.angle_to(model.get("_rest_q")["leg"])), 12.0),
-		"arm %.1f deg, leg %.1f deg" % [rad_to_deg(rig["arm"].quaternion.angle_to(rest)),
-			rad_to_deg(rig["leg"].quaternion.angle_to(model.get("_rest_q")["leg"]))])
-	model.call("_apply_pose", {})
+	_ok("body: standing still, it plays the idle and the arms sway",
+		model.get("_clip") == "idle" and sway > 0.2 and sway < 6.0 and grounded == frames,
+		"clip '%s', %.2f deg of sway over 2.5 s, %d/%d frames on the floor"
+			% [model.get("_clip"), sway, grounded, frames])
 
 	# The K-key pose clone is frozen on purpose: skip_head_look must gate the pose
 	# too, or the "dummy" breathes at the player while it is being punched.

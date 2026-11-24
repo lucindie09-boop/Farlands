@@ -307,6 +307,32 @@ func _run() -> void:
 		_fail("it kept running with the player 20 blocks off")
 	if String(body.get("speed_state")) != "idle":
 		_fail("it let go of the fight but stayed on '%s'" % body.get("speed_state"))
+	# The blow itself: one heart off whatever it is fighting. A body with only health to give
+	# is the fallback path -- what a build from before `take_mob_hit` has -- and it is the
+	# one that silently did nothing when the extension was older than the script.
+	var stub := GDScript.new()
+	stub.source_code = """extends Node3D
+var health := 20
+func get_health() -> float:
+	return float(health)
+func set_health(value: int) -> void:
+	health = value
+"""
+	stub.reload()
+	var victim := Node3D.new()
+	victim.set_script(stub)
+	world.add_child(victim)
+	victim.position = body.global_position + Vector3(1.0, 0.0, 0.0)
+	body.set("_health", 12.0)
+	body.set("_enemy", victim)
+	body.set("_fleeing", false)
+	body.set("_attack_ticks", 0)
+	body.call("_update_enemy", 1)
+	if int(victim.get("health")) != 18:
+		_fail("a swing took the player to %d of 20, expected 18 (a heart)"
+			% int(victim.get("health")))
+	victim.queue_free()
+	body.call("_give_up")
 	# Back to the state the checks above left it in: one landed punch, 11 of 12.
 	body.set("_health", 11.0)
 	player.position = PLAYER_AT

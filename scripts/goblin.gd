@@ -489,11 +489,18 @@ func _update_enemy(ticks: int) -> void:
 		walk_to(enemy_at)
 
 
-## One blow. The damage goes through the player's own receiving chain, which is what makes
-## the hurt window, the lean and the push away from the goblin happen on their side.
+## One blow. Through the player's own hit entry when the build has one -- that is the version
+## that brings the hurt window, the lean and the push away from the goblin with it -- and by
+## the health it costs otherwise, so a body from before that entry existed still takes the
+## damage instead of the goblin standing there swinging at nothing.
 func _swing(feet: Vector3) -> void:
-	if _enemy != null and _enemy.has_method("take_mob_hit"):
+	if _enemy == null:
+		return
+	if _enemy.has_method("take_mob_hit"):
 		_enemy.call("take_mob_hit", MOB_ATTACK_DAMAGE, feet)
+	elif _enemy.has_method("get_health") and _enemy.has_method("set_health"):
+		var left := float(_enemy.call("get_health")) - MOB_ATTACK_DAMAGE
+		_enemy.call("set_health", int(round(left)))
 
 
 ## A sprint of the run-away: away from the player, with a little scatter, a few blocks at a

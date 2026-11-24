@@ -535,7 +535,9 @@ being resampled by a different fraction at each scale.
   to the **chasing** pace (1.0×) and walks at them through the same planner, re-planning every 4–10
   ticks, with the head on their eyes. In reach — about 1.4 blocks between centres, the two bodies'
   own widths plus a hand — it stops and swings **once a second for a heart** through the player's own
-  receiving chain (so the hurt window, the lean and the push away from it all happen on their side).
+  receiving chain (so the hurt window, the lean and the push away from it all happen on their side),
+  falling back to the health the blow costs on a build that has no such entry, so an old extension
+  still takes the damage.
   At **2 of its 12 half-hearts or less** it stops fighting and runs instead, at the **fleeing** pace
   (1.3×), sprinting away from the player with a little scatter until they are **16 blocks** off, and
   then it lets go and goes back to wandering. **Standing, it looks about**: a 1-in-120-a-tick roll (a glance every 6 s) picks a

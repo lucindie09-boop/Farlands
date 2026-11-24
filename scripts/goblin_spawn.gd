@@ -4,12 +4,13 @@ extends Node
 ## player is looking at.
 ##
 ## A goblin is an ENTITY, not scenery: the body is a Node3D carrying `goblin.gd` --
-## dummy.gd's vanilla 1.8.8 gravity, drag, 20 tps tick and interpolated rendering,
-## plus six hearts and the bar over its head -- standing in the `pose_clone` group,
-## which is the group PlayerController punches. Left-clicking one knocks it back
-## exactly the way the dummy is punched (base 0.4 with the sprint bonus, its own
-## hurt-resistance window) and takes a half-heart, so it tumbles down a hill or off a
-## ledge and dies on the twelfth hit instead of standing there.
+## moved by the PLAYER's own movement simulation (`ChunkManager.make_mob_body`), plus
+## six hearts of its own health -- standing in the `pose_clone` group, which is the
+## group PlayerController punches. Left-clicking one knocks it back with the base 0.4
+## and the sprint bonus through the sim's own hurt window, and takes a half-heart, so
+## it tumbles down a hill or off a ledge and dies on the twelfth hit instead of
+## standing there. Nothing here builds the movement: the entity hands the world its
+## wish direction and the world moves it.
 ##
 ## The model is a child of that body. The obj is Blockbench's own export in blocks
 ## already (1.44 tall, feet on y = 0), so nothing is scaled: only its body's own
@@ -29,8 +30,9 @@ extends Node
 
 const MODEL_PATH := "res://Assets/models/Goblin2.obj"
 const TEXTURE_PATH := "res://Assets/models/Goblin2.png"
-## The entity's own script: dummy.gd's vanilla gravity/drag at 20 tps and
-## `apply_knockback` for the punch, plus the goblin's six hearts and their bar.
+## The entity's own script: the player's movement sim for the body, `apply_knockback`
+## for the punch, and the goblin's six hearts (held as state; it draws no bar over its
+## head).
 const BODY_SCRIPT_PATH := "res://scripts/goblin.gd"
 ## The world's own light model; the same shader the player's body wears. It is
 ## unshaded on purpose and samples its albedo with `filter_nearest`, so a voxel

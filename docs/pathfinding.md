@@ -48,6 +48,10 @@ how it is wired into the game and to the tests.
   a new one, so a retained reference would queue into freed memory on the next request. Job
   coordinates are feet positions; results are **support-block** cells (the block a node stands
   on)
+- **Its second consumer is the spawned goblins**: `scripts/goblin.gd` asks for a route to a random
+  nearby column on an idle timer and walks the waypoints, which is the planner's first use as
+  behaviour rather than as a debug picture (both collect results through `scripts/nav_routes.gd`,
+  since `poll_paths()` empties its queue as it answers)
 - **In-game test harness**: the dummy egg spawns the rigid dummy, P plans a route from it to the player and
   draws it as translucent red cubes, amber when the plan was cut short by its budget (L toggles
   the raw A* grid path versus the string-pulled waypoints, P again clears); the printed line

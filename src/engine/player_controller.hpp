@@ -157,6 +157,18 @@ public:
 
     void queue_jump() { jump_queued_ = true; }
 
+    // A shove from outside the damage queue, for a victim that keeps its own health: the
+    // reference's base knockback and the same hurt window a queued hit opens, so one
+    // gate paces both the shove and the caller's damage. False while the window resists
+    // the hit, in which case nothing moves at all.
+    bool shove(const godot::Vector3& attacker_position,
+               const godot::Vector3& extra_velocity = godot::Vector3());
+
+    // Sim ticks taken since reset. A caller driving the body at the frame rate (an
+    // entity deciding on a route) can measure its own timers in the ticks the body
+    // actually took rather than in frames, which are not the same rate.
+    uint64_t get_tick_count() const { return tick_count_; }
+
 private:
     void tick(const PlayerInput& input, CollisionResolver& cr, float step_height, float speed_multiplier);
     // Resolve every queued source against the hurt window and accumulate what it
@@ -190,6 +202,7 @@ private:
     bool sprint_active_ = false;
     bool prev_sprint_active_ = false;
     float accumulator_ = 0.0f;
+    uint64_t tick_count_ = 0;
     float fall_distance_ = 0.0f;
     int pending_fall_damage_ = 0;
     int air_ticks_ = MAX_AIR;         // remaining breath, in ticks

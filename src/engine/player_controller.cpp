@@ -21,6 +21,7 @@ void PlayerSim::reset(const Vector3& initial_pos) {
     sprint_active_ = false;
     prev_sprint_active_ = false;
     accumulator_ = 0.0f;
+    tick_count_ = 0;
     fall_distance_ = 0.0f;
     pending_fall_damage_ = 0;
     air_ticks_ = MAX_AIR;
@@ -142,6 +143,21 @@ void PlayerSim::apply_knockback(const godot::Vector3& direction) {
     velocity_.y = std::min(velocity_.y, KNOCKBACK_SPEED);
 }
 
+bool PlayerSim::shove(const Vector3& attacker_position, const Vector3& extra_velocity) {
+    // The gate a queued hit passes: inside the first half of the window the hit is
+    // resisted outright, so a resisted shove neither moves the body nor opens
+    // anything -- the same reason hold-clicking a dummy cannot stack knockback.
+    if (hurt_resist_ticks_ > kHurtResistWindow) return false;
+    hurt_resist_ticks_ = kHurtResistTime;
+    hurt_anim_ticks_ = kHurtAnimTime;
+    apply_knockback(knockback_direction(position_, attacker_position));
+    // The sprint bonus rides after the base knockback and its vertical cap, so the
+    // victim inherits the attacker's forward momentum -- the same order the combat
+    // dummy applies it in.
+    velocity_ += extra_velocity;
+    return true;
+}
+
 void PlayerSim::apply_environmental_hazards(CollisionResolver& cr) {
     // The head cell: the eye's own cell, since drowning is about the EYE being
     // under a liquid, not the feet (a body on a submerged step is still drowning).
@@ -227,6 +243,7 @@ void PlayerSim::accumulate_and_tick(double frame_delta, const PlayerInput& input
 }
 
 void PlayerSim::tick(const PlayerInput& input, CollisionResolver& cr, float step_height, float speed_multiplier) {
+    ++tick_count_;
     prev_position_ = position_;   // snapshot for interpolation — once per tick, not per frame
 
     // The hurt windows tick down once per sim tick, before anything is resolved,

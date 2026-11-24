@@ -45,8 +45,10 @@ func _load_clone_assets() -> void:
 # waypoints; P again clears. A route the planner could not finish inside its
 # budget (a partial, best-effort run toward the goal) is drawn amber instead of
 # red, so a truncated route is never mistaken for a complete one. The clone is
-# not moved â€” this only visualises the route the planner found. Results come
-# back through ChunkManager.poll_paths(), matched by job id.
+# not moved â€” this only visualises the route the planner found. Results are
+# collected through scripts/nav_routes.gd by job id: one drain per frame for every
+# caller, so the strolling goblins cannot take this overlay's route or vice versa.
+const NAV_ROUTES := preload("res://scripts/nav_routes.gd")
 const PATH_ACTION := "pose_clone_path"
 const PATH_TOGGLE_ACTION := "pose_clone_path_toggle"
 const PATH_COLOR_RAW := Color(1.0, 0.22, 0.12, 0.40)
@@ -101,27 +103,28 @@ func _process(_delta: float) -> void:
 	if chunk_manager == null:
 		_path_job = 0
 		return
-	for result in chunk_manager.poll_paths():
-		if int(result.get("id", 0)) != _path_job:
-			continue
-		_path_job = 0
-		_path_nodes = result.get("nodes", PackedVector3Array())
-		_path_waypoints = result.get("waypoints", PackedVector3Array())
-		_path_truncated = bool(result.get("truncated", false))
-		_show_waypoints = false
-		_rebuild_overlay()
-		var detail := ""
-		if not bool(result.get("found", false)):
-			detail = "  error=\"%s\"" % result.get("error", "")
-		# cells vs locks is the in-game read cost: one shard lock per chunk
-		# visited, not per block classified.
-		print("Path: found=%s truncated=%s timed_out=%s grid=%d waypoints=%d expansions=%d columns=%d cells=%d locks=%d %.2f ms%s"
-			% [result.get("found", false), result.get("truncated", false),
-			   result.get("time_exhausted", false),
-			   _path_nodes.size(), _path_waypoints.size(),
-			   int(result.get("expansions", 0)), int(result.get("columns", 0)),
-			   int(result.get("cells", 0)), int(result.get("locks", 0)),
-			   float(result.get("ms", 0.0)), detail])
+	NAV_ROUTES.poll(chunk_manager)
+	var result := NAV_ROUTES.take(_path_job)
+	if result.is_empty():
+		return
+	_path_job = 0
+	_path_nodes = result.get("nodes", PackedVector3Array())
+	_path_waypoints = result.get("waypoints", PackedVector3Array())
+	_path_truncated = bool(result.get("truncated", false))
+	_show_waypoints = false
+	_rebuild_overlay()
+	var detail := ""
+	if not bool(result.get("found", false)):
+		detail = "  error=\"%s\"" % result.get("error", "")
+	# cells vs locks is the in-game read cost: one shard lock per chunk
+	# visited, not per block classified.
+	print("Path: found=%s truncated=%s timed_out=%s grid=%d waypoints=%d expansions=%d columns=%d cells=%d locks=%d %.2f ms%s"
+		% [result.get("found", false), result.get("truncated", false),
+		   result.get("time_exhausted", false),
+		   _path_nodes.size(), _path_waypoints.size(),
+		   int(result.get("expansions", 0)), int(result.get("columns", 0)),
+		   int(result.get("cells", 0)), int(result.get("locks", 0)),
+		   float(result.get("ms", 0.0)), detail])
 
 func _chunk_manager() -> Node:
 	var scene_root := get_tree().current_scene

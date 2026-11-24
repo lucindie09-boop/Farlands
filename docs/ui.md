@@ -489,16 +489,29 @@ being resampled by a different fraction at each scale.
   go into, so its feet land on the aimed face — and centred in that cell like any entity, because a body on a
   cell corner stands half inside a wall and cannot be knocked anywhere. The obj is Blockbench's own export in blocks already (1.44 tall, feet on
   y = 0), so nothing is scaled; only its body's own x/z centre is shifted onto the cell, and it is turned to
-  face the player. A goblin is an **entity**, not scenery: the body is a `Node3D` carrying `dummy.gd`, so it
-  falls and slides with the K dummy's vanilla gravity/drag at 20 tps, and it stands in the `pose_clone` group
-  the player's left click punches — a hit knocks it back with the same base 0.4 and sprint bonus, from its own
-  hurt-resistance window. `scripts/goblin.gd` is what carries it: `dummy.gd` plus **six hearts**
-  (12 half-hearts, a half-heart per fist hit, so the twelfth lands last) and a row of six `Sprite3D`
-  hearts over its head from the HUD's own `Assets/textures/gui/heart_*.png`, billboarded, unshaded and
-  nearest-filtered. They are drawn the world's way, not the HUD's: depth-tested and alpha-cut out (no
-  `no_depth_test`), so a goblin behind a hill takes its hearts with it instead of leaving red dots over
-  the terrain, and they sort in the opaque pass like the blocks next to them. Damage and knockback share one gate: a hit the hurt window resists takes nothing.
-  At zero health the body is freed. `PlayerController::nearest_punch_target` takes the nearest body along the aim ray,
+  face the player. A goblin is an **entity**, not scenery: the body is a `Node3D` moved by the PLAYER's
+  own movement simulation — `ChunkManager.make_mob_body()` hands `scripts/goblin.gd` a `PlayerSim`
+  (`MobBody`, `src/godot_bindings/mob_body.*`), so it takes the same 20 Hz ticks, gravity, ground/air
+  acceleration, per-block slipperiness, 0.6 step-up, jump arc, swimming and render interpolation the player
+  walks with, and the script supplies only a wish direction and the jump control. It stands in the
+  `pose_clone` group the player's left click punches — a hit knocks it back with the same base 0.4 and
+  sprint bonus, through the sim's own hurt window. `scripts/goblin.gd` is what carries it: that body plus
+  **six hearts**
+  (12 half-hearts, a half-heart per fist hit, so the twelfth lands last), held as the goblin's own
+  state and **not drawn**: nothing floats over its head, so a goblin behind a hill is a goblin behind
+  a hill rather than red dots over the terrain. Damage and knockback share one gate: a hit the hurt
+  window resists takes nothing. At zero health the body is freed. 
+  It also **wanders** when it has nothing to do: after a few seconds of standing it picks a random
+  column a few blocks away and walks there along a route from the engine's ground planner (on a
+  worker thread), wishing along it at three quarters of the player's own pace: the sim steps up 0.6 by
+  itself, so a full block is a jump it presses when the collision half a pace ahead says so; it stops
+  and stands again on arrival or when the route is dropped for being stuck, and a punch drops the
+  route outright and pauses the wander. Its facing is the model's own yaw eased toward the way it is
+  walking -- eased once per FRAME, not once per tick, so a small object does not turn in 20 Hz
+  steps -- never the body's, whose box is what the punch is tested against. It is drawn between
+  physics frames as well as between sim ticks (`Engine.get_physics_interpolation_fraction()`), so
+  it moves at the frame rate instead of holding still for the frames a physics tick does not
+  reach. `PlayerController::nearest_punch_target` takes the nearest body along the aim ray,
   so several can share the group and the one under the crosshair is the one hit. It is lit by the WORLD, like
   the player's body and the dropped items: `item_shader.gdshader` over `item_lighting.gdshaderinc`, with
   `ChunkManager.apply_item_lighting` pushed onto its material every frame and the light of the cell its
@@ -506,7 +519,11 @@ being resampled by a different fraction at each scale.
   cave and warm beside a torch, and it can never disagree with the ground it stands on. It carries its own
   texture (`Goblin2.png`) because the `.mtl` named by the obj is not in the tree, and the shader samples it
   `filter_nearest`
-- `dummy.gd` — Combat physics for the pose clone and the spawned goblins: 20 tps vanilla 1.8.8 gravity/drag,
+- `nav_routes.gd` — One drain of the planner's finished routes, shared by everything that asks for
+  one: `ChunkManager.poll_paths()` empties its queue as it hands results back, so two pollers in
+  one frame would take each other's routes. The table is keyed by job id, filled once per physics
+  frame, and each caller takes only its own (the strolling goblins and the dummy egg's path overlay)
+- `dummy.gd` — Combat physics for the K-key pose clone: 20 tps vanilla 1.8.8 gravity/drag,
   knockback (`apply_knockback`: base 0.4 + sprint bonus, 10-tick hurt-resistance gate),
   interpolated rendering between ticks
 - `tools/bake_liquid_textures.gd` — Headless baker for a liquid's still block texture: runs the

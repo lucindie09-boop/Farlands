@@ -3,6 +3,9 @@
 #include "core/thread_pool.hpp"
 #include "godot_bindings/biome_search.hpp"
 #include "godot_bindings/cached_node.hpp"
+// Complete here, not forward-declared as in the header: binding a method that returns
+// godot::Ref<MobBody> needs the type's own metadata.
+#include "godot_bindings/mob_body.hpp"
 #include "engine/item_body_solver.hpp"
 #include "engine/item_pair_solver.hpp"
 #include "engine/voxel_engine_controller.hpp"
@@ -275,6 +278,7 @@ void ChunkManager::_bind_methods() {
     ClassDB::bind_method(D_METHOD("find_biome", "biome_name", "center_x", "center_z", "max_radius"), &ChunkManager::find_biome);
     ClassDB::bind_method(D_METHOD("get_biome_search_radius"), &ChunkManager::get_biome_search_radius);
     ClassDB::bind_method(D_METHOD("make_biome_search"), &ChunkManager::make_biome_search);
+    ClassDB::bind_method(D_METHOD("make_mob_body"), &ChunkManager::make_mob_body);
     ClassDB::bind_method(D_METHOD("get_biome_at", "world_x", "world_z"), &ChunkManager::get_biome_at);
     ClassDB::bind_method(D_METHOD("get_process_clock"), &ChunkManager::get_process_clock);
     ClassDB::bind_method(D_METHOD("inspect_schematic", "bytes", "options"),

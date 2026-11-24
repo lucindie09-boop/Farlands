@@ -4,11 +4,14 @@ extends SceneTree
 ##
 ## The world is stubbed rather than streamed: what the tool owes is an ENTITY, not
 ## terrain. A goblin has to be a body carrying goblin.gd in the `pose_clone` group (the
-## physics and the group PlayerController punches), standing in the middle of the cell
+## body and the group PlayerController punches), moved by the player's own movement sim
+## (`ChunkManager.make_mob_body`; the stub hands it a body with no world to move
+## through, so its shove and hurt window are real and its walking is not), standing in
+## the middle of the cell
 ## the aim ray would place a block in, with the model riding it on the world's own
-## light material and the light of the cell its middle is in. Over its head are its six
-## hearts, a punch takes a half-heart and a resisted hit takes nothing, and the twelfth
-## half-heart kills it. A miss must spawn nothing.
+## light material and the light of the cell its middle is in. Its health is its own
+## state and NOTHING is drawn over its head: a punch takes a half-heart, a resisted hit
+## takes nothing, and the twelfth half-heart kills it. A miss must spawn nothing.
 ##
 ## Needs no world and no display: the "world" is `probes/goblin_probe_world.gd`, one aim
 ## ray and the two light calls, so it runs headless.
@@ -18,9 +21,6 @@ extends SceneTree
 const TOOL_PATH := "res://scripts/goblin_spawn.gd"
 const BODY_SCRIPT := "res://scripts/goblin.gd"
 const FAKE_MANAGER := preload("res://probes/goblin_probe_world.gd")
-const HEART_FULL: Texture2D = preload("res://Assets/textures/gui/heart_full.png")
-const HEART_HALF: Texture2D = preload("res://Assets/textures/gui/heart_half.png")
-const HEART_EMPTY: Texture2D = preload("res://Assets/textures/gui/heart_empty.png")
 const BODY_OFFSET := Vector3(0.031, 0.0, 0.094)
 const CELL := Vector3(10, 64, -6)
 const PLAYER_AT := Vector3(11.5, 64.0, -20.0)
@@ -45,49 +45,13 @@ func _goblins(scene: Node) -> Array:
 	return found
 
 
-func _hearts_of(body: Node) -> Array:
-	var bar := body.get_node_or_null("HealthBar")
-	if bar == null:
-		_fail("the goblin has no HealthBar node")
-		return []
-	var hearts: Array = []
-	for child in bar.get_children():
-		if child is Sprite3D:
-			var sprite := child as Sprite3D
-			hearts.append(sprite)
-			# A thing in the world, not a HUD mark: depth-tested (no no_depth_test, or
-			# the hearts float visible through hills) and cut out in the opaque pass.
-			if sprite.no_depth_test:
-				_fail("%s has no_depth_test: it would be drawn through walls" % sprite.name)
-			if sprite.alpha_cut != SpriteBase3D.ALPHA_CUT_DISCARD:
-				_fail("%s is not alpha-cut (alpha_cut %d)" % [sprite.name, sprite.alpha_cut])
-		else:
-			_fail("a child of HealthBar is not a Sprite3D (%s)" % child.get_class())
-	return hearts
-
-
-## Full/half/empty hearts as a compact string, low health first, so a wrong bar reads
-## as one line in the output.
-func _bar_state(hearts: Array) -> String:
-	var state := ""
-	for heart in hearts:
-		match (heart as Sprite3D).texture:
-			HEART_FULL:
-				state += "F"
-			HEART_HALF:
-				state += "h"
-			HEART_EMPTY:
-				state += "."
-			_:
-				state += "?"
-	return state
-
-
 func _run() -> void:
-	# The tool asks the CURRENT SCENE for its ChunkManager and Player, so this is
-	# the whole world it needs.
+	# The tool asks the CURRENT SCENE for its ChunkManager and Player, and the goblin
+	# asks for /root/Main/ChunkManager by the same absolute path the C++ side uses, so
+	# this stand-in world is named what the real one is. This is all of it the entity
+	# needs.
 	var world := Node3D.new()
-	world.name = "FakeWorld"
+	world.name = "Main"
 	root.add_child(world)
 	current_scene = world
 	var player := Node3D.new()
@@ -202,27 +166,34 @@ func _run() -> void:
 	if not is_zero_approx(body.rotation.y):
 		_fail("the body itself is rotated %.3f: its box would no longer be axis-aligned" % body.rotation.y)
 
-	# A hit behaves like the K dummy's: the base 0.4 away from the attacker and up
-	# (dummy.gd's own numbers), from the body's position rather than its picture.
+	# A hit is the player's own: the shove the sim applies to a queued hit -- 0.4 away
+	# from the attacker and up -- lands in the velocity the body is moved by.
+	var sim = body.get("_sim")
+	if sim == null:
+		_fail("the goblin has no movement sim (ChunkManager.make_mob_body)")
 	body.call("apply_knockback", Vector3.ZERO)
-	var motion: Vector3 = body.get("_motion")
-	if motion.y <= 0.0:
-		_fail("apply_knockback did not launch it upward (motion.y %.3f)" % motion.y)
-	if motion.z >= 0.0 or motion.x <= 0.0:
-		_fail("knockback went the wrong way (motion %s, away from the origin is +x/-z)" % motion)
+	if sim != null:
+		var motion: Vector3 = sim.get_velocity()
+		if motion.y <= 0.0:
+			_fail("apply_knockback did not launch it upward (motion.y %.3f)" % motion.y)
+		if motion.z >= 0.0 or motion.x <= 0.0:
+			_fail("knockback went the wrong way (motion %s, away from the origin is +x/-z)" % motion)
 
-	# --- six hearts -------------------------------------------------------------
-	var hearts := _hearts_of(body)
-	if hearts.size() != 6:
-		_fail("%d hearts, expected 6" % hearts.size())
+	# --- six hearts, and nothing drawn over them --------------------------------
+	# The health is the goblin's own state, not a thing in the world: no bar, no
+	# sprite. Six hearts over the head would be red dots over the terrain from every
+	# angle the body can be seen from.
+	if body.get_node_or_null("HealthBar") != null:
+		_fail("the goblin carries a HealthBar node: nothing may be drawn over its head")
+	for child in body.get_children():
+		if child is Sprite3D or child is SpriteBase3D:
+			_fail("the goblin carries a %s sprite: nothing may be drawn over its head" % child.name)
 	if not is_equal_approx(float(body.call("get_max_health")), 12.0):
 		_fail("max health %.1f half-hearts, expected 12 (six hearts)" % float(body.call("get_max_health")))
 	# The math call above was already a punch: one half-heart gone. (The world is
 	# stubbed, so no tick of knockback landed and the window is still open.)
 	if not is_equal_approx(float(body.call("get_health")), 11.0):
 		_fail("health %.1f after one hit, expected 11 of 12" % float(body.call("get_health")))
-	if _bar_state(hearts) != "FFFFFh":
-		_fail("bar reads '%s' at 11 half-hearts, expected 'FFFFFh'" % _bar_state(hearts))
 
 	# Inside the hurt window a repeat hit is resisted: no knockback, no damage.
 	body.call("apply_knockback", Vector3.ZERO)
@@ -264,9 +235,9 @@ func _run() -> void:
 
 	if ok:
 		print("PROBE PASS: goblin is a goblin.gd body in `pose_clone` in the aimed cell's "
-			+ "middle, model on the world's item shader with the cell's own light, six "
-			+ "hearts taking a half-heart per punch and resisting repeats, dead at zero, "
-			+ "one per press, none on a miss, no light pushed when empty")
+			+ "middle, model on the world's item shader with the cell's own light, twelve "
+			+ "half-hearts taking one apiece and resisting repeats, dead at zero, nothing "
+			+ "drawn over its head, one per press, none on a miss, no light pushed when empty")
 	else:
 		print("PROBE FAILED")
 	quit(0 if ok else 1)

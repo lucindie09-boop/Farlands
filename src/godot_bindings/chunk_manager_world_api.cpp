@@ -8,6 +8,7 @@
 #include "fluids/generated_water_wake.hpp"
 
 #include "godot_bindings/cached_node.hpp"
+#include "godot_bindings/mob_body.hpp"
 #include "core/light_packing.hpp"
 #include "debug/crash_dump.hpp"
 #include "engine/voxel_engine_controller.hpp"
@@ -320,6 +321,18 @@ Array ChunkManager::poll_paths() {
 
 int32_t ChunkManager::get_pending_paths() const {
     return path_service ? static_cast<int32_t>(path_service->pending()) : 0;
+}
+
+Ref<MobBody> ChunkManager::make_mob_body() {
+    Ref<MobBody> body;
+    body.instantiate();
+    // The resolver is the controller's own, so the body moves through exactly the
+    // collision the player does. Without a controller the body still exists -- it can be
+    // shoved and read -- it just cannot move through a world.
+    if (controller) {
+        body->set_resolver(&controller->get_collision_resolver());
+    }
+    return body;
 }
 
 Dictionary ChunkManager::resolve_voxel_collision(const godot::Vector3& position, const godot::Vector3& motion, const godot::Vector3& size) {

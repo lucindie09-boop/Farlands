@@ -1,6 +1,6 @@
 # Probes: proving claims a unit test cannot make
 
-Most of this engine is testable headlessly — 778 doctest cases cover the mesher,
+Most of this engine is testable headlessly — 791 doctest cases cover the mesher,
 the resolver, the fluid rules, the planner and the save formats. A probe is for
 what is left: the real loaded registry, the real texture array, the real world,
 and what actually reaches the screen.
@@ -21,7 +21,7 @@ git add probes/*.gd probes/*.sh probes/*.tscn probes/*.gdshader
 | Runner | Use it for |
 |---|---|
 | `probes/run_probe.sh <probe.gd> [timeout]` | Anything that touches the world. It snapshots `user://chunks`, runs the probe, and restores the snapshot however the probe ended |
-| `probes/run_probe_shot.sh <probe.gd> [timeout]` | Anything visual. Runs **windowed** (a screenshot from the dummy renderer is blank) and harvests `user://menu_shots`, `paste_shots`, `shader_shots`, `heart_shots`, `body_shots`, `brightness_shots`, `lod_grid_shots`, `lod_depth_shots` and `goblin_shots` into
+| `probes/run_probe_shot.sh <probe.gd> [timeout]` | Anything visual. Runs **windowed** (a screenshot from the dummy renderer is blank) and harvests `user://menu_shots`, `paste_shots`, `shader_shots`, `heart_shots`, `body_shots`, `brightness_shots`, `lod_grid_shots` and `lod_depth_shots` into
 `probes/shots/` |
 | `probes/run_crash_probe.sh [timeout]` | The crash reporter only, with the deliberate fault armed. Separate because it kills the process and because the crash folder must be inspected afterwards |
 
@@ -393,37 +393,36 @@ body is printed but not asserted on, having no known albedo of its own: its luma
 
 The three goblin probes cover one entity, and each answers a different question.
 `probe_goblin.gd` is headless and asks what the Spawn Goblin tool MAKES: an entity, not
-scenery — the body carries `scripts/goblin.gd` (dummy.gd's vanilla physics plus the hearts) and
+scenery — the body carries `scripts/goblin.gd` (the player's own movement sim plus the hearts) and
 stands in `pose_clone`, the group `PlayerController` punches; it is centred in the aimed cell
 rather than on its seam, because a 0.6-wide box on a seam is half inside a wall and cannot be
 knocked anywhere; the model rides the body as a child with its own offset and yaw, leaving the
 body's box axis-aligned; the material is the world's own `item_shader.gdshader` with the cell's
-light pushed onto it every frame and the pushing stopping when the last goblin goes. Over its
-head are six hearts, full at spawn, `FFFFFh` after one punch, unchanged by a hit inside the
-hurt window, and gone with the body at zero. It needs no world and no display:
-`probes/goblin_probe_world.gd` is one aim ray and the two light calls, which is the whole
-`ChunkManager` surface the tool touches.
+light pushed onto it every frame and the pushing stopping when the last goblin goes. Its six
+hearts are its own health and nothing is drawn over its head -- no `HealthBar` node, no sprite
+-- so the twelve half-hearts are twelve punches, one apiece, unchanged by a hit inside the hurt
+window, and gone with the body at zero. It needs no world and no display:
+`probes/goblin_probe_world.gd` is one aim ray, the two light calls and a body with no world to move
+through, which is the whole `ChunkManager` surface the tool touches.
 
 `probe_goblin_punch.gd` is the windowed one, because a punch is a mouse press: LMB →
 `try_punch_dummy` → the nearest body along the eye ray among ALL of `pose_clone` →
-`dummy.gd::apply_knockback`. The group lists the far goblin first and it is the near one that
+the goblin's `apply_knockback`, which is the sim's shove and the sim's hurt window. The group lists the far goblin first and it is the near one that
 must fly, which is exactly the case a `get_first_node_in_group` pick gets wrong (it did). Its
 own lesson is that the spawn point is a cell seam, where no body centred in a cell can be hit,
 so the probe steers the aim with synthetic `InputEventMouseMotion` — measure the sensitivity
 once, then send the difference — and the click needs the title screen's `_release` and a
 captured mouse before it reaches the world.
 
-`probe_goblin_hearts_depth.gd` asks a question about pixels, not uniforms: the bar is drawn
-with `no_depth_test`, so from any angle it is six red dots floating over the terrain. It counts
-the heart art's own `#ff0000` in the frame three ways — open sky from the front (the six hearts
-are there), the same view with an opaque box between the camera and the goblin (zero heart
-pixels: the bar goes behind cover with the body), and from above and to one side (still six
-hearts, so a billboard, not a sliver). Shots land in `user://goblin_shots/`. The occluder is a
-grid box of the probe's own rather than stone placed in the world: an opaque surface in the
-depth buffer is all a depth test answers, and a tracked probe must not leave edits in the
-player's world. The rock version was done once in the world — three stone blocks in front of a
-goblin, no heart pixel through them, blocks cleared again — and that is why the probe is the
-repeatable form.
+`probe_goblin_roam.gd` is the idle wander, and it needs the real chunk map because a route is
+only a route over generated terrain: it loads the world, stands a goblin on the ground beside the
+player, asks it for a route six blocks east and reads back what the entity does with it. That is
+the entity's half of the claim — the walk is steering at a stroll and never a teleport (no frame
+moves the body further than a stride), it stands only on blocks that are actually there, it
+arrives inside its own arrive distance rather than jittering on the last waypoint, it stops when
+the route ends and settles into an idle wait, and a punch empties the route and pauses the wander
+instead of letting the next tick steer over the knockback. The wander's own idle timer is silenced
+in the probe, so every stroll that happens is one it asked for.
 
 The rest of the directory is historical or subject-specific; the header comment
 in each one says which.

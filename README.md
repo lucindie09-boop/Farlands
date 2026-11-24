@@ -77,7 +77,7 @@ and a wildcard like `src/mesh/mesh_manager*.cpp` means the family a split produc
 | Block icons | `block_icon_renderer.gd` | Isometric 300x300 icons built from each shape's selection boxes, pre-rendered and cached; `/testicons` |
 | Health, death, chat | `healthbar.gd`, `airbar.gd`, `death_screen.gd`, `chat.gd` | 10 hearts, the breath bubbles, the respawn overlay, autocomplete and the command set |
 | Settings, Skin Maker, Block Maker | `settings_menu.gd` | Render/lighting/crosshair/controls pages, the two in-game editors, the liquid lab and the goblin spawner on the Tools page, one share code per category - [notes](docs/gui-notes.md) |
-| Testing & CI | `tests/`, `tools/`, `.github/workflows/build.yml` | 790 cases / 374,367 assertions, four static gates, the soak and fuzz jobs - [notes](docs/testing.md), [contributing](CONTRIBUTING.md) |
+| Testing & CI | `tests/`, `tools/`, `.github/workflows/build.yml` | 791 cases / 374,376 assertions, four static gates, the soak and fuzz jobs - [notes](docs/testing.md), [contributing](CONTRIBUTING.md) |
 | Shader effects | `shader_overlay.gd` + `data/shaders.json` | The effect stack (Hand Drawn, CRT Screen, Phosphor Trail, filters, camera and vertex effects), built from the registry - [rendering](docs/rendering-notes.md) |
 | Liquid texture lab | `liquid_texture_lab.gd`, `liquid_animator.gd` | Generates and animates the water/lava/acid sprites instead of shipping them (Tools → Liquid Texture Lab on the pause menu opens the lab) - [rendering](docs/rendering-notes.md) |
 | Texture packs | `src/render/texture_pack_manager.hpp`, `tools/pack_converter.py` | Per-block texture overrides loaded from `user://packs/` |
@@ -340,7 +340,7 @@ vocabulary, [docs/debugging.md](docs/debugging.md) for the instruments,
 rejected. [AGENTS.md](AGENTS.md) is the engineering record: the constraints and the notes that
 cut across systems.
 
-The project has **790 test cases / 374,367 assertions** across the 118 `.cpp` files in `tests/`
+The project has **791 test cases / 374,376 assertions** across the 118 `.cpp` files in `tests/`
 (114 declaring cases, plus the doctest entry point and a stub TU), including 27 tests in
 `test_concurrency.cpp` (shard locking, deadlock prevention, PaletteStorage, cross-chunk writers,
 thread-pool work stealing).
@@ -366,7 +366,7 @@ Windows).
 | F | Toggle fly mode |
 | F5 | Cycle camera view: first person → behind the player → in front of the player (looking at your face) |
 | F12 | Open the held-pose adjuster (the panel prints its own keys): B cycles ARM → BLOCK → ITEM → ITEM2 → ITEM3, and R/F, A/D, W/S, T/G, I/K/J/L/U/O nudge the rotation, scale and position it shows. The numbers are what `_item_poses` in `scripts/viewmodel.gd` holds |
-| G | Spawn a goblin (`Assets/models/Goblin2.obj`) on the aimed block — the Tools page's "Spawn Goblin" button does the same, each press adds another, and they are entities: they fall with the dummy's vanilla physics, left click knocks them back, and each has six hearts over its head (a half-heart per hit) |
+| G | Spawn a goblin (`Assets/models/Goblin2.obj`) on the aimed block — the Tools page's "Spawn Goblin" button does the same, each press adds another, and they are entities: they walk on the player's own movement physics, left click knocks them back, each has six hearts of health (a half-heart per hit, twelve to kill; nothing is drawn over its head) and they idle-roam to nearby ground along a planned route |
 | K | Spawn/remove a rigid physics dummy of the player on the aimed block — no animations, falls with vanilla gravity/drag, punchable with left click (debug: shows a cube at each mesh pivot) |
 | 1–9 | Select hotbar slot |
 | Q | Drop one item from the selected hotbar slot into the world (Ctrl+Q drops the whole stack) |

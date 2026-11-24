@@ -399,3 +399,31 @@ TEST_CASE("Damage window: the hurt view samples the clock forward, with no lag")
     CHECK(pc.get_hurt_anim_ticks() == 0);
     CHECK(pc.get_render_hurt_anim_ticks(0.5f) == doctest::Approx(0.0f));
 }
+
+TEST_CASE("Shove: the base knockback is gated by the same window a queued hit opens") {
+    ChunkMap cm;
+    fill_flat_floor(cm);
+    CollisionResolver cr(&cm);
+    PlayerSim pc;
+    pc.reset(Vector3(0.5f, 1.0f, 0.5f));
+    settle(pc, cr);
+    const uint64_t ticks = pc.get_tick_count();
+    CHECK(ticks >= 4);
+
+    // Shoved from behind at -x: the body is pushed away along +x and lifted, with
+    // whatever velocity it had halved -- the base the combat dummy applies too.
+    CHECK(pc.shove(Vector3(-1.5f, 1.0f, 0.5f)));
+    const Vector3 shoved = pc.get_velocity();
+    CHECK(shoved.x > 0.3f);
+    CHECK(shoved.y > 0.3f);
+    // The hit opened both windows, exactly as a queued hit does.
+    CHECK(pc.get_hurt_resist_ticks() == kHurtResistTime);
+    CHECK(pc.get_hurt_anim_ticks() == kHurtAnimTime);
+
+    // Inside the first half of the window the same shove is resisted outright: it
+    // says so, and nothing about the body moves -- which is one gate for the shove
+    // and the caller's damage.
+    CHECK_FALSE(pc.shove(Vector3(-1.5f, 1.0f, 0.5f)));
+    CHECK(pc.get_velocity().x == doctest::Approx(shoved.x));
+    CHECK(pc.get_velocity().y == doctest::Approx(shoved.y));
+}

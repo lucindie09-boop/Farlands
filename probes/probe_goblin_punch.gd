@@ -1,7 +1,7 @@
 extends SceneTree
 ## Windowed check of the goblin as a punchable ENTITY, through the real C++ path:
 ## LMB -> PlayerController::try_punch_dummy -> the nearest body in `pose_clone` ->
-## dummy.gd::apply_knockback.
+## the goblin's own `apply_knockback` (the player sim's shove).
 ##
 ## Two goblins are spawned: the first is moved out of reach, the second stands at the
 ## aimed cell. The click has to land on the NEAREST one -- the group lists the far one
@@ -80,12 +80,10 @@ func _click_left() -> void:
 	Input.parse_input_event(up)
 
 
-## dummy.gd drives its node from its own tick position, so a probe moves a body by
-## putting it where the next tick starts (both ends of its interpolation pair).
+## A body's position belongs to its movement sim, so a probe moves it the way the game
+## does: the sim's own reset, which clears the velocity and any fall with it.
 func _teleport(body: Node3D, pos: Vector3) -> void:
-	body.set("_pos", pos)
-	body.set("_prev_pos", pos)
-	body.global_position = pos
+	body.call("teleport", pos)
 
 
 func _run() -> void:
@@ -149,7 +147,7 @@ func _run() -> void:
 		return
 	print("PROBE near goblin at %s" % near.global_position)
 	var near_before: Vector3 = near.global_position
-	var far_motion_before: Vector3 = far.get("_motion")
+	var far_motion_before: Vector3 = far.call("get_velocity")
 
 	# The crosshair starts on a cell seam (the spawn point is a world corner), where no
 	# body centred in a cell can be hit: aim at the goblin itself, which is also what a
@@ -175,8 +173,8 @@ func _run() -> void:
 		await process_frame
 	print("PROBE swing after %s" % (vm.get("_swing") if vm != null else "no viewmodel"))
 
-	var near_motion: Vector3 = near.get("_motion")
-	var far_motion: Vector3 = far.get("_motion")
+	var near_motion: Vector3 = near.call("get_velocity")
+	var far_motion: Vector3 = far.call("get_velocity")
 	print("PROBE near motion %s (was %s), far motion %s" % [near_motion, near_before, far_motion])
 	# dummy.gd's base knockback: +0.4 away from the attacker and +0.4 up, capped. A
 	# couple of ticks later the horizontal half may already be eaten by a wall it was

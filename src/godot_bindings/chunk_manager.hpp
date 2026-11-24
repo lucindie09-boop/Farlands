@@ -30,6 +30,9 @@ class ShaderMaterial;
 // own classes, not an engine one.
 class BiomeSearch;
 
+// A non-player body on the player's own movement sim (godot_bindings/mob_body.hpp).
+class MobBody;
+
 namespace VoxelEngine {
 class VoxelEngineController;
 class CollisionResolver;
@@ -199,6 +202,11 @@ public:
     // A search with a generator of its own, which may be run on a thread: the
     // chat uses it so /locatebiome never stalls the frame it was typed on.
     godot::Ref<BiomeSearch> make_biome_search();
+    // A body moved by the player's own movement simulation: the same 20 Hz ticks, the
+    // same collision, step-up and swimming, the same render interpolation, for an entity
+    // that is not the player. It owns its position and velocity; the caller owns the
+    // node it is drawn at.
+    godot::Ref<MobBody> make_mob_body();
     // The biome at a column ("plains"), for the F3 debug screen.
     godot::String get_biome_at(int32_t world_x, int32_t world_z);
     // {total_us, count}: the controller's cumulative process_total and its sample

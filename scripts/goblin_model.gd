@@ -55,9 +55,13 @@ var source_mesh: Mesh = null
 ## clamps a mob's look the same way rather than letting a goal spin a head round.
 const HEAD_YAW_LIMIT := 1.309
 const HEAD_PITCH_LIMIT := 0.698
-## Seconds for the head to close on a new point, about 10 degrees a tick -- a look that
-## snaps is a teleport, one that crawls reads as a machine scanning.
-const HEAD_EASE := 0.12
+## How fast a neck turns: 10 degrees a TICK, the game's own limit for a mob's head, which is
+## a constant 200 degrees a second -- a whole 75-degree turn takes 7.5 ticks, about a third
+## of a second. It is a RATE and not an ease: the head travels at the same speed the whole
+## way. An ease races off the mark and creeps into the finish, which is what reads as a
+## camera settling rather than a neck turning.
+const HEAD_TURN_PER_TICK := 0.1745
+const HEAD_TURN_RATE := HEAD_TURN_PER_TICK * 20.0
 
 ## Where the head is looking (a world point), and this frame's length, kept here so the
 ## parent's `_process(delta)` can drive an ease that is stated in seconds.
@@ -128,7 +132,20 @@ func _track_head_look() -> void:
 			var pitch := clampf(atan2(local.y, Vector2(local.x, local.z).length()),
 				-HEAD_PITCH_LIMIT, HEAD_PITCH_LIMIT)
 			want = Quaternion(Vector3.UP, yaw) * Quaternion(Vector3.RIGHT, pitch)
-	_head.quaternion = _head.quaternion.slerp(want, 1.0 - exp(-_head_delta / HEAD_EASE))
+	_turn_head(want)
+
+
+## One frame's worth of neck: at most HEAD_TURN_RATE, about the shortest arc to `want`.
+## Slerping by the fraction of the angle the frame is allowed is what makes it a constant
+## rate rather than an ease -- the same turn every frame until it arrives.
+func _turn_head(want: Quaternion) -> void:
+	var current := _head.quaternion
+	var gap := current.angle_to(want)
+	var step := HEAD_TURN_RATE * _head_delta
+	if gap <= step or gap < 0.0001:
+		_head.quaternion = want
+		return
+	_head.quaternion = current.slerp(want, step / gap)
 
 
 ## Eleven surfaces -> six hung parts, each its own joint.

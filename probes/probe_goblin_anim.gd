@@ -243,6 +243,25 @@ func _run() -> void:
 	_ok("look: the walk's downward glance reads 20-25 degrees",
 		walk_pitch < -20.0 and walk_pitch > -25.0, "%.1f deg" % walk_pitch)
 
+	# The turn is a RATE, not an ease: a neck moves 10 degrees a tick, so a jump to a new point
+	# 	is travelled at one speed instead of racing off and creeping into the finish. Driven
+	# a frame at a time with a known delta, so the rate is what is measured.
+	model.set_process(false)
+	model.set("_head_delta", 1.0 / 60.0)
+	model.call("look_at_point", eye + Vector3(0.0, 0.0, -3.0))
+	for i in 120:
+		model.call("_track_head_look")
+	model.call("look_at_point", eye + Vector3(-3.0, 0.0, 0.0))
+	model.call("_track_head_look")
+	var one_frame := rad_to_deg(head.quaternion.get_euler().y)
+	_ok("look: a neck turns 10 degrees a tick, it does not snap there",
+		absf(one_frame) > 2.5 and absf(one_frame) < 4.5, "%.2f deg in one frame" % one_frame)
+	for i in 40:
+		model.call("_track_head_look")
+	var arrived := rad_to_deg(head.quaternion.get_euler().y)
+	_ok("look: and a full turn takes about a third of a second",
+		absf(arrived) > 70.0 and absf(arrived) < 76.0, "%.1f deg after 41 frames" % arrived)
+
 	host.queue_free()
 	print("PROBE goblin animation: %d failure(s)" % _failures)
 	quit(1 if _failures > 0 else 0)

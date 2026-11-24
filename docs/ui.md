@@ -534,8 +534,9 @@ being resampled by a different fraction at each scale.
   route outright and pauses the wander. **Standing, it looks about**: a 1-in-40-a-tick roll picks a
   point within 6 blocks of it, mostly **below** its eyes (a near, low point is the 20-odd-degree
   downward glance), and **the head turns to it** — yaw then pitch about the model's own axes,
-  clamped to 75° either side of the body and 40° up or down, eased over about 0.12 s, and turning
-  about the **neck** — the head box's own bottom, because its ears, chin and nose ride the turn but
+  clamped to 75° either side of the body and 40° up or down, and **turned at 10° a tick** — a
+  constant 200°/s, so a full 75° turn takes about a third of a second and the head travels at one
+  speed the whole way instead of racing off and creeping into the finish — about the **neck** — the head box's own bottom, because its ears, chin and nose ride the turn but
   must not average into the joint. **The head leads and the body follows**, on the player's own rule: the
   yaw its body wants is dragged round to keep the look inside **35°** of it (`kBodyMaxYaw`, the same
   limit the player's body yaw uses) and the ordinary facing ease turns it there, so an idle goblin

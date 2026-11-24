@@ -488,8 +488,13 @@ being resampled by a different fraction at each scale.
   on the block the eye ray is aimed at, standing in `place_position` — the cell a block would go into, so its
   feet land on the aimed face. The obj is Blockbench's own export in blocks already (1.44 tall, feet on
   y = 0), so nothing is scaled; only its body's own x/z centre is shifted onto the cell, and it is turned to
-  face the player. It carries its own texture on a nearest-filtered `StandardMaterial3D` because the `.mtl`
-  named by the obj is not in the tree, and it is plain scenery — no physics and no animation
+  face the player. It is plain scenery — no physics and no animation — and it is lit by the WORLD, like
+  the player's body and the dropped items: `item_shader.gdshader` over `item_lighting.gdshaderinc`, with
+  `ChunkManager.apply_item_lighting` pushed onto its material every frame and the light of the cell its
+  middle is in on the per-instance `item_light`, eased over the same `LIGHT_EASE_TIME`. So it is dark in a
+  cave and warm beside a torch, and it can never disagree with the ground it stands on. It carries its own
+  texture (`Goblin2.png`) because the `.mtl` named by the obj is not in the tree, and the shader samples it
+  `filter_nearest`
 - `dummy.gd` — Combat physics for the pose clone: 20 tps vanilla 1.8.8 gravity/drag,
   knockback (`apply_knockback`: base 0.4 + sprint bonus, 10-tick hurt-resistance gate),
   interpolated rendering between ticks

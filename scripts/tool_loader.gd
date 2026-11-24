@@ -21,17 +21,26 @@ extends Node
 ## Both are only ever read by path (`/root/SkinManager`, `/root/BlockManager`),
 ## so a node created later is found by every existing call site.
 
-## Tool name -> script. Two are asked for by name with no key of their own (the
-## Tools page's button and the dummy's spawn egg); the third is reached by a key.
+## Tool name -> script. Three are asked for by name with no key of their own (the
+## Tools page's buttons, and the dummy egg for the pose clone); the last is reached
+## by a key.
 const TOOLS := {
 	"liquid_lab": "res://scripts/liquid_texture_lab.gd",
 	"pose_clone": "res://scripts/pose_clone_debug.gd",
+	"goblin": "res://scripts/goblin_spawn.gd",
 	"chunk_borders": "res://scripts/chunk_borders.gd",
 }
 
-## The one tool with a key left (F3+B).
+## The one tool that only has a key (F3+B).
 const KEY_TOOL := "chunk_borders"
 const KEY_ACTION := "toggle_chunk_borders"
+
+## G puts a goblin on the aimed block: the same thing the Tools page's button does,
+## without the menu in the way. A key rather than the tool's own, because the tool
+## is asked for by name from two places already and nothing else about it is an
+## input handler.
+const GOBLIN_TOOL := "goblin"
+const GOBLIN_ACTION := "goblin_spawn"
 
 ## Autoloads the title does not need, created by `ensure_autoload()` before the
 ## world that reads them exists.
@@ -41,6 +50,9 @@ const LAZY_AUTOLOADS := {
 }
 
 var _created: Dictionary = {}
+## The player, hooked by `_hook_player`: a press in the world has to be told apart
+## from a letter typed into the chat or a click on a menu.
+var _player: Node = null
 
 
 func _ready() -> void:
@@ -53,6 +65,7 @@ func _ready() -> void:
 func _hook_player(node: Node) -> void:
 	if node == null or node.name != "Player" or not node.has_signal("dummy_spawn"):
 		return
+	_player = node
 	if not node.is_connected("dummy_spawn", _spawn_dummy):
 		node.connect("dummy_spawn", _spawn_dummy)
 
@@ -63,9 +76,31 @@ func _spawn_dummy() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if not event.is_echo() and not _created.has(KEY_TOOL) \
-			and event.is_action_pressed(KEY_ACTION):
+	if event.is_echo():
+		return
+	if event.is_action_pressed(GOBLIN_ACTION):
+		if _world_is_driven():
+			var goblin := open_tool(GOBLIN_TOOL)
+			if goblin != null:
+				goblin.call("spawn")
+				get_viewport().set_input_as_handled()
+		return
+	if not _created.has(KEY_TOOL) and event.is_action_pressed(KEY_ACTION):
 		open_tool(KEY_TOOL, event)
+
+
+## Whether a press belongs to the game rather than to a screen over it: the chat
+## takes letters ("g" is a word) and a menu owns the mouse, so neither may drop a
+## goblin into the world behind it. Anything else — a cursor the player has not
+## captured yet included — is the world.
+func _world_is_driven() -> bool:
+	if _player == null or not is_instance_valid(_player):
+		return true
+	for method in ["is_chat_open", "is_settings_open", "is_inventory_open",
+			"is_table_menu_open"]:
+		if _player.has_method(method) and bool(_player.call(method)):
+			return false
+	return true
 
 
 ## Makes `tool_name` if it is not there yet and answers it; null if that name is not

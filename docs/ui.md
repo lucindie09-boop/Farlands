@@ -484,6 +484,12 @@ being resampled by a different fraction at each scale.
   1.8.8 gravity/drag/knockback at 20 tps — standing on the aimed block, with a bright
   depth-test-off cube at every mesh's origin (see `Assets/shaders/pose_pivot_marker.gdshader`); prints
   each part's pivot for marker-vs-transform verification
+- `goblin_spawn.gd` — Debug tool (the Tools page's **Spawn Goblin** button, and **G** in the world): puts `Assets/models/Goblin2.obj`
+  on the block the eye ray is aimed at, standing in `place_position` — the cell a block would go into, so its
+  feet land on the aimed face. The obj is Blockbench's own export in blocks already (1.44 tall, feet on
+  y = 0), so nothing is scaled; only its body's own x/z centre is shifted onto the cell, and it is turned to
+  face the player. It carries its own texture on a nearest-filtered `StandardMaterial3D` because the `.mtl`
+  named by the obj is not in the tree, and it is plain scenery — no physics and no animation
 - `dummy.gd` — Combat physics for the pose clone: 20 tps vanilla 1.8.8 gravity/drag,
   knockback (`apply_knockback`: base 0.4 + sprint bonus, 10-tick hurt-resistance gate),
   interpolated rendering between ticks

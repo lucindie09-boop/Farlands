@@ -76,7 +76,7 @@ and a wildcard like `src/mesh/mesh_manager*.cpp` means the family a split produc
 | Inventory UI | `inventory.gd`, `hotbar.gd`, `crafting_table_menu.gd` | E toggles the full screen, drag/drop and shift-click transfer, 3x3 table from `crafting_table_used`, live 2x2 grid |
 | Block icons | `block_icon_renderer.gd` | Isometric 300x300 icons built from each shape's selection boxes, pre-rendered and cached; `/testicons` |
 | Health, death, chat | `healthbar.gd`, `airbar.gd`, `death_screen.gd`, `chat.gd` | 10 hearts, the breath bubbles, the respawn overlay, autocomplete and the command set |
-| Settings, Skin Maker, Block Maker | `settings_menu.gd` | Render/lighting/crosshair/controls pages, the two in-game editors and the liquid lab on the Tools page, one share code per category - [notes](docs/gui-notes.md) |
+| Settings, Skin Maker, Block Maker | `settings_menu.gd` | Render/lighting/crosshair/controls pages, the two in-game editors, the liquid lab and the goblin spawner on the Tools page, one share code per category - [notes](docs/gui-notes.md) |
 | Testing & CI | `tests/`, `tools/`, `.github/workflows/build.yml` | 790 cases / 374,367 assertions, four static gates, the soak and fuzz jobs - [notes](docs/testing.md), [contributing](CONTRIBUTING.md) |
 | Shader effects | `shader_overlay.gd` + `data/shaders.json` | The effect stack (Hand Drawn, CRT Screen, Phosphor Trail, filters, camera and vertex effects), built from the registry - [rendering](docs/rendering-notes.md) |
 | Liquid texture lab | `liquid_texture_lab.gd`, `liquid_animator.gd` | Generates and animates the water/lava/acid sprites instead of shipping them (Tools → Liquid Texture Lab on the pause menu opens the lab) - [rendering](docs/rendering-notes.md) |
@@ -366,6 +366,7 @@ Windows).
 | F | Toggle fly mode |
 | F5 | Cycle camera view: first person → behind the player → in front of the player (looking at your face) |
 | F12 | Open the held-pose adjuster (the panel prints its own keys): B cycles ARM → BLOCK → ITEM → ITEM2 → ITEM3, and R/F, A/D, W/S, T/G, I/K/J/L/U/O nudge the rotation, scale and position it shows. The numbers are what `_item_poses` in `scripts/viewmodel.gd` holds |
+| G | Spawn a goblin (`Assets/models/Goblin2.obj`) on the aimed block — the Tools page's "Spawn Goblin" button does the same, and each press adds another |
 | K | Spawn/remove a rigid physics dummy of the player on the aimed block — no animations, falls with vanilla gravity/drag, punchable with left click (debug: shows a cube at each mesh pivot) |
 | 1–9 | Select hotbar slot |
 | Q | Drop one item from the selected hotbar slot into the world (Ctrl+Q drops the whole stack) |
@@ -379,7 +380,7 @@ Windows).
 
 Input bindings live in `project.godot` (`move_forward`, `move_back`, `move_left`, `move_right`,
 `jump`, `sprint`, `sneak`, `fly_toggle`, `toggle_inventory`, `drop_item`, `toggle_chat`,
-`toggle_third_person`, `mouse_click_left`, `mouse_click_right`,
+`toggle_third_person`, `mouse_click_left`, `mouse_click_right`, `goblin_spawn`,
 `toggle_chunk_borders` — the last one, pressed with F3 held, shows the 32-block chunk grid
 around the player as X-ray lines, `chunk_borders.gd`, off by default). The C++ `PlayerController` node owns all movement,
 look, block interaction, and inventory state — there is no player GDScript. The hotbar/inventory

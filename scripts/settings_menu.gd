@@ -619,14 +619,29 @@ func _build_tools_page() -> Control:
 	block_btn.pressed.connect(func(): _show_page("block_maker"))
 	var lab_btn := _make_widget_button("Liquid Texture Lab")
 	lab_btn.pressed.connect(_open_liquid_lab)
+	var goblin_btn := _make_widget_button("Spawn Goblin")
+	goblin_btn.pressed.connect(_spawn_goblin)
 	return _build_scrolling_page("Tools",
-		[["", [["", skin_btn, null], ["", block_btn, null], ["", lab_btn, null]]]],
+		[["", [["", skin_btn, null], ["", block_btn, null], ["", lab_btn, null],
+			["", goblin_btn, null]]]],
 		[["Back", func(): _show_page("pause")], ["Done", _close]], UNIT_BUTTON_W, 1,
 		Color(0, 0, 0, 0))
 
 # The lab is not a page of this menu: it is its own overlay, which ToolLoader makes
 # on first use. So the menu closes first (the lab takes the mouse for its panel when
 # it opens) and the loader is asked for it by name.
+## A goblin appears on whatever block the crosshair was on, so it is placed by the
+## tool rather than by this page's own state: the menu closes first (the world is
+## what the button is about), then the loader's tool is asked to spawn.
+func _spawn_goblin() -> void:
+	var loader := get_node_or_null("/root/ToolLoader")
+	if loader == null:
+		return
+	_close()
+	var tool: Node = loader.open_tool("goblin")
+	if tool != null:
+		tool.call("spawn")
+
 func _open_liquid_lab() -> void:
 	var loader := get_node_or_null("/root/ToolLoader")
 	if loader == null:

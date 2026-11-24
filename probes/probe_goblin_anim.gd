@@ -231,6 +231,17 @@ func _run() -> void:
 	_ok("rig: the head turns about its neck, not about what is attached to it",
 		absf(joint.y - 1.0) < 0.01 and absf(joint.z + 0.09) < 0.01 and absf(joint.x + 0.03) < 0.01,
 		"joint %s (the union gave y 0.94, z -0.155)" % str(joint))
+	# The look a WALKING goblin wears: goblin.gd aims two blocks ahead and 22.5 degrees below
+	# the horizontal from its neck, and what the head does with that point is that tilt -- the
+	# pipeline from `_pick_walk_look`'s geometry to a pitch on the neck, end to end.
+	var neck := model.global_position + Vector3(0.0, 1.0, 0.0)
+	var down_tan := tan(0.3927)
+	model.call("look_at_point", neck + Vector3(0.0, -2.0 * down_tan, -2.0))
+	for i in 90:
+		await process_frame
+	var walk_pitch := rad_to_deg(head.quaternion.get_euler().x)
+	_ok("look: the walk's downward glance reads 20-25 degrees",
+		walk_pitch < -20.0 and walk_pitch > -25.0, "%.1f deg" % walk_pitch)
 
 	host.queue_free()
 	print("PROBE goblin animation: %d failure(s)" % _failures)

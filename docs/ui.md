@@ -539,7 +539,8 @@ being resampled by a different fraction at each scale.
   must not average into the joint — while the body stays exactly where it is, which is the
   difference between a mob looking at something and a mob spinning on the spot. The glance is held
   5–6 s and then the head eases back to **straight ahead**, which is the pose it mostly wears;
-  walking, it looks level along the way it is going. Its facing
+  **walking**, it looks **22.5° down** — two blocks ahead and that far below the horizontal — which
+  is the tilt its walk was tuned to. Its facing
   when it DOES walk is the model's own yaw eased toward the way it is walking -- eased once per FRAME, not once per tick, so a small object does not turn in 20 Hz
   steps -- never the body's, whose box is what the punch is tested against. It is drawn between
   physics frames as well as between sim ticks (`Engine.get_physics_interpolation_fraction()`), so

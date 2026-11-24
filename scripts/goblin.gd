@@ -132,8 +132,12 @@ const LOOK_DOWN_LO := -1.4
 const LOOK_UP_HI := 0.6
 const LOOK_HOLD_MIN := 100
 const LOOK_HOLD_MAX := 120
-## How high above its feet a walking goblin looks, in blocks: the height of its own neck,
-## so the head rides level and the walk does not drag its face into the floor.
+## While it WALKS the head is tilted down by this much: 22.5 degrees. It is stated as the
+## angle and turned into a point (WALK_LOOK_DISTANCE blocks ahead, that far below the
+## horizontal), so the tilt is what is being set and the distance cannot change it.
+const WALK_LOOK_PITCH := 0.3927
+const WALK_LOOK_DISTANCE := 2.0
+## How high above its feet the point it looks FROM sits, in blocks: the neck.
 const WALK_LOOK_HEIGHT := 1.0
 
 ## Which SPEED_STATES entry is in force. A chase, a loot run, a flee or a sneak
@@ -400,12 +404,14 @@ func _walk() -> void:
 		_jump = true
 
 
-## The head follows the walk: a point a couple of blocks along the direction of travel at
-## the goblin's own neck height, so the body's turn and the head's agree while it is going
-## somewhere and the walk reads level rather than staring at the floor.
+## The head follows the walk: a couple of blocks along the direction of travel, and
+## WALK_LOOK_PITCH below the horizontal, so the body's turn and the head's agree while it is
+## going somewhere and the walk wears the downward look.
 func _pick_walk_look(dir: Vector3) -> void:
-	_set_look(_sim.get_tick_position()
-		+ Vector3(dir.x * 2.0, WALK_LOOK_HEIGHT, dir.z * 2.0))
+	var flat := Vector3(dir.x, 0.0, dir.z)
+	flat = flat.normalized() * WALK_LOOK_DISTANCE if flat.length_squared() > 0.0 else Vector3.ZERO
+	var neck: Vector3 = _sim.get_tick_position() + Vector3(0.0, WALK_LOOK_HEIGHT, 0.0)
+	_set_look(neck + flat - Vector3(0.0, flat.length() * tan(WALK_LOOK_PITCH), 0.0))
 
 
 func _stop_walking() -> void:

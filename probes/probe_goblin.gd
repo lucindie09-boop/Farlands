@@ -273,7 +273,28 @@ func _run() -> void:
 	body.set("_yaw_target", 0.0)
 	body.set("_look_ticks", 0)
 
-	# A player in reach gets looked at, on the game's own goal: 2% a tick to start, 8 blocks,
+	# Walking, the aim drifts side to side on top of the downward tilt, so the head never holds
+	# one exact line for the whole of a walk. The swing is the whole aim, so the tilt stays.
+	body.set("_sway", 0.0)
+	body.call("_pick_walk_look", Vector3(0.0, 0.0, -1.0))
+	var ahead: Vector3 = body.get("_look_point")
+	body.set("_sway", PI * 0.5)
+	body.call("_pick_walk_look", Vector3(0.0, 0.0, -1.0))
+	var swung: Vector3 = body.get("_look_point")
+	var neck: Vector3 = body.global_position + Vector3(0.0, 1.0, 0.0)
+	var drift := rad_to_deg(
+		Vector2(ahead.x - neck.x, ahead.z - neck.z).angle_to(
+			Vector2(swung.x - neck.x, swung.z - neck.z)))
+	if absf(drift) < 2.0 or absf(drift) > 6.0:
+		_fail("the walk's head drifted %.1f degrees, expected about 4" % drift)
+	var neck_y: float = body.global_position.y + 1.0
+	if ahead.y > neck_y - 0.5 or swung.y > neck_y - 0.5:
+		_fail("the walk's look left its downward tilt (%.2f, %.2f against a neck at %.2f)"
+			% [ahead.y, swung.y, neck_y])
+	body.set("_sway", 0.0)
+
+	# A player in reach gets looked at, on the goal's structure with the reach and hold tuned
+	# down: half a percent a tick to start, 4 blocks,
 	# then 40-80 ticks of watching, dropped the moment they are out of range. Driven a tick at
 	# a time for the same reason as the body turn above.
 	body.set("_gazing", false)
@@ -283,8 +304,16 @@ func _run() -> void:
 	if bool(body.get("_gazing")):
 		_fail("it watched a player 14 blocks off, and the range is 8")
 	player.position = body.global_position + Vector3(2.0, 0.0, 0.0)
+	# The watch and the glance compete for the head, as the two goals do: a held glance wins it.
+	body.set("_look_ticks", 100)
+	body.set("_gazing", false)
+	for i in 400:
+		body.call("_update_gaze", 1)
+	if bool(body.get("_gazing")):
+		_fail("it started watching a player while a glance still held the head")
+	body.set("_look_ticks", 0)
 	var watching := false
-	for i in 800:
+	for i in 2000:
 		body.call("_update_gaze", 1)
 		if bool(body.get("_gazing")):
 			watching = true

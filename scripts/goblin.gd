@@ -138,22 +138,36 @@ const LOOK_DOWN_LO := -1.4
 const LOOK_UP_HI := 0.6
 const LOOK_HOLD_MIN := 100
 const LOOK_HOLD_MAX := 120
-## A player in reach is worth looking at, and that is its own thing in the game rather than a
-## kind of glance: a 2%-a-tick chance to start (a look every 50 ticks, 2.5 s, on average),
-## the player within 8 blocks, and then the head follows them for 40 to 80 ticks (2 to 4 s)
-## before letting go. It outranks the idle glance and the walk's own forward look -- watching
-## the player go past is the whole point of it -- and it goes through the same neck: the head
-## turns at 10 degrees a tick and the body follows what the neck cannot reach.
-const LOOK_AT_CHANCE := 0.02
-const LOOK_AT_RANGE := 8.0
-const LOOK_AT_MIN_TICKS := 40
-const LOOK_AT_MAX_TICKS := 80
+## A player in reach is worth looking at, and that is its own thing rather than a kind of
+## glance: the head follows their eyes for a moment and then lets go. It beats the walk's own
+## forward look -- watching the player go past is the whole point of it -- and it goes through
+## the same neck: the head turns at 10 degrees a tick and the body follows what the neck cannot
+## reach.
+##
+## The goal's own numbers are a 2%-a-tick roll, 8 blocks, and a hold of 40 to 79 ticks (2 to
+## 4 s), and with them a mob watches you more than half the time. In the game that reads as a
+## mob noticing you because there are dozens of them about and you never stand still beside
+## one; with one goblin and the player in front of it, it reads as being stared at. So all
+## three are deliberately below the source: half a percent a tick (a look every 10 s on
+## average), 4 blocks, and 1 to 2 s of it. The glance rolls its 2% as the game's does, and the
+## two still COMPETE for the head -- neither can start while the other holds it -- which is
+## what puts real gaps between one watch and the next.
+const LOOK_AT_CHANCE := 0.005
+const LOOK_AT_RANGE := 4.0
+const LOOK_AT_MIN_TICKS := 20
+const LOOK_AT_MAX_TICKS := 40
 ## Where a player's eyes are above their feet, so a mob looks at the face and not the shoes.
 const PLAYER_EYE_HEIGHT := 1.62
 ## While it WALKS the head is tilted down by this much: 22.5 degrees. It is stated as the
 ## angle and turned into a point (WALK_LOOK_DISTANCE blocks ahead, that far below the
 ## horizontal), so the tilt is what is being set and the distance cannot change it.
 const WALK_LOOK_PITCH := 0.3927
+## A walking head drifts slowly side to side on top of that tilt -- a few degrees either
+## way over WALK_SWAY_TICKS, so about one slow swing every three and a half seconds. A head
+## that holds one line dead still for the whole of a walk reads as a camera on rails; this
+## is the whole aim drifting, not a nod, so the downward look stays put.
+const WALK_SWAY_YAW := 0.0698
+const WALK_SWAY_TICKS := 70.0
 const WALK_LOOK_DISTANCE := 2.0
 ## How high above its feet the point it looks FROM sits, in blocks: the neck.
 const WALK_LOOK_HEIGHT := 1.0
@@ -205,6 +219,8 @@ var _looking := false
 ## Watching a player: ticks of the hold left, and whether it is watching one at all.
 var _gazing := false
 var _gaze_ticks := 0
+## Where the walk's slow side-to-side drift is in its swing (radians, one turn per cycle).
+var _sway := 0.0
 
 
 func _ready() -> void:
@@ -263,13 +279,16 @@ func _process(_delta: float) -> void:
 func _advance_ticks(ticks: int) -> void:
 	if _hit_pause > 0:
 		_hit_pause = maxi(_hit_pause - ticks, 0)
+	_sway = fmod(_sway + TAU * float(ticks) / WALK_SWAY_TICKS, TAU)
+	# A glance is held whether it is walking or not, so its clock runs before either roll: what
+	# is left of it is what decides whether the watch may take the head.
+	_look_ticks = maxi(_look_ticks - ticks, 0)
 	_update_gaze(ticks)
 	if _route.is_empty():
 		if _idle_ticks > 0:
 			_idle_ticks = maxi(_idle_ticks - ticks, 0)
 		# Both rolls are per TICK, so they are stated per tick and scaled by the ticks this
 		# call covers -- a frame rate can never make a goblin wander more.
-		_look_ticks = maxi(_look_ticks - ticks, 0)
 		# The body follows the head on the player's own rule (BODY_MAX_YAW): what it wants to
 		# face is dragged round to keep the look inside that much of the body, and `_turn`
 		# eases it there -- so a glance behind turns the goblin instead of folding its neck.
@@ -277,8 +296,9 @@ func _advance_ticks(ticks: int) -> void:
 			var diff := wrapf(_look_yaw() - _yaw, -PI, PI)
 			if absf(diff) > BODY_MAX_YAW:
 				_yaw_target = wrapf(_look_yaw() - signf(diff) * BODY_MAX_YAW, -PI, PI)
-		# A player in reach outranks the glance: while it is watching one, the glance roll is
-		# not asked at all.
+		# The glance and the watch take turns at the head rather than one outranking the other:
+		# while it is watching a player no glance starts, and while a glance is held no watch
+		# starts (see `_update_gaze`).
 		if _look_ticks == 0 and not _gazing:
 			# A glance is a glance: its hold running out is the head going back to straight
 			# ahead, and only then does the roll get another chance at one.
@@ -367,7 +387,10 @@ func _update_gaze(ticks: int) -> void:
 			return
 		_gazing = false
 		return
-	if eyes.distance_to(feet) <= LOOK_AT_RANGE and randf() < LOOK_AT_CHANCE * ticks:
+	# The head has to be free: a glance being held is the other goal winning this one's flag,
+	# and the game's watch goal cannot start until it lets go.
+	if _look_ticks <= 0 and eyes.distance_to(feet) <= LOOK_AT_RANGE \
+			and randf() < LOOK_AT_CHANCE * ticks:
 		_gazing = true
 		_gaze_ticks = randi_range(LOOK_AT_MIN_TICKS, LOOK_AT_MAX_TICKS)
 		_set_look(eyes)
@@ -480,7 +503,10 @@ func _walk() -> void:
 ## going somewhere and the walk wears the downward look.
 func _pick_walk_look(dir: Vector3) -> void:
 	var flat := Vector3(dir.x, 0.0, dir.z)
-	flat = flat.normalized() * WALK_LOOK_DISTANCE if flat.length_squared() > 0.0 else Vector3.ZERO
+	if flat.length_squared() <= 0.0:
+		return
+	flat = flat.normalized().rotated(Vector3.UP, sin(_sway) * WALK_SWAY_YAW)
+	flat *= WALK_LOOK_DISTANCE
 	var neck: Vector3 = _sim.get_tick_position() + Vector3(0.0, WALK_LOOK_HEIGHT, 0.0)
 	_set_look(neck + flat - Vector3(0.0, flat.length() * tan(WALK_LOOK_PITCH), 0.0))
 

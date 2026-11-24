@@ -119,7 +119,10 @@ const TICK_RATE := 20.0
 ## Facing eases this much per tick toward the yaw it wants (a quarter turn in about
 ## half a second). Walking sets that yaw to the travel direction, and a look the neck
 ## cannot reach drags it round too (BODY_MAX_YAW); nothing else turns the body.
-const TURN_EASE := 0.18
+## It is the player's own body-yaw rate (kBodyTurnPerTick), applied per DRAWN frame in
+## `_process` with that frame's delta, so the goblin's body turns at the speed and the
+## smoothness of the player's: at 0.18 the head was arriving and the body still on its way.
+const TURN_EASE := 0.3
 ## What a standing goblin looks at, and how often: a roll, 1 in 120 a tick, which is a
 ## glance about every 6 s, to a point within LOOK_RANGE of it and mostly BELOW its eyes
 ## (LOOK_DOWN_LO..LOOK_UP_HI), which is the tilt that reads as an animal scanning the
@@ -156,11 +159,11 @@ const LOOK_HOLD_MAX := 40
 ## 4 s), and with them a mob watches you more than half the time. In the game that reads as a
 ## mob noticing you because there are dozens of them about and you never stand still beside
 ## one; with one goblin and the player in front of it, it reads as being stared at. So all
-## three are deliberately below the source: half a percent a tick (a look every 10 s on
-## average), 4 blocks, and 1 to 2 s of it. The glance rolls its 2% as the game's does, and the
+## three are deliberately below the source: a quarter of a percent a tick (a look every 20 s
+## on average), 4 blocks, and 1 to 2 s of it. The glance rolls its 2% as the game's does, and the
 ## two still COMPETE for the head -- neither can start while the other holds it -- which is
 ## what puts real gaps between one watch and the next.
-const LOOK_AT_CHANCE := 0.005
+const LOOK_AT_CHANCE := 0.0025
 const LOOK_AT_RANGE := 4.0
 const LOOK_AT_MIN_TICKS := 20
 const LOOK_AT_MAX_TICKS := 40
@@ -263,7 +266,6 @@ func _physics_process(delta: float) -> void:
 	_drawn_prev = _drawn_cur
 	_drawn_cur = _sim.get_position()
 	global_position = _drawn_cur
-	_turn(delta)
 	# Its health is the fist's, not the fall's: the sim's queued hits are dropped rather
 	# than accumulating. Applied would be a behaviour change, not a movement one.
 	_sim.drain_damage()
@@ -280,6 +282,11 @@ func _process(_delta: float) -> void:
 	if _sim == null:
 		return
 	global_position = _drawn_prev.lerp(_drawn_cur, Engine.get_physics_interpolation_fraction())
+	# The facing turns on the drawn frame too, not once per physics step: a body that
+	# updates its rotation at 60 Hz while its position interpolates at the display's rate
+	# reads as stepping behind its own head. `_turn` takes a delta and is frame-rate
+	# correct, so it means the same turn per second here as it would anywhere.
+	_turn(_delta)
 
 
 ## The tick-rate half: the idle clock, the look-around and the stuck clock. Everything

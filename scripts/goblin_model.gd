@@ -61,7 +61,12 @@ const HEAD_PITCH_LIMIT := 0.698
 ## way. An ease races off the mark and creeps into the finish, which is what reads as a
 ## camera settling rather than a neck turning.
 const HEAD_TURN_PER_TICK := 0.1745
-const HEAD_TURN_RATE := HEAD_TURN_PER_TICK * 20.0
+## Seconds in a tick, and how long the DRAWN head takes to close on the tick's own step.
+## The neck is the shape the rest of the body already has: a value that moves on the 20 Hz
+## ticks and a drawn pose interpolated between them. Turning the drawn head at a flat rate
+## instead gave a head that crawled frame by frame beside a body that glided.
+const HEAD_STEP_SECONDS := 0.05
+const HEAD_DRAW_EASE := 0.02
 
 ## Where the head is looking (a world point), and this frame's length, kept here so the
 ## parent's `_process(delta)` can drive an ease that is stated in seconds.
@@ -71,6 +76,10 @@ var _head_delta := 1.0 / 60.0
 ## the point starts at the origin, and a head that turned toward THAT would be facing a
 ## spot in the world it has no business knowing about.
 var _has_look := false
+## The neck as the ticks see it (at most HEAD_TURN_PER_TICK a tick) and how far the last
+## frame under a tick's worth of clock has got, which is what the drawn head eases onto.
+var _step_q := Quaternion.IDENTITY
+var _head_accum := 0.0
 
 
 ## A world point the head should look at (a random point around the goblin while it
@@ -135,17 +144,22 @@ func _track_head_look() -> void:
 	_turn_head(want)
 
 
-## One frame's worth of neck: at most HEAD_TURN_RATE, about the shortest arc to `want`.
-## Slerping by the fraction of the angle the frame is allowed is what makes it a constant
-## rate rather than an ease -- the same turn every frame until it arrives.
+## One frame's worth of neck. The STEP is the tick's: at most HEAD_TURN_PER_TICK per 20 Hz
+## tick, about the shortest arc to `want`, which is the game's own limit for a mob's head.
+## The drawn quaternion then eases onto that step every frame, so the turn is a turn at 20
+## steps a second drawn smoothly rather than a flat crawl at the display's rate.
 func _turn_head(want: Quaternion) -> void:
-	var current := _head.quaternion
-	var gap := current.angle_to(want)
-	var step := HEAD_TURN_RATE * _head_delta
-	if gap <= step or gap < 0.0001:
-		_head.quaternion = want
-		return
-	_head.quaternion = current.slerp(want, step / gap)
+	_head_accum += _head_delta
+	var steps := 0
+	while _head_accum >= HEAD_STEP_SECONDS:
+		_head_accum -= HEAD_STEP_SECONDS
+		steps += 1
+	if steps > 0:
+		var gap := _step_q.angle_to(want)
+		var step := HEAD_TURN_PER_TICK * float(steps)
+		_step_q = want if gap <= step or gap < 0.0001 else _step_q.slerp(want, step / gap)
+	_head.quaternion = _head.quaternion.slerp(
+		_step_q, 1.0 - exp(-_head_delta / HEAD_DRAW_EASE))
 
 
 ## Eleven surfaces -> six hung parts, each its own joint.

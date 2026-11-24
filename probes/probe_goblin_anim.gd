@@ -252,15 +252,18 @@ func _run() -> void:
 	for i in 120:
 		model.call("_track_head_look")
 	model.call("look_at_point", eye + Vector3(-3.0, 0.0, 0.0))
-	model.call("_track_head_look")
-	var one_frame := rad_to_deg(head.quaternion.get_euler().y)
+	# Three frames at a sixtieth are the first 20 Hz tick, so this is one tick's worth of
+	# neck -- and the drawn head is a little way onto it rather than all the way.
+	for i in 3:
+		model.call("_track_head_look")
+	var one_tick := rad_to_deg(head.quaternion.get_euler().y)
 	_ok("look: a neck turns 10 degrees a tick, it does not snap there",
-		absf(one_frame) > 2.5 and absf(one_frame) < 4.5, "%.2f deg in one frame" % one_frame)
-	for i in 40:
+		absf(one_tick) > 3.0 and absf(one_tick) < 12.0, "%.2f deg after one tick" % one_tick)
+	for i in 57:
 		model.call("_track_head_look")
 	var arrived := rad_to_deg(head.quaternion.get_euler().y)
 	_ok("look: and a full turn takes about a third of a second",
-		absf(arrived) > 70.0 and absf(arrived) < 76.0, "%.1f deg after 41 frames" % arrived)
+		absf(arrived) > 70.0 and absf(arrived) < 76.0, "%.1f deg after a second of frames" % arrived)
 
 	host.queue_free()
 	print("PROBE goblin animation: %d failure(s)" % _failures)

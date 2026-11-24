@@ -534,9 +534,10 @@ being resampled by a different fraction at each scale.
   route outright and pauses the wander. **Standing, it looks about**: a 1-in-120-a-tick roll (a glance every 6 s) picks a
   point within 6 blocks of it, mostly **below** its eyes (a near, low point is the 20-odd-degree
   downward glance), and **the head turns to it** — yaw then pitch about the model's own axes,
-  clamped to 75° either side of the body and 40° up or down, and **turned at 10° a tick** — a
-  constant 200°/s, so a full 75° turn takes about a third of a second and the head travels at one
-  speed the whole way instead of racing off and creeping into the finish — about the **neck** — the head box's own bottom, because its ears, chin and nose ride the turn but
+  clamped to 75° either side of the body and 40° up or down, and **turned at 10° a tick** — the
+  neck steps on the 20 Hz ticks, so a full 75° turn takes about a third of a second, and the drawn
+  pose **interpolates between those steps** every frame, the same two-stage shape the body's
+  position already has, which is what stops the turn crawling frame by frame — about the **neck** — the head box's own bottom, because its ears, chin and nose ride the turn but
   must not average into the joint. **The head leads and the body follows**, on the player's own rule: the
   yaw its body wants is dragged round to keep the look inside **35°** of it (`kBodyMaxYaw`, the same
   limit the player's body yaw uses) and the ordinary facing ease turns it there, so an idle goblin
@@ -547,7 +548,7 @@ being resampled by a different fraction at each scale.
   is the tilt its walk was tuned to, and the aim **drifts side to side** by up to 8° over a
   2.2 s swing, because a head holding one line dead still for a whole walk reads as a camera on
   rails. **A player in reach is looked at**, as its own goal rather than
-  as a kind of glance: a **½% chance a tick** to start, with the player
+  as a kind of glance: a **¼% chance a tick** to start, with the player
   within **4 blocks**, then the head follows **their eyes** for **20–40 ticks** (1–2 s) and they are
   let go when the hold runs out or they walk out of range. The goal's own numbers are 2% a tick,
   8 blocks and 40–79 ticks, and they were what this started as — but a mob watching you more than

@@ -734,7 +734,12 @@ first-person viewmodel - what each one owns and the decisions behind it.
   saved scene, while the dummy-spawn button kept working, because that preloads the model by
   *path* and never touches `Main.tscn`. A `Main.tscn` reference to this model must therefore
   carry `Assets/models/player.glb`'s current uid (and its path), and no `.import` for a source that does
-  not exist belongs at the repository root.
+  not exist belongs at the repository root. It dropped again on 24 Nov — the same shape, the node and
+  both ext_resources gone from the saved scene, and this time with both uids still correct on disk
+  — which surfaced as `PlayerController: no "PlayerModel" node under the scene` at boot and a third
+  person with no body. It was restored from the committed blocks; the scene's own empty
+  `AnimationPlayer` node was not carried back, because `player_model.gd` now builds the player it
+  plays its clips on (`Clips`), so a scene node would be a second, unused one
 - **The body plays two clips and no others: `Idle.anim` standing, `Run.anim` walking.**
   `player_model.gd` builds its own `AnimationPlayer` (named `Clips`) carrying exactly those two,
   picks between them from the sim's horizontal speed (`get_velocity()` scaled by the 20 Hz tick

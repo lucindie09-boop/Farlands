@@ -210,6 +210,27 @@ func _run() -> void:
 	turned = rad_to_deg(head.quaternion.get_euler().y)
 	_ok("look: and it comes back to rest when the look comes back ahead",
 		absf(turned) < 5.0, "%.1f deg" % turned)
+	# A glance that has run out is a head going back to straight ahead, which is where a mob
+	# reads most of the time: `clear_look` stops asking, and the rest of the rig's own pose
+	# is the target.
+	model.call("look_at_point", eye + Vector3(2.0, -1.5, -2.0))
+	for i in 60:
+		await process_frame
+	model.call("clear_look")
+	for i in 120:
+		await process_frame
+	var euler := head.quaternion.get_euler()
+	_ok("look: with nothing picked the head settles straight ahead",
+		absf(rad_to_deg(euler.y)) < 1.0 and absf(rad_to_deg(euler.x)) < 1.0,
+		"yaw %.2f, pitch %.2f" % [rad_to_deg(euler.y), rad_to_deg(euler.x)])
+	# ...and it turns about its own neck. The joint is read from the head's box alone: with
+	# the ears, chin and nose averaged in it sat at y 0.94 and z -0.155, which is a chin's
+	# height and a nose's depth, and a head turning about that point sweeps instead of
+	# turning where it sits.
+	var joint := head.position
+	_ok("rig: the head turns about its neck, not about what is attached to it",
+		absf(joint.y - 1.0) < 0.01 and absf(joint.z + 0.09) < 0.01 and absf(joint.x + 0.03) < 0.01,
+		"joint %s (the union gave y 0.94, z -0.155)" % str(joint))
 
 	host.queue_free()
 	print("PROBE goblin animation: %d failure(s)" % _failures)

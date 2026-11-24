@@ -55,9 +55,12 @@ const STROLL_CHANCE := 1.0 / 120.0
 const IDLE_HOLD_MIN := 20
 const IDLE_HOLD_MAX := 100
 ## How far away the place it picks may be, in blocks. The near bound keeps it from
-## choosing the cell it is already standing on every time.
-const STROLL_MIN_RADIUS := 3.0
-const STROLL_RADIUS := 9.0
+## choosing the cell it is already standing on every time, and the far bound is what sets
+## how much of its life it spends walking: a stroll of 2 to 6 blocks at the wander's own
+## slow pace is 1 to 4 s against the 6 s a roll waits on average, so it stands most of the
+## time -- a longer stroll at this pace read as a goblin that never stopped.
+const STROLL_MIN_RADIUS := 2.0
+const STROLL_RADIUS := 6.0
 ## How far ABOVE its feet the target is aimed, in blocks. The planner resolves a column
 ## by scanning DOWN from a little above the height it is given, so a target aimed at the
 ## goblin's own feet resolves to the inside of the hill the moment the column is
@@ -118,13 +121,20 @@ const TICK_RATE := 20.0
 ## body (see LOOK_CHANCE).
 const TURN_EASE := 0.18
 ## What a standing goblin looks at, and how often: another roll, 1 in 40 a tick, which is
-## a look about every 2 s, to a point within LOOK_RANGE of it and around its own height.
-## The point is held for LOOK_HOLD ticks, so the head settles on it instead of chasing a
-## new one every time the roll lands.
+## a glance about every 2 s, to a point within LOOK_RANGE of it and mostly BELOW its eyes
+## (LOOK_DOWN_LO..LOOK_UP_HI), which is the tilt that reads as an animal scanning the
+## floor. It is a GLANCE: held for LOOK_HOLD ticks and then the head eases back to
+## straight ahead, and the roll starts over -- so the head's resting pose, by far most of
+## the time, is looking where the goblin is going.
 const LOOK_CHANCE := 1.0 / 40.0
 const LOOK_RANGE := 6.0
+const LOOK_DOWN_LO := -1.4
+const LOOK_UP_HI := 0.6
 const LOOK_HOLD_MIN := 100
 const LOOK_HOLD_MAX := 120
+## How high above its feet a walking goblin looks, in blocks: the height of its own neck,
+## so the head rides level and the walk does not drag its face into the floor.
+const WALK_LOOK_HEIGHT := 1.0
 
 ## Which SPEED_STATES entry is in force. A chase, a loot run, a flee or a sneak
 ## approach sets this and nothing else: the pace, the stride and the animation all
@@ -164,10 +174,12 @@ var _model: Node3D = null
 var _yaw := 0.0
 var _yaw_target := 0.0
 var _yaw_ready := false
-## Ticks left holding the point it is looking at, and the point itself (world space, for
-## the head to turn to -- the model's own `look_at_point`).
+## Ticks left holding the point it is looking at, that point (world space, for the head to
+## turn to -- the model's own `look_at_point`), and whether it is looking at one at all:
+## not looking is the head's rest, straight ahead.
 var _look_ticks := 0
 var _look_point := Vector3.ZERO
+var _looking := false
 
 
 func _ready() -> void:
@@ -232,9 +244,13 @@ func _advance_ticks(ticks: int) -> void:
 		# Both rolls are per TICK, so they are stated per tick and scaled by the ticks this
 		# call covers -- a frame rate can never make a goblin wander more.
 		_look_ticks = maxi(_look_ticks - ticks, 0)
-		if _look_ticks == 0 and randf() < LOOK_CHANCE * ticks:
-			_look_ticks = randi_range(LOOK_HOLD_MIN, LOOK_HOLD_MAX)
-			_pick_look()
+		if _look_ticks == 0:
+			# A glance is a glance: its hold running out is the head going back to straight
+			# ahead, and only then does the roll get another chance at one.
+			_clear_look()
+			if randf() < LOOK_CHANCE * ticks:
+				_look_ticks = randi_range(LOOK_HOLD_MIN, LOOK_HOLD_MAX)
+				_pick_look()
 		if _idle_ticks == 0 and _job == 0 and _hit_pause == 0 \
 				and bool(_sim.is_on_ground()) and randf() < STROLL_CHANCE * ticks:
 			_stroll()
@@ -290,13 +306,31 @@ func stroll_now() -> int:
 ## turns to it: the body never turns on the spot, it only faces where it walks.
 func _pick_look() -> void:
 	var angle := randf() * TAU
-	var distance := randf_range(1.0, LOOK_RANGE)
-	_look_point = _sim.get_tick_position() + Vector3(cos(angle) * distance,
-		randf_range(-1.0, 1.0), sin(angle) * distance)
+	var distance := randf_range(1.5, LOOK_RANGE)
+	# Mostly at the ground in front of it, sometimes level, rarely up: that spread is what
+	# gives the 20-odd-degree downward glance when the roll lands on a near spot, without
+	# the head ever being parked looking down.
+	_set_look(_sim.get_tick_position() + Vector3(cos(angle) * distance,
+		randf_range(LOOK_DOWN_LO, LOOK_UP_HI), sin(angle) * distance))
+
+
+## Point the head at a world point (and remember that it is looking at one).
+func _set_look(point: Vector3) -> void:
+	_look_point = point
+	_looking = true
 	if _model == null:
 		_model = get_node_or_null(NodePath("Model")) as Node3D
 	if _model != null and _model.has_method("look_at_point"):
 		_model.call("look_at_point", _look_point)
+
+
+## Straight ahead again: the head eases there, so this only has to stop asking for a point.
+func _clear_look() -> void:
+	if not _looking:
+		return
+	_looking = false
+	if _model != null and _model.has_method("clear_look"):
+		_model.call("clear_look")
 
 
 ## Ask the planner for a route to `target` and walk it when it arrives. Public so a
@@ -366,12 +400,12 @@ func _walk() -> void:
 		_jump = true
 
 
-## The head follows the walk: a point a couple of blocks along the direction of travel,
-## so the body's own turn and the head's agree while it is going somewhere.
+## The head follows the walk: a point a couple of blocks along the direction of travel at
+## the goblin's own neck height, so the body's turn and the head's agree while it is going
+## somewhere and the walk reads level rather than staring at the floor.
 func _pick_walk_look(dir: Vector3) -> void:
-	_look_point = _sim.get_tick_position() + Vector3(dir.x * 2.0, 0.0, dir.z * 2.0)
-	if _model != null and _model.has_method("look_at_point"):
-		_model.call("look_at_point", _look_point)
+	_set_look(_sim.get_tick_position()
+		+ Vector3(dir.x * 2.0, WALK_LOOK_HEIGHT, dir.z * 2.0))
 
 
 func _stop_walking() -> void:

@@ -532,9 +532,14 @@ being resampled by a different fraction at each scale.
   itself, so a full block is a jump it presses when the collision half a pace ahead says so; it stops
   and stands again on arrival or when the route is dropped for being stuck, and a punch drops the
   route outright and pauses the wander. **Standing, it looks about**: a 1-in-40-a-tick roll picks a
-  point within 6 blocks of it and **the head turns to it** — clamped to 75° either side of the body
-  and 40° up or down, and eased over about 0.12 s — while the body stays exactly where it is, which
-  is the difference between a mob looking at something and a mob spinning on the spot. Its facing
+  point within 6 blocks of it, mostly **below** its eyes (a near, low point is the 20-odd-degree
+  downward glance), and **the head turns to it** — yaw then pitch about the model's own axes,
+  clamped to 75° either side of the body and 40° up or down, eased over about 0.12 s, and turning
+  about the **neck** — the head box's own bottom, because its ears, chin and nose ride the turn but
+  must not average into the joint — while the body stays exactly where it is, which is the
+  difference between a mob looking at something and a mob spinning on the spot. The glance is held
+  5–6 s and then the head eases back to **straight ahead**, which is the pose it mostly wears;
+  walking, it looks level along the way it is going. Its facing
   when it DOES walk is the model's own yaw eased toward the way it is walking -- eased once per FRAME, not once per tick, so a small object does not turn in 20 Hz
   steps -- never the body's, whose box is what the punch is tested against. It is drawn between
   physics frames as well as between sim ticks (`Engine.get_physics_interpolation_fraction()`), so

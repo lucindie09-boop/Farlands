@@ -38,6 +38,14 @@ const PART_SURFACES := {
 	"head": [5, 6, 7, 8, 9, 10],
 }
 
+## The surfaces whose box a part's JOINT is read from, when that is not simply all of them.
+## The head is the case: its ears, chin and nose are pieces ATTACHED to it, so they ride
+## with the turn -- but a joint averaged over them lands in front of the neck (the nose
+## pushes it forward) and below it (the chin drags it down), and a head turning about a
+## point in front of its neck sweeps sideways instead of turning where it sits. The joint
+## is the head box's own, which is the neck: the bottom of it, on the body's centre line.
+const PART_JOINT_SURFACES := {"head": [5]}
+
 ## The mesh to split: Goblin2.obj, handed over by the spawn tool before the body is
 ## added to the tree (the rig is built from it at `_ready`).
 var source_mesh: Mesh = null
@@ -68,6 +76,12 @@ func look_at_point(point: Vector3) -> void:
 	_has_look = true
 
 
+## Back to straight ahead. The head eases there, nothing snaps: a glance that has run out
+## is a head turning back, not a head being reset.
+func clear_look() -> void:
+	_has_look = false
+
+
 func _process(delta: float) -> void:
 	_head_delta = delta
 	super._process(delta)
@@ -94,21 +108,26 @@ func _skin_albedo() -> Texture2D:
 ## while its body only ever faces where it walks -- which is the difference between a mob
 ## looking at something and a mob spinning on the spot.
 func _track_head_look() -> void:
-	if _head == null or not _has_look:
+	if _head == null:
 		return
-	var to := _look_point - _head.global_position
-	if to.length_squared() < 0.01:
-		return
-	# In the head's parent's frame, so the model's yaw and the body's stillness are both
-	# already accounted for: this quaternion is the head's own turn relative to the rig.
-	var parent := _head.get_parent() as Node3D
-	if parent == null:
-		return
-	var local: Vector3 = parent.global_transform.basis.inverse() * to
-	var yaw := clampf(atan2(-local.x, -local.z), -HEAD_YAW_LIMIT, HEAD_YAW_LIMIT)
-	var pitch := clampf(atan2(local.y, Vector2(local.x, local.z).length()),
-		-HEAD_PITCH_LIMIT, HEAD_PITCH_LIMIT)
-	var want := Quaternion(Vector3.UP, yaw) * Quaternion(Vector3.RIGHT, pitch)
+	# With nothing picked, straight ahead IS the rest: the rig's own pose, which is what a
+	# mob reads as most of the time. A glance that has run out eases back here rather than
+	# staying turned until something else asks.
+	var want := Quaternion.IDENTITY
+	if _has_look:
+		var to := _look_point - _head.global_position
+		# In the head's parent's frame, so the model's yaw and the body's stillness are both
+		# already accounted for: this quaternion is the head's own turn relative to the rig.
+		var parent := _head.get_parent() as Node3D
+		if parent != null and to.length_squared() >= 0.01:
+			var local: Vector3 = parent.global_transform.basis.inverse() * to
+			# Yaw about the model's own up, then pitch about its own right: two axes, in
+			# that order, so a look cannot tilt the head sideways (a roll would be a third
+			# and nothing here asks for one).
+			var yaw := clampf(atan2(-local.x, -local.z), -HEAD_YAW_LIMIT, HEAD_YAW_LIMIT)
+			var pitch := clampf(atan2(local.y, Vector2(local.x, local.z).length()),
+				-HEAD_PITCH_LIMIT, HEAD_PITCH_LIMIT)
+			want = Quaternion(Vector3.UP, yaw) * Quaternion(Vector3.RIGHT, pitch)
 	_head.quaternion = _head.quaternion.slerp(want, 1.0 - exp(-_head_delta / HEAD_EASE))
 
 
@@ -123,10 +142,12 @@ func _build_rig() -> void:
 		return
 	for part in PART_SURFACES:
 		var surfaces: Array = PART_SURFACES[part]
-		var box := _surfaces_box(surfaces)
-		if box.size == Vector3.ZERO:
+		if _surfaces_box(surfaces).size == Vector3.ZERO:
 			continue
-		var pivot := _part_pivot(part, box)
+		# The joint comes from the part's own box, or from the boxes named in
+		# PART_JOINT_SURFACES when something rides on the part.
+		var joint: Array = PART_JOINT_SURFACES.get(part, surfaces)
+		var pivot := _part_pivot(part, _surfaces_box(joint))
 		var mi := MeshInstance3D.new()
 		mi.name = part
 		mi.mesh = _part_mesh(surfaces, pivot)
@@ -152,7 +173,9 @@ func _surfaces_box(surfaces: Array) -> AABB:
 ## Where a part hangs from, read off its own box so a re-modelled goblin keeps its
 ## joints: a leg turns at the top of its box (the hip), an arm at the top on the side
 ## the torso is (the shoulder -- the goblin's arms hang OUTSIDE its torso, so the inner
-## edge is the body's side), and the torso and head at their own bottom centre.
+## edge is the body's side), and the torso and head at their own bottom centre -- for the
+## head that is the neck, because its box is the head and not its chin or its nose
+## (see PART_JOINT_SURFACES).
 func _part_pivot(part: String, box: AABB) -> Vector3:
 	var centre := box.get_center()
 	match part:

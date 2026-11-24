@@ -273,6 +273,38 @@ func _run() -> void:
 	body.set("_yaw_target", 0.0)
 	body.set("_look_ticks", 0)
 
+	# A player in reach gets looked at, on the game's own goal: 2% a tick to start, 8 blocks,
+	# then 40-80 ticks of watching, dropped the moment they are out of range. Driven a tick at
+	# a time for the same reason as the body turn above.
+	body.set("_gazing", false)
+	body.set("_gaze_ticks", 0)
+	for i in 200:
+		body.call("_update_gaze", 1)
+	if bool(body.get("_gazing")):
+		_fail("it watched a player 14 blocks off, and the range is 8")
+	player.position = body.global_position + Vector3(2.0, 0.0, 0.0)
+	var watching := false
+	for i in 800:
+		body.call("_update_gaze", 1)
+		if bool(body.get("_gazing")):
+			watching = true
+			break
+	if not watching:
+		_fail("it never looked at the player standing two blocks away")
+	else:
+		var eyes: Vector3 = player.global_position + Vector3(0.0, 1.62, 0.0)
+		var looked: Vector3 = body.get("_look_point")
+		if looked.distance_to(eyes) > 0.01:
+			_fail("its look point %s is not the player's eyes %s" % [str(looked), str(eyes)])
+	# Out of range ends the watch at once, hold or no hold.
+	player.position = body.global_position + Vector3(0.0, 0.0, 20.0)
+	body.call("_update_gaze", 1)
+	if bool(body.get("_gazing")):
+		_fail("it kept watching a player who walked out of range")
+	player.position = PLAYER_AT
+	body.set("_gazing", false)
+	body.set("_gaze_ticks", 0)
+
 	# A second press makes a second goblin, and a ray that hits nothing makes none.
 	tool.call("spawn")
 	await process_frame

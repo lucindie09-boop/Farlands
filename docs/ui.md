@@ -543,7 +543,13 @@ being resampled by a different fraction at each scale.
   turns right round rather than pinning its neck at the 75° limit and staring through its own arm. The glance is held
   5–6 s and then the head eases back to **straight ahead**, which is the pose it mostly wears;
   **walking**, it looks **22.5° down** — two blocks ahead and that far below the horizontal — which
-  is the tilt its walk was tuned to. Its facing
+  is the tilt its walk was tuned to. **A player in reach is looked at**, as its own goal rather than
+  as a kind of glance: a **2% chance a tick** to start (once every 2.5 s on average) with the player
+  within **8 blocks**, then the head follows **their eyes** for **40–80 ticks** (2–4 s) and they are
+  let go when the hold runs out or they walk out of range. It outranks the idle glance and the
+  walk's forward look — being watched is the point of it — and it goes through the same neck, so the
+  head turns at 10° a tick and the body comes round after anything the neck cannot reach. Sight is
+  not checked, only distance, which is what the game's own goal tests. Its facing
   when it DOES walk is the model's own yaw eased toward the way it is walking -- eased once per FRAME, not once per tick, so a small object does not turn in 20 Hz
   steps -- never the body's, whose box is what the punch is tested against. It is drawn between
   physics frames as well as between sim ticks (`Engine.get_physics_interpolation_fraction()`), so

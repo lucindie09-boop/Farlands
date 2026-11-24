@@ -138,6 +138,18 @@ const LOOK_DOWN_LO := -1.4
 const LOOK_UP_HI := 0.6
 const LOOK_HOLD_MIN := 100
 const LOOK_HOLD_MAX := 120
+## A player in reach is worth looking at, and that is its own thing in the game rather than a
+## kind of glance: a 2%-a-tick chance to start (a look every 50 ticks, 2.5 s, on average),
+## the player within 8 blocks, and then the head follows them for 40 to 80 ticks (2 to 4 s)
+## before letting go. It outranks the idle glance and the walk's own forward look -- watching
+## the player go past is the whole point of it -- and it goes through the same neck: the head
+## turns at 10 degrees a tick and the body follows what the neck cannot reach.
+const LOOK_AT_CHANCE := 0.02
+const LOOK_AT_RANGE := 8.0
+const LOOK_AT_MIN_TICKS := 40
+const LOOK_AT_MAX_TICKS := 80
+## Where a player's eyes are above their feet, so a mob looks at the face and not the shoes.
+const PLAYER_EYE_HEIGHT := 1.62
 ## While it WALKS the head is tilted down by this much: 22.5 degrees. It is stated as the
 ## angle and turned into a point (WALK_LOOK_DISTANCE blocks ahead, that far below the
 ## horizontal), so the tilt is what is being set and the distance cannot change it.
@@ -190,6 +202,9 @@ var _yaw_ready := false
 var _look_ticks := 0
 var _look_point := Vector3.ZERO
 var _looking := false
+## Watching a player: ticks of the hold left, and whether it is watching one at all.
+var _gazing := false
+var _gaze_ticks := 0
 
 
 func _ready() -> void:
@@ -248,6 +263,7 @@ func _process(_delta: float) -> void:
 func _advance_ticks(ticks: int) -> void:
 	if _hit_pause > 0:
 		_hit_pause = maxi(_hit_pause - ticks, 0)
+	_update_gaze(ticks)
 	if _route.is_empty():
 		if _idle_ticks > 0:
 			_idle_ticks = maxi(_idle_ticks - ticks, 0)
@@ -261,7 +277,9 @@ func _advance_ticks(ticks: int) -> void:
 			var diff := wrapf(_look_yaw() - _yaw, -PI, PI)
 			if absf(diff) > BODY_MAX_YAW:
 				_yaw_target = wrapf(_look_yaw() - signf(diff) * BODY_MAX_YAW, -PI, PI)
-		if _look_ticks == 0:
+		# A player in reach outranks the glance: while it is watching one, the glance roll is
+		# not asked at all.
+		if _look_ticks == 0 and not _gazing:
 			# A glance is a glance: its hold running out is the head going back to straight
 			# ahead, and only then does the roll get another chance at one.
 			_clear_look()
@@ -329,6 +347,38 @@ func _pick_look() -> void:
 	# the head ever being parked looking down.
 	_set_look(_sim.get_tick_position() + Vector3(cos(angle) * distance,
 		randf_range(LOOK_DOWN_LO, LOOK_UP_HI), sin(angle) * distance))
+
+
+## A player in reach, watched the way the game's own look-at-player goal does it: the roll
+## starts it, the hold runs it out, and either walking out of range or the hold ending stops
+## it. Nothing about it is a check for sight -- the goal's own test is distance, and a goblin
+## that cannot see through a wall still turns its head to it, which is what the game's mobs do.
+func _update_gaze(ticks: int) -> void:
+	var player := _player()
+	if player == null:
+		_gazing = false
+		return
+	var eyes: Vector3 = player.global_position + Vector3(0.0, PLAYER_EYE_HEIGHT, 0.0)
+	var feet: Vector3 = _sim.get_tick_position()
+	if _gazing:
+		_gaze_ticks -= ticks
+		if _gaze_ticks > 0 and eyes.distance_to(feet) <= LOOK_AT_RANGE:
+			_set_look(eyes)
+			return
+		_gazing = false
+		return
+	if eyes.distance_to(feet) <= LOOK_AT_RANGE and randf() < LOOK_AT_CHANCE * ticks:
+		_gazing = true
+		_gaze_ticks = randi_range(LOOK_AT_MIN_TICKS, LOOK_AT_MAX_TICKS)
+		_set_look(eyes)
+
+
+## The player, if this world has one (a preview or a probe may not).
+func _player() -> Node3D:
+	var scene := get_tree().current_scene
+	if scene == null:
+		return null
+	return scene.get_node_or_null("Player") as Node3D
 
 
 ## The yaw of the point it is looking at, which is the direction its head wants to face.
@@ -413,8 +463,10 @@ func _walk() -> void:
 	_wish = dir
 	_yaw_target = atan2(-dir.x, -dir.z)
 	# Walking, it looks where it is going: the look-around is for standing, and a head
-	# still turned at whatever it was looking at half a minute ago reads as broken.
-	_pick_walk_look(dir)
+	# still turned at whatever it was looking at half a minute ago reads as broken. A
+	# player it is already watching keeps the head, though.
+	if not _gazing:
+		_pick_walk_look(dir)
 	# The sim climbs a step of up to 0.6 by itself; a full block it does not, so the step
 	# is seen half a pace ahead and the jump control is pressed for this frame. The answer
 	# is the world's own collision, not a guess at block ids, so a slab and a stair count

@@ -2749,16 +2749,14 @@ func _make_gallery_model_view(s: float, skin_name: String) -> SubViewportContain
 	var vp := SubViewport.new()
 	vp.transparent_bg = true
 	vp.msaa_3d = Viewport.MSAA_2X
+	# The container's `stretch` owns the viewport's size from here on: it gives the
+	# viewport its own rect every frame, so the render is never squished into a card
+	# that is not square. This line is only the size the viewport holds until it is
+	# parented -- setting it again per `resized` is what Godot warns about, because a
+	# stretched container's viewport size is not the caller's to set (and the two
+	# writers disagreed by a frame, which is a visible stretch on every card).
 	vp.size = Vector2i(int(96 * s), int(96 * s))
 	box.add_child(vp)
-	# The card button expands horizontally to fill its grid cell, so a fixed
-	# 96x96 viewport would be squished into the non-square button and every
-	# texture (and the whole scene) would render stretched. Keep the viewport
-	# resolution matched to the container so there is never any stretch.
-	box.resized.connect(func():
-		var sz := box.size
-		if sz.x > 1.0 and sz.y > 1.0:
-			vp.size = Vector2i(int(sz.x), int(sz.y)))
 	var env := Environment.new()
 	env.background_mode = Environment.BG_COLOR
 	env.background_color = Color(0.6, 0.6, 0.65)
@@ -3057,16 +3055,11 @@ func _make_block_gallery_view(s: float, block_name: String) -> SubViewportContai
 	var vp := SubViewport.new()
 	vp.transparent_bg = true
 	vp.msaa_3d = Viewport.MSAA_2X
+	# Same as the skin gallery: the stretched container sizes the viewport to its own
+	# rect (a card wider than tall gets a wide render, 1:1, rather than a 96x96 one
+	# squished into it), so this is only the pre-parenting size.
 	vp.size = Vector2i(int(96 * s), int(96 * s))
 	box.add_child(vp)
-	# Same fix as the skin gallery: the card button expands to fill its grid
-	# cell (wider than tall), and stretching a fixed 96x96 viewport into it
-	# renders every face's texture squished. Track the container's size so the
-	# render always matches it 1:1.
-	box.resized.connect(func():
-		var sz := box.size
-		if sz.x > 1.0 and sz.y > 1.0:
-			vp.size = Vector2i(int(sz.x), int(sz.y)))
 	var env := Environment.new()
 	env.background_mode = Environment.BG_COLOR
 	env.background_color = Color(0.6, 0.6, 0.65)

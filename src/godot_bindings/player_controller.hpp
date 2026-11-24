@@ -171,14 +171,20 @@ private:
     // Accumulates break progress while LMB is held on a breakable block.
     void update_break_progress(float delta);
 
-    // --- Pose-clone dummy punching (vanilla 1.8.8) ---
-    // Distance along the aim ray to the spawned pose-clone dummy's vanilla-sized
-    // (0.6 x 1.8 x 0.6) AABB within punch reach, or -1 when none is hit.
+    // --- Pose-clone entity punching (vanilla 1.8.8) ---
+    // The nearest node in the `pose_clone` group whose vanilla-sized (0.6 x 1.8 x 0.6)
+    // AABB the aim ray hits within punch reach, or nullptr; `out_t` is its distance
+    // along the ray. Every spawned entity joins that group (the K-key dummy and the
+    // spawn tool's goblins alike), so the pick is by DISTANCE rather than by group
+    // order: the body under the crosshair is the one the click belongs to.
+    Node* nearest_punch_target(float& out_t) const;
+    // Distance along the aim ray to that body's AABB within punch reach, or -1 when
+    // none is hit.
     float dummy_aim_hit_t() const;
-    // True when the dummy is under the crosshair closer than the aimed block,
+    // True when a body is under the crosshair closer than the aimed block,
     // so LMB should punch it instead of mining (vanilla entity precedence).
     bool dummy_blocks_break_aim() const;
-    // Punch the dummy: viewmodel swing + vanilla knockback. Returns true on a hit.
+    // Punch it: viewmodel swing + vanilla knockback. Returns true on a hit.
     bool try_punch_dummy();
     // Writes `fluid_block` into the cell the crosshair is against (the cell a block
     // would be placed in). Returns true when it actually landed.

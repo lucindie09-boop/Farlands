@@ -5,7 +5,7 @@ the resolver, the fluid rules, the planner and the save formats. A probe is for
 what is left: the real loaded registry, the real texture array, the real world,
 and what actually reaches the screen.
 
-They live in `probes/` (77 `.gd` scripts). **The scripts are repository
+They live in `probes/` (85 `.gd` scripts). **The scripts are repository
 content; what they produce is not.** `.gitignore` ignores `probes/*` except
 `*.gd`, `*.sh`, `*.tscn` and `*.gdshader*`, so screenshots, crash reports and
 generated sheets (hundreds of megabytes) stay scratch while the probes
@@ -21,7 +21,7 @@ git add probes/*.gd probes/*.sh probes/*.tscn probes/*.gdshader
 | Runner | Use it for |
 |---|---|
 | `probes/run_probe.sh <probe.gd> [timeout]` | Anything that touches the world. It snapshots `user://chunks`, runs the probe, and restores the snapshot however the probe ended |
-| `probes/run_probe_shot.sh <probe.gd> [timeout]` | Anything visual. Runs **windowed** (a screenshot from the dummy renderer is blank) and harvests `user://menu_shots`, `paste_shots`, `shader_shots`, `heart_shots`, `body_shots`, `brightness_shots`, `lod_grid_shots` and `lod_depth_shots` into
+| `probes/run_probe_shot.sh <probe.gd> [timeout]` | Anything visual. Runs **windowed** (a screenshot from the dummy renderer is blank) and harvests `user://menu_shots`, `paste_shots`, `shader_shots`, `heart_shots`, `body_shots`, `brightness_shots`, `lod_grid_shots`, `lod_depth_shots` and `goblin_shots` into
 `probes/shots/` |
 | `probes/run_crash_probe.sh [timeout]` | The crash reporter only, with the deliberate fault armed. Separate because it kills the process and because the crash folder must be inspected afterwards |
 
@@ -390,6 +390,40 @@ subject is the body because its albedo can be set exactly; the arithmetic it run
 and the water shader's, word for word, so the number describes all three. The ground behind the
 body is printed but not asserted on, having no known albedo of its own: its luma went from 0.43 to
 0.31 across this change, which is the same overshoot coming off the terrain.
+
+The three goblin probes cover one entity, and each answers a different question.
+`probe_goblin.gd` is headless and asks what the Spawn Goblin tool MAKES: an entity, not
+scenery — the body carries `scripts/goblin.gd` (dummy.gd's vanilla physics plus the hearts) and
+stands in `pose_clone`, the group `PlayerController` punches; it is centred in the aimed cell
+rather than on its seam, because a 0.6-wide box on a seam is half inside a wall and cannot be
+knocked anywhere; the model rides the body as a child with its own offset and yaw, leaving the
+body's box axis-aligned; the material is the world's own `item_shader.gdshader` with the cell's
+light pushed onto it every frame and the pushing stopping when the last goblin goes. Over its
+head are six hearts, full at spawn, `FFFFFh` after one punch, unchanged by a hit inside the
+hurt window, and gone with the body at zero. It needs no world and no display:
+`probes/goblin_probe_world.gd` is one aim ray and the two light calls, which is the whole
+`ChunkManager` surface the tool touches.
+
+`probe_goblin_punch.gd` is the windowed one, because a punch is a mouse press: LMB →
+`try_punch_dummy` → the nearest body along the eye ray among ALL of `pose_clone` →
+`dummy.gd::apply_knockback`. The group lists the far goblin first and it is the near one that
+must fly, which is exactly the case a `get_first_node_in_group` pick gets wrong (it did). Its
+own lesson is that the spawn point is a cell seam, where no body centred in a cell can be hit,
+so the probe steers the aim with synthetic `InputEventMouseMotion` — measure the sensitivity
+once, then send the difference — and the click needs the title screen's `_release` and a
+captured mouse before it reaches the world.
+
+`probe_goblin_hearts_depth.gd` asks a question about pixels, not uniforms: the bar is drawn
+with `no_depth_test`, so from any angle it is six red dots floating over the terrain. It counts
+the heart art's own `#ff0000` in the frame three ways — open sky from the front (the six hearts
+are there), the same view with an opaque box between the camera and the goblin (zero heart
+pixels: the bar goes behind cover with the body), and from above and to one side (still six
+hearts, so a billboard, not a sliver). Shots land in `user://goblin_shots/`. The occluder is a
+grid box of the probe's own rather than stone placed in the world: an opaque surface in the
+depth buffer is all a depth test answers, and a tracked probe must not leave edits in the
+player's world. The rock version was done once in the world — three stone blocks in front of a
+goblin, no heart pixel through them, blocks cleared again — and that is why the probe is the
+repeatable form.
 
 The rest of the directory is historical or subject-specific; the header comment
 in each one says which.

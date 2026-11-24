@@ -12,6 +12,10 @@
 
 #include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/classes/input.hpp>
+#include <godot_cpp/variant/utility_functions.hpp>
+#include <godot_cpp/classes/scene_tree.hpp>
+#include <godot_cpp/core/object.hpp>
+#include <godot_cpp/variant/typed_array.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -282,4 +286,81 @@ void PlayerController::update_held_light() {
         chunk_manager_->set_player_light_level(VoxelEngine::PlayerLight::DEFAULT_LEVEL);
         chunk_manager_->set_player_light_color(VoxelEngine::PlayerLight::default_color());
     }
+}
+
+// --- Entity punching ---------------------------------------------------------
+// The K-key dummy and every goblin the spawn tool makes are one thing to the
+// player's click: a body carrying dummy.gd, its own vanilla 0.6 x 1.8 x 0.6 box
+// standing on its feet, in the `pose_clone` group. Only the pick lives here.
+
+Node* PlayerController::nearest_punch_target(float& out_t) const {
+    out_t = -1.0f;
+    SceneTree* tree = get_tree();
+    if (!tree) return nullptr;
+    const TypedArray<Node> bodies = tree->get_nodes_in_group("pose_clone");
+    const Vector3 eye = get_aim_origin();
+    const Vector3 dir = get_aim_direction();
+    Node* best = nullptr;
+    for (int i = 0; i < bodies.size(); ++i) {
+        Node* node = Object::cast_to<Node>(bodies[i]);
+        Node3D* body = Object::cast_to<Node3D>(node);
+        // A body that cannot take the hit is not a target: the group can outlive a
+        // node freed this frame, and only a physics body answers `apply_knockback`.
+        if (body == nullptr || !body->has_method("apply_knockback")) continue;
+        const Vector3 pos = body->get_global_position();
+        const Vector3 box_min = pos - Vector3(kDummyHalfWidth, 0.0f, kDummyHalfWidth);
+        const Vector3 box_max = pos + Vector3(kDummyHalfWidth, kDummyHeight, kDummyHalfWidth);
+        const float t = ray_aabb_hit(eye, dir, box_min, box_max);
+        if (t < 0.0f || t > kPunchReach) continue;
+        if (best == nullptr || t < out_t) {
+            best = node;
+            out_t = t;
+        }
+    }
+    return best;
+}
+
+float PlayerController::dummy_aim_hit_t() const {
+    float t = -1.0f;
+    return nearest_punch_target(t) != nullptr ? t : -1.0f;
+}
+
+bool PlayerController::dummy_blocks_break_aim() const {
+    float t = -1.0f;
+    if (nearest_punch_target(t) == nullptr) return false;
+    // Vanilla entity precedence: the nearer of the entity and the block along the
+    // aim ray wins the click. No block hit (or a block farther away than the body)
+    // means the body absorbs it.
+    if (!chunk_manager_) return true;
+    const Dictionary result = chunk_manager_->raycast_from_camera(10.0);
+    if (!result.get("success", false)) return true;
+    const Vector3 hit_point = result["hit_point"];
+    const float block_dist = (hit_point - get_aim_origin()).length();
+    return t <= block_dist;
+}
+
+bool PlayerController::try_punch_dummy() {
+    if (!dummy_blocks_break_aim()) return false;
+    float t = -1.0f;
+    // The pick again, now for the node itself: the nearest body is the one the
+    // swing lands on, whichever order the group lists them in.
+    Node* target = nearest_punch_target(t);
+    if (target == nullptr) return false;
+    // First-person arm swing (viewmodel.gd punch()).
+    Node* viewmodel = get_node_or_null(NodePath("Camera3D/Viewmodel"));
+    if (viewmodel) viewmodel->call("punch");
+    // Base vanilla 1.8.8 knockback — the body computes the direction and velocity
+    // from its own and the attacker's positions.
+    // Sprint bonus (vanilla 1.8.8): a sprinting attacker adds facing * 0.5 (+0.1 up)
+    // on top — the victim inherits the attacker's forward momentum. Uses the sim's
+    // sprint state (sprint key + forward + grounded).
+    Vector3 extra;
+    if (sim_.get_state() == MoveState::SPRINTING) {
+        Vector3 fwd = get_aim_direction();
+        fwd.y = 0.0f;
+        if (fwd.length_squared() > 0.001f) fwd = fwd.normalized();
+        extra = fwd * 0.5f + Vector3(0.0f, 0.1f, 0.0f);
+    }
+    target->call("apply_knockback", get_global_position(), extra);
+    return true;
 }

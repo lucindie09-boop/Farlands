@@ -1,6 +1,6 @@
 // The node itself: construction, the GDScript bindings, the health/death state,
 // the cached sibling nodes, the mode toggles (fly, third person, view), and what the
-// player is looking at (the aim ray, the dummy punch, the third-person camera and the
+// player is looking at (the aim ray, the third-person camera and the
 // walk animation). The per-frame loop lives in player_controller_input.cpp, the
 // edits it makes in _interact/_place/_inventory, and its signals in
 // player_controller_signals.cpp.
@@ -339,59 +339,6 @@ godot::Vector3 PlayerController::get_aim_direction() const {
     const godot::Vector3 local =
         godot::Vector3(0, 0, -1).rotated(godot::Vector3(1, 0, 0), pitch_);
     return get_global_transform().basis.xform(local).normalized();
-}
-
-float PlayerController::dummy_aim_hit_t() const {
-    SceneTree* tree = get_tree();
-    if (!tree) return -1.0f;
-    Node* dummy = tree->get_first_node_in_group("pose_clone");
-    if (!dummy) return -1.0f;
-    Node3D* dummy3d = Object::cast_to<Node3D>(dummy);
-    if (!dummy3d) return -1.0f;
-    const Vector3 pos = dummy3d->get_global_position();
-    const Vector3 box_min = pos - Vector3(kDummyHalfWidth, 0.0f, kDummyHalfWidth);
-    const Vector3 box_max = pos + Vector3(kDummyHalfWidth, kDummyHeight, kDummyHalfWidth);
-    const float t = ray_aabb_hit(get_aim_origin(), get_aim_direction(), box_min, box_max);
-    return (t >= 0.0f && t <= kPunchReach) ? t : -1.0f;
-}
-
-bool PlayerController::dummy_blocks_break_aim() const {
-    const float t = dummy_aim_hit_t();
-    if (t < 0.0f) return false;
-    // Vanilla entity precedence: the nearer of the entity and the block along
-    // the aim ray wins the click. No block hit (or a block farther away than
-    // the dummy) means the dummy absorbs it.
-    if (!chunk_manager_) return true;
-    const Dictionary result = chunk_manager_->raycast_from_camera(10.0);
-    if (!result.get("success", false)) return true;
-    const Vector3 hit_point = result["hit_point"];
-    const float block_dist = (hit_point - get_aim_origin()).length();
-    return t <= block_dist;
-}
-
-bool PlayerController::try_punch_dummy() {
-    if (!dummy_blocks_break_aim()) return false;
-    SceneTree* tree = get_tree();
-    if (!tree) return false;
-    Node* dummy = tree->get_first_node_in_group("pose_clone");
-    if (!dummy) return false;
-    // First-person arm swing (viewmodel.gd punch()).
-    Node* viewmodel = get_node_or_null(NodePath("Camera3D/Viewmodel"));
-    if (viewmodel) viewmodel->call("punch");
-    // Base vanilla 1.8.8 knockback — the dummy computes the direction and
-    // velocity from its own and the attacker's positions.
-    // Sprint bonus (vanilla 1.8.8): a sprinting attacker adds facing * 0.5
-    // (+0.1 up) on top — the victim inherits the attacker's forward momentum.
-    // Uses the sim's sprint state (sprint key + forward + grounded).
-    Vector3 extra;
-    if (sim_.get_state() == MoveState::SPRINTING) {
-        Vector3 fwd = get_aim_direction();
-        fwd.y = 0.0f;
-        if (fwd.length_squared() > 0.001f) fwd = fwd.normalized();
-        extra = fwd * 0.5f + Vector3(0.0f, 0.1f, 0.0f);
-    }
-    dummy->call("apply_knockback", get_global_position(), extra);
-    return true;
 }
 
 void PlayerController::update_camera_transform(float eye_height, float delta) {

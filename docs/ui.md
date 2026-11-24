@@ -485,17 +485,28 @@ being resampled by a different fraction at each scale.
   depth-test-off cube at every mesh's origin (see `Assets/shaders/pose_pivot_marker.gdshader`); prints
   each part's pivot for marker-vs-transform verification
 - `goblin_spawn.gd` — Debug tool (the Tools page's **Spawn Goblin** button, and **G** in the world): puts `Assets/models/Goblin2.obj`
-  on the block the eye ray is aimed at, standing in `place_position` — the cell a block would go into, so its
-  feet land on the aimed face. The obj is Blockbench's own export in blocks already (1.44 tall, feet on
+  on the block the eye ray is aimed at, standing in the cell `place_position` names — the cell a block would
+  go into, so its feet land on the aimed face — and centred in that cell like any entity, because a body on a
+  cell corner stands half inside a wall and cannot be knocked anywhere. The obj is Blockbench's own export in blocks already (1.44 tall, feet on
   y = 0), so nothing is scaled; only its body's own x/z centre is shifted onto the cell, and it is turned to
-  face the player. It is plain scenery — no physics and no animation — and it is lit by the WORLD, like
+  face the player. A goblin is an **entity**, not scenery: the body is a `Node3D` carrying `dummy.gd`, so it
+  falls and slides with the K dummy's vanilla gravity/drag at 20 tps, and it stands in the `pose_clone` group
+  the player's left click punches — a hit knocks it back with the same base 0.4 and sprint bonus, from its own
+  hurt-resistance window. `scripts/goblin.gd` is what carries it: `dummy.gd` plus **six hearts**
+  (12 half-hearts, a half-heart per fist hit, so the twelfth lands last) and a row of six `Sprite3D`
+  hearts over its head from the HUD's own `Assets/textures/gui/heart_*.png`, billboarded, unshaded and
+  nearest-filtered. They are drawn the world's way, not the HUD's: depth-tested and alpha-cut out (no
+  `no_depth_test`), so a goblin behind a hill takes its hearts with it instead of leaving red dots over
+  the terrain, and they sort in the opaque pass like the blocks next to them. Damage and knockback share one gate: a hit the hurt window resists takes nothing.
+  At zero health the body is freed. `PlayerController::nearest_punch_target` takes the nearest body along the aim ray,
+  so several can share the group and the one under the crosshair is the one hit. It is lit by the WORLD, like
   the player's body and the dropped items: `item_shader.gdshader` over `item_lighting.gdshaderinc`, with
   `ChunkManager.apply_item_lighting` pushed onto its material every frame and the light of the cell its
   middle is in on the per-instance `item_light`, eased over the same `LIGHT_EASE_TIME`. So it is dark in a
   cave and warm beside a torch, and it can never disagree with the ground it stands on. It carries its own
   texture (`Goblin2.png`) because the `.mtl` named by the obj is not in the tree, and the shader samples it
   `filter_nearest`
-- `dummy.gd` — Combat physics for the pose clone: 20 tps vanilla 1.8.8 gravity/drag,
+- `dummy.gd` — Combat physics for the pose clone and the spawned goblins: 20 tps vanilla 1.8.8 gravity/drag,
   knockback (`apply_knockback`: base 0.4 + sprint bonus, 10-tick hurt-resistance gate),
   interpolated rendering between ticks
 - `tools/bake_liquid_textures.gd` — Headless baker for a liquid's still block texture: runs the

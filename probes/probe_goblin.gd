@@ -247,6 +247,32 @@ func _run() -> void:
 				% [state[0], float(body.call("get_speed_multiplier")), want / 4.317])
 	body.set("speed_state", "idle")
 
+	# --- the head leads, the body follows --------------------------------------
+	# A look the neck cannot reach turns the whole goblin, after the wait the game's own mobs
+	# take (10 ticks). That is the "it turns round when it looks about" an idle mob has and a
+	# head clamped in place does not -- a glance behind used to leave the neck pinned at its
+	# limit with an arm in its face.
+	body.set("_yaw", 0.0)
+	body.set("_yaw_target", 0.0)
+	body.set("_yaw_ready", true)
+	body.set("_look_ticks", 400)
+	var here: Vector3 = body.global_position
+	# Driven a tick at a time rather than by waiting: this world's body has no resolver, so
+	# its sim never ticks (MobBody::step returns at once), and the tick path is the thing
+	# under test.
+	body.call("_set_look", here + Vector3(0.0, 1.0, -3.0))
+	for i in 4:
+		body.call("_advance_ticks", 1)
+	if not is_zero_approx(float(body.get("_yaw_target"))):
+		_fail("a look straight ahead turned the body (target %.3f)" % float(body.get("_yaw_target")))
+	body.call("_set_look", here + Vector3(0.0, 1.0, 3.0))
+	for i in 4:
+		body.call("_advance_ticks", 1)
+	if absf(float(body.get("_yaw_target"))) < 1.0:
+		_fail("a look behind did not turn the body round (target %.3f)" % float(body.get("_yaw_target")))
+	body.set("_yaw_target", 0.0)
+	body.set("_look_ticks", 0)
+
 	# A second press makes a second goblin, and a ray that hits nothing makes none.
 	tool.call("spawn")
 	await process_frame

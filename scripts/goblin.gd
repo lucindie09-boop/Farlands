@@ -128,6 +128,12 @@ const TURN_EASE := 0.18
 ## the time, is looking where the goblin is going.
 const LOOK_CHANCE := 1.0 / 40.0
 const LOOK_RANGE := 6.0
+## How far the head may sit off the body before the BODY is dragged along: 35 degrees, the
+## player's own limit for its body yaw (kBodyMaxYaw in player_controller_internal.hpp), so a
+## goblin turns the way the player's body does -- the head leads within the neck's reach and
+## the body comes with it, and the neck never ends up pinned at its 75-degree limit staring
+## through its own arm.
+const BODY_MAX_YAW := 0.6109
 const LOOK_DOWN_LO := -1.4
 const LOOK_UP_HI := 0.6
 const LOOK_HOLD_MIN := 100
@@ -248,6 +254,13 @@ func _advance_ticks(ticks: int) -> void:
 		# Both rolls are per TICK, so they are stated per tick and scaled by the ticks this
 		# call covers -- a frame rate can never make a goblin wander more.
 		_look_ticks = maxi(_look_ticks - ticks, 0)
+		# The body follows the head on the player's own rule (BODY_MAX_YAW): what it wants to
+		# face is dragged round to keep the look inside that much of the body, and `_turn`
+		# eases it there -- so a glance behind turns the goblin instead of folding its neck.
+		if _looking:
+			var diff := wrapf(_look_yaw() - _yaw, -PI, PI)
+			if absf(diff) > BODY_MAX_YAW:
+				_yaw_target = wrapf(_look_yaw() - signf(diff) * BODY_MAX_YAW, -PI, PI)
 		if _look_ticks == 0:
 			# A glance is a glance: its hold running out is the head going back to straight
 			# ahead, and only then does the roll get another chance at one.
@@ -316,6 +329,12 @@ func _pick_look() -> void:
 	# the head ever being parked looking down.
 	_set_look(_sim.get_tick_position() + Vector3(cos(angle) * distance,
 		randf_range(LOOK_DOWN_LO, LOOK_UP_HI), sin(angle) * distance))
+
+
+## The yaw of the point it is looking at, which is the direction its head wants to face.
+func _look_yaw() -> float:
+	var to: Vector3 = _look_point - _sim.get_tick_position()
+	return atan2(-to.x, -to.z)
 
 
 ## Point the head at a world point (and remember that it is looking at one).

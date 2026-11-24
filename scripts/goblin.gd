@@ -57,9 +57,32 @@ const STROLL_RADIUS := 9.0
 ## it cannot stand. Aimed at the top of this window, every column resolves to whatever
 ## ground is actually there, uphill or down.
 const STROLL_UP := 4.0
-## A stroll is the player's own walk slowed down, as a multiplier of its move speed:
-## the same physics, not a second set of numbers.
-const STROLL_PACE := 0.75
+## How fast it moves, in Minecraft's own unit: 0.30, a spider's (the player's walk is
+## 0.1, a zombie's 0.23, a villager's 0.5). The value is the ACCELERATION a body adds
+## each tick, not blocks a second, and a mob adds 0.2161 of it against ground friction
+## 0.546: its terminal speed is value * 0.2161 / (1 - 0.546) * 20 = value * 9.52
+## blocks/s. So 0.30 is 2.86 blocks/s -- 0.66 of the player's own 4.317-block walk,
+## which is a spider's hunting pace -- and the other mobs land where they should:
+## a zombie at 2.19, a villager at 4.76. (The player's 4.317 is NOT 0.1 * 9.52: the
+## player adds 0.098 a tick by a different route, which is why its value cannot be read
+## with the mob's factor.)
+const MOVEMENT_SPEED := 0.30
+## A mob's value in blocks per second -- see MOVEMENT_SPEED for the arithmetic.
+const BLOCKS_PER_SECOND := 9.52
+## The player's own walking pace in blocks a second, which is what the sim's move
+## multiplier of 1.0 means.
+const PLAYER_WALK_SPEED := 4.317
+## What the goblin is doing to its speed, as a share of MOVEMENT_SPEED. Only `idle`
+## drives anything today -- it wanders and has no chase, no loot run, no fleeing and no
+## sneak approach yet -- but every state is here, one assignment to `speed_state`
+## away from being used.
+const SPEED_STATES := {
+	"idle": 0.6,      # slow, shuffling patrol
+	"chasing": 1.0,   # the full 0.30
+	"loot": 1.1,      # eager, a little faster than chasing
+	"fleeing": 1.3,   # panicked sprint
+	"sneaking": 0.7,  # creeping closer
+}
 ## Half a pace ahead, at feet height: where a step it has to climb shows up before the
 ## body reaches it. The sim steps up 0.6 by itself, so this only fires on a full block.
 const STEP_PROBE := 0.45
@@ -87,6 +110,11 @@ const TICK_RATE := 20.0
 const TURN_EASE := 0.18
 const LOOK_MIN_TICKS := 40
 const LOOK_MAX_TICKS := 120
+
+## Which SPEED_STATES entry is in force. A chase, a loot run, a flee or a sneak
+## approach sets this and nothing else: the pace, the stride and the animation all
+## follow from it.
+var speed_state := "idle"
 
 var _health := MAX_HEALTH
 
@@ -147,7 +175,7 @@ func _physics_process(delta: float) -> void:
 	if ticks > 0:
 		_advance_ticks(ticks)
 	_steer()
-	_sim.step(delta, _wish, _jump, false, false, _yaw, STROLL_PACE)
+	_sim.step(delta, _wish, _jump, false, false, _yaw, get_speed_multiplier())
 	_jump = false
 	# The sim's own interpolated position, sampled once per physics frame; `_process`
 	# draws the rendered frame between this one and the last.
@@ -387,6 +415,19 @@ func get_health() -> float:
 
 func get_max_health() -> float:
 	return MAX_HEALTH
+
+
+## Blocks a second this state asks for.
+func get_move_speed() -> float:
+	return MOVEMENT_SPEED * BLOCKS_PER_SECOND * float(SPEED_STATES.get(speed_state, 1.0))
+
+
+## The sim's own parameter for that pace: 1.0 is the player's own walk, so a goblin
+## creeps at 0.4 of it while wandering and reaches 0.79 while fleeing. The walk
+## animation needs none of this -- it reads the velocity the sim actually moved, so a
+## slower goblin takes shorter steps at a slower cadence by itself.
+func get_speed_multiplier() -> float:
+	return get_move_speed() / PLAYER_WALK_SPEED
 
 
 ## Blocks per tick, from the sim the body actually moved with.

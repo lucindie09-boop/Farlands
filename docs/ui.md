@@ -523,7 +523,10 @@ being resampled by a different fraction at each scale.
   window resists takes nothing. At zero health the body is freed. 
   It also **wanders** when it has nothing to do: after a few seconds of standing it picks a random
   column a few blocks away and walks there along a route from the engine's ground planner (on a
-  worker thread), wishing along it at three quarters of the player's own pace: the sim steps up 0.6 by
+  worker thread), wishing along it at its own speed: **Minecraft's 0.30, a spider's** — the value is
+  per-tick acceleration, so it is 2.86 blocks/s (0.66 of the player's 4.317-block walk) — scaled by
+  what it is doing (`speed_state`: 0.6× wandering, 1.0× chasing, 1.1× heading for loot, 1.3× fleeing,
+  0.7× sneaking up; only the wander is used today, the rest are one assignment away): the sim steps up 0.6 by
   itself, so a full block is a jump it presses when the collision half a pace ahead says so; it stops
   and stands again on arrival or when the route is dropped for being stuck, and a punch drops the
   route outright and pauses the wander. Its facing is the model's own yaw eased toward the way it is

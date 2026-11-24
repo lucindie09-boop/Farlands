@@ -414,7 +414,10 @@ stands in `pose_clone`, the group `PlayerController` punches; it is centred in t
 rather than on its seam, because a 0.6-wide box on a seam is half inside a wall and cannot be
 knocked anywhere; the model rides the body as a child with its own offset and yaw, leaving the
 body's box axis-aligned; the material is the world's own `item_shader.gdshader` with the cell's
-light pushed onto it every frame and the pushing stopping when the last goblin goes. Its six
+light pushed onto it every frame and the pushing stopping when the last goblin goes. Its
+speed is Minecraft's own value — 0.30, a spider's, which is 2.86 blocks/s (0.66 of the
+player's walk) — with the state table over it (fleeing reaches 0.79 of the player's pace),
+though only the wander drives a state today. Its six
 hearts are its own health and nothing is drawn over its head -- no `HealthBar` node, no sprite
 -- so the twelve half-hearts are twelve punches, one apiece, unchanged by a hit inside the hurt
 window, and gone with the body at zero. It needs no world and no display:

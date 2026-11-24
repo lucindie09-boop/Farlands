@@ -111,8 +111,6 @@ const STUCK_TICKS := 50
 ## can be picked inside a cliff or across water and be unreachable, and trying again
 ## soon after is what keeps a goblin from looking frozen on a bad roll.
 const FAILED_RETRY_TICKS := 20
-## After a hit it does not set off again until the shove has had time to land.
-const HIT_PAUSE_TICKS := 40
 ## The sim's own tick rate. The facing ease is stated per tick -- that is the clock the
 ## behaviour moves on -- and spreading one over a frame means scaling by this.
 const TICK_RATE := 20.0
@@ -214,7 +212,6 @@ var _route: Array[Vector3] = []
 var _next := 0
 var _closest := INF
 var _stuck_ticks := 0
-var _hit_pause := 0
 
 # The facing is the MODEL's yaw, never the body's: the body's box is what the punch is
 # tested against, and a turned box would no longer be the box the click was aimed at.
@@ -293,8 +290,6 @@ func _process(_delta: float) -> void:
 ## here is in ticks so it reads the same at any frame rate (the facing ease is not: a
 ## turn is drawn every frame, see `_turn`).
 func _advance_ticks(ticks: int) -> void:
-	if _hit_pause > 0:
-		_hit_pause = maxi(_hit_pause - ticks, 0)
 	_sway = fmod(_sway + TAU * float(ticks) / WALK_SWAY_TICKS, TAU)
 	# A glance is held whether it is walking or not, so its clock runs before either roll: what
 	# is left of it is what decides whether the watch may take the head.
@@ -322,7 +317,7 @@ func _advance_ticks(ticks: int) -> void:
 			if randf() < LOOK_CHANCE * ticks:
 				_look_ticks = randi_range(LOOK_HOLD_MIN, LOOK_HOLD_MAX)
 				_pick_look()
-		if _idle_ticks == 0 and _job == 0 and _hit_pause == 0 \
+		if _idle_ticks == 0 and _job == 0 \
 				and bool(_sim.is_on_ground()) and randf() < STROLL_CHANCE * ticks:
 			_stroll()
 	else:
@@ -367,7 +362,7 @@ func _stroll() -> int:
 ## this way, and a later "go there" has one entry point rather than two.
 ## Returns the plan's job id, or 0 when nothing was asked.
 func stroll_now() -> int:
-	if _job != 0 or _sim == null or not bool(_sim.is_on_ground()) or _hit_pause > 0:
+	if _job != 0 or _sim == null or not bool(_sim.is_on_ground()):
 		return 0
 	return _stroll()
 
@@ -594,15 +589,17 @@ func teleport(position: Vector3) -> void:
 ## A punch, from PlayerController. The shove and the damage share the sim's hurt window:
 ## `shove` answers false while it resists, so a resisted hit is neither knockback nor
 ## damage -- which is what stops hold-clicking from stacking either.
+##
+## It does NOT stop what the goblin was doing. A hit is motion and a hurt flash, not a
+## command: a mob in the game keeps its path through one -- the shove is a velocity, and its
+## own walking keeps pushing against it -- so a goblin punched on its way somewhere keeps
+## going there, staggering for a step. A hit that cancelled the stroll read as a stun the
+## game does not have.
 func apply_knockback(attacker_position: Vector3, extra_velocity := Vector3.ZERO) -> void:
 	if _sim == null:
 		return
 	if not bool(_sim.shove(attacker_position, extra_velocity)):
 		return
-	# A shove is not a stroll. A plan still in flight is dropped here too (its result
-	# is ignored when it lands), and it stands off until the flight is over.
-	_abandon_route()
-	_hit_pause = HIT_PAUSE_TICKS
 	take_damage(PUNCH_DAMAGE)
 
 

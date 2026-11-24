@@ -211,15 +211,23 @@ func _run() -> void:
 		else:
 			body.call("apply_knockback", body.global_position + Vector3(0.0, 0.0, 2.0))
 			await process_frame
-			if not (body.get("_route") as Array).is_empty():
-				_fail("a punch left the route in place: the next tick would steer over the knockback")
-			if int(body.get("_hit_pause")) <= 0:
-				_fail("a punch did not pause the wander")
+			if (body.get("_route") as Array).is_empty():
+				_fail("a punch dropped the route: a hit shoves a mob, it does not call it off")
+			# And it carries on: the shove is a velocity, the stroll is the plan.
+			var walking := false
+			for i in 60:
+				await process_frame
+				var wish: Vector3 = body.get("_wish")
+				if wish.length() >= 0.5:
+					walking = true
+					break
+			if not walking:
+				_fail("a punched goblin never steered again: a hit should not call the stroll off")
 
 	if ok:
 		print("PROBE PASS: the goblin walks a planned route at a stroll over solid "
-			+ "ground, one step at a time, stops when it arrives, and a punch drops "
-			+ "the route and pauses the wander")
+			+ "ground, one step at a time, stops when it arrives, and a punch shoves it "
+			+ "without calling the stroll off")
 	else:
 		print("PROBE FAILED")
 	quit(0 if ok else 1)

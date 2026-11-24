@@ -530,8 +530,10 @@ being resampled by a different fraction at each scale.
   what it is doing (`speed_state`: 0.6× wandering, 1.0× chasing, 1.1× heading for loot, 1.3× fleeing,
   0.7× sneaking up; only the wander is used today, the rest are one assignment away): the sim steps up 0.6 by
   itself, so a full block is a jump it presses when the collision half a pace ahead says so; it stops
-  and stands again on arrival or when the route is dropped for being stuck, and a punch drops the
-  route outright and pauses the wander. **Standing, it looks about**: a 1-in-120-a-tick roll (a glance every 6 s) picks a
+  and stands again on arrival or when the route is dropped for being stuck. A punch does **not** call
+  off what it was doing: the shove is a velocity and the wander is a plan, so a goblin hit on its way
+  somewhere keeps going there, staggering for a step, which is what a mob in the game does — a hit
+  changes its motion and flashes it hurt, never its mind. **Standing, it looks about**: a 1-in-120-a-tick roll (a glance every 6 s) picks a
   point within 6 blocks of it, mostly **below** its eyes (a near, low point is the 20-odd-degree
   downward glance), and **the head turns to it** — yaw then pitch about the model's own axes,
   clamped to 75° either side of the body and 40° up or down, and **turned at 10° a tick** — the

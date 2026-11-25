@@ -563,7 +563,11 @@ being resampled by a different fraction at each scale.
   platform and stood there with its target thirty blocks overhead — a chase now asks for 20,000
   expansions and 24 ms, and **keeps closing** inside its reach: the reach is where the blow lands,
   and the body only plants itself at **0.9 blocks** (two bodies' half-widths), so it presses in
-  instead of swinging from the edge of its own arm. **Standing, it looks about**: a 1-in-120-a-tick roll (a glance every 6 s) picks a
+  instead of swinging from the edge of its own arm. A chase also has a **patience**: three seconds
+  (`CHASE_WAIT_TICKS`) with no route to walk and no plan in flight ends it, because a best-effort
+  route to a frontier is not an arrival — a target on a pillar or in a sealed pit leaves the
+  frontier under it, and the goblin stood there for the whole anger window. A real detour keeps a
+  route under its feet the whole way, so a long way round is never cut short by it. **Standing, it looks about**: a 1-in-120-a-tick roll (a glance every 6 s) picks a
   point within 6 blocks of it, mostly **below** its eyes (a near, low point is the 20-odd-degree
   downward glance), and **the head turns to it** — yaw then pitch about the model's own axes,
   clamped to 75° either side of the body and 40° up or down, and **turned at 10° a tick** — the

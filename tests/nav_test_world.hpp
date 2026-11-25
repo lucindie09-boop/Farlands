@@ -120,8 +120,9 @@ inline DijkstraResult dijkstra_cost(const NavView& view, const MoveGenerator& ge
                                     const NavNode& start, const NavNode& goal,
                                     int32_t budget = 200000) {
     DijkstraResult out;
-    const NavView::Column* sc = view.column(start.x, start.z, start.y);
-    const NavView::Column* gc = view.column(goal.x, goal.z, goal.y);
+    // Anchored the way the planner anchors its endpoints: the column each agent is STANDING IN.
+    const NavView::Column* sc = view.column_at_feet(start.x, start.z, start.y);
+    const NavView::Column* gc = view.column_at_feet(goal.x, goal.z, goal.y);
     if (sc == nullptr || !sc->found || sc->unknown || !sc->clearance) return out;
     if (gc == nullptr || !gc->found || gc->unknown || !gc->clearance) return out;
 

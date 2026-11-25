@@ -27,24 +27,33 @@ void NavView::load_buffer(int32_t x, int32_t z, int32_t lowest, int32_t highest)
 }
 
 const NavView::Column* NavView::column(int32_t x, int32_t z, int32_t hint_y) const {
+    // An agent can only have ARRIVED from a surface within max_rise of its own, so the scan starts
+    // just above that and walks down to the ground.
+    const int32_t rise = static_cast<int32_t>(std::ceil(costs_.max_rise));
     const int32_t hint = std::clamp(hint_y, box_.min_y, box_.max_y);
-    const uint64_t key = node_key(x, hint, z);
+    return column_from_start(x, z, std::min(box_.max_y, hint + rise + 1));
+}
+
+const NavView::Column* NavView::column_at_feet(int32_t x, int32_t z, int32_t feet_y) const {
+    return column_from_start(x, z, std::clamp(feet_y, box_.min_y, box_.max_y));
+}
+
+const NavView::Column* NavView::column_from_start(int32_t x, int32_t z,
+                                                  int32_t start_y) const {
+    const uint64_t key = node_key(x, start_y, z);
     const auto it = columns_.find(key);
     if (it != columns_.end()) return &it->second;
-    Column col = compute_column(x, z, hint);
+    Column col = compute_column(x, z, start_y);
     const auto [inserted, _] = columns_.emplace(key, col);
     (void)_;
     return &inserted->second;
 }
 
-NavView::Column NavView::compute_column(int32_t x, int32_t z, int32_t hint_y) const {
+NavView::Column NavView::compute_column(int32_t x, int32_t z, int32_t start_y) const {
     Column col;
     ++columns_resolved_;
 
-    // An agent can only have arrived from a surface within max_rise of its own,
-    // so start the downward scan just above that and walk down to the ground.
-    const int32_t rise = static_cast<int32_t>(std::ceil(costs_.max_rise));
-    const int32_t start = std::min(box_.max_y, hint_y + rise + 1);
+    const int32_t start = std::clamp(start_y, box_.min_y, box_.max_y);
     const int32_t lowest = std::max(box_.min_y, start - kMaxColumnScan);
 
     // One ranged read covers the whole walk plus the clearance check above it, so

@@ -205,6 +205,21 @@ func _run() -> void:
 	if distant.get("_enemy") != null:
 		_fail("a goblin 40 blocks away joined a fight 32 blocks outside the shout")
 
+	# Patience: the stub world has no planner, so `walk_to` answers nothing and there is never a
+	# route to walk -- the state a goblin reaches at a frontier it cannot get past. Three seconds of
+	# it must end the chase rather than stand there for the whole anger window.
+	player.position = GOBLIN_AT + Vector3(6.0, 0.0, 0.0)
+	goblin.set("_health", 12.0)
+	goblin.set("_enemy", player)
+	goblin.set("_anger_ticks", 600)
+	goblin.set("_fleeing", false)
+	goblin.set("_chase_wait_ticks", 0)
+	goblin.call("_abandon_route")
+	for i in 61:
+		goblin.call("_update_enemy", 1)
+	if goblin.get("_enemy") != null or int(goblin.get("_anger_ticks")) != 0:
+		_fail("it stood at a frontier it could not pass instead of giving up")
+
 	if ok:
 		print("PROBE PASS: the blow reaches %.2f in three dimensions and only through open air -- "
 			% 1.45 + "%d blows landed, none through a wall and none at a body overhead"

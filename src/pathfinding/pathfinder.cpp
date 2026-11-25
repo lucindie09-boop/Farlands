@@ -67,12 +67,19 @@ NavPath Pathfinder::search(const NavQuery& query) const {
     const auto start_time = std::chrono::steady_clock::now();
     const double budget_ms = query.max_ms;
 
-    const NavView::Column* start_col = view_.column(query.start.x, query.start.z, query.start.y);
+    // The two ends are the columns the agents are STANDING IN, so their surfaces are at or below
+    // the feet that were handed in. `column` would also accept a surface above those feet (what a
+    // neighbour steps up onto), and a collision over the head — the roof of a two-block gap — then
+    // anchors the query on top of it: a start somewhere the agent is not, and a goal on the
+    // ceiling over a target who was standing under it.
+    const NavView::Column* start_col =
+        view_.column_at_feet(query.start.x, query.start.z, query.start.y);
     if (start_col == nullptr || !start_col->found || start_col->unknown || !start_col->clearance) {
         last_error_ = "start column has no navigable surface";
         return path;
     }
-    const NavView::Column* goal_col = view_.column(query.goal.x, query.goal.z, query.goal.y);
+    const NavView::Column* goal_col =
+        view_.column_at_feet(query.goal.x, query.goal.z, query.goal.y);
     if (goal_col == nullptr || !goal_col->found || goal_col->unknown || !goal_col->clearance) {
         last_error_ = "goal column has no navigable surface";
         return path;

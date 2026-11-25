@@ -92,6 +92,19 @@ how it is wired into the game and to the tests.
   cell, which is what makes a tight budget usable rather than empty. That is different from
   `found == false, truncated == false`, which means the search exhausted the whole reachable
   graph and there is genuinely no route; `Pathfinder::last_error()` says which
+- **A query's two ends are the columns the agents STAND IN** — `NavView::column` answers "what surface
+  could an agent arrive on here", which is up to `max_rise` above the hint, and that is what makes a
+  two-block pillar a surface a neighbour steps up onto (pinned in `tests/test_nav_view.cpp`). It is
+  the wrong question for an endpoint: a collision two cells over a body's head — the roof of a
+  two-block gap — then becomes that column's floor, so a body under a low roof planned from standing
+  on the roof and a chase's goal resolved on top of the ceiling over a player standing under it.
+  `NavView::column_at_feet` is the endpoint question (a surface at or below the feet), the move
+  generator keeps `column`, and the memo is keyed by the scan's start cell rather than by the hint,
+  so the two answers cannot be mistaken for each other
+- **A chase has a patience** — a best-effort route to a frontier is not an arrival, so three
+  seconds with no route under its feet and no plan in flight ends it (`CHASE_WAIT_TICKS` in
+  `scripts/goblin.gd`). Without it a goblin stood at the frontier under a target it could not reach
+  — a pillar, a sealed pit — for the whole of its anger window (up to forty seconds)
 - **All costs live in `NavCosts`**: a level orthogonal step is 1.0, a diagonal √2, climbing
   `step_up` per block, dropping `fall` per block (at most `max_drop` = 3 per move), hopping a
   one-cell gap a flat `jump` = 2.0, liquid +0.6. The A* heuristic (octile over columns plus the

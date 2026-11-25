@@ -168,3 +168,32 @@ TEST_CASE("NavView walks over a sub-block detail instead of being blocked by it"
     CHECK(decal->surface_top == doctest::Approx(10.03125f));  // stands on the detail
     CHECK(decal->clearance);
 }
+
+TEST_CASE("NavView asks which column an agent stands in, not which it could arrive on") {
+    // A two-block gap is the least a body fits in, and its roof sits two cells over the feet. As a
+    // surface an agent could ARRIVE on -- the neighbour's question -- that roof is a legal answer,
+    // which is what makes a two-block pillar something a route steps up onto. As the column the
+    // agent is STANDING IN it is not: the floor is. Anchoring a route's ends with the first answer
+    // put a chase's goal on top of the ceiling over a player standing under it, and had a body
+    // under a low roof plan from a cell it was not in.
+    nt::World w;
+    w.default_ground = 10;
+    w.fill(5, 12, 0, 1, 1, 1);  // a roof over a two-block gap
+    NavView view = nt::make_view(w, 8);
+
+    const NavView::Column* feet = view.column_at_feet(5, 0, 10);
+    CHECK(feet != nullptr);
+    if (feet == nullptr) return;
+    CHECK(feet->found);
+    CHECK(feet->surface_top == doctest::Approx(10.0f));  // the floor it is standing on
+    CHECK(view.feet_cell(feet->surface_top) == 10);
+
+    const NavView::Column* arrive = view.column(5, 0, 10);
+    CHECK(arrive != nullptr);
+    if (arrive == nullptr) return;
+    CHECK(arrive->surface_top == doctest::Approx(13.0f));  // the roof, from a neighbour's view
+
+    // Two scans, two answers, so they must not share a memo entry either: the key is where the
+    // scan starts, not the hint it was derived from.
+    CHECK(view.columns_resolved() == 2);
+}

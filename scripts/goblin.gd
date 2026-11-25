@@ -134,6 +134,13 @@ const CHASE_LEASH := 35.0
 ## where the walking stops. They were the same number, so a goblin halted a whole reach away and
 ## swung from there -- it now closes to about two bodies' half-widths and presses in.
 const CHASE_STOP := 0.9
+## The chase has a patience. When its plans keep coming back with nowhere to walk -- a player on a
+## pillar, a sealed pit, a frontier at the goblin's own feet -- it stands there while it re-asks,
+## and standing under its target for the whole anger window is not a chase. Three seconds with
+## nothing to walk and nothing in flight ends it. A real detour keeps a route under its feet the
+## whole way, so this measures having nowhere to go rather than being far away, and a long way
+## round is never cut short by it.
+const CHASE_WAIT_TICKS := 60
 ## The chase plans FURTHER than a stroll. A stroll goes six blocks; a chase can be across a valley,
 ## up a stair or round a wall, and the stroll's budget cut the search off and returned a route to
 ## the nearest frontier -- which is how a goblin walked to the ground directly under a platform and
@@ -289,6 +296,9 @@ var _in_reach := false
 ## Whether it is closing the last pace on the player: inside the reach but not yet at CHASE_STOP,
 ## it walks straight at them instead of standing at the edge of its own arm.
 var _closing := false
+## Ticks of a chase spent with no route to walk and no plan in flight: what ends a chase whose
+## plans keep stopping at the same frontier.
+var _chase_wait_ticks := 0
 
 # The facing is the MODEL's yaw, never the body's: the body's box is what the punch is
 # tested against, and a turned box would no longer be the box the click was aimed at.
@@ -581,6 +591,15 @@ func _update_enemy(ticks: int) -> void:
 			_swing(feet)
 		return
 	_closing = false
+	# Nothing to walk and nothing being planned, with the player out of reach: the plans are coming
+	# back with nowhere to go, and without this it stood at that frontier until its anger ran out.
+	if _route.is_empty() and _job == 0:
+		_chase_wait_ticks += ticks
+		if _chase_wait_ticks > CHASE_WAIT_TICKS:
+			_give_up()
+			return
+	else:
+		_chase_wait_ticks = 0
 	_repath_ticks -= ticks
 	if _repath_ticks > 0:
 		return
@@ -671,6 +690,7 @@ func _give_up() -> void:
 	_enemy = null
 	_fleeing = false
 	_closing = false
+	_chase_wait_ticks = 0
 	_anger_ticks = 0
 	_in_reach = false
 	_attack_ticks = 0
@@ -913,6 +933,7 @@ func apply_knockback(attacker_position: Vector3, extra_velocity := Vector3.ZERO)
 		_anger_ticks = randi_range(ANGER_MIN_TICKS, ANGER_MAX_TICKS)
 		_attack_ticks = 0
 		_repath_ticks = 0
+		_chase_wait_ticks = 0
 		_abandon_route()
 		# ...and it shouts. One goblin hurt by a player wakes its pack, which is what turns a row of
 		# separate fights into one: see ALERT_RADIUS.
@@ -947,6 +968,7 @@ func take_anger(attacker: Node3D) -> void:
 	_anger_ticks = randi_range(ANGER_MIN_TICKS, ANGER_MAX_TICKS)
 	_attack_ticks = 0
 	_repath_ticks = 0
+	_chase_wait_ticks = 0
 	_abandon_route()
 
 

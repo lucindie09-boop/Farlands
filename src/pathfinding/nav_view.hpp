@@ -16,9 +16,16 @@
 // from a raw block query, which would otherwise look like walkable emptiness).
 //
 // Column results depend on how far above the query the downward scan starts, so
-// the memo key includes the hint. That makes a column queried from a low
+// the memo key is that start cell. That makes a column queried from a low
 // vantage and again from a high one resolve twice, which is correct — a scan
 // started below a tall wall cannot see its top.
+//
+// There are two questions and the difference matters. "What surface could an
+// agent arrive on here?" (`column`) looks up to `max_rise` ABOVE the hint, which
+// is what makes a two-block pillar a surface a neighbour steps up onto. "What is
+// the agent standing in?" (`column_at_feet`) never looks above the feet it is
+// given. Anchoring an endpoint with the first made a low roof the floor of a
+// two-block gap, and a chase's goal landed on top of the ceiling over its target.
 //
 // A source may also offer a ranged reader (read_column). When it does, resolving
 // a column prefetches exactly the window the scan and its clearance check touch,
@@ -95,6 +102,15 @@ public:
     [[nodiscard]] const Column* column(int32_t x, int32_t z, int32_t hint_y) const;
     [[nodiscard]] const Column* column(const NavNode& n) const { return column(n.x, n.z, n.y); }
 
+    // The column an agent is STANDING IN at feet cell `feet_y`: its surface is at or below those
+    // feet. This is the other question `column` answers — that one asks what surface an agent
+    // could arrive on from a neighbour, which may be up to `max_rise` above the hint, and a
+    // collision in either cell over a body's head is then a legal answer. Asking it about the
+    // agent's own column reads the roof of a two-block gap as the floor under it: a body under a
+    // low roof planned from standing on the roof, and a chase's goal resolved on top of the
+    // ceiling over the player. Endpoints anchor with this; moves are generated from `column`.
+    [[nodiscard]] const Column* column_at_feet(int32_t x, int32_t z, int32_t feet_y) const;
+
     // Does the agent's body fit standing on `stand_top` at (x, z)?
     [[nodiscard]] bool body_fits(int32_t x, int32_t z, float stand_top) const;
 
@@ -106,7 +122,10 @@ public:
     }
 
 private:
-    [[nodiscard]] Column compute_column(int32_t x, int32_t z, int32_t hint_y) const;
+    // `start_y` is the cell the downward scan begins at, already clamped: the memo key is that
+    // start, so two questions that scan from different heights never share an answer.
+    [[nodiscard]] Column compute_column(int32_t x, int32_t z, int32_t start_y) const;
+    [[nodiscard]] const Column* column_from_start(int32_t x, int32_t z, int32_t start_y) const;
 
     // Prefetches [lowest, highest] of one column through the reader, and makes it
     // the buffer the sampler answers from until another column overwrites it.

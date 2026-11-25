@@ -466,7 +466,10 @@ wrong, and both are one line in `goblin.gd`: which distance is measured, and wha
 the swing. It holds the fight's limits too — it runs at two hearts (4 half-hearts) and not at two and
 a half, a target 40 blocks away is dropped (the leash is 35), the anger clock (400–799 ticks) times
 out on its own, and a punched goblin wakes a neighbour 20 blocks away while one 40 blocks out stays
-out of it, which is the pigman rule and its 32-block box.
+out of it, which is the pigman rule and its 32-block box. The last of its checks is the chase's
+patience: the stub has no planner, so nothing is ever walkable — the state a goblin reaches at a
+frontier it cannot get past — and three seconds of it must drop the target rather than stand under
+the player for the whole anger window.
 
 The rest of the directory is historical or subject-specific; the header comment
 in each one says which.

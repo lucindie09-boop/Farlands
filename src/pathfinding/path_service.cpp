@@ -103,7 +103,7 @@ void PathService::run(const std::shared_ptr<State>& state, uint64_t id,
     auto to_support = [&view](const std::vector<NavNode>& nodes, std::vector<NavNode>& out) {
         out.reserve(nodes.size());
         for (const NavNode& node : nodes) {
-            const NavView::Column* column = view.column(node.x, node.z, node.y);
+            const NavView::Column* column = view.column_at_feet(node.x, node.z, node.y);
             const int32_t support_y = (column != nullptr && column->found)
                                           ? column->surface_cell
                                           : node.y - 1;

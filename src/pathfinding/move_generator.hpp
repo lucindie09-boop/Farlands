@@ -120,6 +120,12 @@ private:
         const int32_t mz = from.z + dz;
 
         const NavView::Column* mid = view_.column(mx, mz, from.y);
+        // A gap is not a hazard. A liquid column has no body space over it, so it read as "a
+        // one-cell gap" and a route was found straight across a channel of lava: the goblin
+        // jumped, landed in it, and stood in the channel while the player watched -- and because
+        // a route existed it never concluded the player was unreachable, so it never filled the
+        // channel either. You cannot hop over lava; that cell is not a gap to be cleared.
+        if (mid != nullptr && !mid->unknown && mid->liquid) return false;
         if (mid != nullptr && mid->found && !mid->unknown && mid->clearance &&
             mid->surface_top >= from_col.surface_top - c.max_drop - c.epsilon) {
             return false;  // it is not a gap — the plain step already covers it

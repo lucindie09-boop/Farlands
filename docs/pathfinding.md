@@ -73,7 +73,8 @@ how it is wired into the game and to the tests.
   move) rather than forbid it, which the planner read as "wade anyway" whenever the dry way
   round was more than half a step longer; a cost is not a wall, and the walking body has no
   swim. A body already standing in liquid can still route out of it: the check is on the cell
-  being entered, not the one being left
+  being entered, not the one being left — and it is never HOPPED either, which took a second
+  fix: see the findings below
 - **Unknown is never traversable**: a cell in an unresident chunk must sample as
   `CellClass::Unknown`. A raw block query returns AIR for a missing chunk, which would otherwise
   read as walkable emptiness
@@ -97,3 +98,32 @@ how it is wired into the game and to the tests.
   same vertical terms) is admissible against those move costs. Measured on live terrain (seed
   1337): a 192-block cross-country route is ~2,000 expansions / ~2.3 ms on one core, so the
   single-tier A* is enough at mob-relevant ranges
+
+## Findings from the abandoned causeway (2026-11-25)
+
+The goblin briefly had a way of crossing liquid it could not route over: a block taken out of the
+ground beside it, put down into the channel, one cell every thirty seconds. It was removed — a mob
+that edits the world while it fights you is a mechanic of its own, not a pathfinding fix — but the
+attempt found four things, and the first two are kept as fixes:
+
+- **A liquid column is not a gap, and the planner thought it was** (fixed, `MoveGenerator::hop`).
+  Liquid supports no body, so a column of it had no body space over it, which is exactly the
+  shape of a one-cell gap: a route was found straight across a one-wide channel of lava, the
+  goblin jumped, landed in it and stood there while the player watched — and because a route
+  existed it never concluded the player was unreachable, so nothing else was ever tried either.
+  A hop clears a gap; a hazard is not a gap, and `hop` refuses a middle column that is liquid.
+- **A pool with no floor under it resolved as `found == false`** (fixed, `NavView::compute_column`).
+  The scan descends through liquid to the floor, so liquid over empty ground or an unloaded chunk
+  found nothing and the column read as a hole — the same gap, by a second route. A column now keeps
+  the liquid it descended through, whether or not it found a floor.
+- **`BlockEditor::place_block` refuses a non-air block over a non-air block**, so no caller can
+  fill a wet cell — a causeway, a bucket, a quay — unless that rule gains a liquid exception. The
+  exception was written and then reverted with the feature; a caller that digs a block first and
+  finds its placement silently declined is standing beside a hole it made for nothing, which is
+  exactly what happened in play before the refusal was understood.
+- **A spoil search that reaches below the agent's feet leaves a pit it then walks into.** Taking
+  the ground beside it is the tempting block when a bank has no wall to pull down, and it is the
+  one that puts the body in a hole; walls first, its own level second, the ground last, and never
+  its own footing.
+
+Recorded so the next attempt starts from these and not from a debugger.

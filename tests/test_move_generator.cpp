@@ -122,6 +122,28 @@ TEST_CASE("MoveGenerator descends up to three blocks and refuses more") {
     }
 }
 
+TEST_CASE("MoveGenerator refuses to hop a gap that is liquid") {
+    // A liquid column has no body space over it, so it looked exactly like a one-cell gap and a
+    // route was found across a channel of lava. A goblin took that route, jumped, and stood in
+    // the lava -- and because a route existed it never asked for a crossing to be built.
+    nt::World w;
+    w.default_ground = 10;
+    w.add_hole(1, 0);
+    w.set_cell(1, 10, 0, CellClass::Liquid);
+    NavView view = nt::make_view(w, 8);
+    MoveGenerator gen(view, NavCosts{});
+
+    const NavNode from{0, 10, 0};
+    const NavView::Column* col = view.column(from.x, from.z, from.y);
+    CHECK(col != nullptr);
+    if (col == nullptr) return;
+
+    NavMoveList moves;
+    gen.generate(from, *col, moves);
+    CHECK(find_move(moves, 1, 0) == nullptr);  // not into it
+    CHECK(find_move(moves, 2, 0) == nullptr);  // and not over it
+}
+
 TEST_CASE("MoveGenerator blocks a diagonal that would clip a corner") {
     nt::World w;
     w.default_ground = 10;

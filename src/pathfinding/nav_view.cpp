@@ -101,6 +101,13 @@ NavView::Column NavView::compute_column(int32_t x, int32_t z, int32_t hint_y) co
         }
     }
 
+    // A column with no floor under it still remembers the liquid it descended through. Liquid
+    // does not support the body, so a pool over nothing reads as unfound -- and an unfound
+    // column is a GAP, which is how a channel of lava over unloaded or empty ground came out as
+    // something a route could hop across. `liquid` is what it is: this is not dry ground either
+    // way, and the planner's own usable test refuses it.
+    col.liquid = liquid_passed;
+
     // Nothing but sub-block detail in the whole scan: the agent stands on the
     // highest of it, which is what an unloaded-thin-platform or a lone decal
     // over a void amounts to.

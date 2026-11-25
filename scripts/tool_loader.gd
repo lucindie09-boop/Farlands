@@ -56,9 +56,9 @@ var _player: Node = null
 
 
 func _ready() -> void:
-	# A held dummy egg right-clicks through PlayerController's `dummy_spawn`, and
-	# the player arrives with the world: after this in the game, already there in a
-	# probe, so both the tree and what is added to it are hooked.
+	# A held spawn egg right-clicks through PlayerController's `dummy_spawn` or
+	# `goblin_spawn`, and the player arrives with the world: after this in the game,
+	# already there in a probe, so both the tree and what is added to it are hooked.
 	get_tree().node_added.connect(_hook_player)
 	_hook_player(get_tree().root.find_child("Player", true, false))
 
@@ -68,9 +68,20 @@ func _hook_player(node: Node) -> void:
 	_player = node
 	if not node.is_connected("dummy_spawn", _spawn_dummy):
 		node.connect("dummy_spawn", _spawn_dummy)
+	# The goblin egg's half: an item use, answered by the same tool the G key opens.
+	if node.has_signal("goblin_spawn") and not node.is_connected("goblin_spawn", _spawn_goblin):
+		node.connect("goblin_spawn", _spawn_goblin)
 
 func _spawn_dummy() -> void:
 	var tool := open_tool("pose_clone")
+	if tool != null:
+		tool.call("spawn")
+
+
+## A held goblin egg: the same spawn the Tools page's button and the G key ask for, so the egg
+## cannot make a different goblin than the tool does.
+func _spawn_goblin() -> void:
+	var tool := open_tool(GOBLIN_TOOL)
 	if tool != null:
 		tool.call("spawn")
 

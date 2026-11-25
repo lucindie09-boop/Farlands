@@ -41,4 +41,7 @@ void PlayerController::add_signals() {
     ADD_SIGNAL(MethodInfo("wand_use"));
     ADD_SIGNAL(MethodInfo("wand_confirm"));
     ADD_SIGNAL(MethodInfo("dummy_spawn"));
+    // The goblin egg's half of the same story: the entity is built in GDScript (the goblin spawn
+    // tool), so the item only has to say that one was asked for.
+    ADD_SIGNAL(MethodInfo("goblin_spawn"));
 }

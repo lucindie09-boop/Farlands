@@ -106,8 +106,10 @@ const MOB_ATTACK_DAMAGE := 2.0
 ## already in flight (`walk_to` answers 0 for one).
 const CHASE_REPATH_MIN := 4
 const CHASE_REPATH_MAX := 11
-## Badly hurt, it stops fighting and runs: this many half-hearts or fewer of its twelve.
-const FLEE_HEALTH := 2.0
+## Badly hurt, it stops fighting and runs: two hearts of its six, in the half-hearts the health
+## is counted in, so four of its twelve. (It was one heart -- two half-hearts -- which left a
+## goblin fighting on to the end and then running with a single half-heart to lose.)
+const FLEE_HEALTH := 4.0
 ## It runs until the player is this many blocks off, then lets go and goes back to wandering.
 const FLEE_DISTANCE := 16.0
 ## Each sprint of that run is this far, picked away from the player with a little scatter.
@@ -115,6 +117,30 @@ const FLEE_RADIUS := 8.0
 ## A punch is only taken personally from this far: from further off, the goblin has no one to
 ## find and goes back to what it was doing.
 const AGGRO_RANGE := 16.0
+## A goblin hurt by a player wakes its pack: every other goblin within this many blocks of it, on
+## every axis, turns on the same attacker. The game's own pigmen do exactly this, on a box
+## expanded 32 blocks out from the one that was hit. The one that was hit is not special — it
+## simply happened to be nearest.
+const ALERT_RADIUS := 32.0
+## How long that anger lasts once raised: 400 to 799 ticks, twenty to forty seconds, which is the
+## span the same mobs are given. Every new hit resets it.
+const ANGER_MIN_TICKS := 400
+const ANGER_MAX_TICKS := 799
+## A chase has a LENGTH. Past this many blocks from the player it forgets the target and goes back
+## to wandering, which is the follow range a zombie (and therefore a pigman) carries in the game:
+## 35 blocks. Without it a goblin followed one punch across the world.
+const CHASE_LEASH := 35.0
+## How close a chase walks before it plants itself. The reach is where the BLOW lands; this is
+## where the walking stops. They were the same number, so a goblin halted a whole reach away and
+## swung from there -- it now closes to about two bodies' half-widths and presses in.
+const CHASE_STOP := 0.9
+## The chase plans FURTHER than a stroll. A stroll goes six blocks; a chase can be across a valley,
+## up a stair or round a wall, and the stroll's budget cut the search off and returned a route to
+## the nearest frontier -- which is how a goblin walked to the ground directly under a platform and
+## stood there, its target thirty blocks overhead and the long way round never searched at all. A
+## chase that still runs out of budget asks again rather than settling for the frontier.
+const CHASE_EXPANSIONS := 20000
+const CHASE_MAX_MS := 24.0
 ## Half a pace ahead, at feet height: where a step it has to climb shows up before the
 ## body reaches it. The sim steps up 0.6 by itself, so this only fires on a full block.
 const STEP_PROBE := 0.45
@@ -260,6 +286,9 @@ var _needs_replan := false
 var _blocked_frames := 0
 ## Whether it is inside its fighting reach right now, which carries the slack above.
 var _in_reach := false
+## Whether it is closing the last pace on the player: inside the reach but not yet at CHASE_STOP,
+## it walks straight at them instead of standing at the edge of its own arm.
+var _closing := false
 
 # The facing is the MODEL's yaw, never the body's: the body's box is what the punch is
 # tested against, and a turned box would no longer be the box the click was aimed at.
@@ -283,6 +312,9 @@ var _sway := 0.0
 ## re-plan.
 var _enemy: Node3D = null
 var _fleeing := false
+## Ticks of anger left (ANGER_MIN_TICKS..ANGER_MAX_TICKS). A goblin with an enemy is not angry by
+## default: a stroll is interrupted only by being hit or by the shout of a goblin that was.
+var _anger_ticks := 0
 var _attack_ticks := 0
 var _repath_ticks := 0
 
@@ -406,6 +438,11 @@ func _steer() -> void:
 		var result := NAV_ROUTES.take(_job)
 		if not result.is_empty():
 			_take_route(result)
+	# The last pace before a blow is not a route: the thing it wants is right there, so it walks at
+	# it and stops at CHASE_STOP rather than at the edge of its own arm.
+	if _closing and _enemy != null and is_instance_valid(_enemy):
+		_step_at(_sim.get_tick_position(), _enemy.global_position)
+		return
 	if not _route.is_empty():
 		_walk()
 		return
@@ -501,8 +538,15 @@ func _update_enemy(ticks: int) -> void:
 	# is dropped.
 	var away := Vector2(feet.x - enemy_at.x, feet.z - enemy_at.z).length()
 	var gap := feet.distance_to(enemy_at)
+	# The anger runs out, and so does the chase: past its own follow range a mob forgets the target.
+	# Without either, one punch bought a goblin a walk across the world.
+	_anger_ticks = maxi(_anger_ticks - ticks, 0)
+	if _anger_ticks == 0 or gap > CHASE_LEASH:
+		_give_up()
+		return
 	if _health <= FLEE_HEALTH and not _fleeing:
 		_fleeing = true
+		_closing = false
 		_repath_ticks = 0
 		_abandon_route()
 	if _fleeing:
@@ -526,14 +570,17 @@ func _update_enemy(ticks: int) -> void:
 	_in_reach = gap <= CHASE_REACH + (CHASE_SLACK if _in_reach else 0.0) \
 		and _sees(feet, enemy_at)
 	if _in_reach:
-		# It stands its ground rather than walking through the player: a plan still in flight
-		# would have it steering past.
+		# The reach is where it swings, not where it stops walking: inside it the route is dropped
+		# and it closes the last pace straight at the player, so a chase ends against the body it
+		# wanted instead of a whole reach short of it. Below CHASE_STOP it plants itself.
+		_closing = gap > CHASE_STOP
 		if not _route.is_empty():
 			_stop_walking()
 		if _attack_ticks == 0:
 			_attack_ticks = ATTACK_TICKS
 			_swing(feet)
 		return
+	_closing = false
 	_repath_ticks -= ticks
 	if _repath_ticks > 0:
 		return
@@ -543,7 +590,9 @@ func _update_enemy(ticks: int) -> void:
 	# blocks of walking round -- and that reads as a mob changing its mind.
 	if _job == 0 and (_route.is_empty() or _planned_goal.distance_to(enemy_at) >= 1.0):
 		_repath_ticks = randi_range(CHASE_REPATH_MIN, CHASE_REPATH_MAX)
-		walk_to(enemy_at)
+		# A chase is planned with the chase's own budget: the stroll's cut the search off and the
+		# goblin walked to the nearest place it could reach instead of the far one it needed.
+		walk_to(enemy_at, CHASE_EXPANSIONS, CHASE_MAX_MS)
 
 
 ## How high its eyes are above its feet: the sim knows the body, and a stub may not.
@@ -551,6 +600,16 @@ func _eye_height() -> float:
 	if _sim != null and _sim.has_method("get_eye_height"):
 		return float(_sim.call("get_eye_height"))
 	return 1.4
+
+
+## A wish straight at a point, with no route behind it: the pace before a blow, and the only walking
+## a body does without the planner's help.
+func _step_at(feet: Vector3, target: Vector3) -> void:
+	var to := Vector3(target.x - feet.x, 0.0, target.z - feet.z)
+	if to.length_squared() < 1e-6:
+		return
+	_wish = to.normalized()
+	_yaw_target = atan2(-_wish.x, -_wish.z)
 
 
 ## Whether it can see the player from where it stands: the engine's own block ray from its eyes
@@ -604,13 +663,15 @@ func _run_away(feet: Vector3, enemy_at: Vector3, ticks: int) -> void:
 	if away.length_squared() < 0.01:
 		away = Vector3(randf_range(-1.0, 1.0), 0.0, randf_range(-1.0, 1.0))
 	away = away.normalized().rotated(Vector3.UP, randf_range(-0.45, 0.45))
-	walk_to(feet + away * FLEE_RADIUS)
+	walk_to(feet + away * FLEE_RADIUS, CHASE_EXPANSIONS, CHASE_MAX_MS)
 
 
 ## Off the fight: back to wandering, at the wandering pace.
 func _give_up() -> void:
 	_enemy = null
 	_fleeing = false
+	_closing = false
+	_anger_ticks = 0
 	_in_reach = false
 	_attack_ticks = 0
 	_repath_ticks = 0
@@ -650,7 +711,7 @@ func _clear_look() -> void:
 ## Ask the planner for a route to `target` and walk it when it arrives. Public so a
 ## probe (or a later "go there" call) drives the same path the idle timer does.
 ## Returns the job id, or 0 when nothing was asked.
-func walk_to(target: Vector3) -> int:
+func walk_to(target: Vector3, expansions := STROLL_EXPANSIONS, max_ms := STROLL_MAX_MS) -> int:
 	# The destination is remembered even when the ask is refused, so a route that has to be
 	# re-planned later knows where it was going.
 	_goal = target
@@ -660,8 +721,7 @@ func walk_to(target: Vector3) -> int:
 		return 0
 	# The planner re-anchors both ends onto their column's surface, so a target is a
 	# column to stand in; its height is a hint, not a demand.
-	_job = int(_chunk_manager.request_path(_sim.get_tick_position(), target,
-		STROLL_EXPANSIONS, STROLL_MAX_MS))
+	_job = int(_chunk_manager.request_path(_sim.get_tick_position(), target, expansions, max_ms))
 	_planned_goal = target
 	if _job == 0:
 		# Nothing was asked (the planner is busy or refused): hold off a moment rather than
@@ -764,6 +824,7 @@ func _stop_walking() -> void:
 func _abandon_route() -> void:
 	_route.clear()
 	_next = 0
+	_closing = false
 	_closest = INF
 	_stuck_ticks = 0
 	_job = 0
@@ -846,9 +907,44 @@ func apply_knockback(attacker_position: Vector3, extra_velocity := Vector3.ZERO)
 			and player.global_position.distance_to(_sim.get_tick_position()) <= AGGRO_RANGE:
 		_enemy = player
 		_fleeing = _health <= FLEE_HEALTH
+		_anger_ticks = randi_range(ANGER_MIN_TICKS, ANGER_MAX_TICKS)
 		_attack_ticks = 0
 		_repath_ticks = 0
 		_abandon_route()
+		# ...and it shouts. One goblin hurt by a player wakes its pack, which is what turns a row of
+		# separate fights into one: see ALERT_RADIUS.
+		_alert_nearby(player)
+
+
+## Every goblin within ALERT_RADIUS of this one turns on the same attacker. The shout is the
+## alert, not a fight of its own: each body takes the anger the way it takes a hit's, and the
+## one that was hit is no different from any other by the time the box is walked.
+func _alert_nearby(attacker: Node3D) -> void:
+	if attacker == null or _sim == null or not is_inside_tree():
+		return
+	var here: Vector3 = _sim.get_tick_position()
+	for other in get_tree().get_nodes_in_group("goblin"):
+		if other == self or not (other is Node3D) or not other.has_method("take_anger"):
+			continue
+		var at: Vector3 = (other as Node3D).global_position
+		if absf(at.x - here.x) > ALERT_RADIUS or absf(at.z - here.z) > ALERT_RADIUS:
+			continue
+		if absf(at.y - here.y) > ALERT_RADIUS:
+			continue
+		other.call("take_anger", attacker)
+
+
+## Turn on an attacker without having been hit: the alert another goblin's fight sends out. A
+## goblin already badly hurt still runs rather than joins, the same rule its own hits follow.
+func take_anger(attacker: Node3D) -> void:
+	if _sim == null or attacker == null:
+		return
+	_enemy = attacker
+	_fleeing = _health <= FLEE_HEALTH
+	_anger_ticks = randi_range(ANGER_MIN_TICKS, ANGER_MAX_TICKS)
+	_attack_ticks = 0
+	_repath_ticks = 0
+	_abandon_route()
 
 
 func take_damage(amount: float) -> void:

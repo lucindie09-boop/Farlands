@@ -216,6 +216,16 @@ void PlayerController::use_item() {
         // GDScript (pose_clone_debug.gd, which owns the model and the physics).
         if (use->is_dummy()) {
             emit_signal("dummy_spawn");
+            // A spawn is a use, and a use moves the arm: the same `block_placed` a landed block
+            // sends, so an egg swung at a hillside plays the place animation the empty hand's
+            // placement does. Without it the egg spawned with no motion at all, which reads as
+            // the click having done nothing until the thing appears.
+            emit_signal("block_placed");
+            return;
+        }
+        if (use->is_goblin_egg()) {
+            emit_signal("goblin_spawn");
+            emit_signal("block_placed");
             return;
         }
         if (use->is_pour()) {

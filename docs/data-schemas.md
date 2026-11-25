@@ -88,7 +88,7 @@ part of the block texture array.
 | `tool` | object | `class`, `tier`, `speed` — what the item is as a tool |
 | `pose` | string | A resting pose id the viewmodel knows (`item1`, `item2`, ...). Read by `viewmodel.gd`, not the registry |
 | `light` | object | `level` and `color` ([r,g,b]). While the item is selected it *owns* the player's dynamic light |
-| `use` | object | `kind` plus its argument: `pour` writes `block` into the aimed cell, `fill` empties the fluid source aimed at and swaps the item for that fluid's bucket, `dummy` puts a combat dummy on the aimed block (`dummy_egg`), `swap` replaces the held item with `item` keeping the count (the rods' cast/retract pair) |
+| `use` | object | `kind` plus its argument: `pour` writes `block` into the aimed cell, `fill` empties the fluid source aimed at and swaps the item for that fluid's bucket, `dummy` puts a combat dummy on the aimed block (`dummy_egg`), `goblin` puts a goblin there instead (`goblin_egg`), `swap` replaces the held item with `item` keeping the count (the rods' cast/retract pair) |
 | `place` | object | The one bridge from item space into block space: `block`, plus `wall` → `{n, s, e, w}` for the states that hug a face. Without it an item is never placeable |
 
 ## data/biomes.json

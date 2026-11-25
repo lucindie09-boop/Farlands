@@ -48,6 +48,8 @@ struct ItemLight {
 //   "dummy" — put a combat dummy on the block the crosshair is looking at (the
 //            pose-clone tool in GDScript builds it; see player_controller.cpp's
 //            `dummy_spawn` signal).
+//   "goblin" — the same, for a goblin: `goblin_spawn` and the goblin spawn tool,
+//            which owns the mesh, the rig and the entity's script.
 //   "swap" — replace the held item with `item`, keeping the stack's count: what a
 //            cast/retract pair needs (a rod and its thrown version are two items,
 //            so the cast is a swap rather than a state flag on one).
@@ -77,6 +79,9 @@ struct ItemUseAction {
     // A spawn egg puts no voxel in the world: it asks the layer that owns the
     // entity to make one.
     [[nodiscard]] bool is_dummy() const noexcept { return kind == "dummy"; }
+    // A goblin egg is the dummy egg's shape again, for the other entity this game spawns: the
+    // item asks the GDScript tool that owns the goblin to put one in the world.
+    [[nodiscard]] bool is_goblin_egg() const noexcept { return kind == "goblin"; }
     // A swap touches neither the world nor an entity: it changes what is held.
     [[nodiscard]] bool is_swap() const noexcept { return kind == "swap"; }
 };

@@ -61,6 +61,8 @@ func _world() -> Node:
 func _blow(goblin: Node3D, enemy: Node3D, at: Vector3) -> int:
 	enemy.position = at
 	goblin.set("_enemy", enemy)
+	# Anger is what keeps a fight going, and it runs out: every ask here has to be inside it.
+	goblin.set("_anger_ticks", 600)
 	goblin.set("_attack_ticks", 0)
 	goblin.call("_update_enemy", 20)
 	return int(enemy.get("hits"))
@@ -130,6 +132,78 @@ func _run() -> void:
 		_fail("it will not hit a player in the open after a wall was in the way")
 	if int(enemy.get("hits")) != before + 1:
 		_fail("no blow landed once the wall was gone")
+
+	# Closing the last pace: in reach but further out than CHASE_STOP, it walks AT the player rather
+	# than standing at the edge of its own arm, which is what a chase looked like before -- a goblin
+	# halted a whole reach away and swung at the air in front of its nose.
+	goblin.set("_health", 12.0)
+	_blow(goblin, enemy, NEAR)
+	if not bool(goblin.get("_closing")):
+		_fail("in reach at one block it did not close the last pace")
+	goblin.set("_job", 0)
+	goblin.call("_steer")
+	var wish: Vector3 = goblin.get("_wish")
+	if Vector2(wish.x, wish.z).length() < 0.5:
+		_fail("closing but not walking at the player (wish %s)" % wish)
+	_blow(goblin, enemy, Vector3(GOBLIN_AT.x + 0.8, GOBLIN_AT.y, GOBLIN_AT.z))
+	if bool(goblin.get("_closing")):
+		_fail("still walking into a player it is already against")
+
+	# It runs at TWO hearts, four of its twelve half-hearts: a goblin on two and a half still fights.
+	goblin.set("_anger_ticks", 600)
+	goblin.set("_health", 5.0)
+	_blow(goblin, enemy, NEAR)
+	if bool(goblin.get("_fleeing")):
+		_fail("it ran with 5 half-hearts left: the run starts at two hearts, not two and a half")
+	goblin.set("_health", 4.0)
+	_blow(goblin, enemy, NEAR)
+	if not bool(goblin.get("_fleeing")):
+		_fail("it kept fighting at 4 half-hearts: two hearts is where it runs")
+	goblin.set("_health", 12.0)
+	goblin.set("_fleeing", false)
+
+	# A chase has a length: a player 40 blocks away is past the follow range of 35, so the target
+	# is dropped rather than followed across the world.
+	goblin.set("_health", 12.0)
+	before = int(enemy.get("hits"))
+	_blow(goblin, enemy, Vector3(GOBLIN_AT.x + 40.0, GOBLIN_AT.y, GOBLIN_AT.z))
+	if goblin.get("_enemy") != null:
+		_fail("still chasing a player 40 blocks away: the leash is 35")
+	if int(enemy.get("hits")) != before:
+		_fail("hit a player 40 blocks away")
+
+	# ...and its anger times out on its own, which is the other half of forgetting.
+	goblin.set("_enemy", enemy)
+	goblin.set("_anger_ticks", 1)
+	goblin.call("_update_enemy", 20)
+	if goblin.get("_enemy") != null:
+		_fail("stayed angry after its twenty-to-forty-second clock ran out")
+
+	# A pack is a pack: one goblin hurt by the player wakes every goblin within 32 blocks of it,
+	# which is the game's own pigman rule, so a neighbour joins without being touched.
+	var player := world.get_node("Player") as Node3D
+	player.position = GOBLIN_AT + Vector3(0.6, 0.0, 0.0)
+	goblin.add_to_group("goblin")
+	var neighbour: Node3D = (load(BODY_SCRIPT) as Script).new()
+	neighbour.name = "GoblinNeighbour"
+	neighbour.add_to_group("goblin")
+	neighbour.position = GOBLIN_AT + Vector3(20.0, 0.0, 0.0)
+	world.add_child(neighbour)
+	var distant: Node3D = (load(BODY_SCRIPT) as Script).new()
+	distant.name = "GoblinDistant"
+	distant.add_to_group("goblin")
+	distant.position = GOBLIN_AT + Vector3(40.0, 0.0, 0.0)
+	world.add_child(distant)
+	await process_frame
+	goblin.set("_health", 12.0)
+	goblin.set("_enemy", null)
+	goblin.call("apply_knockback", player.global_position)
+	if goblin.get("_enemy") != player:
+		_fail("a punched goblin did not turn on the player who hit it")
+	if neighbour.get("_enemy") != player:
+		_fail("a goblin 20 blocks away did not join the fight its neighbour started")
+	if distant.get("_enemy") != null:
+		_fail("a goblin 40 blocks away joined a fight 32 blocks outside the shout")
 
 	if ok:
 		print("PROBE PASS: the blow reaches %.2f in three dimensions and only through open air -- "

@@ -284,6 +284,9 @@ func _run() -> void:
 	body.set("_look_ticks", 0)
 	player.position = body.global_position + Vector3(6.0, 0.0, 0.0)
 	body.set("_enemy", player)
+	# A fight runs on anger, and anger runs out: a target planted by hand still needs its clock, or
+	# the first tick of it is the last (the goblin drops a target it is not angry at any more).
+	body.set("_anger_ticks", 600)
 	body.set("_fleeing", false)
 	body.set("_attack_ticks", 0)
 	body.call("_update_enemy", 1)
@@ -325,6 +328,7 @@ func set_health(value: int) -> void:
 	victim.position = body.global_position + Vector3(1.0, 0.0, 0.0)
 	body.set("_health", 12.0)
 	body.set("_enemy", victim)
+	body.set("_anger_ticks", 600)
 	body.set("_fleeing", false)
 	body.set("_attack_ticks", 0)
 	body.call("_update_enemy", 1)

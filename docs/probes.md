@@ -463,7 +463,10 @@ and neither is one twenty-five overhead, which is the case that was seen in play
 the FLAT distance and height was not measured at all; and a body behind a wall is in reach but not
 in sight, so no blow lands, until the wall is gone and the next one does. Both halves of that were
 wrong, and both are one line in `goblin.gd`: which distance is measured, and what is asked before
-the swing.
+the swing. It holds the fight's limits too — it runs at two hearts (4 half-hearts) and not at two and
+a half, a target 40 blocks away is dropped (the leash is 35), the anger clock (400–799 ticks) times
+out on its own, and a punched goblin wakes a neighbour 20 blocks away while one 40 blocks out stays
+out of it, which is the pigman rule and its 32-block box.
 
 The rest of the directory is historical or subject-specific; the header comment
 in each one says which.

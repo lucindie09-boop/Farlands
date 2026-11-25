@@ -549,9 +549,21 @@ being resampled by a different fraction at each scale.
   receiving chain (so the hurt window, the lean and the push away from it all happen on their side),
   falling back to the health the blow costs on a build that has no such entry, so an old extension
   still takes the damage.
-  At **2 of its 12 half-hearts or less** it stops fighting and runs instead, at the **fleeing** pace
-  (1.3×), sprinting away from the player with a little scatter until they are **16 blocks** off, and
-  then it lets go and goes back to wandering. **Standing, it looks about**: a 1-in-120-a-tick roll (a glance every 6 s) picks a
+  At **two hearts — 4 of its 12 half-hearts or less** it stops fighting and runs instead, at the
+  **fleeing** pace (1.3×), sprinting away from the player with a little scatter until they are **16
+  blocks** off, and then it lets go and goes back to wandering. A fight has two more limits, both of
+  them the game's own: **anger runs out** after 400–799 ticks (20–40 s, reset by every new hit), and
+  **the chase has a length** — past **35 blocks** (a zombie's, and so a pigman's, follow range) it
+  forgets the target entirely rather than following one punch across the world. Hitting one goblin
+  also **wakes its pack**: every other goblin within **32 blocks** of it on every axis turns on the
+  same attacker, the pigman rule, so a group is a group and not a row of separate duels — the goblin
+  that was struck is only the one that happened to be nearest. A chase also **plans further than a
+  stroll**: the stroll's budget (4,000 expansions, 8 ms) cut a long search off and returned a route
+  to the nearest frontier it had reached, which is how a goblin walked to the ground directly under a
+  platform and stood there with its target thirty blocks overhead — a chase now asks for 20,000
+  expansions and 24 ms, and **keeps closing** inside its reach: the reach is where the blow lands,
+  and the body only plants itself at **0.9 blocks** (two bodies' half-widths), so it presses in
+  instead of swinging from the edge of its own arm. **Standing, it looks about**: a 1-in-120-a-tick roll (a glance every 6 s) picks a
   point within 6 blocks of it, mostly **below** its eyes (a near, low point is the 20-odd-degree
   downward glance), and **the head turns to it** — yaw then pitch about the model's own axes,
   clamped to 75° either side of the body and 40° up or down, and **turned at 10° a tick** — the

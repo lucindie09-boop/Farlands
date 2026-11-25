@@ -903,6 +903,13 @@ first-person viewmodel - what each one owns and the decisions behind it.
   Console prints (`print_pivots`) list each part's origin for verifying the markers against the
   transform hierarchy. The `dummy_egg` item (use kind `dummy` in `data/items.json`) spawns the
   same dummy from the hotbar where the crosshair is aimed, through `spawn()` and ToolLoader
+- **Goblin spawn egg**: `goblin_egg` (use kind `goblin`) is the dummy egg's shape for the other
+  entity the game spawns. The item puts no voxel in the world: PlayerController emits
+  `goblin_spawn`, `tool_loader.gd` connects it to the same `goblin` tool the Tools page's button
+  and the G key open, and `spawn()` builds the body — so an egg cannot make a different goblin
+  than the tool does. Both eggs also emit `block_placed`, which is the viewmodel's place swing:
+  a spawn is a USE, and a spawn with no motion reads as the click having done nothing until the
+  thing appears
 - **Chunk border overlay (F3+B)**: `chunk_borders.gd` (deferred tool, `toggle_chunk_borders`
   on B with F3 held, so a stray B does nothing) draws the world's chunk grid around the player
   as unshaded, depth-test-OFF (X-ray) lines: verticals at

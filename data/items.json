@@ -162,6 +162,13 @@
 			"display": "Wooden Rod",
 			"pose": "item3",
 			"use": { "kind": "swap", "item": "wooden_rod" }
+		},
+		{
+			"name": "goblin_egg",
+			"texture": "goblin_egg",
+			"display": "Goblin Spawn Egg",
+			"pose": "item2",
+			"use": { "kind": "goblin" }
 		}
 	]
 }

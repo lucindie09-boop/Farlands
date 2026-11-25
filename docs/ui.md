@@ -529,11 +529,18 @@ being resampled by a different fraction at each scale.
   per-tick acceleration, so it is 2.86 blocks/s (0.66 of the player's 4.317-block walk) — scaled by
   what it is doing (`speed_state`: 0.6× wandering, 1.0× chasing, 1.1× heading for loot, 1.3× fleeing,
   0.7× sneaking up; only the wander is used today, the rest are one assignment away): the sim steps up 0.6 by
-  itself, so a full block is a jump it presses when the collision half a pace ahead says so; it stops
-  and stands again on arrival or when the route is dropped for being stuck. **A punch is taken
+  itself, so a full block is a jump it presses when the collision half a pace ahead says so — but
+  **only at a step it can climb**: a wall in the way is a route that no longer exists, so it asks for
+  a new plan instead of hopping at it, and it does the same when the ground has moved under it (a fall
+  down a hole, a block placed across the path). The walk is **cell by cell** — the planner's own nodes,
+  not its smoothed waypoints, which are long straight legs and were walked as straight lines (that is
+  how it stepped off ledges and waded through what the plan had gone around) — and it stops and stands
+  again on arrival. **A punch is taken
   personally**: the puncher becomes its enemy, the way a mob keeps a revenge target, and it switches
   to the **chasing** pace (1.0×) and walks at them through the same planner, re-planning every 4–10
-  ticks, with the head on their eyes. In reach — about 1.4 blocks between centres, the two bodies'
+  ticks — but only when the answer could have changed (no route, or the player has moved a block),
+  because asking on a timer flips between two near-equal answers — a three-block drop against a few
+  blocks of walking round — and reads as a mob changing its mind — with the head on their eyes. In reach — about 1.4 blocks between centres, the two bodies'
   own widths plus a hand — it stops and swings **once a second for a heart** through the player's own
   receiving chain (so the hurt window, the lean and the push away from it all happen on their side),
   falling back to the health the blow costs on a build that has no such entry, so an old extension

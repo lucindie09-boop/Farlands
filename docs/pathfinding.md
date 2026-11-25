@@ -49,8 +49,13 @@ how it is wired into the game and to the tests.
   coordinates are feet positions; results are **support-block** cells (the block a node stands
   on)
 - **Its second consumer is the spawned goblins**: `scripts/goblin.gd` asks for a route to a random
-  nearby column on an idle timer and walks the waypoints, which is the planner's first use as
-  behaviour rather than as a debug picture (both collect results through `scripts/nav_routes.gd`,
+  nearby column on an idle timer and walks it **cell by cell** (`nodes`, not the smoothed
+  `waypoints`): a waypoint is a long straight leg, and walking a leg as a straight line is how
+  the body stepped off ledges and waded through what the plan had gone around. Every node in
+  that list was reached by a legal move, which is what makes the walk follow the plan. A route
+  that stops being walkable -- a block placed across it, a fall the plan did not expect -- is
+  re-planned rather than hopped at, and a jump is only taken on a step it can climb. This is
+  the planner's first use as behaviour rather than as a debug picture (both collect results through `scripts/nav_routes.gd`,
   since `poll_paths()` empties its queue as it answers)
 - **In-game test harness**: the dummy egg spawns the rigid dummy, P plans a route from it to the player and
   draws it as translucent red cubes, amber when the plan was cut short by its budget (L toggles
@@ -63,6 +68,12 @@ how it is wired into the game and to the tests.
 
 ## What the design settled
 
+- **Liquid is never traversable**: a column whose feet stand in water, lava or acid has no
+  route through it (`is_usable` rejects it). The costs used to *discourage* liquid (+0.6 a
+  move) rather than forbid it, which the planner read as "wade anyway" whenever the dry way
+  round was more than half a step longer; a cost is not a wall, and the walking body has no
+  swim. A body already standing in liquid can still route out of it: the check is on the cell
+  being entered, not the one being left
 - **Unknown is never traversable**: a cell in an unresident chunk must sample as
   `CellClass::Unknown`. A raw block query returns AIR for a missing chunk, which would otherwise
   read as walkable emptiness

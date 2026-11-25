@@ -118,6 +118,21 @@ const AGGRO_RANGE := 16.0
 ## Half a pace ahead, at feet height: where a step it has to climb shows up before the
 ## body reaches it. The sim steps up 0.6 by itself, so this only fires on a full block.
 const STEP_PROBE := 0.45
+## How far past a route's own first cell it is already standing, so a plan that lands mid-
+## stride does not turn it back to the middle of the cell it is leaving.
+const SKIP_START_CELL := 0.9
+## A route whose next cell is this far above or below its feet is a route through a world
+## that changed underneath it -- it fell down a hole, or a stair went in -- and is re-planned.
+## It has to leave room for a drop the PLAN itself made: `NavCosts::max_drop` is three blocks,
+## so a slack under three reads a legal three-block drop as "the ground moved", re-plans on
+## every tick standing at the edge of it, and the goblin never takes the step.
+const ROUTE_LEVEL_SLACK := 3.5
+## Frames of walking into something that is not a step before it gives up on the route: a
+## wall is a reason for a new plan, and hopping at it for seconds is what it used to do.
+const REPLAN_AFTER_BLOCKED := 12
+## A chase stops at the reach and only walks again once the player is this much further off,
+## so it is not re-planning and dropping the route every tick at the boundary.
+const CHASE_SLACK := 0.5
 ## A waypoint counts as reached this close to its cell's middle, horizontally.
 const ARRIVE_DISTANCE := 0.45
 ## A stroll target is a few blocks away, so the search should give up quickly rather
@@ -233,6 +248,18 @@ var _route: Array[Vector3] = []
 var _next := 0
 var _closest := INF
 var _stuck_ticks := 0
+## Where the route it is walking was asked for, so a route that stops being walkable can be
+## asked for again without losing the destination.
+var _goal := Vector3.ZERO
+## Where the plan in hand was asked for, so a chase can ask again only when the answer could
+## have changed rather than on a clock.
+var _planned_goal := Vector3.ZERO
+## Set when the route in hand is no longer a route (blocked, or the ground moved under it)
+## and a new plan is owed once the last one has landed.
+var _needs_replan := false
+var _blocked_frames := 0
+## Whether it is inside its fighting reach right now, which carries the slack above.
+var _in_reach := false
 
 # The facing is the MODEL's yaw, never the body's: the body's box is what the punch is
 # tested against, and a turned box would no longer be the box the click was aimed at.
@@ -352,15 +379,23 @@ func _advance_ticks(ticks: int) -> void:
 				and bool(_sim.is_on_ground()) and randf() < STROLL_CHANCE * ticks:
 			_stroll()
 	else:
-		var gap := _flat(_route[_next], _sim.get_tick_position()).length()
+		var feet: Vector3 = _sim.get_tick_position()
+		if absf(_route[_next].y - feet.y) > ROUTE_LEVEL_SLACK:
+			_needs_replan = true
+		var gap := _flat(_route[_next], feet).length()
 		if gap < _closest - 0.02:
 			_closest = gap
 			_stuck_ticks = 0
 		else:
 			_stuck_ticks += ticks
 			if _stuck_ticks > STUCK_TICKS:
-				_stop_walking()
-				return
+				_needs_replan = true
+				_stuck_ticks = 0
+		if _needs_replan and _job == 0 and _goal != Vector3.ZERO:
+			_needs_replan = false
+			_closest = INF
+			_blocked_frames = 0
+			walk_to(_goal)
 
 
 ## Claim a finished plan, walk it if there is one, otherwise stand and wait.
@@ -475,16 +510,27 @@ func _update_enemy(ticks: int) -> void:
 	# round after it by the same rule every other look uses.
 	_set_look(enemy_at + Vector3(0.0, PLAYER_EYE_HEIGHT, 0.0))
 	_attack_ticks = maxi(_attack_ticks - ticks, 0)
-	if gap <= CHASE_REACH:
-		# In reach it stands its ground rather than walking through the player: a plan still
-		# in flight would have it steering past.
-		_abandon_route()
+	# The reach has a slack on the way out: inside it, it stops and swings; it only takes the
+	# walk up again once the player is past the reach by CHASE_SLACK, so a boundary it hovers
+	# on does not have it dropping and re-planning a route every tick.
+	_in_reach = gap <= CHASE_REACH + (CHASE_SLACK if _in_reach else 0.0)
+	if _in_reach:
+		# It stands its ground rather than walking through the player: a plan still in flight
+		# would have it steering past.
+		if not _route.is_empty():
+			_stop_walking()
 		if _attack_ticks == 0:
 			_attack_ticks = ATTACK_TICKS
 			_swing(feet)
 		return
 	_repath_ticks -= ticks
-	if _repath_ticks <= 0:
+	if _repath_ticks > 0:
+		return
+	# Asked again only when the answer could differ: there is no route, or the player has
+	# moved a block since the last ask, which is the attack goal's own rule. Re-planning on a
+	# timer instead flips between two near-equal answers -- a three-block drop against a few
+	# blocks of walking round -- and that reads as a mob changing its mind.
+	if _job == 0 and (_route.is_empty() or _planned_goal.distance_to(enemy_at) >= 1.0):
 		_repath_ticks = randi_range(CHASE_REPATH_MIN, CHASE_REPATH_MAX)
 		walk_to(enemy_at)
 
@@ -510,6 +556,10 @@ func _run_away(feet: Vector3, enemy_at: Vector3, ticks: int) -> void:
 	_repath_ticks -= ticks
 	if _repath_ticks > 0:
 		return
+	# Same rule as the chase: a sprint of the run-away is kept until it has been run or the
+	# player has moved a block, rather than re-picked every few ticks into a new direction.
+	if _job != 0 or (not _route.is_empty() and _planned_goal.distance_to(enemy_at) < 1.0):
+		return
 	_repath_ticks = randi_range(CHASE_REPATH_MIN, CHASE_REPATH_MAX)
 	var away := feet - enemy_at
 	away.y = 0.0
@@ -523,8 +573,13 @@ func _run_away(feet: Vector3, enemy_at: Vector3, ticks: int) -> void:
 func _give_up() -> void:
 	_enemy = null
 	_fleeing = false
+	_in_reach = false
 	_attack_ticks = 0
 	_repath_ticks = 0
+	_needs_replan = false
+	_blocked_frames = 0
+	_goal = Vector3.ZERO
+	_planned_goal = Vector3.ZERO
 	speed_state = "idle"
 	_abandon_route()
 
@@ -558,6 +613,9 @@ func _clear_look() -> void:
 ## probe (or a later "go there" call) drives the same path the idle timer does.
 ## Returns the job id, or 0 when nothing was asked.
 func walk_to(target: Vector3) -> int:
+	# The destination is remembered even when the ask is refused, so a route that has to be
+	# re-planned later knows where it was going.
+	_goal = target
 	if _chunk_manager == null or _sim == null or _job != 0:
 		return 0
 	if not _chunk_manager.has_method("request_path"):
@@ -566,6 +624,7 @@ func walk_to(target: Vector3) -> int:
 	# column to stand in; its height is a hint, not a demand.
 	_job = int(_chunk_manager.request_path(_sim.get_tick_position(), target,
 		STROLL_EXPANSIONS, STROLL_MAX_MS))
+	_planned_goal = target
 	if _job == 0:
 		# Nothing was asked (the planner is busy or refused): hold off a moment rather than
 		# rolling again on the next tick.
@@ -581,8 +640,19 @@ func _take_route(result: Dictionary) -> void:
 	_job = 0
 	_route.clear()
 	_next = 0
-	var cells: PackedVector3Array = result.get("waypoints", PackedVector3Array())
+	# The planner's own cells, not the smoothed waypoints: the smoother pulls a route into
+	# long straight legs, and a leg is walked as a straight line -- which is how a goblin
+	# stepped off ledges and waded through what the plan had gone round. Cell by cell is what
+	# a mob walks, and every cell in this list was reached by a legal move.
+	var cells: PackedVector3Array = result.get("nodes", PackedVector3Array())
+	if cells.is_empty():
+		cells = result.get("waypoints", PackedVector3Array())
+	var feet: Vector3 = _sim.get_tick_position()
 	for cell in cells:
+		# The first cells are where it already stands: a plan that lands mid-stride must not
+		# turn it back to the middle of the cell it is leaving.
+		if _route.is_empty() and _flat(cell, feet).length() < SKIP_START_CELL:
+			continue
 		_route.append(cell)
 	# A route that goes nowhere is not a stroll: look again soon rather than standing
 	# for the whole idle wait on a column that turned out to be unreachable.
@@ -616,11 +686,18 @@ func _walk() -> void:
 	if not _gazing and _enemy == null:
 		_pick_walk_look(dir)
 	# The sim climbs a step of up to 0.6 by itself; a full block it does not, so the step
-	# is seen half a pace ahead and the jump control is pressed for this frame. The answer
-	# is the world's own collision, not a guess at block ids, so a slab and a stair count
-	# exactly as they collide.
+	# is seen half a pace ahead and the jump control is pressed for this frame. Only a step
+	# it can climb, though: anything taller is a wall in a route that no longer exists, and
+	# hopping at it is what used to keep a goblin jumping into a block for whole seconds.
 	if bool(_sim.is_on_ground()) and _blocked(dir, feet):
-		_jump = true
+		if _climbable(dir, feet):
+			_jump = true
+		else:
+			_blocked_frames += 1
+			if _blocked_frames >= REPLAN_AFTER_BLOCKED:
+				_needs_replan = true
+	else:
+		_blocked_frames = 0
 
 
 ## The head follows the walk: a couple of blocks along the direction of travel, and
@@ -665,6 +742,15 @@ func _blocked(dir: Vector3, feet: Vector3) -> bool:
 	var res: Dictionary = _chunk_manager.resolve_voxel_collision(
 		feet, Vector3(dir.x, 0.0, dir.z) * STEP_PROBE, BODY)
 	return bool(res.get("collided_x", false)) or bool(res.get("collided_z", false))
+
+
+## Can it step up onto whatever is in front? A one-block step is a jump the body can make;
+## anything taller is a wall. The body is asked about the space one block up, so a slab, a
+## stair and a full block all answer as they collide rather than by their ids.
+func _climbable(dir: Vector3, feet: Vector3) -> bool:
+	var res: Dictionary = _chunk_manager.resolve_voxel_collision(
+		feet + Vector3(0.0, 1.0, 0.0), Vector3(dir.x, 0.0, dir.z) * STEP_PROBE, BODY)
+	return not (bool(res.get("collided_x", false)) or bool(res.get("collided_z", false)))
 
 
 ## Standing still it looks about, slowly. There is no head rig here, so the body's own

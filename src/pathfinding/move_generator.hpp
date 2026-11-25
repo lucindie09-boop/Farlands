@@ -92,8 +92,14 @@ public:
     }
 
 private:
+    // A route may not lead into liquid. The costs used to discourage it (+0.6 a move)
+    // rather than forbid it, which the planner read as "wade anyway" whenever the dry way
+    // round was more than half a step longer -- and a goblin then walked into lava, acid and
+    // the sea, because a cost is not a wall. A column whose feet stand in liquid is not a
+    // place to walk: the reference's own mobs do not path into it, and the body that walks
+    // this route has no swim.
     [[nodiscard]] static bool is_usable(const NavView::Column* c) noexcept {
-        return c != nullptr && c->found && !c->unknown && c->clearance;
+        return c != nullptr && c->found && !c->unknown && c->clearance && !c->liquid;
     }
 
     [[nodiscard]] bool orthogonal_ok(const NavNode& from, const NavView::Column& from_col,

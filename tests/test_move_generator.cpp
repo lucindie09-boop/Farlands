@@ -185,7 +185,7 @@ TEST_CASE("MoveGenerator never enters or crosses unresident chunks") {
     CHECK(find_move(moves, 2, 0) == nullptr);
 }
 
-TEST_CASE("MoveGenerator charges extra for wading through liquid") {
+TEST_CASE("MoveGenerator refuses to walk into liquid, and still charges for leaving it") {
     nt::World w;
     w.default_ground = 10;
     w.set_ground(1, 0, 9);
@@ -204,12 +204,24 @@ TEST_CASE("MoveGenerator charges extra for wading through liquid") {
     if (wet == nullptr) return;
     CHECK(wet->liquid);
 
+    // A cost is not a wall. Charging extra for a wet cell was read by the search as "wade
+    // anyway" whenever the dry way round was more than half a step longer, so a body with no
+    // swim walked into lava and the sea; the cell is simply not a place to walk now.
     NavMoveList moves;
     gen.generate(from, *col, moves);
-    const NavMove* into_water = find_move(moves, 1, 0);
-    CHECK(into_water != nullptr);
-    if (into_water != nullptr) {
-        CHECK(into_water->kind == MoveKind::Drop);
-        CHECK(into_water->cost == doctest::Approx(1.0f + 0.4f + 0.6f));
+    CHECK(find_move(moves, 1, 0) == nullptr);
+
+    // Leaving liquid is still legal, and still carries the wading surcharge: a body that is
+    // already in it has to be able to get out.
+    const NavNode wet_feet{1, view.feet_cell(wet->surface_top), 0};
+    const NavView::Column* wet_col = view.column(wet_feet.x, wet_feet.z, wet_feet.y);
+    CHECK(wet_col != nullptr);
+    if (wet_col == nullptr) return;
+    NavMoveList out;
+    gen.generate(wet_feet, *wet_col, out);
+    CHECK(out.count > 0);  // the way out is not closed by the way in being shut
+    const NavMove* onto_land = find_move(out, -1, 0);
+    if (onto_land != nullptr) {
+        CHECK(onto_land->cost >= NavCosts{}.walk + NavCosts{}.liquid - 1e-4f);
     }
 }

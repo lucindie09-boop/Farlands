@@ -266,6 +266,84 @@ TEST_CASE("A budget the search never reaches leaves the route untouched") {
     }
 }
 
+TEST_CASE("A target standing past the lip of a shelf is reached beside it, not under it") {
+    // The chasing player stands at the very edge of a three-block shelf, so their centre is in
+    // the column past the lip: that column's ground is the plain three blocks below them. A goal
+    // anchored there is a cell an agent can walk to and stand on, so the search calls the route
+    // `found`, the goblin walks to it — and parks three blocks under the player it is chasing,
+    // with the only way up (a staircase off the direct line) never asked for. The ground the
+    // target is actually standing on is in the neighbouring column, and that is the goal.
+    nt::World w;
+    w.default_ground = 10;
+    for (int32_t x = -6; x <= 0; ++x)
+        for (int32_t z = -6; z <= 4; ++z) w.set_ground(x, z, 13);  // the shelf
+    w.set_ground(-1, -7, 11);  // the way up: three one-block steps, off the direct line
+    w.set_ground(-2, -7, 12);
+    w.set_ground(-3, -7, 13);
+    // A column beside the target one level HIGHER than their feet: a neighbour is only the
+    // answer when its ground puts a body's feet in the cell the caller aimed at.
+    w.set_ground(1, -1, 14);
+
+    NavView view = nt::make_view(w, 32);
+    Pathfinder finder(view, NavCosts{});
+    MoveGenerator gen(view, NavCosts{});
+
+    NavQuery q;
+    q.start = NavNode{3, 10, -8};  // on the plain, below and beyond the lip
+    q.goal = NavNode{1, 13, 0};    // the player's own feet cell, past the lip
+    const NavPath path = finder.search(q);
+
+    CHECK(path.found);
+    // The arrival is on the shelf, at the target's own level and a step from their cell — not
+    // the plain under it.
+    CHECK(path.nodes.back().y == 13);
+    CHECK(std::abs(path.nodes.back().x - q.goal.x) <= 1);
+    CHECK(std::abs(path.nodes.back().z - q.goal.z) <= 1);
+    // ...and it got there the long way, over the steps off the direct line.
+    const bool climbed = std::any_of(path.nodes.begin(), path.nodes.end(),
+        [](const NavNode& n) { return n.z <= -7 && n.y >= 11; });
+    CHECK(climbed);
+    CHECK(nt::path_cost(view, gen, path.nodes) > 0.0f);
+}
+
+TEST_CASE("A route is measured from the floor the agent stands on, not the roof over its head") {
+    // A sealed two-block-high corridor: free at y = 10 and 11, ceiling cells at y = 12, walls at
+    // both ends. The target is on the corridor's own roof, which nothing inside it can reach.
+    //
+    // An expansion used to resolve a node's column with `column`, which looks up to `max_rise`
+    // ABOVE the feet: the ceiling at y = 12 then answered as that column's floor (top 13), so the
+    // search measured its steps from the roof, stepped onto it through the ceiling and called the
+    // target reachable. In a live session the same fault showed as routes carrying a three-block
+    // rise in a single move, and a body that walked into walls and hopped at one-block gaps it
+    // cannot fit through.
+    nt::World w;
+    w.default_ground = 10;
+    for (int32_t x = -3; x <= 4; ++x)
+        for (int32_t z = -2; z <= 2; ++z) w.set_cell(x, 12, z, CellClass::Solid);  // the ceiling
+    for (int32_t z = -2; z <= 2; ++z) {
+        w.fill(-4, 10, z, 1, 3, 1);  // the end walls, up to and including the ceiling's level
+        w.fill(5, 10, z, 1, 3, 1);
+    }
+    for (int32_t x = -4; x <= 5; ++x) {
+        w.fill(x, 10, -3, 1, 3, 1);  // the side walls
+        w.fill(x, 10, 3, 1, 3, 1);
+    }
+
+    NavView view = nt::make_view(w, 24);
+    Pathfinder finder(view, NavCosts{});
+
+    NavQuery q;
+    q.start = NavNode{0, 10, 0};  // standing in the corridor
+    q.goal = NavNode{0, 13, 0};   // on its roof
+    const NavPath path = finder.search(q);
+
+    CHECK_FALSE(path.found);
+    CHECK(finder.last_error() == "no route to the goal column");
+    const bool stayed_on_the_floor = std::all_of(path.nodes.begin(), path.nodes.end(),
+        [](const NavNode& n) { return n.y == 10; });
+    CHECK(stayed_on_the_floor);
+}
+
 TEST_CASE("Pathfinder refuses to start or finish on a broken column") {
     nt::World w;
     w.default_ground = 10;

@@ -24,24 +24,29 @@ screen (the shader-effect stack, the animated-liquid tools, the model previews).
   out over its last half second. The slot the game starts on says nothing, but both a selection
   change and something ARRIVING in the slot already selected (a pickup, a craft) raise the name,
   and the stack leaving that slot - dropped or spent - clears it in the same frame
-- `ui_shatter.gd` — The shatter's motion, shared: a caller hands over a piece of art's texel mask
+- `ui_shatter.gd` — The shatter's motion, shared: a caller hands over a piece of art's texel
+  mask
   (built by `mask_from_texture`, or a `freed` difference of two masks for what one hit took
   away), where the art is drawn and in what colour, and the helper throws one shard per texel up
   and out, drops them by gravity and draws them from the caller's `_draw()`
-- `block_icon_art.gd` — Block icons as pixels, for every surface that shatters one: the isometric
+- `block_icon_art.gd` — Block icons as pixels, for every surface that shatters one: the
+  isometric
   render (or the block's own texture) sampled down to the 16 units an icon is actually drawn at,
   so a shard is a whole block of the icon rather than a piece of a 300-unit render, cached per
   block id and carrying each texel's own colour
 - `healthbar.gd` — Health bar UI: 10 hearts above the hotbar's left edge, each its own 9 units
   on an 8-unit pitch (neighbours share their outline column), full/half/empty sprites resolved
   from the half-heart count polled
-  off `PlayerController.get_health()`. A hit that takes red off a heart drops it: every red texel
+  off `PlayerController.get_health()`. A hit that takes red off a heart drops it: every red
+  texel
   the old state had and the new one doesn't leaves as a shard of its own through `ui_shatter.gd`
   (see [gui-notes.md](gui-notes.md))
 - `airbar.gd` — Air bubbles: 10 bubbles above the hotbar's right edge, drawn only while the
   breath is not full (the eye under a liquid), the same 9-unit sprite on an 8-unit pitch as the
-  hearts, right-aligned in the hotbar's 81-unit row. Each bubble is one tenth of `get_max_air()`,
-  polled from `PlayerController.get_air()`; a depleted slot is the same `bubble.png` under a dark
+  hearts, right-aligned in the hotbar's 81-unit row. Each bubble is one tenth of
+  `get_max_air()`,
+  polled from `PlayerController.get_air()`; a depleted slot is the same `bubble.png` under a
+  dark
   modulate
 - `debug_screen.gd` — The F3 debug screen, in three sections. **GENERAL**: FPS (frames counted
   over a whole second, not `Performance.TIME_FPS`), XYZ to three decimals, speed in blocks per
@@ -52,7 +57,8 @@ screen (the shader-effect stack, the animated-liquid tools, the model previews).
   is 06:00), the biome under the body and the
   render distance in both the chunks it is set in (`ChunkManager.render_distance`, read live
   because the settings menu can change it) and the blocks it streams. The biome comes from
-  `ChunkManager.get_biome_at`, which asks the same height-estimator generator generation uses, and
+  `ChunkManager.get_biome_at`, which asks the same height-estimator generator generation uses,
+  and
   is resampled only when the body crosses into another column — one sample is a whole column's
   climate and lattice work, not something to repeat at 20 Hz. **PERFORMANCE**: frame time, the
   CPU cost of that frame and the rest of it, this process's own CPU and GPU utilization (its
@@ -63,12 +69,15 @@ screen (the shader-effect stack, the animated-liquid tools, the model previews).
   is the controller's own per-frame C++ work — the perf report's `process_total`, read from its
   process clock (`ChunkManager.get_process_clock`, an exact cumulative count the screen diffs).
   `GPU time` prefers the engine's measured render time for the window viewport
-  (`viewport_get_measured_render_time_gpu`, with the measurement switched on in `_ready`), because
+  (`viewport_get_measured_render_time_gpu`, with the measurement switched on in `_ready`),
+  because
   that is the card's own work and does not include v-sync's idle wait. When it reads 0 — a
-  headless dummy driver, or a driver that reports no timestamps — the row falls back to the frame
+  headless dummy driver, or a driver that reports no timestamps — the row falls back to the
+  frame
   time less `CPU time` and says `(est)`, since that remainder also carries the script layer and
   any waiting. Both are averaged over the same one-second window as the rate and the frame time,
-  because a rate from one second beside a cost from the last 50 ms is two pictures of one frame. SPECS's
+  because a rate from one second beside a cost from the last 50 ms is two pictures of one frame.
+  SPECS's
   RAM row follows the same rule: the total from `OS.get_memory_info()` is the capacity, and the
   generation, rated speed and module sizes come from the firmware's own Memory Device records
   (SMBIOS type 17, `src/debug/smbios_memory.hpp`) — unreadable on Linux without root, where the
@@ -86,11 +95,13 @@ screen (the shader-effect stack, the animated-liquid tools, the model previews).
   once. CPU and GPU utilization are the numbers Godot does not have, and both are this process's
   own share rather than the machine's: the native `SystemStats` object
   (`src/debug/system_stats_*`) puts `GetProcessTimes` against the performance counter on Windows
-  and `/proc/self/stat` against the monotonic clock on Linux, normalising by the core count so the
+  and `/proc/self/stat` against the monotonic clock on Linux, normalising by the core count so
+  the
   row is a share of the whole machine (four busy threads on eight cores reads 50%, eight reads
   100%), and sums only the PDH "GPU Engine" instances whose names carry this process's pid. The
   Linux GPU row reads `-` instead: its DRM busy file is the whole card's, and other applications
-  would move it. The VRAM total is the other number Godot has no monitor for — `RENDER_VIDEO_MEM_USED`
+  would move it. The VRAM total is the other number Godot has no monitor for —
+  `RENDER_VIDEO_MEM_USED`
   is what the engine allocated and there is nothing to read it against — so the same object asks
   DXGI for the adapter's dedicated memory on Windows (the largest non-software adapter, which is
   the card a game runs on when a laptop has two) and reads the DRM `mem_info_vram_total` file on
@@ -114,16 +125,20 @@ screen (the shader-effect stack, the animated-liquid tools, the model previews).
   0.58 at the edge easing to nothing just past the buttons, every square ±0.06 of its own noise
   — with squares lifting off it at random and blowing to the right while the holes fade back in
   (still under Reduce Motion) — plus one accent (mixed with the world's own sky warmth) for the
-  focused row's bar, and the wordmark's rule in steel: the column's full width, four 1-unit bevel
-  bands from `#a6adb4` down to `#2b2f35` (the buttons' near-neutral grey, not a blue of its own), a
+  focused row's bar, and the wordmark's rule in steel: the column's full width, four 1-unit
+  bevel
+  bands from `#a6adb4` down to `#2b2f35` (the buttons' near-neutral grey, not a blue of its
+  own), a
   1-unit black rim and a point 8 units in at each end —
   and one wide diagonal of violet light travelling
-  along the three cards' bevels (`Assets/shaders/ui_sheen.gdshader`, additive and faint, ring-only; off
+  along the three cards' bevels (`Assets/shaders/ui_sheen.gdshader`, additive and faint,
+  ring-only; off
   under Reduce Motion). It crossed the rows and the wordmark in earlier builds and both were
   removed - the rows because a band over a 40-unit face reads as a texture against the row's own
   colour signal, the title because a word being travelled through is motion in the middle of the
   thing being read - so the cards' frames are the only surface it is on now. The rows are real
-  `Button`s so mouse hover, keyboard focus and gamepad focus all come from the engine; hover moves
+  `Button`s so mouse hover, keyboard focus and gamepad focus all come from the engine; hover
+  moves
   the focus rather than sitting beside it, and focus is restored on every open. The column is
   CONTINUE/PLAY,
   SINGLEPLAYER, MULTIPLAYER, SETTINGS, QUIT, starting 22 units under the wordmark's underline;
@@ -133,25 +148,40 @@ screen (the shader-effect stack, the animated-liquid tools, the model previews).
   the same screen (rows per save plus BACK, the footer becoming the focused world's seed and
   last save), and MULTIPLAYER says it is not in this build in the footer for three seconds
 - `ui_block_curtain.gd` — The screen-change cover: twelve columns of **rigid bodies** are let go
-  above the top edge, fall under gravity, collide with each other and with a floor and two walls,
-  pile up and hold, then drop away when the floor is removed. Every part is the engine's physics:
-  released at rest, per-block mass and a slow tumble, friction 0.98, no restitution and almost no
+  above the top edge, fall under gravity, collide with each other and with a floor and two
+  walls,
+  pile up and hold, then drop away when the floor is removed. Every part is the engine's
+  physics:
+  released at rest, per-block mass and a slow tumble, friction 0.98, no restitution and almost
+  no
   air drag, plus a landing rule (within 8 px of where it was for 0.06 s while supported, and not
   while being crushed into a neighbour) that freezes each block into the pile as it lands. The
   pile is "settled" when its top edge has stopped climbing and 90% of the sheet is on screen, so
   the hold follows geometry rather than a timer. It then stops being a pile: each square swells
-  where it landed, and keeps swelling until a **scanline pass** proves every horizontal line across
-  the viewport is covered with no gap — a sampled grid can step over a crack, which is how a wall
-  that measured 99.9% still showed the world in one — at a size measured for the pile, 1.6–1.9 of a
-  cell. The pile is then replaced by a lattice that tiles the screen exactly — invisible, because
-  both are pure black — and that lattice is what drops, one cell at a time from the bottom up, with
-  drift and spin, so the wall comes apart into cubes instead of sliding down as a sheet. Both the
-  settle and the swell carry wall-clock fuses, so no environment can leave the transition waiting
-  for a click. It runs its own physics at 300 Hz while up (a 3,100 px/s landing is 52 px per tick
-  at 60) and restores the project's rate afterwards, with a raised per-frame step ceiling so a slow
-  frame does not run the fall in slow motion, and keeps the collider at 0.86 of the drawn square,
-  drawn at 0.92 of a cell while falling — both invisible under pure black, and together what lets 96
-  hard squares rest as a wall. `skip(from)` is the escape hatch: the lattice goes up at once and is
+  where it landed, and keeps swelling until a **scanline pass** proves every horizontal line
+  across
+  the viewport is covered with no gap — a sampled grid can step over a crack, which is how a
+  wall
+  that measured 99.9% still showed the world in one — at a size measured for the pile, 1.6–1.9
+  of a
+  cell. The pile is then replaced by a lattice that tiles the screen exactly — invisible,
+  because
+  both are pure black — and that lattice is what drops, one cell at a time from the bottom up,
+  with
+  drift and spin, so the wall comes apart into cubes instead of sliding down as a sheet. Both
+  the
+  settle and the swell carry wall-clock fuses, so no environment can leave the transition
+  waiting
+  for a click. It runs its own physics at 300 Hz while up (a 3,100 px/s landing is 52 px per
+  tick
+  at 60) and restores the project's rate afterwards, with a raised per-frame step ceiling so a
+  slow
+  frame does not run the fall in slow motion, and keeps the collider at 0.86 of the drawn
+  square,
+  drawn at 0.92 of a cell while falling — both invisible under pure black, and together what
+  lets 96
+  hard squares rest as a wall. `skip(from)` is the escape hatch: the lattice goes up at once and
+  is
   **thrown outward from `from`** (the press point) in under a second. `play_cover(true)` is the
   Reduce Motion path, a short fade with no bodies and no lattice at all
 - `inventory.gd` - Full inventory screen with drag-drop stack movement, shift-click
@@ -159,7 +189,8 @@ screen (the shader-effect stack, the animated-liquid tools, the model previews).
   gather; live 2×2 crafting grid + output preview (click/drag/shift/scroll interactions mirrored
   on the crafting cells; shift-click output crafts as many as possible). Icons are tracked per
   slot, and one that is spent -- a stack emptied, a cell drained by a craft, a preview the
-  ingredients no longer support -- comes apart through `ui_shatter.gd` (see [gui-notes.md](gui-notes.md)).
+  ingredients no longer support -- comes apart through `ui_shatter.gd` (see
+  [gui-notes.md](gui-notes.md)).
   The whole grid is one control, so the hovered slot's **tooltip** is that control's own
   `tooltip_text` (`_update_tooltip`): the item's name, title-cased, and nothing while a stack
   rides the cursor. The box itself is drawn by the `Tooltips` autoload (`tooltips.gd`), which
@@ -191,7 +222,8 @@ screen (the shader-effect stack, the animated-liquid tools, the model previews).
   callable that resyncs its rows) shows the export/import icons, and reset all replays the
   section's own row resets. The Sky section has no code of its own — its lighting rows travel in
   the Advanced Rendering `FAR` code — so its heading shows only the reset icon. God Rays moved
-  onto the Sky page but still travels in the Render `FR` code. Every settings area (GUI, lighting, video, controls, crosshair, block outline, the
+  onto the Sky page but still travels in the Render `FR` code. Every settings area (GUI,
+  lighting, video, controls, crosshair, block outline, the
   two editors) is a section of that page, each introduced by a `"category"`-marked section
   heading — the reference interface's Video Settings layout, with the areas stacked instead of
   split across screens; the crosshair category interleaves its Cross and Dot rows so each reads
@@ -264,10 +296,12 @@ being resampled by a different fraction at each scale.
   *sample* — so the block textures themselves are changed for every block at once, live, while
   the geometry stays exactly where the mesh put it. Moving no vertex, it has nothing to hand
   the culling code the vertex kind talks to, and that is the whole of the difference between
-  the two kinds on this side. `Assets/shaders/block_noise.gdshaderinc` is the kind's first member,
+  the two kinds on this side. `Assets/shaders/block_noise.gdshaderinc` is the kind's first
+  member,
   **Noisy Blocks**: the makers' own 0..100 grain, the same ceiling (`MAX_GRAIN`), added to the
   texel each fragment of both world materials reads, monochromatic and faded out where a texel
-  shrinks below a screen pixel. `Assets/shaders/grain.gdshader` is **Film Grain**, a screen pass with
+  shrinks below a screen pixel. `Assets/shaders/grain.gdshader` is **Film Grain**, a screen pass
+  with
   no history and nothing measured: a hash of each `grain_size`-pixel cell of the frame, nailed
   to the screen by default and re-rolled 24 times a second with **Animated** on. Neither
   reaches the held item's mesh or the inventory's block icons, which read a block's texture
@@ -280,7 +314,8 @@ being resampled by a different fraction at each scale.
   the `frame_size` the passes count their patterns in, re-pushed on `size_changed`;
   `settings_menu.gd` is the one that persists it. Sits in the HUD *below* `SettingsMenu` so the
   world and gameplay HUD wear the effect while the menus over them stay readable.
-  `Assets/shaders/crt.gdshader` is the registry's fourth entry and one of its two *screen* passes: a
+  `Assets/shaders/crt.gdshader` is the registry's fourth entry and one of its two *screen*
+  passes: a
   corner-filleted tube bend with a feathered black case, and the picture built the way a tube
   builds one — the frame averaged down onto a coarse raster of `picture_scale`-screen-pixel dots
   (`picture_scale` is a magnification rather than a line count, so a dot is always a whole
@@ -290,7 +325,8 @@ being resampled by a different fraction at each scale.
   a halo gathered out of the picture's own cells, then vignette, tone and mains hum. Its
   defaults are chosen by looking, not by arithmetic, over a frozen game frame
   (`probes/probe_crt_look.gd`); `data/shaders.json` is the registry that names each effect,
-  its `params` and the uniform each param drives. `Assets/shaders/phosphor.gdshader` is the registry's
+  its `params` and the uniform each param drives. `Assets/shaders/phosphor.gdshader` is the
+  registry's
   fifth entry and the other *screen* pass, and the first effect to need the frame before the one
   it draws into — which no shader can get for itself, since the engine's screen copy is of the
   frame *being drawn*. `shader_overlay.gd` keeps a viewport whose whole content is the main
@@ -306,7 +342,8 @@ being resampled by a different fraction at each scale.
   square-root-of-retention behaviour of a real tube), and gated by `phosphor_floor` so a pixel
   too dark to have lit the phosphor keeps nothing and a night does not smear into fog. A pass
   with a history is handed a blank for its first frame, so its trail starts from the frame it
-  was switched on in. `Assets/shaders/invert.gdshader` and `Assets/shaders/sepia.gdshader` are the registry's
+  was switched on in. `Assets/shaders/invert.gdshader` and `Assets/shaders/sepia.gdshader` are
+  the registry's
   sixth and seventh entries and the `filter` kind's first two members — a screen pass under
   another heading, and a pair deliberately as plain as a pass can be: one read of the frame, one
   write, no history, no offsets and nothing measured in pixels, so neither declares
@@ -331,7 +368,8 @@ being resampled by a different fraction at each scale.
   (`_camera_restore`), so mouse look, head-bob and the frustum are untouched and a switched-off
   — or zero-strength — effect leaves the camera exactly as it found it. The driver is built for
   more camera effects than the one it has: the next one is a motion function and a registry
-  entry. `Assets/shaders/anime.gdshader` is that registry's one *world* effect so far — the Shaders
+  entry. `Assets/shaders/anime.gdshader` is that registry's one *world* effect so far — the
+  Shaders
   page's third category — and it draws at the world's own depth: its colours are flattened by
   taking the average of the flattest of four quadrant windows around each pixel (Kuwahara, 1976,
   so texture inside a surface is averaged away while the edge *between* two surfaces comes out
@@ -341,12 +379,15 @@ being resampled by a different fraction at each scale.
   way) for the reason the pass shipped its first version wrong: an unbounded one divides by a
   flat that can be zero, which crushed every shadow in the frame to a blotch. The line is the
   picture's own edges rather than the world's geometry, since a canvas pass has no depth buffer
-  to compare — Godot's canvas built-ins expose none. `Assets/shaders/world_bend.gdshaderinc` is the
-  registry's second entry and `Assets/shaders/world_horizon.gdshaderinc` is its third, and both are
+  to compare — Godot's canvas built-ins expose none. `Assets/shaders/world_bend.gdshaderinc` is
+  the
+  registry's second entry and `Assets/shaders/world_horizon.gdshaderinc` is its third, and both
+  are
   *vertex* effects — the Shaders page's second category — the ground moving because the world's
   own *vertices* move rather than because anything was drawn over them. World Bend's ground
   curves up and away from the camera. `Assets/shaders/voxel_shader.gdshader` and
-  `Assets/shaders/voxel_shader_water.gdshader` both `#include` it and call it from `vertex()` with
+  `Assets/shaders/voxel_shader_water.gdshader` both `#include` it and call it from `vertex()`
+  with
   their vertex's world position and the camera's, then put the result back into the mesh's own
   space for the engine to project — so the terrain and the liquids bend by one shared, pure
   function of world position, which is what keeps a shoreline welded. The horizontal distance
@@ -406,7 +447,8 @@ being resampled by a different fraction at each scale.
 
 ## Liquid texture tools
 
-- `liquid_texture_lab.gd` — Liquid Texture Lab (the pause menu's Tools → Liquid Texture Lab; Escape
+- `liquid_texture_lab.gd` — Liquid Texture Lab (the pause menu's Tools → Liquid Texture Lab;
+  Escape
   closes it): procedural animated-texture
   authoring for water/lava/acid — style presets, every automaton and ramp knob as a slider, live
   animated preview plus a 3×3 tiled seam check and frame thumbnails, save/load as a vertical
@@ -466,21 +508,28 @@ being resampled by a different fraction at each scale.
   middle of the cycle instead of easing its own ends. The clips play through an `AnimationTree`
   (`Blend2(rest, run)` as the base with `AnimationNodeAdd2` adding the idle over it at a fixed
   amount), so the walk inherits the idle's outward arm hang and its slow drift at the idle's own
-  4.2 s pace instead of a copied constant, and the idle has one node that is never re-entered, so
-  stopping never rewinds it. Standing the walk's weight is 0, so the hang is never applied twice. Both are re-homed onto this rig's part names at load
-  by `clip_retarget.gd` and forced to loop. Each clip is also given a **rest key for every part it
+  4.2 s pace instead of a copied constant, and the idle has one node that is never re-entered,
+  so
+  stopping never rewinds it. Standing the walk's weight is 0, so the hang is never applied
+  twice. Both are re-homed onto this rig's part names at load
+  by `clip_retarget.gd` and forced to loop. Each clip is also given a **rest key for every part
+  it
   does not move** (`_add_rest_tracks`): a clip animates only the limbs it names and the
   `AnimationPlayer` leaves every other property where the previous clip left it, so `Idle.anim`
-  (two arm tracks and nothing else) would otherwise freeze the legs at their last stride pose when a
+  (two arm tracks and nothing else) would otherwise freeze the legs at their last stride pose
+  when a
   walk stopped. And it drives the
   Minecraft-style head look (`_track_head_look`): it rebuilds the aim basis from the
   controller's world yaw + pitch (`get_aim_direction()`) so the `head` mesh follows the player's
   look in every view, with a camera-follow fallback for scenes without a `PlayerController`
   (skin preview). The head is not a pose channel — its quaternion is the code's alone
-- `body_animator.gd` — **Parked**: nothing in the game calls it, and the body plays clips instead
-  (`player_model.gd`); `probes/probe_player_anim.gd` still measures it. The body's pose, per frame:
+- `body_animator.gd` — **Parked**: nothing in the game calls it, and the body plays clips
+  instead
+  (`player_model.gd`); `probes/probe_player_anim.gd` still measures it. The body's pose, per
+  frame:
   a hand-port of FA+Player's signature moves
-  (Fresh Animations, FreshLX) for idle, walk, sprint, jump/fall, sneak and swim, weighted by what
+  (Fresh Animations, FreshLX) for idle, walk, sprint, jump/fall, sneak and swim, weighted by
+  what
   the sim is doing (`get_velocity`, `is_on_floor`, `is_in_water`, `is_sneaking`,
   `is_sprinting`) and returned as plain angles, so it is measured without a world. It is code
   rather than clips because the pack's own CEM animations are code too; the pack's files are not
@@ -493,156 +542,274 @@ being resampled by a different fraction at each scale.
   model looking down -Z and this body looks down +Z, so each rotation is conjugated and each bob
   rotated by that half turn, or the body walks backwards (see [gui-notes.md](gui-notes.md)). A
   track whose limb this body has no node for is dropped and reported, and a limb the body's own
-  code drives every frame (the head) keeps its position track and loses its rotation one. **It is
-  what the player's body uses**: `player_model.gd` re-homes `Idle.anim` and `Run.anim` through it
+  code drives every frame (the head) keeps its position track and loses its rotation one. **It
+  is
+  what the player's body uses**: `player_model.gd` re-homes `Idle.anim` and `Run.anim` through
+  it
   on the way in ([gui-notes.md](gui-notes.md))
 - `player.glb` — Voxel-style player model with a tightly-packed 64×64 skin-texture atlas; node
   pivots re-baked onto the true Blockbench joints (limb tops, head neck) by
   `tools/rebake_player_pivots.py` because Blockbench's glTF export flattens cube-pivot metadata
-- `pose_clone_debug.gd` — Debug tool (the `dummy_egg` item): spawns a rigid, punchable physics dummy — a frozen
+- `pose_clone_debug.gd` — Debug tool (the `dummy_egg` item): spawns a rigid, punchable physics
+  dummy — a frozen
   copy of the player model (no Idle animation, no head tracking) running `dummy.gd`'s vanilla
   1.8.8 gravity/drag/knockback at 20 tps — standing on the aimed block, with a bright
-  depth-test-off cube at every mesh's origin (see `Assets/shaders/pose_pivot_marker.gdshader`); prints
+  depth-test-off cube at every mesh's origin (see `Assets/shaders/pose_pivot_marker.gdshader`);
+  prints
   each part's pivot for marker-vs-transform verification
-- `goblin_spawn.gd` — Debug tool (the Tools page's **Spawn Goblin** button, and **G** in the world): puts `Assets/models/Goblin2.obj`
-  on the block the eye ray is aimed at, standing in the cell `place_position` names — the cell a block would
-  go into, so its feet land on the aimed face — and centred in that cell like any entity, because a body on a
-  cell corner stands half inside a wall and cannot be knocked anywhere. The obj is Blockbench's own export in blocks already (1.44 tall, feet on
-  y = 0), so nothing is scaled; only its body's own x/z centre is shifted onto the cell, and it is turned to
-  face the player. A goblin is an **entity**, not scenery: the body is a `Node3D` moved by the PLAYER's
-  own movement simulation — `ChunkManager.make_mob_body()` hands `scripts/goblin.gd` a `PlayerSim`
-  (`MobBody`, `src/godot_bindings/mob_body.*`), so it takes the same 20 Hz ticks, gravity, ground/air
-  acceleration, per-block slipperiness, 0.6 step-up, jump arc, swimming and render interpolation the player
-  walks with, and the script supplies only a wish direction and the jump control. It stands in the
-  `pose_clone` group the player's left click punches — a hit knocks it back with the same base 0.4 and
-  sprint bonus, through the sim's own hurt window. `scripts/goblin.gd` is what carries it: that body plus
+- `goblin_spawn.gd` — Debug tool (the Tools page's **Spawn Goblin** button, and **G** in the
+  world): puts `Assets/models/Goblin2.obj`
+  on the block the eye ray is aimed at, standing in the cell `place_position` names — the cell a
+  block would
+  go into, so its feet land on the aimed face — and centred in that cell like any entity,
+  because a body on a
+  cell corner stands half inside a wall and cannot be knocked anywhere. The obj is Blockbench's
+  own export in blocks already (1.44 tall, feet on
+  y = 0), so nothing is scaled; only its body's own x/z centre is shifted onto the cell, and it
+  is turned to
+  face the player. A goblin is an **entity**, not scenery: the body is a `Node3D` moved by the
+  PLAYER's
+  own movement simulation — `ChunkManager.make_mob_body()` hands `scripts/goblin.gd` a
+  `PlayerSim`
+  (`MobBody`, `src/godot_bindings/mob_body.*`), so it takes the same 20 Hz ticks, gravity,
+  ground/air
+  acceleration, per-block slipperiness, 0.6 step-up, jump arc, swimming and render interpolation
+  the player
+  walks with, and the script supplies only a wish direction and the jump control. It stands in
+  the
+  `pose_clone` group the player's left click punches — a hit knocks it back with the same base
+  0.4 and
+  sprint bonus, through the sim's own hurt window. `scripts/goblin.gd` is what carries it: that
+  body plus
   **six hearts**
-  (12 half-hearts, a half-heart per fist hit, so the twelfth lands last), held as the goblin's own
-  state and **not drawn**: nothing floats over its head, so a goblin behind a hill is a goblin behind
-  a hill rather than red dots over the terrain. Damage and knockback share one gate: a hit the hurt
+  (12 half-hearts, a half-heart per fist hit, so the twelfth lands last), held as the goblin's
+  own
+  state and **not drawn**: nothing floats over its head, so a goblin behind a hill is a goblin
+  behind
+  a hill rather than red dots over the terrain. Damage and knockback share one gate: a hit the
+  hurt
   window resists takes nothing. At zero health the body is freed. 
-  It also **wanders** when it has nothing to do, and the way the game's own mobs do it: it stands
-  still most of the time, with a stroll on a **1-in-120-a-tick roll** rather than a timer — about
-  every 6 s on average, but geometric, so half the waits are over 4 s and a fifth over 12. It then
+  It also **wanders** when it has nothing to do, and the way the game's own mobs do it: it
+  stands
+  still most of the time, with a stroll on a **1-in-120-a-tick roll** rather than a timer —
+  about
+  every 6 s on average, but geometric, so half the waits are over 4 s and a fifth over 12. It
+  then
   picks a random column a few blocks away and walks there along a route from the engine's ground
-  planner (on a worker thread), wishing along it at its own speed: **Minecraft's 0.30, a spider's** — the value is
-  per-tick acceleration, so it is 2.86 blocks/s (0.66 of the player's 4.317-block walk) — scaled by
-  what it is doing (`speed_state`: 0.6× wandering, 1.0× chasing, 1.1× heading for loot, 1.3× fleeing,
-  0.7× sneaking up; only the wander is used today, the rest are one assignment away): the sim steps up 0.6 by
-  itself, so a full block is a jump it presses when the collision half a pace ahead says so — but
-  **only at a step it can climb**: a wall in the way is a route that no longer exists, so it asks for
-  a new plan instead of hopping at it, and it does the same when the ground has moved under it (a fall
-  down a hole, a block placed across the path). The walk is **cell by cell** — the planner's own nodes,
-  not its smoothed waypoints, which are long straight legs and were walked as straight lines (that is
-  how it stepped off ledges and waded through what the plan had gone around) — and it stops and stands
-  again on arrival. **A punch is taken
-  personally**: the puncher becomes its enemy, the way a mob keeps a revenge target, and it switches
-  to the **chasing** pace (1.0×) and walks at them through the same planner, re-planning every 4–10
-  ticks — but only when the answer could have changed (no route, or the player has moved a block),
-  because asking on a timer flips between two near-equal answers — a three-block drop against a few
-  blocks of walking round — and reads as a mob changing its mind — with the head on their eyes. In reach — about 1.4 blocks between centres, the two bodies'
-  own widths plus a hand, measured in **three dimensions** (a flat distance meant a player on top of a
-  cliff twenty-five blocks up was still in reach, and took hits through the rock) and only with a
+  planner (on a worker thread), wishing along it at its own speed: **Minecraft's 0.30, a
+  spider's** — the value is
+  per-tick acceleration, so it is 2.86 blocks/s (0.66 of the player's 4.317-block walk) — scaled
+  by
+  what it is doing (`speed_state`: 0.6× wandering, 1.0× chasing, 1.1× heading for loot, 1.3×
+  fleeing,
+  0.7× sneaking up; only the wander is used today, the rest are one assignment away): the sim
+  steps up 0.6 by
+  itself, so a full block is a jump it presses when the collision half a pace ahead says so —
+  but
+  **only at a step it can climb**: a wall in the way is a route that no longer exists, so it
+  asks for
+  a new plan instead of hopping at it, and it does the same when the ground has moved under it
+  (a fall
+  down a hole, a block placed across the path). The walk is **cell by cell** — the planner's own
+  nodes,
+  not its smoothed waypoints, which are long straight legs and were walked as straight lines
+  (that is
+  how it stepped off ledges and waded through what the plan had gone around) — and it stops and
+  stands
+  again on arrival. A waypoint is reached **from its own level**, too: a step is not arrived at
+  from underneath, and while the body stands at the foot of a climb the cell it has to step onto
+  is horizontally under its feet the whole time — so a horizontal-only arrival test skipped every
+  climb in the route, aimed the walk at the level above, and pushed at it from below, which is a
+  goblin at the bottom of a staircase re-planning that staircase once a second. The route itself is
+  measured from the **floor the body stands on**: a step is one block up from the ground under its
+  feet, never from a ceiling over its head, so a route no longer contains moves the body cannot
+  make (a three-block rise in one step read as "walk into that wall and hop"). And the ground
+  moving under it is only **the ground under it**: while airborne the level test is skipped, because
+  a body in the air is not at its route's level and a plan made mid-fall anchors its start where
+  the fall is headed. **A punch is taken
+  personally**: the puncher becomes its enemy, the way a mob keeps a revenge target, and it
+  switches
+  to the **chasing** pace (1.0×) and walks at them through the same planner, re-planning every
+  4–10
+  ticks — but only when the answer could have changed (no route, or the player has moved a
+  block),
+  because asking on a timer flips between two near-equal answers — a three-block drop against a
+  few
+  blocks of walking round — and reads as a mob changing its mind — with the head on their eyes.
+  In reach — about 1.4 blocks between centres, the two bodies'
+  own widths plus a hand, measured in **three dimensions** (a flat distance meant a player on
+  top of a
+  cliff twenty-five blocks up was still in reach, and took hits through the rock) and only with
+  a
   **clear line**: the engine's own block ray from its eyes to the player's, which is the ray the
-  player's picking and punching already use, so a body behind a wall is not in reach and does not
+  player's picking and punching already use, so a body behind a wall is not in reach and does
+  not
   swing at stone — it stops and swings **once a second for a heart** through the player's own
-  receiving chain (so the hurt window, the lean and the push away from it all happen on their side),
-  falling back to the health the blow costs on a build that has no such entry, so an old extension
+  receiving chain (so the hurt window, the lean and the push away from it all happen on their
+  side),
+  falling back to the health the blow costs on a build that has no such entry, so an old
+  extension
   still takes the damage.
   At **two hearts — 4 of its 12 half-hearts or less** it stops fighting and runs instead, at the
-  **fleeing** pace (1.3×), sprinting away from the player with a little scatter until they are **16
-  blocks** off, and then it lets go and goes back to wandering. A fight has two more limits, both of
-  them the game's own: **anger runs out** after 400–799 ticks (20–40 s, reset by every new hit), and
-  **the chase has a length** — past **35 blocks** (a zombie's, and so a pigman's, follow range) it
-  forgets the target entirely rather than following one punch across the world. Hitting one goblin
-  also **wakes its pack**: every other goblin within **32 blocks** of it on every axis turns on the
-  same attacker, the pigman rule, so a group is a group and not a row of separate duels — the goblin
-  that was struck is only the one that happened to be nearest. A chase also **plans further than a
-  stroll**: the stroll's budget (4,000 expansions, 8 ms) cut a long search off and returned a route
-  to the nearest frontier it had reached, which is how a goblin walked to the ground directly under a
+  **fleeing** pace (1.3×), sprinting away from the player with a little scatter until they are
+  **16
+  blocks** off, and then it lets go and goes back to wandering. A fight has two more limits,
+  both of
+  them the game's own: **anger runs out** after 400–799 ticks (20–40 s, reset by every new hit),
+  and
+  **the chase has a length** — past **35 blocks** (a zombie's, and so a pigman's, follow range)
+  it
+  forgets the target entirely rather than following one punch across the world. Hitting one
+  goblin
+  also **wakes its pack**: every other goblin within **32 blocks** of it on every axis turns on
+  the
+  same attacker, the pigman rule, so a group is a group and not a row of separate duels — the
+  goblin
+  that was struck is only the one that happened to be nearest. A chase also **plans further than
+  a
+  stroll**: the stroll's budget (4,000 expansions, 8 ms) cut a long search off and returned a
+  route
+  to the nearest frontier it had reached, which is how a goblin walked to the ground directly
+  under a
   platform and stood there with its target thirty blocks overhead — a chase now asks for 20,000
-  expansions and 24 ms, and **keeps closing** inside its reach: the reach is where the blow lands,
+  expansions and 24 ms, and a **truncated** answer buys the next ask twice that (up to 192 ms),
+  because a search cut off before it reached the target's level gives the same cut-off answer
+  every
+  time it is asked under the same clock — which is a goblin walking a seven-cell frontier under
+  a
+  player five blocks above it, at 8 ms a time, with the way round still unsearched. An answer
+  that
+  comes back whole puts the clock back. The chase also **keeps closing** inside its reach: the
+  reach is where the blow
+  lands,
   and the body only plants itself at **0.9 blocks** (two bodies' half-widths), so it presses in
-  instead of swinging from the edge of its own arm. A chase also has a **patience**: three seconds
-  (`CHASE_WAIT_TICKS`) with no route to walk and no plan in flight ends it, because a best-effort
-  route to a frontier is not an arrival — a target on a pillar or in a sealed pit leaves the
-  frontier under it, and the goblin stood there for the whole anger window. A real detour keeps a
-  route under its feet the whole way, so a long way round is never cut short by it. **Standing, it looks about**: a 1-in-120-a-tick roll (a glance every 6 s) picks a
+  instead of swinging from the edge of its own arm. A chase also aims at the ground its target
+  **stands on**: a player at the lip of a three-block
+  shelf has their centre in the column past it, whose floor is the plain below — and a goal
+  anchored there is a cell the goblin can reach and stand on, so it walked under the target
+  while
+  the staircase ten blocks round was never asked for. Such a goal is now anchored on the
+  neighbouring column that holds the target's own level, so the walk up the stairs is the route.
+  A
+  chase also has a **patience**: three seconds (`CHASE_WAIT_TICKS`) with no route to walk ends
+  it —
+  a plan in flight is not a route, so re-asking cannot keep the clock reset — because a
+  best-effort
+  route to a frontier is not an arrival: a target on a pillar or in a sealed pit leaves the
+  frontier
+  under it, and the goblin stood there for the whole anger window. A real detour keeps a
+  route under its feet the whole way, so a long way round is never cut short by it. **Standing,
+  it looks about**: a 1-in-120-a-tick roll (a glance every 6 s) picks a
   point within 6 blocks of it, mostly **below** its eyes (a near, low point is the 20-odd-degree
   downward glance), and **the head turns to it** — yaw then pitch about the model's own axes,
   clamped to 75° either side of the body and 40° up or down, and **turned at 10° a tick** — the
-  neck steps on the 20 Hz ticks, so a full 75° turn takes about a third of a second, and the drawn
+  neck steps on the 20 Hz ticks, so a full 75° turn takes about a third of a second, and the
+  drawn
   pose **interpolates between those steps** every frame, the same two-stage shape the body's
-  position already has, which is what stops the turn crawling frame by frame — about the **neck** — the head box's own bottom, because its ears, chin and nose ride the turn but
-  must not average into the joint. **The head leads and the body follows**, on the player's own rule: the
-  yaw its body wants is dragged round to keep the look inside **35°** of it (`kBodyMaxYaw`, the same
-  limit the player's body yaw uses) and the ordinary facing ease turns it there, so an idle goblin
-  turns right round rather than pinning its neck at the 75° limit and staring through its own arm. The glance is held
+  position already has, which is what stops the turn crawling frame by frame — about the
+  **neck** — the head box's own bottom, because its ears, chin and nose ride the turn but
+  must not average into the joint. **The head leads and the body follows**, on the player's own
+  rule: the
+  yaw its body wants is dragged round to keep the look inside **35°** of it (`kBodyMaxYaw`, the
+  same
+  limit the player's body yaw uses) and the ordinary facing ease turns it there, so an idle
+  goblin
+  turns right round rather than pinning its neck at the 75° limit and staring through its own
+  arm. The glance is held
   **20–40 ticks, 1–2 s** — the idle look goal's own hold — and then the head eases back to
   **straight ahead**, which is the pose it mostly wears;
-  **walking**, it looks **22.5° down** — two blocks ahead and that far below the horizontal — which
+  **walking**, it looks **22.5° down** — two blocks ahead and that far below the horizontal —
+  which
   is the tilt its walk was tuned to, and the aim **drifts side to side** by up to 8° over a
   2.2 s swing, because a head holding one line dead still for a whole walk reads as a camera on
   rails. **A player in reach is looked at**, as its own goal rather than
   as a kind of glance: a **¼% chance a tick** to start, with the player
-  within **4 blocks**, then the head follows **their eyes** for **20–40 ticks** (1–2 s) and they are
+  within **4 blocks**, then the head follows **their eyes** for **20–40 ticks** (1–2 s) and they
+  are
   let go when the hold runs out or they walk out of range. The goal's own numbers are 2% a tick,
-  8 blocks and 40–79 ticks, and they were what this started as — but a mob watching you more than
-  half the time reads as staring when there is one goblin about rather than a crowd, so all three
+  8 blocks and 40–79 ticks, and they were what this started as — but a mob watching you more
+  than
+  half the time reads as staring when there is one goblin about rather than a crowd, so all
+  three
   are deliberately below the source. It outranks the idle glance and the
-  walk's forward look — being watched is the point of it — and it goes through the same neck, so the
-  head turns at 10° a tick and the body comes round after anything the neck cannot reach. Sight is
+  walk's forward look — being watched is the point of it — and it goes through the same neck, so
+  the
+  head turns at 10° a tick and the body comes round after anything the neck cannot reach. Sight
+  is
   not checked, only distance, which is what the game's own goal tests. The watch and the idle
   glance **compete for the head**, as the two goals do there: neither can start while the other
   holds it, so a watch ends, a glance takes the head for a few seconds, and
-  only then can another watch begin — which is what keeps a mob from staring without a gap. Its facing
-  when it DOES walk is the model's own yaw eased toward the way it is walking -- eased once per FRAME, not once per tick, so a small object does not turn in 20 Hz
+  only then can another watch begin — which is what keeps a mob from staring without a gap. Its
+  facing
+  when it DOES walk is the model's own yaw eased toward the way it is walking -- eased once per
+  FRAME, not once per tick, so a small object does not turn in 20 Hz
   steps -- never the body's, whose box is what the punch is tested against. It is drawn between
-  physics frames as well as between sim ticks (`Engine.get_physics_interpolation_fraction()`), so
+  physics frames as well as between sim ticks (`Engine.get_physics_interpolation_fraction()`),
+  so
   it moves at the frame rate instead of holding still for the frames a physics tick does not
   reach. `PlayerController::nearest_punch_target` takes the nearest body along the aim ray,
-  so several can share the group and the one under the crosshair is the one hit. It is lit by the WORLD, and it moves like the player's body, because it IS
-  the player's body: `scripts/goblin_model.gd` extends `player_model.gd`, so a goblin wears the same
-  animation — the walk blended out of a rest pose by the walk amount, the idle added over it, the walk
-  amount read from the goblin's own `get_velocity` — and the same lit per-cell material, at its own
-  speed rather than the player's. What the goblin brings is its picture and its rig: the obj is ONE
-  mesh of eleven surfaces (Blockbench's own boxes), so the body splits them back into the six parts
-  they were authored as (`leg`, `leg2`, `torso`, `arm`, `arm2`, `head` — the ears, chin and nose ride
-  the head) and hangs each from its own joint: a leg at the top of its box (the hip), an arm at the
-  top on the torso's side (the shoulder), the torso and head at their own bottom centre. The parts are
-  named what the player's clips expect, so the goblin walks on those clips with no remap. It carries
-  its own texture (`Goblin2.png`) because the `.mtl` named by the obj is not in the tree, and the
+  so several can share the group and the one under the crosshair is the one hit. It is lit by
+  the WORLD, and it moves like the player's body, because it IS
+  the player's body: `scripts/goblin_model.gd` extends `player_model.gd`, so a goblin wears the
+  same
+  animation — the walk blended out of a rest pose by the walk amount, the idle added over it,
+  the walk
+  amount read from the goblin's own `get_velocity` — and the same lit per-cell material, at its
+  own
+  speed rather than the player's. What the goblin brings is its picture and its rig: the obj is
+  ONE
+  mesh of eleven surfaces (Blockbench's own boxes), so the body splits them back into the six
+  parts
+  they were authored as (`leg`, `leg2`, `torso`, `arm`, `arm2`, `head` — the ears, chin and nose
+  ride
+  the head) and hangs each from its own joint: a leg at the top of its box (the hip), an arm at
+  the
+  top on the torso's side (the shoulder), the torso and head at their own bottom centre. The
+  parts are
+  named what the player's clips expect, so the goblin walks on those clips with no remap. It
+  carries
+  its own texture (`Goblin2.png`) because the `.mtl` named by the obj is not in the tree, and
+  the
   shader samples it `filter_nearest`
-- `nav_routes.gd` — One drain of the planner's finished routes, shared by everything that asks for
+- `nav_routes.gd` — One drain of the planner's finished routes, shared by everything that asks
+  for
   one: `ChunkManager.poll_paths()` empties its queue as it hands results back, so two pollers in
-  one frame would take each other's routes. The table is keyed by job id, filled once per physics
-  frame, and each caller takes only its own (the strolling goblins and the dummy egg's path overlay)
+  one frame would take each other's routes. The table is keyed by job id, filled once per
+  physics
+  frame, and each caller takes only its own (the strolling goblins and the dummy egg's path
+  overlay)
 - `dummy.gd` — Combat physics for the K-key pose clone: 20 tps vanilla 1.8.8 gravity/drag,
   knockback (`apply_knockback`: base 0.4 + sprint bonus, 10-tick hurt-resistance gate),
   interpolated rendering between ticks
 - `tools/bake_liquid_textures.gd` — Headless baker for a liquid's still block texture: runs the
   generator's own preset for `lava`/`acid` (or any style named on the command line) and writes
-  frame 1/4 of the strip to `Assets/textures/blocks/<style>.png`, the PNG the texture array builds its
+  frame 1/4 of the strip to `Assets/textures/blocks/<style>.png`, the PNG the texture array
+  builds its
   layer from. `godot --headless --path . --script res://tools/bake_liquid_textures.gd`, then
   `--import`
 - `tools/rebake_player_pivots.py` — Idempotent re-baker for `player.glb`: moves each node origin
   onto its pivot while shifting that mesh's vertices by the delta so world placement is
   byte-identical (glTF has no pivot field — a node's origin is its rotation anchor)
 - `tools/extract_model_animations.gd` — Lifts a model file's own glTF clips out into standalone
-  `Animation` resources under `Assets/Animations/` (`Idle_new.anim` from `model.gltf`'s `still_test`,
+  `Animation` resources under `Assets/Animations/` (`Idle_new.anim` from `model.gltf`'s
+  `still_test`,
   `Walk.anim` from its `walking_test`), because the body loads its clips from a path rather than
-  from the imported scene. `godot --headless --path . --script res://tools/extract_model_animations.gd`;
+  from the imported scene.
+  `godot --headless --path . --script res://tools/extract_model_animations.gd`;
   it reads each saved clip back and resolves every track path against the rig it came from, so a
   renamed limb fails there instead of playing as no motion. Nothing on the player's body loads
-  the two clips (or `Assets/Animations/Idle.anim`) at the moment — the pose is code — so this and its
+  the two clips (or `Assets/Animations/Idle.anim`) at the moment — the pose is code — so this
+  and its
   output are kept for the parked pair
 - `viewmodel.gd` — Thin first-person hand + held item/block glue (child of `Camera3D`): node
   tree, `_input`, F12 HUD, and peak-pose constants. Per-frame animation math lives in
   `ViewmodelPose` and held-mesh geometry in `ViewmodelMeshes` (both native C++)
 - `block_break_overlay.gd` — Draws the 10-stage crack overlay
-  (`Assets/textures/animated/l0_sprite_01..10.png`) on the mined block, one cube per selection box
+  (`Assets/textures/animated/l0_sprite_01..10.png`) on the mined block, one cube per selection
+  box
   of its resolved shape, driven by `get_break_state()`, with the boxes re-resolved when the
   block or its neighbour-dependent box set changes
-- `block_textures.gd` — ~~Block texture atlas generation from `Assets/textures/blocks/`~~ ported to the
+- `block_textures.gd` — ~~Block texture atlas generation from `Assets/textures/blocks/`~~ ported
+  to the
   native `BlockTextures` GDExtension binding (registered in
   `src/godot_bindings/register_types.cpp`); the GDScript file has been deleted

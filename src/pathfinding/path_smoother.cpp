@@ -8,7 +8,10 @@ namespace nav {
 bool PathSmoother::leg_walkable(const NavNode& a, const NavNode& b) const {
     if (a == b) return true;
 
-    const NavView::Column* cur_col = view_.column(a.x, a.z, a.y);
+    // The surface the leg starts ON, not the one a neighbour could arrive on: `column` looks up to
+    // `max_rise` above the feet, so a ceiling over the node answered as its floor and a leg across
+    // a wall could pass the test.
+    const NavView::Column* cur_col = view_.column_at_feet(a.x, a.z, a.y);
     if (cur_col == nullptr || !cur_col->found || cur_col->unknown || !cur_col->clearance) {
         return false;
     }
@@ -38,7 +41,7 @@ bool PathSmoother::leg_walkable(const NavNode& a, const NavNode& b) const {
         cur = m.to;
         x = nx;
         z = nz;
-        cur_col = view_.column(cur.x, cur.z, cur.y);
+        cur_col = view_.column_at_feet(cur.x, cur.z, cur.y);
         if (cur_col == nullptr || !cur_col->found || cur_col->unknown || !cur_col->clearance) {
             return false;
         }

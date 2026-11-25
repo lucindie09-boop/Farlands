@@ -17,7 +17,8 @@ lighting, day/night cycle, three-tier distance-based mesh LOD with LOD-reduced c
 into regions to cap draw calls, frustum-prioritized chunk loading, async background chunk
 saving, and a C++ inventory system (hotbar + 27-slot storage) wired into block break/place with
 a GDScript GUI, plus data-driven 2×2 crafting (`data/recipes.json`). Ships with a C++ player
-controller with Minecraft-accurate fixed-timestep physics and a punchable combat dummy (dummy spawn egg)
+controller with Minecraft-accurate fixed-timestep physics and a punchable combat dummy (dummy
+spawn egg)
 with vanilla 1.8.8 knockback.
 
 ## Architecture
@@ -77,7 +78,7 @@ and a wildcard like `src/mesh/mesh_manager*.cpp` means the family a split produc
 | Block icons | `block_icon_renderer.gd` | Isometric 300x300 icons built from each shape's selection boxes, pre-rendered and cached; `/testicons` |
 | Health, death, chat | `healthbar.gd`, `airbar.gd`, `death_screen.gd`, `chat.gd` | 10 hearts, the breath bubbles, the respawn overlay, autocomplete and the command set |
 | Settings, Skin Maker, Block Maker | `settings_menu.gd` | Render/lighting/crosshair/controls pages, the two in-game editors, the liquid lab and the goblin spawner on the Tools page, one share code per category - [notes](docs/gui-notes.md) |
-| Testing & CI | `tests/`, `tools/`, `.github/workflows/build.yml` | 793 cases / 374,386 assertions, four static gates, the soak and fuzz jobs - [notes](docs/testing.md), [contributing](CONTRIBUTING.md) |
+| Testing & CI | `tests/`, `tools/`, `.github/workflows/build.yml` | 795 cases / 374,395 assertions, four static gates, the soak and fuzz jobs - [notes](docs/testing.md), [contributing](CONTRIBUTING.md) |
 | Shader effects | `shader_overlay.gd` + `data/shaders.json` | The effect stack (Hand Drawn, CRT Screen, Phosphor Trail, filters, camera and vertex effects), built from the registry - [rendering](docs/rendering-notes.md) |
 | Liquid texture lab | `liquid_texture_lab.gd`, `liquid_animator.gd` | Generates and animates the water/lava/acid sprites instead of shipping them (Tools → Liquid Texture Lab on the pause menu opens the lab) - [rendering](docs/rendering-notes.md) |
 | Texture packs | `src/render/texture_pack_manager.hpp`, `tools/pack_converter.py` | Per-block texture overrides loaded from `user://packs/` |
@@ -87,11 +88,13 @@ and a wildcard like `src/mesh/mesh_manager*.cpp` means the family a split produc
 ## Rendering Notes
 
 - Opaque and water are separate mesh surfaces; water uses its own shader
-  (`Assets/shaders/voxel_shader_water.gdshader`) with edge fade, tint, shimmer, sun glint, flowing
+  (`Assets/shaders/voxel_shader_water.gdshader`) with edge fade, tint, shimmer, sun glint,
+  flowing
   texture animation, and separate blend-mix surface for translucency.
 - Blocks can carry an emissive texture (second `Texture2DArray`) for glow, driven by
   `data/block_definitions.json`.
-- The terrain shader (`Assets/shaders/voxel_shader.gdshader`) applies a non-linear AO power curve
+- The terrain shader (`Assets/shaders/voxel_shader.gdshader`) applies a non-linear AO power
+  curve
   (`pow(raw_ao, 1.35)`) that hides diagonal triangulation seams (soft curved AO). The procedural
   sky shader (`src/render/sky_controller.hpp`) provides a procedurally twinkling night starfield
   with a fixed north star, and sky turbidity provides Rayleigh/Mie haze effects.
@@ -212,10 +215,13 @@ Textures are organized in the `Assets/textures/` directory:
   `water.png` is hand-authored; `lava.png` and `acid.png` are baked from their generator presets
   by `tools/bake_liquid_textures.gd` so the array has a layer to build and the animator has one
   to write into
-- `Assets/textures/items/` — Item and tool sprites, resolved from the bare name `data/items.json` gives
+- `Assets/textures/items/` — Item and tool sprites, resolved from the bare name
+  `data/items.json` gives
   each one
-- `Assets/textures/animated/` — The ten cracked-block overlay frames the break animation steps through
-- `Assets/textures/gui/` — UI textures (hotbar, inventory background, effects, settings/tool icons)
+- `Assets/textures/animated/` — The ten cracked-block overlay frames the break animation steps
+  through
+- `Assets/textures/gui/` — UI textures (hotbar, inventory background, effects, settings/tool
+  icons)
 - `Assets/textures/sprites/` — Sprite textures (hearts, etc.)
 - `Assets/textures/atmosphere/` — Atmospheric textures (sun, north star)
 - `Assets/textures/mobs/` — Mob skins
@@ -340,7 +346,7 @@ vocabulary, [docs/debugging.md](docs/debugging.md) for the instruments,
 rejected. [AGENTS.md](AGENTS.md) is the engineering record: the constraints and the notes that
 cut across systems.
 
-The project has **793 test cases / 374,386 assertions** across the 118 `.cpp` files in `tests/`
+The project has **795 test cases / 374,395 assertions** across the 118 `.cpp` files in `tests/`
 (114 declaring cases, plus the doctest entry point and a stub TU), including 27 tests in
 `test_concurrency.cpp` (shard locking, deadlock prevention, PaletteStorage, cross-chunk writers,
 thread-pool work stealing).
@@ -382,7 +388,8 @@ Input bindings live in `project.godot` (`move_forward`, `move_back`, `move_left`
 `jump`, `sprint`, `sneak`, `fly_toggle`, `toggle_inventory`, `drop_item`, `toggle_chat`,
 `toggle_third_person`, `mouse_click_left`, `mouse_click_right`, `goblin_spawn`,
 `toggle_chunk_borders` — the last one, pressed with F3 held, shows the 32-block chunk grid
-around the player as X-ray lines, `chunk_borders.gd`, off by default). The C++ `PlayerController` node owns all movement,
+around the player as X-ray lines, `chunk_borders.gd`, off by default). The C++
+`PlayerController` node owns all movement,
 look, block interaction, and inventory state — there is no player GDScript. The hotbar/inventory
 screens are GDScript `Control` overlays that read/write that state.
 

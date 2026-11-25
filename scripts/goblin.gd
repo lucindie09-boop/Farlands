@@ -34,6 +34,12 @@ extends Node3D
 ## is dropped instead of being steered over a tick later.
 
 const NAV_ROUTES := preload("res://scripts/nav_routes.gd")
+## The session's pathfinding trace, one per session and owned by the root -- see `_install_trace`.
+const NAV_TRACE := preload("res://scripts/nav_trace.gd")
+## The recorder's node name under the root, and the path to it: `name` is a StringName and a
+## lookup takes a NodePath, so the two are kept apart rather than assigned across.
+const TRACE_NAME := "NavTrace"
+const TRACE_NODE := NodePath("/root/NavTrace")
 
 ## The sim's own body box, for the step probe: the same one the player moves in.
 const BODY := Vector3(0.6, 1.8, 0.6)
@@ -137,9 +143,11 @@ const CHASE_STOP := 0.9
 ## The chase has a patience. When its plans keep coming back with nowhere to walk -- a player on a
 ## pillar, a sealed pit, a frontier at the goblin's own feet -- it stands there while it re-asks,
 ## and standing under its target for the whole anger window is not a chase. Three seconds with
-## nothing to walk and nothing in flight ends it. A real detour keeps a route under its feet the
-## whole way, so this measures having nowhere to go rather than being far away, and a long way
-## round is never cut short by it.
+## nothing to walk ends it. A real detour keeps a route under its feet the whole way, so this
+## measures having nowhere to go rather than being far away, and a long way round is never cut
+## short by it. A plan still in flight is NOT a route: counting only the ticks with nothing walking
+## AND nothing planned let a goblin that re-asked every few ticks reset the clock forever, because
+## the answer was always on its way.
 const CHASE_WAIT_TICKS := 60
 ## The chase plans FURTHER than a stroll. A stroll goes six blocks; a chase can be across a valley,
 ## up a stair or round a wall, and the stroll's budget cut the search off and returned a route to
@@ -148,6 +156,14 @@ const CHASE_WAIT_TICKS := 60
 ## chase that still runs out of budget asks again rather than settling for the frontier.
 const CHASE_EXPANSIONS := 20000
 const CHASE_MAX_MS := 24.0
+## ...and a truncated answer buys the next ask TWICE the budget. `truncated` is the search being cut
+## off -- the wall clock ran out before it had reached the target's level -- so asking the same
+## question under the same clock gets the same cut-off answer, forever. That is what kept a goblin
+## walking a seven-cell frontier under a player five blocks above it, at 8 ms a time, with the way
+## round still unsearched. Every truncated chase answer doubles the clock (and the expansion cap
+## with it, since they are one budget) up to CHASE_BUDGET_LIMIT_MS; an answer that comes back whole
+## puts it back.
+const CHASE_BUDGET_LIMIT_MS := 192.0
 ## Half a pace ahead, at feet height: where a step it has to climb shows up before the
 ## body reaches it. The sim steps up 0.6 by itself, so this only fires on a full block.
 const STEP_PROBE := 0.45
@@ -168,6 +184,13 @@ const REPLAN_AFTER_BLOCKED := 12
 const CHASE_SLACK := 0.5
 ## A waypoint counts as reached this close to its cell's middle, horizontally.
 const ARRIVE_DISTANCE := 0.45
+## ...and only from its own LEVEL, give or take this much. A step is not arrived at from
+## underneath: while the body stands at the foot of a climb, the cell it has to step onto is
+## horizontally under its feet the whole time, so an arrival test that looks at x/z alone skips
+## every climb in a route and then pushes at the level above from below -- a goblin standing at
+## the bottom of a staircase, re-planning that staircase, every second. (Route cells are SUPPORT
+## cells, so the surface to compare against is the cell's own y + 1.)
+const ARRIVE_HEIGHT := 0.35
 ## A stroll target is a few blocks away, so the search should give up quickly rather
 ## than sweep the country: the expansion cap is a few blocks' worth, and the wall clock
 ## is a ceiling for a contended machine.
@@ -299,6 +322,21 @@ var _closing := false
 ## Ticks of a chase spent with no route to walk and no plan in flight: what ends a chase whose
 ## plans keep stopping at the same frontier.
 var _chase_wait_ticks := 0
+## The recorder this body reports to (`scripts/nav_trace.gd`), looked up on first use, and the
+## role the plan in flight was asked for: a route can land after the speed state has moved on.
+var _trace_node: Node = null
+var _plan_role := "idle"
+## The clock the chase is currently asking with -- CHASE_MAX_MS, doubled by every truncated answer
+## up to CHASE_BUDGET_LIMIT_MS -- and the budget the goal in hand was asked with, which is what a
+## plan that stopped being walkable has to be asked with again.
+var _chase_ms := CHASE_MAX_MS
+var _goal_expansions := STROLL_EXPANSIONS
+var _goal_max_ms := STROLL_MAX_MS
+## Which of the route tests asked for the plan being re-asked, for the trace, and how many jumps
+## this body has pressed: a goblin that re-plans a staircase every second either never presses
+## jump, or presses it at something it cannot climb.
+var _replan_reason := ""
+var _jumps := 0
 
 # The facing is the MODEL's yaw, never the body's: the body's box is what the punch is
 # tested against, and a turned box would no longer be the box the click was aimed at.
@@ -340,6 +378,9 @@ func _ready() -> void:
 		_drawn_prev = global_position
 		_drawn_cur = global_position
 	_idle_ticks = randi_range(IDLE_HOLD_MIN, IDLE_HOLD_MAX)
+	# A real world is what a trace is for: a stub body (a probe) has no plans to record.
+	if _chunk_manager != null and _chunk_manager.has_method("request_path"):
+		_install_trace()
 
 
 func _physics_process(delta: float) -> void:
@@ -422,7 +463,11 @@ func _advance_ticks(ticks: int) -> void:
 			_stroll()
 	else:
 		var feet: Vector3 = _sim.get_tick_position()
-		if absf(_route[_next].y - feet.y) > ROUTE_LEVEL_SLACK:
+		# Only while STANDING: a body in the air is not at its route's level by definition, and a
+		# plan made while falling anchors its start on the ground the fall is headed for -- which
+		# read as "the ground moved" and dropped the route every few ticks of the descent.
+		if bool(_sim.is_on_ground()) and absf(_route[_next].y - feet.y) > ROUTE_LEVEL_SLACK:
+			_replan_reason = "the ground moved (level slip)"
 			_needs_replan = true
 		var gap := _flat(_route[_next], feet).length()
 		if gap < _closest - 0.02:
@@ -431,13 +476,19 @@ func _advance_ticks(ticks: int) -> void:
 		else:
 			_stuck_ticks += ticks
 			if _stuck_ticks > STUCK_TICKS:
+				_replan_reason = "not getting closer (stuck)"
 				_needs_replan = true
 				_stuck_ticks = 0
 		if _needs_replan and _job == 0 and _goal != Vector3.ZERO:
 			_needs_replan = false
+			_trace_route_dropped()
 			_closest = INF
 			_blocked_frames = 0
-			walk_to(_goal)
+			# The budget the goal was ASKED with, not a stroll's. This path is how a plan that
+			# stopped being walkable gets re-asked, and a chase re-asked here came back truncated
+			# every time on the stroll's 4,000/8 ms -- the search was cut off before it reached the
+			# target's level, so the goblin walked the frontier under it again instead.
+			walk_to(_goal, _goal_expansions, _goal_max_ms)
 
 
 ## Claim a finished plan, walk it if there is one, otherwise stand and wait.
@@ -591,9 +642,11 @@ func _update_enemy(ticks: int) -> void:
 			_swing(feet)
 		return
 	_closing = false
-	# Nothing to walk and nothing being planned, with the player out of reach: the plans are coming
-	# back with nowhere to go, and without this it stood at that frontier until its anger ran out.
-	if _route.is_empty() and _job == 0:
+	# Nothing to walk, with the player out of reach: the plans are coming back with nowhere to go,
+	# and without this it stood at that frontier until its anger ran out. A plan in flight counts as
+	# having nowhere to go too -- see CHASE_WAIT_TICKS for why asking again does not buy the chase
+	# more time.
+	if _route.is_empty():
 		_chase_wait_ticks += ticks
 		if _chase_wait_ticks > CHASE_WAIT_TICKS:
 			_give_up()
@@ -610,8 +663,9 @@ func _update_enemy(ticks: int) -> void:
 	if _job == 0 and (_route.is_empty() or _planned_goal.distance_to(enemy_at) >= 1.0):
 		_repath_ticks = randi_range(CHASE_REPATH_MIN, CHASE_REPATH_MAX)
 		# A chase is planned with the chase's own budget: the stroll's cut the search off and the
-		# goblin walked to the nearest place it could reach instead of the far one it needed.
-		walk_to(enemy_at, CHASE_EXPANSIONS, CHASE_MAX_MS)
+		# goblin walked to the nearest place it could reach instead of the far one it needed. That
+		# budget grows while the answers keep being cut off -- see CHASE_BUDGET_LIMIT_MS.
+		walk_to(enemy_at, _chase_expansion_cap(), _chase_ms)
 
 
 ## How high its eyes are above its feet: the sim knows the body, and a stub may not.
@@ -687,6 +741,9 @@ func _run_away(feet: Vector3, enemy_at: Vector3, ticks: int) -> void:
 
 ## Off the fight: back to wandering, at the wandering pace.
 func _give_up() -> void:
+	_trace_say("chase ends (anger=%d wait=%d/%d route=%d job=%d)"
+		% [_anger_ticks, _chase_wait_ticks, CHASE_WAIT_TICKS, _route.size(), _job])
+	_chase_ms = CHASE_MAX_MS
 	_enemy = null
 	_fleeing = false
 	_closing = false
@@ -741,8 +798,13 @@ func walk_to(target: Vector3, expansions := STROLL_EXPANSIONS, max_ms := STROLL_
 		return 0
 	# The planner re-anchors both ends onto their column's surface, so a target is a
 	# column to stand in; its height is a hint, not a demand.
-	_job = int(_chunk_manager.request_path(_sim.get_tick_position(), target, expansions, max_ms))
+	var from: Vector3 = _sim.get_tick_position()
+	_job = int(_chunk_manager.request_path(from, target, expansions, max_ms))
 	_planned_goal = target
+	_goal_expansions = expansions
+	_goal_max_ms = max_ms
+	_plan_role = speed_state
+	_trace_plan_asked(_job, from, target, expansions, max_ms)
 	if _job == 0:
 		# Nothing was asked (the planner is busy or refused): hold off a moment rather than
 		# rolling again on the next tick.
@@ -755,6 +817,14 @@ func walk_to(target: Vector3, expansions := STROLL_EXPANSIONS, max_ms := STROLL_
 ## A route the budget cut short is still worth walking as far as it goes, so whether
 ## the planner called it `found` is not consulted.
 func _take_route(result: Dictionary) -> void:
+	_trace_plan_answered(_job, result)
+	# A cut-off answer is a reason to ask again with more to spend, and a whole one to stop paying
+	# for it: this is the chase's escalation, in the one place every answer passes through.
+	if _enemy != null:
+		if bool(result.get("truncated", false)):
+			_chase_ms = minf(_chase_ms * 2.0, CHASE_BUDGET_LIMIT_MS)
+		else:
+			_chase_ms = CHASE_MAX_MS
 	_job = 0
 	_route.clear()
 	_next = 0
@@ -786,12 +856,15 @@ func _take_route(result: Dictionary) -> void:
 func _walk() -> void:
 	var feet: Vector3 = _sim.get_tick_position()
 	var was := _next
-	while _next < _route.size() and _flat(_route[_next], feet).length() < ARRIVE_DISTANCE:
+	# Reached means horizontally there AND at its level -- see ARRIVE_HEIGHT.
+	while _next < _route.size() and _flat(_route[_next], feet).length() < ARRIVE_DISTANCE \
+			and feet.y >= _route[_next].y + 1.0 - ARRIVE_HEIGHT:
 		_next += 1
 	if _next != was:
 		_closest = INF
 		_stuck_ticks = 0
 	if _next >= _route.size():
+		_trace_say("route walked out (%d cells, %d jumps)" % [_route.size(), _jumps])
 		_stop_walking()
 		return
 	var to := _flat(_route[_next], feet)
@@ -810,9 +883,11 @@ func _walk() -> void:
 	if bool(_sim.is_on_ground()) and _blocked(dir, feet):
 		if _climbable(dir, feet):
 			_jump = true
+			_jumps += 1
 		else:
 			_blocked_frames += 1
 			if _blocked_frames >= REPLAN_AFTER_BLOCKED:
+				_replan_reason = "blocked by something it cannot climb"
 				_needs_replan = true
 	else:
 		_blocked_frames = 0
@@ -848,6 +923,86 @@ func _abandon_route() -> void:
 	_closest = INF
 	_stuck_ticks = 0
 	_job = 0
+
+
+## The session's trace, if the tree has one. It is a child of the ROOT rather than of this body so
+## the file has one owner and outlives whichever goblin installed it; a session with no trace in
+## it (a probe, a stub world) simply records nothing.
+func _install_trace() -> void:
+	var tree := get_tree()
+	if tree == null or tree.root == null or not NAV_TRACE.claim():
+		return
+	var recorder: Node = NAV_TRACE.new()
+	recorder.name = TRACE_NAME
+	tree.root.add_child.call_deferred(recorder)
+
+
+## The expansion cap that belongs with the chase's current clock: the two are one budget, and a
+## doubled clock with a fixed cap would just be cut off by the count instead.
+func _chase_expansion_cap() -> int:
+	return int(CHASE_EXPANSIONS * (_chase_ms / CHASE_MAX_MS))
+
+
+## Why the route in hand was dropped, and the counters that produce it. A chase re-asking the same
+## plan once a second IS a route being dropped; which of the three tests dropped it is the whole
+## question, and the waypoint it was pushing at says whether the walk was ever aimed at the climb.
+func _trace_route_dropped() -> void:
+	if _sim == null or _trace() == null:
+		return
+	var at := "none"
+	if not _route.is_empty() and _next < _route.size():
+		at = str(_route[_next])
+	_trace_say("route dropped: %s (at=%s next=%s route=%d/%d blocked=%d stuck=%d jumps=%d)"
+		% [_replan_reason, str(_sim.get_tick_position()), at, _next, _route.size(),
+		   _blocked_frames, _stuck_ticks, _jumps])
+
+
+## The recorder, looked up once: a chase records a handful of lines a second, and a path lookup
+## per line would be absurd.
+func _trace() -> Node:
+	if _trace_node == null or not is_instance_valid(_trace_node):
+		_trace_node = get_node_or_null(TRACE_NODE)
+	return _trace_node
+
+
+func _trace_say(text: String) -> void:
+	var trace := _trace()
+	if trace != null and _sim != null:
+		trace.add_line("goblin@%s %s" % [str(_sim.get_tick_position()), text])
+
+
+func _trace_plan_asked(job: int, from: Vector3, target: Vector3, expansions: int,
+		max_ms: float) -> void:
+	var trace := _trace()
+	if trace != null and job != 0:
+		trace.plan_asked(job, _plan_role, from, target, expansions, max_ms)
+
+
+func _trace_plan_answered(job: int, result: Dictionary) -> void:
+	var trace := _trace()
+	if trace != null and job != 0:
+		trace.plan_answered(job, _plan_role, result)
+
+
+## Where this body is and what its route is doing, for the trace's once-a-second sample
+## (`scripts/nav_trace.gd`): one line and no newlines, because it is read in a column beside the
+## player's own position.
+func trace_state() -> String:
+	if _sim == null:
+		return "goblin@%s state=%s (no body)" % [name, speed_state]
+	var enemy := "none"
+	if _enemy != null and is_instance_valid(_enemy):
+		enemy = str(_enemy.global_position)
+	var next := "none"
+	if not _route.is_empty() and _next < _route.size():
+		next = str(_route[_next])
+	# The format string is built as one value FIRST: `%` binds tighter than `+`, so a split string
+	# formatted on its second half alone is the quiet kind of wrong.
+	var line := ("goblin@%s state=%s at=%s enemy=%s planned=%s next=%s " +
+		"route=%d/%d wait=%d/%d reach=%s job=%d blocked=%d stuck=%d jumps=%d ground=%s")
+	return line % [name, speed_state, str(_sim.get_tick_position()), enemy, str(_planned_goal),
+		next, _next, _route.size(), _chase_wait_ticks, CHASE_WAIT_TICKS, _in_reach, _job,
+		_blocked_frames, _stuck_ticks, _jumps, bool(_sim.is_on_ground())]
 
 
 ## The waypoint's cell middle, relative to the feet. Only x/z matter to the walk: the
@@ -931,6 +1086,8 @@ func apply_knockback(attacker_position: Vector3, extra_velocity := Vector3.ZERO)
 		_enemy = player
 		_fleeing = _health <= FLEE_HEALTH
 		_anger_ticks = randi_range(ANGER_MIN_TICKS, ANGER_MAX_TICKS)
+		_chase_ms = CHASE_MAX_MS
+		_trace_say("hit: enemy taken, health %.0f, fleeing=%s" % [_health, _fleeing])
 		_attack_ticks = 0
 		_repath_ticks = 0
 		_chase_wait_ticks = 0
@@ -966,6 +1123,8 @@ func take_anger(attacker: Node3D) -> void:
 	_enemy = attacker
 	_fleeing = _health <= FLEE_HEALTH
 	_anger_ticks = randi_range(ANGER_MIN_TICKS, ANGER_MAX_TICKS)
+	_chase_ms = CHASE_MAX_MS
+	_trace_say("alerted: enemy taken, health %.0f" % _health)
 	_attack_ticks = 0
 	_repath_ticks = 0
 	_chase_wait_ticks = 0

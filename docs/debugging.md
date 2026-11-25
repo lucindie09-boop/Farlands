@@ -116,6 +116,42 @@ first reading has reported `build_mesh` at 3.97 ms against a 3.80 ms baseline
 that four idle runs put at 3.22–3.54), and remember it is *noise-sensitive in the
 fast direction*, so a large improvement is worth re-running before believing too.
 
+## 5b. The session nav trace
+
+`scripts/nav_trace.gd` is installed by the first goblin to wake and writes
+`user://nav_trace.txt` when the game closes, printing the tail of it and the absolute path to
+the console on the way out. It answers the one question a mob's route cannot show in the
+world: **why it is walking where it is walking**.
+
+Two lists. **Events** are every plan a goblin asked for (`ASK`: the body's speed state, the
+start cell, the target cell, and the budget it was allowed — `ms` on the answer is what the
+search *spent*, not what it had), every answer (`PLAN`: `found`/`truncated`, how many cells came
+back, the cell the route ENDS on, the route's first few cells, expansions, milliseconds, and the
+search's own error), and the chase's own decisions (a hit that starts one, the patience or the
+leash ending one, and **why a route was dropped** — level slip, stuck, or blocked by something
+unclimbable, with the waypoint it was pushing at and the jump count). Positions
+are **cells**, rounded down like the planner's own conversion, and a route's end is stated as
+the *feet* cell of its last support block — so it can be held against the target's cell
+directly.
+
+**Samples** are once a second: the player's cell, then one line per goblin with its state, its
+position, its enemy, the cell it planned to, the waypoint it is walking to, the remaining route,
+the patience clock, whether it believes it is in reach, and the walk's own counters (`blocked`,
+`stuck`, `jumps`, `ground`). A `jumps` that never rises beside a route that climbs is the body
+not trying to climb it; a `jumps` that rises beside `blocked` climbing is it trying to climb
+something it cannot.
+
+The reading that matters is a `PLAN`'s `end=` against the `to=` of its `ASK`. `found` with an
+end three blocks under the target is the goal anchored on ground the target is not standing on;
+`truncated=true` is a budget running out, so what came back is the frontier it reached and not
+what was asked for; `found=false truncated=false` is the whole reachable graph searched with
+genuinely no route. A `wait=` climbing against `CHASE_WAIT_TICKS` is the patience about to end
+the chase.
+
+It is diagnostic only: nothing in it changes the game, a session with no goblin records nothing,
+and a stub-world probe records nothing either, because the trace is installed only where the
+chunk manager can plan.
+
 ## Symptom → first instrument
 
 | Symptom | Look at |

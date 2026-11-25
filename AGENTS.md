@@ -10,7 +10,8 @@ per-system, the description and the notes for it now live in `docs/` — shapes
 ([streaming.md](docs/streaming.md)), rendering ([rendering-notes.md](docs/rendering-notes.md)),
 inventory and GUI ([gui-notes.md](docs/gui-notes.md)), the GDScript UI ([ui.md](docs/ui.md)),
 build files ([schematic-notes.md](docs/schematic-notes.md)), terrain
-([terrain-notes.md](docs/terrain-notes.md)), pathfinding ([pathfinding.md](docs/pathfinding.md)),
+([terrain-notes.md](docs/terrain-notes.md)), pathfinding
+([pathfinding.md](docs/pathfinding.md)),
 light ([light.md](docs/light.md)), fluids ([fluids.md](docs/fluids.md)) and the test/CI rules
 ([testing.md](docs/testing.md)).
 For the tasks, schemas, vocabulary and instruments, [docs/](docs/README.md).
@@ -152,7 +153,8 @@ Full notes: [docs/shapes-notes.md](docs/shapes-notes.md).
   falling water expose, pinned per shape by its own test.
 - Sky, fog, god rays, turbidity, emissive maps and soft curved AO.
 - Animated liquid textures are generated (a cellular automaton mapped through a colour
-  ramp), not drawn; the Liquid Texture Lab (pause menu → Tools) is the tool and `liquid_animator.gd`
+  ramp), not drawn; the Liquid Texture Lab (pause menu → Tools) is the tool and
+  `liquid_animator.gd`
   animates the world's own liquids.
 - The shader-effect stack: kinds and parameters from `data/shaders.json`, then Hand
   Drawn, CRT Screen, Phosphor Trail, Invert/Sepia, Camera Jitter, World Bend and the
@@ -184,15 +186,19 @@ Full notes, effect by effect: [docs/rendering-notes.md](docs/rendering-notes.md)
 
 ### Lighting
 - Two channels share one cell: a scalar sky level and a coloured block light level, four bits
-  each in the same 16-bit word. A step costs one level plus the destination's `light_opacity`, and
+  each in the same 16-bit word. A step costs one level plus the destination's `light_opacity`,
+  and
   an opaque block takes nothing — one rule, both channels.
-- Sky light is a per-column scan plus a six-neighbour walk. The scan is exact inside a column and
+- Sky light is a per-column scan plus a six-neighbour walk. The scan is exact inside a column
+  and
   says nothing about the cell beside it; the walk is what makes shade a gradient (a 3x3 roof
   leaves 14 under its edge and 13 under its middle, and a 4x4 leaves a 13 middle inside its 14
   ring) instead of a hole under any ceiling.
-- It is a relaxation, not a recompute: **the walk only ever raises a level**, so partial passes are
+- It is a relaxation, not a recompute: **the walk only ever raises a level**, so partial passes
+  are
   safe, re-runs are no-ops, and the order chunks arrive in cannot change the result.
-- The install pass is additive and gated by a flag the column scan sets, so a plain, an ocean and
+- The install pass is additive and gated by a flag the column scan sets, so a plain, an ocean
+  and
   a solid chunk walk nothing while streaming. Liquids are deliberately not filled sideways.
 
 Full notes: [docs/light.md](docs/light.md).
@@ -206,38 +212,52 @@ Full notes: [docs/light.md](docs/light.md).
   guards, block break animation and hardness, hammer crushing, and block `drops`.
 - The first-person viewmodel (held item/block, swing, bob, head look, F5 camera cycle,
   eye-ray targeting) and the overlay tools around it.
-- The player's own body plays **two poses and a rest**: `Assets/Animations/Idle.anim` standing and
-  `Assets/Animations/Run.anim` walking, both blended onto a still `rest` clip with the idle added
+- The player's own body plays **two poses and a rest**: `Assets/Animations/Idle.anim` standing
+  and
+  `Assets/Animations/Run.anim` walking, both blended onto a still `rest` clip with the idle
+  added
   over the result. `player_model.gd` builds its own `AnimationPlayer` (`Clips`, the animations'
   host, never played) and an `AnimationTree` (`ClipsTree`) that turns the parts. **One number is
   the walk**, the one number Minecraft derives it from (the distance covered in a tick × 4,
   capped at 1 and eased 40% a tick):
-  it is the `Blend2(rest, run)` weight (so half of it swings the legs half as far -- 40.1 against
+  it is the `Blend2(rest, run)` weight (so half of it swings the legs half as far -- 40.1
+  against
   80.2 degrees, measured), it is the run's `AnimationNodeTimeScale`, and its easing is the fade
   (about 0.4 s to rest; the leg is under 2 degrees 360 ms after a stop, and the arms' roll's
-  biggest frame-to-frame change through it is 0.02 degrees). The clip's keys are therefore always
+  biggest frame-to-frame change through it is 0.02 degrees). The clip's keys are therefore
+  always
   at vanilla's FULL swing and nothing rewrites them -- two amplitude writers would multiply. The
   clip's
-  own base is none of vanilla's -- 16.8 degrees at one cycle a second -- so it is measured at load
-  and rescaled to vanilla's 80 degrees of leg, 57 of arm and 0.4716 s cycle, which is what makes it
+  own base is none of vanilla's -- 16.8 degrees at one cycle a second -- so it is measured at
+  load
+  and rescaled to vanilla's 80 degrees of leg, 57 of arm and 0.4716 s cycle, which is what makes
+  it
   read as the same walk. Each track is fitted to one cosine before that (`clip_retarget.gd::
   smooth_cycle`), because a hand-authored clip eases into and out of its own loop point and that
   crawl at every wrap is visible once the swing is 80 degrees. The arms' hang and breathing are
-  **layered, not copied**: `AnimationNodeAdd2` adds the idle over the blend at a fixed amount of 1,
+  **layered, not copied**: `AnimationNodeAdd2` adds the idle over the blend at a fixed amount of
+  1,
   so the walk wears the idle's own 0-3.4 degree hang and its 4.2 s drift. One node, never
-  re-entered -- which is why a stop keeps the idle's phase instead of rewinding it -- and standing
+  re-entered -- which is why a stop keeps the idle's phase instead of rewinding it -- and
+  standing
   the walk's weight is 0, so the hang is never applied twice. A node has one quaternion, so
   layering is the only way two clips can share a limb; a track cannot, and a blend tree output
-  feeds exactly one input, which is why the rest pose is a clip of its own rather than an absence
-  (a blend holds nothing for a part neither side names). `skip_head_look` deactivates the tree. Both are re-homed onto the rig's part names at
-  load by `scripts/clip_retarget.gd` and forced to loop. `Run.anim` is a run cycle separated out of
+  feeds exactly one input, which is why the rest pose is a clip of its own rather than an
+  absence
+  (a blend holds nothing for a part neither side names). `skip_head_look` deactivates the tree.
+  Both are re-homed onto the rig's part names at
+  load by `scripts/clip_retarget.gd` and forced to loop. `Run.anim` is a run cycle separated out
+  of
   `Assets/models/animwiorun.glb` (six per-part actions merged into one 1 s loop). The head's
-  rotation stays the code's. Parked and unloaded: the `Idle_new`/`Walk` pair, and the hand-port of
+  rotation stays the code's. Parked and unloaded: the `Idle_new`/`Walk` pair, and the hand-port
+  of
   FA+Player's moves (`scripts/body_animator.gd`, on disk with its probe, called by nothing). The
   pack's files are not vendored (its terms) — the credit is in docs/gui-notes.md.
 - The title screen (`scripts/menu_layer.gd` over the live world, `title_screen.gd` drawing it)
-  offers five rows, starting 22 units under the wordmark's rule — a steel beam 14 units under the
-  word's own baseline, the column's full width, tapering to a point at both ends: CONTINUE (PLAY when no
+  offers five rows, starting 22 units under the wordmark's rule — a steel beam 14 units under
+  the
+  word's own baseline, the column's full width, tapering to a point at both ends: CONTINUE (PLAY
+  when no
   world existed before launch), SINGLEPLAYER, MULTIPLAYER, SETTINGS, QUIT. SINGLEPLAYER is a
   second PAGE of the same screen - the column becomes the world list, the footer the selected
   world's seed and last save, BACK and Escape return - because a separate screen would copy the
@@ -246,19 +266,29 @@ Full notes: [docs/light.md](docs/light.md).
   log: a card of the scrim's own squares, 0.58 of its tint ± the plate's own 0.06 per-square
   noise, the palest cell of which is the 4.75:1 measured on the brightest sky (the three
   right-hand panels vary per square and never move), read
-  from `data/changelog.json`, whose `version` a probe holds against the build's. A travelling sheen
+  from `data/changelog.json`, whose `version` a probe holds against the build's. A travelling
+  sheen
   runs along the three cards' bevels and nowhere else: one broad warped violet band (240 units
-  apart, 28% of each period lit, mottled insides) from `Assets/shaders/ui_sheen.gdshader`, at low strength
-  and off under Reduce Motion. It crossed the rows and then the wordmark and both were removed - a
-  sheet of violet over a 40-unit row fought the row's own colour signal, and a band moving through
+  apart, 28% of each period lit, mottled insides) from `Assets/shaders/ui_sheen.gdshader`, at
+  low strength
+  and off under Reduce Motion. It crossed the rows and then the wordmark and both were removed -
+  a
+  sheet of violet over a 40-unit row fought the row's own colour signal, and a band moving
+  through
   the title's letters is motion in the middle of the thing being read. Entering the
   world is covered by `ui_block_curtain.gd` — 12 columns of pure-black rigid
-  bodies, let go at rest, that fall, collide and pile on the engine's own physics; each square then
-  swells until a scanline pass proves the viewport is covered with no gap, and the pile is swapped
-  for a lattice that drops cell by cell from the bottom up, so the exit reads as cubes rather than a
-  sliding sheet. A press during the transition blows that wall apart outward from the press instead
-  of cutting it. Reduce Motion swaps the whole thing for one fade. Its physics runs at 300 Hz while
-  it is up: at 60 a block arriving at 3,100 px/s moves 52 px between contact checks, which is the
+  bodies, let go at rest, that fall, collide and pile on the engine's own physics; each square
+  then
+  swells until a scanline pass proves the viewport is covered with no gap, and the pile is
+  swapped
+  for a lattice that drops cell by cell from the bottom up, so the exit reads as cubes rather
+  than a
+  sliding sheet. A press during the transition blows that wall apart outward from the press
+  instead
+  of cutting it. Reduce Motion swaps the whole thing for one fade. Its physics runs at 300 Hz
+  while
+  it is up: at 60 a block arriving at 3,100 px/s moves 52 px between contact checks, which is
+  the
   difference between a wall landing and a wall shaking. Both the settle and the swell have
   wall-clock fuses, because a transition that cannot finish is a screen that waits for a click.
   There is no New World button until the engine can reset a world safely. The research behind
@@ -345,7 +375,7 @@ Full notes: [docs/schematic-notes.md](docs/schematic-notes.md).
 Full notes: [docs/fluids.md](docs/fluids.md).
 
 ### Testing & CI
-- 793 test cases / 374,386 assertions, written with `CHECK`/`CHECK_FALSE` only: this
+- 795 test cases / 374,395 assertions, written with `CHECK`/`CHECK_FALSE` only: this
   build disables exceptions, so `REQUIRE` is a compile error.
 - Move work off the frame before making it cheaper, and prove the move with a total:
   the phases must add up to the frame.
@@ -429,7 +459,8 @@ Full notes: [docs/testing.md](docs/testing.md).
   and `reset()` (teleport/fly) clears everything
 - **Receiving damage**: the arithmetic is a pure chain in `src/engine/player_damage.hpp`
   (difficulty → blocking → armor → resistance → protection → absorption, with the caps and the
-  two bypass flags), and the state is `PlayerSim`: queued sources resolve against a per-tick hurt
+  two bypass flags), and the state is `PlayerSim`: queued sources resolve against a per-tick
+  hurt
   window (a full hit opens 20 ticks of resistance / 10 of feedback; a repeat inside the first
   half is resisted, or lands only its excess with no feedback). A registered full hit that has
   an attacker adds the base receiving knockback (`apply_knockback`: halve every axis, add the
@@ -438,14 +469,17 @@ Full notes: [docs/testing.md](docs/testing.md).
   a cactus — has no attacker to be shoved from and does not shove at all; it trips the screen
   tilt only. The window
   constants (`kHurtResistTime`/`kHurtResistWindow`/
-  `kHurtAnimTime`) live beside the chain so the player and the dummy read one set. The node turns
+  `kHurtAnimTime`) live beside the chain so the player and the dummy read one set. The node
+  turns
   the drain into the game: `damaged(amount)` fires on every registered hit (the amount survives
   absorption, so a hit the yellow buffer fully ate still announces itself), a `difficulty`
   property (0-3, normal by default) seeds the chain's first stage, and the animation window
   leans the view — a 14° lean (`kHurtLeanMaxRadians`) traced by `sin(f^4·π)` over the window
-  (`hurt_lean_angle`), so it is zero the instant the hit lands, peaks partway through and settles
+  (`hurt_lean_angle`), so it is zero the instant the hit lands, peaks partway through and
+  settles
   back, aimed back toward the hit (`hurt_lean_view`; toward the attacker, or a
-  sideways roll for a fall/drown, whose bearing is the random side the node picked), sampled forward
+  sideways roll for a fall/drown, whose bearing is the random side the node picked), sampled
+  forward
   between sim ticks (`get_render_hurt_anim_ticks`) so it ramps at the render rate with no 20 Hz
   step and no one-tick delay (cosmetic: the aim ray comes from the player's yaw/pitch, so the
   crosshair never moves). The push direction rides the drain in `DamageEvents` (attacker flag +
@@ -453,14 +487,16 @@ Full notes: [docs/testing.md](docs/testing.md).
 - **Continuous hazards**: `PlayerSim::apply_environmental_hazards` runs each tick before the
   queue is resolved and turns three world conditions into the same queued sources, so the hurt
   window paces the repeats rather than a separate timer. A head cell that is a full solid block
-  (`CollisionResolver::is_suffocating_at` — `stops_bodies() && is_full_cube()`, so a liquid never
+  (`CollisionResolver::is_suffocating_at` — `stops_bodies() && is_full_cube()`, so a liquid
+  never
   counts) queues `Suffocate`; the breath meter drains while the **eye** cell is a liquid and
   refills at `AIR_REFILL_PER_TICK` otherwise, queueing `Drown` once it reaches zero (the eye is
   `position_.y + get_eye_height()`, so a body with only its feet wet breathes); and a body AABB
   overlapping a `contact_damage` block (`CollisionResolver::contact_damage_for_aabb`, the strict
   `AABB::intersects` over the box's cells) queues `Cactus` for the block's own half-hearts. The
   meter is exposed as `get_air_ticks()` / `MAX_AIR`, surfaced to the node as `get_air` /
-  `get_max_air` and drawn by `airbar.gd` as ten bubbles above the hotbar's right edge (the mirror
+  `get_max_air` and drawn by `airbar.gd` as ten bubbles above the hotbar's right edge (the
+  mirror
   of `healthbar.gd`; hidden while the breath is full).
 - **Death & respawn**: `set_health` reaching 0 triggers `die()` — sets a `dead_` flag that
   freezes `_process`/`_input` (no movement, look, break/place, hotbar), forces the mouse cursor

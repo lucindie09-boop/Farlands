@@ -16,6 +16,13 @@
 // best-effort run toward the frontier node closest to the goal, flagged with
 // NavPath::truncated, so a caller always gets a usable prefix of a route
 // instead of nothing.
+//
+// A goal is a feet cell, and it is anchored onto the ground a body would stand
+// on at that cell's level. When the aimed column has no ground there — a target
+// at the lip of a shelf, whose own column's floor is the plain below them — the
+// nearest neighbouring column that DOES hold that level is the goal instead.
+// Without that, the goal is a cell the agent can walk to and stand on under the
+// target, so the search reports a complete route that never arrives at it.
 // -----------------------------------------------------------------------------
 
 #include "pathfinding/move_generator.hpp"
@@ -42,6 +49,18 @@ public:
     [[nodiscard]] const std::string& last_error() const noexcept { return last_error_; }
 
 private:
+    // A goal resolved onto ground: the column whose surface it is, and the cell that surface
+    // belongs to. The cell is the query's own unless the aimed column holds no ground at the
+    // level that was aimed at — see resolve_goal.
+    struct GoalAnchor {
+        const NavView::Column* column = nullptr;
+        int32_t x = 0;
+        int32_t z = 0;
+    };
+
+    // The column a goal is anchored on, and which cell it belongs to.
+    [[nodiscard]] GoalAnchor resolve_goal(const NavQuery& query) const;
+
     const NavView& view_;
     NavCosts costs_;
     MoveGenerator generator_;

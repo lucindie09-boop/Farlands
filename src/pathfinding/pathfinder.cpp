@@ -37,6 +37,49 @@ struct OpenCmp {
 
 } // namespace
 
+Pathfinder::GoalAnchor Pathfinder::resolve_goal(const NavQuery& query) const {
+    GoalAnchor anchor;
+    anchor.column = view_.column_at_feet(query.goal.x, query.goal.z, query.goal.y);
+    anchor.x = query.goal.x;
+    anchor.z = query.goal.z;
+
+    const NavView::Column* own = anchor.column;
+    // Ground at the level that was aimed at is the answer, and so is a column that cannot be used
+    // at all: that one is an error the caller has to hear about, not a cell to walk beside.
+    if (own == nullptr || !own->found || own->unknown || !own->clearance ||
+        view_.feet_cell(own->surface_top) == query.goal.y) {
+        return anchor;
+    }
+
+    // The aim is above the ground this column holds: a target standing past the lip of a shelf,
+    // whose own column's floor is the plain three blocks below them. Anchored there, the goal is
+    // a cell an agent can walk to and stand on — so the search answers `found`, the route ends
+    // UNDER the target, and the only way up (a staircase off the direct line) is never asked for.
+    // The ground they are actually standing on is one column over.
+    static constexpr int32_t kRing[8][2] = {
+        {1, 0}, {-1, 0}, {0, 1}, {0, -1}, {1, 1}, {1, -1}, {-1, 1}, {-1, -1}};
+    for (const auto& off : kRing) {
+        const int32_t x = query.goal.x + off[0];
+        const int32_t z = query.goal.z + off[1];
+        const NavView::Column* beside = view_.column_at_feet(x, z, query.goal.y);
+        if (beside == nullptr || !beside->found || beside->unknown || !beside->clearance ||
+            beside->liquid) {
+            continue;
+        }
+        // Exactly the level that was aimed at, so a column one block higher or lower is not an
+        // arrival at the target — it is a step up onto or a drop off what they stand on.
+        if (view_.feet_cell(beside->surface_top) != query.goal.y) continue;
+        anchor.column = beside;
+        anchor.x = x;
+        anchor.z = z;
+        return anchor;
+    }
+    // Nothing beside them holds that level either (a one-block pillar, a lip over a void): the
+    // aimed cell is all there is to answer with, and a route to it is still the best effort there
+    // is. The fixed ring order keeps an identical query resolving to an identical goal.
+    return anchor;
+}
+
 float Pathfinder::heuristic(const NavNode& a, const NavNode& b) const {
     const float dx = static_cast<float>(std::abs(a.x - b.x));
     const float dz = static_cast<float>(std::abs(a.z - b.z));
@@ -78,17 +121,18 @@ NavPath Pathfinder::search(const NavQuery& query) const {
         last_error_ = "start column has no navigable surface";
         return path;
     }
-    const NavView::Column* goal_col =
-        view_.column_at_feet(query.goal.x, query.goal.z, query.goal.y);
+    const GoalAnchor goal_anchor = resolve_goal(query);
+    const NavView::Column* goal_col = goal_anchor.column;
     if (goal_col == nullptr || !goal_col->found || goal_col->unknown || !goal_col->clearance) {
         last_error_ = "goal column has no navigable surface";
         return path;
     }
 
     // Re-anchor both ends onto their column surfaces: callers may hand us an
-    // airborne position (a falling entity, a target standing above ground).
+    // airborne position (a falling entity, a target standing above ground). The goal's cell is
+    // the anchor's, which is the query's own unless the aimed column had no ground at its level.
     const NavNode start{query.start.x, view_.feet_cell(start_col->surface_top), query.start.z};
-    const NavNode goal{query.goal.x, view_.feet_cell(goal_col->surface_top), query.goal.z};
+    const NavNode goal{goal_anchor.x, view_.feet_cell(goal_col->surface_top), goal_anchor.z};
     const uint64_t start_key = node_key(start.x, start.y, start.z);
 
     const size_t columns_before = view_.columns_resolved();
@@ -151,7 +195,16 @@ NavPath Pathfinder::search(const NavQuery& query) const {
             best_key = top.key;
         }
 
-        const NavView::Column* col = view_.column(cur.x, cur.z, cur.y);
+        // The column the node is STANDING ON, not the one a neighbour could arrive on. `column`
+        // looks up to `max_rise` above the hint, so a collision two cells over the body's head —
+        // the ceiling of a two-block corridor — answered as that column's floor, and every step
+        // out of the node was then measured from the ceiling: the route climbed the roof through
+        // the corridor's own roof, a live route carried a three-block rise in a single move, and
+        // the body that walked it pressed at walls and hopped at gaps it cannot fit through.
+        // `column_at_feet` is the same question the endpoints ask (a surface at or below the feet),
+        // so a step is measured from the ground under the body, and a ceiling two cells up is two
+        // cells up — past `max_rise`, so it is not a step.
+        const NavView::Column* col = view_.column_at_feet(cur.x, cur.z, cur.y);
         if (col != nullptr && col->found && !col->unknown && col->clearance) {
             NavMoveList moves;
             generator_.generate(cur, *col, moves);

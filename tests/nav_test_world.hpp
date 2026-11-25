@@ -88,7 +88,9 @@ inline float path_cost(const NavView& view, const MoveGenerator& gen,
     float total = 0.0f;
     for (size_t i = 1; i < path.size(); ++i) {
         const NavNode& from = path[i - 1];
-        const NavView::Column* col = view.column(from.x, from.z, from.y);
+        // The column the node stands on, which is what the planner expands with: `column` would
+        // look up to `max_rise` above the feet and read a ceiling as the floor.
+        const NavView::Column* col = view.column_at_feet(from.x, from.z, from.y);
         if (col == nullptr || !col->found || col->unknown || !col->clearance) return -1.0f;
         NavMoveList moves;
         gen.generate(from, *col, moves);
@@ -147,7 +149,8 @@ inline DijkstraResult dijkstra_cost(const NavView& view, const MoveGenerator& ge
             out.cost = d;
             return out;
         }
-        const NavView::Column* col = view.column(cur.x, cur.z, cur.y);
+        // Mirrors the planner's own expansion: the surface the node STANDS ON, never a roof over it.
+        const NavView::Column* col = view.column_at_feet(cur.x, cur.z, cur.y);
         if (col == nullptr || !col->found || col->unknown || !col->clearance) continue;
 
         NavMoveList moves;

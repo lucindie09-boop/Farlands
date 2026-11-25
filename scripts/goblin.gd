@@ -866,22 +866,25 @@ func _turn(delta: float) -> void:
 		_yaw = _model.rotation.y
 		_yaw_target = _yaw
 		_yaw_ready = true
-	var ease := 1.0 - pow(1.0 - TURN_EASE, delta * TICK_RATE)
-	_yaw = lerp_angle(_yaw, _yaw_target, clampf(ease, 0.0, 1.0))
+	# `blend`, not `ease`: the name of the built-in function is not a variable's to take.
+	var blend := 1.0 - pow(1.0 - TURN_EASE, delta * TICK_RATE)
+	_yaw = lerp_angle(_yaw, _yaw_target, clampf(blend, 0.0, 1.0))
 	_model.rotation.y = _yaw
 
 
 ## Put the body somewhere else with no velocity (a probe, a future respawn): the same
 ## reset the player's own node does.
-func teleport(position: Vector3) -> void:
+## `to`, not `position`: Node3D already has a property by that name, and a parameter that shadows
+## it reads as if this function were setting the node's own.
+func teleport(to: Vector3) -> void:
 	if _sim == null:
 		return
-	_sim.reset(position)
+	_sim.reset(to)
 	# Both drawn samples move with it, or the next frame interpolates from where it
 	# used to be and the body slides across the gap.
-	_drawn_prev = position
-	_drawn_cur = position
-	global_position = position
+	_drawn_prev = to
+	_drawn_cur = to
+	global_position = to
 	_abandon_route()
 
 

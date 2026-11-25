@@ -173,6 +173,15 @@ bool ItemRegistry::load_from_json(const godot::String& json_path) noexcept {
                     WARN_PRINT("items.json entry " + name
                                + ": a dummy egg spawns an entity, so its \"block\" is unused");
                 }
+            } else if (kind == "goblin") {
+                // The other entity this game builds in GDScript: the item asks the goblin spawn
+                // tool, through PlayerController's `goblin_spawn` signal, for one where the
+                // crosshair is aimed. No block, for the same reason a dummy egg has none.
+                def.use.kind = "goblin";
+                if (use.has("block")) {
+                    WARN_PRINT("items.json entry " + name
+                               + ": a goblin egg spawns an entity, so its \"block\" is unused");
+                }
             } else if (kind == "swap") {
                 // A swap names another ITEM, not a block, and resolves after the
                 // whole list is read (below): the partner may be an entry further

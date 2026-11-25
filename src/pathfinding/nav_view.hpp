@@ -66,6 +66,10 @@ public:
         float surface_top = 0.0f;  // world y the feet rest at
         bool clearance = false;    // the agent's body fits standing here
         bool liquid = false;       // the feet stand inside liquid
+        // ...and the liquid is one the body may be in (water). Such a column's surface is the
+        // liquid's own TOP -- the level a swimmer rides at -- not the floor under it, which is
+        // the difference between a route that crosses a pond and one that has to climb out of it.
+        bool wade = false;
     };
 
     NavView(NavBox box, Sampler sampler, NavCosts costs = NavCosts(), Reader reader = {})

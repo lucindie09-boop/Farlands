@@ -207,6 +207,14 @@ const ARRIVE_HEIGHT := 0.35
 ## A stroll target is a few blocks away, so the search should give up quickly rather
 ## than sweep the country: the expansion cap is a few blocks' worth, and the wall clock
 ## is a ceiling for a contended machine.
+## A body in water holds its jump and paddles at the nearest dry column it can find. The search
+## rings out to this many blocks, and the answer is kept for a second rather than rescanned every
+## tick: a ring of 12 is a couple of hundred cells and there is no reason to ask twenty times a
+## second. A pond wider than this is a lake, and a goblin floats in it rather than crossing it.
+const SHORE_REACH := 12
+## Ticks between shore searches: a second, which is long enough for a paddle stroke to have
+## changed which column is nearest and short enough that it never swims at a wall for long.
+const SHORE_RESCAN_TICKS := 20
 const STROLL_EXPANSIONS := 4000
 const STROLL_MAX_MS := 8.0
 ## Pushing at one waypoint without getting closer for this long drops the route: a rise
@@ -379,6 +387,11 @@ var _fleeing := false
 var _anger_ticks := 0
 var _attack_ticks := 0
 var _repath_ticks := 0
+## Where it last decided the dry ground was, and how long that answer stands (see `_swim`).
+var _shore_cell := Vector3.ZERO
+var _shore_ticks := 0
+## Whether the thing it is chasing is standing in liquid (see `_update_enemy`).
+var _wet_target := false
 
 
 func _ready() -> void:
@@ -415,9 +428,13 @@ func _physics_process(delta: float) -> void:
 	_drawn_prev = _drawn_cur
 	_drawn_cur = _sim.get_position()
 	global_position = _drawn_cur
-	# Its health is the fist's, not the fall's: the sim's queued hits are dropped rather
-	# than accumulating. Applied would be a behaviour change, not a movement one.
-	_sim.drain_damage()
+	# What the sim queued is a LANDING's now: a fall past `SAFE_FALL_DISTANCE` enters its queue
+	# as a Fall source like any other and is resolved against the same hurt window a blow is, so
+	# dropping a goblin off a ledge costs it half-hearts. Breath and contact damage ride the same
+	# queue, which is why this is the drain rather than a fall-only counter.
+	var hurt: float = float(_sim.consume_damage())
+	if hurt > 0.0:
+		_take_hurt(hurt)
 
 
 ## Drawing, which is not the clock the body moves on. Physics runs 60 times a second
@@ -512,6 +529,13 @@ func _advance_ticks(ticks: int) -> void:
 ## Claim a finished plan, walk it if there is one, otherwise stand and wait.
 func _steer() -> void:
 	_wish = Vector3.ZERO
+	# Water first, and before anything the planner has to say about it: a route through it is legal
+	# now, but it is walked by the swim and not by `_walk` (a swimmer is never on the ground, so the
+	# walk's arrival test cannot advance). `_swim` also carries the two answers no route has -- the
+	# stroke itself, and the shore for a body that has no plan.
+	if bool(_sim.is_in_water()):
+		_swim(_sim.get_tick_position())
+		return
 	if _job != 0:
 		NAV_ROUTES.poll(_chunk_manager)
 		var result := NAV_ROUTES.take(_job)
@@ -528,6 +552,117 @@ func _steer() -> void:
 	# Nothing to do. Whether it WANTS somewhere to be is the roll in `_advance_ticks`'
 	# business, on the tick clock and as a chance -- standing here is the answer most
 	# frames, which is most of what an idle mob does.
+
+
+## Getting through water: the stroke, the heading, and the way back to the ground.
+##
+## The planner crosses water now (a wet column is a legal step at the `liquid` surcharge), so a
+## route through a pond is walked exactly like any other -- with one difference: a swimmer is
+## never ON the ground, so `_walk`'s own arrival test (which wants the feet standing on the cell)
+## would never advance and the body would push at its first wet cell forever. That is `_swim_along`.
+##
+## What the planner still cannot do is get a body OUT of water it was dropped into with nowhere
+## planned: the goal's ring anchors on dry ground, and a route whose first steps are all wet was
+## refused outright until water became walkable. So the body also has its own answer -- it floats
+## and paddles at the nearest dry column it can find -- which is the game's own behaviour for a
+## mob in water, and it is what a chase in water uses too. The floating is the sim's water physics
+## (a body in water is lifted by the jump control and lifted again when it collides while
+## swimming, which is what carries it over the lip); this supplies the stroke and the heading.
+func _swim(feet: Vector3) -> void:
+	# In water the jump control IS the stroke, so one stroke a tick is the paddle.
+	_jump = true
+	# Every clock that measures WALKING is meaningless in water: the body is not on the ground, so
+	# the stuck clock would count every tick and drop a route it never walked.
+	_blocked_frames = 0
+	_stuck_ticks = 0
+	_closest = INF
+	# A chase in water swims at what it is chasing, not along a plan: the shore is the answer for a
+	# body with no goal, and the target is the answer for one with a goal. Same steer as the last
+	# pace before a blow.
+	if _closing and _enemy != null and is_instance_valid(_enemy):
+		_step_at(feet, _enemy.global_position)
+		return
+	# A route first, and the shore only when there is none: a plan through water is the plan the
+	# planner costed, and the ring is the fallback for a body that has no route at all.
+	if _swim_along(feet):
+		return
+	_shore_ticks -= 1
+	if _shore_ticks <= 0 or _shore_cell == Vector3.ZERO:
+		_shore_cell = _shore_from(feet)
+		_shore_ticks = SHORE_RESCAN_TICKS
+	if _shore_cell != Vector3.ZERO:
+		var to := Vector3(_shore_cell.x + 0.5 - feet.x, 0.0, _shore_cell.z + 0.5 - feet.z)
+		if to.length_squared() < 0.04:
+			# At the column it picked and still wet (a rim one block up, whose face is being
+			# climbed): keep the stroke, and look again for a nearer one.
+			_shore_cell = Vector3.ZERO
+			_shore_ticks = 0
+		else:
+			_wish = to.normalized()
+			_yaw_target = atan2(-_wish.x, -_wish.z)
+			return
+	# Nothing to steer at: a lake wider than SHORE_REACH with no plan is a float in place, which is
+	# what the stroke above already does.
+
+
+## Follows the route while swimming. True when a cell of it is being steered at.
+##
+## The cells are skipped by horizontal distance alone, and that is the whole difference from
+## `_walk`: its test also asks whether the feet are STANDING on the cell, which a swimmer never is,
+## so the route would never advance. The level is not lost by dropping the test -- the planner put
+## every wet node at the water's own surface, which is where the body floats.
+func _swim_along(feet: Vector3) -> bool:
+	while _next < _route.size() and _flat(_route[_next], feet).length() < ARRIVE_DISTANCE:
+		_next += 1
+	if _next >= _route.size():
+		if not _route.is_empty():
+			_stop_walking()
+		return false
+	var dir := _flat(_route[_next], feet)
+	if dir.length_squared() < 1e-6:
+		return false
+	dir = dir.normalized()
+	_wish = dir
+	_yaw_target = atan2(-dir.x, -dir.z)
+	return true
+
+
+## The nearest column of dry, standable ground around the body, or ZERO. It rings out from the
+## body's own column so a goblin at the edge of a pond swims the short way, and every cell it asks
+## about is asked through the sim's own predicates, so the swim and the physics can never
+## disagree about what water or a wall is.
+func _shore_from(feet: Vector3) -> Vector3:
+	var cx := floori(feet.x)
+	var cy := floori(feet.y)
+	var cz := floori(feet.z)
+	for radius in range(1, SHORE_REACH + 1):
+		for dz in range(-radius, radius + 1):
+			for dx in range(-radius, radius + 1):
+				# The ring, not the square: a column found last round is not looked for again.
+				if maxi(absi(dx), absi(dz)) != radius:
+					continue
+				var stand := _dry_stand(cx + dx, cy, cz + dz)
+				if stand != Vector3.ZERO:
+					return stand
+	return Vector3.ZERO
+
+
+## The feet cell of a column it could stand on and be dry in, on one of three levels: the body's
+## own, one ABOVE (a shore it has to climb over a lip to reach -- the common case, since a pond's
+## rim is at the water line) and one below (a beach that slopes into the water). Empty and not
+## liquid in the feet cell, not liquid over the head, and solid underneath. A wall is none of
+## these: it is solid in the feet cell, which is why the old "not liquid" test had it paddling
+## into the side of the pond at the level it was standing on.
+func _dry_stand(x: int, cy: int, z: int) -> Vector3:
+	for ly in [cy, cy + 1, cy - 1]:
+		if bool(_sim.is_solid_at(x, ly, z)) or bool(_sim.is_liquid_at(x, ly, z)):
+			continue
+		if bool(_sim.is_liquid_at(x, ly + 1, z)):
+			continue
+		if not bool(_sim.is_solid_at(x, ly - 1, z)):
+			continue
+		return Vector3(x, ly, z)
+	return Vector3.ZERO
 
 
 ## Somewhere to be: a random column a few blocks off, handed to the planner as a point
@@ -659,13 +794,28 @@ func _update_enemy(ticks: int) -> void:
 			_attack_ticks = ATTACK_TICKS
 			_swing(feet)
 		return
+	# A target standing IN liquid is still the case a route cannot answer: the goal's ring anchors on
+	# DRY ground, so a chase after a player in a pond resolves to the bank and the goblin stands at
+	# the water's edge while the player wades about in front of it. In liquid, or with the target in
+	# liquid, it wades and swims straight at them instead: the one chase that answers with the body
+	# rather than a plan, on the same steer as the last pace before a blow.
+	_wet_target = bool(_sim.is_liquid_at(floori(enemy_at.x), floori(enemy_at.y + 0.1),
+		floori(enemy_at.z)))
+	if _wet_target or bool(_sim.is_in_water()):
+		_closing = gap > CHASE_STOP
+		if not _route.is_empty():
+			_stop_walking()
+		return
 	_closing = false
 	# Nothing to walk, with the player out of reach: the plans are coming back with nowhere to go,
 	# and without this it stood at that frontier until its anger ran out. A plan in flight counts as
 	# having nowhere to go too -- see CHASE_WAIT_TICKS for why asking again does not buy the chase
 	# more time.
 	if _route.is_empty():
-		_chase_wait_ticks += ticks
+		# ...but a body paddling out of a pond has nowhere to walk for a reason the chase cannot
+		# fix, and forgetting the player on the second stroke is what counting that costs.
+		if not bool(_sim.is_in_water()):
+			_chase_wait_ticks += ticks
 		if _chase_wait_ticks > CHASE_WAIT_TICKS:
 			_give_up()
 			return
@@ -772,6 +922,7 @@ func _give_up() -> void:
 	_enemy = null
 	_fleeing = false
 	_closing = false
+	_wet_target = false
 	_chase_wait_ticks = 0
 	_anger_ticks = 0
 	_in_reach = false
@@ -1219,6 +1370,13 @@ func take_anger(attacker: Node3D) -> void:
 
 
 func take_damage(amount: float) -> void:
+	_take_hurt(amount)
+
+
+## The one place half-hearts come off, whether they were thrown by a fist or by the ground it
+## landed on: a fall is health like a punch is, so it can kill and it drops what the body was
+## carrying (`die`).
+func _take_hurt(amount: float) -> void:
 	if _health <= 0.0:
 		return
 	_health = maxf(_health - amount, 0.0)

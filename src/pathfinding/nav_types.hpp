@@ -37,6 +37,12 @@ struct Cell {
     CellClass cls = CellClass::Air;
     float lo = 0.0f;
     float hi = 0.0f;
+    // A liquid the BODY may be in. Water is one -- a body floats in it and swims out of it --
+    // and lava and acid are not, so the two share a cell class and differ by this flag. It is
+    // set where the block's own fluid kind is still in hand (`classify_block`), because nothing
+    // downstream can tell them apart; samplers that do not set it leave every liquid a wall,
+    // which is what the planner did before there was a body with a swim.
+    bool wade = false;
 
     [[nodiscard]] bool blocks_body() const noexcept {
         return cls == CellClass::Solid || cls == CellClass::Partial;
@@ -53,7 +59,12 @@ struct NavCosts {
     float step_up = 0.5f;          // extra per block climbed
     float fall = 0.4f;             // extra per block descended
     float jump = 2.0f;             // flat cost of a hop across a one-cell gap
-    float liquid = 0.6f;           // extra when either end of a move is in liquid
+    // Extra when either end of a move is in liquid. It is a SURCHARGE on a legal step rather than
+    // a reason to refuse one: water slows a body down a great deal (drag, a stroke instead of a
+    // step), and it is not dangerous. At this price a two-cell crossing costs six against a
+    // thirteen-cell detour at one apiece, so a route crosses the pond it can see across, and a
+    // three-cell swim already loses to a short dry way round.
+    float liquid = 2.0f;
     float max_rise = 1.0f;         // a single move may climb at most this much
     float max_drop = 3.0f;         // a single move may descend at most this much
     // A collision this tall within its cell counts as a surface the agent stands

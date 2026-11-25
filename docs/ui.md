@@ -712,7 +712,26 @@ being resampled by a different fraction at each scale.
   route to a frontier is not an arrival: a target on a pillar or in a sealed pit leaves the
   frontier
   under it, and the goblin stood there for the whole anger window. A real detour keeps a
-  route under its feet the whole way, so a long way round is never cut short by it. **Standing,
+  route under its feet the whole way, so a long way round is never cut short by it. **In water
+  it wades**, which it did not before: the planner refused to enter liquid at all, so a goblin
+  took a thirteen-block ring round a two-block puddle rather than cross it. A wet column is a
+  legal step now — priced above a dry one, and refused only where the liquid is lava or acid,
+  which is the one thing a body must not enter — and the swim follows that route cell by cell. A
+  wadeable column's surface is the water's own top, the level a swimmer rides at, so a crossing
+  is a step each way instead of a climb out of the pond. It holds the jump control, which in
+  water is the stroke (the body's water physics lifts it on that control, and lifts it again when
+  it collides while swimming, which is what carries it over a lip), and with no route it paddles
+  at the nearest dry column it can find — asked through the same predicates the physics uses, so
+  the swim and the world cannot disagree about what water or a wall is, and a shore at its own
+  level, a rim one block up at the water line and a beach one block down all answer. A lake
+  wider than twelve blocks is a lake, and it floats in it. **A chase follows you in**: a target
+  standing IN water is the one chase a route cannot answer — the goal's ring anchors on dry
+  ground — so that one is steered straight at instead, and the goblin wades and swims after it
+  and swings there rather than standing on the bank (the look is the same ray the reach is
+  measured through, and water does not stop it). **And a fall is
+  health**: more than three blocks costs it `floor(distance − 3)` half-hearts through the same
+  hurt window a punch opens, so shoving one off a ledge is a tactic rather than a favour, and one
+  killed by the ground drops what it carried like one killed by a fist. **Standing,
   it looks about**: a 1-in-120-a-tick roll (a glance every 6 s) picks a
   point within 6 blocks of it, mostly **below** its eyes (a near, low point is the 20-odd-degree
   downward glance), and **the head turns to it** — yaw then pitch about the model's own axes,

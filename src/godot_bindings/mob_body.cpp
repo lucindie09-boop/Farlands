@@ -2,6 +2,8 @@
 
 #include <godot_cpp/core/class_db.hpp>
 
+#include "engine/collision_resolver.hpp"
+
 using namespace godot;
 using namespace VoxelEngine;
 
@@ -23,7 +25,9 @@ void MobBody::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_tick_count"), &MobBody::get_tick_count);
     ClassDB::bind_method(D_METHOD("shove", "attacker_position", "extra_velocity"),
                          &MobBody::shove);
-    ClassDB::bind_method(D_METHOD("drain_damage"), &MobBody::drain_damage);
+    ClassDB::bind_method(D_METHOD("consume_damage"), &MobBody::consume_damage);
+    ClassDB::bind_method(D_METHOD("is_liquid_at", "x", "y", "z"), &MobBody::is_liquid_at);
+    ClassDB::bind_method(D_METHOD("is_solid_at", "x", "y", "z"), &MobBody::is_solid_at);
 }
 
 void MobBody::reset(const Vector3& position) {
@@ -96,7 +100,20 @@ bool MobBody::shove(const Vector3& attacker_position, const Vector3& extra_veloc
     return sim_.shove(attacker_position, extra_velocity);
 }
 
-void MobBody::drain_damage() {
-    sim_.consume_damage_events();
+float MobBody::consume_damage() {
+    const DamageEvents events = sim_.consume_damage_events();
+    // The raw fall figure is the HUD's, not the health's: the landing has already entered the
+    // queue as a source and been resolved against the hurt window, so it is spent here.
     sim_.consume_pending_fall_damage();
+    return events.health_delta;
+}
+
+bool MobBody::is_liquid_at(int32_t x, int32_t y, int32_t z) const {
+    if (resolver_ == nullptr) return false;
+    return resolver_->is_liquid_at(x, y, z);
+}
+
+bool MobBody::is_solid_at(int32_t x, int32_t y, int32_t z) const {
+    if (resolver_ == nullptr) return false;
+    return resolver_->is_solid_at(x, y, z);
 }

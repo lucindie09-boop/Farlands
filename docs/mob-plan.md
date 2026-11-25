@@ -10,10 +10,10 @@ next
 few need a decision about the game rather than more code; the last group is the structure that
 keeps the second mob from costing a week.
 
-Two of these are already done and are kept here so the reasoning survives:
-**1** (a chase that cannot reach its target gives up) and **2** (which cell a chase is aiming
-at,
-including the low-roof bug in the column scan) landed with it.
+Three of these are already done and are kept here so the reasoning survives: **1** (a chase
+that cannot reach its target gives up), **2** (which cell a chase is aiming at, including the
+low-roof bug in the column scan) and **9** (water and fall damage), which landed with the same
+walk.
 
 ## What a player would call broken
 
@@ -113,12 +113,48 @@ goblin can only land a blow by walking into range and the fight is decided befor
 Pick
 both numbers together.
 
-### 9. Water and heights
-The planner refuses liquid steps, so a goblin shoved into a pond stands on the bottom (and,
-before
-item 1, never gave up either). Floating and paddling out is the game's answer. Mob fall damage
-is
-the other half: it would make shoving one off a ledge a tactic rather than a favour.
+### 9. Water and heights — done
+Two halves, and in the end one story: a goblin that could not cross water could not be chased
+into it either.
+
+The PLANNER crosses water now. A wet column was refused outright (`is_usable`), because a cost is
+not a wall and the old +0.6 surcharge had been read as "wade anyway" by a goblin that walked into
+lava — so the refusal moved onto the cell, and the two liquids are separated where they can still
+be told apart: water sets `Cell::wade` in `classify_block`, from the block's own `fluid_kind`.
+A wadeable column is a legal step at `NavCosts::liquid` — 2 on top of a walk — so a two-cell
+crossing costs six against a thirteen-cell detour, and a three-cell swim already loses to a short
+dry way round. The price is only half of it: the SURFACE is now the liquid's own top, the level a
+swimmer rides at. Descended to the floor, as the scan used to do, every way out of a pond is a
+climb a step-up cannot make, so no route could use the water at all — which is exactly the
+"thirteen blocks round a two-block puddle" a player would see.
+
+In the water the body is the walker's. `_swim` holds the jump control (in water that IS the
+stroke — the sim lifts a body on it, and lifts it again when it collides while swimming, which is
+what carries it over a lip) and follows the route cell by cell through `_swim_along`, which skips
+cells by horizontal distance alone: a swimmer is never STANDING on one, so `_walk`'s arrival test
+would never advance and the body would push at its first wet cell forever. With no route it
+paddles at the nearest dry column it can find (`_shore_from`, ringed out to `SHORE_REACH` through
+the body's own `is_liquid_at`/`is_solid_at`, kept for a second), which is the way out of water it
+was dropped into; and a chase's give-up clock does not run while paddling, so falling in a pond is
+not the player becoming unreachable.
+
+A target standing IN water is the one chase a route still cannot answer, because the goal's ring
+anchors on dry ground. That chase is steered STRAIGHT AT instead: the route is dropped, the
+wade/swim is the same steer as the last pace before a blow, and the look is the same ray the
+reach is measured through, which water does not stop — so the blow lands in the pond as it would
+on the bank. Once both are dry the planner is asked again.
+
+The other half is the fall. `PlayerSim` already tracked a landing and queued it as a Fall source
+through the same hurt window a blow uses, and the mob's body was DRAINING that queue and throwing
+the answer away, so a ledge cost a goblin nothing. `MobBody::consume_damage` hands it back in
+half-hearts, and `_take_hurt` is now the one place health comes off — a fist or the ground — so a
+fall can kill, and a body killed that way drops what it was carrying.
+
+`probes/probe_goblin_water.gd` digs a 5x5 pond two deep beside the player and watches a goblin
+climb out of it onto the rim; drops one ten blocks and holds it to the 7 half-hearts the rule
+owes; builds an island in the pond with a cell of water all the way round it and watches a chase
+cross to prey standing on it; and finally puts the prey in the water itself, where the chase has
+to wade in and swing.
 
 ### 10. Anger and flight have no tell
 A pigman raises its arms when angry. A goblin looks identical calm or furious, and a sprinting

@@ -29,7 +29,11 @@ namespace nav {
     const BlockRegistry& registry = BlockRegistry::get_instance();
     const BlockType& block = registry.get_block_fast(id);
     if (HasProperty(block.properties, BlockProperty::Liquid)) {
-        return Cell{CellClass::Liquid, 0.0f, 0.0f};
+        // Water is a liquid a body can be in (it floats, and the walker swims), so a column of it
+        // is somewhere a route may go. Lava and acid are the same navigation class and must never
+        // be entered, and the fluid kind is the only thing that separates them -- so the flag is
+        // set here, where that kind is still known.
+        return Cell{CellClass::Liquid, 0.0f, 0.0f, block.fluid_kind == FluidKind::Water};
     }
 
     const auto& boxes = block.get_collision_boxes();

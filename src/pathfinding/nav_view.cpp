@@ -74,6 +74,9 @@ NavView::Column NavView::compute_column(int32_t x, int32_t z, int32_t start_y) c
     int32_t raised_cell = 0;
 
     bool liquid_passed = false;
+    // A hazardous liquid above rules out floating on nicer liquid under it: lava over water is
+    // not a place to be, and the cell that refuses the column is the one just passed.
+    bool hazard_passed = false;
     for (int32_t y = start; y >= lowest; --y) {
         const Cell c = sampler_(x, y, z);
         switch (c.cls) {
@@ -82,11 +85,34 @@ NavView::Column NavView::compute_column(int32_t x, int32_t z, int32_t start_y) c
                 return col;
             case CellClass::Air:
                 break;
-            case CellClass::Liquid:
+            case CellClass::Liquid: {
+                // NO body space is needed over a liquid: the body floats at its top, so the
+                // surface a swimmer's feet ride at is the liquid's own top cell, and the column is
+                // somewhere a route may cross. Descending to the floor instead -- which is all
+                // that could be done before the walker had a swim -- put every crossing at the
+                // bottom of the pond, where the way out is a climb the planner refuses, so a
+                // goblin took a thirteen-block ring around a two-block puddle.
+                if (c.wade && !hazard_passed) {
+                    const float top = static_cast<float>(y) + 1.0f;
+                    if (body_fits(x, z, top)) {
+                        col.found = true;
+                        col.surface_cell = y;
+                        col.surface_top = top;
+                        col.liquid = true;
+                        col.wade = true;
+                        col.clearance = true;
+                        return col;
+                    }
+                    // Water with no room over it (a ceiling a body does not fit under) is not a
+                    // place to be, and it is not a gap either: keep descending and report the
+                    // submerged floor it ends on, which the planner refuses.
+                }
                 // Liquid does not support the body: keep descending to the
                 // floor, but remember that the feet will be submerged.
+                hazard_passed = hazard_passed || !c.wade;
                 liquid_passed = true;
                 break;
+            }
             case CellClass::Partial:
             case CellClass::Solid: {
                 const float block_top = static_cast<float>(y) + c.hi;

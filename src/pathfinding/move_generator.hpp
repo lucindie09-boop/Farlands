@@ -93,14 +93,16 @@ public:
     }
 
 private:
-    // A route may not lead into liquid. The costs used to discourage it (+0.6 a move)
-    // rather than forbid it, which the planner read as "wade anyway" whenever the dry way
-    // round was more than half a step longer -- and a goblin then walked into lava, acid and
-    // the sea, because a cost is not a wall. A column whose feet stand in liquid is not a
-    // place to walk: the reference's own mobs do not path into it, and the body that walks
-    // this route has no swim.
+    // A route may not lead into a liquid the body cannot be in. A cost is not a wall -- the old
+    // +0.6 surcharge was read as "wade anyway" and a goblin walked into lava and acid -- so the
+    // refusal is on the CELL: lava and acid have no body in them and are walls, whatever the
+    // numbers say. Water is the other case, and the reason the flag exists at all: a body floats
+    // in it and swims, so a wet column is a place a route may cross, at the surcharge (`liquid`)
+    // that is what "slow" costs. That is also what the reference's own mobs do -- they swim at
+    // what they are chasing and cross the puddle in front of them.
     [[nodiscard]] static bool is_usable(const NavView::Column* c) noexcept {
-        return c != nullptr && c->found && !c->unknown && c->clearance && !c->liquid;
+        return c != nullptr && c->found && !c->unknown && c->clearance &&
+               (!c->liquid || c->wade);
     }
 
     [[nodiscard]] bool orthogonal_ok(const NavNode& from, const NavView::Column& from_col,

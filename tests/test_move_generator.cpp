@@ -294,3 +294,48 @@ TEST_CASE("MoveGenerator refuses to walk into liquid, and still charges for leav
         CHECK(onto_land->cost >= NavCosts{}.walk + NavCosts{}.liquid - 1e-4f);
     }
 }
+
+TEST_CASE("MoveGenerator wades water, and only water") {
+    nt::World w;
+    w.default_ground = 10;
+    w.set_ground(1, 0, 9);
+    w.set_water(1, 9, 0);
+    w.set_water(1, 10, 0);
+    NavView view = nt::make_view(w, 8);
+    MoveGenerator gen(view, NavCosts{});
+
+    const NavNode from{0, 10, 0};
+    const NavView::Column* col = view.column(from.x, from.z, from.y);
+    CHECK(col != nullptr);
+    if (col == nullptr) return;
+
+    NavMoveList moves;
+    gen.generate(from, *col, moves);
+    const NavMove* wet = find_move(moves, 1, 0);
+    CHECK(wet != nullptr);
+    if (wet == nullptr) return;
+    // The step lands on the pond's SURFACE (feet cell 11 over water cells at 9 and 10), which is
+    // where a swimmer's feet are -- and it carries the wading surcharge on top of the climb.
+    CHECK(wet->to.y == 11);
+    CHECK(wet->kind == MoveKind::StepUp);
+    CHECK(wet->cost >= NavCosts{}.walk + NavCosts{}.liquid - 1e-4f);
+}
+
+TEST_CASE("MoveGenerator still refuses a liquid with no body in it") {
+    // The same pond, filled with lava: the cell is a wall, whatever the surcharge would say.
+    nt::World w;
+    w.default_ground = 10;
+    w.set_ground(1, 0, 9);
+    w.set_cell(1, 9, 0, CellClass::Liquid);
+    w.set_cell(1, 10, 0, CellClass::Liquid);
+    NavView view = nt::make_view(w, 8);
+    MoveGenerator gen(view, NavCosts{});
+
+    const NavNode from{0, 10, 0};
+    const NavView::Column* col = view.column(from.x, from.z, from.y);
+    CHECK(col != nullptr);
+    if (col == nullptr) return;
+    NavMoveList moves;
+    gen.generate(from, *col, moves);
+    CHECK(find_move(moves, 1, 0) == nullptr);
+}

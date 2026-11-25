@@ -69,10 +69,19 @@ public:
     // damage and this shove share one gate.
     bool shove(const godot::Vector3& attacker_position, const godot::Vector3& extra_velocity);
 
-    // Drop whatever the sim has queued since the last call (landings, breath, contact
-    // damage), for a body whose damage comes from elsewhere. Without this the
-    // accumulator only ever grows.
-    void drain_damage();
+    // Everything the sim has queued since the last call, in half-hearts of health damage:
+    // a landing past `SAFE_FALL_DISTANCE` arrives here as a Fall source like any other, so a
+    // fall hurts a mob through the same hurt window a blow does. Breath and contact damage
+    // ride the same queue. Consuming clears the accumulators, so a body whose damage comes
+    // from elsewhere calls this and drops the answer rather than letting it grow.
+    [[nodiscard]] float consume_damage();
+
+    // Is that cell of the world a liquid? It is the same predicate the body's own water state
+    // is read from, so a swimmer looking for dry ground cannot disagree with the physics about
+    // what water is. `is_solid_at` is its other half, for the same reason: "can I stand here"
+    // is a question about the very cells the resolver will move the body through.
+    [[nodiscard]] bool is_liquid_at(int32_t x, int32_t y, int32_t z) const;
+    [[nodiscard]] bool is_solid_at(int32_t x, int32_t y, int32_t z) const;
 
 protected:
     static void _bind_methods();

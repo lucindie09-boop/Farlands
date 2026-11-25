@@ -72,13 +72,17 @@ how it is wired into the game and to the tests.
 
 ## What the design settled
 
-- **Liquid is never traversable**: a column whose feet stand in water, lava or acid has no
-  route through it (`is_usable` rejects it). The costs used to *discourage* liquid (+0.6 a
-  move) rather than forbid it, which the planner read as "wade anyway" whenever the dry way
-  round was more than half a step longer; a cost is not a wall, and the walking body has no
-  swim. A body already standing in liquid can still route out of it: the check is on the cell
-  being entered, not the one being left — and it is never HOPPED either, which took a second
-  fix: see the findings below
+- **Water is traversable; a liquid with no body in it never is**: a column whose feet stand in
+  lava or acid has no route through it, and `is_usable` refuses it whatever the numbers say — a
+  cost is not a wall, and the old +0.6 surcharge was read as "wade anyway", so a goblin walked
+  into lava. Water is the other case, because a body floats in it and swims out: `Cell::wade`
+  (set by `classify_block` from the block's own `fluid_kind`, the one place the two liquids can
+  still be told apart) makes a wet column a legal step at `NavCosts::liquid`, a surcharge and
+  not a wall. **A wadeable column's surface is the liquid's own TOP**, the level a swimmer rides
+  at, and not the floor under it: at the floor every way out of a pond is a climb the planner
+  refuses, which is how a goblin came to walk round a pond instead of across it (see the
+  findings). Liquid is never HOPPED — you wade it — and a body already in water can route out of
+  it, because the check is on the cell entered and not the one left
 - **Unknown is never traversable**: a cell in an unresident chunk must sample as
   `CellClass::Unknown`. A raw block query returns AIR for a missing chunk, which would otherwise
   read as walkable emptiness

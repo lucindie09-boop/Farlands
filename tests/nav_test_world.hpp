@@ -51,8 +51,15 @@ struct World {
                     overrides[node_key(x, y, z)] = Cell{CellClass::Solid, 0.0f, 1.0f};
     }
 
-    void set_cell(int32_t x, int32_t y, int32_t z, CellClass cls, float lo = 0.0f, float hi = 1.0f) {
-        overrides[node_key(x, y, z)] = Cell{cls, lo, hi};
+    void set_cell(int32_t x, int32_t y, int32_t z, CellClass cls, float lo = 0.0f, float hi = 1.0f,
+                  bool wade = false) {
+        overrides[node_key(x, y, z)] = Cell{cls, lo, hi, wade};
+    }
+
+    // A cell of water: liquid, and one the body may be in. Lava and acid are `set_cell(... Liquid)`
+    // with no flag, which is what makes every one of them a wall.
+    void set_water(int32_t x, int32_t y, int32_t z) {
+        set_cell(x, y, z, CellClass::Liquid, 0.0f, 1.0f, true);
     }
 
     void add_hole(int32_t x, int32_t z) { holes.insert(column_key(x, z)); }

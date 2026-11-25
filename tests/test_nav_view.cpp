@@ -107,6 +107,48 @@ TEST_CASE("NavView reports standing in liquid and keeps the floor below it") {
     CHECK(col->liquid);          // the feet are submerged
     CHECK(col->surface_top == doctest::Approx(8.0f));  // the floor, not the water top
     CHECK(col->clearance);
+    // ...and it is a liquid no body may be in, which is why the planner refuses it. Water sets
+    // the flag (`cell.wade`), and then the answer is the top and not the floor.
+    CHECK_FALSE(col->wade);
+}
+
+TEST_CASE("NavView floats a wadeable liquid column at the liquid's own top") {
+    nt::World w;
+    w.default_ground = 8;
+    w.set_ground(1, 0, 8);
+    w.set_water(1, 8, 0);
+    w.set_water(1, 9, 0);
+    NavView view = nt::make_view(w, 8);
+
+    const NavView::Column* col = view.column(1, 0, 10);
+    CHECK(col != nullptr);
+    if (col == nullptr) return;
+    CHECK(col->found);
+    CHECK(col->liquid);
+    CHECK(col->wade);
+    // The feet ride the surface, two blocks above the floor: a crossing planned at the bottom of a
+    // pond cannot climb out of it, which is why a goblin walked round the puddle.
+    CHECK(col->surface_top == doctest::Approx(10.0f));
+    CHECK(col->clearance);
+}
+
+TEST_CASE("NavView does not float water there is no room to swim in") {
+    // Water under a slab a body cannot fit under: not a place to be. It is not a GAP either -- the
+    // column still reports the submerged floor, and the planner refuses that.
+    nt::World w;
+    w.default_ground = 8;
+    w.set_ground(1, 0, 8);
+    w.set_water(1, 8, 0);
+    w.set_cell(1, 9, 0, CellClass::Solid);
+    NavView view = nt::make_view(w, 8);
+
+    const NavView::Column* col = view.column_at_feet(1, 0, 8);
+    CHECK(col != nullptr);
+    if (col == nullptr) return;
+    CHECK(col->found);
+    CHECK(col->liquid);
+    CHECK_FALSE(col->wade);
+    CHECK_FALSE(col->clearance);
 }
 
 TEST_CASE("NavView memoises per column and hint") {

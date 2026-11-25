@@ -455,5 +455,15 @@ the route ends and settles into an idle wait, and a punch empties the route and 
 instead of letting the next tick steer over the knockback. The wander's own idle timer is silenced
 in the probe, so every stroll that happens is one it asked for.
 
+`probe_goblin_fight.gd` is the blow, and it needs no world either: the spawn probe's stub gains one
+block ray whose answer the probe sets, and `goblin_probe_enemy.gd` is a body that counts what lands
+on it. It asks what the reach MEANS — a body one block away in the open is hit; a body on the step
+in front of it is hit (1.41 of three-dimensional distance); a body three blocks overhead is not,
+and neither is one twenty-five overhead, which is the case that was seen in play when the reach was
+the FLAT distance and height was not measured at all; and a body behind a wall is in reach but not
+in sight, so no blow lands, until the wall is gone and the next one does. Both halves of that were
+wrong, and both are one line in `goblin.gd`: which distance is measured, and what is asked before
+the swing.
+
 The rest of the directory is historical or subject-specific; the header comment
 in each one says which.

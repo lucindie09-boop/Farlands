@@ -541,7 +541,11 @@ being resampled by a different fraction at each scale.
   ticks — but only when the answer could have changed (no route, or the player has moved a block),
   because asking on a timer flips between two near-equal answers — a three-block drop against a few
   blocks of walking round — and reads as a mob changing its mind — with the head on their eyes. In reach — about 1.4 blocks between centres, the two bodies'
-  own widths plus a hand — it stops and swings **once a second for a heart** through the player's own
+  own widths plus a hand, measured in **three dimensions** (a flat distance meant a player on top of a
+  cliff twenty-five blocks up was still in reach, and took hits through the rock) and only with a
+  **clear line**: the engine's own block ray from its eyes to the player's, which is the ray the
+  player's picking and punching already use, so a body behind a wall is not in reach and does not
+  swing at stone — it stops and swings **once a second for a heart** through the player's own
   receiving chain (so the hurt window, the lean and the push away from it all happen on their side),
   falling back to the health the blow costs on a build that has no such entry, so an old extension
   still takes the damage.

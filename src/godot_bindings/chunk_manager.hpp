@@ -128,6 +128,11 @@ public:
     int32_t get_editor_render_distance() const;
 
     godot::Dictionary raycast_from_camera(double max_distance);
+    // A block ray from an arbitrary origin and direction — a mob's line of sight. The camera
+    // form above exists for the player's aim and has to start at the eye; this one asks nothing
+    // of a camera, a player or an aiming node.
+    godot::Dictionary raycast(godot::Vector3 origin, godot::Vector3 direction,
+                              double max_distance);
 
     void set_block(int32_t world_x, int32_t world_y, int32_t world_z, int block_id);
     // Bounded generated-water wake radius: 0 disables the prototype, 2 is the

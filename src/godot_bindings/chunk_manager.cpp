@@ -261,6 +261,8 @@ void ChunkManager::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_chunk_scenario", "chunk_x", "chunk_y", "chunk_z"), &ChunkManager::set_chunk_scenario);
     ClassDB::bind_method(D_METHOD("clear_editor_chunks"), &ChunkManager::clear_editor_chunks);
     ClassDB::bind_method(D_METHOD("raycast_from_camera", "max_distance"), &ChunkManager::raycast_from_camera);
+    ClassDB::bind_method(D_METHOD("raycast", "origin", "direction", "max_distance"),
+                         &ChunkManager::raycast);
     ClassDB::bind_method(D_METHOD("set_block", "world_x", "world_y", "world_z", "block_id"), &ChunkManager::set_block);
     ClassDB::bind_method(D_METHOD("set_water_wake_radius", "radius"), &ChunkManager::set_water_wake_radius);
     ClassDB::bind_method(D_METHOD("get_block", "world_x", "world_y", "world_z"), &ChunkManager::get_block);

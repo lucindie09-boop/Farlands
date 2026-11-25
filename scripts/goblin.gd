@@ -493,14 +493,21 @@ func _update_enemy(ticks: int) -> void:
 		_give_up()
 		return
 	var enemy_at := _enemy.global_position
-	var gap := Vector2(feet.x - enemy_at.x, feet.z - enemy_at.z).length()
+	# Two distances, because they answer two questions. How far away it is to WALK is the flat
+	# one, which is what a run-away is measured in; how far away it is as a BODY is the
+	# three-dimensional one, which is what a blow is measured in. The reach used to be the flat
+	# distance alone, so a player twenty-five blocks above a goblin was still "in reach" and it
+	# hit them straight up through the cliff -- a distance is not a distance if one of its axes
+	# is dropped.
+	var away := Vector2(feet.x - enemy_at.x, feet.z - enemy_at.z).length()
+	var gap := feet.distance_to(enemy_at)
 	if _health <= FLEE_HEALTH and not _fleeing:
 		_fleeing = true
 		_repath_ticks = 0
 		_abandon_route()
 	if _fleeing:
 		speed_state = "fleeing"
-		if gap >= FLEE_DISTANCE:
+		if away >= FLEE_DISTANCE:
 			_give_up()
 			return
 		_run_away(feet, enemy_at, ticks)
@@ -513,7 +520,11 @@ func _update_enemy(ticks: int) -> void:
 	# The reach has a slack on the way out: inside it, it stops and swings; it only takes the
 	# walk up again once the player is past the reach by CHASE_SLACK, so a boundary it hovers
 	# on does not have it dropping and re-planning a route every tick.
-	_in_reach = gap <= CHASE_REACH + (CHASE_SLACK if _in_reach else 0.0)
+	# ...and it has to be able to SEE what it is hitting. A reach without a look is a goblin
+	# swinging through a wall: the distance is a distance, and a blow is a blow only if it lands
+	# on a face rather than on the stone in front of it.
+	_in_reach = gap <= CHASE_REACH + (CHASE_SLACK if _in_reach else 0.0) \
+		and _sees(feet, enemy_at)
 	if _in_reach:
 		# It stands its ground rather than walking through the player: a plan still in flight
 		# would have it steering past.
@@ -533,6 +544,33 @@ func _update_enemy(ticks: int) -> void:
 	if _job == 0 and (_route.is_empty() or _planned_goal.distance_to(enemy_at) >= 1.0):
 		_repath_ticks = randi_range(CHASE_REPATH_MIN, CHASE_REPATH_MAX)
 		walk_to(enemy_at)
+
+
+## How high its eyes are above its feet: the sim knows the body, and a stub may not.
+func _eye_height() -> float:
+	if _sim != null and _sim.has_method("get_eye_height"):
+		return float(_sim.call("get_eye_height"))
+	return 1.4
+
+
+## Whether it can see the player from where it stands: the engine's own block ray from its eyes
+## to theirs, and nothing solid between. The same ray the player's own picking and punching use,
+## so what a goblin calls a clear line is what the world calls one.
+func _sees(feet: Vector3, enemy_at: Vector3) -> bool:
+	if _chunk_manager == null or not _chunk_manager.has_method("raycast"):
+		return true
+	var eye := feet + Vector3(0.0, _eye_height(), 0.0)
+	var face := enemy_at + Vector3(0.0, PLAYER_EYE_HEIGHT, 0.0)
+	var to := face - eye
+	var reach := to.length()
+	if reach < 0.01:
+		return true
+	var hit: Dictionary = _chunk_manager.call("raycast", eye, to / reach, reach)
+	if not bool(hit.get("success", false)):
+		return true
+	# A hit at the far end is the face it was aimed at; anything earlier is a wall.
+	var point: Vector3 = hit.get("hit_point", eye)
+	return eye.distance_to(point) >= reach - 0.1
 
 
 ## One blow. Through the player's own hit entry when the build has one -- that is the version

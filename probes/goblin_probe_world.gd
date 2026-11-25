@@ -6,6 +6,11 @@ extends Node
 
 const CELL_LIGHT := Vector4(0.25, 0.5, 0.125, 0.875)
 
+## Whether a wall stands between an eye and what it is looking at: the fight probe sets this to
+## ask a goblin what it does about it. A blocking hit is reported a short way along the ray, the
+## way a wall in front of a face is.
+var sight_blocked := false
+
 var calls := 0
 var light_calls := 0
 var lighting_pushes := 0
@@ -37,6 +42,13 @@ func apply_item_lighting(material: ShaderMaterial) -> void:
 func get_light_at(_world_x: int, _world_y: int, _world_z: int) -> Vector4:
 	light_calls += 1
 	return CELL_LIGHT
+
+
+## The block ray: what a mob's line of sight is. Clear unless the probe says a wall is up.
+func raycast(origin: Vector3, direction: Vector3, _max_distance: float) -> Dictionary:
+	if not sight_blocked:
+		return {"success": false}
+	return {"success": true, "hit_point": origin + direction * 0.2, "block_id": 1}
 
 
 ## A body with no resolver: its shove, its hurt window and its tick are real, its

@@ -28,6 +28,25 @@
 #include <godot_cpp/variant/vector4.hpp>
 #include <cmath>
 
+namespace {
+
+// One mapping from the editor's ray result to the dictionary GDScript reads. Both the camera
+// ray and the free ray use it, so a caller cannot be told about a hit in one shape and not in
+// the other.
+godot::Dictionary ray_to_dictionary(const VoxelEngine::RaycastResult& rr) {
+    godot::Dictionary result;
+    if (!rr.success) return result;
+    result["success"] = true;
+    result["position"] = rr.position;
+    result["place_position"] = rr.place_position;
+    result["block_id"] = rr.block_id;
+    result["hit_normal"] = rr.hit_normal;
+    result["hit_point"] = rr.hit_point;
+    return result;
+}
+
+} // namespace
+
 using namespace godot;
 using namespace VoxelEngine;
 
@@ -104,16 +123,18 @@ Dictionary ChunkManager::raycast_from_camera(double max_distance) {
         ray_dir = -camera->get_global_transform().basis.get_column(2).normalized();
     }
 
-    RaycastResult rr = controller->get_block_editor().raycast_from_ray(ray_origin, ray_dir, max_distance);
-    if (!rr.success) return result;
+    return ray_to_dictionary(
+        controller->get_block_editor().raycast_from_ray(ray_origin, ray_dir, max_distance));
+}
 
-    result["success"] = true;
-    result["position"] = rr.position;
-    result["place_position"] = rr.place_position;
-    result["block_id"] = rr.block_id;
-    result["hit_normal"] = rr.hit_normal;
-    result["hit_point"] = rr.hit_point;
-    return result;
+// A block ray from anywhere, in any direction: the mobs' line of sight. It asks nothing of a
+// camera or a player -- the camera form above is the player's aim, which has to come from the
+// eye -- and it is the same raycast the editor's own picking and punching use, so a body that
+// "sees" what this ray misses would be seeing through a different world.
+godot::Dictionary ChunkManager::raycast(godot::Vector3 origin, godot::Vector3 direction,
+                                        double max_distance) {
+    return ray_to_dictionary(
+        controller->get_block_editor().raycast_from_ray(origin, direction, max_distance));
 }
 
 void ChunkManager::set_block(int32_t world_x, int32_t world_y, int32_t world_z, int block_id) {

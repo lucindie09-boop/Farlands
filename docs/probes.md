@@ -111,6 +111,8 @@ comment, with the claim each one backs:
 | `probe_biome_search.gd` | A real `/locatebiome` miss in the running game: the radius engine and chat agree on, command-to-answer wall clock against the 4 s budget, and frame mean/p95/p99 before, during and after. Windowed, so the frames are real |
 | `probe_paste_shot.gd` | A pasted build actually renders |
 | `probe_path.gd` | The planner from the dummy to the player, over real terrain |
+| `probe_goblin_loot.gd` | A dead goblin actually drops its loot table: twenty bodies killed in the real world by the same `take_damage` a punch uses leave one to four pebbles every time, never more than two coins, never more than one ear and nothing else, each pile where the body fell — with the ear's own 33% read off three hundred rolls instead of twenty coin flips |
+| `probe_route_head.gd` | A walker standing near the edge of its own cell keeps the NEIGHBOUR column at the head of a route: the cells already stood in are skipped by column, and a route whose head is two columns off would be read as a hop across a gap and walked into never (the three-second standstill in the session trace) |
 | `probe_hammer.gd` | The hammers end to end, including the applied-write rule above |
 | `probe_torch_place.gd` | The torch ITEM places the torch BLOCK through the real bridge (`items.json` `place`) |
 | `probe_items.gd` | The item registry's fields and the held-item resting poses |

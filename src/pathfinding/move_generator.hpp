@@ -7,7 +7,8 @@
 // A move is an edge between two feet cells with a cost. Legality is worked out
 // from the target column's surface rather than from raw voxels, so the rules
 // read the way an agent walks: level steps are cheap, climbing costs, dropping
-// costs more the further it falls, and a one-cell gap can be hopped. Diagonals
+// costs more the further it falls, and a one-cell gap can be hopped -- and the
+// hop pays the same descent rate, so every fall costs `fall` a block. Diagonals
 // additionally require both columns the body squeezes between to be clear, so a
 // route never clips a wall corner.
 // -----------------------------------------------------------------------------
@@ -136,12 +137,24 @@ private:
         if (!view_.body_fits(mx, mz, from_col.surface_top)) return false;
 
         const float dh = far->surface_top - from_col.surface_top;
-        if (dh > c.max_rise + c.epsilon) return false;
+        // A hop does not climb, at any amount. The jump is pressed off the lip of the gap and
+        // has to carry the body across while it is airborne: at the pace the walker moves (a
+        // mob's, 0.6 of the player's) that arc covers 0.9 blocks against the 0.7 a one-cell gap
+        // needs, and every block of rise spends that clearance on the climb instead -- measured
+        // on the sim the walker drives, a hop up one block lands against the far wall and drops
+        // into the gap at every launch distance, while the same hop at a sprint clears. A rising
+        // gap is reached by a step up beside it, so the search goes round.
+        if (dh > c.epsilon) return false;
         if (dh < -c.max_drop - c.epsilon) return false;
 
+        // The jump's own price, plus the descent at the plain drop's rate. A discount for the
+        // jump carrying the body was a guess, and it bought nothing: the heuristic has to bound
+        // this move too, so the cheaper rate forced the estimate down with it, and that made the
+        // estimate so loose that mid-range queries tripled their expansions (65 -> 257 at 64
+        // blocks) to stay admissible against a move a route rarely ends on. One rate for every
+        // descent keeps the estimate tight and still never above the route.
         float cost = c.jump;
-        if (dh > 0.0f) cost += c.step_up * dh;
-        else if (dh < 0.0f) cost += c.fall * (-dh) * 0.5f;
+        if (dh < 0.0f) cost += c.fall * (-dh);
         if (far->liquid || from_col.liquid) cost += c.liquid;
 
         out.to = NavNode{from.x + 2 * dx, view_.feet_cell(far->surface_top), from.z + 2 * dz};

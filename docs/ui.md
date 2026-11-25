@@ -610,7 +610,14 @@ being resampled by a different fraction at each scale.
   asks for
   a new plan instead of hopping at it, and it does the same when the ground has moved under it
   (a fall
-  down a hole, a block placed across the path). The walk is **cell by cell** — the planner's own
+  down a hole, a block placed across the path). A **hop in the route** — the planner's jump
+  across a one-cell gap, which shows up as the next cell sitting two columns over — is jumped:
+  off the lip, within about two ticks of travel of it, which is the window the arc has (0.9
+  blocks airborne at the wandering pace against the 0.7 a gap needs; pressed half a block out it
+  drops in). A waypoint also counts as reached only while **standing on it**, because mid-arc
+  the far cell is under half a block away with the gap still underneath, and counting it there
+  ended the route in the air. A hop that **climbs** is not planned at all — the rise spends the
+  clearance the jump needs. The walk is **cell by cell** — the planner's own
   nodes,
   not its smoothed waypoints, which are long straight legs and were walked as straight lines
   (that is
@@ -653,7 +660,14 @@ being resampled by a different fraction at each scale.
   At **two hearts — 4 of its 12 half-hearts or less** it stops fighting and runs instead, at the
   **fleeing** pace (1.3×), sprinting away from the player with a little scatter until they are
   **16
-  blocks** off, and then it lets go and goes back to wandering. A fight has two more limits,
+  blocks** off, and then it lets go and goes back to wandering. Each sprint of that run is aimed
+  **four blocks above its own feet** rather than at their level, for the reason a wander is: the
+  planner resolves a column by scanning DOWN from the height it is given, so a point aimed at the
+  feet that lands uphill is a column whose ground is above that level with the hill over the
+  body's head — no navigable surface, no route, and a goblin that stands still in a hollow while
+  it is beaten (a real trace: twenty-three fleeing asks in six seconds, every one of them empty).
+  Aimed above the ground, the same point resolves to the hilltop and the run-away becomes a run
+  uphill. A fight has two more limits,
   both of
   them the game's own: **anger runs out** after 400–799 ticks (20–40 s, reset by every new hit),
   and

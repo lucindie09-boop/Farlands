@@ -94,6 +94,7 @@ shared_sources = [
     "src/core/inventory.cpp",
     "src/core/crafting.cpp",
     "src/core/item_registry.cpp",
+    "src/core/loot_table.cpp",
     "src/core/skin_pixel_math.cpp",
     "src/core/viewmodel_meshes.cpp",
     "src/core/viewmodel_math.cpp",

@@ -160,7 +160,7 @@ int main(int argc, char** argv) {
     // refuses to start, so the vertical profile is dumped in that case.
     for (const int32_t probe_x : {0, 32}) {
         const int32_t surf = gen.find_surface_y(probe_x, 0);
-        const nav::NavView::Column* col = view.column(probe_x, 0, surf);
+        const nav::NavView::Column* col = view.column_at_feet(probe_x, 0, surf);
         const bool usable = col != nullptr && col->found && !col->unknown && col->clearance;
         printf("probe (%d,0): generator surface y=%d -> column found=%d unknown=%d top=%.1f clearance=%d\n",
                probe_x, surf,
@@ -206,7 +206,7 @@ int main(int argc, char** argv) {
         int32_t water_cells = 0;
         int32_t drops = 0;
         for (const nav::NavNode& n : path.nodes) {
-            const nav::NavView::Column* col = view.column(n.x, n.z, n.y);
+            const nav::NavView::Column* col = view.column_at_feet(n.x, n.z, n.y);
             if (col != nullptr && col->liquid) ++water_cells;
         }
         for (size_t i = 1; i < path.nodes.size(); ++i) {
@@ -241,7 +241,7 @@ int main(int argc, char** argv) {
         tight.max_ms = 0.5;
 
         const nav::NavView::Column* sc =
-            view.column(tight.start.x, tight.start.z, tight.start.y);
+            view.column_at_feet(tight.start.x, tight.start.z, tight.start.y);
         const nav::NavNode feet{tight.start.x, view.feet_cell(sc->surface_top), tight.start.z};
 
         const double t0 = now_ms();

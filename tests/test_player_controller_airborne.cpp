@@ -8,11 +8,69 @@
 #include "engine/collision_resolver.hpp"
 #include "engine/player_controller.hpp"
 
+#include <cmath>
 #include <cstring>
 
 using namespace VoxelEngine;
 using namespace godot;
 using namespace player_controller_test;
+
+namespace {
+
+constexpr int kHopLaunchTop = 10;  // stone up to y = 9, so the launch surface is y = 10
+
+// One chunk: stone columns topped at kHopLaunchTop with the column at x == 1 empty, which is a
+// one-cell trench running the whole z axis. The far side is level with the near one.
+void fill_gap_world(ChunkMap& cm) {
+    BlockRegistry::get_instance().initialize_default_blocks();
+    auto d = std::make_unique<ChunkData>();
+    for (int x = 0; x < 32; ++x)
+        for (int z = 0; z < 32; ++z) {
+            if (x == 1) continue;
+            for (int y = 0; y < kHopLaunchTop; ++y) d->set_block(x, y, z, BlockIDs::STONE);
+        }
+    cm.insert(cm.get_chunk_key(0, 0, 0), make_test_chunk(std::move(d)));
+}
+
+// Walk east at `mult` and press jump once, when the lip of the trench is inside `lead` blocks.
+// Answers whether the body ended up standing on the far side of the gap.
+bool clears_gap(float mult, float lead) {
+    ChunkMap cm;
+    fill_gap_world(cm);
+    CollisionResolver cr(&cm);
+    PlayerSim pc;
+    pc.reset(Vector3(0.5f, static_cast<float>(kHopLaunchTop), 0.5f));
+    PlayerInput in;
+    in.wish_direction = Vector3(1.0f, 0.0f, 0.0f);
+    bool jumped = false;
+    for (int i = 0; i < 40; ++i) {
+        in.jump_pressed = false;
+        if (!jumped && pc.is_on_floor() && (1.0f - pc.get_position().x) <= lead) {
+            in.jump_pressed = true;
+            jumped = true;
+        }
+        pc.accumulate_and_tick(1.0 / 20.0, in, cr, 0.6f, mult);
+    }
+    return pc.is_on_floor() && pc.get_position().x > 1.7f &&
+           std::abs(pc.get_position().y - static_cast<float>(kHopLaunchTop)) < 0.1f;
+}
+
+} // namespace
+
+TEST_CASE("A mob's own pace clears a one-cell gap, with the jump timed at the lip") {
+    // The measurement behind `scripts/goblin.gd`'s hop (HOP_LEAD_TICKS / HOP_MIN_SPEED). A
+    // goblin wanders at 0.6 of the player's pace, and the arc has to be launched from the lip:
+    // pressed two or three ticks of travel out it lands on the far side, pressed half a block
+    // out the arc falls short and the body drops into the gap. That is why the walker's window is
+    // in ticks of the body's own travel rather than in blocks.
+    const float idle = 0.30f * 9.52f * 0.6f / 4.317f;
+    CHECK(clears_gap(idle, 0.20f));
+    CHECK(clears_gap(idle, 0.30f));
+    CHECK_FALSE(clears_gap(idle, 0.45f));
+    // ...and a chase's pace has room for a longer lead, which is what the tick window buys.
+    const float chase = 0.30f * 9.52f * 1.0f / 4.317f;
+    CHECK(clears_gap(chase, 0.36f));
+}
 
 TEST_CASE("Player step-up disabled while airborne or jumping") {
     BlockRegistry::get_instance().initialize_default_blocks();

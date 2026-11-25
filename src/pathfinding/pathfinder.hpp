@@ -8,8 +8,9 @@
 // heap ordered by f and then by node key, so an identical query always returns
 // an identical route. The heuristic is the octile distance over columns plus
 // the vertical climb/descend penalties, which stays admissible against the move
-// costs (a climb costs step_up per block, a drop costs fall per block, and both
-// are additive on top of the horizontal leg).
+// costs and tight: a climb costs step_up per block wherever it is paid, and a
+// descent costs fall per block in a hop exactly as in a drop, so one rate covers
+// both and the estimate can never sit above the route it is estimating.
 //
 // The search is budgeted twice over: an expansion cap and an optional
 // wall-clock cap (NavQuery::max_ms). When either runs out it returns the
@@ -22,7 +23,9 @@
 // at the lip of a shelf, whose own column's floor is the plain below them — the
 // nearest neighbouring column that DOES hold that level is the goal instead.
 // Without that, the goal is a cell the agent can walk to and stand on under the
-// target, so the search reports a complete route that never arrives at it.
+// target, so the search reports a complete route that never arrives at it. A wet
+// column is anchored the same way, for the other reason: no move enters liquid,
+// so a target standing in a puddle would be a goal nothing walks to.
 // -----------------------------------------------------------------------------
 
 #include "pathfinding/move_generator.hpp"

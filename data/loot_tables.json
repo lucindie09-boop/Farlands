@@ -1,0 +1,31 @@
+{
+	"_comment": "What a dead thing leaves behind, as data. The shape is the one loot tables take everywhere (data packs, mods, the reference game): a table is a list of POOLS, each pool is rolled `rolls` times, each roll picks one ENTRY out of the pool in proportion to `weight`, and an entry may then fail its own `chance` before choosing how many to give with `count`. The three steps are separate because they answer three questions -- which item, whether at all, and how many -- and a single percentage cannot say all three. Read by src/core/loot_table.cpp; every `item` is a name in data/items.json.",
+	"tables": {
+		"goblin": {
+			"_comment": "Three pools rather than one, because the three drops are independent of each other: an ear does not cost a coin, and a pile of pebbles is not a reroll of the coins. A `chance` is a real percentage (it is rolled after the pick), while `weight` is only a share of its own pool -- with one entry per pool every weight here is irrelevant, and they are all 1 until a pool needs a second entry.",
+			"pools": [
+				{
+					"_comment": "Pocket change. Count [0, 2] on purpose: an empty pocket is a real outcome, so most goblins drop a coin or two and some drop none.",
+					"rolls": 1,
+					"entries": [
+						{ "item": "silver_coin", "count": [0, 2], "weight": 1 }
+					]
+				},
+				{
+					"_comment": "What it was carrying: never nothing, one to four.",
+					"rolls": 1,
+					"entries": [
+						{ "item": "pebble", "count": [1, 4], "weight": 1 }
+					]
+				},
+				{
+					"_comment": "A third of them leave the ear. One pool with a chance, not a pool that rolls a third of the time, so the number a player reads in this file is the number the roll uses.",
+					"rolls": 1,
+					"entries": [
+						{ "item": "goblin_ear", "count": 1, "chance": 0.33, "weight": 1 }
+					]
+				}
+			]
+		}
+	}
+}

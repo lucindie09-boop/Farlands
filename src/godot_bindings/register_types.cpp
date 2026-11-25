@@ -7,6 +7,7 @@
 #include "debug/crash_dump.hpp"
 #include "debug/system_stats_binding.hpp"
 #include "godot_bindings/liquid_texture_gen.hpp"
+#include "godot_bindings/loot_tables.hpp"
 #include "godot_bindings/mob_body.hpp"
 #include "godot_bindings/player_controller.hpp"
 #include "godot_bindings/skin_pixels.hpp"
@@ -50,6 +51,7 @@ void initialize_chunk_module(ModuleInitializationLevel p_level) {
     ClassDB::register_class<::ViewmodelMeshes>();
     ClassDB::register_class<::ViewmodelPose>();
     ClassDB::register_class<::LiquidTextureGen>();
+    ClassDB::register_class<::LootTables>();
     ClassDB::register_class<::SystemStats>();
     ClassDB::register_class<::BiomeSearch>();
     ClassDB::register_class<::MobBody>();

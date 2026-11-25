@@ -6,6 +6,7 @@
 #include "engine/voxel_engine_controller.hpp"
 
 #include "core/item_registry.hpp"
+#include "godot_bindings/loot_tables.hpp"
 #include "worldgen/biome_config.hpp"
 #include "worldgen/vegetation_config.hpp"
 
@@ -41,6 +42,10 @@ void VoxelEngineController::load_world_configs() {
     BlockRegistry::get_instance().resolve_pending_drops([](const char* name) {
         return ItemRegistry::get_instance().get_item_id_by_name(name);
     });
+
+    // After items.json, because a table names its entries the way the registry does;
+    // the ids are resolved at roll time, so only the file's own shape is checked here.
+    LootTables::load("res://data/loot_tables.json");
 
     recipe_book.clear();
     if (!recipe_book.load_from_json("res://data/recipes.json")) {

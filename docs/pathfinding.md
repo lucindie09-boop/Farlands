@@ -55,9 +55,10 @@ how it is wired into the game and to the tests.
   the body stepped off ledges and waded through what the plan had gone around. Every node in
   that list was reached by a legal move, which is what makes the walk follow the plan. A route
   that stops being walkable -- a block placed across it, a fall the plan did not expect -- is
-  re-planned rather than hopped at, and a jump is only taken on a step it can climb. This is
-  the planner's first use as behaviour rather than as a debug picture (both collect results
-  through `scripts/nav_routes.gd`,
+  re-planned rather than hopped at, a jump is only taken on a step it can climb, and the plan's
+  OWN hops are jumped off the lip of the gap (see the findings below). This is the planner's
+  first use as behaviour rather than as a debug picture (both collect results through
+  `scripts/nav_routes.gd`,
   since `poll_paths()` empties its queue as it answers)
 - **In-game test harness**: the dummy egg spawns the rigid dummy, P plans a route from it to the
   player and
@@ -94,7 +95,10 @@ how it is wired into the game and to the tests.
   is a best-effort run to the frontier node nearest the goal that still starts at the agent's
   cell, which is what makes a tight budget usable rather than empty. That is different from
   `found == false, truncated == false`, which means the search exhausted the whole reachable
-  graph and there is genuinely no route; `Pathfinder::last_error()` says which
+  graph and there is genuinely no route; `Pathfinder::last_error()` says which. The two are told
+  apart by the OPEN SET, not by the count: a cap that lands on exactly the number of expansions
+  the graph holds leaves the heap empty, and that is exhaustion. Reporting it as truncated sends a
+  caller after a bigger budget for a goal no budget reaches (`tests/test_pathfinder_limits.cpp`)
 - **A query's two ends are the columns the agents STAND IN** — `NavView::column` answers "what
   surface
   could an agent arrive on here", which is up to `max_rise` above the hint, and that is what
@@ -130,7 +134,19 @@ how it is wired into the game and to the tests.
   feet in *exactly* the aimed cell; when nothing beside them holds that level (a one-block
   pillar)
   the aimed cell is kept and a best-effort route to it is the answer (pinned in
-  `tests/test_pathfinder.cpp`)
+  `tests/test_pathfinder.cpp`). A WET aimed column is anchored by the same ring for the other
+  reason: its floor can hold the right level — a target standing in a one-deep puddle is over the
+  plain — but no move enters liquid, so the aimed cell is a goal nothing walks to and the answer
+  is "no route" to a target two blocks away. The dry shore beside them is the goal instead
+  (`tests/test_pathfinder_limits.cpp`). A column whose floor is there but whose body space is not
+  goes there too — a target under a one-block roof, which is also what an aim into a hillside
+  resolves to, since the scan walks down from the level it is given and finds the hill's own
+  ground with the hill over the body's head. Only a column with no floor at all, and one that is
+  not loaded, are refused outright (an unloaded column anchored beside would hide a residency bug
+  behind a route to somewhere near the target). The roofed case used to be refused on the spot,
+  so the ring was never asked: a fleeing goblin whose run-away point landed uphill answered "goal
+  column has no navigable surface" to every ask and stood still while the player killed it
+  (`tests/test_pathfinder_limits.cpp`, and `docs/ui.md` has the aim that avoids the case too)
 - **A truncated answer is re-asked with twice the budget** — `truncated` means the clock ran out
   before the search reached the goal's level, so the same question under the same clock gets the
   same cut-off answer. `CHASE_BUDGET_LIMIT_MS` in `scripts/goblin.gd` is the ladder (24 → 48 →
@@ -158,10 +174,17 @@ how it is wired into the game and to the tests.
   read it is in [debugging.md](debugging.md)
 - **All costs live in `NavCosts`**: a level orthogonal step is 1.0, a diagonal √2, climbing
   `step_up` per block, dropping `fall` per block (at most `max_drop` = 3 per move), hopping a
-  one-cell gap a flat `jump` = 2.0, liquid +0.6. The A* heuristic (octile over columns plus the
-  same vertical terms) is admissible against those move costs. Measured on live terrain (seed
-  1337): a 192-block cross-country route is ~2,000 expansions / ~2.3 ms on one core, so the
-  single-tier A* is enough at mob-relevant ranges
+  one-cell gap a flat `jump` = 2.0, liquid +0.6, plus the same descent rate for a hop that lands
+  lower. A hop is level or downward and never climbs (its clearance is what carries the body
+  across, and a block of rise spends it — see the findings). Every descent pays `fall` a block —
+  a hop once took half of it on the theory that the
+  jump was carrying the body, which nothing measured, and the heuristic had to be softened to
+  match it or the estimate would sit above a hop-down route. Softened to half the descent rate,
+  the estimate became loose enough that mid-range queries tripled their expansions (65 -> 257 at
+  64 blocks) to stay admissible against a move a route rarely ends on. Charging the full rate in
+  `hop()` instead keeps the estimate admissible AND exact, and the expansion counts where they
+  were. Measured on live terrain (seed 1337): a 192-block cross-country route is ~2,000
+  expansions / ~2.5 ms on one core, so the single-tier A* is enough at mob-relevant ranges
 
 ## Findings from the abandoned causeway (2026-11-25)
 
@@ -180,6 +203,35 @@ attempt found four things, and the first two are kept as fixes:
   goblin jumped, landed in it and stood there while the player watched — and because a route
   existed it never concluded the player was unreachable, so nothing else was ever tried either.
   A hop clears a gap; a hazard is not a gap, and `hop` refuses a middle column that is liquid.
+- **A hop the walker could not take was planned anyway, and the walk answered by walking off
+  the edge** (fixed, `MoveGenerator::hop` + `scripts/goblin.gd`).
+  The planner emits a hop across a one-cell gap and the walker only knew how to press jump at a
+  block it was blocked by — and a gap blocks nothing. The body walked off the lip, fell in,
+  re-planned the same route and walked off again. The walk jumps off the lip now
+  (`_hop_from_lip`: inside 2.5 ticks of the body's own travel, and only above 0.078 blocks a
+  tick), with the window measured on the same sim the body walks on: at a goblin's wandering
+  pace the arc covers 0.9 blocks while airborne against the 0.7 a one-cell gap needs, so a jump
+  pressed 0.2–0.3 blocks out lands on the far side, one pressed 0.45 out lands in the gap, and
+  below about 0.07 blocks a tick it never reaches. Two more pieces are why the loop was
+  invisible: a waypoint now counts as reached only while STANDING (`_walk`), because mid-arc
+  the far cell is within half a block horizontally with the gap still underneath, and counting
+  it there ended the route in the air and stopped the wish; and a hop that CLIMBS is not
+  planned at all, because the rise spends the clearance on the climb — a hop up one block lands
+  against the far wall and drops into the gap at every launch distance at that pace (it clears
+  only at a sprint). The rising gap is reached by a step up beside it, so the search goes round.
+- **A route's first cell was dropped by a RADIUS, and the walk read the next one as a hop**
+  (fixed, `scripts/goblin.gd::_take_route`).
+  The cells already stood in were skipped by their distance from the body (0.9 blocks to the
+  middle), a radius wide enough for the body's own corner (0.707) — and wide enough for the
+  NEIGHBOUR whenever the body stood near the edge of its own cell: 0.05 past the edge, the next
+  cell's middle is 0.5 away. That cell went, the route began two columns off, and `_hop_ahead`
+  reads a cell two columns off as the planner's jump across a one-cell gap — so the walk stopped
+  at the lip to time a jump it must not take, refused it for want of speed, dropped the route,
+  and was handed the same one straight back. A punch is what puts a body there: the knockback
+  that shoved a goblin 0.0046 blocks past its own edge left it on one coordinate for three
+  seconds of the session trace (`blocked=10`, re-planning every 0.2 s) while the player it should
+  have been chasing stood four blocks away. Cells are skipped by COLUMN now: exactly the ones it
+  already stands in, and nothing else.
 - **A pool with no floor under it resolved as `found == false`** (fixed,
   `NavView::compute_column`).
   The scan descends through liquid to the floor, so liquid over empty ground or an unloaded

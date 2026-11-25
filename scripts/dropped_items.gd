@@ -252,16 +252,47 @@ func _ready() -> void:
 ## and passes the eye rather than a hand position: the offsets that turn one into
 ## the other are the throw's own geometry, so they live here with the rest of it.
 func spawn(block_id: int, count: int, from_eye: Vector3, direction: Vector3) -> void:
-	if block_id <= 0 or count <= 0:
-		return
-	var tex := BlockTextures.get_texture(block_id)
-	if tex == null:
-		return
 	var dir := direction.normalized()
 	if dir.length_squared() < 0.5:
 		dir = Vector3.FORWARD
 	# Out of the hand, which is below the eye and a little ahead of it.
 	var from := from_eye + Vector3.DOWN * SPAWN_DOWN + dir * SPAWN_FORWARD
+	var speed := THROW_SPEED * randf_range(1.0 - THROW_VARY, 1.0 + THROW_VARY)
+	var vel := dir * speed + Vector3.UP * (speed * THROW_UP)
+	# The spin is not rolled: it is what the throw does to the body. The hand is
+	# BELOW and BEHIND the centre by `from - from_eye`, so a throw along `dir`
+	# pulls the body about that offset -- the cross product is the lever arm, and
+	# the angular velocity follows from it. A body whose offset is along the throw
+	# gets no spin, which is right: it was pushed through its own centre.
+	var lever := from - from_eye
+	_add(block_id, count, from, vel, lever.cross(vel) / maxf(lever.length_squared(), 0.04))
+
+
+## Put `count` of `block_id` into the world AT `at` -- where something broke or a body
+## died, rather than out of a hand. There is no eye to throw from and no aim: the pile
+## starts where the thing was and falls, with a little sideways scatter so the several
+## drops one loot table gives are several piles rather than one stack in one cell.
+## Everything else about the body is `_add`'s, so a dropped coin and a dropped block are
+## the same kind of thing to the world.
+func spawn_at(block_id: int, count: int, at: Vector3, scatter := 1.1) -> void:
+	if block_id <= 0 or count <= 0:
+		return
+	var angle := randf() * TAU
+	var away := Vector2(cos(angle), sin(angle)) * randf_range(0.2, 1.0) * scatter
+	var vel := Vector3(away.x, randf_range(0.8, 1.8), away.y)
+	var spin := Vector3(randf_range(-5.0, 5.0), randf_range(-5.0, 5.0), randf_range(-5.0, 5.0))
+	_add(block_id, count, at, vel, spin)
+
+
+## One body in the world: the mesh it is drawn as, the boxes it is solved as, and the
+## state the solver moves. The two entry points above differ only in where it starts and
+## what it is doing when it gets there.
+func _add(block_id: int, count: int, from: Vector3, vel: Vector3, spin: Vector3) -> void:
+	if block_id <= 0 or count <= 0:
+		return
+	var tex := BlockTextures.get_texture(block_id)
+	if tex == null:
+		return
 	# The pile's own size: BASE_SCALE, the size every dropped item is, times the
 	# count's merge factor. It goes on the body's boxes as well as on the mesh, so
 	# the thing drawn and the thing solved are one box at every count, and a stack
@@ -291,15 +322,6 @@ func spawn(block_id: int, count: int, from_eye: Vector3, direction: Vector3) -> 
 	node.add_child(mesh_instance)
 	add_child(node)
 
-	var speed := THROW_SPEED * randf_range(1.0 - THROW_VARY, 1.0 + THROW_VARY)
-	var vel := dir * speed + Vector3.UP * (speed * THROW_UP)
-	# The spin is not rolled: it is what the throw does to the body. The hand is
-	# BELOW and BEHIND the centre by `from - from_eye`, so a throw along `dir`
-	# pulls the body about that offset -- the cross product is the lever arm, and
-	# the angular velocity follows from it. A body whose offset is along the throw
-	# gets no spin, which is right: it was pushed through its own centre.
-	var lever := from - from_eye
-	var spin := lever.cross(vel) / maxf(lever.length_squared(), 0.04)
 	_items.append({
 		"block_id": block_id,
 		"count": count,

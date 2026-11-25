@@ -187,6 +187,53 @@ TEST_CASE("MoveGenerator hops a one-cell gap") {
     }
 }
 
+TEST_CASE("MoveGenerator will not hop a gap that climbs") {
+    // A hop is pressed off the lip and has to carry the body across while it is airborne, and
+    // any rise spends that clearance instead: measured on the sim the goblin walks with, a hop
+    // up one block lands against the far wall and drops into the gap at every launch distance at
+    // its own pace. So a rising gap has no hop across it -- the search reaches that ground with
+    // a step up beside it and goes round.
+    nt::World w;
+    w.default_ground = 10;
+    w.add_hole(1, 0);
+    w.set_ground(2, 0, 11);
+    NavView view = nt::make_view(w, 8);
+    MoveGenerator gen(view, NavCosts{});
+
+    const NavNode from{0, 10, 0};
+    const NavView::Column* col = view.column(from.x, from.z, from.y);
+    CHECK(col != nullptr);
+    if (col == nullptr) return;
+
+    NavMoveList moves;
+    gen.generate(from, *col, moves);
+    CHECK(find_move(moves, 2, 0) == nullptr);
+}
+
+TEST_CASE("MoveGenerator hops a gap that drops, and charges the descent at the plain rate") {
+    nt::World w;
+    w.default_ground = 10;
+    w.add_hole(1, 0);
+    w.set_ground(2, 0, 9);
+    NavView view = nt::make_view(w, 8);
+    MoveGenerator gen(view, NavCosts{});
+
+    const NavNode from{0, 10, 0};
+    const NavView::Column* col = view.column(from.x, from.z, from.y);
+    CHECK(col != nullptr);
+    if (col == nullptr) return;
+
+    NavMoveList moves;
+    gen.generate(from, *col, moves);
+    const NavMove* over = find_move(moves, 2, 0);
+    CHECK(over != nullptr);
+    if (over != nullptr) {
+        CHECK(over->kind == MoveKind::Hop);
+        CHECK(over->cost == doctest::Approx(2.4f));  // 2.0 jump + one block of fall
+        CHECK(over->to.y == 9);
+    }
+}
+
 TEST_CASE("MoveGenerator never enters or crosses unresident chunks") {
     nt::World w;
     w.default_ground = 10;

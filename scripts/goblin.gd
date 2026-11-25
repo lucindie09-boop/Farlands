@@ -32,6 +32,11 @@ extends Node3D
 ## Arriving, or giving up, means standing still again until the next look. A shove
 ## interrupts all of it -- being knocked back is not something it chose, so the route
 ## is dropped instead of being steered over a tick later.
+##
+## A route's HOPS (the planner's jump across a one-cell gap) are taken too: the next cell
+## two columns over is one, and it is a jump off the lip rather than a walk into the gap.
+## A hop that climbs is not planned at all -- see `MoveGenerator::hop`, which measured
+## that arc against this pace.
 
 const NAV_ROUTES := preload("res://scripts/nav_routes.gd")
 ## The session's pathfinding trace, one per session and owned by the root -- see `_install_trace`.
@@ -167,9 +172,6 @@ const CHASE_BUDGET_LIMIT_MS := 192.0
 ## Half a pace ahead, at feet height: where a step it has to climb shows up before the
 ## body reaches it. The sim steps up 0.6 by itself, so this only fires on a full block.
 const STEP_PROBE := 0.45
-## How far past a route's own first cell it is already standing, so a plan that lands mid-
-## stride does not turn it back to the middle of the cell it is leaving.
-const SKIP_START_CELL := 0.9
 ## A route whose next cell is this far above or below its feet is a route through a world
 ## that changed underneath it -- it fell down a hole, or a stair went in -- and is re-planned.
 ## It has to leave room for a drop the PLAN itself made: `NavCosts::max_drop` is three blocks,
@@ -179,6 +181,17 @@ const ROUTE_LEVEL_SLACK := 3.5
 ## Frames of walking into something that is not a step before it gives up on the route: a
 ## wall is a reason for a new plan, and hopping at it for seconds is what it used to do.
 const REPLAN_AFTER_BLOCKED := 12
+## A hop is taken by pressing jump off its LIP, and these two numbers are what "off the lip"
+## means, measured on the sim this body walks on at the wandering pace. The arc carries it
+## 0.9 blocks while it is airborne and a one-cell gap needs a little over 0.7 of them, so a
+## jump pressed within about 0.2 blocks of the edge lands on the far side and one pressed
+## half a block out lands in the gap. The window is in TICKS of the body's own travel rather
+## than in blocks, because a slower body covers less ground in the same arc. And the arc has
+## a floor: below about 0.07 blocks a tick (the pace at a standstill, or just after a turn)
+## there is not enough travel to reach the far side at all, and the walk stops at the lip
+## rather than stepping into the hole.
+const HOP_LEAD_TICKS := 2.5
+const HOP_MIN_SPEED := 0.078
 ## A chase stops at the reach and only walks again once the player is this much further off,
 ## so it is not re-planning and dropping the route every tick at the boundary.
 const CHASE_SLACK := 0.5
@@ -328,7 +341,8 @@ var _trace_node: Node = null
 var _plan_role := "idle"
 ## The clock the chase is currently asking with -- CHASE_MAX_MS, doubled by every truncated answer
 ## up to CHASE_BUDGET_LIMIT_MS -- and the budget the goal in hand was asked with, which is what a
-## plan that stopped being walkable has to be asked with again.
+## plan that stopped being walkable is asked with again (a chase re-asks with the escalating
+## clock instead, so the two cannot disagree about how much the search may spend).
 var _chase_ms := CHASE_MAX_MS
 var _goal_expansions := STROLL_EXPANSIONS
 var _goal_max_ms := STROLL_MAX_MS
@@ -484,11 +498,15 @@ func _advance_ticks(ticks: int) -> void:
 			_trace_route_dropped()
 			_closest = INF
 			_blocked_frames = 0
-			# The budget the goal was ASKED with, not a stroll's. This path is how a plan that
-			# stopped being walkable gets re-asked, and a chase re-asked here came back truncated
-			# every time on the stroll's 4,000/8 ms -- the search was cut off before it reached the
-			# target's level, so the goblin walked the frontier under it again instead.
-			walk_to(_goal, _goal_expansions, _goal_max_ms)
+			# A chase re-asks with the CHASE's budget, which is the one that escalates. Asking here
+			# with the budget of the first ask made the escalation dead: a doubled clock never reached
+			# the planner on a re-ask, so a chase cut off once was cut off every time -- the frontier
+			# under the target, walked again, for the whole anger window. Anything else (a stroll)
+			# re-asks with the budget its goal was planned with, which is not a chase's.
+			if _enemy != null:
+				walk_to(_goal, _chase_expansion_cap(), _chase_ms)
+			else:
+				walk_to(_goal, _goal_expansions, _goal_max_ms)
 
 
 ## Claim a finished plan, walk it if there is one, otherwise stand and wait.
@@ -736,7 +754,14 @@ func _run_away(feet: Vector3, enemy_at: Vector3, ticks: int) -> void:
 	if away.length_squared() < 0.01:
 		away = Vector3(randf_range(-1.0, 1.0), 0.0, randf_range(-1.0, 1.0))
 	away = away.normalized().rotated(Vector3.UP, randf_range(-0.45, 0.45))
-	walk_to(feet + away * FLEE_RADIUS, CHASE_EXPANSIONS, CHASE_MAX_MS)
+	# Aimed STROLL_UP above its own feet, for the reason a stroll is: the planner resolves a
+	# column by scanning DOWN from the height it is given, so a point at the goblin's own feet
+	# that lands uphill resolves to a column whose ground is above it -- no floor at the level
+	# asked about, and the hill itself over the body's head. Every flee ask in a hollow came back
+	# "goal column has no navigable surface" and the goblin stood still while it was killed.
+	# Aimed above the ground, the column scan finds whatever surface is actually there, uphill or
+	# down, and the run-away becomes a run uphill.
+	walk_to(feet + away * FLEE_RADIUS + Vector3.UP * STROLL_UP, CHASE_EXPANSIONS, CHASE_MAX_MS)
 
 
 ## Off the fight: back to wandering, at the wandering pace.
@@ -836,10 +861,18 @@ func _take_route(result: Dictionary) -> void:
 	if cells.is_empty():
 		cells = result.get("waypoints", PackedVector3Array())
 	var feet: Vector3 = _sim.get_tick_position()
+	# The cells already stood in are skipped by COLUMN, not by a radius to their middles. The
+	# radius was 0.9, wide enough to cover the body's own corner (0.707) -- and also wide enough
+	# to cover the NEXT cell when the body stands near the edge of its own: 0.05 past the edge,
+	# the neighbour's middle is 0.5 away. That cell was dropped, the route began two columns off,
+	# and the walk reads a cell two columns off as a HOP across a gap (`_hop_ahead`) and refuses
+	# to walk into it for want of speed -- so it stood at the lip, dropped the route, was handed
+	# the same one back, and stood again (blocked=10, identical position, three seconds of it in
+	# nav_trace.txt). Equality of columns is what "where it already stands" means.
+	var own_x := floori(feet.x)
+	var own_z := floori(feet.z)
 	for cell in cells:
-		# The first cells are where it already stands: a plan that lands mid-stride must not
-		# turn it back to the middle of the cell it is leaving.
-		if _route.is_empty() and _flat(cell, feet).length() < SKIP_START_CELL:
+		if _route.is_empty() and floori(cell.x) == own_x and floori(cell.z) == own_z:
 			continue
 		_route.append(cell)
 	# A route that goes nowhere is not a stroll: look again soon rather than standing
@@ -856,8 +889,13 @@ func _take_route(result: Dictionary) -> void:
 func _walk() -> void:
 	var feet: Vector3 = _sim.get_tick_position()
 	var was := _next
-	# Reached means horizontally there AND at its level -- see ARRIVE_HEIGHT.
-	while _next < _route.size() and _flat(_route[_next], feet).length() < ARRIVE_DISTANCE \
+	# Reached means horizontally there AND at its level -- see ARRIVE_HEIGHT -- and STANDING
+	# on it. A hop's far cell is under half a block away horizontally from the middle of the
+	# arc, with the gap still under the body, so an arrival test that ignores the floor ends
+	# the route in mid-air: the walk stops wishing and the body drops into the hole it had
+	# just jumped.
+	while _next < _route.size() and bool(_sim.is_on_ground()) \
+			and _flat(_route[_next], feet).length() < ARRIVE_DISTANCE \
 			and feet.y >= _route[_next].y + 1.0 - ARRIVE_HEIGHT:
 		_next += 1
 	if _next != was:
@@ -876,11 +914,18 @@ func _walk() -> void:
 	# player it is already watching keeps the head, and one it is fighting has it outright.
 	if not _gazing and _enemy == null:
 		_pick_walk_look(dir)
+	# A hop first: the next cell two columns over IS the planner's jump across a one-cell gap,
+	# and there is nothing in a gap for the step probe below to be blocked by -- a walker that
+	# only knows how to press jump at a wall walks off the lip, falls in and asks for the same
+	# route again. The jump has to be timed off the lip instead (`_hop_from_lip`).
+	var grounded := bool(_sim.is_on_ground())
+	if grounded and _hop_ahead(_route[_next], feet):
+		_hop_from_lip(dir, feet)
 	# The sim climbs a step of up to 0.6 by itself; a full block it does not, so the step
 	# is seen half a pace ahead and the jump control is pressed for this frame. Only a step
 	# it can climb, though: anything taller is a wall in a route that no longer exists, and
 	# hopping at it is what used to keep a goblin jumping into a block for whole seconds.
-	if bool(_sim.is_on_ground()) and _blocked(dir, feet):
+	elif grounded and _blocked(dir, feet):
 		if _climbable(dir, feet):
 			_jump = true
 			_jumps += 1
@@ -891,6 +936,48 @@ func _walk() -> void:
 				_needs_replan = true
 	else:
 		_blocked_frames = 0
+
+
+## Whether the next route cell is a HOP: two columns over on one axis and level on the
+## other. Route cells are one legal move apart (a walk, a step, a drop or a hop), so a cell
+## exactly two away is the planner's jump across a one-cell gap.
+func _hop_ahead(cell: Vector3, feet: Vector3) -> bool:
+	var dx: int = absi(int(cell.x) - floori(feet.x))
+	var dz: int = absi(int(cell.z) - floori(feet.z))
+	return (dx == 2 and dz == 0) or (dx == 0 and dz == 2)
+
+
+## Take the hop, or refuse it. The jump is pressed when the lip is within a couple of ticks
+## of the body's own travel (`HOP_LEAD_TICKS`), which is the window the arc was measured in:
+## pressed there it lands on the far side, pressed much earlier it lands in the gap. A body
+## arriving at the lip too slowly to carry itself across does not step in -- it stops and
+## gives up on the route, which is the walk refusing a move it cannot make rather than
+## falling into the hole and being handed the same one back.
+func _hop_from_lip(dir: Vector3, feet: Vector3) -> void:
+	var lead: float = _lip_distance(dir, feet)
+	var vel: Vector3 = _sim.get_velocity()
+	var reach := Vector2(vel.x, vel.z).length()
+	if reach >= HOP_MIN_SPEED and lead <= HOP_LEAD_TICKS * reach:
+		_jump = true
+		_jumps += 1
+		_blocked_frames = 0
+		return
+	if lead <= HOP_LEAD_TICKS * HOP_MIN_SPEED and reach < HOP_MIN_SPEED:
+		_wish = Vector3.ZERO
+		_blocked_frames += 1
+		if _blocked_frames >= REPLAN_AFTER_BLOCKED:
+			_replan_reason = "a hop it cannot carry itself across"
+			_needs_replan = true
+		return
+	# Still walking up to it, or already too slow to take it: nothing to press yet.
+	_blocked_frames = 0
+
+
+## How much of the cell it stands in is left before the gap, along the hop's own axis.
+func _lip_distance(dir: Vector3, feet: Vector3) -> float:
+	if absf(dir.x) >= absf(dir.z):
+		return absf(floorf(feet.x) + (1.0 if dir.x > 0.0 else 0.0) - feet.x)
+	return absf(floorf(feet.z) + (1.0 if dir.z > 0.0 else 0.0) - feet.z)
 
 
 ## The head follows the walk: a couple of blocks along the direction of travel, and
@@ -1140,12 +1227,34 @@ func take_damage(amount: float) -> void:
 		die()
 
 
-## At zero it goes: the body is freed, which the spawn tool notices on its next frame
-## (it drops the dead body's light entry with it).
+## At zero it goes: what it was carrying falls where it stood, and then the body is
+## freed, which the spawn tool notices on its next frame (it drops the dead body's light
+## entry with it).
 func die() -> void:
 	print("Goblin dies")
+	_drop_loot()
 	_give_up()
 	queue_free()
+
+
+## What a dead goblin leaves: the loot table's own answer, dropped where it fell. The
+## table is data (`data/loot_tables.json`, rolled by `LootTables.roll`), not three rolls
+## written here, so what a goblin drops is a file rather than a script change.
+##
+## The drops are spawned through the world's dropped-item node (`spawn_at`), which is
+## the same body a thrown item is: they fall, land, can be walked over, and the
+## inventory's own stack cap decides what a pickup can take.
+func _drop_loot() -> void:
+	var dropped := get_node_or_null(NodePath("/root/Main/DroppedItems"))
+	if dropped == null or not dropped.has_method("spawn_at"):
+		return
+	var at := global_position
+	if _sim != null:
+		# Out of the body, not out of its feet: the pile falls and settles where the
+		# goblin was standing instead of starting under the ground it lies on.
+		at = _sim.get_tick_position() + Vector3(0.0, 0.9, 0.0)
+	for drop in LootTables.roll("goblin"):
+		dropped.call("spawn_at", int(drop.get("block_id", 0)), int(drop.get("count", 0)), at)
 
 
 func get_health() -> float:

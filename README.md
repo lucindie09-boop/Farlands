@@ -78,7 +78,7 @@ and a wildcard like `src/mesh/mesh_manager*.cpp` means the family a split produc
 | Block icons | `block_icon_renderer.gd` | Isometric 300x300 icons built from each shape's selection boxes, pre-rendered and cached; `/testicons` |
 | Health, death, chat | `healthbar.gd`, `airbar.gd`, `death_screen.gd`, `chat.gd` | 10 hearts, the breath bubbles, the respawn overlay, autocomplete and the command set |
 | Settings, Skin Maker, Block Maker | `settings_menu.gd` | Render/lighting/crosshair/controls pages, the two in-game editors, the liquid lab and the goblin spawner on the Tools page, one share code per category - [notes](docs/gui-notes.md) |
-| Testing & CI | `tests/`, `tools/`, `.github/workflows/build.yml` | 795 cases / 374,395 assertions, four static gates, the soak and fuzz jobs - [notes](docs/testing.md), [contributing](CONTRIBUTING.md) |
+| Testing & CI | `tests/`, `tools/`, `.github/workflows/build.yml` | 808 cases / 395,156 assertions, four static gates, the soak and fuzz jobs - [notes](docs/testing.md), [contributing](CONTRIBUTING.md) |
 | Shader effects | `shader_overlay.gd` + `data/shaders.json` | The effect stack (Hand Drawn, CRT Screen, Phosphor Trail, filters, camera and vertex effects), built from the registry - [rendering](docs/rendering-notes.md) |
 | Liquid texture lab | `liquid_texture_lab.gd`, `liquid_animator.gd` | Generates and animates the water/lava/acid sprites instead of shipping them (Tools → Liquid Texture Lab on the pause menu opens the lab) - [rendering](docs/rendering-notes.md) |
 | Texture packs | `src/render/texture_pack_manager.hpp`, `tools/pack_converter.py` | Per-block texture overrides loaded from `user://packs/` |
@@ -203,7 +203,19 @@ The terrain generation system is data-driven through JSON configuration files:
   on — and putting it away restores the level, colour and `player_light_enabled` the scene had
   before, so holding a torch is what turns dynamic lighting on. Items are still never placeable,
   an item with no `"use"` entry (and no `"light"`) does nothing when right-clicked, and a
-  `use.block` name that does not resolve is reported at load instead of silently doing nothing
+  `use.block` name that does not resolve is reported at load instead of silently doing nothing.
+  `pebble`, `silver_coin` and `goblin_ear` are the newest entries and the plainest: a name,
+  a texture and no behaviour at all beyond being dropped — what drops them is
+  `data/loot_tables.json`, not a script
+- **`data/loot_tables.json`** — What a dead body leaves behind, one table per body name
+  (`goblin`): a list of independent pools, each rolled `rolls` times, an entry picked by its
+  share of `weight`, then its own `chance` (a real percentage, rolled after the pick), then
+  `count` (a number or a `[min, max]` range, where `[0, n]` means "sometimes nothing"). The
+  three steps are separate because they answer three different questions, and the pools are
+  separate because two independent drops must not be weighed against each other. Parsed and
+  rolled by `src/core/loot_table.cpp` (no Godot, so the test binary pins the seed) through
+  the `LootTables` binding, and every `item` names an entry in `data/items.json` — a name
+  that does not resolve is warned about and skipped rather than leaving a silent nothing
 
 These configs are loaded at startup via `VoxelEngineController::load_world_configs()` and
 threaded to generation workers. Missing files or keys fall back to built-in defaults.
@@ -346,8 +358,8 @@ vocabulary, [docs/debugging.md](docs/debugging.md) for the instruments,
 rejected. [AGENTS.md](AGENTS.md) is the engineering record: the constraints and the notes that
 cut across systems.
 
-The project has **795 test cases / 374,395 assertions** across the 118 `.cpp` files in `tests/`
-(114 declaring cases, plus the doctest entry point and a stub TU), including 27 tests in
+The project has **808 test cases / 395,156 assertions** across the 120 `.cpp` files in `tests/`
+(115 declaring cases, plus the doctest entry point and a stub TU), including 27 tests in
 `test_concurrency.cpp` (shard locking, deadlock prevention, PaletteStorage, cross-chunk writers,
 thread-pool work stealing).
 

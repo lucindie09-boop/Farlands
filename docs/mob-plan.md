@@ -63,6 +63,13 @@ rise in one step — and the walk answered by pressing at walls and hopping at o
 cannot fit through. The search expands with `column_at_feet` now, and only the TARGET of a move
 still looks above the hint, which is what a step up is.
 
+A fourth came out of walking what those routes said. The planner **hops** a one-cell gap, and
+the walker only knew how to press jump at a block it was blocked by — a gap blocks nothing — so
+the hop read as a clear edge: the body walked off the lip, fell in and asked for the same route
+again. The walk jumps off the lip now (`goblin.gd`), in the window the arc was measured in (0.9
+blocks airborne at a mob's pace against the 0.7 a gap needs), and the planner no longer emits
+the hop that cannot be taken at all — one that climbs, where the rise spends that clearance.
+
 ### 3. Mob bodies do not collide with anything
 A goblin walks through the player and through other goblins. `CHASE_STOP` (0.9 blocks, about two
 bodies' half-widths) is a stand-in for the body that should be stopping it, and a pack of five

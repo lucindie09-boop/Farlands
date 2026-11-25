@@ -76,7 +76,7 @@ boxes is overruled and warned about at load.
 
 ## data/items.json
 
-`{"items": [...]}`, 30 entries. Read by `src/core/item_registry.cpp`; the
+`{"items": [...]}`, 33 entries. Read by `src/core/item_registry.cpp`; the
 `texture` name resolves under `res://Assets/textures/items/`, because an item is not
 part of the block texture array.
 
@@ -90,6 +90,40 @@ part of the block texture array.
 | `light` | object | `level` and `color` ([r,g,b]). While the item is selected it *owns* the player's dynamic light |
 | `use` | object | `kind` plus its argument: `pour` writes `block` into the aimed cell, `fill` empties the fluid source aimed at and swaps the item for that fluid's bucket, `dummy` puts a combat dummy on the aimed block (`dummy_egg`), `goblin` puts a goblin there instead (`goblin_egg`), `swap` replaces the held item with `item` keeping the count (the rods' cast/retract pair) |
 | `place` | object | The one bridge from item space into block space: `block`, plus `wall` → `{n, s, e, w}` for the states that hug a face. Without it an item is never placeable |
+
+The three newest entries are `pebble`, `silver_coin` and `goblin_ear`: a name, a
+`texture` and nothing else. They exist to be **dropped** (`data/loot_tables.json`) rather
+than used, held for a reason or placed, which is why none of them carries a `use`, a
+`tool` or a `place` — an ear in the inventory is just a thing in the inventory.
+
+## data/loot_tables.json
+
+`{"tables": {...}}`, keyed by **table name**: a body names the table it drops
+(`scripts/goblin.gd::_drop_loot` asks for `goblin`). Parsed and rolled by
+`src/core/loot_table.cpp`, which has no Godot in it so the test binary can pin the dice;
+the file read and the name → id resolution are the `LootTables` binding (`load` once at
+startup, `roll` per body). Every `item` is a name in `data/items.json`; a name that is not
+an item is warned about and that drop skipped, rather than silently leaving nothing.
+
+| Key | Type | Meaning |
+|---|---|---|
+| `tables.<name>.pools` | list | The table. Each pool is rolled on its own, so two independent drops are two pools |
+| `pools[].rolls` | number or `[min, max]` | How many times this pool is rolled; absent means once |
+| `pools[].entries` | list | What a roll may pick. One entry is picked per roll |
+| `entries[].item` | string | The item to drop, by `items.json` name |
+| `entries[].weight` | number | This entry's share of its own pool's picks, default 1. It is a share and not a percentage: one entry in a pool makes it irrelevant |
+| `entries[].chance` | number, 0 to 1 | Rolled AFTER the pick, so the entry drops only this often (default 1) |
+| `entries[].count` | number or `[min, max]` | How many, default 1. `[0, n]` is a real outcome — the pick happens and gives nothing |
+| `_comment` | string | Ignored everywhere; the file explains itself with these |
+
+The three steps are separate because they answer three questions — which item
+(`weight`), whether at all (`chance`), how many (`count`) — and one percentage cannot say
+all three. The pools are separate because `weight` is a share of a pool: weighing a coin
+against a pebble would make one of them crowd out the other instead of both dropping.
+
+`goblin` is the only table: `silver_coin` `[0, 2]`, `pebble` `[1, 4]`, and `goblin_ear`
+count 1 at `chance` 0.33. Pinned by `tests/test_loot_table.cpp`, which parses the shipped
+file and holds every name in it against `data/items.json`.
 
 ## data/biomes.json
 

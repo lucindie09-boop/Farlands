@@ -44,10 +44,22 @@ Pathfinder::GoalAnchor Pathfinder::resolve_goal(const NavQuery& query) const {
     anchor.z = query.goal.z;
 
     const NavView::Column* own = anchor.column;
-    // Ground at the level that was aimed at is the answer, and so is a column that cannot be used
-    // at all: that one is an error the caller has to hear about, not a cell to walk beside.
-    if (own == nullptr || !own->found || own->unknown || !own->clearance ||
-        view_.feet_cell(own->surface_top) == query.goal.y) {
+    // A column with NO floor at all, and one that is not loaded, are refused outright: there is
+    // nothing to stand beside, and anchoring on loaded ground next to an unloaded column would
+    // hide a residency bug behind a route to somewhere near the target.
+    if (own == nullptr || !own->found || own->unknown) {
+        return anchor;
+    }
+    // Dry ground at the level that was aimed at is the answer. Everything else goes to the ring:
+    // a WET column, whose floor can hold the right level (a target in a one-deep puddle is over
+    // the plain) but which no move may enter; a column that holds another level, which is a target
+    // past the lip of a shelf; and a column whose floor is there but whose headroom is not, which
+    // is a target under a roof -- or, the case that found this, an aim into a hillside, where the
+    // ground is above the level asked about and the hill is over the body's head. That last one
+    // used to be returned as an error on the spot, so the ring -- which exists for exactly this --
+    // was never asked: a fleeing goblin whose run-away point landed uphill answered "goal column
+    // has no navigable surface" on every ask and stood still while the player beat it to death.
+    if (own->clearance && !own->liquid && view_.feet_cell(own->surface_top) == query.goal.y) {
         return anchor;
     }
 
@@ -74,9 +86,10 @@ Pathfinder::GoalAnchor Pathfinder::resolve_goal(const NavQuery& query) const {
         anchor.z = z;
         return anchor;
     }
-    // Nothing beside them holds that level either (a one-block pillar, a lip over a void): the
-    // aimed cell is all there is to answer with, and a route to it is still the best effort there
-    // is. The fixed ring order keeps an identical query resolving to an identical goal.
+    // Nothing beside it holds that level either (a one-block pillar, a lip over a void, an aim
+    // into a hillside): the aimed cell is all there is to answer with, and a route to it is still
+    // the best effort there is -- and if that column cannot be used at all, the search reports
+    // exactly that. The fixed ring order keeps an identical query resolving to an identical goal.
     return anchor;
 }
 
@@ -94,7 +107,13 @@ float Pathfinder::heuristic(const NavNode& a, const NavNode& b) const {
     float h = unit * max_d + (costs_.diagonal - unit) * min_d;
     // Vertical is a deliberate lower bound on the climb/descent surcharge: a
     // move that also travels horizontally pays the horizontal term too, so
-    // leaving it out can only undershoot.
+    // leaving it out can only undershoot. A climb costs `step_up` a block, and
+    // so does a descent, hop or drop alike (see `hop`), which makes this term
+    // admissible AND tight. It is unbound only if a move ever charges less down
+    // than `fall`: a hop used to pay half, and matching that here made the
+    // estimate so loose that mid-range queries tripled their expansions (65 ->
+    // 257 at 64 blocks) to stay admissible against a move a route rarely ends
+    // on.
     const int32_t dy = b.y - a.y;
     if (dy > 0) h += costs_.step_up * static_cast<float>(dy);
     else h += costs_.fall * static_cast<float>(-dy);
@@ -237,8 +256,12 @@ NavPath Pathfinder::search(const NavQuery& query) const {
     path.stats.expansions = expansions;
     path.stats.columns_resolved = view_.columns_resolved() - columns_before;
     path.stats.time_exhausted = time_up;
-    path.stats.budget_exhausted =
-        (!found && !time_up && static_cast<int32_t>(expansions) >= budget);
+    // `open` says whether the cap actually cost anything: a search capped at exactly the number of
+    // expansions the graph holds stops on that count with the heap already empty, which is an
+    // EXHAUSTED graph, not a cut-off one. Calling it truncated sends the caller after a bigger
+    // budget for a goal that is unreachable at any budget, and re-asks the same question.
+    path.stats.budget_exhausted = (!found && !time_up &&
+                                   static_cast<int32_t>(expansions) >= budget && !open.empty());
     path.found = found;
     path.truncated = !found && (path.stats.budget_exhausted || time_up);
 

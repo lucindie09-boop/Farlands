@@ -31,6 +31,9 @@ const SAMPLE_SECONDS := 1.0
 const CONSOLE_TAIL := 40
 ## Samples echoed with them: the last handful of positions is what the events are read against.
 const CONSOLE_SAMPLES := 6
+## Cells of a route spelled out in full before the rest is a count. Six is enough to see what the
+## head of the plan is doing, which is where a route that climbs something it cannot climb shows.
+const PATH_CELLS_SHOWN := 6
 
 ## Whether a recorder has been created this session. Two goblins spawned on the same frame both
 ## find an empty root, so the "only one" guard has to live here rather than in the tree.
@@ -80,8 +83,8 @@ func add_line(text: String) -> void:
 ## with other plans in flight. `role` is the body's speed state: chasing, fleeing, idle. The
 ## budget is the one thing the answer cannot show — `ms` is what was SPENT, not what was allowed —
 ## and it is the number a chase escalates (see CHASE_BUDGET_LIMIT_MS in scripts/goblin.gd).
-func plan_asked(job: int, role: String, from: Vector3, to: Vector3, expansions := 0,
-		max_ms := 0.0) -> void:
+func plan_asked(job: int, role: String, from: Vector3, to: Vector3, expansions: int,
+		max_ms: float) -> void:
 	_plans += 1
 	add_line("ASK  %-4d %-8s from=%s to=%s budget=%dexp/%.0fms"
 		% [job, role, _cell_text(from), _cell_text(to), expansions, max_ms])
@@ -107,7 +110,7 @@ func plan_answered(job: int, role: String, result: Dictionary) -> void:
 		var last: Vector3 = nodes[nodes.size() - 1]
 		end = _cell_text(Vector3(last.x, last.y + 1.0, last.z))
 	add_line("PLAN %-4d %-8s found=%s truncated=%s nodes=%d end=%s path=%s ms=%.1f exp=%d error=\"%s\""
-		% [job, role, found, truncated, nodes.size(), end, _path_text(nodes, 6),
+		% [job, role, found, truncated, nodes.size(), end, _path_text(nodes),
 		   float(result.get("ms", 0.0)), int(result.get("expansions", 0)),
 		   result.get("error", "")])
 
@@ -115,11 +118,11 @@ func plan_answered(job: int, role: String, result: Dictionary) -> void:
 ## The route as a reader needs it: the first few cells (as feet, like `end`), then how many were
 ## left out. The END is printed beside it because that is the number a chase is judged by; the HEAD
 ## says whether the walk was ever aimed at the climb at all.
-func _path_text(nodes: PackedVector3Array, show: int) -> String:
+func _path_text(nodes: PackedVector3Array) -> String:
 	var out := ""
 	for i in nodes.size():
-		if i >= show:
-			out += " (+%d)" % (nodes.size() - show)
+		if i >= PATH_CELLS_SHOWN:
+			out += " (+%d)" % (nodes.size() - PATH_CELLS_SHOWN)
 			break
 		if i > 0:
 			out += ">"

@@ -169,6 +169,18 @@
 			"display": "Goblin Spawn Egg",
 			"pose": "item2",
 			"use": { "kind": "goblin" }
+		},
+		{
+			"name": "pebble",
+			"texture": "pebble"
+		},
+		{
+			"name": "silver_coin",
+			"texture": "silver_coin"
+		},
+		{
+			"name": "goblin_ear",
+			"texture": "goblin_ear"
 		}
 	]
 }

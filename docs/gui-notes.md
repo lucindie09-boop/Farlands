@@ -50,9 +50,10 @@ first-person viewmodel - what each one owns and the decisions behind it.
   `default_color()`) when the item is put away — holding the torch is what turns dynamic
   lighting on, and a toggle the user set themselves still survives a torch in between. Adding an
   item is one entry in `data/items.json` (plus a `Assets/textures/items/<name>.png`) — APPEND it,
-  because entry order is the id. `wand` is the newest and is the plainest: a name, a texture and
-  no behaviour, so it resolves, renders and is refused by the placement path like every other
-  item. `src/core/mining.hpp` turns them into a break-speed multiplier: the pure
+  because entry order is the id. `pebble`, `silver_coin` and `goblin_ear` are the newest and the
+  plainest: a name, a texture and no behaviour, so they resolve, render and are refused by the
+  placement path like every other item — they exist to be dropped, and what drops them is
+  `data/loot_tables.json` (`docs/data-schemas.md`). `src/core/mining.hpp` turns them into a break-speed multiplier: the pure
   `tool_mining_speed()` (unit-tested in `tests/test_mining.cpp`) returns the tool's `speed` only
   when its class matches the block (`preferred_tool`, or `hammer` against any block that names a
   `crush_result` — see the hammer bullet below) and its `tier` meets the block's `min_tier`,

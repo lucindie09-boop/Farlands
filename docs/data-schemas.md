@@ -125,6 +125,32 @@ against a pebble would make one of them crowd out the other instead of both drop
 count 1 at `chance` 0.33. Pinned by `tests/test_loot_table.cpp`, which parses the shipped
 file and holds every name in it against `data/items.json`.
 
+## data/mobs.json
+
+`{"mobs": {...}}`, keyed by **mob name**: a body names its own entry
+(`scripts/goblin.gd::MOB_TYPE` asks for `goblin`). Parsed by
+`src/core/mob_attributes.cpp`, which has no Godot in it so the test binary reads an entry out
+of a string; the file read and the struct → `Dictionary` translation are the `Mobs` binding
+(`load` once at startup, `attributes` per body). `_apply_attributes` in the script fills the
+body's own fields from it in `_ready`, and the script's constants of the same names are the
+fallback — so a missing file is a goblin with the numbers it was written against, not a body
+with none.
+
+| Key | Type | Unit | Meaning |
+|---|---|---|---|
+| `health` | number | half-hearts | 12 is six hearts; must be above zero |
+| `damage` | number | half-hearts | what one of its blows costs |
+| `speed` | number | Minecraft's movement value | per-tick acceleration; `× 9.52` is blocks/s, so 0.30 is 2.86 |
+| `follow_range` | number | blocks | past this a chase forgets its target |
+| `alert_box` | number | blocks, on every axis | how far the shout that wakes a pack carries |
+| `anger_window` | `[min, max]` | ticks (20 a second) | how long the anger lasts |
+
+Every field is optional (the struct's default applies), and a file that cannot be a body is
+refused with the field named: no health, a negative blow, a zero speed or an `anger_window`
+that runs backwards. `goblin` is the only entry — 12, 2, 0.30, 35, 32 and `[400, 799]` — pinned
+by `tests/test_mob_attributes.cpp`, and `probes/probe_mob_attributes.gd` shows a body spawned
+in the world running with those numbers, and with a reloaded file's.
+
 ## data/biomes.json
 
 Read by `src/worldgen/biome_config.cpp`.

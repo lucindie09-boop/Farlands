@@ -49,7 +49,13 @@ const TRACE_NODE := NodePath("/root/NavTrace")
 ## The sim's own body box, for the step probe: the same one the player moves in.
 const BODY := Vector3(0.6, 1.8, 0.6)
 
-## 6 hearts, in the half-hearts `PlayerController.get_health()` also counts in.
+## Which entry in `data/mobs.json` this body is: the six numbers below are read from it at
+## `_ready` (`_apply_attributes`), so a new mob is an entry there with a model rather than a
+## copy of this script.
+const MOB_TYPE := "goblin"
+## 6 hearts, in the half-hearts `PlayerController.get_health()` also counts in. The DEFAULT: what
+## a body runs with is `data/mobs.json` `health`, and this is what a build with no file, or an
+## entry that leaves the field out, falls back to.
 const MAX_HEALTH := 12.0
 ## Vanilla's empty fist: one half-heart per hit.
 const PUNCH_DAMAGE := 1.0
@@ -88,6 +94,7 @@ const STROLL_UP := 4.0
 ## a zombie at 2.19, a villager at 4.76. (The player's 4.317 is NOT 0.1 * 9.52: the
 ## player adds 0.098 a tick by a different route, which is why its value cannot be read
 ## with the mob's factor.)
+## The DEFAULT: `data/mobs.json` `speed` is what the body actually moves at.
 const MOVEMENT_SPEED := 0.30
 ## A mob's value in blocks per second -- see MOVEMENT_SPEED for the arithmetic.
 const BLOCKS_PER_SECOND := 9.52
@@ -112,6 +119,7 @@ const SPEED_STATES := {
 ## centres -- and the blow lands once a second for a heart.
 const CHASE_REACH := 1.45
 const ATTACK_TICKS := 20
+## The DEFAULT: `data/mobs.json` `damage` is what a blow costs at runtime.
 const MOB_ATTACK_DAMAGE := 2.0
 ## The chase re-plans on that goal's own interval, 4 to 10 ticks, and never waits on a plan
 ## already in flight (`walk_to` answers 0 for one).
@@ -125,6 +133,11 @@ const FLEE_HEALTH := 4.0
 const FLEE_DISTANCE := 16.0
 ## Each sprint of that run is this far, picked away from the player with a little scatter.
 const FLEE_RADIUS := 8.0
+## How far BELOW its own feet a run-away looks for the ground it is aiming at, after looking up as
+## far as a stroll does. The aim is eight blocks out and the ground there can be a hilltop or a drop
+## away from the goblin's own level, so the goal has to be a cell something can actually stand in
+## rather than a height.
+const FLEE_SCAN_DOWN := 8
 ## A punch is only taken personally from this far: from further off, the goblin has no one to
 ## find and goes back to what it was doing.
 const AGGRO_RANGE := 16.0
@@ -132,14 +145,17 @@ const AGGRO_RANGE := 16.0
 ## every axis, turns on the same attacker. The game's own pigmen do exactly this, on a box
 ## expanded 32 blocks out from the one that was hit. The one that was hit is not special — it
 ## simply happened to be nearest.
+## The DEFAULT: `data/mobs.json` `alert_box` is the box actually walked.
 const ALERT_RADIUS := 32.0
 ## How long that anger lasts once raised: 400 to 799 ticks, twenty to forty seconds, which is the
 ## span the same mobs are given. Every new hit resets it.
+## The DEFAULT: `data/mobs.json` `anger_window` is the pair actually rolled.
 const ANGER_MIN_TICKS := 400
 const ANGER_MAX_TICKS := 799
 ## A chase has a LENGTH. Past this many blocks from the player it forgets the target and goes back
 ## to wandering, which is the follow range a zombie (and therefore a pigman) carries in the game:
 ## 35 blocks. Without it a goblin followed one punch across the world.
+## The DEFAULT: `data/mobs.json` `follow_range` is the leash actually used.
 const CHASE_LEASH := 35.0
 ## How close a chase walks before it plants itself. The reach is where the BLOW lands; this is
 ## where the walking stops. They were the same number, so a goblin halted a whole reach away and
@@ -172,6 +188,13 @@ const CHASE_BUDGET_LIMIT_MS := 192.0
 ## Half a pace ahead, at feet height: where a step it has to climb shows up before the
 ## body reaches it. The sim steps up 0.6 by itself, so this only fires on a full block.
 const STEP_PROBE := 0.45
+## How far down a slide may end and still count as ground: the planner's own `max_drop`, so the
+## walker and the plan agree about which step downs exist.
+const FALL_PROBE := 3.0
+## A climb is one block up the PLAN can ask for, not any rise the geometry allows: a wall probed
+## from on top of the feet answers "clear" and turned every wall into a step the goblin jumped at
+## twenty-one times in a three-cell route (`nav_trace` 2026-11-25 23:43: `jumps` 6 -> 15 -> 21).
+const CLIMB_RISE := 0.5
 ## A route whose next cell is this far above or below its feet is a route through a world
 ## that changed underneath it -- it fell down a hole, or a stair went in -- and is re-planned.
 ## It has to leave room for a drop the PLAN itself made: `NavCosts::max_drop` is three blocks,
@@ -180,6 +203,23 @@ const STEP_PROBE := 0.45
 const ROUTE_LEVEL_SLACK := 3.5
 ## Frames of walking into something that is not a step before it gives up on the route: a
 ## wall is a reason for a new plan, and hopping at it for seconds is what it used to do.
+
+## How much of the IN THE WAY axis a corner press keeps, against 1.0 of the free one.
+##
+## The resolver takes the larger horizontal motion first (`collision_resolver.cpp`: "Y first,
+## then whichever horizontal axis has the LARGER motion magnitude"), and that decides whether
+## a corner can be walked at all. A press whose BLOCKED axis is the larger is tested first --
+## while the box is still inside the wall's cell -- so it is clipped, the free axis only moves
+## afterwards, and the tick ends with the body over the drop and its press spent. That is the
+## 00:47 run: at the lip, aiming at the far cell's centre gives `x` the larger share (the body
+## sits at the wall's face and the centre is 0.8 away in `x`, 0.3 in `z`), `x` goes first and
+## is clipped, `z` then carries the body past the wall with `x` still at -1.300005 -- and it
+## falls to y=247.85, below the far floor, where the floor's own SIDE face blocks the press
+## and it slides down into the water. With the free axis the larger, the same tick clears `z`
+## and then takes 0.09 of `x`, which is over the far floor before the tick ends: the player's
+## own line. So a corner press is never the chord -- the free axis is kept at 1.0 and the
+## in-the-way axis at this much of it.
+const CORNER_PRESS := 0.6
 const REPLAN_AFTER_BLOCKED := 12
 ## A hop is taken by pressing jump off its LIP, and these two numbers are what "off the lip"
 ## means, measured on the sim this body walks on at the wandering pace. The arc carries it
@@ -220,6 +260,13 @@ const STROLL_MAX_MS := 8.0
 ## Pushing at one waypoint without getting closer for this long drops the route: a rise
 ## it cannot climb, a gap it cannot cross, a target the world has since changed under.
 const STUCK_TICKS := 50
+## Frames pressed at a lip the swim cannot climb before the route is dropped and asked again. The
+## clocks that measure WALKING are zeroed in water (`_swim`), so a route that asks for a climb the
+## lift cannot make used to be leaned on forever: nav_trace, 2026-11-25 22:20, `stuck` never
+## passing 6 while the body pressed at a staircase foot for twenty seconds. The planner refuses
+## that move now; this is the second lock, for a route planned before the water or the ground
+## under it moved.
+const LIP_GIVE_UP_FRAMES := 90
 ## A plan that came back with nowhere to walk is not worth the whole idle wait: a column
 ## can be picked inside a cliff or across water and be unreachable, and trying again
 ## soon after is what keeps a goblin from looking frozen on a bad roll.
@@ -302,6 +349,17 @@ var speed_state := "idle"
 
 var _health := MAX_HEALTH
 
+# The body's numbers, which `data/mobs.json` owns. `_apply_attributes` fills every one of these
+# from the registry in `_ready`, and the constants of the same names are the fallback -- nothing
+# below reads a constant, so tuning a goblin is a diff in the data file and not in this script.
+var _max_health := MAX_HEALTH
+var _damage := MOB_ATTACK_DAMAGE
+var _movement_speed := MOVEMENT_SPEED
+var _follow_range := CHASE_LEASH
+var _alert_box := ALERT_RADIUS
+var _anger_min_ticks := ANGER_MIN_TICKS
+var _anger_max_ticks := ANGER_MAX_TICKS
+
 # The movement sim, and the node it is drawn at: the sim owns the position.
 var _sim: RefCounted = null
 var _chunk_manager: Node = null
@@ -331,10 +389,19 @@ var _goal := Vector3.ZERO
 ## Where the plan in hand was asked for, so a chase can ask again only when the answer could
 ## have changed rather than on a clock.
 var _planned_goal := Vector3.ZERO
+## The cell the current plan was ASKED FROM -- not always the column the body is in: at a lip its
+## centre is over the hole and a neighbouring cell carries it (`_standing_cell`), so the plan comes
+## back with that cell as its first node. See `_take_route`.
+var _planned_from := Vector3.INF
 ## Set when the route in hand is no longer a route (blocked, or the ground moved under it)
 ## and a new plan is owed once the last one has landed.
 var _needs_replan := false
 var _blocked_frames := 0
+## Frames pressed at a lip above the water line: see LIP_GIVE_UP_FRAMES.
+var _lip_frames := 0
+## Ticks spent stroking, this session: the trace's "is it actually swimming" number, which a
+## position cannot answer for a body bobbing on the spot.
+var _strokes := 0
 ## Whether it is inside its fighting reach right now, which carries the slack above.
 var _in_reach := false
 ## Whether it is closing the last pace on the player: inside the reach but not yet at CHASE_STOP,
@@ -395,6 +462,7 @@ var _wet_target := false
 
 
 func _ready() -> void:
+	_apply_attributes()
 	_chunk_manager = get_node_or_null("/root/Main/ChunkManager")
 	if _chunk_manager != null and _chunk_manager.has_method("make_mob_body"):
 		_sim = _chunk_manager.make_mob_body()
@@ -408,6 +476,29 @@ func _ready() -> void:
 	# A real world is what a trace is for: a stub body (a probe) has no plans to record.
 	if _chunk_manager != null and _chunk_manager.has_method("request_path"):
 		_install_trace()
+
+
+## What this body IS, from `data/mobs.json` through the `Mobs` binding: health, damage, speed,
+## follow range, alert box and anger window. The constants above are the fallback -- a build with
+## no file, or an entry that leaves a field out, keeps them -- so a missing file is a mob with its
+## script's own numbers rather than a body with no health. The lookup is guarded on the binding
+## existing at all, because a probe can run against a DLL built before this class did.
+func _apply_attributes() -> void:
+	var attrs: Dictionary = {}
+	if ClassDB.class_exists("Mobs") and ClassDB.class_has_method("Mobs", "attributes"):
+		attrs = Mobs.attributes(MOB_TYPE)
+	_max_health = float(attrs.get("health", MAX_HEALTH))
+	_damage = float(attrs.get("damage", MOB_ATTACK_DAMAGE))
+	_movement_speed = float(attrs.get("speed", MOVEMENT_SPEED))
+	_follow_range = float(attrs.get("follow_range", CHASE_LEASH))
+	_alert_box = float(attrs.get("alert_box", ALERT_RADIUS))
+	var window: Array = attrs.get("anger_window", [ANGER_MIN_TICKS, ANGER_MAX_TICKS])
+	if window.size() == 2:
+		_anger_min_ticks = int(window[0])
+		_anger_max_ticks = int(window[1])
+	if _anger_max_ticks < _anger_min_ticks:
+		_anger_max_ticks = _anger_min_ticks
+	_health = _max_health
 
 
 func _physics_process(delta: float) -> void:
@@ -465,6 +556,7 @@ func _advance_ticks(ticks: int) -> void:
 	_look_ticks = maxi(_look_ticks - ticks, 0)
 	_update_gaze(ticks)
 	_update_enemy(ticks)
+	_separate_bodies()
 	if _route.is_empty():
 		if _idle_ticks > 0:
 			_idle_ticks = maxi(_idle_ticks - ticks, 0)
@@ -511,7 +603,16 @@ func _advance_ticks(ticks: int) -> void:
 				_needs_replan = true
 				_stuck_ticks = 0
 		if _needs_replan and _job == 0 and _goal != Vector3.ZERO:
+			# ...and not on the next frame. A plan this body has just refused comes back identical
+			# from the same place, so an immediate re-ask is a loop at the frame rate rather than an
+			# answer: six asks in a quarter of a second, the same eleven nodes each time, for eight
+			# seconds (`nav_trace` 2026-11-25 23:36). A chase waits its own re-plan clock before
+			# asking again, which is the pacing the periodic re-plan already uses. Anything else (a
+			# stroll) is unchanged: its goal is not being chased, and its clock is the idle one.
+			if _enemy != null and _repath_ticks > 0:
+				return
 			_needs_replan = false
+			_repath_ticks = randi_range(CHASE_REPATH_MIN, CHASE_REPATH_MAX)
 			_trace_route_dropped()
 			_closest = INF
 			_blocked_frames = 0
@@ -529,22 +630,32 @@ func _advance_ticks(ticks: int) -> void:
 ## Claim a finished plan, walk it if there is one, otherwise stand and wait.
 func _steer() -> void:
 	_wish = Vector3.ZERO
-	# Water first, and before anything the planner has to say about it: a route through it is legal
+	# A finished plan is claimed HERE, before the water branch. The swim is answered first and it
+	# returns, so a body in water never polled: `_job` stayed set for the rest of the session and a
+	# re-plan waits for `_job == 0`, so nothing was ever asked again either -- while the route it
+	# fell into the pond with still pointed four blocks above it and the wish flipped every second
+	# (`nav_trace` 2026-11-25 23:30: `job=5`, `route=5/6`, `next=(-1, 248, -2)` for three seconds
+	# with the body sitting at 245 in water, under the player).
+	if _job != 0:
+		NAV_ROUTES.poll(_chunk_manager)
+		var result := NAV_ROUTES.take(_job)
+		if not result.is_empty():
+			_take_route(result)
+	# Water next, and before anything the planner has to say about it: a route through it is legal
 	# now, but it is walked by the swim and not by `_walk` (a swimmer is never on the ground, so the
 	# walk's arrival test cannot advance). `_swim` also carries the two answers no route has -- the
 	# stroke itself, and the shore for a body that has no plan.
 	if bool(_sim.is_in_water()):
 		_swim(_sim.get_tick_position())
 		return
-	if _job != 0:
-		NAV_ROUTES.poll(_chunk_manager)
-		var result := NAV_ROUTES.take(_job)
-		if not result.is_empty():
-			_take_route(result)
 	# The last pace before a blow is not a route: the thing it wants is right there, so it walks at
 	# it and stops at CHASE_STOP rather than at the edge of its own arm.
 	if _closing and _enemy != null and is_instance_valid(_enemy):
-		_step_at(_sim.get_tick_position(), _enemy.global_position)
+		# Away from it when it is a run-away, at it when it is the last pace before a blow: one
+		# steer, mirrored. A body with nothing to walk still has to be moving somewhere.
+		var feet_now: Vector3 = _sim.get_tick_position()
+		var at := _enemy.global_position
+		_step_at(feet_now, feet_now * 2.0 - at if _fleeing else at)
 		return
 	if not _route.is_empty():
 		_walk()
@@ -571,20 +682,30 @@ func _steer() -> void:
 func _swim(feet: Vector3) -> void:
 	# In water the jump control IS the stroke, so one stroke a tick is the paddle.
 	_jump = true
+	_strokes += 1
 	# Every clock that measures WALKING is meaningless in water: the body is not on the ground, so
 	# the stuck clock would count every tick and drop a route it never walked.
 	_blocked_frames = 0
 	_stuck_ticks = 0
 	_closest = INF
-	# A chase in water swims at what it is chasing, not along a plan: the shore is the answer for a
-	# body with no goal, and the target is the answer for one with a goal. Same steer as the last
-	# pace before a blow.
-	if _closing and _enemy != null and is_instance_valid(_enemy):
+	# A target standing IN the water is swum at directly: a route to it has no ending worth
+	# walking, because the goal's ring anchors on DRY ground and the plan stops on the bank.
+	# Same steer as the last pace before a blow.
+	if _wet_target and _closing and _enemy != null and is_instance_valid(_enemy):
 		_step_at(feet, _enemy.global_position)
 		return
 	# A route first, and the shore only when there is none: a plan through water is the plan the
-	# planner costed, and the ring is the fallback for a body that has no route at all.
+	# planner costed, and the ring is the fallback for a body that has no route at all. This is
+	# the half that gets a body OUT: a player standing on a staircase above the water is a target
+	# no straight line reaches, and swimming at their column instead is a goblin pressing its face
+	# into the tree under them for as long as its anger lasts.
 	if _swim_along(feet):
+		_lip_clock(feet)
+		return
+	_lip_frames = 0
+	# No route at all: a goal it can still swim at (the plan has not come back, or there is none).
+	if _closing and _enemy != null and is_instance_valid(_enemy):
+		_step_at(feet, _enemy.global_position)
 		return
 	_shore_ticks -= 1
 	if _shore_ticks <= 0 or _shore_cell == Vector3.ZERO:
@@ -607,12 +728,19 @@ func _swim(feet: Vector3) -> void:
 
 ## Follows the route while swimming. True when a cell of it is being steered at.
 ##
-## The cells are skipped by horizontal distance alone, and that is the whole difference from
-## `_walk`: its test also asks whether the feet are STANDING on the cell, which a swimmer never is,
-## so the route would never advance. The level is not lost by dropping the test -- the planner put
-## every wet node at the water's own surface, which is where the body floats.
+## A WET cell is arrived when the body is over it: the planner put every wet node at the water's
+## own surface and a swimmer bobs at that surface rather than standing on it, so a level test there
+## would stall the route on every trough of the bob.
+##
+## A DRY cell above the body is not arrived, and that is the difference that matters: it is a lip
+## to climb, and skipping it by horizontal distance alone walked a staircase out from under a
+## goblin climbing out of a pond -- it consumed the whole route while still three blocks below the
+## player and swam at the tree's trunk instead (nav_trace: route=0/5, 0/4, 0/0, once a second).
+## Aimed at, the stroke pressed against the lip is what carries it out: the sim lifts a body that
+## collides while swimming, which is the same lift that gets it out of the water at all.
 func _swim_along(feet: Vector3) -> bool:
-	while _next < _route.size() and _flat(_route[_next], feet).length() < ARRIVE_DISTANCE:
+	while _next < _route.size() and _flat(_route[_next], feet).length() < ARRIVE_DISTANCE \
+			and (_wet_cell(_route[_next]) or feet.y >= _route[_next].y + 1.0 - ARRIVE_HEIGHT):
 		_next += 1
 	if _next >= _route.size():
 		if not _route.is_empty():
@@ -627,6 +755,32 @@ func _swim_along(feet: Vector3) -> bool:
 	return true
 
 
+## A route whose next cell is DRY and above the body is a climb, and a climb out of the water is
+## the one move the swim's lift makes for it -- so it is also the one place a route can ask for
+## something the body cannot do: a lip above the water's own top. `_swim` zeroes every clock that
+## measures walking, because a swimmer is never "getting closer" on the ground's terms, which is
+## what let a body press at such a lip for twenty seconds (nav_trace, 2026-11-25 22:20). Ninety
+## frames at one, then the route is dropped and asked for again.
+func _lip_clock(feet: Vector3) -> void:
+	if _next >= _route.size():
+		_lip_frames = 0
+		return
+	var cell: Vector3 = _route[_next]
+	if _wet_cell(cell) or cell.y + 1.0 <= feet.y + ARRIVE_HEIGHT:
+		_lip_frames = 0
+		return
+	_lip_frames += 1
+	if _lip_frames >= LIP_GIVE_UP_FRAMES:
+		_lip_frames = 0
+		_replan_reason = "pressed at a lip above the water line"
+		_needs_replan = true
+
+
+## Whether a route cell is liquid, which is what "the swimmer is already there" means for it.
+func _wet_cell(cell: Vector3) -> bool:
+	return bool(_sim.is_liquid_at(floori(cell.x), floori(cell.y), floori(cell.z)))
+
+
 ## The nearest column of dry, standable ground around the body, or ZERO. It rings out from the
 ## body's own column so a goblin at the edge of a pond swims the short way, and every cell it asks
 ## about is asked through the sim's own predicates, so the swim and the physics can never
@@ -635,16 +789,35 @@ func _shore_from(feet: Vector3) -> Vector3:
 	var cx := floori(feet.x)
 	var cy := floori(feet.y)
 	var cz := floori(feet.z)
+	# ...and only a shore at or below the water's own TOP. The lift that carries a body over a rim
+	# exists only while it is still in the liquid, so a bank above the water line is a wall it
+	# presses at, not a shore it reaches -- picking one is the same stuck goblin the planner's own
+	# wet-to-dry rule refuses (see `step` in pathfinding/move_generator.hpp).
+	var top := _water_top(feet)
 	for radius in range(1, SHORE_REACH + 1):
 		for dz in range(-radius, radius + 1):
 			for dx in range(-radius, radius + 1):
 				# The ring, not the square: a column found last round is not looked for again.
 				if maxi(absi(dx), absi(dz)) != radius:
 					continue
-				var stand := _dry_stand(cx + dx, cy, cz + dz)
+				var stand := _dry_stand(cx + dx, cy, cz + dz, top)
 				if stand != Vector3.ZERO:
 					return stand
 	return Vector3.ZERO
+
+
+## The top of the liquid the body is floating in, as a feet height: the cells above its own feet
+## are scanned up while they are liquid, so a pond's surface is one past its last full cell and a
+## body bobbing above it still has a surface to be measured from.
+func _water_top(feet: Vector3) -> float:
+	var x := floori(feet.x)
+	var z := floori(feet.z)
+	var y := floori(feet.y)
+	var top := feet.y
+	while y <= floori(feet.y) + 3 and bool(_sim.is_liquid_at(x, y, z)):
+		top = float(y + 1)
+		y += 1
+	return maxf(top, feet.y)
 
 
 ## The feet cell of a column it could stand on and be dry in, on one of three levels: the body's
@@ -653,8 +826,13 @@ func _shore_from(feet: Vector3) -> Vector3:
 ## liquid in the feet cell, not liquid over the head, and solid underneath. A wall is none of
 ## these: it is solid in the feet cell, which is why the old "not liquid" test had it paddling
 ## into the side of the pond at the level it was standing on.
-func _dry_stand(x: int, cy: int, z: int) -> Vector3:
+##
+## `top` is the water's own surface, and a stand above it is refused: that is the one climb the
+## swim cannot make.
+func _dry_stand(x: int, cy: int, z: int, top: float) -> Vector3:
 	for ly in [cy, cy + 1, cy - 1]:
+		if float(ly) > top + 0.01:
+			continue
 		if bool(_sim.is_solid_at(x, ly, z)) or bool(_sim.is_liquid_at(x, ly, z)):
 			continue
 		if bool(_sim.is_liquid_at(x, ly + 1, z)):
@@ -662,6 +840,24 @@ func _dry_stand(x: int, cy: int, z: int) -> Vector3:
 		if not bool(_sim.is_solid_at(x, ly - 1, z)):
 			continue
 		return Vector3(x, ly, z)
+	return Vector3.ZERO
+
+
+## The standable cell in one column, scanning from eight above the goblin's feet down to eight
+## below them. `_dry_stand` asks the same question in a three-cell window around a hint, which is
+## right for a waypoint the body is standing beside and wrong for a run-away aimed eight blocks out:
+## the ground there can be a hilltop several blocks above its own level, and an aim at a FIXED
+## height over a slope is a cell inside the slope -- no floor at the level asked about and the hill
+## over the body's head. Answers ZERO when that column has nothing to stand on in the scan.
+func _stand_over(x: int, z: int, feet_y: float) -> Vector3:
+	for ly in range(int(feet_y) + int(STROLL_UP) + 4, int(feet_y) - FLEE_SCAN_DOWN, -1):
+		if bool(_sim.is_solid_at(x, ly, z)) or bool(_sim.is_liquid_at(x, ly, z)):
+			continue
+		if bool(_sim.is_liquid_at(x, ly + 1, z)):
+			continue
+		if not bool(_sim.is_solid_at(x, ly - 1, z)):
+			continue
+		return Vector3(float(x) + 0.5, float(ly), float(z) + 0.5)
 	return Vector3.ZERO
 
 
@@ -725,6 +921,45 @@ func _update_gaze(ticks: int) -> void:
 
 
 ## The player, if this world has one (a preview or a probe may not).
+## Bodies are boxes, and two boxes in one place is not something the reference allows either: it
+## pushes a pair apart on the axis their centres are furthest apart, by at most 0.05 a tick
+## (`Entity::push`), and the world's own collision does the rest. Without this a goblin walked
+## through the player and through its own pack -- five of them one silhouette -- and CHASE_STOP
+## was the only thing keeping a goblin out of the player's body: a number standing in for a
+## missing body rather than a body.
+##
+## Once a TICK, not once a frame. The push is per tick in the reference, so a frame-rate call on
+## a fast machine would squeeze a crowd twice as hard as on a slow one.
+##
+## A pair is answered by the body with the LOWER instance id and applied to both, so one pair is
+## pushed once a tick rather than once from each side -- and the player, who has no pass of his
+## own, is pushed by whoever is leaning on him.
+func _separate_bodies() -> void:
+	if _sim == null or not is_inside_tree() or not ClassDB.class_exists("Bodies"):
+		return
+	var feet: Vector3 = _sim.get_tick_position()
+	for node in get_tree().get_nodes_in_group("goblin"):
+		var other := node as Node3D
+		if other == null or other == self:
+			continue
+		if int(other.get_instance_id()) <= int(get_instance_id()):
+			continue
+		var other_sim: Object = other.get("_sim")
+		if other_sim == null:
+			continue
+		var pair: Dictionary = Bodies.push_pair(feet, BODY, other_sim.get_tick_position(), BODY)
+		if pair.is_empty():
+			continue
+		_sim.push(pair["a"])
+		other_sim.push(pair["b"])
+	var player := _player()
+	if player != null and player.has_method("push"):
+		var pair: Dictionary = Bodies.push_pair(feet, BODY, player.global_position, BODY)
+		if not pair.is_empty():
+			_sim.push(pair["a"])
+			player.call("push", pair["b"])
+
+
 func _player() -> Node3D:
 	var scene := get_tree().current_scene
 	if scene == null:
@@ -755,7 +990,7 @@ func _update_enemy(ticks: int) -> void:
 	# The anger runs out, and so does the chase: past its own follow range a mob forgets the target.
 	# Without either, one punch bought a goblin a walk across the world.
 	_anger_ticks = maxi(_anger_ticks - ticks, 0)
-	if _anger_ticks == 0 or gap > CHASE_LEASH:
+	if _anger_ticks == 0 or gap > _follow_range:
 		_give_up()
 		return
 	if _health <= FLEE_HEALTH and not _fleeing:
@@ -769,6 +1004,13 @@ func _update_enemy(ticks: int) -> void:
 			_give_up()
 			return
 		_run_away(feet, enemy_at, ticks)
+		# ...and it RUNS whatever the planner said. `_run_away` only asks; the answer may be nowhere
+		# to go -- an aim with no standable cell, a wall between, a budget out -- and this branch
+		# used to return with `_wish` left at zero, so the body stood still and waited for a plan
+		# that was never coming while the player beat it to death (the trace above: `wish=(0.00,
+		# 0.00)` for the whole of its last four seconds). `_closing` is the direct steer, which for a
+		# body that is running points away from what it is running from.
+		_closing = _route.is_empty()
 		return
 	speed_state = "chasing"
 	# It watches what it is fighting: the head on the player's eyes, and the body dragged
@@ -803,7 +1045,14 @@ func _update_enemy(ticks: int) -> void:
 		floori(enemy_at.z)))
 	if _wet_target or bool(_sim.is_in_water()):
 		_closing = gap > CHASE_STOP
-		if not _route.is_empty():
+		# A body in the water KEEPS its route: the swim walks it (`_swim_along`). Dropping it here
+		# dropped, every tick, the very plan the swim had just asked for -- a goblin paddling at the
+		# foot of a staircase out of a stream re-planned that staircase about once a second and
+		# abandoned the answer on the next tick (nav_trace: route=0/5, then 0/4, then 0/0, plan
+		# after identical plan, all of it three blocks below the player). On DRY land it is still
+		# dropped: there `_closing` walks straight at the target, and a route held while it does is
+		# a route nothing reads.
+		if not bool(_sim.is_in_water()) and not _route.is_empty():
 			_stop_walking()
 		return
 	_closing = false
@@ -881,9 +1130,9 @@ func _swing(feet: Vector3) -> void:
 	if _enemy == null:
 		return
 	if _enemy.has_method("take_mob_hit"):
-		_enemy.call("take_mob_hit", MOB_ATTACK_DAMAGE, feet)
+		_enemy.call("take_mob_hit", _damage, feet)
 	elif _enemy.has_method("get_health") and _enemy.has_method("set_health"):
-		var left := float(_enemy.call("get_health")) - MOB_ATTACK_DAMAGE
+		var left := float(_enemy.call("get_health")) - _damage
 		_enemy.call("set_health", int(round(left)))
 
 
@@ -904,14 +1153,19 @@ func _run_away(feet: Vector3, enemy_at: Vector3, ticks: int) -> void:
 	if away.length_squared() < 0.01:
 		away = Vector3(randf_range(-1.0, 1.0), 0.0, randf_range(-1.0, 1.0))
 	away = away.normalized().rotated(Vector3.UP, randf_range(-0.45, 0.45))
-	# Aimed STROLL_UP above its own feet, for the reason a stroll is: the planner resolves a
-	# column by scanning DOWN from the height it is given, so a point at the goblin's own feet
-	# that lands uphill resolves to a column whose ground is above it -- no floor at the level
-	# asked about, and the hill itself over the body's head. Every flee ask in a hollow came back
-	# "goal column has no navigable surface" and the goblin stood still while it was killed.
-	# Aimed above the ground, the column scan finds whatever surface is actually there, uphill or
-	# down, and the run-away becomes a run uphill.
-	walk_to(feet + away * FLEE_RADIUS + Vector3.UP * STROLL_UP, CHASE_EXPANSIONS, CHASE_MAX_MS)
+	# Aimed at the GROUND of the column eight blocks off, not at a height over it. A fixed height
+	# above the feet is only a hint, and a hint that lands inside rising ground is a cell in the
+	# hill: the planner anchors a goal on the level it is given and its one-column ring wants
+	# exactly that level, so every ask aimed into a slope came back "goal column has no navigable
+	# surface" -- thirteen of them in four seconds, with the goblin standing still from 4 health to
+	# zero while the player hit it (`nav_trace`, 2026-11-25 22:58). The column's own standable cell
+	# is a goal the planner can anchor: dry, clear over the body, and at the level the ground there
+	# actually holds, uphill or down.
+	var aim := feet + away * FLEE_RADIUS + Vector3.UP * STROLL_UP
+	var stand := _stand_over(floori(aim.x), floori(aim.z), feet.y)
+	if stand != Vector3.ZERO:
+		aim = stand
+	walk_to(aim, CHASE_EXPANSIONS, CHASE_MAX_MS)
 
 
 ## Off the fight: back to wandering, at the wandering pace.
@@ -932,6 +1186,7 @@ func _give_up() -> void:
 	_blocked_frames = 0
 	_goal = Vector3.ZERO
 	_planned_goal = Vector3.ZERO
+	_planned_from = Vector3.INF
 	speed_state = "idle"
 	_abandon_route()
 
@@ -973,8 +1228,15 @@ func walk_to(target: Vector3, expansions := STROLL_EXPANSIONS, max_ms := STROLL_
 	if not _chunk_manager.has_method("request_path"):
 		return 0
 	# The planner re-anchors both ends onto their column's surface, so a target is a
-	# column to stand in; its height is a hint, not a demand.
-	var from: Vector3 = _sim.get_tick_position()
+	# column to stand in; its height is a hint, not a demand -- WHICH IS WHY THE START HAS TO BE
+	# THE CELL THE BODY STANDS ON. At the edge of a lip the body's centre is over the hole and it is
+	# carried by the cells its box overlaps; asking from that hole column, the planner anchors the
+	# start on the pit floor three blocks below and hands back a route that begins underground: the
+	# walk sees `the ground moved (level slip)` and drops it, or worse walks it off the ledge
+	# (`nav_trace` 2026-11-25 23:49: `path=(-2, 245, -2)>...` from a body at 249, then `ground=false`,
+	# `vy=-0.52`).
+	var from: Vector3 = _standing_cell(_sim.get_tick_position())
+	_planned_from = from
 	_job = int(_chunk_manager.request_path(from, target, expansions, max_ms))
 	_planned_goal = target
 	_goal_expansions = expansions
@@ -986,6 +1248,37 @@ func walk_to(target: Vector3, expansions := STROLL_EXPANSIONS, max_ms := STROLL_
 		# rolling again on the next tick.
 		_idle_ticks = FAILED_RETRY_TICKS
 	return _job
+
+
+## The cell this body is STANDING ON rather than merely inside: its own when that column has a
+## floor at its feet, and otherwise the nearest neighbour whose floor is under the box -- which is
+## the cell carrying it. A body at the edge of a lip is the second case, and it is the one that
+## matters: a plan asked from the hole column starts on the pit floor.
+func _standing_cell(feet: Vector3) -> Vector3:
+	var own := Vector3(floorf(feet.x), feet.y, floorf(feet.z))
+	if _has_floor(own, feet):
+		return own
+	var best := own
+	var best_distance := INF
+	for dx in [-1, 0, 1]:
+		for dz in [-1, 0, 1]:
+			if dx == 0 and dz == 0:
+				continue
+			var cell := own + Vector3(dx, 0.0, dz)
+			if not _has_floor(cell, feet):
+				continue
+			var distance := Vector2(cell.x + 0.5 - feet.x, cell.z + 0.5 - feet.z).length()
+			if distance < best_distance:
+				best_distance = distance
+				best = cell
+	return best
+
+
+## A floor at the feet's own level under this cell: the block the body would be standing on.
+func _has_floor(cell: Vector3, feet: Vector3) -> bool:
+	if _sim == null or not _sim.has_method("is_solid_at"):
+		return true
+	return bool(_sim.call("is_solid_at", int(cell.x), floori(feet.y) - 1, int(cell.z)))
 
 
 ## The plan is back. What is walked is `waypoints`, the string-pulled route: those are
@@ -1022,14 +1315,32 @@ func _take_route(result: Dictionary) -> void:
 	# nav_trace.txt). Equality of columns is what "where it already stands" means.
 	var own_x := floori(feet.x)
 	var own_z := floori(feet.z)
+	# ...and the column the body STANDS ON, which is not always the one it is in: at the edge of a
+	# lip the centre is over the hole and a neighbour carries it, so the plan is asked from that
+	# neighbour (`_standing_cell`) -- and the route comes back with it as its first node. Walking to
+	# it is walking BACKWARDS, away from the corner the body had just pressed. `nav_trace`
+	# 2026-11-26 00:23: eleven rounds of exactly that, `x` pinned at -1.300 (the wall's own face, so
+	# the press did work) while `z` climbed back a tenth at a time, because every re-plan put the
+	# cell behind it first (`next=(-2, 248, -1)` on the one-second lines). The plan's next node is
+	# one legal move from the cell the body stands on, so dropping this one loses nothing.
+	var stand := _planned_from if _planned_from != Vector3.INF else _standing_cell(feet)
+	var stand_x := floori(stand.x)
+	var stand_z := floori(stand.z)
 	for cell in cells:
-		if _route.is_empty() and floori(cell.x) == own_x and floori(cell.z) == own_z:
+		if _route.is_empty() and ((floori(cell.x) == own_x and floori(cell.z) == own_z) \
+				or (floori(cell.x) == stand_x and floori(cell.z) == stand_z)):
 			continue
 		_route.append(cell)
-	# A route that goes nowhere is not a stroll: look again soon rather than standing
-	# for the whole idle wait on a column that turned out to be unreachable.
-	if _route.size() < 2:
+	# A route that goes NOWHERE is not a stroll: look again soon rather than standing for the whole
+	# idle wait on a column that turned out to be unreachable. EMPTY, not short: the head-skip above
+	# can cut a two-node answer down to one, and that cell is a real destination -- it is where the
+	# body was mid-air over a hole when the route was thrown away, wish and all, and it dropped into
+	# the pit instead of stepping onto the far floor (`nav_trace` 2026-11-26 00:30: at 8.77 a
+	# `(-1, 249, -2)>(0, 249, -2)` answer became no route at all, `route=0/0` and a 3-block fall).
+	if _route.is_empty():
 		_route.clear()
+		_idle_ticks = FAILED_RETRY_TICKS
+		return
 		_idle_ticks = FAILED_RETRY_TICKS
 		return
 	_closest = INF
@@ -1070,18 +1381,35 @@ func _walk() -> void:
 	# only knows how to press jump at a wall walks off the lip, falls in and asks for the same
 	# route again. The jump has to be timed off the lip instead (`_hop_from_lip`).
 	var grounded := bool(_sim.is_on_ground())
+	# A half pace with no floor under it is a fall, unless the ROUTE is stepping down: the plan may
+	# walk off a ledge on purpose, and nothing else may. Asked before the wish is acted on, because
+	# the sim will happily walk a body off the edge and the route it was walking then ends in mid-air
+	# (`nav_trace` 2026-11-25 23:49: `ground=false`, `vy=-0.52`, `route=0/10`).
+	var off_lip := grounded and not _steps_down(_route[_next], feet) \
+		and not _stands_after(dir, feet)
 	if grounded and _hop_ahead(_route[_next], feet):
 		_hop_from_lip(dir, feet)
 	# The sim climbs a step of up to 0.6 by itself; a full block it does not, so the step
 	# is seen half a pace ahead and the jump control is pressed for this frame. Only a step
 	# it can climb, though: anything taller is a wall in a route that no longer exists, and
 	# hopping at it is what used to keep a goblin jumping into a block for whole seconds.
-	elif grounded and _blocked(dir, feet):
-		if _climbable(dir, feet):
+	elif grounded and (_blocked(dir, feet) or off_lip):
+		# ...and only for a rise the ROUTE asks for: the next cell at least half a block above the
+		# feet. `_climbable` alone is the geometry's opinion of the space one block up, which is
+		# clear over a wall as often as over a step.
+		if _climbable(dir, feet) and _route[_next].y + 1.0 > feet.y + CLIMB_RISE:
 			_jump = true
 			_jumps += 1
+		elif _slide_around(dir, feet, _route[_next]):
+			pass
 		else:
-			_blocked_frames += 1
+			# ...counted only while it is NOT getting closer. Pressing a corner and sliding along its
+			# face shrinks the gap every tick, and counting those frames dropped the route in the
+			# middle of a crossing: eleven drops at `x=-1.300`, a tenth of a block short of the `+x`
+			# component coming free, each one re-asked and walked back from the cell behind it
+			# (`nav_trace` 2026-11-26 00:23). A squeeze makes no progress, so it still counts.
+			if _closest == INF or _flat(_route[_next], feet).length() > _closest + 0.02:
+				_blocked_frames += 1
 			if _blocked_frames >= REPLAN_AFTER_BLOCKED:
 				_replan_reason = "blocked by something it cannot climb"
 				_needs_replan = true
@@ -1089,10 +1417,24 @@ func _walk() -> void:
 		_blocked_frames = 0
 
 
-## Whether the next route cell is a HOP: two columns over on one axis and level on the
-## other. Route cells are one legal move apart (a walk, a step, a drop or a hop), so a cell
-## exactly two away is the planner's jump across a one-cell gap.
+## Does the route step DOWN here? A cell below the feet by more than the level slack is a move the
+## plan made on purpose, and walking off its lip is what it means.
+func _steps_down(cell: Vector3, feet: Vector3) -> bool:
+	return cell.y + 1.0 < feet.y - ROUTE_LEVEL_SLACK
+
+
+## Whether the next route cell is a HOP: two columns over on one axis and level on the other, and not
+## a FALL. Route cells are one legal move apart (a walk, a step, a drop or a hop), so a cell exactly
+## two away is the planner's jump across a one-cell gap -- but the planner's hop may also DESCEND, up
+## to `max_drop`, and two columns three blocks down is not a jump: it is the pit the route is aimed
+## at, walked over the lip rather than launched at. Jumping those was a goblin hopping in place at the
+## mouth of a four-deep hole instead of dropping in after the player: `nav_trace` 2026-11-26 00:10,
+## route `(-1, 249, -2)>(-3, 246, -2)>(-2, 245, -2)>...`, `jumps` 12 -> 15 with `ground=false` at
+## y=250.25 -- above the ledge it was trying to jump down FROM. A hop one block down is still a gap
+## to clear and is still jumped.
 func _hop_ahead(cell: Vector3, feet: Vector3) -> bool:
+	if cell.y + 1.0 < feet.y - 1.0:
+		return false
 	var dx: int = absi(int(cell.x) - floori(feet.x))
 	var dz: int = absi(int(cell.z) - floori(feet.z))
 	return (dx == 2 and dz == 0) or (dx == 0 and dz == 2)
@@ -1160,6 +1502,7 @@ func _abandon_route() -> void:
 	_closing = false
 	_closest = INF
 	_stuck_ticks = 0
+	_lip_frames = 0
 	_job = 0
 
 
@@ -1193,6 +1536,9 @@ func _trace_route_dropped() -> void:
 	_trace_say("route dropped: %s (at=%s next=%s route=%d/%d blocked=%d stuck=%d jumps=%d)"
 		% [_replan_reason, str(_sim.get_tick_position()), at, _next, _route.size(),
 		   _blocked_frames, _stuck_ticks, _jumps])
+	var trace := _trace()
+	if trace != null:
+		trace.note_drop(_replan_reason)
 
 
 ## The recorder, looked up once: a chase records a handful of lines a second, and a path lookup
@@ -1236,11 +1582,23 @@ func trace_state() -> String:
 		next = str(_route[_next])
 	# The format string is built as one value FIRST: `%` binds tighter than `+`, so a split string
 	# formatted on its second half alone is the quiet kind of wrong.
+	# wish is what the walker is ASKING for and vy is what the body is doing with it: a body pressed
+	# against a wall has a wish and no speed, and a body that is swimming has both and no ground --
+	# the two look alike in a position. `lip` is the frames it has spent pressed at a climb only the
+	# swim's lift can make, and `strokes` counts the ticks it has stroked this session (it rises
+	# while a body is in water and stands still while it is not).
+	var wish := Vector3.ZERO
+	var vy := 0.0
+	if _sim != null:
+		wish = _wish
+		vy = float(_sim.get_velocity().y)
 	var line := ("goblin@%s state=%s at=%s enemy=%s planned=%s next=%s " +
-		"route=%d/%d wait=%d/%d reach=%s job=%d blocked=%d stuck=%d jumps=%d ground=%s")
+		"route=%d/%d wait=%d/%d reach=%s job=%d blocked=%d stuck=%d jumps=%d ground=%s " +
+		"wish=(%.2f, %.2f) vy=%.2f wet=%s lip=%d strokes=%d")
 	return line % [name, speed_state, str(_sim.get_tick_position()), enemy, str(_planned_goal),
 		next, _next, _route.size(), _chase_wait_ticks, CHASE_WAIT_TICKS, _in_reach, _job,
-		_blocked_frames, _stuck_ticks, _jumps, bool(_sim.is_on_ground())]
+		_blocked_frames, _stuck_ticks, _jumps, bool(_sim.is_on_ground()),
+		wish.x, wish.z, vy, bool(_sim.is_in_water()), _lip_frames, _strokes]
 
 
 ## The waypoint's cell middle, relative to the feet. Only x/z matter to the walk: the
@@ -1250,9 +1608,9 @@ func _flat(cell: Vector3, feet: Vector3) -> Vector3:
 
 
 ## Would half a pace forward be stopped? The same collision the body itself resolves.
-func _blocked(dir: Vector3, feet: Vector3) -> bool:
+func _blocked(dir: Vector3, feet: Vector3, reach: float = STEP_PROBE) -> bool:
 	var res: Dictionary = _chunk_manager.resolve_voxel_collision(
-		feet, Vector3(dir.x, 0.0, dir.z) * STEP_PROBE, BODY)
+		feet, Vector3(dir.x, 0.0, dir.z) * reach, BODY)
 	return bool(res.get("collided_x", false)) or bool(res.get("collided_z", false))
 
 
@@ -1263,6 +1621,77 @@ func _climbable(dir: Vector3, feet: Vector3) -> bool:
 	var res: Dictionary = _chunk_manager.resolve_voxel_collision(
 		feet + Vector3(0.0, 1.0, 0.0), Vector3(dir.x, 0.0, dir.z) * STEP_PROBE, BODY)
 	return not (bool(res.get("collided_x", false)) or bool(res.get("collided_z", false)))
+
+
+## Walk a blocked DIAGONAL by PRESSING it: a free-dominant wish the sim can take in one tick.
+##
+## A diagonal corner is two cells either side, and the planner allows the move when only ONE of them
+## stops the body (`passes_beside`, src/pathfinding/move_generator.hpp). The CHORD from this cell's
+## middle to the next one's passes through the solid side, so the body cannot walk it as a straight
+## line -- its own box cuts that cell by half a body -- and it must not go flat along the wall either,
+## because nothing then presses it across when the wall ends.
+##
+## Two things have to hold for the crossing, and the resolver's own order is the second:
+##   - the wish keeps BOTH components, so the wall's face holds the press while the free axis carries
+##     the body along, and the press takes the moment the box leaves the wall's cell;
+##   - the FREE axis is the larger one (`CORNER_PRESS`), because `collision_resolver.cpp` takes "Y
+##     first, then whichever horizontal axis has the LARGER motion magnitude". Pressed-axis-first is
+##     tested while the box is still inside the wall's cell: it is clipped, the free axis moves after
+##     it, and the tick ends with the body past the wall and its press spent -- `nav_trace`
+##     2026-11-26 00:47, `x` stuck at -1.300005 while `z` ran to -1.545 and `y` fell to 247.85.
+## The result is the line a player walks there, one tick wide: across `(-2, 249, -1) -> (-1, 249, -2)`,
+## wall at `(-1, -1)` two high and a four-deep hole at `(-2, -2)`, his `x` holds at -1.30 while `z`
+## runs -0.93 -> -1.58 and then both move inside one tick (`nav_trace` 2026-11-26 00:10).
+##
+## A free half is normally taken only while the resolver says the body would still be STANDING on it
+## (`_stands_after`), because the fall that rule exists for was a slide along a wall's face into the
+## gap beside it. At a corner that guard refuses the only correct line: the free leg is short by
+## design and ends over the FAR FLOOR, not over the gap. So it is allowed when the other half is a
+## wall and the diagonal's own destination is standable (`_has_floor`) -- a corner cut, and nothing
+## else. Both halves clear is not a corner (the chord would not be blocked); both solid is a squeeze
+## no 0.6-wide body fits through, and the caller counts it.
+func _slide_around(dir: Vector3, feet: Vector3, cell: Vector3) -> bool:
+	if absf(dir.x) <= 0.05 or absf(dir.z) <= 0.05:
+		return false
+	var halves: Array[Vector3] = [Vector3(dir.x, 0.0, 0.0), Vector3(0.0, 0.0, dir.z)]
+	var walls: Array[Vector3] = []
+	for half in halves:
+		var step := half.normalized()
+		if _blocked(step, feet):
+			walls.append(step)
+	for half in halves:
+		var step := half.normalized()
+		if _blocked(step, feet):
+			continue
+		if not _stands_after(step, feet) and not (walls.size() == 1 and _has_floor(cell, feet)):
+			continue
+		_wish = step
+		if walls.size() == 1:
+			_wish = (step + walls[0] * CORNER_PRESS).normalized()
+		_yaw_target = atan2(-_wish.x, -_wish.z)
+		_blocked_frames = 0
+		return true
+	return false
+
+
+
+## Would the body still be STANDING a half pace that way? A slide walks along ground, so a half that
+## walks off a drop is not a way round the corner -- it is a body that falls. That is the second half
+## of this rule, from the same session: the slide went along the wall's face into the gap beside it,
+## the body fell three blocks into water (`ground=false`, `vy=-0.45`, then `lip=30` under the
+## player) and kept the route it fell with.
+##
+## `on_floor` is the resolver's own answer to the same question -- the body's own footprint, put
+## down a hair from where the half pace ends -- so this cannot disagree with what the sim does next
+## tick. A world that does not answer it is treated as floor, which is the behaviour before this.
+func _stands_after(dir: Vector3, feet: Vector3, reach: float = STEP_PROBE) -> bool:
+	# ...and a STEP DOWN counts: a half pace into a one-block drop lands a body on the floor below it,
+	# which is a move the planner routes through (`max_drop`), so the probe is taken from where the
+	# pace ends and asks whether the body would land within the drop it may take. Measured only at
+	# the feet's own level, a step-down slide was refused and the lip became a wall.
+	var landed: Dictionary = _chunk_manager.resolve_voxel_collision(
+		feet + Vector3(dir.x, 0.0, dir.z) * reach, Vector3(0.0, -FALL_PROBE, 0.0), BODY)
+	return bool(landed.get("on_floor", true))
 
 
 ## Standing still it looks about, slowly. There is no head rig here, so the body's own
@@ -1323,7 +1752,7 @@ func apply_knockback(attacker_position: Vector3, extra_velocity := Vector3.ZERO)
 			and player.global_position.distance_to(_sim.get_tick_position()) <= AGGRO_RANGE:
 		_enemy = player
 		_fleeing = _health <= FLEE_HEALTH
-		_anger_ticks = randi_range(ANGER_MIN_TICKS, ANGER_MAX_TICKS)
+		_anger_ticks = randi_range(_anger_min_ticks, _anger_max_ticks)
 		_chase_ms = CHASE_MAX_MS
 		_trace_say("hit: enemy taken, health %.0f, fleeing=%s" % [_health, _fleeing])
 		_attack_ticks = 0
@@ -1346,9 +1775,9 @@ func _alert_nearby(attacker: Node3D) -> void:
 		if other == self or not (other is Node3D) or not other.has_method("take_anger"):
 			continue
 		var at: Vector3 = (other as Node3D).global_position
-		if absf(at.x - here.x) > ALERT_RADIUS or absf(at.z - here.z) > ALERT_RADIUS:
+		if absf(at.x - here.x) > _alert_box or absf(at.z - here.z) > _alert_box:
 			continue
-		if absf(at.y - here.y) > ALERT_RADIUS:
+		if absf(at.y - here.y) > _alert_box:
 			continue
 		other.call("take_anger", attacker)
 
@@ -1360,7 +1789,7 @@ func take_anger(attacker: Node3D) -> void:
 		return
 	_enemy = attacker
 	_fleeing = _health <= FLEE_HEALTH
-	_anger_ticks = randi_range(ANGER_MIN_TICKS, ANGER_MAX_TICKS)
+	_anger_ticks = randi_range(_anger_min_ticks, _anger_max_ticks)
 	_chase_ms = CHASE_MAX_MS
 	_trace_say("alerted: enemy taken, health %.0f" % _health)
 	_attack_ticks = 0
@@ -1380,7 +1809,7 @@ func _take_hurt(amount: float) -> void:
 	if _health <= 0.0:
 		return
 	_health = maxf(_health - amount, 0.0)
-	print("Goblin hit: %.0f of %.0f half-hearts left" % [_health, MAX_HEALTH])
+	print("Goblin hit: %.0f of %.0f half-hearts left" % [_health, _max_health])
 	if _health <= 0.0:
 		die()
 
@@ -1420,12 +1849,12 @@ func get_health() -> float:
 
 
 func get_max_health() -> float:
-	return MAX_HEALTH
+	return _max_health
 
 
 ## Blocks a second this state asks for.
 func get_move_speed() -> float:
-	return MOVEMENT_SPEED * BLOCKS_PER_SECOND * float(SPEED_STATES.get(speed_state, 1.0))
+	return _movement_speed * BLOCKS_PER_SECOND * float(SPEED_STATES.get(speed_state, 1.0))
 
 
 ## The sim's own parameter for that pace: 1.0 is the player's own walk, so a goblin

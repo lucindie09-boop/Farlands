@@ -10,10 +10,11 @@ next
 few need a decision about the game rather than more code; the last group is the structure that
 keeps the second mob from costing a week.
 
-Three of these are already done and are kept here so the reasoning survives: **1** (a chase
+Five of these are already done and are kept here so the reasoning survives: **1** (a chase
 that cannot reach its target gives up), **2** (which cell a chase is aiming at, including the
-low-roof bug in the column scan) and **9** (water and fall damage), which landed with the same
-walk.
+low-roof bug in the column scan), **3** (mob bodies collide with each other and with the
+player), **9** (water and fall damage), which landed with the same walk, and **12** (mob
+attributes as data).
 
 ## What a player would call broken
 
@@ -70,13 +71,37 @@ again. The walk jumps off the lip now (`goblin.gd`), in the window the arc was m
 blocks airborne at a mob's pace against the 0.7 a gap needs), and the planner no longer emits
 the hop that cannot be taken at all — one that climbs, where the rise spends that clearance.
 
-### 3. Mob bodies do not collide with anything
-A goblin walks through the player and through other goblins. `CHASE_STOP` (0.9 blocks, about two
-bodies' half-widths) is a stand-in for the body that should be stopping it, and a pack of five
-stands in one silhouette. Mutual push-apart plus a player body is what makes "it presses in" and
-"there is a pack" read as those things. Touches `MobBody`/the collision resolver, and every mob
-at
-once — do it once, in the shared place, not per mob.
+### 3. Mob bodies do not collide with anything — done
+A goblin walked through the player and through other goblins, and `CHASE_STOP` (0.9 blocks, about
+two bodies' half-widths) was a number standing in for a body that did not exist: a pack of five
+read as one silhouette. Bodies are boxes now, and two boxes in one place is not something the
+reference allows either — its answer is `Entity::push(Entity)`, which
+`src/engine/entity_push.cpp` implements as written because the FEEL is the point:
+
+  * the two boxes have to intersect, which is the test the reference gets from the query that
+    finds an entity's neighbours;
+  * the pair is decided on the larger of the two centre gaps, horizontally, and the push is
+    normalised by that gap's SQUARE ROOT rather than its length, with the factor capped at one —
+    so a wider pair is pushed the full `kEntityPush` (0.05 a tick, a block a second) and a pair
+    that barely overlaps is nudged less, which is what stops a crowd in a doorway exploding;
+  * two bodies sharing a centre exactly are left alone: there is no direction to pick, and the
+    reference has the same hole. The next tick's walk separates them.
+
+The push is VELOCITY, not a position write: `PlayerSim::push` is `velocity_ += velocity`, so the
+world's own collision still resolves it against the ground and nobody is ever pushed through a
+wall or off a ledge by it. It is once a TICK rather than once a frame (a frame-rate call would
+make a fast machine squeeze twice as hard), it is applied to both bodies at once, and a pair is
+answered by whichever body has the lower instance id so it costs one push rather than two.
+
+The player is a body in the same list: `goblin.gd` pushes his half through a `push` binding on
+`PlayerController`, so a pack leans on the body it is crowding the same way the bodies crowd each
+other. Being leaned on is not a blow — it opens no hurt window and cancels no route; `CHASE_STOP`
+is still where a chase plants itself, but it is now a walking choice rather than the only thing
+keeping a goblin out of the player's box.
+
+`probes/probe_mob_push.gd` puts three goblins inside one body's width of each other, and one
+inside the player, and checks they come apart to a body width; `tests/test_entity_push.cpp` pins
+the arithmetic, the box gate, the cap and the coincident-centre hole.
 
 ### 4. Target lifecycle around death
 When the player dies the goblins keep swinging at the body, and their anger survives the
@@ -170,11 +195,28 @@ is built on it.
 
 ## Structure, so the next mob is cheap
 
-### 12. Mob attributes as data
-Health, damage, speed, follow range, alert box and anger window in a file of their own under
-`data/`, the way blocks, biomes, items and shaders are. Tuning becomes a diff instead of a
-rebuild, and the next mob
-becomes a data entry with a model.
+### 12. Mob attributes as data — done
+Health, damage, speed, follow range, alert box and anger window live in `data/mobs.json`, the
+way blocks, biomes, items and shaders do, and the walker reads the entry its own `MOB_TYPE`
+names. The shape is the loot table's: a Godot-free parser (`src/core/mob_attributes.cpp`,
+`schematic::parse_json`, so the test binary reads an entry out of a string), a `Mobs` binding
+for the file read and the struct -> Dictionary translation, and one load at startup beside the
+loot tables.
+
+Two decisions worth keeping. Every field is OPTIONAL, defaulting to the struct's own value, so
+a new entry states only what it changes and is two lines rather than seven — while the goblin
+states all six, because that file is the answer to "what is a goblin" and not a patch over a
+script. And a file that cannot be a body is REFUSED with the field named (no health, a negative
+blow, a zero speed, a window that runs backwards), leaving the previous entries in force: a
+typo in a data file must not be a body with zero health in a live world.
+
+On the script side the six constants stay as the fallback and nothing reads them any more:
+`_apply_attributes` fills `_max_health`, `_damage`, `_movement_speed`, `_follow_range`,
+`_alert_box` and the anger pair from the registry in `_ready`, and every use site reads those.
+So a missing file, an entry that leaves a field out or a DLL from before this existed all fall
+back to the numbers the goblin was tuned with, and tuning is a diff in the data file.
+`probes/probe_mob_attributes.gd` is the end-to-end half: a spawned body runs with the file's
+numbers, and with a RELOADED file's — which a body reading its own constants would fail.
 
 ### 13. A mob base out of `goblin.gd`
 The script now holds health, the hurt window, knockback, anger, chase, flee, gathering and the

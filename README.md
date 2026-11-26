@@ -78,7 +78,7 @@ and a wildcard like `src/mesh/mesh_manager*.cpp` means the family a split produc
 | Block icons | `block_icon_renderer.gd` | Isometric 300x300 icons built from each shape's selection boxes, pre-rendered and cached; `/testicons` |
 | Health, death, chat | `healthbar.gd`, `airbar.gd`, `death_screen.gd`, `chat.gd` | 10 hearts, the breath bubbles, the respawn overlay, autocomplete and the command set |
 | Settings, Skin Maker, Block Maker | `settings_menu.gd` | Render/lighting/crosshair/controls pages, the two in-game editors, the liquid lab and the goblin spawner on the Tools page, one share code per category - [notes](docs/gui-notes.md) |
-| Testing & CI | `tests/`, `tools/`, `.github/workflows/build.yml` | 808 cases / 395,180 assertions, four static gates, the soak and fuzz jobs - [notes](docs/testing.md), [contributing](CONTRIBUTING.md) |
+| Testing & CI | `tests/`, `tools/`, `.github/workflows/build.yml` | 825 cases / 395,298 assertions, four static gates, the soak and fuzz jobs - [notes](docs/testing.md), [contributing](CONTRIBUTING.md) |
 | Shader effects | `shader_overlay.gd` + `data/shaders.json` | The effect stack (Hand Drawn, CRT Screen, Phosphor Trail, filters, camera and vertex effects), built from the registry - [rendering](docs/rendering-notes.md) |
 | Liquid texture lab | `liquid_texture_lab.gd`, `liquid_animator.gd` | Generates and animates the water/lava/acid sprites instead of shipping them (Tools → Liquid Texture Lab on the pause menu opens the lab) - [rendering](docs/rendering-notes.md) |
 | Texture packs | `src/render/texture_pack_manager.hpp`, `tools/pack_converter.py` | Per-block texture overrides loaded from `user://packs/` |
@@ -216,6 +216,13 @@ The terrain generation system is data-driven through JSON configuration files:
   rolled by `src/core/loot_table.cpp` (no Godot, so the test binary pins the seed) through
   the `LootTables` binding, and every `item` names an entry in `data/items.json` — a name
   that does not resolve is warned about and skipped rather than leaving a silent nothing
+- **`data/mobs.json`** — What a mob IS, one entry per body name (`goblin`): `health` and
+  `damage` in half-hearts, `speed` as Minecraft's movement value, `follow_range` and
+  `alert_box` in blocks, and `anger_window` as a `[min, max]` in ticks. Parsed by
+  `src/core/mob_attributes.cpp` (no Godot, so the test binary reads an entry out of a string)
+  through the `Mobs` binding; `scripts/goblin.gd` fills its own fields from it in `_ready`, and
+  its constants of the same names are the fallback — tuning a goblin is a diff here, not a
+  code change, and the next mob is an entry with a model
 
 These configs are loaded at startup via `VoxelEngineController::load_world_configs()` and
 threaded to generation workers. Missing files or keys fall back to built-in defaults.
@@ -358,7 +365,7 @@ vocabulary, [docs/debugging.md](docs/debugging.md) for the instruments,
 rejected. [AGENTS.md](AGENTS.md) is the engineering record: the constraints and the notes that
 cut across systems.
 
-The project has **813 test cases / 395,180 assertions** across the 121 `.cpp` files in `tests/`
+The project has **825 test cases / 395,298 assertions** across the 123 `.cpp` files in `tests/`
 (115 declaring cases, plus the doctest entry point and a stub TU), including 27 tests in
 `test_concurrency.cpp` (shard locking, deadlock prevention, PaletteStorage, cross-chunk writers,
 thread-pool work stealing).

@@ -122,6 +122,11 @@ public:
     // `half_hearts` is what the attacker deals, before armor: the chain reduces it.
     void take_mob_hit(float half_hearts, const godot::Vector3& attacker_position);
 
+    // A body pressed against this one adds velocity through here: the player's half of the
+    // mutual push-apart (`Bodies.push_pair`), so a pack leans on the body it is crowding the
+    // same way the bodies crowd each other. Not damage, and it opens no hurt window.
+    void push(const godot::Vector3& velocity);
+
     // Ground state (true while on the floor) — used to pause walk bobbing midair.
     bool is_on_floor() const;
     bool is_in_water() const;

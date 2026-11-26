@@ -588,7 +588,20 @@ being resampled by a different fraction at each scale.
   behind
   a hill rather than red dots over the terrain. Damage and knockback share one gate: a hit the
   hurt
-  window resists takes nothing. At zero health the body is freed. 
+  window resists takes nothing. At zero health the body is freed. Every number in this section
+  — the hearts, the half-heart, the pace, the follow range, the alert box and the anger
+  window — is the goblin's entry in `data/mobs.json` rather than a constant in the script: the
+  constants are only what a build with no file falls back to, which is why tuning a mob is a
+  diff instead of a code change. **Its body is one now**: the resolver stops a body at terrain
+  and at nothing else, so a goblin used to walk through the player and through its own pack —
+  five of them reading as one silhouette — and `CHASE_STOP` was a number standing in for a body
+  that did not exist. Two bodies whose boxes intersect are pushed apart along the line between
+  their centres, by at most 0.05 a tick: the reference's own `Entity::push` arithmetic
+  (normalised by the square root of the larger centre gap, the factor capped at one), once a
+  tick, applied to both, and the player's body is pushed by whatever leans on it the same way.
+  The push is velocity, so the world still stops each of them at the ground and at walls — it is
+  not a stun, it opens no hurt window and it cancels no route, which is why a crowd spreads and
+  presses in instead of stacking or jittering.
   It also **wanders** when it has nothing to do, and the way the game's own mobs do it: it
   stands
   still most of the time, with a stroll on a **1-in-120-a-tick roll** rather than a timer —
@@ -606,7 +619,11 @@ being resampled by a different fraction at each scale.
   steps up 0.6 by
   itself, so a full block is a jump it presses when the collision half a pace ahead says so —
   but
-  **only at a step it can climb**: a wall in the way is a route that no longer exists, so it
+  **only at a step it can climb — and only one the ROUTE asks for**: the next cell at least half a
+  block above its feet, because the space one block up is clear over a wall as often as over a step.
+  Without that the geometry alone said "climbable" at every wall and a goblin jumped twenty-one
+  times in a three-cell route (`nav_trace` 2026-11-25 23:43: `jumps` 6 → 15 → 21, `route=3/6`). A
+  wall in the way is a route that no longer exists, so it
   asks for
   a new plan instead of hopping at it, and it does the same when the ground has moved under it
   (a fall
@@ -616,8 +633,11 @@ being resampled by a different fraction at each scale.
   blocks airborne at the wandering pace against the 0.7 a gap needs; pressed half a block out it
   drops in). A waypoint also counts as reached only while **standing on it**, because mid-arc
   the far cell is under half a block away with the gap still underneath, and counting it there
-  ended the route in the air. A hop that **climbs** is not planned at all — the rise spends the
-  clearance the jump needs. The walk is **cell by cell** — the planner's own
+  A hop that **climbs** is not planned at all — the rise spends the
+  clearance the jump needs. A hop that **drops more than a step** is not jumped either: the
+  planner's hop may descend up to `max_drop`, but two columns three blocks down is a pit to walk
+  into, and jumping it was a goblin bouncing at the lip instead of dropping in after the player
+  (`jumps` 12 → 15, `ground=false` at y=250.25 — `nav_trace` 2026-11-26 00:10).
   nodes,
   not its smoothed waypoints, which are long straight legs and were walked as straight lines
   (that is
@@ -633,7 +653,64 @@ being resampled by a different fraction at each scale.
   make (a three-block rise in one step read as "walk into that wall and hop"). And the ground
   moving under it is only **the ground under it**: while airborne the level test is skipped, because
   a body in the air is not at its route's level and a plan made mid-fall anchors its start where
-  the fall is headed. **A punch is taken
+  **A blocked diagonal is pressed, and the free side of it is the LARGER share of the wish**: the
+  planner allows a corner when only one of the two cells beside it stops the body — the other is slant
+  space, a hole included, never a squeeze of two. The chord through that corner cannot be walked as a
+  straight line (the body's own box cuts the solid cell by half a body), and going flat along the wall
+  is worse, because then nothing presses the body across when the wall ends. So the wish keeps both
+  components — the wall's face holds one while the free one carries the body along — **and the free
+  one must be the larger**, because `collision_resolver.cpp` resolves "Y first, then whichever
+  horizontal axis has the LARGER motion magnitude": a press whose blocked axis is the larger is tested
+  first, clipped, and only then does the free axis move, so the tick ends with the body past the wall
+  and its press spent. That is the 00:47 run, where the chord at the lip is `x`-heavy (the body sits
+  at the wall's face, the far cell's centre is 0.8 away in `x` and 0.3 in `z`): `x` stayed at
+  -1.300005 while `z` ran to -1.545, `y` fell to 247.85 — below the far floor, whose own SIDE face
+  then blocked every later press — and it slid down into the water. With `CORNER_PRESS` (0.6 of the
+  wall against 1.0 of the free side) the same tick clears `z` and then takes `x` by 0.09, which is
+  over the far floor before the tick ends. That is the player's line, one tick wide: across
+  `(-2, 249, -1) -> (-1, 249, -2)`, wall at `(-1, -1)` two high and a four-deep hole at `(-2, -2)`,
+  his `x` holds at `-1.30` while `z` runs from -0.93 to -1.58 and then both move together
+  (`nav_trace` 2026-11-26 00:10). **And the free half may leave the floor**: at a corner it is short
+  by design and ends over the FAR FLOOR, so the resolver's "would it still be standing" probe refuses
+  the one correct line; it is taken when the other half is a wall AND the diagonal's destination is
+  standable (`_has_floor`) — a corner cut and nothing else, so a slide along a face into the gap
+  beside it is still refused (`nav_trace` 2026-11-25 23:30: `ground=false`, `vy=-0.45`, `lip=30`).
+  Both halves in the way is a squeeze no 0.6-wide body fits through, and only a diagonal cuts — an
+  orthogonal wish that is blocked has no second component to hold.
+  The hop is decided on the WALL, not on the floor (`_corner_cut`): at a lip the free half is also a
+  drop, so the slide is refused there — correctly — and the hop is what crosses the corner. A squeeze has
+  no free half and is never hopped.
+  **The route may not start behind the body**: at a lip the plan is asked from the cell that
+  carries the body (`_standing_cell`), and that cell comes back as the route's first node —
+  walking to it is walking BACKWARDS, away from the corner just pressed. It is dropped from the
+  head of the route; the plan's next cell is one legal move from the cell the body stands on, so
+  nothing is lost. **And a blocked frame is a frame that made no progress**: pressing a corner
+  A route that ends with the body on its own column is dropped as nowhere to go — but by**EMPTY**,
+  not by short: the head-skip can cut a two-node answer down to one cell, and that cell is a real
+  destination. Thrown away as "a route that goes nowhere", it left a body mid-air over a hole with
+  no wish at all, and it dropped three blocks into the pit instead of stepping onto the far floor
+  (`nav_trace` 2026-11-26 00:30, 8.77 s: `route=0/0`).
+  shrinks the gap every tick while the free component slides the body along the face, so counting
+  those frames dropped the route halfway through a crossing — eleven times in one session, `x`
+  pinned at `-1.300` a tenth of a block short of the `+x` coming free (`nav_trace` 2026-11-26
+  00:23). A squeeze makes no progress, so it still counts and still re-plans.
+  own floor probe says the body would still be on the ground — or on the floor of a step down it may
+  take (`FALL_PROBE`, the planner's own `max_drop`) — because the first version slid along a wall's
+  face into the gap beside it and the body fell three blocks into water and spent the rest of the
+  session under the player (`nav_trace` 2026-11-25 23:30: `ground=false`, `vy=-0.45`, `lip=30`). A
+  lip it can walk up to and no further is a wall, and a wall is a re-plan — never a fall. **And a
+  refusal is not re-asked on the next frame**: a plan this body has just dropped comes back
+  identical from the same place, so a chase waits its own re-plan clock before asking again, which
+  is the pacing the periodic re-plan already uses. Without it the trace above is six asks in a
+  quarter of a second — the goblin hesitating, and going back and forth, in front of a player it was
+  two blocks from. **The ask starts on the cell it stands on, not the column its centre is in**: at
+  the edge of a lip the centre is over the hole and the box is carried by the cells it overlaps, and
+  a plan asked from that hole column anchors its start on the pit floor — a route that begins three
+  blocks underground, which the walk drops as "the ground moved" or, worse, walks off the ledge
+  (`nav_trace` 2026-11-25 23:49: `path=(-2, 245, -2)>…` from a body at 249, then `ground=false`,
+  `vy=-0.52`). And **a level or rising move never walks off a lip**: a half pace with no floor under
+  it counts as blocked unless the ROUTE is stepping down, so the only ledge it walks off is the one
+  the plan asked for. **A punch is taken
   personally**: the puncher becomes its enemy, the way a mob keeps a revenge target, and it
   switches
   to the **chasing** pace (1.0×) and walks at them through the same planner, re-planning every
@@ -661,13 +738,18 @@ being resampled by a different fraction at each scale.
   **fleeing** pace (1.3×), sprinting away from the player with a little scatter until they are
   **16
   blocks** off, and then it lets go and goes back to wandering. Each sprint of that run is aimed
-  **four blocks above its own feet** rather than at their level, for the reason a wander is: the
-  planner resolves a column by scanning DOWN from the height it is given, so a point aimed at the
-  feet that lands uphill is a column whose ground is above that level with the hill over the
-  body's head — no navigable surface, no route, and a goblin that stands still in a hollow while
-  it is beaten (a real trace: twenty-three fleeing asks in six seconds, every one of them empty).
-  Aimed above the ground, the same point resolves to the hilltop and the run-away becomes a run
-  uphill. A fight has two more limits,
+  at the **ground of the column it is running to**, not at a height over it: the planner anchors a
+  goal on the level it is handed and its one-column ring wants exactly that level, so an aim at a
+  fixed height that lands in rising ground is a cell inside the hill — no navigable surface, no
+  route, and a goblin that stands still while it is beaten (a real trace, twice now: twenty-three
+  empty asks in six seconds in a hollow, then thirteen more aimed into a slope, `wish=(0.00, 0.00)`
+  for the whole of its last four seconds). The goblin resolves the column's own standable cell
+  first — eight blocks out, scanning from eight above its feet to eight below — and aims there, so
+  the run-away is up the hill or down it and never into it. And a run-away with **nothing to walk
+  still runs**: with no route, the body takes the same direct steer the last pace before a blow
+  uses, mirrored away from the player, so a plan that comes back empty is a body that presses
+  against what is in its way rather than a body that stops. A goblin that is not fleeing does not
+  do this — the chase waits out its patience instead. A fight has two more limits,
   both of
   them the game's own: **anger runs out** after 400–799 ticks (20–40 s, reset by every new hit),
   and
@@ -728,7 +810,18 @@ being resampled by a different fraction at each scale.
   standing IN water is the one chase a route cannot answer — the goal's ring anchors on dry
   ground — so that one is steered straight at instead, and the goblin wades and swims after it
   and swings there rather than standing on the bank (the look is the same ray the reach is
-  measured through, and water does not stop it). **And a fall is
+  measured through, and water does not stop it). **A wet body still walks its plan**: the route
+  is what gets it out of the pond and up the staircase after a player standing above it, so it
+  is kept while the body is in water and followed cell by cell by the swim — a dry cell above
+  the body is a lip to climb rather than a cell to skip past. **And the plan is claimed in water
+  too**: the finished plan is polled before the swim branch, not after it. It used to be after, so
+  a body in water never collected one — `_job` stayed set, the re-plan that waits on `_job == 0`
+  never asked, and the body sat on the route it had fallen in with, four blocks below its next
+  cell, its wish flipping every second (`nav_trace` 2026-11-25 23:30: `job=5`, `route=5/6`). What it can climb is a lip at the
+  water's own top, the level it rides at: a step a whole block above the water line is not one a
+  swimmer can take, because the lift only exists while it is still in the liquid, so the planner
+  refuses that move and the swim refuses that shore — a goblin that cannot get to you gives up
+  instead of pressing at the wall. **And a fall is
   health**: more than three blocks costs it `floor(distance − 3)` half-hearts through the same
   hurt window a punch opens, so shoving one off a ledge is a tactic rather than a favour, and one
   killed by the ground drops what it carried like one killed by a fist. **Standing,

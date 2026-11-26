@@ -8,9 +8,11 @@
 // from the target column's surface rather than from raw voxels, so the rules
 // read the way an agent walks: level steps are cheap, climbing costs, dropping
 // costs more the further it falls, and a one-cell gap can be hopped -- and the
-// hop pays the same descent rate, so every fall costs `fall` a block. Diagonals
-// additionally require both columns the body squeezes between to be clear, so a
-// route never clips a wall corner.
+// hop pays the same descent rate, so every fall costs `fall` a block. A diagonal
+// is a corner the body passes, and it needs room on ONE side of it: two columns
+// that both stop the body at its own height are a squeeze it cannot fit through,
+// while a wall beside a hole -- or beside open ground -- leaves it the room to
+// slide past, which is what a player does.
 // -----------------------------------------------------------------------------
 
 #include "pathfinding/nav_view.hpp"
@@ -50,10 +52,21 @@ public:
         const NavCosts& c = costs_;
         const bool diagonal = (dx != 0 && dz != 0);
         if (diagonal) {
-            // The body passes between these two columns; both must be
-            // traversable at this height or the move clips a corner.
-            if (!orthogonal_ok(from, from_col, dx, 0)) return false;
-            if (!orthogonal_ok(from, from_col, 0, dz)) return false;
+            // ONE side of the corner has to be room the body can slant into. BOTH of them stop a
+            // 0.6-wide body -- two blocks meeting at a corner are a squeeze with nowhere for it to
+            // be -- and that is the only thing refused here. What a side needs is SPACE at the
+            // move's height, not a floor: a corner a player crosses keeps him up by the cells his
+            // box still overlaps, and the two beside-columns are exactly the ones he slants past.
+            // Asking them for a standable surface instead (a step into it) looked right and was
+            // wrong in the field: the player's own crossing has a hole beside the wall, so it was
+            // refused, and from that cell the goal became unreachable -- `no route to the goal
+            // column` with 4,338 nodes expanded, from a body ONE CELL from the player, over and
+            // over, while the player watched it stand there (`nav_trace` 2026-11-25 23:43).
+            // Footing is the walker's question, not the planner's: it slides along the open side
+            // and refuses a foot it cannot stand on (`_slide_around`, `docs/ui.md`).
+            if (!passes_beside(from, from_col, dx, 0) && !passes_beside(from, from_col, 0, dz)) {
+                return false;
+            }
         }
         const NavView::Column* to_col = view_.column(from.x + dx, from.z + dz, from.y);
         if (!is_usable(to_col)) return false;
@@ -61,6 +74,16 @@ public:
         const float dh = to_col->surface_top - from_col.surface_top;
         if (dh > c.max_rise + c.epsilon) return false;
         if (dh < -c.max_drop - c.epsilon) return false;
+        // ...and a swimmer does not climb OUT of the water. Its surface is the liquid's own top,
+        // where the body rides, and the lift that carries it over a rim (the swim-into-a-wall
+        // boost in the sim) exists only while it is still IN the liquid: a shore one block above
+        // the water line is a wall it presses against for as long as its anger lasts. That was a
+        // live stuck goblin, plan after identical plan (nav_trace, 2026-11-25 22:01: `next=
+        // (-2,247,2)` bobbing at a staircase foot for ten seconds under a player on the stairs).
+        // Rising INTO water is fine -- a body strokes up and there is nothing to jump -- so the
+        // refusal is one direction only: wet to dry, uphill. A plan then says what the body can
+        // do: the bank at the water line, a way round, or no route at all.
+        if (from_col.wade && !to_col->wade && dh > c.epsilon) return false;
 
         float cost = diagonal ? c.diagonal : c.walk;
         if (dh > 0.0f) cost += c.step_up * dh;
@@ -105,13 +128,25 @@ private:
                (!c->liquid || c->wade);
     }
 
-    [[nodiscard]] bool orthogonal_ok(const NavNode& from, const NavView::Column& from_col,
+    // Can the body slant into this column as it passes the corner? The question is the body's own
+    // SPACE at the move's height (`body_fits`), not whether the column is somewhere it could stand:
+    // a column whose ground is four blocks up still gives a body room if its blocks start above it,
+    // and a hole -- no floor, plenty of air -- is exactly the side a crossing slants past while the
+    // body's own footprint stays on the cells it is crossing.
+    //
+    // A liquid no body may be in is never a way past: cutting a lava corner would be a shortcut
+    // through a hazard that the plain steps refuse (see `is_usable`). The column is resolved once
+    // through `view_.column`, which prefetches it -- sampling a few cells of a column the search has
+    // not visited buys a ranged read per CELL, and the number of lock acquisitions a search takes is
+    // a pinned budget (`test_chunk_nav_source.cpp`).
+    [[nodiscard]] bool passes_beside(const NavNode& from, const NavView::Column& from_col,
                                      int32_t dx, int32_t dz) const {
-        const NavView::Column* c = view_.column(from.x + dx, from.z + dz, from.y);
-        if (!is_usable(c)) return false;
-        const float dh = c->surface_top - from_col.surface_top;
-        return dh <= costs_.max_rise + costs_.epsilon &&
-               dh >= -costs_.max_drop - costs_.epsilon;
+        const int32_t x = from.x + dx;
+        const int32_t z = from.z + dz;
+        const NavView::Column* beside = view_.column(x, z, from.y);
+        if (beside == nullptr) return false;
+        if (beside->liquid && !beside->wade) return false;
+        return view_.body_fits(x, z, from_col.surface_top);
     }
 
     // Hop over a one-cell gap: the middle column has no usable surface, the

@@ -55,3 +55,52 @@ TEST_CASE("a route wades a two-cell channel instead of the long way round") {
     Pathfinder blocked(hard, NavCosts{});
     CHECK_FALSE(blocked.search(q).found);
 }
+
+TEST_CASE("a route steps out of water onto a bank at the water line, not one above it") {
+    // The live trace (2026-11-25 22:01): a goblin chasing a player onto a tree ringed by flowing
+    // water kept planning the same staircase and could not take its first step. The step was a
+    // full block above the water's own top, and a swimmer cannot take it: the lift that carries a
+    // body over a rim only exists while it is still in the liquid (pinned by "A body in water
+    // cannot climb a lip a full block above the surface" in test_player_controller_water.cpp).
+    // So the planner refuses that direction, and a route that would have ended in the body
+    // pressing at the wall is simply not found.
+    nt::World w;
+    w.default_ground = 10;
+    // A pond two cells deep with its surface at 10, and a three-by-three island in the middle:
+    // the only way onto the island is out of the water.
+    for (int32_t z = -4; z <= 4; ++z) {
+        for (int32_t x = -4; x <= 4; ++x) {
+            if (x >= -1 && x <= 1 && z >= -1 && z <= 1) continue;  // the island
+            w.set_ground(x, z, 8);
+            w.set_water(x, 8, z);
+            w.set_water(x, 9, z);
+        }
+    }
+    NavCosts costs;
+    NavQuery q;
+    q.start = NavNode{-3, 10, 0};
+
+    // The island's top is the water line itself (10): the body floats up to it and steps out.
+    {
+        NavView view = nt::make_view(w, 16);
+        Pathfinder finder(view, costs);
+        q.goal = NavNode{0, 10, 0};
+        const NavPath path = finder.search(q);
+        CHECK(path.found);
+        CHECK(!path.nodes.empty());
+        if (!path.nodes.empty()) CHECK(path.nodes.back() == q.goal);
+    }
+
+    // The same island one block higher (11): every route onto it would step up out of the
+    // water, so there is no route at all rather than one the body can only press at.
+    nt::World raised = w;
+    for (int32_t z = -1; z <= 1; ++z)
+        for (int32_t x = -1; x <= 1; ++x)
+            raised.set_ground(x, z, 11);
+    {
+        NavView view = nt::make_view(raised, 16);
+        Pathfinder finder(view, costs);
+        q.goal = NavNode{0, 11, 0};
+        CHECK_FALSE(finder.search(q).found);
+    }
+}

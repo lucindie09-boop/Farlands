@@ -164,6 +164,11 @@ public:
     bool shove(const godot::Vector3& attacker_position,
                const godot::Vector3& extra_velocity = godot::Vector3());
 
+    // Add velocity, the way the reference's `Entity::push` does: the ENTITY half of a body's
+    // motion, which is what push-apart between two bodies applies (src/engine/entity_push.hpp).
+    // Nothing here touches the hurt state or the hurt window -- being leaned on is not a blow.
+    void push(const godot::Vector3& velocity);
+
     // Sim ticks taken since reset. A caller driving the body at the frame rate (an
     // entity deciding on a route) can measure its own timers in the ticks the body
     // actually took rather than in frames, which are not the same rate.

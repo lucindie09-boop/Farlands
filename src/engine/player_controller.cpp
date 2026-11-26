@@ -143,6 +143,10 @@ void PlayerSim::apply_knockback(const godot::Vector3& direction) {
     velocity_.y = std::min(velocity_.y, KNOCKBACK_SPEED);
 }
 
+void PlayerSim::push(const Vector3& velocity) {
+    velocity_ += velocity;
+}
+
 bool PlayerSim::shove(const Vector3& attacker_position, const Vector3& extra_velocity) {
     // The gate a queued hit passes: inside the first half of the window the hit is
     // resisted outright, so a resisted shove neither moves the body nor opens

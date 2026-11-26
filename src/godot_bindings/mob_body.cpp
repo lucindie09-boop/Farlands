@@ -25,6 +25,7 @@ void MobBody::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_tick_count"), &MobBody::get_tick_count);
     ClassDB::bind_method(D_METHOD("shove", "attacker_position", "extra_velocity"),
                          &MobBody::shove);
+    ClassDB::bind_method(D_METHOD("push", "velocity"), &MobBody::push);
     ClassDB::bind_method(D_METHOD("consume_damage"), &MobBody::consume_damage);
     ClassDB::bind_method(D_METHOD("is_liquid_at", "x", "y", "z"), &MobBody::is_liquid_at);
     ClassDB::bind_method(D_METHOD("is_solid_at", "x", "y", "z"), &MobBody::is_solid_at);
@@ -98,6 +99,10 @@ int64_t MobBody::get_tick_count() const {
 
 bool MobBody::shove(const Vector3& attacker_position, const Vector3& extra_velocity) {
     return sim_.shove(attacker_position, extra_velocity);
+}
+
+void MobBody::push(const Vector3& velocity) {
+    sim_.push(velocity);
 }
 
 float MobBody::consume_damage() {

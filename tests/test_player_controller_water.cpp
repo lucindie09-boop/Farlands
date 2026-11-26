@@ -246,3 +246,44 @@ TEST_CASE("Swimming against a wall gains height that open water does not") {
     CHECK(into_wall_peak > 5.5f);
     CHECK(into_wall_peak > open_water_peak + 0.5f);
 }
+
+
+TEST_CASE("A body in water cannot climb a lip a full block above the surface") {
+    // Why the planner refuses a wet-to-dry step up (see `step` in pathfinding/move_generator.hpp):
+    // the lift that carries a swimmer over a rim is only applied while it is still IN the liquid,
+    // so the last block of a lip above the water line has nothing behind it. This is the live
+    // shape from nav_trace (2026-11-25 22:01) -- a staircase rising out of a stream -- and the
+    // body bobs at its foot instead of standing on it. The test pins the ceiling, because a plan
+    // that promises this step is what made a goblin press at it for as long as its anger lasted.
+    ChunkMap cm;
+    fill_water_pool(cm, 1);  // floor at 0, water at 1 only: surface 1.88
+    {
+        auto d = std::make_unique<ChunkData>();
+        for (int x = 0; x < 32; ++x)
+            for (int z = 0; z < 32; ++z) {
+                d->set_block(x, 0, z, BlockIDs::STONE);
+                d->set_block(x, 1, z, x >= 2 ? BlockIDs::STONE : BlockIDs::WATER);
+                // The lip's top is 3.0, a full block above the water's surface.
+                if (x >= 2) d->set_block(x, 2, z, BlockIDs::STONE);
+            }
+        cm.insert(cm.get_chunk_key(0, 0, 1), make_test_chunk(std::move(d)));
+    }
+    CollisionResolver cr(&cm);
+    PlayerSim pc;
+    pc.reset(Vector3(0.5f, 1.0f, 33.5f));
+
+    PlayerInput into_lip;
+    into_lip.wish_direction = Vector3(1.0f, 0.0f, 0.0f);
+    into_lip.jump_pressed = true;
+
+    float highest = 0.0f;
+    for (int i = 0; i < 200; ++i) {
+        pc.accumulate_and_tick(1.0 / 20.0, into_lip, cr);
+        highest = std::max(highest, pc.get_position().y);
+    }
+    // It swims up to the surface (the stroke works) and gets a boost above it...
+    CHECK(highest > 2.2f);
+    // ...but never far enough to stand on the lip, whatever it presses at.
+    CHECK(highest < 2.9f);
+    CHECK(pc.get_position().y < 2.9f);
+}

@@ -82,7 +82,16 @@ how it is wired into the game and to the tests.
   at, and not the floor under it: at the floor every way out of a pond is a climb the planner
   refuses, which is how a goblin came to walk round a pond instead of across it (see the
   findings). Liquid is never HOPPED — you wade it — and a body already in water can route out of
-  it, because the check is on the cell entered and not the one left
+  it, because the check is on the cell entered and not the one left — but only onto a bank at
+  the water's own top. The swim's lift (the swim-into-a-wall boost in `PlayerSim`) exists only
+  while the body is still in the liquid, so a shore one block ABOVE the water line is a wall it
+  presses against and never climbs; `step` refuses that one direction (wet to dry, uphill)
+  rather than promising a move no body can make, which is a live goblin bobbing at a staircase
+  foot, plan after identical plan, for as long as its anger lasts (`nav_trace`, 2026-11-25
+  22:01). Rising INTO water is still allowed: a body strokes up, and there is nothing to jump.
+  A plan that still asks for the climb — one made before the water or the ground under it moved —
+  is dropped by the goblin itself after `LIP_GIVE_UP_FRAMES` (90) pressed at the lip, because
+  the swim zeroes every clock that measures walking and would otherwise never conclude anything
 - **Unknown is never traversable**: a cell in an unresident chunk must sample as
   `CellClass::Unknown`. A raw block query returns AIR for a missing chunk, which would otherwise
   read as walkable emptiness
@@ -172,7 +181,9 @@ how it is wired into the game and to the tests.
   — a
   pillar, a sealed pit — for the whole of its anger window (up to forty seconds)
 - **A session's plan history is written when the game closes** — `scripts/nav_trace.gd` records
-  every ask and every answer (found, truncated, the cell the route ends on, expansions, ms) plus
+  what build produced it (the engine, a hash and timestamp of `scripts/goblin.gd`, every extension
+  library's stamp), a tally of why routes were dropped, every ask and every answer (found,
+  truncated, the cell the route ends on, expansions, ms) plus
   a
   1 Hz sample of the player and every goblin, and dumps `user://nav_trace.txt` on exit; how to
   read it is in [debugging.md](debugging.md)
@@ -189,6 +200,23 @@ how it is wired into the game and to the tests.
   `hop()` instead keeps the estimate admissible AND exact, and the expansion counts where they
   were. Measured on live terrain (seed 1337): a 192-block cross-country route is ~2,000
   expansions / ~2.5 ms on one core, so the single-tier A* is enough at mob-relevant ranges
+- **A diagonal is a corner the body passes, and it needs room on ONE side of it**: the gate is
+  body SPACE at the move's height (`NavView::body_fits`) in at least one of the two beside columns,
+  so two blocks meeting at a corner — a squeeze no 0.6-wide body fits through — is the only thing
+  refused; a wall beside open ground or beside a hole is a corner a crossing slants past, while the
+  body's own footprint stays on the cells it is crossing. A liquid no body may be in refuses it
+  outright (`is_usable`'s own rule, asked of the column), so a route may not cut a lava corner;
+  water is a crossing. The beside column is resolved once through `view_.column`, which prefetches
+  it — sampling cells of a column the search has not visited buys a ranged read per CELL, and the
+  number of lock acquisitions a search takes is a pinned budget (`test_chunk_nav_source.cpp`).
+  The rule was briefly stricter, requiring the open side to be a column the body could *step into*,
+  and that was wrong in the field: the player's own crossing has a hole beside the wall, so it was
+  refused and the goal became unreachable — `no route to the goal column` after 4,338 nodes, from a
+  body ONE CELL from the player, over and over, while the player watched it stand there
+  (`nav_trace` 2026-11-25 23:43). Footing is the walker's question, not the planner's: it slides
+  along the open side, refuses a half that walks off a drop, and takes a step down within the
+  planner's own `max_drop` (`_slide_around`, `docs/ui.md`). `tests/test_move_generator.cpp` pins the
+  squeeze, the wall-beside-a-hole, the lava corner and the same water corner staying a crossing
 
 ## Findings from the abandoned causeway (2026-11-25)
 

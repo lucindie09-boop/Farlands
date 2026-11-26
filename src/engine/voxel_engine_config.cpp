@@ -7,6 +7,7 @@
 
 #include "core/item_registry.hpp"
 #include "godot_bindings/loot_tables.hpp"
+#include "godot_bindings/mobs.hpp"
 #include "worldgen/biome_config.hpp"
 #include "worldgen/vegetation_config.hpp"
 
@@ -46,6 +47,11 @@ void VoxelEngineController::load_world_configs() {
     // After items.json, because a table names its entries the way the registry does;
     // the ids are resolved at roll time, so only the file's own shape is checked here.
     LootTables::load("res://data/loot_tables.json");
+
+    // A mob's own numbers, read once: a walker asks the registry for its entry on the
+    // first tick it runs, so the file has to be in before a body is spawned, and every
+    // value it does not find there falls back to the script's own constant.
+    Mobs::load("res://data/mobs.json");
 
     recipe_book.clear();
     if (!recipe_book.load_from_json("res://data/recipes.json")) {

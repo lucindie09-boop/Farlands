@@ -144,10 +144,14 @@ TEST_CASE("MoveGenerator refuses to hop a gap that is liquid") {
     CHECK(find_move(moves, 2, 0) == nullptr);  // and not over it
 }
 
-TEST_CASE("MoveGenerator blocks a diagonal that would clip a corner") {
+TEST_CASE("MoveGenerator refuses a diagonal squeeze between two blocking columns") {
+    // A corner no 0.6-wide body fits through: two columns that both stop it at its own height,
+    // meeting diagonally. That move is refused, and the search goes round — while the same corner
+    // with a wall on only one side is a corner a body cuts (below).
     nt::World w;
     w.default_ground = 10;
-    w.set_ground(1, 0, 20);  // a wall directly east of the origin
+    w.set_ground(1, 0, 14);  // a wall directly east of the origin
+    w.set_ground(0, 1, 14);  // ...and one north of it: the squeeze
     NavView view = nt::make_view(w, 8);
     MoveGenerator gen(view, NavCosts{});
 
@@ -158,9 +162,74 @@ TEST_CASE("MoveGenerator blocks a diagonal that would clip a corner") {
 
     NavMoveList moves;
     gen.generate(from, *col, moves);
-    CHECK(find_move(moves, 1, 1) == nullptr);   // clipped by the east column
-    CHECK(find_move(moves, 1, -1) == nullptr);
-    CHECK(find_move(moves, 0, 1) != nullptr);   // the open side still works
+    CHECK(find_move(moves, 1, 1) == nullptr);   // between the two of them
+    CHECK(find_move(moves, 1, -1) != nullptr);  // one wall only: the room on the other side
+    CHECK(find_move(moves, 0, 1) == nullptr);   // and the wall itself is not a step
+}
+
+TEST_CASE("MoveGenerator passes a corner with a wall on one side and a hole on the other") {
+    // The report, in cells: 1 is a wall of three blocks at the corner, 2 and 3 are ground, 4 is a
+    // hole. The player crosses 2 -> 3 across it — his feet on the two columns he is crossing while
+    // his body slants past the wall and over the hole, carried by the cells his box still overlaps —
+    // and the goblin would not: the old rule required both beside-columns to be walkable COLUMNS,
+    // and a hole never is. The beside columns are the ones a body slants THROUGH, so what they owe
+    // it is space at the move's height, and the second half of this is the walker's: it slides along
+    // the open side and refuses a foot it could not stand on.
+    nt::World w;
+    w.default_ground = 10;
+    w.set_ground(1, 0, 14);  // 1: the wall
+    w.add_hole(0, 1);        // 4: the hole
+    NavView view = nt::make_view(w, 8);
+    MoveGenerator gen(view, NavCosts{});
+
+    const NavNode from{0, 10, 0};  // 2
+    const NavView::Column* col = view.column(from.x, from.z, from.y);
+    CHECK(col != nullptr);
+    if (col == nullptr) return;
+
+    NavMoveList moves;
+    gen.generate(from, *col, moves);
+    const NavMove* across = find_move(moves, 1, 1);  // to 3
+    CHECK(across != nullptr);
+    if (across != nullptr) {
+        CHECK(across->kind == MoveKind::Walk);
+        CHECK(across->to.y == 10);
+        CHECK(across->cost == doctest::Approx(1.41421356f));
+    }
+    // ...and the hole is still a hole: a straight step into it has nothing to stand on.
+    CHECK(find_move(moves, 0, 1) == nullptr);
+}
+
+TEST_CASE("MoveGenerator refuses a diagonal over a lava corner, and allows the same corner in water") {
+    // A wall beside a pit of lava is not the wall-beside-a-hole case. Liquids do not stop a body, so
+    // the body's own space says the corner is clear and a route would slant out over the hazard;
+    // the refusal is on the CELL, at the move's height and under it, which is the same refusal the
+    // plain steps make. Water is the liquid a body may be in, so that corner stays a crossing.
+    for (const bool lava : {true, false}) {
+        nt::World w;
+        w.default_ground = 10;
+        w.set_ground(1, 0, 14);  // a wall at one side of the corner
+        for (int32_t y = 9; y <= 10; ++y) {
+            if (lava) w.set_cell(0, y, 1, CellClass::Liquid);
+            else w.set_water(0, y, 1);
+        }
+        NavView view = nt::make_view(w, 8);
+        MoveGenerator gen(view, NavCosts{});
+
+        const NavNode from{0, 10, 0};
+        const NavView::Column* col = view.column(from.x, from.z, from.y);
+        CHECK(col != nullptr);
+        if (col == nullptr) continue;
+
+        NavMoveList moves;
+        gen.generate(from, *col, moves);
+        const NavMove* across = find_move(moves, 1, 1);
+        if (lava) {
+            CHECK(across == nullptr);
+        } else {
+            CHECK(across != nullptr);
+        }
+    }
 }
 
 TEST_CASE("MoveGenerator hops a one-cell gap") {

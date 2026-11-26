@@ -9,6 +9,8 @@
 #include "godot_bindings/liquid_texture_gen.hpp"
 #include "godot_bindings/loot_tables.hpp"
 #include "godot_bindings/mob_body.hpp"
+#include "godot_bindings/bodies.hpp"
+#include "godot_bindings/mobs.hpp"
 #include "godot_bindings/player_controller.hpp"
 #include "godot_bindings/skin_pixels.hpp"
 #include "godot_bindings/viewmodel_meshes.hpp"
@@ -52,6 +54,8 @@ void initialize_chunk_module(ModuleInitializationLevel p_level) {
     ClassDB::register_class<::ViewmodelPose>();
     ClassDB::register_class<::LiquidTextureGen>();
     ClassDB::register_class<::LootTables>();
+    ClassDB::register_class<::Mobs>();
+    ClassDB::register_class<::Bodies>();
     ClassDB::register_class<::SystemStats>();
     ClassDB::register_class<::BiomeSearch>();
     ClassDB::register_class<::MobBody>();

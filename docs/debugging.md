@@ -123,7 +123,8 @@ fast direction*, so a large improvement is worth re-running before believing too
 the console on the way out. It answers the one question a mob's route cannot show in the
 world: **why it is walking where it is walking**.
 
-Two lists. **Events** are every plan a goblin asked for (`ASK`: the body's speed state, the
+Three lists, in the order they are written. **Player steps** come first, for the reason
+the section after next gives; then **events**, every plan a goblin asked for (`ASK`: the body's speed state, the
 start cell, the target cell, and the budget it was allowed — `ms` on the answer is what the
 search *spent*, not what it had), every answer (`PLAN`: `found`/`truncated`, how many cells came
 back, the cell the route ENDS on, the route's first few cells, expansions, milliseconds, and the
@@ -134,12 +135,42 @@ are **cells**, rounded down like the planner's own conversion, and a route's end
 the *feet* cell of its last support block — so it can be held against the target's cell
 directly.
 
+Before all three lists comes what the session RAN: the engine, the hash and timestamp of
+`scripts/goblin.gd`, and the timestamp, size and name of every extension library in `res/bin`.
+That line exists because a whole round was spent reading a trace of a fix that was in the tests
+and not in the `.dll` the game had loaded, and the file said nothing about which binary had been
+running. Read it first: if the library's stamp predates the change you are looking for, the trace
+is not about that change. Beside the plan counts is a tally of **why routes were dropped**
+(`route drops: stuck 3, lip 1`), because the reasons exist as event lines but a session's shape
+is the number.
+
 **Samples** are once a second: the player's cell, then one line per goblin with its state, its
 position, its enemy, the cell it planned to, the waypoint it is walking to, the remaining route,
 the patience clock, whether it believes it is in reach, and the walk's own counters (`blocked`,
-`stuck`, `jumps`, `ground`). A `jumps` that never rises beside a route that climbs is the body
-not trying to climb it; a `jumps` that rises beside `blocked` climbing is it trying to climb
-something it cannot.
+`stuck`, `jumps`, `ground`), plus what the walker is ASKING for (`wish`) and what the body is
+doing with it (`vy`), whether it is in water, the frames it has spent pressed at a lip only the
+swim's lift can make (`lip`), and the ticks it has stroked this session (`strokes`). `wish`
+against `vy` is the pair a position cannot show: a body pressed at a wall has a wish and no
+speed, and a body bobbing in water has both and no ground. A `jumps` that never rises beside a
+route that climbs is the body not trying to climb it; a `jumps` that rises beside `blocked`
+climbing is it trying to climb something it cannot; `lip` climbing to 90 is the give-up about to
+fire.
+
+**Player steps** are the top of the body, and they exist because the goblin's lines settle
+everything except the question that matters at a corner: what does the *player* do there? The
+walker calls `(-2, 249, -1) -> (-1, 249, -2)` a wall and slides or drops the route; the player
+walks that corner all day. So every step he takes is written with his exact feet, the cell, the step
+since the last line, and the **3x3 of column tops around his feet** as one grid — rows `z-1, z, z+1`
+and columns `x-1, x, x+1`, where `0` is the floor under his feet, `1` a block at his feet's own
+level, `2` a two-block wall, `-1` a hole one deep and `X` nothing solid within reach. A line is
+written when his feet change cell, when he has moved a fifth of a block, or when the blocks around
+him change under him; standing still writes nothing, and a whole crossing costs a dozen lines.
+`feet=` against `3x3=` is the pair to read: a jump shows as the feet rising between two lines while
+the grid says nothing grew, and a corner walked past a wall shows the column of that wall and the
+hole beside it in the same grid he crossed. It reads its blocks from `ChunkManager.get_block`
+through a node found once, and answers `?` when there is no world to ask, so a probe can build a
+recorder without one (`probes/probe_trace_player.gd`, and `NavTrace.muted`, which stops a probe
+writing over the session's own file).
 
 The reading that matters is a `PLAN`'s `end=` against the `to=` of its `ASK`. `found` with an
 end three blocks under the target is the goal anchored on ground the target is not standing on;
@@ -147,6 +178,13 @@ end three blocks under the target is the goal anchored on ground the target is n
 what was asked for; `found=false truncated=false` is the whole reachable graph searched with
 genuinely no route. A `wait=` climbing against `CHASE_WAIT_TICKS` is the patience about to end
 the chase.
+
+The probes that spawn mob bodies share the plumbing in `probes/probe_world.gd`, and it is worth
+knowing why before writing another one: wait for `is_fill_settled()` rather than for the player to
+be on the floor, ask the body's own resolver (`stand_in_column`) rather than scanning down from the
+feet — under a roof that finds a ceiling, and a body placed on one suffocates and cannot be shoved —
+and build the fixture on `pad` in the sky, because a probe's world is the engine's default seed, not
+the player's.
 
 It is diagnostic only: nothing in it changes the game, a session with no goblin records nothing,
 and a stub-world probe records nothing either, because the trace is installed only where the

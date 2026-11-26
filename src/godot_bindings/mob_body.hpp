@@ -69,6 +69,11 @@ public:
     // damage and this shove share one gate.
     bool shove(const godot::Vector3& attacker_position, const godot::Vector3& extra_velocity);
 
+    // Push-apart's own half: velocity added by a body standing in the same place, through the
+    // same `PlayerSim::push` the player's node uses. Not a blow, so it opens no hurt window and
+    // cannot be resisted -- two bodies in one place is a geometry problem, not a fight.
+    void push(const godot::Vector3& velocity);
+
     // Everything the sim has queued since the last call, in half-hearts of health damage:
     // a landing past `SAFE_FALL_DISTANCE` arrives here as a Fall source like any other, so a
     // fall hurts a mob through the same hurt window a blow does. Breath and contact damage

@@ -127,11 +127,11 @@ const HELD_ARM_SWING := 0.5
 # viewmodel share (scripts/item_poses.gd): an item's pose is a claim about its ART rather than
 # an item mechanic, so it is not in the registry -- and it is not read twice either.
 const ItemPoses := preload("res://scripts/item_poses.gd")
-# How big the item is, as a fraction of the ARM's length rather than in model units: 0.77792
-# of a block (vanilla's 0.4, grown 1.3x, again 1.6x, down 15%, then up 10%) against this
-# rig's 0.675-block arm, so 0.77792 / 0.675. Measured off the arm's own box at load, so a
+# How big the item is, as a fraction of the ARM's length rather than in model units: 0.855712
+# of a block (vanilla's 0.4, grown 1.3x, again 1.6x, down 15%, then up 10%, and 10% again)
+# against this rig's 0.675-block arm, so 0.855712 / 0.675. Measured off the arm's own box at load, so a
 # re-modelled or re-scaled arm keeps the proportion instead of leaving a stale number behind.
-const HELD_ITEM_ARM_LENGTHS := 0.77792 / 0.675
+const HELD_ITEM_ARM_LENGTHS := 0.855712 / 0.675
 # A BLOCK has a size of its own: 0.3588 of a block, and the item's growth does not move it.
 # A cube reads bigger than a sprite at the same figure -- it has volume where a sprite is a
 # card -- so the two are separate numbers rather than one scaled from the other.
@@ -169,7 +169,7 @@ const HELD_BLOCK_TURN := Vector3(0.0, 45.0, 0.0)
 # depth of its own, so without this it reads as lying on the hand rather than held clear
 # of it. One number, ours to tune; the block path does not use it (a block is already
 # placed corner-on-palm).
-const HELD_SPRITE_FORWARD := 0.47
+const HELD_SPRITE_FORWARD := 0.48
 # How far ABOVE the hand a sprite sits, in blocks and converted to arm lengths: flat on the
 # hand's own line it read as resting on the wrist rather than held. Ours to tune.
 const HELD_SPRITE_RISE := 0.05 / 0.675

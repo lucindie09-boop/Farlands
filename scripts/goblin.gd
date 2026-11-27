@@ -139,6 +139,13 @@ const STROLL_RADIUS := 6.0
 ## up-slope -- a surface with no room for a body above it -- and the walk is to a place
 ## it cannot stand. Aimed at the top of this window, every column resolves to whatever
 ## ground is actually there, uphill or down.
+## ...and in a PIT the top of this window is the hillside itself: the goal is then a wall's top,
+## the walk to it is a climb, and the stroll's 4,000-expansion/8 ms could not finish one -- every
+## ask for that spot came back `truncated`, the route it came with was a hop with no run-up
+## behind it, and the roll cost a refused hop and a second of standing (`nav_trace` 2026-11-27
+## 22:32). What saves it is not a smaller number here but a second shot at the aim: a cut-off
+## answer is never walked, and the roll is re-aimed at the body's own LEVEL once -- see
+## `_reaim_stroll` and `_stroll_reaimed`.
 const STROLL_UP := 4.0
 ## How fast it moves, in Minecraft's own unit: 0.30, a spider's (the player's walk is
 ## 0.1, a zombie's 0.23, a villager's 0.5). The value is the ACCELERATION a body adds
@@ -595,11 +602,10 @@ var _rise_ticks := 0
 ## RISE_REFUSAL_TICKS. A plan that hands this cell back is refused rather than walked.
 var _refused_head := Vector3.INF
 var _refused_until := 0
-## The head of the last CUT-OFF answer a stroll took (INF when the last answer was whole, and
-## whenever a route is deliberately dropped). `truncated` means a budget ran out, so the same
-## question under the same clock is handed back the same route -- which makes the SAME head twice
-## a loop rather than bad luck. See `_take_route`.
-var _cut_off_head := Vector3.INF
+## Whether this ROLL's goal has already had its second shot at an aim: a cut-off answer is never
+## walked, the first one re-aims the roll at the body's own level and the second gives the goal
+## up. Cleared by `_stroll`, so it is one per roll and not one per goal. See `_take_route`.
+var _stroll_reaimed := false
 ## Ticks spent stroking, this session: the trace's "is it actually swimming" number, which a
 ## position cannot answer for a body bobbing on the spot.
 var _strokes := 0
@@ -1186,10 +1192,36 @@ func _stand_over(x: int, z: int, feet_y: float) -> Vector3:
 ## rather than as a direction, because the planner is what knows where the ground is.
 ## The target is aimed STROLL_UP above the goblin, not at its feet -- see that constant.
 func _stroll() -> int:
+	# A new roll gets both its shots at a goal -- the first aim and the level one that a cut-off
+	# answer buys it. See `_reaim_stroll`.
+	_stroll_reaimed = false
+	return walk_to(_stroll_target(_sim.get_tick_position(), STROLL_UP))
+
+
+## The point a roll aims at: a random bearing, STROLL_MIN_RADIUS to STROLL_RADIUS out, `up` above
+## the feet. Both shots at a goal come through here, so the level re-aim is the SAME roll with its
+## aim lowered rather than a second wander. See STROLL_UP for why `up` is not 0 to begin with.
+func _stroll_target(feet: Vector3, up: float) -> Vector3:
 	var angle := randf() * TAU
 	var distance := randf_range(STROLL_MIN_RADIUS, STROLL_RADIUS)
-	return walk_to(_sim.get_tick_position()
-		+ Vector3(cos(angle) * distance, STROLL_UP, sin(angle) * distance))
+	return feet + Vector3(cos(angle) * distance, up, sin(angle) * distance)
+
+
+## The same roll, aimed at the body's OWN level: the first answer came back cut off, so the point
+## STROLL_UP above the feet was a hillside rather than a place to stand. Ground at the feet's own
+## level is the ground the body can already walk on, so the answer is a short walk ALONG it
+## instead of a climb out of a pit -- which is what the stroll's budget could not pay for. ONCE
+## per roll: a second cut-off gives the goal up and stands, and the roll is the roll's business.
+##
+## It does not wait for the body to be on the ground. The roll itself is standing-gated, but this is
+## an ASK, not a step: `walk_to` asks from the cell the body is standing on and the walk refuses a
+## level it cannot take, so holding the shot back for a body that is momentarily airborne only
+## spends it on nothing -- the goal would be left unresolved and the roll waited out.
+func _reaim_stroll() -> void:
+	_stroll_reaimed = true
+	_replan_reason = "the cut-off answer is re-aimed at its own level"
+	_trace_route_dropped()
+	walk_to(_stroll_target(_sim.get_tick_position(), 0.0))
 
 
 ## Set off on a stroll now, without waiting for the roll: a probe drives the same walk
@@ -1942,6 +1974,29 @@ func _take_route(result: Dictionary) -> void:
 	_job = 0
 	_route.clear()
 	_next = 0
+	# A cut-off answer for a STROLL is not walked at all. `truncated` is a budget running out
+	# rather than a route to the place, so what it carries is the distance the search got -- and
+	# the point the roll aimed at is STROLL_UP above the feet, which in a pit is the hillside, so
+	# the goal is the top of a wall and the walk to it is a climb. Walking that is how one roll
+	# became a refused hop and then twenty asks at 0.2 s, `route=0/7`, `blocked=2`,
+	# `wish=(0.00, 0.00)` (`nav_trace` 2026-11-27 22:32): the head was a hop with no run-up behind
+	# it, refused in twelve frames, re-asked, and handed back the same route. So the first
+	# cut-off re-aims the roll at the body's OWN level (the ground it can already stand on,
+	# `_reaim_stroll`), which is a new goal and a new question, and the second gives the goal up
+	# and stands -- what puts the roll back in front of it. A chase escalates its budget
+	# (`CHASE_BUDGET_LIMIT_MS`) and a loot errand has its own deadline; neither is this.
+	if bool(result.get("truncated", false)) and _enemy == null and _plan_role == "idle":
+		if not _stroll_reaimed:
+			_reaim_stroll()
+			return
+		_replan_reason = "the cut-off answer survived the re-aim"
+		_trace_route_dropped()
+		_goal = Vector3.ZERO
+		_planned_goal = Vector3.ZERO
+		_planned_from = Vector3.INF
+		_needs_replan = false
+		_idle_ticks = FAILED_RETRY_TICKS
+		return
 	# The planner's own cells, not the smoothed waypoints: the smoother pulls a route into
 	# long straight legs, and a leg is walked as a straight line -- which is how a goblin
 	# stepped off ledges and waded through what the plan had gone round. Cell by cell is what
@@ -1988,29 +2043,6 @@ func _take_route(result: Dictionary) -> void:
 		_next = 0
 		_idle_ticks = FAILED_RETRY_TICKS
 		return
-	# ...and the same is true of a CUT-OFF answer: `truncated` means a budget ran out, so the same
-	# question under the same clock comes back as the same route. A chase escalates its budget and
-	# then runs out of patience (`CHASE_BUDGET_LIMIT_MS`, `CHASE_WAIT_TICKS`); a stroll has neither,
-	# and re-asking IS its answer to a route it cannot walk -- so it sat in a 0.2 s loop, twenty
-	# asks in two seconds, `found=false truncated=true ... "time budget exhausted"`, `route=0/7`,
-	# `blocked=2`, `wish=(0.00, 0.00)`, never moving (`nav_trace` 2026-11-27 22:32; the head was a
-	# hop with no run-up behind it, refused in twelve frames, re-asked, refused again). Handed the
-	# same head back, a stroll gives the GOAL up and stands, which is what puts the roll in front
-	# of it again: the goal is a random point aimed above the terrain, so a new roll is a new
-	# place rather than the same cut-off wall.
-	if bool(result.get("truncated", false)) and _enemy == null and _plan_role == "idle" \
-			and not _route.is_empty() and _route[0] == _cut_off_head:
-		_replan_reason = "the same cut-off answer came back"
-		_trace_route_dropped()
-		_goal = Vector3.ZERO
-		_planned_goal = Vector3.ZERO
-		_planned_from = Vector3.INF
-		_needs_replan = false
-		_cut_off_head = Vector3.INF
-		_abandon_route()
-		_idle_ticks = FAILED_RETRY_TICKS
-		return
-	_cut_off_head = _route[0] if bool(result.get("truncated", false)) else Vector3.INF
 	# A route that goes NOWHERE is not a stroll: look again soon rather than standing for the whole
 	# idle wait on a column that turned out to be unreachable. EMPTY, not short: the head-skip above
 	# can cut a two-node answer down to one, and that cell is a real destination -- it is where the
@@ -2302,7 +2334,6 @@ func _abandon_route() -> void:
 	_stuck_ticks = 0
 	_lip_frames = 0
 	_rise_head = Vector3.INF
-	_cut_off_head = Vector3.INF
 	_job = 0
 
 

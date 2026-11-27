@@ -80,54 +80,53 @@ func _run() -> void:
 	if route.size() != 2:
 		_fail("route has %d cells, not the 2 left after the one it stands in" % route.size())
 
-	# --- a CUT-OFF answer handed back with the same head gives the GOAL up --------
-	# `truncated` means a budget ran out, so the same question under the same clock is handed back
-	# the same route -- and a stroll's answer to a route it cannot walk is to ask again, which is
-	# the 0.2 s loop of `nav_trace` 2026-11-27 22:32: twenty asks at `blocked=2`, `route=0/7`,
-	# `wish=(0.00, 0.00)` and no movement. The second identical cut-off drops the goal, which is
-	# what puts the stroll's roll back in front of it. A whole answer, and a cut-off with a
-	# DIFFERENT head, are both still walked.
+	# --- a CUT-OFF answer is never walked: the roll gets a second AIM -------------
+	# `truncated` means a budget ran out, so what it carries is the distance the search got rather
+	# than a route to the place -- and a stroll aims STROLL_UP above its feet, which in a pit is the
+	# hillside, so the goal is the top of a wall and the walk to it is a climb the 4,000/8 ms could
+	# not finish. Walking that is how one roll became a refused hop and then twenty asks at 0.2 s
+	# (`nav_trace` 2026-11-27 22:32: `route=0/7`, `blocked=2`, `wish=(0.00, 0.00)`, no movement).
+	# The first cut-off re-aims the roll at the body's OWN level, which is the ground it can already
+	# walk on; the second gives the goal up, which is what puts the roll back in front of it. A
+	# whole answer is walked always, however many shots it took to get one.
+	# A goblin spawned beside the player picks it up as an enemy, and a fight owns its plans: the
+	# stroll is the idle goblin's business, so this half of the probe is an idle one.
+	body.set("_enemy", null)
 	var cut := {"nodes": nodes, "truncated": true}
 	var goal_kept := Vector3(0.0, 0.0, 1.0)
+	var sim: Object = body.get("_sim")
+	var body_y: float = (sim.call("get_tick_position") as Vector3).y if sim != null else start.y
 	body.call("_abandon_route")
 	body.set("_goal", goal_kept)
+	body.set("_stroll_reaimed", false)
+	body.set("_idle_ticks", 0)
 	body.call("_take_route", cut)
-	if (body.get("_route") as Array).is_empty():
-		_fail("a cut-off answer was refused before it had been seen twice")
-	else:
-		var first_head: Vector3 = (body.get("_route") as Array)[0]
-		var remembered = body.get("_cut_off_head")
-		if remembered == null or not (remembered as Vector3).is_equal_approx(first_head):
-			_fail("the cut-off head %s was not remembered (%s)"
-				% [str(first_head), str(remembered)])
+	if not (body.get("_route") as Array).is_empty():
+		_fail("a cut-off answer was walked (%d cells) instead of re-aiming the roll"
+			% (body.get("_route") as Array).size())
+	var reaimed = body.get("_stroll_reaimed")
+	if reaimed == null or not bool(reaimed):
+		_fail("the cut-off answer did not re-aim the roll (%s)" % str(reaimed))
+	var aim := body.get("_goal") as Vector3
+	if aim == goal_kept:
+		_fail("the cut-off answer kept the goal it was asked for")
+	if absf(aim.y - body_y) > 1.0:
+		_fail("the re-aim is %s, which is not the body's own level (%.1f)" % [str(aim), body_y])
+	# ...and a cut-off after that has spent both shots: the goal goes and the roll is held off.
 	body.set("_goal", goal_kept)
 	body.set("_idle_ticks", 0)
 	body.call("_take_route", cut)
 	if not (body.get("_route") as Array).is_empty():
-		_fail("the same cut-off answer was handed back and walked again (%d cells)"
+		_fail("the re-aimed cut-off was walked as well (%d cells)"
 			% (body.get("_route") as Array).size())
 	if (body.get("_goal") as Vector3) != Vector3.ZERO:
-		_fail("the goal survived the same cut-off answer twice (%s)" % str(body.get("_goal")))
+		_fail("the goal survived both shots at an aim (%s)" % str(body.get("_goal")))
 	if int(body.get("_idle_ticks")) <= 0:
 		_fail("giving the goal up kept no hold, so the roll cannot be in front of it")
-	# ...a WHOLE answer is not a loop, however much it looks like one.
+	# ...a WHOLE answer is a place, not a budget: it is walked whatever came before it.
 	body.set("_idle_ticks", 0)
 	body.call("_take_route", {"nodes": nodes})
 	if (body.get("_route") as Array).is_empty():
 		_fail("a whole answer was refused after a cut-off one")
-	if (body.get("_cut_off_head") as Vector3) != Vector3.INF:
-		_fail("a whole answer left a cut-off head remembered (%s)"
-			% str(body.get("_cut_off_head")))
-	# ...and neither is a cut-off somewhere ELSE: a different frontier is a different answer.
-	body.call("_abandon_route")
-	body.call("_take_route", cut)
-	var elsewhere := PackedVector3Array([
-		Vector3(feet.x, support, feet.z + 1.0),
-		Vector3(feet.x + 1.0, support, feet.z + 1.0),
-		Vector3(feet.x + 2.0, support, feet.z + 1.0)])
-	body.set("_goal", goal_kept)
-	body.call("_take_route", {"nodes": elsewhere, "truncated": true})
-	if (body.get("_route") as Array).is_empty():
-		_fail("a cut-off answer with a different head was refused")
 	print("PROBE PASS" if ok else "PROBE FAILED")
 	quit(0 if ok else 1)

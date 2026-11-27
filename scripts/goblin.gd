@@ -1243,11 +1243,16 @@ func _loot_travel() -> void:
 		var taken: Dictionary = {}
 		var dropped := _dropped_items()
 		if dropped != null and dropped.has_method("take_one"):
-			# Asked from the HAND rather than the feet, with a little slack on both bounds: the
-			# pile was noticed from the feet and is taken by a hand half a block up and a body's
-			# width out.
-			taken = dropped.call("take_one", feet + Vector3.UP * 0.5,
-				LOOT_REACH + 0.2, LOOT_TAKE_HEIGHT + 0.2)
+			# The take is asked from the FEET with the same two bounds this gate just used, so
+			# the two windows are one test: whatever the gate calls in reach is what the take can
+			# see. They used to be asked from different places -- the take from `feet + 0.5` with
+			# LOOT_TAKE_HEIGHT + 0.2, which puts its floor at feet - 0.9 against the gate's
+			# feet - 1.2 -- so a pile in that 0.3 band passed the gate, came back EMPTY from the
+			# take, and was read as a pile that had gone: the spot was forgotten for the whole
+			# LOOT_IGNORE_TICKS and the goblin stood beside an item it could have picked up
+			# (`nav_trace` 2026-11-27 22:32: a pile at y 248.03 under feet at 249.00, and a body
+			# standing 1.0 flat from it with `route=0/0`, `wish=(0.00, 0.00)` for nine seconds).
+			taken = dropped.call("take_one", feet, LOOT_REACH, LOOT_TAKE_HEIGHT)
 		if taken.is_empty():
 			# The player took it, another goblin did, or it merged away while this one walked:
 			# there is nothing left to fetch at that spot, so the memory is about the PILE and not
@@ -1960,8 +1965,6 @@ func _take_route(result: Dictionary) -> void:
 	# `(-1, 249, -2)>(0, 249, -2)` answer became no route at all, `route=0/0` and a 3-block fall).
 	if _route.is_empty():
 		_route.clear()
-		_idle_ticks = FAILED_RETRY_TICKS
-		return
 		_idle_ticks = FAILED_RETRY_TICKS
 		return
 	_closest = INF

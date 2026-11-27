@@ -278,6 +278,17 @@ remembered at `LOOT_FORGOTTEN_REACH`, the pile's own point. A wide hole around a
 GONE hides the survivor of its merge, and that is a goblin standing beside a live pile it can
 see for ten seconds (`nav_trace` 2026-11-27 21:26).
 
+**...and the reach gate and the take are ONE window.** `_loot_travel` decides a pile is in reach
+with `LOOT_REACH` and `LOOT_TAKE_HEIGHT` measured from the feet, so `take_one` is asked from the
+feet with those same two numbers. It was asked from `feet + 0.5` with `LOOT_TAKE_HEIGHT + 0.2`,
+which puts its floor at feet - 0.9 against the gate's feet - 1.2: a pile in that 0.3 band passed
+the gate and was invisible to the take, so it answered nothing and the empty-take forget above
+fired on a pile that was still lying there. A dropped item rests on the floor, so a goblin on the
+ledge above one is in exactly that band (`nav_trace` 2026-11-27 22:32: pile y 248.03, feet 249.00,
+1.0 flat away, and the body stood there for nine seconds with `route=0/0`, `wish=(0.00, 0.00)`).
+One origin and one pair of numbers is the fix, and `probes/probe_goblin_loot_run.gd` pins a pile
+0.97 below the feet going into the hand.
+
 The one C++ change is the tool query (`BlockTextures.is_item_tool`, the registry's own
 `is_tool`, since nothing on the script side could answer it), and the two methods on
 `scripts/dropped_items.gd` are the only new search: `nearest_item` and `take_one`, which share

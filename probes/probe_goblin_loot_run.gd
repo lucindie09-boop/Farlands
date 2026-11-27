@@ -409,6 +409,33 @@ func _run() -> void:
 	if String(body.get("speed_state")) != "idle" or body.get("_loot_target") != Vector3.INF:
 		_fail("a pile in liquid started an errand ('%s')" % body.get("speed_state"))
 
+	# --- 3b. a pile a block BELOW the feet is in reach, so the take must see it -----
+	# The reach gate and the take read one pair of numbers from one origin. They did not: the take
+	# was asked from `feet + 0.5` with LOOT_TAKE_HEIGHT + 0.2, so its floor was feet - 0.9 while
+	# the gate's was feet - 1.2, and a pile in that 0.3 band passed the gate and was invisible to
+	# the take -- which answers nothing, reads as a pile that has gone, and forgets the spot for
+	# the whole LOOT_IGNORE_TICKS (`nav_trace` 2026-11-27 22:32: a pile at y 248.03 under feet at
+	# 249.00, and a goblin standing 1.0 flat from it for the rest of the trace).
+	var below := _feet + Vector3(0.4, -0.97, 0.0)
+	_put(pebble, below)
+	body.set("_loot_ignore_at", Vector3.INF)
+	body.set("main_hand_item", 0)
+	body.set("_loot_scan_ticks", 0)
+	if not _tick_until(LOOT_SCAN_TICKS + 4,
+			func(): return int(body.get("main_hand_item")) > 0):
+		_fail("a pile 0.97 below its feet was in reach and was never taken")
+	elif int(body.get("main_hand_item")) != pebble:
+		_fail("the pile below the feet put %d in the hand, not the pebble %d"
+			% [int(body.get("main_hand_item")), pebble])
+	# Let the look finish (it is a pebble, so it is thrown back) and clear the memory that leaves
+	# behind, so the case below starts on an empty hand with nothing ignored.
+	_tick(LOOT_INSPECT_TICKS)
+	body.call("_cancel_loot")
+	body.set("main_hand_item", 0)
+	body.set("_loot_ignore_at", Vector3.INF)
+	body.set("_loot_ignore_until", 0)
+	_fake.set("takes", 0)
+
 	# --- 4. arrival takes exactly ONE, and starts the inspection ------------------
 	var in_reach := _feet + Vector3(0.2, 0.3, 0.0)
 	_put(pebble, in_reach, 2)
@@ -617,8 +644,8 @@ func _run() -> void:
 	if not _tick_until(LOOT_SCAN_TICKS + 4,
 			func(): return body.get("_loot_target") != Vector3.INF):
 		_fail("it never set off on the pile that was about to vanish")
-	# The survivor: the same item a block and a half off -- out of the HAND's reach from here, so
-	# this take really does come back empty, and inside the 2.0 a rejected item's memory covers.
+	# The survivor: the same item a block and a half off -- past LOOT_REACH from here, so this
+	# take really does come back empty, and inside the 2.0 a rejected item's memory covers.
 	var survive_at := _feet + Vector3(1.9, 0.3, 0.0)
 	_put(pebble, survive_at)
 	jobs = int(_plan.get("jobs"))

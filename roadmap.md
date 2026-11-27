@@ -30,15 +30,18 @@ GDScript for now~~
 ~~Spawnable dummy + combat calc + knockback - careful: sketch a minimal Entity base class first
 so the dummy isn't thrown away later~~
 
-Flesh out entity system (flow-field pathfinding, droppable item entities) - careful: the planner
-that exists is budgeted A* over the chunk map (`src/pathfinding/`, no Godot deps), not a flow
-field, so decide whether entities reuse it per-agent or want one shared field; and decide if
-block breaks still insta-pickup or now drop as world items
+~~Flesh out entity system (flow-field pathfinding, droppable item entities) - both decisions it
+was waiting on are settled the other way: entities reuse the budgeted A* in `src/pathfinding/`
+per agent rather than sharing one flow field (a goblin re-plans every few ticks), and a block
+break drops real world items (`scripts/dropped_items.gd`) instead of insta-pickup. The goblin is
+the entity that proves it: the player's own fixed-tick body, the planner, combat, a loot table~~
 
-Dropped items want their own animation, not the shatter - the whole item texture, intact and
-rigid, thrown toward the crosshair, rotating, colliding as one piece, then falling off screen. The
-shatter is for art being *destroyed*, which a drop is not. What is wanted, and what is still open,
-is written up in [docs/gui-notes.md](docs/gui-notes.md) under "A dropped item is NOT a shatter".
+~~Dropped items want their own animation, not the shatter - built in two halves:
+`scripts/dropped_items.gd` is the item itself (a rigid body in the world, solved against the
+voxels) and `scripts/ui_icon_throw.gd` is the slot's art leaving the HUD whole, thrown, tumbling
+and falling out of frame. `UIShatter` stayed the destruction effect and a thrown slot does not
+also shatter (`hotbar.gd`, `_thrown_out`). Notes: [docs/gui-notes.md](docs/gui-notes.md), under
+"A dropped item is NOT a shatter"~~
 
 ~~Crosshair/outline export codes (CS-style) - small, self-contained, slot in anytime; version
 the code format so future options don't break old codes~~

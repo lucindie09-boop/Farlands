@@ -14,6 +14,7 @@
 #include "engine/voxel_engine_controller.hpp"
 
 #include <godot_cpp/variant/utility_functions.hpp>
+#include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/classes/scene_tree.hpp>
 #include <godot_cpp/core/object.hpp>
 
@@ -221,25 +222,44 @@ void PlayerController::_ready() {
     // first person. It lives under a ModelPivot wrapper so the body can lag
     // behind the look direction (vanilla's body-yaw) while the head
     // stays glued to the camera.
-    if (model_pivot_ == nullptr) {
+    //
+    // The pivot is created here, so it has no owner -- and PackedScene::pack only
+    // saves nodes whose owner reaches the scene root, so a body moved under it is
+    // dropped from the packed tree. That is the whole of the "Main.tscn loses the
+    // player body on save" bug (2 Oct, 24 Nov, 27 Nov): an editor-side _ready
+    // reparented the body into the unowned pivot, and the next Ctrl+S wrote the
+    // scene without PlayerModel and pruned both of its ext_resources. So the
+    // editor gets neither the pivot nor the reparent -- a save must write back the
+    // hierarchy it was given -- and the wrapper is built at run time, where
+    // nothing packs the tree. uids were never the problem here; they resolve.
+    const bool editing = Engine::get_singleton() && Engine::get_singleton()->is_editor_hint();
+    if (!editing && model_pivot_ == nullptr) {
         model_pivot_ = memnew(godot::Node3D);
         model_pivot_->set_name("ModelPivot");
         add_child(model_pivot_);
     }
     model_ = Object::cast_to<Node3D>(find_child("PlayerModel", true, false));
-    if (model_) {
-        if (model_->get_parent() != model_pivot_) {
-            model_->reparent(model_pivot_);
+    if (model_ == nullptr && !editing) {
+        model_ = build_body_from_model_file();
+        if (model_ != nullptr) {
+            WARN_PRINT("PlayerController: Main.tscn has no \"PlayerModel\" node — rebuilt the "
+                       "body from Assets/models/player.glb. The scene is missing the node and "
+                       "its two ext_resources; restore them from git.");
         }
-        model_->set_visible(third_person_view_ > 0);
-    } else {
-        // Every third-person path keys off model_, so a missing node degrades to
-        // "F5 shows an empty world" with no error anywhere. An editor re-save of
-        // Main.tscn can drop the node without touching anything else, so say so
-        // loudly instead of letting the body vanish in silence.
-        WARN_PRINT("PlayerController: no \"PlayerModel\" node under the scene — "
-                   "third person will show no body. Main.tscn should instance "
-                   "player.glb as Player/PlayerModel with player_model.gd attached.");
+    }
+    if (model_) {
+        if (!editing) {
+            if (model_->get_parent() != model_pivot_) {
+                model_->reparent(model_pivot_);
+            }
+            model_->set_visible(third_person_view_ > 0);
+        }
+    } else if (!editing) {
+        // Every third-person path keys off model_, so a missing body degrades to
+        // "F5 shows an empty world"; say so rather than let it vanish in silence.
+        WARN_PRINT("PlayerController: no \"PlayerModel\" node under the scene and the body "
+                   "could not be rebuilt from Assets/models/player.glb — third person will "
+                   "show no body.");
     }
 
     // The ChunkManager is a SIBLING of this node, so its lifetime is not tied to

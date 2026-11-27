@@ -725,22 +725,23 @@ first-person viewmodel - what each one owns and the decisions behind it.
   tint rather than a body-only exception (`probes/probe_body_light.gd` reads both materials,
   at noon and at the horizon).
   **The body is a scene node, not code**: `Main.tscn` instances it as `Player/PlayerModel`
-  (scale 0.05625, +0.0844 z, `player_model.gd`), and `PlayerController::_ready` only *finds* it by name and reparents it under
-  `ModelPivot`. An editor re-save of `Main.tscn` can drop the node and its ext_resources without
-  any other diff, which silently leaves F5 showing no body, so the controller now warns loudly
-  when it can't find one. That is what happened on 2 Oct: the scene's `PackedScene` reference
-  still carried the uid `player.glb` had at the repository root, and that uid lives on only in a
-  leftover root `player.glb.import` whose `source_file` (`res://player.glb`) no longer exists —
-  it never named `Assets/models/player.glb`. The node and both of its ext_resources were gone from the
-  saved scene, while the dummy-spawn button kept working, because that preloads the model by
-  *path* and never touches `Main.tscn`. A `Main.tscn` reference to this model must therefore
-  carry `Assets/models/player.glb`'s current uid (and its path), and no `.import` for a source that does
-  not exist belongs at the repository root. It dropped again on 24 Nov — the same shape, the node and
-  both ext_resources gone from the saved scene, and this time with both uids still correct on disk
-  — which surfaced as `PlayerController: no "PlayerModel" node under the scene` at boot and a third
-  person with no body. It was restored from the committed blocks; the scene's own empty
-  `AnimationPlayer` node was not carried back, because `player_model.gd` now builds the player it
-  plays its clips on (`Clips`), so a scene node would be a second, unused one
+  (scale 0.05625, +0.0844 z, `player_model.gd`), and `PlayerController::_ready` only *finds* it by
+  name and reparents it under `ModelPivot`, a wrapper it creates with `memnew` for the body-yaw to
+  turn. That wrapper is what kept losing it: it has no owner, and `PackedScene::pack` saves only
+  nodes whose owner chain reaches the scene root, so a body reparented into it is not in the packed
+  tree at all. Packing this scene after `_ready` writes it with no `PlayerModel` and prunes both of
+  its ext_resources; packing it before `_ready` keeps both. The editor runs `_ready` on its own copy
+  of the scene, so its next save emptied the file: 2 Oct, 24 Nov and 27 Nov are one bug, and the uid
+  was never it — the engine resolves `uid://bpoqm4h0tnkfv` to `Assets/models/player.glb` and loads
+  it. So the controller now builds the pivot and reparents only outside the editor
+  (`is_editor_hint()`), leaving a save to write back the hierarchy it was given, and a scene that
+  has somehow lost the node is stood back up from `player.glb` by
+  `godot_bindings/player_controller_body.cpp` — same transform, same `player_model.gd`, hidden,
+  loaded by path — with a warning naming the node and the two ext_resources to restore.
+  `probes/probe_player_model.gd` exits non-zero when the body is missing or broken. The scene's own
+  empty `AnimationPlayer` node was not carried back on the 24 Nov restore, because
+  `player_model.gd` now builds the player it plays its clips on (`Clips`), so a scene node would be
+  a second, unused one
 - **The body plays two poses and a rest: `Idle.anim` standing, `Run.anim` walking, blended onto a
   still pose with the idle added over the result.** `player_model.gd` builds its own
   `AnimationPlayer` (named `Clips`, the animations' host, never played) and an `AnimationTree`

@@ -37,7 +37,8 @@ Assets/textures/
 					block_break_overlay.gd)
   atmosphere/       Skybox elements (sun, north star)
   gui/              UI elements (inventory, hotbar, hearts, settings/tool icons)
-  sprites/          In-game sprites (heart)
+  particles/        Particle textures (a heart; nothing loads it yet - the
+					HUD's hearts are gui/heart_full|half|empty.png)
   mobs/             Mob skins (zombie)
   Archive (Unused)/ Deprecated texture variants (not loaded at runtime)
 ```

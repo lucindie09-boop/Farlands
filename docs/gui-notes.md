@@ -742,6 +742,17 @@ first-person viewmodel - what each one owns and the decisions behind it.
   empty `AnimationPlayer` node was not carried back on the 24 Nov restore, because
   `player_model.gd` now builds the player it plays its clips on (`Clips`), so a scene node would be
   a second, unused one
+- **A native static method the analyzer says is missing is the EDITOR's DLL, not the code.**
+  `Static function "is_item_tool()" not found in base "GDScriptNativeClass"` is not a mistake in
+  `src/godot_bindings/block_textures.cpp`: the method is bound there, the game builds and runs, and
+  a headless `--script` run of the same tree is clean throughout. The editor loads
+  `bin/libgdextension.windows.editor.x86_64.dll`, which is a DIFFERENT build target from the
+  `template_debug` DLL a running game uses, and it binds that class list at load — so a method
+  added since the file was built does not exist as far as the analyzer is concerned, and the
+  error names the class rather than the file it was asked about. `scons target=editor`, then
+  restart the editor, because a running one keeps the old module mapped. The two build times are
+  printed in `nav_trace`'s own header; on 27 Nov the editor's was two days older than the
+  template_debug one, and that was the whole bug
 - **The body plays two poses and a rest: `Idle.anim` standing, `Run.anim` walking, blended onto a
   still pose with the idle added over the result.** `player_model.gd` builds its own
   `AnimationPlayer` (named `Clips`, the animations' host, never played) and an `AnimationTree`

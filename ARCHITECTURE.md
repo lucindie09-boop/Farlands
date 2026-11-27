@@ -1163,7 +1163,7 @@ Every file, with what it owns: [docs/ui.md](docs/ui.md).
   - `Assets/textures/gui/` — UI textures (hotbar, inventory background, effects, settings and
     tool
     icons)
-  - `Assets/textures/sprites/` — Sprite textures (hearts, etc.)
+  - `Assets/textures/particles/` — Particle textures (one heart; nothing loads it yet)
   - `Assets/textures/atmosphere/` — Atmospheric textures (sun, north star)
   - `Assets/textures/mobs/` — Mob skins
   - `Assets/textures/Archive (Unused)/` — Archived/deprecated textures (old versions kept for reference)

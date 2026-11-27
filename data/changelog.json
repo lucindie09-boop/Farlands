@@ -1,5 +1,4 @@
 {
-  "_comment": "Read by scripts/title_screen.gd for the title screen's update-log card. `version` must match application/config/version in project.godot - a probe checks it, so a release cannot ship a label from another build. `entries` are one line each: the card clips, it does not wrap.",
   "version": "0.1",
   "entries": [
     "Falling-block cover between the title and the world",

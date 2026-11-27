@@ -7,9 +7,10 @@ authority and is named in each section.
 
 Two rules apply to all of them:
 
-- **A `_comment` key is documentation, not data.** Every reader ignores it, and
-  several files use it heavily to explain a block of entries in place. `".."`
-  (a list of strings) and `"..."` (a string) both work.
+- **A `_comment` key is documentation, not data.** Every reader ignores it, and some files
+  (the block registry, the shape registry, the palette, the recipes) use it to explain a block
+  of entries in place — as a string or a list of strings. The files that are ONLY data (mobs,
+  loot tables, shaders, the changelog) carry no comments at all: their rules are on this page.
 - **Names are the interface.** Entries refer to each other by name — a block's
   `shape` is a key in `block_shapes.json`, an item's `place.block` is a block
   name — and the loaders resolve them after all files are in. A name that does not
@@ -114,7 +115,6 @@ an item is warned about and that drop skipped, rather than silently leaving noth
 | `entries[].weight` | number | This entry's share of its own pool's picks, default 1. It is a share and not a percentage: one entry in a pool makes it irrelevant |
 | `entries[].chance` | number, 0 to 1 | Rolled AFTER the pick, so the entry drops only this often (default 1) |
 | `entries[].count` | number or `[min, max]` | How many, default 1. `[0, n]` is a real outcome — the pick happens and gives nothing |
-| `_comment` | string | Ignored everywhere; the file explains itself with these |
 
 The three steps are separate because they answer three questions — which item
 (`weight`), whether at all (`chance`), how many (`count`) — and one percentage cannot say
@@ -296,7 +296,6 @@ logs an error rather than taking the screen down with it.
 |---|---|---|
 | `version` | string | The build these entries belong to. A probe checks it equals `application/config/version`, so the card cannot advertise another release's changelog |
 | `entries` | list of strings | One line each, newest first. The card **clips** rather than wraps, so an entry has to fit its width (~46 characters at 6 units); `probe_menu.gd` measures every line against the card |
-| `_comment` | string | Ignored; the file's own note about the two fields above |
 
 ## data/minecraft_blocks.json
 

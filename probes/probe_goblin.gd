@@ -424,8 +424,8 @@ func _run() -> void:
 
 	# --- movement speed: a spider's 0.30, and the states over it ----------------
 	# The value is a per-tick acceleration, so a mob's blocks a second is value * 9.52:
-	# 0.30 is 2.86 blocks/s, two thirds of the player's own 4.317 walk. Every state is
-	# available; the wander is the only one a behaviour drives today.
+	# 0.30 is 2.86 blocks/s, two thirds of the player's own 4.317 walk. Every state in the
+	# table is one a behaviour drives, so every one of them is checked here.
 	const MOB_TO_BLOCKS := 9.52
 	var base_speed := 0.30 * MOB_TO_BLOCKS
 	if String(body.get("speed_state")) != "idle":
@@ -433,7 +433,7 @@ func _run() -> void:
 	if not is_equal_approx(float(body.call("get_move_speed")), base_speed * 0.6):
 		_fail("wandering at %.3f blocks/s, expected %.3f (0.6 of 0.30)"
 			% [float(body.call("get_move_speed")), base_speed * 0.6])
-	for state in [["chasing", 1.0], ["loot", 1.1], ["fleeing", 1.3], ["sneaking", 0.7]]:
+	for state in [["chasing", 1.0], ["loot", 1.1], ["fleeing", 1.3]]:
 		body.set("speed_state", String(state[0]))
 		var want := base_speed * float(state[1])
 		if not is_equal_approx(float(body.call("get_move_speed")), want):

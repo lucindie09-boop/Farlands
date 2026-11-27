@@ -627,8 +627,9 @@ being resampled by a different fraction at each scale.
   planner (on a worker thread), wishing along it at its own speed: **Minecraft's 0.30, a
   spider's** — the value is per-tick acceleration, so it is 2.86 blocks/s (0.66 of the
   player's 4.317-block walk) — scaled by what it is doing (`speed_state`: 0.6× wandering, 1.0×
-  chasing, 1.1× heading for loot, 1.3× fleeing, 0.7× sneaking up; only the wander is used
-  today, the rest are one assignment away): the sim steps up 0.6 by itself, so a full block is
+  chasing, 1.1× heading for loot, 1.3× fleeing). Those are every state there is: a pace nothing
+  sets is not a pace, so the table holds no spare one. The sim steps up 0.6 by itself, so a full
+  block is
   a jump it presses when the collision half a pace ahead says so — but **only at a step it can
   climb — and only one the ROUTE asks for**: the next cell at least half a block above its
   feet, because the space one block up is clear over a wall as often as over a step. Without

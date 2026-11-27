@@ -163,17 +163,17 @@ const BLOCKS_PER_SECOND := 9.52
 ## The player's own walking pace in blocks a second, which is what the sim's move
 ## multiplier of 1.0 means.
 const PLAYER_WALK_SPEED := 4.317
-## What the goblin is doing to its speed, as a share of MOVEMENT_SPEED. Four are driven
-## today: `idle` for the wander, `chasing` and `fleeing` for a fight, and `loot` for a loot
-## errand (see LOOT_RANGE). The rest are here, one assignment to `speed_state` away from
-## being used -- and a state is the WHOLE pace mechanism: `get_move_speed` and
-## `get_speed_multiplier` read this and nothing else.
+## What the goblin is doing to its speed, as a share of MOVEMENT_SPEED. Every one of these is
+## driven by a behaviour: `idle` for the wander, `chasing` and `fleeing` for a fight, and `loot`
+## for a loot errand (see LOOT_RANGE). Nothing else sets `speed_state`, and a state nothing sets
+## is not a state -- `sneaking` sat at 0.7 with no assignment anywhere and is gone rather than
+## left as an option for the next reader to pick up and tune. A state is the WHOLE pace
+## mechanism: `get_move_speed` and `get_speed_multiplier` read this and nothing else.
 const SPEED_STATES := {
 	"idle": 0.6,      # slow, shuffling patrol
 	"chasing": 1.0,   # the full 0.30
 	"loot": 1.1,      # eager, a little faster than chasing
 	"fleeing": 1.3,   # panicked sprint
-	"sneaking": 0.7,  # creeping closer
 }
 
 ## How it loots: what it can notice, how far it goes for it, and how long it looks at what it

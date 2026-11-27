@@ -9,7 +9,6 @@
   },
   "stair": {
     "n": {
-      "_comment": "A stair whose step (the raised half) sits against its -Z face. \"left\" and \"right\" in the rules below are from the point of view of standing on the stair facing the way its step points  -  here the step points -Z, so left is -X and right is +X. The step is neighbour-dependent in three ways. A stair turned ACROSS it, standing in front of the step, cuts it back to one of the two `stair_cut_*` remnants, and the half that survives is the half that stair is stepping toward, so the two steps run into each other instead of into a wall of themselves. A `stair_corner_*` quarter fills the inside of a turn when the stair BEHIND the step points at one side. And a stair on THIS one's step - same way up, same way round - standing on the side either of those is about switches it off, because two flights meeting sideways already own that region: the step between them stays whole and the quarter is not drawn. A cell therefore never covers more than three of its four upper quadrants, so a stair cannot resolve into a full block. The canonical flattening is the slab plus the whole step, so a lone stair  -  and the icon, the hand model and the outline  -  is the plain step.",
       "selection_boxes": [[0, 0, 0, 1, 0.5, 1], [0, 0.5, 0, 1, 1, 0.5]],
       "parts": [
         { "boxes": [[0, 0, 0, 1, 0.5, 1]] },
@@ -54,7 +53,6 @@
       ]
     },
     "n_up": {
-      "_comment": "The hanging half of the family: the same five rules as stair/n on geometry mirrored about the cell floor, so the slab is the raised half and the step hangs. `selection_boxes` is the canonical flattening (slab then step), which is what the loader derives from the parts and what the icon draws. A hanging stair turns only with another hanging one and an upright only with an upright  -  the two are mirrored, so a quarter or a remnant between them would sit in a step-shaped gap that is not there.",
       "selection_boxes": [[0, 0.5, 0, 1, 1, 1], [0, 0, 0, 1, 0.5, 0.5]],
       "parts": [
         { "boxes": [[0, 0.5, 0, 1, 1, 1]] },
@@ -100,9 +98,7 @@
     }
   },
   "wall": {
-    "_comment": "A wall is a POST plus a REACH per side it meets, resolved when the chunk is meshed (core/shape_resolver.hpp). Three rules, because the family asks three different questions. A reach is drawn twice, at two heights, and WHICH height is not a property of what is next door: a reach stops 2/16 short of the top (14/16) while the cell above it is open, and runs the full height while the cell above spans the strip the reach stands on -- a wall under a block is carrying it, and a flank under a span should meet it. So a wall beside a whole block and a wall beside another wall draw the same thing, which is the point of the rule: what a reach butts against says nothing about how tall it should be. What the neighbour decides is whether there is a reach at all: another wall, a sheet a wall can bite into, or a neighbour offering a whole face. And the post itself, which is up unless this cell is a plain THROUGH-RUN -- a rail studded with posts at every cell stops reading as a rail -- so it is the ends of a run, the corners, the T junctions and a wall standing on its own that carry it -- and the layouts that do not are the plain run, the cross (four reaches already meet in the middle), and a run under a whole block, whose two reaches are full height and already meet the span above. A cell in a plain run does carry one while something rests on the post's own 2/16 footprint. That last rule is the only one in the file that reads the cell AS A WHOLE rather than one face at a time, which is why it claims no faces at all. Which of the two heights a reach ends up drawn at is a property of the cell above, so ONE shape serves all four directions and the four per-material wall blocks that used to differ by orientation now differ only in the id they kept.",
     "all": {
-      "_comment": "`selection_boxes` and `collision_boxes` are the canonical flattening (post plus the two short reaches along X), which the loader derives from the parts and warns about if they drift. Collision is 1.5 high, the pole's and the fence's precedent and the height this family is measured at: the model is 14/16 at its lowest, already above what a jump clears, and 1.5 is what makes a wall one a body cannot hop.",
       "selection_boxes": [
         [0.25, 0, 0.25, 0.75, 1, 0.75],
         [0.5, 0, 0.3125, 1, 0.875, 0.6875],
@@ -140,7 +136,6 @@
     "collision_boxes": [[0.375, 0, 0.375, 0.625, 1.5, 0.625]]
   },
   "crucible": {
-    "_comment": "No collision_boxes on purpose: the VISIBLE model is the collision, so a body can stand inside the vessel on the inner floor plate (0.1875) instead of on the rim. Legs/floor/walls are all solid, so a body outside it is still blocked by the walls.",
     "selection_boxes": [
       [0, 0, 0, 0.0625, 0.125, 0.0625],
       [0.9375, 0, 0, 1, 0.125, 0.0625],
@@ -186,7 +181,6 @@
     }
   },
 
-  "_comment": "Everything below the shapes above is flat, non-connecting geometry: a fence does not yet know which of its four arms to draw, a pane is a plate rather than a post with arms, and a torch is axis-aligned. `fence` is deliberately split into `post` and `arm_*` parts so that when the neighbour resolver lands it composes `post` with only the arms a run needs, and `all` (the model the blocks use today) disappears.",
 
   "fence": {
     "post": {
@@ -205,7 +199,6 @@
       "selection_boxes": [[0, 0.75, 0.4375, 0.5625, 0.9375, 0.5625], [0, 0.375, 0.4375, 0.5625, 0.5625, 0.5625]]
     },
     "all": {
-      "_comment": "Post plus the four arms, each arm carrying \"rule\": \"fence\". A claimed part is present only while the cell face its boxes reach has a neighbour the rule accepts, so an isolated fence is the post alone and a run is a continuous rail: two rails per arm, not one, because a single bar reads as a rail fence and two read as a fence. The claim is resolved when the chunk is meshed (core/shape_resolver.hpp) because nothing in this engine updates a cell when its neighbour changes. Collision is part-wise for the same reason: an unconnected post is only as wide as itself, while a run is 1.5 high and a body cannot hop it (the pole's precedent).",
       "selection_boxes": [
         [0.375, 0, 0.375, 0.625, 1, 0.625],
         [0.4375, 0.75, 0.4375, 1, 0.9375, 0.5625],
@@ -233,7 +226,6 @@
   },
 
   "torch_wall": {
-    "_comment": "The same stick, moved to hug one face of the cell and raised so it hangs off the floor. The reference leans a wall torch 22.5 degrees, which this schema cannot express yet (a rotated box needs a `rotate` field), so these are axis-aligned on purpose.",
     "n": { "selection_boxes": [[0.4375, 0.21875, 0, 0.5625, 0.84375, 0.125]] },
     "s": { "selection_boxes": [[0.4375, 0.21875, 0.875, 0.5625, 0.84375, 1]] },
     "e": { "selection_boxes": [[0.875, 0.21875, 0.4375, 1, 0.84375, 0.5625]] },
@@ -241,14 +233,12 @@
   },
 
   "pane": {
-    "_comment": "A 2/16 sheet: a centre post plus one arm per direction it can seal against (core/shape_resolver.cpp). The arms stop where the post begins instead of overlapping it, so a two-way run reproduces the old single-plane block EXACTLY, in either axis - which is what makes one block id enough here where the reference needs a separate id per axis and a placement rule to pick between them. A lone pane is the post alone, a 2/16 column, and the reference draws one the same way. Each arm declares ONE claim face on purpose: its box spans the full cell height, so the geometry on its own would read as a claim on up and down too, and a sheet is not something that needs a block above and below it.",
     "post": { "selection_boxes": [[0.4375, 0, 0.4375, 0.5625, 1, 0.5625]] },
     "arm_n": { "selection_boxes": [[0.4375, 0, 0, 0.5625, 1, 0.4375]] },
     "arm_s": { "selection_boxes": [[0.4375, 0, 0.5625, 0.5625, 1, 1]] },
     "arm_e": { "selection_boxes": [[0.5625, 0, 0.4375, 1, 1, 0.5625]] },
     "arm_w": { "selection_boxes": [[0, 0, 0.4375, 0.4375, 1, 0.5625]] },
     "all": {
-      "_comment": "Post plus the four arms, each carrying \"rule\": \"pane\". `selection_boxes` is the canonical flattening - post plus the two arms along X, i.e. one flat sheet across the cell - which is what the inventory icon and the held model draw; the loader derives it from the parts and warns if the two ever disagree.",
       "selection_boxes": [
         [0.4375, 0, 0.4375, 0.5625, 1, 0.5625],
         [0.5625, 0, 0.4375, 1, 1, 0.5625],
@@ -265,7 +255,6 @@
   },
 
   "ladder": {
-    "_comment": "A 1/16 plate against one face. Decorative: there is no climbing, the same reason the block-file importer currently skips ladders.",
     "n": { "selection_boxes": [[0, 0, 0, 1, 1, 0.0625]] },
     "s": { "selection_boxes": [[0, 0, 0.9375, 1, 1, 1]] },
     "e": { "selection_boxes": [[0.9375, 0, 0, 1, 1, 1]] },
@@ -289,7 +278,6 @@
   },
 
   "layer": {
-    "_comment": "Stacked heights for snow layers, one entry per layer: layer N is N eighths tall. The blocks for 2..8 exist and are hidden; what is missing is the placement rule that grows an existing layer instead of stacking a second block on top of it.",
     "1": { "selection_boxes": [[0, 0, 0, 1, 0.125, 1]] },
     "2": { "selection_boxes": [[0, 0, 0, 1, 0.25, 1]] },
     "3": { "selection_boxes": [[0, 0, 0, 1, 0.375, 1]] },

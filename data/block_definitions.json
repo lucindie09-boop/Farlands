@@ -11,7 +11,6 @@
   },
   {
     "name": "stone",
-    "_comment": "Block IDs are positional, so this entry must stay where it is; only ever APPEND new blocks.",
     "drops": "cobblestone",
     "preferred_tool": "pickaxe",
     "hardness": 1.5,
@@ -61,7 +60,6 @@
   },
   {
     "name": "surface_water",
-    "_comment": "Generated ocean water, and deliberately NOT a fluid state: the flowing simulation is the dynamic water a player pours, not the sea. Left out of the state table, the ocean never ticks — it cannot spill runoff along its shores or drain through a channel — while still acting as a wall the flow pools against (see blocks_fluid in core/block_types.hpp). Adding \"fluid\": {\"kind\": \"water\", \"depth\": 0} here is what would make oceans live.",
     "hardness": -1,
     "properties": ["Liquid", "Transparent"],
     "shape": "lowered/12",
@@ -74,7 +72,6 @@
   },
   {
     "name": "water",
-    "_comment": "A source: the block a poured bucket places and the block a pool settles into.",
     "fluid": {"kind": "water", "depth": 0},
     "light_opacity": 3,
     "hardness": -1,
@@ -310,7 +307,6 @@
   },
   {
     "name": "oak_wall",
-    "_comment": "A wall is a post with an arm per side it reaches toward, resolved when the chunk is meshed (core/shape_resolver.hpp): a run closes up, a wall leaning on stone runs its arm the full height, and the post keeps its top while something stands on it. The four per-material orientations all carry this one shape now  -  which way a wall runs is a property of its neighbours, not of the id you placed  -  and `_full` stays a plain cube as the way to thicken a wall into a solid block.",
     "preferred_tool": "axe",
     "hardness": 2,
     "wall_family": "oak_wall",
@@ -1634,7 +1630,6 @@
   },
   {
     "name": "crucible",
-    "_comment": "Model: the \"crucible\" entry in data/block_shapes.json — 4 corner legs at full block height (1x1px, 2px tall), a 1px floor plate across the whole footprint, and 4 1px walls open at the top. The stone texture is a placeholder until the crucible has art of its own.",
     "preferred_tool": "pickaxe",
     "hardness": 2.0,
     "shape": "crucible",
@@ -1648,7 +1643,6 @@
   },
   {
     "name": "water_runoff_1",
-    "_comment": "The seven runoff states and the falling state are the flowing half of water: entry order is the save-format id, so they are appended and never moved. `depth` is how many steps this water is from the source that fed it, and `falling` marks a column pouring downward (full strength; its depth is not meaningful). They are hidden from the /give list because they are what water BECOMES, not something a player places — see src/fluids/ for the rules that pick between them. Each depth has its OWN height, which is what makes a stream slope instead of sitting flat: the surface drops by (depth+1)/9, so depth 1 is 0.78 tall and depth 7 is 0.11, against the source's 0.88. The fallen state is full height, because a column of water is only ever full strength.",
     "fluid": {"kind": "water", "depth": 1},
     "light_opacity": 3,
     "hidden": true,
@@ -1754,7 +1748,6 @@
   },
   {
     "name": "water_fallen",
-    "_comment": "A column of water pouring downward: full strength all the way down, which is why this is ONE state rather than eight. Nothing reads a falling cell's depth, so there is none to store. Full height (no shape, no offset), which is what a waterfall SHOULD look like: a column, not a stack of shallow blocks.",
     "fluid": {"kind": "water", "falling": true},
     "light_opacity": 3,
     "hidden": true,
@@ -1768,7 +1761,6 @@
   },
   {
     "name": "lava",
-    "_comment": "A source of lava: the block a poured lava bucket places. It flows exactly like water does, with three differences that live in src/fluids/fluid_rules.cpp rather than here: it stops at three cells from its source instead of seven, it waits a second between one cell and the next instead of a quarter of one, and it does not look for drops as far away. Shared with water: two side sources over solid ground DO pool into a third, so a wide enough pool of lava stops draining. NOT emissive yet — the light array is zero, so lava lights nothing; that is a deliberate follow-up rather than an oversight, since a liquid that lights the world needs the light engine to treat liquids as sources.",
     "fluid": {"kind": "lava", "depth": 0},
     "light_opacity": 15,
     "hardness": -1,
@@ -1783,7 +1775,6 @@
   },
   {
     "name": "lava_runoff_1",
-    "_comment": "Lava's flowing half. Only depths 1-3 exist, because three is as far as lava's traits let it spread: a depth nothing can reach needs no block to store it. The offsets are water's ladder (the surface drops by (depth+1)/9), so a stream of lava slopes exactly the way a stream of water does.",
     "fluid": {"kind": "lava", "depth": 1},
     "light_opacity": 15,
     "hidden": true,
@@ -1842,7 +1833,6 @@
   },
   {
     "name": "acid",
-    "_comment": "A source of acid: the block a poured acid bucket places. It shares water's depth and reach but moves faster (three ticks a cell), and it is the one fluid that does NOT pool from a pair of side sources: two buckets do not conjure a third source, so a splash of acid spends itself and drains instead of becoming an endless supply. Everything else — the ladder of runoff depths, the falling column, the slopes — is water's, and the differences live in src/fluids/fluid_rules.cpp.",
     "fluid": {"kind": "acid", "depth": 0},
     "light_opacity": 3,
     "hardness": -1,
@@ -1857,7 +1847,6 @@
   },
   {
     "name": "acid_runoff_1",
-    "_comment": "Acid's flowing half: seven depths and a falling state, exactly the shape water's has, because acid's traits use water's numbers for depth and reach.",
     "fluid": {"kind": "acid", "depth": 1},
     "light_opacity": 3,
     "hidden": true,
@@ -1976,7 +1965,6 @@
   },
   {
     "name": "surface_lava",
-    "_comment": "Lava a build file brought with it, left STILL: a paste places this rather than a lava source, so a pasted lake does not immediately run downhill, and `/paste <file> fluids` is what asks for the live one. It is lava to look at and lava to flow against (mesh/mesh_fluid.hpp family_of) and it declares NO fluid state, exactly like surface_water \u2014 that absence is the whole of what makes it still.",
     "light_opacity": 15,
     "hardness": -1,
     "properties": ["Liquid", "Transparent"],
@@ -1990,7 +1978,6 @@
   },
   {
     "name": "surface_acid",
-    "_comment": "Acid a build file brought with it, left still \u2014 see surface_lava. Same substance, same shape, no fluid state.",
     "light_opacity": 3,
     "hardness": -1,
     "properties": ["Liquid", "Transparent"],
@@ -2005,7 +1992,6 @@
 
   {
     "name": "oak_fence",
-    "_comment": "A fence is a post with arms, not a pole: 4/16 thick where the pole is 2/16, and its collision is the post plus a raised bar per arm (1.5 high, the pole's precedent) so a body cannot hop it and the gap between rails is not a doorway. Until the neighbour resolver lands, `fence/all` draws all four arms -- correct along a run and at corners, wrong for a lone post, which is the trade the flat shape makes.",
     "preferred_tool": "axe",
     "hardness": 2,
     "shape": "fence/all",
@@ -2059,7 +2045,6 @@
 
   {
     "name": "glass",
-    "_comment": "A transparent FULL cube, like leaves: the terrain pass draws no alpha (ALPHA is 1.0 in voxel_shader.gdshader), so this reads as pale glass rather than true transparency. Its own texture rather than ice's, which would have been a stand-in that can never be told apart from ice itself.",
     "preferred_tool": "pickaxe",
     "hardness": 0.5,
     "properties": ["Solid", "Transparent"],
@@ -2072,7 +2057,6 @@
   },
   {
     "name": "glass_pane",
-    "_comment": "A sheet that reaches toward another pane or toward anything offering a whole face, resolved when the chunk is meshed (core/shape_resolver.hpp). One id, no axis and no placement rule: which way the sheet runs is a property of its neighbours, so a run, a corner and a lone post are the same block. Drops itself from either orientation.",
     "preferred_tool": "pickaxe",
     "hardness": 0.3,
     "shape": "pane/all",
@@ -2086,7 +2070,6 @@
   },
   {
     "name": "glass_pane_z",
-    "_comment": "Kept only because block ids are positional. It was the other axis of the flat plate, chosen at placement; now that the sheet reads its own neighbours there is nothing for a second id to say, so this one carries the same shape and behaves identically wherever an old world still holds one.",
     "hidden": true,
     "drops": "glass_pane",
     "preferred_tool": "pickaxe",
@@ -2103,7 +2086,6 @@
 
   {
     "name": "light_torch",
-    "_comment": "No `Solid` on purpose: stops_bodies() then answers false and the collision resolver skips the cell, which is what a torch does -- you walk through it. Named apart from the `torch` ITEM (data/items.json), which is the held light; a block called `torch` would have collided with it by name. The 15 is the light level the propagator reads. `drops` names the ITEM, so breaking a placed torch hands back the thing you can place again (the drop resolves after items load, see BlockRegistry::resolve_pending_drops).",
     "drops": "torch",
     "hardness": 0.0,
     "shape": "torch",
@@ -2179,7 +2161,6 @@
 
   {
     "name": "ladder",
-    "_comment": "Decorative: there is no climbing, the same reason the block-file importer skips minecraft:ladder. The other three orientations are hidden and drop this one.",
     "preferred_tool": "axe",
     "hardness": 0.4,
     "shape": "ladder/n",
@@ -2239,7 +2220,6 @@
 
   {
     "name": "chain",
-    "_comment": "A 2/16 column, the shape a hanging chain reads as when it is one block. Its links live in the x 7..9 band of the texture, which is the region the geometry samples (see tools/make_block_textures.py).",
     "preferred_tool": "pickaxe",
     "hardness": 0.3,
     "shape": "chain",
@@ -2253,7 +2233,6 @@
   },
   {
     "name": "lantern",
-    "_comment": "Reuses the light block's art and its emissive map rather than inventing a second lamp texture: it is the same light in a smaller box.",
     "preferred_tool": "pickaxe",
     "hardness": 0.5,
     "shape": "lantern",
@@ -2268,7 +2247,6 @@
 
   {
     "name": "carpet",
-    "_comment": "A 1/16 plate. No recipe yet: there is no cloth material to cut it from, so this is the shape and the art waiting for one.",
     "hardness": 0.2,
     "shape": "carpet",
     "properties": ["Solid", "Opaque"],
@@ -2281,7 +2259,6 @@
   },
   {
     "name": "oak_plate",
-    "_comment": "The pressure plate, named our way (the reference calls it oak_pressure_plate). Same 1/16 plate as the carpet; it is its own shape so the two can diverge.",
     "preferred_tool": "axe",
     "hardness": 0.5,
     "shape": "plate",
@@ -2295,7 +2272,6 @@
   },
   {
     "name": "snow_layer",
-    "_comment": "Layer 1 of 8. The taller layers exist as blocks 2..8 (hidden) so the shape family is complete and reachable with /give; what is missing is the placement rule that GROWS an existing layer instead of stacking a second block beside it.",
     "preferred_tool": "shovel",
     "hardness": 0.1,
     "shape": "layer/1",

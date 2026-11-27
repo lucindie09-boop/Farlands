@@ -824,9 +824,9 @@ func _check_shape_file(cm: Node) -> void:
 	var rule_supplies_faces := ["stair_step", "stair_cut_left", "stair_cut_right",
 		"stair_corner_left", "stair_corner_right"]
 	for family in shapes.keys():
-		# Untyped on purpose: this dictionary carries a `_comment` string beside the
-		# families, and a typed local throws on the assignment before the check below
-		# can reject it.
+		# Untyped on purpose: a data file may carry a `_comment` string beside the families
+		# (every reader ignores it), and a typed local throws on the assignment before the
+		# check below can reject it.
 		var variants = shapes.get(family)
 		if typeof(variants) != TYPE_DICTIONARY or String(family).begins_with("_"):
 			continue

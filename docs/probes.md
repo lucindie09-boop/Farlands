@@ -337,7 +337,10 @@ A few of those rows keep their detail here, because a table cell that long is an
   which is what fixes the sign: this rig faces +Z with the arm hanging -Y, so the proof is that z
   rises (3.10 blocks at this arm length). And with the body animating again the pivot holds while
   the arm's rotation keeps moving under the tree's pose (0.46 to 3.44 degrees off rest), which is
-  the difference between composing over the pose and fighting it.
+  the difference between composing over the pose and fighting it. The rule's second half is
+  measured on that walking body: at a full swing the holding arm draws 29.8 degrees against 58.4
+  empty-handed (x0.51) while the legs stay at 80.2 either way, so the half lands on the arm's walk
+  and not on the gait.
 - `probe_player_anim.gd` — the body is measured, and then the parked port it no longer uses. The
   body: exactly two clips, `idle` and `run`, and every track of both resolves on this rig (a
   track

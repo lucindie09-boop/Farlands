@@ -935,15 +935,21 @@ first-person viewmodel - what each one owns and the decisions behind it.
   paths are resolved per part (`_part_path`/`_part_of_path`); a gain table read by path would
   otherwise leave the arm on the clip's authored 16.8 degrees instead of vanilla's 1.0 rad.
   Every body gets the pivot, and a goblin or a preview holds nothing, so its shoulder stays at
-  0. Vanilla also halves that arm's walk swing while an item is held; that is deliberately not
-  done here — it cannot ride the pivot (a turn adds where a halving scales) and would be a
-  per-frame write on the arm, order-dependent against the tree. Measured by
+  0. Vanilla's rule is two halves and one order — the walk swing HALVED, then 18 degrees off —
+  so the scaling is `HELD_ARM_SWING` on the run clip's arm track (`_set_held_swing`, set beside
+  the turn so the two cannot disagree): a turn cannot ride the pivot, but a scaling can ride the
+  clip, which carries the walk and nothing else, and the idle's hang is added over it unhalved,
+  which is vanilla's order too. It is event-driven rather than a per-frame write, so nothing
+  compounds with the tree stopped, and the mixer's cache is cleared so the half lands in the
+  frame the item does. Measured by
   `probes/probe_held_pose.gd`: the pivot takes the arm's seat with the arm centred and its
-  rotation untouched, the run clip still reaches it at vanilla's 1.000 rad, the shoulder is
+  rotation untouched, the run clip still reaches it at vanilla's 1.000 rad empty-handed, the shoulder is
   -18 degrees while holding and 0 empty-handed, the item's own position turns exactly 18
   degrees FORWARD about the shoulder (this rig faces +Z with the arm hanging -Y, so the
-  screenshot-free proof of the sign is that z rises), and with the body animating again the
-  pivot holds while the arm's rotation keeps moving under the tree's pose.
+  screenshot-free proof of the sign is that z rises), with the body animating again the
+  pivot holds while the arm's rotation keeps moving under the tree's pose, and at a full
+  swing the holding arm draws 29.8 degrees against 58.4 empty-handed while the legs stay at
+  80.2 either way.
 
 ## Cameras, targets and overlays
 

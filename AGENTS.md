@@ -228,7 +228,10 @@ Full notes: [docs/light.md](docs/light.md).
   (about 0.4 s to rest; the leg is under 2 degrees 360 ms after a stop, and the arms' roll's
   biggest frame-to-frame change through it is 0.02 degrees). The clip's keys are therefore
   always
-  at vanilla's FULL swing and nothing rewrites them -- two amplitude writers would multiply. The
+  at vanilla's FULL swing and nothing rewrites them -- two amplitude writers would multiply. (The
+  one exception is vanilla's own held-arm rule: while that hand carries something its walk swing
+  is halved in the clip, `HELD_ARM_SWING`, a scale on one limb set when the hand changes rather
+  than a second amplitude for the walk.) The
   clip's
   own base is none of vanilla's -- 16.8 degrees at one cycle a second -- so it is measured at
   load

@@ -30,6 +30,7 @@ extends SceneTree
 ##   probes/run_probe.sh probes/probe_held_pose.gd
 
 const FORWARD_DEGREES := 18.0
+const HELD_SWING_RATIO := 0.5      # vanilla halves the arm's walk swing while it holds
 const PITCH_TOLERANCE := 0.5     # the item's turn about the shoulder, in degrees
 const ARM_SWING_TOLERANCE := 0.02  # vanilla's 1.0 rad, as the clip's own base
 
@@ -50,6 +51,7 @@ func _ok(label: String, condition: bool, detail: String = "") -> void:
 ## fast the body is moving (so the body can pick a clip of its own). Nothing else.
 class Stub extends Node3D:
 	var block_id := 0
+	var velocity := Vector3.ZERO
 
 	func get_selected_hotbar_slot() -> int:
 		return 0
@@ -61,13 +63,31 @@ class Stub extends Node3D:
 		return Vector3(0.0, 0.0, 1.0)
 
 	func get_velocity() -> Vector3:
-		return Vector3.ZERO
+		return velocity
 
 
 ## The pivot's turn about X, in degrees -- the shoulder's pitch, and the one number this
 ## probe is about.
 func _pitch_deg(pivot: Node3D) -> float:
 	return rad_to_deg(pivot.rotation.x)
+
+
+## The biggest turn each of the arm and the leg takes away from its own rest pose over
+## `seconds`, in degrees -- what the body actually draws, through the tree.
+func _swing_peaks(body: Node3D, seconds: float) -> Dictionary:
+	var arm := body.find_child("arm", true, false) as Node3D
+	var leg := body.find_child("leg", true, false) as Node3D
+	var clip_rest: Dictionary = body.get("_clip_rest")
+	var rest_arm: Quaternion = clip_rest["arm"]
+	var rest_leg: Quaternion = clip_rest["leg"]
+	var arm_peak := 0.0
+	var leg_peak := 0.0
+	var t0 := Time.get_ticks_msec()
+	while Time.get_ticks_msec() - t0 < int(seconds * 1000.0):
+		await process_frame
+		arm_peak = maxf(arm_peak, rad_to_deg(arm.quaternion.angle_to(rest_arm)))
+		leg_peak = maxf(leg_peak, rad_to_deg(leg.quaternion.angle_to(rest_leg)))
+	return {"arm": arm_peak, "leg": leg_peak}
 
 
 func _seconds(seconds: float) -> void:
@@ -247,6 +267,26 @@ func _run() -> void:
 			and absf(pivot_high + FORWARD_DEGREES) < 0.01 and arm.get_parent() == pivot,
 		"arm %.2f to %.2f deg off rest, shoulder %.3f to %.3f deg"
 			% [off_low, off_high, pivot_low, pivot_high])
+
+	# Vanilla's held-item rule has a second half that is a SCALING, not a turn: the arm's
+	# walk swing is halved while that hand holds something. At a full swing (a quarter
+	# block a tick) the item therefore moves through half the arc an empty fist does -- and
+	# the legs do not change at all, because what a hand carries is not a gait.
+	host.velocity = Vector3(0.25, 0.0, 0.0)
+	host.block_id = 0
+	await process_frame
+	var empty: Dictionary = await _swing_peaks(body, 2.0)
+	host.block_id = stone
+	await process_frame
+	var full: Dictionary = await _swing_peaks(body, 2.0)
+	var ratio: float = float(full["arm"]) / maxf(float(empty["arm"]), 0.001)
+	_ok("held: the walk's arm swing is HALVED, as vanilla's rule says",
+		absf(ratio - HELD_SWING_RATIO) < 0.08,
+		"%.1f deg against %.1f empty-handed (x%.2f)"
+			% [float(full["arm"]), float(empty["arm"]), ratio])
+	_ok("held: the legs are not touched by what the hand carries",
+		absf(float(full["leg"]) - float(empty["leg"])) < 1.0,
+		"%.1f deg against %.1f" % [float(full["leg"]), float(empty["leg"])])
 
 	host.queue_free()
 	main.queue_free()

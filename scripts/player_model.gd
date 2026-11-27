@@ -114,6 +114,15 @@ const HELD_ARM_PIVOT := "HeldArmPivot"
 # degrees about X is the one that brings the hand forward. Not an inference to trust -
 # probes/probe_held_pose.gd measures the held item's own move through it.
 const HELD_ARM_PITCH := 18.0
+# ...and the other half of the same rule, which is a SCALING rather than a turn: vanilla
+# halves the arm's walk swing while that hand holds something, and only then takes the 18
+# degrees off (`swing * 0.5 - pi/10`). The turn is a fixed pose and lives on the pivot
+# above; the half has to be inside the walk itself, or the item is swung on the full arm --
+# 49 degrees at a walk against vanilla's 25, twice the stride, and the item's arc is what
+# shows it. So the half is written into the run clip's arm track, which carries the walk
+# and nothing else (the idle's hang is added over it unhalved, which is vanilla's order
+# too). One constant, because the two halves of the rule are one rule.
+const HELD_ARM_SWING := 0.5
 # data/items.json's `pose` field, through the ONE reader this body and the first-person
 # viewmodel share (scripts/item_poses.gd): an item's pose is a claim about its ART rather than
 # an item mechanic, so it is not in the registry -- and it is not read twice either.
@@ -231,6 +240,10 @@ var _held_item: MeshInstance3D = null
 var _held_material: ShaderMaterial = null
 var _held_meshes := {}
 var _held_id := -1
+# Whether the run clip's arm track is carrying the held arm's half swing (see
+# HELD_ARM_SWING). The toggle is a state, not a per-frame factor: 0.5 and 2.0 are exact
+# powers of two, so a hand that fills and empties is back at the keys the file has.
+var _held_swing_half := false
 
 func _manager():
 	return get_node_or_null("/root/SkinManager")
@@ -831,6 +844,30 @@ func _pose_held_arm(held: bool) -> void:
 	if _held_pivot == null:
 		return
 	_held_pivot.rotation_degrees = Vector3(-HELD_ARM_PITCH if held else 0.0, 0.0, 0.0)
+	_set_held_swing(held)
+
+
+## The walk half of the held-arm rule (see HELD_ARM_SWING): the run clip's arm track
+## scaled about the arm's rest -- 0.5 while the hand is full, back to 1.0 when it empties.
+##
+## Event-driven, not per frame: the clip IS the walk, and a factor re-applied every frame
+## would compound the moment the tree stopped rewriting the arm (a frozen body keeps its
+## last pose, and _process still runs).
+##
+## The mixer caches the keys it read, so a clip rewritten under a playing tree has to be
+## read again -- that is what the two clear_caches calls are for, and without them the
+## change would land only the next time that clip was re-entered.
+func _set_held_swing(held: bool) -> void:
+	if _run_clip == null or held == _held_swing_half or not _clip_rest.has(HELD_ARM):
+		return
+	var path := _part_path(HELD_ARM)
+	ClipRetarget.scale_stride(_run_clip, {path: _clip_rest[HELD_ARM]},
+		HELD_ARM_SWING if held else 1.0 / HELD_ARM_SWING)
+	_held_swing_half = held
+	if _clip_player != null:
+		_clip_player.clear_caches()
+	if _tree != null:
+		_tree.clear_caches()
 
 
 ## The mesh a block id is held as, built once per id. A block is its shape's own boxes;

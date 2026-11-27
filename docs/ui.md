@@ -1052,15 +1052,6 @@ being resampled by a different fraction at each scale.
 - `tools/rebake_player_pivots.py` — Idempotent re-baker for `player.glb`: moves each node origin
   onto its pivot while shifting that mesh's vertices by the delta so world placement is
   byte-identical (glTF has no pivot field — a node's origin is its rotation anchor)
-- `tools/extract_model_animations.gd` — Lifts a model file's own glTF clips out into standalone
-  `Animation` resources under `Assets/Animations/`, because the body loads its clips from a path
-  rather than from the imported scene. Its `SOURCE_SCENE` is the old model pack's `model.gltf`,
-  which is no longer in the tree, and the `Idle_new`/`Walk` pair it wrote there were never played
-  by the body and have been removed — so this is the recipe rather than a working step.
-  `godot --headless --path . --script res://tools/extract_model_animations.gd`;
-  it reads each saved clip back and resolves every track path against the rig it came from, so a
-  renamed limb fails there instead of playing as no motion. Point it at a clip worth playing and
-  it still does that job
 - `viewmodel.gd` — Thin first-person hand + held item/block glue (child of `Camera3D`): node
   tree, `_input`, F12 HUD, and peak-pose constants. Per-frame animation math lives in
   `ViewmodelPose` and held-mesh geometry in `ViewmodelMeshes` (both native C++)

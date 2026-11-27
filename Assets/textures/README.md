@@ -4,12 +4,17 @@
 
 ## Provenance
 
-**Status: original work by the project author, no third-party assets.** Everything in this
+**Status: original work by the project author, except the UI font.** Everything in this
 directory is original pixel art made for this project, and the same statement covers the rest of
 `Assets/`: the models and animations (`Assets/models/`, `Assets/Animations/`), the sounds
-(`Assets/sounds/`), the materials (`Assets/materials/`), the shaders (`Assets/shaders/`) and the
-fonts (`Assets/fonts/`). No Minecraft asset, downloaded pack or external library is used, and all
-of it is licensed under the same GPL-3.0 terms as the rest of the project (see `LICENSE`).
+(`Assets/sounds/`), the materials (`Assets/materials/`) and the shaders (`Assets/shaders/`). None
+of it is Minecraft art, a downloaded pack or an external library, and it is licensed under the
+same GPL-3.0 terms as the rest of the project (see `LICENSE`).
+
+The fonts are the one exception: `Assets/fonts/munro.ttf` is **Munro** by Ten by Twenty
+(Ed Merritt), © 2007, under the SIL Open Font License 1.1. It ships unmodified and stays under the
+OFL rather than GPL-3.0; the license is beside it at `Assets/fonts/LICENSE-munro.txt`, where the
+OFL requires a copy to sit for any bundle, and the font may not be sold on its own.
 
 One credit belongs outside this file: `scripts/body_animator.gd`'s pose is a port of the
 signature moves of Fresh Animations' player add-on (FA+Player v1.1, CEM animations by FreshLX),

@@ -1166,7 +1166,7 @@ Every file, with what it owns: [docs/ui.md](docs/ui.md).
   - `Assets/textures/sprites/` — Sprite textures (hearts, etc.)
   - `Assets/textures/atmosphere/` — Atmospheric textures (sun, north star)
   - `Assets/textures/mobs/` — Mob skins
-  - `Assets/textures/0Archive/` — Archived/deprecated textures (old versions kept for reference)
+  - `Assets/textures/Archive (Unused)/` — Archived/deprecated textures (old versions kept for reference)
 
 ### Testing
 - `tests/` — 124 `.cpp` files (830 test cases / 395,379 assertions, declared across 122 of them:

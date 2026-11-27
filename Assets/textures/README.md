@@ -39,8 +39,7 @@ Assets/textures/
   gui/              UI elements (inventory, hotbar, hearts, settings/tool icons)
   sprites/          In-game sprites (heart)
   mobs/             Mob skins (zombie)
-  0Archive/         Deprecated texture variants (not loaded at runtime)
-  htr.png           Unused leftover at the directory root
+  Archive (Unused)/ Deprecated texture variants (not loaded at runtime)
 ```
 
 ## Naming Convention

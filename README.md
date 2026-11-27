@@ -250,7 +250,7 @@ Textures are organized in the `Assets/textures/` directory:
 - `Assets/textures/sprites/` — Sprite textures (hearts, etc.)
 - `Assets/textures/atmosphere/` — Atmospheric textures (sun, north star)
 - `Assets/textures/mobs/` — Mob skins
-- `Assets/textures/0Archive/` — Archived/deprecated textures (old versions kept for reference)
+- `Assets/textures/Archive (Unused)/` — Archived/deprecated textures (old versions kept for reference)
 
 The player model lives in `player.glb` (voxel-style, slim 3-px arms with a tightly-packed 64×64
 skin-texture atlas). `player_model.gd` applies a skin texture to the model with nearest

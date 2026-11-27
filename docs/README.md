@@ -1,12 +1,13 @@
 # Farlands documentation
 
-Read the document that matches your question rather than the biggest one. The two
-files at the repository root are the map; the substance of a system is here.
+Read the document that matches your question rather than the biggest one. The root
+documents are the map; the substance of a system is here.
 
 ## By question
 
 | Question | Document |
 |---|---|
+| What is the game, in plain language? | [GAME.md](../GAME.md) |
 | What is this, how do I build it, what are the controls? | [README.md](../README.md) |
 | How does the engine work, and why is it built this way? | [ARCHITECTURE.md](../ARCHITECTURE.md) |
 | I want to change something — what do I have to touch? | [howto.md](howto.md) |

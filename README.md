@@ -8,6 +8,9 @@
 
 ![Farlands gameplay — new terrain](docs/gameplay_new.png)
 
+**New here?** [GAME.md](GAME.md) is the plain-language overview of the game; this README is the
+build and systems reference.
+
 A Minecraft-style voxel engine built in Godot 4 with a custom C++ GDExtension. Procedural
 terrain generation (a stacked-noise macro surface with domain warp and ~500/150-block relief
 fields, wrapped by a signed 3D density field that adds overhangs and shelves in strength-gated
@@ -352,7 +355,8 @@ CI (`.github/workflows/build.yml`) runs on every push and pull request:
 ## Documentation
 
 The docs are split by the question they answer: [docs/README.md](docs/README.md) is the index.
-In short — [ARCHITECTURE.md](ARCHITECTURE.md) for how the engine works and why,
+In short — [GAME.md](GAME.md) for the player-facing overview,
+[ARCHITECTURE.md](ARCHITECTURE.md) for how the engine works and why,
 [docs/howto.md](docs/howto.md) for the files a change touches,
 [docs/data-schemas.md](docs/data-schemas.md) for every field of the `data/*.json` files, the
 per-system pages ([shapes](docs/shapes.md), [streaming](docs/streaming.md),

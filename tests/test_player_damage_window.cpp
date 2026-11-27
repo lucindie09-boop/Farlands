@@ -400,6 +400,33 @@ TEST_CASE("Damage window: the hurt view samples the clock forward, with no lag")
     CHECK(pc.get_render_hurt_anim_ticks(0.5f) == doctest::Approx(0.0f));
 }
 
+TEST_CASE("Shove: knockback resistance takes the travel, not the hop") {
+    ChunkMap cm;
+    fill_flat_floor(cm);
+    CollisionResolver cr(&cm);
+
+    // The same shove from the same place, on three bodies that differ only in what their
+    // weight is worth: the reference's own travel, half of it, and none at all. What is
+    // scaled is the horizontal push, so the vertical hop is the same for all three -- a heavy
+    // body still leaves the ground, it just does not go anywhere.
+    auto shoved_from_behind = [&cr](float resistance) {
+        PlayerSim pc;
+        pc.set_knockback_resistance(resistance);
+        pc.reset(Vector3(0.5f, 1.0f, 0.5f));
+        settle(pc, cr);
+        CHECK(pc.shove(Vector3(-1.5f, 1.0f, 0.5f)));
+        return pc.get_velocity();
+    };
+    const Vector3 plain = shoved_from_behind(0.0f);
+    const Vector3 half = shoved_from_behind(0.5f);
+    const Vector3 locked = shoved_from_behind(1.0f);
+
+    CHECK(plain.x > 0.3f);
+    CHECK(half.x == doctest::Approx(plain.x * 0.5f));
+    CHECK(locked.x == doctest::Approx(0.0f));
+    CHECK(locked.y == doctest::Approx(plain.y));
+}
+
 TEST_CASE("Shove: the base knockback is gated by the same window a queued hit opens") {
     ChunkMap cm;
     fill_flat_floor(cm);

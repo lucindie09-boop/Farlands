@@ -36,6 +36,11 @@ Dictionary Mobs::attributes(const String& mob) {
     out["speed"] = attributes->speed;
     out["follow_range"] = attributes->follow_range;
     out["alert_box"] = attributes->alert_box;
+    out["step_height"] = attributes->step_height;
+    out["safe_fall_distance"] = attributes->safe_fall_distance;
+    out["fall_damage_multiplier"] = attributes->fall_damage_multiplier;
+    out["armor"] = attributes->armor;
+    out["knockback_resistance"] = attributes->knockback_resistance;
     // The window as a two-item array, in ticks, the order the file writes it in. It is
     // not an int range type: GDScript has none, and a pair reads the same at a glance.
     Array window;

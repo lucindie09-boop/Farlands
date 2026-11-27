@@ -27,7 +27,10 @@ const char* kMobs = R"({
   "mobs": {
     "_comment": "not a mob either",
     "goblin": { "health": 12, "damage": 2, "speed": 0.30,
-                "follow_range": 35, "alert_box": 32, "anger_window": [400, 799] },
+                "follow_range": 35, "alert_box": 32, "anger_window": [400, 799],
+                "step_height": 0.6, "safe_fall_distance": 3.0,
+                "fall_damage_multiplier": 1.0, "armor": 0.0,
+                "knockback_resistance": 0.0 },
     "skeleton": { "health": 20, "speed": 0.25 }
   }
 })";
@@ -52,6 +55,11 @@ TEST_CASE("mob attributes read every field, and default what a file leaves out")
         CHECK(goblin->alert_box == doctest::Approx(32.0f));
         CHECK(goblin->anger_min_ticks == 400);
         CHECK(goblin->anger_max_ticks == 799);
+        CHECK(goblin->step_height == doctest::Approx(0.6f));
+        CHECK(goblin->safe_fall_distance == doctest::Approx(3.0f));
+        CHECK(goblin->fall_damage_multiplier == doctest::Approx(1.0f));
+        CHECK(goblin->armor == doctest::Approx(0.0f));
+        CHECK(goblin->knockback_resistance == doctest::Approx(0.0f));
     }
 
     // A partial entry is a mob that changed what it had to: the rest is the struct's own
@@ -66,7 +74,22 @@ TEST_CASE("mob attributes read every field, and default what a file leaves out")
         CHECK(skeleton->alert_box == doctest::Approx(MobAttributes{}.alert_box));
         CHECK(skeleton->anger_min_ticks == MobAttributes{}.anger_min_ticks);
         CHECK(skeleton->anger_max_ticks == MobAttributes{}.anger_max_ticks);
+        CHECK(skeleton->step_height == doctest::Approx(MobAttributes{}.step_height));
+        CHECK(skeleton->safe_fall_distance == doctest::Approx(MobAttributes{}.safe_fall_distance));
+        CHECK(skeleton->fall_damage_multiplier ==
+              doctest::Approx(MobAttributes{}.fall_damage_multiplier));
+        CHECK(skeleton->armor == doctest::Approx(MobAttributes{}.armor));
+        CHECK(skeleton->knockback_resistance ==
+              doctest::Approx(MobAttributes{}.knockback_resistance));
     }
+
+    // The defaults are the reference's own numbers for a plain, unarmoured mob, so an entry
+    // that states none of the five behaves exactly as it did before they existed.
+    CHECK(MobAttributes{}.step_height == doctest::Approx(0.6f));
+    CHECK(MobAttributes{}.safe_fall_distance == doctest::Approx(3.0f));
+    CHECK(MobAttributes{}.fall_damage_multiplier == doctest::Approx(1.0f));
+    CHECK(MobAttributes{}.armor == doctest::Approx(0.0f));
+    CHECK(MobAttributes{}.knockback_resistance == doctest::Approx(0.0f));
 
     // A comment key is not a mob, and an unknown name is nothing at all: the walker's own
     // constants are the fallback, so a typo here must not invent a body.
@@ -101,6 +124,16 @@ TEST_CASE("a mob entry that cannot be a body is refused, naming the field") {
     refuses(R"({"mobs": {"ghost": {"alert_box": -2}}})", "alert_box");
     refuses(R"({"mobs": {"ghost": {"anger_window": [900, 400]}}})", "anger_window");
     refuses(R"({"mobs": {"ghost": {"anger_window": "soon"}}})", "anger_window");
+    refuses(R"({"mobs": {"ghost": {"step_height": -0.1}}})", "step_height");
+    refuses(R"({"mobs": {"ghost": {"safe_fall_distance": -1}}})", "safe_fall_distance");
+    refuses(R"({"mobs": {"ghost": {"fall_damage_multiplier": -2}}})",
+            "fall_damage_multiplier");
+    refuses(R"({"mobs": {"ghost": {"armor": -1}}})", "armor");
+    refuses(R"({"mobs": {"ghost": {"knockback_resistance": 1.5}}})",
+            "knockback_resistance");
+    refuses(R"({"mobs": {"ghost": {"knockback_resistance": -0.5}}})",
+            "knockback_resistance");
+    refuses(R"({"mobs": {"ghost": {"armor": "plate"}}})", "armor");
     refuses(R"({"mobs": {"ghost": {"health": "lots"}}})", "health");
     refuses(R"({"mobs": []})", "mobs");
     refuses(R"({"tables": {}})", "mobs");
@@ -129,4 +162,9 @@ TEST_CASE("the shipped data/mobs.json describes the goblin the script was tuned 
     CHECK(goblin->alert_box == doctest::Approx(32.0f));      // a pigman's shout
     CHECK(goblin->anger_min_ticks == 400);                   // twenty seconds...
     CHECK(goblin->anger_max_ticks == 799);                   // ...to forty
+    CHECK(goblin->step_height == doctest::Approx(0.6f));     // a slab, not a block
+    CHECK(goblin->safe_fall_distance == doctest::Approx(3.0f));     // the plan's own drop
+    CHECK(goblin->fall_damage_multiplier == doctest::Approx(1.0f));  // price as written
+    CHECK(goblin->armor == doctest::Approx(0.0f));           // a bare goblin
+    CHECK(goblin->knockback_resistance == doctest::Approx(0.0f));
 }

@@ -59,6 +59,34 @@ public:
     [[nodiscard]] bool is_in_water() const;
     [[nodiscard]] bool is_sneaking() const;
     [[nodiscard]] bool is_sprinting() const;
+    // --- The numbers a mob's data has beyond a player's ---
+    // How high a ledge it walks up, how far it may fall and what a landing costs there, the
+    // armor points its defense starts at, and the share of a shove its weight shrugs off.
+    // All five are `PlayerSim` knobs, so the number lives in one place and this class is only
+    // how a script reaches it; `step_height` stays here because the sim takes it per tick.
+    void set_step_height(float blocks) { step_height_ = blocks; }
+    [[nodiscard]] float get_step_height() const { return step_height_; }
+    void set_safe_fall_distance(float blocks) { sim_.set_safe_fall_distance(blocks); }
+    [[nodiscard]] float get_safe_fall_distance() const { return sim_.get_safe_fall_distance(); }
+    void set_fall_damage_multiplier(float multiplier) {
+        sim_.set_fall_damage_multiplier(multiplier);
+    }
+    [[nodiscard]] float get_fall_damage_multiplier() const {
+        return sim_.get_fall_damage_multiplier();
+    }
+    void set_knockback_resistance(float resistance) { sim_.set_knockback_resistance(resistance); }
+    [[nodiscard]] float get_knockback_resistance() const {
+        return sim_.get_knockback_resistance();
+    }
+    void set_armor_points(float points) { armor_points_ = points; }
+    [[nodiscard]] float get_armor_points() const { return armor_points_; }
+
+    // What a hit actually costs this body: the armor stage of the receiving chain
+    // (engine/player_damage.hpp) run with THIS body's armor points. `scripts/goblin.gd`
+    // takes every source of half-hearts through `_take_hurt`, so a punch, a landing, a
+    // drowned breath and a cactus all meet the same rule here instead of each deciding.
+    [[nodiscard]] float mitigate(float half_hearts) const;
+
     [[nodiscard]] float get_eye_height() const;
     [[nodiscard]] int32_t get_hurt_resist_ticks() const;
     [[nodiscard]] int32_t get_air_ticks() const;
@@ -94,6 +122,10 @@ protected:
 private:
     VoxelEngine::PlayerSim sim_;
     VoxelEngine::CollisionResolver* resolver_ = nullptr;
+    // The ledge this body steps over, in blocks: the sim's step-up takes it per tick.
+    float step_height_ = VoxelEngine::PlayerSim::STEP_HEIGHT;
+    // Defense points the body's data grants, which is what `mitigate` reduces with.
+    float armor_points_ = 0.0f;
 };
 
 #endif  // FARLANDS_GODOT_BINDINGS_MOB_BODY_HPP

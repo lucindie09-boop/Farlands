@@ -181,6 +181,39 @@ TEST_CASE("Fall damage: 7.5-block drop deals 4 half-hearts") {
     CHECK(pc.consume_pending_fall_damage() == 0);  // consumed exactly once
 }
 
+TEST_CASE("Fall damage: the threshold and the price are the body's own") {
+    ChunkMap cm;
+    fill_flat_floor(cm);
+    CollisionResolver cr(&cm);
+
+    // A body that may drop five blocks and pays half price past that: from y = 8.5 the fall is
+    // 7.5, so floor(7.5 - 5) = 2 half-hearts of damage at half price, which is one. The same
+    // fall costs the player's own numbers four (the case above), so what this pins is the
+    // knob and not the fall.
+    PlayerSim pc;
+    pc.set_safe_fall_distance(5.0f);
+    pc.set_fall_damage_multiplier(0.5f);
+    pc.reset(Vector3(0.5f, 8.5f, 0.5f));
+
+    PlayerInput idle;
+    for (int i = 0; i < 60 && !pc.is_on_floor(); ++i) {
+        pc.accumulate_and_tick(1.0 / 20.0, idle, cr);
+    }
+    CHECK(pc.is_on_floor());
+    CHECK(pc.consume_pending_fall_damage() == 1);
+
+    // A body that may fall further than it is dropped takes nothing at all, where the player's
+    // three-block line would have charged it four.
+    PlayerSim hardy;
+    hardy.set_safe_fall_distance(8.0f);
+    hardy.reset(Vector3(0.5f, 8.5f, 0.5f));
+    for (int i = 0; i < 60 && !hardy.is_on_floor(); ++i) {
+        hardy.accumulate_and_tick(1.0 / 20.0, idle, cr);
+    }
+    CHECK(hardy.is_on_floor());
+    CHECK(hardy.consume_pending_fall_damage() == 0);
+}
+
 TEST_CASE("Fall damage: teleport reset clears pending damage") {
     ChunkMap cm;
     fill_flat_floor(cm);

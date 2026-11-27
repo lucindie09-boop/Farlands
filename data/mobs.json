@@ -1,14 +1,17 @@
 {
-	"_comment": "What a mob IS, as data: health, damage, speed, follow range, alert box and anger window, read by src/core/mob_attributes.cpp and handed to a walker through the `Mobs` binding. A body names its own entry (`MOB_TYPE` in scripts/goblin.gd), so the next mob is an entry here with a model rather than a sheet of constants copied into a script. Units: `health` and `damage` are in HALF-HEARTS, the unit `PlayerController.get_health()` counts in; `speed` is Minecraft's movement value -- the acceleration a body adds each tick, not blocks a second (0.30 is a spider's, and MOVEMENT_SPEED in scripts/goblin.gd carries the arithmetic: value * 9.52 blocks a second); `follow_range` and `alert_box` are in blocks. A field a mob leaves out keeps the default in `MobAttributes`, which is what lets a new entry state only what it changes.",
 	"mobs": {
 		"goblin": {
-			"_comment": "Six hearts, a half-heart a hit with its own fist (2, the same as the player's empty hand), a spider's hunting pace, a zombie's 35-block follow range, a pigman's 32-block shout on every axis, and 400 to 799 ticks of anger -- twenty to forty seconds. These are the numbers scripts/goblin.gd used as constants; `tests/test_mob_attributes.cpp` holds this file to them, so a change here is a diff and a deliberate one.",
 			"health": 12,
 			"damage": 2,
 			"speed": 0.30,
 			"follow_range": 35,
 			"alert_box": 32,
-			"anger_window": [400, 799]
+			"anger_window": [400, 799],
+			"step_height": 0.6,
+			"safe_fall_distance": 3.0,
+			"fall_damage_multiplier": 1.0,
+			"armor": 0.0,
+			"knockback_resistance": 0.0
 		}
 	}
 }

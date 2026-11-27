@@ -21,6 +21,11 @@ const CHANGED := {
 	"follow_range": 12.0,
 	"alert_box": 4.0,
 	"anger_window": [10, 20],
+	"step_height": 1.05,
+	"safe_fall_distance": 6.0,
+	"fall_damage_multiplier": 0.5,
+	"armor": 8.0,
+	"knockback_resistance": 0.5,
 }
 
 var ok := true
@@ -70,7 +75,9 @@ func _run() -> void:
 		print("PROBE FAIL: no goblin in the registry (mobs.json never loaded)")
 		quit(1)
 		return
-	for field in ["health", "damage", "speed", "follow_range", "alert_box", "anger_window"]:
+	for field in ["health", "damage", "speed", "follow_range", "alert_box", "anger_window",
+			"step_height", "safe_fall_distance", "fall_damage_multiplier", "armor",
+			"knockback_resistance"]:
 		if not shipped.has(field):
 			_fail("the goblin entry is missing \"%s\"" % field)
 	var window: Array = shipped.get("anger_window", [])
@@ -97,6 +104,27 @@ func _run() -> void:
 			or int(body.get("_anger_max_ticks")) != int(window[1]):
 		_fail("the body's anger window is %s, the file says %s"
 			% [str([body.get("_anger_min_ticks"), body.get("_anger_max_ticks")]), str(window)])
+
+	# The five numbers the SIM holds: the file's value reaching the script's own field and the
+	# value the body actually moves and hurts with are two different claims, and the first can be
+	# true while the second is not. So this reads them off the body's sim.
+	var shipped_sim: RefCounted = body.get("_sim")
+	if shipped_sim == null or not shipped_sim.has_method("get_step_height"):
+		_fail("the shipped body's sim does not take a mob's own numbers")
+	else:
+		for pair in [["get_step_height", "step_height"],
+				["get_safe_fall_distance", "safe_fall_distance"],
+				["get_fall_damage_multiplier", "fall_damage_multiplier"],
+				["get_knockback_resistance", "knockback_resistance"]]:
+			var got := float(shipped_sim.call(pair[0]))
+			if absf(got - float(shipped[pair[1]])) > 0.001:
+				_fail("the shipped body's %s is %.3f, the file says %.3f"
+					% [pair[1], got, float(shipped[pair[1]])])
+		# A bare goblin's armor costs nothing: two half-hearts arrive as two.
+		var bare := float(shipped_sim.mitigate(2.0))
+		print("PROBE shipped body: 2 half-hearts costs %.3f with no armor" % bare)
+		if absf(bare - 2.0) > 0.0001:
+			_fail("a goblin with no armor softened a two-half-heart hit to %.3f" % bare)
 
 	# --- A different file, and a second body -----------------------------------
 	# The whole point of the file: a number changed in the data is a number the game runs
@@ -130,6 +158,27 @@ func _run() -> void:
 	if absf(float(second.get("_alert_box")) - float(CHANGED["alert_box"])) > 0.001:
 		_fail("a body spawned after a reloaded file still shouts to %s"
 			% str(second.get("_alert_box")))
+
+	# ...and the sim's own half of the reloaded file: a different step height, fall numbers and
+	# knockback resistance, and armor that actually softens what a hit costs.
+	var moved: RefCounted = second.get("_sim")
+	if moved == null or not moved.has_method("get_step_height"):
+		_fail("the second body's sim does not take a mob's own numbers")
+	else:
+		for pair in [["get_step_height", "step_height"],
+				["get_safe_fall_distance", "safe_fall_distance"],
+				["get_fall_damage_multiplier", "fall_damage_multiplier"],
+				["get_knockback_resistance", "knockback_resistance"]]:
+			var got := float(moved.call(pair[0]))
+			if absf(got - float(CHANGED[pair[1]])) > 0.001:
+				_fail("a body spawned after a reloaded file has %s %.3f, the file says %.3f"
+					% [pair[1], got, float(CHANGED[pair[1]])])
+		var softened := float(moved.mitigate(4.0))
+		print("PROBE second body: 4 half-hearts costs %.3f after 8 armor points" % softened)
+		if softened >= 3.0:
+			_fail("eight armor points did not soften a four-half-heart hit (%.3f)" % softened)
+		if absf(float(moved.mitigate(0.0))) > 0.0001:
+			_fail("a zero hit costs %.4f after armor" % float(moved.mitigate(0.0)))
 
 	# The shipped file goes back in force, so nothing after this probe runs on the probe's
 	# goblin.

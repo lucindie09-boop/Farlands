@@ -126,6 +126,17 @@ public:
     godot::Vector3 get_velocity() const { return velocity_; }
     godot::Vector3 get_position() const { return position_; }
     float get_fall_distance() const { return fall_distance_; }
+    // Per-body fall numbers: how far this body may drop before a landing hurts, and what
+    // that landing costs relative to the reference's one half-heart a block. A mob sets
+    // them from its data; the player sets none and keeps SAFE_FALL_DISTANCE above.
+    void set_safe_fall_distance(float blocks) { safe_fall_distance_ = blocks; }
+    float get_safe_fall_distance() const { return safe_fall_distance_; }
+    void set_fall_damage_multiplier(float multiplier) { fall_damage_multiplier_ = multiplier; }
+    float get_fall_damage_multiplier() const { return fall_damage_multiplier_; }
+    // How much of a shove's HORIZONTAL push this body's own weight shrugs off, 0..1 (1 is
+    // none of it). The vertical hop is not reduced: a heavy body still leaves the ground.
+    void set_knockback_resistance(float resistance) { knockback_resistance_ = resistance; }
+    float get_knockback_resistance() const { return knockback_resistance_; }
     // Half-hearts queued by landings since the last call; consuming clears it.
     int consume_pending_fall_damage();
 
@@ -209,6 +220,11 @@ private:
     float accumulator_ = 0.0f;
     uint64_t tick_count_ = 0;
     float fall_distance_ = 0.0f;
+    // The fall and shove numbers a body's own data may move. Left at the player's own, so
+    // a body that sets none of them moves and hurts exactly as it did before they existed.
+    float safe_fall_distance_ = SAFE_FALL_DISTANCE;
+    float fall_damage_multiplier_ = 1.0f;
+    float knockback_resistance_ = 0.0f;
     int pending_fall_damage_ = 0;
     int air_ticks_ = MAX_AIR;         // remaining breath, in ticks
 

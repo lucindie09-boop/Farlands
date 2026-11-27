@@ -3,6 +3,7 @@
 #include <godot_cpp/core/class_db.hpp>
 
 #include "engine/collision_resolver.hpp"
+#include "engine/player_damage.hpp"
 
 using namespace godot;
 using namespace VoxelEngine;
@@ -20,6 +21,22 @@ void MobBody::_bind_methods() {
     ClassDB::bind_method(D_METHOD("is_sneaking"), &MobBody::is_sneaking);
     ClassDB::bind_method(D_METHOD("is_sprinting"), &MobBody::is_sprinting);
     ClassDB::bind_method(D_METHOD("get_eye_height"), &MobBody::get_eye_height);
+    ClassDB::bind_method(D_METHOD("set_step_height", "blocks"), &MobBody::set_step_height);
+    ClassDB::bind_method(D_METHOD("get_step_height"), &MobBody::get_step_height);
+    ClassDB::bind_method(D_METHOD("set_safe_fall_distance", "blocks"),
+                         &MobBody::set_safe_fall_distance);
+    ClassDB::bind_method(D_METHOD("get_safe_fall_distance"), &MobBody::get_safe_fall_distance);
+    ClassDB::bind_method(D_METHOD("set_fall_damage_multiplier", "multiplier"),
+                         &MobBody::set_fall_damage_multiplier);
+    ClassDB::bind_method(D_METHOD("get_fall_damage_multiplier"),
+                         &MobBody::get_fall_damage_multiplier);
+    ClassDB::bind_method(D_METHOD("set_knockback_resistance", "resistance"),
+                         &MobBody::set_knockback_resistance);
+    ClassDB::bind_method(D_METHOD("get_knockback_resistance"),
+                         &MobBody::get_knockback_resistance);
+    ClassDB::bind_method(D_METHOD("set_armor_points", "points"), &MobBody::set_armor_points);
+    ClassDB::bind_method(D_METHOD("get_armor_points"), &MobBody::get_armor_points);
+    ClassDB::bind_method(D_METHOD("mitigate", "half_hearts"), &MobBody::mitigate);
     ClassDB::bind_method(D_METHOD("get_hurt_resist_ticks"), &MobBody::get_hurt_resist_ticks);
     ClassDB::bind_method(D_METHOD("get_air_ticks"), &MobBody::get_air_ticks);
     ClassDB::bind_method(D_METHOD("get_tick_count"), &MobBody::get_tick_count);
@@ -50,7 +67,7 @@ void MobBody::step(double delta, const Vector3& wish, bool jump, bool sprint, bo
     input.sprint_held = sprint;
     input.sneak_held = sneak;
     input.yaw = yaw;
-    sim_.accumulate_and_tick(delta, input, *resolver_, PlayerSim::STEP_HEIGHT, speed_multiplier);
+    sim_.accumulate_and_tick(delta, input, *resolver_, step_height_, speed_multiplier);
 }
 
 Vector3 MobBody::get_position() const {
@@ -83,6 +100,19 @@ bool MobBody::is_sprinting() const {
 
 float MobBody::get_eye_height() const {
     return sim_.get_eye_height();
+}
+
+float MobBody::mitigate(float half_hearts) const {
+    if (half_hearts <= 0.0f) return 0.0f;
+    DamageSource source;
+    source.kind = DamageKind::Generic;
+    source.amount = half_hearts;
+    DamageInputs inputs;
+    inputs.armor_points = armor_points_;
+    // Only the armor stage is at play: a mob does not block, has no potion and wears no
+    // protection, and absorption is a buffer its own data would have to hold. The caps are
+    // the chain's, so 20 points is the same wall for a mob as for the player.
+    return reduce_damage(half_hearts, source, inputs).total;
 }
 
 int32_t MobBody::get_hurt_resist_ticks() const {

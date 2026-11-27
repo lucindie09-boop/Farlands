@@ -24,7 +24,8 @@ public:
     static bool load(const godot::String& path);
 
     // One mob's attributes as a Dictionary: health, damage, speed, follow_range,
-    // alert_box and anger_window ([min_ticks, max_ticks]). An empty Dictionary when
+    // alert_box, anger_window ([min_ticks, max_ticks]), step_height, safe_fall_distance,
+    // fall_damage_multiplier, armor and knockback_resistance. An empty Dictionary when
     // no entry has that name -- a walker with no entry keeps its own constants.
     static godot::Dictionary attributes(const godot::String& mob);
 

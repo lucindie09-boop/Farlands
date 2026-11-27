@@ -144,12 +144,38 @@ with none.
 | `follow_range` | number | blocks | past this a chase forgets its target |
 | `alert_box` | number | blocks, on every axis | how far the shout that wakes a pack carries |
 | `anger_window` | `[min, max]` | ticks (20 a second) | how long the anger lasts |
+| `step_height` | number | blocks | the ledge it walks up without jumping; 0.6 is a slab, 1.0 a full block |
+| `safe_fall_distance` | number | blocks | how far it may drop before a landing hurts |
+| `fall_damage_multiplier` | number | a share of one half-heart per block | scales what a landing past that distance costs |
+| `armor` | number | defense points, as a chestplate's | the armor stage of the receiving chain, applied to every source; the chain's own 20-point cap applies |
+| `knockback_resistance` | number, 0 to 1 | a share | how much of a hit's HORIZONTAL push it shrugs off (1.0 is none of it); the vertical hop is never reduced |
 
 Every field is optional (the struct's default applies), and a file that cannot be a body is
-refused with the field named: no health, a negative blow, a zero speed or an `anger_window`
-that runs backwards. `goblin` is the only entry — 12, 2, 0.30, 35, 32 and `[400, 799]` — pinned
-by `tests/test_mob_attributes.cpp`, and `probes/probe_mob_attributes.gd` shows a body spawned
-in the world running with those numbers, and with a reloaded file's.
+refused with the field named: no health, a negative blow, a zero speed, an `anger_window` that
+runs backwards, a negative step height, fall distance, fall multiplier or armor, or a
+`knockback_resistance` outside 0 to 1. `goblin` is the only entry — 12, 2, 0.30, 35, 32,
+`[400, 799]`, 0.6, 3.0, 1.0, 0 and 0 — pinned by `tests/test_mob_attributes.cpp`, and
+`probes/probe_mob_attributes.gd` shows a body spawned in the world running with those numbers,
+and with a reloaded file's.
+
+The numbers are the reference mobs' own, which is what `scripts/goblin.gd` carried as
+constants: a spider's hunting pace, a zombie's 35-block follow range, a pigman's 32-block
+shout on every axis, and twenty to forty seconds of anger.
+
+Where each of the last five lands is why they are worth knowing separately. Step height, both
+fall numbers and knockback resistance are the movement sim's own knobs (`PlayerSim`), so
+`_apply_attributes` hands them to the `MobBody` it was made with and the number exists once for
+the player and the mob alike; their defaults in `MobAttributes` are the reference's numbers for
+a plain mob, so an entry that states none of them behaves exactly as it did before they
+existed. `armor` is not a sim number: it is a stage of the receiving chain (`apply_armor` in
+`src/engine/player_damage.hpp`), run by `MobBody::mitigate`, and `_take_hurt` in the script is
+the single door every source of half-hearts goes through — a punch, a landing, a drowned breath,
+a cactus — so one armor rule covers all of them rather than the punch having its own.
+
+Two names differ from the reference's attribute list on purpose: its `max_health` and
+`movement_speed` are this file's `health` and `speed` (the script's constants and the HUD's
+half-hearts were named first), and the rest keep the reference's own names so a reader comparing
+the two finds `step_height` where they expect it.
 
 ## data/biomes.json
 

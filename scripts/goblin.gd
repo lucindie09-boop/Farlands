@@ -60,6 +60,27 @@ const MAX_HEALTH := 12.0
 ## Vanilla's empty fist: one half-heart per hit.
 const PUNCH_DAMAGE := 1.0
 
+## How high a ledge it walks up without jumping, in blocks. Vanilla's 0.6 is a slab; a body at
+## 1.0 climbs full blocks and has to jump at nothing above that. The walk's own STEP_PROBE is
+## built on this number -- it probes half a pace ahead at feet height precisely because the sim
+## climbs the rest by itself -- so a data file that moves one must move the other with it.
+## The DEFAULT: `data/mobs.json` `step_height` is what the sim actually steps over.
+const STEP_HEIGHT := 0.6
+## How far it may drop before a landing hurts, in blocks, and what every block past that costs
+## as a share of one half-heart. The sim's vanilla pair is 3.0 and 1.0: a goblin whose plane
+## allows a three-block drop is already at the edge of it, so a mob that is happy off a cliff
+## writes a larger first number rather than taking a heart for the walk its plan makes.
+## The DEFAULTS: `data/mobs.json` `safe_fall_distance` and `fall_damage_multiplier`.
+const SAFE_FALL_DISTANCE := 3.0
+const FALL_DAMAGE_MULTIPLIER := 1.0
+## Defense points it starts with, before anything worn -- the same points a chestplate is worth,
+## run through the receiving chain's own armor stage. The DEFAULT: `data/mobs.json` `armor`.
+const ARMOR := 0.0
+## The share of a hit's HORIZONTAL knockback its own weight shrugs off, 0 to 1. At 1.0 it still
+## hops with the base vertical push and does not travel, which is where the reference draws the
+## line too. The DEFAULT: `data/mobs.json` `knockback_resistance`.
+const KNOCKBACK_RESISTANCE := 0.0
+
 ## An idle goblin stands still most of the time, and it is not on a timer: a stroll is a
 ## CHANCE, 1 in 120 a tick, which is how the game's own mobs wander. That is a stroll
 ## every 6 s on average, but the waits are geometric, not fixed -- half of them are over
@@ -397,6 +418,11 @@ var _follow_range := CHASE_LEASH
 var _alert_box := ALERT_RADIUS
 var _anger_min_ticks := ANGER_MIN_TICKS
 var _anger_max_ticks := ANGER_MAX_TICKS
+var _step_height := STEP_HEIGHT
+var _safe_fall_distance := SAFE_FALL_DISTANCE
+var _fall_damage_multiplier := FALL_DAMAGE_MULTIPLIER
+var _armor := ARMOR
+var _knockback_resistance := KNOCKBACK_RESISTANCE
 
 # The movement sim, and the node it is drawn at: the sim owns the position.
 var _sim: RefCounted = null
@@ -513,7 +539,6 @@ var _wet_target := false
 
 
 func _ready() -> void:
-	_apply_attributes()
 	_chunk_manager = get_node_or_null("/root/Main/ChunkManager")
 	if _chunk_manager != null and _chunk_manager.has_method("make_mob_body"):
 		_sim = _chunk_manager.make_mob_body()
@@ -523,6 +548,9 @@ func _ready() -> void:
 		_last_ticks = int(_sim.get_tick_count())
 		_drawn_prev = global_position
 		_drawn_cur = global_position
+	# Read AFTER the body exists, because five of the file's numbers are the sim's rather than
+	# this script's and have to be handed to it (see `_apply_body_numbers`).
+	_apply_attributes()
 	_idle_ticks = randi_range(IDLE_HOLD_MIN, IDLE_HOLD_MAX)
 	# A real world is what a trace is for: a stub body (a probe) has no plans to record.
 	if _chunk_manager != null and _chunk_manager.has_method("request_path"):
@@ -530,9 +558,10 @@ func _ready() -> void:
 
 
 ## What this body IS, from `data/mobs.json` through the `Mobs` binding: health, damage, speed,
-## follow range, alert box and anger window. The constants above are the fallback -- a build with
-## no file, or an entry that leaves a field out, keeps them -- so a missing file is a mob with its
-## script's own numbers rather than a body with no health. The lookup is guarded on the binding
+## follow range, alert box, anger window, step height, the two fall numbers, armor and
+## knockback resistance. The constants above are the fallback -- a build with no file, or an
+## entry that leaves a field out, keeps them -- so a missing file is a mob with its script's own
+## numbers rather than a body with no health. The lookup is guarded on the binding
 ## existing at all, because a probe can run against a DLL built before this class did.
 func _apply_attributes() -> void:
 	var attrs: Dictionary = {}
@@ -549,7 +578,28 @@ func _apply_attributes() -> void:
 		_anger_max_ticks = int(window[1])
 	if _anger_max_ticks < _anger_min_ticks:
 		_anger_max_ticks = _anger_min_ticks
+	_step_height = float(attrs.get("step_height", STEP_HEIGHT))
+	_safe_fall_distance = float(attrs.get("safe_fall_distance", SAFE_FALL_DISTANCE))
+	_fall_damage_multiplier = float(attrs.get("fall_damage_multiplier", FALL_DAMAGE_MULTIPLIER))
+	_armor = float(attrs.get("armor", ARMOR))
+	_knockback_resistance = float(attrs.get("knockback_resistance", KNOCKBACK_RESISTANCE))
 	_health = _max_health
+	_apply_body_numbers()
+
+
+## The five numbers the SIM has to hold rather than this script: the ledge it climbs, the fall
+## it may take and what that costs, the armor a blow meets, and the share of a shove its weight
+## shrugs off. Each is a `MobBody` method, so the number itself lives in one place; a stub body
+## (a probe's) or a DLL built before these methods existed is skipped rather than assumed, the
+## same way a missing file falls back to the constants.
+func _apply_body_numbers() -> void:
+	if _sim == null or not _sim.has_method("set_step_height"):
+		return
+	_sim.set_step_height(_step_height)
+	_sim.set_safe_fall_distance(_safe_fall_distance)
+	_sim.set_fall_damage_multiplier(_fall_damage_multiplier)
+	_sim.set_knockback_resistance(_knockback_resistance)
+	_sim.set_armor_points(_armor)
 
 
 func _physics_process(delta: float) -> void:
@@ -2032,13 +2082,25 @@ func take_damage(amount: float) -> void:
 ## The one place half-hearts come off, whether they were thrown by a fist or by the ground it
 ## landed on: a fall is health like a punch is, so it can kill and it drops what the body was
 ## carrying (`die`).
+##
+## Armor sits here rather than in the punch because it is the receiving chain's own stage: every
+## source there is -- the fist, the landing, a drowned breath, a cactus -- meets the same rule
+## instead of each deciding what a defense point is worth.
 func _take_hurt(amount: float) -> void:
 	if _health <= 0.0:
 		return
-	_health = maxf(_health - amount, 0.0)
+	_health = maxf(_health - _mitigate(amount), 0.0)
 	print("Goblin hit: %.0f of %.0f half-hearts left" % [_health, _max_health])
 	if _health <= 0.0:
 		die()
+
+
+## What a hit costs after this body's own armor: the chain's armor stage with the points the
+## data grants. A stub body has no `mitigate` and takes the amount as written.
+func _mitigate(amount: float) -> float:
+	if _sim != null and _sim.has_method("mitigate"):
+		return float(_sim.mitigate(amount))
+	return amount
 
 
 ## At zero it goes: what it was carrying falls where it stood, and then the body is

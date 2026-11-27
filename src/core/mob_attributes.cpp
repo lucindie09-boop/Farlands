@@ -64,6 +64,17 @@ bool read_mob(const std::string& name, const JsonValue& value, MobAttributes& ou
     if (!read_float(value, "speed", where, out.speed, error)) return false;
     if (!read_float(value, "follow_range", where, out.follow_range, error)) return false;
     if (!read_float(value, "alert_box", where, out.alert_box, error)) return false;
+    if (!read_float(value, "step_height", where, out.step_height, error)) return false;
+    if (!read_float(value, "safe_fall_distance", where, out.safe_fall_distance, error)) {
+        return false;
+    }
+    if (!read_float(value, "fall_damage_multiplier", where, out.fall_damage_multiplier, error)) {
+        return false;
+    }
+    if (!read_float(value, "armor", where, out.armor, error)) return false;
+    if (!read_float(value, "knockback_resistance", where, out.knockback_resistance, error)) {
+        return false;
+    }
     if (!read_window(value, where, out, error)) return false;
 
     // The ranges that make a body rather than a number: no health at all is a corpse
@@ -87,6 +98,30 @@ bool read_mob(const std::string& name, const JsonValue& value, MobAttributes& ou
     }
     if (out.alert_box < 0.0f) {
         if (error != nullptr) *error = where + "\"alert_box\" cannot be negative";
+        return false;
+    }
+    // A step height of zero is a body that cannot walk up a slab -- a legless one, and a
+    // legal thing to write; a negative one is arithmetic that puts it through the floor.
+    if (out.step_height < 0.0f) {
+        if (error != nullptr) *error = where + "\"step_height\" cannot be negative";
+        return false;
+    }
+    if (out.safe_fall_distance < 0.0f) {
+        if (error != nullptr) *error = where + "\"safe_fall_distance\" cannot be negative";
+        return false;
+    }
+    // A negative multiplier would heal a landing, and so would a negative damage.
+    if (out.fall_damage_multiplier < 0.0f) {
+        if (error != nullptr) *error = where + "\"fall_damage_multiplier\" cannot be negative";
+        return false;
+    }
+    if (out.armor < 0.0f) {
+        if (error != nullptr) *error = where + "\"armor\" cannot be negative";
+        return false;
+    }
+    // A share: below zero would amplify a shove, above one would reverse it.
+    if (out.knockback_resistance < 0.0f || out.knockback_resistance > 1.0f) {
+        if (error != nullptr) *error = where + "\"knockback_resistance\" must be between 0 and 1";
         return false;
     }
     if (out.anger_min_ticks < 0 || out.anger_max_ticks < out.anger_min_ticks) {

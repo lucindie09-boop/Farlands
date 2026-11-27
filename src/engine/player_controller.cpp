@@ -137,8 +137,12 @@ void PlayerSim::resolve_incoming_damage() {
 }
 
 void PlayerSim::apply_knockback(const godot::Vector3& direction) {
-    velocity_.x = velocity_.x * 0.5f + direction.x * KNOCKBACK_SPEED;
-    velocity_.z = velocity_.z * 0.5f + direction.z * KNOCKBACK_SPEED;
+    // Only the horizontal push is what a body's weight resists. The vertical hop is not
+    // scaled: a body with full resistance still leaves the ground, it just does not travel,
+    // which is where the reference draws the line too.
+    const float push = KNOCKBACK_SPEED * (1.0f - knockback_resistance_);
+    velocity_.x = velocity_.x * 0.5f + direction.x * push;
+    velocity_.z = velocity_.z * 0.5f + direction.z * push;
     velocity_.y = velocity_.y * 0.5f + KNOCKBACK_SPEED;
     velocity_.y = std::min(velocity_.y, KNOCKBACK_SPEED);
 }
@@ -457,13 +461,17 @@ void PlayerSim::tick(const PlayerInput& input, CollisionResolver& cr, float step
         // safe (matching the reference).
         fall_distance_ = 0.0f;
     } else if (on_floor_) {
-        if (fall_distance_ > SAFE_FALL_DISTANCE) {
+        if (fall_distance_ > safe_fall_distance_) {
             // A landing is just another source: it enters the same queue, the
             // same hurt window and the same reductions as a weapon hit, which
             // is why armor or a recent hit can soften it here too.
             DamageSource fall;
             fall.kind = DamageKind::Fall;
-            fall.amount = std::floor(fall_distance_ - SAFE_FALL_DISTANCE);
+            // The threshold and the price are this body's own: a mob may take a five-block
+            // drop where the player takes damage at three, and a light one at half price.
+            // Both default to the reference's numbers, so the player's landing is unchanged.
+            fall.amount =
+                std::floor(fall_distance_ - safe_fall_distance_) * fall_damage_multiplier_;
             queue_damage(fall);
         }
         fall_distance_ = 0.0f;

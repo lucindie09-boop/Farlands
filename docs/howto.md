@@ -9,8 +9,8 @@ in [data-schemas.md](data-schemas.md); the "why" is in
 
 1. **Append** an entry to `data/block_definitions.json`. It is an array and the
    id is the position, so appending is safe and inserting is not: inserting
-   shifts every later id and corrupts existing saves. Expect the registry to sit
-   around 175 of `MAX_BLOCK_TYPES` = 256.
+   shifts every later id and corrupts existing saves. The count it is at and the cap it is
+   spending are on the schema page ([data-schemas.md](data-schemas.md)); it sits near the cap.
 2. Give it `properties`, `visible_faces`, `textures`, `emissive_textures` (see
    the schema page). The minimal working entry is `name` plus those.
 3. Put the texture in `Assets/textures/blocks/<name>.png` (16×16). **A new PNG needs
@@ -31,8 +31,8 @@ is not free: `python tools/make_block_textures.py`.
 
 1. If the shape already exists, set `"shape": "<name>"` on the block (or
    `/<variant>`, e.g. `slab/bottom`). A name that does not resolve leaves the
-   block a **full cube** and only logs an error, so read `get_selection_boxes(id)`
-   back rather than trusting the log — `probes/probe_crucible.gd` is the
+   block a **full cube** ([data-schemas.md](data-schemas.md)), so read
+   `get_selection_boxes(id)` back rather than trusting the log — `probes/probe_crucible.gd` is the
    pattern.
 2. If it is new, add `data/block_shapes.json` entry `<shape>/<variant>` with
    `selection_boxes` (a list of `[min_x, min_y, min_z, max_x, max_y, max_z]` in

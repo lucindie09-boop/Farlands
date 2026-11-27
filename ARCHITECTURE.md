@@ -203,10 +203,9 @@ workers.
 
 ### Block Shapes
 - Slabs, stairs, walls, poles, fences and the flat decorations are AABB lists in
-  `data/block_shapes.json`, so a model is data rather than code.
-- `selection_boxes` and `collision_boxes` are DERIVED from `parts` at load; collision
-  falls back to selection when it is not declared, and the pole is the one shape that
-  declares a taller box than it shows.
+  `data/block_shapes.json`, so a model is data rather than code; the box and part keys,
+  the declaration that overrides the visible model and the pole that uses it are in
+  [docs/data-schemas.md](docs/data-schemas.md).
 - Neighbour-aware shapes (a pane's, a fence's arms) resolve at MESH time, in one rule
   table shared by five consumers, so the mesher, the collider and the icon renderer
   cannot disagree.

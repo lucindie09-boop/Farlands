@@ -5,46 +5,51 @@ implementations the tests hold to each other.
 
 ## Poured water flows, generated water does not
 
-- **Poured water flows, generated water does not.** `fluid_rules.hpp/cpp` answers two questions
-  about one cell — what it becomes on its next tick, and which neighbours it pushes fluid into —
-  and reads the world only through the `FluidWorld` interface (`fluid_at`, `blocked`), so the
-  game backs it with the chunk map (`chunk_fluid.hpp/cpp`, which copies an 11×11×3 window under
-  one ranged lock and refuses to judge a cell whose window touches a non-resident chunk) and the
-  tests with a grid in a vector. There is no scheduler in the rules on purpose:
-  `fluid_sim.hpp/cpp` is the 20 Hz driver (`WorldUpdater::update` advances it, between
-  generation and the mesh budgets), and keeping the two apart is what lets the rules be tested
-  against a naive "recompute everything until quiet" driver. Three substances declare fluid
-  states — `water` (the source, seven runoff depths and the falling column), `lava` (depth 0..3,
-  because lava's own traits stop it three cells out) and `acid` (0..7) — and all of them are
-  found by SCANNING the registry for blocks that declare a `fluid` state, so a fourth is a JSON
-  entry plus one `FluidTraits` row. **worldgen emits `surface_water` for every natural water
-  body — sea, lake and cave pool alike — and that block declares no fluid state**, so it never
-  ticks, never spills along a shore and never drains. That absence IS the mechanism, and it is
-  reused: `surface_lava` and `surface_acid` are the same idea for the other two substances, and
-  all three are what a paste places by default (see the block-file bullets), so a pasted lake
-  lands as a lake and sits there. They are still liquids to look at and to flow against, which
-  is why `mesh_fluid::family_of` names them explicitly and why `BlockType::draws_fluid_surface`
-  (and the test that keeps the two agreeing) counts them with the fluid states. It is still a
-  wall to the flow (`BlockType::blocks_fluid()`: a liquid the sim does not own blocks it), so a
-  poured bucket pools against the sea instead of writing ocean cells away, which would then find
-  no supply and delete themselves — holes in the sea. Making oceans live is one `fluid` line in
-  `block_definitions.json`, at the cost of runoff creeping along every shore at sea level
+- **Poured water flows, generated water does not.** `fluid_rules.hpp/cpp` answers two
+  questions about one cell — what it becomes on its next tick, and which neighbours it pushes
+  fluid into — and reads the world only through the `FluidWorld` interface (`fluid_at`,
+  `blocked`), so the game backs it with the chunk map (`chunk_fluid.hpp/cpp`, which copies an
+  11×11×3 window under one ranged lock and refuses to judge a cell whose window touches a
+  non-resident chunk) and the tests with a grid in a vector. There is no scheduler in the
+  rules on purpose: `fluid_sim.hpp/cpp` is the 20 Hz driver (`WorldUpdater::update` advances
+  it, between generation and the mesh budgets), and keeping the two apart is what lets the
+  rules be tested against a naive "recompute everything until quiet" driver. Three substances
+  declare fluid states — `water` (the source, seven runoff depths and the falling column),
+  `lava` (depth 0..3, because lava's own traits stop it three cells out) and `acid` (0..7) —
+  and all of them are found by SCANNING the registry for blocks that declare a `fluid` state,
+  so a fourth is a JSON entry plus one `FluidTraits` row. **worldgen emits `surface_water` for
+  every natural water body — sea, lake and cave pool alike — and that block declares no fluid
+  state**, so it never ticks, never spills along a shore and never drains. That absence IS the
+  mechanism, and it is reused: `surface_lava` and `surface_acid` are the same idea for the
+  other two substances, and all three are what a paste places by default (see the block-file
+  bullets), so a pasted lake lands as a lake and sits there. They are still liquids to look at
+  and to flow against, which is why `mesh_fluid::family_of` names them explicitly and why
+  `BlockType::draws_fluid_surface` (and the test that keeps the two agreeing) counts them with
+  the fluid states. It is still a wall to the flow (`BlockType::blocks_fluid()`: a liquid the
+  sim does not own blocks it), so a poured bucket pools against the sea instead of writing
+  ocean cells away, which would then find no supply and delete themselves — holes in the sea.
+  Making oceans live is one `fluid` line in `block_definitions.json`, at the cost of runoff
+  creeping along every shore at sea level They are `hidden` as well: the runoff depths and the
+  falling column are what water BECOMES, never something a player places, so `/give` and its
+  autocomplete offer the source.
 - **Lava and acid are the same rules with different numbers, and one rule acid opts out of.**
   `fluids::traits_for(kind)` (`src/fluids/fluid_rules.cpp`) is the only per-substance table:
   decay, `max_depth`, `tick_delay`, `search_distance` (willingness — the rules cap it at the
-  cell's own remaining reach, see the drop-search note below), `sources_pair_into_source`. Water
-  is the struct's defaults (7 deep, 5 ticks a cell, 4 steps of drop search, pools); lava is
-  `{1, 3, 20, 3, true}` — three cells out, a full second between one cell and the next, less
-  search, and it pools; acid is `{1, 7, 3, 5, false}` — water's depth on a faster clock, it
-  hunts a drop one step further, and it is the one substance that does NOT turn a pair of side
-  sources into a spring, so a splash spends itself and drains instead of becoming an endless
-  supply. The block half is data (`block_definitions.json` declares lava's five states and
-  acid's nine) and `mesh_fluid::family_of` reads the kind off the block, so a lava flow slopes,
-  culls against itself and never merges with a body of water. `tests/test_fluid_rules.cpp` pins
-  the shape of the table (shallower than water, slower than water, the pooling flag per kind)
-  and runs each substance through the same scenes: a lava diamond of radius 3, an acid diamond
-  of radius 7, and the two-sources-one-cell-apart scene where water becomes a spring and acid
-  does not
+  cell's own remaining reach, see the drop-search note below), `sources_pair_into_source`.
+  Water is the struct's defaults (7 deep, 5 ticks a cell, 4 steps of drop search, pools); lava
+  is `{1, 3, 20, 3, true}` — three cells out, a full second between one cell and the next,
+  less search, and it pools; acid is `{1, 7, 3, 5, false}` — water's depth on a faster clock,
+  it hunts a drop one step further, and it is the one substance that does NOT turn a pair of
+  side sources into a spring, so a splash spends itself and drains instead of becoming an
+  endless supply. The block half is data (`block_definitions.json` declares lava's five states
+  and acid's nine) and `mesh_fluid::family_of` reads the kind off the block, so a lava flow
+  slopes, culls against itself and never merges with a body of water.
+  `tests/test_fluid_rules.cpp` pins the shape of the table (shallower than water, slower than
+  water, the pooling flag per kind) and runs each substance through the same scenes: a lava
+  diamond of radius 3, an acid diamond of radius 7, and the two-sources-one-cell-apart scene
+  where water becomes a spring and acid does not Lava also emits nothing yet: its `light` is
+  zero, so it lights nothing, and a liquid that lights the world waits on the light engine
+  treating liquids as sources.
 
 ## A cell's state is the whole state
 

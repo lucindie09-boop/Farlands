@@ -9,16 +9,16 @@ were paid for once already. The shapes themselves are in
 - **Non-full block shapes**: Slabs (bottom/top with auto-detecting placement and double-slab
   merging), stairs (8 orientations with auto-detecting placement), walls (4 orientations), and
   poles (fence-like collision boxes that extend 1.5 blocks high)
-- **Shared shape registry**: `data/block_shapes.json` defines selection boxes and collision
-  boxes for all non-full block shapes
+- **Shared shape registry**: every non-full shape's boxes live in `data/block_shapes.json`;
+  the keys that hold them are [data-schemas.md](data-schemas.md)'s
 - **Multi-box models are just shapes**: a shape entry is a LIST of AABBs, so an arbitrary block
   model is data rather than code. The **crucible** is the first model past the 2-box shapes:
   four 1/16 x 2/16 corner legs, a 1/16 floor plate across the whole footprint, and four 1/16
   walls open at the top (9 boxes; its texture is `stone` as a placeholder). A `shape` name that
-  fails to resolve only logs an error and leaves the block a FULL CUBE, so a typo looks like a
-  plain block rather than failing — read `get_selection_boxes(id)` back to prove the model
+  does not resolve leaves a full cube, and only a log line says so
+  ([data-schemas.md](data-schemas.md)); read `get_selection_boxes(id)` back to prove the model
   landed (`probes/probe_crucible.gd`, and `tests/test_mesh_face_emission.cpp` for the emitted
-  geometry)
+  geometry), because a typo otherwise looks like a plain block
 - **Liquids are passable, and the answer lives in one place**: `BlockType::stops_bodies()` is
   false for anything carrying the `Liquid` property, and that is what the collision resolver,
   the sneak edge-guard and the third-person camera's clear-distance all consult. Before it
@@ -84,8 +84,8 @@ were paid for once already. The shapes themselves are in
   and its family simply has no solid to thicken into. No alpha: the terrain pass draws
   `ALPHA = 1.0`, so glass reads as pale glass rather than true transparency, and art must not
   rely on an authored alpha channel. `chunk_generations`-style knobs aside, the ID budget is
-  worth watching when adding states: this took the registry from 143 to **175 of
-  `MAX_BLOCK_TYPES` = 256**
+  worth watching when adding states: this took the registry from 143 to 175, and the cap it
+  spends is [data-schemas.md](data-schemas.md)'s.
 
 ## The art is generated from the same data
 
@@ -110,8 +110,9 @@ were paid for once already. The shapes themselves are in
   exactly where nobody looks. Instead a shape variant may declare `parts`: each part is a box
   list, optionally carrying a rule, and a rule-claimed part is present only while the cell faces
   its boxes reach have neighbours the rule accepts. The claim FOLLOWS THE GEOMETRY
-  (`shape_box_faces` reads it off the boxes), so a claim cannot be written against a face the
-  part does not actually meet — UNLESS the RULE supplies the faces, which the stair rules do
+  (`shape_box_faces` reads it off the boxes — [data-schemas.md](data-schemas.md) has the rule),
+  so a claim cannot be written against a face the part does not actually meet — UNLESS the
+  RULE supplies the faces, which the stair rules do
   because what they ask about is not where their boxes are: a corner quarter and a cut remnant
   reach the far cell boundary as well as the neighbour's, so a derived claim would read "east
   and back" and a stair standing behind would fill the east notch, a corner with nothing
@@ -195,17 +196,16 @@ were paid for once already. The shapes themselves are in
   block id changing), and icons, which have no world and take the canonical set. Pathfinding is
   the deliberate exception: `block_class.hpp` classifies by id only and has no position, and
   counting every fence as a full-height obstacle is the conservative answer for a planner
-- **`selection_boxes`/`collision_boxes` are DERIVED from the parts at load**, and the loader
-  warns when the declared list disagrees. It matters because two readers see a shape: the world
-  resolves the parts, while `block_icon_renderer.gd` and `viewmodel.gd` read
-  `data/block_shapes.json` directly and have no world to resolve against. If the two ever drift,
-  the item in your hand is a different model from the one you place. `fence/all` is the shipped
-  case: post plus four claimed arms, so an isolated fence is a lone post and a run is
-  continuous, and collision is part-wise for the same reason (a run is a 1.5-high wall, an
-  isolated post is only as wide as itself). `pane/all` is the second: post plus four arms
-  claimed one side each, so a lone pane is a 2/16 column you walk around and a run is a sheet
-  you do not — and its collision list is deliberately left EMPTY in the JSON, because a pane's
-  collision IS its sheets and the two lists therefore cannot drift apart
+- **The declared lists are the worldless reader's model**: how they are derived from the parts,
+  why a drift is warned about and which readers need them are all
+  [data-schemas.md](data-schemas.md)'s. What matters here is which entries ARE that model and
+  how their geometry behaves. `fence/all` is the shipped case: post plus four claimed arms, so
+  an isolated fence is a lone post and a run is continuous, and collision is part-wise for the
+  same reason (a run is a 1.5-high wall, an isolated post is only as wide as itself).
+  `pane/all` is the second: post plus four arms claimed one side each, so a lone pane is a
+  2/16 column you walk around and a run is a sheet you do not — and its collision list is
+  deliberately left EMPTY in the JSON, because a pane's collision IS its sheets and the two
+  lists therefore cannot drift apart
 
 ## Probed
 
@@ -248,8 +248,8 @@ were paid for once already. The shapes themselves are in
   non-air block with another unless it is a documented merge, so a stale neighbour silently
   swallows the write. Cells are cleared and put back rather than searched for: a headless spawn
   can sit inside solid terrain, and an isolated post needs all four lateral neighbours empty. A
-  shape name that fails to resolve silently leaves a FULL CUBE, so this probe is the difference
-  between "the model landed" and "it looks like a plain block"
+  shape name that fails to resolve is a full cube ([data-schemas.md](data-schemas.md)), so this
+  probe is the difference between "the model landed" and "it looks like a plain block"
 
 ## Earlier work: placement, collision and AO/UV
 

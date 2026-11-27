@@ -192,6 +192,16 @@ how it is wired into the game and to the tests.
   was
   asked with: it used to be re-asked with the *stroll's* 4,000/8 ms, which is truncated by
   construction for anything a chase would ask
+- **...and a STROLL gives the goal up instead of escalating** — it has no ladder and no patience
+  clock, and its answer to a route it cannot walk is to ask again, so the same cut-off came back
+  forever: twenty asks in two seconds for one goal, `route=0/7`, `blocked=2`, `wish=(0.00, 0.00)`,
+  a goblin that never moved (`nav_trace` 2026-11-27 22:32). A cut-off answer handed back with the
+  HEAD it had last time now drops the goal and sets the failed-retry hold, which is what puts the
+  wander's roll in front of it again; the goal is a random point aimed above the terrain, so a new
+  roll is a new place. Two things it deliberately does not touch: a WHOLE answer (nothing ran out,
+  so nothing repeats) and a cut-off whose head is somewhere else (a different frontier is a
+  different answer). A cut-off route is still walkable and still walked the first time — the roll
+  only rolls on an EMPTY route, which is why the loop had no exit of its own
 - **A chase has a patience** — a best-effort route to a frontier is not an arrival, so three
   seconds with no route under its feet ends it (`CHASE_WAIT_TICKS` in `scripts/goblin.gd`). A
   plan

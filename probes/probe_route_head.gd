@@ -14,6 +14,10 @@ extends SceneTree
 ##
 ## Run: Godot --headless --path <project> --script res://probes/probe_route_head.gd
 
+## The session's trace, muted: this probe spawns a body in the real world, and a body in the real
+## world installs one. `user://nav_trace.txt` is a session's own file.
+const NAV_TRACE := preload("res://scripts/nav_trace.gd")
+
 var ok := true
 
 
@@ -27,6 +31,7 @@ func _fail(msg: String) -> void:
 
 
 func _run() -> void:
+	NAV_TRACE.muted = true
 	root.add_child((load("res://Main.tscn") as PackedScene).instantiate())
 	var main: Node = root.get_child(root.get_child_count() - 1)
 	current_scene = main
@@ -74,5 +79,55 @@ func _run() -> void:
 			% [int(head.x), int(feet.x) + 1])
 	if route.size() != 2:
 		_fail("route has %d cells, not the 2 left after the one it stands in" % route.size())
+
+	# --- a CUT-OFF answer handed back with the same head gives the GOAL up --------
+	# `truncated` means a budget ran out, so the same question under the same clock is handed back
+	# the same route -- and a stroll's answer to a route it cannot walk is to ask again, which is
+	# the 0.2 s loop of `nav_trace` 2026-11-27 22:32: twenty asks at `blocked=2`, `route=0/7`,
+	# `wish=(0.00, 0.00)` and no movement. The second identical cut-off drops the goal, which is
+	# what puts the stroll's roll back in front of it. A whole answer, and a cut-off with a
+	# DIFFERENT head, are both still walked.
+	var cut := {"nodes": nodes, "truncated": true}
+	var goal_kept := Vector3(0.0, 0.0, 1.0)
+	body.call("_abandon_route")
+	body.set("_goal", goal_kept)
+	body.call("_take_route", cut)
+	if (body.get("_route") as Array).is_empty():
+		_fail("a cut-off answer was refused before it had been seen twice")
+	else:
+		var first_head: Vector3 = (body.get("_route") as Array)[0]
+		var remembered = body.get("_cut_off_head")
+		if remembered == null or not (remembered as Vector3).is_equal_approx(first_head):
+			_fail("the cut-off head %s was not remembered (%s)"
+				% [str(first_head), str(remembered)])
+	body.set("_goal", goal_kept)
+	body.set("_idle_ticks", 0)
+	body.call("_take_route", cut)
+	if not (body.get("_route") as Array).is_empty():
+		_fail("the same cut-off answer was handed back and walked again (%d cells)"
+			% (body.get("_route") as Array).size())
+	if (body.get("_goal") as Vector3) != Vector3.ZERO:
+		_fail("the goal survived the same cut-off answer twice (%s)" % str(body.get("_goal")))
+	if int(body.get("_idle_ticks")) <= 0:
+		_fail("giving the goal up kept no hold, so the roll cannot be in front of it")
+	# ...a WHOLE answer is not a loop, however much it looks like one.
+	body.set("_idle_ticks", 0)
+	body.call("_take_route", {"nodes": nodes})
+	if (body.get("_route") as Array).is_empty():
+		_fail("a whole answer was refused after a cut-off one")
+	if (body.get("_cut_off_head") as Vector3) != Vector3.INF:
+		_fail("a whole answer left a cut-off head remembered (%s)"
+			% str(body.get("_cut_off_head")))
+	# ...and neither is a cut-off somewhere ELSE: a different frontier is a different answer.
+	body.call("_abandon_route")
+	body.call("_take_route", cut)
+	var elsewhere := PackedVector3Array([
+		Vector3(feet.x, support, feet.z + 1.0),
+		Vector3(feet.x + 1.0, support, feet.z + 1.0),
+		Vector3(feet.x + 2.0, support, feet.z + 1.0)])
+	body.set("_goal", goal_kept)
+	body.call("_take_route", {"nodes": elsewhere, "truncated": true})
+	if (body.get("_route") as Array).is_empty():
+		_fail("a cut-off answer with a different head was refused")
 	print("PROBE PASS" if ok else "PROBE FAILED")
 	quit(0 if ok else 1)

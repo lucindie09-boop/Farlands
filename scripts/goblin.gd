@@ -595,6 +595,11 @@ var _rise_ticks := 0
 ## RISE_REFUSAL_TICKS. A plan that hands this cell back is refused rather than walked.
 var _refused_head := Vector3.INF
 var _refused_until := 0
+## The head of the last CUT-OFF answer a stroll took (INF when the last answer was whole, and
+## whenever a route is deliberately dropped). `truncated` means a budget ran out, so the same
+## question under the same clock is handed back the same route -- which makes the SAME head twice
+## a loop rather than bad luck. See `_take_route`.
+var _cut_off_head := Vector3.INF
 ## Ticks spent stroking, this session: the trace's "is it actually swimming" number, which a
 ## position cannot answer for a body bobbing on the spot.
 var _strokes := 0
@@ -1983,6 +1988,29 @@ func _take_route(result: Dictionary) -> void:
 		_next = 0
 		_idle_ticks = FAILED_RETRY_TICKS
 		return
+	# ...and the same is true of a CUT-OFF answer: `truncated` means a budget ran out, so the same
+	# question under the same clock comes back as the same route. A chase escalates its budget and
+	# then runs out of patience (`CHASE_BUDGET_LIMIT_MS`, `CHASE_WAIT_TICKS`); a stroll has neither,
+	# and re-asking IS its answer to a route it cannot walk -- so it sat in a 0.2 s loop, twenty
+	# asks in two seconds, `found=false truncated=true ... "time budget exhausted"`, `route=0/7`,
+	# `blocked=2`, `wish=(0.00, 0.00)`, never moving (`nav_trace` 2026-11-27 22:32; the head was a
+	# hop with no run-up behind it, refused in twelve frames, re-asked, refused again). Handed the
+	# same head back, a stroll gives the GOAL up and stands, which is what puts the roll in front
+	# of it again: the goal is a random point aimed above the terrain, so a new roll is a new
+	# place rather than the same cut-off wall.
+	if bool(result.get("truncated", false)) and _enemy == null and _plan_role == "idle" \
+			and not _route.is_empty() and _route[0] == _cut_off_head:
+		_replan_reason = "the same cut-off answer came back"
+		_trace_route_dropped()
+		_goal = Vector3.ZERO
+		_planned_goal = Vector3.ZERO
+		_planned_from = Vector3.INF
+		_needs_replan = false
+		_cut_off_head = Vector3.INF
+		_abandon_route()
+		_idle_ticks = FAILED_RETRY_TICKS
+		return
+	_cut_off_head = _route[0] if bool(result.get("truncated", false)) else Vector3.INF
 	# A route that goes NOWHERE is not a stroll: look again soon rather than standing for the whole
 	# idle wait on a column that turned out to be unreachable. EMPTY, not short: the head-skip above
 	# can cut a two-node answer down to one, and that cell is a real destination -- it is where the
@@ -2274,6 +2302,7 @@ func _abandon_route() -> void:
 	_stuck_ticks = 0
 	_lip_frames = 0
 	_rise_head = Vector3.INF
+	_cut_off_head = Vector3.INF
 	_job = 0
 
 

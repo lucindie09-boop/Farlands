@@ -919,6 +919,31 @@ first-person viewmodel - what each one owns and the decisions behind it.
   are positional. Which pose an id names comes from `data/items.json` through
   `scripts/item_poses.gd` — the ONE reader the two hands share, matched by NAME because item
   ids are positional
+- **The arm holding it sits 18 degrees forward** (`HELD_ARM_PITCH`: `pi/10`, vanilla 1.8's own
+  item pose, restated as a behaviour of ours). The turn is applied at the SHOULDER rather than
+  written onto the arm: `_init_held_arm` puts a `HeldArmPivot` Node3D between the rig and the
+  right arm, at the arm's own position, zeroes the arm's local position onto it and leaves its
+  rotation exactly where the model put it — so `_pose_held_arm` composes a turn OVER whatever
+  pose the AnimationTree has the arm in, the held item (a child of the arm) follows by itself,
+  and `_clip_rest["arm"]` is still the base the walk's keys are measured from. A write on the
+  arm instead is replaced by the tree the next frame, and compounds with the tree inactive.
+  It is set from `_hold`, beside the item's own visibility, so the arm and the thing in it can
+  never disagree, and it SNAPS: vanilla switches the pose with no fade, and an ease here would
+  be a deviation of ours. The pivot goes in before `_init_body_animation`, because `_clip_for_rig`
+  builds track paths with `get_path_to()` at load — the right arm's track is
+  `HeldArmPivot/arm` from then on, which is why the clip's tables are keyed by PART and the
+  paths are resolved per part (`_part_path`/`_part_of_path`); a gain table read by path would
+  otherwise leave the arm on the clip's authored 16.8 degrees instead of vanilla's 1.0 rad.
+  Every body gets the pivot, and a goblin or a preview holds nothing, so its shoulder stays at
+  0. Vanilla also halves that arm's walk swing while an item is held; that is deliberately not
+  done here — it cannot ride the pivot (a turn adds where a halving scales) and would be a
+  per-frame write on the arm, order-dependent against the tree. Measured by
+  `probes/probe_held_pose.gd`: the pivot takes the arm's seat with the arm centred and its
+  rotation untouched, the run clip still reaches it at vanilla's 1.000 rad, the shoulder is
+  -18 degrees while holding and 0 empty-handed, the item's own position turns exactly 18
+  degrees FORWARD about the shoulder (this rig faces +Z with the arm hanging -Y, so the
+  screenshot-free proof of the sign is that z rises), and with the body animating again the
+  pivot holds while the arm's rotation keeps moving under the tree's pose.
 
 ## Cameras, targets and overlays
 

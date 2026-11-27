@@ -66,9 +66,12 @@ func _run() -> void:
 	host.add_child(model)
 	await process_frame
 
+	# By name rather than by path: the right arm hangs from the shoulder pivot the held
+	# pose turns (player_model.gd::_init_held_arm), so it is one level deeper than its
+	# siblings. A goblin holds nothing, and its pivot stays at 0.
 	var parts := {}
 	for part in ["arm", "arm2", "leg", "leg2", "torso", "head"]:
-		var mi := model.get_node_or_null(NodePath(part)) as MeshInstance3D
+		var mi := model.find_child(part, true, false) as MeshInstance3D
 		if mi == null or mi.mesh == null:
 			_failures += 1
 			print("PROBE FAIL: the rig has no `%s` part" % part)
@@ -85,7 +88,10 @@ func _run() -> void:
 	var any := false
 	for part in parts:
 		var mi: MeshInstance3D = parts[part]
-		var box: AABB = (mi.transform * (mi.mesh as Mesh).get_aabb())
+		# In the MODEL's space, whatever hangs from what: the arm's own local transform no
+		# longer carries its shoulder, that offset is the pivot's now.
+		var in_model: Transform3D = model.global_transform.affine_inverse() * mi.global_transform
+		var box: AABB = (in_model * (mi.mesh as Mesh).get_aabb())
 		union = box if not any else union.merge(box)
 		any = true
 	_ok("rig: it stands on the floor, 1.44 blocks tall",

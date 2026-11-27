@@ -102,6 +102,18 @@ const TREE_RUN_SCALE := "parameters/timescale/scale"
 # Which arm: the rig's `arm` is the -X side, and the body faces +Z (`arm2` is the left),
 # so `arm` is the right hand -- the hand Minecraft holds an item in.
 const HELD_ARM := "arm"
+# The arm's own parent, inserted between the rig and the arm at load (see _init_held_arm).
+const HELD_ARM_PIVOT := "HeldArmPivot"
+# The arm's pose while it carries something: 18 degrees FORWARD (pi/10), the way vanilla
+# holds an item. It is a turn at the SHOULDER, composed OVER whatever pose the arm is in,
+# which is why it lives on the pivot rather than on the arm: the AnimationTree owns the
+# arm's own local rotation and rewrites it every frame, so a turn written there is replaced
+# next frame (or, with the tree inactive, compounds).
+#
+# The sign is this rig's: the body faces +Z and the arm hangs -Y, so a rotation of -18
+# degrees about X is the one that brings the hand forward. Not an inference to trust -
+# probes/probe_held_pose.gd measures the held item's own move through it.
+const HELD_ARM_PITCH := 18.0
 # data/items.json's `pose` field, through the ONE reader this body and the first-person
 # viewmodel share (scripts/item_poses.gd): an item's pose is a claim about its ART rather than
 # an item mechanic, so it is not in the registry -- and it is not read twice either.
@@ -211,6 +223,8 @@ var _body_light_ready := false
 # material is the body's own light model on the held block's or item's texture, and its
 # meshes are built by the shared ViewmodelMeshes binding, once per block id.
 var _held_arm: MeshInstance3D = null
+# The arm's parent, and the shoulder the held pose turns (_init_held_arm).
+var _held_pivot: Node3D = null
 var _held_arm_box := AABB()
 var _held_controller: Node = null
 var _held_item: MeshInstance3D = null
@@ -223,9 +237,14 @@ func _manager():
 
 func _ready():
 	# The light model first: it decides what the body is actually drawn WITH, and
-	# apply_skin_texture has to know that before it picks where the skin goes.
+	# apply_skin_texture has to know that before it picks where the skin goes. It also
+	# measures the body's own middle off the parts as the model places them, so the
+	# shoulder pivot goes in after it.
 	_init_world_lighting()
 	apply_skin_texture()
+	# ...and before the clips: _clip_for_rig builds its track paths with get_path_to()
+	# at load, and the right arm lives under the pivot from here on.
+	_init_held_arm()
 	_init_body_animation()
 	_head = find_child("head", true, false)
 	_init_held_item()
@@ -324,7 +343,11 @@ func _anim_node(animation: StringName) -> AnimationNodeAnimation:
 ## nothing plays as no motion at all, silently. The head is named as the code's own,
 ## because _track_head_look writes its quaternion every frame.
 func _clip_for_rig(source: Animation, clip_name: String) -> Animation:
-	var clip := ClipRetarget.retarget(source, CLIP_PATH_MAP, self, 1.0, Quaternion.IDENTITY,
+	var map := CLIP_PATH_MAP.duplicate()
+	# The right arm is not at the body root any more: it hangs from its shoulder pivot
+	# (_init_held_arm), so the clip's `arm` track is re-homed onto the path it has now.
+	map[HELD_ARM] = _part_path(HELD_ARM)
+	var clip := ClipRetarget.retarget(source, map, self, 1.0, Quaternion.IDENTITY,
 		PackedStringArray(["head"]))
 	clip.resource_name = clip_name
 	# Both clips are cycles: one that ends is a body frozen mid-stride, and `Idle.anim`
@@ -349,6 +372,22 @@ func _capture_clip_base() -> void:
 		_clip_rest[part] = node.quaternion
 
 
+## The TRACK PATH a part's clip track has on this body -- the path from the body root,
+## which is what a clip names (the AnimationPlayer's root node is this body). It is not
+## always the part's own name: the right arm sits under its shoulder pivot.
+func _part_path(part: String) -> String:
+	var node := find_child(part, true, false)
+	return String(get_path_to(node)) if node != null else part
+
+
+## The inverse of _part_path: the part a track path lands on, read off the node rather
+## than off the text. Every table in this file is keyed by part, so this is what ties a
+## clip's tracks to them.
+func _part_of_path(path: String) -> String:
+	var node := get_node_or_null(NodePath(path))
+	return String(node.name) if node != null else path
+
+
 ## Put the run clip on Minecraft's own scale.
 ##
 ## Two things about it are not vanilla's, and both are fixed here once, at load:
@@ -365,11 +404,17 @@ func _capture_clip_base() -> void:
 func _prepare_run_clip() -> void:
 	if _run_clip == null:
 		return
+	# A clip names each limb by its TRACK PATH, while every table here is keyed by part
+	# (and the right arm's path is under its pivot now), so the path-keyed view these two
+	# retarget calls want is built once.
+	var rest_by_path := {}
+	for part in _clip_rest:
+		rest_by_path[_part_path(part)] = _clip_rest[part]
 	# 1. the base every key is measured from is already captured (_capture_clip_base).
 	# 2. close the cycle (clip_retarget.gd::smooth_cycle): the authored easing makes
 	# the legs crawl through the loop point, which at vanilla amplitude is a hitch at
 	# every wrap.
-	ClipRetarget.smooth_cycle(_run_clip, _clip_rest)
+	ClipRetarget.smooth_cycle(_run_clip, rest_by_path)
 	# 3. vanilla's amplitudes, measured off the SMOOTHED curve, so the peaks are the ones
 	# that will actually play.
 	var gains := {}
@@ -377,17 +422,18 @@ func _prepare_run_clip() -> void:
 		if _run_clip.track_get_type(t) != Animation.TYPE_ROTATION_3D:
 			continue
 		var path := str(_run_clip.track_get_path(t))
-		if not MC_PART_SWING.has(path) or not _clip_rest.has(path):
+		var part := _part_of_path(path)
+		if not MC_PART_SWING.has(part) or not _clip_rest.has(part):
 			continue
-		var rest: Quaternion = _clip_rest[path]
+		var rest: Quaternion = _clip_rest[part]
 		var peak := 0.0
 		for k in range(_run_clip.track_get_key_count(t)):
 			var key: Quaternion = _run_clip.track_get_key_value(t, k)
 			peak = maxf(peak, (rest.inverse() * key).get_angle())
 		if peak > 0.001:
-			gains[path] = float(MC_PART_SWING[path]) / peak
+			gains[path] = float(MC_PART_SWING[part]) / peak
 	if not gains.is_empty():
-		ClipRetarget.scale_stride(_run_clip, _clip_rest, 1.0, gains)
+		ClipRetarget.scale_stride(_run_clip, rest_by_path, 1.0, gains)
 
 
 ## Every part this clip does not move, held at its rest rotation.
@@ -402,7 +448,10 @@ func _prepare_run_clip() -> void:
 func _add_rest_tracks(clip: Animation) -> void:
 	var named := {}
 	for i in clip.get_track_count():
-		named[str(clip.track_get_path(i))] = true
+		# By the node the path lands on, not by the path: the right arm's track names
+		# "HeldArmPivot/arm" (see _init_held_arm), and a rest track added for it anyway
+		# would be a second writer of its rotation.
+		named[_part_of_path(str(clip.track_get_path(i)))] = true
 	for part in RIG_PARTS:
 		if named.has(part):
 			continue
@@ -597,6 +646,37 @@ func _ease_light(current: Vector4, target: Vector4, delta: float) -> Vector4:
 	return current.lerp(target, 1.0 - exp(-delta / LIGHT_EASE_TIME))
 
 
+## The shoulder pivot the held-item pose turns (see HELD_ARM_PITCH).
+##
+## A turn at the shoulder has to be composed OVER the arm's pose, and the arm's own local
+## rotation belongs to the AnimationTree, which rewrites it every frame -- so the turn
+## goes on a parent instead: a Node3D at the arm's own position, with the arm's position
+## zeroed onto it and its rotation left exactly where the model put it. Turning that
+## pivot composes with the tree's pose (and the held item, a child of the arm, follows by
+## itself), and _clip_rest["arm"] is still the base the walk's keys are measured from.
+##
+## Runs before _init_body_animation, because _clip_for_rig builds its track paths with
+## get_path_to() at load: the arm's path has to be final first, which is why every
+## path-vs-part comparison here goes through _part_path/_part_of_path. Every body gets
+## the pivot; a body with no controller never holds anything, so its pivot stays at 0.
+func _init_held_arm() -> void:
+	var arm := find_child(HELD_ARM, true, false) as MeshInstance3D
+	if arm == null or arm.get_parent() == null:
+		return
+	_held_arm = arm
+	var pivot := Node3D.new()
+	pivot.name = HELD_ARM_PIVOT
+	_held_pivot = pivot
+	var parent := arm.get_parent()
+	parent.add_child(pivot)
+	# The pivot takes the arm's seat; the arm is centred on the joint and keeps its own
+	# rotation, so the body is drawn exactly where it was and a turn of the pivot is a
+	# turn of the shoulder.
+	pivot.position = arm.position
+	arm.reparent(pivot, false)
+	arm.position = Vector3.ZERO
+
+
 ## The block or item the body carries in its right hand.
 ##
 ## Only a body the PLAYER is driving holds one. A preview has no cell to take a light
@@ -615,11 +695,10 @@ func _init_held_item() -> void:
 		owner_node = owner_node.get_parent()
 	if owner_node == null:
 		return
-	var arm := find_child(HELD_ARM, true, false) as MeshInstance3D
+	var arm := _held_arm
 	if arm == null or arm.mesh == null:
 		return
 	_held_controller = owner_node
-	_held_arm = arm
 	# The arm's own mesh box, in the arm's space -- the space its children are placed
 	# in. The rebake put this node's origin on the shoulder, so the box runs from the
 	# joint down the limb.
@@ -673,10 +752,12 @@ func _update_held_item() -> void:
 func _hold(id: int) -> void:
 	if id <= 0:
 		_held_item.visible = false
+		_pose_held_arm(false)
 		return
 	var tex: Texture2D = BlockTextures.get_texture(id)
 	if tex == null:
 		_held_item.visible = false
+		_pose_held_arm(false)
 		return
 	var is_sprite := BlockTextures.is_item(id)
 	# The pose the item names ("" for a default one, "ITEM2"/"ITEM3" for a posed sprite), from
@@ -688,9 +769,13 @@ func _hold(id: int) -> void:
 	var mesh := _held_mesh_of(id, tex)
 	if mesh == null:
 		_held_item.visible = false
+		_pose_held_arm(false)
 		return
 	_held_item.mesh = mesh
 	_held_item.visible = true
+	# Beside the item, from the one place its visibility is decided, so the arm and the
+	# thing in it can never disagree about whether a hand is full.
+	_pose_held_arm(true)
 	var size_fraction := HELD_BLOCK_ARM_LENGTHS
 	if is_sprite:
 		size_fraction = HELD_ITEM2_ARM_LENGTHS if is_item2 else HELD_ITEM_ARM_LENGTHS
@@ -735,6 +820,17 @@ func _hold(id: int) -> void:
 	# discard edge pixels whose UV rounds onto a texel boundary); an item's sprite needs
 	# it for its transparent silhouette. The same rule as the first-person hand.
 	_held_material.set_shader_parameter("alpha_scissor", 0.5 if is_sprite else 0.0)
+
+
+## The right arm's pose for what it is (or is not) carrying -- see HELD_ARM_PITCH.
+##
+## Vanilla switches it in the frame the item appears, with no fade, and so does this: an
+## ease here would be a deviation of ours, and one the eye reads as the arm lagging the
+## hotbar by a beat. A body with no pivot (a model without the arm) simply does nothing.
+func _pose_held_arm(held: bool) -> void:
+	if _held_pivot == null:
+		return
+	_held_pivot.rotation_degrees = Vector3(-HELD_ARM_PITCH if held else 0.0, 0.0, 0.0)
 
 
 ## The mesh a block id is held as, built once per id. A block is its shape's own boxes;

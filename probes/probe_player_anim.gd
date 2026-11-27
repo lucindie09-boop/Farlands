@@ -343,13 +343,13 @@ func _run() -> void:
 	# too, or the "dummy" breathes at the player while it is being punched.
 	var glb: PackedScene = load("res://Assets/models/player.glb")
 	var clone: Node3D = glb.instantiate()
-	var clone_rest: Quaternion = (clone.get_node("arm") as Node3D).quaternion
+	var clone_rest: Quaternion = (clone.find_child("arm", true, false) as Node3D).quaternion
 	clone.set_script(load("res://scripts/player_model.gd"))
 	clone.set("skip_head_look", true)
 	root.add_child(clone)
 	for i in range(30):
 		await process_frame
-	var clone_arm: Node3D = clone.get_node("arm")
+	var clone_arm: Node3D = clone.find_child("arm", true, false)
 	_ok("clone: a pose clone is frozen, body included",
 		clone_arm.quaternion.is_equal_approx(clone_rest),
 		"arm %.3f deg off rest" % rad_to_deg(clone_arm.quaternion.angle_to(clone_rest)))
@@ -393,8 +393,20 @@ func _peak(samples: Array, channel: String) -> float:
 
 
 ## A clip's rotation track for `part` (find_track needs the track type as well).
+##
+## A track names its limb by the path it has from the body root, and the right arm's is
+## `HeldArmPivot/arm` since the shoulder pivot went in (player_model.gd::_init_held_arm),
+## so the part is looked up by the node the track lands on -- the last segment, here.
 func _track(clip: Animation, part: String) -> int:
-	return clip.find_track(NodePath(part), Animation.TYPE_ROTATION_3D)
+	var exact := clip.find_track(NodePath(part), Animation.TYPE_ROTATION_3D)
+	if exact >= 0:
+		return exact
+	for t in range(clip.get_track_count()):
+		if clip.track_get_type(t) != Animation.TYPE_ROTATION_3D:
+			continue
+		if str(clip.track_get_path(t)).get_file() == part:
+			return t
+	return -1
 
 
 ## The biggest angle a part's track turns away from its rest pose, in radians.

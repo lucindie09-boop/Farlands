@@ -129,6 +129,7 @@ comment, with the claim each one backs:
 | `probe_item_light_smooth.gd` | The item light model's step: a staged one-frame relight of the held item's/arm's cell, of a dropped item's cell and of the player's own body's cell moves the `item_light` the mesh is handed over ~0.35 s instead of one frame |
 | `probe_body_light.gd` | The player's own body is lit by the world's light, not the engine's: its rendered luma equals the luma of the pixels it is drawn over, it follows the sun down to midnight, and the body and world share the same neutral white-overhead, warm-at-the-horizon sky light |
 | `probe_player_anim.gd` | The live body plays its two clips (idle standing with the arms swaying, run walking) and every track of both lands on a limb; the parked pose port is still measured state by state (see below) |
+| `probe_held_pose.gd` | The held-item shoulder pose (`docs/gui-notes.md`): the pivot, the 18 degrees while holding, 0 with an empty hand, and the item moving forward with it (see below) |
 | `probe_sky_brightness.gd` | What a fully sky-lit surface renders AT, against its own albedo: the body is handed a flat known grey (1x1, no atlas to guess from), the frame is read back per albedo, and each one is held to the model's own claim — never above its own texel, and not far below it |
 | `probe_item_size.gd` | A dropped item is not cell-sized: a cube's body and drawn mesh are both half a block, a slab and a stair keep their own shape at that scale, a sprite keeps its silhouette, and a stack of more than one is both drawn and solved bigger by the capped log2 curve (1.25x at 2 through 2x from sixteen), mesh and body one box at every count |
 | `probe_item_merge.gd` | Two drops of one kind next to each other become one pile: the counts add up to the 64 cap, the fuller keeps its place, body and mesh take the count's own size, motions combine only when both move, and the drawn size pops past the new one and settles back (at half strength once the pile is already at its largest) |
@@ -326,6 +327,17 @@ A few of those rows keep their detail here, because a table cell that long is an
   few percent.
 - `probe_item_light_smooth.gd` — the eased `item_light` is read back OFF THE INSTANCE the
   shader sees, so the number measured is the one being drawn rather than the one assigned.
+- `probe_held_pose.gd` — a still body under a stub owner (`HeldArmPivot`, one hotbar slot), so
+  every number is exact and no world is written. The pivot takes the model's own arm seat, the arm
+  sits centred on the joint with its rotation untouched, and the run clip still reaches it through
+  the pivot at vanilla's 1.000 rad — a track left naming the old path plays as no motion at all,
+  silently, which is what the path-keyed gain table would have done to the arm. The shoulder is
+  -18 degrees while a block is in the hand and 0 with an empty one, set in the same function as the
+  item's visibility. The item's own position turns exactly 18 degrees FORWARD about the shoulder,
+  which is what fixes the sign: this rig faces +Z with the arm hanging -Y, so the proof is that z
+  rises (3.10 blocks at this arm length). And with the body animating again the pivot holds while
+  the arm's rotation keeps moving under the tree's pose (0.46 to 3.44 degrees off rest), which is
+  the difference between composing over the pose and fighting it.
 - `probe_player_anim.gd` — the body is measured, and then the parked port it no longer uses. The
   body: exactly two clips, `idle` and `run`, and every track of both resolves on this rig (a
   track

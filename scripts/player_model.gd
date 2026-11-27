@@ -24,9 +24,7 @@ const LIGHT_EASE_TIME := 0.15
 # `Run.anim` while it walks. They are resources of their own (Assets/Animations)
 # rather than the model's imported clips, because a glb's clips only ever animate
 # the glb's own scene -- and `Run.anim` was authored on a differently named rig,
-# which is what CLIP_PATH_REMAP is for. The code pose this replaced
-# (scripts/body_animator.gd, a hand-port of FA+Player's moves) is parked with its
-# probe and its credit in docs/gui-notes.md.
+# which is what CLIP_PATH_REMAP is for.
 const CLIP_IDLE: Animation = preload("res://Assets/Animations/Idle.anim")
 const CLIP_RUN: Animation = preload("res://Assets/Animations/Run.anim")
 const ClipRetarget := preload("res://scripts/clip_retarget.gd")

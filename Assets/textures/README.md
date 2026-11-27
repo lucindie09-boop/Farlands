@@ -16,12 +16,6 @@ The fonts are the one exception: `Assets/fonts/munro.ttf` is **Munro** by Ten by
 OFL rather than GPL-3.0; the license is beside it at `Assets/fonts/LICENSE-munro.txt`, where the
 OFL requires a copy to sit for any bundle, and the font may not be sold on its own.
 
-One credit belongs outside this file: `scripts/body_animator.gd`'s pose is a port of the
-signature moves of Fresh Animations' player add-on (FA+Player v1.1, CEM animations by FreshLX),
-whose terms allow transforming its work with credit but not redistributing it. No file of that
-pack is in this repository — the moves are authored here — and the credit is in
-[docs/gui-notes.md](../../docs/gui-notes.md).
-
 If any asset is later found to be derived from a third-party source, it must be replaced with an
 original work or attributed here with its license.
 

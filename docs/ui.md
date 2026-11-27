@@ -523,17 +523,6 @@ being resampled by a different fraction at each scale.
   controller's world yaw + pitch (`get_aim_direction()`) so the `head` mesh follows the player's
   look in every view, with a camera-follow fallback for scenes without a `PlayerController`
   (skin preview). The head is not a pose channel — its quaternion is the code's alone
-- `body_animator.gd` — **Parked**: nothing in the game calls it, and the body plays clips
-  instead
-  (`player_model.gd`); `probes/probe_player_anim.gd` still measures it. The body's pose, per
-  frame:
-  a hand-port of FA+Player's signature moves
-  (Fresh Animations, FreshLX) for idle, walk, sprint, jump/fall, sneak and swim, weighted by
-  what
-  the sim is doing (`get_velocity`, `is_on_floor`, `is_in_water`, `is_sneaking`,
-  `is_sprinting`) and returned as plain angles, so it is measured without a world. It is code
-  rather than clips because the pack's own CEM animations are code too; the pack's files are not
-  vendored (its terms) and the credit is in [gui-notes.md](gui-notes.md)
 - `clip_retarget.gd` — Re-homes one clip onto another rig by name: maps the source rig's track
   paths onto this body's nodes, carries a rotation track across (a joint rotation is
   joint-relative) and rewrites a position track as the destination node's own rest position plus

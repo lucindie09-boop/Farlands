@@ -10,9 +10,8 @@ not tasks; move one in here when it gets picked up.
 since that changes the break-block code path~~
 
 ~~Player model animations - the body plays clips: `Assets/Animations/Idle.anim` standing and
-`Run.anim` walking (re-homed by `scripts/clip_retarget.gd`). The frame-by-frame pose it replaced
-(`scripts/body_animator.gd`, a hand-port of FA+Player's moves) is parked; the `Idle_new`/`Walk`
-pair it was tried against is gone, so `Idle.anim` and `Run.anim` are the body's only clips~~
+`Run.anim` walking (re-homed by `scripts/clip_retarget.gd`); the `Idle_new`/`Walk` pair an
+earlier attempt used is gone, so those two are the body's only clips~~
 
 ~~First-person viewmodel + items/blocks in hand~~
 

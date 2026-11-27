@@ -834,11 +834,6 @@ first-person viewmodel - what each one owns and the decisions behind it.
   crosses it at the speed it crosses the middle of the cycle, the tree has both states and the idle
   layer wired with no clip carrying a copied arm hang, and standing adds nothing while walking adds
   the idle (legs untouched either way, and the idle's own track turning 0 to 3.4 degrees).
-- **The hand-port that replaced the clips is parked, not deleted.** `scripts/body_animator.gd`
-  computes a pose per frame from what the sim is doing -- horizontal speed and vertical velocity
-  (`get_velocity()`), `is_on_floor`, `is_in_water`, `is_sneaking`, `is_sprinting` -- as plain
-  angles a body composes onto each part's rest rotation (`rest * X * Z`, degrees per channel).
-  Nothing in the game calls it; `probes/probe_player_anim.gd` still measures it.
 - **A run cycle was separated out of `Assets/models/source/runanimation.glb`** (a source asset:
   nothing loads it at runtime, and it lives in `source/` for that) into
   `Assets/Animations/Run.anim`: 1 s, looping, the four limbs' `rotation_3d` tracks (29 keys each, on
@@ -852,32 +847,6 @@ first-person viewmodel - what each one owns and the decisions behind it.
   keeps no position or scale tracks at all (the glb's own accessors: `rotation` spread 0.30 on each
   limb, `translation`/`scale` spread 0.0). The merge keeps, per `(path, track type)`, the track with
   the most keys. `player_model.gd` plays it while the body walks, with `Idle.anim` standing.
-  **What the parked port carries, and from where**: the signature moves of Fresh Animations' player add-on
-  (FA+Player v1.1, CEM animations by FreshLX) -- the idle's arm sway, the opposed leg/arm stride,
-  a sprint's lean, the split legs and raised arms of a jump and a fall, a sneak's crouch and a
-  swim's paddle. The pack is not a set of clips either: its `.jem`/`.jpm` files (677 expressions
-  over 27 parts) recompute every part from live state each frame, so a port of it is a pose
-  driver, not a file import. **Credit is required and its files are NOT in this repository**: its
-  terms allow transforming its work with credit but not redistributing unedited assets, and this
-  repository is GPL, so nothing of the pack is vendored -- the moves are authored here.
-  **The model is this body's, not the pack's.** FA+Player also models the jacket, sleeves, pants,
-  headwear, cape and a first-person hand; `player.glb` has head/torso/arm/arm2/leg/leg2, so the
-  limb motion ports and the clothing layers do not, and the head stays the code's
-  (`_track_head_look` owns it, and no pose channel names it).
-  **How the pose is weighted**: one pose per state, each claimed by an eased weight, with the
-  walk's amplitude (`_swing`, from speed against `WALK_SPEED`) inside the pose and the weight
-  only choosing the state -- scaling both by speed squared the stride, and a creep at a third of
-  walking speed swung a ninth of the way, which read as no motion. A stop and a landing are the
-  same weights crossing back out at `EASE_RATE`, which is what stops them reading as a cut.
-  Measured by `probes/probe_player_anim.gd` (24 checks): the idle keeps the old clip's 3.4
-  degrees of arm sway, a walk is 60 degrees of opposed stride with each arm against its own leg,
-  a sprint is 1.5x the stride and 9.6 degrees of lean, the jump/fall/sneak/swim shapes differ as
-  they should, a stop decays instead of cutting, the live body's own arms sway while it stands
-  there, and the K-key pose clone stays frozen.
-  **The CEM files** live outside the project (`FA+Player-v1.1/assets/minecraft/emf/cem`), and two
-  things in them are worth knowing before revisiting: their tracks name the pack's rig
-  (`Node/Head2`, `Node/RightArm`, ...) in its units, and that rig faces -Z where this body faces
-  +Z, so a copy of its numbers is that motion seen from behind.
 - **Minecraft-style head look**: `player_model.gd::_track_head_look()` points the head at the
   player's LOOK, not the camera — it rebuilds the aim basis from the controller's world
   quaternion + pitch (pitch read back out of `get_aim_direction()` in the controller frame) and

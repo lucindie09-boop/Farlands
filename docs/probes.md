@@ -373,13 +373,6 @@ A few of those rows keep their detail here, because a table cell that long is an
   `skip_head_look`
   deactivates the TREE as well as the head, or the dummy would keep breathing while it is being
   punched.
-  `scripts/body_animator.gd`, the hand-port the clips replaced, is a pure function of its
-  inputs,
-  so it is still measured state by state: idle, walk (60° of opposed stride, each arm against
-  its
-  own leg), sprint, jump and fall, sneak, swim, and a stop that decays over its own frames
-  rather
-  than cutting. Nothing in the game calls it.
 - `probe_menu.gd` — the curtain is asked what its bodies did, rather than watched, because the
   claim is physical: 96 of them are `RigidBody2D`, they are tumbling ten physics frames in, and
   by the frame the curtain reports `covered` every one of them has landed. The pile is measured,

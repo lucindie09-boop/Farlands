@@ -189,6 +189,12 @@ const LOOT_INSPECT_TICKS := 60
 ## Ten seconds from the ask to the arrival, and then it gives up and stands. A pile it cannot
 ## reach is a pile it cannot reach, and asking for ten seconds is already generous.
 const LOOT_ERRAND_TICKS := 200
+## ...but a pile it has already WALKED to is not that case and does not need the ten seconds: the
+## body stands at the pile's own column with no route left, and the take is out of its band anyway
+## -- LOOT_LEVEL notices a pile two blocks below the feet and LOOT_TAKE_HEIGHT reaches 1.2 of
+## them, so a pile on a floor this body cannot step down to is an errand that can only wait. One
+## second of standing on it is the answer, and what is remembered is the PILE's own point.
+const LOOT_NEAR_MISS_TICKS := 20
 ## ...and ten seconds during which a spot it rejected -- or could not reach -- is not asked
 ## about again, and how close another pile has to be to count as that spot. This is what
 ## stops a goblin picking its own reject straight back up: `spawn_at` builds a NEW body, the
@@ -512,11 +518,13 @@ var offhand_item := 0
 var main_hand_item := 0
 
 ## The loot run's own state: where the pile it is walking to was SEEN (INF when there is no
-## errand), the tick the errand is abandoned at, the ticks left of an inspection, and the spot
-## and deadline of one it is ignoring. `_loot_scan_ticks` is the countdown to the next look
-## around, so a standing goblin asks the world once a second at most.
+## errand), the tick the errand is abandoned at, the tick a pile it has walked to and cannot take
+## is given up at, the ticks left of an inspection, and the spot and deadline of one it is
+## ignoring. `_loot_scan_ticks` is the countdown to the next look around, so a standing goblin
+## asks the world once a second at most.
 var _loot_target := Vector3.INF
 var _loot_deadline := 0
+var _loot_near_until := 0
 var _inspect_ticks := 0
 var _loot_ignore_at := Vector3.INF
 var _loot_ignore_until := 0
@@ -1226,6 +1234,7 @@ func _start_loot() -> void:
 	speed_state = "loot"
 	_loot_target = at
 	_loot_deadline = int(_sim.get_tick_count()) + LOOT_ERRAND_TICKS
+	_loot_near_until = 0
 	if walk_to(at, LOOT_EXPANSIONS, LOOT_MAX_MS) == 0:
 		# Nothing was asked -- this world has no planner, or it refused the goal -- so there is
 		# no errand, and asking again in half a second would get the same nothing.
@@ -1262,6 +1271,21 @@ func _loot_travel() -> void:
 			return
 		_take_up(int(taken.get("block_id", 0)))
 		return
+	# Standing at the pile's own column with nothing left to walk and the take still out of band:
+	# the errand's deadline is for a walk that is STILL GOING ON, and this one is not. The pile is
+	# a floor below a body that cannot step down to it -- LOOT_LEVEL notices two blocks down and
+	# LOOT_TAKE_HEIGHT reaches 1.2 -- so waiting the ten seconds out is a goblin standing on an
+	# item it can see. One second of that is enough, and the spot is remembered at the PILE's own
+	# point so a reachable neighbour is not hidden with it.
+	if flat <= LOOT_REACH and _route.is_empty() and _job == 0 \
+			and bool(_sim.is_on_ground()):
+		if _loot_near_until == 0:
+			_loot_near_until = int(_sim.get_tick_count()) + LOOT_NEAR_MISS_TICKS
+		elif int(_sim.get_tick_count()) >= _loot_near_until:
+			_loot_forget(_loot_target, LOOT_FORGOTTEN_REACH)
+			return
+	else:
+		_loot_near_until = 0
 	if int(_sim.get_tick_count()) >= _loot_deadline:
 		# Ten seconds without arriving is an errand that is not going to happen: the pile is
 		# where nothing can stand, or the body is stuck behind something. Give up on the place.
@@ -1278,6 +1302,7 @@ func _take_up(id: int) -> void:
 	speed_state = "idle"
 	_loot_target = Vector3.INF
 	_loot_deadline = 0
+	_loot_near_until = 0
 	_inspect_ticks = LOOT_INSPECT_TICKS
 	# A watch of the player has no claim on the head for these three seconds: it is on the
 	# thing in the hand.
@@ -1352,6 +1377,7 @@ func _cancel_loot() -> void:
 		main_hand_item = 0
 	_loot_target = Vector3.INF
 	_loot_deadline = 0
+	_loot_near_until = 0
 	_inspect_ticks = 0
 	# The pace is only the errand's to put back: a fight has already set its own, and this
 	# runs after `_update_enemy` on the tick a fight begins.

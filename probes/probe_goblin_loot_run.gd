@@ -32,6 +32,7 @@ const NAV_TRACE := preload("res://scripts/nav_trace.gd")
 const LOOT_SCAN_TICKS := 10
 const LOOT_INSPECT_TICKS := 60
 const LOOT_ERRAND_TICKS := 200
+const LOOT_NEAR_MISS_TICKS := 20
 const LOOT_IGNORE_TICKS := 200
 const LOOT_RANGE := 8.0
 const LOOT_LEVEL := 2.0
@@ -629,6 +630,41 @@ func _run() -> void:
 		_fail("a timed-out errand left it on '%s'" % body.get("speed_state"))
 	if int(body.get("_job")) != 0 or not (body.get("_route") as Array).is_empty():
 		_fail("a timed-out errand kept its plan in flight")
+
+	# --- 9b. standing on a pile it cannot take ends the errand in ONE SECOND -------
+	# The scan notices a pile up to LOOT_LEVEL (2.0) below the feet and the reach gate and the take
+	# only reach LOOT_TAKE_HEIGHT (1.2), so a pile between those is one the body walks to and
+	# cannot have: a floor below a ledge it cannot step down to. The errand's ten seconds are for a
+	# walk that is still going on, not for standing on the item, so it gives up in
+	# LOOT_NEAR_MISS_TICKS instead (`nav_trace` 2026-11-27 22:32 has the flat twin of this: a body
+	# standing 1.0 from a pile it never took). The stub body cannot walk, so the probe hands it the
+	# state a walked-out route leaves: no route, and no plan in flight.
+	body.set("main_hand_item", 0)
+	body.call("_cancel_loot")
+	body.set("_loot_ignore_at", Vector3.INF)
+	body.set("_loot_ignore_until", 0)
+	var unreachable := _feet + Vector3(0.4, -1.5, 0.0)
+	_put(pebble, unreachable)
+	body.set("_loot_scan_ticks", 0)
+	if not _tick_until(LOOT_SCAN_TICKS + 4,
+			func(): return body.get("_loot_target") != Vector3.INF):
+		_fail("it never set off on the pile a block and a half below its feet")
+	elif not (body.get("_loot_target") as Vector3).is_equal_approx(unreachable):
+		_fail("the errand for the pile below the feet is for %s, not %s"
+			% [str(body.get("_loot_target")), str(unreachable)])
+	body.set("_job", 0)
+	(body.get("_route") as Array).clear()
+	_tick(LOOT_NEAR_MISS_TICKS + 2)
+	if body.get("_loot_target") != Vector3.INF:
+		_fail("it is still erranding for a pile it cannot reach after LOOT_NEAR_MISS_TICKS")
+	if String(body.get("speed_state")) != "idle":
+		_fail("giving up on the pile below it left it on '%s'" % body.get("speed_state"))
+	if not (body.get("_loot_ignore_at") as Vector3).is_equal_approx(unreachable):
+		_fail("the pile it stood on and could not reach was not remembered at all")
+	if int(body.get("_loot_ignore_until")) - int(_sim.get("ticks")) <= LOOT_NEAR_MISS_TICKS:
+		_fail("the unreachable pile was not left alone after giving up on it")
+	body.set("_loot_ignore_at", Vector3.INF)
+	body.set("_loot_ignore_until", 0)
 
 	# --- 10. a take that comes back EMPTY does not hide the pile beside it --------
 	# The pile it walked to is GONE when it gets there -- taken by the player, or merged into a

@@ -289,6 +289,19 @@ ledge above one is in exactly that band (`nav_trace` 2026-11-27 22:32: pile y 24
 One origin and one pair of numbers is the fix, and `probes/probe_goblin_loot_run.gd` pins a pile
 0.97 below the feet going into the hand.
 
+The other half of the same mistake is in the pair above it: the scan notices a pile up to
+`LOOT_LEVEL` (2.0) below the feet while the gate and the take reach only `LOOT_TAKE_HEIGHT`
+(1.2), so a pile between those is one the body walks to and cannot have — a floor below a ledge it
+cannot step down to. Its column is the column it is standing on, so no further walk lowers it, and
+waiting out `LOOT_ERRAND_TICKS` there is ten seconds of a goblin standing on an item it can see.
+So the errand ends after `LOOT_NEAR_MISS_TICKS` (one second) instead — and only once the walk is
+OVER (`_route` empty and `_job` 0), because a route still in flight is a descent that has not
+happened yet and cutting it short would be the same bug wearing the other face. The spot is then
+remembered at `LOOT_FORGOTTEN_REACH`, the pile's own point, so a reachable neighbour is not hidden
+with it. Stepping down to the pile's level was the other way to make the two agree; the plan
+already targets the pile's own column, so the walk does that whenever the terrain allows and this
+clock only covers the case where it does not.
+
 The one C++ change is the tool query (`BlockTextures.is_item_tool`, the registry's own
 `is_tool`, since nothing on the script side could answer it), and the two methods on
 `scripts/dropped_items.gd` are the only new search: `nearest_item` and `take_one`, which share

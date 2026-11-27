@@ -14,9 +14,9 @@ were paid for once already. The shapes themselves are in
 - **Multi-box models are just shapes**: a shape entry is a LIST of AABBs, so an arbitrary block
   model is data rather than code. The **crucible** is the first model past the 2-box shapes:
   four 1/16 x 2/16 corner legs, a 1/16 floor plate across the whole footprint, and four 1/16
-  walls open at the top (9 boxes; its texture is `stone` as a placeholder). A `shape` name that
-  does not resolve leaves a full cube, and only a log line says so
-  ([data-schemas.md](data-schemas.md)); read `get_selection_boxes(id)` back to prove the model
+  walls open at the top (9 boxes; its texture is `stone` as a placeholder). A typo in `shape`
+  draws a plain block and only a log line says so ([data-schemas.md](data-schemas.md)); read
+  `get_selection_boxes(id)` back to prove the model
   landed (`probes/probe_crucible.gd`, and `tests/test_mesh_face_emission.cpp` for the emitted
   geometry), because a typo otherwise looks like a plain block
 - **Liquids are passable, and the answer lives in one place**: `BlockType::stops_bodies()` is
@@ -102,89 +102,49 @@ were paid for once already. The shapes themselves are in
 
 ## Neighbour-aware shapes at mesh time
 
-- **Neighbour-aware shapes are resolved at MESH TIME, and that is a deliberate architecture
-  choice** (`core/shape_resolver.hpp`). A cell here has no state beyond its block id, so the
-  reference's variant-per-state scheme (fence_straight, fence_corner_nw, stair_inner_right, ...)
-  would need a neighbour-update pass that does not exist in this engine — and that pass would
-  have to run again after worldgen, after a paste and after a load, or the shapes would be wrong
-  exactly where nobody looks. Instead a shape variant may declare `parts`: each part is a box
-  list, optionally carrying a rule, and a rule-claimed part is present only while the cell faces
-  its boxes reach have neighbours the rule accepts. The claim FOLLOWS THE GEOMETRY
-  (`shape_box_faces` reads it off the boxes — [data-schemas.md](data-schemas.md) has the rule),
-  so a claim cannot be written against a face the part does not actually meet — UNLESS the
-  RULE supplies the faces, which the stair rules do
-  because what they ask about is not where their boxes are: a corner quarter and a cut remnant
-  reach the far cell boundary as well as the neighbour's, so a derived claim would read "east
-  and back" and a stair standing behind would fill the east notch, a corner with nothing
-  attached to that side. Over-narrowing is visible and over-claiming is not, so the rule wins
-  where the two disagree; a part may still declare `faces` for its own documentation, and the
-  loader warns when they differ (it still refuses a geometry-derived claim on a face the part
-  does not reach). The stair carries five rules instead, because a stair is three questions.
-  `stair_step` is the raised half in full, drawn while nothing cuts it. A stair standing in
-  FRONT of the step that has been turned across it meets this cell along one of the step's
-  sides, so it cuts the step back to the half it is stepping toward: that is the remnant
-  (`stair_cut_left` / `stair_cut_right`), and the two steps then run into each other instead of
-  into a wall of themselves. A stair BEHIND the step that points at one side leaves the region
-  between them open, and the quarter (`stair_corner_left` / `stair_corner_right`) fills the
-  inside of that turn. Both are switched off by a stair on THIS one's step (same way up, same
-  way round) standing on the side in question — two flights meeting sideways already own that
-  region, so the step between them stays whole and the quarter is not drawn. Orientation is
-  therefore part of the rules and material is not, so any stair turns with any other, and all of
-  it costs zero new block ids where variant-per-state needs 128. The four hanging `*_up`
-  variants are those SAME five rules on geometry mirrored about the cell floor — same rules,
-  same order, every box with `y` flipped, which the probe compares rule for rule and box for box
-  — so a stair that hangs turns a corner and is cut back exactly as a climbing one is, in the
-  lower half. The two ways up never turn with each other: the region a corner fills only exists
-  between two stairs laid out the same way round. `BlockType::stair_hanging` is what makes that
-  askable, because a rule can only read the block it is looking at. The OUTER corner needed no
-  part that replaces another after all: because the step is itself a claimed part, a cut is the
-  step switching off with a remnant switching on. Those rules are also what makes a full-block
-  stair impossible: the step and a remnant cannot both be drawn, and the corner's partner is a
-  single cell, so at most one corner exists and the four upper quadrants are never all covered.
-  The third family is the pane, and it is the one that shows what a DECLARED claim is for: an
-  arm spans the whole cell height, so its boxes reach up and down as well, and a claim read off
-  them would demand a block above and below — so each arm declares the single side it points at,
-  which is the only case the loader takes on the author's word (a declared claim must still be a
-  face its boxes reach). A pane reaches another pane, or anything offering a whole face, which
-  is deliberately not the fence's test: a rail needs an end to meet, while a sheet glues to the
-  stone and the glass it is set in, so a pane sits flush against a window where a fence refuses
-  one. Post plus the two arms on one axis is exactly the flat plate the block was before it grew
-  arms, so one id stands in for a variant per axis — a run, a corner and a lone post are the
-  same block — where the reference needs a second id and a placement rule to choose it. The
-  fourth family is the wall, and it is the one that shows a piece's HEIGHT is not a question
-  about its neighbour. A reach is drawn twice from the same box: at 14/16 while the cell above
-  it is open, and at the full cell height while the cell above spans the strip the reach stands
-  on — a wall under a block is carrying it, and a flank under a span should meet it. So a wall
-  beside a whole block and a wall beside another wall draw the same thing, which is exactly what
-  the family used to get wrong, and the two rules that draw them (`wall_arm` / `wall_bearing`)
-  are one reach split in two, so a side that reaches can never draw both or neither. What the
-  neighbour decides is only WHETHER there is a reach: another wall, a sheet it can bite into
-  (the mirror of the pane rule's asymmetry — a sheet presses against a whole face and a wall's
-  flank is not one, while a reach is a buttress and a sheet is something to buttress against),
-  or a neighbour offering a whole face, glass included. All four per-material bodies carry this
-  one shape, so placement has nothing left to orient — a wall is the block you were holding. The
-  post is 8/16 wide and full height, and it is the one part in the file that reads the cell as a
-  WHOLE instead of through a face: it stands unless this cell is a plain through-run, because a
-  rail studded with a post at every cell stops reading as a rail. A lone wall, the ends of a
-  run, a corner and a T junction carry it, while a plain run and a cross do not (four reaches
-  already meet in the middle of a cross). A cell in a plain run carries one too while something
-  narrow enough rests on the post's own 2/16 footprint — a question about the cell above,
-  answered from that block's boxes, so a plank, a window or a fence's post does and half a cell
-  of ledge does not — and a run carries NONE under a whole block, because that block spans the
-  reaches as well and the two of them already meet the span. It claims no face at all, which is
-  why the walk has a second kind of rule (`shape_rule_self_decided`) for the one part a per-face
-  conjunction cannot express, and why a worldless (inventory) resolution draws it: the item
-  model is a post with a run through it. The family is still five ids per material because ids
-  are positional, but they are ONE family to the registry, and that family is what a mined wall
-  drops and what a wall thickens into (`WallFamily::base`/`full`); the match is by shape, so the
-  retired `wall/{n,s,e,w}` names stay understood instead of silently losing the drop. Both
-  heights are DECLARED claims, which puts this family on the other side of the box/rule split
-  from the stairs: a reach's boxes meet the floor, so a claim read off them would demand
-  something underneath a wall built out over a drop. Consequence: a cell's geometry is a pure
-  function of the cell and its six neighbours, which is the property
-  `tests/test_shape_resolver.cpp` pins by meshing the same two fences once at load and once
-  after an edit and comparing the vertex buffers byte for byte — that test is what replaces an
-  update pass
+- **Resolved at MESH time is a deliberate architecture choice** (`core/shape_resolver.hpp`), and
+  what each family is and what its rules draw is [shapes.md](shapes.md)'s — this page keeps the
+  reasons and what they cost. A cell here has no state beyond its block id, so the reference's
+  variant-per-state scheme (fence_straight, fence_corner_nw, stair_inner_right, ...) would need a
+  neighbour-update pass this engine does not have — and that pass would have to run again after
+  worldgen, after a paste and after a load, or the shapes would be wrong exactly where nobody
+  looks
+- **Over-claiming is invisible and over-narrowing is not**, which is why the rule's own faces win
+  where a part's declared `faces` disagree with its boxes: a corner quarter and a cut remnant
+  reach the far cell boundary as well as the neighbour's, so a claim read off the geometry alone
+  would say "east and back" and a stair standing behind would fill the east notch, a corner with
+  nothing attached to that side. A declared claim is still checked against the part's own boxes,
+  and the loader warns where the two differ
+- **The pane is what a DECLARED claim exists for**: an arm spans the whole cell height, so its
+  boxes reach up and down as well, and a claim read off them would demand a block above and below
+  — so each arm declares the single side it points at, the only case the loader takes on the
+  author's word. The stair sits on the other side of that split, and the wall on a third: a
+  reach's boxes meet the floor, so a derived claim would demand something underneath a wall built
+  out over a drop, which is why both of the wall's heights are declared
+- **A family's shape is one id, and the cost is the reason**: orientation is part of the rules and
+  material is not, so any stair turns with any other, and the stair's five rules cost **zero new
+  block ids** where a variant-per-state scheme needs 128. The pane's post plus arms needs no second
+  id: one id stands in for a variant per axis, where the reference needs a second id and a
+  placement rule to choose it. The wall's five ids per
+  material are positional-id history rather than state — ONE family to the registry, which is what
+  a mined wall drops and what a wall thickens into (`WallFamily::base`/`full`), matched by shape so
+  the retired `wall/{n,s,e,w}` names stay understood instead of silently losing the drop
+- **The hanging stair is the same rules mirrored, and an upright stair never turns with one**:
+  the region a corner fills only exists between two stairs laid out the same way round, and
+  `BlockType::stair_hanging` is what makes that askable, because a rule can only read the block it
+  is looking at. The probe compares the four `*_up` shapes rule for rule and box for box, which is
+  the guard against the two drifting apart
+- **The post is the one part that reads the cell as a WHOLE**, which is why the walk has a second
+  kind of rule (`shape_rule_self_decided`) for the single part a per-face conjunction cannot
+  express, and why a worldless (inventory) resolution draws it. The two rules that draw a wall's
+  reach (`wall_arm` / `wall_bearing`) are one reach split in two, so a side that reaches can
+  never draw both or neither; the family's old bug was a wall beside another wall drawing
+  differently from a wall beside a block, which is the first thing to re-check after any change
+  to the rule
+- **The consequence is the property that replaces an update pass**: a cell's geometry is a pure
+  function of the cell and its six neighbours, which `tests/test_shape_resolver.cpp` pins by
+  meshing the same two fences once at load and once after an edit and comparing the vertex buffers
+  byte for byte
 - **One rule table, five consumers.** `shape_rule_connects` (which neighbours satisfy a rule,
   taking the caller's own neighbour lookups rather than one id because a stair rule asks about
   cells other than the face it was called on) and `shape_rule_canonical` (what a resolution with
@@ -209,47 +169,15 @@ were paid for once already. The shapes themselves are in
 
 ## Probed
 
-- **Probed by `probes/probe_shapes.gd`**, which reads every new shape's boxes back from the
-  real registry and compares them to the documented 16ths model, checks the hidden flags,
-  asserts a texture loaded per block, and then reads `data/block_shapes.json` itself for the
-  things a static box list cannot show: that `fence/all` and `stair/n` are part-based with their
-  arms, corners and remnants claimed, that only a rule which supplies its own claim faces has
-  parts declaring `faces` (the stair rules, where a declared list that disagreed is overruled at
-  load) while a declared claim anywhere else must be a face its own boxes reach, which is what a
-  pane arm's one-side declaration is checked against, that every rule name in the file is one
-  the engine knows (an unresolved name draws its part unconditionally rather than failing
-  loudly), that both families' declared box lists still match what their parts resolve to (the
-  icon/viewmodel drift check), that a fence's collision is 1.5 high, that `wall/all` is nine
-  parts — one post plus a reach on all four sides at BOTH heights, the two being the SAME box
-  with only its top moved — with every reach declaring exactly one face and the post declaring
-  none, and that the wall torch is raised off the floor, which is what makes its underside
-  visible. It then places a fence, a pane and a stair in the live world and reads
-  `get_selection_boxes_at` back — fence alone 1 box, against stone 3 boxes with the arm reaching
-  x=1, then 1 again once the neighbour goes; pane alone 1 box (the post, which is what shows a
-  declared claim is not quietly asking about the empty cell above it), against stone 2 boxes
-  with the sheet flush at x=1, and in a corner with a pane of its own kind on the other axis 3
-  boxes; stair alone 2 boxes, 3 with a stair turning in BEHIND the step (the quarter present), 2
-  with a stair turned ACROSS it in front (the whole step replaced by the half the crossing stair
-  is stepping toward), and the other half once that neighbour is turned the other way. A hanging
-  stair gets the same treatment: alone (2 boxes, slab raised and step hanging), 3 with a hanging
-  stair turning in BEHIND the step (the quarter in the LOWER half), 2 with an upright one in
-  that spot instead (the two ways up do not turn with each other), 2 with a hanging stair turned
-  across in front (the remnant) and the hanging step left whole when it is an upright one there.
-  The wall gets the same treatment: alone 1 box (the post, 8/16 wide and full height), 2 with
-  another material's wall beside it (the arm at 14/16), 2 with stone beside it (the SAME 14/16
-  reach, which is the case the family used to get wrong and the first thing to re-check after
-  any change to the rule), 2 carrying a block above (that same footprint run to the cell top),
-  then a plain run along X (2 boxes, the two reaches and NO post between them), that run under a
-  whole block (2, both reaches to the top and still no post — the pair already meets the span)
-  and that run with a fence post above (3, the post up on its own footprint) — the cases that
-  show a reach's height comes from the cell above and the post is conditional rather than always
-  drawn. It is the only check that sees the JSON, the rules and the resolver together. Note the
-  fence has to be cleared to air before the stair goes in: `set_block` refuses to overwrite one
-  non-air block with another unless it is a documented merge, so a stale neighbour silently
-  swallows the write. Cells are cleared and put back rather than searched for: a headless spawn
-  can sit inside solid terrain, and an isolated post needs all four lateral neighbours empty. A
-  shape name that fails to resolve is a full cube ([data-schemas.md](data-schemas.md)), so this
-  probe is the difference between "the model landed" and "it looks like a plain block"
+- **Probed by `probes/probe_shapes.gd`**, whose case list is
+  [shapes.md](shapes.md)'s and [probes.md](probes.md)'s. Three things about running it are worth
+  knowing: the fence has to be cleared to air before the stair goes in, because `set_block`
+  refuses to overwrite one non-air block with another unless it is a documented merge, so a stale
+  neighbour silently swallows the write; cells are cleared and put back rather than searched for,
+  because a headless spawn can sit inside solid terrain and an isolated post needs all four
+  lateral neighbours empty. What it is worth is the overlap: it is the one place a shape's JSON,
+  its rules and the resolver are compared in a single run, so a shape that resolves but draws the
+  wrong boxes cannot pass unnoticed
 
 ## Earlier work: placement, collision and AO/UV
 

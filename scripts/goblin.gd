@@ -326,6 +326,15 @@ const STUCK_TICKS := 50
 ## that move now; this is the second lock, for a route planned before the water or the ground
 ## under it moved.
 const LIP_GIVE_UP_FRAMES := 90
+## Sim ticks spent pressing or jumping at the SAME rise with nothing gained before the route is
+## dropped. Ten jump flights: a jump's arc is four ticks, so ten attempts at a step that never got
+## any closer is not a long climb, it is a wall. See `_rise_clock` for why this has to be counted
+## separately from `blocked` and why it is measured in ticks.
+const RISE_GIVE_UP_TICKS := 40
+## How long a rise this body failed to climb stays refused, in ticks (ten seconds). A re-plan from
+## the same cell hands the same move back -- the planner has no reason to doubt it -- so without a
+## memory the body presses at the wall, gives up, and is handed the wall again.
+const RISE_REFUSAL_TICKS := 200
 ## A plan that came back with nowhere to walk is not worth the whole idle wait: a column
 ## can be picked inside a cliff or across water and be unreachable, and trying again
 ## soon after is what keeps a goblin from looking frozen on a bad roll.
@@ -463,6 +472,15 @@ var _needs_replan := false
 var _blocked_frames := 0
 ## Frames pressed at a lip above the water line: see LIP_GIVE_UP_FRAMES.
 var _lip_frames := 0
+## The rise being pressed at, the gap to it when the press started, and the tick it started on:
+## see RISE_GIVE_UP_TICKS and `_rise_clock`.
+var _rise_head := Vector3.INF
+var _rise_gap := INF
+var _rise_ticks := 0
+## A rise this body has failed to climb, and the first tick its refusal has expired: see
+## RISE_REFUSAL_TICKS. A plan that hands this cell back is refused rather than walked.
+var _refused_head := Vector3.INF
+var _refused_until := 0
 ## Ticks spent stroking, this session: the trace's "is it actually swimming" number, which a
 ## position cannot answer for a body bobbing on the spot.
 var _strokes := 0
@@ -868,25 +886,62 @@ func _swim_along(feet: Vector3) -> bool:
 	return true
 
 
+## The water's own surface over the body's column: the top of the highest liquid block at or
+## below the feet, which is the level a swimmer rides. Taken from the WORLD rather than from the
+## feet, and that is the whole point of the function: the feet are what bobs, so a threshold in
+## their units is met on every rise of the cycle rather than by the thing being measured.
+func _swim_surface(feet: Vector3) -> float:
+	var x := floori(feet.x)
+	var z := floori(feet.z)
+	for y in range(floori(feet.y), floori(feet.y) - 4, -1):
+		if bool(_sim.is_liquid_at(x, y, z)):
+			return float(y + 1)
+	return feet.y
+
+
 ## A route whose next cell is DRY and above the body is a climb, and a climb out of the water is
 ## the one move the swim's lift makes for it -- so it is also the one place a route can ask for
 ## something the body cannot do: a lip above the water's own top. `_swim` zeroes every clock that
 ## measures walking, because a swimmer is never "getting closer" on the ground's terms, which is
 ## what let a body press at such a lip for twenty seconds (nav_trace, 2026-11-25 22:20). Ninety
 ## frames at one, then the route is dropped and asked for again.
+##
+## Counted against the WATER LINE, not the feet, because the feet bob. Measured in the feet's own
+## units the clock was met on every rise of the bob and cleared on every trough: `lip` read 0, 18,
+## 36, 54, 72 and then 0 again and never reached its give-up, while one goblin pressed at the same
+## bank for eleven seconds (`nav_trace` 2026-11-27 14:59: `next=(-2, 247, 2)` on seventeen
+## consecutive samples, `at` swinging 246.2 .. 247.5, `wet` flipping with it). The water line does
+## not bob, so a dry cell above it is a lip on every frame of the cycle, and one at or below it is
+## a bank the lift can carry the body onto.
 func _lip_clock(feet: Vector3) -> void:
 	if _next >= _route.size():
 		_lip_frames = 0
 		return
 	var cell: Vector3 = _route[_next]
-	if _wet_cell(cell) or cell.y + 1.0 <= feet.y + ARRIVE_HEIGHT:
+	if _wet_cell(cell) or cell.y + 1.0 <= _swim_surface(feet):
 		_lip_frames = 0
 		return
 	_lip_frames += 1
 	if _lip_frames >= LIP_GIVE_UP_FRAMES:
 		_lip_frames = 0
 		_replan_reason = "pressed at a lip above the water line"
-		_needs_replan = true
+		# The route goes with the give-up. Asking again from the same cell comes back the same
+		# way -- the planner believes this lip is a way out -- so the body pressed, gave up and
+		# pressed again for as long as its anger lasted, which is the eleven seconds above. With no
+		# route the swim falls through to the shore it CAN reach (`_shore_from` takes only a bank at
+		# or below the water's top), gets out there, and the chase plans the rest from dry ground: a
+		# path it can take instead of a wall it cannot.
+		_trace_route_dropped()
+		_abandon_route()
+		if _enemy == null:
+			_goal = Vector3.ZERO
+			_planned_goal = Vector3.ZERO
+			_planned_from = Vector3.INF
+		else:
+			# The chase re-plans itself on its own clock once it has no route in hand,
+			# and an immediate re-ask would put the same lip in front of the body before the shore
+			# fallback had a frame to swim at it.
+			_needs_replan = false
 
 
 ## Whether a route cell is liquid, which is what "the swimmer is already there" means for it.
@@ -1491,6 +1546,18 @@ func _take_route(result: Dictionary) -> void:
 				or (floori(cell.x) == stand_x and floori(cell.z) == stand_z)):
 			continue
 		_route.append(cell)
+	# ...and a route that OPENS with a rise this body has already failed to climb is the same answer
+	# to the same question, so it is dropped rather than pressed at again (see `_rise_clock`). The
+	# body then stands with no route, which is what a chase's patience and a stroll's roll are for;
+	# the refusal expires, so a world that changed under it is not refused forever.
+	if not _route.is_empty() and _route[0] == _refused_head \
+			and int(_sim.get_tick_count()) < _refused_until:
+		_replan_reason = "the same rise came back"
+		_trace_route_dropped()
+		_route.clear()
+		_next = 0
+		_idle_ticks = FAILED_RETRY_TICKS
+		return
 	# A route that goes NOWHERE is not a stroll: look again soon rather than standing for the whole
 	# idle wait on a column that turned out to be unreachable. EMPTY, not short: the head-skip above
 	# can cut a two-node answer down to one, and that cell is a real destination -- it is where the
@@ -1584,6 +1651,8 @@ func _walk() -> void:
 		if off_lip and not _steps_up(_route[_next], feet) and _has_floor_under(_route[_next]):
 			_hop_from_lip(dir, feet, _route[_next])
 		elif _climbable(dir, feet) and _route[_next].y + 1.0 > feet.y + CLIMB_RISE:
+			if _rise_clock(feet, _route[_next]):
+				return
 			_jump = true
 			_jumps += 1
 		elif _slide_around(dir, feet, _route[_next]):
@@ -1601,6 +1670,48 @@ func _walk() -> void:
 				_needs_replan = true
 	else:
 		_blocked_frames = 0
+
+
+## The clock on a rise the body is pressing or jumping at, and the give-up when it never gains it.
+##
+## Called by the two places that press at a rise -- the climb branch of `_walk` and the corner's
+## leap in `_slide_around` -- because both believe a one-block climb is there and NEITHER counted:
+## `_blocked_frames` only ran in the branch for a step that is not climbable at all, so a rise the
+## body could not make read `blocked=0` forever while it jumped at the same block, re-planned the
+## identical route head every few seconds, and pressed again (`nav_trace` 2026-11-27 14:59:
+## `next=(-2, 247, 2)` on seventeen consecutive samples, eleven seconds of it, the plan coming back
+## unchanged each time).
+##
+## Measured in SIM TICKS and against the GAP, because both failures look like success in frames: a
+## jump's arc is four ticks and a press that is working shrinks the gap, so forty ticks at one cell
+## with the gap barely moving is ten attempts at a wall, and one that gains anything starts again.
+## True when the route was just dropped -- the caller must not press this frame.
+func _rise_clock(feet: Vector3, cell: Vector3) -> bool:
+	var now := int(_sim.get_tick_count())
+	var gap := _flat(cell, feet).length()
+	if cell != _rise_head or gap < _rise_gap - 0.02:
+		_rise_head = cell
+		_rise_gap = gap
+		_rise_ticks = now
+		return false
+	if now - _rise_ticks < RISE_GIVE_UP_TICKS:
+		return false
+	_rise_head = Vector3.INF
+	_refused_head = cell
+	_refused_until = now + RISE_REFUSAL_TICKS
+	_replan_reason = "pressed at a rise it cannot climb"
+	# The route goes, like the swim's lip: asking again from the same cell is the same answer, so
+	# what the body needs is not another plan at this wall but the one after it -- or none, which is
+	# a chase's own patience to conclude.
+	_trace_route_dropped()
+	_abandon_route()
+	if _enemy == null:
+		_goal = Vector3.ZERO
+		_planned_goal = Vector3.ZERO
+		_planned_from = Vector3.INF
+	else:
+		_needs_replan = false
+	return true
 
 
 ## Is the route's next cell at the level this body stands at? Within `ROUTE_LEVEL_SLACK` of the
@@ -1737,6 +1848,7 @@ func _abandon_route() -> void:
 	_closest = INF
 	_stuck_ticks = 0
 	_lip_frames = 0
+	_rise_head = Vector3.INF
 	_job = 0
 
 
@@ -1940,6 +2052,8 @@ func _slide_around(dir: Vector3, feet: Vector3, cell: Vector3) -> bool:
 		# `(-1, 249, -2)`, down at `(-1.3, 245.4, -1.7)`).
 		if rise:
 			if _face_distance(dir, cell, feet) <= CORNER_JUMP_LEAD:
+				if _rise_clock(feet, cell):
+					return true
 				_jump = true
 				_jumps += 1
 				_leap_target = cell

@@ -201,7 +201,9 @@ func _run() -> void:
 	# --- 4. A lip it cannot climb is given up on ------------------------------
 	# The swim zeroes every clock that measures walking, so a route asking for a climb the lift
 	# cannot make used to be pressed at for as long as the body's anger lasted (nav_trace,
-	# 2026-11-25 22:20: `stuck` never passing 6 at a staircase foot). Ninety frames, then a re-plan.
+	# 2026-11-25 22:20: `stuck` never passing 6 at a staircase foot). Ninety frames, and then the
+	# route goes with the give-up: re-asking from the same cell hands the same lip back, and the
+	# body would press, give up and press again for as long as its anger lasted.
 	sim.set("feet", Vector3(30.2, 64.0, 0.5))
 	body.set("_route", _route([Vector3(30, 66, 0)]))  # surface 67, three above the body
 	body.set("_next", 0)
@@ -209,26 +211,72 @@ func _run() -> void:
 	body.set("_lip_frames", 0)
 	for i in 89:
 		body.call("_lip_clock", sim.get("feet"))
-	var early := bool(body.get("_needs_replan"))
+	var early := not (body.get("_route") as Array).is_empty()
 	for i in 2:
 		body.call("_lip_clock", sim.get("feet"))
-	var late := bool(body.get("_needs_replan"))
-	print("PROBE lip: replan after 89 frames=%s, after 91=%s (needs false, then true)"
+	var late := not (body.get("_route") as Array).is_empty()
+	print("PROBE lip: route held after 89 frames=%s, held after 91=%s (needs true, then false)"
 		% [str(early), str(late)])
-	if early or not late:
+	if not early or late:
 		_fail("a lip the swim cannot climb is not given up on (89=%s, 91=%s)"
 			% [str(early), str(late)])
 
 	# ...and a WET cell above it is not a lip: that is the water itself, which the swim rides.
 	sim.set("liquid", {Vector3i(30, 66, 0): true})
+	body.set("_route", _route([Vector3(30, 66, 0)]))
+	body.set("_next", 0)
 	body.set("_needs_replan", false)
 	body.set("_lip_frames", 0)
 	for i in 100:
 		body.call("_lip_clock", sim.get("feet"))
-	print("PROBE lip: a wet cell above still replans=%s (needs false)"
-		% str(body.get("_needs_replan")))
-	if bool(body.get("_needs_replan")):
+	print("PROBE lip: a wet cell above still counts lip frames=%d (needs 0)"
+		% int(body.get("_lip_frames")))
+	if int(body.get("_lip_frames")) != 0:
 		_fail("a wet cell above the body was treated as a lip to climb")
+
+	# --- 5. The bob does not clear the lip clock -------------------------------
+	# The feet are not a level: a swimmer's y swings more than a block between the surface and the
+	# trough, so a lip measured against them is "reached" on every rise of the cycle. That is the one
+	# live stall this probe did not cover -- `lip` read 0, 18, 36, 54, 72 and then 0 again, never
+	# reaching its give-up, while one goblin pressed at the same bank for eleven seconds
+	# (`nav_trace` 2026-11-27 14:59: `next=(-2, 247, 2)` on seventeen consecutive samples, `at`
+	# swinging 246.2 .. 247.5). The water's own top does not bob, so it is what the clock reads.
+	body.set("_enemy", null)
+	body.set("_needs_replan", false)
+	sim.set("wet", true)
+	sim.set("liquid", {Vector3i(30, 63, 0): true})   # the surface is 64
+	sim.set("feet", Vector3(30.2, 64.9, 0.5))        # ...and the feet are at the TOP of the bob
+	body.set("_route", _route([Vector3(30, 64, 0)]))  # surface 65: a bank above the water line
+	body.set("_next", 0)
+	body.set("_lip_frames", 0)
+	for i in 89:
+		body.call("_lip_clock", sim.get("feet"))
+	var bobbed := int(body.get("_lip_frames"))
+	for i in 2:
+		body.call("_lip_clock", sim.get("feet"))
+	var dropped := (body.get("_route") as Array).is_empty()
+	print("PROBE bob: lip frames at the top of the bob after 89=%d, route dropped after 91=%s"
+		% [bobbed, str(dropped)])
+	if bobbed < 89:
+		_fail("the bob cleared the lip clock (it counted %d of 89 frames at the top of the rise)"
+			% bobbed)
+	elif not dropped:
+		_fail("a lip the swim cannot climb was given up on and the route was kept, so the next plan "
+			+ "is the same lip")
+
+	# ...and a bank at the water's own TOP is not a lip: the lift carries a body onto that one, so
+	# pressing at it is the climb working rather than a wall, and the clock must stay at zero.
+	sim.set("feet", Vector3(30.2, 64.0, 0.5))
+	body.set("_route", _route([Vector3(31, 63, 0)]))  # surface 64, the water's own top
+	body.set("_next", 0)
+	body.set("_needs_replan", false)
+	body.set("_lip_frames", 0)
+	for i in 100:
+		body.call("_lip_clock", sim.get("feet"))
+	print("PROBE bank: lip frames=%d route=%d (needs 0 and 1)"
+		% [int(body.get("_lip_frames")), (body.get("_route") as Array).size()])
+	if int(body.get("_lip_frames")) != 0 or (body.get("_route") as Array).is_empty():
+		_fail("a bank at the water's own top was treated as a lip it cannot climb")
 
 	body.set("_enemy", null)
 	stage.queue_free()

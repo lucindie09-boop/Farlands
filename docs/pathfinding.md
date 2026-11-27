@@ -56,7 +56,18 @@ how it is wired into the game and to the tests.
   that list was reached by a legal move, which is what makes the walk follow the plan. A route
   that stops being walkable -- a block placed across it, a fall the plan did not expect -- is
   re-planned rather than hopped at, a jump is only taken on a step it can climb, and the plan's
-  OWN hops are jumped off the lip of the gap (see the findings below). This is the planner's
+  OWN hops are jumped off the lip of the gap (see the findings below). A rise it PRESSES at has
+  its own clock (`_rise_clock`), because `blocked` never counted one: that branch only runs for a
+  step that is not climbable at all, so a climb the body believed in read `blocked=0` while it
+  jumped at the same block, and the only thing that ever ended the press was a re-plan — which
+  answered with the same cell, every few seconds, because the planner has no reason to doubt a move
+  it thinks is legal (a live goblin stood at a two-high rise for eleven seconds this way; `nav_trace`,
+  2026-11-27 14:59: `next=(-2, 247, 2)` on seventeen samples in a row, `blocked=0` throughout). Forty
+  sim ticks at one cell without the gap closing is ten jump flights and no gain, so the route is
+  dropped; and because re-asking from the same cell is the same answer, that rise is then REFUSED
+  for ten seconds (`RISE_REFUSAL_TICKS`) — a plan that opens with it is dropped rather than pressed
+  at again. The body is left with no route at all, which is the point: what it walks next is a
+  chase's patience or a stroll's roll, a path it can take instead of the wall it cannot. This is the planner's
   first use as behaviour rather than as a debug picture (both collect results through
   `scripts/nav_routes.gd`,
   since `poll_paths()` empties its queue as it answers)
@@ -91,7 +102,18 @@ how it is wired into the game and to the tests.
   22:01). Rising INTO water is still allowed: a body strokes up, and there is nothing to jump.
   A plan that still asks for the climb — one made before the water or the ground under it moved —
   is dropped by the goblin itself after `LIP_GIVE_UP_FRAMES` (90) pressed at the lip, because
-  the swim zeroes every clock that measures walking and would otherwise never conclude anything
+  the swim zeroes every clock that measures walking and would otherwise never conclude anything.
+  Two corrections were needed before that clock could fire at all. It is counted against the
+  water's own TOP, not the feet, because the feet BOB: measured in their units the threshold
+  was met on every rise of the cycle and cleared on every trough, so `lip` ran 0, 18, 36, 54,
+  72 and then 0 again and never reached ninety while one goblin pressed at the same bank for
+  eleven seconds (`nav_trace`, 2026-11-27 14:59: `next=(-2, 247, 2)` on seventeen samples in a
+  row, `at` swinging 246.2 to 247.5 with `wet` flipping beside it). And the ROUTE goes with
+  the give-up: re-asking from the same cell comes back the same way, so the body pressed, gave
+  up and pressed again for as long as its anger lasted. With no route the swim falls through
+  to the shore it CAN reach (`_shore_from` takes only a bank at or below the water's top),
+  gets out there, and the chase plans the rest from dry ground — the path it can take instead
+  of the wall it cannot
 - **Unknown is never traversable**: a cell in an unresident chunk must sample as
   `CellClass::Unknown`. A raw block query returns AIR for a missing chunk, which would otherwise
   read as walkable emptiness

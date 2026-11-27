@@ -24,6 +24,7 @@
 [ext_resource type="Script" uid="uid://bkh0fnhk5jxms" path="res://scripts/hurt_overlay.gd" id="24_hurtoverlay"]
 [ext_resource type="Script" uid="uid://1uoi2qsnal7a" path="res://scripts/cloud_layer.gd" id="25_clouds"]
 [ext_resource type="Script" uid="uid://bfal6306sghuy" path="res://scripts/debug_screen.gd" id="26_debugscreen"]
+[ext_resource type="Script" path="res://scripts/mob_lights.gd" id="27_moblights"]
 
 [sub_resource type="Environment" id="Environment_uu6xs"]
 background_mode = 2
@@ -231,6 +232,9 @@ script = ExtResource("25_clouds")
 
 [node name="DroppedItems" type="Node3D" parent="." unique_id=318602555]
 script = ExtResource("21_dropped")
+
+[node name="MobLights" type="Node3D" parent="." unique_id=99876541]
+script = ExtResource("27_moblights")
 
 [node name="ChunkManager" type="ChunkManager" parent="." unique_id=318602554]
 render_distance = 32

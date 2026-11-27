@@ -285,6 +285,46 @@ twice, and the coast is where the samples' own crossing is. The whole sequence, 
   long so the sun brightens with the sky instead of stepping up around 15 degrees. This is the sun
   itself, not the god-ray pass; the rays only inherit the dimmer source
 - **Sky turbidity**: Rayleigh/Mie haze effects gated by sky light for proper night darkness
+- **Entity lights (the goblin's offhand torch)**: a second, small set of moving lights on the
+  same model as the player's glow, because Farlands has no per-entity lighting. The three
+  shaders that carry the player light (`voxel_shader.gdshader`, `voxel_shader_water.gdshader`,
+  `item_lighting.gdshaderinc`) each declare `MAX_ENTITY_LIGHTS = 4`, four positions, four
+  colours, a count and a 7-block radius; `render/entity_lights.hpp` holds the cap and the
+  radius for the C++ side, so the number is written in four places and they must agree. The
+  radius is HALF the torch's level (14 levels, 7 blocks) — and the player's glow takes half of
+  its own level the same way, so one torch lights one pool whichever hand carries it. That
+  parity is what the two got wrong at first: the player's radius was a hard-coded 8 while a
+  goblin's light got 14, and the same item read as two different lights. The
+  level is packed into the colour (tint × level/15), so the fragment loop is one distance and
+  the same squared falloff, `max`ed into the combined light exactly as the player's is:
+  overlapping lights never add up, and a torch beside the player's glow changes nothing there.
+  `scripts/mob_lights.gd` (under `Main`, before the bodies by `process_priority`) gathers the
+  nearest torch-bearers that can be SEEN each frame and pushes their DRAWN item positions and
+  ids once per change. "Can be seen" is the light's own 7-block sphere against the camera
+  frustum (its centre and six axis points, seven point tests), not a distance from the
+  camera: the first version culled at the radius measured FROM THE CAMERA, which in third
+  person — four or five blocks behind the player — put a goblin five blocks ahead ten blocks
+  from the camera and switched its light off while its disc was lighting the middle of the
+  screen. A light's disc is visible from any distance, so distance is not the question.
+  `ChunkManager::set_entity_lights` resolves each id through
+  `ItemRegistry::get_item_light`, clamps the list to the array and pushes the set to the
+  terrain, the water and — through the cached copy in
+  `EnvironmentController::apply_item_shader_lighting` — every item and body material. The
+  water material is named on purpose: it was once left out of the player-light push and
+  liquids rendered black beside lit ground. **The glow is not occluded**: a torch behind a
+  wall lights the near face of it. That is written down rather than solved, because a raycast
+  per light costs more than the light is worth and the player's own glow has had the same
+  limit since it became a shader — and the light grid is not an option either, since a light
+  that moves every block a body walks is exactly the cost `world/player_light.hpp` records as
+  deleted. `probes/probe_entity_light.gd` reads the frame back to hold the ground brighter
+  under the torch. **What it costs**, measured rather than assumed, because the loop runs per
+  pixel of terrain AND water and the ground fills the screen: at 1920x1080 with the camera
+  angled at the ground, four lights at the first 8-block radius moved a 240-frame median
+  from 3.80 to 3.90 ms (three
+  samples each, sorted 3.66/3.80/3.88 against 3.74/3.90/4.04) -- every "on" sample above every
+  "off" one and the gap still the same size as the spread, so the honest reading is "about a
+  tenth of a millisecond a frame at 1080p", well under the 4 ms plateau the benchmark job
+  watches. The cap is the knob if it ever shows; nothing else about the loop is tunable.
 
 ## Procedurally animated liquid textures
 

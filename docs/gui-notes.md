@@ -932,8 +932,9 @@ first-person viewmodel - what each one owns and the decisions behind it.
   `HeldArmPivot/arm` from then on, which is why the clip's tables are keyed by PART and the
   paths are resolved per part (`_part_path`/`_part_of_path`); a gain table read by path would
   otherwise leave the arm on the clip's authored 16.8 degrees instead of vanilla's 1.0 rad.
-  Every body gets the pivot, and a goblin or a preview holds nothing, so its shoulder stays at
-  0. Vanilla's rule is two halves and one order — the walk swing HALVED, then 18 degrees off —
+  Every body gets the pivot, and a preview holds nothing, so its shoulder stays at 0; a
+  goblin's torch is in the OTHER hand (`hold_offhand`, below), which is a holder of its own
+  with the same grip maths and none of this pose. Vanilla's rule is two halves and one order — the walk swing HALVED, then 18 degrees off —
   so the scaling is `HELD_ARM_SWING` on the run clip's arm track (`_set_held_swing`, set beside
   the turn so the two cannot disagree): a turn cannot ride the pivot, but a scaling can ride the
   clip, which carries the walk and nothing else, and the idle's hang is added over it unhalved,
@@ -948,6 +949,16 @@ first-person viewmodel - what each one owns and the decisions behind it.
   pivot holds while the arm's rotation keeps moving under the tree's pose, and at a full
   swing the holding arm draws 29.8 degrees against 58.4 empty-handed while the legs stay at
   80.2 either way.
+- **The offhand holder** (`hold_offhand` / `_seat`): a goblin's torch (a quarter of them spawn
+  with one, [ui.md](ui.md)) hangs from the arm the caller names — `arm`, its LEFT, because the
+  mesh looks down its own -Z — as a second `MeshInstance3D` with its own item material. The
+  grip maths is `_seat`, the same function the main hand uses, so the size, the turn, the seat
+  and the `alpha_scissor` exist once; what the offhand does NOT get is `_pose_held_arm` (no
+  18-degree shoulder turn, no halved walk swing) — an offhand item hangs at the side and rides
+  the arm's own swing. `facing` mirrors the seat for a body whose mesh looks down -Z: the hand
+  is the arm box's other end and the artwork is turned with it (`HELD_MIRROR_YAW`), or the
+  torch is drawn behind the hand and its sprite upside down — `probes/probe_goblin.gd` holds
+  the drawn position to the mesh's face side.
 
 ## Cameras, targets and overlays
 

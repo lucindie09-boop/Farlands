@@ -2,6 +2,7 @@
 #define FARLANDS_MATERIAL_MANAGER_HPP
 #include <godot_cpp/classes/shader_material.hpp>
 #include <godot_cpp/variant/color.hpp>
+#include <godot_cpp/variant/packed_vector3_array.hpp>
 #include <godot_cpp/variant/vector3.hpp>
 #include <cstdint>
 
@@ -31,6 +32,14 @@ public:
                                int fog_mode = 3);
     void update_color_parameters(float contrast, float saturation, const godot::Color& ao_color, float ao_strength, const godot::Color& darkness_color);
 void update_player_light(const godot::Vector3& position, float radius, float intensity, const godot::Color& color);
+    // The moving entity lights (a goblin's offhand torch, see render/entity_lights.hpp):
+    // positions and colours already packed and padded to the shader's own array length,
+    // plus how many of them are live. Both world materials carry them, for the reason
+    // update_player_light spells out -- a material left out of a light push is a surface
+    // that renders black beside the one that received it.
+    void update_entity_lights(const godot::PackedVector3Array& positions,
+                              const godot::PackedVector3Array& colors,
+                              int32_t count, float radius);
     // Texture filter/mipmap mode (see TextureFilterMode). Changing mode
     // regenerates the texture arrays if needed, re-assigns them to the
     // materials, and swaps the sampler filter hint in both shaders.

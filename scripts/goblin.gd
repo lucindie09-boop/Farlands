@@ -45,6 +45,9 @@ const NAV_TRACE := preload("res://scripts/nav_trace.gd")
 ## lookup takes a NodePath, so the two are kept apart rather than assigned across.
 const TRACE_NAME := "NavTrace"
 const TRACE_NODE := NodePath("/root/NavTrace")
+## The dice for what a body carries, so the offhand chance is checkable without luck --
+## see `scripts/mob_equipment.gd`.
+const MobEquipment := preload("res://scripts/mob_equipment.gd")
 
 ## The sim's own body box, for the step probe: the same one the player moves in.
 const BODY := Vector3(0.6, 1.8, 0.6)
@@ -59,6 +62,19 @@ const MOB_TYPE := "goblin"
 const MAX_HEALTH := 12.0
 ## Vanilla's empty fist: one half-heart per hit.
 const PUNCH_DAMAGE := 1.0
+
+## What a goblin may carry in its OFF hand, and how often. A quarter of them carry a torch,
+## rolled ONCE at spawn (`_enter_tree`) and kept (`offhand_item`); there is no offhand slot
+## and no equipment UI, so the torch cannot be swapped, picked up or used, and it changes
+## nothing about the goblin's blows or numbers. It is drawn in the left hand
+## (`scripts/goblin_model.gd`), it lights the ground, water, items and bodies around it
+## (`scripts/mob_lights.gd`), and it is dropped on every death (`die`).
+##
+## These are per-mob fallbacks in the same sense as the numbers below: `data/mobs.json` has
+## no equipment field yet, and one is added when a SECOND mob needs one -- at which point
+## `MobAttributes`, `Mobs::attributes` and `tests/test_mob_attributes.cpp` move together.
+const OFFHAND_ITEM := "torch"
+const OFFHAND_CHANCE := 0.25
 
 ## How high a ledge it walks up without jumping, in blocks. Vanilla's 0.6 is a slab; a body at
 ## 1.0 climbs full blocks and has to jump at nothing above that. The walk's own STEP_PROBE is
@@ -417,6 +433,12 @@ var speed_state := "idle"
 
 var _health := MAX_HEALTH
 
+## The item in the offhand as a block/item id, or 0 for an empty hand: ONE roll, made in
+## `_enter_tree` from OFFHAND_CHANCE and never re-rolled. The model draws this field and
+## `die()` drops this same field -- a second roll anywhere would make what is drawn and
+## what is left on the ground two different things.
+var offhand_item := 0
+
 # The body's numbers, which `data/mobs.json` owns. `_apply_attributes` fills every one of these
 # from the registry in `_ready`, and the constants of the same names are the fallback -- nothing
 # below reads a constant, so tuning a goblin is a diff in the data file and not in this script.
@@ -554,6 +576,17 @@ var _shore_cell := Vector3.ZERO
 var _shore_ticks := 0
 ## Whether the thing it is chasing is standing in liquid (see `_update_enemy`).
 var _wet_target := false
+
+
+## The offhand roll, made before anything can read it.
+##
+## `_enter_tree` and not `_ready`: a child's `_ready` runs BEFORE its parent's, so the
+## Model has already built its rig and its held-item machinery by the time this script's
+## `_ready` would run. The model reads the field lazily every frame either way, but the
+## roll belongs to the body's construction -- a body has what it spawned with from its
+## first frame, and a probe can overwrite the field afterwards to force either answer.
+func _enter_tree() -> void:
+	offhand_item = MobEquipment.roll_offhand(OFFHAND_ITEM, OFFHAND_CHANCE, randf())
 
 
 func _ready() -> void:
@@ -2217,14 +2250,40 @@ func _mitigate(amount: float) -> float:
 	return amount
 
 
-## At zero it goes: what it was carrying falls where it stood, and then the body is
-## freed, which the spawn tool notices on its next frame (it drops the dead body's light
-## entry with it).
+## At zero it goes: what it was carrying falls where it stood, then the loot table's roll,
+## and then the body is freed, which the spawn tool notices on its next frame (it drops the
+## dead body's light entry with it).
+##
+## The held drop is first and unconditional -- a torch in the offhand is not loot, it is the
+## thing the body was carrying, and a death of any kind (a fist, a fall, a cactus) leaves it
+## on the ground. The table below still rolls exactly as it always has.
 func die() -> void:
 	print("Goblin dies")
+	_drop_held()
 	_drop_loot()
 	_give_up()
 	queue_free()
+
+
+## The items the body is holding, main hand first. The main hand is empty today -- a goblin
+## has no weapon -- but `die()` walks the list, so one that grows a second held thing drops
+## it without a second rule for dropping.
+func _held_items() -> Array:
+	var held: Array = []
+	if offhand_item > 0:
+		held.append(offhand_item)
+	return held
+
+
+## Everything it held, where it fell: the same out-of-the-body point `_drop_loot` uses, so
+## a torch and the coins beside it start in the same place.
+func _drop_held() -> void:
+	var dropped := get_node_or_null(NodePath("/root/Main/DroppedItems"))
+	if dropped == null or not dropped.has_method("spawn_at"):
+		return
+	var at := _drop_point()
+	for id in _held_items():
+		dropped.call("spawn_at", int(id), 1, at)
 
 
 ## What a dead goblin leaves: the loot table's own answer, dropped where it fell. The
@@ -2238,13 +2297,38 @@ func _drop_loot() -> void:
 	var dropped := get_node_or_null(NodePath("/root/Main/DroppedItems"))
 	if dropped == null or not dropped.has_method("spawn_at"):
 		return
-	var at := global_position
-	if _sim != null:
-		# Out of the body, not out of its feet: the pile falls and settles where the
-		# goblin was standing instead of starting under the ground it lies on.
-		at = _sim.get_tick_position() + Vector3(0.0, 0.9, 0.0)
+	var at := _drop_point()
 	for drop in LootTables.roll("goblin"):
 		dropped.call("spawn_at", int(drop.get("block_id", 0)), int(drop.get("count", 0)), at)
+
+
+## Where its drops start: out of the body, not out of its feet, so the pile falls and
+## settles where the goblin was standing instead of starting under the ground it lies on.
+func _drop_point() -> Vector3:
+	if _sim != null:
+		return _sim.get_tick_position() + Vector3(0.0, 0.9, 0.0)
+	return global_position
+
+
+## What is DRAWN in the offhand (0 = nothing). `scripts/goblin_model.gd` reads it every
+## frame and `scripts/mob_lights.gd` asks only non-empty hands for a light; both read this
+## field rather than a copy, so a probe can force a roll by writing `offhand_item`.
+func get_offhand_item() -> int:
+	return offhand_item
+
+
+## Where the drawn torch is in the world, for its light: the arm's, not the body's feet, so
+## the walk's swing carries the light. A body with no model (a stub) answers its own
+## middle, which is as good a point as an absent hand has.
+func get_offhand_position() -> Vector3:
+	var model := _model
+	if model == null:
+		model = get_node_or_null(NodePath("Model")) as Node3D
+	if model != null and model.has_method("get_offhand_global_position"):
+		var at: Vector3 = model.call("get_offhand_global_position")
+		if at != Vector3.ZERO:
+			return at
+	return global_position + Vector3(0.0, 1.0, 0.0)
 
 
 func get_health() -> float:

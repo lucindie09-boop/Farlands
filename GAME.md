@@ -124,8 +124,11 @@ a route planner, a combat state and a loot table.
   seconds, it gives up and goes back to wandering.
 - **Flee:** at two hearts it stops fighting and runs, aiming for ground about eight blocks
   away, until you are sixteen blocks off.
+- **Offhand:** a quarter of goblins carry a torch in the left hand — rolled once at spawn.
+  There is no offhand slot to use it from; it just hangs there, lights the ground, the water
+  and the things around the goblin, and is always dropped on death.
 - **Death:** it drops loot from `data/loot_tables.json`: pebbles, silver coins, and sometimes
-  a goblin ear.
+  a goblin ear — plus whatever it was holding, which is a torch if it had one.
 - **Data-driven:** `data/mobs.json` holds its health, damage, speed, follow range, alert box
   and anger window. Tuning a goblin is a JSON diff, not a code change.
 

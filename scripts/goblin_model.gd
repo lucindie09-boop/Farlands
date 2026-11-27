@@ -50,6 +50,21 @@ const PART_JOINT_SURFACES := {"head": [5]}
 ## added to the tree (the rig is built from it at `_ready`).
 var source_mesh: Mesh = null
 
+## The arm the offhand torch hangs from: `arm` is the -x side, and the mesh looks down
+## its own -Z, so with up +Y its right is cross(-Z, +Y) = +X. That makes `arm2` (+x) the
+## goblin's right hand and `arm` (-x) its LEFT -- the hand an offhand belongs in. (The
+## player's rig faces +Z, which mirrors it: its `arm` is the right hand, see
+## player_model.gd's HELD_ARM.)
+const OFFHAND_ARM := "arm"
+## The goblin faces -Z where the player's rig faces +Z, so the seat and the sprite's turn
+## are mirrored -- player_model.gd's HELD_MIRROR_YAW, and probes/probe_goblin.gd holds
+## the drawn torch to the mesh's face side.
+const OFFHAND_FACING := -1.0
+
+## What is drawn in the offhand right now (`scripts/goblin.gd`'s roll, as last read), so a
+## frame that has not changed it costs one comparison and no work.
+var _offhand_drawn := 0
+
 ## How far a neck turns: 75 degrees either side of where the body faces, and 40 up or
 ## down. Past that the goblin would be looking out of the back of its head, and the game
 ## clamps a mob's look the same way rather than letting a goal spin a head round.
@@ -97,7 +112,26 @@ func clear_look() -> void:
 
 func _process(delta: float) -> void:
 	_head_delta = delta
+	_sync_offhand()
 	super._process(delta)
+
+
+## Draw whatever the body says is in its offhand, this frame.
+##
+## The body owns the roll (`scripts/goblin.gd`'s `offhand_item`), and it is read here
+## rather than handed over once at load: a child's `_ready` runs BEFORE its parent's, so a
+## value the body sets in `_ready` would be too late for a one-shot read. Reading it
+## lazily is also what lets a probe force a roll by writing the field. A body with no such
+## field -- a stub, or this model under a host that is not a goblin -- holds nothing.
+func _sync_offhand() -> void:
+	var body := get_parent()
+	var id := 0
+	if body != null and body.has_method("get_offhand_item"):
+		id = int(body.call("get_offhand_item"))
+	if id == _offhand_drawn:
+		return
+	_offhand_drawn = id
+	hold_offhand(OFFHAND_ARM, id, OFFHAND_FACING)
 
 
 func _ready() -> void:

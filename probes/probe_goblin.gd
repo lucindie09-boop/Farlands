@@ -115,10 +115,12 @@ func _run() -> void:
 		_fail("model offset %s, expected %s" % [model.position, BODY_OFFSET])
 
 	# The obj's eleven surfaces split into the six parts it was authored as, each hung
-	# from its own joint -- the rig the player's own clips turn (goblin_model.gd).
+	# from its own joint -- the rig the player's own clips turn (goblin_model.gd). By
+	# SEARCH rather than by path: `_init_held_arm` hangs the main arm under HeldArmPivot
+	# so an item pose can turn it, so `arm` is no longer the model's own child.
 	var parts := {}
 	for part in ["arm", "arm2", "leg", "leg2", "torso", "head"]:
-		var mi := model.get_node_or_null(NodePath(part)) as MeshInstance3D
+		var mi := model.find_child(part, true, false) as MeshInstance3D
 		if mi == null or mi.mesh == null:
 			_fail("the goblin's rig has no `%s` part" % part)
 			continue
@@ -132,7 +134,8 @@ func _run() -> void:
 	var any := false
 	for part in parts:
 		var mi: MeshInstance3D = parts[part]
-		var box: AABB = (mi.transform * (mi.mesh as Mesh).get_aabb())
+		var box: AABB = (model.global_transform.affine_inverse() * mi.global_transform
+			* (mi.mesh as Mesh).get_aabb())
 		union = box if not any else union.merge(box)
 		any = true
 	if not any:
@@ -190,6 +193,49 @@ func _run() -> void:
 		_fail("model yaw %.4f, expected %.4f (facing the player)" % [model.rotation.y, want_yaw])
 	if not is_zero_approx(body.rotation.y):
 		_fail("the body itself is rotated %.3f: its box would no longer be axis-aligned" % body.rotation.y)
+
+	# --- the offhand torch: one roll, one home for the answer --------------------
+	# A quarter of goblins spawn carrying one, and `offhand_item` is the ONE home for that
+	# answer: the model draws whatever it says and `die()` drops that same value, no second
+	# roll anywhere. What a body owes this probe is registry-free, because THIS WORLD HAS
+	# NO REGISTRIES: `VoxelEngineController` loads data/items.json and data/block_definitions
+	# .json, and a stubbed world has no controller -- so no name resolves, the spawn roll can
+	# only answer "empty", and the torch itself lives where there is a world:
+	# probe_goblin_loot.gd (the 25%'s arithmetic and the always-drop over real kills) and
+	# probe_entity_light.gd (the drawn torch, its side and its light).
+	var torch := BlockTextures.get_block_id_by_name("torch")
+	if torch > 0:
+		_fail("this world resolved `torch` (%d): the checks below assume no item registry" % torch)
+	var rolled := int(body.get("offhand_item"))
+	if rolled != 0:
+		_fail("a goblin in a world with no registry carries %d, not an empty hand" % rolled)
+	if int(body.call("get_offhand_item")) != 0:
+		_fail("the body reports %d for an empty offhand" % int(body.call("get_offhand_item")))
+	# An empty hand builds no holder: nothing is drawn under the arm, and the position the
+	# model reports is its OWN origin rather than a hand's (get_offhand_global_position).
+	if model.find_child("OffhandItem", true, false) != null:
+		_fail("an empty-handed goblin carries an OffhandItem node")
+	var no_hand: Vector3 = body.call("get_offhand_position")
+	if no_hand.distance_to(model.global_position) > 0.01:
+		_fail("an empty hand reports %s, not the model's own origin %s"
+			% [no_hand, model.global_position])
+
+	# The dice, on the other hand, need no registry for the answer that matters here: a name
+	# nothing knows is an EMPTY HAND, never the -1 the lookup itself answers, because the
+	# field is read as an id everywhere and 0 is the only "nothing".
+	var equipment := load("res://scripts/mob_equipment.gd")
+	if equipment == null:
+		_fail("scripts/mob_equipment.gd did not load")
+	else:
+		if int(equipment.item_id("torch")) != 0:
+			_fail("an unknown item name resolved to %d, not 0" % int(equipment.item_id("torch")))
+		for roll in [0.0, 0.125, 0.2499, 0.25, 0.5, 1.0]:
+			if int(equipment.roll_offhand("torch", 0.25, roll)) != 0:
+				_fail("a roll of %.4f armed a goblin with an item no registry knows" % roll)
+		if int(equipment.roll_offhand("torch", 0.0, 0.0)) != 0:
+			_fail("a chance of 0 carried an item")
+		if int(equipment.roll_offhand("", 1.0, 0.0)) != 0:
+			_fail("an empty item name carried something")
 
 	# A hit is the player's own: the shove the sim applies to a queued hit -- 0.4 away
 	# from the attacker and up -- lands in the velocity the body is moved by.

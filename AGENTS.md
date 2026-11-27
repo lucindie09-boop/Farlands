@@ -212,8 +212,9 @@ Full notes: [docs/light.md](docs/light.md).
   guards, block break animation and hardness, hammer crushing, and block `drops`.
 - The first-person viewmodel (held item/block, swing, bob, head look, F5 camera cycle,
   eye-ray targeting) and the overlay tools around it. The third-person body holds the selected
-  block too, parented to the rig's right arm so the walk carries it
-  ([docs/gui-notes.md](docs/gui-notes.md)).
+  block too, parented to the rig's right arm so the walk carries it; a goblin's own body hangs
+  an offhand torch from its left arm with the same grip maths, lights the world with it and
+  always drops it on death ([docs/gui-notes.md](docs/gui-notes.md), [docs/ui.md](docs/ui.md)).
 - The player's own body plays **two poses and a rest**: `Assets/Animations/Idle.anim` standing
   and
   `Assets/Animations/Run.anim` walking, both blended onto a still `rest` clip with the idle
@@ -380,7 +381,7 @@ Full notes: [docs/schematic-notes.md](docs/schematic-notes.md).
 Full notes: [docs/fluids.md](docs/fluids.md).
 
 ### Testing & CI
-- 827 test cases / 395,357 assertions, written with `CHECK`/`CHECK_FALSE` only: this
+- 830 test cases / 395,379 assertions, written with `CHECK`/`CHECK_FALSE` only: this
   build disables exceptions, so `REQUIRE` is a compile error.
 - Move work off the frame before making it cheaper, and prove the move with a total:
   the phases must add up to the frame.

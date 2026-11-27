@@ -180,6 +180,14 @@ const HELD_SPRITE_RISE := 0.05 / 0.675
 # item's hand does not drag them along unasked.
 const HELD_ITEM2_FORWARD := 0.22
 const HELD_ITEM2_RISE := HELD_SPRITE_RISE
+# A body whose mesh looks down its own -Z instead of +Z (the goblin's does) turns every
+# held thing the other way round. The seat is written in the ARM's space in _seat, so the
+# hand's face is the arm box's other end and the artwork has to be spun with it: one
+# 180-degree turn about the vertical, which in this node's YXZ order mirrors both the
+# card's top edge and the sideways centring. Without it the item is drawn behind the hand
+# and its sprite upside down -- probes/probe_goblin.gd holds the seated position to the
+# face side of the mesh.
+const HELD_MIRROR_YAW := 180.0
 
 var uv_overlay_enabled := false
 var paint_color := Color.WHITE
@@ -240,6 +248,10 @@ var _held_item: MeshInstance3D = null
 var _held_material: ShaderMaterial = null
 var _held_meshes := {}
 var _held_id := -1
+# The OFF hand (the goblin's torch): a second holder, built on first use by hold_offhand
+# because the player's own body has none to build -- see hold_offhand. Keys: "arm",
+# "box", "item", "material", "facing".
+var _offhand := {}
 # Whether the run clip's arm track is carrying the held arm's half swing (see
 # HELD_ARM_SWING). The toggle is a state, not a per-frame factor: 0.5 and 2.0 are exact
 # powers of two, so a hand that fills and empties is back at the keys the file has.
@@ -485,6 +497,8 @@ func _process(delta: float) -> void:
 	_push_world_lighting(delta)
 	# Beside the body's own light, because the item is drawn with the same value.
 	_update_held_item()
+	# ...and the offhand's, which has no hotbar to read but the same material rule.
+	_update_offhand_light()
 	if skip_head_look:
 		# ...and a pose clone is frozen: no head look AND no body clip. The tree is
 		# stopped rather than merely skipped, or a body frozen after it had been
@@ -694,8 +708,10 @@ func _init_held_arm() -> void:
 ##
 ## Only a body the PLAYER is driving holds one. A preview has no cell to take a light
 ## from (the skin maker and the settings gallery are SubViewports, where there is no
-## `_body_material`), and a goblin or the K-key pose clone has no controller above it --
-## both are bodies of their own, and neither has a hotbar to read.
+## `_body_material`), and the K-key pose clone has no controller above it -- both are
+## bodies of their own, and neither has a hotbar to read. A MOB holds things too, but not
+## through this path: its offhand is its own roll, and `hold_offhand` builds that holder
+## on first use (scripts/goblin_model.gd is the caller).
 ##
 ## The item is a child of the arm itself, so it is carried by the walk, the idle's hang
 ## and the body's yaw for free, and it is under PlayerModel, so the F5 cycle reveals it in
@@ -753,25 +769,67 @@ func _update_held_item() -> void:
 
 ## Put one block id in the hand (0 or a texture-less id empties it).
 ##
+## The seat itself is `_seat`, shared with the offhand so the grip maths exists once; this
+## only adds what belongs to the MAIN hand -- the shoulder pose and the halved walk swing
+## (`_pose_held_arm`), which an offhand item must not get.
+func _hold(id: int) -> void:
+	if not _seat(_main_hand(), id):
+		_pose_held_arm(false)
+		return
+	# Beside the item, from the one place its visibility is decided, so the arm and the
+	# thing in it can never disagree about whether a hand is full.
+	_pose_held_arm(true)
+
+
+## The main hand as `_seat` wants it: the arm `_init_held_arm` put the pivot on, its own
+## mesh box, the holder and material `_init_held_item` built, and this rig's facing (+1:
+## the body looks down its own +Z, which is what `_seat` mirrors for a body that does not).
+func _main_hand() -> Dictionary:
+	return {
+		"arm": _held_arm,
+		"box": _held_arm_box,
+		"item": _held_item,
+		"material": _held_material,
+		"facing": 1.0,
+	}
+
+
+## Put one block id in one hand: the mesh, the size, the turn and the seat in the palm.
+##
+## `slot` is a holder (`_main_hand` or the offhand built by `_init_offhand`): the arm it
+## hangs from and that arm's own mesh box, the MeshInstance3D drawn, the material it is
+## drawn with, and the body's facing. What a hand then does with its POSE is the caller's
+## business -- see `_hold` and `hold_offhand`.
+##
 ## The geometry is the shared ViewmodelMeshes binding, the same one the first-person hand
 ## and the dropped items build from -- an item as the extruded sprite, a block as its own
 ## shape's boxes (so a slab is held as a slab and a stair as its two boxes).
 ##
 ## The grip is MEASURED off the arm's box: the end of the limb (its bottom, since the node
-## sits on the shoulder) on the face the body looks along (+Z), which is the hand. The item
+## sits on the shoulder) on the face the body looks along, which is the hand. The item
 ## is centred there, X and Y both, and pushed out by half its own depth so its back rests
 ## against the palm instead of inside the forearm -- one number per mesh, because a block
 ## is deeper than an item's sprite.
-func _hold(id: int) -> void:
+##
+## `facing` is the body's own: +1 for a rig that looks down its own +Z, -1 for a mesh that
+## looks down -Z (the goblin). The seat is written in the ARM's space, so the other way
+## round is the arm box's other end as the hand, and the artwork turned with it
+## (`HELD_MIRROR_YAW`) -- otherwise the item is drawn behind the hand and a sprite upside
+## down.
+func _seat(slot: Dictionary, id: int) -> bool:
+	var item := slot["item"] as MeshInstance3D
+	var material := slot["material"] as ShaderMaterial
+	var arm_box: AABB = slot["box"]
+	var facing := float(slot["facing"])
+	if item == null or material == null:
+		return false
 	if id <= 0:
-		_held_item.visible = false
-		_pose_held_arm(false)
-		return
+		item.visible = false
+		return false
 	var tex: Texture2D = BlockTextures.get_texture(id)
 	if tex == null:
-		_held_item.visible = false
-		_pose_held_arm(false)
-		return
+		item.visible = false
+		return false
 	var is_sprite := BlockTextures.is_item(id)
 	# The pose the item names ("" for a default one, "ITEM2"/"ITEM3" for a posed sprite), from
 	# the one reader the viewmodel shares.
@@ -781,25 +839,23 @@ func _hold(id: int) -> void:
 	var is_item2 := pose == "ITEM2"
 	var mesh := _held_mesh_of(id, tex)
 	if mesh == null:
-		_held_item.visible = false
-		_pose_held_arm(false)
-		return
-	_held_item.mesh = mesh
-	_held_item.visible = true
-	# Beside the item, from the one place its visibility is decided, so the arm and the
-	# thing in it can never disagree about whether a hand is full.
-	_pose_held_arm(true)
+		item.visible = false
+		return false
+	item.mesh = mesh
+	item.visible = true
 	var size_fraction := HELD_BLOCK_ARM_LENGTHS
 	if is_sprite:
 		size_fraction = HELD_ITEM2_ARM_LENGTHS if is_item2 else HELD_ITEM_ARM_LENGTHS
-	var size: float = _held_arm_box.size.y * size_fraction
-	_held_item.scale = Vector3.ONE * size
+	var size: float = arm_box.size.y * size_fraction
+	item.scale = Vector3.ONE * size
 	# The turn: every sprite lies flat in the palm, an `item2` sprite stays there, everything else
 	# turns on to HELD_ITEM_TURN, and a block is carried by a corner (HELD_BLOCK_TURN).
 	var turn := HELD_BLOCK_TURN
 	if is_sprite:
 		turn = HELD_SPRITE_TURN if is_item2 else HELD_ITEM_TURN
-	_held_item.rotation_degrees = turn
+	if facing < 0.0:
+		turn = Vector3(turn.x, turn.y + HELD_MIRROR_YAW, turn.z)
+	item.rotation_degrees = turn
 	# The box the item occupies AFTER the turn: a shaped block's bounds are not symmetric
 	# about its own origin (a stair's boxes sit off its middle), so a turn swings that
 	# off-centre into x, and only the turned box says where the visible thing reaches and
@@ -813,26 +869,101 @@ func _hold(id: int) -> void:
 	var reach: float = mesh.get_aabb().size.z if is_sprite else placed.size.z
 	var forward: float = reach * size * 0.5
 	if is_sprite:
-		forward += _held_arm_box.size.y * (HELD_ITEM2_FORWARD if is_item2 else HELD_SPRITE_FORWARD)
+		forward += arm_box.size.y * (HELD_ITEM2_FORWARD if is_item2 else HELD_SPRITE_FORWARD)
 	else:
-		forward -= _held_arm_box.size.y * HELD_BLOCK_BACK
+		forward -= arm_box.size.y * HELD_BLOCK_BACK
 	# Centre the VISIBLE thing on the arm's centre line, not the texture cell: a sprite's art
 	# is drawn inside its cell with transparent margins and only its solid texels have
 	# vertices, so its bounds can sit off the cell's middle -- which put the bucket to one
 	# side of the hand. An off-centre shaped block is the same problem after its turn.
+	# The 180-degree mirror swaps which way round the item's own x runs, so the correction
+	# follows the facing too.
 	var centre: Vector3 = placed.get_center()
 	var rise: float = 0.0
 	if is_sprite:
-		rise = _held_arm_box.size.y * (HELD_ITEM2_RISE if is_item2 else HELD_SPRITE_RISE)
+		rise = arm_box.size.y * (HELD_ITEM2_RISE if is_item2 else HELD_SPRITE_RISE)
 	else:
 		rise = mesh.get_aabb().size.y * size * HELD_BLOCK_RISE
-	_held_item.position = Vector3(-centre.x * size, _held_arm_box.position.y + rise,
-		_held_arm_box.end.z + forward)
-	_held_material.set_shader_parameter("albedo_texture", tex)
+	var side := -1.0 if facing >= 0.0 else 1.0
+	var seat_z: float = arm_box.end.z + forward if facing >= 0.0 else arm_box.position.z - forward
+	item.position = Vector3(side * centre.x * size, arm_box.position.y + rise, seat_z)
+	material.set_shader_parameter("albedo_texture", tex)
 	# A block's texture is opaque, so the scissor is pure downside on it (it can only
 	# discard edge pixels whose UV rounds onto a texel boundary); an item's sprite needs
 	# it for its transparent silhouette. The same rule as the first-person hand.
-	_held_material.set_shader_parameter("alpha_scissor", 0.5 if is_sprite else 0.0)
+	material.set_shader_parameter("alpha_scissor", 0.5 if is_sprite else 0.0)
+	return true
+
+
+## Put one block id in the body's OFF hand, on the arm the caller names.
+##
+## The main hand's grip maths and none of its pose: an offhand item hangs at the side and
+## rides that arm's own walk swing because it is a child of the arm. Nothing here calls
+## `_pose_held_arm` -- the 18-degree forward turn and the halved swing are MAIN-hand rules,
+## and an offhand torch held up like a weapon is not what a torch in a left hand looks like.
+##
+## This is built on first use rather than in `_ready` like `_init_held_item`: a body with
+## no controller above it has no hotbar to read, but a MOB has a roll of its own
+## (`scripts/goblin_model.gd` reads its body's field every frame and calls this). `facing`
+## is that body's: the goblin's mesh looks down its own -Z, so -1.
+func hold_offhand(arm_name: String, id: int, facing := 1.0) -> void:
+	if _body_material == null:
+		return
+	if id <= 0 and _offhand.is_empty():
+		return
+	var arm := find_child(arm_name, true, false) as MeshInstance3D
+	if arm == null or arm.mesh == null:
+		return
+	if _offhand.is_empty() or _offhand["arm"] != arm:
+		_init_offhand(arm)
+	_offhand["facing"] = facing
+	_seat(_offhand, id)
+
+
+## The offhand holder: one MeshInstance3D under the named arm with its own item material.
+## It needs no pivot of its own -- the arm already carries it -- and no sweep of the rig,
+## because the arm it hangs from is the one the clips turn.
+func _init_offhand(arm: MeshInstance3D) -> void:
+	var material := ShaderMaterial.new()
+	material.shader = ITEM_SHADER
+	var item := MeshInstance3D.new()
+	item.name = "OffhandItem"
+	item.material_override = material
+	item.visible = false
+	arm.add_child(item)
+	_offhand = {
+		"arm": arm,
+		"box": (arm.mesh as Mesh).get_aabb(),
+		"item": item,
+		"material": material,
+		"facing": 1.0,
+	}
+
+
+## Where the DRAWN offhand item is, in world space -- a torch's light is at the torch, not
+## at the body's feet, so it moves with the arm's swing. `scripts/mob_lights.gd` reads it.
+func get_offhand_global_position() -> Vector3:
+	if _offhand.is_empty():
+		return global_position
+	var item := _offhand["item"] as MeshInstance3D
+	if item == null or not item.visible:
+		return global_position
+	return item.global_position
+
+
+## The offhand's half of the world light model, every frame for the same reason the main
+## hand's is: the day/night values move continuously, and a walking body crosses cells it
+## must be re-read from. It shares the body's own eased `item_light`, so the torch and the
+## arm holding it cannot disagree about the light they are seen in.
+func _update_offhand_light() -> void:
+	if _offhand.is_empty() or _chunk_manager == null:
+		return
+	var item := _offhand["item"] as MeshInstance3D
+	var material := _offhand["material"] as ShaderMaterial
+	if item == null or material == null or not item.visible:
+		return
+	_chunk_manager.apply_item_lighting(material)
+	item.set_instance_shader_parameter("item_light", _body_light)
 
 
 ## The right arm's pose for what it is (or is not) carrying -- see HELD_ARM_PITCH.

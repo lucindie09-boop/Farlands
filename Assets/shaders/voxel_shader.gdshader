@@ -43,6 +43,19 @@ uniform float player_light_radius=8.0;
 uniform float player_light_intensity=1.0;
 uniform vec3 player_light_color=vec3(1.0,1.0,1.0);
 
+// Moving entity lights -- a goblin's offhand torch, gathered by scripts/mob_lights.gd
+// and resolved by ChunkManager::set_entity_lights. A light's LEVEL is already in its
+// colour (tint * level/15), so the falloff below is the only distance term. The cap is
+// written in four places -- here, voxel_shader_water.gdshader, item_lighting.gdshaderinc
+// and render/entity_lights.hpp -- and they must agree.
+const int MAX_ENTITY_LIGHTS = 4;
+uniform vec3 entity_light_positions[4];
+uniform vec3 entity_light_colors[4];
+uniform int entity_light_count = 0;
+// 7 blocks: half the torch's level, and the same number in the other two shaders and
+// render/entity_lights.hpp.
+uniform float entity_light_radius = 7.0;
+
 // Fog
 uniform float fog_begin=64.0;
 uniform float fog_end=896.0;
@@ -220,6 +233,19 @@ void fragment(){
         playerLight*
         player_light_intensity
     );
+
+    // ...and the moving lights, on the SAME quadratic falloff and the same max(): two
+    // lights side by side never add up, so a torch beside the player's own glow changes
+    // nothing there. Not occluded -- see docs/rendering-notes.md.
+    for (int i = 0; i < MAX_ENTITY_LIGHTS; ++i) {
+        if (i >= entity_light_count) {
+            break;
+        }
+        float entityDist = distance(world_position, entity_light_positions[i]);
+        float entityFalloff = 1.0 - clamp(entityDist / max(entity_light_radius, 0.001), 0.0, 1.0);
+        entityFalloff *= entityFalloff;
+        combinedLight = max(combinedLight, entity_light_colors[i] * entityFalloff);
+    }
 
     vec3 lit_color=color.rgb*combinedLight*ao_tint;
 

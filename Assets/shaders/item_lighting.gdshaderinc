@@ -68,6 +68,18 @@ uniform float player_light_radius = 8.0;
 uniform float player_light_intensity = 0.0;
 uniform vec3 player_light_color = vec3(1.0);
 
+// Moving entity lights -- a goblin's offhand torch, gathered by scripts/mob_lights.gd
+// and resolved by ChunkManager::set_entity_lights. Same packing and the same falloff
+// as the terrain's (Assets/shaders/voxel_shader.gdshader): the level is in the colour,
+// so the distance term is all this needs. The cap is written in four places -- the two
+// voxel shaders, here, and render/entity_lights.hpp -- and they must agree.
+const int MAX_ENTITY_LIGHTS = 4;
+uniform vec3 entity_light_positions[4];
+uniform vec3 entity_light_colors[4];
+uniform int entity_light_count = 0;
+// 7 blocks: the same number the two voxel shaders and render/entity_lights.hpp carry.
+uniform float entity_light_radius = 7.0;
+
 // The light of the cell this mesh is in: rgb = block light, a = sky light, both
 // already through the mesher's brightness curve (ChunkManager.get_light_at).
 // Per instance, not per material: every dropped block of one type shares one
@@ -139,6 +151,18 @@ void fragment() {
     float player_falloff = 1.0 - clamp(distance(item_world_position, player_light_position) / max(player_light_radius, 0.001), 0.0, 1.0);
     player_falloff *= player_falloff;
     combined = max(combined, player_light_color * player_falloff * player_light_intensity);
+
+    // ...and the moving entity lights, so a dropped coin, a puddle and a goblin's own
+    // arm are lit by the torch beside them (docs/rendering-notes.md).
+    for (int i = 0; i < MAX_ENTITY_LIGHTS; ++i) {
+        if (i >= entity_light_count) {
+            break;
+        }
+        float entity_dist = distance(item_world_position, entity_light_positions[i]);
+        float entity_falloff = 1.0 - clamp(entity_dist / max(entity_light_radius, 0.001), 0.0, 1.0);
+        entity_falloff *= entity_falloff;
+        combined = max(combined, entity_light_colors[i] * entity_falloff);
+    }
 
     vec3 lit_color = tex.rgb * combined * face_shade;
 

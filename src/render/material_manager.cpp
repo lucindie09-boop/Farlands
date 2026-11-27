@@ -132,6 +132,26 @@ void MaterialManager::update_player_light(const Vector3& position, float radius,
     }
 }
 
+void MaterialManager::update_entity_lights(const PackedVector3Array& positions, const PackedVector3Array& colors, int32_t count, float radius) {
+    // The same rule as the player light above: BOTH materials, every push. The water shader
+    // was once left out of the player's glow and liquids rendered black beside lit ground;
+    // a torch on a goblin's arm would do exactly that to a puddle.
+    Ref<ShaderMaterial> material = get_material();
+    if (material.is_valid()) {
+        material->set_shader_parameter("entity_light_positions", positions);
+        material->set_shader_parameter("entity_light_colors", colors);
+        material->set_shader_parameter("entity_light_count", count);
+        material->set_shader_parameter("entity_light_radius", radius);
+    }
+    Ref<ShaderMaterial> water_mat = get_water_material();
+    if (water_mat.is_valid()) {
+        water_mat->set_shader_parameter("entity_light_positions", positions);
+        water_mat->set_shader_parameter("entity_light_colors", colors);
+        water_mat->set_shader_parameter("entity_light_count", count);
+        water_mat->set_shader_parameter("entity_light_radius", radius);
+    }
+}
+
 void MaterialManager::set_mipmap_bias(float bias) {
     mipmap_bias_ = bias;
     apply_mipmap_bias();

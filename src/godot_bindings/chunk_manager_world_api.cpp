@@ -10,10 +10,12 @@
 #include "godot_bindings/cached_node.hpp"
 #include "godot_bindings/mob_body.hpp"
 #include "core/light_packing.hpp"
+#include "core/item_registry.hpp"
 #include "debug/crash_dump.hpp"
 #include "engine/voxel_engine_controller.hpp"
 #include "mesh/mesh_builder_types.hpp"
 #include "pathfinding/path_service.hpp"
+#include "render/entity_lights.hpp"
 #include "render/multimesh_instance_layout.hpp"
 #include "world/block_editor.hpp"
 
@@ -26,7 +28,10 @@
 #include <godot_cpp/variant/packed_float32_array.hpp>
 #include <godot_cpp/variant/string.hpp>
 #include <godot_cpp/variant/vector4.hpp>
+#include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstddef>
 
 namespace {
 
@@ -169,6 +174,30 @@ Vector4 ChunkManager::get_light_at(int32_t world_x, int32_t world_y, int32_t wor
 
 void ChunkManager::apply_item_lighting(const Ref<ShaderMaterial>& material) {
     controller->get_environment_controller().apply_item_shader_lighting(material);
+}
+
+// The moving entity lights the world draws -- a goblin's offhand torch is the only one
+// today -- resolved from item ids and a world position each. The resolution lives here so
+// the shaders never see an id: the item's own `light` entry is the single source of truth
+// for its level and colour (ItemRegistry owns items.json), and an item the registry does
+// not know, or one that lights nothing, contributes no light rather than a black one. The
+// list is clamped to the shaders' own array (render/entity_lights.hpp), and the set goes
+// through the environment controller directly -- the same shortcut apply_item_lighting
+// above takes, because that is the object which caches it for every material.
+void ChunkManager::set_entity_lights(const PackedVector3Array& positions, const PackedInt32Array& item_ids) {
+    std::array<EntityLight, kMaxEntityLights> lights{};
+    const int64_t asked = std::min(positions.size(), item_ids.size());
+    int32_t count = 0;
+    for (int64_t i = 0; i < asked && count < kMaxEntityLights; ++i) {
+        const ItemLight* light = ItemRegistry::get_instance().get_item_light(
+            static_cast<BlockID>(item_ids[i]));
+        if (light == nullptr || light->level <= 0) continue;
+        const Vector3 at = positions[i];
+        lights[static_cast<std::size_t>(count)] = pack_entity_light(
+            at.x, at.y, at.z, light->level, light->r, light->g, light->b);
+        ++count;
+    }
+    controller->get_environment_controller().set_entity_lights(lights, count);
 }
 
 Color ChunkManager::get_body_sky_warmth() {

@@ -13,9 +13,15 @@ void EnvironmentController::update(double delta, const godot::Vector3& player_po
     // so the glow around the player matches the item being carried.
     const float player_light_intensity = player_light.get_enabled() ? player_light.get_level() / 15.0f : 0.0f;
     const godot::Color player_light_color = player_light.get_color();
+    // Half the light's level, and the same rule the goblin's torch follows
+    // (render/entity_lights.hpp): 6 blocks for the scene's own glow, 7 for a torch in either
+    // hand. The two halves are one number in two places -- a torch has to light the same pool
+    // in the player's hand as in a goblin's, and it was a flat 8 for the player against a mob's
+    // 14 that first made a goblin's torch read as the bigger light.
+    const float player_light_radius = static_cast<float>(player_light.get_level()) * 0.5f;
     material_manager.update_player_light(
         player_pos,
-        8.0f,
+        player_light_radius,
         player_light_intensity,
         player_light_color
     );
@@ -24,7 +30,7 @@ void EnvironmentController::update(double delta, const godot::Vector3& player_po
     // the player are inside this radius), kept so apply_item_shader_lighting can
     // hand over exactly what the terrain just got.
     item_player_light_position = player_pos;
-    item_player_light_radius = 8.0f;
+    item_player_light_radius = player_light_radius;
     item_player_light_intensity = player_light_intensity;
     item_player_light_color = player_light_color;
 }
@@ -43,6 +49,31 @@ void EnvironmentController::apply_item_shader_lighting(const godot::Ref<godot::S
     material->set_shader_parameter("player_light_radius", item_player_light_radius);
     material->set_shader_parameter("player_light_intensity", item_player_light_intensity);
     material->set_shader_parameter("player_light_color", item_player_light_color);
+    material->set_shader_parameter("entity_light_positions", item_entity_light_positions);
+    material->set_shader_parameter("entity_light_colors", item_entity_light_colors);
+    material->set_shader_parameter("entity_light_count", item_entity_light_count);
+    material->set_shader_parameter("entity_light_radius", kEntityLightRadius);
+}
+
+void EnvironmentController::set_entity_lights(const std::array<EntityLight, kMaxEntityLights>& lights,
+                                              int32_t count) {
+    item_entity_light_count = clamp_entity_light_count(count);
+    // Padded to the shaders' own array length: a fixed-size uniform array is read as a
+    // whole, and a short one leaves the tail holding whatever the last frame put there.
+    item_entity_light_positions.resize(kMaxEntityLights);
+    item_entity_light_colors.resize(kMaxEntityLights);
+    for (int32_t i = 0; i < kMaxEntityLights; ++i) {
+        const EntityLight& light = lights[static_cast<std::size_t>(i)];
+        if (i >= item_entity_light_count) {
+            item_entity_light_positions.set(i, godot::Vector3());
+            item_entity_light_colors.set(i, godot::Vector3());
+            continue;
+        }
+        item_entity_light_positions.set(i, godot::Vector3(light.x, light.y, light.z));
+        item_entity_light_colors.set(i, godot::Vector3(light.r, light.g, light.b));
+    }
+    material_manager.update_entity_lights(item_entity_light_positions, item_entity_light_colors,
+                                          item_entity_light_count, kEntityLightRadius);
 }
 
 void EnvironmentController::set_lod_grid_fog_active(bool active) {

@@ -14,6 +14,11 @@ extends SceneTree
 ## "sometimes" are both seen, and the 33% ear is checked separately over three hundred rolls
 ## rather than left to twenty coin flips.
 ##
+## Half the sample is armed: every other body is given a torch in its offhand before it dies.
+## An armed goblin has to leave exactly one torch -- on every death, which is not a table
+## roll -- and an unarmed one has to leave none; the piles the torches make must equal the
+## armed count, and the table's own entries must be untouched either way.
+##
 ## Needs the real world and a generated surface, so it loads Main.tscn and waits for the
 ## player to land.
 ##
@@ -82,8 +87,9 @@ func _run() -> void:
 	var coin := BlockTextures.get_block_id_by_name("silver_coin")
 	var pebble := BlockTextures.get_block_id_by_name("pebble")
 	var ear := BlockTextures.get_block_id_by_name("goblin_ear")
-	print("PROBE item ids silver_coin=%d pebble=%d goblin_ear=%d" % [coin, pebble, ear])
-	if coin <= 0 or pebble <= 0 or ear <= 0:
+	var torch := BlockTextures.get_block_id_by_name("torch")
+	print("PROBE item ids silver_coin=%d pebble=%d goblin_ear=%d torch=%d" % [coin, pebble, ear, torch])
+	if coin <= 0 or pebble <= 0 or ear <= 0 or torch <= 0:
 		print("PROBE FAIL: an item name does not resolve, so it cannot be dropped")
 		quit(1)
 		return
@@ -101,7 +107,10 @@ func _run() -> void:
 	var with_coin := 0
 	var with_ear := 0
 	var pebbles_seen := 0
+	var armed_kills := 0
+	var torches_left := 0
 	for which in KILLS:
+		var armed := which % 2 == 0
 		var body := Node3D.new()
 		body.name = "Goblin"
 		body.set_script(load(BODY_SCRIPT))
@@ -109,6 +118,9 @@ func _run() -> void:
 		body.position = feet
 		main.add_child(body)
 		body.set("_idle_ticks", SILENCED_IDLE)
+		# Forced rather than left to the spawn roll: half the sample carries, half does not,
+		# and the drop is what is being measured, not the 25% (the dice below hold that).
+		body.set("offhand_item", torch if armed else 0)
 		for i in 4:
 			await process_frame
 		var where: Vector3 = body.global_position
@@ -120,6 +132,7 @@ func _run() -> void:
 		var coins := 0
 		var pebbles := 0
 		var ears := 0
+		var held := 0
 		var names := []
 		for pile in piles:
 			var id := int(pile["block_id"])
@@ -131,14 +144,23 @@ func _run() -> void:
 				pebbles += count
 			elif id == ear:
 				ears += count
+			elif id == torch:
+				held += count
 			else:
-				_fail("kill %d left id %d, which is not one of the three" % [which, id])
+				_fail("kill %d left id %d, which is not one of the three or its torch" % [which, id])
 			if at.distance_to(where) > DROP_REACH:
 				_fail("kill %d left a pile %f blocks away, not where it died"
 					% [which, at.distance_to(where)])
 			names.append("%d x%d" % [id, count])
 		# The body is gone by now (`die` frees it), so its drops are the only evidence left.
-		print("PROBE kill %d drops: %s" % [which, ", ".join(names)])
+		print("PROBE kill %d drops: %s (armed=%s)" % [which, ", ".join(names), armed])
+		if armed and held != 1:
+			_fail("armed kill %d left %d torches, not exactly 1" % [which, held])
+		elif not armed and held != 0:
+			_fail("unarmed kill %d left %d torches" % [which, held])
+		if armed:
+			armed_kills += 1
+			torches_left += held
 		if pebbles < 1 or pebbles > 4:
 			_fail("kill %d left %d pebbles, not 1 to 4" % [which, pebbles])
 		if coins > 2:
@@ -163,6 +185,45 @@ func _run() -> void:
 			% [with_coin, KILLS])
 	if with_ear < 2:
 		_fail("only %d of %d goblins left an ear" % [with_ear, KILLS])
+	# The always-drop, counted: one torch per armed body and none anywhere else.
+	if armed_kills != KILLS / 2:
+		_fail("%d armed kills, expected %d" % [armed_kills, KILLS / 2])
+	if torches_left != armed_kills:
+		_fail("%d torches on the ground for %d armed bodies" % [torches_left, armed_kills])
+	print("PROBE %d armed goblins left %d torches (one each, by the held drop rather than "
+		% [armed_kills, torches_left] + "the loot table)")
+
+	# The 25%, without luck: the dice are `scripts/mob_equipment.gd`'s and they take the roll
+	# instead of making it, so both sides of the boundary and the rate are checked here, in a
+	# world that resolves `torch` at all (a stubbed one cannot). A roll of exactly the chance
+	# is on the EMPTY side -- the interval is [0, chance) -- and a name nothing knows is an
+	# empty hand rather than the -1 the lookup itself answers.
+	var equipment := load("res://scripts/mob_equipment.gd")
+	if equipment == null:
+		_fail("scripts/mob_equipment.gd did not load")
+	else:
+		if int(equipment.roll_offhand("torch", 0.25, 0.0)) != torch:
+			_fail("a roll of 0 does not carry the torch")
+		if int(equipment.roll_offhand("torch", 0.25, 0.2499)) != torch:
+			_fail("a roll just inside the quarter does not carry the torch")
+		if int(equipment.roll_offhand("torch", 0.25, 0.25)) != 0:
+			_fail("a roll exactly on the quarter carries it: the chance must be [0, 0.25)")
+		if int(equipment.roll_offhand("torch", 0.25, 1.0)) != 0:
+			_fail("a roll of 1 carries the torch")
+		if int(equipment.roll_offhand("", 1.0, 0.0)) != 0:
+			_fail("an empty item name still resolves to something")
+		if int(equipment.roll_offhand("torch_that_never_was", 1.0, 0.0)) != 0:
+			_fail("an unknown item name arms a goblin")
+		var draws := 4000
+		var carried := 0
+		for i in draws:
+			if int(equipment.roll_offhand("torch", 0.25, randf())) > 0:
+				carried += 1
+		var dice_rate := float(carried) / float(draws)
+		print("PROBE offhand: %d of %d rolls carried a torch (%.3f)" % [carried, draws, dice_rate])
+		if dice_rate < 0.22 or dice_rate > 0.28:
+			_fail("the offhand rate came out at %.3f over %d rolls, wanted about 0.25"
+				% [dice_rate, draws])
 
 	var ears := 0
 	for i in ROLLS:

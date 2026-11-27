@@ -8,6 +8,8 @@
 #include <godot_cpp/variant/node_path.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/packed_byte_array.hpp>
+#include <godot_cpp/variant/packed_int32_array.hpp>
+#include <godot_cpp/variant/packed_vector3_array.hpp>
 #include <godot_cpp/variant/aabb.hpp>
 #include <godot_cpp/variant/string.hpp>
 #include <godot_cpp/core/class_db.hpp>
@@ -154,6 +156,8 @@ public:
     // Hands the world's current lighting to one item material, so a held or
     // dropped mesh runs the terrain's light model instead of the engine's.
     void apply_item_lighting(const godot::Ref<godot::ShaderMaterial>& material);
+    void set_entity_lights(const godot::PackedVector3Array& positions,
+                           const godot::PackedInt32Array& item_ids);
     // The world's sky-light tint used by the menu accent. The body and every other
     // item get the same value through apply_item_lighting, and it is white at every
     // hour since the sunrise/sunset ground tint was removed; this accessor remains

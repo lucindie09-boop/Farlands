@@ -49,6 +49,17 @@ uniform float player_light_radius=8.0;
 uniform float player_light_intensity=1.0;
 uniform vec3 player_light_color=vec3(1.0,1.0,1.0);
 
+// Moving entity lights -- see voxel_shader.gdshader for the whole rule. The water
+// material was once left out of the player-light push and liquids rendered black
+// beside lit ground, so a light the terrain gets is a light water gets.
+const int MAX_ENTITY_LIGHTS = 4;
+uniform vec3 entity_light_positions[4];
+uniform vec3 entity_light_colors[4];
+uniform int entity_light_count = 0;
+// 7 blocks: the same number the terrain shader, the item include and
+// render/entity_lights.hpp carry.
+uniform float entity_light_radius = 7.0;
+
 // Fog
 uniform float fog_begin=64.0;
 uniform float fog_end=896.0;
@@ -218,6 +229,16 @@ void fragment(){
         playerLight*
         player_light_intensity
     );
+
+    for (int i = 0; i < MAX_ENTITY_LIGHTS; ++i) {
+        if (i >= entity_light_count) {
+            break;
+        }
+        float entityDist = distance(world_position, entity_light_positions[i]);
+        float entityFalloff = 1.0 - clamp(entityDist / max(entity_light_radius, 0.001), 0.0, 1.0);
+        entityFalloff *= entityFalloff;
+        combinedLight = max(combinedLight, entity_light_colors[i] * entityFalloff);
+    }
 
     vec3 lit_color=color.rgb*combinedLight*ao_tint;
 

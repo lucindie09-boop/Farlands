@@ -1,13 +1,16 @@
 #ifndef FARLANDS_ENVIRONMENT_CONTROLLER_HPP
 #define FARLANDS_ENVIRONMENT_CONTROLLER_HPP
 #include <algorithm>
+#include <array>
 #include <cstdint>
 
-#include <godot_cpp/variant/vector3.hpp>
 #include <godot_cpp/variant/color.hpp>
+#include <godot_cpp/variant/packed_vector3_array.hpp>
+#include <godot_cpp/variant/vector3.hpp>
 
 #include "world/day_night_cycle.hpp"
 #include "world/player_light.hpp"
+#include "render/entity_lights.hpp"
 #include "render/material_manager.hpp"
 #include "render/sky_controller.hpp"
 #include "render/fog_controller.hpp"
@@ -53,6 +56,14 @@ public:
     int32_t get_player_light_level() const { return static_cast<int32_t>(player_light.get_level()); }
     void set_player_light_color(const godot::Color& color) { player_light.set_color(color); }
     godot::Color get_player_light_color() const { return player_light.get_color(); }
+
+    // The moving entity lights drawn this frame (the goblin's offhand torch). Resolved
+    // from item ids by ChunkManager::set_entity_lights, then pushed to the world here
+    // and CACHED so apply_item_shader_lighting can hand the same set to every item and
+    // body material -- an item inside a torch's glow has to be lit by it too.
+    void set_entity_lights(const std::array<EntityLight, kMaxEntityLights>& lights,
+                           int32_t count);
+    int32_t get_entity_light_count() const { return item_entity_light_count; }
 
     void set_day_night_cycle_enabled(bool enabled) { day_night.set_enabled(enabled); update_shader_parameters(); }
     bool get_day_night_cycle_enabled() const { return day_night.get_enabled(); }
@@ -163,6 +174,12 @@ private:
     float item_player_light_radius = 8.0f;
     float item_player_light_intensity = 0.0f;
     godot::Color item_player_light_color = PlayerLight::default_color();
+    // The entity lights, already padded to the shader's array length: one pair of arrays
+    // rebuilt only when the set changes, so the per-material push every item and body
+    // does each frame costs four uniform writes and no packing.
+    godot::PackedVector3Array item_entity_light_positions;
+    godot::PackedVector3Array item_entity_light_colors;
+    int32_t item_entity_light_count = 0;
 
     bool mipmaps_enabled = true;
     float mipmap_bias = 0.1f;

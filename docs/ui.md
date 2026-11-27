@@ -588,7 +588,19 @@ being resampled by a different fraction at each scale.
   behind
   a hill rather than red dots over the terrain. Damage and knockback share one gate: a hit the
   hurt
-  window resists takes nothing. At zero health the body is freed. Every number in this section
+  window resists takes nothing. At zero health the body is freed. **A quarter of goblins carry
+  a torch in the offhand** — rolled once at spawn (`scripts/mob_equipment.gd`'s dice,
+  `OFFHAND_CHANCE` in `scripts/goblin.gd`) and kept on the body, never re-rolled. There is no
+  offhand slot and no equipment UI: it cannot be swapped, picked up or used, and it changes
+  nothing about the goblin's blows or its numbers. It is drawn in the LEFT hand (`arm` is the
+  -x side, and the mesh looks down its own -Z, so its right is +x — which makes `arm` the
+  left), seated with the main hand's own grip maths mirrored for a body facing the other way,
+  and it hangs at the side on that arm's walk swing rather than taking the main hand's raised
+  pose ([gui-notes.md](gui-notes.md)). It also **lights** the ground, water, items and bodies
+  around it: a second small set of shader lights gathered by `scripts/mob_lights.gd`
+  ([rendering-notes.md](rendering-notes.md)). **Every death drops it** — a fist, a fall and a
+  cactus alike — beside the loot table's own roll, because what the body was holding is not a
+  chance (`scripts/goblin.gd::die`). Every number in this section
   — the hearts, the half-heart, the pace, the follow range, the alert box and the anger
   window — is the goblin's entry in `data/mobs.json` rather than a constant in the script: the
   constants are only what a build with no file falls back to, which is why tuning a mob is a

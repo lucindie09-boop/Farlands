@@ -285,7 +285,7 @@ twice, and the coast is where the samples' own crossing is. The whole sequence, 
   long so the sun brightens with the sky instead of stepping up around 15 degrees. This is the sun
   itself, not the god-ray pass; the rays only inherit the dimmer source
 - **Sky turbidity**: Rayleigh/Mie haze effects gated by sky light for proper night darkness
-- **Entity lights (the goblin's offhand torch)**: a second, small set of moving lights on the
+- **Entity lights (a goblin's torches)**: a second, small set of moving lights on the
   same model as the player's glow, because Farlands has no per-entity lighting. The three
   shaders that carry the player light (`voxel_shader.gdshader`, `voxel_shader_water.gdshader`,
   `item_lighting.gdshaderinc`) each declare `MAX_ENTITY_LIGHTS = 4`, four positions, four
@@ -300,7 +300,11 @@ twice, and the coast is where the samples' own crossing is. The whole sequence, 
   overlapping lights never add up, and a torch beside the player's glow changes nothing there.
   `scripts/mob_lights.gd` (under `Main`, before the bodies by `process_priority`) gathers the
   nearest torch-bearers that can be SEEN each frame and pushes their DRAWN item positions and
-  ids once per change. "Can be seen" is the light's own 7-block sphere against the camera
+  ids once per change. It reads BOTH hands — `get_main_hand_item`/`get_main_hand_global_position`
+  beside the offhand's pair, main first — because a goblin's main hand is where looting puts
+  things, and a torch being inspected is in that hand for three seconds and has to light the
+  ground it is stared at over: that is the same bug the offhand had, one hand over. One body
+  contributing two lights is legal, and `MAX_ENTITY_LIGHTS` is still 4. "Can be seen" is the light's own 7-block sphere against the camera
   frustum (its centre and six axis points, seven point tests), not a distance from the
   camera: the first version culled at the radius measured FROM THE CAMERA, which in third
   person — four or five blocks behind the player — put a goblin five blocks ahead ten blocks

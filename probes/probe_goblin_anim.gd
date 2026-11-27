@@ -99,9 +99,14 @@ func _run() -> void:
 		"feet at %.3f, height %.3f" % [union.position.y, union.size.y])
 	# A joint is what a part turns about, so it is where the clip's angles are meant to
 	# be applied: the hips are the tops of the leg boxes, the shoulders the tops of the
-	# arm boxes on the body's side.
-	var leg_hip := (parts["leg"] as Node3D).position
-	var arm_shoulder := (parts["arm2"] as Node3D).position
+	# arm boxes on the body's side. Read in the MODEL's space rather than off the nodes'
+	# own local positions, because an arm's offset is not on the arm any more: arm2 hangs
+	# from the shoulder pivot the held-item pose turns (player_model.gd's _init_held_arm),
+	# so its local position is zero and the joint is the pivot's own place.
+	var leg_hip: Vector3 = (model.global_transform.affine_inverse()
+		* (parts["leg"] as Node3D).global_transform).origin
+	var arm_shoulder: Vector3 = (model.global_transform.affine_inverse()
+		* (parts["arm2"] as Node3D).global_transform).origin
 	_ok("rig: the legs hang from the hips, the arms from the shoulders",
 		absf(leg_hip.y - 0.44) < 0.01 and absf(arm_shoulder.y - 1.0) < 0.01,
 		"hip y %.2f, shoulder y %.2f" % [leg_hip.y, arm_shoulder.y])

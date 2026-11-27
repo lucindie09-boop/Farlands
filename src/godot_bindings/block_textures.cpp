@@ -23,6 +23,7 @@ constexpr int kSideFaceIndex = 0;
 
 void BlockTextures::_bind_methods() {
     ClassDB::bind_static_method("BlockTextures", D_METHOD("is_item", "block_id"), &BlockTextures::is_item);
+    ClassDB::bind_static_method("BlockTextures", D_METHOD("is_item_tool", "block_id"), &BlockTextures::is_item_tool);
     ClassDB::bind_static_method("BlockTextures", D_METHOD("get_side_texture_name", "block_id"), &BlockTextures::get_side_texture_name);
     ClassDB::bind_static_method("BlockTextures", D_METHOD("get_block_id_by_name", "block_name"), &BlockTextures::get_block_id_by_name);
     ClassDB::bind_static_method("BlockTextures", D_METHOD("get_block_names"), &BlockTextures::get_block_names);
@@ -64,6 +65,16 @@ void BlockTextures::ensure_lookup() {
 
 bool BlockTextures::is_item(int block_id) {
     return block_id >= kItemIdBase && ItemRegistry::get_instance().is_item(static_cast<BlockID>(block_id));
+}
+
+bool BlockTextures::is_item_tool(int block_id) {
+    if (block_id < kItemIdBase) {
+        return false;
+    }
+    // `get_item_tool` answers null for a non-item and for a plain item with no
+    // "tool" entry, so the pointer and the tool class are one question.
+    const ItemToolStats* tool = ItemRegistry::get_instance().get_item_tool(static_cast<BlockID>(block_id));
+    return tool != nullptr && tool->is_tool();
 }
 
 String BlockTextures::get_side_texture_name(int block_id) {

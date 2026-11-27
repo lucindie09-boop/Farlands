@@ -10,11 +10,11 @@ next
 few need a decision about the game rather than more code; the last group is the structure that
 keeps the second mob from costing a week.
 
-Five of these are already done and are kept here so the reasoning survives: **1** (a chase
+Six of these are already done and are kept here so the reasoning survives: **1** (a chase
 that cannot reach its target gives up), **2** (which cell a chase is aiming at, including the
 low-roof bug in the column scan), **3** (mob bodies collide with each other and with the
-player), **9** (water and fall damage), which landed with the same walk, and **12** (mob
-attributes as data).
+player), **9** (water and fall damage), which landed with the same walk, **12** (mob
+attributes as data), and **16** (looting, which arrived after this list was written).
 
 ## What a player would call broken
 
@@ -233,3 +233,41 @@ anyone tries.
 Ten angry goblins each raycast every tick and plan with a 20,000-expansion budget. Nobody has
 measured that. A probe that spawns ten and reports the per-frame cost comes first; if it is
 expensive, throttle the sight check and share one plan per pack with offsets.
+
+## Added after this list
+
+### 16. Looting — done
+A goblin with an empty main hand that notices a dropped pile — eight blocks flat, two of height,
+scanned twice a second while it stands with nothing to do — turns its head to it, asks for a
+route with the pace table's own `loot` state (1.1x the walk, and `walk_to` copies the state into
+`_plan_role`, so `nav_trace` labels the errand `loot`), walks there, takes ONE item into its main
+hand and raises that arm until the item is in front of its face for three seconds. A tool stays
+in the hand for good and is dropped with the torch when the body dies; anything else is thrown
+back down in front of it. A full main hand stops the scan: one carried item, no inventory and no
+UI, and the kept tool changes no damage and mines nothing — it is CARRIED.
+
+What the hand is DRAWN in is the player's own rule, because an item hanging dead straight at a
+side does not read as held: the shoulder pivot (`HeldArmPivot`) sits on `arm2` — the arm this
+body holds things in — and tips it 18 degrees forward while the hand is full, with the walk's
+swing halved over that same arm. The inspection lets the pivot go for its three seconds: the 80
+degrees is the arm's angle from rest, and composed over the held turn the hand would end up
+above the face.
+
+Two things here are worth keeping for the next mob. **"Looks at it" is a pose, not a head** —
+the neck pitches 40 degrees down and an item hanging at the side is 70 below the head, so the arm
+has to come up, and the AnimationTree rewrites that arm's rotation every frame: the pose stops
+the tree for the three seconds (the same switch `skip_head_look` uses), writes
+`_clip_rest["arm2"] * Quaternion(RIGHT, pitch)` for that frame and still tracks the head, and
+lets the tree take the arm back on release. No second shoulder pivot, because that changes the
+arm's node path and `_clip_for_rig`'s part map, while freezing the tree cannot break a clip
+path. **The reject is remembered by POSITION, not by a node** — `spawn_at` builds a new body and
+a merge can replace it, so the ten-second ignore window is a point and a deadline.
+
+The one C++ change is the tool query (`BlockTextures.is_item_tool`, the registry's own
+`is_tool`, since nothing on the script side could answer it), and the two methods on
+`scripts/dropped_items.gd` are the only new search: `nearest_item` and `take_one`, which share
+one loop and one `_set_count`. That `_set_count` is the trap the task was worth writing down:
+`_join` already rebuilt a pile's size, boxes, shape row, mesh scale and pop for a new count, and
+a decremented pile that keeps the old body is drawn and solved as the size it no longer is.
+`probes/probe_goblin_loot_run.gd` pins the state machine and `probes/probe_entity_light.gd` the
+second hand's light; `docs/gui-notes.md` holds the holder and the pose.

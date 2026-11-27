@@ -45,6 +45,17 @@ func _goblins(scene: Node) -> Array:
 	return found
 
 
+## Where an arm's HAND is, in the MODEL's own space: the bottom of the arm box, on its centre
+## line, which is where the grip `_seat` measures from. The box is the arm's mesh, so a
+## re-modelled goblin moves this with it; the arm hangs -Y from its shoulder, so its bottom is
+## the hand.
+func _hand_local(model: Node3D, arm: MeshInstance3D) -> Vector3:
+	var box: AABB = (arm.mesh as Mesh).get_aabb()
+	var at: Vector3 = arm.global_transform * Vector3(box.get_center().x, box.position.y,
+		box.get_center().z)
+	return model.global_transform.affine_inverse() * at
+
+
 func _run() -> void:
 	# The tool asks the CURRENT SCENE for its ChunkManager and Player, and the goblin
 	# asks for /root/Main/ChunkManager by the same absolute path the C++ side uses, so
@@ -236,6 +247,108 @@ func _run() -> void:
 			_fail("a chance of 0 carried an item")
 		if int(equipment.roll_offhand("", 1.0, 0.0)) != 0:
 			_fail("an empty item name carried something")
+
+	# --- the main hand: empty at spawn, and the INSPECTION pose ------------------
+	# Two things ever fill this hand (an item taken off the ground mid-loot, and a tool the
+	# goblin decided to keep), so a fresh body owes the field at 0 and no holder under its arm.
+	# The HOLDER needs a texture to seat, and there is no registry in this world -- the same
+	# reason the offhand's torch is proved in the world's probes. The POSE is geometry, though,
+	# and it is what makes "looks at it" possible at all: an item hanging at the goblin's side
+	# is about 70 degrees below its head, and its neck pitches 40.
+	if not model.has_method("get_main_hand_global_position"):
+		_fail("the goblin model has no get_main_hand_global_position (the inspection's look)")
+	if int(body.call("get_main_hand_item")) != 0:
+		_fail("a fresh goblin reports %d in its main hand, expected empty"
+			% int(body.call("get_main_hand_item")))
+	if model.find_child("MainHandItem", true, false) != null:
+		_fail("an empty-handed goblin carries a MainHandItem node")
+	var no_main: Vector3 = body.call("get_main_hand_position")
+	if no_main.distance_to(model.global_position) > 0.01:
+		_fail("an empty main hand reports %s, not the model's own origin %s"
+			% [no_main, model.global_position])
+	# The arm is `arm2`: +x is the goblin's RIGHT, its main hand (goblin_model.gd's MAIN_ARM).
+	var arm2 := model.find_child("arm2", true, false) as MeshInstance3D
+	if arm2 == null or arm2.mesh == null:
+		_fail("the rig has no arm2 to raise")
+	else:
+		var model_script: GDScript = load("res://scripts/goblin_model.gd")
+		var rest := _hand_local(model, arm2)
+		body.call("_set_inspect_pose", true)
+		await process_frame
+		await process_frame
+		var raised := _hand_local(model, arm2)
+		if raised.y <= rest.y:
+			_fail("the inspection did not lift the hand (y %.3f at rest, %.3f raised)"
+				% [rest.y, raised.y])
+		# The mesh looks down its own -Z, so "in front of the face" is a NEGATIVE z in model
+		# space -- and further forward than where the hand rests.
+		if raised.z >= 0.0 or raised.z >= rest.z:
+			_fail("the raised hand is at model z=%.3f (resting at %.3f): not in front of the face"
+				% [raised.z, rest.z])
+		# ...and the head can see it: the angle from the head down to the hand has to be inside
+		# the neck's own limit, or the pose is a hand held where nothing can look at it.
+		var head := model.find_child("head", true, false) as MeshInstance3D
+		if head == null:
+			_fail("the rig has no head to look at the hand with")
+		else:
+			var neck: Vector3 = model.global_transform.affine_inverse() * head.global_position
+			var to_hand := raised - neck
+			var pitch := rad_to_deg(atan2(absf(to_hand.y),
+				Vector2(to_hand.x, to_hand.z).length()))
+			var limit := rad_to_deg(float(model_script.HEAD_PITCH_LIMIT))
+			if pitch > limit:
+				_fail("the raised hand is %.1f degrees below the head, past the neck's %.1f"
+					% [pitch, limit])
+		# Releasing it is a MOVE, not a teleport: the arm comes down over
+		# INSPECT_LOWER_SECONDS (player_model.gd) with the tree still stopped for it, so the
+		# frame after the release it is on its way -- some share of the angle, neither 1 nor 0
+		# -- and it then arrives at rest without a second write.
+		body.call("_set_inspect_pose", false)
+		await process_frame
+		var share := float(model.get("_inspect_share"))
+		if share <= 0.0:
+			_fail("the arm was handed back to the clips in one frame: it teleported down")
+		elif share >= 1.0:
+			_fail("releasing the inspection did not start the arm coming down")
+		var started := Time.get_ticks_msec()
+		var released := _hand_local(model, arm2)
+		while released.distance_to(rest) > 0.01 and Time.get_ticks_msec() - started < 3000:
+			await process_frame
+			released = _hand_local(model, arm2)
+		if released.distance_to(rest) > 0.02:
+			_fail("releasing the inspection left the arm up (%s against %s at rest)"
+				% [released, rest])
+
+	# The shoulder a held item is turned at has to be on the arm the goblin HOLDS things in:
+	# the parent class puts its pivot on `_held_arm_name`, which is arm2 here, so a kept tool is
+	# held with the player's own 18-degree forward turn and halved walk swing. On the left arm
+	# the pose would tilt the torch hand and leave the thing it picked up hanging dead straight.
+	var pivot := model.find_child("HeldArmPivot", true, false)
+	var holding_arm := model.find_child("arm2", true, false)
+	if pivot == null:
+		_fail("the goblin's rig has no HeldArmPivot for the held-item pose")
+	elif holding_arm == null:
+		_fail("the rig has no arm2 to hang the shoulder pivot from")
+	elif holding_arm.get_parent() != pivot:
+		_fail("the shoulder pivot is on %s, not on the main hand's arm2"
+			% String(holding_arm.get_parent().name))
+
+	# --- nothing to loot is nothing to do ----------------------------------------
+	# This world has no DroppedItems node at all, so a scan has nothing to ask. A goblin with
+	# nothing to fetch must stay what it was -- idle, with no errand and no item -- because the
+	# lookup is guarded and a missing node is not an error. The wander is silenced so the only
+	# thing that could move it is the loot run.
+	body.call("_give_up")
+	body.set("_idle_ticks", 1000000)
+	body.set("main_hand_item", 0)
+	for i in 12:
+		body.call("_advance_ticks", 1)
+	if String(body.get("speed_state")) != "idle":
+		_fail("a goblin with nothing to loot is on '%s'" % body.get("speed_state"))
+	if body.get("_loot_target") != Vector3.INF:
+		_fail("it started a loot errand in a world with no dropped items")
+	if int(body.get("main_hand_item")) != 0:
+		_fail("it filled its main hand from a world with no dropped items")
 
 	# A hit is the player's own: the shove the sim applies to a queued hit -- 0.4 away
 	# from the attacker and up -- lands in the velocity the body is moved by.

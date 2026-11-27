@@ -932,9 +932,11 @@ first-person viewmodel - what each one owns and the decisions behind it.
   `HeldArmPivot/arm` from then on, which is why the clip's tables are keyed by PART and the
   paths are resolved per part (`_part_path`/`_part_of_path`); a gain table read by path would
   otherwise leave the arm on the clip's authored 16.8 degrees instead of vanilla's 1.0 rad.
-  Every body gets the pivot, and a preview holds nothing, so its shoulder stays at 0; a
-  goblin's torch is in the OTHER hand (`hold_offhand`, below), which is a holder of its own
-  with the same grip maths and none of this pose. Vanilla's rule is two halves and one order — the walk swing HALVED, then 18 degrees off —
+  Every body gets the pivot, on the arm THAT body holds things in (`_held_arm_name`: `arm` for
+  the player, `arm2` for a goblin — its mesh faces −Z, so its right hand is the +x side), and
+  a preview holds nothing, so its shoulder stays at 0; a goblin's torch is in the OTHER
+  hand (`hold_offhand`, below), which is a holder of its own with the same grip maths and none
+  of this pose. Vanilla's rule is two halves and one order — the walk swing HALVED, then 18 degrees off —
   so the scaling is `HELD_ARM_SWING` on the run clip's arm track (`_set_held_swing`, set beside
   the turn so the two cannot disagree): a turn cannot ride the pivot, but a scaling can ride the
   clip, which carries the walk and nothing else, and the idle's hang is added over it unhalved,
@@ -959,6 +961,50 @@ first-person viewmodel - what each one owns and the decisions behind it.
   is the arm box's other end and the artwork is turned with it (`HELD_MIRROR_YAW`), or the
   torch is drawn behind the hand and its sprite upside down — `probes/probe_goblin.gd` holds
   the drawn position to the mesh's face side.
+- **The main-hand holder and the inspect pose** (`hold_main` / `_init_main_hand`): the same
+  holder a second time, for the one thing a goblin picks up — and held with the PLAYER's own
+  rule, not the offhand's: `_seat` for the grip, then `_pose_held_arm`, so the shoulder tips
+  `HELD_ARM_PITCH` forward on the arm the body holds things in (the goblin's `arm2`) and the
+  walk's swing halves over the same arm (`_set_held_swing` reads `_held_arm_name`, and
+  `_clip_for_rig` re-homes a limb that a pivot has moved out from under its own name). An arm
+  hanging dead straight at the side is what did not read as held. The holder itself is
+  `_main_hand_item` and its own `MeshInstance3D` on the arm the caller names — a goblin's `arm2`, its RIGHT, which is +x in
+  the mesh's own space because that mesh looks down -Z — with `facing := -1.0` so the hand is the
+    arm box's other end and the artwork turns with it, and `_seat` again, so the grip maths,
+  the turn, the seat and the `alpha_scissor` are still written once — sideways, on the arm
+  BOX's centre line, which is not always the arm node's: the goblin's arms hang from the inner
+  face of their box, so centring on the joint hung a pickaxe half an arm's width off its arm
+  (`_seat`'s own comment, and `probes/probe_held_pose.gd` / `probe_entity_light.gd` measure the
+  item's box against the limb's). It is deliberately NOT
+  `_held_item`: that holder is the player's hotbar hand and asks its host for
+  `get_selected_hotbar_slot`, which no mob has. `get_main_hand_global_position` mirrors the
+  offhand's, and `scripts/mob_lights.gd` reads both hands' pairs, so a torch in either — or one
+  in each — lights the world. `_main_hand_filled` is what the pose follows, and it is true for
+  either body's holder, so an emptied hand is the only thing that puts the arm back down.
+- **The inspect pose** (`inspect_pose` / `set_inspect_pose(on, pitch)`): the one place a body's
+  AnimationTree is stopped for something other than the head. A goblin with a fresh item raises
+  that arm until the item is in front of its face and holds it for three seconds, and the tree
+  rewrites the arm's local rotation every frame, so a write on the arm alone is replaced by the
+  next pose the clips produce. `_process` checks the flag BEFORE `_animate_body`, deactivates the
+  tree (stopped, not skipped: a tree left playing keeps the body breathing mid-inspection),
+  writes `arm2.quaternion = _clip_rest["arm2"] * Quaternion(Vector3.RIGHT, deg_to_rad(pitch) *
+  sign)` — with the shoulder PIVOT let go for the frame (`_pose_held_arm(false)`), because the
+  18-degree held turn and this angle are two poses of the same arm and composed they would put
+  the hand above the face; `set_inspect_pose(false)` gives the pivot back if the hand is still
+  full, which is a kept tool back at its side — and still calls `_track_head_look()`, because
+  the head is the half that is looking at it; every other part stays where the last tick put
+  it, which is rest for a body standing still. The release is a MOVE: `_inspect_share` falls
+  from 1 to 0 over `INSPECT_LOWER_SECONDS` (0.28 s) with the tree still stopped, the arm's
+  angle written as that share of the inspection's and the shoulder's held turn as the
+  complement — so the item comes down from the face to the side in one continuous movement
+  instead of the arm teleporting and the clips picking it up at 80 degrees. Taking an item UP
+  is still the one frame the hand fills. The sign
+  belongs to the MESH: the player's rig faces +Z and comes forward on -18 degrees
+  (`_inspect_sign` = -1), a goblin's faces -Z and comes forward on the same "forward" with the
+  opposite turn (`goblin_model.gd`'s `INSPECT_SIGN` = 1), and the pitch is the caller's number
+  rather than a shared constant. `probes/probe_goblin.gd` holds the raised hand in FRONT of the
+  mesh and above its resting place, inside the neck's own `HEAD_PITCH_LIMIT`, and
+  `probes/probe_entity_light.gd` holds a real torch there.
 
 ## Cameras, targets and overlays
 

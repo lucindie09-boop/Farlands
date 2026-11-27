@@ -1,5 +1,6 @@
 extends SceneTree
-## Does a goblin's offhand torch actually light the world?
+## Does a goblin's torch actually light the world — in the offhand it spawns with, and in the
+## main hand looting puts things in?
 ##
 ## Three claims, all in the real world and all at night, where the sun cannot hide the
 ## answer:
@@ -14,6 +15,9 @@ extends SceneTree
 ##     scratch material through ChunkManager.apply_item_lighting, which hands over the
 ##     same cached values the terrain, water, items and bodies all receive.
 ##   * a torch-bearer out of range drops the count back to 0.
+##
+## The main hand repeats all of it (its card on the +x side and in front, its light at
+## `get_main_hand_position`, the ground brighter, and two lights when both hands carry one).
 ##
 ## Not checked: occlusion. The glow is a shader term and a torch behind a wall lights the
 ## near face; that limit is written down in docs/rendering-notes.md rather than tested,
@@ -304,6 +308,129 @@ func _run() -> void:
 		var after: Dictionary = _entity_lights(cm)
 		if int(after.get("count", -1)) != 0:
 			_fail("an empty-handed goblin still feeds %d lights" % int(after.get("count", -1)))
+
+	# The MAIN hand is the other half of the same rule, and the reason it exists: a torch being
+	# inspected is in the hand for three seconds and has to light the ground it is stared at
+	# over. `arm2` is the goblin's right arm, so in the MODEL's space the card has to be on the
+	# +x side and in front (z < 0) -- the mirror of the offhand above, off the same seat.
+	body.set("main_hand_item", torch)
+	await _seconds(0.4)
+	var main_drawn: Vector3 = body.call("get_main_hand_position")
+	if int(body.call("get_main_hand_item")) != torch:
+		_fail("the body reports %d in its main hand, not the torch %d"
+			% [int(body.call("get_main_hand_item")), torch])
+	var main_hand := model.find_child("MainHandItem", true, false) as MeshInstance3D
+	if main_hand == null or not main_hand.visible:
+		_fail("a goblin holding a torch in its main hand draws no MainHandItem")
+	else:
+		var main_local := model.global_transform.affine_inverse() * main_hand.global_position
+		if main_local.z >= 0.0:
+			_fail("the main-hand torch sits at model z=%.3f: behind the goblin" % main_local.z)
+		if main_local.x <= 0.0:
+			_fail("the main-hand torch sits at model x=%.3f: on the left hand, not the right"
+				% main_local.x)
+		if main_drawn.distance_to(main_hand.global_position) > 0.001:
+			_fail("the body reports the main-hand torch at %s, drawn at %s"
+				% [main_drawn, main_hand.global_position])
+		var main_facing := -model.global_transform.basis.z.normalized()
+		if main_hand.global_transform.basis.y.dot(main_facing) <= 0.0:
+			_fail("the main-hand torch is drawn upside down")
+	# ...and it is HELD the way the player holds one: the shoulder tipped forward by
+	# HELD_ARM_PITCH over the same arm, with the walk's swing halved, where the offhand's torch
+	# hangs dead straight at its side. The pivot is the pose itself, so this reads it and then
+	# reads the arm it turned -- an arm whose down axis leans toward the goblin's face.
+	var held_pivot := model.find_child("HeldArmPivot", true, false) as Node3D
+	var main_arm := model.find_child("arm2", true, false) as MeshInstance3D
+	if held_pivot == null or main_arm == null:
+		_fail("the goblin's main arm has no shoulder pivot to hold an item with")
+	else:
+		var face := -model.global_transform.basis.z.normalized()
+		var arm_down := -main_arm.global_transform.basis.y.normalized()
+		print("PROBE main-hand shoulder: %.1f degrees, arm %.3f forward"
+			% [held_pivot.rotation_degrees.x, arm_down.dot(face)])
+		if absf(held_pivot.rotation_degrees.x) < 1.0:
+			_fail("a main-hand torch left the shoulder at %.1f degrees: the arm is not held"
+				% held_pivot.rotation_degrees.x)
+		if arm_down.dot(face) < 0.15:
+			_fail("the main-hand arm points %.3f toward the goblin's own face: not held forward"
+				% arm_down.dot(face))
+	# ...and two sprites, because a torch's art sits near the middle of its cell and cannot
+	# show the SIDEWAYS half of the seat at all: a TOOL's art does not (item1's turn hides most
+	# of it), and an `item2` sprite keeps its art's own x right through its quarter turn. Both
+	# are measured the same way, as the drawn mesh's box in the ARM's own space: its middle
+	# belongs on the arm's centre line.
+	for wanted in ["wooden_pickaxe", "water_bucket"]:
+		var held_id := BlockTextures.get_block_id_by_name(String(wanted))
+		if held_id <= 0:
+			_fail("`%s` does not resolve, so the seat cannot be measured on it" % wanted)
+			continue
+		body.set("main_hand_item", held_id)
+		await _seconds(0.3)
+		var drawn_item := model.find_child("MainHandItem", true, false) as MeshInstance3D
+		var main_arm_node := model.find_child("arm2", true, false) as Node3D
+		if drawn_item == null or not drawn_item.visible or main_arm_node == null \
+				or main_arm_node.mesh == null:
+			_fail("%s in the main hand draws nothing on an arm" % wanted)
+			continue
+		var in_arm: AABB = (main_arm_node.global_transform.affine_inverse()
+			* drawn_item.global_transform) * (drawn_item.mesh as Mesh).get_aabb()
+		var arm_box: AABB = (main_arm_node.mesh as Mesh).get_aabb()
+		var off := in_arm.get_center().x - arm_box.get_center().x
+		print("PROBE main-hand %s: art centre x %.4f, arm centreline x %.4f (arm %.3f wide)"
+			% [wanted, in_arm.get_center().x, arm_box.get_center().x, arm_box.size.x])
+		if absf(off) > 0.02:
+			_fail("the held %s sits %.3f off the arm's centre line" % [wanted, absf(off)])
+	body.set("main_hand_item", torch)
+	await _seconds(0.3)
+	var fed_main: Dictionary = _entity_lights(cm)
+	if int(fed_main.get("count", 0)) != 1:
+		_fail("the world is fed %d entity lights for a main-hand torch"
+			% int(fed_main.get("count", 0)))
+	else:
+		var main_positions: PackedVector3Array = fed_main["positions"]
+		if main_positions[0].distance_to(main_drawn) > 0.01:
+			_fail("the light is at %s but the main-hand torch is drawn at %s"
+				% [main_positions[0], main_drawn])
+	# ...and the ground under it brightens, the same frame test the offhand gets.
+	model.visible = false
+	await _seconds(0.4)
+	var main_armed := _frame()
+	body.set("main_hand_item", 0)
+	await _seconds(0.5)
+	var main_empty := _frame()
+	model.visible = true
+	if main_armed == null or main_empty == null:
+		_fail("no framebuffer to read (run this windowed: probes/run_probe_shot.sh)")
+	else:
+		var main_cmp: Dictionary = _compare(main_armed, main_empty, centre)
+		if main_cmp.is_empty():
+			_fail("the measured region is off the frame")
+		else:
+			var main_share := float(main_cmp["bright"]) / maxf(float(main_cmp["samples"]), 1.0)
+			print("PROBE ground under the main-hand torch: mean +%.4f, %d of %d samples "
+				% [float(main_cmp["mean"]), int(main_cmp["bright"]), int(main_cmp["samples"])]
+				+ "clearly brighter (%.1f%%)" % (100.0 * main_share))
+			if float(main_cmp["mean"]) < MEAN_STEP or main_share < MIN_BRIGHT_SHARE:
+				_fail("the ground does not get brighter with a main-hand torch "
+					+ "(mean +%.4f, %.1f%% of samples)"
+					% [float(main_cmp["mean"]), 100.0 * main_share])
+	if main_hand != null and main_hand.visible:
+		_fail("an emptied main hand still draws its torch")
+	if held_pivot != null and absf(held_pivot.rotation_degrees.x) > 0.01:
+		_fail("an emptied main hand left the shoulder turned %.1f degrees"
+			% held_pivot.rotation_degrees.x)
+	# Both hands at once is legal: one goblin can carry two lights, and the cap is 4.
+	body.set("main_hand_item", torch)
+	body.set("offhand_item", torch)
+	await _seconds(0.4)
+	if int(_entity_lights(cm).get("count", 0)) != 2:
+		_fail("a goblin holding a torch in each hand feeds %d lights, not 2"
+			% int(_entity_lights(cm).get("count", 0)))
+	body.set("main_hand_item", 0)
+	body.set("offhand_item", 0)
+	await _seconds(0.3)
+	if int(_entity_lights(cm).get("count", -1)) != 0:
+		_fail("empty hands still feed %d lights" % int(_entity_lights(cm).get("count", -1)))
 
 	# ...and DISTANCE is not the cull: a torch 25 blocks down the view is still lighting ground
 	# the camera can see, which is the bug that had a third-person player watch the light go

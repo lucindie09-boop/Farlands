@@ -61,9 +61,28 @@ const OFFHAND_ARM := "arm"
 ## the drawn torch to the mesh's face side.
 const OFFHAND_FACING := -1.0
 
+## The arm the MAIN hand's item hangs from: `arm2` is the +x side, which is the goblin's
+## RIGHT -- the mirror of OFFHAND_ARM above, for the same reason (up +Y, looking down -Z, so
+## the right hand is cross(-Z, +Y) = +X). A goblin holds what it picks up here: one item, and
+## nothing in an inventory.
+const MAIN_ARM := "arm2"
+## The same mirrored seat the offhand takes, because it is the same mesh: the hand is the arm
+## box's other end and the artwork is turned with it.
+const MAIN_FACING := -1.0
+
+## Which way a raised arm turns for the inspection pose (player_model.gd's `inspect_pose`):
+## the pose is `rest * Quaternion(RIGHT, pitch * sign)`, and the sign is the MESH's rather
+## than a copied number -- the player's rig faces +Z and comes forward on -18 degrees, while
+## this one faces -Z, so the same "forward" is the opposite turn. Measured, not assumed:
+## probes/probe_goblin.gd holds the raised hand in front of the mesh (negative z), above its
+## rest, and inside the neck's own pitch limit.
+const INSPECT_SIGN := 1.0
+
 ## What is drawn in the offhand right now (`scripts/goblin.gd`'s roll, as last read), so a
 ## frame that has not changed it costs one comparison and no work.
 var _offhand_drawn := 0
+## The same, for the main hand: what the body says it is holding there (`main_hand_item`).
+var _main_drawn := 0
 
 ## How far a neck turns: 75 degrees either side of where the body faces, and 40 up or
 ## down. Past that the goblin would be looking out of the back of its head, and the game
@@ -113,6 +132,7 @@ func clear_look() -> void:
 func _process(delta: float) -> void:
 	_head_delta = delta
 	_sync_offhand()
+	_sync_main_hand()
 	super._process(delta)
 
 
@@ -132,6 +152,40 @@ func _sync_offhand() -> void:
 		return
 	_offhand_drawn = id
 	hold_offhand(OFFHAND_ARM, id, OFFHAND_FACING)
+
+
+## Draw whatever the body says is in its MAIN hand, this frame -- the offhand's rule, for the
+## offhand's reason: the field is read lazily (a child's `_ready` runs before its parent's), a
+## body with no such field holds nothing, and a probe can force a hand by writing the field.
+## Two things fill it: an item taken off the ground mid-loot, and a tool the goblin decided to
+## keep. Clearing it is the same one comparison, and the hand empties.
+func _sync_main_hand() -> void:
+	var body := get_parent()
+	var id := 0
+	if body != null and body.has_method("get_main_hand_item"):
+		id = int(body.call("get_main_hand_item"))
+	if id == _main_drawn:
+		return
+	_main_drawn = id
+	hold_main(MAIN_ARM, id, MAIN_FACING)
+
+
+## The arm an inspection raises is the main hand's (player_model.gd's `inspect_pose`), and it
+## turns the other way because this mesh looks down -Z.
+func _inspect_arm() -> String:
+	return MAIN_ARM
+
+
+## The arm this body holds things in, so the shoulder pivot and the held-item pose are on the
+## MAIN hand (player_model.gd's `_held_arm_name`): a kept tool hangs at arm2 tilted forward by
+## the same 18 degrees and swinging half as far as the walk, exactly as an item in the player's
+## hand does, and the LEFT arm keeps its plain swing for the torch.
+func _held_arm_name() -> String:
+	return MAIN_ARM
+
+
+func _inspect_sign() -> float:
+	return INSPECT_SIGN
 
 
 func _ready() -> void:

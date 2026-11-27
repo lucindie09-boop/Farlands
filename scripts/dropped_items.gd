@@ -200,6 +200,11 @@ var _materials: Dictionary = {}
 
 var _chunk_manager: Node = null
 var _player: Node3D = null
+## A body with no simulation behind it, built only for its view of the cells:
+## `nearest_item` asks whether a pile is lying in liquid, and `MobBody.is_liquid_at` is the
+## world's own predicate for that (the one the goblins wade by). Built on first use, because
+## most worlds never ask.
+var _cells: RefCounted = null
 ## Whether the world can solve an item's whole substep (ChunkManager.solve_item_bodies).
 ## Looked up once: it is the same answer every substep, and has_method is not free.
 var _body_solve_available := false
@@ -664,37 +669,47 @@ func _is_more(a: Dictionary, b: Dictionary) -> bool:
 ## size in the frame it merges, and the guard that pushes a landing body out of the
 ## world pushes a pile out of whatever it grew into.
 func _join(survivor: Dictionary, joining: Dictionary) -> void:
-	var count: int = survivor["count"] + joining["count"]
 	# The motion first, while both counts are still the two parts of the pile.
 	_combine_motion(survivor, joining)
-	survivor["count"] = count
 	# An item's age is both its pickup delay and its lifetime, and the pile takes
 	# the younger of the two: a merge cannot be collected the instant the newer part
 	# lands, and the whole pile lives out the newer part's own time.
 	survivor["age"] = minf(survivor["age"], joining["age"])
-	var block_id: int = survivor["block_id"]
+	_set_count(survivor, int(survivor["count"]) + int(joining["count"]))
+
+
+## Give one pile a new COUNT: its size, boxes, shape row, mesh scale and pop are all derived
+## from it, so nothing is ever drawn or solved as a size the pile no longer is.
+##
+## Two callers, and they are the two directions a count moves: `_join` adds one pile onto
+## another, and `take_one` takes a single item off. The second is the trap the extraction is
+## for -- a heap TAKEN FROM that kept the body it had would be a smaller pile drawn and
+## collided as the bigger one, resting on ground it no longer covers and bumped by bodies it
+## no longer reaches.
+func _set_count(item: Dictionary, count: int) -> void:
+	item["count"] = count
+	var block_id: int = item["block_id"]
 	var body_scale := BASE_SCALE * _merge_scale(count)
 	var boxes := _boxes_of(block_id, body_scale)
 	var centre: Vector3 = _body_centre(boxes)
 	var offsets := _box_offsets(boxes, centre)
 	var halves := _box_halves(boxes)
 	var points := _body_points(boxes, centre)
-	survivor["size"] = _body_size(boxes, centre)
-	survivor["half"] = survivor["size"] * 0.5
-	survivor["inertia"] = _inertia_of(boxes, centre)
-	survivor["radius"] = _body_reach(boxes, centre)
-	survivor["shape"] = _shape_row(block_id, count, offsets, halves, points)
-	var node: Node3D = survivor["node"]
+	item["size"] = _body_size(boxes, centre)
+	item["half"] = item["size"] * 0.5
+	item["inertia"] = _inertia_of(boxes, centre)
+	item["radius"] = _body_reach(boxes, centre)
+	item["shape"] = _shape_row(block_id, count, offsets, halves, points)
+	var node: Node3D = item["node"]
 	var mesh_instance := node.get_child(0) as MeshInstance3D
 	if mesh_instance != null:
 		mesh_instance.scale = Vector3.ONE * body_scale
 		mesh_instance.position = -_mesh_centre(block_id) * body_scale
-	# The merged body is bigger than whatever it was resting on and has just been
+	# The body is a different size than whatever it was resting on and has just been
 	# handed a motion: it is awake again, and the next slice finds its new rest.
-	survivor["asleep"] = false
-	# And the news is drawn: the size pops past the new one and settles onto it
-	# (_draw_item).
-	survivor["pop"] = POP_TIME
+	item["asleep"] = false
+	# And the news is drawn: the size pops past the new one and settles onto it (_draw_item).
+	item["pop"] = POP_TIME
 	_bodies_static_dirty = true
 
 
@@ -1072,3 +1087,87 @@ func get_items() -> Array:
 			"age": item["age"],
 		})
 	return out
+
+
+## The nearest pile a body could take from -- a mob's loot run asks this
+## (scripts/goblin.gd, LOOT_RANGE/LOOT_LEVEL).
+##
+## `radius` is a FLAT distance and `max_dy` a bound on the height, which are two
+## questions because they are two different things: how far it is to WALK, and how far
+## above or below the asker the pile lies. A real 3D distance was the other way to say it
+## and it is the wrong one here -- a pile two blocks off and three down is a short walk and
+## a long reach -- and the caller's own numbers are already stated that way.
+##
+## Skipped: a pile still inside PICKUP_DELAY (it was thrown a moment ago, and a mob
+## snatching it out of the air is not a take), and a pile whose centre cell is LIQUID. The
+## second is a limit rather than a rule: the take is from dry ground, and a loot run that
+## ends in a swim is not part of this -- a pile in a pond is left for the player.
+##
+## Nothing is allocated beyond the answer.
+func nearest_item(at: Vector3, radius: float, max_dy: float) -> Dictionary:
+	var index := _nearest_index(at, radius, max_dy)
+	if index < 0:
+		return {}
+	var found: Dictionary = _items[index]
+	return {
+		"block_id": found["block_id"],
+		"count": found["count"],
+		"position": found["position"],
+	}
+
+
+## Which pile `nearest_item` would answer, or -1. One loop, two callers: `take_one` has to
+## find the same pile the search just picked, and a second loop could disagree with it.
+func _nearest_index(at: Vector3, radius: float, max_dy: float) -> int:
+	var best := -1
+	var best_flat := INF
+	for i in _items.size():
+		var item: Dictionary = _items[i]
+		if float(item["age"]) < PICKUP_DELAY:
+			continue
+		var p: Vector3 = item["position"]
+		if absf(p.y - at.y) > max_dy:
+			continue
+		var flat := Vector2(p.x - at.x, p.z - at.z).length()
+		if flat > radius or flat >= best_flat:
+			continue
+		if _in_liquid(p):
+			continue
+		best = i
+		best_flat = flat
+	return best
+
+
+## Whether a world point is inside a liquid cell. Asked through `MobBody.is_liquid_at`, the
+## same predicate the goblins wade and swim by, on a body of our own that runs no
+## simulation -- it is only a view of the chunk map's cells. A node with no world answers
+## "no liquid", which is what a pile falling in a preview should hear.
+func _in_liquid(at: Vector3) -> bool:
+	if _cells == null:
+		if _chunk_manager == null or not _chunk_manager.has_method("make_mob_body"):
+			return false
+		_cells = _chunk_manager.call("make_mob_body")
+	if _cells == null or not _cells.has_method("is_liquid_at"):
+		return false
+	return bool(_cells.call("is_liquid_at", floori(at.x), floori(at.y), floori(at.z)))
+
+
+## Take exactly ONE item out of the nearest pile `nearest_item` would answer, and hand back
+## what was taken.
+##
+## A pile holding more than one keeps its place at the smaller count, its body rebuilt to
+## that size (`_set_count`); the last item of a pile takes the pile out of the world through
+## `_remove`. Nothing is collected: there is no flight to a hand, no inventory and no
+## `can_add_block`/`give_block` -- the asker is a MOB's hand (scripts/goblin.gd), and the
+## player's own path through `_try_pickup` and `_begin_collect` is untouched.
+func take_one(at: Vector3, radius: float, max_dy: float) -> Dictionary:
+	var index := _nearest_index(at, radius, max_dy)
+	if index < 0:
+		return {}
+	var item: Dictionary = _items[index]
+	var block_id: int = item["block_id"]
+	if int(item["count"]) > 1:
+		_set_count(item, int(item["count"]) - 1)
+	else:
+		_remove(index)
+	return {"block_id": block_id, "count": 1}

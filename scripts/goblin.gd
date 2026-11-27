@@ -37,6 +37,24 @@ extends Node3D
 ## two columns over is one, and it is a jump off the lip rather than a walk into the gap.
 ## A hop that climbs is not planned at all -- see `MoveGenerator::hop`, which measured
 ## that arc against this pace.
+##
+## A fifth thing a goblin does, when its MAIN hand is EMPTY and it has nothing else to do, is
+## LOOT. Six beats, and the middle one is why the arm has a pose of its own:
+##   - standing about, it notices a dropped pile within LOOT_RANGE (flat) and within LOOT_LEVEL
+##     of its feet, turns its head to it, and walks over at the "loot" pace -- the wander's own
+##     plan-walking, one entry of SPEED_STATES faster;
+##   - inside LOOT_REACH it takes ONE item out of the pile, into its right hand;
+##   - it raises that arm until the item is in front of its face and stands there for three
+##     seconds (LOOT_INSPECT_TICKS) looking at it, which the neck cannot do with the arm down;
+##   - a TOOL -- a pickaxe, an axe, a hammer, a shovel -- is KEPT: it hangs at its side from
+##     then on, and a death drops it with everything else the body carried;
+##   - anything else is thrown back on the ground in front of it, and that spot is ignored for
+##     LOOT_IGNORE_TICKS so it does not pick its own reject straight back up;
+##   - either way it goes back to wandering.
+## ONE item and no inventory: a goblin whose main hand is full stops looting entirely, and a
+## kept tool changes none of its numbers -- it is carried, not used. A fight ends a loot run
+## wherever it has got to, and an item taken but not yet decided is dropped where the body
+## stands: an interruption must never leave an undecided item in a hand.
 
 const NAV_ROUTES := preload("res://scripts/nav_routes.gd")
 ## The session's pathfinding trace, one per session and owned by the root -- see `_install_trace`.
@@ -138,10 +156,11 @@ const BLOCKS_PER_SECOND := 9.52
 ## The player's own walking pace in blocks a second, which is what the sim's move
 ## multiplier of 1.0 means.
 const PLAYER_WALK_SPEED := 4.317
-## What the goblin is doing to its speed, as a share of MOVEMENT_SPEED. Only `idle`
-## drives anything today -- it wanders and has no chase, no loot run, no fleeing and no
-## sneak approach yet -- but every state is here, one assignment to `speed_state`
-## away from being used.
+## What the goblin is doing to its speed, as a share of MOVEMENT_SPEED. Four are driven
+## today: `idle` for the wander, `chasing` and `fleeing` for a fight, and `loot` for a loot
+## errand (see LOOT_RANGE). The rest are here, one assignment to `speed_state` away from
+## being used -- and a state is the WHOLE pace mechanism: `get_move_speed` and
+## `get_speed_multiplier` read this and nothing else.
 const SPEED_STATES := {
 	"idle": 0.6,      # slow, shuffling patrol
 	"chasing": 1.0,   # the full 0.30
@@ -149,6 +168,42 @@ const SPEED_STATES := {
 	"fleeing": 1.3,   # panicked sprint
 	"sneaking": 0.7,  # creeping closer
 }
+
+## How it loots: what it can notice, how far it goes for it, and how long it looks at what it
+## took. Every number here is a judgement call, easy to retune, and all of them are stated in
+## the units the code checks them in -- FLAT blocks for a distance and a height bound beside
+## it, because "how far it is to walk" and "how far up it is" are two questions.
+const LOOT_RANGE := 8.0            # flat blocks it can notice a pile from
+const LOOT_LEVEL := 2.0            # max |dy| between feet and the pile
+const LOOT_SCAN_TICKS := 10        # half a second between scans
+const LOOT_REACH := 1.3            # flat reach that takes the item
+const LOOT_TAKE_HEIGHT := 1.2      # max |dy| at the take
+## A loot errand is planned FURTHER than a stroll: a stroll goes six blocks, an eight-block
+## errand can need a detour round a wall or a pond, and the stroll's 4000 expansions carry it
+## only as far as the nearest frontier. The chase's 20,000 expansions and 24 ms are overkill
+## for a pebble.
+const LOOT_EXPANSIONS := 12000
+const LOOT_MAX_MS := 16.0
+## Three seconds of standing and looking at what it took, at the sim's 20 Hz.
+const LOOT_INSPECT_TICKS := 60
+## Ten seconds from the ask to the arrival, and then it gives up and stands. A pile it cannot
+## reach is a pile it cannot reach, and asking for ten seconds is already generous.
+const LOOT_ERRAND_TICKS := 200
+## ...and ten seconds during which a spot it rejected -- or could not reach -- is not asked
+## about again, and how close another pile has to be to count as that spot. This is what
+## stops a goblin picking its own reject straight back up: `spawn_at` builds a NEW body, the
+## merge pass may replace the node under it, so the memory is a POSITION rather than a node
+## or an item id.
+const LOOT_IGNORE_TICKS := 200
+const LOOT_IGNORE_REACH := 2.0
+## Degrees the main arm comes up for the inspection. 80 puts the hand in front of the chest
+## and a little below the shoulder, which is where the neck can reach it: the head pitches
+## 40 degrees down (goblin_model.gd's HEAD_PITCH_LIMIT) and an item hanging at the goblin's
+## side is about 70 below its head, so the arm has to come up for it to be looked at at all.
+## Which WAY that turn goes is the mesh's, not this script's (goblin_model.gd's
+## INSPECT_SIGN); probes/probe_goblin.gd measures the raised hand against the mesh.
+const INSPECT_ARM_PITCH := 80.0
+
 ## A hit is a reason to fight back. A mob keeps whoever hurt it as a revenge target and walks
 ## at them, and the chase is the same plan-walking this body already does, at a faster state
 ## and aimed at a person rather than at a roll's column. Reach is the two bodies' own widths
@@ -439,6 +494,24 @@ var _health := MAX_HEALTH
 ## what is left on the ground two different things.
 var offhand_item := 0
 
+## The item in the MAIN hand as a block/item id, or 0 for an empty hand. Two things fill it: a
+## kept TOOL, which stays for good and hangs at the body's side, and the three seconds an
+## item spends being looked at mid-loot. It is drawn by the model's own holder
+## (`hold_main`), dropped FIRST by `die()` through `_held_items`, and an EMPTY main hand is
+## what the loot scan asks for -- one carried item and no inventory is the whole rule.
+var main_hand_item := 0
+
+## The loot run's own state: where the pile it is walking to was SEEN (INF when there is no
+## errand), the tick the errand is abandoned at, the ticks left of an inspection, and the spot
+## and deadline of one it is ignoring. `_loot_scan_ticks` is the countdown to the next look
+## around, so a standing goblin asks the world once a second at most.
+var _loot_target := Vector3.INF
+var _loot_deadline := 0
+var _inspect_ticks := 0
+var _loot_ignore_at := Vector3.INF
+var _loot_ignore_until := 0
+var _loot_scan_ticks := 0
+
 # The body's numbers, which `data/mobs.json` owns. `_apply_attributes` fills every one of these
 # from the registry in `_ready`, and the constants of the same names are the fallback -- nothing
 # below reads a constant, so tuning a goblin is a diff in the data file and not in this script.
@@ -706,9 +779,30 @@ func _advance_ticks(ticks: int) -> void:
 	# A glance is held whether it is walking or not, so its clock runs before either roll: what
 	# is left of it is what decides whether the watch may take the head.
 	_look_ticks = maxi(_look_ticks - ticks, 0)
-	_update_gaze(ticks)
+	# The FIGHT first, always: a goblin being hit is not looking at a pebble. A loot errand
+	# cannot survive one either -- `_cancel_loot` drops whatever it had in hand undecided
+	# rather than resuming the errand after the fight.
 	_update_enemy(ticks)
+	if _enemy != null:
+		_cancel_loot()
+	# An inspection OWNS the head and the body for its three seconds, and this returns before
+	# the gaze and before the route block below. Both have to be skipped: `_update_gaze`
+	# would take the head for a player inside LOOK_AT_RANGE, and the idle block four lines
+	# down calls `_clear_look()` when its glance runs out -- which would cancel the
+	# inspection's own look once a second.
+	if _inspect_ticks > 0:
+		_inspect_tick(ticks)
+		return
+	_update_gaze(ticks)
 	_separate_bodies()
+	# A loot errand: walking to the pile it noticed, or looking around for one. Neither
+	# returns -- the route block below still has to level-check, count stuck ticks and
+	# re-plan -- and neither may interrupt a STROLL, because a goblin already walking
+	# somewhere is not stopping for a pebble (the scan asks for an empty route).
+	if _loot_target != Vector3.INF:
+		_loot_travel()
+	else:
+		_loot_look(ticks)
 	if _route.is_empty():
 		if _idle_ticks > 0:
 			_idle_ticks = maxi(_idle_ticks - ticks, 0)
@@ -726,14 +820,16 @@ func _advance_ticks(ticks: int) -> void:
 		# starts (see `_update_gaze`).
 		# A fight owns the head and the plans, so the glancing and the wandering below are
 		# the standing goblin's business only.
-		if _enemy == null and _look_ticks == 0 and not _gazing:
+		# ...and a glance is the standing goblin's alone: a loot errand has the head and the
+		# route, and `_clear_look` here would take the item look away every second.
+		if _enemy == null and _look_ticks == 0 and not _gazing and _loot_target == Vector3.INF:
 			# A glance is a glance: its hold running out is the head going back to straight
 			# ahead, and only then does the roll get another chance at one.
 			_clear_look()
 			if randf() < LOOK_CHANCE * ticks:
 				_look_ticks = randi_range(LOOK_HOLD_MIN, LOOK_HOLD_MAX)
 				_pick_look()
-		if _enemy == null and _idle_ticks == 0 and _job == 0 \
+		if _enemy == null and _idle_ticks == 0 and _job == 0 and _loot_target == Vector3.INF \
 				and bool(_sim.is_on_ground()) and randf() < STROLL_CHANCE * ticks:
 			_stroll()
 	else:
@@ -1079,6 +1175,233 @@ func stroll_now() -> int:
 	if _job != 0 or _sim == null or not bool(_sim.is_on_ground()):
 		return 0
 	return _stroll()
+
+
+## A standing goblin asks the world for the nearest pile to fetch, half a second at a time.
+##
+## Only with nothing else to do -- no fight, no stroll in hand, no plan in flight, on the
+## ground, not running away -- and only with an EMPTY main hand: one carried item is all it
+## will hold, so a goblin that decided to keep a tool stops looting for good.
+func _loot_look(ticks: int) -> void:
+	if _enemy != null or _fleeing or main_hand_item > 0:
+		return
+	if not _route.is_empty() or _job != 0:
+		return
+	if _sim == null or not bool(_sim.is_on_ground()):
+		return
+	_loot_scan_ticks -= ticks
+	if _loot_scan_ticks > 0:
+		return
+	_loot_scan_ticks = LOOT_SCAN_TICKS
+	_start_loot()
+
+
+## Set off on the nearest pile: the errand, its budget and the plan that walks it.
+##
+## There is no second pace mechanism here. `speed_state` is set to "loot" BEFORE `walk_to`,
+## which copies it into `_plan_role` -- so the errand is labelled "loot" in `nav_trace`, and
+## paced at SPEED_STATES["loot"] because `get_move_speed` reads that one field.
+func _start_loot() -> void:
+	var dropped := _dropped_items()
+	if dropped == null or not dropped.has_method("nearest_item"):
+		return
+	var feet: Vector3 = _sim.get_tick_position()
+	var found: Dictionary = dropped.call("nearest_item", feet, LOOT_RANGE, LOOT_LEVEL)
+	if found.is_empty():
+		return
+	var at: Vector3 = found["position"]
+	if _loot_ignored(at):
+		return
+	speed_state = "loot"
+	_loot_target = at
+	_loot_deadline = int(_sim.get_tick_count()) + LOOT_ERRAND_TICKS
+	if walk_to(at, LOOT_EXPANSIONS, LOOT_MAX_MS) == 0:
+		# Nothing was asked -- this world has no planner, or it refused the goal -- so there is
+		# no errand, and asking again in half a second would get the same nothing.
+		_loot_forget(at)
+
+
+## The walk to the pile: the head stays on it, the take fires inside the reach, and the
+## errand has a deadline.
+func _loot_travel() -> void:
+	var feet: Vector3 = _sim.get_tick_position()
+	_set_look(_loot_target)
+	var flat := Vector2(_loot_target.x - feet.x, _loot_target.z - feet.z).length()
+	if flat <= LOOT_REACH and absf(feet.y - _loot_target.y) <= LOOT_TAKE_HEIGHT \
+			and bool(_sim.is_on_ground()):
+		var taken: Dictionary = {}
+		var dropped := _dropped_items()
+		if dropped != null and dropped.has_method("take_one"):
+			# Asked from the HAND rather than the feet, with a little slack on both bounds: the
+			# pile was noticed from the feet and is taken by a hand half a block up and a body's
+			# width out.
+			taken = dropped.call("take_one", feet + Vector3.UP * 0.5,
+				LOOT_REACH + 0.2, LOOT_TAKE_HEIGHT + 0.2)
+		if taken.is_empty():
+			# The player took it, another goblin did, or it merged away while this one walked:
+			# there is nothing left to fetch at that spot.
+			_loot_forget(_loot_target)
+			return
+		_take_up(int(taken.get("block_id", 0)))
+		return
+	if int(_sim.get_tick_count()) >= _loot_deadline:
+		# Ten seconds without arriving is an errand that is not going to happen: the pile is
+		# where nothing can stand, or the body is stuck behind something. Give up on the place.
+		_loot_forget(_loot_target)
+
+
+## Take it into the main hand and start looking at it.
+func _take_up(id: int) -> void:
+	if id <= 0:
+		_loot_forget(_loot_target)
+		return
+	main_hand_item = id
+	_abandon_route()
+	speed_state = "idle"
+	_loot_target = Vector3.INF
+	_loot_deadline = 0
+	_inspect_ticks = LOOT_INSPECT_TICKS
+	# A watch of the player has no claim on the head for these three seconds: it is on the
+	# thing in the hand.
+	_gazing = false
+	_gaze_ticks = 0
+	# The arm comes up now rather than a frame later -- the model reads `main_hand_item` every
+	# frame, so a hand that hangs for a beat before lifting reads as a second decision.
+	_set_inspect_pose(true)
+
+
+## One tick of standing with the item in front of its face.
+func _inspect_tick(ticks: int) -> void:
+	if main_hand_item <= 0:
+		# Nothing in the hand to look at: the item went somewhere it was not this body's.
+		_inspect_ticks = 0
+		_set_inspect_pose(false)
+		return
+	# The head on the DRAWN item, not on a remembered point: the hand moves with the arm's
+	# own pose, and the point a stub body answers is where a hand would be.
+	_set_look(_main_hand_point())
+	_inspect_ticks = maxi(_inspect_ticks - ticks, 0)
+	if _inspect_ticks > 0:
+		return
+	_decide_loot()
+
+
+## The keep/drop decision at the end of the look: a TOOL stays in the hand for good, and
+## anything else is thrown back on the ground in front of it.
+##
+## The rejection is remembered by POSITION -- `spawn_at` builds a new body and a merge may
+## replace the node -- which is what stops the goblin picking its own reject straight back up.
+func _decide_loot() -> void:
+	var id := main_hand_item
+	var at := _main_hand_point()
+	_inspect_ticks = 0
+	_set_inspect_pose(false)
+	speed_state = "idle"
+	if id <= 0:
+		return
+	if _is_tool(id):
+		# Kept: it hangs at its side from here on. `main_hand_item` staying set is what stops
+		# every further loot run, and the item is CARRIED rather than used -- no damage, no
+		# mining, no equipment slot.
+		return
+	main_hand_item = 0
+	if _drop_one(id, at):
+		_loot_ignore_at = at
+		_loot_ignore_until = int(_sim.get_tick_count()) + LOOT_IGNORE_TICKS
+
+
+## Cancel the errand, whatever stage it has reached.
+##
+## An interruption must never leave an undecided item in a hand: one that was still being
+## LOOKED at is dropped where the body stands. A kept tool is not -- that decision has
+## already been made, and it is carried until the body dies.
+func _cancel_loot() -> void:
+	if _loot_target == Vector3.INF and _inspect_ticks == 0:
+		return
+	if _inspect_ticks > 0 and main_hand_item > 0:
+		_drop_one(main_hand_item, _main_hand_point())
+		main_hand_item = 0
+	_loot_target = Vector3.INF
+	_loot_deadline = 0
+	_inspect_ticks = 0
+	# The pace is only the errand's to put back: a fight has already set its own, and this
+	# runs after `_update_enemy` on the tick a fight begins.
+	if _enemy == null:
+		speed_state = "idle"
+	_set_inspect_pose(false)
+	_abandon_route()
+
+
+## Give up on a spot: the errand ends, and that place is left alone for LOOT_IGNORE_TICKS.
+func _loot_forget(at: Vector3) -> void:
+	_cancel_loot()
+	_loot_ignore_at = at
+	_loot_ignore_until = int(_sim.get_tick_count()) + LOOT_IGNORE_TICKS
+
+
+## Whether this spot is one it has just given up on.
+func _loot_ignored(at: Vector3) -> bool:
+	if _loot_ignore_at == Vector3.INF:
+		return false
+	if int(_sim.get_tick_count()) >= _loot_ignore_until:
+		return false
+	return at.distance_to(_loot_ignore_at) <= LOOT_IGNORE_REACH
+
+
+## Where the DRAWN item in the main hand is, which is what the inspection looks at. A body
+## with no model (a stub in a probe) falls back to where a hand would be: a block in front of
+## its feet, a block up.
+func _main_hand_point() -> Vector3:
+	var model := _model_node()
+	if model != null and model.has_method("get_main_hand_global_position"):
+		var at: Vector3 = model.call("get_main_hand_global_position")
+		if at != Vector3.ZERO:
+			return at
+	return _sim.get_tick_position() + Vector3.UP + Vector3(-sin(_yaw), 0.0, -cos(_yaw))
+
+
+## The model node, looked up once. `_turn` and `_set_look` both cache it here.
+func _model_node() -> Node3D:
+	if _model == null:
+		_model = get_node_or_null(NodePath("Model")) as Node3D
+	return _model
+
+
+## Whether an id is a TOOL in the item registry -- a pickaxe, an axe, a hammer, a shovel.
+##
+## `BlockTextures.is_item_tool` is the registry's own `ItemToolStats`, so a block, an unknown
+## id and a plain item (a stick, a pebble, a coin, a torch, a bucket) all answer no. Guarded on
+## the binding existing, because a probe can run against a DLL built before that method.
+func _is_tool(id: int) -> bool:
+	if not ClassDB.class_exists("BlockTextures") \
+			or not ClassDB.class_has_method("BlockTextures", "is_item_tool"):
+		return false
+	return bool(BlockTextures.is_item_tool(id))
+
+
+## Throw ONE of `id` on the ground at `at`, through the world's own dropped-item node -- the
+## same body a thrown item is. False when this world has none to throw it into.
+func _drop_one(id: int, at: Vector3) -> bool:
+	var dropped := _dropped_items()
+	if dropped == null or not dropped.has_method("spawn_at"):
+		return false
+	dropped.call("spawn_at", id, 1, at)
+	return true
+
+
+## The world's dropped-item node, if this world has one. A loot errand is the only thing a
+## goblin asks it for, and a stub world has none -- which is what leaves a body with nothing
+## to loot standing there.
+func _dropped_items() -> Node:
+	return get_node_or_null(NodePath("/root/Main/DroppedItems"))
+
+
+## Put the main arm up (or let the clips have it back). Through the model, which owns the
+## pose: it stops its own tree for it (scripts/player_model.gd's `inspect_pose`).
+func _set_inspect_pose(on: bool) -> void:
+	var model := _model_node()
+	if model != null and model.has_method("set_inspect_pose"):
+		model.call("set_inspect_pose", on, INSPECT_ARM_PITCH)
 
 
 ## A point to look at, within LOOK_RANGE of its own feet and around its own height. The
@@ -1644,7 +1967,9 @@ func _walk() -> void:
 	# Walking, it looks where it is going: the look-around is for standing, and a head
 	# still turned at whatever it was looking at half a minute ago reads as broken. A
 	# player it is already watching keeps the head, and one it is fighting has it outright.
-	if not _gazing and _enemy == null:
+	# ...and a loot errand keeps it too: the walk's own forward look is written every frame it
+	# is called, so it would overwrite the item's look on the way to it.
+	if not _gazing and _enemy == null and _loot_target == Vector3.INF:
 		_pick_walk_look(dir)
 	# A hop first: the next cell two columns over IS the planner's jump across a one-cell gap,
 	# and there is nothing in a gap for the step probe below to be blocked by -- a walker that
@@ -2265,11 +2590,13 @@ func die() -> void:
 	queue_free()
 
 
-## The items the body is holding, main hand first. The main hand is empty today -- a goblin
-## has no weapon -- but `die()` walks the list, so one that grows a second held thing drops
-## it without a second rule for dropping.
+## The items the body is holding, MAIN HAND FIRST: a tool it decided to keep is carried in
+## that hand, so `die()` drops it before the offhand torch with no rule of its own. A goblin
+## killed mid-inspection drops both -- the item it was still looking at and its torch.
 func _held_items() -> Array:
 	var held: Array = []
+	if main_hand_item > 0:
+		held.append(main_hand_item)
 	if offhand_item > 0:
 		held.append(offhand_item)
 	return held
@@ -2278,12 +2605,15 @@ func _held_items() -> Array:
 ## Everything it held, where it fell: the same out-of-the-body point `_drop_loot` uses, so
 ## a torch and the coins beside it start in the same place.
 func _drop_held() -> void:
-	var dropped := get_node_or_null(NodePath("/root/Main/DroppedItems"))
+	var dropped := _dropped_items()
 	if dropped == null or not dropped.has_method("spawn_at"):
 		return
 	var at := _drop_point()
 	for id in _held_items():
 		dropped.call("spawn_at", int(id), 1, at)
+	# An empty hand from here, so nothing is drawn again in the frame before the body goes.
+	main_hand_item = 0
+	offhand_item = 0
 
 
 ## What a dead goblin leaves: the loot table's own answer, dropped where it fell. The
@@ -2294,7 +2624,7 @@ func _drop_held() -> void:
 ## the same body a thrown item is: they fall, land, can be walked over, and the
 ## inventory's own stack cap decides what a pickup can take.
 func _drop_loot() -> void:
-	var dropped := get_node_or_null(NodePath("/root/Main/DroppedItems"))
+	var dropped := _dropped_items()
 	if dropped == null or not dropped.has_method("spawn_at"):
 		return
 	var at := _drop_point()
@@ -2315,6 +2645,25 @@ func _drop_point() -> Vector3:
 ## field rather than a copy, so a probe can force a roll by writing `offhand_item`.
 func get_offhand_item() -> int:
 	return offhand_item
+
+
+## What is DRAWN in the main hand (0 = nothing): an item taken off the ground mid-loot, or a
+## tool the goblin decided to keep. `scripts/goblin_model.gd` reads it every frame and
+## `scripts/mob_lights.gd` asks only non-empty hands for a light.
+func get_main_hand_item() -> int:
+	return main_hand_item
+
+
+## Where the drawn main-hand item is in the world -- the arm's point rather than the feet's,
+## so the torch's light and the inspection's look follow the hand. A body with no model (a
+## stub) answers its own middle.
+func get_main_hand_position() -> Vector3:
+	var model := _model_node()
+	if model != null and model.has_method("get_main_hand_global_position"):
+		var at: Vector3 = model.call("get_main_hand_global_position")
+		if at != Vector3.ZERO:
+			return at
+	return global_position + Vector3(0.0, 1.0, 0.0)
 
 
 ## Where the drawn torch is in the world, for its light: the arm's, not the body's feet, so

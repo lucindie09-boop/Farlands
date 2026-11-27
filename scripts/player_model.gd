@@ -195,6 +195,34 @@ var paint_color := Color.WHITE
 # is fully frozen instead of tracking the player's aim).
 var skip_head_look := false
 
+## The MAIN hand held UP in front of the face, with the body's clips stopped: the goblin's
+## loot inspection (scripts/goblin.gd). It takes one item, raises that arm until the item is
+## in front of its face, and stands looking at it for three seconds.
+##
+## The ARM cannot simply be turned: the AnimationTree rewrites an arm's local rotation every
+## frame, so a pose written there is replaced the next one. The tree is STOPPED while this is
+## set -- the same instrument `skip_head_look` uses to freeze a pose clone -- and the arm is
+## written from the clips' own rest (`_clip_rest`), which is the base every walk key is
+## measured from. Releasing it needs no second write: `_animate_body` reactivates the tree and
+## the clips take the arm back, which is why nothing compounds.
+##
+## Why it cannot be skipped: an item hanging at a goblin's side is about 70 degrees below its
+## head, and its neck pitches 40 (goblin_model.gd's HEAD_PITCH_LIMIT) -- physically outside
+## the neck's reach, so "looks at it" only exists with the arm up.
+var inspect_pose := false
+## 1 while the item is being looked at, eased to 0 after the pose is switched off (see
+## INSPECT_LOWER_SECONDS): the arm's own angle is this share of the inspection's, and the
+## shoulder's held turn is its complement, so the arm goes down instead of jumping.
+var _inspect_share := 0.0
+## How long the arm takes to come back DOWN when the pose is switched off: the inspection
+## hands the arm to the clips at 80 degrees, and handing it over in one frame is a teleport.
+## The tree stays stopped while it lowers, so nothing else turns the arm on the way.
+const INSPECT_LOWER_SECONDS := 0.28
+
+## How far that arm comes up, in degrees. The caller's number (`set_inspect_pose`): how far an
+## inspection lifts the hand is the behaviour's to say rather than the rig's.
+var inspect_pitch := 0.0
+
 var _uv_overlay_mat: ShaderMaterial
 var _paint_image: Image
 var _paint_texture: ImageTexture
@@ -252,6 +280,11 @@ var _held_id := -1
 # because the player's own body has none to build -- see hold_offhand. Keys: "arm",
 # "box", "item", "material", "facing".
 var _offhand := {}
+# The MAIN hand a MOB uses -- the goblin's loot takings and the tool it keeps. The player's
+# own hand is `_held_item` above, which reads a hotbar that only a body with a controller
+# has, so a mob's main hand is a holder of its own: the same shape as `_offhand`, built on
+# first use by hold_main, sharing `_seat` for the grip.
+var _main_hand_item := {}
 # Whether the run clip's arm track is carrying the held arm's half swing (see
 # HELD_ARM_SWING). The toggle is a state, not a per-frame factor: 0.5 and 2.0 are exact
 # powers of two, so a hand that fills and empties is back at the keys the file has.
@@ -372,6 +405,13 @@ func _clip_for_rig(source: Animation, clip_name: String) -> Animation:
 	# The right arm is not at the body root any more: it hangs from its shoulder pivot
 	# (_init_held_arm), so the clip's `arm` track is re-homed onto the path it has now.
 	map[HELD_ARM] = _part_path(HELD_ARM)
+	# ...and the same for the arm THIS body holds things in, whatever the clip calls it: the
+	# map's values are the rig's node names, and a reparented limb is no longer reachable by
+	# its own name (a goblin's `arm_001` track names `arm2`, which now hangs from a pivot).
+	for from in map.keys():
+		var part := String(map[from])
+		if find_child(part, true, false) != null and not has_node(NodePath(part)):
+			map[from] = _part_path(part)
 	var clip := ClipRetarget.retarget(source, map, self, 1.0, Quaternion.IDENTITY,
 		PackedStringArray(["head"]))
 	clip.resource_name = clip_name
@@ -499,6 +539,8 @@ func _process(delta: float) -> void:
 	_update_held_item()
 	# ...and the offhand's, which has no hotbar to read but the same material rule.
 	_update_offhand_light()
+	# ...and the main hand's, which a goblin fills from the ground rather than from a hotbar.
+	_update_main_hand_light()
 	if skip_head_look:
 		# ...and a pose clone is frozen: no head look AND no body clip. The tree is
 		# stopped rather than merely skipped, or a body frozen after it had been
@@ -507,6 +549,12 @@ func _process(delta: float) -> void:
 		if _tree != null and _tree.active:
 			_tree.active = false
 		_clip = ""
+		return
+	# A body inspecting something holds the main hand up instead of playing its clips (see
+	# `inspect_pose`), and the head STILL tracks: it is looking at what it holds.
+	if inspect_pose or _inspect_share > 0.0:
+		_hold_inspect_pose(delta)
+		_track_head_look()
 		return
 	_animate_body(delta)
 	_track_head_look()
@@ -685,9 +733,10 @@ func _ease_light(current: Vector4, target: Vector4, delta: float) -> Vector4:
 ## Runs before _init_body_animation, because _clip_for_rig builds its track paths with
 ## get_path_to() at load: the arm's path has to be final first, which is why every
 ## path-vs-part comparison here goes through _part_path/_part_of_path. Every body gets
-## the pivot; a body with no controller never holds anything, so its pivot stays at 0.
+## the pivot, on the arm THAT body holds things in (`_held_arm_name`): the player's right
+## hand is `arm`, a goblin's is `arm2`, because the two meshes face opposite ways.
 func _init_held_arm() -> void:
-	var arm := find_child(HELD_ARM, true, false) as MeshInstance3D
+	var arm := find_child(_held_arm_name(), true, false) as MeshInstance3D
 	if arm == null or arm.get_parent() == null:
 		return
 	_held_arm = arm
@@ -872,21 +921,28 @@ func _seat(slot: Dictionary, id: int) -> bool:
 		forward += arm_box.size.y * (HELD_ITEM2_FORWARD if is_item2 else HELD_SPRITE_FORWARD)
 	else:
 		forward -= arm_box.size.y * HELD_BLOCK_BACK
-	# Centre the VISIBLE thing on the arm's centre line, not the texture cell: a sprite's art
-	# is drawn inside its cell with transparent margins and only its solid texels have
-	# vertices, so its bounds can sit off the cell's middle -- which put the bucket to one
-	# side of the hand. An off-centre shaped block is the same problem after its turn.
-	# The 180-degree mirror swaps which way round the item's own x runs, so the correction
-	# follows the facing too.
+	# Centre the VISIBLE thing on the arm's centre line -- the BOX's, not the arm node's, and
+	# not the texture cell's. Two offsets are cancelled here and they are different things: a
+	# sprite's art is drawn inside its cell with transparent margins and only its solid texels
+	# have vertices, so its bounds can sit off the cell's middle (which put the bucket to one
+	# side of the hand), and a rig's joint is not always on the middle of its limb's box -- the
+	# goblin's arms hang from the inner face of theirs, so the same grip maths that centres
+	# perfectly on the player's re-baked rig put a pickaxe half an arm's width off the goblin's.
+	# `arm_box` is that box, in the arm's own space, which is the space this seat is written in.
+	# The art's half of it is a CANCELLATION and so it has ONE sign for both facings: the box
+	# measured is the one after the mirror, so its x is already the way the art runs on this
+	# body, and flipping the correction with the facing counted the mirror twice -- which is
+	# invisible on a torch, and put every `item2` sprite (a quarter turn keeps the art's own x)
+	# a whole art's width off a goblin's arm.
 	var centre: Vector3 = placed.get_center()
 	var rise: float = 0.0
 	if is_sprite:
 		rise = arm_box.size.y * (HELD_ITEM2_RISE if is_item2 else HELD_SPRITE_RISE)
 	else:
 		rise = mesh.get_aabb().size.y * size * HELD_BLOCK_RISE
-	var side := -1.0 if facing >= 0.0 else 1.0
 	var seat_z: float = arm_box.end.z + forward if facing >= 0.0 else arm_box.position.z - forward
-	item.position = Vector3(side * centre.x * size, arm_box.position.y + rise, seat_z)
+	item.position = Vector3(arm_box.get_center().x - centre.x * size,
+		arm_box.position.y + rise, seat_z)
 	material.set_shader_parameter("albedo_texture", tex)
 	# A block's texture is opaque, so the scissor is pure downside on it (it can only
 	# discard edge pixels whose UV rounds onto a texel boundary); an item's sprite needs
@@ -966,6 +1022,154 @@ func _update_offhand_light() -> void:
 	item.set_instance_shader_parameter("item_light", _body_light)
 
 
+## Put one block id in the body's MAIN hand, on the arm the caller names.
+##
+## A mob's main hand, held the way the PLAYER's is: the same `_seat` for the grip (size, turn,
+## seat, alpha scissor) and the same pose over it -- the shoulder's HELD_ARM_PITCH forward and
+## the walk's swing halved (`_pose_held_arm`), because an item hanging dead straight at a
+## side does not read as held. The holder is built on first use rather than in `_ready`
+## because the player's own hand reads a hotbar and a mob has none. The goblin's main hand is
+## `arm2` -- its RIGHT, the +x side, because the mesh looks down its own -Z -- at facing -1
+## (scripts/goblin_model.gd), and its shoulder pivot is on that same arm.
+##
+## `facing` mirrors the seat for a body whose mesh looks down -Z, exactly as hold_offhand's
+## does: without it the item is drawn behind the hand and a sprite upside down.
+func hold_main(arm_name: String, id: int, facing := 1.0) -> void:
+	if _body_material == null:
+		return
+	if id <= 0 and _main_hand_item.is_empty():
+		return
+	var arm := find_child(arm_name, true, false) as MeshInstance3D
+	if arm == null or arm.mesh == null:
+		return
+	if _main_hand_item.is_empty() or _main_hand_item["arm"] != arm:
+		_init_main_hand(arm)
+	_main_hand_item["facing"] = facing
+	_pose_held_arm(_seat(_main_hand_item, id))
+
+
+## The main-hand holder: one MeshInstance3D under the named arm with its own item material,
+## beside `_init_offhand`'s. It needs no pivot of its own -- the arm it hangs from is the one
+## `_init_held_arm` put a shoulder pivot on, and the inspection pose is written on that same
+## arm (see `inspect_pose`), so the item follows both.
+func _held_arm_name() -> String:
+	return HELD_ARM
+
+
+## Whether this body's main hand has something drawn in it -- the player's hotbar holder, or
+## a mob's `_main_hand_item`. The held-item pose follows this and nothing else, so the arm and
+## the thing in it can never disagree about whether the hand is full.
+func _main_hand_filled() -> bool:
+	if _held_item != null and _held_item.visible:
+		return true
+	var item := _main_hand_item.get("item") as MeshInstance3D
+	return item != null and item.visible
+
+
+func _init_main_hand(arm: MeshInstance3D) -> void:
+	var material := ShaderMaterial.new()
+	material.shader = ITEM_SHADER
+	var item := MeshInstance3D.new()
+	item.name = "MainHandItem"
+	item.material_override = material
+	item.visible = false
+	arm.add_child(item)
+	_main_hand_item = {
+		"arm": arm,
+		"box": (arm.mesh as Mesh).get_aabb(),
+		"item": item,
+		"material": material,
+		"facing": 1.0,
+	}
+
+
+## Where the DRAWN main-hand item is, in world space -- a goblin's inspection looks at it and
+## `scripts/mob_lights.gd` lights the world from it. A hand with nothing drawn in it answers
+## the body's own origin, the offhand's rule.
+func get_main_hand_global_position() -> Vector3:
+	if _main_hand_item.is_empty():
+		return global_position
+	var item := _main_hand_item["item"] as MeshInstance3D
+	if item == null or not item.visible:
+		return global_position
+	return item.global_position
+
+
+## The main hand's half of the world light model, every frame for the reason the offhand's
+## is: an item taken off the ground a moment ago and lifted to a face is in a cell whose
+## light is the body's, and the day/night values under it keep moving.
+func _update_main_hand_light() -> void:
+	if _main_hand_item.is_empty() or _chunk_manager == null:
+		return
+	var item := _main_hand_item["item"] as MeshInstance3D
+	var material := _main_hand_item["material"] as ShaderMaterial
+	if item == null or material == null or not item.visible:
+		return
+	_chunk_manager.apply_item_lighting(material)
+	item.set_instance_shader_parameter("item_light", _body_light)
+
+
+## Hold the main hand up for an inspection, or let the clips have it back. `pitch` is degrees
+## and is only read when the pose is switched ON -- a release writes nothing, and the tree
+## takes the arm back where it left it.
+func set_inspect_pose(on: bool, pitch := 0.0) -> void:
+	if on and pitch > 0.0:
+		inspect_pitch = pitch
+	inspect_pose = on
+	# Switching it OFF is not an instant: `_inspect_share` eases to 0 over
+	# INSPECT_LOWER_SECONDS and `_hold_inspect_pose` writes the arm down that far each frame.
+
+
+## The arm an inspection raises, and which way that turn goes: the pose is
+## `_clip_rest[arm] * Quaternion(RIGHT, pitch * sign)`. This rig faces +Z with its item hand on
+## `arm`, and an arm hanging -Y comes FORWARD on a negative turn -- the sign HELD_ARM_PITCH
+## uses for the same reason. A body whose mesh looks down -Z mirrors both
+## (scripts/goblin_model.gd), and probes/probe_goblin.gd holds the raised hand to the front of
+## the mesh it is on.
+func _inspect_arm() -> String:
+	return HELD_ARM
+
+
+func _inspect_sign() -> float:
+	return -1.0
+
+
+## One frame of the inspection pose: the tree stopped and the arm up, with every other part
+## left where the last tick put it. Nothing else is written -- a body that is being looked at
+## is standing still, which is the pose it already had.
+func _hold_inspect_pose(delta: float) -> void:
+	if _tree != null and _tree.active:
+		# Stopped rather than skipped: a tree left running rewrites this arm every frame, and
+		# one left playing would keep the body breathing mid-inspection.
+		_tree.active = false
+	_clip = ""
+	# 1 while it is being looked at, then down to 0 over INSPECT_LOWER_SECONDS. The pose is
+	# written every frame either way, which is what makes the way down a movement rather than
+	# one frame of 80 degrees followed by the clips' own pose.
+	_inspect_share = 1.0 if inspect_pose \
+		else maxf(_inspect_share - delta / INSPECT_LOWER_SECONDS, 0.0)
+	var arm_name := _inspect_arm()
+	# The shoulder's held-item turn belongs to the HOLDING pose, not to this one, and the two
+	# are poses of the same arm: composed they would add and the hand would end up above the
+	# face. So the inspection takes the pivot's share as its own angle shrinks -- the total is
+	# continuous from the item in front of the face down to the item at the side.
+	if _held_pivot != null and arm_name == _held_arm_name():
+		_held_pivot.rotation_degrees = Vector3(
+			HELD_ARM_PITCH * _inspect_sign() * (1.0 - _inspect_share), 0.0, 0.0)
+	if not _clip_rest.has(arm_name):
+		return
+	var arm := find_child(arm_name, true, false) as Node3D
+	if arm == null:
+		return
+	arm.quaternion = (_clip_rest[arm_name] as Quaternion) \
+		* Quaternion(Vector3.RIGHT, deg_to_rad(inspect_pitch * _inspect_share) * _inspect_sign())
+	if _inspect_share > 0.0:
+		return
+	# Down: the tree has the arm again, and a hand that is still full is posed by its own rule
+	# -- a kept tool back at its side, at the same 18 degrees this frame wrote.
+	_pose_held_arm(_main_hand_filled())
+
+
 ## The right arm's pose for what it is (or is not) carrying -- see HELD_ARM_PITCH.
 ##
 ## Vanilla switches it in the frame the item appears, with no fade, and so does this: an
@@ -974,7 +1178,11 @@ func _update_offhand_light() -> void:
 func _pose_held_arm(held: bool) -> void:
 	if _held_pivot == null:
 		return
-	_held_pivot.rotation_degrees = Vector3(-HELD_ARM_PITCH if held else 0.0, 0.0, 0.0)
+	# "Forward" is the MESH's, exactly as the inspection's sign is: a +Z rig comes forward on a
+	# negative turn, a -Z mesh on the same turn the other way, and either way it is the arm
+	# tipping toward the face the body looks out of.
+	_held_pivot.rotation_degrees = Vector3(HELD_ARM_PITCH * _inspect_sign() if held else 0.0,
+		0.0, 0.0)
 	_set_held_swing(held)
 
 
@@ -989,10 +1197,11 @@ func _pose_held_arm(held: bool) -> void:
 ## read again -- that is what the two clear_caches calls are for, and without them the
 ## change would land only the next time that clip was re-entered.
 func _set_held_swing(held: bool) -> void:
-	if _run_clip == null or held == _held_swing_half or not _clip_rest.has(HELD_ARM):
+	var arm_name := _held_arm_name()
+	if _run_clip == null or held == _held_swing_half or not _clip_rest.has(arm_name):
 		return
-	var path := _part_path(HELD_ARM)
-	ClipRetarget.scale_stride(_run_clip, {path: _clip_rest[HELD_ARM]},
+	var path := _part_path(arm_name)
+	ClipRetarget.scale_stride(_run_clip, {path: _clip_rest[arm_name]},
 		HELD_ARM_SWING if held else 1.0 / HELD_ARM_SWING)
 	_held_swing_half = held
 	if _clip_player != null:

@@ -23,6 +23,12 @@ class BlockTextures : public godot::RefCounted {
 public:
     // Item ids start at 1024 (ItemRegistry::FIRST_ITEM_ID).
     static bool is_item(int block_id);
+    // Whether an id is a TOOL -- a pickaxe, an axe, a hammer, a shovel: an item id
+    // (>= ItemRegistry::FIRST_ITEM_ID) whose entry carries tool stats with a tool
+    // class. Blocks, unknown ids and plain items (a stick, a pebble, a silver coin,
+    // a torch, a bucket) all answer false. A goblin's loot run keeps a tool and
+    // throws everything else back (scripts/goblin.gd).
+    static bool is_item_tool(int block_id);
     // Side-face texture filename (index 0). Empty string when unknown.
     static godot::String get_side_texture_name(int block_id);
     // Case-insensitive name -> id. Blocks resolve first, then items. -1 when

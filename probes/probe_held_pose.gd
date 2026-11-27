@@ -205,6 +205,21 @@ func _run() -> void:
 		absf(_pitch_deg(pivot) + FORWARD_DEGREES) < 0.01 and item.visible,
 		"%.3f deg about X, item visible %s" % [_pitch_deg(pivot), item.visible])
 
+	# ...and it hangs on the arm's CENTRE LINE, read as the arm BOX's own middle rather than as
+	# the arm node's origin: the seat is shared with a goblin, whose arms hang from the inner
+	# face of their box, and centring on the joint instead put a pickaxe half an arm's width off
+	# its arm. This rig's box happens to be centred on its joint, which is why the same rule
+	# leaves the player's item exactly where it always was.
+	var arm_mesh := arm as MeshInstance3D
+	if arm_mesh != null and arm_mesh.mesh != null and item.mesh != null:
+		var arm_box: AABB = (arm_mesh.mesh as Mesh).get_aabb()
+		var in_arm: AABB = (arm.global_transform.affine_inverse() * item.global_transform) \
+			* (item.mesh as Mesh).get_aabb()
+		_ok("held: the thing sits on the arm's centre line",
+			absf(in_arm.get_center().x - arm_box.get_center().x) < 0.02,
+			"item x %.4f against the arm's box x %.4f (arm %.3f wide)"
+				% [in_arm.get_center().x, arm_box.get_center().x, arm_box.size.x])
+
 	# The turn moves the ITEM, and which way: the pivot is the shoulder, so the vector from
 	# it to the item is the same vector turned by the shoulder's angle. Disabling the turn
 	# for one frame gives the same arm pose unposed, which is what makes the comparison a

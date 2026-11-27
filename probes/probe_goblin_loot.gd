@@ -19,6 +19,11 @@ extends SceneTree
 ## roll -- and an unarmed one has to leave none; the piles the torches make must equal the
 ## armed count, and the table's own entries must be untouched either way.
 ##
+## Every fourth body also carries a TOOL it decided to keep (`main_hand_item`, what a loot run
+## keeps), because a kept tool is the other half of the held drop: it has to leave exactly one
+## too. `_held_items` is read before the kill, so the ORDER is pinned as well as the count --
+## main hand first, offhand second -- which is the whole of the rule `die` relies on.
+##
 ## Needs the real world and a generated surface, so it loads Main.tscn and waits for the
 ## player to land.
 ##
@@ -88,8 +93,10 @@ func _run() -> void:
 	var pebble := BlockTextures.get_block_id_by_name("pebble")
 	var ear := BlockTextures.get_block_id_by_name("goblin_ear")
 	var torch := BlockTextures.get_block_id_by_name("torch")
-	print("PROBE item ids silver_coin=%d pebble=%d goblin_ear=%d torch=%d" % [coin, pebble, ear, torch])
-	if coin <= 0 or pebble <= 0 or ear <= 0 or torch <= 0:
+	var pickaxe := BlockTextures.get_block_id_by_name("wooden_pickaxe")
+	print("PROBE item ids silver_coin=%d pebble=%d goblin_ear=%d torch=%d pickaxe=%d"
+		% [coin, pebble, ear, torch, pickaxe])
+	if coin <= 0 or pebble <= 0 or ear <= 0 or torch <= 0 or pickaxe <= 0:
 		print("PROBE FAIL: an item name does not resolve, so it cannot be dropped")
 		quit(1)
 		return
@@ -109,8 +116,11 @@ func _run() -> void:
 	var pebbles_seen := 0
 	var armed_kills := 0
 	var torches_left := 0
+	var tool_kills := 0
+	var tools_left := 0
 	for which in KILLS:
 		var armed := which % 2 == 0
+		var tooled := which % 4 == 0
 		var body := Node3D.new()
 		body.name = "Goblin"
 		body.set_script(load(BODY_SCRIPT))
@@ -121,8 +131,20 @@ func _run() -> void:
 		# Forced rather than left to the spawn roll: half the sample carries, half does not,
 		# and the drop is what is being measured, not the 25% (the dice below hold that).
 		body.set("offhand_item", torch if armed else 0)
+		body.set("main_hand_item", pickaxe if tooled else 0)
 		for i in 4:
 			await process_frame
+		# Main hand first, offhand second: `die` walks this list, so the order IS the rule a
+		# kept tool is dropped by.
+		var carrying: Array = body.call("_held_items")
+		var want: Array = []
+		if tooled:
+			want.append(pickaxe)
+		if armed:
+			want.append(torch)
+		if carrying != want:
+			_fail("kill %d holds %s, expected %s (main hand first)"
+				% [which, str(carrying), str(want)])
 		var where: Vector3 = body.global_position
 		body.call("take_damage", 12.0)
 		for i in 4:
@@ -132,7 +154,8 @@ func _run() -> void:
 		var coins := 0
 		var pebbles := 0
 		var ears := 0
-		var held := 0
+		var torches := 0
+		var kept := 0
 		var names := []
 		for pile in piles:
 			var id := int(pile["block_id"])
@@ -145,22 +168,34 @@ func _run() -> void:
 			elif id == ear:
 				ears += count
 			elif id == torch:
-				held += count
+				torches += count
+			elif id == pickaxe:
+				kept += count
 			else:
-				_fail("kill %d left id %d, which is not one of the three or its torch" % [which, id])
+				_fail("kill %d left id %d, which is not one of the three or a held thing"
+					% [which, id])
 			if at.distance_to(where) > DROP_REACH:
 				_fail("kill %d left a pile %f blocks away, not where it died"
 					% [which, at.distance_to(where)])
 			names.append("%d x%d" % [id, count])
 		# The body is gone by now (`die` frees it), so its drops are the only evidence left.
 		print("PROBE kill %d drops: %s (armed=%s)" % [which, ", ".join(names), armed])
-		if armed and held != 1:
-			_fail("armed kill %d left %d torches, not exactly 1" % [which, held])
-		elif not armed and held != 0:
-			_fail("unarmed kill %d left %d torches" % [which, held])
+		if armed and torches != 1:
+			_fail("armed kill %d left %d torches, not exactly 1" % [which, torches])
+		elif not armed and torches != 0:
+			_fail("unarmed kill %d left %d torches" % [which, torches])
 		if armed:
 			armed_kills += 1
-			torches_left += held
+			torches_left += torches
+		# A kept tool is the same rule on the other hand: exactly one, and none for a body
+		# that never looted one.
+		if tooled and kept != 1:
+			_fail("kill %d with a kept tool left %d, not exactly 1" % [which, kept])
+		elif not tooled and kept != 0:
+			_fail("kill %d left %d pickaxes it never carried" % [which, kept])
+		if tooled:
+			tool_kills += 1
+			tools_left += kept
 		if pebbles < 1 or pebbles > 4:
 			_fail("kill %d left %d pebbles, not 1 to 4" % [which, pebbles])
 		if coins > 2:
@@ -192,6 +227,10 @@ func _run() -> void:
 		_fail("%d torches on the ground for %d armed bodies" % [torches_left, armed_kills])
 	print("PROBE %d armed goblins left %d torches (one each, by the held drop rather than "
 		% [armed_kills, torches_left] + "the loot table)")
+	if tool_kills != KILLS / 4 or tools_left != tool_kills:
+		_fail("%d kept tools left for %d tool-carrying bodies" % [tools_left, tool_kills])
+	print("PROBE %d goblins that had kept a tool left %d of them, main hand first"
+		% [tool_kills, tools_left])
 
 	# The 25%, without luck: the dice are `scripts/mob_equipment.gd`'s and they take the roll
 	# instead of making it, so both sides of the boundary and the rate are checked here, in a

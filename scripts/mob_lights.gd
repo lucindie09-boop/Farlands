@@ -1,6 +1,7 @@
 extends Node3D
-## The moving lights the world draws besides the player's glow: today, the torch a goblin
-## may carry in its offhand.
+## The moving lights the world draws besides the player's glow: the torches a goblin carries,
+## in EITHER hand -- the one it spawned with in its offhand, and the one in its main hand (an
+## item a loot run is inspecting for three seconds, or a torch it decided to keep).
 ##
 ## It does not light anything itself. Every frame it picks the nearest torch-bearers to the
 ## camera and hands `ChunkManager.set_entity_lights` their DRAWN positions and item ids; the
@@ -57,22 +58,10 @@ func _process(_delta: float) -> void:
 	for node in get_tree().get_nodes_in_group("goblin"):
 		if not (node is Node3D) or node.is_queued_for_deletion():
 			continue
-		if not node.has_method("get_offhand_item"):
-			continue
-		var id := int(node.call("get_offhand_item"))
-		if id <= 0:
-			continue
-		# The DRAWN item, not the goblin's feet: the arm's swing carries the light with it.
-		var at: Vector3 = node.call("get_offhand_position")
-		# Whether the light can be SEEN, not how far the camera is from it. The old test was
-		# a distance from the camera, and that is what made a torch go out five blocks away:
-		# the third-person camera sits four or five blocks behind the player, so a goblin five
-		# blocks ahead of him was ten from the camera and dropped -- while its 16-block disc
-		# was lighting the ground in the middle of the screen. A light's disc is visible from
-		# any distance, so the test is the disc against the frustum.
-		if not _light_on_screen(camera, at):
-			continue
-		found.append({"away": at.distance_to(camera.global_position), "at": at, "id": id})
+		# BOTH hands, and the main one first only because it is the rarer light: one goblin
+		# contributing two is legal, and the cap trims the whole list nearest-first.
+		_gather_hand(node, "get_main_hand_item", "get_main_hand_position", camera, found)
+		_gather_hand(node, "get_offhand_item", "get_offhand_position", camera, found)
 	if found.size() > 1:
 		found.sort_custom(func(a, b): return float(a["away"]) < float(b["away"]))
 	var positions := PackedVector3Array()
@@ -87,6 +76,29 @@ func _process(_delta: float) -> void:
 	_last_positions = positions
 	_last_ids = ids
 	_chunk_manager.call("set_entity_lights", positions, ids)
+
+
+## One hand's light, if that hand holds a lit thing and the thing can be seen. A body that
+## does not answer the pair (a stub, or a model under another host) holds nothing.
+func _gather_hand(node: Node, item_method: String, at_method: String, camera: Camera3D,
+		found: Array) -> void:
+	if not node.has_method(item_method) or not node.has_method(at_method):
+		return
+	var id := int(node.call(item_method))
+	if id <= 0:
+		return
+	# The DRAWN item, not the goblin's feet: the arm's swing carries the light with it, and an
+	# inspected item's light is in the raised hand rather than at its side.
+	var at: Vector3 = node.call(at_method)
+	# Whether the light can be SEEN, not how far the camera is from it. The old test was a
+	# distance from the camera, and that is what made a torch go out five blocks away: the
+	# third-person camera sits four or five blocks behind the player, so a goblin five blocks
+	# ahead of him was ten from the camera and dropped -- while its 16-block disc was lighting
+	# the ground in the middle of the screen. A light's disc is visible from any distance, so
+	# the test is the disc against the frustum.
+	if not _light_on_screen(camera, at):
+		return
+	found.append({"away": at.distance_to(camera.global_position), "at": at, "id": id})
 
 
 ## True when any part of the light's sphere is inside the camera's frustum: the centre, or

@@ -881,7 +881,9 @@ The following code remains in the codebase but is disabled or unused:
   space; `ItemPlace::resolve` turns the raycast's face normal into the block to write, and
   `place_block` consumes the item). Entry order is the id, so new entries are appended. The
   file's optional `"pose"` field is read by `viewmodel.gd` (not the registry) since it selects a
-  viewmodel resting position, not an item mechanic
+  viewmodel resting position, not an item mechanic — and, through `scripts/item_poses.gd` (the
+  one reader both hands share), by `player_model.gd`, which turns a held sprite and gives an
+  `item2` one a seat of its own in the third-person hand
 - `src/core/mining.hpp` — header-only `tool_mining_speed` / `crushed_block` (pure, unit-tested)
   plus `mining_speed_multiplier` and `resolve_block_drop` (registry lookups): the break-speed
   multiplier a held tool grants against a block's `preferred_tool`/`min_tier` (and a hammer

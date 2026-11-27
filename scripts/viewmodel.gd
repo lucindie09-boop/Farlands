@@ -1,5 +1,10 @@
 extends Node3D
 
+# data/items.json's `pose` field, read once for every consumer (this file's resting positions
+# and player_model.gd's third-person turn). One reader, so the two hands cannot disagree
+# about which pose an item names.
+const ItemPoses := preload("res://scripts/item_poses.gd")
+
 # First-person viewmodel.
 #
 # The held item pose is vanilla 1.8.8's first-person item transform (base offset,
@@ -1001,36 +1006,21 @@ func _edit_item_pose(keycode: Key) -> bool:
 		6: pose["pos"] = pose["pos"] + Vector3(0.0, 0.0, delta)
 	return true
 
-# Reads the optional "pose" field from data/items.json and resolves each entry to
-# its item id, so a held item can pick its resting position. Entries are matched
-# by NAME, not by id: item ids are positional (FIRST_ITEM_ID + index), so they
-# shift whenever an entry is inserted rather than appended.
+# Takes the optional "pose" field each item names (data/items.json) and resolves it to that
+# item's id, so a held item can pick its resting position. The file and the by-NAME rule are
+# `scripts/item_poses.gd`'s -- the one reader this and the third-person body share; a pose
+# named there that this file does not know is still reported, because a typo in the data is
+# silent otherwise.
 func _load_item_poses() -> void:
-	var file := FileAccess.open("res://data/items.json", FileAccess.READ)
-	if file == null:
-		return
-
-	var json_text := file.get_as_text()
-	file.close()
-
-	var json := JSON.new()
-	if json.parse(json_text) != OK:
-		print("Failed to parse items.json: " + json.get_error_message())
-		return
-
-	if not (json.data is Dictionary):
-		return
-	for entry in json.data.get("items", []):
-		var pose := String(entry.get("pose", "")).to_upper()
-		if pose.is_empty():
-			continue
+	var poses := ItemPoses.by_id()
+	for id in poses:
+		var entry: Dictionary = poses[id]
+		var pose: String = entry["pose"]
 		if not _item_poses.has(pose):
 			print("items.json: '%s' asks for unknown pose '%s'; known are %s"
 				% [entry.get("name", "?"), pose, str(_item_poses.keys())])
 			continue
-		var id := BlockTextures.get_block_id_by_name(String(entry.get("name", "")))
-		if id > 0:
-			_item_pose_by_id[id] = pose
+		_item_pose_by_id[id] = pose
 
 func _update_block_transform() -> void:
 	if _item_scale_node != null and _display_id > 0 and not BlockTextures.is_item(_display_id):

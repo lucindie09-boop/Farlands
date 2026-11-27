@@ -102,16 +102,23 @@ const TREE_RUN_SCALE := "parameters/timescale/scale"
 # Which arm: the rig's `arm` is the -X side, and the body faces +Z (`arm2` is the left),
 # so `arm` is the right hand -- the hand Minecraft holds an item in.
 const HELD_ARM := "arm"
-# How big the item is, as a fraction of the ARM's length rather than in model units: 0.52 of
-# a block (vanilla's 0.4, grown 1.3x) against this rig's 0.675-block arm, so 0.52 / 0.675.
-# Measured off the arm's own box at load, so a re-modelled or re-scaled arm keeps the
-# proportion instead of leaving a stale number behind.
-const HELD_ITEM_ARM_LENGTHS := 0.52 / 0.675
-# A BLOCK is 40% smaller than that again (0.52 -> 0.312 of a block), then 15% back up
-# (0.312 -> 0.3588). A cube reads bigger than a sprite at the same figure -- it has volume
-# where a sprite is a card -- so the two sizes are separate numbers rather than one scaled
-# twice.
+# data/items.json's `pose` field, through the ONE reader this body and the first-person
+# viewmodel share (scripts/item_poses.gd): an item's pose is a claim about its ART rather than
+# an item mechanic, so it is not in the registry -- and it is not read twice either.
+const ItemPoses := preload("res://scripts/item_poses.gd")
+# How big the item is, as a fraction of the ARM's length rather than in model units: 0.77792
+# of a block (vanilla's 0.4, grown 1.3x, again 1.6x, down 15%, then up 10%) against this
+# rig's 0.675-block arm, so 0.77792 / 0.675. Measured off the arm's own box at load, so a
+# re-modelled or re-scaled arm keeps the proportion instead of leaving a stale number behind.
+const HELD_ITEM_ARM_LENGTHS := 0.77792 / 0.675
+# A BLOCK has a size of its own: 0.3588 of a block, and the item's growth does not move it.
+# A cube reads bigger than a sprite at the same figure -- it has volume where a sprite is a
+# card -- so the two are separate numbers rather than one scaled from the other.
 const HELD_BLOCK_ARM_LENGTHS := 0.3588 / 0.675
+# An `item2` sprite's size, and it is the figure EVERY sprite had before item1's tuning began:
+# 0.52 of a block (vanilla's 0.4, grown 1.3x). Item1's growth steps belong to item1, so its
+# siblings keep the old size and follow the item1 knobs no further than that.
+const HELD_ITEM2_ARM_LENGTHS := 0.52 / 0.675
 # How far above the hand a BLOCK rides, as a fraction of its own height: centred on the
 # hand's line its middle sat in the fist and half of it hung below. One sixth lifts the cube
 # so the grip lands on its lower third, and the sprite path does not use it.
@@ -124,8 +131,15 @@ const HELD_BLOCK_BACK := 0.05 / 0.675
 # picture standing on edge -- a bucket in the hand read as a card pasted on the air -- is
 # what this is for: a quarter turn about the arm's cross axis lays it flat, its picture
 # facing DOWN into the palm and its top edge along the body's facing, which is what an
-# item lying in a hand looks like.
+# item lying in a hand looks like. Every sprite gets that much.
 const HELD_SPRITE_TURN := Vector3(90.0, 0.0, 0.0)
+# ...and a default item (one that names no pose in data/items.json) is turned further: half a
+# turn about that same cross axis, then a quarter turn about the vertical, then 135 degrees
+# about Z, the sprite's thickness axis (three quarters). In the node's YXZ order the three are
+# applied Z, X, Y, so the card is spun in its own plane, laid flat and flipped, then swung
+# about the vertical -- the knobs that turn the artwork in the palm. An `item3` sprite takes
+# this preset and the item1 size and seat whole.
+const HELD_ITEM_TURN := Vector3(180.0, 90.0, 135.0)
 # A block is TURNED 45 degrees about Y, the vertical: square to the body its back face sat
 # flat against the palm, so it read as a placed block glued to the hand. The turn carries it
 # by a corner instead, which is how a hand holds a cube.
@@ -134,10 +148,17 @@ const HELD_BLOCK_TURN := Vector3(0.0, 45.0, 0.0)
 # depth of its own, so without this it reads as lying on the hand rather than held clear
 # of it. One number, ours to tune; the block path does not use it (a block is already
 # placed corner-on-palm).
-const HELD_SPRITE_FORWARD := 0.22
+const HELD_SPRITE_FORWARD := 0.47
 # How far ABOVE the hand a sprite sits, in blocks and converted to arm lengths: flat on the
 # hand's own line it read as resting on the wrist rather than held. Ours to tune.
 const HELD_SPRITE_RISE := 0.05 / 0.675
+# The `item2` sprites (data/items.json: the bucket family, the torch, the ingot) keep the plain
+# flat turn -- no Y spin -- and their seat in the hand is its own pair of numbers, tuneable
+# separately from a default item's. They sit where they sat before the preset existed: the
+# forward figure is written out rather than following HELD_SPRITE_FORWARD, so moving a default
+# item's hand does not drag them along unasked.
+const HELD_ITEM2_FORWARD := 0.22
+const HELD_ITEM2_RISE := HELD_SPRITE_RISE
 
 var uv_overlay_enabled := false
 var paint_color := Color.WHITE
@@ -658,18 +679,28 @@ func _hold(id: int) -> void:
 		_held_item.visible = false
 		return
 	var is_sprite := BlockTextures.is_item(id)
+	# The pose the item names ("" for a default one, "ITEM2"/"ITEM3" for a posed sprite), from
+	# the one reader the viewmodel shares.
+	var pose := ItemPoses.pose_for(id) if is_sprite else ""
+	# Two presets: `item2` keeps the plain flat turn and a smaller seat of its own; everything
+	# else a sprite can be -- a default item and an `item3` one -- takes the item1 preset whole.
+	var is_item2 := pose == "ITEM2"
 	var mesh := _held_mesh_of(id, tex)
 	if mesh == null:
 		_held_item.visible = false
 		return
 	_held_item.mesh = mesh
 	_held_item.visible = true
-	var size: float = _held_arm_box.size.y * (HELD_ITEM_ARM_LENGTHS if is_sprite
-		else HELD_BLOCK_ARM_LENGTHS)
+	var size_fraction := HELD_BLOCK_ARM_LENGTHS
+	if is_sprite:
+		size_fraction = HELD_ITEM2_ARM_LENGTHS if is_item2 else HELD_ITEM_ARM_LENGTHS
+	var size: float = _held_arm_box.size.y * size_fraction
 	_held_item.scale = Vector3.ONE * size
-	# The turn: a sprite lies flat in the palm (HELD_SPRITE_TURN), a block is carried by a
-	# corner (HELD_BLOCK_TURN).
-	var turn := HELD_SPRITE_TURN if is_sprite else HELD_BLOCK_TURN
+	# The turn: every sprite lies flat in the palm, an `item2` sprite stays there, everything else
+	# turns on to HELD_ITEM_TURN, and a block is carried by a corner (HELD_BLOCK_TURN).
+	var turn := HELD_BLOCK_TURN
+	if is_sprite:
+		turn = HELD_SPRITE_TURN if is_item2 else HELD_ITEM_TURN
 	_held_item.rotation_degrees = turn
 	# The box the item occupies AFTER the turn: a shaped block's bounds are not symmetric
 	# about its own origin (a stair's boxes sit off its middle), so a turn swings that
@@ -684,7 +715,7 @@ func _hold(id: int) -> void:
 	var reach: float = mesh.get_aabb().size.z if is_sprite else placed.size.z
 	var forward: float = reach * size * 0.5
 	if is_sprite:
-		forward += _held_arm_box.size.y * HELD_SPRITE_FORWARD
+		forward += _held_arm_box.size.y * (HELD_ITEM2_FORWARD if is_item2 else HELD_SPRITE_FORWARD)
 	else:
 		forward -= _held_arm_box.size.y * HELD_BLOCK_BACK
 	# Centre the VISIBLE thing on the arm's centre line, not the texture cell: a sprite's art
@@ -694,7 +725,7 @@ func _hold(id: int) -> void:
 	var centre: Vector3 = placed.get_center()
 	var rise: float = 0.0
 	if is_sprite:
-		rise = _held_arm_box.size.y * HELD_SPRITE_RISE
+		rise = _held_arm_box.size.y * (HELD_ITEM2_RISE if is_item2 else HELD_SPRITE_RISE)
 	else:
 		rise = mesh.get_aabb().size.y * size * HELD_BLOCK_RISE
 	_held_item.position = Vector3(-centre.x * size, _held_arm_box.position.y + rise,

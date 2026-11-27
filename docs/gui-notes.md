@@ -879,8 +879,9 @@ first-person viewmodel - what each one owns and the decisions behind it.
   body in first person (visibility is inherited; nothing here asks about the camera). The grip is
   MEASURED off the arm's own mesh box rather than written in model units: the box's bottom is the
   end of the limb and its +Z face is the side the body looks along, so the item is centred on that
-  point and pushed out by half its own depth to rest against the palm; an item's size is 0.52 of a
-  block   (vanilla's 0.4, grown 1.3x) and a block's 0.3588 (0.4 × 1.3 × 0.6 × 1.15: a cube reads
+  point and pushed out by half its own depth to rest against the palm; an item's size is 0.77792 of
+  a block  (vanilla's 0.4, grown 1.3x, then 1.6x, down 15%, up 10%), an `item2` sprite's a
+  separate 0.52 (the figure every sprite had before item1's tuning began), and a block's 0.3588 (0.4 × 1.3 × 0.6 × 1.15: a cube reads
   bigger than a card, and it is tuned on its own) against this rig's 0.675-block arm (`HELD_ITEM_ARM_LENGTHS` /
   `HELD_BLOCK_ARM_LENGTHS`), so a re-modelled or re-scaled arm moves the hand with it; a block
   also rides one sixth of its own height above the hand (`HELD_BLOCK_RISE`), which puts the
@@ -903,7 +904,21 @@ first-person viewmodel - what each one owns and the decisions behind it.
   and `HELD_BLOCK_BACK` then pulls it 0.05 of a block in from flush, toward the arm.
   Both are centred on the hand sideways, and
   each rides up from it: a block by a sixth of its own height, a sprite by a fixed 0.05 of a
-  block (`HELD_SPRITE_RISE`), so neither rests on the wrist
+  block (`HELD_SPRITE_RISE`), so neither rests on the wrist. **There are two presets.** Every
+  sprite lies flat; one that names no pose, and an `item3` one, then take `HELD_ITEM_TURN` — half
+  a turn about its own cross axis, a quarter about Y and 135 degrees about Z, all on top of the
+  quarter that lays every card flat. In the node's YXZ order they are applied Z, X, Y: spun in
+  its own plane, laid flat and flipped, then swung about the vertical. Three knobs that all just
+  turn the artwork in the palm, and those two poses share the whole preset — the turn, the
+  0.77792 size and the 0.47 seat. The `item2` sprites (the buckets, the torch, the ingot) keep
+  the plain flat turn and a preset of their own: 0.52 of a block, and `HELD_ITEM2_FORWARD` /
+  `HELD_ITEM2_RISE` for the seat — figures written out rather than inherited, because a preset
+  that moves things nobody asked to move is how item2s lost 0.05 of a block of height the day it
+  was added. Which pose an id names comes from `data/items.json` through
+  `scripts/item_poses.gd` — the ONE reader the two hands share, matched by NAME because item ids
+  are positional. Which pose an id names comes from `data/items.json` through
+  `scripts/item_poses.gd` — the ONE reader the two hands share, matched by NAME because item
+  ids are positional
 
 ## Cameras, targets and overlays
 

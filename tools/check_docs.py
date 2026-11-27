@@ -61,7 +61,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # Directories that hold no documentation of ours, or vendored/generated content.
 SKIP_DIRS = {
     ".git", ".godot", ".freebuff", "bin", "build", "godot-cpp", "MCPipeline",
-    "node_modules", "screenshots", "Assets/textures/0Archive",
+    "node_modules", "screenshots", "Assets/textures/Archive (Unused)",
 }
 SKIP_FILES = {"docs/file_size_plan.md"}  # a history, not a description of today
 

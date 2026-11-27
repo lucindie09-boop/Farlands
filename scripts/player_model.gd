@@ -91,6 +91,51 @@ const TREE_BLEND := "parameters/blend/blend_amount"
 const TREE_ADD := "parameters/add/add_amount"
 const TREE_RUN_SCALE := "parameters/timescale/scale"
 
+# The item in the third-person hand.
+#
+# It is a child of the rig's right arm, which is the whole reason it works: the walk's
+# swing, the idle's hang and the body's own yaw all turn that node, so a grip parented to
+# it is carried by every one of them without a line of code. It is under PlayerModel, so
+# the F5 cycle shows it in both third-person views and hides it with the body in first
+# person -- visibility is inherited, and an item cannot be seen when its parent is not.
+#
+# Which arm: the rig's `arm` is the -X side, and the body faces +Z (`arm2` is the left),
+# so `arm` is the right hand -- the hand Minecraft holds an item in.
+const HELD_ARM := "arm"
+# How big the item is, as a fraction of the ARM's length rather than in model units: 0.52 of
+# a block (vanilla's 0.4, grown 1.3x) against this rig's 0.675-block arm, so 0.52 / 0.675.
+# Measured off the arm's own box at load, so a re-modelled or re-scaled arm keeps the
+# proportion instead of leaving a stale number behind.
+const HELD_ITEM_ARM_LENGTHS := 0.52 / 0.675
+# A BLOCK is 40% smaller than that again (0.52 -> 0.312 of a block), then 15% back up
+# (0.312 -> 0.3588). A cube reads bigger than a sprite at the same figure -- it has volume
+# where a sprite is a card -- so the two sizes are separate numbers rather than one scaled
+# twice.
+const HELD_BLOCK_ARM_LENGTHS := 0.3588 / 0.675
+# How far above the hand a BLOCK rides, as a fraction of its own height: centred on the
+# hand's line its middle sat in the fist and half of it hung below. One sixth lifts the cube
+# so the grip lands on its lower third, and the sprite path does not use it.
+const HELD_BLOCK_RISE := 1.0 / 6.0
+# How far a BLOCK is pulled back toward the arm from that flush position, written in blocks
+# and converted to arm lengths here: 0.05 of a block, so its near corner sits that far inside
+# the palm instead of on it. Ours to tune.
+const HELD_BLOCK_BACK := 0.05 / 0.675
+# How a held thing is turned in the hand. A sprite's biggest face is its picture, and a
+# picture standing on edge -- a bucket in the hand read as a card pasted on the air -- is
+# what this is for: a quarter turn about the arm's cross axis lays it flat, its picture
+# facing DOWN into the palm and its top edge along the body's facing, which is what an
+# item lying in a hand looks like.
+const HELD_SPRITE_TURN := Vector3(90.0, 0.0, 0.0)
+# A block is TURNED 45 degrees about Y, the vertical: square to the body its back face sat
+# flat against the palm, so it read as a placed block glued to the hand. The turn carries it
+# by a corner instead, which is how a hand holds a cube.
+const HELD_BLOCK_TURN := Vector3(0.0, 45.0, 0.0)
+# How far in FRONT of the palm a sprite sits, in arm lengths. A flat item has almost no
+# depth of its own, so without this it reads as lying on the hand rather than held clear
+# of it. One number, ours to tune; the block path does not use it (a block is already
+# placed corner-on-palm).
+const HELD_SPRITE_FORWARD := 0.2
+
 var uv_overlay_enabled := false
 var paint_color := Color.WHITE
 # When true the head never rotates (set by the K-key pose clone so the dummy
@@ -137,6 +182,18 @@ var _body_height := 0.0
 var _body_light := Vector4.ZERO
 var _body_light_ready := false
 
+# The held item (see HELD_ARM): the arm it hangs from and the box that arm's own mesh
+# occupies in the arm's space -- the grip is measured off it, not written down. Its
+# material is the body's own light model on the held block's or item's texture, and its
+# meshes are built by the shared ViewmodelMeshes binding, once per block id.
+var _held_arm: MeshInstance3D = null
+var _held_arm_box := AABB()
+var _held_controller: Node = null
+var _held_item: MeshInstance3D = null
+var _held_material: ShaderMaterial = null
+var _held_meshes := {}
+var _held_id := -1
+
 func _manager():
 	return get_node_or_null("/root/SkinManager")
 
@@ -147,6 +204,7 @@ func _ready():
 	apply_skin_texture()
 	_init_body_animation()
 	_head = find_child("head", true, false)
+	_init_held_item()
 
 
 ## The two clips that turn this body's parts.
@@ -339,6 +397,8 @@ func _process(delta: float) -> void:
 	# Before the head-look guard: the pose clone sets skip_head_look, and it is
 	# standing in the world like any other body, so it is lit like one.
 	_push_world_lighting(delta)
+	# Beside the body's own light, because the item is drawn with the same value.
+	_update_held_item()
 	if skip_head_look:
 		# ...and a pose clone is frozen: no head look AND no body clip. The tree is
 		# stopped rather than merely skipped, or a body frozen after it had been
@@ -511,6 +571,180 @@ func _ease_light(current: Vector4, target: Vector4, delta: float) -> Vector4:
 	if LIGHT_EASE_TIME <= 0.0:
 		return target
 	return current.lerp(target, 1.0 - exp(-delta / LIGHT_EASE_TIME))
+
+
+## The block or item the body carries in its right hand.
+##
+## Only a body the PLAYER is driving holds one. A preview has no cell to take a light
+## from (the skin maker and the settings gallery are SubViewports, where there is no
+## `_body_material`), and a goblin or the K-key pose clone has no controller above it --
+## both are bodies of their own, and neither has a hotbar to read.
+##
+## The item is a child of the arm itself, so it is carried by the walk, the idle's hang
+## and the body's yaw for free, and it is under PlayerModel, so the F5 cycle reveals it in
+## both third-person views and hides it, with the body, in first person.
+func _init_held_item() -> void:
+	if _body_material == null:
+		return
+	var owner_node: Node = self
+	while owner_node != null and not owner_node.has_method("get_aim_direction"):
+		owner_node = owner_node.get_parent()
+	if owner_node == null:
+		return
+	var arm := find_child(HELD_ARM, true, false) as MeshInstance3D
+	if arm == null or arm.mesh == null:
+		return
+	_held_controller = owner_node
+	_held_arm = arm
+	# The arm's own mesh box, in the arm's space -- the space its children are placed
+	# in. The rebake put this node's origin on the shoulder, so the box runs from the
+	# joint down the limb.
+	_held_arm_box = (arm.mesh as Mesh).get_aabb()
+	_held_material = ShaderMaterial.new()
+	_held_material.shader = ITEM_SHADER
+	_held_item = MeshInstance3D.new()
+	_held_item.name = "HeldItem"
+	_held_item.material_override = _held_material
+	_held_item.visible = false
+	_held_arm.add_child(_held_item)
+
+
+## Follow the hotbar: the selected slot's block, built and placed in the hand when it
+## changes, and drawn in the light of the cell the BODY is in (the one _push_world_lighting
+## already eased) so a torch in the hand and the arm holding it can never disagree.
+##
+## Reading the slot is two calls a frame, and the mesh is rebuilt only when the id does
+## change -- a held block is one mesh, and every block id is cached as it is first held.
+func _update_held_item() -> void:
+	if _held_item == null or _held_controller == null:
+		return
+	var slot := int(_held_controller.get_selected_hotbar_slot())
+	var id := int(_held_controller.get_hotbar_slot_block_id(slot))
+	if id != _held_id:
+		_held_id = id
+		_hold(id)
+	if not _held_item.visible:
+		return
+	# The albedo every frame, not once per id: the texture array can be regenerated
+	# under a held block (the Block Maker), and the first-person hand re-reads it for
+	# the same reason. The mesh is the thing worth caching; a uniform write is not.
+	var tex: Texture2D = BlockTextures.get_texture(_held_id)
+	if tex != null:
+		_held_material.set_shader_parameter("albedo_texture", tex)
+	_chunk_manager.apply_item_lighting(_held_material)
+	_held_item.set_instance_shader_parameter("item_light", _body_light)
+
+
+## Put one block id in the hand (0 or a texture-less id empties it).
+##
+## The geometry is the shared ViewmodelMeshes binding, the same one the first-person hand
+## and the dropped items build from -- an item as the extruded sprite, a block as its own
+## shape's boxes (so a slab is held as a slab and a stair as its two boxes).
+##
+## The grip is MEASURED off the arm's box: the end of the limb (its bottom, since the node
+## sits on the shoulder) on the face the body looks along (+Z), which is the hand. The item
+## is centred there, X and Y both, and pushed out by half its own depth so its back rests
+## against the palm instead of inside the forearm -- one number per mesh, because a block
+## is deeper than an item's sprite.
+func _hold(id: int) -> void:
+	if id <= 0:
+		_held_item.visible = false
+		return
+	var tex: Texture2D = BlockTextures.get_texture(id)
+	if tex == null:
+		_held_item.visible = false
+		return
+	var is_sprite := BlockTextures.is_item(id)
+	var mesh := _held_mesh_of(id, tex)
+	if mesh == null:
+		_held_item.visible = false
+		return
+	_held_item.mesh = mesh
+	_held_item.visible = true
+	var size: float = _held_arm_box.size.y * (HELD_ITEM_ARM_LENGTHS if is_sprite
+		else HELD_BLOCK_ARM_LENGTHS)
+	_held_item.scale = Vector3.ONE * size
+	# The turn: a sprite lies flat in the palm (HELD_SPRITE_TURN), a block is carried by a
+	# corner (HELD_BLOCK_TURN).
+	var turn := HELD_SPRITE_TURN if is_sprite else HELD_BLOCK_TURN
+	_held_item.rotation_degrees = turn
+	# The box the item occupies AFTER the turn: a shaped block's bounds are not symmetric
+	# about its own origin (a stair's boxes sit off its middle), so a turn swings that
+	# off-centre into x, and only the turned box says where the visible thing reaches and
+	# sits.
+	var placed: AABB = Transform3D(Basis.from_euler(turn * (PI / 180.0)), Vector3.ZERO) \
+		* mesh.get_aabb()
+	# How far it reaches forward. A block is pushed out until its nearest point is at the
+	# palm, measured on that turned box: a cube on the diagonal reaches further than its back
+	# face did, and half the untouched depth would sink that corner into the forearm. A sprite
+	# lying flat is a card thick, so its own depth is what it reaches by.
+	var reach: float = mesh.get_aabb().size.z if is_sprite else placed.size.z
+	var forward: float = reach * size * 0.5
+	if is_sprite:
+		forward += _held_arm_box.size.y * HELD_SPRITE_FORWARD
+	else:
+		forward -= _held_arm_box.size.y * HELD_BLOCK_BACK
+	# Centre the VISIBLE thing on the arm's centre line, not the texture cell: a sprite's art
+	# is drawn inside its cell with transparent margins and only its solid texels have
+	# vertices, so its bounds can sit off the cell's middle -- which put the bucket to one
+	# side of the hand. An off-centre shaped block is the same problem after its turn.
+	var centre: Vector3 = placed.get_center()
+	var rise: float = 0.0
+	if not is_sprite:
+		rise = mesh.get_aabb().size.y * size * HELD_BLOCK_RISE
+	_held_item.position = Vector3(-centre.x * size, _held_arm_box.position.y + rise,
+		_held_arm_box.end.z + forward)
+	_held_material.set_shader_parameter("albedo_texture", tex)
+	# A block's texture is opaque, so the scissor is pure downside on it (it can only
+	# discard edge pixels whose UV rounds onto a texel boundary); an item's sprite needs
+	# it for its transparent silhouette. The same rule as the first-person hand.
+	_held_material.set_shader_parameter("alpha_scissor", 0.5 if is_sprite else 0.0)
+
+
+## The mesh a block id is held as, built once per id. A block is its shape's own boxes;
+## an item -- a stick, a torch -- is the flat sprite mesh the first-person hand uses for it.
+func _held_mesh_of(block_id: int, tex: Texture2D) -> ArrayMesh:
+	if _held_meshes.has(block_id):
+		return _held_meshes[block_id]
+	var mesh: ArrayMesh = null
+	if BlockTextures.is_item(block_id):
+		mesh = _mesh_from(ViewmodelMeshes.build_item_mesh(tex))
+	else:
+		var boxes := []
+		if _chunk_manager != null and _chunk_manager.has_method("get_selection_boxes"):
+			for box in _chunk_manager.get_selection_boxes(block_id):
+				var b := PackedFloat32Array()
+				for i in range(mini(box.size(), 6)):
+					b.append(float(box[i]))
+				if b.size() == 6:
+					boxes.append(b)
+		if boxes.is_empty():
+			# No world to ask, or a block with no boxes at all: a full cube is what the
+			# registry answers with too.
+			boxes.append(PackedFloat32Array([0.0, 0.0, 0.0, 1.0, 1.0, 1.0]))
+		mesh = _mesh_from(ViewmodelMeshes.build_shaped_mesh(boxes))
+	if mesh == null:
+		return null
+	_held_meshes[block_id] = mesh
+	return mesh
+
+
+## One surface of the binding's interleaved arrays as a mesh (the dropped items' own
+## `_mesh_from`, which is what a held block and a dropped one being drawn alike needs).
+func _mesh_from(data: Dictionary) -> ArrayMesh:
+	if data.is_empty():
+		return null
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = data["verts"]
+	arrays[Mesh.ARRAY_TEX_UV] = data["uvs"]
+	arrays[Mesh.ARRAY_NORMAL] = data["normals"]
+	arrays[Mesh.ARRAY_INDEX] = data["indices"]
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	if mesh.get_surface_count() == 0:
+		return null
+	return mesh
 
 
 ## The skin in use: the shared SkinManager's texture in game, so the body and the

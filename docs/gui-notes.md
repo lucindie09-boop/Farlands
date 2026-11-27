@@ -872,6 +872,36 @@ first-person viewmodel - what each one owns and the decisions behind it.
   spun the head a full turn (the bug). Pose clones and previews without a controller in their
   ancestor chain resolve the scene's live `Player` node; only scenes with no controller at all
   fall back to following the viewport camera
+- **The third-person hand holds the selected block**: `player_model.gd::_init_held_item()`
+  parents a `MeshInstance3D` to the rig's `arm` — the -X side, which is the right hand because
+  this body faces +Z — so the walk's swing, the idle's hang and the body's yaw carry it with no
+  code of its own, and the F5 cycle shows it in both third-person views and hides it with the
+  body in first person (visibility is inherited; nothing here asks about the camera). The grip is
+  MEASURED off the arm's own mesh box rather than written in model units: the box's bottom is the
+  end of the limb and its +Z face is the side the body looks along, so the item is centred on that
+  point and pushed out by half its own depth to rest against the palm; an item's size is 0.52 of a
+  block   (vanilla's 0.4, grown 1.3x) and a block's 0.3588 (0.4 × 1.3 × 0.6 × 1.15: a cube reads
+  bigger than a card, and it is tuned on its own) against this rig's 0.675-block arm (`HELD_ITEM_ARM_LENGTHS` /
+  `HELD_BLOCK_ARM_LENGTHS`), so a re-modelled or re-scaled arm moves the hand with it; a block
+  also rides one sixth of its own height above the hand (`HELD_BLOCK_RISE`), which puts the
+  grip on its lower third instead of its middle. Geometry is the shared `ViewmodelMeshes` binding the first-person hand
+  and the dropped items already build from — a block as its own shape's selection boxes (a slab
+  is held as a slab, a stair as its two boxes) and an item as the extruded sprite, one mesh cached
+  per block id. It wears one `item_shader.gdshader` material with the body's own cell light (the
+  `item_light` `_push_world_lighting` eased for the body), so a torch in the hand and the arm
+  holding it cannot disagree with the ground they stand on. Only a body the player is driving
+  holds one: the skin-maker and settings previews are SubViewports with no cell to read
+  (`_body_material` is null there), and a goblin or the K-key pose clone has no controller above
+  it. The poses are ours: a **sprite lies flat in the palm** — its biggest face is its picture,
+  and a picture standing on edge reads as a card pasted on the air (the bucket in the hand was
+  exactly that), so `HELD_SPRITE_TURN` turns it a quarter turn about the arm's cross axis, which
+  puts the picture face DOWN with its top edge along the body's facing. A **block is turned 45
+  degrees about Y** (`HELD_BLOCK_TURN`): square to the body its back face sat flat against the
+  palm and read as a placed block glued to the hand, so the turn carries it by a corner instead.
+  The grip is measured on the TURNED box, because a cube on the diagonal reaches further forward
+  than its back face did — half the untouched depth would sink that corner into the forearm —
+  and `HELD_BLOCK_BACK` then pulls it 0.05 of a block in from flush, toward the arm.
+  Both are centred on the hand, so a block straddles it rather than resting on top
 
 ## Cameras, targets and overlays
 

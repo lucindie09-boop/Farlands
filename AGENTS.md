@@ -211,7 +211,9 @@ Full notes: [docs/light.md](docs/light.md).
 - The in-game editors (Skin Maker, Block Maker) with shared paint tools and input
   guards, block break animation and hardness, hammer crushing, and block `drops`.
 - The first-person viewmodel (held item/block, swing, bob, head look, F5 camera cycle,
-  eye-ray targeting) and the overlay tools around it.
+  eye-ray targeting) and the overlay tools around it. The third-person body holds the selected
+  block too, parented to the rig's right arm so the walk carries it
+  ([docs/gui-notes.md](docs/gui-notes.md)).
 - The player's own body plays **two poses and a rest**: `Assets/Animations/Idle.anim` standing
   and
   `Assets/Animations/Run.anim` walking, both blended onto a still `rest` clip with the idle

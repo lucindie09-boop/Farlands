@@ -29,7 +29,7 @@ extends SceneTree
 
 const GOBLIN_SCRIPT := "res://scripts/goblin.gd"
 const MODEL_SCRIPT := "res://scripts/goblin_model.gd"
-const MODEL_PATH := "res://Assets/models/Goblin2.obj"
+const MODEL_PATH := "res://Assets/models/Goblin.obj"
 const ITEMS_JSON := "res://data/items.json"
 ## The spawn tool's own centring of the mesh on the body's box.
 const BODY_OFFSET := Vector3(0.031, 0.0, 0.094)

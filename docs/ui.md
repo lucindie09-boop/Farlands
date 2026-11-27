@@ -558,7 +558,7 @@ being resampled by a different fraction at each scale.
   prints
   each part's pivot for marker-vs-transform verification
 - `goblin_spawn.gd` — Debug tool (the Tools page's **Spawn Goblin** button, and **G** in the
-  world): puts `Assets/models/Goblin2.obj`
+  world): puts `Assets/models/Goblin.obj`
   on the block the eye ray is aimed at, standing in the cell `place_position` names — the cell a
   block would
   go into, so its feet land on the aimed face — and centred in that cell like any entity,
@@ -1030,7 +1030,7 @@ being resampled by a different fraction at each scale.
   parts are
   named what the player's clips expect, so the goblin walks on those clips with no remap. It
   carries
-  its own texture (`Goblin2.png`) because the `.mtl` named by the obj is not in the tree, and
+  its own texture (`Goblin.png`) because the `.mtl` named by the obj is not in the tree, and
   the
   shader samples it `filter_nearest`
 - `nav_routes.gd` — One drain of the planner's finished routes, shared by everything that asks
@@ -1053,16 +1053,14 @@ being resampled by a different fraction at each scale.
   onto its pivot while shifting that mesh's vertices by the delta so world placement is
   byte-identical (glTF has no pivot field — a node's origin is its rotation anchor)
 - `tools/extract_model_animations.gd` — Lifts a model file's own glTF clips out into standalone
-  `Animation` resources under `Assets/Animations/` (`Idle_new.anim` from `model.gltf`'s
-  `still_test`,
-  `Walk.anim` from its `walking_test`), because the body loads its clips from a path rather than
-  from the imported scene.
+  `Animation` resources under `Assets/Animations/`, because the body loads its clips from a path
+  rather than from the imported scene. Its `SOURCE_SCENE` is the old model pack's `model.gltf`,
+  which is no longer in the tree, and the `Idle_new`/`Walk` pair it wrote there were never played
+  by the body and have been removed — so this is the recipe rather than a working step.
   `godot --headless --path . --script res://tools/extract_model_animations.gd`;
   it reads each saved clip back and resolves every track path against the rig it came from, so a
-  renamed limb fails there instead of playing as no motion. Nothing on the player's body loads
-  the two clips (or `Assets/Animations/Idle.anim`) at the moment — the pose is code — so this
-  and its
-  output are kept for the parked pair
+  renamed limb fails there instead of playing as no motion. Point it at a clip worth playing and
+  it still does that job
 - `viewmodel.gd` — Thin first-person hand + held item/block glue (child of `Camera3D`): node
   tree, `_input`, F12 HUD, and peak-pose constants. Per-frame animation math lives in
   `ViewmodelPose` and held-mesh geometry in `ViewmodelMeshes` (both native C++)

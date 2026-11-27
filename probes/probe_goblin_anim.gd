@@ -2,7 +2,7 @@ extends SceneTree
 ## Does the goblin walk the way the player's body does?
 ##
 ## The goblin is drawn as the player's body wearing the goblin's mesh (scripts/
-## goblin_model.gd): `Goblin2.obj`'s eleven surfaces split back into the six parts it
+## goblin_model.gd): `Goblin.obj`'s eleven surfaces split back into the six parts it
 ## was authored as, each hung from its own joint, and the player's own clips and blend
 ## tree turning them. So what is measured here is that the rig exists and stands on the
 ## floor, that a standing goblin plays the idle with its legs still, that a walking one
@@ -15,7 +15,7 @@ extends SceneTree
 ##   probes/run_probe.sh probes/probe_goblin_anim.gd
 
 const GOBLIN_MODEL := preload("res://scripts/goblin_model.gd")
-const GOBLIN_MESH := preload("res://Assets/models/Goblin2.obj")
+const GOBLIN_MESH := preload("res://Assets/models/Goblin.obj")
 ## Blocks per TICK, which is what a body's `get_velocity` answers: 0.25 is 5 blocks/s,
 ## the speed a full swing wants.
 const FULL_SWING := 0.25

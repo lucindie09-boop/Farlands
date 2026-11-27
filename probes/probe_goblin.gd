@@ -173,8 +173,8 @@ func _run() -> void:
 			var albedo = mat.get_shader_parameter("albedo_texture")
 			if albedo == null:
 				_fail("`%s` has no albedo texture" % part)
-			elif not String((albedo as Texture2D).resource_path).ends_with("Goblin2.png"):
-				_fail("`%s`'s texture is %s, not Goblin2.png" % [part, (albedo as Texture2D).resource_path])
+			elif not String((albedo as Texture2D).resource_path).ends_with("Goblin.png"):
+				_fail("`%s`'s texture is %s, not Goblin.png" % [part, (albedo as Texture2D).resource_path])
 			if not is_zero_approx(float(mat.get_shader_parameter("alpha_scissor"))):
 				_fail("`%s`'s alpha_scissor is not 0 (the model is opaque boxes, not a sprite)" % part)
 	if lit == 0:

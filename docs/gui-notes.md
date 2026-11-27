@@ -814,7 +814,8 @@ first-person viewmodel - what each one owns and the decisions behind it.
   rest rotation makes each clip the whole pose, and a leg crossing from the run into the idle eases
   back over the blend instead of snapping there. The head is not a channel of either clip:
   `_track_head_look` owns its quaternion, which is why `clip_retarget` is told the code drives it.
-  The parked `Idle_new`/`Walk` pair stays on disk, unloaded. Measured by
+  The `Idle_new`/`Walk` pair the old model pack came with was loaded by nothing and has been
+  removed: `Idle.anim` and `Run.anim` are the body's only clips. Measured by
   `probes/probe_player_anim.gd`: the clip's base is vanilla's 80/57 degrees, a full swing plays a
   cycle every 0.47 s, half the pace is half the swing over the same keys, the full swing comes
   back exactly, a stopped body is held just short of still, the loop closes on its own value and
@@ -826,7 +827,8 @@ first-person viewmodel - what each one owns and the decisions behind it.
   (`get_velocity()`), `is_on_floor`, `is_in_water`, `is_sneaking`, `is_sprinting` -- as plain
   angles a body composes onto each part's rest rotation (`rest * X * Z`, degrees per channel).
   Nothing in the game calls it; `probes/probe_player_anim.gd` still measures it.
-- **A run cycle was separated out of `Assets/models/animwiorun.glb`** into
+- **A run cycle was separated out of `Assets/models/source/runanimation.glb`** (a source asset:
+  nothing loads it at runtime, and it lives in `source/` for that) into
   `Assets/Animations/Run.anim`: 1 s, looping, the four limbs' `rotation_3d` tracks (29 keys each, on
   the glb's own part names — `arm`, `arm_001`, `leg`, `leg_001`, the import remapping `arm.001` to
   `arm_001`). The glb is a Blender glTF export that split one cycle into one action per body part,

@@ -4,13 +4,21 @@
 
 ## Provenance
 
-**Status: Unattributed.** These textures are original pixel art created for this project.
-No third-party assets, Minecraft-derived textures, or external libraries are used.
-All textures in this directory are original works licensed under the same GPL-3.0
-terms as the rest of the project (see `LICENSE`).
+**Status: original work by the project author, no third-party assets.** Everything in this
+directory is original pixel art made for this project, and the same statement covers the rest of
+`Assets/`: the models and animations (`Assets/models/`, `Assets/Animations/`), the sounds
+(`Assets/sounds/`), the materials (`Assets/materials/`), the shaders (`Assets/shaders/`) and the
+fonts (`Assets/fonts/`). No Minecraft asset, downloaded pack or external library is used, and all
+of it is licensed under the same GPL-3.0 terms as the rest of the project (see `LICENSE`).
 
-If any texture is later found to be derived from a third-party source, it must be
-replaced with an original work or attributed here with its license.
+One credit belongs outside this file: `scripts/body_animator.gd`'s pose is a port of the
+signature moves of Fresh Animations' player add-on (FA+Player v1.1, CEM animations by FreshLX),
+whose terms allow transforming its work with credit but not redistributing it. No file of that
+pack is in this repository — the moves are authored here — and the credit is in
+[docs/gui-notes.md](../../docs/gui-notes.md).
+
+If any asset is later found to be derived from a third-party source, it must be replaced with an
+original work or attributed here with its license.
 
 ## Directory Structure
 

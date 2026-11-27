@@ -8,9 +8,9 @@ extends "res://scripts/player_model.gd"
 ## on a cell's own light. What differs is only what a body wears and how it hangs
 ## together, and both are here:
 ##
-##   - the picture: Goblin2.png, not the skin (the skin is a 64x64 atlas with a
+##   - the picture: Goblin.png, not the skin (the skin is a 64x64 atlas with a
 ##     painter attached, and a goblin has neither).
-##   - the rig: `Goblin2.obj` is ONE mesh of ELEVEN surfaces, authored in Blockbench
+##   - the rig: `Goblin.obj` is ONE mesh of ELEVEN surfaces, authored in Blockbench
 ##     as eleven named boxes (`leg`, `leg`, `torso`, `arm`, `arm`, `head`, `ear`,
 ##     `ear`, `chin`, `nose`, `nose` -- the ears, chin and nose are the head's). A
 ##     surface cannot be turned on its own, so the boxes are split back into the
@@ -23,7 +23,7 @@ extends "res://scripts/player_model.gd"
 
 ## The goblin's skin: one texture for all eleven surfaces (the obj's .mtl is not in
 ## the tree, so this is the whole look).
-const GOBLIN_TEXTURE: Texture2D = preload("res://Assets/models/Goblin2.png")
+const GOBLIN_TEXTURE: Texture2D = preload("res://Assets/models/Goblin.png")
 
 ## Surface index -> rig part, in the obj's own order (which is the import's order, one
 ## surface per `o` block). The parts are named what the clips and the parent class
@@ -46,7 +46,7 @@ const PART_SURFACES := {
 ## is the head box's own, which is the neck: the bottom of it, on the body's centre line.
 const PART_JOINT_SURFACES := {"head": [5]}
 
-## The mesh to split: Goblin2.obj, handed over by the spawn tool before the body is
+## The mesh to split: Goblin.obj, handed over by the spawn tool before the body is
 ## added to the tree (the rig is built from it at `_ready`).
 var source_mesh: Mesh = null
 
@@ -257,7 +257,7 @@ func _turn_head(want: Quaternion) -> void:
 ## instead of about the model's feet (which is what a whole-mesh `rotation` does).
 func _build_rig() -> void:
 	if source_mesh == null:
-		push_error("goblin_model: no source_mesh (the spawn tool hands over Goblin2.obj)")
+		push_error("goblin_model: no source_mesh (the spawn tool hands over Goblin.obj)")
 		return
 	for part in PART_SURFACES:
 		var surfaces: Array = PART_SURFACES[part]

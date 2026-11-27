@@ -254,10 +254,12 @@ Full notes: [docs/light.md](docs/light.md).
   Both are re-homed onto the rig's part names at
   load by `scripts/clip_retarget.gd` and forced to loop. `Run.anim` is a run cycle separated out
   of
-  `Assets/models/animwiorun.glb` (six per-part actions merged into one 1 s loop). The head's
-  rotation stays the code's. Parked and unloaded: the `Idle_new`/`Walk` pair, and the hand-port
-  of
-  FA+Player's moves (`scripts/body_animator.gd`, on disk with its probe, called by nothing). The
+  `Assets/models/source/runanimation.glb` (six per-part actions merged into one 1 s loop; the GLB
+  is a SOURCE, kept for re-extraction and loaded by nothing). The head's
+  rotation stays the code's. Parked and unloaded: the hand-port of FA+Player's moves
+  (`scripts/body_animator.gd`, on disk with its probe, called by nothing) — the `Idle_new`/`Walk`
+  pair those two replaced has been removed, so `Idle.anim` and `Run.anim` are the body's only
+  clips. The
   pack's files are not vendored (its terms) — the credit is in docs/gui-notes.md.
 - The title screen (`scripts/menu_layer.gd` over the live world, `title_screen.gd` drawing it)
   offers five rows, starting 22 units under the wordmark's rule — a steel beam 14 units under

@@ -135,9 +135,13 @@ func _run() -> void:
 	if none != Vector3.ZERO:
 		_fail("a column with no ground answered %s instead of nothing" % str(none))
 
-	# --- 3. Only a run-away runs blind --------------------------------------
-	# A goblin that is not fleeing has no business sprinting off when its plan comes back empty:
-	# the chase waits out its patience instead.
+	# --- 3. With nothing to walk, a chase closes on what it can see ----------
+	# A plan that answers with the cell the body is already standing in is the planner saying no move
+	# exists -- a target on a slab, in a doorway, on the lip of a step -- and the goblin used to stand
+	# under its patience for it, which reads as a frozen mob (three seconds of it, `nav_trace`
+	# 2026-11-27 12:43: `PLAN 28 ... nodes=1 path=(-2, 247, 3)` for a body standing in that cell, with
+	# the player it could see two blocks off). In sight and within `CHASE_CLOSE_GAP` it walks the last
+	# pace at the target instead: the sim's own step-up takes what a route will not.
 	body.set("_health", 12.0)
 	body.set("_fleeing", false)
 	body.set("_closing", false)
@@ -148,9 +152,27 @@ func _run() -> void:
 	body.set("_wish", Vector3.ZERO)
 	body.call("_steer")
 	var chase_wish: Vector3 = body.get("_wish")
-	print("PROBE chase: fleeing=%s wish=%s" % [str(body.get("_fleeing")), str(chase_wish)])
-	if chase_wish.length() > 0.01:
-		_fail("a goblin that is not fleeing ran off with no route (wish %s)" % str(chase_wish))
+	print("PROBE chase: fleeing=%s gap=4.0 wish=%s (needs at the enemy)"
+		% [str(body.get("_fleeing")), str(chase_wish)])
+	if bool(body.get("_fleeing")):
+		_fail("a goblin at 12 health was fleeing")
+	if chase_wish.length() < 0.5 or chase_wish.normalized().x < 0.9:
+		_fail("a chase with nothing to walk and its target in sight did not close on it (wish %s)"
+			% str(chase_wish))
+	# ...and past that range the same state still waits instead: no wish at all, the patience's
+	# business -- a target on a pillar is not a target to walk at.
+	enemy.position = Vector3(12.5, 64.0, 0.5)
+	await process_frame
+	body.set("_closing", false)
+	body.set("_route", [])
+	body.set("_repath_ticks", 0)
+	body.set("_wish", Vector3.ZERO)
+	body.call("_steer")
+	var far_wish: Vector3 = body.get("_wish")
+	print("PROBE chase: gap=12.0 wish=%s (needs nothing)" % str(far_wish))
+	if far_wish.length() > 0.01:
+		_fail("a chase with its target twelve blocks off walked at it with no route (wish %s)"
+			% str(far_wish))
 
 	print("PROBE PASS" if ok else "PROBE FAILED")
 	quit(0 if ok else 1)

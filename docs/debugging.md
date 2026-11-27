@@ -155,6 +155,26 @@ speed, and a body bobbing in water has both and no ground. A `jumps` that never 
 route that climbs is the body not trying to climb it; a `jumps` that rises beside `blocked`
 climbing is it trying to climb something it cannot; `lip` climbing to 90 is the give-up about to
 fire.
+A goblin's line also carries the **3x3 of column tops around its feet**, in the same notation as
+the player's step track (`0` the floor under the feet, `1` a step up, `-1` a hole one deep, `X`
+nothing solid in reach). It is there because "it fell in a hole" is a question about the ground
+beside the lip the body was standing on, which no column of numbers about the body can answer:
+`nav_trace` 2026-11-27 12:10 shows a body at `x=0.80` in the air beside a route cell it never
+reached, and the sample could not say whether anything was under it.
+
+**A leap is two events, not a sample.** `LEAP face=... speed=... target=... wish=...` is written when
+the jump is pressed, with the distance to the step's face and the wish it was taken with, and
+`LEAP landed on=... target=... ON IT|MISSED at=(...)` a tick after the body touches down again. A
+flight is under a second, so a once-a-second sample either misses it or shows only the fall after it
+— which is how a leap that overshoots, one that comes down short and one that is clipped in the air
+all read the same. The pair says which, and `wish=` beside them says whether the leap kept the
+corner's press.
+
+
+**The sample's `next=` is the raw BLOCK cell the body would stand on.** `PLAN`'s `path=` states
+the feet cell of that same block, so the two differ by exactly one in `y` — reading the sample
+as feet cells hid every step up for a round: `next=(1, 249, -4)` under a body at feet 249 is a
+cell one block ABOVE it, not level with it.
 
 **Player steps** are the top of the body, and they exist because the goblin's lines settle
 everything except the question that matters at a corner: what does the *player* do there? The

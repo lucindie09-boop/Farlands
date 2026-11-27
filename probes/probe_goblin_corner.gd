@@ -40,8 +40,9 @@ func is_in_water() -> bool:
 	return false
 func is_on_ground() -> bool:
 	return standing
+var vel := Vector3.ZERO
 func get_velocity() -> Vector3:
-	return Vector3.ZERO
+	return vel
 var floors := {}
 func is_solid_at(x: int, y: int, z: int) -> bool:
 	return floors.has(Vector3i(x, y, z))
@@ -381,6 +382,8 @@ func _run() -> void:
 		_fail("the corner cut was not taken as a free-dominant press (%s)" % str(cut_wish))
 	elif int(body.get("_blocked_frames")) != 0:
 		_fail("a corner cut that was taken counted a blocked frame")
+	elif bool(body.get("_jump")):
+		_fail("a LEVEL corner cut pressed the jump: nothing to climb")
 	# ...and with no far floor it is a drop, and refused: the chord stays the wish.
 	_fixture(world, [Vector3i(1, 64, 0), Vector3i(1, 65, 0)])
 	sim.set("floors", {})
@@ -393,6 +396,231 @@ func _run() -> void:
 		_fail("a slide into a drop was taken as a corner cut (%s)" % str(no_floor))
 	elif int(body.get("_blocked_frames")) < 1:
 		_fail("a corner with no far floor was not counted as a wall")
+
+	# --- 12. The same corner one block UP: the climb branch presses the jump ----------------
+	# ...and route cells are BLOCK cells -- one under the feet -- so a cell one block UP is a cell at
+	# the FEET's own level: feet 64 stands on (1,63,1) and would stand at 65 on (1,64,1).
+	# step's own level, and a body that could walk the chord from there takes it with the jump
+	# pressed -- the corner slide is for the level case, where no jump can lower the wall.
+	var jumps_before := int(body.get("_jumps"))
+	_fixture(world, [Vector3i(1, 64, 0)], [Vector3i(1, 64, 1)])
+	sim.set("floors", {Vector3i(1, 64, 1): true})
+	var rise := _wish_at(body, sim, Vector3(0.5, 64.0, 0.9), [Vector3(1, 64, 1)])
+	var jumped := bool(body.get("_jump"))
+	print("PROBE rise: wish=%s jump=%s jumps+%d (needs the chord, true, 1)"
+		% [str(rise), str(jumped), int(body.get("_jumps")) - jumps_before])
+	if not jumped or int(body.get("_jumps")) - jumps_before != 1:
+		_fail("a corner one block up was not jumped (jump=%s)" % str(jumped))
+	elif rise.z < 0.5 or rise.x < 0.5:
+		_fail("the rising corner was narrowed instead of pressing the chord (%s)" % str(rise))
+	# ...and TWO blocks up is a wall, not a step: no jump, and nothing to slide along.
+	_fixture(world, [Vector3i(1, 64, 0), Vector3i(1, 65, 0)], [Vector3i(1, 65, 1)])
+	sim.set("floors", {Vector3i(1, 65, 1): true})
+	var too_high := _wish_at(body, sim, Vector3(0.5, 64.0, 0.9), [Vector3(1, 65, 1)])
+	print("PROBE rise: two up -> wish=%s jump=%s blocked=%d (needs the chord, false, 1)"
+		% [str(too_high), str(bool(body.get("_jump"))), int(body.get("_blocked_frames"))])
+	if bool(body.get("_jump")):
+		_fail("a two-block rise was jumped")
+	elif int(body.get("_blocked_frames")) < 1:
+		_fail("a two-block rise was not counted as a wall")
+
+	# --- 13. A rising corner whose SIDE is taller than the step: the cut jumps ----------------
+	# The climb branch cannot take this one -- `_climbable` probes the chord one block up, and the
+	# wall beside the step is still in the way there -- so the walk reaches the corner cut. At the
+	# feet's level the step's own side face holds the press clipped, so the cut presses the jump too.
+	jumps_before = int(body.get("_jumps"))
+	_fixture(world, [Vector3i(1, 64, 0), Vector3i(1, 65, 0)], [Vector3i(1, 64, 1)])
+	sim.set("floors", {Vector3i(1, 64, 1): true})
+	body.set("_blocked_frames", 0)
+	body.set("_needs_replan", false)
+	var cut_far := _wish_at(body, sim, Vector3(0.1, 64.0, 0.9), [Vector3(1, 64, 1)])
+	print("PROBE rise cut: far -> wish=%s jump=%s (needs the press, false)"
+		% [str(cut_far), str(bool(body.get("_jump")))])
+	if bool(body.get("_jump")):
+		_fail("a rising corner was leapt from a step away, where the arc lands past it")
+	elif cut_far.x < 0.5 or absf(cut_far.z) > 0.6:
+		_fail("a rising corner a step away is not pressing the chord (%s)" % str(cut_far))
+	# ...and AT the face it leaps with the corner's own PRESS still in its wish: the free axis is
+	# what carries the body across the corner it is climbing, and dropping it for the flight left
+	# the leap dead in the air with its pressed axis pinned by the wall beside the step.
+	jumps_before = int(body.get("_jumps"))
+	body.set("_blocked_frames", 0)
+	body.set("_needs_replan", false)
+	var cut_near := _wish_at(body, sim, Vector3(0.65, 64.0, 0.9), [Vector3(1, 64, 1)])
+	print("PROBE rise cut: at the face -> wish=%s jump=%s jumps+%d (needs the press, true, 1)"
+		% [str(cut_near), str(bool(body.get("_jump"))), int(body.get("_jumps")) - jumps_before])
+	if not bool(body.get("_jump")) or int(body.get("_jumps")) - jumps_before != 1:
+		_fail("a rising corner at the step's face was not leapt")
+	elif cut_near.z < 0.6 or absf(cut_near.x) > 0.7:
+		_fail("the leap dropped the free axis instead of keeping the press (%s)" % str(cut_near))
+	elif int(body.get("_blocked_frames")) != 0:
+		_fail("a rising cut that was taken counted a blocked frame")
+
+	# ...and a rising corner whose face is still 0.6 away PRESSES: the leap's window is the body's own
+	# half width (`CORNER_JUMP_LEAD`) and nothing else, so it is not leapt from a third of a block back
+	# -- a window that widened with the body's speed leapt there, the arc came down short of the step
+	# and the goblin leapt again, two hops for one rise (`nav_trace` 2026-11-27 12:10).
+	jumps_before = int(body.get("_jumps"))
+	_fixture(world, [Vector3i(1, 64, 0), Vector3i(1, 65, 0)], [Vector3i(1, 64, 1)])
+	sim.set("floors", {Vector3i(1, 64, 1): true})
+	sim.set("vel", Vector3.ZERO)
+	body.set("_blocked_frames", 0)
+	body.set("_needs_replan", false)
+	var cut_back := _wish_at(body, sim, Vector3(0.4, 64.0, 0.5), [Vector3(1, 64, 1)])
+	print("PROBE rise cut: 0.6 from the face -> wish=%s jump=%s jumps+%d (needs free-dominant, false, 0)"
+		% [str(cut_back), str(bool(body.get("_jump"))), int(body.get("_jumps")) - jumps_before])
+	if bool(body.get("_jump")) or int(body.get("_jumps")) != jumps_before:
+		_fail("a rising corner was leapt from 0.6 back, where the arc comes down short of the step")
+	elif cut_back.z < 0.6 or absf(cut_back.x) > 0.7:
+		_fail("a rising corner 0.6 back is not a free-dominant press (%s)" % str(cut_back))
+
+	# A LIP whose route cell is a real block one diagonal step away is HOPPED: the body has drifted into
+	# the far cell's row, so the gap between is one column over and `_hop_ahead` (two columns) says no,
+	# and pressing there walked it off the lip into the hole beside the block.
+	jumps_before = int(body.get("_jumps"))
+	_fixture(world, [], [Vector3i(11, 63, 8)])
+	sim.set("floors", {Vector3i(11, 63, 8): true})
+	sim.set("vel", Vector3(0.2, 0.0, 0.0))
+	sim.set("standing", true)
+	body.set("_blocked_frames", 0)
+	body.set("_needs_replan", false)
+	var gap := _wish_at(body, sim, Vector3(10.6, 64.0, 10.2), [Vector3(11, 63, 8)])
+	print("PROBE level gap: wish=%s jump=%s jumps+%d (needs true, 1)"
+		% [str(gap), str(bool(body.get("_jump"))), int(body.get("_jumps")) - jumps_before])
+	if not bool(body.get("_jump")) or int(body.get("_jumps")) - jumps_before != 1:
+		_fail("a lip with a standable cell beyond it was pressed instead of hopped")
+	# ...and a lip with nothing beyond it is still not a hop: the cell has no block, so there is
+	# nothing to land on and walking off it is the fall the refusal above exists for.
+	jumps_before = int(body.get("_jumps"))
+	_fixture(world, [])
+	sim.set("floors", {})
+	body.set("_blocked_frames", 0)
+	body.set("_needs_replan", false)
+	var open_lip := _wish_at(body, sim, Vector3(10.6, 64.0, 10.2), [Vector3(11, 63, 8)])
+	print("PROBE level gap: no far block -> wish=%s jump=%s (needs the chord, false)"
+		% [str(open_lip), str(bool(body.get("_jump")))])
+	if bool(body.get("_jump")):
+		_fail("a lip with no block beyond it was hopped")
+	# the stub's velocity is per case: the walker reads it for the hop's lead
+	sim.set("vel", Vector3.ZERO)
+
+
+	# A hop whose lip the body has reached with no speed at all BACKS OFF for a run-up: the refusal
+	# used to zero the wish and wait for speed that only the wish could give it, and a goblin stood at
+	# one lip for thirteen seconds because of it (`nav_trace` 2026-11-27 12:52: `at=(-1.06, 247.0,
+	# 4.13)` on every sample from 63.04s to 76.05s, `blocked` to 87, `route` dropped and re-planned
+	# back to the same answer).
+	_fixture(world, [], [Vector3i(10, 63, 14)])
+	sim.set("floors", {Vector3i(10, 63, 14): true})
+	sim.set("vel", Vector3.ZERO)
+	sim.set("standing", true)
+	body.set("_blocked_frames", 0)
+	body.set("_needs_replan", false)
+	body.set("_runup_ticks", 0)
+	body.set("_jump", false)
+	var runup := _wish_at(body, sim, Vector3(10.5, 64.0, 14.1), [Vector3(10, 63, 12)])
+	print("PROBE hop lip: standing at it -> wish=%s runup=%d jump=%s (needs backwards, >0, false)"
+		% [str(runup), int(body.get("_runup_ticks")), str(bool(body.get("_jump")))])
+	if bool(body.get("_jump")):
+		_fail("a body at the lip with no speed jumped instead of backing off")
+	elif int(body.get("_runup_ticks")) <= 0:
+		_fail("a body at the lip with no speed stood still instead of taking a run-up")
+	elif runup.z < 0.9:
+		_fail("the run-up is not away from the gap (%s)" % str(runup))
+	# ...and the next walk keeps backing, one tick shorter.
+	var runup2 := _wish_at(body, sim, Vector3(10.5, 64.0, 14.1), [Vector3(10, 63, 12)])
+	print("PROBE hop lip: run-up tick 2 -> wish=%s runup=%d (needs backwards, one fewer)"
+		% [str(runup2), int(body.get("_runup_ticks"))])
+	if runup2.z < 0.9 or int(body.get("_runup_ticks")) <= 0:
+		_fail("the run-up did not carry on (%s, %d)"
+			% [str(runup2), int(body.get("_runup_ticks"))])
+	# With no ground behind it there is no run-up to take, and the route goes rather than the body
+	# standing: the refusal is still a refusal.
+	_fixture(world, [])
+	sim.set("floors", {})
+	body.set("_blocked_frames", 0)
+	body.set("_needs_replan", false)
+	body.set("_runup_ticks", 0)
+	var no_runup := _wish_at(body, sim, Vector3(10.5, 64.0, 14.1), [Vector3(10, 63, 12)])
+	print("PROBE hop lip: no ground behind -> wish=%s blocked=%d (needs nothing, 1)"
+		% [str(no_runup), int(body.get("_blocked_frames"))])
+	if no_runup.length() > 0.01 or int(body.get("_blocked_frames")) != 1:
+		_fail("a hop with no run-up behind it neither stood still nor counted (%s, %d)"
+			% [str(no_runup), int(body.get("_blocked_frames"))])
+	# ...and the run-ups are CAPPED, per hop: a hop a run-up cannot fix would otherwise be backed off
+	# from, refused and planned again for as long as the plan keeps answering with it — the same freeze
+	# in another coat. With the cap spent the body refuses instead of pacing.
+	_fixture(world, [], [Vector3i(10, 63, 14)])
+	sim.set("floors", {Vector3i(10, 63, 14): true})
+	sim.set("vel", Vector3.ZERO)
+	body.set("_blocked_frames", 0)
+	body.set("_needs_replan", false)
+	body.set("_runup_ticks", 0)
+	body.set("_runup_cell", Vector3(10, 63, 12))
+	var cap := 3
+	var constants: Dictionary = (body.get_script() as Script).get_script_constant_map()
+	if constants.has("HOP_RUNUP_LIMIT"):
+		cap = int(constants["HOP_RUNUP_LIMIT"])
+	body.set("_runups_used", cap)
+	var spent := _wish_at(body, sim, Vector3(10.5, 64.0, 14.1), [Vector3(10, 63, 12)])
+	print("PROBE hop lip: run-ups spent (%d) -> wish=%s blocked=%d runup=%d (needs nothing, 1, 0)"
+		% [cap, str(spent), int(body.get("_blocked_frames")), int(body.get("_runup_ticks"))])
+	if spent.length() > 0.01 or int(body.get("_runup_ticks")) != 0:
+		_fail("a hop whose run-ups are spent backed off again (%s, %d)"
+			% [str(spent), int(body.get("_runup_ticks"))])
+	elif int(body.get("_blocked_frames")) != 1:
+		_fail("a hop whose run-ups are spent neither backed off nor counted (%d)"
+			% int(body.get("_blocked_frames")))
+	sim.set("vel", Vector3.ZERO)
+	body.set("_runups_used", 0)
+	body.set("_runup_cell", Vector3.INF)
+
+	# A route node is a BLOCK cell, one under the feet, so the level test compares the height a body
+	# STANDING on it would have. A three-block drop is inside the planner's own `max_drop` and must be
+	# walked; only the fourth block down is "the ground moved". Measured against the block's own y, a
+	# three-block drop read as four away and was refused: 195 of the 330 level-slip drops in
+	# `nav_trace` 2026-11-27 13:03 were exactly that, and the goblin re-asking them stood in one cell
+	# for fifteen seconds.
+	var level_feet := Vector3(10.5, 64.0, 14.6)
+	var at_level: bool = bool(body.call("_route_level_ok", Vector3(10, 63, 14), level_feet))
+	var three_down: bool = bool(body.call("_route_level_ok", Vector3(10, 60, 14), level_feet))
+	var four_down: bool = bool(body.call("_route_level_ok", Vector3(10, 59, 14), level_feet))
+	var two_up: bool = bool(body.call("_route_level_ok", Vector3(10, 66, 14), level_feet))
+	print("PROBE route level: level=%s three_down=%s four_down=%s two_up=%s (needs T, T, F, T)"
+		% [at_level, three_down, four_down, two_up])
+	if not at_level or not three_down or four_down or not two_up:
+		_fail("the route's level test disagrees with the block cells it is given")
+
+	# A route that steps DOWN is walked, not hopped and not pressed: `_steps_down` used to ask for more
+	# than `ROUTE_LEVEL_SLACK` of drop, which the level test forbids, so it answered "no" for every
+	# route that survived -- and a one-block step down was a lip (`off_lip`), which sent a body with no
+	# speed backing off for a run-up to LEAP the drop the plan had asked it to walk down.
+	var drop_level: bool = bool(body.call("_steps_down", Vector3(1, 63, 1), Vector3(0.5, 64.0, 0.9)))
+	var drop_one: bool = bool(body.call("_steps_down", Vector3(1, 62, 1), Vector3(0.5, 64.0, 0.9)))
+	var drop_three: bool = bool(body.call("_steps_down", Vector3(1, 60, 1), Vector3(0.5, 64.0, 0.9)))
+	print("PROBE step down: level=%s one=%s three=%s (needs F, T, T)"
+		% [drop_level, drop_one, drop_three])
+	if drop_level or not drop_one or not drop_three:
+		_fail("`_steps_down` does not name the cells a plan actually steps down to")
+	jumps_before = int(body.get("_jumps"))
+	_fixture(world, [], [Vector3i(1, 62, 1)])
+	sim.set("floors", {Vector3i(1, 62, 1): true})
+	sim.set("vel", Vector3.ZERO)
+	sim.set("standing", true)
+	body.set("_blocked_frames", 0)
+	body.set("_needs_replan", false)
+	body.set("_runup_ticks", 0)
+	var drop_walk := _wish_at(body, sim, Vector3(0.5, 64.0, 0.9), [Vector3(1, 62, 1)])
+	print("PROBE step down: one block, no floor ahead -> wish=%s jump=%s runup=%d blocked=%d "
+		% [str(drop_walk), str(bool(body.get("_jump"))), int(body.get("_runup_ticks")),
+		   int(body.get("_blocked_frames"))]
+		+ "(needs toward it, false, 0, 0)")
+	if bool(body.get("_jump")) or int(body.get("_runup_ticks")) != 0:
+		_fail("a planned one-block step down is hopped instead of walked")
+	elif drop_walk.x < 0.5 or int(body.get("_blocked_frames")) != 0:
+		_fail("a planned one-block step down is not walked toward (%s, %d)"
+			% [str(drop_walk), int(body.get("_blocked_frames"))])
+	sim.set("vel", Vector3.ZERO)
 
 	stage.queue_free()
 	print("PROBE PASS" if ok else "PROBE FAILED")

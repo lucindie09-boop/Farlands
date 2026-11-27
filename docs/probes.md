@@ -21,8 +21,7 @@ git add probes/*.gd probes/*.sh probes/*.tscn probes/*.gdshader
 | Runner | Use it for |
 |---|---|
 | `probes/run_probe.sh <probe.gd> [timeout]` | Anything that touches the world. It snapshots `user://chunks`, runs the probe, and restores the snapshot however the probe ended |
-| `probes/run_probe_shot.sh <probe.gd> [timeout]` | Anything visual. Runs **windowed** (a screenshot from the dummy renderer is blank) and harvests `user://menu_shots`, `paste_shots`, `shader_shots`, `heart_shots`, `body_shots`, `brightness_shots`, `lod_grid_shots` and `lod_depth_shots` into
-`probes/shots/` |
+| `probes/run_probe_shot.sh <probe.gd> [timeout]` | Anything visual. Runs **windowed** (a screenshot from the dummy renderer is blank) and harvests `user://menu_shots`, `paste_shots`, `shader_shots`, `heart_shots`, `body_shots`, `brightness_shots`, `lod_grid_shots` and `lod_depth_shots` into `probes/shots/` |
 | `probes/run_crash_probe.sh [timeout]` | The crash reporter only, with the deliberate fault armed. Separate because it kills the process and because the crash folder must be inspected afterwards |
 
 Both world-touching runners **refuse to start while a Godot game process is
@@ -114,8 +113,8 @@ comment, with the claim each one backs:
 | `probe_world.gd` | The plumbing the probes that spawn mob bodies share, and the two things each of them used to get wrong on its own. **The world is not ready when the player is on the floor** — chunks keep installing for two hundred frames after that (`settled=false`, 5,241 loaded, 268 generating), and a fixture written or a body placed in that window can be overwritten by terrain that was already on its way — so `wait_settled` waits on the updater's own `is_fill_settled()`. **A column's surface is not found by walking down from the feet** — this world's spawn is under a roof, so that scan returns a CEILING, and a body placed on a ceiling is inside the hill: it suffocates the five half-hearts its reset already owed and cannot be shoved, which read for two rounds as "mobs are broken in probes" — so `stand_in_column` scans down from above and asks the body's own resolver (`MobBody.is_solid_at`, the view that decides standing from suffocating). `water_in_column` is the same question for a wet stand, and `cell_text` names what a cell is for a probe's own print. `pad` lays a stone floor with air over it and re-writes until the body's resolver agrees, so a fixture can be built in the sky instead of into whatever the probe's world happens to have under the player — a probe launches the engine's default-seed world, not the player's (MenuLayer picks that), and its player is at the scene's saved transform rather than the game's spawn point, so the ground it lands on is ocean, cave or cliff depending on the run |
 | `probe_world_ready.gd` | The diagnostic that found it, and the smallest check that the plumbing holds: the chunk manager's block read and the body's resolver are printed for the same column before and after the world settles (they agree), then a goblin is put on the real surface through `stand_in_column` and has to arrive UNDISTURBED (no suffocation) and move when shoved. Both halves fail on the scan it replaced: the body landed on a ceiling at 5 of 12 health and a shove moved it 0.000 blocks, because the hurt window from the suffocation refused the shove |
 | `probe_mob_push.gd` | That bodies are bodies: three goblins spawned inside one body's width of each other (dream wander silenced, so nothing but the push can separate them) have to come apart to a whole body width without being lifted off their floor, and a goblin spawned 0.2 off the player's centre has to be pushed clear of his whole width. The arithmetic is `tests/test_entity_push.cpp`; what this adds is the half that makes it a behaviour — that the walker asks for it once a tick, that the delta becomes velocity the sim resolves against the ground, and that a body exactly inside another does not stay there |
-| `probe_goblin_corner.gd` | How the walker takes a corner the planner allows (one side solid, the other open): the real script with a stub sim and a stub collision world that answers `resolve_voxel_collision`'s two flags per axis over a set of solid cells. The live bug was "he is able to cross if i go closer to him, but otherwise he kinda just stays stuck on the wall hes trying to go around" — a trace of six asks of a single diagonal cell, `(-2, 249, -1) -> (-1, 249, -2)`, in two seconds, every one dropped `blocked by something it cannot climb`, `wish=(0.00, 0.00)`. A body cannot walk the chord past a solid side (its box cuts it by half a body), so a blocked diagonal must be PRESSED and slid along the wall's face: the wish keeps the chord, and the sim's per-axis clipping holds the blocked half at the face while the free one carries the body — the line the player walks there himself (`nav_trace` 2026-11-26 00:10: `x` pinned at the wall's face for three steps, then free). Narrowing the wish to the free half was the first version, and it is why that corner only sometimes worked: with nothing pressing it across, the body drifts off the face and into the hole. Its last check is the corner press itself: the free axis is the LARGER share of the wish (the resolver takes the bigger horizontal motion first, so a pressed-axis-first wish is clipped before the free axis moves and the body ends the tick over the drop), a corner whose free half has no floor is still taken as a cut when its destination is standable, and the same corner with no far floor keeps the CHORD as the wish and counts as blocked. The probe also pins the two rules that crossing needed: a route whose first node is the cell the plan was asked from (the one carrying a body whose centre is over a hole) is not walked back to, and a blocked frame with no progress costs the route while one that is still getting closer does not — eleven drops of a body pinned at the wall's face came from exactly those two. The probe pins the pressed chord on both sides of the wall, the straight diagonal once the lip is behind the body, a squeeze (both halves solid) still re-planning, an orthogonal blocked wish still counting at once, and a slide that would walk its whole footprint off a drop refused (with a step down it may take still a slide) — the second report on the same corner ("he just walked off into the gap"), where the slide went along the wall's face into the gap beside it and the body fell three blocks into water |
-| `probe_goblin_flee.gd` | The run-away, on a stub body with no planner at all (a real world is not the question: `walk_to` answers 0 without a chunk manager, which IS the empty-plan case). The live bug was a goblin that FROZE while fleeing — thirteen `goal column has no navigable surface` asks in four seconds, `wish=(0.00, 0.00)` on every sample, health 4 → 0 while the player hit it: it had an enemy, a speed, a destination and nothing to walk. So: a wounded body must leave a wish pointing AWAY from the enemy when no route arrives (the old branch returned with the wish at zero); the aim must be the column's own standable cell rather than a fixed height over it (a hilltop six blocks up resolves to the cell standing on it, and a column with nothing in it resolves to nothing); and a goblin that is NOT fleeing must still stand still — the blind run is the run-away's alone |
+| `probe_goblin_corner.gd` | How the walker takes a corner the planner allows (one side solid, the other open): the real script with a stub sim and a stub collision world that answers `resolve_voxel_collision`'s two flags per axis over a set of solid cells. The live bug was "he is able to cross if i go closer to him, but otherwise he kinda just stays stuck on the wall hes trying to go around" — a trace of six asks of a single diagonal cell, `(-2, 249, -1) -> (-1, 249, -2)`, in two seconds, every one dropped `blocked by something it cannot climb`, `wish=(0.00, 0.00)`. A body cannot walk the chord past a solid side (its box cuts it by half a body), so a blocked diagonal must be PRESSED and slid along the wall's face: the wish keeps the chord, and the sim's per-axis clipping holds the blocked half at the face while the free one carries the body — the line the player walks there himself (`nav_trace` 2026-11-26 00:10: `x` pinned at the wall's face for three steps, then free). Narrowing the wish to the free half was the first version, and it is why that corner only sometimes worked: with nothing pressing it across, the body drifts off the face and into the hole. Its last check is the corner press itself: the free axis is the LARGER share of the wish (the resolver takes the bigger horizontal motion first, so a pressed-axis-first wish is clipped before the free axis moves and the body ends the tick over the drop), a corner whose free half has no floor is still taken as a cut when its destination is standable, and the same corner with no far floor keeps the CHORD as the wish and counts as blocked; a corner one block UP jumps (the chord from one block up when that clears, otherwise the cut with the jump pressed), and two blocks up is a wall and is counted as one — the leap itself is timed to the step's face and aimed into it, so a goblin a step away presses without leaping and one at the face leaps with the corner's press still in its wish, the free axis being what carries it across a corner that rises, and it leaps from the face and no earlier (a window that widened with speed leapt a block back and came down short, two hops for one rise); and a lip whose route cell is a real block one DIAGONAL step away -- the body drifted into the far cell's row, so `_hop_ahead`'s two-column count misses it -- is hopped rather than pressed, while the same lip with nothing beyond it is still not (the negative case is in the probe: no far block, no hop); and a hop whose lip the body reaches with NO speed backs off for a run-up (`RUNUP_TICKS`) rather than standing — the deadlock was a refusal that zeroed the wish and then waited for the speed only the wish could give, and it held a goblin at one lip for thirteen seconds (`nav_trace` 2026-11-27 12:52, `at=(-1.06, 247.0, 4.13)` from 63.04s to 76.05s, `blocked` to 87) — with the next tick still backing, and with no ground behind it the route given up instead of the body freezing. Its rise fixtures state the route cells as BLOCK cells — one under the feet — because that is what the planner hands the walker, and an off-by-one there is what made the first version of the check pass while the game never jumped. The probe also pins the two rules that crossing needed: a route whose first node is the cell the plan was asked from (the one carrying a body whose centre is over a hole) is not walked back to, and a blocked frame with no progress costs the route while one that is still getting closer does not — eleven drops of a body pinned at the wall's face came from exactly those two. The probe pins the pressed chord on both sides of the wall, the straight diagonal once the lip is behind the body, a squeeze (both halves solid) still re-planning, an orthogonal blocked wish still counting at once, and a slide that would walk its whole footprint off a drop refused (with a step down it may take still a slide) — the second report on the same corner ("he just walked off into the gap"), where the slide went along the wall's face into the gap beside it and the body fell three blocks into water | The run-up is capped per hop (`HOP_RUNUP_LIMIT`): with the cap spent the probe must see no run-up again, no wish and one blocked frame — a hop a run-up cannot fix is a route the walk gives up, not a body that paces. The run-up is capped per hop (`HOP_RUNUP_LIMIT`): with the cap spent the probe must see no run-up again, no wish and one blocked frame — a hop a run-up cannot fix is a route the walk gives up, not a body that paces. And the level test is asked in the units route cells are in (`_route_level_ok`): level, a two-block rise and a legal three-block drop (`max_drop`) are at the body's level, the fourth block down is not — measured against the block's own `y` a three-block drop read one past the slack, which was 195 of the 330 level-slip drops in `nav_trace` 2026-11-27 13:03 and the shuffle that goblin did in one cell for fifteen seconds. And a route that steps down is WALKED: `_steps_down` names one and three blocks down and not a level cell, and a one-block drop with no floor at the feet's level in front gives a wish toward it with no jump and no run-up — it was unreachable against the level slack, so a step down was a lip and was leapt.
+| `probe_goblin_flee.gd` | The run-away, on a stub body with no planner at all (a real world is not the question: `walk_to` answers 0 without a chunk manager, which IS the empty-plan case). The live bug was a goblin that FROZE while fleeing — thirteen `goal column has no navigable surface` asks in four seconds, `wish=(0.00, 0.00)` on every sample, health 4 → 0 while the player hit it: it had an enemy, a speed, a destination and nothing to walk. So: a wounded body must leave a wish pointing AWAY from the enemy when no route arrives (the old branch returned with the wish at zero); the aim must be the column's own standable cell rather than a fixed height over it (a hilltop six blocks up resolves to the cell standing on it, and a column with nothing in it resolves to nothing); and a goblin that is NOT fleeing closes on a target it can see within four blocks when the plan has nothing (`CHASE_CLOSE_GAP`), while the same state with the target twelve blocks off still stands still — a plan that answers with the cell the body already stands in is the search refusing the goal, and standing under the patience for that is the freeze the trace caught at `PLAN 28 ... nodes=1 path=(-2, 247, 3)`; the blind run stays the run-away's alone |
 | `probe_swim_route.gd` | The three decisions a chase in water makes, on a stub body with no scene (the world probe that would check it end to end could not stand a body up when this was written — see `probe_world.gd` and `probe_world_ready.gd` for why, and `probe_goblin_water.gd` for the same checks in the real world now that it can). The live bug they fix was "goblins stayed three blocks below me, changing their mind every second" on a staircase out of a stream, and the trace showed the plan was fine: a body in water now KEEPS the route it was given (the water branch used to drop it every tick, throwing away the plan the swim then re-asked for); the swim does not eat a DRY cell above the body (those are the staircase — skipping them walked the climb out from under it), while a wet cell above it IS arrived at, because a bobbing swimmer floats at the surface and a level test would stall; and the swim walks the route before swimming at a DRY target, while a WET one is still swum at directly, its plan only ever ending on the bank; and a route whose next cell is a DRY lip above the body is given up on after ninety frames, because the swim zeroes every clock that measures walking and a body otherwise presses at a staircase foot for as long as its anger lasts (`nav_trace`, 2026-11-25 22:20: `stuck` never passing 6) |
 | `probe_mob_attributes.gd` | That `data/mobs.json` reaches a real body: reads the registry's `goblin`, spawns one and holds `get_max_health`, the follow range, the alert box, the blow and the anger window to the file; then writes a deliberately different goblin to `user://`, loads it, and checks a second body comes up with the NEW numbers (30 health, 12 follow, 4 alert) and puts the shipped file back. A body reading its own constants passes the first half and fails the second |
 | `probe_goblin_water.gd` | Water, heights and the chase in them, in one 5x5 pond two blocks deep built in the real world (every cell snapshotted and restored): a goblin put on the bottom of it floats up and paddles out onto the rim; a goblin dropped ten blocks pays the 7 half-hearts the fall rule owes; an island is then built in the pond with a cell of water all the way round it and a chase from the rim has to cross that water to reach the prey standing on it (the player's "thirteen blocks round a two-block puddle"); and the prey is moved into the water itself, where the chase has to wade in after it and land a blow. The four things a mob had none of: a way across liquid, a landing's damage that was drained and thrown away, a chase that stopped at the bank, and a chase that could not reach a target standing in water. It stands its body on the player's own feet and waits for the world to settle before it writes a single cell, then proves the pond through the body's resolver (`bottom=water two=water air=air`) instead of assuming a write landed: with those two, the four checks are green in the real world: on a stone pad the probe builds forty blocks above the player, so the world under it cannot matter, three of the four are green in the real world — out of the pond, up the staircase out of the water, and a blow landed on a target standing IN it. The fourth, a target on the far rim across five cells of water, is not: with the rim open the body takes the dry way round, and that is CORRECT (five wet cells at twice the price lose to six dry ones), so the check needs a channel with no way round, which the square pond cannot be — walls along its sides block the staircase check's own approach. Its own fixture is a follow-up |
@@ -219,14 +218,19 @@ A few of those rows keep their detail here, because a table cell that long is an
   ground at arm's length by twenty-odd pixels. What it settled, and where it was blind: the
   speckle is the detail term's own grain sampled near one texel a pixel, and the answer is to
   hold that sampling rate instead of fading the term out — a texel at 4, 8 and 16 screen pixels
-  takes the spike rate from x31 over a no-term control to x5, x2.7 and x1.4, with the term's local
-  contrast within a quarter of where it started. It cannot see the SEAM, because its camera is in
+  takes the spike rate from x31 over a no-term control to x5, x2.7 and x1.4, with the term's
+  local
+  contrast within a quarter of where it started. It cannot see the SEAM, because its camera is
+  in
   the air where the loaded world is below the bottom of the frame.
-- `probe_lod_grid_clip.gd` — "is the far field being drawn over the loaded world", asked directly
-  rather than inferred: its fragments are painted flat magenta and counted, which no other surface
+- `probe_lod_grid_clip.gd` — "is the far field being drawn over the loaded world", asked
+  directly
+  rather than inferred: its fragments are painted flat magenta and counted, which no other
+  surface
   in the world can be mistaken for. At the player's eye, the shipped clip (a disc cut from the
   world's STREAMING radius, `render_distance * 32 - 16` = 112 blocks at a render distance of 4)
-  painted **45-47% of the frame**, and a clip four times wider painted 13-24% of it — so a quarter
+  painted **45-47% of the frame**, and a clip four times wider painted 13-24% of it — so a
+  quarter
   of the screen was far-field cells laid over ground the world was also drawing, which is what a
   ring of fighting cells and covered chunks is. The radius prints off the material itself, which
   is the other half of the point: the uniform was live and correct all along, and the number it
@@ -241,17 +245,23 @@ A few of those rows keep their detail here, because a table cell that long is an
   the far field's own rendering at a grazing angle. The drawn-edge radius stands on the coverage
   it removes (0.22, 0.29, 0.28, 0.16 of the frame against 0.29, 0.29, 0.28, 0.26) and not on a
   spike rate it never claimed.
-  It now also measures the report's own two colours, because the report named them: **blue|green**
+  It now also measures the report's own two colours, because the report named them:
+  **blue|green**
   is the share of the mask whose water tint (much more blue than green) has the land's green as
-  its neighbour within two pixels, and it reads **0.24-0.29** of the far field — one pixel of each
+  its neighbour within two pixels, and it reads **0.24-0.29** of the far field — one pixel of
+  each
   colour interleaved across the field rather than a coastline, which is one contour. Two more
-  states of the same camera rule the candidates out rather than in: dropping the water sheet whole
-  (`if (is_water > 0.5) discard;`) takes that share to 0.09-0.13 and the far field's coverage with
-  it — the sheet is a lot of the blue and none of the pattern — and moving the camera's NEAR plane
+  states of the same camera rule the candidates out rather than in: dropping the water sheet
+  whole
+  (`if (is_water > 0.5) discard;`) takes that share to 0.09-0.13 and the far field's coverage
+  with
+  it — the sheet is a lot of the blue and none of the pattern — and moving the camera's NEAR
+  plane
   from 0.05 to 0.209 changes the frame not at all (0.2904 against 0.2905 on the same heading, to
   four decimals), so a 24-bit depth buffer is not what is failing. Reading the frame out
   (`look_seam.py`, an offline classifier) puts the interleave in the far field's own half of the
-  screen and leaves the loaded world's half uniform: what is blue there is the far mode's own fog
+  screen and leaves the loaded world's half uniform: what is blue there is the far mode's own
+  fog
   (`vec3(0.70, 0.80, 0.95)`), which is the colour a grain sampled near one texel a pixel turns
   into at the range where green land and blue fog are the same value.
 - `probe_lod_grid_overlap.gd` — the far field's two surfaces against each other, which is the
@@ -316,28 +326,39 @@ A few of those rows keep their detail here, because a table cell that long is an
 - `probe_item_light_smooth.gd` — the eased `item_light` is read back OFF THE INSTANCE the
   shader sees, so the number measured is the one being drawn rather than the one assigned.
 - `probe_player_anim.gd` — the body is measured, and then the parked port it no longer uses. The
-  body: exactly two clips, `idle` and `run`, and every track of both resolves on this rig (a track
-  that names no limb plays as no motion at all, silently); standing on the floor it is playing the
-  idle and its arms are swaying; the run clip comes out on Minecraft's own base (a peak of 1.4 rad
+  body: exactly two clips, `idle` and `run`, and every track of both resolves on this rig (a
+  track
+  that names no limb plays as no motion at all, silently); standing on the floor it is playing
+  the
+  idle and its arms are swaying; the run clip comes out on Minecraft's own base (a peak of 1.4
+  rad
   of leg against 1.0 of arm, one cycle every 0.4716 s -- the clip's own 16.8 degrees and 1 s are
   re-derived at load, not trusted) and its keys are left at that full swing whatever the body is
-  doing (ONE amplitude writer: the tree's blend weight, which is measured next); the loop closes on its own value and crosses it
+  doing (ONE amplitude writer: the tree's blend weight, which is measured next); the loop closes
+  on its own value and crosses it
   at the same speed it crosses the middle of the cycle (a hand-authored clip eases its own ends:
-  `Run.anim` crossed zero at 31 deg/s at its wrap against 103 half a cycle later, and at vanilla's
-  80 degrees that crawl is a visible pause -- 503 against 503 after the one-cosine fit); the walk's
+  `Run.anim` crossed zero at 31 deg/s at its wrap against 103 half a cycle later, and at
+  vanilla's
+  80 degrees that crawl is a visible pause -- 503 against 503 after the one-cosine fit); the
+  walk's
   tree has the walk's blend onto a rest pose and the idle layer wired over it (rest, run,
   timescale, blend, idle, add, with the `AnimationPlayer` as its host) while no clip carries a
   copied arm hang -- both rest on the model's own pose and the idle's own track turns 0 to 3.4
-  degrees. Run at a walk's amounts, the arms' roll spans 3.44 degrees while the leg is at its full
+  degrees. Run at a walk's amounts, the arms' roll spans 3.44 degrees while the leg is at its
+  full
   80: it DRIFTS, which a copied constant could not; the blend weight IS the swing (half of it
   gives 40.1 degrees of leg against 80.2); and stopping through the production path settles the
   legs onto rest while the arms' roll carries straight through -- biggest frame-to-frame step
-  0.02 degrees, so the idle was never rewound. The K-key pose clone stays frozen: `skip_head_look`
+  0.02 degrees, so the idle was never rewound. The K-key pose clone stays frozen:
+  `skip_head_look`
   deactivates the TREE as well as the head, or the dummy would keep breathing while it is being
   punched.
-  `scripts/body_animator.gd`, the hand-port the clips replaced, is a pure function of its inputs,
-  so it is still measured state by state: idle, walk (60° of opposed stride, each arm against its
-  own leg), sprint, jump and fall, sneak, swim, and a stop that decays over its own frames rather
+  `scripts/body_animator.gd`, the hand-port the clips replaced, is a pure function of its
+  inputs,
+  so it is still measured state by state: idle, walk (60° of opposed stride, each arm against
+  its
+  own leg), sprint, jump and fall, sneak, swim, and a stop that decays over its own frames
+  rather
   than cutting. Nothing in the game calls it.
 - `probe_menu.gd` — the curtain is asked what its bodies did, rather than watched, because the
   claim is physical: 96 of them are `RigidBody2D`, they are tumbling ten physics frames in, and
@@ -350,10 +371,12 @@ A few of those rows keep their detail here, because a table cell that long is an
   before and after (worst 0.00 px) and the closed wall's own stillness checked separately, and
   the reveal is timed to the `revealed` signal. Two failure paths are exercised on purpose: a
   wall whose blocks are moved off the side of the screen still covers and still reveals on its
-  fuse, and `skip()` is called mid-fall to assert the wall goes up and every cell moves away from
+  fuse, and `skip()` is called mid-fall to assert the wall goes up and every cell moves away
+  from
   the press point. Two measurements are also about
   the harness, because both were silently wrong at first: the curtain has to be given one idle
-  frame before it is sized and played, or `_ready` runs afterwards and switches the whole process
+  frame before it is sized and played, or `_ready` runs afterwards and switches the whole
+  process
   loop off, and the overlap test has to use a separating axis rather than "close in x", because
   two blocks side by side in the same row are legitimately level. The live half boots the real
   scene and asks the layer what it did: player frozen, hotbar gone, primary action naming the
@@ -388,12 +411,15 @@ one camera heading leave both ways, which is what an aim-derived side cannot do.
 `main.tscn` and needs a display.
 
 `probe_body_light.gd` is the one that reads the player's own body off the screen, and it has to:
-the body is a glb of boxes wearing the item shader's light model (`scripts/player_model.gd`), and
+the body is a glb of boxes wearing the item shader's light model (`scripts/player_model.gd`),
+and
 "a body can never disagree with the ground it stands on" is a claim about pixels, not about the
-uniforms handed to them. The scene is what makes it measurable — `Main.tscn` has no light node at
+uniforms handed to them. The scene is what makes it measurable — `Main.tscn` has no light node
+at
 all, only a sky ambient at 0.027 energy, so a body left on the engine's lighting is a factor of
 ten dark and cannot move when the sun goes down. The silhouette comes from hiding the body, and
-the mask is taken ONCE and reused: re-derived inside a brighter or darker world it keeps only the
+the mask is taken ONCE and reused: re-derived inside a brighter or darker world it keeps only
+the
 body's pixels that still contrast with it — the dark ones at noon, the bright ones at midnight —
 and reads a step that is not there. It is also where the shared neutral sky-light curve is
 pinned: the body's material and a scratch world material must both be white overhead, and the
@@ -401,26 +427,33 @@ body's own value must still be warm at the horizon, which is what says its white
 not a flat colour. Shots land in `user://body_shots/`.
 
 `probe_sky_brightness.gd` answers a question none of the others can: what a surface in FULL sky
-light actually renders as, against its own texture. It found that the answer was not the texture.
+light actually renders as, against its own texture. It found that the answer was not the
+texture.
 The light topped out at `kBlockBrightness[15]` (0.415), the sky term added a flat
 `sky_light_intensity * 0.15` keyed off the time of day rather than the cell's own sky light, a
-filmic curve lifted what was left, and no albedo sampler carried `source_color` — so the texel was
+filmic curve lifted what was left, and no albedo sampler carried `source_color` — so the texel
+was
 treated as a LINEAR value by a pipeline that encodes on output, and that encode lifted it again.
 Measured at noon on the body's silhouette: a 0.50 albedo came out at 0.68 (1.36x its own texel)
 and a 0.25 at 0.61 (2.43x). The probe puts a known flat grey under all of that (the body's
 material is one uniform, so the input is a number rather than a guess at an atlas) and reads the
-frame back, then holds each albedo to the model's own claim: never above its own texel, and not far
-below it either. With the albedos decoded, the light curve normalised to 1.0 at level 15, and the
+frame back, then holds each albedo to the model's own claim: never above its own texel, and not
+far
+below it either. With the albedos decoded, the light curve normalised to 1.0 at level 15, and
+the
 sky bounce and the filmic curve gone, the same run reads 0.50 at 0.45 median (0.89x) and 0.25 at
 0.22 (0.88x) — the shortfall is the body's own side shading, which is 0.6 and 0.8 by design. The
-subject is the body because its albedo can be set exactly; the arithmetic it runs is the terrain's
+subject is the body because its albedo can be set exactly; the arithmetic it runs is the
+terrain's
 and the water shader's, word for word, so the number describes all three. The ground behind the
-body is printed but not asserted on, having no known albedo of its own: its luma went from 0.43 to
+body is printed but not asserted on, having no known albedo of its own: its luma went from 0.43
+to
 0.31 across this change, which is the same overshoot coming off the terrain.
 
 The four goblin probes cover one entity, and each answers a different question.
 `probe_goblin.gd` is headless and asks what the Spawn Goblin tool MAKES: an entity, not
-scenery — the body carries `scripts/goblin.gd` (the player's own movement sim plus the hearts) and
+scenery — the body carries `scripts/goblin.gd` (the player's own movement sim plus the hearts)
+and
 stands in `pose_clone`, the group `PlayerController` punches; it is centred in the aimed cell
 rather than on its seam, because a 0.6-wide box on a seam is half inside a wall and cannot be
 knocked anywhere; the model rides the body as a child with its own offset and yaw, leaving the
@@ -432,24 +465,28 @@ though only the wander drives a state today. Its six
 hearts are its own health and nothing is drawn over its head -- no `HealthBar` node, no sprite
 -- so the twelve half-hearts are twelve punches, one apiece, unchanged by a hit inside the hurt
 window, and gone with the body at zero. It needs no world and no display:
-`probes/goblin_probe_world.gd` is one aim ray, the two light calls and a body with no world to move
+`probes/goblin_probe_world.gd` is one aim ray, the two light calls and a body with no world to
+move
 through, which is the whole `ChunkManager` surface the tool touches.
 
 `probe_goblin_anim.gd` is the body itself, and the only goblin probe that needs no world at all:
-the model is stood up under a stub host, so what it measures is the rig the spawn tool never touches
+the model is stood up under a stub host, so what it measures is the rig the spawn tool never
+touches
 — the obj's eleven surfaces split back into six hung parts, the feet on the floor with the model
 1.44 blocks tall, the hips at the tops of the leg boxes and the shoulders at 1.0 — and then the
 player's own clips turning it. Standing, the legs are still and the arms' roll moves; a quarter
 block a tick (5 blocks/s, the speed a full swing wants) strides 80.2 degrees of leg with the two
 legs opposed and the idle's roll still riding the arms; losing that speed settles the legs onto
 rest while the roll carries straight through, so a stop is the amplitude shrinking and never the
-idle being re-entered. It also pins that the speed comes from the GOBLIN: `_walk_speed` reads the
+idle being re-entered. It also pins that the speed comes from the GOBLIN: `_walk_speed` reads
+the
 nearest ancestor that answers `get_velocity`, so a goblin walks its own pace with the player
 standing still beside it.
 
 `probe_goblin_punch.gd` is the windowed one, because a punch is a mouse press: LMB →
 `try_punch_dummy` → the nearest body along the eye ray among ALL of `pose_clone` →
-the goblin's `apply_knockback`, which is the sim's shove and the sim's hurt window. The group lists the far goblin first and it is the near one that
+the goblin's `apply_knockback`, which is the sim's shove and the sim's hurt window. The group
+lists the far goblin first and it is the near one that
 must fly, which is exactly the case a `get_first_node_in_group` pick gets wrong (it did). Its
 own lesson is that the spawn point is a cell seam, where no body centred in a cell can be hit,
 so the probe steers the aim with synthetic `InputEventMouseMotion` — measure the sensitivity
@@ -457,29 +494,43 @@ once, then send the difference — and the click needs the title screen's `_rele
 captured mouse before it reaches the world.
 
 `probe_goblin_roam.gd` is the idle wander, and it needs the real chunk map because a route is
-only a route over generated terrain: it loads the world, stands a goblin on the ground beside the
+only a route over generated terrain: it loads the world, stands a goblin on the ground beside
+the
 player, asks it for a route six blocks east and reads back what the entity does with it. That is
 the entity's half of the claim — the walk is steering at a stroll and never a teleport (no frame
 moves the body further than a stride), it stands only on blocks that are actually there, it
 arrives inside its own arrive distance rather than jittering on the last waypoint, it stops when
-the route ends and settles into an idle wait, and a punch empties the route and pauses the wander
-instead of letting the next tick steer over the knockback. The wander's own idle timer is silenced
+the route ends and settles into an idle wait, and a punch empties the route and pauses the
+wander
+instead of letting the next tick steer over the knockback. The wander's own idle timer is
+silenced
 in the probe, so every stroll that happens is one it asked for.
 
-`probe_goblin_fight.gd` is the blow, and it needs no world either: the spawn probe's stub gains one
-block ray whose answer the probe sets, and `goblin_probe_enemy.gd` is a body that counts what lands
-on it. It asks what the reach MEANS — a body one block away in the open is hit; a body on the step
+`probe_goblin_fight.gd` is the blow, and it needs no world either: the spawn probe's stub gains
+one
+block ray whose answer the probe sets, and `goblin_probe_enemy.gd` is a body that counts what
+lands
+on it. It asks what the reach MEANS — a body one block away in the open is hit; a body on the
+step
 in front of it is hit (1.41 of three-dimensional distance); a body three blocks overhead is not,
-and neither is one twenty-five overhead, which is the case that was seen in play when the reach was
-the FLAT distance and height was not measured at all; and a body behind a wall is in reach but not
-in sight, so no blow lands, until the wall is gone and the next one does. Both halves of that were
-wrong, and both are one line in `goblin.gd`: which distance is measured, and what is asked before
-the swing. It holds the fight's limits too — it runs at two hearts (4 half-hearts) and not at two and
-a half, a target 40 blocks away is dropped (the leash is 35), the anger clock (400–799 ticks) times
-out on its own, and a punched goblin wakes a neighbour 20 blocks away while one 40 blocks out stays
+and neither is one twenty-five overhead, which is the case that was seen in play when the reach
+was
+the FLAT distance and height was not measured at all; and a body behind a wall is in reach but
+not
+in sight, so no blow lands, until the wall is gone and the next one does. Both halves of that
+were
+wrong, and both are one line in `goblin.gd`: which distance is measured, and what is asked
+before
+the swing. It holds the fight's limits too — it runs at two hearts (4 half-hearts) and not at
+two and
+a half, a target 40 blocks away is dropped (the leash is 35), the anger clock (400–799 ticks)
+times
+out on its own, and a punched goblin wakes a neighbour 20 blocks away while one 40 blocks out
+stays
 out of it, which is the pigman rule and its 32-block box. The last of its checks is the chase's
 patience: the stub has no planner, so nothing is ever walkable — the state a goblin reaches at a
-frontier it cannot get past — and three seconds of it must drop the target rather than stand under
+frontier it cannot get past — and three seconds of it must drop the target rather than stand
+under
 the player for the whole anger window.
 
 The rest of the directory is historical or subject-specific; the header comment

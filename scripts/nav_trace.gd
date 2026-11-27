@@ -33,6 +33,10 @@ extends Node
 ## Where the session's trace lands. A fixed name, overwritten every session: the last run is the
 ## one that is there, and the last run is the one a report is about.
 const TRACE_PATH := "user://nav_trace.txt"
+## A headless session is a probe, and a probe writes its own file: the probes run in this same user
+## directory, so a run of them after a test overwrote the very trace the test was being read from
+## (2026-11-27 12:38: the game's session replaced by a stub world at `(0, 294, 0)`).
+const TRACE_PATH_HEADLESS := "user://nav_trace_probe.txt"
 ## Lines kept per list. A line is one event or one sample, and an hour of play is 3600 samples, so
 ## this holds a whole session and still bounds a pathological one.
 const MAX_LINES := 4000
@@ -234,10 +238,11 @@ func _exit_tree() -> void:
 	lines.append("# samples -- once a second: the player, then every goblin")
 	lines.append_array(_samples)
 
-	var out := FileAccess.open(TRACE_PATH, FileAccess.WRITE)
+	var path := TRACE_PATH_HEADLESS if DisplayServer.get_name() == "headless" else TRACE_PATH
+	var out := FileAccess.open(path, FileAccess.WRITE)
 	if out == null:
 		print("NavTrace: could not write %s (%s)"
-			% [TRACE_PATH, error_string(FileAccess.get_open_error())])
+			% [path, error_string(FileAccess.get_open_error())])
 		return
 	for line in lines:
 		out.store_line(line)
@@ -247,7 +252,7 @@ func _exit_tree() -> void:
 		% [_plans, _found, _truncated, _failed])
 	for line in _header:
 		print(line)
-	print("full trace: %s" % ProjectSettings.globalize_path(TRACE_PATH))
+	print("full trace: %s" % ProjectSettings.globalize_path(path))
 	for line in _tail(_events, CONSOLE_TAIL):
 		print(line)
 	for line in _tail(_samples, CONSOLE_SAMPLES):
@@ -283,7 +288,7 @@ func _track_player() -> void:
 	if body == null:
 		return
 	var at := body.global_position
-	var map := _column_map(at)
+	var map := column_map(at)
 	var step := Vector3.INF
 	if _last_player_at != Vector3.INF:
 		step = at - _last_player_at
@@ -304,11 +309,12 @@ func _track_player() -> void:
 		_player_lines.remove_at(0)
 
 
-## The 3x3 of column tops around the feet, as one readable grid: rows are z-1, z, z+1 and columns
-## are x-1, x, x+1. `0` is the floor the player is standing on, `1` a block at his feet's own level
-## (a step up), `2` a two-block wall, `-1` a hole one deep, `X` nothing solid within reach. Anything
-## that is not air counts as a block -- a liquid is not a floor.
-func _column_map(at: Vector3) -> String:
+## The 3x3 of column tops around a FEET position, as one readable grid: rows are z-1, z, z+1 and
+## columns are x-1, x, x+1. `0` is the floor under those feet, `1` a block at their own level (a
+## step up), `2` a two-block wall, `-1` a hole one deep, `X` nothing solid within reach. Anything
+## that is not air counts as a block -- a liquid is not a floor. Both read it, because it is one
+## question about one place: the player's step track and a goblin's own sample line.
+func column_map(at: Vector3) -> String:
 	var world := _world()
 	if world == null or not world.has_method("get_block"):
 		return "?"

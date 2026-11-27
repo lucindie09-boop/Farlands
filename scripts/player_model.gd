@@ -134,7 +134,10 @@ const HELD_BLOCK_TURN := Vector3(0.0, 45.0, 0.0)
 # depth of its own, so without this it reads as lying on the hand rather than held clear
 # of it. One number, ours to tune; the block path does not use it (a block is already
 # placed corner-on-palm).
-const HELD_SPRITE_FORWARD := 0.2
+const HELD_SPRITE_FORWARD := 0.22
+# How far ABOVE the hand a sprite sits, in blocks and converted to arm lengths: flat on the
+# hand's own line it read as resting on the wrist rather than held. Ours to tune.
+const HELD_SPRITE_RISE := 0.05 / 0.675
 
 var uv_overlay_enabled := false
 var paint_color := Color.WHITE
@@ -690,7 +693,9 @@ func _hold(id: int) -> void:
 	# side of the hand. An off-centre shaped block is the same problem after its turn.
 	var centre: Vector3 = placed.get_center()
 	var rise: float = 0.0
-	if not is_sprite:
+	if is_sprite:
+		rise = _held_arm_box.size.y * HELD_SPRITE_RISE
+	else:
 		rise = mesh.get_aabb().size.y * size * HELD_BLOCK_RISE
 	_held_item.position = Vector3(-centre.x * size, _held_arm_box.position.y + rise,
 		_held_arm_box.end.z + forward)

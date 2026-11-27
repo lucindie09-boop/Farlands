@@ -901,7 +901,9 @@ first-person viewmodel - what each one owns and the decisions behind it.
   The grip is measured on the TURNED box, because a cube on the diagonal reaches further forward
   than its back face did — half the untouched depth would sink that corner into the forearm —
   and `HELD_BLOCK_BACK` then pulls it 0.05 of a block in from flush, toward the arm.
-  Both are centred on the hand, so a block straddles it rather than resting on top
+  Both are centred on the hand sideways, and
+  each rides up from it: a block by a sixth of its own height, a sprite by a fixed 0.05 of a
+  block (`HELD_SPRITE_RISE`), so neither rests on the wrist
 
 ## Cameras, targets and overlays
 

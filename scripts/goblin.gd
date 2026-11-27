@@ -196,6 +196,16 @@ const LOOT_ERRAND_TICKS := 200
 ## or an item id.
 const LOOT_IGNORE_TICKS := 200
 const LOOT_IGNORE_REACH := 2.0
+## ...and a take that came back EMPTY is a DIFFERENT memory, because there is nothing at that
+## spot to remember: the pile is gone -- taken by the player or another goblin, or MERGED into a
+## neighbour while this one walked -- and the survivor of that merge stands about a block away,
+## well inside the wide reach above. Remembered wide, the hole HIDES it for the whole window:
+## `nav_trace` 2026-11-27 21:26 has a goblin stand the ten seconds of `LOOT_IGNORE_TICKS` beside
+## a live pile it could see, its errand having found nothing where it walked to. This reach is
+## about the same PILE rather than the place -- a pile does not move, so the same pile answers
+## the same point -- so the survivor is noticed at once, while a pile the hand could not reach
+## (one a step below the feet) is still that same pile and still left alone.
+const LOOT_FORGOTTEN_REACH := 0.5
 ## Degrees the main arm comes up for the inspection. 80 puts the hand in front of the chest
 ## and a little below the shoulder, which is where the neck can reach it: the head pitches
 ## 40 degrees down (goblin_model.gd's HEAD_PITCH_LIMIT) and an item hanging at the goblin's
@@ -510,6 +520,7 @@ var _loot_deadline := 0
 var _inspect_ticks := 0
 var _loot_ignore_at := Vector3.INF
 var _loot_ignore_until := 0
+var _loot_ignore_reach := LOOT_IGNORE_REACH
 var _loot_scan_ticks := 0
 
 # The body's numbers, which `data/mobs.json` owns. `_apply_attributes` fills every one of these
@@ -1239,8 +1250,10 @@ func _loot_travel() -> void:
 				LOOT_REACH + 0.2, LOOT_TAKE_HEIGHT + 0.2)
 		if taken.is_empty():
 			# The player took it, another goblin did, or it merged away while this one walked:
-			# there is nothing left to fetch at that spot.
-			_loot_forget(_loot_target)
+			# there is nothing left to fetch at that spot, so the memory is about the PILE and not
+			# the place (LOOT_FORGOTTEN_REACH) -- a merge leaves its survivor a block away, and a wide
+			# memory would hide it for the whole window.
+			_loot_forget(_loot_target, LOOT_FORGOTTEN_REACH)
 			return
 		_take_up(int(taken.get("block_id", 0)))
 		return
@@ -1308,6 +1321,9 @@ func _decide_loot() -> void:
 	if _drop_one(id, at):
 		_loot_ignore_at = at
 		_loot_ignore_until = int(_sim.get_tick_count()) + LOOT_IGNORE_TICKS
+		# The WIDE reach: the item is thrown back with a scatter, so the pile it makes is not
+		# exactly at the hand it left (LOOT_FORGOTTEN_REACH is for a pile that was never there).
+		_loot_ignore_reach = LOOT_IGNORE_REACH
 
 
 ## Cancel the errand, whatever stage it has reached.
@@ -1333,10 +1349,14 @@ func _cancel_loot() -> void:
 
 
 ## Give up on a spot: the errand ends, and that place is left alone for LOOT_IGNORE_TICKS.
-func _loot_forget(at: Vector3) -> void:
+## `reach` is how far from the remembered point another pile still counts as that spot -- the
+## wide LOOT_IGNORE_REACH for a place (a rejected item lands scattered, an unreachable column has
+## no pile at all) and the tight LOOT_FORGOTTEN_REACH for a pile that was not there any more.
+func _loot_forget(at: Vector3, reach := LOOT_IGNORE_REACH) -> void:
 	_cancel_loot()
 	_loot_ignore_at = at
 	_loot_ignore_until = int(_sim.get_tick_count()) + LOOT_IGNORE_TICKS
+	_loot_ignore_reach = reach
 
 
 ## Whether this spot is one it has just given up on.
@@ -1345,7 +1365,7 @@ func _loot_ignored(at: Vector3) -> bool:
 		return false
 	if int(_sim.get_tick_count()) >= _loot_ignore_until:
 		return false
-	return at.distance_to(_loot_ignore_at) <= LOOT_IGNORE_REACH
+	return at.distance_to(_loot_ignore_at) <= _loot_ignore_reach
 
 
 ## Where the DRAWN item in the main hand is, which is what the inspection looks at. A body

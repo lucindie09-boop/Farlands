@@ -195,16 +195,17 @@ var paint_color := Color.WHITE
 # is fully frozen instead of tracking the player's aim).
 var skip_head_look := false
 
-## The MAIN hand held UP in front of the face, with the body's clips stopped: the goblin's
-## loot inspection (scripts/goblin.gd). It takes one item, raises that arm until the item is
-## in front of its face, and stands looking at it for three seconds.
+## The MAIN hand held UP in front of the face: the goblin's loot inspection
+## (scripts/goblin.gd). It takes one item, raises that arm until the item is in front of its
+## face, and stands looking at it for three seconds.
 ##
-## The ARM cannot simply be turned: the AnimationTree rewrites an arm's local rotation every
-## frame, so a pose written there is replaced the next one. The tree is STOPPED while this is
-## set -- the same instrument `skip_head_look` uses to freeze a pose clone -- and the arm is
-## written from the clips' own rest (`_clip_rest`), which is the base every walk key is
-## measured from. Releasing it needs no second write: `_animate_body` reactivates the tree and
-## the clips take the arm back, which is why nothing compounds.
+## The body is NOT frozen for it. The clips keep playing underneath, because a body stopped
+## dead is a body caught mid-stride -- the goblin arrives walking and would stand there with
+## its legs halfway through a step for three seconds. What is stopped is the arm's own motion:
+## the arm is written from the clips' own rest (`_clip_rest`, the base every walk key is
+## measured from) AFTER the tree has stepped, which is the only ordering that lets the legs
+## animate and the arm be held in the same frame (TREE_PRIORITY). Releasing hands the arm to
+## the clips where they got to, so nothing compounds.
 ##
 ## Why it cannot be skipped: an item hanging at a goblin's side is about 70 degrees below its
 ## head, and its neck pitches 40 (goblin_model.gd's HEAD_PITCH_LIMIT) -- physically outside
@@ -216,8 +217,14 @@ var inspect_pose := false
 var _inspect_share := 0.0
 ## How long the arm takes to come back DOWN when the pose is switched off: the inspection
 ## hands the arm to the clips at 80 degrees, and handing it over in one frame is a teleport.
-## The tree stays stopped while it lowers, so nothing else turns the arm on the way.
+## The clips keep playing under it, and only the arm is on the way down.
 const INSPECT_LOWER_SECONDS := 0.28
+
+## Where the AnimationTree sits in the frame's process order: BEFORE this body, since a lower
+## priority is processed first. That is what makes an arm pose written in `_process` land on
+## top of the pose the clips have just produced instead of being overwritten by it -- the
+## inspection needs both, a walking body and a held arm, in one frame.
+const TREE_PRIORITY := -1
 
 ## How far that arm comes up, in degrees. The caller's number (`set_inspect_pose`): how far an
 ## inspection lifts the hand is the behaviour's to say rather than the rig's.
@@ -329,6 +336,7 @@ func _init_body_animation() -> void:
 	_tree.name = "ClipsTree"
 	_tree.tree_root = _build_tree()
 	add_child(_tree)
+	_tree.process_priority = TREE_PRIORITY
 	# Both nodes are in the tree before this: the path is between them, and the tree
 	# finds the animations by name through it.
 	_tree.anim_player = _tree.get_path_to(_clip_player)
@@ -550,9 +558,12 @@ func _process(delta: float) -> void:
 			_tree.active = false
 		_clip = ""
 		return
-	# A body inspecting something holds the main hand up instead of playing its clips (see
-	# `inspect_pose`), and the head STILL tracks: it is looking at what it holds.
+	# A body inspecting something holds the main hand up (see `inspect_pose`) while its clips
+	# keep playing: the walk settles out of the stride it arrived in and the body breathes, and
+	# the arm is written over that pose afterwards. The head STILL tracks: it is looking at
+	# what it holds.
 	if inspect_pose or _inspect_share > 0.0:
+		_animate_body(delta)
 		_hold_inspect_pose(delta)
 		_track_head_look()
 		return
@@ -1134,15 +1145,11 @@ func _inspect_sign() -> float:
 	return -1.0
 
 
-## One frame of the inspection pose: the tree stopped and the arm up, with every other part
-## left where the last tick put it. Nothing else is written -- a body that is being looked at
-## is standing still, which is the pose it already had.
+## One frame of the inspection pose: the arm up, written over whatever the clips just did to
+## the rest of the body. The tree is left running (and runs first, TREE_PRIORITY), so the
+## legs and the other arm keep moving under this -- a body frozen mid-stride is what this used
+## to look like, and a goblin takes its item at the end of a walk.
 func _hold_inspect_pose(delta: float) -> void:
-	if _tree != null and _tree.active:
-		# Stopped rather than skipped: a tree left running rewrites this arm every frame, and
-		# one left playing would keep the body breathing mid-inspection.
-		_tree.active = false
-	_clip = ""
 	# 1 while it is being looked at, then down to 0 over INSPECT_LOWER_SECONDS. The pose is
 	# written every frame either way, which is what makes the way down a movement rather than
 	# one frame of 80 degrees followed by the clips' own pose.

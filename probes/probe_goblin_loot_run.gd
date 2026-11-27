@@ -557,8 +557,42 @@ func _run() -> void:
 	if int(body.get("_job")) != 0 or not (body.get("_route") as Array).is_empty():
 		_fail("a timed-out errand kept its plan in flight")
 
+	# --- 10. a take that comes back EMPTY does not hide the pile beside it --------
+	# The pile it walked to is GONE when it gets there -- taken by the player, or merged into a
+	# neighbour -- so the take answers nothing and the spot is forgotten. That memory is about
+	# the pile and not the place: the survivor of the merge stands a block away, inside the wide
+	# reach a rejected item is remembered at, and `nav_trace` 2026-11-27 21:26 has a goblin stand
+	# the whole ten seconds of LOOT_IGNORE_TICKS beside exactly such a pile, with nothing to do.
+	body.set("main_hand_item", 0)
+	body.call("_cancel_loot")
+	body.set("_loot_ignore_at", Vector3.INF)
+	_put(pebble, in_reach)
+	body.set("_loot_scan_ticks", 0)
+	if not _tick_until(LOOT_SCAN_TICKS + 4,
+			func(): return body.get("_loot_target") != Vector3.INF):
+		_fail("it never set off on the pile that was about to vanish")
+	# The survivor: the same item a block and a half off -- out of the HAND's reach from here, so
+	# this take really does come back empty, and inside the 2.0 a rejected item's memory covers.
+	var survive_at := _feet + Vector3(1.9, 0.3, 0.0)
+	_put(pebble, survive_at)
+	jobs = int(_plan.get("jobs"))
+	if not _tick_until(LOOT_SCAN_TICKS + 4,
+			func(): return body.get("_loot_target") != Vector3.INF):
+		_fail("an empty take left it standing beside a pile it could see")
+	if not (body.get("_loot_target") as Vector3).is_equal_approx(survive_at):
+		_fail("the errand after an empty take is for %s, not the pile beside it at %s"
+			% [str(body.get("_loot_target")), str(survive_at)])
+	if not (body.get("_loot_ignore_at") as Vector3).is_equal_approx(in_reach):
+		_fail("the spot it found nothing at was not remembered at all")
+	if int(_plan.get("jobs")) <= jobs:
+		_fail("the pile beside the forgotten spot was never planned for")
+	body.call("_cancel_loot")
+	body.set("_loot_ignore_at", Vector3.INF)
+	body.set("main_hand_item", 0)
+
 	print("PROBE is_item_tool tells a tool from everything else; nearest_item/take_one search "
 		+ "flat with a height bound and take one item off a pile; the loot run notices, walks "
-		+ "at 'loot', takes one, keeps a tool and throws the rest back")
+		+ "at 'loot', takes one, keeps a tool and throws the rest back, and a spot it found "
+		+ "empty hides only that pile and not its neighbours")
 	print("PROBE PASS" if ok else "PROBE FAILED")
 	quit(0 if ok else 1)

@@ -299,6 +299,41 @@ func _run() -> void:
 			if pitch > limit:
 				_fail("the raised hand is %.1f degrees below the head, past the neck's %.1f"
 					% [pitch, limit])
+		# ...and the BODY is not frozen for it. This is the bug that reads worst in game: a
+		# goblin takes its item at the end of a walk, so a stopped clip left it standing for
+		# three seconds with its legs halfway through a step. The walk amount is forced to a
+		# full stride first, and a body standing still has to come OUT of that stride while
+		# the arm holds its angle -- which is only true if the tree is still running AND the
+		# arm's write lands after the clips have had their turn.
+		var tree := model.find_child("ClipsTree", false, false) as AnimationTree
+		var other_arm := model.find_child("arm", true, false) as Node3D
+		model.set("_swing", 1.0)
+		await process_frame
+		if tree == null or not tree.active:
+			_fail("the inspection stopped the body's tree: a walk freezes mid-stride")
+		var rest_q: Quaternion = (model.get("_clip_rest") as Dictionary).get("arm2",
+			Quaternion.IDENTITY)
+		var rest_other := Quaternion.IDENTITY
+		if other_arm != null:
+			rest_other = other_arm.quaternion
+		var want_degrees := float(model.get("inspect_pitch"))
+		var wander := 0.0
+		var settling := Time.get_ticks_msec()
+		while Time.get_ticks_msec() - settling < 1400:
+			await process_frame
+			var off := absf(rad_to_deg(arm2.quaternion.angle_to(rest_q)) - want_degrees)
+			wander = maxf(wander, off)
+			if tree != null and not tree.active:
+				_fail("the body's tree stopped part way through an inspection")
+				break
+		if float(model.get("_swing")) > 0.01:
+			_fail("a standing body kept its stride for the whole inspection (walk amount %.3f)"
+				% float(model.get("_swing")))
+		if wander > 6.0:
+			_fail("the posed arm wandered %.1f degrees while the clips played under it" % wander)
+		if other_arm != null and rest_other.angle_to(other_arm.quaternion) < 0.002:
+			_fail("nothing but the posed arm moved: the clips are not playing under the pose")
+
 		# Releasing it is a MOVE, not a teleport: the arm comes down over
 		# INSPECT_LOWER_SECONDS (player_model.gd) with the tree still stopped for it, so the
 		# frame after the release it is on its way -- some share of the angle, neither 1 nor 0

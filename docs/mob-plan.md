@@ -255,13 +255,21 @@ above the face.
 
 Two things here are worth keeping for the next mob. **"Looks at it" is a pose, not a head** —
 the neck pitches 40 degrees down and an item hanging at the side is 70 below the head, so the arm
-has to come up, and the AnimationTree rewrites that arm's rotation every frame: the pose stops
-the tree for the three seconds (the same switch `skip_head_look` uses), writes
-`_clip_rest["arm2"] * Quaternion(RIGHT, pitch)` for that frame and still tracks the head, and
-lets the tree take the arm back on release. No second shoulder pivot, because that changes the
+has to come up, and the AnimationTree rewrites that arm's rotation every frame: the pose is
+written OVER the clips, on the frame after the tree has stepped (its `process_priority` puts it
+first), so the legs keep settling and the body keeps breathing while the arm is held. Stopping
+the tree for it — the first thing this did — left a goblin standing halfway through a step for
+three seconds, because it takes its item at the end of a walk. The head still tracks, and the
+release hands the arm back to the clips where they got to. No second shoulder pivot, because that changes the
 arm's node path and `_clip_for_rig`'s part map, while freezing the tree cannot break a clip
 path. **The reject is remembered by POSITION, not by a node** — `spawn_at` builds a new body and
-a merge can replace it, so the ten-second ignore window is a point and a deadline.
+a merge can replace it, so the ten-second ignore window is a point and a deadline. **...and it is
+two memories, not one**: a reject is remembered WIDE (`LOOT_IGNORE_REACH`), because the item is
+thrown back with a scatter and the pile it makes is not exactly at the hand it left, while a take
+that came back EMPTY — the pile merged into a neighbour, or the player got there first — is
+remembered at `LOOT_FORGOTTEN_REACH`, the pile's own point. A wide hole around a pile that is
+GONE hides the survivor of its merge, and that is a goblin standing beside a live pile it can
+see for ten seconds (`nav_trace` 2026-11-27 21:26).
 
 The one C++ change is the tool query (`BlockTextures.is_item_tool`, the registry's own
 `is_tool`, since nothing on the script side could answer it), and the two methods on

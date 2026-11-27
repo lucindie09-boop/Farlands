@@ -246,6 +246,13 @@ in the hand for good and is dropped with the torch when the body dies; anything 
 back down in front of it. A full main hand stops the scan: one carried item, no inventory and no
 UI, and the kept tool changes no damage and mines nothing — it is CARRIED.
 
+**A tool is whatever the registry's `tool` object says**, and a sword and a torch say so
+(`data/items.json`: a class of their own, no tier and hand speed, so nothing about mining moves
+and this keep/drop rule is the only reader). A torch is the one item whose kept hand is not the
+main one: with a free offhand it goes there — the hand a torch-bearing goblin's own torch lives
+in, drawn by the same holder and lit by the same light pass — and a body that already carries one
+keeps the next in its main hand.
+
 What the hand is DRAWN in is the player's own rule, because an item hanging dead straight at a
 side does not read as held: the shoulder pivot (`HeldArmPivot`) sits on `arm2` — the arm this
 body holds things in — and tips it 18 degrees forward while the hand is full, with the walk's

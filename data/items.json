@@ -70,6 +70,7 @@
 		{
 			"name": "torch",
 			"texture": "torch",
+			"tool": { "class": "torch" },
 			"pose": "item2",
 			"light": { "level": 14, "color": [1.0, 0.83, 0.6] },
 			"place": {
@@ -115,19 +116,23 @@
 		},
 		{
 			"name": "wooden_sword",
-			"texture": "wooden_sword"
+			"texture": "wooden_sword",
+			"tool": { "class": "sword" }
 		},
 		{
 			"name": "stone_sword",
-			"texture": "stone_sword"
+			"texture": "stone_sword",
+			"tool": { "class": "sword" }
 		},
 		{
 			"name": "copper_sword",
-			"texture": "copper_sword"
+			"texture": "copper_sword",
+			"tool": { "class": "sword" }
 		},
 		{
 			"name": "iron_sword",
-			"texture": "iron_sword"
+			"texture": "iron_sword",
+			"tool": { "class": "sword" }
 		},
 		{
 			"name": "dummy_egg",

@@ -952,7 +952,8 @@ first-person viewmodel - what each one owns and the decisions behind it.
   swing the holding arm draws 29.8 degrees against 58.4 empty-handed while the legs stay at
   80.2 either way.
 - **The offhand holder** (`hold_offhand` / `_seat`): a goblin's torch (a quarter of them spawn
-  with one, [ui.md](ui.md)) hangs from the arm the caller names — `arm`, its LEFT, because the
+  with one, [ui.md](ui.md), and a torch it picks up goes into that hand while it is free —
+  [mob-plan.md](mob-plan.md) item 16) hangs from the arm the caller names — `arm`, its LEFT, because the
   mesh looks down its own -Z — as a second `MeshInstance3D` with its own item material. The
   grip maths is `_seat`, the same function the main hand uses, so the size, the turn, the seat
   and the `alpha_scissor` exist once; what the offhand does NOT get is `_pose_held_arm` (no

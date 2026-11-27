@@ -591,8 +591,11 @@ being resampled by a different fraction at each scale.
   window resists takes nothing. At zero health the body is freed. **A quarter of goblins carry
   a torch in the offhand** — rolled once at spawn (`scripts/mob_equipment.gd`'s dice,
   `OFFHAND_CHANCE` in `scripts/goblin.gd`) and kept on the body, never re-rolled. There is no
-  offhand slot and no equipment UI: it cannot be swapped, picked up or used, and it changes
-  nothing about the goblin's blows or its numbers. It is drawn in the LEFT hand (`arm` is the
+  offhand slot and no equipment UI: it cannot be swapped, put down or used, and it changes
+  nothing about the goblin's blows or its numbers. It can be GAINED, though: a torchless goblin
+  that loots a dropped torch puts it in that hand rather than its main one
+  ([mob-plan.md](mob-plan.md) item 16), so the roll is where a body starts rather than what it is
+  stuck with. It is drawn in the LEFT hand (`arm` is the
   -x side, and the mesh looks down its own -Z, so its right is +x — which makes `arm` the
   left), seated with the main hand's own grip maths mirrored for a body facing the other way,
   and it hangs at the side on that arm's walk swing rather than taking the main hand's raised

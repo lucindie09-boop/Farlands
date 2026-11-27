@@ -107,7 +107,7 @@ part of the block texture array.
 | `name` | string | The item's name. Entry order is the item id, so append |
 | `texture` | string | Bare name under `Assets/textures/items/` |
 | `display` | string | What a player reads instead of the entry's `name` — for an item whose STATE is a second id (the rods' thrown version), so both states read as one item. Read by `item_names.gd`, not the registry |
-| `tool` | object | `class`, `tier`, `speed` — what the item is as a tool |
+| `tool` | object | `class`, `tier`, `speed` — what the item is as a tool. A class of its own (`sword`, `torch`) matches no block's `preferred_tool` and defaults to tier 0 at hand speed, so such an item mines exactly like a bare hand and the only question it answers yes to is "is this a tool" — the goblin's keep/drop rule (`scripts/goblin.gd`) |
 | `pose` | string | A resting pose id the viewmodel knows (`item1`, `item2`, ...). Read by `scripts/item_poses.gd`, the one reader `viewmodel.gd` (resting position) and `player_model.gd` (the third-person hand's turns and the `item2` seat) share; not by the registry |
 | `light` | object | `level` and `color` ([r,g,b]). While the item is selected it *owns* the player's dynamic light |
 | `use` | object | `kind` plus its argument: `pour` writes `block` into the aimed cell, `fill` empties the fluid source aimed at and swaps the item for that fluid's bucket, `dummy` puts a combat dummy on the aimed block (`dummy_egg`), `goblin` puts a goblin there instead (`goblin_egg`), `swap` replaces the held item with `item` keeping the count (the rods' cast/retract pair) |

@@ -1316,6 +1316,14 @@ func _decide_loot() -> void:
 		# Kept: it hangs at its side from here on. `main_hand_item` staying set is what stops
 		# every further loot run, and the item is CARRIED rather than used -- no damage, no
 		# mining, no equipment slot.
+		# A TORCH is the one item whose kept hand is not this one: the offhand is where a goblin's
+		# torch lives (`OFFHAND_ITEM`, rolled at spawn), so a free offhand takes it and the body
+		# then lights the world from its left exactly as a goblin that spawned with one does --
+		# `scripts/mob_lights.gd` reads both hands. A goblin that already carries a torch keeps
+		# the next one in its main hand, which is what "a torch is a tool" says on its own.
+		if id == _torch_id() and offhand_item <= 0:
+			offhand_item = id
+			main_hand_item = 0
 		return
 	main_hand_item = 0
 	if _drop_one(id, at):
@@ -1387,16 +1395,26 @@ func _model_node() -> Node3D:
 	return _model
 
 
-## Whether an id is a TOOL in the item registry -- a pickaxe, an axe, a hammer, a shovel.
+## Whether an id is a TOOL in the item registry -- a pickaxe, an axe, a hammer, a shovel, and
+## (by data rather than by a list here) a sword or a torch.
 ##
 ## `BlockTextures.is_item_tool` is the registry's own `ItemToolStats`, so a block, an unknown
-## id and a plain item (a stick, a pebble, a coin, a torch, a bucket) all answer no. Guarded on
-## the binding existing, because a probe can run against a DLL built before that method.
+## id and a plain item (a stick, a pebble, a coin) all answer no. A sword and a torch answer yes
+## because `data/items.json` gives each a `tool` class of its own: it matches no block's
+## `preferred_tool` and it is hand speed and tier 0, so nothing about mining changes and the one
+## question that reads it is this one -- the loot run's "is this worth keeping". Guarded on the
+## binding existing, because a probe can run against a DLL built before that method.
 func _is_tool(id: int) -> bool:
 	if not ClassDB.class_exists("BlockTextures") \
 			or not ClassDB.class_has_method("BlockTextures", "is_item_tool"):
 		return false
 	return bool(BlockTextures.is_item_tool(id))
+
+
+## The item id of `OFFHAND_ITEM` -- what a looted torch has to be, to go into that hand. Resolved
+## through `MobEquipment`, the same cached name lookup the spawn roll uses.
+func _torch_id() -> int:
+	return MobEquipment.item_id(OFFHAND_ITEM)
 
 
 ## Throw ONE of `id` on the ground at `at`, through the world's own dropped-item node -- the

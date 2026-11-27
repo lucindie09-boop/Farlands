@@ -244,12 +244,13 @@ func _run() -> void:
 	var ear := BlockTextures.get_block_id_by_name("goblin_ear")
 	var torch := BlockTextures.get_block_id_by_name("torch")
 	var stick := BlockTextures.get_block_id_by_name("stick")
+	var sword := BlockTextures.get_block_id_by_name("wooden_sword")
 	var stone := BlockTextures.get_block_id_by_name("stone")
 	var water := BlockTextures.get_block_id_by_name("water")
-	print("PROBE item ids pickaxe=%d axe=%d pebble=%d coin=%d ear=%d torch=%d stick=%d stone=%d water=%d"
-		% [pickaxe, axe, pebble, coin, ear, torch, stick, stone, water])
+	print("PROBE item ids pickaxe=%d axe=%d pebble=%d coin=%d ear=%d torch=%d stick=%d sword=%d stone=%d water=%d"
+		% [pickaxe, axe, pebble, coin, ear, torch, stick, sword, stone, water])
 	if pickaxe <= 0 or axe <= 0 or pebble <= 0 or coin <= 0 or ear <= 0 or torch <= 0 \
-			or stone <= 0 or water <= 0:
+			or stick <= 0 or sword <= 0 or stone <= 0 or water <= 0:
 		print("PROBE FAIL: an item or block name does not resolve, so nothing here can be tested")
 		quit(1)
 		return
@@ -259,11 +260,18 @@ func _run() -> void:
 		_fail("wooden_pickaxe is not a tool")
 	if not BlockTextures.is_item_tool(axe):
 		_fail("iron_axe is not a tool")
-	for id in [torch, pebble, coin, ear, stone, 0, -1, 999999]:
+	for id in [pebble, coin, ear, stone, 0, -1, 999999]:
 		if BlockTextures.is_item_tool(int(id)):
 			_fail("id %d answers as a tool" % int(id))
-	if stick > 0 and BlockTextures.is_item_tool(stick):
+	if BlockTextures.is_item_tool(stick):
 		_fail("a stick answers as a tool")
+	# A SWORD and a TORCH are tools: `data/items.json` gives each a `tool` class of its own, which
+	# matches no block's `preferred_tool` and is hand speed and tier 0 -- so mining is unchanged and
+	# the loot run's keep/drop rule, which is this query, is what reads it.
+	if not BlockTextures.is_item_tool(sword):
+		_fail("a sword does not answer as a tool")
+	if not BlockTextures.is_item_tool(torch):
+		_fail("a torch does not answer as a tool")
 
 	# --- the two new methods, against the REAL node ------------------------------
 	# The search is flat-radius plus a height bound, the nearest of them, and it looks past a
@@ -496,6 +504,44 @@ func _run() -> void:
 		_fail("a goblin with a full main hand started another loot errand")
 	if String(body.get("speed_state")) != "idle":
 		_fail("a goblin with a full main hand is on '%s'" % body.get("speed_state"))
+
+	# --- 6b. a TORCH is picked up in the free OFFHAND -----------------------------
+	# The offhand is where a goblin's torch lives (the roll in `_enter_tree`), and a torch held
+	# there lights the world the same way one it spawned with does (`scripts/mob_lights.gd` reads
+	# both hands). A goblin that already carries one keeps the next one in its main hand, which is
+	# what "a torch is a tool" says with no free offhand to put it in.
+	body.set("main_hand_item", 0)
+	body.set("offhand_item", 0)
+	body.call("_cancel_loot")
+	_put(torch, in_reach)
+	body.set("_loot_scan_ticks", 0)
+	if not _tick_until(LOOT_SCAN_TICKS + 4,
+			func(): return int(body.get("main_hand_item")) > 0):
+		_fail("it never took the torch")
+	_tick(LOOT_INSPECT_TICKS)
+	if int(body.get("main_hand_item")) != 0:
+		_fail("a torch stayed in the main hand while the offhand was free")
+	if int(body.get("offhand_item")) != torch:
+		_fail("a torch did not go into the offhand (%d there, torch is %d)"
+			% [int(body.get("offhand_item")), torch])
+	if not (_fake.get("spawned") as Array).is_empty():
+		_fail("a torch that went into the offhand was thrown down as well")
+	# The offhand already full: the tool rule answers, and the main hand keeps it.
+	body.set("main_hand_item", 0)
+	body.set("offhand_item", torch)
+	body.call("_cancel_loot")
+	_put(torch, in_reach)
+	body.set("_loot_scan_ticks", 0)
+	if not _tick_until(LOOT_SCAN_TICKS + 4,
+			func(): return int(body.get("main_hand_item")) > 0):
+		_fail("it never took the second torch")
+	_tick(LOOT_INSPECT_TICKS)
+	if int(body.get("main_hand_item")) != torch:
+		_fail("a second torch was not kept in the main hand (%d in hand)"
+			% int(body.get("main_hand_item")))
+	body.set("main_hand_item", 0)
+	body.set("offhand_item", 0)
+	body.call("_cancel_loot")
 
 	# --- 7. an ENEMY mid-errand cancels it ----------------------------------------
 	body.set("main_hand_item", 0)

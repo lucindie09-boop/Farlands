@@ -30,8 +30,8 @@ is not free: `python tools/make_block_textures.py`.
 ## Give a block a shape
 
 1. If the shape already exists, set `"shape": "<name>"` on the block (or
-   `/<variant>`, e.g. `slab/bottom`). A name that does not resolve leaves the
-   block a **full cube** ([data-schemas.md](data-schemas.md)), so read
+   `/<variant>`, e.g. `slab/bottom`). An unresolvable name is not an error: the
+   block quietly draws as a **full cube** ([data-schemas.md](data-schemas.md)), so read
    `get_selection_boxes(id)` back rather than trusting the log — `probes/probe_crucible.gd` is the
    pattern.
 2. If it is new, add `data/block_shapes.json` entry `<shape>/<variant>` with

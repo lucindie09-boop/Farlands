@@ -198,8 +198,8 @@ is built on it.
 ### 12. Mob attributes as data — done
 Health, damage, speed, follow range, alert box and anger window live in `data/mobs.json`, the
 way blocks, biomes, items and shaders do, and the walker reads the entry its own `MOB_TYPE`
-names. The shape is the loot table's: a Godot-free parser (`src/core/mob_attributes.cpp`,
-`schematic::parse_json`, so the test binary reads an entry out of a string), a `Mobs` binding
+names. The shape is the loot table's: a Godot-free parser (`src/core/mob_attributes.cpp` over
+`schematic::parse_json`, so the parser is testable with no scene tree at all), a `Mobs` binding
 for the file read and the struct -> Dictionary translation, and one load at startup beside the
 loot tables.
 

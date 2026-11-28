@@ -43,6 +43,7 @@ class ItemPairSolver;
 class ItemBodySolver;
 namespace nav {
 class PathService;
+class NavFieldService;
 }
 }
 
@@ -158,21 +159,18 @@ public:
     void apply_item_lighting(const godot::Ref<godot::ShaderMaterial>& material);
     void set_entity_lights(const godot::PackedVector3Array& positions,
                            const godot::PackedInt32Array& item_ids);
-    // The world's sky-light tint used by the menu accent. The body and every other
-    // item get the same value through apply_item_lighting, and it is white at every
-    // hour since the sunrise/sunset ground tint was removed; this accessor remains
-    // for the UI. See EnvironmentController::get_body_sky_warmth.
+    // The world's sky-light tint used by the menu accent: white at every hour since the
+    // sunrise/sunset ground tint was removed, kept for the UI (see
+    // EnvironmentController::get_body_sky_warmth).
     godot::Color get_body_sky_warmth();
 
 #ifdef DEBUG_ENABLED
-    // Faults on purpose, to prove the crash-report handler works end to end (see
-    // debug/crash_dump.hpp). Debug builds only: a method that takes the process
-    // down has no business existing where it could be called by accident.
+    // Faults on purpose, to prove the crash-report handler works end to end (debug/crash_dump.hpp).
+    // Debug builds only: a method that takes the process down must not be callable by accident.
     void debug_crash_for_test();
 
-    // Packs a known transform through both the engine and our own instance-buffer
-    // packing and answers whether they agree (see render/multimesh_instance_layout.hpp).
-    // Called once in _ready, and bound so a probe can ask too.
+    // Packs a known transform through both the engine and our own instance-buffer packing and
+    // answers whether they agree (render/multimesh_instance_layout.hpp); bound so a probe can ask.
     bool debug_multimesh_layout_ok();
 #endif
 
@@ -250,20 +248,24 @@ public:
     // engine/item_body_solver.hpp.
     void solve_item_bodies(godot::Dictionary bodies, float delta);
 
-    // Debug pathfinding. request_path queues a ground route between two feet
-    // positions on a worker thread and returns its job id (0 when the planner
-    // is unavailable); poll_paths drains every result finished since the last
-    // call, each carrying its id plus the route as support-block coordinates.
-    // Either cap being hit returns a truncated partial route instead of failing,
-    // and both are overridable per call: `max_expansions` bounds the work,
-    // `max_ms` the wall-clock time (0 disables the time cap). The time cap is a
-    // ceiling for a contended machine, deliberately above what a cross-country
-    // route costs (a few milliseconds), so it does not cut long routes short; the
-    // expansion cap is the real work bound.
+    // Pathfinding, described in docs/pathfinding.md. request_path queues a ground route between
+    // two feet positions on a worker and returns its job id (0 when the planner is unavailable);
+    // poll_paths drains what finished since the last call, as support-block coordinates. A hit
+    // cap returns a truncated partial route rather than failing: `max_expansions` bounds the work
+    // and is the real bound, `max_ms` a contended-machine ceiling (0 disables it).
     int64_t request_path(const godot::Vector3& from, const godot::Vector3& to,
                          int32_t max_expansions = 20000, double max_ms = 32.0);
 
     godot::Array poll_paths();
+
+    // The crowd's shared field (NavFieldService): support cells from `from` toward `goal`, empty
+    // while no field is ready -- ask request_path then. Built only once a dozen callers ask inside
+    // a second, so a lone walker never pays; `count` bounds the cells, not the reach.
+    godot::PackedVector3Array flow_route(const godot::Vector3& goal, const godot::Vector3& from,
+                                         int32_t count = 8);
+    godot::Dictionary get_flow_stats() const;
+    // The planner's admission control: in flight, the cap, refused asks, delivered plans.
+    godot::Dictionary get_path_stats() const;
 
     // The flow simulation's ticking: last tick's cells/writes/milliseconds, the
     // work still queued, and how many cells were left alone this tick because a
@@ -284,12 +286,9 @@ public:
     void set_smooth_lighting(bool enabled);
     bool get_smooth_lighting() const;
 
-    // The Shaders menu's two geometry effects - World Bend and the Horizon
-    // Curve - move the world's vertices in a vertex shader, which runs after the
-    // engine has culled it, so the chunks would be culled against where they used
-    // to be. The overlay hands each effect's own knobs here as well as to its
-    // materials; the boxes are grown to match in _process, where the camera is
-    // known. Off by default, and doing nothing while both are off.
+    // World Bend and the Horizon Curve move vertices in a vertex shader, which runs after the
+    // engine culled the chunk against where it used to be; the boxes are grown to match in
+    // _process. Off by default, and doing nothing while both are off.
     void set_world_bend(bool enabled, double amount, double radius, double rise);
     void set_world_horizon(bool enabled, double radius);
 
@@ -474,6 +473,7 @@ private:
     std::unique_ptr<VoxelEngineController> controller;
     // Created on first use: it needs the controller's thread pool and chunk map.
     std::unique_ptr<VoxelEngine::nav::PathService> path_service;
+    std::unique_ptr<VoxelEngine::nav::NavFieldService> field_service;  // the crowd's one field
     // Created on first use. Scratch and settings only: the items' state belongs
     // to the caller, which is the script that owns them.
     std::unique_ptr<VoxelEngine::ItemPairSolver> item_pair_solver;

@@ -10,6 +10,7 @@
 [ext_resource type="Script" uid="uid://cg56m76b43332" path="res://scripts/crosshair.gd" id="9_crosshair"]
 [ext_resource type="Script" uid="uid://8hp4xpsfyfeh" path="res://scripts/compass_hud.gd" id="10_compass"]
 [ext_resource type="Script" uid="uid://byak67cusfoxc" path="res://scripts/healthbar.gd" id="11_healthbar"]
+[ext_resource type="Script" path="res://scripts/mob_crowd.gd" id="28_mobcrowd"]
 [ext_resource type="Script" uid="uid://b3eee8l30k8qd" path="res://scripts/death_screen.gd" id="12_deathscreen"]
 [ext_resource type="Script" uid="uid://csimhtsb21lnr" path="res://scripts/crafting_table_menu.gd" id="13_tablemenu"]
 [ext_resource type="PackedScene" uid="uid://bpoqm4h0tnkfv" path="res://Assets/models/player.glb" id="14_playermodel"]
@@ -235,6 +236,9 @@ script = ExtResource("21_dropped")
 
 [node name="MobLights" type="Node3D" parent="." unique_id=99876541]
 script = ExtResource("27_moblights")
+
+[node name="MobCrowd" type="Node" parent="." unique_id=99876542]
+script = ExtResource("28_mobcrowd")
 
 [node name="ChunkManager" type="ChunkManager" parent="." unique_id=318602554]
 render_distance = 32

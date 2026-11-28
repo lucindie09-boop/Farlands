@@ -37,11 +37,11 @@ struct OpenCmp {
 
 } // namespace
 
-Pathfinder::GoalAnchor Pathfinder::resolve_goal(const NavQuery& query) const {
+GoalAnchor resolve_goal(const NavView& view, const NavNode& goal) {
     GoalAnchor anchor;
-    anchor.column = view_.column_at_feet(query.goal.x, query.goal.z, query.goal.y);
-    anchor.x = query.goal.x;
-    anchor.z = query.goal.z;
+    anchor.column = view.column_at_feet(goal.x, goal.z, goal.y);
+    anchor.x = goal.x;
+    anchor.z = goal.z;
 
     const NavView::Column* own = anchor.column;
     // A column with NO floor at all, and one that is not loaded, are refused outright: there is
@@ -59,7 +59,7 @@ Pathfinder::GoalAnchor Pathfinder::resolve_goal(const NavQuery& query) const {
     // used to be returned as an error on the spot, so the ring -- which exists for exactly this --
     // was never asked: a fleeing goblin whose run-away point landed uphill answered "goal column
     // has no navigable surface" on every ask and stood still while the player beat it to death.
-    if (own->clearance && !own->liquid && view_.feet_cell(own->surface_top) == query.goal.y) {
+    if (own->clearance && !own->liquid && view.feet_cell(own->surface_top) == goal.y) {
         return anchor;
     }
 
@@ -71,16 +71,16 @@ Pathfinder::GoalAnchor Pathfinder::resolve_goal(const NavQuery& query) const {
     static constexpr int32_t kRing[8][2] = {
         {1, 0}, {-1, 0}, {0, 1}, {0, -1}, {1, 1}, {1, -1}, {-1, 1}, {-1, -1}};
     for (const auto& off : kRing) {
-        const int32_t x = query.goal.x + off[0];
-        const int32_t z = query.goal.z + off[1];
-        const NavView::Column* beside = view_.column_at_feet(x, z, query.goal.y);
+        const int32_t x = goal.x + off[0];
+        const int32_t z = goal.z + off[1];
+        const NavView::Column* beside = view.column_at_feet(x, z, goal.y);
         if (beside == nullptr || !beside->found || beside->unknown || !beside->clearance ||
             beside->liquid) {
             continue;
         }
         // Exactly the level that was aimed at, so a column one block higher or lower is not an
         // arrival at the target — it is a step up onto or a drop off what they stand on.
-        if (view_.feet_cell(beside->surface_top) != query.goal.y) continue;
+        if (view.feet_cell(beside->surface_top) != goal.y) continue;
         anchor.column = beside;
         anchor.x = x;
         anchor.z = z;
@@ -140,7 +140,7 @@ NavPath Pathfinder::search(const NavQuery& query) const {
         last_error_ = "start column has no navigable surface";
         return path;
     }
-    const GoalAnchor goal_anchor = resolve_goal(query);
+    const GoalAnchor goal_anchor = resolve_goal(view_, query.goal);
     const NavView::Column* goal_col = goal_anchor.column;
     if (goal_col == nullptr || !goal_col->found || goal_col->unknown || !goal_col->clearance) {
         last_error_ = "goal column has no navigable surface";

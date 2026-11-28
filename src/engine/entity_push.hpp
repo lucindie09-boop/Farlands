@@ -30,6 +30,8 @@
 
 #include <godot_cpp/variant/vector3.hpp>
 
+#include <cstddef>
+
 namespace VoxelEngine {
 
 // One tick's full-strength push, in blocks a tick: 0.05 at 20 Hz is a block a second, which is
@@ -55,6 +57,21 @@ struct PushPair {
 // deltas zero when they intersect but share a centre).
 [[nodiscard]] PushPair push_apart(const PushBody& a, const PushBody& b,
                                   float strength = kEntityPush);
+
+// The whole crowd, in one call: every pair in `bodies` (and the player, when they are one of
+// them) summed into one delta per body in `out`.
+//
+// The pairwise walk a script does at 100 bodies is ~10,000 array visits and ~5,000 native calls a
+// tick, each returning a Dictionary — and all of it on the main thread. This is the same solve,
+// in one call, with nothing allocated: a broad phase rejects pairs too far apart to touch, and the
+// surviving pairs go through `push_apart`, whose arithmetic is unchanged. Each pair pushes both
+// bodies once, so a body's delta is the sum of its neighbours' pushes exactly as the per-pair form
+// would leave it — `tests/test_entity_push.cpp` pins that.
+//
+// The player is a body in the list rather than a special case: their own summed delta is simply
+// theirs. `out_count` entries are written (missing ones are skipped rather than computed).
+void push_apart_all(const PushBody* bodies, std::size_t count, godot::Vector3* out,
+                    std::size_t out_count, float strength = kEntityPush);
 
 } // namespace VoxelEngine
 

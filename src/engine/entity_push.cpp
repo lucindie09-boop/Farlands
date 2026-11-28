@@ -63,4 +63,35 @@ PushPair push_apart(const PushBody& a, const PushBody& b, float strength) {
     return out;
 }
 
+void push_apart_all(const PushBody* bodies, std::size_t count, godot::Vector3* out,
+                    std::size_t out_count, float strength) {
+    const std::size_t written = std::min(count, out_count);
+    for (std::size_t i = 0; i < written; ++i) out[i] = godot::Vector3(0.0f, 0.0f, 0.0f);
+    if (bodies == nullptr || count < 2) return;
+
+    for (std::size_t i = 0; i < count; ++i) {
+        const PushBody& a = bodies[i];
+        for (std::size_t j = i + 1; j < count; ++j) {
+            const PushBody& b = bodies[j];
+            // Broad phase, in squared distances and in both axes at once: two boxes can only
+            // intersect if their centre gap is inside the sum of their half-widths on each axis,
+            // and that is bounded by the diagonal of those sums. Cheap enough to run on every
+            // pair, and it throws out the whole crowd's far neighbours before the exact test.
+            const float dx = b.feet.x - a.feet.x;
+            const float dz = b.feet.z - a.feet.z;
+            const float reach_x = 0.5f * (a.size.x + b.size.x);
+            const float reach_z = 0.5f * (a.size.z + b.size.z);
+            if (dx * dx + dz * dz > reach_x * reach_x + reach_z * reach_z) continue;
+            // Vertical, which is exact and one comparison: a body standing on another's head is
+            // not touching it.
+            if (a.feet.y >= b.feet.y + b.size.y || b.feet.y >= a.feet.y + a.size.y) continue;
+
+            const PushPair pair = push_apart(a, b, strength);
+            if (!pair.touching) continue;
+            if (i < written) out[i] += pair.a;
+            if (j < written) out[j] += pair.b;
+        }
+    }
+}
+
 } // namespace VoxelEngine

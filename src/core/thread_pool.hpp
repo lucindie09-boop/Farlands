@@ -33,6 +33,7 @@ enum class PoolTaskClass : uint8_t {
     Far,
     Save,
     Path,
+    Field,
     Prefetch,
     Count,
 };
@@ -49,6 +50,9 @@ inline const char* pool_task_class_name(PoolTaskClass cls) noexcept {
         case PoolTaskClass::Far: return "far";
         case PoolTaskClass::Save: return "save";
         case PoolTaskClass::Path: return "path";
+        // The crowd's shared flow field: its own class, so a probe can read what the crowd's
+        // shared search costs apart from the per-agent plans it replaced.
+        case PoolTaskClass::Field: return "field";
         case PoolTaskClass::Prefetch: return "prefetch";
         case PoolTaskClass::Other:
         case PoolTaskClass::Count:

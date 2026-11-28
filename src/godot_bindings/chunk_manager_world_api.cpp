@@ -14,6 +14,7 @@
 #include "debug/crash_dump.hpp"
 #include "engine/voxel_engine_controller.hpp"
 #include "mesh/mesh_builder_types.hpp"
+#include "pathfinding/nav_field_service.hpp"
 #include "pathfinding/path_service.hpp"
 #include "render/entity_lights.hpp"
 #include "render/multimesh_instance_layout.hpp"
@@ -371,6 +372,61 @@ Array ChunkManager::poll_paths() {
 
 int32_t ChunkManager::get_pending_paths() const {
     return path_service ? static_cast<int32_t>(path_service->pending()) : 0;
+}
+
+Dictionary ChunkManager::get_path_stats() const {
+    Dictionary out;
+    if (!path_service) return out;
+    const nav::PathService::Stats stats = path_service->get_stats();
+    out["in_flight"] = static_cast<int64_t>(stats.in_flight);
+    out["max_in_flight"] = static_cast<int64_t>(stats.max_in_flight);
+    out["rejected"] = static_cast<int64_t>(stats.rejected);
+    out["finished"] = static_cast<int64_t>(stats.finished);
+    return out;
+}
+
+PackedVector3Array ChunkManager::flow_route(const Vector3& goal, const Vector3& from,
+                                            int32_t count) {
+    PackedVector3Array out;
+    if (!controller) return out;
+    ThreadPool* pool = controller->get_thread_pool();
+    if (pool == nullptr) return out;
+    if (!field_service) {
+        field_service = std::make_unique<nav::NavFieldService>(
+            controller->get_chunk_world().get_chunk_map());
+    }
+    // Both ends are feet positions, floored to the cell that contains them exactly as
+    // request_path does — the field is keyed by feet cells, so a fractional coordinate must land
+    // on the body's own node rather than on a neighbour.
+    const nav::NavNode goal_node{static_cast<int32_t>(std::floor(goal.x)),
+                                 static_cast<int32_t>(std::floor(goal.y)),
+                                 static_cast<int32_t>(std::floor(goal.z))};
+    const nav::NavNode from_node{static_cast<int32_t>(std::floor(from.x)),
+                                 static_cast<int32_t>(std::floor(from.y)),
+                                 static_cast<int32_t>(std::floor(from.z))};
+    const std::vector<nav::NavNode> cells =
+        field_service->route(*pool, from_node, goal_node, count);
+    out.resize(static_cast<int64_t>(cells.size()));
+    for (size_t i = 0; i < cells.size(); ++i) {
+        out.set(static_cast<int64_t>(i),
+                Vector3(static_cast<real_t>(cells[i].x), static_cast<real_t>(cells[i].y),
+                        static_cast<real_t>(cells[i].z)));
+    }
+    return out;
+}
+
+Dictionary ChunkManager::get_flow_stats() const {
+    Dictionary out;
+    if (!field_service) return out;
+    const nav::NavFieldService::Stats stats = field_service->get_stats();
+    out["builds"] = static_cast<int64_t>(stats.builds);
+    out["wants"] = static_cast<int64_t>(stats.wants);
+    out["max_wants"] = static_cast<int64_t>(stats.max_wants);
+    out["nodes"] = static_cast<int64_t>(stats.nodes);
+    out["ready"] = stats.ready;
+    out["building"] = stats.building;
+    out["age_ms"] = stats.age_ms;
+    return out;
 }
 
 Ref<MobBody> ChunkManager::make_mob_body() {

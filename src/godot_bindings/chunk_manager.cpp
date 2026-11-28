@@ -9,6 +9,7 @@
 #include "engine/item_body_solver.hpp"
 #include "engine/item_pair_solver.hpp"
 #include "engine/voxel_engine_controller.hpp"
+#include "pathfinding/nav_field_service.hpp"
 #include "pathfinding/path_service.hpp"
 #include "render/multimesh_instance_layout.hpp"
 
@@ -304,6 +305,10 @@ void ChunkManager::_bind_methods() {
     ClassDB::bind_method(D_METHOD("request_path", "from", "to", "max_expansions", "max_ms"),
                          &ChunkManager::request_path, DEFVAL(20000), DEFVAL(32.0));
     ClassDB::bind_method(D_METHOD("poll_paths"), &ChunkManager::poll_paths);
+    ClassDB::bind_method(D_METHOD("flow_route", "goal", "from", "count"),
+                         &ChunkManager::flow_route, DEFVAL(8));
+    ClassDB::bind_method(D_METHOD("get_flow_stats"), &ChunkManager::get_flow_stats);
+    ClassDB::bind_method(D_METHOD("get_path_stats"), &ChunkManager::get_path_stats);
     ClassDB::bind_method(D_METHOD("get_fluid_stats"), &ChunkManager::get_fluid_stats);
     ClassDB::bind_method(D_METHOD("get_generation_stats"), &ChunkManager::get_generation_stats);
     ClassDB::bind_method(D_METHOD("reset_generation_stats"), &ChunkManager::reset_generation_stats);

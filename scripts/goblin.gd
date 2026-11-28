@@ -291,6 +291,17 @@ const CHASE_CLOSE_GAP := 4.0
 ## AND nothing planned let a goblin that re-asked every few ticks reset the clock forever, because
 ## the answer was always on its way.
 const CHASE_WAIT_TICKS := 60
+## How long a plan may stay in flight before the body treats it as lost, in ticks: two seconds. A
+## result can go missing on the way — a plan finished while nothing drained the table, an entry
+## expired before its owner collected it — and `_job` staying set is a body that never asks again,
+## because the walk waits for `_job == 0` before it re-plans. The backstop is the ASK, not the
+## answer: the body forgets the job and lets the normal clocks (a chase's re-plan tick, a stroll's
+## roll) ask again.
+const PLAN_TIMEOUT_TICKS := 40
+## Cells one crowd-field segment carries. A segment is walked and then the next is asked for, which
+## is what keeps a follower's route fresh as the pack and the target move; eight cells is a few
+## seconds of walking at a mob's pace.
+const FLOW_SEGMENT_CELLS := 8
 ## The chase plans FURTHER than a stroll. A stroll goes six blocks; a chase can be across a valley,
 ## up a stair or round a wall, and the stroll's budget cut the search off and returned a route to
 ## the nearest frontier -- which is how a goblin walked to the ground directly under a platform and
@@ -357,7 +368,12 @@ const CORNER_PRESS := 0.6
 ## leaping from a block back comes down short of it.
 const CORNER_JUMP_LEAD := 0.4
 
-const REPLAN_AFTER_BLOCKED := 12
+## Ticks of walking into something that is not a step before it gives up on the route: a wall is a
+## reason for a new plan, and hopping at it for seconds is what it used to do. Ticks, because the
+## decision layer runs at the sim's own rate now (`_steer` is called once per tick, from
+## `_physics_process`) -- this was twelve FRAMES, a fifth of a second, and is four ticks, the same
+## fifth of a second at 20 Hz.
+const REPLAN_AFTER_BLOCKED_TICKS := 4
 ## A hop is taken by pressing jump off its LIP, and these two numbers are what "off the lip"
 ## means, measured on the sim this body walks on at the wandering pace. The arc carries it
 ## 0.9 blocks while it is airborne and a one-cell gap needs a little over 0.7 of them, so a
@@ -413,13 +429,16 @@ const STROLL_MAX_MS := 8.0
 ## Pushing at one waypoint without getting closer for this long drops the route: a rise
 ## it cannot climb, a gap it cannot cross, a target the world has since changed under.
 const STUCK_TICKS := 50
-## Frames pressed at a lip the swim cannot climb before the route is dropped and asked again. The
+## Ticks pressed at a lip the swim cannot climb before the route is dropped and asked again. The
 ## clocks that measure WALKING are zeroed in water (`_swim`), so a route that asks for a climb the
 ## lift cannot make used to be leaned on forever: nav_trace, 2026-11-25 22:20, `stuck` never
 ## passing 6 while the body pressed at a staircase foot for twenty seconds. The planner refuses
 ## that move now; this is the second lock, for a route planned before the water or the ground
 ## under it moved.
-const LIP_GIVE_UP_FRAMES := 90
+##
+## Thirty TICKS is the second and a half it always meant: it was ninety frames of a 60 Hz decision
+## layer, and that layer now runs once per sim tick.
+const LIP_GIVE_UP_TICKS := 30
 ## Sim ticks spent pressing or jumping at the SAME rise with nothing gained before the route is
 ## dropped. Ten jump flights: a jump's arc is four ticks, so ten attempts at a step that never got
 ## any closer is not a long climb, it is a wall. See `_rise_clock` for why this has to be counted
@@ -557,6 +576,9 @@ var _knockback_resistance := KNOCKBACK_RESISTANCE
 # The movement sim, and the node it is drawn at: the sim owns the position.
 var _sim: RefCounted = null
 var _chunk_manager: Node = null
+## The scene's crowd node (`scripts/mob_crowd.gd`): it solves every registered body's mutual push
+## in one call per tick, instead of each goblin walking the whole group and comparing itself.
+var _crowd: Node = null
 var _last_ticks := 0
 
 # The body's position at the last two PHYSICS frames, so a rendered frame can be
@@ -573,6 +595,8 @@ var _jump := false
 # hold described at IDLE_HOLD_MIN; a probe can pin it high to keep the goblin standing.
 var _idle_ticks := 0
 var _job := 0
+## The tick the plan in flight was asked on: see PLAN_TIMEOUT_TICKS.
+var _job_tick := 0
 var _route: Array[Vector3] = []
 var _next := 0
 var _closest := INF
@@ -590,9 +614,13 @@ var _planned_from := Vector3.INF
 ## Set when the route in hand is no longer a route (blocked, or the ground moved under it)
 ## and a new plan is owed once the last one has landed.
 var _needs_replan := false
-var _blocked_frames := 0
-## Frames pressed at a lip above the water line: see LIP_GIVE_UP_FRAMES.
-var _lip_frames := 0
+## Whether the route in hand came from the crowd's SHARED field rather than from a plan of this
+## body's own. A field segment is short on purpose, so its running out is not the chase ending —
+## it is the next segment being due, and `_update_enemy` asks before its patience clock counts.
+var _flowing := false
+var _blocked_ticks := 0
+## Frames pressed at a lip above the water line: see LIP_GIVE_UP_TICKS.
+var _lip_ticks := 0
 ## The rise being pressed at, the gap to it when the press started, and the tick it started on:
 ## see RISE_GIVE_UP_TICKS and `_rise_clock`.
 var _rise_head := Vector3.INF
@@ -702,6 +730,11 @@ func _ready() -> void:
 		_last_ticks = int(_sim.get_tick_count())
 		_drawn_prev = global_position
 		_drawn_cur = global_position
+	# The crowd's own solve, once per tick, for every registered body in the scene. A probe's stub
+	# world has no crowd node, and a body that is not registered is simply not pushed.
+	_crowd = get_node_or_null("/root/Main/MobCrowd")
+	if _crowd != null and _sim != null and _crowd.has_method("register"):
+		_crowd.call("register", _sim)
 	# Read AFTER the body exists, because five of the file's numbers are the sim's rather than
 	# this script's and have to be handed to it (see `_apply_body_numbers`).
 	_apply_attributes()
@@ -756,6 +789,14 @@ func _apply_body_numbers() -> void:
 	_sim.set_armor_points(_armor)
 
 
+## Leaves the crowd, so a dead body's sim is not solved — or called `push` on — after its node is
+## gone.
+func _exit_tree() -> void:
+	if _crowd != null and is_instance_valid(_crowd) and _sim != null \
+			and _crowd.has_method("unregister"):
+		_crowd.call("unregister", _sim)
+
+
 func _physics_process(delta: float) -> void:
 	if _sim == null:
 		return
@@ -764,9 +805,14 @@ func _physics_process(delta: float) -> void:
 	var now := int(_sim.get_tick_count())
 	var ticks := now - _last_ticks
 	_last_ticks = now
+	# The DECISION layer runs once per TICK, not once per physics frame. `_steer` is a handful of
+	# collision probes, the route bookkeeping and the hops, and the sim only consumes its answer on
+	# a tick — so a 60 Hz call paid for every one of them three times, and every counter in there
+	# that was written as ticks was three times too fast. `_wish` and `_jump` persist between ticks,
+	# and a jump this sets is consumed by the `step` below in the same frame it was set.
 	if ticks > 0:
 		_advance_ticks(ticks)
-	_steer()
+		_steer()
 	_sim.step(delta, _wish, _jump, false, false, _yaw, get_speed_multiplier())
 	_jump = false
 	# The sim's own interpolated position, sampled once per physics frame; `_process`
@@ -805,6 +851,10 @@ func _process(_delta: float) -> void:
 ## here is in ticks so it reads the same at any frame rate (the facing ease is not: a
 ## turn is drawn every frame, see `_turn`).
 func _advance_ticks(ticks: int) -> void:
+	# A plan that never came back is a body that never asks again, because every re-ask waits on
+	# `_job == 0`: see PLAN_TIMEOUT_TICKS. Checked before the fight, so a chase whose answer was
+	# lost asks again on this same tick rather than on the next one.
+	_expire_plan(int(_sim.get_tick_count()))
 	_sway = fmod(_sway + TAU * float(ticks) / WALK_SWAY_TICKS, TAU)
 	# A glance is held whether it is walking or not, so its clock runs before either roll: what
 	# is left of it is what decides whether the watch may take the head.
@@ -824,7 +874,12 @@ func _advance_ticks(ticks: int) -> void:
 		_inspect_tick(ticks)
 		return
 	_update_gaze(ticks)
-	_separate_bodies()
+	# The crowd's mutual push, once per tick for every registered body: the first goblin to tick
+	# solves the whole set and the rest are no-ops (`scripts/mob_crowd.gd`). It used to be a loop
+	# over the group here, per goblin per tick — 10,000 group visits and 5,000 `Bodies.push_pair`
+	# calls at a hundred of them, each handing back a Dictionary.
+	if _crowd != null and is_instance_valid(_crowd) and _crowd.has_method("push_tick"):
+		_crowd.call("push_tick", int(_sim.get_tick_count()))
 	# A loot errand: walking to the pile it noticed, or looking around for one. Neither
 	# returns -- the route block below still has to level-check, count stuck ticks and
 	# re-plan -- and neither may interrupt a STROLL, because a goblin already walking
@@ -905,7 +960,7 @@ func _advance_ticks(ticks: int) -> void:
 			_needs_replan = false
 			_repath_ticks = randi_range(CHASE_REPATH_MIN, CHASE_REPATH_MAX)
 			_closest = INF
-			_blocked_frames = 0
+			_blocked_ticks = 0
 			# A chase re-asks with the CHASE's budget, which is the one that escalates. Asking here
 			# with the budget of the first ask made the escalation dead: a doubled clock never reached
 			# the planner on a re-ask, so a chase cut off once was cut off every time -- the frontier
@@ -975,7 +1030,7 @@ func _swim(feet: Vector3) -> void:
 	_strokes += 1
 	# Every clock that measures WALKING is meaningless in water: the body is not on the ground, so
 	# the stuck clock would count every tick and drop a route it never walked.
-	_blocked_frames = 0
+	_blocked_ticks = 0
 	_stuck_ticks = 0
 	_closest = INF
 	# A target standing IN the water is swum at directly: a route to it has no ending worth
@@ -992,7 +1047,7 @@ func _swim(feet: Vector3) -> void:
 	if _swim_along(feet):
 		_lip_clock(feet)
 		return
-	_lip_frames = 0
+	_lip_ticks = 0
 	# No route at all: a goal it can still swim at (the plan has not come back, or there is none).
 	if _closing and _enemy != null and is_instance_valid(_enemy):
 		_step_at(feet, _enemy.global_position)
@@ -1074,15 +1129,15 @@ func _swim_surface(feet: Vector3) -> float:
 ## a bank the lift can carry the body onto.
 func _lip_clock(feet: Vector3) -> void:
 	if _next >= _route.size():
-		_lip_frames = 0
+		_lip_ticks = 0
 		return
 	var cell: Vector3 = _route[_next]
 	if _wet_cell(cell) or cell.y + 1.0 <= _swim_surface(feet):
-		_lip_frames = 0
+		_lip_ticks = 0
 		return
-	_lip_frames += 1
-	if _lip_frames >= LIP_GIVE_UP_FRAMES:
-		_lip_frames = 0
+	_lip_ticks += 1
+	if _lip_ticks >= LIP_GIVE_UP_TICKS:
+		_lip_ticks = 0
 		_replan_reason = "pressed at a lip above the water line"
 		# The route goes with the give-up. Asking again from the same cell comes back the same
 		# way -- the planner believes this lip is a way out -- so the body pressed, gave up and
@@ -1551,45 +1606,12 @@ func _update_gaze(ticks: int) -> void:
 
 
 ## The player, if this world has one (a preview or a probe may not).
-## Bodies are boxes, and two boxes in one place is not something the reference allows either: it
-## pushes a pair apart on the axis their centres are furthest apart, by at most 0.05 a tick
-## (`Entity::push`), and the world's own collision does the rest. Without this a goblin walked
-## through the player and through its own pack -- five of them one silhouette -- and CHASE_STOP
-## was the only thing keeping a goblin out of the player's body: a number standing in for a
-## missing body rather than a body.
 ##
-## Once a TICK, not once a frame. The push is per tick in the reference, so a frame-rate call on
-## a fast machine would squeeze a crowd twice as hard as on a slow one.
-##
-## A pair is answered by the body with the LOWER instance id and applied to both, so one pair is
-## pushed once a tick rather than once from each side -- and the player, who has no pass of his
-## own, is pushed by whoever is leaning on him.
-func _separate_bodies() -> void:
-	if _sim == null or not is_inside_tree() or not ClassDB.class_exists("Bodies"):
-		return
-	var feet: Vector3 = _sim.get_tick_position()
-	for node in get_tree().get_nodes_in_group("goblin"):
-		var other := node as Node3D
-		if other == null or other == self:
-			continue
-		if int(other.get_instance_id()) <= int(get_instance_id()):
-			continue
-		var other_sim: Object = other.get("_sim")
-		if other_sim == null:
-			continue
-		var pair: Dictionary = Bodies.push_pair(feet, BODY, other_sim.get_tick_position(), BODY)
-		if pair.is_empty():
-			continue
-		_sim.push(pair["a"])
-		other_sim.push(pair["b"])
-	var player := _player()
-	if player != null and player.has_method("push"):
-		var pair: Dictionary = Bodies.push_pair(feet, BODY, player.global_position, BODY)
-		if not pair.is_empty():
-			_sim.push(pair["a"])
-			player.call("push", pair["b"])
-
-
+## The crowd's own push is not here any more: it is one batched solve per tick for every body in
+## the scene (`scripts/mob_crowd.gd` over `Bodies.push_pairs`), because a loop over the group per
+## goblin per tick was 10,000 group visits and 5,000 native pair calls at a hundred bodies, each
+## handing back a Dictionary. The per-pair arithmetic is the same one, and
+## `tests/test_entity_push.cpp` pins the batch against it.
 func _player() -> Node3D:
 	var scene := get_tree().current_scene
 	if scene == null:
@@ -1686,6 +1708,13 @@ func _update_enemy(ticks: int) -> void:
 			_stop_walking()
 		return
 	_closing = false
+	# A crowd field hands out SHORT segments: running out of one is the next segment being due, not
+	# the chase ending, so it is asked for here — before the patience clock below counts an empty
+	# route — and only a segment that cannot be had falls through to the patience.
+	if _route.is_empty() and _flowing:
+		if _flow_route(enemy_at):
+			return
+		_flowing = false
 	# Nothing to walk, with the player out of reach: the plans are coming back with nowhere to go,
 	# and without this it stood at that frontier until its anger ran out. A plan in flight counts as
 	# having nowhere to go too -- see CHASE_WAIT_TICKS for why asking again does not buy the chase
@@ -1729,6 +1758,11 @@ func _update_enemy(ticks: int) -> void:
 	# blocks of walking round -- and that reads as a mob changing its mind.
 	if _job == 0 and (_route.is_empty() or _planned_goal.distance_to(enemy_at) >= 1.0):
 		_repath_ticks = randi_range(CHASE_REPATH_MIN, CHASE_REPATH_MAX)
+		# One field answers the whole pack: when enough goblins are chasing the same target the
+		# crowd's shared field is asked for first, and this body's own plan is the fallback — for a
+		# lone chaser, a target outside the field's reach, and the first seconds before one is built.
+		if _flow_route(enemy_at):
+			return
 		# A chase is planned with the chase's own budget: the stroll's cut the search off and the
 		# goblin walked to the nearest place it could reach instead of the far one it needed. That
 		# budget grows while the answers keep being cut off -- see CHASE_BUDGET_LIMIT_MS.
@@ -1833,7 +1867,7 @@ func _give_up() -> void:
 	_attack_ticks = 0
 	_repath_ticks = 0
 	_needs_replan = false
-	_blocked_frames = 0
+	_blocked_ticks = 0
 	_goal = Vector3.ZERO
 	_planned_goal = Vector3.ZERO
 	_planned_from = Vector3.INF
@@ -1873,6 +1907,9 @@ func walk_to(target: Vector3, expansions := STROLL_EXPANSIONS, max_ms := STROLL_
 	# The destination is remembered even when the ask is refused, so a route that has to be
 	# re-planned later knows where it was going.
 	_goal = target
+	# A plan of this body's own replaces whatever the shared field was walking: the two route
+	# sources do not mix (see `_take_route`).
+	_flowing = false
 	if _chunk_manager == null or _sim == null or _job != 0:
 		return 0
 	if not _chunk_manager.has_method("request_path"):
@@ -1888,6 +1925,7 @@ func walk_to(target: Vector3, expansions := STROLL_EXPANSIONS, max_ms := STROLL_
 	var from: Vector3 = _standing_cell(_sim.get_tick_position())
 	_planned_from = from
 	_job = int(_chunk_manager.request_path(from, target, expansions, max_ms))
+	_job_tick = int(_sim.get_tick_count())
 	_planned_goal = target
 	_goal_expansions = expansions
 	_goal_max_ms = max_ms
@@ -1898,6 +1936,53 @@ func walk_to(target: Vector3, expansions := STROLL_EXPANSIONS, max_ms := STROLL_
 		# rolling again on the next tick.
 		_idle_ticks = FAILED_RETRY_TICKS
 	return _job
+
+
+## The crowd's shared field, if the world has one and it can answer from where this body stands.
+##
+## A segment goes through the SAME bookkeeping a plan does (`_take_route`), so the head-skip, the
+## refused-rise rule and `_planned_goal` all apply; what it skips is the trace's per-plan lines and
+## the chase's budget ladder. A segment is a slice of an answer rather than an answer, and 200
+## followers asking eight cells at a time would otherwise write a line per second per body.
+##
+## False is the whole fallback contract: no crowd (`ChunkManager` without the binding), no field
+## built yet (its first 12 asks only count), a target outside the field's reach, or the body
+## standing on a cell the field does not hold. The caller then asks its own search, which is
+## exactly what it did before a field existed.
+func _flow_route(target: Vector3) -> bool:
+	if _chunk_manager == null or _sim == null or _job != 0:
+		return false
+	if not _chunk_manager.has_method("flow_route"):
+		return false
+	var cells: PackedVector3Array = _chunk_manager.call("flow_route", target,
+		_sim.get_tick_position(), FLOW_SEGMENT_CELLS)
+	if cells.is_empty():
+		return false
+	_goal = target
+	_planned_goal = target
+	_planned_from = Vector3.INF
+	_take_route({"found": true, "truncated": false, "nodes": cells}, "flow")
+	if _route.is_empty():
+		# The head-skip or the rise refusal threw the segment away: that is "not answerable" for
+		# this body, so the caller falls through to its own plan rather than re-asking forever.
+		_flowing = false
+		return false
+	_flowing = true
+	return true
+
+
+## A plan that never came back is not an answer the body can wait on: `_job` gates every re-ask.
+## The job is forgotten and a new plan is owed; the ask itself happens on the normal clocks — a
+## chase's re-plan tick, a stroll's roll — so a lost answer costs a little standing, not a freeze.
+func _expire_plan(now: int) -> void:
+	if _job == 0:
+		return
+	if now - _job_tick <= PLAN_TIMEOUT_TICKS:
+		return
+	_trace_say("PLAN lost after %d ticks (job=%d)" % [now - _job_tick, _job])
+	_job = 0
+	_replan_reason = "the plan never came back"
+	_needs_replan = true
 
 
 ## The cell this body is STANDING ON rather than merely inside: its own when that column has a
@@ -1956,8 +2041,10 @@ func _has_floor_under(cell: Vector3) -> bool:
 ## the cells a walker would actually cross, rather than every cell of the grid search.
 ## A route the budget cut short is still worth walking as far as it goes, so whether
 ## the planner called it `found` is not consulted.
-func _take_route(result: Dictionary) -> void:
-	_trace_plan_answered(_job, result)
+func _take_route(result: Dictionary, source := "plan") -> void:
+	if source == "plan":
+		_flowing = false
+		_trace_plan_answered(_job, result)
 	# A cut-off answer is a reason to ask again with more to spend, and a whole one to stop paying
 	# for it: this is the chase's escalation, in the one place every answer passes through. An
 	# answer with NOTHING in it counts with the cut-off ones: the same question under the same clock
@@ -1965,7 +2052,9 @@ func _take_route(result: Dictionary) -> void:
 	# half second for its whole patience window and stood still through it (`nav_trace` 2026-11-27
 	# 12:36: `PLAN 27 ... found=false ... "no route to the goal column"`, then a goblin that stopped
 	# for three seconds). Only an answer that actually walks puts the clock back.
-	if _enemy != null:
+	# ...and only a plan this body ASKED for moves the chase's budget. A flow segment is found by
+	# construction, so it neither resets the ladder nor doubles it.
+	if _enemy != null and source == "plan":
 		if bool(result.get("found", false)) and not bool(result.get("truncated", false)):
 			_chase_ms = CHASE_MAX_MS
 		else:
@@ -2149,19 +2238,19 @@ func _walk() -> void:
 			# component coming free, each one re-asked and walked back from the cell behind it
 			# (`nav_trace` 2026-11-26 00:23). A squeeze makes no progress, so it still counts.
 			if _closest == INF or _flat(_route[_next], feet).length() > _closest + 0.02:
-				_blocked_frames += 1
-			if _blocked_frames >= REPLAN_AFTER_BLOCKED:
+				_blocked_ticks += 1
+			if _blocked_ticks >= REPLAN_AFTER_BLOCKED_TICKS:
 				_replan_reason = "blocked by something it cannot climb"
 				_needs_replan = true
 	else:
-		_blocked_frames = 0
+		_blocked_ticks = 0
 
 
 ## The clock on a rise the body is pressing or jumping at, and the give-up when it never gains it.
 ##
 ## Called by the two places that press at a rise -- the climb branch of `_walk` and the corner's
 ## leap in `_slide_around` -- because both believe a one-block climb is there and NEITHER counted:
-## `_blocked_frames` only ran in the branch for a step that is not climbable at all, so a rise the
+## `_blocked_ticks` only ran in the branch for a step that is not climbable at all, so a rise the
 ## body could not make read `blocked=0` forever while it jumped at the same block, re-planned the
 ## identical route head every few seconds, and pressed again (`nav_trace` 2026-11-27 14:59:
 ## `next=(-2, 247, 2)` on seventeen consecutive samples, eleven seconds of it, the plan coming back
@@ -2251,7 +2340,7 @@ func _hop_from_lip(dir: Vector3, feet: Vector3, cell: Vector3) -> void:
 	if reach >= HOP_MIN_SPEED and lead <= HOP_LEAD_TICKS * reach:
 		_jump = true
 		_jumps += 1
-		_blocked_frames = 0
+		_blocked_ticks = 0
 		return
 	if lead <= HOP_LEAD_TICKS * HOP_MIN_SPEED and reach < HOP_MIN_SPEED:
 		# AT the lip with nothing to carry it: pressing here can only fall in, and standing here
@@ -2270,11 +2359,11 @@ func _hop_from_lip(dir: Vector3, feet: Vector3, cell: Vector3) -> void:
 			_runup_ticks = RUNUP_TICKS
 			_wish = _runup_dir
 			_yaw_target = atan2(-_wish.x, -_wish.z)
-			_blocked_frames = 0
+			_blocked_ticks = 0
 			return
 		_wish = Vector3.ZERO
-		_blocked_frames += 1
-		if _blocked_frames >= REPLAN_AFTER_BLOCKED:
+		_blocked_ticks += 1
+		if _blocked_ticks >= REPLAN_AFTER_BLOCKED_TICKS:
 			if _runup_cell == cell:
 				_replan_reason = "a hop it cannot so much as take"
 			else:
@@ -2282,7 +2371,7 @@ func _hop_from_lip(dir: Vector3, feet: Vector3, cell: Vector3) -> void:
 			_needs_replan = true
 		return
 	# Still walking up to it, or already too slow to take it: nothing to press yet.
-	_blocked_frames = 0
+	_blocked_ticks = 0
 
 
 ## How much of the cell it stands in is left before the gap, along the hop's own axis.
@@ -2332,7 +2421,7 @@ func _abandon_route() -> void:
 	_closing = false
 	_closest = INF
 	_stuck_ticks = 0
-	_lip_frames = 0
+	_lip_ticks = 0
 	_rise_head = Vector3.INF
 	_job = 0
 
@@ -2366,7 +2455,7 @@ func _trace_route_dropped() -> void:
 		at = str(_route[_next])
 	_trace_say("route dropped: %s (at=%s next=%s route=%d/%d blocked=%d stuck=%d jumps=%d)"
 		% [_replan_reason, str(_sim.get_tick_position()), at, _next, _route.size(),
-		   _blocked_frames, _stuck_ticks, _jumps])
+		   _blocked_ticks, _stuck_ticks, _jumps])
 	var trace := _trace()
 	if trace != null:
 		trace.note_drop(_replan_reason)
@@ -2437,8 +2526,8 @@ func trace_state() -> String:
 		"wish=(%.2f, %.2f) vy=%.2f wet=%s lip=%d strokes=%d")
 	return line % [name, speed_state, str(at), enemy, str(_planned_goal), next, map,
 		_next, _route.size(), _chase_wait_ticks, CHASE_WAIT_TICKS, _in_reach, _job,
-		_blocked_frames, _stuck_ticks, _jumps, bool(_sim.is_on_ground()),
-		wish.x, wish.z, vy, bool(_sim.is_in_water()), _lip_frames, _strokes]
+		_blocked_ticks, _stuck_ticks, _jumps, bool(_sim.is_on_ground()),
+		wish.x, wish.z, vy, bool(_sim.is_in_water()), _lip_ticks, _strokes]
 
 
 ## The waypoint's cell middle, relative to the feet. Only x/z matter to the walk: the
@@ -2511,7 +2600,7 @@ func _slide_around(dir: Vector3, feet: Vector3, cell: Vector3) -> bool:
 		if walls.size() == 1:
 			_wish = (step + walls[0] * CORNER_PRESS).normalized()
 		_yaw_target = atan2(-_wish.x, -_wish.z)
-		_blocked_frames = 0
+		_blocked_ticks = 0
 		# A corner that also RISES is a JUMP as well as a press. The climb branch above cannot take it:
 		# its probe is the chord, and the chord at one block up still runs into the wall beside the step
 		# whenever that wall is taller than the step itself (`_climbable` false, correctly, for a

@@ -1169,7 +1169,7 @@ Every file, with what it owns: [docs/ui.md](docs/ui.md).
   - `Assets/textures/Archive (Unused)/` — Archived/deprecated textures (old versions kept for reference)
 
 ### Testing
-- `tests/` — 124 `.cpp` files (830 test cases / 395,379 assertions, declared across 122 of them:
+- `tests/` — 125 `.cpp` files (844 test cases / 412,710 assertions, declared across 123 of them:
   `test_main.cpp` is the doctest entry point and `mesh_manager_stub.cpp` supplies link stubs),
   auto-discovered via `Glob("tests/*.cpp")`. A split test file keeps the original name for its
   main subject and takes `_<topic>` files beside it, with the fixtures they share in a
@@ -1216,7 +1216,7 @@ Every file, with what it owns: [docs/ui.md](docs/ui.md).
   region, and on a standard attribute placed after a decl-specifier. Both compile on MSVC and
   are fatal on GCC/clang, which is exactly why the tree is compiled by something other than MSVC
   before it is accepted
-- **clang-tidy** — the static-analysis job's gate, over `find src -name '*.cpp'` (151 files)
+- **clang-tidy** — the static-analysis job's gate, over `find src -name '*.cpp'` (153 files)
   with `bugprone-*`, `concurrency-*` and `performance-*` minus the four documented exceptions
   (`.github/workflows/build.yml`: `bugprone-easily-swappable-parameters`,
   `bugprone-narrowing-conversions`, `clang-analyzer-optin.core.EnumCastOutOfRange`,

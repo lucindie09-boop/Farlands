@@ -39,8 +39,33 @@ PathService::PathService(const ChunkMap& map) : map_(map), state_(std::make_shar
 
 PathService::~PathService() = default;
 
+bool PathService::admit(const std::shared_ptr<State>& state) {
+    const size_t cap = state->cap.load(std::memory_order_relaxed);
+    size_t in_flight = state->in_flight.load(std::memory_order_relaxed);
+    while (true) {
+        if (in_flight >= cap) return false;
+        if (state->in_flight.compare_exchange_weak(in_flight, in_flight + 1)) return true;
+    }
+}
+
+size_t PathService::admission_cap(size_t worker_count) noexcept {
+    return std::max<size_t>(2, worker_count / 4);
+}
+
 uint64_t PathService::submit(ThreadPool& pool, const NavNode& from, const NavNode& to,
                              int32_t max_expansions, double max_ms) {
+    // The cap is derived from the pool that actually runs the job, resolved once: the pool is
+    // per-call because a runtime reset replaces it, but its size does not change mid-run.
+    size_t cap = state_->cap.load(std::memory_order_relaxed);
+    if (cap == 0) {
+        cap = admission_cap(pool.get_worker_count());
+        state_->cap.store(cap, std::memory_order_relaxed);
+    }
+    if (!admit(state_)) {
+        state_->rejected.fetch_add(1, std::memory_order_relaxed);
+        return 0;
+    }
+
     const uint64_t id = state_->next_id.fetch_add(1, std::memory_order_relaxed);
 
     NavQuery query;
@@ -52,7 +77,6 @@ uint64_t PathService::submit(ThreadPool& pool, const NavNode& from, const NavNod
 
     auto source = std::make_shared<ChunkMapNavSource>(map_);
     std::shared_ptr<State> state = state_;
-    state->pending.fetch_add(1, std::memory_order_relaxed);
     pool.fire_and_forget([state, id, source, query]() {
         run(state, id, source, query);
     }, PoolTaskClass::Path);
@@ -122,7 +146,7 @@ void PathService::run(const std::shared_ptr<State>& state, uint64_t id,
         state->done.push_back(std::move(result));
     }
     state->finished.fetch_add(1, std::memory_order_relaxed);
-    state->pending.fetch_sub(1, std::memory_order_relaxed);
+    state->in_flight.fetch_sub(1, std::memory_order_relaxed);
 }
 
 std::vector<PathResult> PathService::poll() {
@@ -135,11 +159,20 @@ std::vector<PathResult> PathService::poll() {
 }
 
 size_t PathService::pending() const noexcept {
-    return state_->pending.load(std::memory_order_relaxed);
+    return state_->in_flight.load(std::memory_order_relaxed);
 }
 
 size_t PathService::finished_count() const noexcept {
     return state_->finished.load(std::memory_order_relaxed);
+}
+
+PathService::Stats PathService::get_stats() const noexcept {
+    Stats out;
+    out.in_flight = state_->in_flight.load(std::memory_order_relaxed);
+    out.max_in_flight = state_->cap.load(std::memory_order_relaxed);
+    out.rejected = state_->rejected.load(std::memory_order_relaxed);
+    out.finished = state_->finished.load(std::memory_order_relaxed);
+    return out;
 }
 
 } // namespace nav

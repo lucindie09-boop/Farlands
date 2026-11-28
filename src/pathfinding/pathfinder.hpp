@@ -39,6 +39,20 @@ namespace nav {
 
 // NavQuery lives in nav_types.hpp so callers that only queue a plan (the async
 // service, the Godot binding) do not need to pull in the search itself.
+
+// A goal resolved onto ground: the column whose surface it is, and the cell that surface
+// belongs to. The cell is the query's own unless the aimed column holds no ground at the level
+// that was aimed at. It is a free function rather than a Pathfinder member because the crowd
+// flow field anchors its goal the same way: a field anchored one surface off would send a whole
+// pack under the player's feet, so there is one answer and both readers use it.
+struct GoalAnchor {
+    const NavView::Column* column = nullptr;
+    int32_t x = 0;
+    int32_t z = 0;
+};
+
+[[nodiscard]] GoalAnchor resolve_goal(const NavView& view, const NavNode& goal);
+
 class Pathfinder {
 public:
     Pathfinder(const NavView& view, NavCosts costs = NavCosts())
@@ -52,18 +66,6 @@ public:
     [[nodiscard]] const std::string& last_error() const noexcept { return last_error_; }
 
 private:
-    // A goal resolved onto ground: the column whose surface it is, and the cell that surface
-    // belongs to. The cell is the query's own unless the aimed column holds no ground at the
-    // level that was aimed at — see resolve_goal.
-    struct GoalAnchor {
-        const NavView::Column* column = nullptr;
-        int32_t x = 0;
-        int32_t z = 0;
-    };
-
-    // The column a goal is anchored on, and which cell it belongs to.
-    [[nodiscard]] GoalAnchor resolve_goal(const NavQuery& query) const;
-
     const NavView& view_;
     NavCosts costs_;
     MoveGenerator generator_;

@@ -128,6 +128,8 @@ shared_sources = [
     "src/fluids/fluid_sim.cpp",
     "src/pathfinding/nav_view.cpp",
     "src/pathfinding/pathfinder.cpp",
+    "src/pathfinding/nav_field.cpp",
+    "src/pathfinding/nav_field_service.cpp",
     "src/pathfinding/path_smoother.cpp",
     "src/pathfinding/path_service.cpp",
     "src/schematic/gzip_inflate.cpp",

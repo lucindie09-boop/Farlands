@@ -41,6 +41,29 @@ struct NavMoveList {
     }
 };
 
+// One edge INTO a node, reversed: the cell it comes from and what walking it costs there. It is
+// the same edge `generate` emits, read backwards, which is what lets a flow field be built by
+// the same rules the search uses instead of a second copy of them.
+struct NavPredecessor {
+    NavNode from{};
+    float cost = 0.0f;
+};
+
+// Fixed-capacity for the same reason as NavMoveList: 8 step directions and 4 hop directions, each
+// tried from two scan hints. `add` deduplicates, because the two hints often name one column.
+struct NavPredecessorList {
+    static constexpr int kMax = 24;
+    NavPredecessor items[kMax];
+    int count = 0;
+
+    void add(const NavNode& from, float cost) noexcept {
+        for (int i = 0; i < count; ++i) {
+            if (items[i].from == from) return;
+        }
+        if (count < kMax) items[count++] = NavPredecessor{from, cost};
+    }
+};
+
 class MoveGenerator {
 public:
     // Costs are held by value so a generator can be built from a temporary.
@@ -95,6 +118,49 @@ public:
         out.kind = dh > c.epsilon ? MoveKind::StepUp
                  : (dh < -c.epsilon ? MoveKind::Drop : MoveKind::Walk);
         return true;
+    }
+
+    // Every edge the forward generator can emit INTO `to`, reversed: for each of the 8 step
+    // directions and 4 hop directions the candidate `from` column is resolved and then put through
+    // the EXISTING `step`/`hop`, and the edge is kept only when the move it produces lands exactly
+    // on `to`. Nothing about legality or cost is re-derived here -- that is the invariant a flow
+    // field rests on, and the test walks every move `generate` emits to prove it.
+    //
+    // Two scan hints per direction, because the downward scan starts where it is told to: the
+    // goal's own feet find a level or step-up source, and `to.y + ceil(max_drop)` finds a source
+    // that DROPS into it (a one-way ledge, where the same column asked from below resolves to the
+    // lower surface and the edge would be missed).
+    void predecessors(const NavNode& to, NavPredecessorList& out) const {
+        out.count = 0;
+        static constexpr int32_t kOffsets[8][2] = {
+            {1, 0}, {-1, 0}, {0, 1}, {0, -1},
+            {1, 1}, {1, -1}, {-1, 1}, {-1, -1}
+        };
+        static constexpr int32_t kCardinals[4][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+        const int32_t hints[2] = {
+            to.y,
+            to.y + static_cast<int32_t>(std::ceil(costs_.max_drop)),
+        };
+        for (const int32_t hint : hints) {
+            for (const auto& off : kOffsets) {
+                const int32_t cx = to.x - off[0];
+                const int32_t cz = to.z - off[1];
+                const NavView::Column* col = view_.column_at_feet(cx, cz, hint);
+                if (!is_usable(col)) continue;
+                const NavNode from{cx, view_.feet_cell(col->surface_top), cz};
+                NavMove m;
+                if (step(from, *col, off[0], off[1], m) && m.to == to) out.add(from, m.cost);
+            }
+            for (const auto& off : kCardinals) {
+                const int32_t cx = to.x - 2 * off[0];
+                const int32_t cz = to.z - 2 * off[1];
+                const NavView::Column* col = view_.column_at_feet(cx, cz, hint);
+                if (!is_usable(col)) continue;
+                const NavNode from{cx, view_.feet_cell(col->surface_top), cz};
+                NavMove m;
+                if (hop(from, *col, off[0], off[1], m) && m.to == to) out.add(from, m.cost);
+            }
+        }
     }
 
     // Every legal move out of a node: the 8 connected steps, then a hop across

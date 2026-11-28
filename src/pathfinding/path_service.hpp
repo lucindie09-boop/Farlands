@@ -67,9 +67,15 @@ public:
     PathService& operator=(const PathService&) = delete;
 
     // Queues a plan between two feet positions on `pool`, which must be the
-    // engine's current pool. Returns the job id (never 0). `max_ms` bounds the
-    // search in wall-clock time (0 disables it); either cap running out yields a
-    // truncated but usable partial route.
+    // engine's current pool. Returns the job id, or 0 when the service is at its
+    // admission cap. `max_ms` bounds the search in wall-clock time (0 disables
+    // it); either cap running out yields a truncated but usable partial route.
+    //
+    // The admission cap is what stops a crowd from burying generation: a
+    // re-planning chaser asks every 4 to 11 ticks, and a hundred of them queue
+    // hundreds of searches into the same normal-priority pool. A refused ask is
+    // better than a stale one — `walk_to` already reads 0 as "nothing was asked"
+    // and retries on its own clock — so there is no service-side queue.
     uint64_t submit(ThreadPool& pool, const NavNode& from, const NavNode& to,
                     int32_t max_expansions = 20000, double max_ms = 0.0);
 
@@ -79,14 +85,35 @@ public:
     [[nodiscard]] size_t pending() const noexcept;
     [[nodiscard]] size_t finished_count() const noexcept;
 
+    // In flight now, the cap it is bounded by, every ask refused for want of room, and every plan
+    // delivered. `pending()` is `in_flight` under the name the Godot binding has always used.
+    struct Stats {
+        size_t in_flight = 0;
+        size_t max_in_flight = 0;
+        size_t rejected = 0;
+        size_t finished = 0;
+    };
+
+    [[nodiscard]] Stats get_stats() const noexcept;
+
+    // max(2, workers / 4): two so a single-worker build still plans, a quarter of the pool so
+    // generation keeps most of it. `PoolTaskClass::Path` stays at normal priority — raising it
+    // would trade generation throughput for chase latency.
+    [[nodiscard]] static size_t admission_cap(size_t worker_count) noexcept;
+
 private:
     struct State {
         std::mutex mutex;
         std::vector<PathResult> done;
-        std::atomic<size_t> pending{0};
+        std::atomic<size_t> in_flight{0};
+        std::atomic<size_t> rejected{0};
         std::atomic<size_t> finished{0};
+        std::atomic<size_t> cap{0};
         std::atomic<uint64_t> next_id{1};
     };
+
+    // Takes one seat if the cap has room, or answers false for a refused ask.
+    static bool admit(const std::shared_ptr<State>& state);
 
     // The source and the query are borrowed for the duration of the call: both
     // only ever get READ here, and the source's shared_ptr is copied onto the

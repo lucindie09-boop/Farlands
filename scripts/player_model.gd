@@ -201,6 +201,15 @@ const HAND_SWING_LATERAL := -1.0
 # nothing else -- 0.15 rad at its peak, a tenth of the way in, gone by a fifth.
 const HAND_SWING_START_OUT := 0.15
 const HAND_SWING_START_SPAN := 0.2
+# ...and the LATEST the roll is held into the return. The reference's `sin(t * pi)` keeps the arm
+# across the body right down to rest, and that is where its own box runs through the torso -- 0.97
+# rig units inside the torso's front-top corner at 0.65 of the stroke, where the rest pose is
+# 0.00. Fading the roll out from just past the blow to 0.8 lets the arm come home in its own
+# plane: monotone, so nothing can wobble (an added outward pulse -- the first attempt -- both
+# cleared the body and made the end of the swing shake, because it fought the return), and over
+# before the stroke is, so rest is the reference's own pose again.
+const HAND_SWING_RELEASE_START := 0.45
+const HAND_SWING_RELEASE_END := 0.8
 # The pitch the aim has to be 40 degrees DOWN (0.7 rad, the reference's own constant) before the
 # blow gives up all of its head-pitch lift, and looking up from level gains the same amount again:
 # `(AIM_LEVEL - aim) / AIM_LEVEL` is 1 at a level look, 0 at 40 down and 2 at 40 up.
@@ -1169,6 +1178,8 @@ func _apply_hand_swing(delta: float) -> void:
 	var towards := _inspect_sign()
 	var snap: float = sin((1.0 - pow(1.0 - progress, 4.0)) * PI)
 	var carry: float = sin(progress * PI)
+	# How much of the roll survives into the return: 1 through the blow, 0 by 0.8.
+	var hold: float = 1.0 - smoothstep(HAND_SWING_RELEASE_START, HAND_SWING_RELEASE_END, progress)
 	# `bb`, and the one term of the stroke that is not a clock: `sin(t * PI) * -(head.xRot - 0.7) *
 	# 0.75` is the HEAD'S PITCH. A level look adds 0.525 rad of lift, a look 40 degrees down adds
 	# nothing at all and a look 40 up adds 1.05, so the blow is aimed: punch the floor and the arm
@@ -1184,7 +1195,7 @@ func _apply_hand_swing(delta: float) -> void:
 	var stroke := Quaternion(Vector3.RIGHT, rise * towards) \
 		* Quaternion(Vector3.UP,
 			HAND_SWING_YAW * turn * 2.0 * -towards * HAND_SWING_LATERAL * strength) \
-		* Quaternion(Vector3.BACK, (HAND_SWING_ROLL * carry * HAND_SWING_LATERAL
+		* Quaternion(Vector3.BACK, (HAND_SWING_ROLL * carry * hold * HAND_SWING_LATERAL
 			+ HAND_SWING_START_OUT * sin(minf(progress / HAND_SWING_START_SPAN, 1.0) * PI))
 			* towards * strength)
 	_swing_pivot.quaternion = _restart_swing.slerp(stroke, blend) if blend < 1.0 else stroke

@@ -49,6 +49,12 @@ const LATERAL := -1.0
 ## reference's lateral motion and changing nothing else about it.
 const START_OUT := 0.15
 const START_SPAN := 0.2
+## ...and one on the way BACK, which is the roll alone (HAND_SWING_RETURN_OUT): without it the
+## arm's own box sweeps through the torso, 0.97 rig units inside it at 0.65 of the stroke.
+## ...and how much of that roll survives into the return: the release, which is what keeps the
+## arm's box out of the torso on the way home (HAND_SWING_RELEASE_START/_END in the model).
+const RELEASE_START := 0.45
+const RELEASE_END := 0.8
 ## ...and these are the reference's numbers, at the file's values: raising either one was tried and
 ## reverted, because its two terms peak at DIFFERENT points of the stroke (the rise at a sixth of
 ## the way in, the aim halfway), so a bigger aim term drags the maximum late and flattens the top
@@ -209,14 +215,15 @@ func _sweep(body: Node3D, arm: Node3D, item: Node3D) -> Dictionary:
 func _reference_pivot(t: float, aim: float, towards: float, strength: float) -> Quaternion:
 	var aa := sin((1.0 - pow(1.0 - t, 4.0)) * PI)
 	var body_turn := sin(sqrt(t) * TAU) * 0.2
+	var start_out := START_OUT * sin(minf(t / START_SPAN, 1.0) * PI)
+	var hold := 1.0 - smoothstep(RELEASE_START, RELEASE_END, t)
 	var x_rot := clampf(LIFT * aa + sin(t * PI) * (0.7 - aim) * REACH, -0.3, RISE_MAX)
 	var y_rot := 2.0 * body_turn
-	var z_rot := sin(t * PI) * -0.4
+	var z_rot := sin(t * PI) * -0.4 * hold
 	# The conversions, once: its xRot is SUBTRACTED from a rest of -pi/10, so the amount it takes
 	# off goes in with this rig's facing; its yRot is the same way round as this rig's yaw; and its
 	# zRot is "outboard", which is -X on the arm that attacks here, so it goes in negated by the
 	# facing rather than multiplied by it.
-	var start_out := START_OUT * sin(minf(t / START_SPAN, 1.0) * PI)
 	return Quaternion(Vector3.RIGHT, x_rot * towards * strength) \
 		* Quaternion(Vector3.UP, y_rot * -towards * LATERAL * strength) \
 		* Quaternion(Vector3.BACK, (-z_rot * LATERAL + start_out) * towards * strength)
@@ -311,6 +318,73 @@ func _seconds(seconds: float) -> void:
 ## `_hand_swing` and `_apply_hand_swing(0.0)` moves that clock nowhere, so each sample can be set
 ## exactly. Every row is the hand's own position in the body's frame (rig units: the arm is 12,
 ## the torso is 8 wide) and the direction the limb points.
+## How deep the arm's CENTRE LINE runs inside the torso's own box at this instant, in rig units:
+## 0 or less means the limb is clear of the body. The torso box is the one the model draws, taken
+## through to the body's frame; the arm is sampled along its 12 units from the shoulder. The rig
+## already overlaps a little at the shoulder (the arm is 4 thick and the shoulder sits 1.5 out
+## from the torso's side), so what matters is how far past that rest overlap the return goes.
+func _part_box(body: Node3D, part: MeshInstance3D) -> AABB:
+	var torso := part
+	var local := torso.get_aabb()
+	var lo := Vector3.INF
+	var hi := -Vector3.INF
+	for i in range(8):
+		var corner := local.position + Vector3(local.size.x * float(i & 1),
+			local.size.y * float((i >> 1) & 1), local.size.z * float((i >> 2) & 1))
+		var p: Vector3 = body.to_local(torso.to_global(corner))
+		lo = lo.min(p)
+		hi = hi.max(p)
+	return AABB(lo, hi - lo)
+
+
+## The deepest the arm's own BOX runs inside another part's box, and which part: the arm is 4 x 12
+## x 4, so its corners alone are not enough (a long box crossing a face has no corner inside) --
+## its four long edges are sampled at thirteen stations instead, which is what the eye sees.
+func _arm_into_parts(body: Node3D, arm: Node3D) -> Dictionary:
+	var box := (arm as MeshInstance3D).get_aabb()
+	var best := {"part": "", "depth": 0.0}
+	for name in ["torso", "leg", "leg2", "arm2"]:
+		var other := body.find_child(name, true, false) as MeshInstance3D
+		if other == null:
+			continue
+		var bounds := _part_box(body, other)
+		if bounds.size == Vector3.ZERO:
+			continue
+		var lo := bounds.position
+		var hi := bounds.end
+		var worst := 0.0
+		for s in range(13):
+			var y := box.position.y + box.size.y * float(s) / 12.0
+			for corner in 4:
+				var p: Vector3 = body.to_local(arm.to_global(Vector3(
+					box.position.x + box.size.x * float(corner & 1), y,
+					box.position.z + box.size.z * float(corner >> 1))))
+				if p.x <= lo.x or p.x >= hi.x or p.y <= lo.y or p.y >= hi.y:
+					continue
+				if p.z <= lo.z or p.z >= hi.z:
+					continue
+				worst = maxf(worst, minf(minf(p.x - lo.x, hi.x - p.x),
+					minf(minf(p.y - lo.y, hi.y - p.y), minf(p.z - lo.z, hi.z - p.z))))
+		if worst > float(best["depth"]):
+			best = {"part": name, "depth": worst}
+	return best
+
+
+## The stroke's far end, read on the CLOCK instead of off frames: the top of the stroke is 45 ms
+## long, and the return now carries an outward bulge that is larger than the blow in a
+## frame-sampled maximum -- so `_stroke`'s peak picks the wrong pose whenever a frame lands there.
+func _peak_dir(body: Node3D, arm: Node3D, weight: float) -> Vector3:
+	body.set("_restart_blend", 1.0)
+	body.set("_hand_swing_strength", weight)
+	body.set("_hand_swing", 1.0 - 0.2)
+	body.call("_apply_hand_swing", 0.0)
+	var dir := _hand_dir(body, arm)
+	body.set("_hand_swing", 0.0)
+	body.set("_hand_swing_strength", 1.0)
+	body.call("_apply_hand_swing", 0.0)
+	return dir
+
+
 func _trace_stroke(body: Node3D, arm: Node3D, item: Node3D, stone: int) -> void:
 	var shoulder: Vector3 = body.to_local(arm.global_position)
 	var rows: Array = []
@@ -320,13 +394,17 @@ func _trace_stroke(body: Node3D, arm: Node3D, item: Node3D, stone: int) -> void:
 		body.set("_hand_swing", 1.0 - p)
 		body.call("_apply_hand_swing", 0.0)
 		var hand: Vector3 = body.to_local(item.global_position)
-		rows.append({"p": p, "hand": hand - shoulder, "dir": _hand_dir(body, arm)})
+		rows.append({"p": p, "hand": hand - shoulder, "dir": _hand_dir(body, arm),
+			"through": _arm_into_parts(body, arm)})
 	body.set("_hand_swing", 0.0)
 	body.set("_hand_swing_strength", 1.0)
 	body.call("_apply_hand_swing", 0.0)
 	print("TRACE shoulder (body units) %s, item id %d" % [shoulder, stone])
+
 	for row in rows:
-		print("TRACE p %.2f  hand %s  dir %s" % [row["p"], row["hand"], row["dir"]])
+		var into: Dictionary = row["through"]
+		print("TRACE p %.2f  hand %s  dir %s  into %s %.2f" % [row["p"], row["hand"], row["dir"],
+			into["part"], into["depth"]])
 	_plot(rows, 0, "BEHIND (x across, y up)")
 	_plot(rows, 2, "SIDE (z forward, y up)")
 
@@ -480,7 +558,7 @@ func _run() -> void:
 	var rest_dir := _hand_dir(body, arm)
 	body.call("_on_swung", 1.0)
 	var punch: Dictionary = await _stroke(body, arm, pivot, item, rest_dir, 0.45)
-	var peak_dir: Vector3 = punch["peak_dir"]
+	var peak_dir: Vector3 = _peak_dir(body, arm, 1.0)
 	# The far end is a POSE, not a hinge angle: forward, ACROSS, and ABOVE the shoulder -- the
 	# arm ends up in front of the face rather than at the horizon, which is what one pitch
 	# alone (and a small one at that) gives.
@@ -495,14 +573,11 @@ func _run() -> void:
 	host.block_id = 0
 	await process_frame
 	await process_frame
-	var empty_rest := _hand_dir(body, arm)
-	body.call("_on_swung", 1.0)
-	var empty: Dictionary = await _stroke(body, arm, pivot, item, empty_rest, 0.45)
+	var empty_peak := _peak_dir(body, arm, 1.0)
 	_ok("punch: the holding pose is composed under the stroke, not replaced",
-		absf(rad_to_deg((empty["peak_dir"] as Vector3).angle_to(peak_dir)) - HELD_PITCH)
-			< TOLERANCE,
+		absf(rad_to_deg(empty_peak.angle_to(peak_dir)) - HELD_PITCH) < TOLERANCE,
 		"a full hand reaches %.1f deg higher than an empty one"
-			% rad_to_deg((empty["peak_dir"] as Vector3).angle_to(peak_dir)))
+			% rad_to_deg(empty_peak.angle_to(peak_dir)))
 	host.block_id = stone
 	await process_frame
 	await process_frame
@@ -521,6 +596,31 @@ func _run() -> void:
 	_ok("punch: and it comes back on a different line from the way out",
 		float(punch["loop"]) > 10.0,
 		"%.1f deg apart out and back at the same point of the travel" % float(punch["loop"]))
+	# ...and the way back RELEASES rather than holds. The reference keeps the arm rolled across the
+	# body right down to rest, which is where its box is deepest inside the torso (0.97 rig units
+	# at 0.65 of the stroke); letting the roll go from just past the blow brings the arm home in its
+	# own plane. It has to be MONOTONE: two earlier fixes (an outward pulse, then a forward lift)
+	# cleared the deepest point but made the end of the swing visibly wobble, because either one
+	# fights the return's own motion. So what is checked is the shape of the way home -- the overlap
+	# never grows again -- rather than one corner's depth, which is mostly back-face the torso hides.
+	var overlap: Array[float] = []
+	for step in range(13, 21):
+		var back_p := float(step) / 20.0
+		body.set("_hand_swing_strength", 1.0)
+		body.set("_hand_swing", 1.0 - back_p)
+		body.call("_apply_hand_swing", 0.0)
+		var into: Dictionary = _arm_into_parts(body, arm)
+		overlap.append(float(into["depth"]) if String(into["part"]) == "torso" else 0.0)
+	body.set("_hand_swing", 0.0)
+	body.call("_apply_hand_swing", 0.0)
+	var grew := false
+	for i in range(1, overlap.size()):
+		if overlap[i] > overlap[i - 1] + 0.02:
+			grew = true
+	_ok("punch: the way back comes home without wobbling",
+		not grew and overlap[overlap.size() - 1] < 0.06 and overlap[0] < 0.5,
+		"torso overlap %.2f at t 0.65 falling to %.2f at rest, %s"
+			% [overlap[0], overlap[overlap.size() - 1], "grew again" if grew else "never grows"])
 	# ...and it OPENS, out past the shoulder's own side line, then crosses back in: the reference's
 	# roll is negative on the arm it attacks with, and the hand's own position against the
 	# shoulder's is what an arm opening away from the torso looks like -- a direction cannot show

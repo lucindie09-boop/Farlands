@@ -24,8 +24,8 @@ subsystem are the file the summary points at, so nothing is written twice.
 config, pathfinding, block files, fluids, testing and CI - each a summary of the page it links
 · [Technical details](#technical-details): locking, LOD, save format · [Notes](#notes)
 
-The four gates this file's constraints describe are `scons sizecheck`, `scons portability`,
-`scons docscheck` and clang-tidy — see [docs/README.md](docs/README.md).
+The five gates this file's constraints describe are `scons sizecheck`, `scons portability`,
+`scons rescheck`, `scons docscheck` and clang-tidy — see [docs/README.md](docs/README.md).
 
 ## Constraints & Preferences
 - Bias toward minimal, high-impact changes that reuse existing infrastructure

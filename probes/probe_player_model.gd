@@ -29,7 +29,7 @@ func _check(ok: bool, what: String) -> void:
 	push_error("probe_player_model: " + what)
 
 func _run() -> void:
-	var scene: PackedScene = load("res://main.tscn")
+	var scene: PackedScene = load("res://Main.tscn")
 	if scene == null:
 		_check(false, "Main.tscn loads")
 		_summary()

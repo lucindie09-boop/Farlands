@@ -324,7 +324,7 @@ func _stops_line(tag: String, now: int, at_load: int) -> void:
 		int(a[3]) - int(b[3]), int(a[4]) - int(b[4])])
 
 func _run() -> void:
-	var scene: PackedScene = load("res://main.tscn")
+	var scene: PackedScene = load("res://Main.tscn")
 	if scene == null:
 		_fail("main.tscn missing")
 		quit(1)

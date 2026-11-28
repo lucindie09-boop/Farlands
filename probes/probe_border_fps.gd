@@ -210,7 +210,7 @@ func _restore() -> void:
 	DisplayServer.window_set_vsync_mode(was_vsync)
 
 func _run() -> void:
-	var scene: PackedScene = load("res://main.tscn")
+	var scene: PackedScene = load("res://Main.tscn")
 	if scene == null:
 		_fail("main.tscn missing")
 		quit(1)

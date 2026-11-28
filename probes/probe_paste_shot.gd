@@ -17,7 +17,7 @@ extends SceneTree
 ##
 ## Then read .freebuff/paste_shots/*.png.
 
-const FILE := "res://church.schematic"
+const FILE := "res://schematics/church.schematic"
 const SHOT_DIR := "user://paste_shots"
 
 var main: Node3D
@@ -51,7 +51,7 @@ func _shoot(name: String) -> void:
 	print("probe: shot %s" % path)
 
 func _run() -> void:
-	var scene: PackedScene = load("res://main.tscn")
+	var scene: PackedScene = load("res://Main.tscn")
 	if scene == null:
 		_fail("main.tscn missing")
 		quit(1)

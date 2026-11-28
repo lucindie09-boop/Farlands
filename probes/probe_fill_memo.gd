@@ -96,7 +96,7 @@ func _wait_end(start_us: int, timeout_s: float) -> Array:
 	return [mesh_at, far_at]
 
 func _run() -> void:
-	var scene: PackedScene = load("res://main.tscn")
+	var scene: PackedScene = load("res://Main.tscn")
 	if scene == null:
 		_fail("main.tscn missing")
 		quit(1)

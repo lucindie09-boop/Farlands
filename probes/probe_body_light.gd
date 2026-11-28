@@ -155,7 +155,7 @@ func _shot(img: Image, name: String) -> void:
 
 func _run() -> void:
 	DisplayServer.window_set_size(Vector2i(1280, 720))
-	var scene: PackedScene = load("res://main.tscn")
+	var scene: PackedScene = load("res://Main.tscn")
 	if scene == null:
 		print("PROBE FAIL: main.tscn missing")
 		quit(1)

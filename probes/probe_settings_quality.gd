@@ -6,7 +6,7 @@ func _initialize() -> void:
 	_run()
 
 func _run() -> void:
-	var main: Node3D = load("res://main.tscn").instantiate()
+	var main: Node3D = load("res://Main.tscn").instantiate()
 	root.add_child(main)
 	for i in range(40):
 		await process_frame

@@ -318,6 +318,7 @@ scons test     # builds the doctest suite (see tests/)
 scons sizecheck   # fails if any .cpp/.hpp passes 500 lines (also a CI step)
 scons portability # fails on a Windows-only shape outside #ifdef _WIN32 (also a CI step)
 scons docscheck   # fails if the markdown cites a path that does not exist (also a CI step)
+scons rescheck    # fails if a res:// literal's case does not match the file on disk (also a CI step)
 scons timings     # wall-clock gate: boot, fill and fps settle vs timings_baseline.txt (local only)
 scons path_cost # planner cost over real terrain (bin/path_cost [seed] [max_distance])
 scons schematic_report # decode a build file (bin/schematic_report <file> [--top N | --all] [--table PATH] [--plan] [--repeat N])
@@ -348,12 +349,13 @@ CI (`.github/workflows/build.yml`) runs on every push and pull request:
   additionally run `python tools/check_file_sizes.py` (**no C++ file above 500 lines**, warning
   at 480), and the build job runs `python tools/check_portability.py` (no Windows-only include,
   `#pragma`, intrinsic or Win32 type outside an `#ifdef _WIN32` region, and no standard
-  attribute written after a decl-specifier) and `python tools/check_docs.py` (every path the
+  attribute written after a decl-specifier), `python tools/check_docs.py` (every path the
   documentation cites must exist, the counts it states must match the tree, and no doc line may
-  exceed the review budget). All three compile-or-read happily on MSVC and are fatal on
-  GCC/clang, which is why the tree is checked by something other than MSVC before it is
-  accepted; the same three are available locally as `scons sizecheck`, `scons portability` and
-  `scons docscheck`.
+  exceed the review budget) and `python tools/check_res_paths.py` (every `res://` literal names
+  its file with the case the file has on disk, so a path that only resolves on Windows fails).
+  All four compile-or-read happily on MSVC and are fatal on GCC/clang, which is why the tree is
+  checked by something other than MSVC before it is accepted; the same four are available
+  locally as `scons sizecheck`, `scons portability`, `scons docscheck` and `scons rescheck`.
 
 ## Documentation
 

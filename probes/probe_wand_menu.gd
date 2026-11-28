@@ -24,7 +24,7 @@ func _run() -> void:
 	if OS.get_environment("PROBE_W").is_valid_int() and OS.get_environment("PROBE_H").is_valid_int():
 		DisplayServer.window_set_size(Vector2i(int(OS.get_environment("PROBE_W")),
 			int(OS.get_environment("PROBE_H"))))
-	var scene: PackedScene = load("res://main.tscn")
+	var scene: PackedScene = load("res://Main.tscn")
 	if scene == null:
 		print("PROBE FAIL: main.tscn missing")
 		quit(1)

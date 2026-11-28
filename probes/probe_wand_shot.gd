@@ -33,7 +33,7 @@ func _run() -> void:
 	# is the right trade - the alternative used to delete their user:// folder.
 	DisplayServer.window_set_size(size)
 
-	var scene: PackedScene = load("res://main.tscn")
+	var scene: PackedScene = load("res://Main.tscn")
 	if scene == null:
 		print("PROBE FAIL: main.tscn missing")
 		quit(1)

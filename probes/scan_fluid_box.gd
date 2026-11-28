@@ -14,7 +14,7 @@ func _initialize() -> void:
 	_run()
 
 func _run() -> void:
-	var scene: PackedScene = load("res://main.tscn")
+	var scene: PackedScene = load("res://Main.tscn")
 	if scene == null:
 		print("BOX: main.tscn missing"); quit(1); return
 	var main: Node3D = scene.instantiate()

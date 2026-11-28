@@ -53,7 +53,7 @@ func _run() -> void:
 		_ok("chunk_borders.gd is created by ToolLoader on '%s'" % TOGGLE_ACTION)
 
 	# 2. The scene, so the overlay has a current_scene to attach to.
-	var scene: PackedScene = load("res://main.tscn")
+	var scene: PackedScene = load("res://Main.tscn")
 	if scene == null:
 		_fail("main.tscn missing")
 		quit(1)

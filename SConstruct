@@ -345,6 +345,14 @@ docscheck = env.Command("bin/.docscheck_stamp", [], '"{}" tools/check_docs.py'.f
 AlwaysBuild(docscheck)
 Alias("docscheck", docscheck)
 
+# Asset-path guard: every `res://` literal must name its file with the case that
+# file has on disk. Windows resolves a drifted path anyway, so the failure shows
+# up only in an export or on a case-sensitive checkout. Same always-runs
+# treatment as the gates above.
+rescheck = env.Command("bin/.rescheck_stamp", [], '"{}" tools/check_res_paths.py'.format(sys.executable))
+AlwaysBuild(rescheck)
+Alias("rescheck", rescheck)
+
 # Wall-clock gate for the player-facing timings (boot, fill, fps settle). It is
 # local-only by design: it needs a window and a GPU, which CI runners have not.
 timings = env.Command("bin/.timings_stamp", [], '"{}" tools/check_timings.py'.format(sys.executable))

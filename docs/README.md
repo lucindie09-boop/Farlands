@@ -48,23 +48,24 @@ notes that cut across systems (locking, the save format, the crash reporter, the
 parts of code quality and performance that apply everywhere). Every heading in it
 under *Major completed work* is now a summary of one of the pages above.
 
-## The four gates
+## The five gates
 
-Every push runs four checks that exist because each one caught something a
-normal build cannot see. All four are aliases, so they are one command each:
+Every push runs five checks that exist because each one caught something a
+normal build cannot see. All five are aliases, so they are one command each:
 
 | Gate | Catches |
 |---|---|
 | `scons sizecheck` | a `.cpp`/`.hpp` over 500 lines ([tools/check_file_sizes.py](../tools/check_file_sizes.py)) |
 | `scons portability` | a Windows-only shape outside `#ifdef _WIN32`, or a standard attribute after a decl-specifier ([tools/check_portability.py](../tools/check_portability.py)) |
 | `scons docscheck` | a cited path that does not exist, a link into a heading that does not exist, a count that no longer matches the tree, a doc line nobody can diff ([tools/check_docs.py](../tools/check_docs.py)) |
+| `scons rescheck` | a `res://` literal whose case does not match the file on disk, so a path that only resolves on Windows fails ([tools/check_res_paths.py](../tools/check_res_paths.py)) |
 | clang-tidy | a `bugprone-*`, `concurrency-*` or `performance-*` finding in `src/` — locally `python tools/check_tidy.py` |
 
-The first three run in CI directly; the fourth is the static-analysis job. The
-common thread is that all four are Linux-only in CI, so each one also exists as a
+The first four run in CI directly; the fifth is the static-analysis job. The
+common thread is that all five are Linux-only in CI, so each one also exists as a
 local command that reproduces it.
 
-A fifth alias is local-only: `scons timings`
+A sixth alias is local-only: `scons timings`
 ([tools/check_timings.py](../tools/check_timings.py)) reruns the boot, world-fill
 and fps-settle probes and compares them with `timings_baseline.txt`. The gate itself
 needs a window and a GPU, so it cannot run in CI -- but a `timing-gate` job runs

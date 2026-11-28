@@ -102,7 +102,7 @@ func _print_stats(phase: String) -> void:
 	])
 
 func _run() -> void:
-	var scene: PackedScene = load("res://main.tscn")
+	var scene: PackedScene = load("res://Main.tscn")
 	main = scene.instantiate()
 	root.add_child(main)
 	cm = main.get_node_or_null("ChunkManager")

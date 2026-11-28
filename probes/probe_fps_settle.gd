@@ -78,7 +78,7 @@ func _reason_names(mask: int) -> String:
 	return "none" if parts.is_empty() else ",".join(parts)
 
 func _run() -> void:
-	var scene: PackedScene = load("res://main.tscn")
+	var scene: PackedScene = load("res://Main.tscn")
 	if scene == null:
 		print("PROBE fps FAIL: main.tscn missing")
 		quit(1)

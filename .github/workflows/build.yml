@@ -59,6 +59,11 @@ jobs:
         # locally after `scons test` to cover that half too.
         run: python tools/check_docs.py
 
+      - name: Check res:// path case
+        # Every res:// literal must name its file with the case the file has on
+        # disk; Windows resolves a drifted path anyway, an export does not.
+        run: python tools/check_res_paths.py
+
       - name: Compute godot-cpp submodule hash
         id: cachekey
         shell: bash

@@ -160,7 +160,7 @@ func _staged_step(label: String, cm: Node, cell: Vector3i, id: int,
 
 
 func _run() -> void:
-	var scene: PackedScene = load("res://main.tscn")
+	var scene: PackedScene = load("res://Main.tscn")
 	if scene == null:
 		print("PROBE FAIL: main.tscn missing")
 		quit(1)

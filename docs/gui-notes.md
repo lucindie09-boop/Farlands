@@ -994,11 +994,7 @@ first-person viewmodel - what each one owns and the decisions behind it.
   three aims — 0.056 degrees at worst, with the lateral terms mirrored on both sides of the
   comparison so the deviation is measured against what this body means to do. A number in this
   stroke changes only with a citation, and the mirror is the single number that is this project's
-  rather than the reference's, next to `HAND_SWING_SWEEP` — the second: how WIDE that circle is, as a
-  multiple of the reference's lateral angles. At 1x the arm's end never gets far off the body's own
-  line and the stroke read as a hinge with a wobble; 1.5 widens the roll, the arm's yaw and the
-  chest's turn together (the crossing went from 8.44 to 11.02 rig units in) and leaves the rise,
-  the aim and the clocks alone. Raising the arm's 1.2 and the aim's 0.75 to "get it higher" was tried
+  rather than the reference's. Raising the arm's 1.2 and the aim's 0.75 to "get it higher" was tried
   and reverted, for a reason worth keeping: those two terms peak at DIFFERENT points of the stroke
   (the rise at a sixth of the way in, the aim at half), so a bigger aim term drags the maximum late
   and flattens the top into a rise-hold-come-back — two poses and a pause, which is what it looked
@@ -1034,15 +1030,15 @@ first-person viewmodel - what each one owns and the decisions behind it.
   five units out from the spine, turned by `b`. `_init_chest_pivot` puts the torso and BOTH
   shoulders on one node at the spine, which gives both halves from the one number: the box turns
   and the shoulders swing round with it, and the legs and the head stay out of it as they do in the
-  reference.   Measured: at a level look the far end is (0.10, 0.29, 0.95) in the body's own frame —
-  0.95 forward, 0.29 ABOVE the shoulder (15 degrees above horizontal) and 0.10 in toward the body's
-  middle; the hand crosses 11.02 rig units IN past the shoulder's side line and comes 5.95 back OUT
+  reference.   Measured: at a level look the far end is (0.09, 0.25, 0.96) in the body's own frame —
+  0.96 forward, 0.25 ABOVE the shoulder (14 degrees above horizontal) and 0.09 in toward the body's
+  middle; the hand crosses 8.44 rig units IN past the shoulder's side line and comes 4.11 back OUT
   past it, which is the check that holds the lateral mirror (the reference itself is the other way
-  round); the arm reaches 0.65 sideways at its widest and the two visits to the same point of the
-  stroke sit 51.8 degrees apart, which is what the third clock and the chest together do to the
-  path; the arm's ELEVATION at a fifth of the way in is −3.4 degrees looking 45 down, 15.3 level
-  and 33.7 looking 45 up, so the strike swings 19 degrees either side of a level look's own arc,
-  and further still at a steeper look; the rise has ONE apex, at 0.15 of the stroke, with 2 of 21
+  round); the arm reaches 0.50 sideways at its widest and the two visits to the same point of the
+  stroke sit 37.2 degrees apart, which is what the third clock and the chest together do to the
+  path; the arm's ELEVATION at a fifth of the way in is −5.7 degrees looking 45 down, 13.5 level
+  and 32.7 looking 45 up, so the strike swings 19 degrees either side of a level look's own arc,
+  and further still at a steeper look; the rise has ONE apex, at 0.20 of the stroke, with 2 of 21
   samples within 3 degrees of it; the item climbs 16.6 rig units looking level, 13.7 looking 45 down and 19.2
   looking 45 up, which is the aim; a full hand reaches 17.6 degrees higher than
   an empty one; a place is 0.75 of it; and a second click RESTARTS from the

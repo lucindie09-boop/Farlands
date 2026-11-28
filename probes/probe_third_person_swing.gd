@@ -43,17 +43,12 @@ const SWING_SECONDS := 0.3
 ## scripts/player_model.gd): the reference opens the arm outboard and across its own side line, and
 ## this body's blow comes inwards across the chest. The rise, the aim and the clocks are the
 ## reference's own and are NOT mirrored, so this is the one number in the stroke that is ours.
-## The sides are separate, because the two terms do different jobs (`HAND_SWING_ROLL_SIDE` and
-## `HAND_SWING_SHOULDER_SIDE`): the ROLL is the outward bulge through the middle of the stroke and
-## keeps the reference's own side, and the YAW and CHEST are the shoulder's turn and come inward so
-## the blow lands across the body.
-const ROLL_SIDE := 1.0
-const SHOULDER_SIDE := -1.0
-## ...and how wide that lateral circle is, as a multiple of the reference's own lateral angles
-## (`HAND_SWING_SWEEP` in scripts/player_model.gd). Ours: its 0.4 rad of roll and 0.2 of chest
-## twist read as a hinge with a wobble, and the owner asked for a wider circle. Restated at the
-## file's value, so a change to it is a failure here rather than a silent drift.
-const SWEEP := 1.5
+const LATERAL := -1.0
+## ...and the one thing this stroke adds: a short outward flick at the start of it
+## (`HAND_SWING_START_OUT`, `HAND_SWING_START_SPAN` in scripts/player_model.gd), on top of the
+## reference's lateral motion and changing nothing else about it.
+const START_OUT := 0.15
+const START_SPAN := 0.2
 ## ...and these are the reference's numbers, at the file's values: raising either one was tried and
 ## reverted, because its two terms peak at DIFFERENT points of the stroke (the rise at a sixth of
 ## the way in, the aim halfway), so a bigger aim term drags the maximum late and flattens the top
@@ -130,7 +125,6 @@ func _sweep(body: Node3D, arm: Node3D, item: Node3D) -> Dictionary:
 	# looking further up runs the arm into its own ceiling, where a maximum cannot rise any more
 	# but the direction at any given instant still does.
 	var elev_mid := 0.0
-	var dir_mid := Vector3.DOWN
 	# The whole elevation profile, because "it looks like two points" is a claim about the SHAPE of
 	# the rise: one apex, and no long sit near it. Counted as samples within 3 degrees of the top.
 	var elevs: Array = []
@@ -144,7 +138,6 @@ func _sweep(body: Node3D, arm: Node3D, item: Node3D) -> Dictionary:
 		elevs.append(elev)
 		if step == 4:
 			elev_mid = elev
-			dir_mid = _hand_dir(body, arm)
 		var chest := body.get("_chest_pivot") as Node3D
 		if chest != null:
 			var turned := rad_to_deg(chest.quaternion.angle_to(Quaternion.IDENTITY))
@@ -166,8 +159,7 @@ func _sweep(body: Node3D, arm: Node3D, item: Node3D) -> Dictionary:
 		if float(e) > top - 3.0:
 			near_max += 1
 	return {"climbed": climbed, "chest_early": chest_early, "chest_last": chest_last,
-		"elev_mid": elev_mid, "top": top, "apex_at": apex_at, "near_max": near_max,
-		"dir_mid": dir_mid}
+		"elev_mid": elev_mid, "top": top, "apex_at": apex_at, "near_max": near_max}
 
 
 ## The reference's whole stroke, rewritten here from its own source, in its own units, to be held
@@ -193,9 +185,10 @@ func _reference_pivot(t: float, aim: float, towards: float, strength: float) -> 
 	# off goes in with this rig's facing; its yRot is the same way round as this rig's yaw; and its
 	# zRot is "outboard", which is -X on the arm that attacks here, so it goes in negated by the
 	# facing rather than multiplied by it.
+	var start_out := START_OUT * sin(minf(t / START_SPAN, 1.0) * PI)
 	return Quaternion(Vector3.RIGHT, x_rot * towards * strength) \
-		* Quaternion(Vector3.UP, y_rot * -towards * SHOULDER_SIDE * SWEEP * strength) \
-		* Quaternion(Vector3.BACK, -z_rot * towards * ROLL_SIDE * SWEEP * strength)
+		* Quaternion(Vector3.UP, y_rot * -towards * LATERAL * strength) \
+		* Quaternion(Vector3.BACK, (-z_rot * LATERAL + start_out) * towards * strength)
 
 
 ## Walk one stroke and report what the hand drew: the far end (the direction it reached and how
@@ -468,22 +461,17 @@ func _run() -> void:
 	# attack angle to its own held-arm rule (the same 18 degrees), so a full hand reaches exactly
 	# the holding pose higher than an empty one. Measured, because it is the difference between
 	# the stroke being composed with the arm's pose and being written over it.
-	# Taken on the CLOCK at a fixed point of the stroke, not at each stroke's frame-sampled peak:
-	# two strokes sampled by frames peak on different frames once the sweep is wide, and the angle
-	# between two different moments of an arc is not the holding pose.
-	var full_mid: Dictionary = _sweep(body, arm, item)
 	host.block_id = 0
 	await process_frame
 	await process_frame
-	var empty_mid: Dictionary = _sweep(body, arm, item)
-	host.block_id = stone
-	await process_frame
-	await process_frame
+	var empty_rest := _hand_dir(body, arm)
+	body.call("_on_swung", 1.0)
+	var empty: Dictionary = await _stroke(body, arm, pivot, item, empty_rest, 0.45)
 	_ok("punch: the holding pose is composed under the stroke, not replaced",
-		absf(rad_to_deg((empty_mid["dir_mid"] as Vector3).angle_to(full_mid["dir_mid"]))
-			- HELD_PITCH) < TOLERANCE,
+		absf(rad_to_deg((empty["peak_dir"] as Vector3).angle_to(peak_dir)) - HELD_PITCH)
+			< TOLERANCE,
 		"a full hand reaches %.1f deg higher than an empty one"
-			% rad_to_deg((empty_mid["dir_mid"] as Vector3).angle_to(full_mid["dir_mid"])))
+			% rad_to_deg((empty["peak_dir"] as Vector3).angle_to(peak_dir)))
 	host.block_id = stone
 	await process_frame
 	await process_frame
@@ -514,7 +502,7 @@ func _run() -> void:
 	# and places both arms from that twist, so a punch there is a shoulder going round the spine,
 	# not an arm turning against a rigid torso.
 	_ok("punch: the chest turns into the blow and comes back",
-		float(punch["chest"]) > 5.0 and float(punch["chest"]) < 30.0
+		float(punch["chest"]) > 5.0 and float(punch["chest"]) < 20.0
 			and float(punch["chest_end"]) < 0.5,
 		"chest reached %.1f deg, ends at %.2f" % [float(punch["chest"]),
 			float(punch["chest_end"])])
@@ -565,11 +553,9 @@ func _run() -> void:
 	rest_dir = _hand_dir(body, arm)
 	body.call("_on_swung", PLACE_SHARE)
 	var place: Dictionary = await _stroke(body, arm, pivot, item, rest_dir, 0.45)
-	# The WEIGHT itself is exact and checked on the wire (0.750); this is the arc it draws, and a
-	# direction's travel is not LINEAR in the weight once the sweep is wide -- the lateral terms
-	# compose, so 0.75 of every angle lands slightly short of 0.75 of the travel. The band says
-	# "clearly weaker, not a different stroke" rather than promising a ratio the geometry does not
-	# have.
+	# The WEIGHT is exact and checked on the wire (0.750); this is the arc it draws, sampled by
+	# frames, so the band says "clearly weaker, not a different stroke" rather than promising a
+	# ratio a dropped frame can move.
 	_ok("place: the same arc at the weaker endpoint",
 		float(place["peak_turn"]) / maxf(float(punch["peak_turn"]), 0.001) > 0.55
 			and float(place["peak_turn"]) / maxf(float(punch["peak_turn"]), 0.001) < 0.85,

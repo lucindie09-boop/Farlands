@@ -952,21 +952,38 @@ first-person viewmodel - what each one owns and the decisions behind it.
   parent it carries the held block or item with no per-frame item code, and the arm's track path
   is `HeldArmPivot/SwingPivot/arm` from then on, which the clip's tables already resolve per part
   (`_part_path`). The clock is the first-person hand's own 0.225 s (`HAND_SWING_SECONDS`), a place
-  the same shape at 0.75; the arc is `HAND_SWING_PEAK` 78 degrees forward and up plus
-  `HAND_SWING_SWEEP` 14 across the body, both signed by `_inspect_sign` so a −Z mesh swings
-  forward too. Its shape is three pieces (`swing_amount`): a cubic ease-out strike over the first
-  0.32 of the clock, a cosine return that has landed by 0.80, and a half-sine overshoot of 0.10 of
-  the peak PAST rest before it settles — zero at both ends, so a finished swing is exactly the
-  rotation the arm started in. A second click RESTARTS from the top at the newest weight rather
-  than stacking or speeding up: one clock and one weight, so there is nothing to add. The
-  first-person hand's clock now ticks ABOVE its `visible` test, so the break loop's repeats keep
-  arriving while that hand is hidden in third person, and a place made in third person no longer
-  leaves a stale full stroke for the frame the camera comes back. Measured by
-  `probes/probe_third_person_swing.gd`: the wire on the real player's own body, the peak and the
-  overshoot, a place at 0.75 of it, a restart landing on the SAME peak and not past it, the item
-  keeping its distance from the shoulder while its x crosses toward the body's middle, the legs
-  still reaching 80-odd degrees of stride under the stroke, and the held shoulder turn still
-  exactly 18.
+  the same arc at 0.75.
+- **The stroke is a bell of travel plus a REVERSING sweep, and the sweep is what makes it a
+  circle.** The first version turned the arm about its left-right axis only, which swings the hand
+  up and back down inside the body's own plane — a shoulder hinge, and it read exactly like one
+  ("it kinda just rotates the arm up"). A pitch and nothing else cannot do anything else. So the
+  stroke is built the way the FIRST-PERSON hand's own arc already is, in
+  `compute_swing_pose` (`src/core/viewmodel_math.cpp`): a bell of travel —
+  `smoothstep(sin(pi * progress))`, through the very `ViewmodelPose.smoothstep_01` binding the
+  viewmodel uses, so the two hands cannot drift apart on what a swing weighs — and, laid over it,
+  a SWEEP of `sin(progress * TAU)`, which is zero at both ends AND at the top of the stroke,
+  positive going out and negative coming back. That pair is the whole of it: the hand leaves its
+  side, crosses the chest on the way up, and comes back round the other side, so its path closes a
+  loop instead of retracing a line. `HAND_SWING_ARC` is 80 degrees of shoulder pitch at the far
+  end and `HAND_SWING_SWEEP` 30 either side, both mirrored through `_inspect_sign` so a −Z mesh
+  pitches forward on the same turn the other way and sweeps toward its own middle. The sweep is
+  applied OVER the travel — a parent's turn of an already-pitched arm is a lateral one, while the
+  other way round it would only twist the hanging arm about itself. Measured: the far end is
+  straight forward and 8 degrees above the horizontal (0.02, 0.15, 0.99) after 80 degrees of
+  travel, the hand crosses out to x 0.46 on the way, and the two visits to the same point of the
+  travel sit 45 degrees apart — a hinge leaves both of those at exactly zero. A second click
+  RESTARTS from the top at the newest weight rather than stacking or speeding up: one clock and
+  one weight, so there is nothing to add. The first-person hand's clock now ticks ABOVE its
+  `visible` test, so the break loop's repeats keep arriving while that hand is hidden in third
+  person, and a place made in third person no longer leaves a stale full stroke for the frame the
+  camera comes back. Measured by `probes/probe_third_person_swing.gd`: the wire on the real
+  player's own body, the far end, the sideways crossing and the loop, a place at 0.75 of the arc,
+  a restart landing on the SAME far end and not past it, the item keeping its distance from the
+  shoulder while it rises 15.8 rig units, the legs still reaching 80 degrees of stride under the
+  stroke, and the held shoulder turn still exactly 18. The probe measures the arm's DIRECTION
+  rather than a pitch angle, because that is what a player sees move, and against the direction
+  the arm RESTS in — which is not straight down: the held pose has already turned it 18 degrees
+  forward.
 - **The offhand holder** (`hold_offhand` / `_seat`): a goblin's torch (a quarter of them spawn
   with one, [ui.md](ui.md), and a torch it picks up goes into that hand while it is free —
   [mob-plan.md](mob-plan.md) item 16) hangs from the arm the caller names — `arm`, its LEFT, because the

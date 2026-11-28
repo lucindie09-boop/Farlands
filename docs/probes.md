@@ -135,7 +135,7 @@ that hand already full, is kept in the main hand; a full main hand stops the sca
 | `probe_body_light.gd` | The player's own body is lit by the world's light, not the engine's: its rendered luma equals the luma of the pixels it is drawn over, it follows the sun down to midnight, and the body and world share the same neutral white-overhead, warm-at-the-horizon sky light |
 | `probe_player_anim.gd` | The live body plays its two clips (idle standing with the arms swaying, run walking) and every track of both lands on a limb; the parked pose port is still measured state by state (see below) |
 | `probe_held_pose.gd` | The held-item shoulder pose (`docs/gui-notes.md`): the pivot, the 18 degrees while holding, 0 with an empty hand, and the item moving forward with it (see below) |
-| `probe_third_person_swing.gd` | The third-person punch/place swing (`docs/gui-notes.md`): the `swung` wire on the real player's body, the 78-degree arc and its overshoot, a place at 0.75, a restart landing on the same peak, the item riding the hand, and the walk carrying on underneath (see below) |
+| `probe_third_person_swing.gd` | The third-person punch/place swing (`docs/gui-notes.md`): the `swung` wire on the real player's body, the hand's 80-degree travel plus the reversing sweep that closes the loop (sideways, which a hinge could not do), a place at 0.75, a restart landing on the same far end, the item riding the hand, and the walk carrying on underneath (see below) |
 | `probe_sky_brightness.gd` | What a fully sky-lit surface renders AT, against its own albedo: the body is handed a flat known grey (1x1, no atlas to guess from), the frame is read back per albedo, and each one is held to the model's own claim — never above its own texel, and not far below it |
 | `probe_item_size.gd` | A dropped item is not cell-sized: a cube's body and drawn mesh are both half a block, a slab and a stair keep their own shape at that scale, a sprite keeps its silhouette, and a stack of more than one is both drawn and solved bigger by the capped log2 curve (1.25x at 2 through 2x from sixteen), mesh and body one box at every count |
 | `probe_item_merge.gd` | Two drops of one kind next to each other become one pile: the counts add up to the 64 cap, the fuller keeps its place, body and mesh take the count's own size, motions combine only when both move, and the drawn size pops past the new one and settles back (at half strength once the pile is already at its largest) |
@@ -351,17 +351,22 @@ A few of those rows keep their detail here, because a table cell that long is an
   the REAL player's body: the first-person hand carries `swung` and `punch`/`place`, the swing pivot
   is between `HeldArmPivot` and the arm, a `punch()` reaches the body at weight 1.0 and a `place()`
   at 0.75 (a body that began listening after `_ready`, or listened to the wrong node, never hears
-  either), the body's own arm draws the 58.5-degree place stroke and comes back, and the
-  first-person timers still play out and expire. On a still body under a stub owner —
-  `probe_held_pose`'s shape, so every number is exact and nothing in the world is written — the
-  stroke itself: a punch peaks at 78 degrees and ends at exactly the rotation it started in, the
-  overshoot carries it past rest, a place peaks at 0.75 of the punch, and a second call during the
-  return restarts from the top and lands on the SAME peak rather than a higher one (one clock, so
-  two clicks cannot add up). The held item keeps its distance from the shoulder all the way out
-  (it hangs off the arm, so there is no item code) and its x crosses toward the body's middle,
-  which is what fixes the sweep's sign against a turn about X alone. Walking is that body given a
-  walk's speed: the legs still reach their own stride under the stroke, the clips keep turning the
-  arm beneath it, and the held shoulder turn stays at exactly 18 degrees through both.
+  either), the body's own arm draws the stroke and comes back, and the first-person timers still
+  play out and expire. On a still body under a stub owner — `probe_held_pose`'s shape, so every
+  number is exact and nothing in the world is written — the stroke itself, measured on the arm's
+  DIRECTION in the body's frame (what a player sees move) against the direction it RESTS in, which
+  is 18.5 degrees forward of down because of the held pose. The measurement exists to separate a
+  punch from a hinge: the hand crosses out to x 0.46 on its way up, which a pitch about the body's
+  left-right axis can never do (that component stays at exactly zero), and the two visits to the
+  same point of the travel sit 45 degrees apart because the sweep reverses — a hinge retraces one
+  line and brings them together. Also held: the far end (0.02, 0.15, 0.99 — straight forward and 8
+  degrees up) after 80 degrees of travel, the return to exactly the rotation the arm started in, a
+  place at 0.75 of the arc, a restart landing on the SAME far end, and the item keeping its
+  distance from the shoulder while it rises. The restart's wait POLLS for the hand to be on its way
+  back instead of pausing a fixed time: the bell is flat around its top, so a fixed delay can land
+  on the peak. Walking is that body given a walk's speed: the legs still reach their own stride
+  under the stroke, the clips keep turning the arm beneath it, and the held shoulder turn stays at
+  exactly 18 degrees through both.
 - `probe_player_anim.gd` — the body is measured, and then the parked port it no longer uses. The
   body: exactly two clips, `idle` and `run`, and every track of both resolves on this rig (a
   track

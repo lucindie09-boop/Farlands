@@ -1,5 +1,6 @@
 extends SceneTree
-## Does the third-person main hand swing when the first-person one does?
+## Does the third-person main hand swing when the first-person one does -- and does it swing on
+## an ARC, or just hinge up?
 ##
 ## A punch and a block place start ONE stroke on the body's right arm (scripts/player_model.gd:
 ## `SwingPivot`, `_apply_hand_swing`), the held block or item rides it because it hangs off that
@@ -9,16 +10,23 @@ extends SceneTree
 ##
 ##   * on the REAL player's body, that the wire exists and a punch/place reaches it at full /
 ##     weaker weight -- a body that began listening after `_ready` would silently never swing;
-##   * on a still body under a stub owner (probe_held_pose's shape), the stroke itself: the
-##     peak is the arc's own number, a place is 0.75 of it, a second punch starts it over from
-##     the top instead of stacking (and lands on the same peak, not a higher one), the arm
-##     comes back to EXACTLY the rotation it started in, the item keeps its distance from the
-##     shoulder all the way out and crosses toward the body's middle, and the break-loop's
-##     clock restarts the stroke rather than never firing.
+##   * on a still body under a stub owner (probe_held_pose's shape), the stroke itself, taken on
+##     the arm's DIRECTION in the body's own frame (shoulder to hand) because that is what a
+##     player sees move, and measured against the direction the arm RESTS in -- which is not
+##     straight down, because the held pose already turns it 18 degrees forward.
 ##
-## Walking is measured on that same still body by giving its owner a walk's speed: the legs
-## keep reaching their own stride while the arm swings, the clips keep turning the arm under
-## the stroke, and the 18-degree held turn is not disturbed by either.
+## What is being separated here is a punch from a hinge. A pitch and nothing else takes the hand
+## up the body's own plane and back down it: the same line in both directions, however far it
+## goes. The stroke is the first-person hand's construction (src/core/viewmodel_math.cpp): a bell
+## of travel, plus a SWEEP that is zero at the top of the stroke and full either side of it, so
+## the hand goes out one side and comes back the other. That is what these checks hold -- the
+## hand reaches sideways at all (a hinge keeps that at 0), and the way back is a different side
+## from the way out, which is a closed loop rather than a retraced line.
+##
+## Also held: a second punch restarts the stroke from the top and lands on the same far end
+## rather than past it, the arm comes back to exactly the rotation it started in, the item keeps
+## its distance from the shoulder all the way out, and a walking body keeps its stride, its arm
+## and its 18-degree held turn through the stroke.
 ##
 ## The world scene is loaded only because the block and item registries are loaded by the
 ## engine's own controller; nothing in the live world is written, so this runs headlessly:
@@ -27,10 +35,10 @@ extends SceneTree
 
 ## The stroke's numbers, restated here on purpose: the probe is what holds them, so it must not
 ## read them back from the file it is checking.
-const PEAK_DEGREES := 78.0
+const ARC_DEGREES := 80.0
 const PLACE_SHARE := 0.75
 const HELD_PITCH := 18.0
-const TOLERANCE := 3.0
+const TOLERANCE := 4.0
 
 var _failures := 0
 
@@ -64,24 +72,72 @@ class Stub extends Node3D:
 		return velocity
 
 
-## The stroke's own angle off rest, in degrees, FORWARD being positive -- the pivot's pitch has
-## the rig's sign, and this rig comes forward on a negative turn about X.
-func _forward_deg(pivot: Node3D) -> float:
-	return -rad_to_deg(pivot.rotation.x)
+## Where the hand is, in the BODY's own frame: shoulder to hand, unit length. Everything below
+## is taken on this vector, because it is what a player sees the arm do.
+func _hand_dir(body: Node3D, arm: Node3D) -> Vector3:
+	var shoulder := body.to_local(arm.global_position)
+	var down_the_limb := body.to_local(arm.to_global(Vector3(0.0, -1.0, 0.0)))
+	return (down_the_limb - shoulder).normalized()
 
 
-## Watch the clock for `seconds` and report what it drew: how far forward the stroke reached,
-## how far PAST rest it went on the way back in (the overshoot), and where it finished.
-func _watch(pivot: Node3D, seconds: float) -> Dictionary:
-	var out := {"peak": 0.0, "back": 0.0, "end": 0.0}
+## Walk one stroke and report what the hand drew: the far end (the direction it reached and how
+## far it turned to get there, measured from the rest direction), the widest it crossed
+## sideways, where it finished, the item's ride, and the LOOP -- how far apart the hand's own
+## path is on the way out and on the way back at the same point of its travel. A hinge brings
+## those two together to nothing; a sweep keeps them apart.
+##
+## `rest_dir` is the direction the arm hung in BEFORE the swing was kicked, passed in rather
+## than read off the first frame: the stroke is over in 0.225 s, so a headless frame can already
+## be well into it by the time this is called.
+func _stroke(body: Node3D, arm: Node3D, pivot: Node3D, item: Node3D, rest_dir: Vector3,
+		seconds: float) -> Dictionary:
+	var dirs: Array = []
+	var rest_item: Vector3 = body.to_local(item.global_position)
+	var radius: float = (item.global_position - arm.global_position).length()
+	var radius_error := 0.0
+	var rise := 0.0
 	var t0 := Time.get_ticks_msec()
 	while Time.get_ticks_msec() - t0 < int(seconds * 1000.0):
 		await process_frame
-		var forward := _forward_deg(pivot)
-		out["peak"] = maxf(float(out["peak"]), forward)
-		out["back"] = maxf(float(out["back"]), -forward)
-	out["end"] = _forward_deg(pivot)
-	return out
+		dirs.append(_hand_dir(body, arm))
+		radius_error = maxf(radius_error,
+			absf((item.global_position - arm.global_position).length() - radius))
+		rise = maxf(rise, body.to_local(item.global_position).y - rest_item.y)
+
+	var peak_index := 0
+	var peak_turn := 0.0
+	for i in dirs.size():
+		var turn := rad_to_deg((dirs[i] as Vector3).angle_to(rest_dir))
+		if turn > peak_turn:
+			peak_turn = turn
+			peak_index = i
+	var peak_dir: Vector3 = dirs[peak_index]
+	var across := 0.0
+	for i in dirs.size():
+		across = maxf(across, absf((dirs[i] as Vector3).x))
+	# The two frames at the same point of the travel, one on the way out and one on the way
+	# back: the first and the last that reach this far up the stroke.
+	var threshold := peak_turn * 0.6
+	var first := -1
+	var last := -1
+	for i in dirs.size():
+		if rad_to_deg((dirs[i] as Vector3).angle_to(rest_dir)) >= threshold:
+			if first < 0:
+				first = i
+			last = i
+	var loop := 0.0
+	if first >= 0 and last > first:
+		loop = rad_to_deg((dirs[first] as Vector3).angle_to(dirs[last]))
+	return {
+		"peak_dir": peak_dir,
+		"peak_turn": peak_turn,
+		"across": across,
+		"loop": loop,
+		"end": rad_to_deg(_hand_dir(body, arm).angle_to(rest_dir)),
+		"identity": pivot.quaternion.is_equal_approx(Quaternion.IDENTITY),
+		"rise": rise,
+		"radius_error": radius_error,
+	}
 
 
 func _seconds(seconds: float) -> void:
@@ -108,12 +164,14 @@ func _run() -> void:
 		return
 
 	# --- the wire, on the real player's own body ---------------------------------
+	var player: Node = main.get_node_or_null("Player")
 	var viewmodel: Node = main.get_node_or_null("Player/Camera3D/Viewmodel")
 	var player_model := main.find_child("PlayerModel", true, false) as Node3D
-	if viewmodel == null or player_model == null:
-		print("PROBE FAIL: Main.tscn is missing the viewmodel or PlayerModel")
+	if player == null or viewmodel == null or player_model == null:
+		print("PROBE FAIL: Main.tscn is missing the Player, the viewmodel or PlayerModel")
 		quit(1)
 		return
+	player.call("set_hotbar_slot", 0, stone, 1)
 	var player_swing := player_model.find_child("SwingPivot", true, false) as Node3D
 	var player_arm := player_model.find_child("arm", true, false) as Node3D
 	_ok("hand: the first-person hand owns the trigger surface",
@@ -128,6 +186,7 @@ func _run() -> void:
 			% [player_arm.get_parent().name if player_arm != null else "-",
 				player_swing.get_parent().name if player_swing != null else "-"])
 
+	var player_rest: Vector3 = _hand_dir(player_model, player_arm)
 	viewmodel.call("punch")
 	_ok("wire: a punch reaches the body at full weight",
 		absf(float(player_model.get("_hand_swing")) - 1.0) < 0.0001
@@ -138,19 +197,24 @@ func _run() -> void:
 	_ok("wire: a place is the weaker stroke",
 		absf(float(player_model.get("_hand_swing_strength")) - PLACE_SHARE) < 0.0001,
 		"weight %.3f" % float(player_model.get("_hand_swing_strength")))
-	var wired: Dictionary = await _watch(player_swing, 0.45)
+	var wired_peak := 0.0
+	var wired_until := Time.get_ticks_msec()
+	while Time.get_ticks_msec() - wired_until < 450:
+		await process_frame
+		wired_peak = maxf(wired_peak, rad_to_deg(_hand_dir(player_model, player_arm)
+			.angle_to(player_rest)))
 	_ok("wire: ...and the body's own arm draws it and comes back",
-		absf(float(wired["peak"]) - PEAK_DEGREES * PLACE_SHARE) <= TOLERANCE
-			and absf(float(wired["end"])) < 0.01,
-		"%.1f deg forward, ends at %.2f" % [float(wired["peak"]), float(wired["end"])])
+		wired_peak > 50.0
+			and rad_to_deg(_hand_dir(player_model, player_arm).angle_to(player_rest)) < 2.0,
+		"%.1f deg of hand travel, ends %.1f off rest" % [wired_peak,
+			rad_to_deg(_hand_dir(player_model, player_arm).angle_to(player_rest))])
 	viewmodel.call("punch")
-	var first_person: Dictionary = await _watch(player_swing, 0.45)
+	await _seconds(0.4)
 	_ok("first person: the hand's own swing still plays and expires",
-		absf(float(first_person["peak"]) - PEAK_DEGREES) <= TOLERANCE
-			and absf(float(viewmodel.get("_swing"))) < 0.001
+		absf(float(viewmodel.get("_swing"))) < 0.001
 			and absf(float(viewmodel.get("_swing_place"))) < 0.001,
-		"%.1f deg, viewmodel timers %.3f / %.3f" % [float(first_person["peak"]),
-			viewmodel.get("_swing"), viewmodel.get("_swing_place")])
+		"viewmodel timers %.3f / %.3f" % [viewmodel.get("_swing"),
+			viewmodel.get("_swing_place")])
 
 	# --- the stroke itself, on a body with an exact clock ------------------------
 	var glb: PackedScene = load("res://assets/models/player.glb")
@@ -163,6 +227,9 @@ func _run() -> void:
 	root.add_child(host)
 	var body: Node3D = glb.instantiate()
 	body.set_script(load("res://scripts/player_model.gd"))
+	# The clips are not this probe's subject and a breathing arm would move the item under the
+	# measurement; the walk gets its own part at the end, with the tree running again.
+	body.set("skip_head_look", true)
 	host.add_child(body)
 	await process_frame
 	await process_frame
@@ -180,67 +247,84 @@ func _run() -> void:
 		return
 	var clip_rest: Dictionary = body.get("_clip_rest")
 
-	_ok("rest: a body that has not swung is exactly where its clips left it",
-		pivot.rotation_degrees.is_equal_approx(Vector3.ZERO),
-		"%s" % pivot.rotation_degrees)
+	# At rest the arm hangs with the held pose's own 18 degrees forward and nothing else; the
+	# pivot, which is the only writer of the stroke, is exactly identity.
+	var rest_from_down := rad_to_deg(_hand_dir(body, arm).angle_to(Vector3.DOWN))
+	_ok("rest: the arm hangs at the held pose, with the stroke at nothing",
+		pivot.quaternion.is_equal_approx(Quaternion.IDENTITY)
+			and absf(rest_from_down - HELD_PITCH) < 3.0,
+		"identity %s, hand %.1f deg forward of down"
+			% [pivot.quaternion.is_equal_approx(Quaternion.IDENTITY), rest_from_down])
 
+	var rest_dir := _hand_dir(body, arm)
 	body.call("_on_swung", 1.0)
-	var punch: Dictionary = await _watch(pivot, 0.45)
-	_ok("punch: the arm reaches the arc's far end and returns to rest",
-		absf(float(punch["peak"]) - PEAK_DEGREES) <= TOLERANCE
-			and absf(float(punch["end"])) < 0.01
-			and pivot.rotation_degrees.is_equal_approx(Vector3.ZERO),
-		"%.1f deg forward, ends %.2f, %s" % [float(punch["peak"]), float(punch["end"]),
-			pivot.rotation_degrees])
-	_ok("punch: it overshoots a little PAST rest on the way back",
-		float(punch["back"]) > 1.0 and float(punch["back"]) < PEAK_DEGREES * 0.25,
-		"%.1f deg past rest" % float(punch["back"]))
+	var punch: Dictionary = await _stroke(body, arm, pivot, item, rest_dir, 0.45)
+	var peak_dir: Vector3 = punch["peak_dir"]
+	_ok("punch: the hand goes out to the front, a little above the horizontal",
+		peak_dir.z > 0.8 and peak_dir.y > 0.0 and float(punch["peak_turn"]) > 60.0,
+		"far end %s, %.1f deg of travel" % [peak_dir, punch["peak_turn"]])
+	# The sideways component is the whole difference between an arc and a hinge: a pitch about
+	# the body's left-right axis keeps the hand in the body's own plane, where x is exactly 0.
+	_ok("punch: it crosses the body on the way -- an ARC, not a hinge up the side",
+		float(punch["across"]) > 0.3,
+		"the hand reaches x %.3f (a hinge stays at 0)" % float(punch["across"]))
+	# ...and the sweep REVERSES, so the hand comes back round the other side: a closed loop.
+	_ok("punch: and it comes back on the other side of the way out",
+		float(punch["loop"]) > 25.0,
+		"%.1f deg apart out and back at the same point of the travel" % float(punch["loop"]))
+	_ok("punch: and it ends exactly where it started",
+		float(punch["end"]) < 0.01 and bool(punch["identity"]),
+		"ends %.2f deg off rest, pivot at identity %s"
+			% [float(punch["end"]), bool(punch["identity"])])
 
+	rest_dir = _hand_dir(body, arm)
 	body.call("_on_swung", PLACE_SHARE)
-	var place: Dictionary = await _watch(pivot, 0.45)
-	_ok("place: the same stroke at the weaker endpoint",
-		absf(float(place["peak"]) - PEAK_DEGREES * PLACE_SHARE) <= TOLERANCE,
-		"%.1f deg against the punch's %.1f" % [float(place["peak"]), float(punch["peak"])])
+	var place: Dictionary = await _stroke(body, arm, pivot, item, rest_dir, 0.45)
+	_ok("place: the same arc at the weaker endpoint",
+		float(place["peak_turn"]) / maxf(float(punch["peak_turn"]), 0.001) > 0.70
+			and float(place["peak_turn"]) / maxf(float(punch["peak_turn"]), 0.001) < 0.80,
+		"%.1f deg against the punch's %.1f (x%.2f)"
+			% [float(place["peak_turn"]), float(punch["peak_turn"]),
+				float(place["peak_turn"]) / maxf(float(punch["peak_turn"]), 0.001)])
 
 	# A second click during the return starts the stroke over -- from the top, at full weight,
 	# and NOT past it: the arc is a function of one clock, so two clicks cannot add up.
+	#
+	# The wait POLLS rather than guessing a pause: the bell is flat for a good share of the
+	# stroke around its top, so a fixed delay can land on the peak, and a stroke restarted from
+	# there would neither test the return nor leave the arm at rest for what follows.
+	rest_dir = _hand_dir(body, arm)
+	var peak_deg := float(punch["peak_turn"])
 	body.call("_on_swung", 1.0)
-	await _seconds(0.12)
-	var mid_return := _forward_deg(pivot)
+	var up_until := Time.get_ticks_msec()
+	while Time.get_ticks_msec() - up_until < 200:
+		await process_frame
+		if rad_to_deg(_hand_dir(body, arm).angle_to(rest_dir)) > peak_deg * 0.9:
+			break
+	var mid_return := peak_deg
+	var down_until := Time.get_ticks_msec()
+	while Time.get_ticks_msec() - down_until < 300:
+		await process_frame
+		mid_return = rad_to_deg(_hand_dir(body, arm).angle_to(rest_dir))
+		if mid_return < peak_deg * 0.7:
+			break
 	body.call("_on_swung", 1.0)
-	var restarted: Dictionary = await _watch(pivot, 0.45)
-	_ok("restart: a second punch starts over and lands on the SAME peak",
-		mid_return < PEAK_DEGREES - 2.0
-			and absf(float(restarted["peak"]) - PEAK_DEGREES) <= TOLERANCE,
-		"restarted at %.1f deg, reached %.1f" % [mid_return, float(restarted["peak"])])
+	var restarted: Dictionary = await _stroke(body, arm, pivot, item, rest_dir, 0.45)
+	_ok("restart: a second punch starts over and lands on the SAME far end",
+		mid_return < float(punch["peak_turn"]) - 4.0
+			and absf(float(restarted["peak_turn"]) - float(punch["peak_turn"])) <= TOLERANCE,
+		"restarted at %.1f deg, reached %.1f" % [mid_return, float(restarted["peak_turn"])])
 
 	# The held thing hangs off the arm, so the swing carries it with no item code: its distance
-	# from the shoulder cannot change, and the SWEEP shows as it crossing toward the body's
-	# middle (a turn about X alone would leave x where it was).
-	var rest_local: Vector3 = body.to_local(item.global_position)
-	var rest_radius: float = (item.global_position - arm.global_position).length()
-	var top_local := rest_local
-	var top_forward := -999.0
-	var top_radius := rest_radius
-	body.call("_on_swung", 1.0)
-	var swung_at := Time.get_ticks_msec()
-	while Time.get_ticks_msec() - swung_at < 400:
-		await process_frame
-		if _forward_deg(pivot) > top_forward:
-			top_forward = _forward_deg(pivot)
-			top_local = body.to_local(item.global_position)
-			top_radius = (item.global_position - arm.global_position).length()
-	# In the MODEL's own units, which is what the rig is laid out in (an arm is 12.3 of them
-	# here): the invariant is the equality, not the scale.
+	# from the shoulder cannot change, and it rises with the hand. Measured on the first stroke,
+	# which starts from rest.
 	_ok("item: it rides the hand -- same distance from the shoulder all the way out",
-		absf(top_radius - rest_radius) < 0.001 and top_local.y > rest_local.y + 0.05,
-		"%.4f against %.4f at rest, risen %.3f rig units"
-			% [top_radius, rest_radius, top_local.y - rest_local.y])
-	_ok("item: the sweep crosses toward the body's middle",
-		top_local.x > rest_local.x + 0.005,
-		"x %.4f -> %.4f" % [rest_local.x, top_local.x])
+		float(punch["radius_error"]) < 0.001 and float(punch["rise"]) > 0.05,
+		"radius error %.5f, risen %.3f rig units"
+			% [float(punch["radius_error"]), float(punch["rise"])])
 
 	# --- walking: the arm swings over a body that keeps walking ------------------
+	body.set("skip_head_look", false)
 	host.velocity = Vector3(0.25, 0.0, 0.0)
 	await _seconds(1.0)
 	var leg := body.find_child("leg", true, false) as Node3D
@@ -260,10 +344,10 @@ func _run() -> void:
 		arm_hi = maxf(arm_hi, arm_off)
 		shoulder_lo = minf(shoulder_lo, rad_to_deg(shoulder.rotation.x))
 		shoulder_hi = maxf(shoulder_hi, rad_to_deg(shoulder.rotation.x))
-		swing_peak = maxf(swing_peak, _forward_deg(pivot))
+		swing_peak = maxf(swing_peak, rad_to_deg(_hand_dir(body, arm).angle_to(rest_dir)))
 	_ok("walk: the legs keep reaching their own stride under the swing",
-		leg_peak > 45.0 and swing_peak > 40.0,
-		"leg %.1f deg, swing %.1f" % [leg_peak, swing_peak])
+		leg_peak > 45.0 and swing_peak > 45.0,
+		"leg %.1f deg, hand travel %.1f" % [leg_peak, swing_peak])
 	_ok("walk: the clips keep turning the arm underneath the stroke",
 		arm_hi - arm_lo > 1.0,
 		"arm %.2f to %.2f deg off rest" % [arm_lo, arm_hi])

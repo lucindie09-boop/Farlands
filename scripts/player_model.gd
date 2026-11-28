@@ -144,18 +144,15 @@ const HAND_SWING_SECONDS := 0.225
 # Where the first-person hand's swing lives from the controller that punches it -- the same
 # path player_controller_interact.cpp calls punch() on.
 const VIEWMODEL_PATH := "Camera3D/Viewmodel"
-# The arc, in degrees, at the far end of a FULL punch: the arm comes forward and up (a turn
-# about X, composed over the 18-degree held turn it also wears) and a little across the body
-# (about Z), which is what makes it read as a swing rather than a hinge. Ours to tune, off
-# the reference behaviour: an arm goes from the side to roughly eye level and back.
-const HAND_SWING_PEAK := 78.0
-const HAND_SWING_SWEEP := 14.0
-# The stroke's shape (see swing_amount): the strike takes this share of HAND_SWING_SECONDS,
-# the return has landed by this one, and what is left is the overshoot -- this much of the
-# peak, PAST rest, before the arm settles.
-const HAND_SWING_STRIKE := 0.32
-const HAND_SWING_RETURN := 0.80
-const HAND_SWING_OVERSHOOT := 0.10
+# The stroke's two numbers, in degrees at the far end of a FULL punch: HAND_SWING_ARC is how
+# far the shoulder pitches the arm forward, and HAND_SWING_SWEEP is how far the hand crosses
+# the body on its way there. Ours to tune. The sweep is the one that matters for how it reads:
+# a shoulder hinge (a pitch and nothing else) takes the hand up and back down inside the
+# body's own plane, which is a hinge however far it goes. The sweep is zero at the top of the
+# stroke and full either side of it, so the hand goes OUT one side and comes BACK the other --
+# round the shoulder rather than across it -- and the held block rides a circle.
+const HAND_SWING_ARC := 80.0
+const HAND_SWING_SWEEP := 30.0
 # data/items.json's `pose` field, through the ONE reader this body and the first-person
 # viewmodel share (scripts/item_poses.gd): an item's pose is a claim about its ART rather than
 # an item mechanic, so it is not in the registry -- and it is not read twice either.
@@ -968,28 +965,6 @@ func _on_swung(strength: float) -> void:
 	_hand_swing_strength = clampf(strength, 0.0, 1.0)
 
 
-## The stroke's shape: how far out the arm is, as a share of its far end, `u` being how much
-## of HAND_SWING_SECONDS has gone by (0 at the click, 1 when it has settled).
-##
-## Three pieces, and each is there for a reason a single formula did not give:
-## the STRIKE is a cubic ease-out, so the hand leaves fastest on the frame of the click and
-## lands softly at the top; the RETURN is a cosine, so it leaves the top with no corner and
-## arrives at rest with none either; and the OVERSHOOT is a half sine on the last stretch,
-## which takes the arm a little PAST rest and back -- the weight at the end of a swing, and
-## the difference between a hand that arrived and a hand that faded out. Zero at 0 and at 1,
-## so a finished swing is exactly the pose the arm was in before it.
-static func swing_amount(u: float) -> float:
-	u = clampf(u, 0.0, 1.0)
-	if u < HAND_SWING_STRIKE:
-		var out := u / HAND_SWING_STRIKE
-		return 1.0 - pow(1.0 - out, 3.0)
-	if u < HAND_SWING_RETURN:
-		var back := (u - HAND_SWING_STRIKE) / (HAND_SWING_RETURN - HAND_SWING_STRIKE)
-		return 0.5 + 0.5 * cos(PI * back)
-	var settle := (u - HAND_SWING_RETURN) / (1.0 - HAND_SWING_RETURN)
-	return -HAND_SWING_OVERSHOOT * sin(PI * settle)
-
-
 ## One frame of the main-hand swing, written on the pivot between the shoulder and the arm.
 ##
 ## A PARENT pivot rather than a turn on the arm, for the reason the held pose has one: the
@@ -999,18 +974,35 @@ static func swing_amount(u: float) -> float:
 ## turn -- and being the arm's parent it carries the held block or item with it, which is why
 ## there is no item code here at all.
 ##
-## "Forward" is the MESH's, exactly as the held turn's and the inspection's signs are: a +Z
-## rig comes forward on a NEGATIVE turn about X, a -Z mesh on the same turn the other way. The
-## sweep takes the opposite sign for the same reason -- it crosses toward the body's own
-## middle, and which way that is falls out of which hand is holding.
+## TWO curves, and they come from the first-person hand's own arc -- `compute_swing_pose` in
+## src/core/viewmodel_math.cpp, which is where the motion in front of the eye is built:
+##
+##   * the TRAVEL is a bell, `smoothstep(sin(pi * progress))`, and it is the very same
+##     smoothstep (the `ViewmodelPose` binding) the viewmodel uses, so the two hands cannot
+##     drift apart on what a swing's weight is. It pitches the arm forward, through
+##     HAND_SWING_ARC, and back to rest.
+##   * the SWEEP is a sine of the progress's full turn, which is the same construction as the
+##     viewmodel's perpendicular arc: zero at both ends and zero again at the top, positive on
+##     the way out and negative on the way back. That is the whole of the "circle": the travel
+##     alone is a hinge, and a bulge that reverses means the hand goes out one side and returns
+##     the other, so its path closes a loop instead of retracing a line.
+##
+## The sweep is applied OVER the travel (a parent's turn of the pitched arm is a lateral one; the
+## other way round it would only twist the hanging arm about itself). "Forward" is the MESH's,
+## as the held turn's and the inspection's signs are, so a -Z body pitches forward on the same
+## turn the other way and sweeps toward its own middle.
 func _apply_hand_swing(delta: float) -> void:
 	if _swing_pivot == null:
 		return
 	_hand_swing = maxf(_hand_swing - delta / HAND_SWING_SECONDS, 0.0)
-	var amount := swing_amount(1.0 - _hand_swing) * _hand_swing_strength
+	var progress := 1.0 - _hand_swing
+	var strength := _hand_swing_strength
 	var towards := _inspect_sign()
-	_swing_pivot.rotation_degrees = Vector3(HAND_SWING_PEAK * towards * amount, 0.0,
-		-HAND_SWING_SWEEP * towards * amount)
+	var travel: float = ViewmodelPose.smoothstep_01(sin(PI * progress)) * strength
+	var sweep: float = sin(progress * TAU) * strength
+	_swing_pivot.quaternion = Quaternion(Vector3.UP,
+			deg_to_rad(HAND_SWING_SWEEP * sweep * -towards)) \
+		* Quaternion(Vector3.RIGHT, deg_to_rad(HAND_SWING_ARC * travel * towards))
 
 
 ## The block or item the body carries in its right hand.

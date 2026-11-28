@@ -180,12 +180,22 @@ const HAND_SWING_AIM := 0.75
 # own look-straight-up pose (129). It must sit well clear of a normal strike (1.45 at level), or
 # it turns the top of the arc into a plateau: at 1.95 it was clipping the level stroke itself.
 const HAND_SWING_RISE_MAX := 2.6
-# The LATERAL half of the stroke -- the roll, the arm's own yaw and the chest's turn -- is the
-# reference's own, MIRRORED. The reference opens the arm away from the body and across its own
-# side line; this body's blow comes INWARDS, across the chest. One switch rather than three signs,
-# because the three are one motion: a roll that opens in while the chest turns out is an arm
-# fighting its own shoulder. The rise and the aim are untouched by it, and so is the clock.
-const HAND_SWING_LATERAL := -1.0
+# The two lateral terms do DIFFERENT jobs and get their sides separately.
+#
+# The ROLL is the BULGE through the middle of the stroke -- the circle an eye reads, the arm's end
+# swinging out away from the body and back. It keeps the reference's own side: OUTWARD.
+#
+# The YAW and the CHEST are the shoulder's TURN, and that one comes INWARD, so the blow lands
+# across the body rather than away from it. They were one switch to begin with, and that is why
+# widening it made the circle read backwards: it turned the bulge inward too.
+const HAND_SWING_ROLL_SIDE := 1.0
+const HAND_SWING_SHOULDER_SIDE := -1.0
+# How WIDE that circle is, as a multiple of the reference's own lateral angles. Its 0.4 rad of
+# roll and 0.2 of chest twist draw a modest arc -- the arm's end never gets far off the body's own
+# line -- and the motion read as a hinge with a wobble rather than a circle. This one number
+# widens all three lateral terms together (roll, the arm's yaw and the chest's turn) and does not
+# touch the rise, the aim or the clocks, so the stroke's height and timing are unchanged by it.
+const HAND_SWING_SWEEP := 1.5
 # The pitch the aim has to be 40 degrees DOWN (0.7 rad, the reference's own constant) before the
 # blow gives up all of its head-pitch lift, and looking up from level gains the same amount again:
 # `(AIM_LEVEL - aim) / AIM_LEVEL` is 1 at a level look, 0 at 40 down and 2 at 40 up.
@@ -1117,15 +1127,16 @@ func _apply_hand_swing(delta: float) -> void:
 	# -- the arm opened on the way back instead of where the reference has it.
 	var turn: float = sin(sqrt(progress) * TAU)
 	_swing_pivot.quaternion = Quaternion(Vector3.RIGHT, rise * towards) \
-		* Quaternion(Vector3.UP,
-			HAND_SWING_YAW * turn * 2.0 * -towards * HAND_SWING_LATERAL * strength) \
-		* Quaternion(Vector3.BACK,
-			HAND_SWING_ROLL * carry * towards * HAND_SWING_LATERAL * strength)
+		* Quaternion(Vector3.UP, HAND_SWING_YAW * turn * 2.0 * -towards
+			* HAND_SWING_SHOULDER_SIDE * HAND_SWING_SWEEP * strength) \
+		* Quaternion(Vector3.BACK, HAND_SWING_ROLL * carry * towards * HAND_SWING_ROLL_SIDE
+			* HAND_SWING_SWEEP * strength)
 	# ...and the chest, on the arm's own turn clock, which is the reference's `body.yRot`: the
 	# torso box and both shoulders swing round the spine together.
 	if _chest_pivot != null:
 		_chest_pivot.quaternion = Quaternion(Vector3.UP,
-				CHEST_TWIST * turn * -towards * HAND_SWING_LATERAL * strength)
+				CHEST_TWIST * turn * -towards * HAND_SWING_SHOULDER_SIDE * HAND_SWING_SWEEP
+				* strength)
 
 
 ## The block or item the body carries in its right hand.

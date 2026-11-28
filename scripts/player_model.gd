@@ -145,7 +145,16 @@ const HELD_ARM_SWING := 0.5
 # 100 ms it needs to read, and it is the duration the reference draws its own curve over -- the
 # shape above is stated in fractions of the stroke and does not move.
 const SWING_PIVOT := "SwingPivot"
+# The FREE arm's pivot, for the one line of the reference's stroke that touches the arm which is
+# not throwing (see _init_other_arm / _apply_hand_swing).
+const OTHER_ARM_PIVOT := "OffArmPivot"
 const HAND_SWING_SECONDS := 0.3
+# How long a stroke takes to glide out of the pose a fresh click cut it off at, in seconds. A
+# click restarts the clock at ONCE (a punch that waits for the last stroke to finish is a dead
+# click), but the POSE at half a stroke is the hand across the torso and the chest 11 degrees
+# round, and snapping both back to the hang in one frame is what read as the arm teleporting. At
+# 50 ms the cut pose is gone inside three frames and the eye reads a fast draw-back, not a jump.
+const HAND_SWING_BLEND := 0.05
 # The chest's own turn into a blow, in degrees (the reference's 0.2 rad), and the node it turns on
 # -- see _init_chest_pivot for why the torso and both shoulders are on it.
 const CHEST_PIVOT := "ChestTwist"
@@ -362,10 +371,18 @@ var _held_pivot: Node3D = null
 # the idle's hang, the 18-degree held turn, an inspection -- keeps its own writer, and this
 # one only adds the stroke (see _apply_hand_swing).
 var _swing_pivot: Node3D = null
+# The free arm's shoulder pivot: the counter-swing of the arm that is not throwing.
+var _other_pivot: Node3D = null
 # The swing's clock, 1 at the click and 0 when it has settled -- the first-person hand's own
 # shape of timer -- and the strength the swing that set it asked for (1 punch, 0.75 place).
 var _hand_swing := 0.0
 var _hand_swing_strength := 1.0
+# The pose a click cut a stroke off at, and how far the new stroke has glided out of it: 0 at the
+# click, 1 once the new stroke owns the pose (see _on_swung and HAND_SWING_BLEND).
+var _restart_swing := Quaternion.IDENTITY
+var _restart_chest := Quaternion.IDENTITY
+var _restart_other := Quaternion.IDENTITY
+var _restart_blend := 1.0
 var _held_arm_box := AABB()
 var _held_controller: Node = null
 var _held_item: MeshInstance3D = null
@@ -400,6 +417,7 @@ func _ready():
 	# at load, and the right arm lives under the pivot from here on.
 	_init_chest_pivot()
 	_init_held_arm()
+	_init_other_arm()
 	_init_body_animation()
 	_head = find_child("head", true, false)
 	_init_held_item()
@@ -1027,6 +1045,32 @@ func _init_held_arm() -> void:
 	arm.position = Vector3.ZERO
 
 
+## The FREE arm's shoulder, which the reference gives a motion of its own during a blow.
+##
+## `setupAttackAnimation` turns BOTH arms with the body (`arm.z/x = -+cos/sin(body.yRot) * 5` and
+## `arm.yRot += body.yRot`), which the chest pivot already does by carrying both shoulders -- and
+## then it gives the arm that is NOT throwing one more line, `this.leftArm.xRot += this.body.yRot`:
+## as the body turns into the blow the free arm pitches the other way, 11.5 degrees at the peak and
+## on the chest's own clock. Nothing in the animation clips knows about a swing, so that pitch has
+## to be composed over them like the stroke is: a pivot at the free arm's own seat, inside the
+## chest's, turning nothing but that arm.
+##
+## Built after _init_chest_pivot (the arm is already on the chest) and before
+## _init_body_animation, because the arm's own track path changes with it.
+func _init_other_arm() -> void:
+	var arm := find_child(_other_arm_name(), true, false) as MeshInstance3D
+	if arm == null or arm.get_parent() == null:
+		return
+	var pivot := Node3D.new()
+	pivot.name = OTHER_ARM_PIVOT
+	_other_pivot = pivot
+	var parent := arm.get_parent()
+	parent.add_child(pivot)
+	pivot.position = arm.position
+	arm.reparent(pivot, false)
+	arm.position = Vector3.ZERO
+
+
 ## Listen to the hand that owns the swing's triggers.
 ##
 ## The third-person body does not read the mouse, and must not: every trigger that kicks the
@@ -1051,6 +1095,15 @@ func _connect_swing() -> void:
 ## one clock and one weight -- there is nothing to add up and no rate to raise. The weight is
 ## taken from the newest swing, so a place during a punch is the weaker stroke at once.
 func _on_swung(strength: float) -> void:
+	# A click always starts its stroke AT ONCE: a punch that waits for the last one to finish is a
+	# dead click, which is what spamming felt like when the strokes were queued. What is not
+	# instant is the POSE -- the one a cut stroke was in is remembered here and the new stroke
+	# glides out of it (HAND_SWING_BLEND) rather than snapping back to the hang in one frame.
+	if _hand_swing > 0.0 and _swing_pivot != null:
+		_restart_swing = _swing_pivot.quaternion
+		_restart_chest = _chest_pivot.quaternion if _chest_pivot != null else Quaternion.IDENTITY
+		_restart_other = _other_pivot.quaternion if _other_pivot != null else Quaternion.IDENTITY
+		_restart_blend = 0.0
 	_hand_swing = 1.0
 	_hand_swing_strength = clampf(strength, 0.0, 1.0)
 
@@ -1106,6 +1159,12 @@ func _apply_hand_swing(delta: float) -> void:
 		return
 	_hand_swing = maxf(_hand_swing - delta / HAND_SWING_SECONDS, 0.0)
 	var progress := 1.0 - _hand_swing
+	# The glide out of a pose a click cut short (see _on_swung), eased so its own start and end
+	# have no step in them either.
+	var blend := 1.0
+	if _restart_blend < 1.0:
+		_restart_blend = minf(_restart_blend + delta / HAND_SWING_BLEND, 1.0)
+		blend = smoothstep(0.0, 1.0, _restart_blend)
 	var strength := _hand_swing_strength
 	var towards := _inspect_sign()
 	var snap: float = sin((1.0 - pow(1.0 - progress, 4.0)) * PI)
@@ -1122,17 +1181,27 @@ func _apply_hand_swing(delta: float) -> void:
 	# the clock counted down, which put the whole lateral sweep at the MIRRORED end of the stroke
 	# -- the arm opened on the way back instead of where the reference has it.
 	var turn: float = sin(sqrt(progress) * TAU)
-	_swing_pivot.quaternion = Quaternion(Vector3.RIGHT, rise * towards) \
+	var stroke := Quaternion(Vector3.RIGHT, rise * towards) \
 		* Quaternion(Vector3.UP,
 			HAND_SWING_YAW * turn * 2.0 * -towards * HAND_SWING_LATERAL * strength) \
 		* Quaternion(Vector3.BACK, (HAND_SWING_ROLL * carry * HAND_SWING_LATERAL
 			+ HAND_SWING_START_OUT * sin(minf(progress / HAND_SWING_START_SPAN, 1.0) * PI))
 			* towards * strength)
+	_swing_pivot.quaternion = _restart_swing.slerp(stroke, blend) if blend < 1.0 else stroke
 	# ...and the chest, on the arm's own turn clock, which is the reference's `body.yRot`: the
 	# torso box and both shoulders swing round the spine together.
+	var chest_angle: float = CHEST_TWIST * turn * -towards * HAND_SWING_LATERAL * strength
 	if _chest_pivot != null:
-		_chest_pivot.quaternion = Quaternion(Vector3.UP,
-				CHEST_TWIST * turn * -towards * HAND_SWING_LATERAL * strength)
+		var chest := Quaternion(Vector3.UP, chest_angle)
+		_chest_pivot.quaternion = _restart_chest.slerp(chest, blend) if blend < 1.0 else chest
+	# ...and the FREE arm's own line, `this.leftArm.xRot += this.body.yRot`: the arm that is not
+	# throwing pitches against the torso's turn, on the same clock, 11.5 degrees at the peak and
+	# nothing at either end. `-chest_angle` is that body.yRot (the chest above is written with the
+	# strike's facing and mirror folded in); `* towards` is how this rig converts its xRot to a
+	# turn about RIGHT, the same conversion the stroke's own pitch uses.
+	if _other_pivot != null:
+		var other := Quaternion(Vector3.RIGHT, -chest_angle * towards)
+		_other_pivot.quaternion = _restart_other.slerp(other, blend) if blend < 1.0 else other
 
 
 ## The block or item the body carries in its right hand.

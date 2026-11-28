@@ -103,6 +103,37 @@ func _hand_dir(body: Node3D, arm: Node3D) -> Vector3:
 	return (down_the_limb - shoulder).normalized()
 
 
+## The FREE arm, swept by the clock: how far its hand swings away from where it hangs and which
+## way. The reference gives that arm one extra line during a blow (`this.leftArm.xRot +=
+## this.body.yRot`), on the chest's clock -- the chest pivot alone carries the arm along without
+## pitching it. A downward arm's direction is unchanged by a yaw, so what this measures is the
+## pitch and nothing else.
+func _free_arm_sweep(body: Node3D) -> Dictionary:
+	var arm := body.find_child("arm2", true, false) as Node3D
+	if arm == null:
+		return {}
+	body.set("_hand_swing", 0.0)
+	body.call("_apply_hand_swing", 0.0)
+	var rest := _hand_dir(body, arm)
+	var peak := 0.0
+	var at := 0.0
+	var back := 0.0
+	for i in range(41):
+		var t := float(i) / 40.0
+		body.set("_hand_swing", 1.0 - t)
+		body.call("_apply_hand_swing", 0.0)
+		var dir := _hand_dir(body, arm)
+		var deg := rad_to_deg(dir.angle_to(rest))
+		if deg > peak:
+			peak = deg
+			at = t
+			back = rest.z - dir.z
+	body.set("_hand_swing", 0.0)
+	body.call("_apply_hand_swing", 0.0)
+	return {"peak": peak, "at": at, "back": back,
+		"settled": rad_to_deg(_hand_dir(body, arm).angle_to(rest))}
+
+
 ## The stroke swept by its own CLOCK, for the checks that are about what the stroke READS rather
 ## than how it lands in real time: the highest the item climbs above its rest height, and the
 ## chest's turn at the reference's own early peak and at the very end.
@@ -510,6 +541,31 @@ func _run() -> void:
 		float(punch["end"]) < 0.01 and bool(punch["identity"]),
 		"ends %.2f deg off rest, pivot at identity %s"
 			% [float(punch["end"]), bool(punch["identity"])])
+	# ...and a punch DURING a punch is immediate but not a snap: the clock restarts on the click,
+	# which is the responsiveness, while the POSE glides out of the one it cut off over
+	# HAND_SWING_BLEND. The snap that this replaced moved the hand ~85 degrees in a single frame.
+	body.set("_hand_swing", 0.5)
+	body.set("_restart_blend", 1.0)
+	body.call("_apply_hand_swing", 0.0)
+	var cut_at := _hand_dir(body, arm)
+	body.call("_on_swung", 1.0)
+	var clock_at_once := float(body.get("_hand_swing"))
+	body.call("_apply_hand_swing", 1.0 / 60.0)
+	var first_step := rad_to_deg(_hand_dir(body, arm).angle_to(cut_at))
+	var worst_step := first_step
+	var last := _hand_dir(body, arm)
+	for i in range(5):
+		body.call("_apply_hand_swing", 1.0 / 60.0)
+		var now := _hand_dir(body, arm)
+		worst_step = maxf(worst_step, rad_to_deg(now.angle_to(last)))
+		last = now
+	body.set("_hand_swing", 0.0)
+	body.set("_restart_blend", 1.0)
+	body.call("_apply_hand_swing", 0.0)
+	_ok("spam: a punch during a punch is instant, and glides instead of snapping",
+		absf(clock_at_once - 1.0) < 0.001 and first_step < 40.0,
+		"clock %.2f on the click, %.1f deg in the first frame (worst %.1f, the snap was ~85)"
+			% [clock_at_once, first_step, worst_step])
 
 	# --- the FORMULA, not a property of it --------------------------------------
 	# Everything above is a property a wrong stroke can also have: an arc, a loop, a height, a
@@ -553,18 +609,30 @@ func _run() -> void:
 	rest_dir = _hand_dir(body, arm)
 	body.call("_on_swung", PLACE_SHARE)
 	var place: Dictionary = await _stroke(body, arm, pivot, item, rest_dir, 0.45)
-	# The WEIGHT is exact and checked on the wire (0.750); this is the arc it draws, sampled by
-	# frames, so the band says "clearly weaker, not a different stroke" rather than promising a
-	# ratio a dropped frame can move.
+	# The WEIGHT is exact and checked on the wire (0.750); this is the arc it draws. Measured on the
+	# CLOCK at the stroke's far end rather than off frames: the top of the stroke is 45 ms long and
+	# a dropped frame turned this ratio into a measurement of the frame rate (identical code has
+	# measured 0.47, 0.58 and 0.63 here).
+	body.set("_restart_blend", 1.0)
+	body.set("_hand_swing", 1.0 - 0.2)
+	body.set("_hand_swing_strength", 1.0)
+	body.call("_apply_hand_swing", 0.0)
+	var punch_far := rad_to_deg(_hand_dir(body, arm).angle_to(rest_dir))
+	body.set("_hand_swing_strength", PLACE_SHARE)
+	body.call("_apply_hand_swing", 0.0)
+	var place_far := rad_to_deg(_hand_dir(body, arm).angle_to(rest_dir))
+	body.set("_hand_swing", 0.0)
+	body.set("_hand_swing_strength", 1.0)
+	body.call("_apply_hand_swing", 0.0)
 	_ok("place: the same arc at the weaker endpoint",
-		float(place["peak_turn"]) / maxf(float(punch["peak_turn"]), 0.001) > 0.55
-			and float(place["peak_turn"]) / maxf(float(punch["peak_turn"]), 0.001) < 0.85,
-		"%.1f deg against the punch's %.1f (x%.2f)"
-			% [float(place["peak_turn"]), float(punch["peak_turn"]),
-				float(place["peak_turn"]) / maxf(float(punch["peak_turn"]), 0.001)])
+		place_far / maxf(punch_far, 0.001) > 0.70 and place_far / maxf(punch_far, 0.001) < 0.80,
+		"%.1f deg at the far end against the punch's %.1f (x%.2f; the frames sampled %.1f)"
+			% [place_far, punch_far, place_far / maxf(punch_far, 0.001),
+				float(place["peak_turn"])])
 
-	# A second click during the return starts the stroke over -- from the top, at full weight,
-	# and NOT past it: the arc is a function of one clock, so two clicks cannot add up.
+	# A second click during the return restarts the stroke at once -- from the top, at full weight,
+	# and NOT past it: the arc is a function of one clock, so two clicks cannot add up. The pose
+	# is what is not instant (see HAND_SWING_BLEND).
 	#
 	# The wait POLLS rather than guessing a pause: the bell is flat for a good share of the
 	# stroke around its top, so a fixed delay can land on the peak, and a stroke restarted from
@@ -585,21 +653,22 @@ func _run() -> void:
 		if mid_return < peak_deg * 0.7:
 			break
 	body.call("_on_swung", 1.0)
-	# Read the restart's far end off the CLOCK, not off the frames: the stroke's peak is 45 ms long
-	# and one dropped frame turns a frame-sampled measurement into a measurement of the frame rate
-	# (this check was failing on exactly that, at a peak that was half the stroke's).
 	var restarted_clock := float(body.get("_hand_swing"))
+	# Read the restarted stroke's far end off the CLOCK, not off the frames: the stroke's peak is
+	# 45 ms long and one dropped frame turns a frame-sampled measurement into a measurement of the
+	# frame rate (this check was failing on exactly that, at a peak that was half the stroke's).
+	body.set("_restart_blend", 1.0)
 	body.set("_hand_swing", 1.0 - 0.2)
 	body.call("_apply_hand_swing", 0.0)
 	var restarted_far := rad_to_deg(_hand_dir(body, arm).angle_to(rest_dir))
 	body.set("_hand_swing", 0.0)
 	body.call("_apply_hand_swing", 0.0)
-	_ok("restart: a second punch starts over and lands on the SAME far end",
+	_ok("spam: a click during the return restarts at once and lands on the SAME far end",
 		mid_return < float(punch["peak_turn"]) - 4.0
 			and absf(restarted_clock - 1.0) < 0.01
 			and absf(restarted_far - float(punch["peak_turn"])) <= TOLERANCE,
-		"restarted at %.1f deg with the clock at %.2f, far end %.1f"
-			% [mid_return, restarted_clock, restarted_far])
+		"restarted at %.1f deg into the return, clock %.2f, far end %.1f of %.1f"
+			% [mid_return, restarted_clock, restarted_far, float(punch["peak_turn"])])
 
 	# The held thing hangs off the arm, so the swing carries it with no item code: its distance
 	# from the shoulder cannot change, and it rises with the hand. Measured on the first stroke,
@@ -644,6 +713,17 @@ func _run() -> void:
 		float(level_aim["chest_early"]) > 6.0 and float(level_aim["chest_last"]) < 0.5,
 		"chest %.1f deg at 1/16 of the stroke, %.1f at the end"
 			% [float(level_aim["chest_early"]), float(level_aim["chest_last"])])
+	# ...and the arm that is NOT throwing has a line of its own in the reference that no clip knows
+	# about -- `this.leftArm.xRot += this.body.yRot` -- so it pitches against the torso's turn, on
+	# the chest's own clock, and is hanging where it started at both ends.
+	host.aim = Vector3(0.0, 0.0, 1.0)
+	var free: Dictionary = _free_arm_sweep(body)
+	_ok("the free arm pitches against the throw, and settles",
+		not free.is_empty() and float(free["peak"]) > 8.0 and float(free["peak"]) < 15.0
+			and float(free["back"]) > 0.0 and float(free["settled"]) < 0.5,
+		"free hand %.1f deg off its hang at t %.2f, %.2f BACKWARD, %.1f deg left at the end"
+			% [float(free["peak"]), float(free["at"]), float(free["back"]),
+				float(free["settled"])])
 
 	# --- walking: the arm swings over a body that keeps walking ------------------
 	body.set("skip_head_look", false)

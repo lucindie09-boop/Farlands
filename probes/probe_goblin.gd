@@ -139,6 +139,20 @@ func _run() -> void:
 	if parts.size() != 6:
 		_fail("the rig has %d of 6 parts" % parts.size())
 
+	# ONE surface per part, MERGED from the obj's own boxes: a mesh draws once per surface, so
+	# the head's six boxes were six draws and a goblin eleven. Six parts of one surface each,
+	# on six meshes and one material every goblin shares, is what a crowd is batched from --
+	# probes/probe_goblin_drawcalls.gd holds the draws themselves flat (docs/rendering-notes.md).
+	var surfaces := 0
+	for part in parts:
+		surfaces += int((parts[part] as MeshInstance3D).mesh.get_surface_count())
+	if surfaces != 6:
+		_fail("the rig is %d surface(s), expected 6 (one per part)" % surfaces)
+	var head_box := parts.get("head") as MeshInstance3D
+	if head_box == null or head_box.mesh.get_surface_count() != 1:
+		_fail("the head is %d surface(s), expected 1: its six boxes are not merged"
+			% (head_box.mesh.get_surface_count() if head_box != null else -1))
+
 	# Its feet on the model's origin (y == 0) and 1.44 tall, so the body position above
 	# really is where it stands -- measured over the parts, the only geometry there is.
 	var union := AABB()
@@ -158,8 +172,9 @@ func _run() -> void:
 			_fail("the rig is %.3f tall, expected ~1.44 blocks" % union.size.y)
 
 	# The world's own light model on every part, exactly as the player's body is drawn:
-	# the item shader over item_lighting.gdshaderinc, not an engine-lit
-	# StandardMaterial3D, and the goblin's own picture rather than the skin.
+	# body_shader over item_lighting.gdshaderinc (opaque, so the boxes are instanced rather
+	# than depth-sorted), not an engine-lit StandardMaterial3D, and the goblin's own
+	# picture rather than the skin.
 	var lit := 0
 	for part in parts:
 		var mi: MeshInstance3D = parts[part]
@@ -168,8 +183,9 @@ func _run() -> void:
 			if mat == null:
 				continue
 			lit += 1
-			if mat.shader == null or not String(mat.shader.resource_path).ends_with("item_shader.gdshader"):
-				_fail("`%s`'s shader is not item_shader.gdshader (the world's light model)" % part)
+			if mat.shader == null or not String(mat.shader.resource_path).ends_with("body_shader.gdshader"):
+				_fail("`%s`'s shader is not body_shader.gdshader (the world's light model, opaque)"
+					% part)
 			var albedo = mat.get_shader_parameter("albedo_texture")
 			if albedo == null:
 				_fail("`%s` has no albedo texture" % part)
@@ -631,7 +647,7 @@ func set_health(value: int) -> void:
 
 	if ok:
 		print("PROBE PASS: goblin is a goblin.gd body in `pose_clone` in the aimed cell's "
-			+ "middle, model on the world's item shader with the cell's own light, twelve "
+			+ "middle, model on the world's body shader with the cell's own light, twelve "
 			+ "half-hearts taking one apiece and resisting repeats, dead at zero, nothing "
 			+ "drawn over its head, one per press, none on a miss, no light pushed when empty")
 	else:

@@ -707,8 +707,10 @@ first-person viewmodel - what each one owns and the decisions behind it.
   Blockbench's glTF export anchored them at cube bottom-corners and glTF has no pivot field, so
   Godot was swinging every part around the wrong point (see the pivot note under Constraints).
   **The body runs the world's light, not the engine's**: `player_model.gd` gives it one
-  `ShaderMaterial` of `Assets/shaders/item_shader.gdshader` — the same include the dropped items and
-  the held arm run — over every surface, and pushes the light of the cell the body's *middle* is
+  `ShaderMaterial` of `Assets/shaders/body_shader.gdshader` — `unshaded, cull_back` with
+  `#define BODY_OPAQUE` over the include the dropped items and the held arm run, because a body is
+  opaque boxes and a shader that writes `ALPHA` is a TRANSPARENT material: depth-sorted per goblin,
+  never instanced, never casting a shadow (`docs/rendering-notes.md`, "The mob body") — over every surface, and pushes the light of the cell the body's *middle* is
   in (read from the model's own geometry, so a re-modelled body moves the sample with it) plus
   the world uniforms once a frame, easing the cell light over 0.15 s exactly as the other two
   consumers do. The engine's lighting is what this replaces: `Main.tscn` has no light node at

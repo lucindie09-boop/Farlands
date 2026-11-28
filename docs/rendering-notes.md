@@ -330,6 +330,87 @@ twice, and the coast is where the samples' own crossing is. The whole sequence, 
   tenth of a millisecond a frame at 1080p", well under the 4 ms plateau the benchmark job
   watches. The cap is the knob if it ever shows; nothing else about the loop is tunable.
 
+## The mob body: one opaque material, six shared meshes, one batch
+
+- **A goblin is six boxes and used to be eleven draw calls.** `scripts/goblin_model.gd` cuts
+  `Goblin.obj` into six parts (`PART_SURFACES`) and `_part_mesh` used to write one surface per
+  SOURCE surface, so the head alone was six of them — a body was eleven. Every body also built
+  its own six `ArrayMesh`es and its own `ShaderMaterial`, so no two goblins shared a mesh RID or
+  a material RID and nothing could be instanced: 100 goblins was a floor of 1,100 draws for the
+  bodies alone.
+- **Why none of it was opaque.** The body wore `item_shader.gdshader`, and
+  `item_lighting.gdshaderinc` writes `ALPHA` unconditionally, because an item is a cut-out
+  sprite. Godot sends any shader that reads or writes `ALPHA` to the TRANSPARENT pipeline, and it
+  never auto-instances a transparent material: the boxes were depth-sorted one at a time and
+  could not cast a shadow. `Assets/shaders/body_shader.gdshader` is `unshaded, cull_back` with
+  `#define BODY_OPAQUE` over the same include, and the include wraps its `ALPHA` write (and the
+  scissor discard: `alpha_scissor = 0.0` cuts nothing, so the body keeps no discard either) in
+  `#ifndef BODY_OPAQUE`. It is a compile-time define and not a uniform branch on purpose — a
+  uniform that happens to be 1.0 still leaves `ALPHA` in the source, and the material stays in
+  the transparent pass. `_held_material` keeps `item_shader.gdshader`, so the torch in a goblin's
+  hand, the dropped piles and the viewmodel are untouched.
+- **The rig, the material and a part's surfaces are shared.** The six `ArrayMesh`es are built
+  once from `Goblin.obj` and cached against the source mesh (which the cache keeps alive), and
+  every body's six `MeshInstance3D` pose carriers point at those same RIDs — they are the body's
+  own nodes, because the AnimationTree turns them, but the meshes are not. One goblin body
+  material (albedo `Goblin.png`, `alpha_scissor = 0.0`) is cached the same way, and `item_light`
+  — the one thing that IS per body — rides the instance uniform
+  `set_instance_shader_parameter`, which is what makes a shared material safe and is what the
+  instancer keys on. `_part_mesh` merges a part's source surfaces into ONE surface (concatenated
+  vertex/normal/tangent/uv, one index list offset by the running vertex count), so a goblin is
+  six surfaces rather than eleven: a multi-surface mesh draws once per surface however it is
+  batched. The world's light push runs once a frame for the shared material instead of once per
+  goblin (`_feed_body_material` is guarded by a static frame stamp), while `get_light_at` and the
+  instance uniform stay per body — a goblin in a dark cell is still dark.
+- **Forward+ automatic instancing batches, but it caps.** With one mesh and one opaque material
+  per part the engine does instance the bodies, and the first measurement said so: 1 goblin 4-6
+  draws, 10 goblins ~11, 32 ~13, 100 ~28-35. Packing the grid tightly changed nothing, so the cap
+  is not a spatial split, and there is no project setting behind it. A count that grows with the
+  crowd is a floor, not a fix, so it was measured and then replaced.
+- **The body is drawn by one `MultiMesh` per part** (`scripts/body_batch.gd`, a `/root/BodyBatch`
+  node). Six `MultiMeshInstance3D`s — one per part, one material, `cast_shadow = OFF` — hold one
+  instance per goblin, written after the AnimationTree (`TREE_PRIORITY = -1`) and the body's own
+  `_process` (priority 0) so what is written is what the frame is about to draw; the batch node
+  sits at identity because an instance transform is a WORLD transform. `instance_count` is a
+  high-water mark and `visible_instance_count` is how many slots are live, so a crowd appearing
+  never reallocates the buffer. A `MultiMesh` has no instance uniforms, so the body's eased light
+  goes in per-instance custom data and `body_batch.gdshader` reads it — through a varying, not
+  directly: `INSTANCE_CUSTOM` is a VERTEX built-in, and reading it in the fragment is an unknown
+  identifier. The parts themselves are then hidden (`visible = false`) and only the batch draws.
+- **Measured with the batch** (`probes/probe_goblin_drawcalls.gd`: the visible pass's draw
+  calls, the crowd's own contribution read as the difference hiding the batch makes): **6 at 1, 6
+  at 10, 6 at 32, 6 at 100** — and 6 objects, however many bodies (0 goblins reads 0 or 1, which
+  is the ±1 of a frame that is still streaming terrain). The body is O(1). The goblin's shadow
+  pass is 0 either way (the sun's shadow map is off), so the six are the visible pass alone.
+- **The trap, if a part is ever hidden like this again.** Children inherit a hidden parent, and a
+  goblin's held item hangs off `arm2` (the main hand) and `arm` (the offhand torch). The batch
+  hides the body's own part nodes, so each hand's holder is parented to a mirror `Node3D` under
+  the model whose global transform — position AND basis — is copied from the arm's at the top of
+  the body's own `_process`, after the AnimationTree (priority -1) has turned the arm and before
+  the frame is drawn. The grip maths and the `HeldArmPivot` turn are unchanged, and the torch is
+  still drawn in the hand that carries it. Hiding a hand without that mirror draws nothing where
+  the torch is.
+- **The first goblin paid a one-time cost, and it has been moved behind the title.** A first
+  spawn parsed `goblin.gd` (76 ms) and `goblin_model.gd` (72 ms), built the rig (11.5 ms) and
+  fitted the walk's clips (19.7 ms), and the `NavTrace` recorder built its header on the frame
+  after it (33 ms; it is `FileAccess.get_sha256` and an `_exit_tree` build now). None of that
+  depends on the body and all of it is cached (`_rig_cache`, the clip cache, the material cache),
+  so `scripts/boot_scene.gd` builds a goblin's MODEL on no body one frame after the world is
+  added — the title has had its own frame by then — and frees it the next frame. Measured on the
+  real `Boot.tscn` with vsync off, five runs each way against the same boot with the prewarm
+  skipped: the prewarm is **187–208 ms (median 194)**, and the frame it lands on is **386 ms
+  against 190 ms** without it — +196 ms on one frame; the first 60 frames after the world appears
+  total 1800 ms against 1570. What did NOT move: the world's own first frame (787 against 767
+  ms), the title's frames before the world (worst 701–706 against 652–716 ms) and boot-to-world
+  (1.61 s against 1.56 s) are all inside the run-to-run spread. So the hitch went from the moment
+  a goblin turns up to a frame behind the title, at the same cost (194 ms ≈ 76 + 72 parse +
+  11 rig + 20 clips). It does not compile the body's pipeline: a hidden model draws nothing, so
+  the batch shader's first compile is still paid by the first real goblin.
+- **What is still per body** — and deliberately out of this change — is a held item: a goblin
+  carrying a torch pays its own item draws (one card, one material, one light). 25 goblins all
+  carrying one is ~25 draws of items beside the 6 of the bodies; that is the next step, not this
+  one.
+
 ## Procedurally animated liquid textures
 
 - **Procedural animated liquid textures + the Liquid Texture Lab (pause menu → Tools)**: animated

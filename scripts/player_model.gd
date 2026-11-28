@@ -13,6 +13,12 @@ const ATLAS_DIM := 64
 # nothing about caves, torches or the hour. Only for a body standing in the world
 # -- see _init_world_lighting for why a preview does not get it.
 const ITEM_SHADER: Shader = preload("res://Assets/shaders/item_shader.gdshader")
+# The BODY's shader: the same light model, drawn OPAQUE (Assets/shaders/body_shader.gdshader).
+# A body is closed boxes, and ITEM_SHADER above writes ALPHA -- for a sprite's silhouette and a
+# dropped item's fade -- which is what makes Godot compile it into the TRANSPARENT pipeline,
+# where a body cannot be automatically instanced, cannot cast, and is depth-sorted rather than
+# depth-tested. Every body wears this one; the thing held in a hand keeps ITEM_SHADER.
+const BODY_SHADER: Shader = preload("res://Assets/shaders/body_shader.gdshader")
 # The cell light is one value per block, so a body crossing a boundary -- or a
 # cell being relit under it -- steps a whole cell's worth on a single frame. This
 # is the time constant of the fade that turns that step into a move. The same
@@ -315,17 +321,13 @@ func _ready():
 
 ## The two clips that turn this body's parts.
 ##
-## Each is re-homed onto THIS body (see _clip_for_rig), so two bodies -- the
-## player's and a preview's -- never share a resource whose paths were rewritten
-## for the other's rig.
+## The clips themselves are the RIG's, not this body's: a retarget, the run clip's fit to
+## vanilla's amplitudes and the rest pose's own keys come out the same for every body of one
+## rig, so they are built once and shared (_clip_library). What is this body's is the library
+## around them, the player and the tree -- the pose is per body by definition.
 func _init_body_animation() -> void:
 	_capture_clip_base()
-	var library := AnimationLibrary.new()
-	library.add_animation("idle", _clip_for_rig(CLIP_IDLE, "Idle"))
-	_run_clip = _clip_for_rig(CLIP_RUN, "Run")
-	library.add_animation("run", _run_clip)
-	library.add_animation("rest", _rest_clip())
-	_prepare_run_clip()
+	var library := _clip_library().duplicate()
 	_clip_player = AnimationPlayer.new()
 	_clip_player.name = "Clips"
 	_clip_player.add_animation_library("", library)
@@ -341,6 +343,80 @@ func _init_body_animation() -> void:
 	# The idle layer is added at full, always (see TREE_BLEND): it is a pose the walk
 	# wears, not a state the body switches into.
 	_tree.set(TREE_ADD, 1.0)
+
+
+## The clips one rig's bodies share, and the run clip's halved variant beside them.
+##
+## Keyed by the rig's own shape (_rig_clip_key), so a body of a different rig -- the player's
+## glb against a goblin's obj, or a re-modelled one -- never inherits another's clips. A goblin
+## crowd used to pay the retarget, the cosine fit over every run key and the vanilla rescale
+## PER BODY, for a result that cannot differ.
+static var _clip_cache := {}
+
+
+## The library one rig's bodies play, built once: 'idle', 'run' (the walk at vanilla's full
+## swing) and 'rest' (the pose the walk's blend fades to). The returned library is the CACHED
+## one -- walk it, do not change it: a body gets its own copy of the entry table
+## (_init_body_animation), which is what lets one body swap its run clip without touching the
+## crowd's (see _set_held_swing).
+func _clip_library() -> AnimationLibrary:
+	var key := _rig_clip_key()
+	if _clip_cache.has(key):
+		var cached: Dictionary = _clip_cache[key]
+		_run_clip = cached["run"]
+		return cached["library"]
+	var library := AnimationLibrary.new()
+	library.add_animation("idle", _clip_for_rig(CLIP_IDLE, "Idle"))
+	_run_clip = _clip_for_rig(CLIP_RUN, "Run")
+	library.add_animation("run", _run_clip)
+	library.add_animation("rest", _rest_clip())
+	_prepare_run_clip()
+	_clip_cache[key] = {"library": library, "run": _run_clip}
+	return library
+
+
+## What tells one rig's clips from another's: the parts a clip can name, the path each is
+## reached by (the held arm hangs under its shoulder pivot) and the rest rotation every key is
+## measured from. Two bodies of the same model answer the same string, which is the whole point.
+func _rig_clip_key() -> String:
+	var key := ""
+	for part in RIG_PARTS:
+		var rest: Quaternion = _clip_rest.get(part, Quaternion.IDENTITY)
+		key += "%s=%s|" % [_part_path(part), str(rest)]
+	return key
+
+
+## The rig's own run clip -- the walk at vanilla's FULL swing -- which `_run_clip` is not
+## pointing at while the held arm's halved variant is installed.
+func _run_clip_full() -> Animation:
+	return _clip_cache[_rig_clip_key()]["run"]
+
+
+## The same clip with the held arm's swing halved (HELD_ARM_SWING), built once per rig and
+## kept: the halved clip is a variant of the walk, not a body's state.
+func _run_clip_halved() -> Animation:
+	var entry: Dictionary = _clip_cache[_rig_clip_key()]
+	if entry.has("run_half"):
+		return entry["run_half"]
+	var arm_name := _held_arm_name()
+	var half: Animation = (entry["run"] as Animation).duplicate()
+	half.resource_name = "RunHalf"
+	ClipRetarget.scale_stride(half, {_part_path(arm_name): _clip_rest.get(arm_name, Quaternion.IDENTITY)},
+		HELD_ARM_SWING)
+	entry["run_half"] = half
+	return half
+
+
+## Put one run clip in THIS body's library and remember it as the one playing. The library is
+## the body's own (see _clip_library) and `add_animation` replaces an entry of the same name, so
+## this is one dictionary write -- never a shared clip rewritten under a crowd of bodies.
+func _install_run_clip(clip: Animation) -> void:
+	_run_clip = clip
+	if _clip_player == null:
+		return
+	var library := _clip_player.get_animation_library("")
+	if library != null:
+		library.add_animation("run", clip)
 
 
 ## The body's blend tree (see TREE_BLEND for what it is for).
@@ -538,6 +614,10 @@ func _add_rest_tracks(clip: Animation) -> void:
 
 
 func _process(delta: float) -> void:
+	# Before anything is drawn: the clips have already turned the arms (TREE_PRIORITY), and a
+	# hand whose arm is drawn by a batch hangs from a stand-in that has to be told where it is
+	# (`_hand_parent`).
+	_sync_hand_mirrors()
 	# Before the head-look guard: the pose clone sets skip_head_look, and it is
 	# standing in the world like any other body, so it is lit like one.
 	_push_world_lighting(delta)
@@ -648,17 +728,29 @@ func _init_world_lighting() -> void:
 		_chunk_manager = null
 		return
 
-	_body_material = ShaderMaterial.new()
-	_body_material.shader = ITEM_SHADER
-	_body_material.set_shader_parameter("albedo_texture", _skin_albedo())
-	# Closed opaque boxes: there is no sprite texel here to cut away.
-	_body_material.set_shader_parameter("alpha_scissor", 0.0)
+	_body_material = _make_body_material()
 	for mi in _body_meshes:
 		for surface in range((mi.mesh as Mesh).get_surface_count()):
 			mi.set_surface_override_material(surface, _body_material)
 	# The middle of the body, from its own geometry rather than a constant: the
 	# light is read at that height (see _push_world_lighting).
 	_body_height = _body_centre_height()
+
+
+## The material every one of this body's parts is drawn with.
+##
+## A body's own material: its skin is a texture SkinManager can repaint, so two bodies must not
+## share one. A MOB's body overrides this and answers a material shared by every mob of its kind
+## (scripts/goblin_model.gd): the same material RID on the same six mesh RIDs is what lets
+## Forward+ draw a crowd of them as one instanced draw per part, and a goblin's picture is not
+## repaintable.
+func _make_body_material() -> ShaderMaterial:
+	var material := ShaderMaterial.new()
+	material.shader = BODY_SHADER
+	material.set_shader_parameter("albedo_texture", _skin_albedo())
+	# Closed opaque boxes: there is no sprite texel here to cut away.
+	material.set_shader_parameter("alpha_scissor", 0.0)
+	return material
 
 
 ## The ChunkManager of the world this body is in, if any. The player's body is a
@@ -704,7 +796,7 @@ func _body_centre_height() -> float:
 func _push_world_lighting(delta: float) -> void:
 	if _body_material == null or _chunk_manager == null:
 		return
-	_chunk_manager.apply_item_lighting(_body_material)
+	_feed_body_material()
 	# The body is fed the same neutral sky-light curve as the world and every
 	# other item; probes/probe_body_light.gd reads both materials.
 	var at := to_global(Vector3(0.0, _body_height, 0.0))
@@ -728,6 +820,41 @@ func _ease_light(current: Vector4, target: Vector4, delta: float) -> Vector4:
 	if LIGHT_EASE_TIME <= 0.0:
 		return target
 	return current.lerp(target, 1.0 - exp(-delta / LIGHT_EASE_TIME))
+
+
+## The frame each body material was last fed the world's light uniforms on.
+##
+## A mob's bodies share ONE material (scripts/goblin_model.gd), so feeding it from every body
+## would be the same hundred writes a frame; the frame number makes it one. Keyed by the
+## material's instance id, and a body that owns its material drops its entry on the way out
+## (_exit_tree), so the table holds one entry per live body material.
+static var _fed_frame := {}
+
+
+## The world's light uniforms onto this body's material, at most once a frame per material.
+func _feed_body_material() -> void:
+	_feed_material(_body_material)
+
+
+## The same, for any material of the body's: a batched mob's crowd is one more material
+## (scripts/goblin_model.gd), and it wants the same once-a-frame feed.
+func _feed_material(material: ShaderMaterial) -> void:
+	if material == null or _chunk_manager == null:
+		return
+	var key := material.get_instance_id()
+	var frame := Engine.get_process_frames()
+	if int(_fed_frame.get(key, -1)) == frame:
+		return
+	_fed_frame[key] = frame
+	_chunk_manager.apply_item_lighting(material)
+
+
+## Drop this body's material entry when it leaves: a body that owns its material takes it with
+## it, and the id it left behind would otherwise sit in the table for the session. A shared one
+## (a mob's crowd) only loses a frame stamp, and the next body re-feeds it in the same frame.
+func _exit_tree() -> void:
+	if _body_material != null:
+		_fed_frame.erase(_body_material.get_instance_id())
 
 
 ## The shoulder pivot the held-item pose turns (see HELD_ARM_PITCH).
@@ -995,7 +1122,7 @@ func _init_offhand(arm: MeshInstance3D) -> void:
 	item.name = "OffhandItem"
 	item.material_override = material
 	item.visible = false
-	arm.add_child(item)
+	_hand_parent(arm).add_child(item)
 	_offhand = {
 		"arm": arm,
 		"box": (arm.mesh as Mesh).get_aabb(),
@@ -1003,6 +1130,45 @@ func _init_offhand(arm: MeshInstance3D) -> void:
 		"material": material,
 		"facing": 1.0,
 	}
+
+
+## The arms that are not DRAWN by their own MeshInstance3D (a batched mob's: the crowd's
+## MultiMeshes draw every pose of every body -- scripts/body_batch.gd), and the stand-in node
+## each one's hand items hang from.
+var _hand_mirrors := {}
+
+
+## Whether this body's arms are drawn by something other than their own nodes. False for the
+## player's own body and for a preview; a goblin answers true (scripts/goblin_model.gd).
+func _arms_are_batched() -> bool:
+	return false
+
+
+## The node a hand item hangs from: the arm itself, or -- when that arm is not drawn -- a
+## stand-in under the body that copies the arm's transform every frame
+## (`_sync_hand_mirrors`). The grip maths is written in the ARM's space and does not change:
+## a stand-in whose global transform IS the arm's has the arm's space.
+##
+## Without this a hand item vanishes with the node it was parented to, which is how a batching
+## pass loses every goblin's torch.
+func _hand_parent(arm: MeshInstance3D) -> Node3D:
+	if not _arms_are_batched():
+		return arm
+	var mirror := Node3D.new()
+	mirror.name = "%sHand" % String(arm.name)
+	add_child(mirror)
+	mirror.global_transform = arm.global_transform
+	_hand_mirrors[arm] = mirror
+	return mirror
+
+
+## Every stand-in on the arm it stands in for, before this frame is drawn.
+func _sync_hand_mirrors() -> void:
+	for arm in _hand_mirrors:
+		var node := arm as Node3D
+		var mirror := _hand_mirrors[arm] as Node3D
+		if is_instance_valid(node) and is_instance_valid(mirror):
+			mirror.global_transform = node.global_transform
 
 
 ## Where the DRAWN offhand item is, in world space -- a torch's light is at the torch, not
@@ -1082,7 +1248,7 @@ func _init_main_hand(arm: MeshInstance3D) -> void:
 	item.name = "MainHandItem"
 	item.material_override = material
 	item.visible = false
-	arm.add_child(item)
+	_hand_parent(arm).add_child(item)
 	_main_hand_item = {
 		"arm": arm,
 		"box": (arm.mesh as Mesh).get_aabb(),
@@ -1198,16 +1364,17 @@ func _pose_held_arm(held: bool) -> void:
 ## would compound the moment the tree stopped rewriting the arm (a frozen body keeps its
 ## last pose, and _process still runs).
 ##
-## The mixer caches the keys it read, so a clip rewritten under a playing tree has to be
-## read again -- that is what the two clear_caches calls are for, and without them the
-## change would land only the next time that clip was re-entered.
+## The two amplitudes are two CLIPS rather than one clip scaled in place, because the clips
+## belong to every body of the rig: scaling one body's arm would halve every goblin's. The
+## halved variant is built once per rig (_run_clip_halved) and swapped into THIS body's own
+## library, which is one dictionary write. The mixer caches the keys it read, so the two
+## clear_caches calls are still what makes the swap land -- without them it would apply only
+## the next time that clip was re-entered.
 func _set_held_swing(held: bool) -> void:
 	var arm_name := _held_arm_name()
 	if _run_clip == null or held == _held_swing_half or not _clip_rest.has(arm_name):
 		return
-	var path := _part_path(arm_name)
-	ClipRetarget.scale_stride(_run_clip, {path: _clip_rest[arm_name]},
-		HELD_ARM_SWING if held else 1.0 / HELD_ARM_SWING)
+	_install_run_clip(_run_clip_halved() if held else _run_clip_full())
 	_held_swing_half = held
 	if _clip_player != null:
 		_clip_player.clear_caches()

@@ -32,10 +32,12 @@
 // has), and emissive block textures (a dropped light block is lit by its own
 // cell, which it keeps bright).
 //
-// Included by Assets/shaders/item_shader.gdshader (the world's own items, and the
-// player's own body, both depth-tested) and Assets/shaders/viewmodel_shader.gdshader
-// (the first-person arm, drawn over the world). Both stage functions are defined
-// here so the two shaders differ in nothing but their render_mode.
+// Included by Assets/shaders/item_shader.gdshader (the world's own items: dropped blocks,
+// sprites, the held thing and the first-person arm -- all cut-out or faded), and by
+// Assets/shaders/body_shader.gdshader (the player's own body and every goblin), which defines
+// BODY_OPAQUE so the ALPHA write and the scissor above are not compiled at all. Both stage
+// functions are defined here so the shaders differ in nothing but their render_mode and that
+// one define.
 //
 // The player's body is the third case and the same one: a glb of boxes that
 // belongs to no single cell, so it takes the light of the cell its middle is in
@@ -84,7 +86,13 @@ uniform float entity_light_radius = 7.0;
 // already through the mesher's brightness curve (ChunkManager.get_light_at).
 // Per instance, not per material: every dropped block of one type shares one
 // material, and each lies in a cell of its own.
+//
+// A BATCHED body (Assets/shaders/body_batch.gdshader) does not declare it: a MultiMesh has one
+// material for every instance and no instance uniforms to speak of, so the light rides its
+// per-instance custom data instead, read into `item_light` at the top of the fragment.
+#ifndef BODY_BATCH
 instance uniform vec4 item_light = vec4(0.0, 0.0, 0.0, 1.0);
+#endif
 
 // How much of the item is left, so a dropped one fades out at the end of its
 // life instead of blinking away. Instance-level for the same reason.
@@ -103,8 +111,16 @@ uniform float alpha_scissor = 0.0;
 
 varying vec3 item_world_normal;
 varying vec3 item_world_position;
+#ifdef BODY_BATCH
+// The batch's per-instance light, carried from the vertex stage: `INSTANCE_CUSTOM` is a VERTEX
+// built-in, and the light is read in the fragment (see the top of fragment()).
+varying vec4 body_batch_light;
+#endif
 
 void vertex() {
+#ifdef BODY_BATCH
+    body_batch_light = INSTANCE_CUSTOM;
+#endif
     // World space: an item that has tumbled to a stop shows the face it happens
     // to be showing, and has to be shaded by it exactly as a placed block would.
     item_world_normal = normalize((MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz);
@@ -112,13 +128,19 @@ void vertex() {
 }
 
 void fragment() {
+#ifdef BODY_BATCH
+    // The per-instance custom data IS this body's cell light (scripts/body_batch.gd).
+    vec4 item_light = body_batch_light;
+#endif
     // Linear after the sampler's own sRGB decode (see the uniform above): every
     // multiply below is a linear multiply, and the framebuffer encodes the result
     // once, on output. That is what makes light a fraction OF THE TEXEL.
     vec4 tex = texture(albedo_texture, UV);
+#ifndef BODY_OPAQUE
     if (alpha_scissor > 0.0 && tex.a < alpha_scissor) {
         discard;
     }
+#endif
 
     vec3 world_normal = normalize(item_world_normal);
 
@@ -191,5 +213,13 @@ void fragment() {
     lit_color = clamp((lit_color - 0.5) * contrast + 0.5, 0.0, 1.0);
 
     ALBEDO = lit_color;
+#ifndef BODY_OPAQUE
+    // A sprite's silhouette, and a dropped item's last second fading out.
+    //
+    // A BODY (Assets/shaders/body_shader.gdshader) defines BODY_OPAQUE and writes neither of
+    // them, along with the scissor above: a shader that writes ALPHA is compiled into the
+    // TRANSPARENT pipeline whatever it is given at runtime, and a closed opaque box drawn
+    // there loses the depth test, the shadow pass and the renderer's automatic instancing.
     ALPHA = (alpha_scissor > 0.0 ? tex.a : 1.0) * item_fade;
+#endif
 }

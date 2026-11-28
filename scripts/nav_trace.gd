@@ -77,8 +77,6 @@ var _last_player_at := Vector3.INF
 var _last_player_map := ""
 ## The world, found once: `/root/Main/ChunkManager`, the node every goblin reads as well.
 var _world_cache: Node = null
-## What this session ran: written once at the top of the file, never sampled.
-var _header: Array[String] = []
 ## Why routes were dropped, counted by the goblin's own reason word. Kept beside the plan counts so
 ## a session can be read at a glance, as the event lines alone do not say how often each happened.
 var _drops: Dictionary = {}
@@ -102,12 +100,16 @@ static func claim() -> bool:
 func _ready() -> void:
 	_start_ms = Time.get_ticks_msec()
 	_events.append("session %s" % Time.get_datetime_string_from_system())
-	_header = _build_lines()
 
 
 ## The session's own provenance: the engine, the goblin script, and every extension library Godot
 ## could see. Nothing here is guessed -- a missing file prints as such rather than as a zero, since
 ## "the DLL is not where I think" is exactly the thing this is for.
+##
+## Built when the file is written, not when the node appears: the answer cannot change during a
+## session, and it used to be paid for on the frame after the first goblin spawned -- a read and a
+## SHA-256 of `scripts/goblin.gd` and of every DLL in `res/bin` (5.6 MB here), which is a visible
+## hitch in the middle of a spawn for a set of lines nobody reads until the file exists.
 func _build_lines() -> Array[String]:
 	var out: Array[String] = []
 	out.append("engine %s" % str(Engine.get_version_info().get("string", "?")))
@@ -126,11 +128,15 @@ func _build_lines() -> Array[String]:
 ## One file as a reader can tell two builds apart by: the hash of what is in it, and when it was
 ## last written. A hash alone cannot say "the DLL I just built"; a timestamp alone cannot say "the
 ## DLL whose source I am reading". Both, cut short, is what fits on a line.
+##
+## The hash comes from `FileAccess.get_sha256`, which hashes the file in the engine: the obvious
+## `sha256_text()` of `get_file_as_string()` builds the whole file as a String first (2.8 MB of
+## DLL, twice over here), and that string is the cost this session's first spawn was paying.
 func _stamp(path: String) -> String:
-	var text := FileAccess.get_file_as_string(path)
-	if text.is_empty():
+	var hash := FileAccess.get_sha256(path)
+	if hash.is_empty():
 		return "unreadable"
-	return "%s %s" % [text.sha256_text().substr(0, 8), _when(FileAccess.get_modified_time(path))]
+	return "%s %s" % [hash.substr(0, 8), _when(FileAccess.get_modified_time(path))]
 
 
 func _when(unix: int) -> String:
@@ -216,6 +222,8 @@ func _path_text(nodes: PackedVector3Array) -> String:
 func _exit_tree() -> void:
 	if muted:
 		return
+	# The session's provenance, made here because this is the only place it is read.
+	var header := _build_lines()
 	var lines: Array[String] = ["# Farlands nav trace"]
 	lines.append("plans %d: found %d, truncated %d, failed %d"
 		% [_plans, _found, _truncated, _failed])
@@ -224,7 +232,7 @@ func _exit_tree() -> void:
 		for reason in _drops.keys():
 			dropped.append("%s %d" % [reason, int(_drops[reason])])
 		lines.append("route drops: " + ", ".join(dropped))
-	lines.append_array(_header)
+	lines.append_array(header)
 	lines.append("")
 	lines.append("# events -- plans asked for and answered, and the chase's own decisions")
 	lines.append_array(_events)
@@ -250,7 +258,7 @@ func _exit_tree() -> void:
 
 	print("--- Farlands nav trace: %d plans, found %d, truncated %d, failed %d ---"
 		% [_plans, _found, _truncated, _failed])
-	for line in _header:
+	for line in header:
 		print(line)
 	print("full trace: %s" % ProjectSettings.globalize_path(path))
 	for line in _tail(_events, CONSOLE_TAIL):

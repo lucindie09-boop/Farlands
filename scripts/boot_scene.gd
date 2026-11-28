@@ -14,6 +14,14 @@ extends Node
 
 const WORLD_SCENE := "res://Main.tscn"
 
+## What the first goblin's spawn would otherwise pay for -- its two scripts, its mesh and
+## texture, its rig, its clips and its shader -- is loaded and built here instead, behind the
+## title (see `_warm_goblin`).
+const GOBLIN_MODEL_SCRIPT := "res://scripts/goblin_model.gd"
+const GOBLIN_BODY_SCRIPT := "res://scripts/goblin.gd"
+const GOBLIN_MESH := "res://Assets/models/Goblin.obj"
+const GOBLIN_TEXTURE := "res://Assets/models/Goblin.png"
+
 var _loading := false
 
 
@@ -69,4 +77,41 @@ func _process(_delta: float) -> void:
 	var menu := get_node_or_null(^"/root/MenuLayer")
 	if menu != null:
 		menu.call("_try_boot")
+	# The title has had its frame; the goblin's one-time cost goes into the next one, still
+	# behind it (see _warm_goblin).
+	await get_tree().process_frame
+	_warm_goblin(world)
+	await get_tree().process_frame
 	queue_free()
+
+
+## The first goblin's one-time cost, paid here while the title is up rather than in a fight.
+##
+## A goblin's first appearance pays for three things that do not depend on it, and all three are
+## per SESSION rather than per body: the two scripts parse (76 ms and 70 ms on this machine),
+## the obj is split into the six parts it is drawn as and the walk's clips are fitted to
+## vanilla's amplitudes (~30 ms, cached for every body after the first), and the body's shader is
+## compiled. Together that is a hitch you can see, in the one moment a goblin turns up.
+##
+## Nothing here spawns a goblin -- a live one joins the `goblin` group (the light gather and the
+## punch both walk it), installs the session's nav trace and asks the world for a movement sim.
+## What is built is a goblin's MODEL on no body: it fills the shared rig, the clips and the
+## material, and is freed before the next frame draws.
+func _warm_goblin(world: Node) -> void:
+	if world == null or not is_instance_valid(world):
+		return
+	var mesh := load(GOBLIN_MESH) as Mesh
+	var model_script := load(GOBLIN_MODEL_SCRIPT) as Script
+	# The body's own script parses on its first spawn, so it is warmed too -- loaded and never
+	# instantiated, because a body is what spawns a goblin.
+	load(GOBLIN_TEXTURE)
+	load(GOBLIN_BODY_SCRIPT)
+	if mesh == null or model_script == null:
+		return
+	var warm := Node3D.new()
+	warm.name = "GoblinPrewarm"
+	warm.set_script(model_script)
+	warm.set("source_mesh", mesh)
+	warm.visible = false
+	world.add_child(warm)
+	warm.queue_free()

@@ -46,6 +46,21 @@ const PART_SURFACES := {
 ## is the head box's own, which is the neck: the bottom of it, on the body's centre line.
 const PART_JOINT_SURFACES := {"head": [5]}
 
+## The batch every goblin is DRAWN through (scripts/body_batch.gd): one MultiMesh per part,
+## shared by the whole crowd. Forward+ instances MeshInstance3Ds that share a mesh and a
+## material, but only up to a batch's own limit -- past it a hundred bodies cost ~30 draws
+## instead of six (probes/probe_goblin_drawcalls.gd measures both) -- so the body goes through
+## one MultiMesh per part, and each body writes its own six transforms into its own slot.
+const BodyBatch := preload("res://scripts/body_batch.gd")
+const BATCH_SHADER: Shader = preload("res://Assets/shaders/body_batch.gdshader")
+## The batch node and the material the crowd is drawn with: one of each, made on first use.
+static var _batch: Node3D = null
+static var _batch_material_cache: ShaderMaterial = null
+
+## This body's slot in the batch ("-1" when it is drawn as its own MeshInstance3Ds: a preview,
+## or a build with no world to light against).
+var _batch_slot := -1
+
 ## The mesh to split: Goblin.obj, handed over by the spawn tool before the body is
 ## added to the tree (the rig is built from it at `_ready`).
 var source_mesh: Mesh = null
@@ -134,6 +149,7 @@ func _process(delta: float) -> void:
 	_sync_offhand()
 	_sync_main_hand()
 	super._process(delta)
+	_push_batch()
 
 
 ## Draw whatever the body says is in its offhand, this frame.
@@ -193,6 +209,9 @@ func _ready() -> void:
 	# rotations to build the clips from, and lights every MeshInstance3D it can find.
 	_build_rig()
 	super._ready()
+	# ...and only after it: the batch draws the body with that material, so the material has to
+	# exist before the body joins it.
+	_init_batch()
 
 
 ## The goblin's own picture, in place of the skin.
@@ -254,11 +273,44 @@ func _turn_head(want: Quaternion) -> void:
 ##
 ## A part is a MeshInstance3D whose vertices are moved so its OWN pivot is the node's
 ## origin, standing at that pivot: turning the node then swings the box about the joint
-## instead of about the model's feet (which is what a whole-mesh `rotation` does).
+## instead of about the model's feet (which is what a whole-mesh `rotation` does). The
+## MESHES are the rig's and are shared (see `_rig`): the node is the body's, because the
+## clips turn it.
 func _build_rig() -> void:
 	if source_mesh == null:
 		push_error("goblin_model: no source_mesh (the spawn tool hands over Goblin.obj)")
 		return
+	var rig := _rig()
+	for part in rig:
+		var entry: Dictionary = rig[part]
+		var mi := MeshInstance3D.new()
+		mi.name = part
+		mi.mesh = entry["mesh"]
+		mi.position = entry["pivot"]
+		add_child(mi)
+
+
+## The rig every goblin of one source mesh draws: part name -> {mesh, pivot}.
+##
+## Split ONCE. Splitting the obj is eleven surface reads, six vertex rewrites and six mesh
+## uploads, and every goblin draws the same six boxes -- built per body, a hundred goblins paid
+## for it a hundred times and held a hundred copies of the same 1.1 KB of geometry, which also
+## means no two bodies shared a mesh RID and the renderer could not batch any of them
+## (Forward+ instances MeshInstance3Ds that share BOTH a mesh and a material).
+##
+## Keyed by the source mesh, which is kept alive by the entry: an instance id can be reused
+## once the object it named is freed, and this table must not answer a new mesh with an old rig.
+static var _rig_cache := {}
+
+
+## The shared rig for this body's source mesh, built on first use.
+func _rig() -> Dictionary:
+	if source_mesh == null:
+		return {}
+	var key := source_mesh.get_instance_id()
+	if _rig_cache.has(key):
+		return _rig_cache[key]["parts"]
+	var parts := {}
 	for part in PART_SURFACES:
 		var surfaces: Array = PART_SURFACES[part]
 		if _surfaces_box(surfaces).size == Vector3.ZERO:
@@ -267,11 +319,112 @@ func _build_rig() -> void:
 		# PART_JOINT_SURFACES when something rides on the part.
 		var joint: Array = PART_JOINT_SURFACES.get(part, surfaces)
 		var pivot := _part_pivot(part, _surfaces_box(joint))
-		var mi := MeshInstance3D.new()
-		mi.name = part
-		mi.mesh = _part_mesh(surfaces, pivot)
-		mi.position = pivot
-		add_child(mi)
+		parts[part] = {"mesh": _part_mesh(surfaces, pivot), "pivot": pivot}
+	_rig_cache[key] = {"source": source_mesh, "parts": parts}
+	return parts
+
+
+## Hand the body's six meshes to the shared batch, and stop drawing them as six
+## MeshInstance3Ds of their own.
+##
+## The NODES stay: the clips turn them, the grip maths reads their boxes and a probe reads
+## their meshes. They are simply not what is drawn -- each part is drawn at its node's world
+## transform, so the walk, the idle, the head's turn and the body's yaw all still arrive.
+##
+## A body with no world-light material (a preview in a SubViewport) keeps its own
+## MeshInstance3Ds: it is one body, and it has no world uniform to share.
+func _init_batch() -> void:
+	if _body_material == null or _body_meshes.is_empty():
+		return
+	var node := _shared_batch()
+	if node == null:
+		return
+	_batch_slot = int(node.call("register", _part_meshes(), _batch_material()))
+	if _batch_slot < 0:
+		return
+	for mi in _body_meshes:
+		mi.visible = false
+
+
+## The one batch node every goblin writes into, made on first use under the ROOT at identity:
+## the transforms it is handed are world transforms.
+func _shared_batch() -> Node3D:
+	if _batch != null and is_instance_valid(_batch):
+		return _batch
+	var tree := get_tree()
+	if tree == null or tree.root == null:
+		return null
+	_batch = Node3D.new()
+	_batch.name = "BodyBatch"
+	_batch.set_script(BodyBatch)
+	tree.root.add_child(_batch)
+	return _batch
+
+
+## Every part's mesh, by part name -- what the batch builds its six MultiMeshes from.
+func _part_meshes() -> Dictionary:
+	var meshes := {}
+	for mi in _body_meshes:
+		if mi.mesh != null:
+			meshes[String(mi.name)] = mi.mesh
+	return meshes
+
+
+## The material the BATCH draws with: the same picture and the same light model on
+## Assets/shaders/body_batch.gdshader, which reads each body's cell light from the MultiMesh's
+## per-instance custom data instead of an instance uniform. One material for the whole crowd.
+func _batch_material() -> ShaderMaterial:
+	if _batch_material_cache == null:
+		_batch_material_cache = ShaderMaterial.new()
+		_batch_material_cache.shader = BATCH_SHADER
+		_batch_material_cache.set_shader_parameter("albedo_texture", GOBLIN_TEXTURE)
+		# Closed opaque boxes: there is no sprite texel here to cut away.
+		_batch_material_cache.set_shader_parameter("alpha_scissor", 0.0)
+	return _batch_material_cache
+
+
+## This body's six parts into its slot: after the clips have turned them (the tree runs at
+## TREE_PRIORITY, before this) and after the light has been eased (super._process).
+func _push_batch() -> void:
+	if _batch_slot < 0 or _batch == null or not is_instance_valid(_batch):
+		return
+	# Once a frame for the whole crowd, not once per body (_feed_material dedupes by frame).
+	_feed_material(_batch_material())
+	for mi in _body_meshes:
+		_batch.call("write", _batch_slot, String(mi.name), mi.global_transform, _body_light)
+
+
+## Out of the crowd: the slot goes back, and nothing is drawn where this body was.
+func _exit_tree() -> void:
+	if _batch_slot >= 0 and _batch != null and is_instance_valid(_batch):
+		_batch.call("unregister", _batch_slot)
+	_batch_slot = -1
+	super._exit_tree()
+
+
+## The arms are drawn by the batch, so a hand item cannot hang from one: it would vanish with
+## the node that is no longer drawn (player_model.gd's `_hand_parent` stands a node in for it).
+func _arms_are_batched() -> bool:
+	return _batch_slot >= 0
+
+
+## The material every goblin's body is drawn with, made once.
+##
+## Shared on purpose, and it is the other half of what lets a crowd batch: Forward+ instances
+## MeshInstance3Ds that share BOTH a mesh and a material, so one material RID for every goblin
+## is one instanced draw per part instead of eleven per body. Nothing about a goblin's look is
+## per-body -- Goblin.png is the same picture on all of them -- and the light each one is seen in
+## is the `item_light` INSTANCE uniform, which is per MeshInstance3D rather than per material, so
+## sharing costs nothing (docs/rendering-notes.md).
+##
+## The player's own body does NOT share this: its skin is repaintable.
+static var _body_material_cache: ShaderMaterial = null
+
+
+func _make_body_material() -> ShaderMaterial:
+	if _body_material_cache == null:
+		_body_material_cache = super._make_body_material()
+	return _body_material_cache
 
 
 ## The union of some of the source mesh's surfaces, in the mesh's own space.
@@ -308,19 +461,78 @@ func _part_pivot(part: String, box: AABB) -> Vector3:
 			return Vector3(centre.x, box.position.y, centre.z)
 
 
-## One part's surfaces as a mesh of its own, with the pivot taken out of its vertices
-## so the node can stand AT the pivot. Nothing else changes: the normals and the uvs
-## are the obj's, which is what keeps the texture where it was drawn.
+## One part's surfaces as ONE surface of its own, with the pivot taken out of its vertices
+## so the node can stand AT the pivot. Nothing else changes: the normals, tangents and uvs are
+## the obj's, which is what keeps the texture where it was drawn.
+##
+## The part's source surfaces are MERGED rather than added one per source surface, and that is
+## most of the body's draw calls: a mesh draws once per surface, so the head -- six boxes, the
+## ears, chin and nose riding on it -- was six draws and a goblin eleven. Merged, a goblin is
+## six, and six shared meshes is what the renderer can instance (docs/rendering-notes.md).
+## Merging is an append per attribute plus the running vertex offset on the indices; no vertex,
+## normal or uv is touched beyond the pivot subtraction every part gets.
 func _part_mesh(surfaces: Array, pivot: Vector3) -> ArrayMesh:
 	var out := ArrayMesh.new()
 	out.resource_name = "goblin_part"
+	var pieces: Array = []
+	var have := {Mesh.ARRAY_NORMAL: true, Mesh.ARRAY_TANGENT: true, Mesh.ARRAY_TEX_UV: true}
+	var vertex_count := 0
 	for s in surfaces:
 		if s < 0 or s >= source_mesh.get_surface_count():
 			continue
 		var arrays := source_mesh.surface_get_arrays(s)
+		if arrays[Mesh.ARRAY_VERTEX] == null:
+			continue
 		var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
 		for i in verts.size():
 			verts[i] -= pivot
 		arrays[Mesh.ARRAY_VERTEX] = verts
-		out.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+		# An attribute only some of the part's boxes carry cannot be merged: it would have
+		# to be invented for the others, which is a guess about their shading.
+		for kind in have:
+			if arrays[kind] == null:
+				have[kind] = false
+		pieces.append(arrays)
+		vertex_count += verts.size()
+	if pieces.is_empty():
+		return out
+	var merged := []
+	merged.resize(Mesh.ARRAY_MAX)
+	var verts_out := PackedVector3Array()
+	var normals_out := PackedVector3Array()
+	var tangents_out := PackedFloat32Array()
+	var uvs_out := PackedVector2Array()
+	var indices_out := PackedInt32Array()
+	var offset := 0
+	for arrays in pieces:
+		var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		verts_out.append_array(verts)
+		if have[Mesh.ARRAY_NORMAL]:
+			var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+			normals_out.append_array(normals)
+		if have[Mesh.ARRAY_TANGENT]:
+			var tangents: PackedFloat32Array = arrays[Mesh.ARRAY_TANGENT]
+			tangents_out.append_array(tangents)
+		if have[Mesh.ARRAY_TEX_UV]:
+			var uvs: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
+			uvs_out.append_array(uvs)
+		var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+		if indices.is_empty():
+			# A non-indexed box, appended as its own triangle list.
+			indices.resize(verts.size())
+			for i in verts.size():
+				indices[i] = i
+		for i in indices.size():
+			indices[i] += offset
+		indices_out.append_array(indices)
+		offset += verts.size()
+	merged[Mesh.ARRAY_VERTEX] = verts_out
+	merged[Mesh.ARRAY_INDEX] = indices_out
+	if have[Mesh.ARRAY_NORMAL]:
+		merged[Mesh.ARRAY_NORMAL] = normals_out
+	if have[Mesh.ARRAY_TANGENT]:
+		merged[Mesh.ARRAY_TANGENT] = tangents_out
+	if have[Mesh.ARRAY_TEX_UV]:
+		merged[Mesh.ARRAY_TEX_UV] = uvs_out
+	out.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, merged)
 	return out

@@ -230,7 +230,7 @@ func _spikes(data: PackedByteArray, idx: PackedInt32Array) -> float:
 func _patch(name: String, pairs: Array) -> Shader:
 	if _patched.has(name):
 		return _patched[name]
-	var src := FileAccess.get_file_as_string("res://Assets/shaders/lod_grid.gdshader")
+	var src := FileAccess.get_file_as_string("res://assets/shaders/lod_grid.gdshader")
 	if src.is_empty():
 		return null
 	var body := src
@@ -306,7 +306,7 @@ func _run() -> void:
 		return
 	var idx := _indices(size.x, size.y)
 
-	_material = load("res://Assets/materials/lod_grid_material.tres")
+	_material = load("res://assets/materials/lod_grid_material.tres")
 	_ok("the far mode's material loads", _material != null and _material.shader != null)
 	if _material == null or _material.shader == null:
 		_finish()

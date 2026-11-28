@@ -240,14 +240,14 @@ public:
             sky_res->set_material(cached_mat);
         }
         if (!sun_texture_loaded) {
-            godot::Ref<godot::Texture2D> tex = godot::ResourceLoader::get_singleton()->load("res://Assets/textures/atmosphere/sun.png");
+            godot::Ref<godot::Texture2D> tex = godot::ResourceLoader::get_singleton()->load("res://assets/textures/atmosphere/sun.png");
             if (tex.is_valid()) {
                 cached_mat->set_shader_parameter("sun_texture", tex);
             }
             sun_texture_loaded = true;
         }
         if (!star_texture_loaded) {
-            godot::Ref<godot::Texture2D> tex = godot::ResourceLoader::get_singleton()->load("res://Assets/textures/atmosphere/north_star.png");
+            godot::Ref<godot::Texture2D> tex = godot::ResourceLoader::get_singleton()->load("res://assets/textures/atmosphere/north_star.png");
             if (tex.is_valid()) {
                 cached_mat->set_shader_parameter("star_texture", tex);
             }

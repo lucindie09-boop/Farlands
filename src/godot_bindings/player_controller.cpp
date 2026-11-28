@@ -243,7 +243,7 @@ void PlayerController::_ready() {
         model_ = build_body_from_model_file();
         if (model_ != nullptr) {
             WARN_PRINT("PlayerController: Main.tscn has no \"PlayerModel\" node — rebuilt the "
-                       "body from Assets/models/player.glb. The scene is missing the node and "
+                       "body from assets/models/player.glb. The scene is missing the node and "
                        "its two ext_resources; restore them from git.");
         }
     }
@@ -258,7 +258,7 @@ void PlayerController::_ready() {
         // Every third-person path keys off model_, so a missing body degrades to
         // "F5 shows an empty world"; say so rather than let it vanish in silence.
         WARN_PRINT("PlayerController: no \"PlayerModel\" node under the scene and the body "
-                   "could not be rebuilt from Assets/models/player.glb — third person will "
+                   "could not be rebuilt from assets/models/player.glb — third person will "
                    "show no body.");
     }
 

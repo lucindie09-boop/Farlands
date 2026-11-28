@@ -135,7 +135,7 @@ float face_shade(float hx, float hz, int32_t spacing) {
     const float nx = -gx * inv;
     const float nz = -gz * inv;
     const float ny = inv;
-    // The SAME arithmetic Assets/shaders/item_lighting.gdshaderinc applies to a turning
+    // The SAME arithmetic assets/shaders/item_lighting.gdshaderinc applies to a turning
     // body, and for the same reason. The near world's table (top 1.0, north/south
     // 0.8, east/west 0.6) is exact on a terrain face because a terrain face never
     // moves -- but a far cell's normal DOES, cell to cell, and a table with

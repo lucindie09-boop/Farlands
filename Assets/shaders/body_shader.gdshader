@@ -5,7 +5,7 @@ render_mode unshaded, cull_back;
 // OPAQUE.
 //
 // It is the same model the dropped items and the held block run
-// (Assets/shaders/item_lighting.gdshaderinc): the light of the CELL the body is in, its own
+// (assets/shaders/item_lighting.gdshaderinc): the light of the CELL the body is in, its own
 // face shading and nothing of the engine's sky. The one difference is compile-time and it is
 // not cosmetic. item_shader.gdshader writes ALPHA in every fragment, and Godot compiles any
 // shader that writes ALPHA into the TRANSPARENT pipeline. A body is closed opaque boxes --
@@ -20,4 +20,4 @@ render_mode unshaded, cull_back;
 // transparent pipeline. Every body shares this one material, so the macro is the only thing
 // that differs per body -- nothing here does.
 #define BODY_OPAQUE
-#include "res://Assets/shaders/item_lighting.gdshaderinc"
+#include "res://assets/shaders/item_lighting.gdshaderinc"

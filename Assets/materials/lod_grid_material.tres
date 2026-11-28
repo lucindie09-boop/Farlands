@@ -1,6 +1,6 @@
 [gd_resource type="ShaderMaterial" format=3 uid="uid://c1odgr1dm4t3r"]
 
-[ext_resource type="Shader" path="res://Assets/shaders/lod_grid.gdshader" id="1_lod_grid"]
+[ext_resource type="Shader" path="res://assets/shaders/lod_grid.gdshader" id="1_lod_grid"]
 
 [resource]
 render_priority = -1

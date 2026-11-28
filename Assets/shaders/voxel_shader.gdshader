@@ -5,13 +5,13 @@ render_mode unshaded, cull_back, depth_draw_always;
 // vertices, and the Horizon Curve sinks the far field the way a sphere's own
 // surface falls away. Both are shared with the water material so ground and
 // water do the same thing to the same vertices. See the two includes.
-#include "res://Assets/shaders/world_bend.gdshaderinc"
-#include "res://Assets/shaders/world_horizon.gdshaderinc"
+#include "res://assets/shaders/world_bend.gdshaderinc"
+#include "res://assets/shaders/world_horizon.gdshaderinc"
 
 // The Shaders menu's texture effect: the block makers' own grain, added to the
 // texel this fragment sampled. Shared with the water material, so one slider
 // grains the whole world with one field. See the include.
-#include "res://Assets/shaders/block_noise.gdshaderinc"
+#include "res://assets/shaders/block_noise.gdshaderinc"
 
 vec3 aces_tonemap(vec3 x) {
     float a = 2.51;

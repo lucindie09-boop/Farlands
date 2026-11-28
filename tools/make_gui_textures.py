@@ -5,7 +5,7 @@ Run from the project root:
 
     python tools/make_gui_textures.py
 
-Writes one 9x9 RGBA PNG into Assets/textures/gui/. Idempotent: it rewrites the file it
+Writes one 9x9 RGBA PNG into assets/textures/gui/. Idempotent: it rewrites the file it
 owns byte for byte, so regenerating is safe and the result can be diffed.
 
 Why a generator rather than hand-drawn art: the bubble is a single shape whose
@@ -27,7 +27,7 @@ from pathlib import Path
 
 W = H = 9
 CX = CY = 4  # the pixel centre of a 9x9 sprite
-OUT_DIR = Path("Assets/textures/gui")
+OUT_DIR = Path("assets/textures/gui")
 
 OUTLINE = (22, 44, 74, 255)   # the ring
 FILL = (150, 212, 242, 255)   # the body

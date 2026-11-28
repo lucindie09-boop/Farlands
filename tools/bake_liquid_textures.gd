@@ -3,7 +3,7 @@ extends SceneTree
 ##
 ##   godot --headless --path . --script res://tools/bake_liquid_textures.gd -- [style ...]
 ##
-## Every liquid block draws through a PNG (Assets/textures/blocks/<name>.png), which is
+## Every liquid block draws through a PNG (assets/textures/blocks/<name>.png), which is
 ## what the texture array is built from, and the LiquidAnimator only replaces
 ## that layer's *contents* at runtime. So the PNG is what you see for the first
 ## frames of a session, what the array falls back to, and what `restore` puts
@@ -20,7 +20,7 @@ extends SceneTree
 ## which is all this is for. Godot has to re-import the PNGs afterwards; the
 ## usual `godot --headless --path . --import` does that.
 
-const OUTPUT_DIR := "res://Assets/textures/blocks"
+const OUTPUT_DIR := "res://assets/textures/blocks"
 const DEFAULT_STYLES := ["lava", "acid"]
 
 func _init() -> void:

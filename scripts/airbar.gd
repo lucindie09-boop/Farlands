@@ -22,8 +22,8 @@ const EMPTY_TINT = Color(0.28, 0.30, 0.36, 1.0)
 
 @onready var player_controller = get_node("/root/Main/Player")
 
-var _bubble_texture: Texture2D = preload("res://Assets/textures/gui/bubble.png")
-var _hotbar_texture: Texture2D = preload("res://Assets/textures/gui/hotbar.png")
+var _bubble_texture: Texture2D = preload("res://assets/textures/gui/bubble.png")
+var _hotbar_texture: Texture2D = preload("res://assets/textures/gui/hotbar.png")
 
 var air := 0
 var max_air := 1

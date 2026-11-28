@@ -735,7 +735,7 @@ Two layers mirroring the ChunkManager/VoxelEngineController pattern:
   tool; it is separate from `crush_result` (a crush wins) and both resolve in the same
   post-pass. Stone → cobblestone, so stone blocks themselves are no longer obtainable by mining.
 - **Hurt overlay** — `scripts/hurt_overlay.gd` (`HUD/HurtOverlay`, a full-rect `ColorRect`
-  with `Assets/shaders/hurt_vignette.gdshader`) is the screen's half of taking damage: the
+  with `assets/shaders/hurt_vignette.gdshader`) is the screen's half of taking damage: the
   `damaged`
   signal flashes a red edge that fades over `FLASH_SECONDS`, and health at or below
   `LOW_HEALTH` (two hearts) runs a two-thump heartbeat that beats harder the closer to zero.
@@ -744,7 +744,7 @@ Two layers mirroring the ChunkManager/VoxelEngineController pattern:
 - **Break debris** — `break_block()` emits `block_broken(block_id, position)` after the edit,
   where `block_id` is the block that was there rather than the drop it yielded. The scene's
   `scripts/block_break_particles.gd` answers it with one one-shot `CPUParticles3D` burst of 16
-  chips at the cell, drawn with the item shader (`Assets/shaders/item_shader.gdshader`) and the
+  chips at the cell, drawn with the item shader (`assets/shaders/item_shader.gdshader`) and the
   cell's
   own light as the burst's `item_light` instance uniform, so debris in a dark cave is dark. A
   burst frees itself on `finished`; at most 16 are alive and the oldest is dropped past that.
@@ -936,8 +936,8 @@ The following code remains in the codebase but is disabled or unused:
   and the Horizon Curve)
 - `src/core/world_cull.hpp` — The vertex effects' culling maths: how far each of them can move a
   point of a box, so the engine's own culling can be given a box that still contains it, and the
-  pair of them applied to one box. Mirrors `Assets/shaders/world_bend.gdshaderinc` and
-  `Assets/shaders/world_horizon.gdshaderinc`, which are the authorities on the effects
+  pair of them applied to one box. Mirrors `assets/shaders/world_bend.gdshaderinc` and
+  `assets/shaders/world_horizon.gdshaderinc`, which are the authorities on the effects
   themselves
 - `src/mesh/mesh_builder.cpp` / `mesh_builder_solid.cpp` / `mesh_builder_greedy.cpp` /
   `mesh_builder_faces.cpp` / `mesh_builder_fluid.cpp` + `mesh_builder.hpp`'s types in
@@ -1152,21 +1152,21 @@ Every file, with what it owns: [docs/ui.md](docs/ui.md).
 - `data/vegetation.json` — Vegetation parameters for the hills biome
 - `data/terrain_config.json` — Macro-surface tuning: `height_base_y`, domain-warp amplitudes,
   mid/small relief fields, shape-strength range, weirdness thresholds
-- `Assets/textures/` — Asset organization (see `Assets/textures/README.md`):
-  - `Assets/textures/blocks/` — Block textures (bedrock, dirt, grass, stone, sand, water, etc.)
+- `assets/textures/` — Asset organization (see `assets/textures/README.md`):
+  - `assets/textures/blocks/` — Block textures (bedrock, dirt, grass, stone, sand, water, etc.)
     — the
     only directory the texture arrays build from, a liquid's baked still frame included
-  - `Assets/textures/items/` — Item and tool sprites, named by `data/items.json` and resolved by
+  - `assets/textures/items/` — Item and tool sprites, named by `data/items.json` and resolved by
     `BlockTextures`
-  - `Assets/textures/animated/` — The ten cracked-block overlay frames the break animation steps
+  - `assets/textures/animated/` — The ten cracked-block overlay frames the break animation steps
     through
-  - `Assets/textures/gui/` — UI textures (hotbar, inventory background, effects, settings and
+  - `assets/textures/gui/` — UI textures (hotbar, inventory background, effects, settings and
     tool
     icons)
-  - `Assets/textures/particles/` — Particle textures (one heart; nothing loads it yet)
-  - `Assets/textures/atmosphere/` — Atmospheric textures (sun, north star)
-  - `Assets/textures/mobs/` — Mob skins
-  - `Assets/textures/Archive (Unused)/` — Archived/deprecated textures (old versions kept for reference)
+  - `assets/textures/particles/` — Particle textures (one heart; nothing loads it yet)
+  - `assets/textures/atmosphere/` — Atmospheric textures (sun, north star)
+  - `assets/textures/mobs/` — Mob skins
+  - `assets/textures/Archive (Unused)/` — Archived/deprecated textures (old versions kept for reference)
 
 ### Testing
 - `tests/` — 125 `.cpp` files (844 test cases / 412,710 assertions, declared across 123 of them:

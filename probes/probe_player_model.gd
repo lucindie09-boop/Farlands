@@ -6,7 +6,7 @@ extends SceneTree
 ##
 ## It exists because the controller only WARNS when the node is missing, and the
 ## instance vanished silently once: PlayerModel is stored as a uid reference, so
-## while .godot/uid_cache.bin still mapped that uid to the pre-Assets/ location
+## while .godot/uid_cache.bin still mapped that uid to the pre-assets/ location
 ## the editor dropped the instance on the next save, and nothing failed -- the
 ## game simply had no body in third person. The controller's reparent is the
 ## proof it resolved: it moves the node under a ModelPivot it creates itself, so a
@@ -43,13 +43,13 @@ func _run() -> void:
 	_check(player != null, "Player exists")
 	var model: Node = player.find_child("PlayerModel", true, false) if player != null else null
 	if model == null:
-		_check(false, "Player has a PlayerModel node (Main.tscn: add Assets/models/player.glb "
+		_check(false, "Player has a PlayerModel node (Main.tscn: add assets/models/player.glb "
 			+ "as Player/PlayerModel with player_model.gd attached)")
 		_summary()
 		return
 	_check(true, "Player has a PlayerModel node")
 
-	_check(model.scene_file_path == "res://Assets/models/player.glb",
+	_check(model.scene_file_path == "res://assets/models/player.glb",
 		"it is the player.glb instance ('%s')" % model.scene_file_path)
 	var script_obj: Variant = model.get_script()
 	_check(script_obj != null and str(script_obj.resource_path).ends_with("scripts/player_model.gd"),

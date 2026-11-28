@@ -54,7 +54,7 @@ func _seconds(seconds: float) -> void:
 
 # --- The rule, as arithmetic ---------------------------------------------------
 
-## Assets/shaders/item_lighting.gdshaderinc's face_shade. Keep the two in step: this is
+## assets/shaders/item_lighting.gdshaderinc's face_shade. Keep the two in step: this is
 ## the include's own arithmetic, re-run, so a change there that this does not copy
 ## is a change nothing here is holding to.
 func _shade(n: Vector3) -> float:

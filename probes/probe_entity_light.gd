@@ -29,7 +29,7 @@ extends SceneTree
 
 const GOBLIN_SCRIPT := "res://scripts/goblin.gd"
 const MODEL_SCRIPT := "res://scripts/goblin_model.gd"
-const MODEL_PATH := "res://Assets/models/Goblin.obj"
+const MODEL_PATH := "res://assets/models/Goblin.obj"
 const ITEMS_JSON := "res://data/items.json"
 ## The spawn tool's own centring of the mesh on the body's box.
 const BODY_OFFSET := Vector3(0.031, 0.0, 0.094)
@@ -110,7 +110,7 @@ func _torch_light() -> Dictionary:
 ## warmth: a scratch material through the same call every item and body material gets.
 func _entity_lights(cm: Node) -> Dictionary:
 	var scratch := ShaderMaterial.new()
-	scratch.shader = load("res://Assets/shaders/item_shader.gdshader")
+	scratch.shader = load("res://assets/shaders/item_shader.gdshader")
 	cm.apply_item_lighting(scratch)
 	return {
 		"count": int(scratch.get_shader_parameter("entity_light_count")),

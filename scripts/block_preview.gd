@@ -139,7 +139,7 @@ func _apply_block_texture() -> void:
 	# Add UV overlay as next pass if enabled
 	if _uv_overlay_enabled:
 		var overlay_shader := ShaderMaterial.new()
-		overlay_shader.shader = load("res://Assets/shaders/block_uv_overlay.gdshader") as Shader
+		overlay_shader.shader = load("res://assets/shaders/block_uv_overlay.gdshader") as Shader
 		overlay_shader.set_shader_parameter("grid_color", Color(0.0, 0.0, 0.0, 0.9))
 		overlay_shader.set_shader_parameter("cells", 16.0)
 		overlay_shader.set_shader_parameter("line_thickness", 1.5)

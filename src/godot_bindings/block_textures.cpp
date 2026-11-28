@@ -143,12 +143,12 @@ Ref<Texture2D> BlockTextures::get_texture(int block_id) {
     Ref<Texture2D> texture;
     const String name = get_side_texture_name(block_id);
     if (!name.is_empty()) {
-        // Items resolve straight to Assets/textures/items/ — they are not part of
+        // Items resolve straight to assets/textures/items/ — they are not part of
         // the block texture array, and the pack resolver's built-in fallback
         // would otherwise return stone.png for any unknown name.
         String path;
         if (is_item(block_id)) {
-            path = "res://Assets/textures/items/" + name + ".png";
+            path = "res://assets/textures/items/" + name + ".png";
         } else {
             path = TexturePackManager::get_instance().resolve(name);
         }

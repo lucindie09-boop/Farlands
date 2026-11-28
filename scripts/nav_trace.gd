@@ -133,10 +133,10 @@ func _build_lines() -> Array[String]:
 ## `sha256_text()` of `get_file_as_string()` builds the whole file as a String first (2.8 MB of
 ## DLL, twice over here), and that string is the cost this session's first spawn was paying.
 func _stamp(path: String) -> String:
-	var hash := FileAccess.get_sha256(path)
-	if hash.is_empty():
+	var digest := FileAccess.get_sha256(path)
+	if digest.is_empty():
 		return "unreadable"
-	return "%s %s" % [hash.substr(0, 8), _when(FileAccess.get_modified_time(path))]
+	return "%s %s" % [digest.substr(0, 8), _when(FileAccess.get_modified_time(path))]
 
 
 func _when(unix: int) -> String:

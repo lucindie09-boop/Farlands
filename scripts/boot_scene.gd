@@ -19,8 +19,8 @@ const WORLD_SCENE := "res://Main.tscn"
 ## title (see `_warm_goblin`).
 const GOBLIN_MODEL_SCRIPT := "res://scripts/goblin_model.gd"
 const GOBLIN_BODY_SCRIPT := "res://scripts/goblin.gd"
-const GOBLIN_MESH := "res://Assets/models/Goblin.obj"
-const GOBLIN_TEXTURE := "res://Assets/models/Goblin.png"
+const GOBLIN_MESH := "res://assets/models/Goblin.obj"
+const GOBLIN_TEXTURE := "res://assets/models/Goblin.png"
 
 var _loading := false
 

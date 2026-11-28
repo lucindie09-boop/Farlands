@@ -459,7 +459,7 @@ func _apply_block_textures(block_def: Dictionary, target: MeshInstance3D = null)
 	var fallback_tex: Texture2D = null
 	for tex_name in textures:
 		if not tex_name.is_empty():
-			var tex_path: String = "res://Assets/textures/blocks/" + tex_name + ".png"
+			var tex_path: String = "res://assets/textures/blocks/" + tex_name + ".png"
 			if FileAccess.file_exists(ProjectSettings.globalize_path(tex_path)):
 				var tex := load(tex_path) as Texture2D
 				if tex != null:
@@ -479,7 +479,7 @@ func _apply_block_textures(block_def: Dictionary, target: MeshInstance3D = null)
 			if visible_faces[face_index]:
 				var face_tex_name = textures[face_index]
 				if not face_tex_name.is_empty():
-					var face_tex_path: String = "res://Assets/textures/blocks/" + face_tex_name + ".png"
+					var face_tex_path: String = "res://assets/textures/blocks/" + face_tex_name + ".png"
 					if FileAccess.file_exists(ProjectSettings.globalize_path(face_tex_path)):
 						var tex = load(face_tex_path) as Texture2D
 						if tex != null:

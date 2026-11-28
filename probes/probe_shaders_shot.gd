@@ -695,7 +695,7 @@ func check_persistence() -> void:
 		_fail("the switch was not saved")
 	if not is_equal_approx(float(cfg.get_value("shaders", id + "_curvature", -1.0)), 0.5):
 		_fail("curvature was not saved (%.3f)" % float(cfg.get_value("shaders", id + "_curvature", -1.0)))
-	print("probe: saved Assets/shaders/%s_enabled + %d value(s)"
+	print("probe: saved assets/shaders/%s_enabled + %d value(s)"
 		% [id, 2])
 
 	# Wipe the live state, then let the file put it back.
@@ -718,7 +718,7 @@ func check_persistence() -> void:
 	overlay.call("set_enabled", BEND_ID, false)
 	overlay.call("set_value", BEND_ID, "world_bend", 0.0)
 	menu.call("_load_settings")
-	print("probe: World Bend came back %s at Bend %.2f (from Assets/shaders/%s_enabled)"
+	print("probe: World Bend came back %s at Bend %.2f (from assets/shaders/%s_enabled)"
 		% ["on" if bool(overlay.call("is_enabled", BEND_ID)) else "off",
 			float(overlay.call("get_value", BEND_ID, "world_bend")), BEND_ID])
 	if not bool(overlay.call("is_enabled", BEND_ID)):
@@ -993,7 +993,7 @@ func _lum(data: PackedByteArray, w: int, x: int, y: int) -> float:
 ## pass has no equivalent of.
 ##
 ## The first is that those materials are the *loaded* resources and not copies.
-## `load("res://Assets/materials/voxel_material.tres")` goes through the resource cache,
+## `load("res://assets/materials/voxel_material.tres")` goes through the resource cache,
 ## so it hands back the instance the renderer is already drawing with, and a
 ## uniform set here is set on the world. A duplicate would take the same uniform,
 ## draw exactly as before, and leave a switch that appears to do nothing - which

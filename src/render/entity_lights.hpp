@@ -13,7 +13,7 @@ namespace VoxelEngine {
 // through the chunk map.
 //
 // The cap is ALSO written as `MAX_ENTITY_LIGHTS` in the three shaders that loop over the
-// array (Assets/shaders/voxel_shader.gdshader, voxel_shader_water.gdshader and
+// array (assets/shaders/voxel_shader.gdshader, voxel_shader_water.gdshader and
 // item_lighting.gdshaderinc). A count past their fixed-size arrays is a light that is
 // silently not drawn, so the copies must agree: four places, one number.
 inline constexpr int kMaxEntityLights = 4;

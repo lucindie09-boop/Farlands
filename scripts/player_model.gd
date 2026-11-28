@@ -1,24 +1,24 @@
 extends Node3D
 
-@export var skin_texture: Texture2D = preload("res://Assets/textures/skin.png")
+@export var skin_texture: Texture2D = preload("res://assets/textures/skin.png")
 
 signal texel_painted(px: int, py: int, old_color: Color, new_color: Color)
 
-const UV_OVERLAY_SHADER: Shader = preload("res://Assets/shaders/skin_uv_overlay.gdshader")
+const UV_OVERLAY_SHADER: Shader = preload("res://assets/shaders/skin_uv_overlay.gdshader")
 const ATLAS_DIM := 64
 
 # The world's own light model, the one the terrain, the dropped items and the
-# first-person arm already run (Assets/shaders/item_lighting.gdshaderinc): the light of
+# first-person arm already run (assets/shaders/item_lighting.gdshaderinc): the light of
 # the CELL this body is in, rather than the engine's sky and ambient, which know
 # nothing about caves, torches or the hour. Only for a body standing in the world
 # -- see _init_world_lighting for why a preview does not get it.
-const ITEM_SHADER: Shader = preload("res://Assets/shaders/item_shader.gdshader")
-# The BODY's shader: the same light model, drawn OPAQUE (Assets/shaders/body_shader.gdshader).
+const ITEM_SHADER: Shader = preload("res://assets/shaders/item_shader.gdshader")
+# The BODY's shader: the same light model, drawn OPAQUE (assets/shaders/body_shader.gdshader).
 # A body is closed boxes, and ITEM_SHADER above writes ALPHA -- for a sprite's silhouette and a
 # dropped item's fade -- which is what makes Godot compile it into the TRANSPARENT pipeline,
 # where a body cannot be automatically instanced, cannot cast, and is depth-sorted rather than
 # depth-tested. Every body wears this one; the thing held in a hand keeps ITEM_SHADER.
-const BODY_SHADER: Shader = preload("res://Assets/shaders/body_shader.gdshader")
+const BODY_SHADER: Shader = preload("res://assets/shaders/body_shader.gdshader")
 # The cell light is one value per block, so a body crossing a boundary -- or a
 # cell being relit under it -- steps a whole cell's worth on a single frame. This
 # is the time constant of the fade that turns that step into a move. The same
@@ -27,12 +27,12 @@ const BODY_SHADER: Shader = preload("res://Assets/shaders/body_shader.gdshader")
 const LIGHT_EASE_TIME := 0.15
 
 # The body's two clips, and the only two it plays: `Idle.anim` while it stands and
-# `Run.anim` while it walks. They are resources of their own (Assets/Animations)
+# `Run.anim` while it walks. They are resources of their own (assets/Animations)
 # rather than the model's imported clips, because a glb's clips only ever animate
 # the glb's own scene -- and `Run.anim` was authored on a differently named rig,
 # which is what CLIP_PATH_REMAP is for.
-const CLIP_IDLE: Animation = preload("res://Assets/Animations/Idle.anim")
-const CLIP_RUN: Animation = preload("res://Assets/Animations/Run.anim")
+const CLIP_IDLE: Animation = preload("res://assets/animations/Idle.anim")
+const CLIP_RUN: Animation = preload("res://assets/animations/Run.anim")
 const ClipRetarget := preload("res://scripts/clip_retarget.gd")
 # Source track path -> this body's node for it. The clips name their second arm and
 # leg `arm.001`/`leg.001` (which the import turns into `arm_001`/`leg_001`), and this
@@ -1590,7 +1590,7 @@ func _ensure_paint_texture() -> void:
 		return
 	var img := skin_texture.get_image()
 	if img == null:
-		img = Image.load_from_file("res://Assets/textures/skin.png")
+		img = Image.load_from_file("res://assets/textures/skin.png")
 	if img == null:
 		return
 	_paint_image = img.duplicate()

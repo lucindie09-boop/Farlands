@@ -90,9 +90,9 @@ func _run() -> void:
 	# The world's own material, which the mode's fog range has to move as well: the
 	# world's fog is tuned to the loaded radius, so with the mode on the loaded
 	# chunks would fade out at their border while the field continuing them did not.
-	var world_material = load("res://Assets/materials/voxel_material.tres")
+	var world_material = load("res://assets/materials/voxel_material.tres")
 	_ok("fog: the world's terrain material loads", world_material != null,
-		"res://Assets/materials/voxel_material.tres")
+		"res://assets/materials/voxel_material.tres")
 	var fog_off: float = float(world_material.get_shader_parameter("fog_end")) if world_material else -1.0
 
 	cm.set("lod_grid_enabled", true)
@@ -176,7 +176,7 @@ func _run() -> void:
 	# The material and shader the tiles are drawn with, loaded the way the engine
 	# loads them: a missing one would leave every tile invisible and no assertion
 	# above would notice.
-	var material = load("res://Assets/materials/lod_grid_material.tres")
+	var material = load("res://assets/materials/lod_grid_material.tres")
 	_ok("material: the far grid's material loads", material != null and material is ShaderMaterial)
 	if material is ShaderMaterial:
 		_ok("material: it has the shader the tiles are lit by", material.shader != null,

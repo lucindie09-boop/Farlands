@@ -6,13 +6,13 @@ render_mode blend_mix, unshaded, cull_back, depth_draw_always;
 // surface falls away. Both are shared with the terrain material so ground and
 // water do the same thing to the same vertices, which is what keeps a shoreline
 // welded to the shore it is set into. See the two includes.
-#include "res://Assets/shaders/world_bend.gdshaderinc"
-#include "res://Assets/shaders/world_horizon.gdshaderinc"
+#include "res://assets/shaders/world_bend.gdshaderinc"
+#include "res://assets/shaders/world_horizon.gdshaderinc"
 
 // The Shaders menu's texture effect: the block makers' own grain, added to the
 // texel this fragment sampled. Shared with the terrain material, so one slider
 // grains the whole world with one field. See the include.
-#include "res://Assets/shaders/block_noise.gdshaderinc"
+#include "res://assets/shaders/block_noise.gdshaderinc"
 
 vec3 aces_tonemap(vec3 x) {
     float a = 2.51;

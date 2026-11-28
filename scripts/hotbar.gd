@@ -9,7 +9,7 @@ var _highlight_texture: Texture2D = null  # pre-built recolored selected slot
 
 const SLOT_SIZE = 48
 const HOTBAR_SIZE = 9
-const MUNRO_FONT: Font = preload("res://Assets/fonts/munro.ttf")
+const MUNRO_FONT: Font = preload("res://assets/fonts/munro.ttf")
 const ItemNames := preload("res://scripts/item_names.gd")
 const UIShatter := preload("res://scripts/ui_shatter.gd")
 const UIIconThrow := preload("res://scripts/ui_icon_throw.gd")
@@ -59,7 +59,7 @@ const NAME_ABOVE_UNITS = 30.0
 
 func _ready():
 	# Load the hotbar texture directly
-	hotbar_texture = load("res://Assets/textures/gui/hotbar.png")
+	hotbar_texture = load("res://assets/textures/gui/hotbar.png")
 	_slot_pop.resize(HOTBAR_SIZE)
 	# A held item that changes STATE without the slot gaining or losing anything
 	# (a rod's cast/retract) is the same thing in the hand, so the id change it

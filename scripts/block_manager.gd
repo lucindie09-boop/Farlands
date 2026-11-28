@@ -5,7 +5,7 @@ extends Node
 # a single persistent ImageTexture (every cube's albedo points at it), debounced
 # saves to user://current_block.png, and a reversible grayscale-noise slider.
 
-const DEFAULT_BLOCK_PATH := "res://Assets/textures/blocks/stone.png"
+const DEFAULT_BLOCK_PATH := "res://assets/textures/blocks/stone.png"
 const CURRENT_BLOCK_PATH := "user://current_block.png"
 # Restart-recovery snapshot of the clean pre-noise texture: while noise is active
 # the reversibility base is kept on disk so the slider can still undo it in a

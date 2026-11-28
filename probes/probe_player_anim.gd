@@ -108,7 +108,7 @@ func _run() -> void:
 	# swing shortens with the pace. The clip's own base is none of that (16.8 degrees,
 	# one cycle a second), so the body re-bases it at load -- measured here off the clip
 	# it built, in radians away from each part's rest pose.
-	var stride_body: Node3D = (load("res://Assets/models/player.glb") as PackedScene).instantiate()
+	var stride_body: Node3D = (load("res://assets/models/player.glb") as PackedScene).instantiate()
 	stride_body.set_script(load("res://scripts/player_model.gd"))
 	root.add_child(stride_body)
 	await process_frame
@@ -257,7 +257,7 @@ func _run() -> void:
 
 	# The K-key pose clone is frozen on purpose: skip_head_look must gate the pose
 	# too, or the "dummy" breathes at the player while it is being punched.
-	var glb: PackedScene = load("res://Assets/models/player.glb")
+	var glb: PackedScene = load("res://assets/models/player.glb")
 	var clone: Node3D = glb.instantiate()
 	var clone_rest: Quaternion = (clone.find_child("arm", true, false) as Node3D).quaternion
 	clone.set_script(load("res://scripts/player_model.gd"))

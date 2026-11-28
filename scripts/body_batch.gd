@@ -14,7 +14,7 @@ extends Node3D
 ##   - NO per-instance frustum culling: the batch is culled as one AABB, so a goblin behind the
 ##     camera is still submitted (its triangles are depth-rejected, but they are walked);
 ##   - no instance uniforms: each body's cell light rides the per-instance CUSTOM DATA, read by
-##     Assets/shaders/body_batch.gdshader (docs/rendering-notes.md). `item_light` is still per
+##     assets/shaders/body_batch.gdshader (docs/rendering-notes.md). `item_light` is still per
 ##     body -- a body is lit by the cell it stands in -- it just arrives a different way.
 ##
 ## A body registers once and then writes its own six transforms and its own light every frame

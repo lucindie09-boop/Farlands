@@ -16,7 +16,7 @@ extends Node
 ## the frame the name appears and follows the pointer from there.
 
 const UIArt := preload("res://scripts/ui_art.gd")
-const MUNRO_FONT: Font = preload("res://Assets/fonts/munro.ttf")
+const MUNRO_FONT: Font = preload("res://assets/fonts/munro.ttf")
 
 ## The box is 90% solid (10% transparent), so what is under it still reads faintly
 ## through it: the item it names, and the row behind it.

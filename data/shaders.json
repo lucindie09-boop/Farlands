@@ -12,7 +12,7 @@
       "id": "anime",
       "name": "Hand Drawn",
       "kind": "world",
-      "shader": "res://Assets/shaders/anime.gdshader",
+      "shader": "res://assets/shaders/anime.gdshader",
       "enabled": false,
       "params": [
         { "key": "anime_flatten", "label": "Flat Colour", "type": "float", "default": 0.8, "min": 0.0, "max": 1.0, "step": 0.05 },
@@ -29,8 +29,8 @@
       "name": "World Bend",
       "kind": "vertex",
       "materials": [
-        "res://Assets/materials/voxel_material.tres",
-        "res://Assets/materials/voxel_material_water.tres"
+        "res://assets/materials/voxel_material.tres",
+        "res://assets/materials/voxel_material_water.tres"
       ],
       "enable_key": "world_bend_on",
       "enabled": false,
@@ -46,8 +46,8 @@
       "name": "Horizon Curve",
       "kind": "vertex",
       "materials": [
-        "res://Assets/materials/voxel_material.tres",
-        "res://Assets/materials/voxel_material_water.tres"
+        "res://assets/materials/voxel_material.tres",
+        "res://assets/materials/voxel_material_water.tres"
       ],
       "enable_key": "world_horizon_on",
       "enabled": false,
@@ -58,7 +58,7 @@
     {
       "id": "crt",
       "name": "CRT Screen",
-      "shader": "res://Assets/shaders/crt.gdshader",
+      "shader": "res://assets/shaders/crt.gdshader",
       "enabled": false,
       "params": [
         { "key": "curvature", "label": "Tube Curvature", "type": "float", "default": 0.0, "min": 0.0, "max": 0.6, "step": 0.005 },
@@ -81,7 +81,7 @@
     {
       "id": "phosphor",
       "name": "Phosphor Trail",
-      "shader": "res://Assets/shaders/phosphor.gdshader",
+      "shader": "res://assets/shaders/phosphor.gdshader",
       "enabled": false,
       "params": [
         { "key": "phosphor_retention", "label": "Retention", "type": "float", "default": 0.8, "min": 0.0, "max": 0.95, "step": 0.01 },
@@ -94,7 +94,7 @@
       "id": "invert",
       "name": "Invert Colours",
       "kind": "filter",
-      "shader": "res://Assets/shaders/invert.gdshader",
+      "shader": "res://assets/shaders/invert.gdshader",
       "enabled": false,
       "params": [
         { "key": "invert_amount", "label": "Amount", "type": "float", "default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01 }
@@ -104,7 +104,7 @@
       "id": "sepia",
       "name": "Sepia",
       "kind": "filter",
-      "shader": "res://Assets/shaders/sepia.gdshader",
+      "shader": "res://assets/shaders/sepia.gdshader",
       "enabled": false,
       "params": [
         { "key": "sepia_amount", "label": "Amount", "type": "float", "default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01 }
@@ -125,8 +125,8 @@
       "name": "Noisy Blocks",
       "kind": "texture",
       "materials": [
-        "res://Assets/materials/voxel_material.tres",
-        "res://Assets/materials/voxel_material_water.tres"
+        "res://assets/materials/voxel_material.tres",
+        "res://assets/materials/voxel_material_water.tres"
       ],
       "enable_key": "block_noise_on",
       "enabled": false,
@@ -138,7 +138,7 @@
       "id": "grain",
       "name": "Film Grain",
       "kind": "screen",
-      "shader": "res://Assets/shaders/grain.gdshader",
+      "shader": "res://assets/shaders/grain.gdshader",
       "enabled": false,
       "params": [
         { "key": "grain_strength", "label": "Strength", "type": "float", "default": 0.15, "min": 0.0, "max": 1.0, "step": 0.01 },

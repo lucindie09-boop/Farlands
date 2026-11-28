@@ -23,7 +23,7 @@ extends "res://scripts/player_model.gd"
 
 ## The goblin's skin: one texture for all eleven surfaces (the obj's .mtl is not in
 ## the tree, so this is the whole look).
-const GOBLIN_TEXTURE: Texture2D = preload("res://Assets/models/Goblin.png")
+const GOBLIN_TEXTURE: Texture2D = preload("res://assets/models/Goblin.png")
 
 ## Surface index -> rig part, in the obj's own order (which is the import's order, one
 ## surface per `o` block). The parts are named what the clips and the parent class
@@ -52,7 +52,7 @@ const PART_JOINT_SURFACES := {"head": [5]}
 ## instead of six (probes/probe_goblin_drawcalls.gd measures both) -- so the body goes through
 ## one MultiMesh per part, and each body writes its own six transforms into its own slot.
 const BodyBatch := preload("res://scripts/body_batch.gd")
-const BATCH_SHADER: Shader = preload("res://Assets/shaders/body_batch.gdshader")
+const BATCH_SHADER: Shader = preload("res://assets/shaders/body_batch.gdshader")
 ## The batch node and the material the crowd is drawn with: one of each, made on first use.
 static var _batch: Node3D = null
 static var _batch_material_cache: ShaderMaterial = null
@@ -371,7 +371,7 @@ func _part_meshes() -> Dictionary:
 
 
 ## The material the BATCH draws with: the same picture and the same light model on
-## Assets/shaders/body_batch.gdshader, which reads each body's cell light from the MultiMesh's
+## assets/shaders/body_batch.gdshader, which reads each body's cell light from the MultiMesh's
 ## per-instance custom data instead of an instance uniform. One material for the whole crowd.
 func _batch_material() -> ShaderMaterial:
 	if _batch_material_cache == null:
@@ -476,7 +476,6 @@ func _part_mesh(surfaces: Array, pivot: Vector3) -> ArrayMesh:
 	out.resource_name = "goblin_part"
 	var pieces: Array = []
 	var have := {Mesh.ARRAY_NORMAL: true, Mesh.ARRAY_TANGENT: true, Mesh.ARRAY_TEX_UV: true}
-	var vertex_count := 0
 	for s in surfaces:
 		if s < 0 or s >= source_mesh.get_surface_count():
 			continue
@@ -493,7 +492,6 @@ func _part_mesh(surfaces: Array, pivot: Vector3) -> ArrayMesh:
 			if arrays[kind] == null:
 				have[kind] = false
 		pieces.append(arrays)
-		vertex_count += verts.size()
 	if pieces.is_empty():
 		return out
 	var merged := []

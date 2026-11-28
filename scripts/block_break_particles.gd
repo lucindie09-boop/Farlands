@@ -11,7 +11,7 @@ extends Node3D
 ##
 ## The chips are lit by the cell they came out of, through the same light model as
 ## every other object in the world -- they draw with the ITEM shader
-## (Assets/shaders/item_shader.gdshader), which is that model's one home, rather than a
+## (assets/shaders/item_shader.gdshader), which is that model's one home, rather than a
 ## second copy of it. Debris that glows in a coal-dark cave is worse than no
 ## debris at all, and the project has exactly one answer to "what light is this
 ## texel in". That light is an INSTANCE uniform, set once per burst, because a
@@ -34,7 +34,7 @@ const CHIP_SIZE := 0.08
 const MAX_BURSTS := 16
 ## One shader for every chip, the item shader the rest of the world's objects
 ## use; each block's material below is only its texture.
-const CHIP_SHADER: Shader = preload("res://Assets/shaders/item_shader.gdshader")
+const CHIP_SHADER: Shader = preload("res://assets/shaders/item_shader.gdshader")
 
 var _player: Node = null
 var _chunk_manager: Node = null

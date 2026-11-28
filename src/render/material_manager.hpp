@@ -59,7 +59,7 @@ void update_player_light(const godot::Vector3& position, float radius, float int
     void reload_textures();
     godot::Ref<godot::ShaderMaterial> get_material();
     godot::Ref<godot::ShaderMaterial> get_water_material();
-    // The seed-grid far mode's own material (Assets/shaders/lod_grid.gdshader): loaded
+    // The seed-grid far mode's own material (assets/shaders/lod_grid.gdshader): loaded
     // here so it is one resource family with the world's, and given the same
     // texture array so a far hill wears the same grass a near one does.
     godot::Ref<godot::ShaderMaterial> get_lod_grid_material();

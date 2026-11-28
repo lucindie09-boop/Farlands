@@ -236,7 +236,7 @@ func _tint(data: PackedByteArray, i: int) -> int:
 func _patch(name: String, pairs: Array) -> Shader:
 	if _patched.has(name):
 		return _patched[name]
-	var src := FileAccess.get_file_as_string("res://Assets/shaders/lod_grid.gdshader")
+	var src := FileAccess.get_file_as_string("res://assets/shaders/lod_grid.gdshader")
 	if src.is_empty():
 		return null
 	var body := src
@@ -326,7 +326,7 @@ func _run() -> void:
 		return
 	var idx := _sample_positions(size.x, size.y)
 
-	_material = load("res://Assets/materials/lod_grid_material.tres")
+	_material = load("res://assets/materials/lod_grid_material.tres")
 	_ok("the far mode's material loads", _material != null and _material.shader != null)
 	if _material == null or _material.shader == null:
 		_finish()
@@ -444,7 +444,7 @@ func _run() -> void:
 		await _frames(SETTLE_FRAMES)
 		_capture("layercode_%d" % int(yaw))
 		# The report as a switch. The far mode paints its light blue with ONE uniform
-		# (`albedo = mix(albedo, water_color, is_water * water_mix)`, Assets/materials/
+		# (`albedo = mix(albedo, water_color, is_water * water_mix)`, assets/materials/
 		# lod_grid_material.tres), so turning that uniform off shows what the tint is
 		# doing today: the sea keeps its own texture from the water layer either way, and
 		# every pixel that changes is a pixel something ELSE was wearing the tint on.

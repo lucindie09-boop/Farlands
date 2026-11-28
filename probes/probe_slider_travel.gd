@@ -14,7 +14,7 @@ extends SceneTree
 ## .freebuff/run_probe_shot.sh; the shots land in user://menu_shots/.
 
 const SHOT_DIR := "user://menu_shots"
-const THUMB_TEX := "res://Assets/textures/gui/slider.png"
+const THUMB_TEX := "res://assets/textures/gui/slider.png"
 ## The row to measure, by the label the row carries.
 const ROW_LABEL := "FPS Cap"
 ## How close a pixel has to be to a reference colour to count as it.

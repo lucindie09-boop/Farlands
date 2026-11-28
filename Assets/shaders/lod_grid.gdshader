@@ -86,7 +86,7 @@ uniform float water_layer = 32.0;
 // Which is the report, exactly, and why the fade below exists.
 //
 // The fade is the world's own answer to the same problem, in the same units: the
-// grain in Assets/shaders/block_noise.gdshaderinc is faded by its footprint so that "a
+// grain in assets/shaders/block_noise.gdshaderinc is faded by its footprint so that "a
 // distant hillside" does not boil, and a repeat of the detail term is one repeat of
 // a face's 16 texels, so the two rules differ only in which of those they count.
 // What is left is drawn as authored: every cell the eye can read a texture on keeps
@@ -104,7 +104,7 @@ uniform float detail_strength = 0.75; // 0 = the flat average, 1 = the face's ow
 
 // The mip that IS the face's average: a face is one 16x16 tile (see
 // src/render/texture_array_generator.cpp and BLOCK_NOISE_TEXELS in
-// Assets/shaders/block_noise.gdshaderinc), so mip 4 is a single texel of it.
+// assets/shaders/block_noise.gdshaderinc), so mip 4 is a single texel of it.
 const float DETAIL_AVERAGE_MIP = 4.0;
 
 // Where the detail term stops, in pixels per repeat of it (see the fade in
@@ -222,7 +222,7 @@ void fragment() {
 
     albedo = mix(albedo, water_color, is_water * water_mix);
 
-    // The sky term, exactly as Assets/shaders/item_lighting.gdshaderinc builds it. The
+    // The sky term, exactly as assets/shaders/item_lighting.gdshaderinc builds it. The
     // tint is white at every hour (the sunrise/sunset ground tint is gone), but
     // the mix stays: one uniform, one model, for all three surfaces.
     float sky = sky_light_intensity;

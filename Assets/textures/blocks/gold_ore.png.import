@@ -3,15 +3,15 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://cvxyq533ajphp"
-path="res://.godot/imported/gold_ore.png-30da9694b331af0f6238ab85035caa71.ctex"
+path="res://.godot/imported/gold_ore.png-062aa7cec0ec1b44adab41f8be205971.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://Assets/textures/blocks/gold_ore.png"
-dest_files=["res://.godot/imported/gold_ore.png-30da9694b331af0f6238ab85035caa71.ctex"]
+source_file="res://assets/textures/blocks/gold_ore.png"
+dest_files=["res://.godot/imported/gold_ore.png-062aa7cec0ec1b44adab41f8be205971.ctex"]
 
 [params]
 

@@ -40,8 +40,8 @@ extends SceneTree
 ##     `world_bend_radius` holds the bend off further as it grows
 ##   - the water's ripple: with `world_bend_sway` up the marker wanders from
 ##     frame to frame, and with it at 0 the frame holds perfectly still
-##   - the real materials: a quad drawn with Assets/materials/voxel_material.tres and a
-##     quad drawn with Assets/materials/voxel_material_water.tres land on the same
+##   - the real materials: a quad drawn with assets/materials/voxel_material.tres and a
+##     quad drawn with assets/materials/voxel_material_water.tres land on the same
 ##     pixels as the marker does, which is what makes the world's own terrain and
 ##     water bend together rather than only the marker in this file
 ##
@@ -49,8 +49,8 @@ extends SceneTree
 
 const MARKER := "res://probes/bend_marker.gdshader"
 const RIPPLE := "res://probes/bend_marker_ripple.gdshader"
-const TERRAIN := "res://Assets/materials/voxel_material.tres"
-const WATER := "res://Assets/materials/voxel_material_water.tres"
+const TERRAIN := "res://assets/materials/voxel_material.tres"
+const WATER := "res://assets/materials/voxel_material_water.tres"
 const SHOT_DIR := "user://shader_shots"
 
 const VIEWPORT := Vector2i(960, 540)
@@ -329,8 +329,8 @@ func check_ripple() -> void:
 # --- The materials the world is actually drawn with ----------------------------
 
 ## The marker is a stand-in. What has to bend is the terrain and the water, and
-## they are bent by their own two shaders - the ones Assets/materials/voxel_material.tres
-## and Assets/materials/voxel_material_water.tres carry. So both real materials are put
+## they are bent by their own two shaders - the ones assets/materials/voxel_material.tres
+## and assets/materials/voxel_material_water.tres carry. So both real materials are put
 ## on the same quad, and their pixels have to land where the marker's do: the
 ## same prediction, the same place, both of them.
 ##

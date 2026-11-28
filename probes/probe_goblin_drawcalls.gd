@@ -33,8 +33,8 @@ extends SceneTree
 
 const GOBLIN_SCRIPT := "res://scripts/goblin.gd"
 const MODEL_SCRIPT := "res://scripts/goblin_model.gd"
-const MODEL_PATH := "res://Assets/models/Goblin.obj"
-const TEXTURE_PATH := "res://Assets/models/Goblin.png"
+const MODEL_PATH := "res://assets/models/Goblin.obj"
+const TEXTURE_PATH := "res://assets/models/Goblin.png"
 const NAV_TRACE := "res://scripts/nav_trace.gd"
 ## Where scripts/body_batch.gd puts the crowd's MultiMeshes.
 const BATCH_NAME := "BodyBatch"

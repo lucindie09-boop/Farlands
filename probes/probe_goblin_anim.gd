@@ -15,7 +15,7 @@ extends SceneTree
 ##   probes/run_probe.sh probes/probe_goblin_anim.gd
 
 const GOBLIN_MODEL := preload("res://scripts/goblin_model.gd")
-const GOBLIN_MESH := preload("res://Assets/models/Goblin.obj")
+const GOBLIN_MESH := preload("res://assets/models/Goblin.obj")
 ## Blocks per TICK, which is what a body's `get_velocity` answers: 0.25 is 5 blocks/s,
 ## the speed a full swing wants.
 const FULL_SWING := 0.25

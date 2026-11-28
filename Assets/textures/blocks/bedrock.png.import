@@ -3,15 +3,15 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://ckdtkqk6q8s0a"
-path="res://.godot/imported/bedrock.png-0fc89cde4dc58c351c2d8a753e3dc652.ctex"
+path="res://.godot/imported/bedrock.png-8ad120933b69f8c5bb058a3134abdddb.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://Assets/textures/blocks/bedrock.png"
-dest_files=["res://.godot/imported/bedrock.png-0fc89cde4dc58c351c2d8a753e3dc652.ctex"]
+source_file="res://assets/textures/blocks/bedrock.png"
+dest_files=["res://.godot/imported/bedrock.png-8ad120933b69f8c5bb058a3134abdddb.ctex"]
 
 [params]
 

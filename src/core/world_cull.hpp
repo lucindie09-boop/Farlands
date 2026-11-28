@@ -29,7 +29,7 @@
 // where the far field should be. Straight down, where the whole point of the
 // effect is that the ground closes up around you, the hole is a ring.
 //
-// Assets/shaders/world_bend.gdshaderinc is the authority on what the bend does; this is
+// assets/shaders/world_bend.gdshaderinc is the authority on what the bend does; this is
 // the same arithmetic a second time, answering the one question culling has to
 // ask: how far can the bend move a point of a box this big, this far away? It
 // answers with a *bound*, not with the exact image of the box, and deliberately:
@@ -153,7 +153,7 @@ inline godot::AABB world_bend_cull_aabb(const godot::AABB& local_aabb, const god
 // The Horizon Curve's culling side
 // ---------------------------------------------------------------------------
 //
-// Assets/shaders/world_horizon.gdshaderinc is the authority on what the curve does and
+// assets/shaders/world_horizon.gdshaderinc is the authority on what the curve does and
 // this re-decides nothing; it is the same arithmetic a second time, for the same
 // reason the bend's is here. The curve sinks a chunk's vertices by up to a
 // hundred-odd blocks, and a box that still says where the chunk was is a chunk

@@ -1,7 +1,7 @@
 shader_type spatial;
 render_mode unshaded, cull_back;
 
-// The same body the player has (Assets/shaders/body_shader.gdshader), drawn from a MultiMesh
+// The same body the player has (assets/shaders/body_shader.gdshader), drawn from a MultiMesh
 // (scripts/body_batch.gd) instead of from one MeshInstance3D per goblin.
 //
 // Two differences, and neither changes what a body looks like:
@@ -14,4 +14,4 @@ render_mode unshaded, cull_back;
 //     single light model (item_lighting.gdshaderinc) rather than a second copy of it.
 #define BODY_OPAQUE
 #define BODY_BATCH
-#include "res://Assets/shaders/item_lighting.gdshaderinc"
+#include "res://assets/shaders/item_lighting.gdshaderinc"

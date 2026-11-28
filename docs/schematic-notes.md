@@ -236,13 +236,13 @@ table, the planning/writing split, the in-game wand, and the probes that pin it.
   what was asked for twice in a row ("4x bigger", then "each individual box is way too big").
   Measured on a 1920x1061 window: panel 1766x976, cards 144x144, the two tabs 260x40 at 32 px
   below the panel's top edge, the close 40x40 at the right-hand end of that row
-  (`Assets/textures/gui/close_button.png` on a square button — an icon, not the word CLOSE, so it is
+  (`assets/textures/gui/close_button.png` on a square button — an icon, not the word CLOSE, so it is
   found by its node name `MenuClose` rather than by matching text), and the state line ending 36
   px above the panel's bottom, 44 px in from its left. Cards are square and the COLUMNS are
   computed from the room they actually have (`_tile_columns`), not hard-coded like the load
   menu's 5, because the wand's panel is whatever the window permitted. **A card's BACKGROUND is
   the game's own square button art**, not a flat stylebox:
-  `Assets/textures/gui/button_square_large.png` (50x50 - the same art as the close button's 20x20
+  `assets/textures/gui/button_square_large.png` (50x50 - the same art as the close button's 20x20
   `button_square.png`, drawn at a larger resolution so a 192 px card stretches it 3.8x rather
   than 9.6x and the bevel comes out ~4 px instead of ~10, and 50, not 20, is what to reach for
   whenever the art is upscaled this far) stretched to the whole 192 px card and deliberately NOT

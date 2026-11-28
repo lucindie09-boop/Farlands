@@ -5,7 +5,7 @@ Run from the project root:
 
     python tools/make_block_textures.py
 
-Writes 16x16 RGBA PNGs into Assets/textures/blocks/. Idempotent: it rewrites the
+Writes 16x16 RGBA PNGs into assets/textures/blocks/. Idempotent: it rewrites the
 files it owns byte for byte, so regenerating is safe and the result can be
 diffed.
 
@@ -21,7 +21,7 @@ authored to the region the geometry actually samples:
               bottom (wall torches, and any raised box) samples x 7..9, y 14..16.
               The base is NOT drawn here: the torch the player holds and the
               torch standing in the world are one drawing, so this copies
-              Assets/textures/items/torch.png verbatim and only generates the block's
+              assets/textures/items/torch.png verbatim and only generates the block's
               emissive map from it. Item art wins because it is what the player
               sees in hand, and it already sits in the sampled region.
   chain       sides sample x 7..9, y 0..16
@@ -40,8 +40,8 @@ import zlib
 from pathlib import Path
 
 W = H = 16
-OUT_DIR = Path("Assets/textures/blocks")
-ITEM_DIR = Path("Assets/textures/items")
+OUT_DIR = Path("assets/textures/blocks")
+ITEM_DIR = Path("assets/textures/items")
 
 
 def rgba(r, g, b, a=255):
@@ -76,7 +76,7 @@ def write_png(path, pixels):
 # torch: the item's own art, plus a block-only emissive map
 # ---------------------------------------------------------------------------
 def copy_torch_base():
-    """Write Assets/textures/blocks/torch.png as a verbatim copy of the item torch.
+    """Write assets/textures/blocks/torch.png as a verbatim copy of the item torch.
 
     The held torch and the placed torch must be the same drawing, so the item
     file is the single source of truth rather than a second torch drawn here

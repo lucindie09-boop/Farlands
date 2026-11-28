@@ -41,7 +41,7 @@ extends SceneTree
 
 const GOBLIN_SCRIPT := "res://scripts/goblin.gd"
 const MODEL_SCRIPT := "res://scripts/goblin_model.gd"
-const MODEL_PATH := "res://Assets/models/Goblin.obj"
+const MODEL_PATH := "res://assets/models/Goblin.obj"
 const NAV_TRACE := "res://scripts/nav_trace.gd"
 const COUNTS := [0, 25, 50, 100, 200]
 const WINDOW_SECONDS := 20.0

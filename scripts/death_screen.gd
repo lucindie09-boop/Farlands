@@ -6,8 +6,8 @@ extends Control
 # C++; this overlay just reflects the died/respawned signals). Styled with
 # the shared munro font and button.png like the pause/settings buttons.
 
-const MUNRO_FONT: Font = preload("res://Assets/fonts/munro.ttf")
-const BUTTON_TEX: Texture2D = preload("res://Assets/textures/gui/button.png")
+const MUNRO_FONT: Font = preload("res://assets/fonts/munro.ttf")
+const BUTTON_TEX: Texture2D = preload("res://assets/textures/gui/button.png")
 
 var _player: Node = null
 var _title: Label

@@ -9,7 +9,7 @@ not tasks; move one in here when it gets picked up.
 ~~Block break animation + hardness values - careful: decide now if hardness gates break time,
 since that changes the break-block code path~~
 
-~~Player model animations - the body plays clips: `Assets/Animations/Idle.anim` standing and
+~~Player model animations - the body plays clips: `assets/animations/Idle.anim` standing and
 `Run.anim` walking (re-homed by `scripts/clip_retarget.gd`); the `Idle_new`/`Walk` pair an
 earlier attempt used is gone, so those two are the body's only clips~~
 

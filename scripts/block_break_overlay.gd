@@ -16,7 +16,7 @@ extends Node3D
 @onready var player_controller = get_node("/root/Main/Player")
 @onready var chunk_manager = get_node("/root/Main/ChunkManager")
 
-const CRACK_DIR := "res://Assets/textures/animated/"
+const CRACK_DIR := "res://assets/textures/animated/"
 const CRACK_COUNT := 10
 ## A hair over the box on every axis, so a crack face sits just in front of the
 ## block's own face instead of z-fighting with it.

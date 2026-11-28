@@ -49,7 +49,7 @@ first-person viewmodel - what each one owns and the decisions behind it.
   `player_light_enabled` as it takes over and restoring it (with `PlayerLight::DEFAULT_LEVEL` /
   `default_color()`) when the item is put away — holding the torch is what turns dynamic
   lighting on, and a toggle the user set themselves still survives a torch in between. Adding an
-  item is one entry in `data/items.json` (plus a `Assets/textures/items/<name>.png`) — APPEND it,
+  item is one entry in `data/items.json` (plus a `assets/textures/items/<name>.png`) — APPEND it,
   because entry order is the id. `pebble`, `silver_coin` and `goblin_ear` are the newest and the
   plainest: a name, a texture and no behaviour, so they resolve, render and are refused by the
   placement path like every other item — they exist to be dropped, and what drops them is
@@ -529,7 +529,7 @@ first-person viewmodel - what each one owns and the decisions behind it.
   inside the window at its edges. The box is **90% solid** - 10% transparent - via `modulate.a`
   0.9 on the panel, text included, so the item and the row behind it still read faintly through
   it.
-- **The tooltip's size comes from its own text.** `Assets/textures/gui/tooltip.png` is a
+- **The tooltip's size comes from its own text.** `assets/textures/gui/tooltip.png` is a
   100 x 100 frame - a gold line outside a darker one - so its caps are **2 texels** and only the
   fill stretches (`UIArt.tooltip_panel`, sliced at the GUI scale like the buttons). The box is
   the text plus `UIArt.TOOLTIP_PAD` (4 units = 8 px a side at the default scale of 2) and there
@@ -590,7 +590,7 @@ first-person viewmodel - what each one owns and the decisions behind it.
   that draws ONE slightly-enlarged transparent cube per **selection box** of the mined block's
   resolved shape (`ChunkManager.get_selection_boxes_at`, the same boxes the outline uses, so a
   stair cracks on both of its boxes and a pole on its post rather than on the whole cell) and
-  swaps the 10 stage textures (`Assets/textures/animated/l0_sprite_01..10.png`); faces against solid
+  swaps the 10 stage textures (`assets/textures/animated/l0_sprite_01..10.png`); faces against solid
   neighbors are depth-occluded so cracks only show on visible faces. **Progress resets on release** (releasing
   LMB or losing the block resets `break_progress_`/`break_target_valid_`), so the crack vanishes
   and the viewmodel's looping punch stops when you stop mining.
@@ -615,7 +615,7 @@ first-person viewmodel - what each one owns and the decisions behind it.
   the block naming it. **Both `break_block()` and the hold-to-break inventory gate resolve their
   drop through `resolve_block_drop`, so the gate can never check room for something other than
   what the break then hands over** (that mirroring was hand-copied before and had already
-  drifted). A block whose `textures` name has no file under `res://Assets/textures/blocks/` silently
+  drifted). A block whose `textures` name has no file under `res://assets/textures/blocks/` silently
   falls back to stone.png — `_check_textures` in the hammer probe catches that for the blocks it
   names.
 
@@ -632,7 +632,7 @@ first-person viewmodel - what each one owns and the decisions behind it.
   and the per-type item peaks in `_item_poses`) remain in `viewmodel.gd` and are passed in as
   Vector3 pairs so they stay the single source of truth.
 - **Phase 1 scope (other ports)**: `BlockTextures` (native binding, `block_textures.gd` deleted)
-  owns block-texture atlas generation from `Assets/textures/blocks/`; `SkinPixels` (static binding over
+  owns block-texture atlas generation from `assets/textures/blocks/`; `SkinPixels` (static binding over
   `src/godot_bindings/skin_pixels.*`) owns the pixel/noise helpers (noise map, gray noise,
   UV→texel bounds) shared by `skin_manager.gd` and the settings galleries. The one Phase 1 item
   **not** fully ported: `skin_manager.gd`'s stateful autoload logic (persistent `ImageTexture`,
@@ -707,7 +707,7 @@ first-person viewmodel - what each one owns and the decisions behind it.
   Blockbench's glTF export anchored them at cube bottom-corners and glTF has no pivot field, so
   Godot was swinging every part around the wrong point (see the pivot note under Constraints).
   **The body runs the world's light, not the engine's**: `player_model.gd` gives it one
-  `ShaderMaterial` of `Assets/shaders/body_shader.gdshader` — `unshaded, cull_back` with
+  `ShaderMaterial` of `assets/shaders/body_shader.gdshader` — `unshaded, cull_back` with
   `#define BODY_OPAQUE` over the include the dropped items and the held arm run, because a body is
   opaque boxes and a shader that writes `ALPHA` is a TRANSPARENT material: depth-sorted per goblin,
   never instanced, never casting a shadow (`docs/rendering-notes.md`, "The mob body") — over every surface, and pushes the light of the cell the body's *middle* is
@@ -734,7 +734,7 @@ first-person viewmodel - what each one owns and the decisions behind it.
   tree at all. Packing this scene after `_ready` writes it with no `PlayerModel` and prunes both of
   its ext_resources; packing it before `_ready` keeps both. The editor runs `_ready` on its own copy
   of the scene, so its next save emptied the file: 2 Oct, 24 Nov and 27 Nov are one bug, and the uid
-  was never it — the engine resolves `uid://bpoqm4h0tnkfv` to `Assets/models/player.glb` and loads
+  was never it — the engine resolves `uid://bpoqm4h0tnkfv` to `assets/models/player.glb` and loads
   it. So the controller now builds the pivot and reparents only outside the editor
   (`is_editor_hint()`), leaving a save to write back the hierarchy it was given, and a scene that
   has somehow lost the node is stood back up from `player.glb` by
@@ -836,9 +836,9 @@ first-person viewmodel - what each one owns and the decisions behind it.
   crosses it at the speed it crosses the middle of the cycle, the tree has both states and the idle
   layer wired with no clip carrying a copied arm hang, and standing adds nothing while walking adds
   the idle (legs untouched either way, and the idle's own track turning 0 to 3.4 degrees).
-- **A run cycle was separated out of `Assets/models/source/runanimation.glb`** (a source asset:
+- **A run cycle was separated out of `assets/models/source/runanimation.glb`** (a source asset:
   nothing loads it at runtime, and it lives in `source/` for that) into
-  `Assets/Animations/Run.anim`: 1 s, looping, the four limbs' `rotation_3d` tracks (29 keys each, on
+  `assets/animations/Run.anim`: 1 s, looping, the four limbs' `rotation_3d` tracks (29 keys each, on
   the glb's own part names — `arm`, `arm_001`, `leg`, `leg_001`, the import remapping `arm.001` to
   `arm_001`). The glb is a Blender glTF export that split one cycle into one action per body part,
   so it carries six animations and no skin, and the head and torso slices hold a single key because
@@ -1139,7 +1139,7 @@ first-person viewmodel - what each one owns and the decisions behind it.
   the row's own colour still shows. The shape was measured off the effect itself (a gif of it on
   black, 240 px square, 128 frames): the dominant bands there are 85 to 170 px apart, i.e. a
   third to two thirds of the frame, and what separates them is BLACK - it is mostly lit field with
-  voids in it, not thin lines on nothing.  Ours is `Assets/shaders/ui_sheen.gdshader`, driven by
+  voids in it, not thin lines on nothing.  Ours is `assets/shaders/ui_sheen.gdshader`, driven by
   `scripts/ui_sheen.gd`: a 240-unit period along a -42 degree axis, 28% of it lit, the edges pushed
   in and out by a slow 2-D noise (the warp is what stops a band being a straight stripe) and the
   inside mottled by a finer one in 7-unit cells, from `#421780` through `#8C54DB`. The period is
@@ -1293,13 +1293,13 @@ first-person viewmodel - what each one owns and the decisions behind it.
   the accent colour for as long as the finger is down. Nothing changes shape on hover.
 - **The profile card is artwork, drawn at the same scale as the rows' buttons.** The card used to
   be drawn: cell-noise fill, `button.png`'s bevel, a skin head, a crown, a dot and a chevron. It is
-  now one 240 x 100 image (`Assets/textures/gui/Playercard.png`) at **one art pixel per UI unit** - the
+  now one 240 x 100 image (`assets/textures/gui/Playercard.png`) at **one art pixel per UI unit** - the
   scale the 200 x 40 row texture already gets - so at 1080p it is 480 x 200 px and its frame grows
   with the interface instead of being resampled. The art carries everything that cannot change:
   the frame, the rule, the green state dot and the three row icons. The screen draws only what art
   cannot know - the face in the image's 26 x 26 HEAD box, the name at x 44 / baseline 20, `Online`
   beside the dot, and the three flat row labels over the icons (the labels are the `Button`s' own
-  text, so hover and focus still come from the engine). `Assets/textures/gui/PlayerCardGuide.png` is the
+  text, so hover and focus still come from the engine). `assets/textures/gui/PlayerCardGuide.png` is the
   authoring copy - a red box on the head and a red bar on each label's left edge and cap band - and
   the constants in `title_screen.gd` are those numbers. `probe_menu.gd` holds the card to the art's
   own geometry: the 240 x 100 rect, the square HEAD box, and each row centred on its icon with its
@@ -1312,7 +1312,7 @@ first-person viewmodel - what each one owns and the decisions behind it.
   reference is a social panel with a live count, tabs, a search field and a friend per row; what
   this build can honestly have is the chrome - header, search, tabs, Add Friend - over an empty
   list that says `NO FRIENDS YET / MULTIPLAYER IS NOT IN THIS BUILD`. It is the supplied
-  `Assets/textures/gui/Friendscard.png` (240 x 180) at **one art pixel per UI unit**, the profile card's
+  `assets/textures/gui/Friendscard.png` (240 x 180) at **one art pixel per UI unit**, the profile card's
   scale, so at 1080p it is 480 x 360 px: the art carries the frame, the people glyph, the search
   box with its magnifier, the three tab boxes, the Add Friend pill with its plus and the green
   state dot. The screen draws only the words - `FRIENDS` at x 28 / baseline 20, `Not connected`
@@ -1323,7 +1323,7 @@ first-person viewmodel - what each one owns and the decisions behind it.
   starting six units after the art's plus. The tabs, the field and the pill are the same flat
   controls as the profile rows; the field's focus accent is drawn on the art's 1-unit frame
   because the field's rect is one unit taller than that frame - the extra unit is what lands its
-  baseline on y 36. `Assets/textures/gui/Friendscardguide.png` is the authoring copy, its red bars
+  baseline on y 36. `assets/textures/gui/Friendscardguide.png` is the authoring copy, its red bars
   marking the header label and the search text, and `friendscardconnectedtextfuide.png` marks
   the state text's right edge; the constants in `title_screen.gd` are those numbers. The state in
   the header is `Not connected` rather than a number, because there is no service to count. The
@@ -1335,7 +1335,7 @@ first-person viewmodel - what each one owns and the decisions behind it.
 - **The profile card is a placeholder with nothing to lie about.** There is no account system and
   no network, so the name is a constant and the state says `Online` because that is what the
   reference has - the card is a piece of furniture for the layout, and the one thing it does
-  honestly is draw the head from the player's own `Assets/textures/skin.png` (the 8×8 front face at (8,
+  honestly is draw the head from the player's own `assets/textures/skin.png` (the 8×8 front face at (8,
   8), nearest-filtered), so it cannot disagree with the body. Its three rows are real `Button`s
   with flat styleboxes rather than `button.png`, because a grey button inside a dark panel is a
   second, louder interface; they are deliberately NOT in `_buttons`, which is the action column
@@ -1350,7 +1350,7 @@ first-person viewmodel - what each one owns and the decisions behind it.
   On a window too short to fit the patch card under the friends card it is dropped rather than
   clipped.
 - **The patch card is the third piece of artwork, and its words sit on the guide's marks.** The
-  supplied `Assets/textures/gui/Patchcard.png` (240 x 100) at **one art pixel per UI unit**, right-aligned
+  supplied `assets/textures/gui/Patchcard.png` (240 x 100) at **one art pixel per UI unit**, right-aligned
   to the margin like the two above it: the art carries the frame, the megaphone glyph and the rule
   under the header. `WHAT'S NEW` starts on x 28 / baseline 18, the version ends on x 227 on the
   same baseline, and the changelog's entries are drawn in the body under the rule - a 2-unit

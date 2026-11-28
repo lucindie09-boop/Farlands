@@ -215,9 +215,9 @@ Full notes: [docs/light.md](docs/light.md).
   block too, parented to the rig's right arm so the walk carries it; a goblin's own body hangs
   an offhand torch from its left arm with the same grip maths, lights the world with it and
   always drops it on death ([docs/gui-notes.md](docs/gui-notes.md), [docs/ui.md](docs/ui.md)).
-- The player's own body plays **two poses and a rest**: `Assets/Animations/Idle.anim` standing
+- The player's own body plays **two poses and a rest**: `assets/animations/Idle.anim` standing
   and
-  `Assets/Animations/Run.anim` walking, both blended onto a still `rest` clip with the idle
+  `assets/animations/Run.anim` walking, both blended onto a still `rest` clip with the idle
   added
   over the result. `player_model.gd` builds its own `AnimationPlayer` (`Clips`, the animations'
   host, never played) and an `AnimationTree` (`ClipsTree`) that turns the parts. **One number is
@@ -254,7 +254,7 @@ Full notes: [docs/light.md](docs/light.md).
   Both are re-homed onto the rig's part names at
   load by `scripts/clip_retarget.gd` and forced to loop. `Run.anim` is a run cycle separated out
   of
-  `Assets/models/source/runanimation.glb` (six per-part actions merged into one 1 s loop; the GLB
+  `assets/models/source/runanimation.glb` (six per-part actions merged into one 1 s loop; the GLB
   is a SOURCE, kept for re-extraction and loaded by nothing). The head's
   rotation stays the code's. The `Idle_new`/`Walk` pair an earlier attempt used has been
   removed, so `Idle.anim` and `Run.anim` are the body's only clips.
@@ -274,7 +274,7 @@ Full notes: [docs/light.md](docs/light.md).
   from `data/changelog.json`, whose `version` a probe holds against the build's. A travelling
   sheen
   runs along the three cards' bevels and nowhere else: one broad warped violet band (240 units
-  apart, 28% of each period lit, mottled insides) from `Assets/shaders/ui_sheen.gdshader`, at
+  apart, 28% of each period lit, mottled insides) from `assets/shaders/ui_sheen.gdshader`, at
   low strength
   and off under Reduce Motion. It crossed the rows and then the wordmark and both were removed -
   a

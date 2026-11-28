@@ -91,12 +91,12 @@ and a wildcard like `src/mesh/mesh_manager*.cpp` means the family a split produc
 ## Rendering Notes
 
 - Opaque and water are separate mesh surfaces; water uses its own shader
-  (`Assets/shaders/voxel_shader_water.gdshader`) with edge fade, tint, shimmer, sun glint,
+  (`assets/shaders/voxel_shader_water.gdshader`) with edge fade, tint, shimmer, sun glint,
   flowing
   texture animation, and separate blend-mix surface for translucency.
 - Blocks can carry an emissive texture (second `Texture2DArray`) for glow, driven by
   `data/block_definitions.json`.
-- The terrain shader (`Assets/shaders/voxel_shader.gdshader`) applies a non-linear AO power
+- The terrain shader (`assets/shaders/voxel_shader.gdshader`) applies a non-linear AO power
   curve
   (`pow(raw_ao, 1.35)`) that hides diagonal triangulation seams (soft curved AO). The procedural
   sky shader (`src/render/sky_controller.hpp`) provides a procedurally twinkling night starfield
@@ -235,22 +235,22 @@ threaded to generation workers. Missing files or keys fall back to built-in defa
 
 ## Assets
 
-Textures are organized in the `Assets/textures/` directory:
-- `Assets/textures/blocks/` — Block textures (bedrock, dirt, grass, stone, sand, water, etc.).
+Textures are organized in the `assets/textures/` directory:
+- `assets/textures/blocks/` — Block textures (bedrock, dirt, grass, stone, sand, water, etc.).
   `water.png` is hand-authored; `lava.png` and `acid.png` are baked from their generator presets
   by `tools/bake_liquid_textures.gd` so the array has a layer to build and the animator has one
   to write into
-- `Assets/textures/items/` — Item and tool sprites, resolved from the bare name
+- `assets/textures/items/` — Item and tool sprites, resolved from the bare name
   `data/items.json` gives
   each one
-- `Assets/textures/animated/` — The ten cracked-block overlay frames the break animation steps
+- `assets/textures/animated/` — The ten cracked-block overlay frames the break animation steps
   through
-- `Assets/textures/gui/` — UI textures (hotbar, inventory background, effects, settings/tool
+- `assets/textures/gui/` — UI textures (hotbar, inventory background, effects, settings/tool
   icons)
-- `Assets/textures/particles/` — Particle textures (one heart; nothing loads it yet)
-- `Assets/textures/atmosphere/` — Atmospheric textures (sun, north star)
-- `Assets/textures/mobs/` — Mob skins
-- `Assets/textures/Archive (Unused)/` — Archived/deprecated textures (old versions kept for reference)
+- `assets/textures/particles/` — Particle textures (one heart; nothing loads it yet)
+- `assets/textures/atmosphere/` — Atmospheric textures (sun, north star)
+- `assets/textures/mobs/` — Mob skins
+- `assets/textures/Archive (Unused)/` — Archived/deprecated textures (old versions kept for reference)
 
 The player model lives in `player.glb` (voxel-style, slim 3-px arms with a tightly-packed 64×64
 skin-texture atlas). `player_model.gd` applies a skin texture to the model with nearest
@@ -273,8 +273,8 @@ Texture packs are directories under `user://packs/` (on Windows:
     "author": "optional author"
   }
   ```
-- `Assets/textures/<name>.png` — PNG overrides for individual blocks; names must match
-  the built-in files in `Assets/textures/blocks/` (e.g. `grass_top.png`). Missing
+- `assets/textures/<name>.png` — PNG overrides for individual blocks; names must match
+  the built-in files in `assets/textures/blocks/` (e.g. `grass_top.png`). Missing
   textures fall back to the built-ins. Corrupt/truncated PNGs degrade to the
   built-in texture for that name rather than dropping the array layer.
 
@@ -398,7 +398,7 @@ Windows).
 | F | Toggle fly mode |
 | F5 | Cycle camera view: first person → behind the player → in front of the player (looking at your face) |
 | F12 | Open the held-pose adjuster (the panel prints its own keys): B cycles ARM → BLOCK → ITEM → ITEM2 → ITEM3, and R/F, A/D, W/S, T/G, I/K/J/L/U/O nudge the rotation, scale and position it shows. The numbers are what `_item_poses` in `scripts/viewmodel.gd` holds |
-| G | Spawn a goblin (`Assets/models/Goblin.obj`) on the aimed block — the Tools page's "Spawn Goblin" button does the same, each press adds another, and they are entities: they walk on the player's own movement physics, left click knocks them back, each has six hearts of health (a half-heart per hit, twelve to kill; nothing is drawn over its head) and they idle-roam to nearby ground along a planned route |
+| G | Spawn a goblin (`assets/models/Goblin.obj`) on the aimed block — the Tools page's "Spawn Goblin" button does the same, each press adds another, and they are entities: they walk on the player's own movement physics, left click knocks them back, each has six hearts of health (a half-heart per hit, twelve to kill; nothing is drawn over its head) and they idle-roam to nearby ground along a planned route |
 | K | Spawn/remove a rigid physics dummy of the player on the aimed block — no animations, falls with vanilla gravity/drag, punchable with left click (debug: shows a cube at each mesh pivot) |
 | 1–9 | Select hotbar slot |
 | Q | Drop one item from the selected hotbar slot into the world (Ctrl+Q drops the whole stack) |

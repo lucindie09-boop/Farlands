@@ -1,7 +1,7 @@
 extends Control
 
 const Crosshair := preload("res://scripts/crosshair.gd")
-const CONTRAST_SHADER := preload("res://Assets/shaders/crosshair_contrast.gdshader")
+const CONTRAST_SHADER := preload("res://assets/shaders/crosshair_contrast.gdshader")
 const SRC_PATH := "/root/Main/HUD/Crosshair"
 
 var _material: ShaderMaterial

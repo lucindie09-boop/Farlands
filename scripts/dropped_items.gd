@@ -61,10 +61,10 @@ extends Node3D
 # block about its middle; `position` is that same centre, in world space.
 
 ## The item shader: the world's own light model running on a mesh that belongs to
-## no single block cell (see Assets/shaders/item_lighting.gdshaderinc). Unshaded, so the
+## no single block cell (see assets/shaders/item_lighting.gdshaderinc). Unshaded, so the
 ## engine's sky and ambient cannot light an item that the world around it lights
 ## itself -- the mismatch this shader exists to remove.
-const ITEM_SHADER: Shader = preload("res://Assets/shaders/item_shader.gdshader")
+const ITEM_SHADER: Shader = preload("res://assets/shaders/item_shader.gdshader")
 
 ## The node under Main that owns the world. Set in Main.tscn.
 @export var chunk_manager_path: NodePath = NodePath("../ChunkManager")

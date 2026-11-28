@@ -1,6 +1,6 @@
 extends SceneTree
 
-# Compiles Assets/shaders/phosphor.gdshader in a real renderer (--headless cannot: the
+# Compiles assets/shaders/phosphor.gdshader in a real renderer (--headless cannot: the
 # dummy renderer never compiles a shader) and prints the uniforms it declares, so
 # that the overlay's own contract - a pass declaring `previous_frame` is handed the
 # previous frame - can be read off before anything is looked at by eye.
@@ -11,7 +11,7 @@ var _frames := 0
 
 
 func _initialize() -> void:
-	var shader: Shader = load("res://Assets/shaders/phosphor.gdshader")
+	var shader: Shader = load("res://assets/shaders/phosphor.gdshader")
 	if shader == null:
 		print("phosphor: shader did not load")
 		quit(1)

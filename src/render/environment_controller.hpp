@@ -31,7 +31,7 @@ public:
     // a dropped item, the first-person arm. The values are the ones last sent to
     // the terrain material, so an item can never disagree with the ground it is
     // standing on; the item shader runs the terrain's own light model
-    // (Assets/shaders/item_lighting.gdshaderinc) instead of the engine's sky/ambient.
+    // (assets/shaders/item_lighting.gdshaderinc) instead of the engine's sky/ambient.
     void apply_item_shader_lighting(const godot::Ref<godot::ShaderMaterial>& material) const;
 
     // The world's sky-light tint, which the player's body and the menu accent use

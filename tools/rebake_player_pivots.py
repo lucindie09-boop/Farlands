@@ -25,7 +25,7 @@ origin to shift from, so it can be re-run after editing the PIVOTS table.
 
 Usage:  python tools/rebake_player_pivots.py [path-to-player.glb]
 
-With no argument it re-bakes Assets/models/player.glb. The default is resolved
+With no argument it re-bakes assets/models/player.glb. The default is resolved
 against the repository, not the current directory, so the tool runs from
 anywhere.
 """

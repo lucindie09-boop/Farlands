@@ -114,7 +114,7 @@ func _run() -> void:
 		quit(1)
 		return
 
-	var glb: PackedScene = load("res://Assets/models/player.glb")
+	var glb: PackedScene = load("res://assets/models/player.glb")
 	if glb == null:
 		print("PROBE FAIL: player.glb missing")
 		quit(1)

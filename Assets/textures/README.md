@@ -6,14 +6,14 @@
 
 **Status: original work by the project author, except the UI font.** Everything in this
 directory is original pixel art made for this project, and the same statement covers the rest of
-`Assets/`: the models and animations (`Assets/models/`, `Assets/Animations/`), the sounds
-(`Assets/sounds/`), the materials (`Assets/materials/`) and the shaders (`Assets/shaders/`). None
+`assets/`: the models and animations (`assets/models/`, `assets/animations/`), the sounds
+(`assets/sounds/`), the materials (`assets/materials/`) and the shaders (`assets/shaders/`). None
 of it is Minecraft art, a downloaded pack or an external library, and it is licensed under the
 same GPL-3.0 terms as the rest of the project (see `LICENSE`).
 
-The fonts are the one exception: `Assets/fonts/munro.ttf` is **Munro** by Ten by Twenty
+The fonts are the one exception: `assets/fonts/munro.ttf` is **Munro** by Ten by Twenty
 (Ed Merritt), © 2007, under the SIL Open Font License 1.1. It ships unmodified and stays under the
-OFL rather than GPL-3.0; the license is beside it at `Assets/fonts/LICENSE-munro.txt`, where the
+OFL rather than GPL-3.0; the license is beside it at `assets/fonts/LICENSE-munro.txt`, where the
 OFL requires a copy to sit for any bundle, and the font may not be sold on its own.
 
 If any asset is later found to be derived from a third-party source, it must be replaced with an
@@ -22,7 +22,7 @@ original work or attributed here with its license.
 ## Directory Structure
 
 ```
-Assets/textures/
+assets/textures/
   blocks/           Active block face textures (16×16 PNG) — the only directory
 					the texture arrays build from
   items/            Held-item and tool sprites (bucket and each sort of bucket,
@@ -41,11 +41,11 @@ Assets/textures/
 
 Block textures are referenced by bare name in `data/block_definitions.json`
 (e.g. `"stone"`, `"grass_top"`). The `TextureArrayGenerator` resolves these
-to `res://Assets/textures/blocks/<name>.png` at load time, and that is the only
+to `res://assets/textures/blocks/<name>.png` at load time, and that is the only
 directory it looks in — including for a liquid's still frame, which
 `tools/bake_liquid_textures.gd` writes there for exactly that reason. Items
 name their own files in `data/items.json` and resolve to
-`res://Assets/textures/items/<name>.png` (`BlockTextures`), because an item is not
+`res://assets/textures/items/<name>.png` (`BlockTextures`), because an item is not
 part of the block array.
 
 Two sets here are generated rather than hand-drawn, both idempotently:

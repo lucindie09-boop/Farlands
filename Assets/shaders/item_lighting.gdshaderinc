@@ -32,9 +32,9 @@
 // has), and emissive block textures (a dropped light block is lit by its own
 // cell, which it keeps bright).
 //
-// Included by Assets/shaders/item_shader.gdshader (the world's own items: dropped blocks,
+// Included by assets/shaders/item_shader.gdshader (the world's own items: dropped blocks,
 // sprites, the held thing and the first-person arm -- all cut-out or faded), and by
-// Assets/shaders/body_shader.gdshader (the player's own body and every goblin), which defines
+// assets/shaders/body_shader.gdshader (the player's own body and every goblin), which defines
 // BODY_OPAQUE so the ALPHA write and the scissor above are not compiled at all. Both stage
 // functions are defined here so the shaders differ in nothing but their render_mode and that
 // one define.
@@ -58,7 +58,7 @@
 
 // World lighting, pushed into every item material once a frame by
 // EnvironmentController::apply_item_shader_lighting. Same names and meanings as
-// the terrain material's own uniforms -- see Assets/shaders/voxel_shader.gdshader.
+// the terrain material's own uniforms -- see assets/shaders/voxel_shader.gdshader.
 uniform float sky_light_intensity : hint_range(0.0, 1.0) = 1.0;
 uniform vec3 sky_light_color = vec3(1.0);
 uniform vec3 sky_light_warmth = vec3(1.0);
@@ -72,7 +72,7 @@ uniform vec3 player_light_color = vec3(1.0);
 
 // Moving entity lights -- a goblin's offhand torch, gathered by scripts/mob_lights.gd
 // and resolved by ChunkManager::set_entity_lights. Same packing and the same falloff
-// as the terrain's (Assets/shaders/voxel_shader.gdshader): the level is in the colour,
+// as the terrain's (assets/shaders/voxel_shader.gdshader): the level is in the colour,
 // so the distance term is all this needs. The cap is written in four places -- the two
 // voxel shaders, here, and render/entity_lights.hpp -- and they must agree.
 const int MAX_ENTITY_LIGHTS = 4;
@@ -87,7 +87,7 @@ uniform float entity_light_radius = 7.0;
 // Per instance, not per material: every dropped block of one type shares one
 // material, and each lies in a cell of its own.
 //
-// A BATCHED body (Assets/shaders/body_batch.gdshader) does not declare it: a MultiMesh has one
+// A BATCHED body (assets/shaders/body_batch.gdshader) does not declare it: a MultiMesh has one
 // material for every instance and no instance uniforms to speak of, so the light rides its
 // per-instance custom data instead, read into `item_light` at the top of the fragment.
 #ifndef BODY_BATCH
@@ -216,7 +216,7 @@ void fragment() {
 #ifndef BODY_OPAQUE
     // A sprite's silhouette, and a dropped item's last second fading out.
     //
-    // A BODY (Assets/shaders/body_shader.gdshader) defines BODY_OPAQUE and writes neither of
+    // A BODY (assets/shaders/body_shader.gdshader) defines BODY_OPAQUE and writes neither of
     // them, along with the scissor above: a shader that writes ALPHA is compiled into the
     // TRANSPARENT pipeline whatever it is given at runtime, and a closed opaque box drawn
     // there loses the depth test, the shadow pass and the renderer's automatic instancing.

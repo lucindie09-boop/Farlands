@@ -278,7 +278,7 @@ private:
     void refresh_cached_nodes();
 
     // The body Main.tscn instances as Player/PlayerModel, stood back up from
-    // Assets/models/player.glb when the scene has lost the node. Null if the model
+    // assets/models/player.glb when the scene has lost the node. Null if the model
     // cannot be loaded. Defined in godot_bindings/player_controller_body.cpp.
     godot::Node3D* build_body_from_model_file();
     // Position/orient the camera for the current view (0/1/2) with

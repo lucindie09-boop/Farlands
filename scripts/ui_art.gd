@@ -16,14 +16,14 @@ extends RefCounted
 ## buttons): those are square art drawn onto a square box, so they scale evenly
 ## and there is no stretch to slice.
 
-const BUTTON_TEX: Texture2D = preload("res://Assets/textures/gui/button.png")
+const BUTTON_TEX: Texture2D = preload("res://assets/textures/gui/button.png")
 ## The tooltip's box: a gold line outside a darker one around a dark fill.
-const TOOLTIP_TEX: Texture2D = preload("res://Assets/textures/gui/tooltip.png")
+const TOOLTIP_TEX: Texture2D = preload("res://assets/textures/gui/tooltip.png")
 ## The dark framed box: the tool screens' panel, so the Skin Maker, the Block
 ## Maker and the Liquid Texture Lab sit on the same surface as the menus.
-const PANEL_TEX: Texture2D = preload("res://Assets/textures/gui/effect_background.png")
-const SLIDER_TRACK_TEX: Texture2D = preload("res://Assets/textures/gui/slider_button.png")
-const SLIDER_THUMB_TEX: Texture2D = preload("res://Assets/textures/gui/slider.png")
+const PANEL_TEX: Texture2D = preload("res://assets/textures/gui/effect_background.png")
+const SLIDER_TRACK_TEX: Texture2D = preload("res://assets/textures/gui/slider_button.png")
+const SLIDER_THUMB_TEX: Texture2D = preload("res://assets/textures/gui/slider.png")
 
 ## `button.png`'s rounded cap, in its own 200 x 20 texels: columns 4..195 are
 ## identical, so the four columns at each end are the only ones that carry the

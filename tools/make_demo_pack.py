@@ -9,7 +9,7 @@ Usage:
   e.g. python tools/make_demo_pack.py user_packs   (then copy into user://packs)
 
 The generator is dependency-free: a ~60 line PNG reader/writer (zlib + struct)
-decodes the built-in res://Assets/textures/blocks PNGs, scales each channel, and
+decodes the built-in res://assets/textures/blocks PNGs, scales each channel, and
 re-encodes them under the engine texture names.
 """
 
@@ -21,7 +21,7 @@ import zlib
 
 SIG = b"\x89PNG\r\n\x1a\n"
 
-BUILTIN_DIR = "Assets/textures/blocks"
+BUILTIN_DIR = "assets/textures/blocks"
 
 # Engine texture name -> (r, g, b) channel multipliers. Wood top does not exist
 # in the built-ins, so it is derived from wood_side below.

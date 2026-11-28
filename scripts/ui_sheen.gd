@@ -1,5 +1,5 @@
 extends Control
-## One surface's travelling sheen - the effect itself is [Assets/shaders/ui_sheen.gdshader]. This node IS
+## One surface's travelling sheen - the effect itself is [assets/shaders/ui_sheen.gdshader]. This node IS
 ## the surface: it draws one quad and its material paints the light, so a menu row and a card's
 ## frame are the same node with different uniforms.
 ##
@@ -16,7 +16,7 @@ extends Control
 
 # Loaded once for the whole screen: a preload here is a load at script parse, which is fine for a
 # shader (unlike a script that names an autoload).
-const SHEEN: Shader = preload("res://Assets/shaders/ui_sheen.gdshader")
+const SHEEN: Shader = preload("res://assets/shaders/ui_sheen.gdshader")
 
 var _material: ShaderMaterial
 var _moving := true

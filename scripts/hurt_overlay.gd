@@ -1,6 +1,6 @@
 extends ColorRect
 
-## The screen's own reaction to being hurt (Assets/shaders/hurt_vignette.gdshader).
+## The screen's own reaction to being hurt (assets/shaders/hurt_vignette.gdshader).
 ##
 ## The player already leans when a hit lands -- engine-side, on the camera
 ## (engine/player_damage.hpp's hurt_lean_view) -- so this is the other half of
@@ -40,7 +40,7 @@ func _ready() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	if material == null:
 		var shader_material := ShaderMaterial.new()
-		shader_material.shader = load("res://Assets/shaders/hurt_vignette.gdshader")
+		shader_material.shader = load("res://assets/shaders/hurt_vignette.gdshader")
 		material = shader_material
 
 	_player = get_node_or_null("/root/Main/Player")

@@ -1,6 +1,6 @@
 extends Control
 
-const CONTRAST_SHADER := preload("res://Assets/shaders/crosshair_contrast.gdshader")
+const CONTRAST_SHADER := preload("res://assets/shaders/crosshair_contrast.gdshader")
 
 const MARKER_CROSS := Color(1.0, 0.0, 0.0, 1.0)
 const MARKER_DOT := Color(0.0, 1.0, 0.0, 1.0)

@@ -61,7 +61,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # Directories that hold no documentation of ours, or vendored/generated content.
 SKIP_DIRS = {
     ".git", ".godot", ".freebuff", "bin", "build", "godot-cpp", "MCPipeline",
-    "node_modules", "screenshots", "Assets/textures/Archive (Unused)",
+    "node_modules", "screenshots", "assets/textures/Archive (Unused)",
 }
 SKIP_FILES = {"docs/file_size_plan.md"}  # a history, not a description of today
 
@@ -98,10 +98,10 @@ ALLOWED_MISSING = {
     "chunk_persistence.hpp": "deleted in 68a725b; whole-chunk snapshots became sparse edit maps",
     "patch_slim.py": "a one-off script from an earlier session, never in the repo",
     "look_seam.py": "a one-off probe classifier, written into the gitignored .freebuff/ playground",
-    "light_block_emit.png": "documented as ABSENT by Assets/textures/README.md",
-    "light_red_emit.png": "documented as ABSENT by Assets/textures/README.md",
-    "light_green_emit.png": "documented as ABSENT by Assets/textures/README.md",
-    "light_blue_emit.png": "documented as ABSENT by Assets/textures/README.md",
+    "light_block_emit.png": "documented as ABSENT by assets/textures/README.md",
+    "light_red_emit.png": "documented as ABSENT by assets/textures/README.md",
+    "light_green_emit.png": "documented as ABSENT by assets/textures/README.md",
+    "light_blue_emit.png": "documented as ABSENT by assets/textures/README.md",
 }
 
 # A doc may name a path relative to one of these when the directory is unambiguous

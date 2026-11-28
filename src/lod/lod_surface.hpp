@@ -127,7 +127,7 @@ LayerPair layer_pair(uint8_t l00, uint8_t l10, uint8_t l11, uint8_t l01,
                      const std::array<uint8_t, 4>& others);
 
 // The far field's face constants: top 1.0, north/south 0.8, east/west 0.6 -- the
-// same numbers `Assets/shaders/voxel_shader.gdshader` applies to a chunk face, so the far
+// same numbers `assets/shaders/voxel_shader.gdshader` applies to a chunk face, so the far
 // field is lit like the world it continues. Read the rule over all three
 // (face_shade) rather than picking one.
 inline constexpr float kShadeTop = 1.0f;
@@ -137,7 +137,7 @@ inline constexpr float kShadeEastWest = 0.6f;
 // The baked face constant for a cell whose surface rises by `hx` over `spacing`
 // blocks along +x and by `hz` along +z. The constants above are reached exactly on
 // the axes and blended CONTINUOUSLY between them by the cell's own normal (the same
-// arithmetic `Assets/shaders/item_lighting.gdshaderinc` uses for a turning body), so two
+// arithmetic `assets/shaders/item_lighting.gdshaderinc` uses for a turning body), so two
 // cells that differ by a hair are shaded within a hair of each other.
 float face_shade(float hx, float hz, int32_t spacing);
 

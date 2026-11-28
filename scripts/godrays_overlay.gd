@@ -1,6 +1,6 @@
 extends ColorRect
 
-# Drives Assets/shaders/godrays.gdshader. Projects the sun's world-space direction
+# Drives assets/shaders/godrays.gdshader. Projects the sun's world-space direction
 # (read from ChunkManager/DayNightCycle) into screen space every frame and
 # fades the effect out smoothly when the sun swings behind the camera or
 # below the horizon, so the radial-scatter shader never gets a degenerate
@@ -30,7 +30,7 @@ func _ready() -> void:
 
 	if material == null:
 		var shader_material := ShaderMaterial.new()
-		shader_material.shader = load("res://Assets/shaders/godrays.gdshader")
+		shader_material.shader = load("res://assets/shaders/godrays.gdshader")
 		material = shader_material
 
 func _process(_delta: float) -> void:

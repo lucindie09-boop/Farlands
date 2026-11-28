@@ -1,7 +1,7 @@
 // The Horizon Curve's culling bound: the AABB a chunk is culled against has to
 // contain where the vertex shader will actually put that chunk.
 //
-// The curve's authority is Assets/shaders/world_horizon.gdshaderinc; nothing here
+// The curve's authority is assets/shaders/world_horizon.gdshaderinc; nothing here
 // re-decides what it does. What is tested is the second implementation of it in
 // core/world_cull.hpp — the one culling uses — against the properties culling
 // cannot be wrong about:

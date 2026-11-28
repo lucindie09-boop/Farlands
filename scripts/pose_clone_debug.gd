@@ -33,9 +33,9 @@ var _dummy_script: Script = null
 func _load_clone_assets() -> void:
 	if _player_scene != null:
 		return
-	_player_scene = load("res://Assets/models/player.glb")
+	_player_scene = load("res://assets/models/player.glb")
 	_player_model_script = load("res://scripts/player_model.gd")
-	_pivot_shader = load("res://Assets/shaders/pose_pivot_marker.gdshader")
+	_pivot_shader = load("res://assets/shaders/pose_pivot_marker.gdshader")
 	_dummy_script = load("res://scripts/dummy.gd")
 
 # --- path debug -------------------------------------------------------------

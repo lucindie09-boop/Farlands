@@ -21,7 +21,7 @@ namespace {
 // The scene node's own numbers (Main.tscn: scale 0.05625, +0.0844 z). The model
 // is authored at 17.8 units to the block and faces -z, which is what the negative
 // x and z in the basis are for.
-constexpr const char* kBodyScene = "res://Assets/models/player.glb";
+constexpr const char* kBodyScene = "res://assets/models/player.glb";
 constexpr const char* kBodyScript = "res://scripts/player_model.gd";
 constexpr float kBodyScale = 0.05625f;
 constexpr float kBodyOffsetZ = 0.0844f;

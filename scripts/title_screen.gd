@@ -24,14 +24,14 @@ signal quit_pressed
 ## primary action: the player is already standing in that world.
 signal world_chosen
 
-const MUNRO_FONT: Font = preload("res://Assets/fonts/munro.ttf")
+const MUNRO_FONT: Font = preload("res://assets/fonts/munro.ttf")
 # The row's texture, swapped to the candidate asset (`test_menu_button.png`, 200 x 40) while it
 # is looked at. The log's frame is still cut from the house `button.png`, which is why the probe
 # reads those three bevel tones out of that file by path rather than through this constant.
-const BUTTON_TEX: Texture2D = preload("res://Assets/textures/gui/test_menu_button.png")
+const BUTTON_TEX: Texture2D = preload("res://assets/textures/gui/test_menu_button.png")
 # The player's own skin, for the profile card's portrait: the head's front face is the 8 x 8
 # region at (8, 8) of Minecraft's 64 x 64 skin layout, drawn nearest so it stays pixels.
-const SKIN_TEX: Texture2D = preload("res://Assets/textures/skin.png")
+const SKIN_TEX: Texture2D = preload("res://assets/textures/skin.png")
 const SKIN_HEAD_REGION := Rect2(8, 8, 8, 8)
 
 # Units. The row is the asset's own box: 200 x 40 for the test button, twice the house row's
@@ -198,7 +198,7 @@ const LOG_PATH := "res://data/changelog.json"
 # and scale - so at 1080p it is 480 x 200 px. The art carries the frame, the megaphone glyph and
 # the rule under the header; the screen draws the heading on the guide's x 28 / baseline 18, the
 # version right-aligned on x 227, and the entries in the body under the rule.
-const LOG_CARD_TEX: Texture2D = preload("res://Assets/textures/gui/Patchcard.png")
+const LOG_CARD_TEX: Texture2D = preload("res://assets/textures/gui/Patchcard.png")
 const LOG_CARD_W := 240.0
 const LOG_CARD_H := 100.0
 const LOG_TITLE_AT := Vector2(28, 18)
@@ -229,14 +229,14 @@ const PAGE_WORLDS := 1
 # belongs to and nothing about a service, and its rows answer in the footer until there is
 # something behind them. The head is the player's own skin, so it cannot disagree with the body.
 #
-# The card is ARTWORK (`Assets/textures/gui/Playercard.png`, 240 x 100): its frame, rule, green state dot
+# The card is ARTWORK (`assets/textures/gui/Playercard.png`, 240 x 100): its frame, rule, green state dot
 # and three row icons are the texture, and this screen draws only what the art cannot know - the
 # face, the name, the state's word and the row labels. It is drawn at ONE ART PIXEL PER UNIT, the
 # scale the left column's 200 x 40 button texture already gets, so at GUI scale 2 it is 480 x 200
 # px and its frame thickens with the interface instead of being resampled. Every number below is a
-# pixel in that art, read off `Assets/textures/gui/PlayerCardGuide.png`: the red box is the head, each red
+# pixel in that art, read off `assets/textures/gui/PlayerCardGuide.png`: the red box is the head, each red
 # bar a label's left edge and cap band. `probe_menu.gd` holds the drawing to them.
-const PROFILE_CARD_TEX: Texture2D = preload("res://Assets/textures/gui/Playercard.png")
+const PROFILE_CARD_TEX: Texture2D = preload("res://assets/textures/gui/Playercard.png")
 const PROFILE_CARD_W := 240.0
 const PROFILE_CARD_H := 100.0
 # The head's box in the art; the name's baseline, and the state's word beside the art's own dot
@@ -272,7 +272,7 @@ const FRIENDS_EMPTY_TAB := ["NO FRIEND REQUESTS", "NOBODY IS BLOCKED"]
 # scale), so at 1080p it is 480 x 360 px. The art carries the frame, the people glyph, the search
 # box with its magnifier, the three tab boxes and the Add Friend pill with its plus; the screen
 # draws only what art cannot know - the words, and the real controls on the art's boxes.
-const FRIENDS_CARD_TEX: Texture2D = preload("res://Assets/textures/gui/Friendscard.png")
+const FRIENDS_CARD_TEX: Texture2D = preload("res://assets/textures/gui/Friendscard.png")
 const FRIENDS_CARD_W := 240.0
 const FRIENDS_CARD_H := 180.0
 # The guide's mark: the header label starts on x 28. The search text starts on x 24 - just past

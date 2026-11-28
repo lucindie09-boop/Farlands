@@ -8,7 +8,7 @@ extends SceneTree
 ##   1. The far field read as ONE FLAT COLOUR per biome, and the cause is
 ##      dimensional: a cell is 32..256 blocks wide and the texture coordinate IS the
 ##      world coordinate (lod/lod_surface.hpp), so the sampler legitimately lands on
-##      a mip that has averaged the whole 16x16 face away. Assets/shaders/lod_grid.gdshader
+##      a mip that has averaged the whole 16x16 face away. assets/shaders/lod_grid.gdshader
 ##      puts the variation back at a fixed world scale -- as a RATIO against that
 ##      same face's own average, which is a claim with two halves. Both are measured
 ##      on the frame the player gets: the spread over the pixels the mode drew has to
@@ -335,7 +335,7 @@ func _run() -> void:
 
 	# The fog and the water tint are colour, and neither carries a texture: left on,
 	# both answer for the texture term and the measurement below would be of them.
-	_material = load("res://Assets/materials/lod_grid_material.tres")
+	_material = load("res://assets/materials/lod_grid_material.tres")
 	if _material == null:
 		_ok("the far mode's material loads", false)
 		_finish()

@@ -80,7 +80,7 @@ func _run() -> void:
 			continue
 		var tex: Texture2D = BlockTextures.get_texture(id)
 		if tex == null:
-			_fail("%s resolved but no texture loaded (Assets/textures/items/%s.png)" % [name, name])
+			_fail("%s resolved but no texture loaded (assets/textures/items/%s.png)" % [name, name])
 			continue
 		print("probe: %-14s id=%-5d item=true texture=%dx%d"
 			% [name, id, tex.get_width(), tex.get_height()])
@@ -286,7 +286,7 @@ func _check_craft(player: Node3D, hammer_id: int, material_id: int, handle_id: i
 		return
 	print("probe: crafting consumed every ingredient (grid empty afterwards)")
 
-# Every face texture a block names must exist under res://Assets/textures/blocks/ —
+# Every face texture a block names must exist under res://assets/textures/blocks/ —
 # otherwise the texture array falls back to stone.png and the block silently
 # looks wrong in game rather than failing anywhere.
 func _check_textures(block_names: Array) -> void:
@@ -310,7 +310,7 @@ func _check_textures(block_names: Array) -> void:
 			if texture.is_empty() or seen.has(texture):
 				continue
 			seen[texture] = true
-			var path := "res://Assets/textures/blocks/%s.png" % texture
+			var path := "res://assets/textures/blocks/%s.png" % texture
 			if not ResourceLoader.exists(path):
 				_fail("block '%s' names texture '%s', which has no %s" % [name, texture, path])
 				return

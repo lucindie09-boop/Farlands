@@ -2,15 +2,15 @@
 // same way the game's two world shaders wire them (each effect in world space,
 // the result put back into the mesh's own space, the engine projecting it, and
 // both switched off costing nothing but a skipped branch). If this and
-// Assets/shaders/voxel_shader.gdshader ever disagree about how to call the includes,
+// assets/shaders/voxel_shader.gdshader ever disagree about how to call the includes,
 // the marker probe is measuring something the world does not do - so it calls
 // them exactly as they do, in the same order, with the same camera, and passes 0
 // for the ripple the terrain does not carry.
 shader_type spatial;
 render_mode unshaded, cull_disabled;
 
-#include "res://Assets/shaders/world_bend.gdshaderinc"
-#include "res://Assets/shaders/world_horizon.gdshaderinc"
+#include "res://assets/shaders/world_bend.gdshaderinc"
+#include "res://assets/shaders/world_horizon.gdshaderinc"
 
 void vertex() {
     vec3 camera_position = INV_VIEW_MATRIX[3].xyz;

@@ -36,7 +36,7 @@ TEST_CASE("the face constant follows the cell's own normal") {
     CHECK(ew < kShadeEastWest + 0.02f);
     // The z constant is approached from just BELOW it: the two weights it blends with
     // cross over a hair under 0.8 as the face leaves the axis (the same shape
-    // Assets/shaders/item_lighting.gdshaderinc has). The bracket is what the claim is.
+    // assets/shaders/item_lighting.gdshaderinc has). The bracket is what the claim is.
     const float ns = face_shade(0.0f, 1024.0f, 8);
     CHECK(ns > kShadeNorthSouth - 0.001f);
     CHECK(ns < kShadeNorthSouth + 0.02f);

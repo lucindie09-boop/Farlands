@@ -9,7 +9,7 @@ extends SceneTree
 ##
 ## The subject is the player's own body, because it is the one surface in the game
 ## whose ALBEDO can be set to a number rather than guessed from an atlas: its
-## material is one uniform (Assets/shaders/item_shader.gdshader), so the probe hands it a
+## material is one uniform (assets/shaders/item_shader.gdshader), so the probe hands it a
 ## flat grey and knows exactly what went in. What comes back out of the frame, over
 ## the body's own silhouette, is the pipeline's answer for that albedo -- in the
 ## mean across its faces and at its brightest pixel (a top face, where the face

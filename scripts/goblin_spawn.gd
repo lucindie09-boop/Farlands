@@ -1,6 +1,6 @@
 extends Node
 ## Debug tool: the pause menu's Tools page has a "Spawn Goblin" button, and G does
-## the same in the world -- it puts `Assets/models/Goblin.obj` on the block the
+## the same in the world -- it puts `assets/models/Goblin.obj` on the block the
 ## player is looking at.
 ##
 ## A goblin is an ENTITY, not scenery: the body is a Node3D carrying `goblin.gd` --
@@ -27,7 +27,7 @@ extends Node
 ## ToolLoader makes this tool on first use (registered there as "goblin"), so the
 ## mesh and its texture are not part of the launch.
 
-const MODEL_PATH := "res://Assets/models/Goblin.obj"
+const MODEL_PATH := "res://assets/models/Goblin.obj"
 ## The entity's own script: the player's movement sim for the body, `apply_knockback`
 ## for the punch, and the goblin's six hearts (held as state; it draws no bar over its
 ## head).

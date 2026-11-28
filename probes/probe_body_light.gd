@@ -5,7 +5,7 @@ extends SceneTree
 ## ambient, which know nothing about the cell the body is in. This scene has no
 ## light node at all -- only a sky ambient at 0.027 energy -- so a body left on
 ## the engine's lighting is nearly black while the terrain beside it is bright,
-## and a body running the world's own model (Assets/shaders/item_lighting.gdshaderinc,
+## and a body running the world's own model (assets/shaders/item_lighting.gdshaderinc,
 ## through player_model.gd) matches it.
 ##
 ## Three claims, all of them about the body:
@@ -141,7 +141,7 @@ func _measure(model: Node3D, offsets: PackedInt32Array) -> Dictionary:
 ## cached value, so this is the number the ground is lit with.
 func _world_warmth(cm: Node) -> Color:
 	var scratch := ShaderMaterial.new()
-	scratch.shader = load("res://Assets/shaders/item_shader.gdshader")
+	scratch.shader = load("res://assets/shaders/item_shader.gdshader")
 	cm.apply_item_lighting(scratch)
 	return scratch.get_shader_parameter("sky_light_warmth")
 

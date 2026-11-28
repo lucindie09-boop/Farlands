@@ -29,10 +29,10 @@ palette, craft tools, carry a 9-slot hotbar and 27-slot inventory, and build wit
 walls and fences. Water, lava and acid flow with their own rules and can be bucketed and
 poured. There is health, fall damage, drowning and a respawn screen, plus a punchable training
 dummy. The headline creature is the goblin: it wanders on planned routes, fights back when hit,
-calls nearby goblins, chases, flees when badly hurt, and drops loot. Around the game are
-creation tools: a skin painter, a block painter, a liquid texture lab, texture packs and
-screen-effect shaders. It is in active development: single-player only, no sound yet, and one
-save.
+calls nearby goblins, chases, flees when badly hurt, picks up whatever you leave lying about,
+and drops loot. Around the game are creation tools: a skin painter, a block painter, a liquid
+texture lab, texture packs and screen-effect shaders. It is in active development:
+single-player only, no sound yet, and one save.
 
 ## What it is
 
@@ -107,7 +107,7 @@ save.
 
 The goblin is the first real mob in Farlands, and the best single answer to "what is there to
 do?" It is not an animated prop: it is a body with the same movement simulation as the player,
-a route planner, a combat state and a loot table.
+a route planner, a combat state, a pair of hands and a loot table.
 
 - **Spawn it:** press `G` while looking at a block, use **Tools → Spawn Goblin** in the pause
   menu, or get a `goblin_egg` with `/give` and right-click. Each press adds another goblin.
@@ -124,11 +124,19 @@ a route planner, a combat state and a loot table.
   seconds, it gives up and goes back to wandering.
 - **Flee:** at two hearts it stops fighting and runs, aiming for ground about eight blocks
   away, until you are sixteen blocks off.
+- **Loot:** with an empty main hand and nothing better to do it scans for a dropped pile twice
+  a second — eight blocks away at most, two blocks above or below — walks over and takes ONE
+  item. It turns that item over in front of its face for three seconds, then keeps it if it is
+  a tool (pickaxe, axe, hammer or sword) and throws it back down if it is not. A torch goes
+  into a free offhand instead. What it carries changes nothing about it: no extra damage, no
+  mining, no inventory. Piles in water are left for you.
 - **Offhand:** a quarter of goblins carry a torch in the left hand — rolled once at spawn.
   There is no offhand slot to use it from; it just hangs there, lights the ground, the water
-  and the things around the goblin, and is always dropped on death.
+  and the things around the goblin, and is always dropped on death. It can be filled later,
+  though: a torchless goblin that picks up a dropped torch puts it in that hand rather than
+  its main one.
 - **Death:** it drops loot from `data/loot_tables.json`: pebbles, silver coins, and sometimes
-  a goblin ear — plus whatever it was holding, which is a torch if it had one.
+  a goblin ear — plus whatever it was holding, a torch or a tool it picked up.
 - **Data-driven:** `data/mobs.json` holds its health, damage, speed, follow range, alert box
   and anger window. Tuning a goblin is a JSON diff, not a code change.
 
@@ -139,12 +147,16 @@ a route planner, a combat state and a loot table.
 3. Back away and watch it route around blocks, step up, jump gaps and swim.
 4. Let it close. It stops about a body away and hits for a heart.
 5. Hit it down to two hearts. It runs; let it get sixteen blocks away and it calms down.
-6. Kill it and pick up the pebbles, coins or ear it leaves.
+6. Throw a sword or a torch down with `Q` near an idle goblin and step back: it walks over,
+   picks it up and turns it over for a few seconds.
+7. Kill it and pick up the pebbles, coins or ear it leaves — and whatever it was carrying.
 
 Under the hood the goblin is the proof that entities work: it uses the same fixed-tick body as
 the player, the engine's Godot-free A* planner, data-driven stats and loot, and the same
-knockback and hurt window. The numbers and loot are already data, so the next mob starts from
-an entry and a model rather than a copied sheet of constants.
+knockback and hurt window. Its loot run reads the world's own dropped-item piles rather than a
+mob-side copy, so what it picks up is what you left there. The numbers and loot are already
+data, so the next mob starts from an entry and a model rather than a copied sheet of
+constants.
 
 ## What is not there yet
 
@@ -166,7 +178,11 @@ Godot 4 handles the window, input and UI; a C++ GDExtension does the voxel work.
 by distance LOD. Lighting has a sky channel and a coloured block channel. Saves are
 snapshotted under their shard lock and written asynchronously with an atomic replace. Terrain,
 biomes, recipes, loot and mob stats are data-driven JSON. The goblin's routes come from a
-Godot-free A* planner, and its body uses the same fixed 20-tick simulation as the player.
+Godot-free A* planner, and its body uses the same fixed 20-tick simulation as the player. A
+crowd shares work rather than repeating it: goblins chasing one target read a single flow field
+instead of planning per body, plans are admitted under a per-tick budget, and crowd separation
+is one batched native call. A goblin body is drawn as one instanced rig, so a hundred of them
+cost the same six draw calls as one.
 Tests, benchmarks and in-game probes cover the systems; the engineering record is
 [AGENTS.md](AGENTS.md).
 

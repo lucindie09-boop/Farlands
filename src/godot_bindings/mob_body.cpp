@@ -64,6 +64,14 @@ void MobBody::step(double delta, const Vector3& wish, bool jump, bool sprint, bo
     }
     input.move_forward_held = input.wish_direction.length_squared() > 1e-8f;
     input.jump_pressed = jump;
+    // The sim runs its own fixed 20 Hz tick, and a physics frame is not one: a caller that
+    // decides on the frame AFTER a tick (goblin.gd does, because its decision layer runs on
+    // the ticks the body actually took) would have every one-frame jump press dropped before
+    // a tick ever sampled it. That is 27 presses at a one-block step and no liftoff
+    // (`nav_trace` 2026-11-28 15:02: feet 242, `next=(1,242,-14)`, `jumps=27`, `vy=-0.08` on
+    // every sample). Queue it the way the player's own jump input is queued; a tick that
+    // cannot use it (airborne) clears it there.
+    if (jump) sim_.queue_jump();
     input.sprint_held = sprint;
     input.sneak_held = sneak;
     input.yaw = yaw;

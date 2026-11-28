@@ -909,7 +909,11 @@ being resampled by a different fraction at each scale.
   standing in** is the search saying it cannot enter the goal at all — a target on a slab, in a
   doorway, on the lip of a step — and with that target in sight and within four blocks the last
   pace is walked straight at it instead (`CHASE_CLOSE_GAP`), because the sim's own step-up takes
-  what a route will not. Without that the goblin stood two blocks from a player it could see and
+  what a route will not. That press only answers a target within a step of the body's own feet:
+  it never jumps, so a player two blocks up is a wall it would press at for the whole chase, and
+  the rise falls through to the patience instead (`nav_trace` 2026-11-28 14:54: `wait=0/60` on
+  every sample for thirteen seconds under a player at feet 296, from bodies at 294). Without the
+  close branch at all the goblin stood two blocks from a player it could see and
   re-asked the same nothing every second (`nav_trace` 2026-11-27 12:43: `PLAN 28 … nodes=1
   path=(-2, 247, 3)` for a body standing in that very cell). It ends the chase because a
   best-effort

@@ -280,7 +280,9 @@ const CHASE_STOP := 0.9
 ## offer. A plan that answers with the cell the body is already standing in is the search saying it
 ## cannot enter the goal -- a target on a slab, in a doorway, on the lip of a step -- and within sight
 ## and four blocks the body's own step-up takes what a route cannot. Beyond that the patience still
-## runs, because a target on a pillar is not a target to walk at.
+## runs, because a target on a pillar is not a target to walk at. The target also has to be within a
+## step of the body's own feet: the press never jumps (only the route walk does), so a player two
+## blocks up is a wall this branch would press at for the whole chase.
 const CHASE_CLOSE_GAP := 4.0
 ## The chase has a patience. When its plans keep coming back with nowhere to walk -- a player on a
 ## pillar, a sealed pit, a frontier at the goblin's own feet -- it stands there while it re-asks,
@@ -809,7 +811,8 @@ func _physics_process(delta: float) -> void:
 	# collision probes, the route bookkeeping and the hops, and the sim only consumes its answer on
 	# a tick — so a 60 Hz call paid for every one of them three times, and every counter in there
 	# that was written as ticks was three times too fast. `_wish` and `_jump` persist between ticks,
-	# and a jump this sets is consumed by the `step` below in the same frame it was set.
+	# and `MobBody::step` queues a jump to the sim's next tick, because that tick is not the frame
+	# this decision runs on.
 	if ticks > 0:
 		_advance_ticks(ticks)
 		_steer()
@@ -1729,7 +1732,17 @@ func _update_enemy(ticks: int) -> void:
 		# away -- on a block the search will not enter. In sight and close, the last pace is walked at
 		# it instead: the sim's own step-up takes the slab or the stair, and a body that walks is not a
 		# frozen one.
-		if _sees(feet, enemy_at) and gap <= CHASE_CLOSE_GAP:
+		# ...and only for a target the last pace can actually REACH. The press is a wish and the
+		# sim's own 0.6 step-up; it never jumps (only the route walk does), so a target even two
+		# blocks up is a wall this branch presses at for as long as the chase lasts. It did:
+		# `nav_trace` 2026-11-28 14:54, two goblins at feet 294 under a player at 296, `wait=0/60`
+		# on every sample for thirteen seconds while every ask answered `no route to the goal
+		# column`. That reset of the patience is the other half: a press that cannot work is not a
+		# reason to stop counting, or the body never gives up and never asks from the cell it slid
+		# to. A rise this branch can answer is the one the body climbs without a jump; anything
+		# taller falls through to the patience and the re-plan, where a way round is found.
+		if _sees(feet, enemy_at) and gap <= CHASE_CLOSE_GAP \
+				and enemy_at.y - feet.y <= CLIMB_RISE + 0.01:
 			_closing = true
 			_chase_wait_ticks = 0
 			_step_at(feet, enemy_at)

@@ -135,8 +135,8 @@ that hand already full, is kept in the main hand; a full main hand stops the sca
 | `probe_body_light.gd` | The player's own body is lit by the world's light, not the engine's: its rendered luma equals the luma of the pixels it is drawn over, it follows the sun down to midnight, and the body and world share the same neutral white-overhead, warm-at-the-horizon sky light |
 | `probe_player_anim.gd` | The live body plays its two clips (idle standing with the arms swaying, run walking) and every track of both lands on a limb; the parked pose port is still measured state by state (see below) |
 | `probe_held_pose.gd` | The held-item shoulder pose (`docs/gui-notes.md`): the pivot, the 18 degrees while holding, 0 with an empty hand, and the item moving forward with it (see below) |
-| `probe_third_person_swing_shot.gd` | The same stroke PHOTOGRAPHED: the body alone under a stub owner, its stroke clock stepped by hand to nine stops, and the frame saved from where third person puts the camera. Runs in a WINDOW (the dummy renderer has no framebuffer). Writes one `swing_pNN.png` per stop into the shots folder. It exists because the stroke was tuned against measured paths for several revisions and the paths were right while the shape was wrong: at the reference's own 23 degrees of roll and yaw the pictures showed the punch taking an eighth of the stroke, foreshortened away to nothing from behind, and the rest of it sweeping the arm out and up beside the head — which no position or direction number says out loud. `_process` is switched OFF before the first stop, or the clock advances while frames render and every picture is of a later point than its label |
-| `probe_third_person_swing.gd` | The third-person punch/place swing (`docs/gui-notes.md`): the `swung` wire on the real player's body, the reference's three-clock stroke (a snapping rise, an outward roll, and a body twist on `sin(sqrt(t)·2π)`), the chest turning into the blow and back, a full hand finishing the holding pose's 18 degrees above an empty one, a place at 0.75, a restart landing on the same far end, the item riding the hand, and the walk carrying on underneath (see below) |
+| `probe_third_person_swing_shot.gd` | The same stroke PHOTOGRAPHED: the body alone under a stub owner, its stroke clock stepped by hand to nine stops, and the frame saved from where third person puts the camera. Runs in a WINDOW (the dummy renderer has no framebuffer). Writes one PNG per stop into the shots folder, named for the aim (level, down, up) and the stop; `FARLANDS_SWING_AIM=down|up` pitches the look 45 degrees, because the blow is aimed. It exists because the stroke was tuned against measured paths for several revisions and the paths were right while the shape was wrong: at the reference's own 23 degrees of roll and yaw the pictures showed the punch taking an eighth of the stroke, foreshortened away to nothing from behind, and the rest of it sweeping the arm out and up beside the head — which no position or direction number says out loud. `_process` is switched OFF before the first stop, or the clock advances while frames render and every picture is of a later point than its label |
+| `probe_third_person_swing.gd` | The third-person punch/place swing (`docs/gui-notes.md`): the `swung` wire on the real player's body, the reference's three-clock stroke (a snapping rise, an outward roll, and a body twist on `sin(sqrt(t)·2π)`), the chest turning into the blow and back, a full hand finishing the holding pose's 18 degrees above an empty one, a place at 0.75, a restart landing on the same far end, the item riding the hand, the aim steering the blow (the reference's head-pitch term), the clock running the direction the reference's does, the pivot held to `setupAttackAnimation`'s own expression at three aims (worst 0.056 deg), and the walk carrying on underneath (see below) |
 | `probe_sky_brightness.gd` | What a fully sky-lit surface renders AT, against its own albedo: the body is handed a flat known grey (1x1, no atlas to guess from), the frame is read back per albedo, and each one is held to the model's own claim — never above its own texel, and not far below it |
 | `probe_item_size.gd` | A dropped item is not cell-sized: a cube's body and drawn mesh are both half a block, a slab and a stair keep their own shape at that scale, a sprite keeps its silhouette, and a stack of more than one is both drawn and solved bigger by the capped log2 curve (1.25x at 2 through 2x from sixteen), mesh and body one box at every count |
 | `probe_item_merge.gd` | Two drops of one kind next to each other become one pile: the counts add up to the 64 cap, the fuller keeps its place, body and mesh take the count's own size, motions combine only when both move, and the drawn size pops past the new one and settles back (at half strength once the pile is already at its largest) |
@@ -357,16 +357,35 @@ A few of those rows keep their detail here, because a table cell that long is an
   number is exact and nothing in the world is written — the stroke itself, measured on the arm's
   DIRECTION in the body's frame (what a player sees move) against the direction it RESTS in, which
   is 18.5 degrees forward of down because of the held pose. The measurement exists to separate a
-  punch from a hinge, and a stroke with one clock from the reference's three. The far end is
-  (-0.14, 0.04, 0.99) in the body's frame — 0.99 forward, 0.04 above the shoulder (level with it)
-  and 0.14 out to the arm's own side, which one pitch about the body's left-right axis cannot reach
-  at any angle (that component stays at exactly zero). The crossing is measured twice over: as a
-  direction (0.23 sideways at its widest) and as the HAND'S POSITION against the SHOULDER'S, which
-  is what an arm opening away from the torso looks like and a direction cannot show — 3.59 rig units
-  OUT past the shoulder's own side line and 1.83 back IN past it. The LOOP is measured too: the two
-  visits to the same point of the travel sit 11.4 degrees apart, because the arm's turn runs on the square root
-  of the REMAINING progress while its rise runs on an out-quart ease of the elapsed one, so the way
-  back is not the way out. So
+  punch from a hinge, and a stroke with one clock from the reference's three. At a level look the far
+  end is (0.09, 0.25, 0.96) in the body's frame — 0.96 forward, 0.25 ABOVE the shoulder (14 degrees
+  above horizontal) and 0.09 in toward the body's middle, which one pitch about the body's
+  left-right axis cannot reach at any angle (that component stays at exactly zero). The crossing is
+  measured twice over: as a direction (0.50 sideways at its widest) and as the HAND'S POSITION
+  against the SHOULDER'S, which is what an arm crossing the torso looks like and a direction cannot
+  show — 8.44 rig units IN past the shoulder's own side line and 4.11 back OUT past it, the mirror
+  of the reference's own blow. The LOOP is measured too: the two visits to the same point of the
+  travel sit 37.2 degrees apart, because the arm's turn runs on the square
+  root of the progress while its rise runs on an out-quart ease of it, so the way back is not the
+  way out. Two more are read by sweeping the stroke's own clock rather than by watching it play:
+  the AIM, because the reference's rise is `aa * 1.2 + bb` and `bb` is the head's pitch (the arm's
+  elevation at a fifth of the way in is −5.7 degrees looking 45 down, 13.5 level and 32.7 looking
+  45 up), and the CLOCK'S DIRECTION, because its `attackTime` counts up and its twist reads
+  `sin(sqrt(attackTime) * 2pi)` (the chest is 11.3 degrees round at a sixteenth of the stroke and
+  home by the end; read the other way round, those two numbers swap ends). And the strongest check
+  here is not a property at all: `_reference_pivot` restates `setupAttackAnimation` from its own
+  source — `aa * 1.2 + bb`, the arm's `yRot += body.yRot * 2`, `zRot += sin(t*PI) * -0.4`, composed
+  Z then Y then X — and the pivot's rotation is compared to it across 21 stops at three aims, worst
+  0.056 degrees. The SHAPE is held too, and it is the check that answers "it looks like two poses
+  and a pause": the rise must have its one apex before 0.4 of the stroke, with at most 4 of the 21
+  stops within 3 degrees of it (measured: apex at 0.20, 2 stops). Raising the rise's 1.2 or the
+  aim's 0.75 breaks that check as well as the formula one — the aim term peaks at halfway, so a
+  bigger one pulls the maximum late and flattens the top. Its two lateral terms are mirrored on
+  both sides of that comparison (`LATERAL`),
+  because this body's blow comes inward across the chest where the reference's opens outward: the
+  mirror is the one number in the stroke that is this project's rather than the source's, and it is
+  a single switch in the model so the roll, the yaw and the chest cannot disagree. Every earlier revision of this stroke passed the property checks while being the
+  wrong stroke; a formula check is what a property check cannot be. So
   is the CHEST: 7 degrees into the blow, back to nothing at both ends of the stroke. Two more
   are the HOLDING POSE: a full hand reaches 18.0 degrees above an empty one, the reference's own
   asymmetry, and the shoulder's 18-degree held turn stays put through the whole stroke instead of

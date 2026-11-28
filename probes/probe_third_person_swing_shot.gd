@@ -18,6 +18,9 @@ const STOPS := [0.0, 0.06, 0.12, 0.20, 0.35, 0.50, 0.70, 0.88, 1.0]
 class Stub extends Node3D:
 	var block_id := 0
 	var velocity := Vector3.ZERO
+	# Where the body is aiming, which is what the stroke's head-pitch term reads. Level unless
+	# `FARLANDS_SWING_AIM` says otherwise, so a run of this probe is a level-look run by default.
+	var aim := Vector3(0.0, 0.0, 1.0)
 
 	func get_selected_hotbar_slot() -> int:
 		return 0
@@ -26,7 +29,7 @@ class Stub extends Node3D:
 		return block_id
 
 	func get_aim_direction() -> Vector3:
-		return Vector3(0.0, 0.0, 1.0)
+		return aim
 
 	func get_velocity() -> Vector3:
 		return velocity
@@ -64,6 +67,15 @@ func _run() -> void:
 		return
 	var host := Stub.new()
 	host.name = "ShotHost"
+	# The blow is aimed, so the frames can be taken at a pitched look as well as a level one:
+	# `FARLANDS_SWING_AIM=down` (or `up`) pitches the aim 45 degrees and retitles the files.
+	var aim_name := OS.get_environment("FARLANDS_SWING_AIM")
+	if aim_name == "down":
+		host.aim = Vector3(0.0, -1.0, 1.0).normalized()
+	elif aim_name == "up":
+		host.aim = Vector3(0.0, 1.0, 1.0).normalized()
+	else:
+		aim_name = "level"
 	stage.add_child(host)
 	var body: Node3D = glb.instantiate()
 	body.set_script(load("res://scripts/player_model.gd"))
@@ -102,7 +114,7 @@ func _run() -> void:
 			await process_frame
 		await RenderingServer.frame_post_draw
 		var image: Image = root.get_texture().get_image()
-		var path := "res://.freebuff/shots/swing_p%02d.png" % index
+		var path := "res://.freebuff/shots/swing_%s_p%02d.png" % [aim_name, index]
 		var err := image.save_png(path)
 		print("PROBE stop %.2f -> %s (%s)" % [float(p), path, error_string(err)])
 		index += 1

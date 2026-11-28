@@ -135,20 +135,26 @@ const HELD_ARM_SWING := 0.5
 # itself, the break loop) and says so with one signal, `swung(strength)`, which this body
 # plays. See _apply_hand_swing for the arc and _connect_swing for the wire.
 #
-# The clock and the weight are the first-person hand's own (viewmodel.gd: SWING_SECONDS,
-# SWING_PUNCH, SWING_PLACE), restated here rather than shared, because the two hands are
-# separate nodes and the numbers are a POSE's, not a rule: a body that swung slower than the
-# hand in front of the eye would read as a delay.
+# The weight is the first-person hand's own (viewmodel.gd: SWING_PUNCH, SWING_PLACE), restated
+# here rather than shared, because the two hands are separate nodes and the number is a POSE's.
+# The BODY's clock is not the hand's: it is the reference's own `getCurrentSwingDuration()`,
+# SIX TICKS (0.3 s), where the viewmodel's arc is 0.225. The hand's number was copied here for
+# several revisions, and it is the reason the stroke looked like a flick rather than a swing: at
+# 0.225 the rise is at its far end in 36 ms and on its way back before an eye registers it, so
+# what a player actually sees is the LOW half of an arc. Six ticks gives the top of the stroke the
+# 100 ms it needs to read, and it is the duration the reference draws its own curve over -- the
+# shape above is stated in fractions of the stroke and does not move.
 const SWING_PIVOT := "SwingPivot"
-const HAND_SWING_SECONDS := 0.225
+const HAND_SWING_SECONDS := 0.3
 # The chest's own turn into a blow, in degrees (the reference's 0.2 rad), and the node it turns on
 # -- see _init_chest_pivot for why the torso and both shoulders are on it.
 const CHEST_PIVOT := "ChestTwist"
-const CHEST_TWIST := 7.0
+const CHEST_TWIST := 0.2
 # Where the first-person hand's swing lives from the controller that punches it -- the same
 # path player_controller_interact.cpp calls punch() on.
 const VIEWMODEL_PATH := "Camera3D/Viewmodel"
-# The stroke's FAR END, in degrees, and it is a POSE rather than a hinge angle: a pitch, a yaw
+# The stroke's FAR END, in RADIANS -- the reference's own numbers, unrescaled -- and it is a POSE
+# rather than a hinge angle: a pitch, a yaw
 # and a twist. The first-person hand's arc interpolates to exactly the same three
 # (`compute_swing_pose`'s PEAK_ROT: 10, 30, -5), and that is what makes a punch a DIAGONAL --
 # the arm does not come up to point straight ahead, it comes up and ACROSS, so its far end is
@@ -156,22 +162,42 @@ const VIEWMODEL_PATH := "Camera3D/Viewmodel"
 # that reverses (below) leaves it only for an instant at half height. Ours to tune, in this
 # rig's signs: the pitch brings a hanging arm forward, the yaw carries the hand toward the
 # body's middle, and the twist turns the fist about the arm's own length as it goes.
-const HAND_SWING_PITCH := 74.0
-const HAND_SWING_YAW := 7.0
-const HAND_SWING_ROLL := 7.0
-# The rise's two terms: the slower one as a fraction of the snapping one, and the sum's own peak
-# (so `HAND_SWING_PITCH` is the angle actually reached, not the scale of a curve).
-const SWING_CARRY := 0.4375
-const SWING_CARRY_MAX := 1.225
-# ...and these three are the same three the reference has, on three DIFFERENT clocks (see
-# _apply_hand_swing): the PITCH is how far the arm rises on top of the holding pose's 18, the YAW
-# is the arm's share of the body's twist into the blow, and the ROLL is the outward opening
-# through the middle of the stroke. Ours to tune, and the two lateral ones are SMALLER than the
-# reference's on purpose: at its 23 degrees each, photographed from the third-person camera
-# (probes/probe_third_person_swing_shot.gd), four fifths of the visible stroke was the arm
-# sweeping out and up beside the head -- the punch itself is the first eighth and is foreshortened
-# away to nothing from behind. A punch's lateral share is a few degrees, and the pitch is what
-# carries it.
+# The reference's own 1.2, and it was raised to 1.45 for one revision as "more up". That was
+# wrong twice over, and the reason is the SHAPE of the two terms rather than their size: the rise
+# peaks a sixth of the way in (`outQuart`) while the aim term peaks halfway (`sin(t*PI)`), so a
+# term big enough to lift the arc also pulls the maximum LATE and flattens the top -- the stroke
+# stops being one apex and becomes rise-hold-come-back. Anything that makes this arm climb higher
+# has to scale the whole rise, not add a second, later bell to it.
+const HAND_SWING_PITCH := 1.2
+const HAND_SWING_YAW := 0.2
+const HAND_SWING_ROLL := 0.4
+# The rise's aim term: `bb`'s own coefficient, `sin(t * PI) * -(head.xRot - 0.7) * 0.75`, in
+# radians like every other number here.
+const HAND_SWING_AIM := 0.75
+# The most the arm may rise, in radians on top of the holding pose. This is a SAFETY NET and not
+# a shape: at the reference's numbers the deepest look up gives about 2.9 at the halfway point,
+# and the cap holds the far end at 149 degrees from straight down -- a little past the reference's
+# own look-straight-up pose (129). It must sit well clear of a normal strike (1.45 at level), or
+# it turns the top of the arc into a plateau: at 1.95 it was clipping the level stroke itself.
+const HAND_SWING_RISE_MAX := 2.6
+# The LATERAL half of the stroke -- the roll, the arm's own yaw and the chest's turn -- is the
+# reference's own, MIRRORED. The reference opens the arm away from the body and across its own
+# side line; this body's blow comes INWARDS, across the chest. One switch rather than three signs,
+# because the three are one motion: a roll that opens in while the chest turns out is an arm
+# fighting its own shoulder. The rise and the aim are untouched by it, and so is the clock.
+const HAND_SWING_LATERAL := -1.0
+# The pitch the aim has to be 40 degrees DOWN (0.7 rad, the reference's own constant) before the
+# blow gives up all of its head-pitch lift, and looking up from level gains the same amount again:
+# `(AIM_LEVEL - aim) / AIM_LEVEL` is 1 at a level look, 0 at 40 down and 2 at 40 up.
+const AIM_LEVEL := 0.7
+# These are the reference's three, in ITS units and at ITS sizes, on three DIFFERENT clocks (see
+# _apply_hand_swing): `attackArm.xRot -= aa * 1.2 + bb`, `attackArm.yRot += body.yRot * 2` on top
+# of the turn the chest already gives it, and `attackArm.zRot += sin(t * PI) * -0.4`, with
+# `body.yRot = sin(sqrt(t) * 2PI) * 0.2`. They were rescaled into degrees here for several
+# revisions and then TUNED -- down to 74/7/7 -- which was compensating for a mirrored clock and a
+# missing aim term rather than fixing them: a pose that is not the reference's numbers cannot be
+# checked against the reference, and the tuning ran away from the answer instead of towards it.
+# A number here changes only with a citation.
 # data/items.json's `pose` field, through the ONE reader this body and the first-person
 # viewmodel share (scripts/item_poses.gd): an item's pose is a claim about its ART rather than
 # an item mechanic, so it is not in the registry -- and it is not read twice either.
@@ -1078,22 +1104,28 @@ func _apply_hand_swing(delta: float) -> void:
 	var towards := _inspect_sign()
 	var snap: float = sin((1.0 - pow(1.0 - progress, 4.0)) * PI)
 	var carry: float = sin(progress * PI)
-	var rise: float = (snap + SWING_CARRY * carry) / SWING_CARRY_MAX
-	# The reference counts its clock DOWN (its `attackTime` runs 1 -> 0) and the two terms read
-	# OPPOSITE ends of it: the rise takes `1 - attackTime` and this twist takes `attackTime`
-	# itself. Both were written on `progress` here for several revisions, which put the whole
-	# lateral sweep at the wrong end of the stroke -- the arm swung out on the way UP instead of
-	# on the way BACK, where the reference has it.
-	var turn: float = sin(sqrt(1.0 - progress) * TAU)
-	_swing_pivot.quaternion = Quaternion(Vector3.RIGHT,
-			deg_to_rad(HAND_SWING_PITCH * rise * towards * strength)) \
-		* Quaternion(Vector3.UP, deg_to_rad(HAND_SWING_YAW * turn * -towards * strength)) \
-		* Quaternion(Vector3.BACK, deg_to_rad(HAND_SWING_ROLL * carry * towards * strength))
+	# `bb`, and the one term of the stroke that is not a clock: `sin(t * PI) * -(head.xRot - 0.7) *
+	# 0.75` is the HEAD'S PITCH. A level look adds 0.525 rad of lift, a look 40 degrees down adds
+	# nothing at all and a look 40 up adds 1.05, so the blow is aimed: punch the floor and the arm
+	# stays low, punch the sky and it comes up overhead. Read live every frame, as the reference
+	# reads it, so a swing that turns mid-arc turns with it.
+	var rise: float = clampf(HAND_SWING_PITCH * snap + (AIM_LEVEL - _aim_pitch())
+		* HAND_SWING_AIM * carry, -0.3, HAND_SWING_RISE_MAX) * strength
+	# The reference's clock counts UP, 0 -> 1 (`attackAnim = swingTime / duration`), so `sqrt(t)`
+	# is its own. It was written on `sqrt(1 - t)` here for several revisions on the reading that
+	# the clock counted down, which put the whole lateral sweep at the MIRRORED end of the stroke
+	# -- the arm opened on the way back instead of where the reference has it.
+	var turn: float = sin(sqrt(progress) * TAU)
+	_swing_pivot.quaternion = Quaternion(Vector3.RIGHT, rise * towards) \
+		* Quaternion(Vector3.UP,
+			HAND_SWING_YAW * turn * 2.0 * -towards * HAND_SWING_LATERAL * strength) \
+		* Quaternion(Vector3.BACK,
+			HAND_SWING_ROLL * carry * towards * HAND_SWING_LATERAL * strength)
 	# ...and the chest, on the arm's own turn clock, which is the reference's `body.yRot`: the
 	# torso box and both shoulders swing round the spine together.
 	if _chest_pivot != null:
 		_chest_pivot.quaternion = Quaternion(Vector3.UP,
-				deg_to_rad(CHEST_TWIST * turn * -towards * strength))
+				CHEST_TWIST * turn * -towards * HAND_SWING_LATERAL * strength)
 
 
 ## The block or item the body carries in its right hand.
@@ -1672,20 +1704,34 @@ func _look_controller() -> Node:
 			return player
 	return null
 
+## The aim's pitch in the REFERENCE's sense -- radians, POSITIVE MEANING LOOKING DOWN.
+##
+## That is what its `head.xRot` is (`head.xRot = state.xRot * PI / 180`, and its crouch nod and its
+## shield arm both read it that way), and `_apply_hand_swing` reads it for the lift the head gives a
+## blow. Ours is read the way `_track_head_look` reads it -- the aim direction expressed in the
+## controller's own frame, `aim = ctrl_basis * rotX(pitch) * (0,0,-1)`, so `local.y == sin(pitch)`
+## with a positive meaning looking UP -- and negated. One source for both, so the head and the blow
+## can never disagree about where the body is aiming; a body with nothing to aim with (a preview, a
+## frozen pose clone) aims level.
+func _aim_pitch() -> float:
+	var ctrl := _look_controller()
+	if ctrl == null:
+		return 0.0
+	var ctrl_q: Quaternion = (ctrl as Node3D).global_transform.basis.get_rotation_quaternion()
+	var local: Vector3 = (ctrl_q.inverse() * ctrl.get_aim_direction()).normalized()
+	return -asin(clampf(local.y, -1.0, 1.0))
+
 func _track_head_look() -> void:
 	if _head == null:
 		return
 	var ctrl := _look_controller()
 	var parent_q: Quaternion = _head.get_parent().global_transform.basis.get_rotation_quaternion()
 	if ctrl != null:
-		# Pitch from the aim direction expressed in the controller's own frame:
-		# aim = ctrl_basis * rotX(pitch) * (0,0,-1), so local.y == sin(pitch) and
-		# look_q = ctrl_q * rotX(pitch) reproduces the exact basis the camera gets
-		# in modes 0/1 — view-independent by construction.
+		# look_q = ctrl_q * rotX(pitch) reproduces the exact basis the camera gets in
+		# modes 0/1 — view-independent by construction. `_aim_pitch` is the same number the
+		# blow reads, with the reference's sign; the head wants the up-positive one.
 		var ctrl_q: Quaternion = (ctrl as Node3D).global_transform.basis.get_rotation_quaternion()
-		var dir: Vector3 = ctrl.get_aim_direction()
-		var local: Vector3 = (ctrl_q.inverse() * dir).normalized()
-		var pitch := asin(clampf(local.y, -1.0, 1.0))
+		var pitch := -_aim_pitch()
 		var look_q: Quaternion = ctrl_q * Quaternion(Vector3.RIGHT, pitch)
 		_head.quaternion = parent_q.inverse() * look_q * Quaternion(Vector3.UP, PI)
 	else:

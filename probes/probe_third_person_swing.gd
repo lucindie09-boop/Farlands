@@ -36,6 +36,21 @@ extends SceneTree
 ## The stroke's numbers, restated here on purpose: the probe is what holds them, so it must not
 ## read them back from the file it is checking.
 const ARC_DEGREES := 84.0
+## The reference's `getCurrentSwingDuration()`: six ticks. Restated because this probe measures a
+## stroke in SECONDS as well as in fractions of one, and the two are not the same number.
+const SWING_SECONDS := 0.3
+## The lateral terms are MIRRORED from the reference here, by choice (see `HAND_SWING_LATERAL` in
+## scripts/player_model.gd): the reference opens the arm outboard and across its own side line, and
+## this body's blow comes inwards across the chest. The rise, the aim and the clocks are the
+## reference's own and are NOT mirrored, so this is the one number in the stroke that is ours.
+const LATERAL := -1.0
+## ...and these are the reference's numbers, at the file's values: raising either one was tried and
+## reverted, because its two terms peak at DIFFERENT points of the stroke (the rise at a sixth of
+## the way in, the aim halfway), so a bigger aim term drags the maximum late and flattens the top
+## into a rise-hold-return instead of one apex. Restated here so a change to either is a failure.
+const LIFT := 1.2
+const REACH := 0.75
+const RISE_MAX := 2.6
 const PLACE_SHARE := 0.75
 const HELD_PITCH := 18.0
 const TOLERANCE := 4.0
@@ -58,6 +73,9 @@ func _ok(label: String, condition: bool, detail: String = "") -> void:
 class Stub extends Node3D:
 	var block_id := 0
 	var velocity := Vector3.ZERO
+	# Where the body is aiming: level by default, so every number below is a level-look one.
+	# Pitched, it is what the stroke's head-pitch term reads.
+	var aim := Vector3(0.0, 0.0, 1.0)
 
 	func get_selected_hotbar_slot() -> int:
 		return 0
@@ -66,7 +84,7 @@ class Stub extends Node3D:
 		return block_id
 
 	func get_aim_direction() -> Vector3:
-		return Vector3(0.0, 0.0, 1.0)
+		return aim
 
 	func get_velocity() -> Vector3:
 		return velocity
@@ -80,6 +98,93 @@ func _hand_dir(body: Node3D, arm: Node3D) -> Vector3:
 	return (down_the_limb - shoulder).normalized()
 
 
+## The stroke swept by its own CLOCK, for the checks that are about what the stroke READS rather
+## than how it lands in real time: the highest the item climbs above its rest height, and the
+## chest's turn at the reference's own early peak and at the very end.
+##
+## The clock is set and `_apply_hand_swing(0.0)` written by hand, so no frame runs between a sample
+## and its reading -- the same courtesy the capture gives itself, because a stroke this short is
+## 0.07 of its way along per frame and a "sample" would otherwise be a moving average.
+##
+## The two chest numbers are the reference's clock DIRECTION made visible: its `attackTime` counts
+## up from 0 and the twist reads `sin(sqrt(attackTime) * 2pi)`, which is already a quarter turn in
+## at 1/16 of the stroke, so the body is most turned round almost at once and home by the end. The
+## mirrored reading (`sqrt(1 - t)`) puts those two numbers the other way round.
+func _sweep(body: Node3D, arm: Node3D, item: Node3D) -> Dictionary:
+	var rest_y: float = body.to_local(item.global_position).y
+	var climbed := -1000.0
+	var chest_early := 0.0
+	var chest_last := 0.0
+	# The arm's OWN elevation at a fifth of the way in, which is the number that says where the
+	# blow is pointing. Taken at a fixed point of the stroke rather than at the highest one:
+	# looking further up runs the arm into its own ceiling, where a maximum cannot rise any more
+	# but the direction at any given instant still does.
+	var elev_mid := 0.0
+	# The whole elevation profile, because "it looks like two points" is a claim about the SHAPE of
+	# the rise: one apex, and no long sit near it. Counted as samples within 3 degrees of the top.
+	var elevs: Array = []
+	for step in 21:
+		var p := float(step) / 20.0
+		body.set("_hand_swing_strength", 1.0)
+		body.set("_hand_swing", 1.0 - p)
+		body.call("_apply_hand_swing", 0.0)
+		climbed = maxf(climbed, body.to_local(item.global_position).y - rest_y)
+		var elev := rad_to_deg(asin(clampf(_hand_dir(body, arm).y, -1.0, 1.0)))
+		elevs.append(elev)
+		if step == 4:
+			elev_mid = elev
+		var chest := body.get("_chest_pivot") as Node3D
+		if chest != null:
+			var turned := rad_to_deg(chest.quaternion.angle_to(Quaternion.IDENTITY))
+			if step == 1:
+				chest_early = turned
+			if step == 20:
+				chest_last = turned
+	body.set("_hand_swing", 0.0)
+	body.set("_hand_swing_strength", 1.0)
+	body.call("_apply_hand_swing", 0.0)
+	var top := -1000.0
+	var apex_at := 0.0
+	for i in elevs.size():
+		if float(elevs[i]) > top:
+			top = float(elevs[i])
+			apex_at = float(i) / 20.0
+	var near_max := 0
+	for e in elevs:
+		if float(e) > top - 3.0:
+			near_max += 1
+	return {"climbed": climbed, "chest_early": chest_early, "chest_last": chest_last,
+		"elev_mid": elev_mid, "top": top, "apex_at": apex_at, "near_max": near_max}
+
+
+## The reference's whole stroke, rewritten here from its own source, in its own units, to be held
+## against what the body actually writes:
+##
+##   body.yRot        = sin(sqrt(attackTime) * 2PI) * 0.2
+##   aa               = sin(outQuart(attackTime) * PI)
+##   bb               = sin(attackTime * PI) * -(head.xRot - 0.7) * 0.75
+##   attackArm.xRot  -= aa * 1.2 + bb
+##   attackArm.yRot  += body.yRot * 2        (the chest already gives it the first)
+##   attackArm.zRot  += sin(attackTime * PI) * -0.4
+##   parts compose   Z, then Y, then X
+##
+## `attackTime` counts UP, 0 to 1. The probe restates it rather than reading the file's constants
+## back, because the point of the check is that a change to either one is a difference.
+func _reference_pivot(t: float, aim: float, towards: float, strength: float) -> Quaternion:
+	var aa := sin((1.0 - pow(1.0 - t, 4.0)) * PI)
+	var body_turn := sin(sqrt(t) * TAU) * 0.2
+	var x_rot := clampf(LIFT * aa + sin(t * PI) * (0.7 - aim) * REACH, -0.3, RISE_MAX)
+	var y_rot := 2.0 * body_turn
+	var z_rot := sin(t * PI) * -0.4
+	# The conversions, once: its xRot is SUBTRACTED from a rest of -pi/10, so the amount it takes
+	# off goes in with this rig's facing; its yRot is the same way round as this rig's yaw; and its
+	# zRot is "outboard", which is -X on the arm that attacks here, so it goes in negated by the
+	# facing rather than multiplied by it.
+	return Quaternion(Vector3.RIGHT, x_rot * towards * strength) \
+		* Quaternion(Vector3.UP, y_rot * -towards * LATERAL * strength) \
+		* Quaternion(Vector3.BACK, -z_rot * towards * LATERAL * strength)
+
+
 ## Walk one stroke and report what the hand drew: the far end (the direction it reached and how
 ## far it turned to get there, measured from the rest direction), the widest it crossed
 ## sideways, where it finished, the item's ride, and the LOOP -- how far apart the hand's own
@@ -87,7 +192,7 @@ func _hand_dir(body: Node3D, arm: Node3D) -> Vector3:
 ## those two together to nothing; a sweep keeps them apart.
 ##
 ## `rest_dir` is the direction the arm hung in BEFORE the swing was kicked, passed in rather
-## than read off the first frame: the stroke is over in 0.225 s, so a headless frame can already
+## than read off the first frame: the stroke is over in 0.3 s (six ticks), so a headless frame can already
 ## be well into it by the time this is called.
 func _stroke(body: Node3D, arm: Node3D, pivot: Node3D, item: Node3D, rest_dir: Vector3,
 		seconds: float) -> Dictionary:
@@ -254,6 +359,15 @@ func _run() -> void:
 			% [player_arm.get_parent().name if player_arm != null else "-",
 				player_swing.get_parent().name if player_swing != null else "-"])
 
+	# The arm's REST is the holding pose, and the holding pose is written when the body first sees
+	# what its hand carries -- NOT in _ready. Measured before that lands, every number below is
+	# read against a pose the body is not in yet (that cost a "102.8 deg of travel, ends 18.3 off
+	# rest" once: the 18.3 was the held turn itself, and it inflated the peak by the same amount).
+	var seated_until := Time.get_ticks_msec()
+	while Time.get_ticks_msec() - seated_until < 1000:
+		if player_model.get("_held_item") != null and (player_model.get("_held_item") as Node3D).visible:
+			break
+		await process_frame
 	var player_rest: Vector3 = _hand_dir(player_model, player_arm)
 	viewmodel.call("punch")
 	_ok("wire: a punch reaches the body at full weight",
@@ -333,9 +447,9 @@ func _run() -> void:
 	# The far end is a POSE, not a hinge angle: forward, ACROSS, and ABOVE the shoulder -- the
 	# arm ends up in front of the face rather than at the horizon, which is what one pitch
 	# alone (and a small one at that) gives.
-	_ok("punch: the hand ends up in front, at the shoulder's own height",
-		peak_dir.z > 0.8 and peak_dir.y > -0.05 and absf(peak_dir.x) < 0.4
-			and float(punch["peak_turn"]) > 60.0,
+	_ok("punch: the hand ends up in front of and above the shoulder",
+		peak_dir.z > 0.8 and peak_dir.y > 0.1 and absf(peak_dir.x) < 0.4
+			and float(punch["peak_turn"]) > 80.0,
 		"far end %s, %.1f deg of travel" % [peak_dir, punch["peak_turn"]])
 	# ...and the holding pose is UNDER the stroke, not swapped for it: the reference adds its
 	# attack angle to its own held-arm rule (the same 18 degrees), so a full hand reaches exactly
@@ -374,10 +488,10 @@ func _run() -> void:
 	# roll is negative on the arm it attacks with, and the hand's own position against the
 	# shoulder's is what an arm opening away from the torso looks like -- a direction cannot show
 	# it, which is why this is measured here at all.
-	_ok("punch: the arm opens OUT past the shoulder and crosses back in",
-		float(punch["outboard"]) > 1.0 and float(punch["inboard"]) > 1.0,
-		"hand reaches %.2f out past the shoulder and %.2f in past it"
-			% [float(punch["outboard"]), float(punch["inboard"])])
+	_ok("punch: the arm crosses IN past the shoulder, not out past it",
+		float(punch["inboard"]) > 1.0 and float(punch["inboard"]) > float(punch["outboard"]),
+		"hand reaches %.2f in past the shoulder and %.2f out past it"
+			% [float(punch["inboard"]), float(punch["outboard"])])
 	# ...and the CHEST turns into it and comes back: the reference twists its body box by 0.2 rad
 	# and places both arms from that twist, so a punch there is a shoulder going round the spine,
 	# not an arm turning against a rigid torso.
@@ -390,6 +504,45 @@ func _run() -> void:
 		float(punch["end"]) < 0.01 and bool(punch["identity"]),
 		"ends %.2f deg off rest, pivot at identity %s"
 			% [float(punch["end"]), bool(punch["identity"])])
+
+	# --- the FORMULA, not a property of it --------------------------------------
+	# Everything above is a property a wrong stroke can also have: an arc, a loop, a height, a
+	# chest that turns. The revisions that looked wrong passed all of them. This compares the
+	# pivot's own rotation to the reference's expression, restated above, across the whole stroke
+	# and at three aims -- so a mirrored clock, a rescaled angle or a dropped term is a failure and
+	# not a matter of taste.
+	var worst := 0.0
+	var worst_at := 0.0
+	var towards := float(body.call("_inspect_sign"))
+	for aim in [0.0, 0.785398, -0.785398]:
+		host.aim = Vector3(0.0, -sin(aim), cos(aim))
+		for step in 21:
+			var p := float(step) / 20.0
+			body.set("_hand_swing_strength", 1.0)
+			body.set("_hand_swing", 1.0 - p)
+			body.call("_apply_hand_swing", 0.0)
+			var off := rad_to_deg(pivot.quaternion.angle_to(
+				_reference_pivot(p, aim, towards, 1.0)))
+			if off > worst:
+				worst = off
+				worst_at = p
+	host.aim = Vector3(0.0, 0.0, 1.0)
+	body.set("_hand_swing", 0.0)
+	body.set("_hand_swing_strength", 1.0)
+	body.call("_apply_hand_swing", 0.0)
+	_ok("formula: the stroke IS the reference's own expression",
+		worst < 0.5, "worst %.3f deg off, at t %.2f" % [worst, worst_at])
+	# ...over the reference's own DURATION. Its curve is stated in fractions of a stroke, so the
+	# fractions were always right while the stroke was 0.225 s -- four and a half ticks -- and a
+	# stroke that short spends 36 ms at its top. One duration of clock, spent in one call, has to
+	# take the whole stroke; that is the number `getCurrentSwingDuration()` answers with six ticks.
+	body.set("_hand_swing", 1.0)
+	body.call("_apply_hand_swing", SWING_SECONDS)
+	var spent := float(body.get("_hand_swing"))
+	body.set("_hand_swing", 0.0)
+	body.call("_apply_hand_swing", 0.0)
+	_ok("clock: one stroke is six ticks of the reference's clock",
+		absf(spent) < 0.001, "a whole duration leaves the clock at %.4f" % spent)
 
 	rest_dir = _hand_dir(body, arm)
 	body.call("_on_swung", PLACE_SHARE)
@@ -423,11 +576,21 @@ func _run() -> void:
 		if mid_return < peak_deg * 0.7:
 			break
 	body.call("_on_swung", 1.0)
-	var restarted: Dictionary = await _stroke(body, arm, pivot, item, rest_dir, 0.45)
+	# Read the restart's far end off the CLOCK, not off the frames: the stroke's peak is 45 ms long
+	# and one dropped frame turns a frame-sampled measurement into a measurement of the frame rate
+	# (this check was failing on exactly that, at a peak that was half the stroke's).
+	var restarted_clock := float(body.get("_hand_swing"))
+	body.set("_hand_swing", 1.0 - 0.2)
+	body.call("_apply_hand_swing", 0.0)
+	var restarted_far := rad_to_deg(_hand_dir(body, arm).angle_to(rest_dir))
+	body.set("_hand_swing", 0.0)
+	body.call("_apply_hand_swing", 0.0)
 	_ok("restart: a second punch starts over and lands on the SAME far end",
 		mid_return < float(punch["peak_turn"]) - 4.0
-			and absf(float(restarted["peak_turn"]) - float(punch["peak_turn"])) <= TOLERANCE,
-		"restarted at %.1f deg, reached %.1f" % [mid_return, float(restarted["peak_turn"])])
+			and absf(restarted_clock - 1.0) < 0.01
+			and absf(restarted_far - float(punch["peak_turn"])) <= TOLERANCE,
+		"restarted at %.1f deg with the clock at %.2f, far end %.1f"
+			% [mid_return, restarted_clock, restarted_far])
 
 	# The held thing hangs off the arm, so the swing carries it with no item code: its distance
 	# from the shoulder cannot change, and it rises with the hand. Measured on the first stroke,
@@ -436,6 +599,42 @@ func _run() -> void:
 		float(punch["radius_error"]) < 0.001 and float(punch["rise"]) > 0.05,
 		"radius error %.5f, risen %.3f rig units"
 			% [float(punch["radius_error"]), float(punch["rise"])])
+
+	# --- what the stroke READS besides the clock -------------------------------
+	# The reference's rise is `aa * 1.2 + bb`, and `bb` is the HEAD'S PITCH: a level look gives the
+	# blow 0.525 rad of lift, a look 40 degrees down gives none at all and a look 40 up gives twice
+	# as much. Ours was written with the level-look value baked in as a constant, so a punch at the
+	# floor rose like a punch at the horizon -- which is the difference between an animation and a
+	# blow that is aimed.
+	var level_aim: Dictionary = _sweep(body, arm, item)
+	host.aim = Vector3(0.0, -1.0, 1.0).normalized()
+	var aim_down: Dictionary = _sweep(body, arm, item)
+	host.aim = Vector3(0.0, 1.0, 1.0).normalized()
+	var aim_up: Dictionary = _sweep(body, arm, item)
+	host.aim = Vector3(0.0, 0.0, 1.0)
+	_ok("aim: the blow points where the crosshair does",
+		float(aim_down["elev_mid"]) < float(level_aim["elev_mid"]) - 8.0
+			and float(aim_up["elev_mid"]) > float(level_aim["elev_mid"]) + 8.0,
+		"arm %.1f deg above horizontal at 45 down, %.1f level, %.1f at 45 up"
+			% [float(aim_down["elev_mid"]), float(level_aim["elev_mid"]),
+				float(aim_up["elev_mid"])])
+	# ...and the clock runs the way the reference's does. Its `attackTime` counts UP from 0 and the
+	# twist reads `sin(sqrt(attackTime) * 2pi)`, which is a quarter turn in at 1/16 of the stroke:
+	# the body is most turned round almost at once and home by the end. Written the other way round
+	# (`sqrt(1 - t)`, as this file had it) those two numbers swap ends.
+	# ...and the rise is ONE apex rather than two points and a hold: the reference's rise peaks a
+	# sixth of the way in and is already well down by halfway, and its aim term is deliberately too
+	# small to pull that maximum late. Raised, that term peaks at half a stroke and the sum sits at
+	# its top from a fifth to a half -- which is what "there is an apex pause" looks like on screen.
+	_ok("shape: one apex, and no holding at it",
+		float(level_aim["apex_at"]) < 0.4 and int(level_aim["near_max"]) <= 4,
+		"apex at t %.2f (%.1f deg), %d of 21 samples within 3 deg of it"
+			% [float(level_aim["apex_at"]), float(level_aim["top"]),
+				int(level_aim["near_max"])])
+	_ok("clock: the twist is in at a sixteenth and home by the end",
+		float(level_aim["chest_early"]) > 6.0 and float(level_aim["chest_last"]) < 0.5,
+		"chest %.1f deg at 1/16 of the stroke, %.1f at the end"
+			% [float(level_aim["chest_early"]), float(level_aim["chest_last"])])
 
 	# --- walking: the arm swings over a body that keeps walking ------------------
 	body.set("skip_head_look", false)

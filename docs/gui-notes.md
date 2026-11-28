@@ -951,8 +951,9 @@ first-person viewmodel - what each one owns and the decisions behind it.
   own local rotation belongs to the AnimationTree and is rewritten every frame. Being the arm's
   parent it carries the held block or item with no per-frame item code, and the arm's track path
   is `HeldArmPivot/SwingPivot/arm` from then on, which the clip's tables already resolve per part
-  (`_part_path`). The clock is the first-person hand's own 0.225 s (`HAND_SWING_SECONDS`), a place
-  the same arc at 0.75.
+  (`_part_path`). The clock is the reference's six ticks, 0.3 s (`HAND_SWING_SECONDS`) — the
+  hand's own 0.225 s was copied here for several revisions, and a stroke that short shows only the
+  low half of its arc because its top lasts 36 ms —, a place is the same arc at 0.75.
 - **The third-person stroke is three terms on three different clocks; the version of it that had
   ONE clock read as a wave.** Three versions were wrong in three different ways. The first pitched
   the shoulder and nothing else — a hinge, and it read like one ("it kinda just rotates the arm
@@ -968,28 +969,52 @@ first-person viewmodel - what each one owns and the decisions behind it.
   taken as behaviour rather than code, the same relationship `compute_swing_pose` has with the
   first-person one — and that shape is
   three terms. The RISE snaps: the progress is eased once with `1 - (1 - t)^4` and the sine of THAT
-  is taken, so the arm is at `HAND_SWING_PITCH` (74 degrees on top of the holding pose's 18, which
-  leaves the hand level with the shoulder) about a sixth of the way into the stroke, and a second,
-  slower sine on the progress (`SWING_CARRY`, 0.4375 of the first, over `SWING_CARRY_MAX` so the
-  number is the angle actually reached) holds it partway out on the way back. The ROLL
-  (`HAND_SWING_ROLL`, 7 degrees about the body's forward axis) opens the arm OUTWARD through the
+  is taken, so the arm is at `HAND_SWING_PITCH` (1.2 radians on top of the holding pose's 18 — the
+  reference's own number, not a rescaling of it) about a sixth of the way into the stroke, and a
+  second, slower sine on the progress is its `bb` (see the aim below). The ROLL
+  (`HAND_SWING_ROLL`, 0.4 radians about the body's forward axis) carries the arm INWARD through the
   middle of the stroke — zero at both ends, at its widest halfway — so the elbow leads and the fist
-  swings away from the body: the reference's own sign (`zRot = -0.4`, negative for the arm it
-  attacks with), kept literal. It was flipped to "inward" here for one revision on a guess and
-  read wrong. The YAW (`HAND_SWING_YAW`, 7)
+  crosses the body's own middle: the reference's `zRot = -0.4` (negative for the arm it attacks
+  with) MIRRORED, because this body's blow comes in. `HAND_SWING_LATERAL` is that one switch, and
+  it turns the arm's yaw and the chest's turn with the roll, because the three are one motion: a
+  roll that comes in while the chest turns out is an arm fighting its own shoulder. It was flipped
+  on a guess once before and read wrong — but that was with the clock mirrored, the aim missing
+  and the angles rescaled, so the guess was never really tested. The YAW (`HAND_SWING_YAW`, 0.2 radians: the body's own share, which the attacking
+  arm takes twice on top of the turn the chest already gives it)
   is the body's own twist: one whole turn of a sine on the SQUARE ROOT of the progress — out, back
   through where it started, and home — with the attacking arm taking twice the body's angle.
-  **The two lateral terms are much smaller than the reference's 23 degrees each, and that is the
-  one number in the stroke this project chose by LOOKING at it.** `probes/probe_third_person_swing_shot.gd`
-  photographs the stroke from where third person puts the camera; at 23/23 the pictures showed the
-  punch taking an eighth of the stroke (foreshortened to nothing from behind) and the other seven
-  eighths spent sweeping the arm out and UP beside the head, which is what "it rotates outwards"
-  meant. A blow is a few degrees of lateral at most, and the rise carries it. That
-  third clock is why the arm keeps moving after the hand has stopped climbing. And it runs on
-  `sqrt(1 - t)`, not `sqrt(t)`: the reference counts its clock DOWN, and its rise reads the end of
-  that count that `t` names while its twist reads the other one. Both were written on `t` here for
-  several revisions, which put the whole lateral sweep at the wrong end of the stroke — the arm
-  swung out on the way UP rather than on the way BACK where the reference has it. Yaw outermost and
+  **All four of those are the reference's numbers in the reference's units, and the file says so.**
+  For several revisions they were not: they had been rescaled into degrees and then TUNED down to
+  74/7/7/7 to quiet what looked like too much lateral motion, which was really a mirrored clock
+  (`sqrt(1 - t)` where the reference has `sqrt(t)`, so the whole lobe was at the wrong end of the
+  stroke) and a missing aim term. Tuning around a bug makes the bug harder to see: the tuned pose
+  cannot be checked against the reference at all, because it is no longer the reference. What holds
+  it now is `probes/probe_third_person_swing.gd`'s formula check, which restates
+  `setupAttackAnimation` and compares the pivot's own rotation to it across the whole stroke at
+  three aims — 0.056 degrees at worst, with the lateral terms mirrored on both sides of the
+  comparison so the deviation is measured against what this body means to do. A number in this
+  stroke changes only with a citation, and the mirror is the single number that is this project's
+  rather than the reference's. Raising the arm's 1.2 and the aim's 0.75 to "get it higher" was tried
+  and reverted, for a reason worth keeping: those two terms peak at DIFFERENT points of the stroke
+  (the rise at a sixth of the way in, the aim at half), so a bigger aim term drags the maximum late
+  and flattens the top into a rise-hold-come-back — two poses and a pause, which is what it looked
+  like. Anything that makes this arm climb higher has to scale the whole rise, not add a second,
+  later bell to it. That
+  third clock is why the arm keeps moving after the hand has stopped climbing. Its clock counts up,
+  0 to 1 (`attackAnim = swingTime / duration`), so the twist is `sin(sqrt(t)·2π)` and is already a
+  quarter turn in by a sixteenth of the stroke — the body is most turned round almost at once and
+  home by the end. It was written on `sqrt(1 - t)` here for several revisions on the reading that
+  the reference counted down, which put the whole lateral lobe at the MIRRORED end of the stroke.
+  **And the blow is AIMED.** The rise is not `aa` alone: the reference's is `aa·1.2 + bb` with
+  `bb = sin(t·π) · −(head.xRot − 0.7) · 0.75` — the head's pitch, in radians, positive looking
+  down, which is what its `head.xRot` is. So a level look adds 0.525 rad of lift, a look 40
+  degrees down adds nothing at all and a look 40 up adds 1.05: punch the floor and the arm stays
+  low, punch the sky and it comes up overhead. Ours had the level-look value baked in as a
+  constant, so every blow rose the same amount at every aim; `AIM_LEVEL` is that 0.7 rad and the
+  term now reads `_aim_pitch()`, the same number `_track_head_look` puts the head at, so the head
+  and the blow cannot disagree about where the body is aiming. It is read LIVE each frame rather
+  than latched when the stroke starts, as the reference reads it, so a swing that turns mid-arc
+  turns with it. Yaw outermost and
   roll innermost, the reference's own composition, and every sign through `_inspect_sign`, so a −Z
   mesh punches forward on the same turn the other way, opens away from its own body and carries its
   hand toward its own middle.
@@ -1000,17 +1025,22 @@ first-person viewmodel - what each one owns and the decisions behind it.
   shoulder's turn against its own — because it raises the arm to 80 degrees, where the two
   composed put the hand over the face. They are different poses with different answers; a stroke
   is the one the reference has, so it follows the reference.)
-  **The chest turns too.** The reference's routine also twists the body box (`body.yRot`, 7
-  degrees, `CHEST_TWIST`) and positions both arms from that twist — `x = -cos(b) * 5, z = sin(b) * 5`, a point
+  **The chest turns too.** The reference's routine also twists the body box (`body.yRot`, 0.2
+  radians, `CHEST_TWIST`) and positions both arms from that twist — `x = -cos(b) * 5, z = sin(b) * 5`, a point
   five units out from the spine, turned by `b`. `_init_chest_pivot` puts the torso and BOTH
   shoulders on one node at the spine, which gives both halves from the one number: the box turns
   and the shoulders swing round with it, and the legs and the head stay out of it as they do in the
-  reference.   Measured: the far end is (−0.14, 0.04, 0.99) in the body's own frame — 0.99 forward,
-  0.04 above the shoulder (level with it, hand in front of the chest) and 0.14 out to the arm's own
-  side; the hand opens 3.59 rig units OUT past the shoulder's side line and crosses 1.83 back IN
-  past it, which is the check that holds the roll's sign; the arm reaches 0.23 sideways at its
-  widest and the two visits to the same point of the stroke sit 11.4 degrees apart, which is what the
-  third clock and the chest together do to the path; a full hand reaches 18.0 degrees higher than
+  reference.   Measured: at a level look the far end is (0.09, 0.25, 0.96) in the body's own frame —
+  0.96 forward, 0.25 ABOVE the shoulder (14 degrees above horizontal) and 0.09 in toward the body's
+  middle; the hand crosses 8.44 rig units IN past the shoulder's side line and comes 4.11 back OUT
+  past it, which is the check that holds the lateral mirror (the reference itself is the other way
+  round); the arm reaches 0.50 sideways at its widest and the two visits to the same point of the
+  stroke sit 37.2 degrees apart, which is what the third clock and the chest together do to the
+  path; the arm's ELEVATION at a fifth of the way in is −5.7 degrees looking 45 down, 13.5 level
+  and 32.7 looking 45 up, so the strike swings 19 degrees either side of a level look's own arc,
+  and further still at a steeper look; the rise has ONE apex, at 0.20 of the stroke, with 2 of 21
+  samples within 3 degrees of it; the item climbs 16.6 rig units looking level, 13.7 looking 45 down and 19.2
+  looking 45 up, which is the aim; a full hand reaches 17.6 degrees higher than
   an empty one; a place is 0.75 of it; and a second click RESTARTS from the
   top at the newest weight rather than stacking or speeding up, because there is one stroke and one
   weight and nothing to add. The first-person hand's clock ticks ABOVE its `visible` test, so the

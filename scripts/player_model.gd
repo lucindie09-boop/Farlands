@@ -141,18 +141,37 @@ const HELD_ARM_SWING := 0.5
 # hand in front of the eye would read as a delay.
 const SWING_PIVOT := "SwingPivot"
 const HAND_SWING_SECONDS := 0.225
+# The chest's own turn into a blow, in degrees (the reference's 0.2 rad), and the node it turns on
+# -- see _init_chest_pivot for why the torso and both shoulders are on it.
+const CHEST_PIVOT := "ChestTwist"
+const CHEST_TWIST := 7.0
 # Where the first-person hand's swing lives from the controller that punches it -- the same
 # path player_controller_interact.cpp calls punch() on.
 const VIEWMODEL_PATH := "Camera3D/Viewmodel"
-# The stroke's two numbers, in degrees at the far end of a FULL punch: HAND_SWING_ARC is how
-# far the shoulder pitches the arm forward, and HAND_SWING_SWEEP is how far the hand crosses
-# the body on its way there. Ours to tune. The sweep is the one that matters for how it reads:
-# a shoulder hinge (a pitch and nothing else) takes the hand up and back down inside the
-# body's own plane, which is a hinge however far it goes. The sweep is zero at the top of the
-# stroke and full either side of it, so the hand goes OUT one side and comes BACK the other --
-# round the shoulder rather than across it -- and the held block rides a circle.
-const HAND_SWING_ARC := 80.0
-const HAND_SWING_SWEEP := 30.0
+# The stroke's FAR END, in degrees, and it is a POSE rather than a hinge angle: a pitch, a yaw
+# and a twist. The first-person hand's arc interpolates to exactly the same three
+# (`compute_swing_pose`'s PEAK_ROT: 10, 30, -5), and that is what makes a punch a DIAGONAL --
+# the arm does not come up to point straight ahead, it comes up and ACROSS, so its far end is
+# off the body's own plane. A pitch alone cannot leave that plane, however big it is; a yaw
+# that reverses (below) leaves it only for an instant at half height. Ours to tune, in this
+# rig's signs: the pitch brings a hanging arm forward, the yaw carries the hand toward the
+# body's middle, and the twist turns the fist about the arm's own length as it goes.
+const HAND_SWING_PITCH := 74.0
+const HAND_SWING_YAW := 7.0
+const HAND_SWING_ROLL := 7.0
+# The rise's two terms: the slower one as a fraction of the snapping one, and the sum's own peak
+# (so `HAND_SWING_PITCH` is the angle actually reached, not the scale of a curve).
+const SWING_CARRY := 0.4375
+const SWING_CARRY_MAX := 1.225
+# ...and these three are the same three the reference has, on three DIFFERENT clocks (see
+# _apply_hand_swing): the PITCH is how far the arm rises on top of the holding pose's 18, the YAW
+# is the arm's share of the body's twist into the blow, and the ROLL is the outward opening
+# through the middle of the stroke. Ours to tune, and the two lateral ones are SMALLER than the
+# reference's on purpose: at its 23 degrees each, photographed from the third-person camera
+# (probes/probe_third_person_swing_shot.gd), four fifths of the visible stroke was the arm
+# sweeping out and up beside the head -- the punch itself is the first eighth and is foreshortened
+# away to nothing from behind. A punch's lateral share is a few degrees, and the pitch is what
+# carries it.
 # data/items.json's `pose` field, through the ONE reader this body and the first-person
 # viewmodel share (scripts/item_poses.gd): an item's pose is a claim about its ART rather than
 # an item mechanic, so it is not in the registry -- and it is not read twice either.
@@ -347,6 +366,7 @@ func _ready():
 	apply_skin_texture()
 	# ...and before the clips: _clip_for_rig builds its track paths with get_path_to()
 	# at load, and the right arm lives under the pivot from here on.
+	_init_chest_pivot()
 	_init_held_arm()
 	_init_body_animation()
 	_head = find_child("head", true, false)
@@ -897,6 +917,44 @@ func _exit_tree() -> void:
 		_fed_frame.erase(_body_material.get_instance_id())
 
 
+## The chest: the torso and BOTH shoulders on one node at the spine, so a blow can turn the body
+## into it the way the reference does rather than turning the arm alone against a rigid torso.
+##
+## The reference reaches that in two halves, because its arms are not children of its body: it
+## turns the body box by `body.yRot`, and then places each arm at `x = -cos(b) * 5, z = sin(b) * 5`
+## -- a point five units out from the spine, turned by `b`. A pivot AT THE SPINE, with the parts
+## under it, gives both halves from one number: the box turns and the shoulders swing round with
+## it. The legs and the head stay out of it, as they are out of it there.
+##
+## Runs before _init_body_animation for the same reason the shoulder pivot does -- the clips'
+## track paths are resolved with get_path_to() at load, so `ChestTwist/torso` and the arms' paths
+## through it have to be final first -- and every part keeps exactly the place the model drew it
+## (reparented with keep_global_transform), so nothing moves the frame before the stroke does.
+## Only the POSITION is taken from the torso: a part-transform copy would carry the rig's scale,
+## and the quaternion written per frame replaces the basis it sits in.
+var _chest_pivot: Node3D = null
+
+
+func _init_chest_pivot() -> void:
+	var torso := find_child("torso", true, false) as Node3D
+	if torso == null or torso.get_parent() == null:
+		return
+	var pivot := Node3D.new()
+	pivot.name = CHEST_PIVOT
+	torso.get_parent().add_child(pivot)
+	pivot.global_position = torso.global_position
+	for part in ["torso", _held_arm_name(), _other_arm_name()]:
+		var node := find_child(part, true, false) as Node3D
+		if node != null and node != pivot:
+			node.reparent(pivot, true)
+	_chest_pivot = pivot
+
+
+## The rig's other arm: whichever one the held pose is not on.
+func _other_arm_name() -> String:
+	return "arm2" if _held_arm_name() == "arm" else "arm"
+
+
 ## The shoulder pivot the held-item pose turns (see HELD_ARM_PITCH).
 ##
 ## A turn at the shoulder has to be composed OVER the arm's pose, and the arm's own local
@@ -974,23 +1032,43 @@ func _on_swung(strength: float) -> void:
 ## turn -- and being the arm's parent it carries the held block or item with it, which is why
 ## there is no item code here at all.
 ##
-## TWO curves, and they come from the first-person hand's own arc -- `compute_swing_pose` in
-## src/core/viewmodel_math.cpp, which is where the motion in front of the eye is built:
+## The third-person attack as the REFERENCE builds it, ported as a motion rather than copied as
+## code -- the sibling of the first-person hand's arc, which this project already ports the same
+## way. It is three terms on three DIFFERENT clocks, and that is the part that cannot be guessed
+## and can be felt immediately:
 ##
-##   * the TRAVEL is a bell, `smoothstep(sin(pi * progress))`, and it is the very same
-##     smoothstep (the `ViewmodelPose` binding) the viewmodel uses, so the two hands cannot
-##     drift apart on what a swing's weight is. It pitches the arm forward, through
-##     HAND_SWING_ARC, and back to rest.
-##   * the SWEEP is a sine of the progress's full turn, which is the same construction as the
-##     viewmodel's perpendicular arc: zero at both ends and zero again at the top, positive on
-##     the way out and negative on the way back. That is the whole of the "circle": the travel
-##     alone is a hinge, and a bulge that reverses means the hand goes out one side and returns
-##     the other, so its path closes a loop instead of retracing a line.
+##   * the RISE snaps. The reference eases the progress once with `1 - (1 - t)^4` and takes the
+##     sine of THAT, so the arm is at its far end about a sixth of the way into the stroke and
+##     spends the rest of it coming back, with a second, slower sine carried on top that holds it
+##     partway out on the return. A symmetric bell -- what this used to be -- is a lazy wave: slow
+##     out, slow back, peak dead in the middle, which is not a blow.
+##   * the ROLL opens the arm OUTWARD through the middle of the stroke, zero at both ends and at
+##     its widest halfway: the elbow leads and the fist swings away from the body. The sign is the
+##     reference's own (`zRot = -0.4`, negative for the arm it attacks with), copied rather than
+##     reasoned about a second time -- it was flipped to "inward" here for one revision on a guess,
+##     and this follows the routine.
+##   * the CHEST turns into the blow on the same clock as the arm's own yaw (see _init_chest_pivot),
+##     so the shoulder -- the arm with it -- swings round the spine instead of the arm turning
+##     alone against a rigid torso.
+##   * the YAW is the body's twist, which runs one whole turn of a sine on the SQUARE ROOT of the
+##     progress -- out, back through where it started, and home -- with the attacking arm taking
+##     twice the body's own angle. It is not the rise's curve, which is why the arm keeps moving
+##     after the hand has stopped climbing.
 ##
-## The sweep is applied OVER the travel (a parent's turn of the pitched arm is a lateral one; the
-## other way round it would only twist the hanging arm about itself). "Forward" is the MESH's,
-## as the held turn's and the inspection's signs are, so a -Z body pitches forward on the same
-## turn the other way and sweeps toward its own middle.
+## `HAND_SWING_PITCH` is ADDED to the holding pose's 18 degrees, exactly as the reference adds its
+## attack angle to its own held-arm rule (which is the same 18 degrees, `arm.xRot * 0.5 - pi/10`),
+## so the far end is the holding pose plus the stroke and an EMPTY hand reaches 18 lower -- the
+## reference's behaviour, kept rather than tidied away.
+##
+## The PITCH is outermost and the roll innermost. That is not a preference: a model part in the
+## reference applies its three rotations in a fixed order -- `Axis.ZP`, then `YP`, then `XP` -- so
+## its transform is `Rx * Ry * Rz`, and the roll, then the yaw, then the pitch is the order the
+## reference's own numbers were picked in. Ours had the YAW outermost, which tips the axis the rise
+## turns around by the yaw's own angle: the arm then climbs in a plane leaned 23 degrees off the
+## body's, where the reference climbs straight up the body's own sagittal plane with the hand
+## carried in and out by the other two. Close, and in the wrong plane. Every sign goes through
+## `_inspect_sign`: a -Z mesh punches forward on the same turn the other way, crosses toward its
+## own middle, and opens away from its own body.
 func _apply_hand_swing(delta: float) -> void:
 	if _swing_pivot == null:
 		return
@@ -998,11 +1076,24 @@ func _apply_hand_swing(delta: float) -> void:
 	var progress := 1.0 - _hand_swing
 	var strength := _hand_swing_strength
 	var towards := _inspect_sign()
-	var travel: float = ViewmodelPose.smoothstep_01(sin(PI * progress)) * strength
-	var sweep: float = sin(progress * TAU) * strength
-	_swing_pivot.quaternion = Quaternion(Vector3.UP,
-			deg_to_rad(HAND_SWING_SWEEP * sweep * -towards)) \
-		* Quaternion(Vector3.RIGHT, deg_to_rad(HAND_SWING_ARC * travel * towards))
+	var snap: float = sin((1.0 - pow(1.0 - progress, 4.0)) * PI)
+	var carry: float = sin(progress * PI)
+	var rise: float = (snap + SWING_CARRY * carry) / SWING_CARRY_MAX
+	# The reference counts its clock DOWN (its `attackTime` runs 1 -> 0) and the two terms read
+	# OPPOSITE ends of it: the rise takes `1 - attackTime` and this twist takes `attackTime`
+	# itself. Both were written on `progress` here for several revisions, which put the whole
+	# lateral sweep at the wrong end of the stroke -- the arm swung out on the way UP instead of
+	# on the way BACK, where the reference has it.
+	var turn: float = sin(sqrt(1.0 - progress) * TAU)
+	_swing_pivot.quaternion = Quaternion(Vector3.RIGHT,
+			deg_to_rad(HAND_SWING_PITCH * rise * towards * strength)) \
+		* Quaternion(Vector3.UP, deg_to_rad(HAND_SWING_YAW * turn * -towards * strength)) \
+		* Quaternion(Vector3.BACK, deg_to_rad(HAND_SWING_ROLL * carry * towards * strength))
+	# ...and the chest, on the arm's own turn clock, which is the reference's `body.yRot`: the
+	# torso box and both shoulders swing round the spine together.
+	if _chest_pivot != null:
+		_chest_pivot.quaternion = Quaternion(Vector3.UP,
+				deg_to_rad(CHEST_TWIST * turn * -towards * strength))
 
 
 ## The block or item the body carries in its right hand.

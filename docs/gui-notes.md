@@ -953,37 +953,79 @@ first-person viewmodel - what each one owns and the decisions behind it.
   is `HeldArmPivot/SwingPivot/arm` from then on, which the clip's tables already resolve per part
   (`_part_path`). The clock is the first-person hand's own 0.225 s (`HAND_SWING_SECONDS`), a place
   the same arc at 0.75.
-- **The stroke is a bell of travel plus a REVERSING sweep, and the sweep is what makes it a
-  circle.** The first version turned the arm about its left-right axis only, which swings the hand
-  up and back down inside the body's own plane — a shoulder hinge, and it read exactly like one
-  ("it kinda just rotates the arm up"). A pitch and nothing else cannot do anything else. So the
-  stroke is built the way the FIRST-PERSON hand's own arc already is, in
-  `compute_swing_pose` (`src/core/viewmodel_math.cpp`): a bell of travel —
-  `smoothstep(sin(pi * progress))`, through the very `ViewmodelPose.smoothstep_01` binding the
-  viewmodel uses, so the two hands cannot drift apart on what a swing weighs — and, laid over it,
-  a SWEEP of `sin(progress * TAU)`, which is zero at both ends AND at the top of the stroke,
-  positive going out and negative coming back. That pair is the whole of it: the hand leaves its
-  side, crosses the chest on the way up, and comes back round the other side, so its path closes a
-  loop instead of retracing a line. `HAND_SWING_ARC` is 80 degrees of shoulder pitch at the far
-  end and `HAND_SWING_SWEEP` 30 either side, both mirrored through `_inspect_sign` so a −Z mesh
-  pitches forward on the same turn the other way and sweeps toward its own middle. The sweep is
-  applied OVER the travel — a parent's turn of an already-pitched arm is a lateral one, while the
-  other way round it would only twist the hanging arm about itself. Measured: the far end is
-  straight forward and 8 degrees above the horizontal (0.02, 0.15, 0.99) after 80 degrees of
-  travel, the hand crosses out to x 0.46 on the way, and the two visits to the same point of the
-  travel sit 45 degrees apart — a hinge leaves both of those at exactly zero. A second click
-  RESTARTS from the top at the newest weight rather than stacking or speeding up: one clock and
-  one weight, so there is nothing to add. The first-person hand's clock now ticks ABOVE its
-  `visible` test, so the break loop's repeats keep arriving while that hand is hidden in third
-  person, and a place made in third person no longer leaves a stale full stroke for the frame the
-  camera comes back. Measured by `probes/probe_third_person_swing.gd`: the wire on the real
-  player's own body, the far end, the sideways crossing and the loop, a place at 0.75 of the arc,
-  a restart landing on the SAME far end and not past it, the item keeping its distance from the
-  shoulder while it rises 15.8 rig units, the legs still reaching 80 degrees of stride under the
-  stroke, and the held shoulder turn still exactly 18. The probe measures the arm's DIRECTION
-  rather than a pitch angle, because that is what a player sees move, and against the direction
-  the arm RESTS in — which is not straight down: the held pose has already turned it 18 degrees
-  forward.
+- **The third-person stroke is three terms on three different clocks; the version of it that had
+  ONE clock read as a wave.** Three versions were wrong in three different ways. The first pitched
+  the shoulder and nothing else — a hinge, and it read like one ("it kinda just rotates the arm
+  up"). The second gave the sideways motion to a sine that reverses through the stroke, which is a
+  thing the first-person arc does have — but in `compute_swing_pose`
+  (`src/core/viewmodel_math.cpp`) that sine is a 0.15-unit PERPENDICULAR OFFSET laid over a
+  rotation interpolated all the way to a peak pose, and it is the PEAK that makes the stroke:
+  `PEAK_ROT`, 10 degrees of pitch, 30 of yaw and −5 of roll, so the hand finishes across the body.
+  With no peak to commit to, the arm pointed dead ahead and waved around it. The third put the peak
+  in but gave the whole stroke a single symmetric bell, and a punch whose rise and fall are mirror
+  images is a slow wave: the hand is still climbing at the halfway point, which is where a blow is
+  already on its way back. So the shape is the REFERENCE's own — `HumanoidModel`'s attack pose,
+  taken as behaviour rather than code, the same relationship `compute_swing_pose` has with the
+  first-person one — and that shape is
+  three terms. The RISE snaps: the progress is eased once with `1 - (1 - t)^4` and the sine of THAT
+  is taken, so the arm is at `HAND_SWING_PITCH` (74 degrees on top of the holding pose's 18, which
+  leaves the hand level with the shoulder) about a sixth of the way into the stroke, and a second,
+  slower sine on the progress (`SWING_CARRY`, 0.4375 of the first, over `SWING_CARRY_MAX` so the
+  number is the angle actually reached) holds it partway out on the way back. The ROLL
+  (`HAND_SWING_ROLL`, 7 degrees about the body's forward axis) opens the arm OUTWARD through the
+  middle of the stroke — zero at both ends, at its widest halfway — so the elbow leads and the fist
+  swings away from the body: the reference's own sign (`zRot = -0.4`, negative for the arm it
+  attacks with), kept literal. It was flipped to "inward" here for one revision on a guess and
+  read wrong. The YAW (`HAND_SWING_YAW`, 7)
+  is the body's own twist: one whole turn of a sine on the SQUARE ROOT of the progress — out, back
+  through where it started, and home — with the attacking arm taking twice the body's angle.
+  **The two lateral terms are much smaller than the reference's 23 degrees each, and that is the
+  one number in the stroke this project chose by LOOKING at it.** `probes/probe_third_person_swing_shot.gd`
+  photographs the stroke from where third person puts the camera; at 23/23 the pictures showed the
+  punch taking an eighth of the stroke (foreshortened to nothing from behind) and the other seven
+  eighths spent sweeping the arm out and UP beside the head, which is what "it rotates outwards"
+  meant. A blow is a few degrees of lateral at most, and the rise carries it. That
+  third clock is why the arm keeps moving after the hand has stopped climbing. And it runs on
+  `sqrt(1 - t)`, not `sqrt(t)`: the reference counts its clock DOWN, and its rise reads the end of
+  that count that `t` names while its twist reads the other one. Both were written on `t` here for
+  several revisions, which put the whole lateral sweep at the wrong end of the stroke — the arm
+  swung out on the way UP rather than on the way BACK where the reference has it. Yaw outermost and
+  roll innermost, the reference's own composition, and every sign through `_inspect_sign`, so a −Z
+  mesh punches forward on the same turn the other way, opens away from its own body and carries its
+  hand toward its own middle.
+  **And the holding pose is composed UNDER the stroke, not replaced by it.** The reference adds
+  its attack angle to its own held-arm rule — the same 18 degrees, `arm.xRot * 0.5 - pi/10` — so a
+  full hand finishes 18 degrees higher than an empty one, and that asymmetry is the reference's
+  and is kept here. (The inspection pose in the same file does the opposite — crossfades the
+  shoulder's turn against its own — because it raises the arm to 80 degrees, where the two
+  composed put the hand over the face. They are different poses with different answers; a stroke
+  is the one the reference has, so it follows the reference.)
+  **The chest turns too.** The reference's routine also twists the body box (`body.yRot`, 7
+  degrees, `CHEST_TWIST`) and positions both arms from that twist — `x = -cos(b) * 5, z = sin(b) * 5`, a point
+  five units out from the spine, turned by `b`. `_init_chest_pivot` puts the torso and BOTH
+  shoulders on one node at the spine, which gives both halves from the one number: the box turns
+  and the shoulders swing round with it, and the legs and the head stay out of it as they do in the
+  reference.   Measured: the far end is (−0.14, 0.04, 0.99) in the body's own frame — 0.99 forward,
+  0.04 above the shoulder (level with it, hand in front of the chest) and 0.14 out to the arm's own
+  side; the hand opens 3.59 rig units OUT past the shoulder's side line and crosses 1.83 back IN
+  past it, which is the check that holds the roll's sign; the arm reaches 0.23 sideways at its
+  widest and the two visits to the same point of the stroke sit 11.4 degrees apart, which is what the
+  third clock and the chest together do to the path; a full hand reaches 18.0 degrees higher than
+  an empty one; a place is 0.75 of it; and a second click RESTARTS from the
+  top at the newest weight rather than stacking or speeding up, because there is one stroke and one
+  weight and nothing to add. The first-person hand's clock ticks ABOVE its `visible` test, so the
+  break loop's repeats keep arriving while that hand is hidden in third person, and a place
+  made in third person no longer leaves a stale full stroke for the frame the camera comes back.
+  Measured by `probes/probe_third_person_swing.gd`: the wire on the real player's own body, the far
+  end, the crossing and the loop, the hand opening OUT past the shoulder's side line and crossing
+  back IN past it, a full hand's far end sitting the holding pose's 18 degrees above an empty one's, a
+  place at 0.75, a restart landing on the SAME far end, the item keeping its distance from the
+  shoulder while it rises 16.7 rig units, the chest turning into the stroke and back to nothing at
+  both its ends, the held turn still exactly −18 through all of it, and
+  the legs still reaching 80 degrees of stride under the stroke. The probe
+  measures the arm's DIRECTION rather than a pitch angle, because that
+  is what a player sees move, and against the direction the arm RESTS in — not straight down: the
+  held pose has already turned it 18 degrees forward.
 - **The offhand holder** (`hold_offhand` / `_seat`): a goblin's torch (a quarter of them spawn
   with one, [ui.md](ui.md), and a torch it picks up goes into that hand while it is free —
   [mob-plan.md](mob-plan.md) item 16) hangs from the arm the caller names — `arm`, its LEFT, because the

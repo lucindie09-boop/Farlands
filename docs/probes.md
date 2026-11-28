@@ -135,7 +135,8 @@ that hand already full, is kept in the main hand; a full main hand stops the sca
 | `probe_body_light.gd` | The player's own body is lit by the world's light, not the engine's: its rendered luma equals the luma of the pixels it is drawn over, it follows the sun down to midnight, and the body and world share the same neutral white-overhead, warm-at-the-horizon sky light |
 | `probe_player_anim.gd` | The live body plays its two clips (idle standing with the arms swaying, run walking) and every track of both lands on a limb; the parked pose port is still measured state by state (see below) |
 | `probe_held_pose.gd` | The held-item shoulder pose (`docs/gui-notes.md`): the pivot, the 18 degrees while holding, 0 with an empty hand, and the item moving forward with it (see below) |
-| `probe_third_person_swing.gd` | The third-person punch/place swing (`docs/gui-notes.md`): the `swung` wire on the real player's body, the hand's 80-degree travel plus the reversing sweep that closes the loop (sideways, which a hinge could not do), a place at 0.75, a restart landing on the same far end, the item riding the hand, and the walk carrying on underneath (see below) |
+| `probe_third_person_swing_shot.gd` | The same stroke PHOTOGRAPHED: the body alone under a stub owner, its stroke clock stepped by hand to nine stops, and the frame saved from where third person puts the camera. Runs in a WINDOW (the dummy renderer has no framebuffer). Writes one `swing_pNN.png` per stop into the shots folder. It exists because the stroke was tuned against measured paths for several revisions and the paths were right while the shape was wrong: at the reference's own 23 degrees of roll and yaw the pictures showed the punch taking an eighth of the stroke, foreshortened away to nothing from behind, and the rest of it sweeping the arm out and up beside the head — which no position or direction number says out loud. `_process` is switched OFF before the first stop, or the clock advances while frames render and every picture is of a later point than its label |
+| `probe_third_person_swing.gd` | The third-person punch/place swing (`docs/gui-notes.md`): the `swung` wire on the real player's body, the reference's three-clock stroke (a snapping rise, an outward roll, and a body twist on `sin(sqrt(t)·2π)`), the chest turning into the blow and back, a full hand finishing the holding pose's 18 degrees above an empty one, a place at 0.75, a restart landing on the same far end, the item riding the hand, and the walk carrying on underneath (see below) |
 | `probe_sky_brightness.gd` | What a fully sky-lit surface renders AT, against its own albedo: the body is handed a flat known grey (1x1, no atlas to guess from), the frame is read back per albedo, and each one is held to the model's own claim — never above its own texel, and not far below it |
 | `probe_item_size.gd` | A dropped item is not cell-sized: a cube's body and drawn mesh are both half a block, a slab and a stair keep their own shape at that scale, a sprite keeps its silhouette, and a stack of more than one is both drawn and solved bigger by the capped log2 curve (1.25x at 2 through 2x from sixteen), mesh and body one box at every count |
 | `probe_item_merge.gd` | Two drops of one kind next to each other become one pile: the counts add up to the 64 cap, the fuller keeps its place, body and mesh take the count's own size, motions combine only when both move, and the drawn size pops past the new one and settles back (at half strength once the pile is already at its largest) |
@@ -356,13 +357,23 @@ A few of those rows keep their detail here, because a table cell that long is an
   number is exact and nothing in the world is written — the stroke itself, measured on the arm's
   DIRECTION in the body's frame (what a player sees move) against the direction it RESTS in, which
   is 18.5 degrees forward of down because of the held pose. The measurement exists to separate a
-  punch from a hinge: the hand crosses out to x 0.46 on its way up, which a pitch about the body's
-  left-right axis can never do (that component stays at exactly zero), and the two visits to the
-  same point of the travel sit 45 degrees apart because the sweep reverses — a hinge retraces one
-  line and brings them together. Also held: the far end (0.02, 0.15, 0.99 — straight forward and 8
-  degrees up) after 80 degrees of travel, the return to exactly the rotation the arm started in, a
-  place at 0.75 of the arc, a restart landing on the SAME far end, and the item keeping its
-  distance from the shoulder while it rises. The restart's wait POLLS for the hand to be on its way
+  punch from a hinge, and a stroke with one clock from the reference's three. The far end is
+  (-0.14, 0.04, 0.99) in the body's frame — 0.99 forward, 0.04 above the shoulder (level with it)
+  and 0.14 out to the arm's own side, which one pitch about the body's left-right axis cannot reach
+  at any angle (that component stays at exactly zero). The crossing is measured twice over: as a
+  direction (0.23 sideways at its widest) and as the HAND'S POSITION against the SHOULDER'S, which
+  is what an arm opening away from the torso looks like and a direction cannot show — 3.59 rig units
+  OUT past the shoulder's own side line and 1.83 back IN past it. The LOOP is measured too: the two
+  visits to the same point of the travel sit 11.4 degrees apart, because the arm's turn runs on the square root
+  of the REMAINING progress while its rise runs on an out-quart ease of the elapsed one, so the way
+  back is not the way out. So
+  is the CHEST: 7 degrees into the blow, back to nothing at both ends of the stroke. Two more
+  are the HOLDING POSE: a full hand reaches 18.0 degrees above an empty one, the reference's own
+  asymmetry, and the shoulder's 18-degree held turn stays put through the whole stroke instead of
+  being handed over. Also held: 73.8 degrees of hand travel, the return to exactly
+  the rotation the arm started in, a place at 0.75 of the stroke, a restart landing on the SAME far
+  end, and the item keeping its distance from the shoulder while it rises. The restart's wait
+  POLLS for the hand to be on its way
   back instead of pausing a fixed time: the bell is flat around its top, so a fixed delay can land
   on the peak. Walking is that body given a walk's speed: the legs still reach their own stride
   under the stroke, the clips keep turning the arm beneath it, and the held shoulder turn stays at

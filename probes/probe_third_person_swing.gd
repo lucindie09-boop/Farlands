@@ -35,7 +35,7 @@ extends SceneTree
 
 ## The stroke's numbers, restated here on purpose: the probe is what holds them, so it must not
 ## read them back from the file it is checking.
-const ARC_DEGREES := 80.0
+const ARC_DEGREES := 84.0
 const PLACE_SHARE := 0.75
 const HELD_PITCH := 18.0
 const TOLERANCE := 4.0
@@ -96,6 +96,13 @@ func _stroke(body: Node3D, arm: Node3D, pivot: Node3D, item: Node3D, rest_dir: V
 	var radius: float = (item.global_position - arm.global_position).length()
 	var radius_error := 0.0
 	var rise := 0.0
+	# How far the HAND goes past the shoulder's own side line, in the body's frame: an arm that
+	# opens away from the torso is the difference between a punch and a wing, and it is the one
+	# thing about the stroke a direction-only measurement cannot see.
+	var shoulder_x: float = body.to_local(arm.global_position).x
+	var outboard := 0.0
+	var inboard := 0.0
+	var chest_turn := 0.0
 	var t0 := Time.get_ticks_msec()
 	while Time.get_ticks_msec() - t0 < int(seconds * 1000.0):
 		await process_frame
@@ -103,6 +110,13 @@ func _stroke(body: Node3D, arm: Node3D, pivot: Node3D, item: Node3D, rest_dir: V
 		radius_error = maxf(radius_error,
 			absf((item.global_position - arm.global_position).length() - radius))
 		rise = maxf(rise, body.to_local(item.global_position).y - rest_item.y)
+		var hand: Vector3 = body.to_local(item.global_position)
+		outboard = maxf(outboard, shoulder_x - hand.x)
+		inboard = maxf(inboard, hand.x - shoulder_x)
+		var chest := body.get("_chest_pivot") as Node3D
+		if chest != null:
+			chest_turn = maxf(chest_turn,
+				rad_to_deg(chest.quaternion.angle_to(Quaternion.IDENTITY)))
 
 	var peak_index := 0
 	var peak_turn := 0.0
@@ -137,6 +151,11 @@ func _stroke(body: Node3D, arm: Node3D, pivot: Node3D, item: Node3D, rest_dir: V
 		"identity": pivot.quaternion.is_equal_approx(Quaternion.IDENTITY),
 		"rise": rise,
 		"radius_error": radius_error,
+		"outboard": outboard,
+		"inboard": inboard,
+		"chest": chest_turn,
+		"chest_end": rad_to_deg((body.get("_chest_pivot") as Node3D).quaternion
+			.angle_to(Quaternion.IDENTITY)) if body.get("_chest_pivot") != null else 0.0,
 	}
 
 
@@ -144,6 +163,55 @@ func _seconds(seconds: float) -> void:
 	var t0 := Time.get_ticks_msec()
 	while Time.get_ticks_msec() - t0 < int(seconds * 1000.0):
 		await process_frame
+
+
+## The whole stroke, sampled by the CLOCK rather than by frames: the stroke is driven by
+## `_hand_swing` and `_apply_hand_swing(0.0)` moves that clock nowhere, so each sample can be set
+## exactly. Every row is the hand's own position in the body's frame (rig units: the arm is 12,
+## the torso is 8 wide) and the direction the limb points.
+func _trace_stroke(body: Node3D, arm: Node3D, item: Node3D, stone: int) -> void:
+	var shoulder: Vector3 = body.to_local(arm.global_position)
+	var rows: Array = []
+	for step in 21:
+		var p := float(step) / 20.0
+		body.set("_hand_swing_strength", 1.0)
+		body.set("_hand_swing", 1.0 - p)
+		body.call("_apply_hand_swing", 0.0)
+		var hand: Vector3 = body.to_local(item.global_position)
+		rows.append({"p": p, "hand": hand - shoulder, "dir": _hand_dir(body, arm)})
+	body.set("_hand_swing", 0.0)
+	body.set("_hand_swing_strength", 1.0)
+	body.call("_apply_hand_swing", 0.0)
+	print("TRACE shoulder (body units) %s, item id %d" % [shoulder, stone])
+	for row in rows:
+		print("TRACE p %.2f  hand %s  dir %s" % [row["p"], row["hand"], row["dir"]])
+	_plot(rows, 0, "BEHIND (x across, y up)")
+	_plot(rows, 2, "SIDE (z forward, y up)")
+
+
+## One coarse plot of the traced hand, in the body's frame, with 'S' at the shoulder and 'h' at
+## the hand; the axis not plotted is dropped. 25 columns by 12 rows of a 30-unit window, which
+## holds a 12-unit arm and the whole of its swing.
+func _plot(rows: Array, axis: int, title: String) -> void:
+	var w := 25
+	var h := 12
+	var lo := -15.0
+	var span := 30.0
+	var grid: Array = []
+	for y in h:
+		grid.append(" ".repeat(w))
+	var cell := func(x: float, y: float) -> Vector2i:
+		var cx := int(clampf((x - lo) / span * float(w - 1), 0.0, float(w - 1)))
+		var cy := int(clampf((y - lo) / span * float(h - 1), 0.0, float(h - 1)))
+		return Vector2i(cx, cy)
+	for row in rows:
+		var hand: Vector3 = row["hand"]
+		var at: Vector2i = cell.call(hand[axis] if axis == 0 else hand[2], hand.y)
+		grid[at.y] = (grid[at.y] as String).substr(0, at.x) + "h" \
+			+ (grid[at.y] as String).substr(at.x + 1)
+	print("TRACE %s  (x %.0f..%.0f, y %.0f..%.0f)" % [title, lo, lo + span, lo, lo + span])
+	for y in range(h - 1, -1, -1):
+		print("TRACE |" + (grid[y] as String) + "|")
 
 
 func _run() -> void:
@@ -203,8 +271,10 @@ func _run() -> void:
 		await process_frame
 		wired_peak = maxf(wired_peak, rad_to_deg(_hand_dir(player_model, player_arm)
 			.angle_to(player_rest)))
+	# ...at the place's weight, so the bar is 0.75 of a punch's own travel rather than the full
+	# stroke's.
 	_ok("wire: ...and the body's own arm draws it and comes back",
-		wired_peak > 50.0
+		wired_peak > 35.0
 			and rad_to_deg(_hand_dir(player_model, player_arm).angle_to(player_rest)) < 2.0,
 		"%.1f deg of hand travel, ends %.1f off rest" % [wired_peak,
 			rad_to_deg(_hand_dir(player_model, player_arm).angle_to(player_rest))])
@@ -260,18 +330,62 @@ func _run() -> void:
 	body.call("_on_swung", 1.0)
 	var punch: Dictionary = await _stroke(body, arm, pivot, item, rest_dir, 0.45)
 	var peak_dir: Vector3 = punch["peak_dir"]
-	_ok("punch: the hand goes out to the front, a little above the horizontal",
-		peak_dir.z > 0.8 and peak_dir.y > 0.0 and float(punch["peak_turn"]) > 60.0,
+	# The far end is a POSE, not a hinge angle: forward, ACROSS, and ABOVE the shoulder -- the
+	# arm ends up in front of the face rather than at the horizon, which is what one pitch
+	# alone (and a small one at that) gives.
+	_ok("punch: the hand ends up in front, at the shoulder's own height",
+		peak_dir.z > 0.8 and peak_dir.y > -0.05 and absf(peak_dir.x) < 0.4
+			and float(punch["peak_turn"]) > 60.0,
 		"far end %s, %.1f deg of travel" % [peak_dir, punch["peak_turn"]])
+	# ...and the holding pose is UNDER the stroke, not swapped for it: the reference adds its
+	# attack angle to its own held-arm rule (the same 18 degrees), so a full hand reaches exactly
+	# the holding pose higher than an empty one. Measured, because it is the difference between
+	# the stroke being composed with the arm's pose and being written over it.
+	host.block_id = 0
+	await process_frame
+	await process_frame
+	var empty_rest := _hand_dir(body, arm)
+	body.call("_on_swung", 1.0)
+	var empty: Dictionary = await _stroke(body, arm, pivot, item, empty_rest, 0.45)
+	_ok("punch: the holding pose is composed under the stroke, not replaced",
+		absf(rad_to_deg((empty["peak_dir"] as Vector3).angle_to(peak_dir)) - HELD_PITCH)
+			< TOLERANCE,
+		"a full hand reaches %.1f deg higher than an empty one"
+			% rad_to_deg((empty["peak_dir"] as Vector3).angle_to(peak_dir)))
+	host.block_id = stone
+	await process_frame
+	await process_frame
 	# The sideways component is the whole difference between an arc and a hinge: a pitch about
 	# the body's left-right axis keeps the hand in the body's own plane, where x is exactly 0.
-	_ok("punch: it crosses the body on the way -- an ARC, not a hinge up the side",
-		float(punch["across"]) > 0.3,
+	# ...and it is a PUNCH's sideways component, not a windmill's: the reference's own lateral terms
+	# put four fifths of the visible stroke into an outward sweep beside the head, which is what the
+	# capture (probes/probe_third_person_swing_shot.gd) showed; the bar is an arc at all, at the
+	# size a forward blow has.
+	_ok("punch: it crosses the body -- an ARC, not a hinge up the side",
+		float(punch["across"]) > 0.15,
 		"the hand reaches x %.3f (a hinge stays at 0)" % float(punch["across"]))
-	# ...and the sweep REVERSES, so the hand comes back round the other side: a closed loop.
-	_ok("punch: and it comes back on the other side of the way out",
-		float(punch["loop"]) > 25.0,
+	# ...on a DIFFERENT clock from the rise, so the way back is not the way out: the reference's arm
+	# turns with the body's twist (a whole turn of a sine on the sqrt of the progress) while it is
+	# still coming down, which opens the path into a wide loop rather than a retraced line.
+	_ok("punch: and it comes back on a different line from the way out",
+		float(punch["loop"]) > 10.0,
 		"%.1f deg apart out and back at the same point of the travel" % float(punch["loop"]))
+	# ...and it OPENS, out past the shoulder's own side line, then crosses back in: the reference's
+	# roll is negative on the arm it attacks with, and the hand's own position against the
+	# shoulder's is what an arm opening away from the torso looks like -- a direction cannot show
+	# it, which is why this is measured here at all.
+	_ok("punch: the arm opens OUT past the shoulder and crosses back in",
+		float(punch["outboard"]) > 1.0 and float(punch["inboard"]) > 1.0,
+		"hand reaches %.2f out past the shoulder and %.2f in past it"
+			% [float(punch["outboard"]), float(punch["inboard"])])
+	# ...and the CHEST turns into it and comes back: the reference twists its body box by 0.2 rad
+	# and places both arms from that twist, so a punch there is a shoulder going round the spine,
+	# not an arm turning against a rigid torso.
+	_ok("punch: the chest turns into the blow and comes back",
+		float(punch["chest"]) > 5.0 and float(punch["chest"]) < 20.0
+			and float(punch["chest_end"]) < 0.5,
+		"chest reached %.1f deg, ends at %.2f" % [float(punch["chest"]),
+			float(punch["chest_end"])])
 	_ok("punch: and it ends exactly where it started",
 		float(punch["end"]) < 0.01 and bool(punch["identity"]),
 		"ends %.2f deg off rest, pivot at identity %s"
@@ -354,6 +468,13 @@ func _run() -> void:
 	_ok("walk: the 18-degree held turn is not disturbed by either",
 		absf(shoulder_hi - shoulder_lo) < 0.001 and absf(shoulder_lo + HELD_PITCH) < 0.01,
 		"shoulder %.3f to %.3f deg" % [shoulder_lo, shoulder_hi])
+
+	# The stroke as a PATH, on demand: a list of samples and two coarse plots of it (from behind,
+	# and from the side), because a hand's direction at one instant says nothing about the shape
+	# of the thing, and the shape is what a player judges. Off unless asked for, so a normal run
+	# stays a pass/fail list.
+	if OS.get_environment("FARLANDS_SWING_TRACE") == "1":
+		_trace_stroke(body, arm, item, stone)
 
 	host.queue_free()
 	main.queue_free()

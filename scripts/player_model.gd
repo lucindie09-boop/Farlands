@@ -106,7 +106,8 @@ const TREE_RUN_SCALE := "parameters/timescale/scale"
 # Which arm: the rig's `arm` is the -X side, and the body faces +Z (`arm2` is the left),
 # so `arm` is the right hand -- the hand Minecraft holds an item in.
 const HELD_ARM := "arm"
-# The arm's own parent, inserted between the rig and the arm at load (see _init_held_arm).
+# The arm's own parent, inserted between the rig and the arm at load (see _init_held_arm),
+# with the swing's pivot (SWING_PIVOT) between the two.
 const HELD_ARM_PIVOT := "HeldArmPivot"
 # The arm's pose while it carries something: 18 degrees FORWARD (pi/10), the way vanilla
 # holds an item. It is a turn at the SHOULDER, composed OVER whatever pose the arm is in,
@@ -127,6 +128,34 @@ const HELD_ARM_PITCH := 18.0
 # and nothing else (the idle's hang is added over it unhalved, which is vanilla's order
 # too). One constant, because the two halves of the rule are one rule.
 const HELD_ARM_SWING := 0.5
+
+# The main-hand SWING: the punch and the block place, the stroke the first-person hand has
+# always had, on the third-person body. The triggers are not re-read here -- viewmodel.gd
+# owns every one of them (a click, a placed block, a crafting table, an item that swaps
+# itself, the break loop) and says so with one signal, `swung(strength)`, which this body
+# plays. See _apply_hand_swing for the arc and _connect_swing for the wire.
+#
+# The clock and the weight are the first-person hand's own (viewmodel.gd: SWING_SECONDS,
+# SWING_PUNCH, SWING_PLACE), restated here rather than shared, because the two hands are
+# separate nodes and the numbers are a POSE's, not a rule: a body that swung slower than the
+# hand in front of the eye would read as a delay.
+const SWING_PIVOT := "SwingPivot"
+const HAND_SWING_SECONDS := 0.225
+# Where the first-person hand's swing lives from the controller that punches it -- the same
+# path player_controller_interact.cpp calls punch() on.
+const VIEWMODEL_PATH := "Camera3D/Viewmodel"
+# The arc, in degrees, at the far end of a FULL punch: the arm comes forward and up (a turn
+# about X, composed over the 18-degree held turn it also wears) and a little across the body
+# (about Z), which is what makes it read as a swing rather than a hinge. Ours to tune, off
+# the reference behaviour: an arm goes from the side to roughly eye level and back.
+const HAND_SWING_PEAK := 78.0
+const HAND_SWING_SWEEP := 14.0
+# The stroke's shape (see swing_amount): the strike takes this share of HAND_SWING_SECONDS,
+# the return has landed by this one, and what is left is the overshoot -- this much of the
+# peak, PAST rest, before the arm settles.
+const HAND_SWING_STRIKE := 0.32
+const HAND_SWING_RETURN := 0.80
+const HAND_SWING_OVERSHOOT := 0.10
 # data/items.json's `pose` field, through the ONE reader this body and the first-person
 # viewmodel share (scripts/item_poses.gd): an item's pose is a claim about its ART rather than
 # an item mechanic, so it is not in the registry -- and it is not read twice either.
@@ -281,6 +310,14 @@ var _body_light_ready := false
 var _held_arm: MeshInstance3D = null
 # The arm's parent, and the shoulder the held pose turns (_init_held_arm).
 var _held_pivot: Node3D = null
+# The swing's own pivot, inside the shoulder's: everything the arm already does -- the walk,
+# the idle's hang, the 18-degree held turn, an inspection -- keeps its own writer, and this
+# one only adds the stroke (see _apply_hand_swing).
+var _swing_pivot: Node3D = null
+# The swing's clock, 1 at the click and 0 when it has settled -- the first-person hand's own
+# shape of timer -- and the strength the swing that set it asked for (1 punch, 0.75 place).
+var _hand_swing := 0.0
+var _hand_swing_strength := 1.0
 var _held_arm_box := AABB()
 var _held_controller: Node = null
 var _held_item: MeshInstance3D = null
@@ -317,6 +354,9 @@ func _ready():
 	_init_body_animation()
 	_head = find_child("head", true, false)
 	_init_held_item()
+	# ...and last, because the hand it listens to is a node of the PLAYER's, which is beside
+	# this body rather than above it (see _connect_swing).
+	_connect_swing()
 
 
 ## The two clips that turn this body's parts.
@@ -596,8 +636,8 @@ func _add_rest_tracks(clip: Animation) -> void:
 	var named := {}
 	for i in clip.get_track_count():
 		# By the node the path lands on, not by the path: the right arm's track names
-		# "HeldArmPivot/arm" (see _init_held_arm), and a rest track added for it anyway
-		# would be a second writer of its rotation.
+		# "HeldArmPivot/SwingPivot/arm" (see _init_held_arm), and a rest track added for
+		# it anyway would be a second writer of its rotation.
 		named[_part_of_path(str(clip.track_get_path(i)))] = true
 	for part in RIG_PARTS:
 		if named.has(part):
@@ -614,6 +654,9 @@ func _add_rest_tracks(clip: Animation) -> void:
 
 
 func _process(delta: float) -> void:
+	# First, because it is a parent of the arm: a stand-in that mirrors a batched arm (below)
+	# has to be told where the arm ended up this frame.
+	_apply_hand_swing(delta)
 	# Before anything is drawn: the clips have already turned the arms (TREE_PRIORITY), and a
 	# hand whose arm is drawn by a batch hangs from a stand-in that has to be told where it is
 	# (`_hand_parent`).
@@ -885,8 +928,89 @@ func _init_held_arm() -> void:
 	# rotation, so the body is drawn exactly where it was and a turn of the pivot is a
 	# turn of the shoulder.
 	pivot.position = arm.position
-	arm.reparent(pivot, false)
+	# ...and the swing pivot inside it, at the same joint and at zero: the arm hangs from
+	# THAT, so the stroke is composed under the held turn and over whatever pose the clips
+	# give the arm (see _apply_hand_swing). It goes in here, before _init_body_animation,
+	# because the arm's track path is resolved at load -- `HeldArmPivot/SwingPivot/arm`.
+	var swing := Node3D.new()
+	swing.name = SWING_PIVOT
+	pivot.add_child(swing)
+	_swing_pivot = swing
+	arm.reparent(swing, false)
 	arm.position = Vector3.ZERO
+
+
+## Listen to the hand that owns the swing's triggers.
+##
+## The third-person body does not read the mouse, and must not: every trigger that kicks the
+## first-person hand -- a click, a placed block, a crafting table, an item that swaps itself,
+## the break loop -- is already wired there, and `swung(strength)` is that hand saying so. A
+## body the player does not drive (a preview, the K-key pose clone, a mob) has no controller
+## above it and therefore never hears anything, which is right: an arm swings because its own
+## player did something.
+func _connect_swing() -> void:
+	if _held_controller == null:
+		return
+	var hand := _held_controller.get_node_or_null(VIEWMODEL_PATH)
+	if hand == null or not hand.has_signal("swung"):
+		return
+	if not hand.swung.is_connected(_on_swung):
+		hand.swung.connect(_on_swung)
+
+
+## A swing arrived: start the stroke from the top, at the weight it asked for.
+##
+## A second click mid-swing RESTARTS rather than stacking, because the stroke is a function of
+## one clock and one weight -- there is nothing to add up and no rate to raise. The weight is
+## taken from the newest swing, so a place during a punch is the weaker stroke at once.
+func _on_swung(strength: float) -> void:
+	_hand_swing = 1.0
+	_hand_swing_strength = clampf(strength, 0.0, 1.0)
+
+
+## The stroke's shape: how far out the arm is, as a share of its far end, `u` being how much
+## of HAND_SWING_SECONDS has gone by (0 at the click, 1 when it has settled).
+##
+## Three pieces, and each is there for a reason a single formula did not give:
+## the STRIKE is a cubic ease-out, so the hand leaves fastest on the frame of the click and
+## lands softly at the top; the RETURN is a cosine, so it leaves the top with no corner and
+## arrives at rest with none either; and the OVERSHOOT is a half sine on the last stretch,
+## which takes the arm a little PAST rest and back -- the weight at the end of a swing, and
+## the difference between a hand that arrived and a hand that faded out. Zero at 0 and at 1,
+## so a finished swing is exactly the pose the arm was in before it.
+static func swing_amount(u: float) -> float:
+	u = clampf(u, 0.0, 1.0)
+	if u < HAND_SWING_STRIKE:
+		var out := u / HAND_SWING_STRIKE
+		return 1.0 - pow(1.0 - out, 3.0)
+	if u < HAND_SWING_RETURN:
+		var back := (u - HAND_SWING_STRIKE) / (HAND_SWING_RETURN - HAND_SWING_STRIKE)
+		return 0.5 + 0.5 * cos(PI * back)
+	var settle := (u - HAND_SWING_RETURN) / (1.0 - HAND_SWING_RETURN)
+	return -HAND_SWING_OVERSHOOT * sin(PI * settle)
+
+
+## One frame of the main-hand swing, written on the pivot between the shoulder and the arm.
+##
+## A PARENT pivot rather than a turn on the arm, for the reason the held pose has one: the
+## AnimationTree owns the arm's local rotation and rewrites it every frame, so a write there
+## is replaced next frame (and compounds with the tree stopped). A parent composes with
+## everything the arm already does -- the walk's swing, the idle's hang, the 18-degree held
+## turn -- and being the arm's parent it carries the held block or item with it, which is why
+## there is no item code here at all.
+##
+## "Forward" is the MESH's, exactly as the held turn's and the inspection's signs are: a +Z
+## rig comes forward on a NEGATIVE turn about X, a -Z mesh on the same turn the other way. The
+## sweep takes the opposite sign for the same reason -- it crosses toward the body's own
+## middle, and which way that is falls out of which hand is holding.
+func _apply_hand_swing(delta: float) -> void:
+	if _swing_pivot == null:
+		return
+	_hand_swing = maxf(_hand_swing - delta / HAND_SWING_SECONDS, 0.0)
+	var amount := swing_amount(1.0 - _hand_swing) * _hand_swing_strength
+	var towards := _inspect_sign()
+	_swing_pivot.rotation_degrees = Vector3(HAND_SWING_PEAK * towards * amount, 0.0,
+		-HAND_SWING_SWEEP * towards * amount)
 
 
 ## The block or item the body carries in its right hand.

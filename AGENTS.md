@@ -211,7 +211,8 @@ Full notes: [docs/light.md](docs/light.md).
 - The in-game editors (Skin Maker, Block Maker) with shared paint tools and input
   guards, block break animation and hardness, hammer crushing, and block `drops`.
 - The first-person viewmodel (held item/block, swing, bob, head look, F5 camera cycle,
-  eye-ray targeting) and the overlay tools around it. The third-person body holds the selected
+  eye-ray targeting), the third-person body's punch/place swing played from that hand's own
+  `swung` signal, and the overlay tools around it. The third-person body holds the selected
   block too, parented to the rig's right arm so the walk carries it; a goblin's own body hangs
   an offhand torch from its left arm with the same grip maths, lights the world with it and
   always drops it on death ([docs/gui-notes.md](docs/gui-notes.md), [docs/ui.md](docs/ui.md)).

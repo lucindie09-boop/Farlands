@@ -936,6 +936,37 @@ first-person viewmodel - what each one owns and the decisions behind it.
   pivot holds while the arm's rotation keeps moving under the tree's pose, and at a full
   swing the holding arm draws 29.8 degrees against 58.4 empty-handed while the legs stay at
   80.2 either way.
+- **The punch and the place swing the main hand** (`SwingPivot`, `_apply_hand_swing`): the stroke the
+  first-person hand has always had, on the third-person body — and the triggers are not re-read.
+  That hand already owns every one of them (a left click and a landed hit through the controller's
+  `punch()` call, a placed block, a crafting table, an item that swaps itself, the break loop that
+  repeats while LMB is held), so `viewmodel.gd` says so ONCE — `swung(strength)`, emitted from
+  `punch()` (1.0), `place()` (0.75) and the break loop's repeat — and the body connects to it
+  (`_connect_swing`, on the controller's own `Camera3D/Viewmodel` path, the one the controller
+  punches through). A body the player does not drive — a preview, the K-key pose clone, a goblin —
+  has no controller above it and hears nothing, so its arm never swings on its own. The stroke is
+  written on a `SwingPivot` Node3D between `HeldArmPivot` and the arm, at the same joint and at
+  zero, so it COMPOSES with everything the arm already does — the tree's walk pose, the idle's
+  hang, the 18-degree held turn, an inspection — instead of fighting any of it, because the arm's
+  own local rotation belongs to the AnimationTree and is rewritten every frame. Being the arm's
+  parent it carries the held block or item with no per-frame item code, and the arm's track path
+  is `HeldArmPivot/SwingPivot/arm` from then on, which the clip's tables already resolve per part
+  (`_part_path`). The clock is the first-person hand's own 0.225 s (`HAND_SWING_SECONDS`), a place
+  the same shape at 0.75; the arc is `HAND_SWING_PEAK` 78 degrees forward and up plus
+  `HAND_SWING_SWEEP` 14 across the body, both signed by `_inspect_sign` so a −Z mesh swings
+  forward too. Its shape is three pieces (`swing_amount`): a cubic ease-out strike over the first
+  0.32 of the clock, a cosine return that has landed by 0.80, and a half-sine overshoot of 0.10 of
+  the peak PAST rest before it settles — zero at both ends, so a finished swing is exactly the
+  rotation the arm started in. A second click RESTARTS from the top at the newest weight rather
+  than stacking or speeding up: one clock and one weight, so there is nothing to add. The
+  first-person hand's clock now ticks ABOVE its `visible` test, so the break loop's repeats keep
+  arriving while that hand is hidden in third person, and a place made in third person no longer
+  leaves a stale full stroke for the frame the camera comes back. Measured by
+  `probes/probe_third_person_swing.gd`: the wire on the real player's own body, the peak and the
+  overshoot, a place at 0.75 of it, a restart landing on the SAME peak and not past it, the item
+  keeping its distance from the shoulder while its x crosses toward the body's middle, the legs
+  still reaching 80-odd degrees of stride under the stroke, and the held shoulder turn still
+  exactly 18.
 - **The offhand holder** (`hold_offhand` / `_seat`): a goblin's torch (a quarter of them spawn
   with one, [ui.md](ui.md), and a torch it picks up goes into that hand while it is free —
   [mob-plan.md](mob-plan.md) item 16) hangs from the arm the caller names — `arm`, its LEFT, because the

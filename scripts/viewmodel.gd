@@ -5,6 +5,22 @@ extends Node3D
 # about which pose an item names.
 const ItemPoses := preload("res://scripts/item_poses.gd")
 
+## One swing started on the held hand, at a weight: SWING_PUNCH for a hit (or a throw), SWING_PLACE
+## for a placed block or a used table.
+##
+## The THIRD-PERSON body listens to this (scripts/player_model.gd::_connect_swing) instead of
+## reading input of its own, so the two hands cannot disagree about what a swing is or when one
+## starts. Every trigger that already kicks this hand says so here, once: a left click
+## (player_controller_interact.cpp calls punch()), a placed block or a crafting table, an item
+## that swaps itself, and the break loop below.
+signal swung(strength: float)
+
+# The swing's own numbers, named because they are TWO hands' now: the first-person pose this
+# file drives and the third-person body's arc both run on this clock and these two weights.
+const SWING_SECONDS := 0.225
+const SWING_PUNCH := 1.0
+const SWING_PLACE := 0.75
+
 # First-person viewmodel.
 #
 # The held item pose is vanilla 1.8.8's first-person item transform (base offset,
@@ -369,6 +385,11 @@ func _process(delta: float) -> void:
 	# Pushed before the visibility test, so returning to first person never shows a
 	# frame of last-hour lighting on the arm or the item.
 	_push_world_lighting(delta)
+	# The swing's clock runs whether or not this hand is drawn: the third-person body plays the
+	# same stroke, and the break loop's repeats have to keep arriving while the first-person
+	# hand is hidden -- a body swinging to a timer that stopped when the camera changed would
+	# swing once and then stand still through a held break.
+	_tick_swing(delta)
 	if not visible:
 		return
 	if _freeze_animations:
@@ -376,7 +397,7 @@ func _process(delta: float) -> void:
 		# tuned pose, so the F12 HUD adjustments show up without motion noise.
 		_swing = 0.0
 		_swing_place = 0.0
-		_swing_strength = 1.0
+		_swing_strength = SWING_PUNCH
 		_equip = 1.0
 		_is_swapping = false
 		_item_sway_offset = Vector3.ZERO
@@ -392,21 +413,13 @@ func _process(delta: float) -> void:
 		_update_swing_hooks()
 		_refresh_held_item()
 		return
-	if _swing > 0.0:
-		_swing = maxf(_swing - delta / 0.225, 0.0)
-	# Loop the punch while the player holds to break a block. Checked even when
-	# the swing has already settled at 0, so holding LMB on empty air first (which
-	# lets it expire) then hovering over a block still starts the loop.
-	if _swing <= 0.0 and _is_breaking():
-		_swing = 1.0
-	if _swing_place > 0.0:
-		_swing_place = maxf(_swing_place - delta / 0.225, 0.0)
 	# The active swing is whichever timer is further along; the place stroke
-	# reaches a weaker endpoint (0.75x) than a full punch.
+	# reaches a weaker endpoint than a full punch. Both timers are the clock
+	# _tick_swing above just advanced.
 	if _swing_place > _swing:
-		_swing_strength = 0.75
+		_swing_strength = SWING_PLACE
 	else:
-		_swing_strength = 1.0
+		_swing_strength = SWING_PUNCH
 	
 	# Equip animation: both normal equip and swap take 0.25s
 	var equip_speed = 0.25
@@ -460,13 +473,30 @@ func _on_item_swapped(slot: int) -> void:
 	_instant_swap_slot = slot
 	punch()
 
-# Kick a punch/swing (roadmap: punch animation). Progress 1..0 over 0.25s.
+## The swing clock, and the one way a swing starts without a click: the break loop.
+##
+## Holding LMB on a breakable target repeats the punch, so a body's arm works at the block too.
+## Checked even when the swing has already settled at 0, so holding LMB on empty air first
+## (which lets it expire) then hovering over a block still starts the loop.
+func _tick_swing(delta: float) -> void:
+	if _swing > 0.0:
+		_swing = maxf(_swing - delta / SWING_SECONDS, 0.0)
+	if _swing <= 0.0 and _is_breaking():
+		_swing = 1.0
+		swung.emit(SWING_PUNCH)
+	if _swing_place > 0.0:
+		_swing_place = maxf(_swing_place - delta / SWING_SECONDS, 0.0)
+
+
+# Kick a punch/swing (roadmap: punch animation). Progress 1..0 over SWING_SECONDS.
 func punch() -> void:
 	_swing = 1.0
+	swung.emit(SWING_PUNCH)
 
-# Kick a place motion: same swing as the punch but with a weaker (0.5x) endpoint.
+# Kick a place motion: the same swing as the punch, at the weaker endpoint (SWING_PLACE).
 func place() -> void:
 	_swing_place = 1.0
+	swung.emit(SWING_PLACE)
 
 # True while the player is actively holding to break a block (LMB held on a
 # breakable target), so the punch animation loops instead of playing once.
